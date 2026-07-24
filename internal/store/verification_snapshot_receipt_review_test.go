@@ -13,14 +13,14 @@ import (
 )
 
 func removeSchemaV84ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV85ForTestStatements(), []string{
 		`DROP TRIGGER trg_operator_verification_snapshot_receipt_review_delete_immutable`,
 		`DROP TRIGGER trg_operator_verification_snapshot_receipt_review_update_immutable`,
 		`DROP TRIGGER trg_operator_verification_snapshot_receipt_review_insert`,
 		`DROP INDEX idx_operator_verification_snapshot_receipt_reviews_run_event`,
 		`DROP TABLE operator_verification_snapshot_receipt_reviews`,
 		`DELETE FROM schema_migrations WHERE version = 84`,
-	}
+	}...)
 }
 
 func recordSnapshotReceiptFixture(t *testing.T, state *SQLiteStore,

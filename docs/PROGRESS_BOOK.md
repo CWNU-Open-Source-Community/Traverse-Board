@@ -1,6 +1,6 @@
 # CyberAgent Workbench 进度书
 
-更新时间：2026-07-22
+更新时间：2026-07-25
 
 ## 一、当前阶段
 
@@ -14,7 +14,7 @@
 - 产品可用度：完整 Code + Cyber 产品约 95-97%；其中通用 Coding Agent 工作流约 95-96%，Cyber 自动化工作流约 20%。该指标衡量用户现在能够完成多少真实端到端任务。
 - 上述数值是依据已测试任务切片给出的工程估算，不是性能基准，也不代表仍被安全关闭的功能已经可用。
 
-V2 的 P0/P1 已完成，P2 已具备稳定的单 Agent 恢复、Provider streaming、主动取消、有界工具循环和跨进程 execution lease。P3-P5 已落地 Work/Note/Context、最多两个核心 child、独立 1/2/4/6 只读 Fan-out、Tool Gateway、审批/Grant、预算、ScriptProcess 与 Artifact。P9/Desktop 已推进到 schema v84 / D1-G13/V12，通用运行时安全面已推进到 H1-H3/R10/C1-C3：除既有 Run/Session/Plan/审批/Workspace/证据/回执/行动中心外，现有 API/Desktop 还支持安全恢复的 Monaco FileEdit、独立多文件汇总、exact-root 只读 Repository、可导航精确文件历史、精确提交比较与键盘可访问的成对 base/head 预览、snapshot-keyset 逐检查项验证下钻、确定性快照下载、不可变 record-only 回执历史及不授权元数据复核、带精确 Verify 导航的 Code Handoff、带有界审计事实的 Code Journey、累计上下文记忆、Provider generation reload 和有界 wake worker。P10-A1 至 P10-B3 已建立 Go/Rust 确定性分析协议、惰性 descriptor Registry、开发期 digest 与内存 ZIP 中央目录函数及两套双语言黄金向量，但没有产品进程桥或 Artifact 写入。R9/R10 strict receipt compatibility rejection 与 accepted-envelope golden 仍只存在于内部 `NonProductOnly` 测试边界，且不宣称 wall-clock order、raw output、process identity、CPU/memory OS enforcement 或产品执行。真实 Local/Docker/Shell/Git 进程、安装脚本/钩子和远程 Skill 分发继续关闭。
+V2 的 P0/P1 已完成，P2 已具备稳定的单 Agent 恢复、Provider streaming、主动取消、有界工具循环和跨进程 execution lease。P3-P5 已落地 Work/Note/Context、最多两个核心 child、独立 1/2/4/6 只读 Fan-out、Tool Gateway、审批/Grant、预算、ScriptProcess 与 Artifact。P9/Desktop 已推进到 schema v85 / D1-G13/V12，通用运行时安全面已推进到 H1-H3/R10/C1-C3：除既有 Run/Session/Plan/审批/Workspace/证据/回执/行动中心外，现有 API/Desktop 还支持安全恢复的 Monaco FileEdit、独立多文件汇总、exact-root 只读 Repository、可导航精确文件历史、精确提交比较与键盘可访问的成对 base/head 预览、snapshot-keyset 逐检查项验证下钻、确定性快照下载、不可变 record-only 回执历史及不授权元数据复核、带精确 Verify 导航的 Code Handoff、带有界审计事实的 Code Journey、累计上下文记忆、Provider generation reload 和有界 wake worker。P10-A1 至 P10-B3 已建立 Go/Rust 确定性分析协议、惰性 descriptor Registry、开发期 digest 与内存 ZIP 中央目录函数及两套双语言黄金向量，但没有产品进程桥或 Artifact 写入。P11-C1 至 C3 又完成同句柄 Windows 发布者接纳、不可变 browser launch attempt/代际 lease 和独立 review；接受仍不授予启动权限。R9/R10 strict receipt compatibility rejection 与 accepted-envelope golden 仍只存在于内部 `NonProductOnly` 测试边界，且不宣称 wall-clock order、raw output、process identity、CPU/memory OS enforcement 或产品执行。真实 Local/Docker/Shell/内置浏览器/Rust analyzer 产品进程、安装脚本/钩子和远程 Skill 分发继续关闭。
 
 P8 已推进到 schema v37 及其只读 CI 投影：v35 把完成的 Fan-out execution 投影为通用 `draft` Finding、不可变 `model_assertion` Evidence 和可重建的 Markdown/JSON Report；v36 增加同 Run 冻结 Artifact Evidence、一次性 operator `validated/rejected` 决定与完整复核；v37 以独立不可变事实完成 `validated -> accepted -> fixed`，并强制修复 Evidence 来自接受后新建且未用于验证的同 Run Artifact。验证、接受和修复始终分离；SARIF、通用 CI gate 与 GitHub Actions annotations 均为同一持久化事实上的 Go 只读投影。
 
@@ -122,7 +122,7 @@ P6 当前已推进到 schema v68：v63 固定阻塞态 start-gate 审查，v64 �
 
 ### 存储与 Run 架构
 
-- CGO SQLite 驱动 `github.com/mattn/go-sqlite3`，当前 schema 版本为 v68。
+- CGO SQLite 驱动 `github.com/mattn/go-sqlite3`，当前 schema 版本为 v85。
 - checksum 校验的版本化事务 migration，可保留旧库数据原地升级。
 - Mission、Run 和 append-only Run Events 持久化。
 - schema v3 为非空 `session_id` 建立唯一关联并拒绝引用不存在 Session 的 Run。
@@ -1900,10 +1900,48 @@ Rust fmt、7+2 locked tests、Clippy 和本机缓存 1,166 条 advisory/42 crate
 非规范绝对 Workspace root。双指标保持架构约 99%、完整产品可用度约 95-97%、Coding 约 95-96%、Cyber 自动化约
 20%。边界见 ADR 0072；下一批仍推荐 P11-C1/C2/C3，真实浏览器启动继续后置。
 
+## P11-C1/C2/C3 批次：发布者接纳、启动租约与独立人工复核
+
+任务 ID：`P11-Browser-Publisher-Lease-Review-Gates-v85`。本轮新增 schema v85，OpenAPI 保持
+75 path / 83 operation / 182 schema；没有新增 CLI、HTTP、Desktop 浏览器入口或真实进程 adapter。
+
+P11-C1 固定 `browser_executable_acceptance.v1` 与 `browser_publisher_policy.v1`。Windows 在同一
+只读文件句柄上读取并复核字节、SHA-256、PE 架构、文件身份和缓存限定 Authenticode；Chrome 只接纳
+`Google LLC`/`Google Inc`，Edge 只接纳 `Microsoft Corporation`。Chromium 没有固定发布者策略，
+因此失败关闭。结果最多是 `accepted_for_review`，revocation/timestamp freshness 和完整 launch trust
+没有被宣称。
+
+P11-C2 在任何未来 adapter 之前原子写入 immutable `browser_launch_attempt.v1`、代际
+`browser_launch_lease.v1`、幂等 operation 和事件。attempt 精确绑定 Session、Run、Workspace、
+可执行身份、一次性 Profile owner/generation、Scope、预算、后端和进程树合同。取消、重启观测、
+reconciliation、终止和清理只存在于包内 Disabled/Fake lifecycle；不创建进程。
+
+P11-C3 在活动 lease 内重新计算完整 attempt fingerprint，并要求 reviewer 与 lease owner 的域分隔
+摘要不同。一次 review 只能接受或拒绝精确候选；接受后 process/network/profile-write/termination/
+cleanup/CDP/Artifact authority 仍全部为 false。原始 operation key、owner、reviewer 身份不落库。
+
+本批与 P11-B1/B2/B3 累计六片，完整健壮性门通过：串行全仓 ordinary/race Go 约 545/660 秒、
+全仓 vet/staticcheck、module verify/tidy、普通及 secure Desktop govulncheck 零 reachable/imported
+漏洞、Desktop race/tag、42 文件 148 项 React、strict TypeScript/API、Vite/npm 零漏洞、Rust
+fmt/7+2 tests/Clippy/audit/真实夹具一致性与 Windows 可复现双构建。未签名 GUI SHA-256 为
+`a7e482adfff18068c4d3fb588d8c4e25a79ac0aefff053df7a7ab57902b5b85b`，
+`release_ready=false`。
+
+显式 opt-in 的本机只读烟测只检查固定 Chrome/Edge 安装：发布者分别为 `Google LLC` 与
+`Microsoft Corporation`，两个候选均只进入待复核状态，启动浏览器进程为零。未运行浏览器网络、
+Profile 写入、CDP、凭证、Shell、Docker、Provider 或 Artifact 路径。组合审计修复了发布者证书
+曾按路径二次查询的窄 TOCTOU 语义缺口，现改为对同一文件句柄的只读映射 Blob 解析；同时修复
+v85 历史迁移测试降级链遗漏和一个 staticcheck 未使用摘要函数。未发现启用路径中未解决高/中
+风险。边界见 ADR 0073。
+
+下一批拆为 P11-C4/C5/C6：C4 只做 Safe Web 精确复核后的真实 start 与 Windows Job Object
+整树归属；C5 独立做一次性 Profile 落盘/恢复/精确清理；C6 独立做 exact-scope localhost CDP
+导航、DOM 与截图。请求改包/重放、安全放宽和 CTF Instrumented 继续后置，三项权限不得合并开放。
+
 ## 八、仓库同步与恢复约定
 
 规范远程仓库：`https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench`。
 
 每三个聚焦切片组成一个交付批次；第三片后统一执行功能复核、普通/聚焦测试、组合差异审查、项目记忆更新、Git 提交、GitHub 推送和 CI 复核。每两个批次即六个切片再执行全仓 race、vet、staticcheck、govulncheck、依赖/隐私与完整构建健壮性门。当前仓库直接开发并推送 `main`；除非用户明确要求，不创建功能分支或 PR。
 
-长对话恢复时依次阅读：`README.md`、`docs/PROJECT_MEMORY.md`、`docs/PROJECT_STATUS.md`、本文件、`docs/TASK_BOOK.md`、`docs/http-api.md`、`docs/errors.md`，再按序阅读 `docs/adr/0001-*.md` 到 `docs/adr/0072-workbench-docks-and-operator-confirmed-workspace-opening.md`。
+长对话恢复时依次阅读：`README.md`、`docs/PROJECT_MEMORY.md`、`docs/PROJECT_STATUS.md`、本文件、`docs/TASK_BOOK.md`、`docs/http-api.md`、`docs/errors.md`，再按序阅读 `docs/adr/0001-*.md` 到 `docs/adr/0073-browser-publisher-launch-lease-and-review-gates.md`。

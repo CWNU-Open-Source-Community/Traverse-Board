@@ -7,12 +7,12 @@
 
 项目从 schema v49 起同时使用两项工程指标，避免把“架构已经搭好”误解为“产品已经完整可用”。这些百分比是基于当前任务书和可验证工作流的工程估算，不是性能基准。
 
-- **架构完成度 / Architecture completion：约 99%**。衡量 Go 控制平面、Run/Session、状态恢复、Policy、审批、预算、事件流、Tool Gateway、Agent 协调、Skills、报告、Sandbox 协议及 Go/TypeScript/Rust 边界的覆盖程度；其中 V2 Run-centric Runtime 约 99%。schema v84 已覆盖同步等待环检测、工具硬超时、Run 活锁熔断、模型总上下文闸门、不可变累计交接记忆、验证快照回执历史和不授权的回执元数据复核；D1-G13/V12/R10 完成精确复核导航与 Runner 信封黄金边界，P10-A1 至 P10-E3 又落地 Go-owned analyzer 协议、惰性 descriptor Registry、内存 ZIP 中央目录清单、确定性 Rust 实现、双语言共享黄金向量、无启动 invocation bridge、仅测试 Linux/Windows 子进程一致性、无授权结果/Artifact 候选、测试原子暂存恢复和 20 项产品 adapter 阻塞清单。产品 analyzer 子进程调用仍未接线。
+- **架构完成度 / Architecture completion：约 99%**。衡量 Go 控制平面、Run/Session、状态恢复、Policy、审批、预算、事件流、Tool Gateway、Agent 协调、Skills、报告、Sandbox 协议及 Go/TypeScript/Rust 边界的覆盖程度；其中 V2 Run-centric Runtime 约 99%。schema v85 已覆盖同步等待环检测、工具硬超时、Run 活锁熔断、模型总上下文闸门、不可变累计交接记忆、验证快照回执历史与不授权复核，以及不启动的浏览器接纳、代际租约和独立操作员复核账本；D1-G13/V12/R10 完成精确复核导航与 Runner 信封黄金边界，P10-A1 至 P10-E3 又落地 Go-owned analyzer 协议、惰性 descriptor Registry、内存 ZIP 中央目录清单、确定性 Rust 实现、双语言共享黄金向量、无启动 invocation bridge、仅测试 Linux/Windows 子进程一致性、无授权结果/Artifact 候选、测试原子暂存恢复和 20 项产品 adapter 阻塞清单。产品 analyzer 子进程调用与真实浏览器启动仍未接线。
 - **产品可用度 / Product usability：约 95-97%**。衡量普通用户能否依靠当前 CLI、TUI、Web 和 Windows Desktop 完成真实端到端工作。通用 Coding Agent 工作流约 95-96%，Cyber 自动化工作流约 20%；Run 工作台现已提供安全恢复的 Monaco 提案/Diff 编辑器、只读仓库状态/脱敏 Diff/本地提交历史与可导航的精确文件历史、支持键盘关闭与导航的成对 base/head 精确预览、多文件独立审阅、分离的验证计划/结果、可分页的逐检查项证据下钻及 Markdown/JSON 快照下载/回执历史/不授权复核、带摘要/事件高水位/回执复核元数据的 Code Handoff 导出、Code Journey、可热重载的 Windows 系统凭证、有界 wake worker，以及可组合的摘要/底部/右侧工具面板。Agent 可控的真实 Sandbox/宿主进程执行、内置终端与浏览器启动、安装时脚本/钩子、Windows 10 人工发布矩阵和 Cyber 工具链仍未开放或完成。
 
 Starting with schema v49, the project reports two engineering indicators so architectural maturity is not mistaken for end-user completeness. These percentages are roadmap estimates backed by tested workflows, not performance benchmarks.
 
-- **Architecture completion: about 99%.** This covers the Go control plane and its Run/Session recovery, Policy, approval, budget, event, Tool Gateway, Agent coordination, Skills, reporting, Sandbox protocol, and Go/TypeScript/Rust boundaries. The V2 run-centric runtime itself is about 99% complete. Schema v84 includes synchronous wait-cycle rejection, hard Tool deadlines, a recoverable Run livelock circuit breaker, an aggregate model-context gate, immutable cumulative handoff memory, verification snapshot receipt history, and non-authorizing receipt-metadata review. P10-A1 through P10-E3 now add the Go-owned analyzer protocol, an inert descriptor Registry, bounded in-memory ZIP central-directory inventory, a deterministic Rust implementation, shared cross-language vectors, a non-starting invocation bridge, test-only Linux/Windows subprocess conformance, inert result/Artifact candidates, test-only atomic staging recovery, and a 20-control product-adapter blocker model. Product analyzer subprocess invocation remains unwired.
+- **Architecture completion: about 99%.** This covers the Go control plane and its Run/Session recovery, Policy, approval, budget, event, Tool Gateway, Agent coordination, Skills, reporting, Sandbox protocol, and Go/TypeScript/Rust boundaries. The V2 run-centric runtime itself is about 99% complete. Schema v85 includes synchronous wait-cycle rejection, hard Tool deadlines, a recoverable Run livelock circuit breaker, an aggregate model-context gate, immutable cumulative handoff memory, verification snapshot receipt history and non-authorizing review, plus a non-starting browser acceptance, generation-lease, and independent-operator review ledger. P10-A1 through P10-E3 add the Go-owned analyzer protocol, an inert descriptor Registry, bounded in-memory ZIP central-directory inventory, a deterministic Rust implementation, shared cross-language vectors, a non-starting invocation bridge, test-only Linux/Windows subprocess conformance, inert result/Artifact candidates, test-only atomic staging recovery, and a 20-control product-adapter blocker model. Product analyzer subprocess invocation and real browser start remain unwired.
 - **Product usability: about 95-97%.** This measures how much real end-to-end work a user can complete through the current CLI, TUI, Web, and Windows Desktop shell. The generic coding-agent workflow is about 95-96% usable and the Cyber automation workflow about 20%. The Run workbench now includes safely recoverable Monaco proposal/Diff editing, read-only repository state/redacted Diffs/local commit history and navigable exact-file history, keyboard-accessible paired exact base/head comparison previews, independent multi-file review, separate verification plans/outcomes with paginated per-check drilldown and Markdown/JSON snapshot downloads/receipt history/non-authorizing review, digest- and event-high-water-bound Code Handoff exports with exact receipt-review navigation, bounded Code Journey audit facts, hot-reloaded Windows system credentials, a bounded wake worker, and composable summary/bottom/right tool panels. Agent-controlled real Sandbox/host-process execution, an embedded terminal and browser launch, install-time scripts/hooks, the manual Windows 10 release matrix, and the Cyber toolchain remain disabled or unfinished.
 
 ## 项目简介 / Project Overview
@@ -71,9 +71,9 @@ Open Workspace is a manual operator convenience, not Agent execution authority. 
 
 ## 内置浏览器状态 / Built-in Browser Status
 
-Prayu 已完成内置浏览器的两批 Go 主控安全边界，但**当前还没有启动 Chromium、访问网络或向用户提供可操作的浏览器窗口**。现有 Wails WebView2 仍只负责渲染桌面界面，不会被复用为 CTF 浏览器，也不会加载靶场页面。
+Prayu 已完成内置浏览器的三批 Go 主控安全边界，但**当前还没有启动 Chromium、访问网络或向用户提供可操作的浏览器窗口**。现有 Wails WebView2 仍只负责渲染桌面界面，不会被复用为 CTF 浏览器，也不会加载靶场页面。
 
-Two Go-owned safety layers for an Agent browser are complete, but **Prayu does not yet launch Chromium, access a target, or expose an interactive browser window**. The existing Wails WebView2 remains a Desktop renderer and is not reused for adversarial CTF pages.
+Three Go-owned safety layers for an Agent browser are complete, but **Prayu does not yet launch Chromium, access a target, or expose an interactive browser window**. The existing Wails WebView2 remains a Desktop renderer and is not reused for adversarial CTF pages.
 
 | 档位 / Profile | 用途 / Purpose | 当前固定边界 / Current fixed boundary |
 | --- | --- | --- |
@@ -89,13 +89,17 @@ Every profile requires a disposable browser profile, forbids personal profiles, 
 
 The second layer adds fixed-location read-only Edge/Chrome/Chromium discovery, bounded PE/version/platform/byte identity, disposable-profile collision and N-to-N+1 recovery plans, and a package-sealed Disabled/Fake CDP contract. It never searches `PATH`, executes `--version`, or creates/deletes a directory. Fake navigation, DOM, screenshot, and capture results retain only bounded metadata and are explicitly synthetic. `browser_session_plan.v1` still fixes `start_blocked=true`, with process, network, profile-write, request-mutation, replay, and Artifact authority all `false`.
 
-真实启动仍需发布者签名、同一文件句柄复核、持久化 launch lease、进程树清理和操作员审查。边界见 [ADR 0069](docs/adr/0069-go-owned-browser-profiles-target-scope-and-session-plan.md) 与 [ADR 0071](docs/adr/0071-inert-browser-executable-profile-lifecycle-and-sealed-cdp.md)。Real launch still requires publisher trust, same-handle revalidation, durable launch ownership, process-tree cleanup, and operator review. See ADR 0069 and ADR 0071.
+第三批在 Windows 上使用缓存限定、无网络的 Authenticode 验证，并在同一只读文件句柄上对字节、PE 架构、文件身份和固定 Chrome/Edge 发布者策略前后复核；Chromium 因缺少固定发布者策略继续拒绝。schema v85 在任何未来 adapter 之前原子记录 launch attempt、代际 lease、幂等操作和独立操作员复核。复核精确绑定 Session、Run、Workspace、可执行身份、一次性 Profile 代际、Scope、预算、后端和进程树合同；原始操作键、lease owner 与 reviewer 身份只保留域分隔摘要。即使复核接受，process/network/profile-write/termination/cleanup/Artifact authority 仍全部为 `false`。
+
+The third layer performs cache-only, no-network Windows Authenticode verification while revalidating bytes, PE architecture, file identity, and fixed Chrome/Edge publisher policy through the same read-only handle; Chromium remains refused because it has no fixed publisher policy. Schema v85 atomically records a launch attempt, generation lease, idempotency operation, and independent operator review before any future adapter. Review binds the exact Session, Run, Workspace, executable, disposable-profile generation, scope, budget, backend, and process-tree contract. Raw operation keys, lease-owner identity, and reviewer identity are retained only as domain-separated digests. Even an accepted review leaves process, network, profile-write, termination, cleanup, and Artifact authority `false`.
+
+真实启动所需的前置接纳与审计合同已经完成，但真实 start adapter、Job Object 进程树执行、Profile 文件写入、CDP 网络连接和用户可操作窗口仍不存在。边界见 [ADR 0069](docs/adr/0069-go-owned-browser-profiles-target-scope-and-session-plan.md)、[ADR 0071](docs/adr/0071-inert-browser-executable-profile-lifecycle-and-sealed-cdp.md) 与 [ADR 0073](docs/adr/0073-browser-publisher-launch-lease-and-review-gates.md)。The prerequisite acceptance and audit contracts now exist, but the real start adapter, Job Object process execution, profile writes, CDP network connection, and user-facing browser window still do not.
 
 ## 开发历程 / Development History
 
-下表是唯一按时间排序的 schema 开发历程，完整保留了早期 `v1`、`v2`、`v3`，并连续列到当前 `v84`。这里的 `vN` 是不可变 SQLite schema/runtime 里程碑，不等同于产品发布版本；后面的架构说明按能力域组织，因此不再承担版本排序职责。
+下表是唯一按时间排序的 schema 开发历程，完整保留了早期 `v1`、`v2`、`v3`，并连续列到当前 `v85`。这里的 `vN` 是不可变 SQLite schema/runtime 里程碑，不等同于产品发布版本；后面的架构说明按能力域组织，因此不再承担版本排序职责。
 
-The table below is the canonical chronological schema history. It includes every immutable SQLite schema/runtime milestone from `v1` through the current `v84`. These schema numbers are not product release versions; the architecture notes that follow are grouped by capability instead of chronology.
+The table below is the canonical chronological schema history. It includes every immutable SQLite schema/runtime milestone from `v1` through the current `v85`. These schema numbers are not product release versions; the architecture notes that follow are grouped by capability instead of chronology.
 
 | Schema | 中文里程碑 | English milestone |
 | --- | --- | --- |
@@ -183,6 +187,7 @@ The table below is the canonical chronological schema history. It includes every
 | v82 | 不可变累计上下文交接记忆 | immutable cumulative context handoff memory |
 | v83 | 不可变验证快照回执历史 | immutable verification snapshot receipt history |
 | v84 | 不可变且不授权的验证快照回执复核 | immutable non-authorizing verification snapshot receipt reviews |
+| v85 | 可恢复且不启动的浏览器接纳、租约与人工复核门 | durable non-starting browser acceptance, lease, and operator-review gates |
 
 ## 上下文窗口与累计记忆 / Context Window And Cumulative Memory
 
@@ -466,11 +471,11 @@ React adds Actions and Evidence Run tabs plus a `Ctrl+K` command palette. Action
 
 ## Windows 桌面端 / Windows Desktop
 
-Desktop D0-A、D0-B 与 D1-R1 至 D1-G13/V12 自动化核心已完成；项目全局 SQLite 当前为 v84，并包含非产品 R10 Runner 回执接受信封黄金边界。项目固定 Wails v2.13.0 稳定版，并提供 Windows `cyberagent-desktop` 开发/便携测试二进制。Vite production bundle 在编译期嵌入；现有 Go `api.v1` Handler 直接接入 Wails AssetServer，不监听 TCP 端口，也不建立第二套业务 API。桌面端默认只读，每类 mutation 都由独立显式 flag 开启。本地 Monaco 可安全恢复提案；Repository 状态/脱敏 Diff/历史/精确提交预览/可导航精确文件历史/精确提交比较及支持键盘关闭和导航的成对 base/head 预览、change-set、不可变验证与 snapshot-keyset 逐检查项下钻/快照下载/回执历史/不授权复核、带复核元数据和精确 Verify 导航的 Code Handoff/export，以及带有界审计事实的 Code Journey 复用既有 Go read/control 边界；Windows Credential Manager 修改可热重载 Registry；可选 wake worker 固定单并发/单步，仍无 Shell/Local/Docker。
+Desktop D0-A、D0-B 与 D1-R1 至 D1-G13/V12 自动化核心已完成；项目全局 SQLite 当前为 v85，并包含非产品 R10 Runner 回执接受信封黄金边界和不启动的浏览器接纳/租约/复核账本。项目固定 Wails v2.13.0 稳定版，并提供 Windows `cyberagent-desktop` 开发/便携测试二进制。Vite production bundle 在编译期嵌入；现有 Go `api.v1` Handler 直接接入 Wails AssetServer，不监听 TCP 端口，也不建立第二套业务 API。桌面端默认只读，每类 mutation 都由独立显式 flag 开启。本地 Monaco 可安全恢复提案；Repository 状态/脱敏 Diff/历史/精确提交预览/可导航精确文件历史/精确提交比较及支持键盘关闭和导航的成对 base/head 预览、change-set、不可变验证与 snapshot-keyset 逐检查项下钻/快照下载/回执历史/不授权复核、带复核元数据和精确 Verify 导航的 Code Handoff/export，以及带有界审计事实的 Code Journey 复用既有 Go read/control 边界；Windows Credential Manager 修改可热重载 Registry；可选 wake worker 固定单并发/单步，仍无 Shell/Local/Docker。
 
 原生 `.zip` 对话框现已接入 ADR 0033：本地路径只在 Go 内部短暂存在，经过严格 `skill_package.v1` 校验后立即丢弃；React 只能得到五分钟、单次消费的不透明句柄和有界风险元数据。Renderer 绑定面只有 `Bootstrap`、`SelectSkillPackage`、`PreviewSkillPackage`、`InstallSkillPackage` 四个方法；安装方法只消费 Go 发放的确认句柄，不能提交路径、文件字节、命令或权限位。进程、Shell、Docker、网络、Provider、工具和 capability authority 全部固定为 false。
 
-The automated core of Desktop D0-A, D0-B, and D1-R1 through D1-G13/V12 is complete at schema v84, together with the test-only R10 Runner accepted-envelope golden boundary. The project pins stable Wails v2.13.0 and builds a Windows `cyberagent-desktop` development/portable-test executable. Its Vite production bundle is embedded at compile time, and the existing Go `api.v1` Handler is connected directly to the Wails AssetServer without opening a TCP listener or creating a second business API. The shell defaults to read-only and every mutation class has an independent explicit flag. Monaco recovery, Repository state/redacted Diff/history/exact-commit preview/navigable exact-file history/comparison with keyboard-accessible paired base/head previews, change-set review, immutable verification with snapshot-keyset drilldown/download/receipt history/non-authorizing review, Code Handoff/export with exact review navigation, and bounded Code Journey audit facts reuse existing Go boundaries; Windows system-credential changes hot-reload the Registry, and the bounded worker retains no Shell/Local/Docker authority.
+The automated core of Desktop D0-A, D0-B, and D1-R1 through D1-G13/V12 is complete at schema v85, together with the test-only R10 Runner accepted-envelope golden boundary and the non-starting browser acceptance/lease/review ledger. The project pins stable Wails v2.13.0 and builds a Windows `cyberagent-desktop` development/portable-test executable. Its Vite production bundle is embedded at compile time, and the existing Go `api.v1` Handler is connected directly to the Wails AssetServer without opening a TCP listener or creating a second business API. The shell defaults to read-only and every mutation class has an independent explicit flag. Monaco recovery, Repository state/redacted Diff/history/exact-commit preview/navigable exact-file history/comparison with keyboard-accessible paired base/head previews, change-set review, immutable verification with snapshot-keyset drilldown/download/receipt history/non-authorizing review, Code Handoff/export with exact review navigation, and bounded Code Journey audit facts reuse existing Go boundaries; Windows system-credential changes hot-reload the Registry, and the bounded worker retains no Shell/Local/Docker authority.
 
 The ADR 0033 native `.zip` flow is now visible. A selected path exists briefly inside Go, is strictly validated as `skill_package.v1`, and is then discarded. React receives only a five-minute, single-use opaque handle and bounded risk metadata. The complete renderer binding surface is `Bootstrap`, `SelectSkillPackage`, `PreviewSkillPackage`, and `InstallSkillPackage`; installation consumes only a Go-issued confirmation handle and accepts no path, bytes, command, or authority field. Process, Shell, Docker, network, Provider, tool, and capability authority remain false.
 
@@ -496,7 +501,7 @@ Build locally with `powershell -ExecutionPolicy Bypass -File scripts/build-deskt
 
 ### 中文详解
 
-以下内容按能力域和当前阅读价值组织，不代表 schema 时间顺序；需要核对开发先后时，请以上方 `v1 -> v84` 表为准。
+以下内容按能力域和当前阅读价值组织，不代表 schema 时间顺序；需要核对开发先后时，请以上方 `v1 -> v85` 表为准。
 
 P7 Skills 的第一条纵向链路已经落地。Go 内置并严格校验 `code`、`review`、`learn`、`script` 与跨 Profile 的 `plan-delivery` 五份 `skill.v1` 工作流指导，包括固定版本、兼容 Profile、工具前置声明、相对内容路径、UTF-8、字节数、保守 token 上界和 SHA-256。只读 Registry 与 `skill list/show/validate` 不创建数据库，也不读取任意外部路径；当前内置指导版本为 `1.1.0`，工具依赖绝不直接授予执行权限。
 
@@ -669,7 +674,7 @@ Bubble Tea TUI 现在以 Run-first 选择器启动，可在最近 50 个 Run 与
 
 ### English details
 
-The following notes are organized by capability and current reading value, not by schema order. Use the canonical `v1 -> v84` table above whenever chronology matters.
+The following notes are organized by capability and current reading value, not by schema order. Use the canonical `v1 -> v85` table above whenever chronology matters.
 
 The first P7 Skills vertical slice is now in place. Go embeds and strictly validates five `skill.v1` workflow guides for `code`, `review`, `learn`, `script`, and cross-Profile `plan-delivery`, including pinned versions, compatible Profiles, tool prerequisites, relative content paths, UTF-8, byte counts, a conservative token upper bound, and SHA-256. The read-only Registry and `skill list/show/validate` create no database and accept no arbitrary external path. The current built-in guidance version is `1.1.0`, and a declared tool dependency is never a capability grant.
 
@@ -2389,13 +2394,42 @@ recognized external application. Read-only panels reuse existing Go surfaces; em
 and browser execution remain unavailable. The renderer receives no host path, command,
 environment, arbitrary arguments, or Agent authority.
 
+### P11-C1/C2/C3：浏览器发布者、启动租约与独立复核门
+
+本批把 SQLite 推进到 schema v85，但仍不增加 CLI、HTTP、Desktop 浏览器入口或真实启动能力。
+P11-C1 在同一只读文件句柄上完成固定 Chrome/Edge 发布者、缓存限定 Authenticode、字节/SHA-256、
+PE 架构和文件身份前后复核；任意 Chromium 因没有固定发布者策略继续拒绝。签名通过只进入
+`accepted_for_review`，不代表完整 launch trust。
+
+P11-C2 在任何未来 adapter 之前写入不可变 launch attempt、代际 lease 和幂等 operation，绑定精确
+Session、Run、Workspace、可执行身份、一次性 Profile 代际、Scope、预算、后端和进程树合同。
+取消、重启观测、对账、终止和清理目前只能走包内 Disabled/Fake lifecycle，不会创建进程。
+
+P11-C3 要求 lease owner 与 reviewer 的域分隔摘要不同，并在活动 lease 内重新计算完整 attempt
+指纹。一次 review 只能接受或拒绝精确候选；接受后 process、network、profile-write、termination、
+cleanup 和 Artifact authority 仍全部为 false。原始 operation key、owner 与 reviewer 身份不落库。
+
+本批与 P11-B1/B2/B3 组成六切片完整健壮性门：串行全仓 ordinary/race Go 约 545/660 秒、
+vet/staticcheck、双 govulncheck、module、42 文件 148 React、TypeScript/API/Vite/npm、Rust
+fmt/7+2 tests/Clippy/audit/真实夹具一致性和 Windows 可复现双构建均通过。未签名 GUI SHA-256 为
+`a7e482adfff18068c4d3fb588d8c4e25a79ac0aefff053df7a7ab57902b5b85b`，
+`release_ready=false`。只读本机烟测验证 Chrome 发布者 `Google LLC` 与 Edge 发布者
+`Microsoft Corporation` 均只进入待复核状态；共检查两个候选，启动进程为零。边界见
+[ADR 0073](docs/adr/0073-browser-publisher-launch-lease-and-review-gates.md)。
+
+This schema-v85 P11-C1/C2/C3 batch adds same-handle Windows publisher acceptance, immutable
+launch-attempt and generation-lease ownership, and an independent exact-candidate operator review.
+All current lifecycle adapters are Disabled/Fake. Even an accepted review grants no process,
+network, profile-write, termination, cleanup, or Artifact authority. The full six-slice gate
+passes, including a read-only local Chrome/Edge Authenticode smoke that starts no browser.
+
 ## Project Memory
 
 Read [docs/PROJECT_MEMORY.md](docs/PROJECT_MEMORY.md), [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md), [docs/PROGRESS_BOOK.md](docs/PROGRESS_BOOK.md), [docs/TASK_BOOK.md](docs/TASK_BOOK.md), [docs/http-api.md](docs/http-api.md), [docs/openapi.json](docs/openapi.json), [web/README.md](web/README.md), [docs/errors.md](docs/errors.md), and the chronological [ADR 0001](docs/adr/0001-go-control-plane.md), [ADR 0002](docs/adr/0002-run-centric-runtime.md), [ADR 0003](docs/adr/0003-run-execution-modes.md), [ADR 0004](docs/adr/0004-plan-delivery-workflow.md), [ADR 0005](docs/adr/0005-operator-steering-queue.md), [ADR 0006](docs/adr/0006-operator-steering-controls.md), [ADR 0007](docs/adr/0007-specialist-skill-context.md), [ADR 0008](docs/adr/0008-sandbox-manifest-boundary.md), [ADR 0009](docs/adr/0009-sandbox-approval-candidate.md), [ADR 0010](docs/adr/0010-disabled-sandbox-lifecycle.md), [ADR 0011](docs/adr/0011-disabled-sandbox-preflight.md), [ADR 0012](docs/adr/0012-simulation-only-sandbox-evidence.md), [ADR 0013](docs/adr/0013-read-only-docker-observation.md), [ADR 0014](docs/adr/0014-deterministic-docker-container-plan.md), [ADR 0015](docs/adr/0015-bounded-docker-write-rehearsal.md), [ADR 0016](docs/adr/0016-recoverable-docker-rehearsal-attempt.md), [ADR 0017](docs/adr/0017-descriptor-sealed-host-input-staging.md), [ADR 0018](docs/adr/0018-durable-pre-stage-host-input-requirement.md), [ADR 0019](docs/adr/0019-daemon-owned-host-input-handoff.md), [ADR 0020](docs/adr/0020-deterministic-runtime-input-projection.md), [ADR 0021](docs/adr/0021-recoverable-runtime-input-application.md), [ADR 0022](docs/adr/0022-retained-runtime-input-resource-lifecycle.md), [ADR 0023](docs/adr/0023-blocked-docker-start-gate-review.md), [ADR 0024](docs/adr/0024-strict-inert-skill-package.md), [ADR 0025](docs/adr/0025-protected-delete-command-guard.md), [ADR 0026](docs/adr/0026-run-execution-profile-selection.md), [ADR 0027](docs/adr/0027-non-authorizing-docker-production-evidence-ledger.md), and [ADR 0028](docs/adr/0028-recoverable-docker-production-evidence-attempts.md) when resuming development after a long conversation. They record current progress, language ownership, run architecture, execution mode, Plan/Delivery and steering invariants, Specialist Skill delivery, Sandbox authority boundaries, API and error contracts, audit notes, verified commands, and the recommended next slice.
 
 The latest decisions are [ADR 0029](docs/adr/0029-bounded-linux-read-only-docker-evidence-harness.md), [ADR 0030](docs/adr/0030-immutable-docker-production-evidence-review.md), [ADR 0031](docs/adr/0031-content-addressed-inert-skill-registry.md), [ADR 0032](docs/adr/0032-external-skill-run-context.md), [ADR 0033](docs/adr/0033-pathless-desktop-skill-preview.md), [ADR 0034](docs/adr/0034-embedded-read-first-wails-shell.md), [ADR 0035](docs/adr/0035-desktop-lifecycle-and-event-resumption.md), [ADR 0036](docs/adr/0036-idempotent-controlled-run-creation.md), [ADR 0037](docs/adr/0037-controlled-session-message-submission.md), [ADR 0038](docs/adr/0038-idempotent-run-control-and-bounded-handoff.md), [ADR 0039](docs/adr/0039-model-plan-and-approval-controls.md), [ADR 0040](docs/adr/0040-provider-diff-wake-controls.md), [ADR 0041](docs/adr/0041-explicit-wake-file-apply-and-inert-skill-install.md), [ADR 0042](docs/adr/0042-receipts-explorer-portable-build.md), [ADR 0043](docs/adr/0043-workspace-search-evidence-attachment-receipt-history.md), [ADR 0044](docs/adr/0044-operator-action-center-evidence-inventory-command-palette.md), [ADR 0045](docs/adr/0045-go-issued-editor-system-credentials-bounded-wake-worker.md), [ADR 0046](docs/adr/0046-safe-editor-recovery-provider-generation-worker-health.md), [ADR 0047](docs/adr/0047-read-only-repository-change-set-code-journey.md), [ADR 0048](docs/adr/0048-bounded-diff-verification-code-handoff.md), [ADR 0049](docs/adr/0049-deadlock-livelock-runtime-guards.md), [ADR 0050](docs/adr/0050-repository-history-verification-plan-handoff-export.md), [ADR 0051](docs/adr/0051-exact-commit-verification-association-runner-lifecycle.md), [ADR 0052](docs/adr/0052-conservative-model-context-cumulative-handoff-memory.md), [ADR 0053](docs/adr/0053-commit-preview-handoff-coverage-process-conformance.md), [ADR 0054](docs/adr/0054-file-history-verification-drilldown-runner-exit-evidence.md), [ADR 0055](docs/adr/0055-history-navigation-verification-pagination-runner-runtime-evidence.md), [ADR 0056](docs/adr/0056-exact-commit-comparison-keyset-verification-runner-control-evidence.md), [ADR 0057](docs/adr/0057-comparison-preview-verification-snapshot-runner-timeline-evidence.md), [ADR 0058](docs/adr/0058-paired-comparison-snapshot-receipts-runner-evidence-set.md), and [ADR 0059](docs/adr/0059-paired-navigation-receipt-review-runner-golden-vectors.md).
 
-The newest decisions are [ADR 0061](docs/adr/0061-exact-receipt-review-navigation-audit-facts-envelope-golden.md), [ADR 0062](docs/adr/0062-go-owned-analyzer-protocol-rust-fixture-shared-vectors.md), [ADR 0063](docs/adr/0063-inert-analyzer-registry-zip-inventory-shared-vectors.md), [ADR 0064](docs/adr/0064-prayu-brand-and-dual-surface-desktop-shell.md), [ADR 0065](docs/adr/0065-non-starting-analyzer-invocation-bridge.md), [ADR 0066](docs/adr/0066-test-only-analyzer-subprocess-conformance.md), [ADR 0067](docs/adr/0067-inert-analyzer-result-staging-and-product-adapter-threat-model.md), [ADR 0068](docs/adr/0068-real-wails-startup-and-migration-compatibility.md), [ADR 0069](docs/adr/0069-go-owned-browser-profiles-target-scope-and-session-plan.md), [ADR 0070](docs/adr/0070-frameless-workbench-resizable-sidebar-agent-composer.md), [ADR 0071](docs/adr/0071-inert-browser-executable-profile-lifecycle-and-sealed-cdp.md), and [ADR 0072](docs/adr/0072-workbench-docks-and-operator-confirmed-workspace-opening.md).
+The newest decisions are [ADR 0061](docs/adr/0061-exact-receipt-review-navigation-audit-facts-envelope-golden.md), [ADR 0062](docs/adr/0062-go-owned-analyzer-protocol-rust-fixture-shared-vectors.md), [ADR 0063](docs/adr/0063-inert-analyzer-registry-zip-inventory-shared-vectors.md), [ADR 0064](docs/adr/0064-prayu-brand-and-dual-surface-desktop-shell.md), [ADR 0065](docs/adr/0065-non-starting-analyzer-invocation-bridge.md), [ADR 0066](docs/adr/0066-test-only-analyzer-subprocess-conformance.md), [ADR 0067](docs/adr/0067-inert-analyzer-result-staging-and-product-adapter-threat-model.md), [ADR 0068](docs/adr/0068-real-wails-startup-and-migration-compatibility.md), [ADR 0069](docs/adr/0069-go-owned-browser-profiles-target-scope-and-session-plan.md), [ADR 0070](docs/adr/0070-frameless-workbench-resizable-sidebar-agent-composer.md), [ADR 0071](docs/adr/0071-inert-browser-executable-profile-lifecycle-and-sealed-cdp.md), [ADR 0072](docs/adr/0072-workbench-docks-and-operator-confirmed-workspace-opening.md), and [ADR 0073](docs/adr/0073-browser-publisher-launch-lease-and-review-gates.md).
 
 Windows Desktop D0-A/D0-B、D1-R1 至 D1-G13/V12、D1-UX1 至 D1-UX9，加 R10 非产品 Runner 回执信封黄金边界的自动化核心已实现，但仍是未签名开发/便携测试壳，不是安装版；内置终端/浏览器和 Windows 10 实机发布矩阵仍待完成。分阶段方案见 [docs/DESKTOP_PLAN.md](docs/DESKTOP_PLAN.md)。自定义 Skill 已具备严格 `skill_package.v1` 校验、schema v69 本地惰性 Registry、schema v70 CLI Run 选择/最小上下文、schema v71 三端只读来源投影，以及 HTTP/Desktop 显式确认的惰性安装；签名、远程分发和安装时执行仍未开放。详情见 [docs/SKILL_PACKAGE_PLAN.md](docs/SKILL_PACKAGE_PLAN.md)。
 

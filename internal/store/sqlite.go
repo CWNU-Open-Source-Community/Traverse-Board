@@ -311,6 +311,7 @@ func migrationPlan() []migration {
 		{Version: 82, Name: "immutable cumulative context handoff memory", Statements: cumulativeHandoffMemoryStatements},
 		{Version: 83, Name: "immutable verification snapshot receipt history", Statements: operatorVerificationSnapshotReceiptStatements},
 		{Version: 84, Name: "immutable non-authorizing verification snapshot receipt reviews", Statements: operatorVerificationSnapshotReceiptReviewStatements},
+		{Version: 85, Name: "durable non-starting browser launch gates", Statements: browserLaunchGateStatements},
 	}
 }
 

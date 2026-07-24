@@ -1,6 +1,6 @@
 # Prayu Project Memory
 
-Last updated: 2026-07-23
+Last updated: 2026-07-25
 
 ## Resume First
 
@@ -85,8 +85,9 @@ Read in this order after a long context break:
 75. `docs/adr/0070-frameless-workbench-resizable-sidebar-agent-composer.md`
 76. `docs/adr/0071-inert-browser-executable-profile-lifecycle-and-sealed-cdp.md`
 77. `docs/adr/0072-workbench-docks-and-operator-confirmed-workspace-opening.md`
-78. `docs/DESKTOP_PLAN.md`
-79. `docs/SKILL_PACKAGE_PLAN.md`
+78. `docs/adr/0073-browser-publisher-launch-lease-and-review-gates.md`
+79. `docs/DESKTOP_PLAN.md`
+80. `docs/SKILL_PACKAGE_PLAN.md`
 
 ## Current Baseline
 
@@ -95,11 +96,12 @@ Read in this order after a long context break:
 - Generic coding-agent workflow usability: about 95-96%.
 - Cyber autonomous-workflow usability: about 20%.
 - These are engineering estimates based on tested roadmap slices, not performance benchmarks. Do not reuse the retired single-axis "overall product vision" percentage.
-- Database schema: v84.
-- `README.md` carries the canonical bilingual schema timeline in strict `v1 -> v84` order. `internal/store/readme_history_test.go` binds its row count and ordering to `LatestSchemaVersion`, so a future migration cannot silently leave the public history missing or out of sequence.
+- Database schema: v85.
+- `README.md` carries the canonical bilingual schema timeline in strict `v1 -> v85` order. `internal/store/readme_history_test.go` binds its row count and ordering to `LatestSchemaVersion`, so a future migration cannot silently leave the public history missing or out of sequence.
 - Main languages: Go control plane, TypeScript React/Vite local console, and deterministic Rust 1.97.1 digest/ZIP protocol functions. Rust has no Agent, LLM, config, key, persistence, network, filesystem, subprocess, or product-lifecycle ownership.
 - Analyzer status: P10-A1 through P10-B3 fix `analyzer_protocol.v1`, a two-entry inert `analyzer_descriptor.v1` Registry, strict digest and `archive.inventory.v1` result validation, bounded Rust stdin/stdout functions, and two five-vector semantic/bytes/SHA suites with separate CI. The ZIP function only reads an in-memory central directory and never opens, decompresses, extracts, or writes entry data. A Go-to-Rust product process bridge, product invocation, Run/Event/SQLite persistence, and Artifact commit remain absent. See ADR 0062, ADR 0063, and `analyzers/README.md`.
-- Desktop status: D0-A/D0-B and D1-R1 through D1-G13/V12 pin Wails v2.13.0 and build a reproducible Windows development/portable-test binary with an embedded React bundle, in-process Go API, ephemeral memory-only tokens, resumable event polling, same-database recovery, controlled Run/Session/lifecycle/Plan/approval workflows, explicit model diagnostics/routes, safely recoverable Monaco proposal/Diff editing, read-only Repository state/redacted Diff/local history/exact-commit metadata/redacted preview/navigable exact-file history/exact-commit comparison with keyboard-accessible paired base/head previews, independent multi-file review, separate immutable verification plans/results/associations plus snapshot-stable exact per-item drilldown/download/receipt history/non-authorizing review and Handoff coverage, digest-bound Code Handoff export with exact fail-closed receipt-review navigation, bounded Code Journey audit facts, generation-safe Windows Credential Manager Provider controls, and a default-off one-concurrent/one-step wake worker. D1-UX7/UX8/UX9 add composable Summary/Bottom/Right docks plus a pathless, native-confirmed operator action for opening one registered Workspace in a fixed recognized external application. The renderer receives no path/command/environment/arbitrary arguments; this is not Agent, Runner, Tool, or Shell execution. The 2026-07-22 repair tests the real Wails server-form request rather than an absolute-URL mock, and one exact legacy v30 preview checksum upgrades in place while unknown history remains rejected. Windows 10 release coverage remains pending and `release_ready=false`. There is no installer, formal signed release, registry/startup/update behavior, embedded terminal, real Shell/Local/Docker Agent execution, or install-time Skill execution. See ADR 0033 through ADR 0061, ADR 0064, ADR 0068, ADR 0070, ADR 0072, and `docs/DESKTOP_PLAN.md`.
+- Browser status: P11-A1 through P11-C3 now fix three Profiles, exact target scope, inert session plans, fixed-location executable discovery, disposable-profile recovery plans, sealed Disabled/Fake CDP, same-handle Windows Authenticode acceptance, immutable launch attempts/generation leases, and independent operator review. Chrome and Edge can become `accepted_for_review`; arbitrary Chromium remains refused. Review acceptance still grants no process, network, profile-write, termination, cleanup, CDP, or Artifact authority. No built-in browser process or UI exists. See ADR 0069, ADR 0071, and ADR 0073.
+- Desktop status: D0-A/D0-B and D1-R1 through D1-G13/V12 pin Wails v2.13.0 and build a reproducible Windows development/portable-test binary with an embedded React bundle, in-process Go API, ephemeral memory-only tokens, resumable event polling, same-database recovery, controlled Run/Session/lifecycle/Plan/approval workflows, explicit model diagnostics/routes, safely recoverable Monaco proposal/Diff editing, read-only Repository state/redacted Diff/local history/exact-commit metadata/redacted preview/navigable exact-file history/exact-commit comparison with keyboard-accessible paired base/head previews, independent multi-file review, separate immutable verification plans/results/associations plus snapshot-stable exact per-item drilldown/download/receipt history/non-authorizing review and Handoff coverage, digest-bound Code Handoff export with exact fail-closed receipt-review navigation, bounded Code Journey audit facts, generation-safe Windows Credential Manager Provider controls, and a default-off one-concurrent/one-step wake worker. D1-UX7/UX8/UX9 add composable Summary/Bottom/Right docks plus a pathless, native-confirmed operator action for opening one registered Workspace in a fixed recognized external application. The renderer receives no path/command/environment/arbitrary arguments; this is not Agent, Runner, Tool, or Shell execution. Schema v85 browser launch facts are internal non-starting records and add no Desktop browser surface. The 2026-07-22 repair tests the real Wails server-form request rather than an absolute-URL mock, and one exact legacy v30 preview checksum upgrades in place while unknown history remains rejected. Windows 10 release coverage remains pending and `release_ready=false`. There is no installer, formal signed release, registry/startup/update behavior, embedded terminal, real Shell/Local/Docker Agent execution, or install-time Skill execution. See ADR 0033 through ADR 0061, ADR 0064, ADR 0068, ADR 0070, ADR 0072, ADR 0073, and `docs/DESKTOP_PLAN.md`.
 - Prayu UX status: D1-UX1 through D1-UX9 introduce the Prayu user-facing identity, supplied workspace/Settings backgrounds and wordmark, a CSS-generated selected-state brush, a cream translucent work surface, functional Settings navigation and display-only density, a frameless Wails titlebar, a bounded persisted resizable sidebar, a Go-backed Agent composer, and the compact four-control workbench toolbar. Summary/Review/Files/Side Tasks use existing read-only Go surfaces; Browser and embedded Terminal remain explicitly inert. Open Workspace is operator-confirmed and pathless at the renderer boundary. Stable CyberAgent compatibility identifiers remain unchanged. See ADR 0064, ADR 0070, and ADR 0072.
 - Custom Skill status: the five embedded `skill.v1` guides and explicitly selected external packages are Run-loadable through separate protocols. Schema v69 adds persistent content-addressed import/history; schema v70 adds a second explicitly confirmed exact Run selection and redacted user-role root/Specialist context; schema v71 adds bounded read-only provenance across HTTP/TUI/Web. D1-A adds a pathless, one-time-handle preview boundary; D1-B1 adds explicit HTTP/Desktop registration through the same inert Registry. External packages remain untrusted and grant no declared tools. Installation executes no content and still does not select a package for a Run. See ADR 0024, ADR 0031 through ADR 0033, ADR 0041, and `docs/SKILL_PACKAGE_PLAN.md`.
 - Protected-delete status: explicit recursive, absolute/traversing/wildcard, environment-derived, command-substituted, current-home, PowerShell/`cmd`, and common interpreter deletion intents are permanently denied before approval across Shell, ScriptProcess, and Sandbox Policy. This is defense in depth; Local/container process execution remains disabled and a future executor still requires OS/container isolation. See ADR 0025.
@@ -1824,25 +1826,62 @@ about 95-97%, Coding about 95-96%, and Cyber automation about 20%. ADR 0072 is a
 终端和浏览器仍明确未启动。只有操作员可在原生确认后用固定应用打开已登记 Workspace；渲染层拿不到
 路径，也不能提交命令或参数。这不代表 Agent 已获得宿主机进程权限。
 
+## Completed Browser Publisher, Lease, And Review Gates
+
+P11-C1 uses one read-only handle to bind candidate bytes, PE architecture, file identity, SHA-256,
+and cache-only Windows Authenticode. Exact publisher policy accepts Chrome `Google LLC`/legacy
+`Google Inc` and Edge `Microsoft Corporation` only. Chromium remains refused because no stable
+publisher policy exists. The result is `accepted_for_review`, never complete launch trust.
+
+P11-C2 adds schema v85 immutable launch attempts, generation leases, idempotent preparation
+operations, and bounded events. Every attempt binds the exact Session, Run, Workspace, executable,
+disposable-profile generation, scope, budgets, backend, and process-tree contract. Lifecycle,
+restart observation, cancellation, termination, and cleanup remain package-sealed Disabled/Fake
+contracts and start no process.
+
+P11-C3 requires an independent reviewer while the exact lease is active and recomputes the full
+attempt fingerprint. Owner/reviewer and operation identities are retained only as domain-separated
+digests. Accepted review still leaves process, network, profile-write, termination, cleanup, CDP,
+and Artifact authority false.
+
+The six-slice robustness gate passes serial ordinary/race full Go in about 545/660 seconds, full
+vet/staticcheck, module verify/tidy, ordinary and secure-Desktop govulncheck with zero reachable or
+imported findings, secure Desktop race/tag checks, 42 files/148 Web tests, strict TypeScript/API,
+Vite/npm, Rust fmt/7+2 tests/Clippy/audit/real-fixture conformance, and a reproducible Windows dual
+build. The unsigned GUI SHA-256 is
+`a7e482adfff18068c4d3fb588d8c4e25a79ac0aefff053df7a7ab57902b5b85b`;
+`release_ready=false`.
+
+An opt-in read-only local smoke inspected fixed Chrome and Edge installations. Both signatures and
+fixed publishers passed into review-candidate state, two candidates were inspected, and no browser
+process was started. No browser network, Profile write, CDP, credential, Shell, Docker, Provider,
+or Artifact path ran. No unresolved high/medium issue was found on an enabled path. ADR 0073 is
+authoritative.
+
+中文交接：C1-C3 已把发布者/同句柄复核、持久化 attempt/代际 lease 和独立 reviewer 串成 schema
+v85，但这仍是“启动前门禁”。本机只读烟测没有启动 Chrome/Edge。下一批才可逐项考虑 Safe Web
+真实启动、一次性 Profile 落盘与最小 CDP；三者必须继续拆开审计。
+
 ## Next Slice
 
 The next three-slice candidates are:
 
-1. P11-C1: bind Authenticode/publisher and release provenance policy plus same-open-handle byte revalidation to an immutable browser acceptance candidate; it must remain non-starting.
-2. P11-C2: define durable browser launch attempt/generation lease, cancellation, process-tree ownership, restart reconciliation, and exact cleanup contracts first through Disabled/Fake lifecycle adapters.
-3. P11-C3: add an independent operator launch review bound to executable, profile generation, exact scope, sandbox, budgets, and append-only audit; review acceptance must still be separate from the real start adapter.
-4. This completes the second half of the six-slice browser cycle, so run the full race/staticcheck/govulncheck/dependency/privacy/reproducibility robustness gate after C3. Real Safe Web start is considered only after that gate.
+1. P11-C4: add a Safe Web production start adapter only after exact acceptance/review revalidation, with no shell and with Windows Job Object whole-tree kill-on-close ownership. Navigation and profile writes stay absent.
+2. P11-C5: separately materialize one disposable Profile generation, persist a marker, reconcile restart state, and delete only an exact released owned generation. Personal browser Profiles remain permanently forbidden.
+3. P11-C6: separately add exact-scope localhost CDP navigation, DOM metadata, and screenshot capture with bounded deadlines and evidence. Request mutation/replay and CTF security relaxations remain disabled.
+4. After C6 run the three-slice functional gate. The next six-slice robustness gate is due after the following three-slice batch.
 5. P10-F1/F2/F3 remain queued. The manual Windows 10 matrix, signed distribution, real Sandbox release gate, xterm input, real browser/network grants, product analyzer execution, and CTF solving remain separate.
 
 ## Local Machine Note
 
-Rustup installed the current-user minimal `stable-x86_64-pc-windows-gnu` toolchain for
-P10-A2 and the repository pins Rust/Cargo 1.97.1 in `analyzers/rust-toolchain.toml`.
-WinLibs GCC 16.1.0 supplies the GNU linker. Local commands should set
-`RUSTUP_TOOLCHAIN=1.97.1-x86_64-pc-windows-gnu` when rustup channel synchronization is
-unavailable; the source and lockfile remain the reproducible authority.
+Rustup uses the repository-pinned current-user minimal
+`1.97.1-x86_64-pc-windows-msvc` toolchain under `analyzers/rust-toolchain.toml`.
+Visual Studio 2022 Build Tools 17.14.37 with the C++ workload supplies the MSVC linker.
+Run Rust build/test commands from a Developer PowerShell or after loading `VsDevCmd.bat`;
+the source, pinned toolchain, and `Cargo.lock` remain the reproducible authority. `cargo audit`
+is installed; this version accepts the default lockfile scan rather than a `--locked` flag.
 
-The default `~/.cyberagent-workbench/cyberagent.db` currently carries a historical schema-v30 checksum that differs from this repository's immutable migration definition, so CLI startup correctly fails closed with `migration 30 checksum or name mismatch` and Desktop shows a bounded `FAILED_PRECONDITION`/startup code instead of silently resetting it. The v75-v84 and D1-Q2 through D1-G13/V12 plus H1-H3/R10/C1-E3 slices did not rewrite migrations 1-74, and fresh/upgrade fixtures pass. Preserve that local database for backup/diagnosis; do not delete it or rewrite `schema_migrations` automatically. Desktop visual and recovery tests use separate `CYBERAGENT_HOME` directories under the repository's ignored build root or the OS temporary root.
+The default `~/.cyberagent-workbench/cyberagent.db` currently carries a historical schema-v30 checksum that differs from this repository's immutable migration definition, so CLI startup correctly fails closed with `migration 30 checksum or name mismatch` and Desktop shows a bounded `FAILED_PRECONDITION`/startup code instead of silently resetting it. The v75-v85 and D1-Q2 through D1-G13/V12 plus H1-H3/R10/C1-E3/P11-C1-C3 slices did not rewrite migrations 1-74, and fresh/upgrade fixtures pass. Preserve that local database for backup/diagnosis; do not delete it or rewrite `schema_migrations` automatically. Desktop visual and recovery tests use separate `CYBERAGENT_HOME` directories under the repository's ignored build root or the OS temporary root.
 
 ## Delivery Loop
 

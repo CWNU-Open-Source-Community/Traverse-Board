@@ -925,3 +925,30 @@ records, has no filesystem/process/network API, and is checked against the same 
 ZIP/result byte-and-SHA vectors as Go. The Registry and pure functions are still not a
 product bridge: CLI, HTTP, Desktop, Tool Gateway, Runner, Run/Event/SQLite, persistence,
 and Artifact flows cannot invoke them. ADR 0063 records these bounds.
+
+## Browser Publisher Acceptance, Launch Lease, And Review
+
+P11-C1 extends fixed-location browser discovery with a same-open-handle acceptance boundary.
+The exact file is opened read-only, bounded bytes and PE architecture are verified, SHA-256 and
+file identity are bound, and Windows Authenticode runs cache-only with no UI against that same
+handle. Chrome accepts only `Google LLC` or legacy `Google Inc`; Edge accepts only
+`Microsoft Corporation`. Chromium remains unsupported because arbitrary distributions do not
+share a fixed publisher policy. All identities are revalidated before the handle closes.
+`accepted_for_review` is not complete launch trust, and no revocation/timestamp freshness is
+claimed without a network-backed policy.
+
+P11-C2 adds schema v85 immutable `browser_launch_attempt.v1`,
+`browser_launch_lease.v1`, preparation-operation, and bounded event records. An attempt
+fingerprint binds the exact Session, Run, Workspace, accepted executable, disposable-profile
+owner/generation, scope, budgets, backend, and process-tree contract. Generation fencing rejects
+stale workers. Cancellation, restart observation, reconciliation, termination, and cleanup are
+currently implemented only by package-sealed Disabled/Fake lifecycle adapters and therefore
+cannot start or control a process.
+
+P11-C3 adds one immutable `browser_launch_review.v1` while the exact lease is active. The
+reviewer must be independent from the lease owner, the full attempt fingerprint is recomputed,
+and replay is digest-idempotent. Raw operation keys, owner identities, and reviewer identities are
+not persisted. Accepted review is only an eligibility fact for a future adapter: process,
+network, profile-write, termination, cleanup, CDP, and Artifact authority remain false. No CLI,
+HTTP, Desktop, model, Skill, Tool, or Runner surface consumes these facts to start a browser.
+ADR 0073 records these bounds.

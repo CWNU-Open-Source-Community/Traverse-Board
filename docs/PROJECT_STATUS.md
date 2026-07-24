@@ -1,14 +1,14 @@
 # Project Status
 
-Last updated: 2026-07-23
+Last updated: 2026-07-25
 
 ## Resume Context
 
-The latest non-schema Desktop batch adds D1-UX7/UX8/UX9: the compact four-control workbench toolbar, independent Summary/Bottom/Right docks over existing bounded Go data, and a pathless native-confirmed manual opener for one registered Workspace. Browser and embedded terminal surfaces remain inert; the opener is a separate operator convenience and grants no Agent/Runner/Shell authority. ADR 0072 defines this boundary. ADR 0068 remains authoritative for startup compatibility, while ADR 0064 and ADR 0070 define the visual shell and composer baseline.
+The latest schema-v85 browser batch adds P11-C1/C2/C3: same-handle Windows publisher acceptance, immutable launch-attempt/generation-lease ownership, and an independent exact-candidate operator review. All lifecycle adapters remain Disabled/Fake, accepted review grants no runtime authority, and no built-in browser process or UI exists. ADR 0073 defines this boundary. ADR 0072 remains authoritative for the separate manual external-workspace opener.
 
-Current database schema is v84. Schemas v78-v81 add immutable operator verification evidence, livelock recovery, verification plans, and explicit plan-item/evidence associations; schema v82 adds conservative complete-request model-context planning and immutable cumulative handoff memory; schema v83 adds immutable metadata-only verification snapshot receipt history; schema v84 adds one immutable non-authorizing metadata review per exact receipt. Code/Desktop work now reaches D1-G13/V12. R9 strictly rejects malformed, future, digest-mismatched, or authority-widening receipt envelopes, while R10 pins accepted envelope bytes/SHA only behind the internal `NonProductOnly` Runner boundary. P10-A1 through P10-B3 establish a Go-owned analyzer boundary: a strict bounded request/result/error protocol, a fixed inert two-entry descriptor Registry, deterministic digest and in-memory ZIP central-directory functions, strict no-extraction archive result validation, and two independent Go/Rust five-vector suites. There is no Go-to-Rust product process bridge, file/path input, Run/Event/SQLite persistence, or Artifact commit. Root and Specialist requests use a 32K conservative fallback with explicit output/safety reservations, repeated compaction preserves a predecessor-bound cumulative handoff chain, and arbitrary repository documents remain untrusted evidence instead of instructions. Operators can compare any two exact local commit trees, use focus-safe keyboard navigation in the paired redacted preview, page through one frozen verification-item snapshot, download a deterministic metadata-only Markdown/JSON representation, record an immutable digest receipt, separately confirm or dispute only its metadata, carry bounded review metadata into a regenerable Code Handoff/Journey audit, and navigate only after Verify independently matches exact review/receipt/plan/item digests. R9/R10 and P10 do not claim wall-clock order, raw output, process identity, CPU/memory enforcement, verified OS quotas, signal identity, or product execution. None grants general Shell, LocalRunner, Docker, child scheduling, install hooks, renderer host-path authority, credential readback, document instruction authority, automatic Skill selection, result acceptance, or product process execution.
+Current database schema is v85. Schemas v78-v81 add immutable operator verification evidence, livelock recovery, verification plans, and explicit plan-item/evidence associations; schema v82 adds conservative complete-request model-context planning and immutable cumulative handoff memory; schema v83 adds immutable metadata-only verification snapshot receipt history; schema v84 adds one immutable non-authorizing metadata review per exact receipt; schema v85 adds non-starting browser launch attempts, generation leases, idempotency facts, and independent reviews. Code/Desktop work remains D1-G13/V12. R9 strictly rejects malformed, future, digest-mismatched, or authority-widening receipt envelopes, while R10 pins accepted envelope bytes/SHA only behind the internal `NonProductOnly` Runner boundary. P10-A1 through P10-B3 establish a Go-owned analyzer boundary: a strict bounded request/result/error protocol, a fixed inert two-entry descriptor Registry, deterministic digest and in-memory ZIP central-directory functions, strict no-extraction archive result validation, and two independent Go/Rust five-vector suites. There is no Go-to-Rust product process bridge, file/path input, Run/Event/SQLite persistence, or Artifact commit. Root and Specialist requests use a 32K conservative fallback with explicit output/safety reservations, repeated compaction preserves a predecessor-bound cumulative handoff chain, and arbitrary repository documents remain untrusted evidence instead of instructions. Operators can compare any two exact local commit trees, use focus-safe keyboard navigation in the paired redacted preview, page through one frozen verification-item snapshot, download a deterministic metadata-only Markdown/JSON representation, record an immutable digest receipt, separately confirm or dispute only its metadata, carry bounded review metadata into a regenerable Code Handoff/Journey audit, and navigate only after Verify independently matches exact review/receipt/plan/item digests. Browser acceptance binds exact Windows file bytes/identity/publisher; immutable attempts and independent review still cannot start a process. R9/R10, P10, and P11-C do not claim wall-clock order, raw output, process identity, CPU/memory enforcement, verified OS quotas, signal identity, or product execution. None grants general Shell, LocalRunner, Docker, child scheduling, install hooks, renderer host-path authority, credential readback, document instruction authority, automatic Skill selection, result acceptance, or product process execution.
 
-Schema v63 remains the blocked Sandbox start-gate review; schemas v48-v68 keep Local and container-process execution disabled. Schema v64 records only backend preference, schema v65 records non-authorizing machine-capture receipts, schema v66 adds recoverable ownership, schema v67 permits only five fixed read-only daemon GETs after explicit Linux opt-in, and schema v68 records a non-authorizing receipt decision without contacting Docker. No Agent-controlled path starts a Runner, container, Shell, browser, or Rust analyzer. ADR 0072 separately permits the operator, after a native confirmation, to start one fixed recognized external application for an exact registered Workspace; it is not an Agent execution bridge. ADR 0024 through ADR 0072 record the current Skill, Sandbox, Desktop, runtime, analyzer, browser, and workbench boundaries.
+Schema v63 remains the blocked Sandbox start-gate review; schemas v48-v68 keep Local and container-process execution disabled. Schema v64 records only backend preference, schema v65 records non-authorizing machine-capture receipts, schema v66 adds recoverable ownership, schema v67 permits only five fixed read-only daemon GETs after explicit Linux opt-in, and schema v68 records a non-authorizing receipt decision without contacting Docker. No Agent-controlled path starts a Runner, container, Shell, browser, or Rust analyzer. ADR 0072 separately permits the operator, after a native confirmation, to start one fixed recognized external application for an exact registered Workspace; it is not an Agent execution bridge. ADR 0024 through ADR 0073 record the current Skill, Sandbox, Desktop, runtime, analyzer, browser, and workbench boundaries.
 
 Prayu is a local-first Go agent runtime for coding and controlled cyber-oriented work. The CLI-first implementation has resumable Runs, a durable root Agent Coordinator, bounded review-gated Specialist delegation, a separate read-only 1/2/4/6 Fan-out pool, persisted sessions and model calls, context compaction, WorkItems/Notes/Artifacts, a unified Tool Gateway, embedded and inert user Skills, Finding/Evidence/Report lifecycles with SARIF/CI output, loopback HTTP/SSE/OpenAPI, a Run-first TUI, a React/Vite console, and a Windows Wails shell with independently gated Run/Session/Plan/approval, FileEdit proposal/review/apply, Provider credentials, foreground/bounded wake, inert Skills, actions/evidence, and navigation. The `cyberagent` CLI and other established CyberAgent identifiers remain compatibility contracts. Core delegation remains capped at two children and only the original application operator can schedule it; models, ordinary tools, HTTP, and the Desktop native bridge cannot autonomously spawn or schedule children.
 
@@ -231,7 +231,7 @@ Use these files first when resuming:
 - Cyber autonomous-workflow usability: about 20%.
 - These values are engineering estimates derived from tested roadmap slices, not performance benchmarks. The retired single-axis "overall product vision" percentage must not be used for current status.
 
-Latest implemented batch: D1-UX7/UX8/UX9 on unchanged schema v84 and unchanged OpenAPI 75/83/182. It adds the four-control workbench toolbar, composable read-mostly docks, and a pathless native-confirmed operator action for opening one registered Workspace in a fixed external application. Embedded terminal/browser execution remains disabled and the renderer receives no host path or generic process input. The cumulative six-slice robustness gate passes serial full ordinary/race Go, vet/staticcheck, Desktop race/tag, dual govulncheck, 42 files/148 React tests, strict TypeScript/OpenAPI, Vite/npm, Rust checks, and a reproducible Windows build. ADR 0072 is authoritative for this interface and manual process boundary; ADR 0071 remains authoritative for the inert browser runtime.
+Latest implemented batch: P11-C1/C2/C3 on schema v85 and unchanged OpenAPI 75/83/182. It adds same-handle Windows publisher acceptance, immutable browser launch attempts/generation leases, and an independent exact-candidate review, while keeping every current lifecycle adapter Disabled/Fake and every runtime authority false. The cumulative six-slice robustness gate passes serial full ordinary/race Go, vet/staticcheck, Desktop race/tag, dual govulncheck, 42 files/148 React tests, strict TypeScript/OpenAPI, Vite/npm, Rust checks, real-fixture conformance, a read-only no-start Chrome/Edge acceptance smoke, and a reproducible Windows build. ADR 0073 is authoritative; the operational built-in browser remains unavailable.
 
 Completed:
 
@@ -2157,15 +2157,44 @@ Schema/OpenAPI remain v84 and
 75/83/182. Architecture remains about 99%, full product usability about 95-97%, Coding about
 95-96%, and Cyber automation about 20%. ADR 0072 is authoritative.
 
+## Latest Browser Gate Batch
+
+P11-C1/C2/C3 advance SQLite to v85 without adding a CLI, HTTP route, Desktop browser surface, or
+real process starter. C1 verifies fixed Chrome/Edge publishers with cache-only Windows
+Authenticode through the same read-only handle used for bounded PE and byte identity. Chrome
+accepts `Google LLC`/legacy `Google Inc`; Edge accepts `Microsoft Corporation`; arbitrary Chromium
+fails closed. A passing signature is only an `accepted_for_review` candidate.
+
+C2 appends an immutable launch attempt, generation lease, and idempotency operation before any
+future adapter. Exact Session, Run, Workspace, executable, profile owner/generation, scope,
+budgets, backend, and process-tree contract are fingerprint-bound. Disabled/Fake lifecycle
+adapters define cancellation, restart observation, reconciliation, termination, and cleanup
+without creating a process.
+
+C3 permits one immutable review only while the exact lease is active and only by an identity
+different from the lease owner. An accepted review is a candidate for a future adapter, not
+authority: process, network, profile-write, termination, cleanup, CDP, and Artifact fields remain
+false. Domain-separated digests replace raw operation, owner, and reviewer identifiers.
+
+The six-slice robustness gate passes serial ordinary/race full Go in about 545/660 seconds, full
+vet/staticcheck, module verify/tidy, ordinary and secure-Desktop govulncheck with zero reachable or
+imported findings, secure Desktop race/tag checks, 42 files/148 Web tests, strict TypeScript/API,
+Vite/npm, Rust fmt/7+2 tests/Clippy/audit/real-fixture conformance, and a reproducible unsigned
+Windows build with SHA-256
+`a7e482adfff18068c4d3fb588d8c4e25a79ac0aefff053df7a7ab57902b5b85b`.
+An opt-in read-only smoke inspected fixed Chrome and Edge installations, accepted both only for
+review, and started zero browser processes. No unresolved high/medium issue exists on an enabled
+path. ADR 0073 is authoritative.
+
 ## Recommended Next Batch
 
-Candidate slices are P11-C1 publisher/provenance policy plus same-open-handle revalidation without
-launch, P11-C2 durable launch-attempt/generation-lease/process-tree reconciliation through Disabled/
-Fake lifecycle adapters, and P11-C3 an independent operator launch review bound to exact scope,
-sandbox, budget, and append-only audit. Acceptance must remain separate from a real start adapter.
-These slices finish the current six-slice browser cycle, so the complete race/staticcheck/
-govulncheck/dependency/privacy/reproducibility gate is due after C3. Real Safe Web start is considered
-only after that gate. P10-F1/F2/F3 remain queued rather than discarded.
+Candidate slices are P11-C4 Safe Web process start with exact acceptance/review revalidation and
+Windows Job Object whole-tree ownership, P11-C5 disposable-profile generation materialization and
+exact-owned recovery/cleanup, and P11-C6 exact-scope localhost CDP navigation/DOM/screenshot.
+Keep these three authorities separate: C4 must not navigate or write a profile, C5 must never
+touch a personal profile, and C6 must not enable request mutation/replay or CTF security
+relaxations. Run the three-slice functional gate after C6; the next six-slice robustness gate is
+due after the following batch. P10-F1/F2/F3 remain queued rather than discarded.
 
 Keep the Local profile disabled until a real
 OS sandbox makes protected host roots unavailable or read-only; never map it to

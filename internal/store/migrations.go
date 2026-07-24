@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const LatestSchemaVersion = 84
+const LatestSchemaVersion = 85
 
 type migration struct {
 	Version    int
@@ -90,6 +90,252 @@ var runSessionProjectionStatements = []string{
 			AND NOT EXISTS (SELECT 1 FROM sessions WHERE id = NEW.session_id)
 		BEGIN
 			SELECT RAISE(ABORT, 'run session does not exist');
+		END;`,
+}
+
+var browserLaunchGateStatements = []string{
+	`CREATE TABLE browser_launch_attempts (
+		id TEXT PRIMARY KEY,
+		run_id TEXT NOT NULL,
+		mission_id TEXT NOT NULL,
+		workspace_id TEXT NOT NULL,
+		session_id TEXT NOT NULL,
+		fingerprint TEXT NOT NULL UNIQUE,
+		generation INTEGER NOT NULL,
+		payload_json TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		FOREIGN KEY(run_id) REFERENCES runs(id),
+		FOREIGN KEY(mission_id) REFERENCES missions(id),
+		FOREIGN KEY(session_id) REFERENCES sessions(id),
+		CHECK(generation = 1),
+		CHECK(json_valid(payload_json)),
+		CHECK(json_extract(payload_json, '$.protocol_version') = 'browser_launch_attempt.v1'),
+		CHECK(json_extract(payload_json, '$.id') = id),
+		CHECK(json_extract(payload_json, '$.run_id') = run_id),
+		CHECK(json_extract(payload_json, '$.workspace_id') = workspace_id),
+		CHECK(json_extract(payload_json, '$.session_id') = session_id),
+		CHECK(json_extract(payload_json, '$.fingerprint') = fingerprint),
+		CHECK(json_extract(payload_json, '$.generation') = generation),
+		CHECK(json_extract(payload_json, '$.state') = 'prepared'),
+		CHECK(json_extract(payload_json, '$.start_blocked') = 1),
+		CHECK(json_extract(payload_json, '$.process_start_authorized') = 0),
+		CHECK(json_extract(payload_json, '$.network_authorized') = 0),
+		CHECK(json_extract(payload_json, '$.profile_write_authorized') = 0),
+		CHECK(json_extract(payload_json, '$.artifact_commit_authorized') = 0),
+		CHECK(json_extract(payload_json, '$.authority.process_start') = 0),
+		CHECK(json_extract(payload_json, '$.authority.network_access') = 0),
+		CHECK(json_extract(payload_json, '$.authority.profile_write') = 0),
+		CHECK(json_extract(payload_json, '$.authority.request_mutation') = 0),
+		CHECK(json_extract(payload_json, '$.authority.request_replay') = 0),
+		CHECK(json_extract(payload_json, '$.authority.artifact_commit') = 0)
+	);`,
+	`CREATE INDEX idx_browser_launch_attempts_run_created
+		ON browser_launch_attempts(run_id, created_at, id);`,
+	`CREATE TABLE browser_launch_leases (
+		id TEXT PRIMARY KEY,
+		attempt_id TEXT NOT NULL UNIQUE,
+		fingerprint TEXT NOT NULL UNIQUE,
+		generation INTEGER NOT NULL,
+		status TEXT NOT NULL,
+		payload_json TEXT NOT NULL,
+		acquired_at TEXT NOT NULL,
+		expires_at TEXT NOT NULL,
+		FOREIGN KEY(attempt_id) REFERENCES browser_launch_attempts(id),
+		CHECK(generation = 1),
+		CHECK(status = 'active'),
+		CHECK(json_valid(payload_json)),
+		CHECK(json_extract(payload_json, '$.protocol_version') = 'browser_launch_lease.v1'),
+		CHECK(json_extract(payload_json, '$.id') = id),
+		CHECK(json_extract(payload_json, '$.attempt_id') = attempt_id),
+		CHECK(json_extract(payload_json, '$.fingerprint') = fingerprint),
+		CHECK(json_extract(payload_json, '$.generation') = generation),
+		CHECK(json_extract(payload_json, '$.status') = status),
+		CHECK(json_extract(payload_json, '$.start_blocked') = 1),
+		CHECK(json_extract(payload_json, '$.process_execution_authorized') = 0),
+		CHECK(json_extract(payload_json, '$.process_termination_authorized') = 0),
+		CHECK(json_extract(payload_json, '$.authority.process_start') = 0),
+		CHECK(json_extract(payload_json, '$.authority.network_access') = 0),
+		CHECK(json_extract(payload_json, '$.authority.profile_write') = 0),
+		CHECK(json_extract(payload_json, '$.authority.request_mutation') = 0),
+		CHECK(json_extract(payload_json, '$.authority.request_replay') = 0),
+		CHECK(json_extract(payload_json, '$.authority.artifact_commit') = 0)
+	);`,
+	`CREATE TABLE browser_launch_preparation_operations (
+		key_digest TEXT PRIMARY KEY,
+		request_fingerprint TEXT NOT NULL,
+		attempt_id TEXT NOT NULL UNIQUE,
+		lease_id TEXT NOT NULL UNIQUE,
+		created_at TEXT NOT NULL,
+		FOREIGN KEY(attempt_id) REFERENCES browser_launch_attempts(id),
+		FOREIGN KEY(lease_id) REFERENCES browser_launch_leases(id),
+		CHECK(length(key_digest) = 64),
+		CHECK(length(request_fingerprint) = 64)
+	);`,
+	`CREATE TABLE browser_launch_reviews (
+		id TEXT PRIMARY KEY,
+		attempt_id TEXT NOT NULL UNIQUE,
+		lease_id TEXT NOT NULL,
+		run_id TEXT NOT NULL,
+		mission_id TEXT NOT NULL,
+		workspace_id TEXT NOT NULL,
+		decision TEXT NOT NULL,
+		fingerprint TEXT NOT NULL UNIQUE,
+		audit_parent_fingerprint TEXT NOT NULL,
+		reviewer_sha256 TEXT NOT NULL,
+		event_sequence INTEGER NOT NULL,
+		payload_json TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		FOREIGN KEY(attempt_id) REFERENCES browser_launch_attempts(id),
+		FOREIGN KEY(lease_id) REFERENCES browser_launch_leases(id),
+		FOREIGN KEY(run_id) REFERENCES runs(id),
+		FOREIGN KEY(mission_id) REFERENCES missions(id),
+		UNIQUE(run_id, event_sequence),
+		CHECK(decision IN ('accept_candidate', 'reject_candidate')),
+		CHECK(audit_parent_fingerprint = '' OR length(audit_parent_fingerprint) = 64),
+		CHECK(length(reviewer_sha256) = 64),
+		CHECK(event_sequence > 0),
+		CHECK(json_valid(payload_json)),
+		CHECK(json_extract(payload_json, '$.protocol_version') = 'browser_launch_review.v1'),
+		CHECK(json_extract(payload_json, '$.id') = id),
+		CHECK(json_extract(payload_json, '$.attempt_id') = attempt_id),
+		CHECK(json_extract(payload_json, '$.decision') = decision),
+		CHECK(json_extract(payload_json, '$.fingerprint') = fingerprint),
+		CHECK(json_extract(payload_json, '$.audit_parent_fingerprint') = audit_parent_fingerprint),
+		CHECK(json_extract(payload_json, '$.reviewer_sha256') = reviewer_sha256),
+		CHECK(json_extract(payload_json, '$.accepted_for_future_adapter') =
+			CASE decision WHEN 'accept_candidate' THEN 1 ELSE 0 END),
+		CHECK(json_extract(payload_json, '$.start_authorized') = 0),
+		CHECK(json_extract(payload_json, '$.process_execution_authorized') = 0),
+		CHECK(json_extract(payload_json, '$.network_authorized') = 0),
+		CHECK(json_extract(payload_json, '$.profile_write_authorized') = 0),
+		CHECK(json_extract(payload_json, '$.process_termination_authorized') = 0),
+		CHECK(json_extract(payload_json, '$.filesystem_cleanup_authorized') = 0),
+		CHECK(json_extract(payload_json, '$.artifact_commit_authorized') = 0),
+		CHECK(json_extract(payload_json, '$.authority.process_start') = 0),
+		CHECK(json_extract(payload_json, '$.authority.network_access') = 0),
+		CHECK(json_extract(payload_json, '$.authority.profile_write') = 0),
+		CHECK(json_extract(payload_json, '$.authority.request_mutation') = 0),
+		CHECK(json_extract(payload_json, '$.authority.request_replay') = 0),
+		CHECK(json_extract(payload_json, '$.authority.artifact_commit') = 0)
+	);`,
+	`CREATE INDEX idx_browser_launch_reviews_run_event
+		ON browser_launch_reviews(run_id, event_sequence, id);`,
+	`CREATE TABLE browser_launch_review_operations (
+		key_digest TEXT PRIMARY KEY,
+		request_fingerprint TEXT NOT NULL,
+		review_id TEXT NOT NULL UNIQUE,
+		created_at TEXT NOT NULL,
+		FOREIGN KEY(review_id) REFERENCES browser_launch_reviews(id),
+		CHECK(length(key_digest) = 64),
+		CHECK(length(request_fingerprint) = 64)
+	);`,
+	`CREATE TRIGGER trg_browser_launch_attempt_insert
+		BEFORE INSERT ON browser_launch_attempts
+		WHEN NOT EXISTS (
+			SELECT 1 FROM runs run
+			JOIN missions mission ON mission.id = run.mission_id
+			JOIN sessions session_record ON session_record.id = run.session_id
+			WHERE run.id = NEW.run_id AND run.mission_id = NEW.mission_id
+				AND run.session_id = NEW.session_id
+				AND mission.workspace_id = NEW.workspace_id
+				AND session_record.workspace_id = NEW.workspace_id
+				AND run.status IN ('created', 'preparing', 'running', 'waiting_approval', 'paused')
+		)
+		BEGIN
+			SELECT RAISE(ABORT, 'Browser launch attempt Run binding is invalid');
+		END;`,
+	`CREATE TRIGGER trg_browser_launch_lease_insert
+		BEFORE INSERT ON browser_launch_leases
+		WHEN NOT EXISTS (
+			SELECT 1 FROM browser_launch_attempts attempt
+			WHERE attempt.id = NEW.attempt_id
+				AND attempt.fingerprint = json_extract(NEW.payload_json, '$.attempt_fingerprint')
+				AND attempt.generation = NEW.generation
+		)
+		BEGIN
+			SELECT RAISE(ABORT, 'Browser launch lease attempt binding is invalid');
+		END;`,
+	`CREATE TRIGGER trg_browser_launch_preparation_operation_insert
+		BEFORE INSERT ON browser_launch_preparation_operations
+		WHEN NOT EXISTS (
+			SELECT 1 FROM browser_launch_attempts attempt
+			JOIN browser_launch_leases lease ON lease.attempt_id = attempt.id
+			WHERE attempt.id = NEW.attempt_id AND lease.id = NEW.lease_id
+				AND attempt.created_at = NEW.created_at
+		)
+		BEGIN
+			SELECT RAISE(ABORT, 'Browser launch preparation operation binding is invalid');
+		END;`,
+	`CREATE TRIGGER trg_browser_launch_review_insert
+		BEFORE INSERT ON browser_launch_reviews
+		WHEN NOT EXISTS (
+			SELECT 1 FROM browser_launch_attempts attempt
+			JOIN browser_launch_leases lease ON lease.attempt_id = attempt.id
+			JOIN run_events event ON event.run_id = attempt.run_id
+				AND event.sequence = NEW.event_sequence
+			WHERE attempt.id = NEW.attempt_id AND lease.id = NEW.lease_id
+				AND attempt.run_id = NEW.run_id AND attempt.mission_id = NEW.mission_id
+				AND attempt.workspace_id = NEW.workspace_id
+				AND json_extract(NEW.payload_json, '$.attempt_fingerprint') = attempt.fingerprint
+				AND json_extract(NEW.payload_json, '$.lease_fingerprint') = lease.fingerprint
+				AND event.type = 'browser.launch_reviewed' AND event.subject_id = NEW.id
+				AND json_extract(event.payload_json, '$.review_fingerprint') = NEW.fingerprint
+				AND NEW.audit_parent_fingerprint = COALESCE((
+					SELECT prior.fingerprint FROM browser_launch_reviews prior
+					WHERE prior.run_id = NEW.run_id ORDER BY prior.event_sequence DESC LIMIT 1
+				), '')
+		)
+		BEGIN
+			SELECT RAISE(ABORT, 'Browser launch review binding is invalid');
+		END;`,
+	`CREATE TRIGGER trg_browser_launch_review_operation_insert
+		BEFORE INSERT ON browser_launch_review_operations
+		WHEN NOT EXISTS (
+			SELECT 1 FROM browser_launch_reviews review
+			WHERE review.id = NEW.review_id AND review.created_at = NEW.created_at
+		)
+		BEGIN
+			SELECT RAISE(ABORT, 'Browser launch review operation binding is invalid');
+		END;`,
+	`CREATE TRIGGER trg_browser_launch_attempt_update_immutable
+		BEFORE UPDATE ON browser_launch_attempts BEGIN
+			SELECT RAISE(ABORT, 'Browser launch attempt cannot be updated');
+		END;`,
+	`CREATE TRIGGER trg_browser_launch_attempt_delete_immutable
+		BEFORE DELETE ON browser_launch_attempts BEGIN
+			SELECT RAISE(ABORT, 'Browser launch attempt cannot be deleted');
+		END;`,
+	`CREATE TRIGGER trg_browser_launch_lease_update_immutable
+		BEFORE UPDATE ON browser_launch_leases BEGIN
+			SELECT RAISE(ABORT, 'Browser launch lease cannot be updated');
+		END;`,
+	`CREATE TRIGGER trg_browser_launch_lease_delete_immutable
+		BEFORE DELETE ON browser_launch_leases BEGIN
+			SELECT RAISE(ABORT, 'Browser launch lease cannot be deleted');
+		END;`,
+	`CREATE TRIGGER trg_browser_launch_preparation_operation_update_immutable
+		BEFORE UPDATE ON browser_launch_preparation_operations BEGIN
+			SELECT RAISE(ABORT, 'Browser launch preparation operation cannot be updated');
+		END;`,
+	`CREATE TRIGGER trg_browser_launch_preparation_operation_delete_immutable
+		BEFORE DELETE ON browser_launch_preparation_operations BEGIN
+			SELECT RAISE(ABORT, 'Browser launch preparation operation cannot be deleted');
+		END;`,
+	`CREATE TRIGGER trg_browser_launch_review_update_immutable
+		BEFORE UPDATE ON browser_launch_reviews BEGIN
+			SELECT RAISE(ABORT, 'Browser launch review cannot be updated');
+		END;`,
+	`CREATE TRIGGER trg_browser_launch_review_delete_immutable
+		BEFORE DELETE ON browser_launch_reviews BEGIN
+			SELECT RAISE(ABORT, 'Browser launch review cannot be deleted');
+		END;`,
+	`CREATE TRIGGER trg_browser_launch_review_operation_update_immutable
+		BEFORE UPDATE ON browser_launch_review_operations BEGIN
+			SELECT RAISE(ABORT, 'Browser launch review operation cannot be updated');
+		END;`,
+	`CREATE TRIGGER trg_browser_launch_review_operation_delete_immutable
+		BEFORE DELETE ON browser_launch_review_operations BEGIN
+			SELECT RAISE(ABORT, 'Browser launch review operation cannot be deleted');
 		END;`,
 }
 

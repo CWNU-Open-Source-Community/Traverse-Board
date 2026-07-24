@@ -1,6 +1,6 @@
 # CyberAgent Workbench V2 任务书
 
-更新时间：2026-07-21
+更新时间：2026-07-25
 
 ## 目标
 
@@ -22,11 +22,11 @@ P8 已推进到 schema v37：v35 将完成的 Fan-out execution 确定性投影�
 
 金额预算、HTTP 或模型自主 child 调度和真实 Sandbox 进程执行尚未实现；schema v48 的严格 Sandbox Manifest、schema v49 的精确审批/重新提交/禁用候选、schema v50 的禁用态 Artifact 绑定、独立 fencing、取消与清理恢复、schema v51 的禁用态后端/输出预检、schema v52 的仅模拟后端证据与内存输出事务、schema v53 的固定本机端点只读 Docker 观测、schema v54 的确定性容器计划与假写事务、schema v55 默认关闭的 Docker 创建/核验/删除演练、schema v56 的可恢复预写意图、代际租约和 stage/cleanup 检查点、schema v57 的 descriptor-pinned、kernel-sealed 宿主输入捕获证据、schema v58 的 daemon stage 前持久化捕获要求、schema v59 的 daemon-owned/readback-verified/fully-cleaned 输入交接、schema v60 的严格 runtime-input projection plan、schema v61 的可恢复只读卷应用与 never-started target，以及 schema v62 的保留资源检查与可恢复精确清理已经落地。v55-v62 仍不启动容器进程。operator-only 显式 child schedule/continue、no-tool child turn、最多两个 child 的有界并发、一次 child repair、Coordinator、Run 工具预算、跨进程执行互斥，以及 root/child 精确跨进程主动取消均已落地。
 
-P7 已推进到 schema v71 与非 schema D1-B1，P9/Desktop 产品面已推进到 schema v83 与 D1-G10/V9，通用运行时安全面已推进到 H1-H3/R7/C1-C3：除既有 Run/Session/Plan/审批、Workspace/证据/回执/行动中心外，FileEdit 支持安全恢复和多文件独立审阅，Windows Credential Manager 可触发 generation-safe Provider Registry 原子 reload，普通浏览器与 Desktop 共享 metadata-only capability/worker health，并新增 Go-owned 只读仓库状态/脱敏 Diff/历史/精确提交预览/可导航精确文件历史/精确提交比较与成对 base/head 预览、不可变操作者验证、snapshot-keyset 逐检查项下钻、确定性快照下载和不可变 record-only 回执历史、可恢复 Code Handoff/导出及累计上下文记忆。H1-H3 增加 Tool 硬超时/特殊文件拒绝、有界同步等待图与可恢复 Run 无进展熔断；R7 仅在内部 `NonProductOnly` 测试边界对六份进程树回收后 metadata evidence 生成 canonical digest，不保留规范正文，不宣称 wall-clock order、raw output、process identity、CPU/memory OS enforcement、signal identity 或产品执行。各项由独立 capability 或 read-only 契约控制；renderer 不提交 host path、不能回读密钥，worker 不持有 Tool Runner，也不授予通用 Shell、LocalRunner、Docker、Git hook、安装 hook 或子 Agent 能力。
+P7 已推进到 schema v71 与非 schema D1-B1，P9/Desktop 产品面已推进到 schema v85 与 D1-G13/V12，通用运行时安全面已推进到 H1-H3/R10/C1-C3：除既有 Run/Session/Plan/审批、Workspace/证据/回执/行动中心外，FileEdit 支持安全恢复和多文件独立审阅，Windows Credential Manager 可触发 generation-safe Provider Registry 原子 reload，普通浏览器与 Desktop 共享 metadata-only capability/worker health，并新增 Go-owned 只读仓库状态/脱敏 Diff/历史/精确提交预览/可导航精确文件历史/精确提交比较与成对 base/head 预览、不可变操作者验证、snapshot-keyset 逐检查项下钻、确定性快照下载和不可变 record-only 回执历史、可恢复 Code Handoff/导出及累计上下文记忆。H1-H3 增加 Tool 硬超时/特殊文件拒绝、有界同步等待图与可恢复 Run 无进展熔断；R10 只在内部 `NonProductOnly` 测试边界固定接受信封 bytes/SHA，不宣称 wall-clock order、raw output、process identity、CPU/memory OS enforcement、signal identity 或产品执行。P11-C1-C3 增加同句柄发布者接纳、不可变 launch attempt/代际 lease 和独立 review，但启动权仍为 false。各项由独立 capability 或 read-only 契约控制；renderer 不提交 host path、不能回读密钥，worker 不持有 Tool Runner，也不授予通用 Shell、LocalRunner、Docker、浏览器、Git hook、安装 hook 或子 Agent 能力。
 
 schema v64 已增加 Go-owned `run_execution_profile.v1`：每个 Run 默认 `preview`，操作者可在 `created` 或无活动 lease 的 `paused` 状态选择 `preview|docker|local`。CLI、HTTP/OpenAPI 与 React 使用同一状态机；所有档位仍固定零进程、零执行授权和零 capability。
 
-schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固定 16 项机器 probe 和摘要协议，CLI 只接受同一操作者的 v63 阻塞审查、稳定操作键和显式确认。schema v66 再增加 collector 调用前持久化的 attempt、摘要化 operation、过期 generation lease、当前代 quiescent reconciliation、类型化 failure 和原子 result。schema v67 只在 Linux 显式 opt-in 后执行五次固定 GET，schema v68 再增加一次不可变操作员接纳/拒绝决定。所有 start/process/export/Artifact authority 继续为 false。schema v69-v84 与 Desktop D1-A 至 D1-G13/V12 已完成外部 Skill 安全链、桌面恢复、日常 Run 控制、模型/Plan/审批、FileEdit 提案/审阅/apply/恢复/多文件汇总、Provider generation reload、持久化 wake/worker health、惰性 Skill、Workspace evidence、恢复回执、行动中心、键盘导航、只读 Repository/脱敏 Diff/历史/精确提交预览/可导航精确文件历史/精确提交比较及键盘可访问成对预览、不可变操作者验证/计划/关联/snapshot-keyset 逐项下钻/快照下载/record-only 回执历史/不授权复核、带精确 Verify 导航的 Code Handoff/export、带有界审计事实的 Code Journey 与累计上下文记忆。R9/R10 仅增加内部 Runner 回执兼容拒绝门和接受信封黄金向量；P10-A1 至 P10-B3 已增加 Go-owned analyzer 协议/惰性 Registry、Rust digest/内存 ZIP 中央目录纯函数与两套共享向量，但没有产品进程桥。SQLite 当前为 v84。
+schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固定 16 项机器 probe 和摘要协议，CLI 只接受同一操作者的 v63 阻塞审查、稳定操作键和显式确认。schema v66 再增加 collector 调用前持久化的 attempt、摘要化 operation、过期 generation lease、当前代 quiescent reconciliation、类型化 failure 和原子 result。schema v67 只在 Linux 显式 opt-in 后执行五次固定 GET，schema v68 再增加一次不可变操作员接纳/拒绝决定。所有 start/process/export/Artifact authority 继续为 false。schema v69-v85 与 Desktop D1-A 至 D1-G13/V12 已完成外部 Skill 安全链、桌面恢复、日常 Run 控制、模型/Plan/审批、FileEdit 提案/审阅/apply/恢复/多文件汇总、Provider generation reload、持久化 wake/worker health、惰性 Skill、Workspace evidence、恢复回执、行动中心、键盘导航、只读 Repository/脱敏 Diff/历史/精确提交预览/可导航精确文件历史/精确提交比较及键盘可访问成对预览、不可变操作者验证/计划/关联/snapshot-keyset 逐项下钻/快照下载/record-only 回执历史/不授权复核、带精确 Verify 导航的 Code Handoff/export、带有界审计事实的 Code Journey、累计上下文记忆与不启动的浏览器接纳/租约/复核账本。R9/R10 仅增加内部 Runner 回执兼容拒绝门和接受信封黄金向量；P10-A1 至 P10-B3 已增加 Go-owned analyzer 协议/惰性 Registry、Rust digest/内存 ZIP 中央目录纯函数与两套共享向量，但没有产品进程桥。SQLite 当前为 v85。
 
 ## 执行原则
 
@@ -515,8 +515,13 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 - [x] Desktop D1-UX8：摘要、审阅、文件和侧边任务复用既有 Go 有界投影；底部终端与右侧终端/浏览器保持明确未启动，无 PTY、Shell、进程或网络。
 - [x] Desktop D1-UX9：完成 pathless `desktop_workspace_open.v1`；只接收 Workspace/launcher ID，Go 保留目录，原生确认后仅启动固定外部应用，禁止 renderer path/command/env/args 与 Agent authority，边界见 ADR 0072。
 - [x] P11-B1/B2/B3 + D1-UX7/UX8/UX9 累计六切片健壮性门：串行 ordinary/race Go 512/603 秒、vet/staticcheck、Desktop race/tag、双 govulncheck 零可达、module、148 Web、TypeScript/OpenAPI/Vite/npm、Rust fmt/test/clippy/缓存 RustSec 与 Windows 可复现双构建通过；GUI SHA-256 `8aaf3365e3c4d2e41b6f6b6dbf75f1b580a48d24419ba288d4235a41b5549cb8`。在线 RustSec 更新因 GitHub I/O 失败；并行 Go 的 SQLite migration 争用作为测试性能残余记录；审计修复非规范 Workspace root 的一项低风险未来接线问题。
-- [ ] P11-C1/C2/C3：发布者/来源与同句柄复核、durable launch attempt/lease/进程树清理合同、独立操作员 launch review；完整六片健壮性门通过前仍不得真实启动。
-- [ ] P11-C4+：C1-C3 与完整健壮性门通过后才实现 Safe Web 真实启动、导航、DOM 与截图；不得复用 Wails renderer 或个人 Chrome Profile。
+- [x] P11-C1：同一只读文件句柄绑定 bytes/SHA/PE/file identity 与缓存限定 Windows Authenticode；Chrome/Edge 固定发布者可进入 `accepted_for_review`，Chromium 继续拒绝，launch trust 不完整。
+- [x] P11-C2：schema v85 immutable launch attempt/generation lease/idempotency/event，精确绑定 Session/Run/Workspace/executable/Profile generation/Scope/budget/backend/process-tree；Disabled/Fake lifecycle 不启动进程。
+- [x] P11-C3：活动 lease 内独立 operator review，owner/reviewer 摘要必须不同并重算 attempt fingerprint；接受仍不授予 process/network/profile-write/termination/cleanup/CDP/Artifact authority，边界见 ADR 0073。
+- [x] P11-B1/B2/B3 + P11-C1/C2/C3 累计六切片健壮性门：串行 ordinary/race Go 约 545/660 秒、vet/staticcheck、双 govulncheck、module、148 Web、TypeScript/API/Vite/npm、Rust fmt/test/clippy/audit/真实夹具和 Windows 可复现双构建通过；只读 Chrome/Edge Authenticode 烟测检查两个候选且零启动。
+- [ ] P11-C4：仅实现 Safe Web 真实进程启动；必须在 adapter 前精确复核 v85 acceptance/review，并用 Windows Job Object 绑定整棵进程树，无 Shell、无导航、无 Profile 写入。
+- [ ] P11-C5：独立实现一次性 Profile generation 创建、marker、重启恢复和 exact released-owned 清理；个人 Chrome/Edge Profile 永久禁止。
+- [ ] P11-C6：独立实现 exact-scope localhost CDP 导航、DOM metadata 与截图；请求改包/重放和 CTF 安全放宽继续关闭。
 - [ ] P11-D：CTF Lab 抓包/改包/重放、Cookie 与代理；所有请求继续绑定 exact scope、预算和事件审计。
 - [ ] P11-E：仅容器内开放 Instrumented 安全放宽并强制证据标记，默认档永久保持浏览器原生安全。
 - [ ] 在 Profiles/Skills/Finding/Sandbox 稳定后实现 CTF Mission Profile。
