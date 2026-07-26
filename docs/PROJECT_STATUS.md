@@ -2214,7 +2214,11 @@ range-value write-back defect that could
 leave a prepared JSON strategy out of the actual shard request, plus missing final streamed
 Provider/model identity rejection during qualification. Two-shard and wrong-model regression tests
 now pin both behaviors. No real Tool, Shell, file, browser, Docker, target-network, or analyzer
-authority was used or added. SQLite remains v85. ADR 0074 is authoritative.
+authority was used or added. The first remote CI passed every functional, Go, Rust, and Windows
+job but exposed a development-only `brace-expansion` high-severity DoS advisory in the OpenAPI
+generator chain. Pinning its exact fixed 5.0.8 release preserves generation, all 149 Web tests,
+and the production build; `npm audit` reports zero vulnerabilities. SQLite remains v85. ADR 0074
+is authoritative.
 
 ## Recommended Next Batch
 

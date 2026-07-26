@@ -2468,7 +2468,8 @@ ToolCall 和一次消费合成 ToolResult 后的精确 JSON；合成 Tool 从不
 React、strict TypeScript、Vite build 和确定性 OpenAPI/TypeScript。组合审计发现并修复两项
 可靠性问题：只读 Fan-out shard 预处理曾因
 range 值拷贝未写回，以及资格流曾未拒绝最终 Provider/Model 身份漂移；两者均已有回归测试。
-未发现启用路径中未解决高/中风险。边界见
+远端依赖审计随后发现生成期 `brace-expansion` 公告，现通过精确 override 升至 5.0.8，API 生成、
+149 项测试与构建保持一致，`npm audit` 为 0 漏洞。未发现启用路径中未解决高/中风险。边界见
 [ADR 0074](docs/adr/0074-model-harness-protocol-profiles-and-qualification.md)。
 
 This non-schema batch adds exact model Harness profiles, workload-minimized Go preflight, and an

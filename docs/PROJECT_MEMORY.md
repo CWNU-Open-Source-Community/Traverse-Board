@@ -1895,7 +1895,10 @@ build, and deterministic 76/84/185 OpenAPI/TypeScript generation. Audit caught a
 Fan-out range-value write-back bug plus missing final streamed
 Provider/model identity rejection during qualification. Two-shard and wrong-model regression tests
 pin both fixes. No real Tool, Shell, file, browser, Docker, target-network, analyzer, or new
-authority path was used. SQLite remains v85. ADR 0074 is authoritative.
+authority path was used. The first remote CI then exposed a development-only `brace-expansion`
+high-severity DoS advisory in the OpenAPI generator chain. An exact 5.0.8 override preserves
+generation, all 149 Web tests, and the production build while returning `npm audit` to zero
+vulnerabilities. SQLite remains v85. ADR 0074 is authoritative.
 
 中文交接：模型接入现在不再只看“HTTP 能通”。外部模型必须通过一次合成 ToolCall 与一次精确 JSON
 回执，且资格绑定精确 Provider/模型/地址/策略并会过期。普通连通性测试和资格校验仍是两个动作；

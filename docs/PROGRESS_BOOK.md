@@ -1968,7 +1968,9 @@ OpenAPI/TypeScript generation。组合审计发现并修复
 两项可靠性问题：Fan-out shard request 的协议预处理原先通过 range 值拷贝赋值，prompt/native
 JSON 策略可能未写回实际请求；资格流原先也未像普通 Agent 调用一样拒绝最终 Provider/Model 身份
 漂移。现已分别增加双 shard 与错误模型身份回归测试。未发现权限扩大、真实 Tool 执行、
-Shell/File/Browser/Docker/目标网络动作或敏感内容持久化。边界见 ADR 0074。
+Shell/File/Browser/Docker/目标网络动作或敏感内容持久化。首次远端 CI 的功能、Go/Rust/Windows
+矩阵均通过，但生成期依赖 `brace-expansion` 命中高危 DoS 公告；精确 override 到 5.0.8 后，
+OpenAPI 生成、149 项测试和构建不变，`npm audit` 降为 0 漏洞。边界见 ADR 0074。
 
 当前下一批仍为 P11-C4/C5/C6，但进入真实浏览器启动前必须再次复核本机永久删除守卫、Job Object
 整树终止、一次性 Profile 精确所有权与 CDP exact-scope。Model Harness qualification 只证明有界
