@@ -4,9 +4,9 @@ Last updated: 2026-07-26
 
 ## Resume Context
 
-The latest non-schema Model Harness A1/A2/A3 batch adds exact Provider/model protocol profiles, workload-minimized Root/Specialist/read-only-Fan-out preflight, and an explicitly confirmed at-most-two-call synthetic qualification across Registry, CLI, HTTP, Desktop, and React. SQLite remains v85; OpenAPI is now 76/84/185. The synthetic Tool is never executed, availability reads remain offline, and qualification grants no process, network-target, file, browser, Docker, or Tool authority. ADR 0074 defines this boundary. The preceding P11-C1/C2/C3 browser gate remains non-starting under ADR 0073.
+The latest P12-A1/A2/A3 batch advances SQLite to v86 and fixes Prayu's execution-interaction trust model. A Run may record operator-selected `preview|controlled|debug|cyber` intent, but every durable snapshot remains non-authorizing and non-starting. Debug/Cyber Agent terminal input requires a process-local, exact-scoped, revocable lease that lasts at most 15 minutes and is lost on restart. The controlled command path accepts only four Go-owned one-shot templates and produces a start-blocked plan; it does not invoke Git, PowerShell, or any other process. ADR 0075 defines the Code/Debug/Cyber boundaries. The preceding non-schema Model Harness batch remains governed by ADR 0074.
 
-Current database schema is v85. Schemas v78-v81 add immutable operator verification evidence, livelock recovery, verification plans, and explicit plan-item/evidence associations; schema v82 adds conservative complete-request model-context planning and immutable cumulative handoff memory; schema v83 adds immutable metadata-only verification snapshot receipt history; schema v84 adds one immutable non-authorizing metadata review per exact receipt; schema v85 adds non-starting browser launch attempts, generation leases, idempotency facts, and independent reviews. Code/Desktop work remains D1-G13/V12. R9 strictly rejects malformed, future, digest-mismatched, or authority-widening receipt envelopes, while R10 pins accepted envelope bytes/SHA only behind the internal `NonProductOnly` Runner boundary. `model_harness.v1` now distinguishes transport compatibility from streamed ToolCall/ToolResult/strict-JSON compatibility, strips tools from Specialist and Fan-out, and fails an unqualified external model before normal Agent invocation. P10-A1 through P10-B3 establish a Go-owned analyzer boundary: a strict bounded request/result/error protocol, a fixed inert two-entry descriptor Registry, deterministic digest and in-memory ZIP central-directory functions, strict no-extraction archive result validation, and two independent Go/Rust five-vector suites. There is no Go-to-Rust product process bridge, file/path input, Run/Event/SQLite persistence, or Artifact commit. Root and Specialist requests use a 32K conservative fallback with explicit output/safety reservations, repeated compaction preserves a predecessor-bound cumulative handoff chain, and arbitrary repository documents remain untrusted evidence instead of instructions. Operators can compare any two exact local commit trees, use focus-safe keyboard navigation in the paired redacted preview, page through one frozen verification-item snapshot, download a deterministic metadata-only Markdown/JSON representation, record an immutable digest receipt, separately confirm or dispute only its metadata, carry bounded review metadata into a regenerable Code Handoff/Journey audit, and navigate only after Verify independently matches exact review/receipt/plan/item digests. Browser acceptance binds exact Windows file bytes/identity/publisher; immutable attempts and independent review still cannot start a process. R9/R10, P10, P11-C, and Harness qualification do not claim wall-clock order, raw output, process identity, CPU/memory enforcement, verified OS quotas, signal identity, model quality/safety, or product execution. None grants general Shell, LocalRunner, Docker, child scheduling, install hooks, renderer host-path authority, credential readback, document instruction authority, automatic Skill selection, result acceptance, or product process execution.
+Current database schema is v86. Schemas v78-v81 add immutable operator verification evidence, livelock recovery, verification plans, and explicit plan-item/evidence associations; schema v82 adds conservative complete-request model-context planning and immutable cumulative handoff memory; schema v83 adds immutable metadata-only verification snapshot receipt history; schema v84 adds one immutable non-authorizing metadata review per exact receipt; schema v85 adds non-starting browser launch attempts, generation leases, idempotency facts, and independent reviews; schema v86 adds operator-selected execution-interaction intent without execution authority. Code/Desktop work remains D1-G13/V12. R9 strictly rejects malformed, future, digest-mismatched, or authority-widening receipt envelopes, while R10 pins accepted envelope bytes/SHA only behind the internal `NonProductOnly` Runner boundary. `model_harness.v1` now distinguishes transport compatibility from streamed ToolCall/ToolResult/strict-JSON compatibility, strips tools from Specialist and Fan-out, and fails an unqualified external model before normal Agent invocation. P10-A1 through P10-B3 establish a Go-owned analyzer boundary: a strict bounded request/result/error protocol, a fixed inert two-entry descriptor Registry, deterministic digest and in-memory ZIP central-directory functions, strict no-extraction archive result validation, and two independent Go/Rust five-vector suites. There is no Go-to-Rust product process bridge, file/path input, Run/Event/SQLite persistence, or Artifact commit. Root and Specialist requests use a 32K conservative fallback with explicit output/safety reservations, repeated compaction preserves a predecessor-bound cumulative handoff chain, and arbitrary repository documents remain untrusted evidence instead of instructions. Operators can compare any two exact local commit trees, use focus-safe keyboard navigation in the paired redacted preview, page through one frozen verification-item snapshot, download a deterministic metadata-only Markdown/JSON representation, record an immutable digest receipt, separately confirm or dispute only its metadata, carry bounded review metadata into a regenerable Code Handoff/Journey audit, and navigate only after Verify independently matches exact review/receipt/plan/item digests. Browser acceptance binds exact Windows file bytes/identity/publisher; immutable attempts and independent review still cannot start a process. P12 interaction selection and command planning also remain non-starting. R9/R10, P10, P11-C, P12-A, and Harness qualification do not claim wall-clock order, raw output, process identity, CPU/memory enforcement, verified OS quotas, signal identity, model quality/safety, or product execution. None grants general Shell, LocalRunner, Docker, child scheduling, install hooks, renderer host-path authority, credential readback, document instruction authority, automatic Skill selection, result acceptance, or product process execution.
 
 Schema v63 remains the blocked Sandbox start-gate review; schemas v48-v68 keep Local and container-process execution disabled. Schema v64 records only backend preference, schema v65 records non-authorizing machine-capture receipts, schema v66 adds recoverable ownership, schema v67 permits only five fixed read-only daemon GETs after explicit Linux opt-in, and schema v68 records a non-authorizing receipt decision without contacting Docker. No Agent-controlled path starts a Runner, container, Shell, browser, or Rust analyzer. ADR 0072 separately permits the operator, after a native confirmation, to start one fixed recognized external application for an exact registered Workspace; it is not an Agent execution bridge. ADR 0024 through ADR 0074 record the current Skill, Sandbox, Desktop, runtime, analyzer, browser, workbench, and model-Harness boundaries.
 
@@ -222,6 +222,14 @@ Use these files first when resuming:
 - `internal/report/sarif.go`
 - `internal/report/gate.go`
 - `internal/app/report_command.go`
+- `internal/domain/run_execution_interaction.go`
+- `internal/application/run_execution_interaction.go`
+- `internal/store/migration_v86.go`
+- `internal/store/run_execution_interactions.go`
+- `internal/executionauth/terminal_lease.go`
+- `internal/runner/controlled_command.go`
+- `internal/app/run_command.go`
+- `docs/adr/0075-execution-interaction-trust-model.md`
 
 ## Progress Review
 
@@ -231,7 +239,7 @@ Use these files first when resuming:
 - Cyber autonomous-workflow usability: about 20%.
 - These values are engineering estimates derived from tested roadmap slices, not performance benchmarks. The retired single-axis "overall product vision" percentage must not be used for current status.
 
-Latest implemented batch: Model Harness A1/A2/A3 on schema v85 and OpenAPI 76/84/185. It adds exact protocol profiles, Root/Specialist/read-only-Fan-out request minimization, and an explicitly confirmed synthetic two-call qualification with seven-day exact-binding persistence. The three-slice functional gate passes full Go in about 302.5 seconds, full vet, 42 files/149 React tests, strict TypeScript, Vite build, and deterministic OpenAPI/TypeScript generation. Combined review fixed one Fan-out request write-back defect and added a regression test; no unresolved high/medium issue is known on an enabled path. ADR 0074 is authoritative. The previous P11-C1/C2/C3 browser gate remains non-starting, and the operational built-in browser remains unavailable.
+Latest implemented batch: P12-A1/A2/A3 on schema v86. It adds durable non-authorizing `preview|controlled|debug|cyber` intent, a process-local exact-scoped Agent terminal-input lease, and four fixed non-starting one-shot command plans. The interaction record, lease, and command plan are deliberately separate: none starts a process or grants Shell, network, profile, Docker, or terminal authority. Functional-gate results are recorded in the P12 section at the end of this document. ADR 0075 is authoritative. The operational built-in browser and product LocalRunner/ConPTY/Docker PTY remain unavailable.
 
 Completed:
 
@@ -402,6 +410,18 @@ Not done yet:
 - Real Local/container-process execution and Sandbox Artifact export from an actual process; current terminal Shell/ScriptProcess completion remains dry-run only, and v55 never starts its rehearsal container.
 
 ## Code Audit Notes
+
+The P12-A1/A2/A3 execution-trust audit found no unresolved high- or
+medium-severity issue on an enabled path. Durable interaction snapshots always
+retain false process/network/capability authority, and the command planner has
+no process-start dependency. Review restored the repository's complete
+migration-downgrade test chain after schema v86, moved semantic operation replay
+ahead of current lifecycle checks, exact-bound terminal-input leases to the
+interaction snapshot and revision, and separated bounded active leases from
+bounded revoked-token summaries. A successful operation retry now returns its
+original immutable snapshot even after the Run has started; changed intent still
+conflicts. No bearer, raw operation key, Workspace root, PowerShell body, or
+executable path enters SQLite or Run events.
 
 No high-severity issue was found in the latest slice.
 
@@ -2220,15 +2240,64 @@ generator chain. Pinning its exact fixed 5.0.8 release preserves generation, all
 and the production build; `npm audit` reports zero vulnerabilities. SQLite remains v85. ADR 0074
 is authoritative.
 
+## Latest Execution Trust Batch
+
+P12-A1 advances SQLite to v86 with append-only `run_execution_interaction.v1`
+snapshots and digest-idempotent operations. An operator may select `preview`,
+`controlled`, `debug`, or `cyber` only for a created or quiescent paused Run.
+The Store rebinds every transition to the latest immutable Run mode and execution
+profile. Models, Agents, Skills, and repository identities are rejected as
+requesters. Existing Runs migrate to `preview/untrusted` without fabricated
+authority or events. Every durable row fixes Agent input, network, process
+execution, capability grants, and execution authorization to false.
+
+P12-A2 adds a process-local `executionauth.Broker` for Debug/Cyber Agent terminal
+input. Each random bearer is exact-bound to Workspace, Run, terminal session,
+interaction snapshot ID/revision, and interaction mode; only its SHA-256 digest
+indexes memory. A lease lasts from 15 seconds to 15 minutes, can be revoked by
+lease, Run, Workspace, or process, and cannot survive restart. Active entries and
+revoked-token summaries are independently capped at 256, so revocation immediately
+releases active capacity. Controlled mode and model/Agent/Skill/repository
+self-authorization are rejected. The lease neither creates a terminal nor grants
+process authority.
+
+P12-A3 adds four closed, one-shot command-plan kinds: `git-status`,
+`git-diff-check`, `go-version`, and `powershell-workspace-list`. The PowerShell
+variant uses one Go-owned `-NoProfile -NonInteractive -ExecutionPolicy Restricted`
+template and accepts only a bounded Workspace-relative path. Arbitrary
+executables, raw command text, shell chaining, environment inheritance, stdin,
+network, and persistence are absent. Plans are exact-bound to the controlled
+interaction, Code surface, Local profile revision, and Workspace, and always
+return `start_blocked=true` and `product_execution_enabled=false`.
+
+This batch deliberately implements no `os/exec`, ConPTY, Job Object, Docker PTY,
+network executor, process output collector, or process recovery path. The final
+functional gate passes the complete serial Go suite in about 507.1 seconds, full
+`go vet`, 42 files/149 React tests, strict TypeScript and the Vite production
+build, README v1-v86 ordering, diff checks, and a focused no-process-start scan.
+Review fixed four robustness gaps before release: v86 now participates in the
+shared legacy-migration fixture teardown chain; exact operation replay succeeds
+after later Run lifecycle changes; terminal leases bind the exact interaction
+snapshot/revision; and revoked leases immediately release active capacity while
+revoked-token summaries remain bounded. Documentation also now uses the exact
+CLI flag names. No unresolved high/medium issue is known on an enabled path.
+ADR 0075 is authoritative.
+
 ## Recommended Next Batch
 
-Candidate slices are P11-C4 Safe Web process start with exact acceptance/review revalidation and
-Windows Job Object whole-tree ownership, P11-C5 disposable-profile generation materialization and
-exact-owned recovery/cleanup, and P11-C6 exact-scope localhost CDP navigation/DOM/screenshot.
-Keep these three authorities separate: C4 must not navigate or write a profile, C5 must never
-touch a personal profile, and C6 must not enable request mutation/replay or CTF security
-relaxations. Run the three-slice functional gate after C6; the next six-slice robustness gate is
-due after the following batch. P10-F1/F2/F3 remain queued rather than discarded.
+Candidate slices are P12-B1 a Windows product backend limited to the exact
+controlled structured-argv plan with an OS restricted identity/sandbox, Job
+Object whole-tree ownership, bounded output, timeout, cancellation, and restart
+audit; P12-B2 a user-owned ConPTY terminal with no Agent input path; and P12-B3
+an Agent-input bridge that consumes only the exact short-lived P12-A2 lease and
+revokes on lock, sleep, exit, Workspace switch, Run termination, and terminal
+replacement. Keep the three authorities separate: B1 must not create a
+persistent terminal, B2 must not accept Agent input, and B3 must not start or
+retarget a terminal. Run the three-slice functional gate after B3; the next
+six-slice robustness gate is due after the following batch.
+
+P11-C4/C5/C6 browser start/Profile/CDP and P10-F1/F2/F3 remain queued rather
+than discarded. They must not be folded into the terminal Runner batch.
 
 Keep the Local profile disabled until a real
 OS sandbox makes protected host roots unavailable or read-only; never map it to

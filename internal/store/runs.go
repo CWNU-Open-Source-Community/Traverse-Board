@@ -130,6 +130,16 @@ func createMissionRunTx(ctx context.Context, tx *sql.Tx, mission domain.Mission,
 	if err := insertInitialRunExecutionProfileSnapshotTx(ctx, tx, executionProfile, run, mission); err != nil {
 		return err
 	}
+	executionInteraction, err := domain.NewInitialRunExecutionInteractionSnapshot(
+		idgen.New("run-exec-interaction"), run, mission, mode, executionProfile,
+		mode.RequestedBy, run.CreatedAt)
+	if err != nil {
+		return err
+	}
+	if err := insertInitialRunExecutionInteractionSnapshotTx(ctx, tx,
+		executionInteraction, run, mission, mode, executionProfile); err != nil {
+		return err
+	}
 	for _, event := range initialEvents {
 		if _, err := insertRunEventTx(ctx, tx, event); err != nil {
 			return err

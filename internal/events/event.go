@@ -16,6 +16,7 @@ const (
 	RunModeSelectedEvent                          = "run.mode_selected"
 	RunPhaseChangedEvent                          = "run.phase_changed"
 	RunExecutionProfileSelectedEvent              = "run.execution_profile_selected"
+	RunExecutionInteractionSelectedEvent          = "run.execution_interaction_selected"
 	RunStatusChangedEvent                         = "run.status_changed"
 	RunExecutionHandoffRequestedEvent             = "run.execution_handoff_requested"
 	RunExecutionHandoffCompletedEvent             = "run.execution_handoff_completed"

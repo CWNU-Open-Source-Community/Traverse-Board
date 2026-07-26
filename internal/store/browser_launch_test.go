@@ -16,7 +16,7 @@ import (
 )
 
 func removeSchemaV85ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV86ForTestStatements(), []string{
 		`DROP TRIGGER trg_browser_launch_review_operation_delete_immutable`,
 		`DROP TRIGGER trg_browser_launch_review_operation_update_immutable`,
 		`DROP TRIGGER trg_browser_launch_review_delete_immutable`,
@@ -40,7 +40,7 @@ func removeSchemaV85ForTestStatements() []string {
 		`DROP INDEX idx_browser_launch_attempts_run_created`,
 		`DROP TABLE browser_launch_attempts`,
 		`DELETE FROM schema_migrations WHERE version = 85`,
-	}
+	}...)
 }
 
 func TestBrowserLaunchPreparationAndReviewAreDurableImmutableAndNonAuthorizing(t *testing.T) {

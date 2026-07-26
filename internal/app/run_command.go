@@ -13,6 +13,8 @@ import (
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/coordinator"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/idgen"
+	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/workspace"
 )
 
@@ -39,6 +41,10 @@ func (a *App) runCommand(ctx context.Context, args []string) error {
 		return a.runPhase(ctx, service, args[1:])
 	case "execution-profile":
 		return a.runExecutionProfile(ctx, args[1:])
+	case "execution-interaction":
+		return a.runExecutionInteraction(ctx, args[1:])
+	case "command-plan":
+		return a.runCommandPlan(ctx, args[1:])
 	case "events":
 		return a.runEvents(ctx, service, args[1:])
 	case "step":
@@ -1426,6 +1432,136 @@ func writeRunExecutionProfile(out interface{ Write([]byte) (int, error) },
 		profile.Profile, profile.Backend, profile.ApprovalPolicy, profile.FilesystemScope,
 		profile.NetworkScope, profile.RiskTier, profile.RequiredGate, profile.PolicyVersion,
 		profile.RequestedBy, profile.Reason, profile.CreatedAt.Format(time.RFC3339Nano), replayed)
+}
+
+func (a *App) runExecutionInteraction(ctx context.Context, args []string) error {
+	service := application.NewRunExecutionInteractionService(a.store)
+	if len(args) == 1 {
+		interaction, err := service.Current(ctx, args[0])
+		if err != nil {
+			return err
+		}
+		writeRunExecutionInteraction(a.out, interaction, false)
+		return nil
+	}
+	if len(args) == 0 || args[0] != "set" {
+		return errors.New("usage: cyberagent run execution-interaction <run-id> | cyberagent run execution-interaction set <run-id> preview|controlled|debug|cyber --operation-key <key> [--trust untrusted|trusted] [--confirm-workspace-trust] [--confirm-debug-boundary|--confirm-container-boundary] [--operator <id>] [--reason <text>]")
+	}
+	fs := newFlagSet("run execution-interaction set", a.errOut)
+	operationKey := fs.String("operation-key", "",
+		"stable execution-interaction operation key")
+	trust := fs.String("trust", "", "Workspace trust level")
+	operator := fs.String("operator", "cli_operator", "operator identity")
+	reason := fs.String("reason", "", "redacted selection reason")
+	confirmWorkspace := fs.Bool("confirm-workspace-trust", false,
+		"confirm that the registered Workspace is trusted")
+	confirmDebug := fs.Bool("confirm-debug-boundary", false,
+		"confirm the user-terminal-first debug boundary")
+	confirmContainer := fs.Bool("confirm-container-boundary", false,
+		"confirm the isolated Cyber container boundary")
+	if err := fs.Parse(reorderFlags(args[1:], map[string]bool{
+		"operation-key": true, "trust": true, "operator": true, "reason": true,
+		"confirm-workspace-trust": false, "confirm-debug-boundary": false,
+		"confirm-container-boundary": false,
+	})); err != nil {
+		return err
+	}
+	if fs.NArg() != 2 || strings.TrimSpace(*operationKey) == "" {
+		return errors.New("usage: cyberagent run execution-interaction set <run-id> preview|controlled|debug|cyber --operation-key <key> [--trust untrusted|trusted] [--confirm-workspace-trust] [--confirm-debug-boundary|--confirm-container-boundary] [--operator <id>] [--reason <text>]")
+	}
+	result, err := service.Change(ctx,
+		application.ChangeRunExecutionInteractionRequest{
+			RunID: fs.Arg(0), Mode: fs.Arg(1), Trust: *trust,
+			OperationKey: *operationKey, RequestedBy: *operator, Reason: *reason,
+			ConfirmWorkspaceTrust:    *confirmWorkspace,
+			ConfirmDebugBoundary:     *confirmDebug,
+			ConfirmContainerBoundary: *confirmContainer,
+		})
+	if err != nil {
+		return err
+	}
+	writeRunExecutionInteraction(a.out, result.Interaction, result.Replayed)
+	return nil
+}
+
+func writeRunExecutionInteraction(out interface{ Write([]byte) (int, error) },
+	interaction domain.RunExecutionInteractionSnapshot, replayed bool,
+) {
+	fmt.Fprintf(out, "run: %s\nmission: %s\nprotocol: %s\nrevision: %d\nmode: %s\nsurface: %s\nexecution_profile: %s\nexecution_profile_revision: %d\nworkspace_trust: %s\ncommand_form: %s\npersistent_terminal: %t\nuser_input_available: %t\nagent_input_default: false\nnetwork_scope: %s\nrequired_gate: %s\npolicy: %s\noperator_confirmed: %t\nrequested_by: %s\nreason: %s\ncreated_at: %s\nprocess_enabled: false\nexecution_authorized: false\ncapability_grant: false\nreplayed: %t\n",
+		interaction.RunID, interaction.MissionID, interaction.ProtocolVersion,
+		interaction.Revision, interaction.Mode, interaction.Surface,
+		interaction.ExecutionProfile, interaction.ExecutionProfileRevision,
+		interaction.WorkspaceTrust, interaction.CommandForm,
+		interaction.PersistentTerminal, interaction.UserInputAvailable,
+		interaction.NetworkScope, interaction.RequiredGate,
+		interaction.PolicyVersion, interaction.OperatorConfirmed,
+		interaction.RequestedBy, interaction.Reason,
+		interaction.CreatedAt.Format(time.RFC3339Nano), replayed)
+}
+
+func (a *App) runCommandPlan(ctx context.Context, args []string) error {
+	fs := newFlagSet("run command-plan", a.errOut)
+	relativePath := fs.String("path", "",
+		"Workspace-relative path for PowerShell list")
+	timeout := fs.Duration("timeout", runner.DefaultControlledCommandTimeout,
+		"one-shot command timeout")
+	if err := fs.Parse(reorderFlags(args, map[string]bool{
+		"path": true, "timeout": true,
+	})); err != nil {
+		return err
+	}
+	if fs.NArg() != 2 {
+		return errors.New("usage: cyberagent run command-plan <run-id> git-status|git-diff-check|go-version|powershell-workspace-list [--path <relative>] [--timeout <duration>]")
+	}
+	kind, err := runner.ParseControlledCommandKind(fs.Arg(1))
+	if err != nil {
+		return err
+	}
+	runRecord, err := a.store.GetRun(ctx, fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	mission, err := a.store.GetMission(ctx, runRecord.MissionID)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(mission.WorkspaceID) == "" {
+		return apperror.New(apperror.CodeFailedPrecondition,
+			"controlled command planning requires a registered Workspace")
+	}
+	workspaceRecord, err := a.store.GetWorkspaceByID(ctx, mission.WorkspaceID)
+	if err != nil {
+		return err
+	}
+	interaction, err := a.store.GetRunExecutionInteraction(ctx, runRecord.ID)
+	if err != nil {
+		return err
+	}
+	profile, err := a.store.GetRunExecutionProfile(ctx, runRecord.ID)
+	if err != nil {
+		return err
+	}
+	mode, err := a.store.GetRunMode(ctx, runRecord.ID)
+	if err != nil {
+		return err
+	}
+	plan, err := runner.PlanControlledCommand(runner.ControlledCommandPlanRequest{
+		ID:          idgen.New("controlled-command-plan"),
+		WorkspaceID: mission.WorkspaceID, WorkspaceRoot: workspaceRecord.RootPath,
+		Interaction: interaction, CurrentProfile: profile,
+		CurrentSurface: mode.Surface, Kind: kind, RelativePath: *relativePath,
+		Timeout: *timeout,
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(a.out, "plan: %s\nprotocol: %s\npolicy: %s\nrun: %s\nworkspace: %s\ninteraction_snapshot: %s\ninteraction_revision: %d\nexecution_profile_revision: %d\nkind: %s\nexecutable_id: %s\nargument_count: %d\nrelative_path: %s\ntimeout_millis: %d\nworking_directory_bound: true\nstdin_closed: true\nenvironment_inherited: false\nprofile_loading_enabled: false\npersistent_process: false\ncaller_shell_text_accepted: false\ngo_owned_powershell_script: %t\nnetwork_requested: false\nos_sandbox_required: true\nstart_blocked: true\nproduct_execution_enabled: false\nfingerprint: %s\n",
+		plan.ID, plan.ProtocolVersion, plan.PolicyVersion, plan.RunID,
+		plan.WorkspaceID, plan.InteractionSnapshotID, plan.InteractionRevision,
+		plan.ExecutionProfileRevision, plan.Kind, plan.ExecutableID, len(plan.Argv),
+		plan.RelativePath, plan.TimeoutMilliseconds, plan.GoOwnedPowerShellScript,
+		plan.Fingerprint)
+	return nil
 }
 
 func (a *App) runEvents(ctx context.Context, service *application.RunService, args []string) error {

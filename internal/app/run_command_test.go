@@ -143,6 +143,130 @@ func TestRunExecutionProfileCLISelectsWithoutGrantingExecution(t *testing.T) {
 	}
 }
 
+func TestRunExecutionInteractionCLIRequiresExplicitOperatorBoundaries(t *testing.T) {
+	t.Setenv("CYBERAGENT_HOME", t.TempDir())
+	created, stderr, code := executeTestCommand(t, "run", "create",
+		"choose an execution interaction boundary", "--max-turns", "2")
+	if code != 0 || stderr != "" {
+		t.Fatalf("run create output=%q stderr=%q code=%d", created, stderr, code)
+	}
+	runID := runIDPattern.FindString(created)
+	shown, stderr, code := executeTestCommand(t, "run", "execution-interaction",
+		runID)
+	if code != 0 || stderr != "" ||
+		!strings.Contains(shown, "mode: preview") ||
+		!strings.Contains(shown, "workspace_trust: untrusted") ||
+		!strings.Contains(shown, "agent_input_default: false") ||
+		!strings.Contains(shown, "process_enabled: false") {
+		t.Fatalf("unexpected initial interaction output=%q stderr=%q code=%d",
+			shown, stderr, code)
+	}
+	if _, stderr, code := executeTestCommand(t, "run", "execution-interaction",
+		"set", runID, "controlled", "--trust", "trusted",
+		"--operation-key", "cli-interaction-missing-confirmation-0001"); code != 2 || !strings.Contains(stderr, "explicit Workspace trust") {
+		t.Fatalf("missing confirmation stderr=%q code=%d", stderr, code)
+	}
+	if _, stderr, code := executeTestCommand(t, "run", "execution-profile", "set",
+		runID, "local", "--operation-key", "cli-interaction-profile-0001"); code != 0 {
+		t.Fatalf("local profile selection failed: %s", stderr)
+	}
+	selected, stderr, code := executeTestCommand(t, "run",
+		"execution-interaction", "set", runID, "controlled",
+		"--trust", "trusted", "--confirm-workspace-trust",
+		"--operation-key", "cli-interaction-controlled-0001",
+		"--reason", "trusted code workspace")
+	if code != 0 || stderr != "" ||
+		!strings.Contains(selected, "mode: controlled") ||
+		!strings.Contains(selected, "command_form: structured_argv") ||
+		!strings.Contains(selected, "persistent_terminal: false") ||
+		!strings.Contains(selected, "required_gate: local_os_sandbox_gate") ||
+		!strings.Contains(selected, "execution_authorized: false") {
+		t.Fatalf("unexpected controlled output=%q stderr=%q code=%d",
+			selected, stderr, code)
+	}
+	debug, stderr, code := executeTestCommand(t, "run",
+		"execution-interaction", "set", runID, "debug",
+		"--trust", "trusted", "--confirm-workspace-trust",
+		"--confirm-debug-boundary",
+		"--operation-key", "cli-interaction-debug-0001")
+	if code != 0 || stderr != "" ||
+		!strings.Contains(debug, "mode: debug") ||
+		!strings.Contains(debug, "command_form: user_conpty") ||
+		!strings.Contains(debug, "persistent_terminal: true") ||
+		!strings.Contains(debug, "user_input_available: true") ||
+		!strings.Contains(debug, "agent_input_default: false") ||
+		!strings.Contains(debug, "capability_grant: false") {
+		t.Fatalf("unexpected debug output=%q stderr=%q code=%d",
+			debug, stderr, code)
+	}
+	if _, stderr, code := executeTestCommand(t, "run",
+		"execution-interaction", "set", runID, "preview",
+		"--operation-key", "cli-interaction-agent-0001", "--operator", "model"); code != 2 || !strings.Contains(stderr, "cannot select") {
+		t.Fatalf("model-selected interaction stderr=%q code=%d", stderr, code)
+	}
+	if _, stderr, code := executeTestCommand(t, "run", "start", runID); code != 0 {
+		t.Fatalf("run start failed before interaction replay: %s", stderr)
+	}
+	replayed, stderr, code := executeTestCommand(t, "run",
+		"execution-interaction", "set", runID, "controlled",
+		"--trust", "trusted", "--confirm-workspace-trust",
+		"--operation-key", "cli-interaction-controlled-0001",
+		"--reason", "trusted code workspace")
+	if code != 0 || stderr != "" ||
+		!strings.Contains(replayed, "mode: controlled") ||
+		!strings.Contains(replayed, "replayed: true") {
+		t.Fatalf("running Run replay output=%q stderr=%q code=%d",
+			replayed, stderr, code)
+	}
+}
+
+func TestRunCommandPlanExposesOnlyClosedNonStartingEnvelope(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CYBERAGENT_HOME", home)
+	if _, stderr, code := executeTestCommand(t, "workspace", "init",
+		"command-plan-demo"); code != 0 {
+		t.Fatalf("workspace init failed: %s", stderr)
+	}
+	created, stderr, code := executeTestCommand(t, "run", "create",
+		"plan one controlled command", "--workspace", "command-plan-demo",
+		"--max-turns", "2")
+	if code != 0 || stderr != "" {
+		t.Fatalf("run create output=%q stderr=%q code=%d", created, stderr, code)
+	}
+	runID := runIDPattern.FindString(created)
+	if _, stderr, code := executeTestCommand(t, "run", "execution-profile", "set",
+		runID, "local", "--operation-key", "cli-command-plan-profile-0001"); code != 0 {
+		t.Fatalf("local profile selection failed: %s", stderr)
+	}
+	if _, stderr, code := executeTestCommand(t, "run",
+		"execution-interaction", "set", runID, "controlled",
+		"--trust", "trusted", "--confirm-workspace-trust",
+		"--operation-key", "cli-command-plan-interaction-0001"); code != 0 {
+		t.Fatalf("controlled interaction selection failed: %s", stderr)
+	}
+	planned, stderr, code := executeTestCommand(t, "run", "command-plan",
+		runID, "powershell-workspace-list", "--path", "src")
+	if code != 0 || stderr != "" ||
+		!strings.Contains(planned, "kind: powershell-workspace-list") ||
+		!strings.Contains(planned, "executable_id: windows-powershell") ||
+		!strings.Contains(planned, "relative_path: src") ||
+		!strings.Contains(planned, "caller_shell_text_accepted: false") ||
+		!strings.Contains(planned, "go_owned_powershell_script: true") ||
+		!strings.Contains(planned, "os_sandbox_required: true") ||
+		!strings.Contains(planned, "start_blocked: true") ||
+		!strings.Contains(planned, "product_execution_enabled: false") ||
+		strings.Contains(planned, "Get-ChildItem") ||
+		strings.Contains(planned,
+			filepath.Join(home, "workspaces", "command-plan-demo")) {
+		t.Fatalf("unexpected command plan output=%q stderr=%q code=%d",
+			planned, stderr, code)
+	}
+	if _, stderr, code := executeTestCommand(t, "run", "command-plan",
+		runID, "powershell", "--path", "whoami"); code != 1 || !strings.Contains(stderr, "unsupported command kind") {
+		t.Fatalf("arbitrary PowerShell kind stderr=%q code=%d", stderr, code)
+	}
+}
+
 func TestReportCheckRejectsOutputFormatBeforeLookup(t *testing.T) {
 	t.Setenv("CYBERAGENT_HOME", t.TempDir())
 	_, stderr, code := executeTestCommand(t, "report", "check",

@@ -7,12 +7,12 @@
 
 项目从 schema v49 起同时使用两项工程指标，避免把“架构已经搭好”误解为“产品已经完整可用”。这些百分比是基于当前任务书和可验证工作流的工程估算，不是性能基准。
 
-- **架构完成度 / Architecture completion：约 99%**。衡量 Go 控制平面、Run/Session、状态恢复、Policy、审批、预算、事件流、Tool Gateway、Agent 协调、Skills、报告、Sandbox 协议及 Go/TypeScript/Rust 边界的覆盖程度；其中 V2 Run-centric Runtime 约 99%。schema v85 已覆盖同步等待环检测、工具硬超时、Run 活锁熔断、模型总上下文闸门、不可变累计交接记忆、验证快照回执历史与不授权复核，以及不启动的浏览器接纳、代际租约和独立操作员复核账本；非 schema 的 `model_harness.v1` 进一步把传输协议、工具调用、严格 JSON、流式行为和精确 Provider/Model 资格绑定到 Go 主控请求预检。D1-G13/V12/R10 完成精确复核导航与 Runner 信封黄金边界，P10-A1 至 P10-E3 又落地 Go-owned analyzer 协议、惰性 descriptor Registry、内存 ZIP 中央目录清单、确定性 Rust 实现、双语言共享黄金向量、无启动 invocation bridge、仅测试 Linux/Windows 子进程一致性、无授权结果/Artifact 候选、测试原子暂存恢复和 20 项产品 adapter 阻塞清单。产品 analyzer 子进程调用与真实浏览器启动仍未接线。
+- **架构完成度 / Architecture completion：约 99%**。衡量 Go 控制平面、Run/Session、状态恢复、Policy、审批、预算、事件流、Tool Gateway、Agent 协调、Skills、报告、Sandbox 协议及 Go/TypeScript/Rust 边界的覆盖程度；其中 V2 Run-centric Runtime 约 99%。schema v86 已覆盖同步等待环检测、工具硬超时、Run 活锁熔断、模型总上下文闸门、不可变累计交接记忆、验证快照回执历史与不授权复核、不启动的浏览器接纳账本，以及 `preview|controlled|debug|cyber` 执行交互意图；进程内短期 Agent 终端输入租约和非启动的一次性 argv/PowerShell 计划继续把实际权限留在 Go。非 schema 的 `model_harness.v1` 把传输协议、工具调用、严格 JSON、流式行为和精确 Provider/Model 资格绑定到 Go 主控请求预检。产品 LocalRunner、ConPTY、Docker PTY、analyzer 子进程调用与真实浏览器启动仍未接线。
 - **产品可用度 / Product usability：约 95-97%**。衡量普通用户能否依靠当前 CLI、TUI、Web 和 Windows Desktop 完成真实端到端工作。通用 Coding Agent 工作流约 95-96%，Cyber 自动化工作流约 20%；Run 工作台现已提供安全恢复的 Monaco 提案/Diff 编辑器、只读仓库状态/脱敏 Diff/本地提交历史与可导航的精确文件历史、支持键盘关闭与导航的成对 base/head 精确预览、多文件独立审阅、分离的验证计划/结果、可分页的逐检查项证据下钻及 Markdown/JSON 快照下载/回执历史/不授权复核、带摘要/事件高水位/回执复核元数据的 Code Handoff 导出、Code Journey、可热重载的 Windows 系统凭证、有界 wake worker，以及可组合的摘要/底部/右侧工具面板。模型页现在把“连通性诊断”和“最多两次模型调用的 Harness 资格校验”分开，外部模型只有在精确绑定校验通过后才可进入 Root/结构化工作流。Agent 可控的真实 Sandbox/宿主进程执行、内置终端与浏览器启动、安装时脚本/钩子、Windows 10 人工发布矩阵和 Cyber 工具链仍未开放或完成。
 
 Starting with schema v49, the project reports two engineering indicators so architectural maturity is not mistaken for end-user completeness. These percentages are roadmap estimates backed by tested workflows, not performance benchmarks.
 
-- **Architecture completion: about 99%.** This covers the Go control plane and its Run/Session recovery, Policy, approval, budget, event, Tool Gateway, Agent coordination, Skills, reporting, Sandbox protocol, and Go/TypeScript/Rust boundaries. The V2 run-centric runtime itself is about 99% complete. Schema v85 includes synchronous wait-cycle rejection, hard Tool deadlines, a recoverable Run livelock circuit breaker, an aggregate model-context gate, immutable cumulative handoff memory, verification snapshot receipt history and non-authorizing review, plus a non-starting browser acceptance, generation-lease, and independent-operator review ledger. The non-schema `model_harness.v1` layer now binds transport, tool calling, strict JSON, streaming behavior, and exact Provider/model qualification to Go-owned request preflight. P10-A1 through P10-E3 add the Go-owned analyzer protocol, an inert descriptor Registry, bounded in-memory ZIP central-directory inventory, a deterministic Rust implementation, shared cross-language vectors, a non-starting invocation bridge, test-only Linux/Windows subprocess conformance, inert result/Artifact candidates, test-only atomic staging recovery, and a 20-control product-adapter blocker model. Product analyzer subprocess invocation and real browser start remain unwired.
+- **Architecture completion: about 99%.** This covers the Go control plane and its Run/Session recovery, Policy, approval, budget, event, Tool Gateway, Agent coordination, Skills, reporting, Sandbox protocol, and Go/TypeScript/Rust boundaries. The V2 run-centric runtime itself is about 99% complete. Schema v86 includes the existing deadlock, Tool deadline, livelock, context, handoff, verification, and non-starting browser controls plus durable `preview|controlled|debug|cyber` execution-interaction intent. A process-local Agent terminal-input lease and non-starting one-shot argv/PowerShell plans keep authority in Go. The non-schema `model_harness.v1` binds transport, tool calling, strict JSON, streaming behavior, and exact Provider/model qualification to Go-owned request preflight. Product LocalRunner, ConPTY, Docker PTY, analyzer subprocess invocation, and real browser start remain unwired.
 - **Product usability: about 95-97%.** This measures how much real end-to-end work a user can complete through the current CLI, TUI, Web, and Windows Desktop shell. The generic coding-agent workflow is about 95-96% usable and the Cyber automation workflow about 20%. The Run workbench now includes safely recoverable Monaco proposal/Diff editing, read-only repository state/redacted Diffs/local commit history and navigable exact-file history, keyboard-accessible paired exact base/head comparison previews, independent multi-file review, separate verification plans/outcomes with paginated per-check drilldown and Markdown/JSON snapshot downloads/receipt history/non-authorizing review, digest- and event-high-water-bound Code Handoff exports with exact receipt-review navigation, bounded Code Journey audit facts, hot-reloaded Windows system credentials, a bounded wake worker, and composable summary/bottom/right tool panels. The model dialog now separates one-call connectivity diagnostics from an explicitly confirmed, at-most-two-call Harness qualification; an external model must pass its exact binding before it can enter Root or structured workflows. Agent-controlled real Sandbox/host-process execution, an embedded terminal and browser launch, install-time scripts/hooks, the manual Windows 10 release matrix, and the Cyber toolchain remain disabled or unfinished.
 
 ## 项目简介 / Project Overview
@@ -63,6 +63,32 @@ Prayu 不再把“请求地址兼容 Anthropic/OpenAI 风格”直接等同于�
 Prayu no longer treats an Anthropic/OpenAI-shaped HTTP endpoint as proof that a model is compatible with the Agent Harness. Go-owned `model_harness.v1` binds an exact Provider/model to its transport, tool strategy, strict-JSON strategy, streaming behavior, and qualification status. Root receives Tool schemas only after tool-call, tool-result, streaming, and strict-JSON behavior are qualified. Specialist and read-only Fan-out are always prepared as no-tool workloads, reducing token overhead and accidental tool exposure.
 
 Built-in Mock is the trusted offline baseline. Mimo, DeepSeek, and other Anthropic-compatible models begin as `qualification_required`. An operator can run `cyberagent provider qualify <route|provider/model>` or use the separate Desktop qualification control. The bounded two-call probe requires one synthetic nonce ToolCall followed by exact JSON after a synthetic ToolResult. The Tool is never executed, and the public result contains no prompt, response body, Tool arguments, key, base URL, or raw Provider error. Qualification is bound to the exact configuration for seven days and is distinct from ordinary connectivity diagnostics.
+
+## 执行交互信任模型 / Execution Interaction Trust Model
+
+Prayu 不用一个“完全访问”开关覆盖所有工作面，而是固定三种执行信任模型：
+
+```text
+Code：Codex 式工作区沙箱 + Claude 式无状态命令
+Debug：用户终端优先 + Agent 限时授权
+Cyber：仅隔离容器内使用 Strix 式持久终端
+```
+
+schema v86 的 `run_execution_interaction.v1` 记录 `preview|controlled|debug|cyber` 操作者意图。`controlled` 必须绑定 Code/Local 与显式工作区信任；`debug` 在此基础上请求用户 ConPTY，但 Agent 默认不能输入；`cyber` 必须绑定 Cyber/Docker。模型、Agent、Skill 和仓库内容不能切档。所有持久记录仍固定 `process_enabled=false`、`execution_authorized=false`、`capability_grant=false`。
+
+Agent 对 Debug/Cyber 终端的输入使用独立的进程内短期令牌，精确绑定 Workspace、Run、TerminalSession、执行交互快照 ID/修订号和模式，最长 15 分钟，不写 SQLite，重启即失效。活动租约与已撤销摘要各自有 256 项上限，撤销不会占住新租约容量。`controlled_command_plan.v1` 目前只接受 `git-status`、`git-diff-check`、`go-version` 和固定 Go 模板的 `powershell-workspace-list`；不接受任意 Shell 文本、环境继承、stdin、PowerShell Profile、网络或持久进程，并继续固定 `start_blocked=true`。
+
+```powershell
+cyberagent run execution-profile set <run-id> local --operation-key <key>
+cyberagent run execution-interaction set <run-id> controlled `
+  --trust trusted --confirm-workspace-trust --operation-key <key>
+cyberagent run command-plan <run-id> git-status
+cyberagent run command-plan <run-id> powershell-workspace-list --path src
+```
+
+以上命令最后一步只生成并验证非启动计划，不执行进程。真实 Windows Runner 仍必须补齐 OS 沙箱、Job Object 整树回收、网络执行层、输出边界和恢复审计；PowerShell 启动参数本身不是沙箱。完整决策见 [ADR 0075](docs/adr/0075-execution-interaction-trust-model.md)。
+
+Prayu uses three execution trust models instead of one global full-access switch: sandboxed stateless commands for Code, a user-first Debug terminal with separately leased Agent input, and persistent Cyber terminals only inside an isolated container. Schema v86 persists operator intent, never runtime authority. Debug/Cyber Agent-input bearers are process-local, exact-scoped, at most 15 minutes, and lost on restart. The current controlled command path produces only a closed, non-starting plan; a production Windows Runner remains blocked on OS sandboxing, Job Object tree ownership, network enforcement, bounded output, and recovery audit.
 
 ## 工作台面板 / Workbench Dock Controls
 
@@ -200,20 +226,24 @@ The table below is the canonical chronological schema history. It includes every
 | v83 | 不可变验证快照回执历史 | immutable verification snapshot receipt history |
 | v84 | 不可变且不授权的验证快照回执复核 | immutable non-authorizing verification snapshot receipt reviews |
 | v85 | 可恢复且不启动的浏览器接纳、租约与人工复核门 | durable non-starting browser acceptance, lease, and operator-review gates |
+| v86 | 操作者选择且不授权的执行交互边界 | operator-selected non-authorizing execution interaction boundaries |
 
-### v85 之后的非 schema 运行时里程碑 / Non-schema milestones after v85
+### v85 之后的近期运行时里程碑 / Recent runtime milestones after v85
 
-按时间排序的最新非 schema 批次为：
+按时间排序的近期批次为：
 
 | 批次 | 中文 | English |
 | --- | --- | --- |
 | Model Harness A1 | `model_harness.v1` 协议档案、按 Root/Specialist/Fan-out 工作负载裁剪工具与 JSON | protocol profiles and workload-specific tool/JSON minimization |
 | Model Harness A2 | Root、Specialist、只读 Fan-out 的统一 Go 预检 | unified Go preflight for Root, Specialist, and read-only Fan-out |
 | Model Harness A3 | 最多两次合成探测的资格校验，以及 Registry、HTTP、CLI、Desktop、React 投影 | at-most-two-call synthetic qualification with Registry, HTTP, CLI, Desktop, and React projections |
+| P12-A1 / schema v86 | `preview|controlled|debug|cyber` 执行交互意图、显式信任确认和不可变审计 | durable interaction intent, explicit trust confirmation, and immutable audit |
+| P12-A2 | 进程内、限时、精确绑定且可撤销的 Agent 终端输入租约 | process-local, time-limited, exact-scoped, revocable Agent terminal-input leases |
+| P12-A3 | 固定 argv/PowerShell 模板的非启动受控命令计划和 CLI | non-starting controlled command plans and CLI with fixed argv/PowerShell templates |
 
-这一批没有新增 SQLite migration，仍为 schema v85；`model_availability.v2` 只是把 Harness 只读状态加入现有模型可用性投影。下一批仍按三切片推进，真实浏览器启动、Profile 落盘和 CDP 继续分别审计，不因模型资格校验而提前开放。
+Model Harness 批次没有新增迁移；P12-A1 已将 SQLite 推进到 schema v86，P12-A2/A3 不落持久化权限。下一批仍按三切片推进，Windows Job Object 产品 Runner、用户 ConPTY 和 Agent 输入桥接必须分别审计；真实浏览器启动、Profile 落盘和 CDP 也不会因本批提前开放。
 
-This is the latest chronological non-schema batch after v85: protocol profiles and request minimization, unified Go preflight, and explicit two-call model qualification across Registry, HTTP, CLI, Desktop, and React. SQLite remains schema v85. `model_availability.v2` extends the existing read projection with Harness state; it is not a database migration. Real browser start, Profile materialization, and CDP remain separate future gates.
+Model Harness added protocol profiles, request minimization, unified preflight, and explicit two-call qualification without a migration. P12-A1 then advances SQLite to schema v86; P12-A2/A3 add no durable authority. Windows Job Object execution, user ConPTY, Agent-input bridging, real browser start, disposable Profile materialization, and CDP remain separate future gates.
 
 ## 上下文窗口与累计记忆 / Context Window And Cumulative Memory
 

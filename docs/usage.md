@@ -51,12 +51,24 @@ cyberagent run fail <run-id> --reason "blocked by provider"
 cyberagent run checkpoint <run-id>
 cyberagent run graph <run-id>
 cyberagent run lease <run-id>
+cyberagent run execution-interaction <run-id>
+cyberagent run execution-interaction set <run-id> controlled --operation-key <stable-key> --trust trusted --confirm-workspace-trust --operator operator
+cyberagent run command-plan <run-id> git-status
+cyberagent run command-plan <run-id> git-diff-check --timeout 30s
+cyberagent run command-plan <run-id> go-version
+cyberagent run command-plan <run-id> powershell-workspace-list --path scripts
 cyberagent run pause <run-id>
 cyberagent run resume <run-id>
 cyberagent run cancel <run-id>
 ```
 
 A Mission is the stable goal and authorization scope. A Run is one resumable execution attempt. Each new Run creates a dedicated active Session unless `--session <id>` selects an unattached active Session. Session creation or attachment, Run creation, and their initial events commit together in SQLite.
+
+Schema v86 separates execution interaction intent from runtime authority. `preview` is the default. `controlled` requires a Code-surface Run, the Local execution profile, explicit operator trust, and an explicit Workspace-boundary confirmation. `debug` additionally records the request for a user-owned ConPTY terminal, while `cyber` requires a Cyber-surface Run and Docker profile. Models, Agents, Skills, and repository content cannot select these modes. Every durable snapshot still fixes process execution, network, capability grants, and execution authorization to false.
+
+Debug/Cyber Agent terminal input is a separate process-local lease bound to one Workspace, Run, terminal session, exact interaction snapshot ID/revision, and interaction mode. The opaque bearer is never persisted, lasts at most 15 minutes, can be revoked immediately, and becomes invalid on restart. Active leases and revoked-token summaries are independently bounded to 256 entries, so revocation immediately releases active capacity. A selected mode is not a lease, and a lease is not process authority.
+
+`run command-plan` accepts only `git-status`, `git-diff-check`, `go-version`, and `powershell-workspace-list`. The PowerShell option is a Go-owned fixed `-NoProfile -NonInteractive -ExecutionPolicy Restricted` template with a Workspace-relative path; callers cannot supply executable names, raw script text, environment variables, stdin, pipelines, or shell chaining. These commands currently produce a bounded, start-blocked plan only. They do not invoke Git, Go, PowerShell, or another process. Production execution remains blocked until the separate Windows OS-sandbox, Job Object, network, output, cancellation, and recovery gate is implemented and audited.
 
 Schema v41 gives each Run one immutable `run_mode.v1` snapshot with two independent axes. `--surface code|cyber` selects the work domain and cannot change inside that Run. `--phase plan|deliver` selects whether the Supervisor is preparing a bounded plan or delivering it. Omitting both preserves the compatibility default `code/deliver`. Neither axis grants tools, network, Shell, file mutation, approval, or child-Agent authority; those remain separate Go-owned Policy and Scope decisions.
 
