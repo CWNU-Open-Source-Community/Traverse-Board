@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"cyberagent-workbench/internal/redact"
 )
@@ -23,6 +25,7 @@ type Router struct {
 	providers      map[string]Provider
 	routes         map[string]ModelRef
 	contextWindows map[string]ContextWindow
+	qualifications map[string]HarnessQualification
 	defaultRef     ModelRef
 }
 
@@ -31,6 +34,7 @@ func NewRouter(defaultRef ModelRef) *Router {
 		providers:      map[string]Provider{},
 		routes:         map[string]ModelRef{},
 		contextWindows: map[string]ContextWindow{},
+		qualifications: map[string]HarnessQualification{},
 		defaultRef:     defaultRef,
 	}
 }
@@ -78,6 +82,10 @@ func (r *Router) ReplaceConfiguration(next *Router) error {
 	for key, window := range next.contextWindows {
 		contextWindows[key] = window
 	}
+	qualifications := make(map[string]HarnessQualification, len(next.qualifications))
+	for key, qualification := range next.qualifications {
+		qualifications[key] = qualification
+	}
 	defaultRef := next.defaultRef
 	next.mu.RUnlock()
 
@@ -85,6 +93,7 @@ func (r *Router) ReplaceConfiguration(next *Router) error {
 	r.providers = providers
 	r.routes = routes
 	r.contextWindows = contextWindows
+	r.qualifications = qualifications
 	r.defaultRef = defaultRef
 	r.mu.Unlock()
 	return nil
@@ -168,6 +177,71 @@ func (r *Router) SupportsJSONMode(ref ModelRef) bool {
 	defer r.mu.RUnlock()
 	provider, ok := r.providers[strings.TrimSpace(ref.Provider)]
 	return ok && provider.SupportsJSONMode(strings.TrimSpace(ref.Model))
+}
+
+func (r *Router) HarnessProfile(ref ModelRef) (ModelHarness, error) {
+	if r == nil {
+		return ModelHarness{}, errors.New("router is required")
+	}
+	ref.Provider = strings.TrimSpace(ref.Provider)
+	ref.Model = strings.TrimSpace(ref.Model)
+	if ref.Provider == "" || ref.Model == "" {
+		return ModelHarness{}, errors.New("model Harness ref is invalid")
+	}
+	r.mu.RLock()
+	provider, ok := r.providers[ref.Provider]
+	qualification := r.qualifications[ref.Provider+"\x00"+ref.Model]
+	r.mu.RUnlock()
+	if !ok {
+		return ModelHarness{}, fmt.Errorf("provider %q is not registered", ref.Provider)
+	}
+	profile := providerContractHarness(provider, ref.Model)
+	if describer, described := provider.(ModelHarnessDescriber); described {
+		profile = describer.DescribeModelHarness(ref.Model)
+	}
+	if err := profile.Validate(); err != nil {
+		return ModelHarness{}, fmt.Errorf("provider %q returned an invalid model Harness: %w",
+			ref.Provider, err)
+	}
+	return applyHarnessQualification(profile, qualification, time.Now().UTC()), nil
+}
+
+func (r *Router) SetHarnessQualification(ref ModelRef,
+	qualification HarnessQualification,
+) error {
+	if r == nil {
+		return errors.New("router is required")
+	}
+	ref.Provider = strings.TrimSpace(ref.Provider)
+	ref.Model = strings.TrimSpace(ref.Model)
+	profile, err := r.HarnessProfile(ref)
+	if err != nil {
+		return err
+	}
+	if err := qualification.Validate(profile.BindingDigest, time.Now().UTC()); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.qualifications == nil {
+		r.qualifications = make(map[string]HarnessQualification)
+	}
+	r.qualifications[ref.Provider+"\x00"+ref.Model] = qualification
+	return nil
+}
+
+func (r *Router) PrepareHarnessRequest(ref ModelRef, workload HarnessWorkload,
+	request ChatRequest,
+) (ChatRequest, ModelHarness, error) {
+	profile, err := r.HarnessProfile(ref)
+	if err != nil {
+		return ChatRequest{}, ModelHarness{}, err
+	}
+	prepared, err := prepareHarnessRequest(profile, workload, request)
+	if err != nil {
+		return ChatRequest{}, profile, err
+	}
+	return prepared, profile, nil
 }
 
 func (r *Router) Chat(ctx context.Context, route string, req ChatRequest) (*ChatResponse, error) {

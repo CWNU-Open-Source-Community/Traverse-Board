@@ -519,6 +519,10 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 - [x] P11-C2：schema v85 immutable launch attempt/generation lease/idempotency/event，精确绑定 Session/Run/Workspace/executable/Profile generation/Scope/budget/backend/process-tree；Disabled/Fake lifecycle 不启动进程。
 - [x] P11-C3：活动 lease 内独立 operator review，owner/reviewer 摘要必须不同并重算 attempt fingerprint；接受仍不授予 process/network/profile-write/termination/cleanup/CDP/Artifact authority，边界见 ADR 0073。
 - [x] P11-B1/B2/B3 + P11-C1/C2/C3 累计六切片健壮性门：串行 ordinary/race Go 约 545/660 秒、vet/staticcheck、双 govulncheck、module、148 Web、TypeScript/API/Vite/npm、Rust fmt/test/clippy/audit/真实夹具和 Windows 可复现双构建通过；只读 Chrome/Edge Authenticode 烟测检查两个候选且零启动。
+- [x] Model Harness A1：完成 `model_harness.v1` 精确 Provider/Model transport/tool/JSON/streaming/qualification 档案；Mock 离线可信，Anthropic-compatible 默认资格校验，绑定变化失败关闭。
+- [x] Model Harness A2：Root、Specialist、read-only Fan-out 使用统一调用前预检；Root 只发送合格工具，Specialist/Fan-out 固定 no-tool，并按 profile 切换 native/prompt JSON。
+- [x] Model Harness A3：完成 CLI/HTTP/Desktop/React 独立资格入口；最多两次 synthetic ToolCall/ToolResult/strict-JSON 探测，Tool 不执行，内容不返回，exact-binding 七天元数据记录复用现有 Provider settings，边界见 ADR 0074。
+- [x] Model Harness A1/A2/A3 三切片功能门：全仓 Go 约 302.5 秒、vet、42 文件 149 React、strict TypeScript、Vite 与 76/84/185 OpenAPI generation 通过；审计修复 Fan-out shard range 值拷贝未写回协议策略的一项中等可靠性问题并补回归测试，启用路径无已知未解决高/中风险。
 - [ ] P11-C4：仅实现 Safe Web 真实进程启动；必须在 adapter 前精确复核 v85 acceptance/review，并用 Windows Job Object 绑定整棵进程树，无 Shell、无导航、无 Profile 写入。
 - [ ] P11-C5：独立实现一次性 Profile generation 创建、marker、重启恢复和 exact released-owned 清理；个人 Chrome/Edge Profile 永久禁止。
 - [ ] P11-C6：独立实现 exact-scope localhost CDP 导航、DOM metadata 与截图；请求改包/重放和 CTF 安全放宽继续关闭。

@@ -96,6 +96,8 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 					item.Post.OperationID == "selectModelRoute") ||
 				(path == ProviderDiagnosticPath &&
 					item.Post.OperationID == "diagnoseProvider") ||
+				(path == ModelHarnessQualificationPath &&
+					item.Post.OperationID == "qualifyModelHarness") ||
 				(path == ProviderCredentialPathTemplate &&
 					item.Post.OperationID == "changeProviderCredential") ||
 				(path == FileEditProposalPathTemplate &&
@@ -174,7 +176,8 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 				path == ApprovalDecisionControlPathTemplate ||
 				path == RunExecutionControlPathTemplate ||
 				path == ModelRouteControlPathTemplate ||
-				path == ProviderDiagnosticPath || path == ProviderCredentialPathTemplate ||
+				path == ProviderDiagnosticPath || path == ModelHarnessQualificationPath ||
+				path == ProviderCredentialPathTemplate ||
 				path == FileEditProposalPathTemplate || path == FileEditReviewPathTemplate ||
 				path == FileEditApplyPathTemplate ||
 				path == RunWakeIntentPathTemplate ||
@@ -561,6 +564,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 					body = `{"version":"model_route_control.v1","provider":"mock","model":"mock-code"}`
 				} else if spec.Path == ProviderDiagnosticPath {
 					body = `{"version":"provider_diagnostic.v1","provider":"mock","model":"mock-code","confirm_diagnostic":true}`
+				} else if spec.Path == ModelHarnessQualificationPath {
+					body = `{"version":"model_harness_qualification.v1","provider":"mock","model":"mock-code","confirm_qualification":true}`
 				} else if spec.Path == ProviderCredentialPathTemplate {
 					body = `{"version":"provider_credential.v1","action":"set",` +
 						`"secret":"temporary-openapi-key","confirm":true}`

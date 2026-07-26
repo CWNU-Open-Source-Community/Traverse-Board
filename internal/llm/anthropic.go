@@ -397,6 +397,23 @@ func (p *AnthropicCompatibleProvider) SupportsJSONMode(model string) bool {
 	return false
 }
 
+func (p *AnthropicCompatibleProvider) DescribeModelHarness(model string) ModelHarness {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		model = p.defaultModel
+	}
+	return ModelHarness{
+		ProtocolVersion:     ModelHarnessProtocolVersion,
+		TransportProtocol:   HarnessTransportAnthropicMessages,
+		ToolStrategy:        HarnessToolStrategyNative,
+		JSONStrategy:        HarnessJSONStrategyPrompt,
+		QualificationStatus: HarnessQualificationRequired,
+		BindingDigest: harnessBindingDigest(p.name, p.baseURL, model,
+			HarnessTransportAnthropicMessages, HarnessToolStrategyNative,
+			HarnessJSONStrategyPrompt),
+	}
+}
+
 func (p *AnthropicCompatibleProvider) toRequest(model string, req ChatRequest) (anthropicMessageRequest, error) {
 	maxTokens := req.MaxTokens
 	if maxTokens <= 0 {

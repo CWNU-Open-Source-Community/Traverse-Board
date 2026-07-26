@@ -1595,8 +1595,9 @@ func TestRunSupervisorTracksAndEnforcesTokenBudget(t *testing.T) {
 	if provider.lastMaxTokens != 5 {
 		t.Fatalf("remaining token budget was not forwarded: %d", provider.lastMaxTokens)
 	}
-	if !provider.lastJSONMode || provider.lastSchema != domain.RootLifecycleVersion {
-		t.Fatalf("root lifecycle schema was not requested: json=%t schema=%q", provider.lastJSONMode, provider.lastSchema)
+	if provider.lastJSONMode || provider.lastSchema != domain.RootLifecycleVersion {
+		t.Fatalf("prompt-JSON root lifecycle strategy was not requested: json=%t schema=%q",
+			provider.lastJSONMode, provider.lastSchema)
 	}
 	if result.Checkpoint.InputTokens != 2 || result.Checkpoint.OutputTokens != 3 || result.Checkpoint.TotalTokens != 5 || result.Checkpoint.ExecutionMillis < 0 {
 		t.Fatalf("usage was not accumulated: %#v", result.Checkpoint)

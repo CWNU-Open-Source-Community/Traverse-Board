@@ -114,6 +114,19 @@ func (MockProvider) SupportsJSONMode(model string) bool {
 	return model == "" || strings.Contains(model, "mock")
 }
 
+func (MockProvider) DescribeModelHarness(model string) ModelHarness {
+	return ModelHarness{
+		ProtocolVersion:     ModelHarnessProtocolVersion,
+		TransportProtocol:   HarnessTransportMock,
+		ToolStrategy:        HarnessToolStrategyNative,
+		JSONStrategy:        HarnessJSONStrategyNative,
+		QualificationStatus: HarnessQualificationTrusted,
+		ToolCallsQualified:  true, ToolResultsQualified: true,
+		StrictJSONQualified: true, StreamingQualified: true,
+		BindingDigest: harnessBindingDigest("mock", model, HarnessTransportMock),
+	}
+}
+
 func lastUserMessage(messages []Message) string {
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role == "user" {

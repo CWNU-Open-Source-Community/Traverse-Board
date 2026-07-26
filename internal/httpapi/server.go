@@ -549,8 +549,8 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		a.serveApprovalDecisionControl(tracked, request, requestID, runID, approvalID)
 		return
 	}
-	if route, diagnostic, matched := matchModelControlPath(request.URL.Path); matched {
-		a.serveModelControl(tracked, request, requestID, route, diagnostic)
+	if route, kind, matched := matchModelControlPath(request.URL.Path); matched {
+		a.serveModelControl(tracked, request, requestID, route, kind)
 		return
 	}
 	if provider, matched := matchProviderCredentialControlPath(request.URL.Path); matched {

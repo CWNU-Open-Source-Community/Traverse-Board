@@ -418,7 +418,12 @@ func (r *SpecialistRunner) stepReadyWithLease(ctx context.Context,
 	var safeAction domain.SpecialistAction
 	var decision policy.Decision
 	for {
-		modelRequest, _, contextErr := constrainRequestToModelWindow(request,
+		modelRequest, harnessErr := prepareModelHarnessRequest(r.router, refModel,
+			llm.HarnessWorkloadSpecialist, request)
+		if harnessErr != nil {
+			return r.failAttempt(ctx, result, ref, harnessErr)
+		}
+		modelRequest, _, contextErr := constrainRequestToModelWindow(modelRequest,
 			r.router.ContextWindow(refModel), contextLayout)
 		if contextErr != nil {
 			return r.failAttempt(ctx, result, ref, contextErr)

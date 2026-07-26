@@ -669,11 +669,17 @@ cyberagent provider list
 cyberagent provider test
 cyberagent provider test mimo/mimo-v2.5-pro
 cyberagent provider test deepseek/deepseek-v4-flash
+cyberagent provider qualify script
+cyberagent provider qualify mimo/mimo-v2.5-pro
 cyberagent model list
 cyberagent model set script mock/mock-code
 ```
 
-`provider test` accepts either a route name, such as `learn`, or a direct `provider/model` reference. It is an explicit online diagnostic: each invocation may send one small, content-free, tool-disabled model request with a 15-second deadline and may incur Provider charges. Output is status-only and never contains model response text, API keys, endpoints, environment-variable names, or raw errors. `model set` validates and persists the route before changing the in-memory Router, so a failed SQLite write cannot create a process-only route.
+`provider test` accepts either a route name, such as `learn`, or a direct `provider/model` reference. It is an explicit online connectivity diagnostic: each invocation may send one small, content-free, tool-disabled model request with a 15-second deadline and may incur Provider charges. Passing it does not qualify streamed ToolCall, ToolResult, or strict-JSON behavior.
+
+`provider qualify` accepts the same route or direct reference and performs the separate `model_harness_qualification.v1` contract. Built-in Mock returns immediately with zero model calls. An external model may receive at most two bounded requests under a 30-second deadline: one exact synthetic nonce ToolCall, then one exact strict-JSON acknowledgement after a synthetic ToolResult. Prayu never dispatches the synthetic Tool. Successful qualification is bound to the exact Provider/model/base-URL/strategy for seven days; a configuration change or expiry fails closed. The command prints status, counts, protocol strategy, and readiness only. It never prints prompts, response content, Tool arguments, API keys, endpoints, environment-variable names, or raw errors.
+
+`model set` validates and persists the route before changing the in-memory Router, so a failed SQLite write cannot create a process-only route. Route selection does not automatically qualify the model. Root, Specialist, and read-only Fan-out use one Go-owned Harness preflight immediately before every Provider call; external models that have not passed the exact qualification are rejected before normal Agent execution.
 
 The optional `mimo`, `deepseek`, and `anthropic` Providers load credentials from the process environment first and may then use the Go-owned system credential store. Windows stores exact supported keys in Credential Manager; non-Windows has no plaintext-file fallback. Credential status and mutation never return plaintext and a change currently requires process restart. Base URLs must be absolute HTTPS URLs unless they target an exact loopback host over HTTP; embedded credentials, query strings, fragments, and redirects are rejected. API keys are bounded normalized UTF-8 without whitespace or control characters.
 

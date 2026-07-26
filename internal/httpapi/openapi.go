@@ -266,6 +266,13 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			Description: "Makes at most one minimal no-tool model request after explicit confirmation. The response is content-free and never includes model text, raw Provider errors, credentials, or endpoint URLs.",
 			DataType:    reflect.TypeOf(ProviderDiagnosticView{}),
 			RequestType: reflect.TypeOf(ProviderDiagnosticRequestView{}), Control: true},
+		{Path: ModelHarnessQualificationPath, Method: http.MethodPost,
+			OperationID: "qualifyModelHarness",
+			Summary:     "Qualify one exact model Harness", Tag: "Control",
+			Description: "Makes at most two bounded model requests using one synthetic in-memory echo tool. It executes no tool, shell, file, browser, Docker, or network target action; response text and raw Provider errors are never returned.",
+			DataType:    reflect.TypeOf(ModelHarnessQualificationView{}),
+			RequestType: reflect.TypeOf(ModelHarnessQualificationRequestView{}),
+			Control:     true},
 		{Path: ProviderCredentialsPath, OperationID: "listProviderCredentials",
 			Summary: "Inspect Provider credential status", Tag: "Models",
 			Description: "Returns only configured status and OS-store availability. It never reads credential plaintext into an API response.",
@@ -1269,6 +1276,18 @@ func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[str
 	if typeName == "ModelAvailabilityView" && fieldName == "generation" {
 		schema["minimum"] = 1
 	}
+	if typeName == "ModelHarnessQualificationView" && fieldName == "model_calls" {
+		schema["minimum"] = 0
+		schema["maximum"] = 2
+	}
+	if typeName == "ModelHarnessQualificationView" && fieldName == "synthetic_tool_calls" {
+		schema["minimum"] = 0
+		schema["maximum"] = llm.MaxProviderToolCalls
+	}
+	if typeName == "ModelHarnessQualificationView" && fieldName == "duration_ms" {
+		schema["minimum"] = 0
+		schema["maximum"] = 60_000
+	}
 	if typeName == "RunWakeWorkerHealthView" && fieldName == "concurrency" {
 		schema["minimum"] = application.RunWakeWorkerConcurrency
 		schema["maximum"] = application.RunWakeWorkerConcurrency
@@ -1289,6 +1308,15 @@ var openAPIFieldEnums = map[string][]string{
 	"RunWakeWorkerHealthView.state":                           {"disabled", string(application.RunWakeWorkerReady), string(application.RunWakeWorkerRunning), string(application.RunWakeWorkerDraining), string(application.RunWakeWorkerStopped)},
 	"ModelAvailabilityView.protocol_version":                  {modelregistry.ProtocolVersion},
 	"ProviderDiagnosticRequestView.version":                   {modelregistry.DiagnosticProtocolVersion},
+	"ModelHarnessQualificationRequestView.version":            {modelregistry.HarnessQualificationProtocolVersion},
+	"ModelHarnessAvailabilityView.protocol_version":           {llm.ModelHarnessProtocolVersion},
+	"ModelHarnessAvailabilityView.transport_protocol":         {llm.HarnessTransportMock, llm.HarnessTransportAnthropicMessages, llm.HarnessTransportProviderContract},
+	"ModelHarnessAvailabilityView.tool_strategy":              {llm.HarnessToolStrategyNative, llm.HarnessToolStrategyNone},
+	"ModelHarnessAvailabilityView.json_strategy":              {llm.HarnessJSONStrategyNative, llm.HarnessJSONStrategyPrompt, llm.HarnessJSONStrategyNone},
+	"ModelHarnessAvailabilityView.qualification_status":       {llm.HarnessQualificationTrusted, llm.HarnessQualificationRequired, llm.HarnessQualificationVerified},
+	"ModelHarnessQualificationView.protocol_version":          {modelregistry.HarnessQualificationProtocolVersion},
+	"ModelHarnessQualificationView.status":                    {modelregistry.HarnessDiagnosticQualified, modelregistry.HarnessDiagnosticIncompatible, modelregistry.HarnessDiagnosticUnreachable},
+	"ModelHarnessQualificationView.outcome":                   {string(llm.OutcomeSuccess), string(llm.OutcomeRetryable), string(llm.OutcomeRateLimited), string(llm.OutcomeInvalidResponse), string(llm.OutcomeCancelled), string(llm.OutcomePermanent)},
 	"ProviderDiagnosticView.protocol_version":                 {modelregistry.DiagnosticProtocolVersion},
 	"ProviderDiagnosticView.status":                           {modelregistry.DiagnosticReachable, modelregistry.DiagnosticUnreachable},
 	"ProviderDiagnosticView.outcome":                          {string(llm.OutcomeSuccess), string(llm.OutcomeRetryable), string(llm.OutcomeRateLimited), string(llm.OutcomeInvalidResponse), string(llm.OutcomeCancelled), string(llm.OutcomePermanent)},

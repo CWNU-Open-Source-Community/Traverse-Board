@@ -17,6 +17,8 @@ type ModelControlController interface {
 		modelregistry.RouteAvailability, error)
 	Diagnose(context.Context, application.DiagnoseProviderRequest) (
 		modelregistry.DiagnosticResult, error)
+	QualifyHarness(context.Context, application.QualifyModelHarnessRequest) (
+		modelregistry.HarnessQualificationResult, error)
 }
 
 type FileEditReviewController interface {
@@ -45,6 +47,7 @@ type RunWakeController interface {
 const (
 	ModelRouteControlPathTemplate   = "/api/v1/models/routes/{route}"
 	ProviderDiagnosticPath          = "/api/v1/models/diagnostics"
+	ModelHarnessQualificationPath   = "/api/v1/models/harness-qualifications"
 	FileEditQueuePathTemplate       = "/api/v1/runs/{run_id}/file-edits"
 	FileEditChangeSetPathTemplate   = "/api/v1/runs/{run_id}/file-edit-change-set"
 	FileEditReviewPathTemplate      = "/api/v1/runs/{run_id}/file-edits/{edit_id}/review"
@@ -65,6 +68,13 @@ type ProviderDiagnosticRequestView struct {
 	Provider          string `json:"provider"`
 	Model             string `json:"model"`
 	ConfirmDiagnostic bool   `json:"confirm_diagnostic"`
+}
+
+type ModelHarnessQualificationRequestView struct {
+	Version              string `json:"version"`
+	Provider             string `json:"provider"`
+	Model                string `json:"model"`
+	ConfirmQualification bool   `json:"confirm_qualification"`
 }
 
 type FileEditReviewRequestView struct {
@@ -94,16 +104,19 @@ type RunWakeExecutionRequestView struct {
 	MaxSteps int    `json:"max_steps"`
 }
 
-func matchModelControlPath(requestPath string) (string, bool, bool) {
+func matchModelControlPath(requestPath string) (string, string, bool) {
 	if requestPath == "/api/v1/models/diagnostics" {
-		return "", true, true
+		return "", "diagnostic", true
+	}
+	if requestPath == ModelHarnessQualificationPath {
+		return "", "harness_qualification", true
 	}
 	const prefix = "/api/v1/models/routes/"
 	if !strings.HasPrefix(requestPath, prefix) {
-		return "", false, false
+		return "", "", false
 	}
 	route := strings.TrimPrefix(requestPath, prefix)
-	return route, false, route != "" && !strings.Contains(route, "/")
+	return route, "route", route != "" && !strings.Contains(route, "/")
 }
 
 func matchFileEditReviewControlPath(requestPath string) (string, string, bool) {
@@ -159,11 +172,13 @@ func matchRunWakeExecutionPath(requestPath string) (string, bool) {
 }
 
 func (a *API) serveModelControl(writer http.ResponseWriter, request *http.Request,
-	requestID string, route string, diagnostic bool,
+	requestID string, route string, kind string,
 ) {
 	label := "Model route control"
-	if diagnostic {
+	if kind == "diagnostic" {
 		label = "Provider diagnostic"
+	} else if kind == "harness_qualification" {
+		label = "Model Harness qualification"
 	}
 	if !a.authorizeRunOperation(writer, request, requestID,
 		a.modelControlEnabled, label) {
@@ -174,7 +189,7 @@ func (a *API) serveModelControl(writer http.ResponseWriter, request *http.Reques
 		a.writeError(writer, requestID, err, runOperationErrorStatus(err))
 		return
 	}
-	if diagnostic {
+	if kind == "diagnostic" {
 		var view ProviderDiagnosticRequestView
 		if err := decodeStrictRunOperation(body, &view, label); err != nil {
 			a.writeError(writer, requestID, err, 0)
@@ -190,6 +205,25 @@ func (a *API) serveModelControl(writer http.ResponseWriter, request *http.Reques
 		}
 		a.writeSuccessStatus(writer, requestID, providerDiagnosticView(result), nil,
 			http.StatusAccepted)
+		return
+	}
+	if kind == "harness_qualification" {
+		var view ModelHarnessQualificationRequestView
+		if err := decodeStrictRunOperation(body, &view, label); err != nil {
+			a.writeError(writer, requestID, err, 0)
+			return
+		}
+		result, err := a.modelControlController.QualifyHarness(request.Context(),
+			application.QualifyModelHarnessRequest{
+				Version: view.Version, Provider: view.Provider, Model: view.Model,
+				ConfirmQualification: view.ConfirmQualification,
+			})
+		if err != nil {
+			a.writeError(writer, requestID, err, 0)
+			return
+		}
+		a.writeSuccessStatus(writer, requestID, modelHarnessQualificationView(result),
+			nil, http.StatusAccepted)
 		return
 	}
 	if err := validatePathIdentity(route); err != nil {
@@ -209,7 +243,8 @@ func (a *API) serveModelControl(writer http.ResponseWriter, request *http.Reques
 		return
 	}
 	a.writeSuccessStatus(writer, requestID, ModelRouteAvailabilityView{Name: selected.Name,
-		Provider: selected.Provider, Model: selected.Model, Available: selected.Available}, nil,
+		Provider: selected.Provider, Model: selected.Model, Available: selected.Available,
+		HarnessReady: selected.HarnessReady}, nil,
 		http.StatusAccepted)
 }
 
@@ -444,6 +479,39 @@ func providerDiagnosticView(result modelregistry.DiagnosticResult) ProviderDiagn
 		ModelCalled:             result.ModelCalled, ToolCalled: result.ToolCalled,
 		ResponseContentReturned: result.ResponseContentReturned,
 		DurationMillis:          result.DurationMillis}
+}
+
+func modelHarnessAvailabilityView(
+	value modelregistry.HarnessAvailability,
+) ModelHarnessAvailabilityView {
+	return ModelHarnessAvailabilityView{
+		ProtocolVersion: value.ProtocolVersion, Model: value.Model,
+		TransportProtocol: value.TransportProtocol, ToolStrategy: value.ToolStrategy,
+		JSONStrategy: value.JSONStrategy, QualificationStatus: value.QualificationStatus,
+		ToolCallsQualified:     value.ToolCallsQualified,
+		ToolResultsQualified:   value.ToolResultsQualified,
+		StrictJSONQualified:    value.StrictJSONQualified,
+		StreamingQualified:     value.StreamingQualified,
+		RootEligible:           value.RootEligible,
+		StructuredJSONEligible: value.StructuredJSONEligible,
+		QualifiedAt:            value.QualifiedAt, ExpiresAt: value.ExpiresAt,
+	}
+}
+
+func modelHarnessQualificationView(
+	result modelregistry.HarnessQualificationResult,
+) ModelHarnessQualificationView {
+	return ModelHarnessQualificationView{
+		ProtocolVersion: result.ProtocolVersion, Provider: result.Provider,
+		Model: result.Model, Status: result.Status, Outcome: result.Outcome,
+		Retryable:               result.Retryable,
+		NetworkRequestAttempted: result.NetworkRequestAttempted,
+		ModelCalls:              result.ModelCalls, SyntheticToolCalls: result.SyntheticToolCalls,
+		ToolExecuted:            result.ToolExecuted,
+		ResponseContentReturned: result.ResponseContentReturned,
+		DurationMillis:          result.DurationMillis,
+		Harness:                 modelHarnessAvailabilityView(result.Harness),
+	}
 }
 
 func fileEditPreviewView(value fileedit.Preview, terminal bool) FileEditPreviewView {

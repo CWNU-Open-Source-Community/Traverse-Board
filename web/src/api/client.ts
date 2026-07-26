@@ -21,6 +21,9 @@ import type {
   FileEditReviewView,
   HealthView,
   ModelAvailabilityView,
+  ModelHarnessAvailabilityView,
+  ModelHarnessQualificationRequestView,
+  ModelHarnessQualificationView,
   ModelRouteControlRequestView,
   OperationReceiptView,
   OperationReceiptHistoryView,
@@ -377,16 +380,17 @@ function parseRunExecutionControl(value: unknown, expectedRunID: string,
 
 function parseModelAvailability(value: unknown): ModelAvailabilityView {
   if (!hasExactKeys(value, ["generation", "protocol_version", "providers", "routes"]) ||
-    value.protocol_version !== "model_availability.v1" || !Array.isArray(value.providers) ||
+    value.protocol_version !== "model_availability.v2" || !Array.isArray(value.providers) ||
     !safeBoundedCount(value.generation, Number.MAX_SAFE_INTEGER) || value.generation < 1 ||
     !Array.isArray(value.routes) || value.providers.length > 64 || value.routes.length > 64) {
     throw new APIRequestError("Model availability response is invalid", "INVALID_RESPONSE", 502);
   }
   const providerNames = new Set<string>();
   const availableProviderNames = new Set<string>();
+  const harnessReadiness = new Map<string, boolean>();
   for (const provider of value.providers) {
     if (!hasExactKeys(provider, ["configuration_error", "credential_source", "kind", "models",
-      "name", "network_required", "status"]) || !boundedText(provider.name, 128) ||
+      "harnesses", "name", "network_required", "status"]) || !boundedText(provider.name, 128) ||
       (provider.kind !== "local" && provider.kind !== "anthropic_compatible") ||
       (provider.status !== "available" && provider.status !== "not_configured" &&
         provider.status !== "invalid_configuration") ||
@@ -395,6 +399,7 @@ function parseModelAvailability(value: unknown): ModelAvailabilityView {
       typeof provider.network_required !== "boolean" ||
       typeof provider.configuration_error !== "boolean" || !Array.isArray(provider.models) ||
       provider.models.length > 64 || !provider.models.every((model) => boundedText(model, 256)) ||
+      !Array.isArray(provider.harnesses) || provider.harnesses.length !== provider.models.length ||
       providerNames.has(provider.name)) {
       throw new APIRequestError("Model Provider availability is invalid", "INVALID_RESPONSE", 502);
     }
@@ -402,19 +407,67 @@ function parseModelAvailability(value: unknown): ModelAvailabilityView {
     if (provider.status === "available") {
       availableProviderNames.add(provider.name);
     }
+    const harnessModels = new Set<string>();
+    for (const harness of provider.harnesses) {
+      const parsed = parseModelHarnessAvailability(harness);
+      if (!provider.models.includes(parsed.model) || harnessModels.has(parsed.model)) {
+        throw new APIRequestError("Model Harness availability binding is invalid",
+          "INVALID_RESPONSE", 502);
+      }
+      harnessModels.add(parsed.model);
+      harnessReadiness.set(`${provider.name}\u0000${parsed.model}`, parsed.root_eligible);
+    }
   }
   const routeNames = new Set<string>();
   for (const route of value.routes) {
-    if (!hasExactKeys(route, ["available", "model", "name", "provider"]) ||
+    if (!hasExactKeys(route, ["available", "harness_ready", "model", "name", "provider"]) ||
       !boundedText(route.name, 128) || !boundedText(route.provider, 128) ||
       !boundedText(route.model, 256) || typeof route.available !== "boolean" ||
+      typeof route.harness_ready !== "boolean" ||
       (route.available && !availableProviderNames.has(route.provider)) ||
+      (route.harness_ready &&
+        harnessReadiness.get(`${route.provider}\u0000${route.model}`) !== true) ||
       routeNames.has(route.name)) {
       throw new APIRequestError("Model route availability is invalid", "INVALID_RESPONSE", 502);
     }
     routeNames.add(route.name);
   }
   return value as unknown as ModelAvailabilityView;
+}
+
+function parseModelHarnessAvailability(value: unknown): ModelHarnessAvailabilityView {
+  if (!hasExactKeys(value, ["expires_at", "json_strategy", "model", "protocol_version",
+    "qualification_status", "qualified_at", "root_eligible", "streaming_qualified",
+    "strict_json_qualified", "structured_json_eligible", "tool_calls_qualified",
+    "tool_results_qualified", "tool_strategy", "transport_protocol"]) ||
+    value.protocol_version !== "model_harness.v1" || !boundedText(value.model, 256) ||
+    !["mock", "anthropic_messages", "provider_contract"].includes(
+      String(value.transport_protocol)) ||
+    !["native", "none"].includes(String(value.tool_strategy)) ||
+    !["native", "prompt", "none"].includes(String(value.json_strategy)) ||
+    !["trusted_builtin", "qualification_required", "verified"].includes(
+      String(value.qualification_status)) ||
+    typeof value.tool_calls_qualified !== "boolean" ||
+    typeof value.tool_results_qualified !== "boolean" ||
+    typeof value.strict_json_qualified !== "boolean" ||
+    typeof value.streaming_qualified !== "boolean" ||
+    typeof value.root_eligible !== "boolean" ||
+    typeof value.structured_json_eligible !== "boolean" ||
+    typeof value.qualified_at !== "string" || typeof value.expires_at !== "string" ||
+    value.structured_json_eligible !== value.strict_json_qualified ||
+    value.root_eligible !== (value.tool_strategy === "native" &&
+      value.tool_calls_qualified && value.tool_results_qualified &&
+      value.strict_json_qualified && value.streaming_qualified) ||
+    (value.qualification_status === "verified"
+      ? (!validDate(value.qualified_at) || !validDate(value.expires_at) ||
+        Date.parse(value.expires_at) <= Date.parse(value.qualified_at))
+      : (value.qualified_at !== "" || value.expires_at !== "")) ||
+    (value.tool_strategy === "none" && (value.tool_calls_qualified ||
+      value.tool_results_qualified || value.streaming_qualified)) ||
+    (value.json_strategy === "none" && value.strict_json_qualified)) {
+    throw new APIRequestError("Model Harness availability is invalid", "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as ModelHarnessAvailabilityView;
 }
 
 function parsePlanDirectionControl(value: unknown, expectedRunID: string,
@@ -513,13 +566,40 @@ function parseApprovalDecision(value: unknown, expectedRunID: string, expectedAp
 
 function parseModelRouteControl(value: unknown, route: string,
   request: ModelRouteControlRequestView): ModelAvailabilityView["routes"][number] {
-  if (!hasExactKeys(value, ["available", "model", "name", "provider"]) ||
+  if (!hasExactKeys(value, ["available", "harness_ready", "model", "name", "provider"]) ||
     value.name !== route || value.provider !== request.provider || value.model !== request.model ||
-    value.available !== true) {
+    value.available !== true || typeof value.harness_ready !== "boolean") {
     throw new APIRequestError("Model route response violated its exact binding",
       "INVALID_RESPONSE", 502);
   }
   return value as unknown as ModelAvailabilityView["routes"][number];
+}
+
+function parseModelHarnessQualification(value: unknown,
+  request: ModelHarnessQualificationRequestView): ModelHarnessQualificationView {
+  if (!hasExactKeys(value, ["duration_ms", "harness", "model", "model_calls",
+    "network_request_attempted", "outcome", "protocol_version", "provider",
+    "response_content_returned", "retryable", "status", "synthetic_tool_calls",
+    "tool_executed"]) ||
+    value.protocol_version !== "model_harness_qualification.v1" ||
+    value.provider !== request.provider || value.model !== request.model ||
+    !["qualified", "incompatible", "unreachable"].includes(String(value.status)) ||
+    !boundedText(value.outcome, 64) || typeof value.retryable !== "boolean" ||
+    typeof value.network_request_attempted !== "boolean" ||
+    !safeBoundedCount(value.model_calls, 2) ||
+    !safeBoundedCount(value.synthetic_tool_calls, 16) ||
+    value.tool_executed !== false || value.response_content_returned !== false ||
+    !safeBoundedCount(value.duration_ms, 60_000)) {
+    throw new APIRequestError("Model Harness qualification response is invalid",
+      "INVALID_RESPONSE", 502);
+  }
+  const harness = parseModelHarnessAvailability(value.harness);
+  if (harness.model !== request.model ||
+    (value.status === "qualified" && !harness.root_eligible)) {
+    throw new APIRequestError("Model Harness qualification binding is invalid",
+      "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as ModelHarnessQualificationView;
 }
 
 function parseProviderDiagnostic(value: unknown, request: ProviderDiagnosticRequestView): ProviderDiagnosticView {
@@ -3160,6 +3240,17 @@ export class CyberAgentClient {
     }
     const result = await this.sendControlRequest<unknown>("/models/diagnostics", body, signal);
     return parseProviderDiagnostic(result, body);
+  }
+
+  async qualifyModelHarness(body: ModelHarnessQualificationRequestView,
+    signal?: AbortSignal): Promise<ModelHarnessQualificationView> {
+    if (!this.hasModelControl || body.confirm_qualification !== true) {
+      throw new Error("Explicit model Harness qualification confirmation is required");
+    }
+    const result = await this.sendControlRequest<unknown>(
+      "/models/harness-qualifications", body, signal,
+    );
+    return parseModelHarnessQualification(result, body);
   }
 
   async providerCredentialStatuses(signal?: AbortSignal): Promise<ProviderCredentialListView> {

@@ -28,20 +28,39 @@ type HealthView struct {
 }
 
 type ProviderAvailabilityView struct {
-	Name               string   `json:"name"`
-	Kind               string   `json:"kind"`
-	Status             string   `json:"status"`
-	Models             []string `json:"models"`
-	CredentialSource   string   `json:"credential_source"`
-	NetworkRequired    bool     `json:"network_required"`
-	ConfigurationError bool     `json:"configuration_error"`
+	Name               string                         `json:"name"`
+	Kind               string                         `json:"kind"`
+	Status             string                         `json:"status"`
+	Models             []string                       `json:"models"`
+	Harnesses          []ModelHarnessAvailabilityView `json:"harnesses"`
+	CredentialSource   string                         `json:"credential_source"`
+	NetworkRequired    bool                           `json:"network_required"`
+	ConfigurationError bool                           `json:"configuration_error"`
 }
 
 type ModelRouteAvailabilityView struct {
-	Name      string `json:"name"`
-	Provider  string `json:"provider"`
-	Model     string `json:"model"`
-	Available bool   `json:"available"`
+	Name         string `json:"name"`
+	Provider     string `json:"provider"`
+	Model        string `json:"model"`
+	Available    bool   `json:"available"`
+	HarnessReady bool   `json:"harness_ready"`
+}
+
+type ModelHarnessAvailabilityView struct {
+	ProtocolVersion        string `json:"protocol_version"`
+	Model                  string `json:"model"`
+	TransportProtocol      string `json:"transport_protocol"`
+	ToolStrategy           string `json:"tool_strategy"`
+	JSONStrategy           string `json:"json_strategy"`
+	QualificationStatus    string `json:"qualification_status"`
+	ToolCallsQualified     bool   `json:"tool_calls_qualified"`
+	ToolResultsQualified   bool   `json:"tool_results_qualified"`
+	StrictJSONQualified    bool   `json:"strict_json_qualified"`
+	StreamingQualified     bool   `json:"streaming_qualified"`
+	RootEligible           bool   `json:"root_eligible"`
+	StructuredJSONEligible bool   `json:"structured_json_eligible"`
+	QualifiedAt            string `json:"qualified_at"`
+	ExpiresAt              string `json:"expires_at"`
 }
 
 type ModelAvailabilityView struct {
@@ -63,6 +82,22 @@ type ProviderDiagnosticView struct {
 	ToolCalled              bool   `json:"tool_called"`
 	ResponseContentReturned bool   `json:"response_content_returned"`
 	DurationMillis          int64  `json:"duration_ms"`
+}
+
+type ModelHarnessQualificationView struct {
+	ProtocolVersion         string                       `json:"protocol_version"`
+	Provider                string                       `json:"provider"`
+	Model                   string                       `json:"model"`
+	Status                  string                       `json:"status"`
+	Outcome                 string                       `json:"outcome"`
+	Retryable               bool                         `json:"retryable"`
+	NetworkRequestAttempted bool                         `json:"network_request_attempted"`
+	ModelCalls              int                          `json:"model_calls"`
+	SyntheticToolCalls      int                          `json:"synthetic_tool_calls"`
+	ToolExecuted            bool                         `json:"tool_executed"`
+	ResponseContentReturned bool                         `json:"response_content_returned"`
+	DurationMillis          int64                        `json:"duration_ms"`
+	Harness                 ModelHarnessAvailabilityView `json:"harness"`
 }
 
 type FileEditPreviewView struct {

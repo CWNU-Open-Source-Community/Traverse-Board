@@ -4,13 +4,36 @@ import userEvent from "@testing-library/user-event";
 import type { CyberAgentClient } from "../api/client";
 import { ModelAvailabilityDialog } from "./model-availability-dialog";
 
+function mockHarness(model: string) {
+  return {
+    protocol_version: "model_harness.v1", model, transport_protocol: "mock",
+    tool_strategy: "native", json_strategy: "native",
+    qualification_status: "trusted_builtin", tool_calls_qualified: true,
+    tool_results_qualified: true, strict_json_qualified: true,
+    streaming_qualified: true, root_eligible: true,
+    structured_json_eligible: true, qualified_at: "", expires_at: "",
+  };
+}
+
+function requiredHarness(model: string) {
+  return {
+    ...mockHarness(model), transport_protocol: "anthropic_messages",
+    json_strategy: "prompt", qualification_status: "qualification_required",
+    tool_calls_qualified: false, tool_results_qualified: false,
+    strict_json_qualified: false, streaming_qualified: false,
+    root_eligible: false, structured_json_eligible: false,
+  };
+}
+
 describe("ModelAvailabilityDialog", () => {
   it("renders redacted provider and route status without configuration secrets", async () => {
     const client = { modelAvailability: vi.fn().mockResolvedValue({
-      protocol_version: "model_availability.v1", generation: 1,
+      protocol_version: "model_availability.v2", generation: 1,
       providers: [{ name: "mock", kind: "local", status: "available", models: ["mock-code"],
+        harnesses: [mockHarness("mock-code")],
         credential_source: "none", network_required: false, configuration_error: false }],
-      routes: [{ name: "code", provider: "mock", model: "mock-code", available: true }],
+      routes: [{ name: "code", provider: "mock", model: "mock-code", available: true,
+        harness_ready: true }],
     }) } as unknown as CyberAgentClient;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const { container } = render(<QueryClientProvider client={queryClient}>
@@ -32,15 +55,18 @@ describe("ModelAvailabilityDialog", () => {
     });
     const selectModelRoute = vi.fn().mockResolvedValue({
       name: "code", provider: "mock", model: "mock-fast", available: true,
+      harness_ready: true,
     });
     const client = {
       hasModelControl: true, diagnoseProvider, selectModelRoute,
       modelAvailability: vi.fn().mockResolvedValue({
-        protocol_version: "model_availability.v1", generation: 1,
+        protocol_version: "model_availability.v2", generation: 1,
         providers: [{ name: "mock", kind: "local", status: "available",
           models: ["mock-code", "mock-fast"], credential_source: "none",
-          network_required: false, configuration_error: false }],
-        routes: [{ name: "code", provider: "mock", model: "mock-code", available: true }],
+          network_required: false, configuration_error: false,
+          harnesses: [mockHarness("mock-code"), mockHarness("mock-fast")] }],
+        routes: [{ name: "code", provider: "mock", model: "mock-code", available: true,
+          harness_ready: true }],
       }),
     } as unknown as CyberAgentClient;
     const queryClient = new QueryClient({ defaultOptions: {
@@ -60,6 +86,42 @@ describe("ModelAvailabilityDialog", () => {
     await waitFor(() => expect(selectModelRoute).toHaveBeenCalledWith("code", {
       version: "model_route_control.v1", provider: "mock", model: "mock-fast",
     }));
+  });
+
+  it("keeps Harness qualification separate and explicitly confirmed", async () => {
+    const user = userEvent.setup();
+    const qualifyModelHarness = vi.fn().mockResolvedValue({
+      protocol_version: "model_harness_qualification.v1", provider: "mimo",
+      model: "model", status: "qualified", outcome: "success", retryable: false,
+      network_request_attempted: true, model_calls: 2, synthetic_tool_calls: 1,
+      tool_executed: false, response_content_returned: false, duration_ms: 8,
+      harness: { ...mockHarness("model"), transport_protocol: "anthropic_messages",
+        json_strategy: "prompt", qualification_status: "verified",
+        qualified_at: "2026-07-25T00:00:00Z", expires_at: "2026-08-01T00:00:00Z" },
+    });
+    const client = {
+      hasModelControl: true, qualifyModelHarness,
+      modelAvailability: vi.fn().mockResolvedValue({
+        protocol_version: "model_availability.v2", generation: 1,
+        providers: [{ name: "mimo", kind: "anthropic_compatible", status: "available",
+          models: ["model"], credential_source: "system", network_required: true,
+          configuration_error: false, harnesses: [requiredHarness("model")] }],
+        routes: [{ name: "code", provider: "mimo", model: "model", available: true,
+          harness_ready: false }],
+      }),
+    } as unknown as CyberAgentClient;
+    const queryClient = new QueryClient({ defaultOptions: {
+      queries: { retry: false }, mutations: { retry: false },
+    } });
+    render(<QueryClientProvider client={queryClient}>
+      <ModelAvailabilityDialog client={client} open onClose={vi.fn()} />
+    </QueryClientProvider>);
+    await user.click(await screen.findByRole("button", { name: "Qualify mimo Harness" }));
+    await waitFor(() => expect(qualifyModelHarness).toHaveBeenCalledWith({
+      version: "model_harness_qualification.v1", provider: "mimo", model: "model",
+      confirm_qualification: true,
+    }));
+    expect(await screen.findByText("2 model calls")).toBeInTheDocument();
   });
 
   it("submits a Provider secret once and renders status without plaintext", async () => {
@@ -83,11 +145,12 @@ describe("ModelAvailabilityDialog", () => {
       providerCredentialStatuses: vi.fn().mockResolvedValue(statuses),
       changeProviderCredential,
       modelAvailability: vi.fn().mockResolvedValue({
-        protocol_version: "model_availability.v1", generation: 1,
+        protocol_version: "model_availability.v2", generation: 1,
         providers: [{ name: "mock", kind: "local", status: "available",
           models: ["mock-code"], credential_source: "none", network_required: false,
-          configuration_error: false }],
-        routes: [{ name: "code", provider: "mock", model: "mock-code", available: true }],
+          configuration_error: false, harnesses: [mockHarness("mock-code")] }],
+        routes: [{ name: "code", provider: "mock", model: "mock-code", available: true,
+          harness_ready: true }],
       }),
     } as unknown as CyberAgentClient;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

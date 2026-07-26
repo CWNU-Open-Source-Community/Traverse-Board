@@ -2,7 +2,9 @@ package modelregistry
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -16,6 +18,11 @@ type routeSettings map[string]string
 func (s routeSettings) GetProviderSetting(_ context.Context, key string) (string, bool, error) {
 	value, found := s[key]
 	return value, found, nil
+}
+
+func (s routeSettings) SetProviderSetting(_ context.Context, key string, value string) error {
+	s[key] = value
+	return nil
 }
 
 type failingRouteSettings struct{}
@@ -404,6 +411,181 @@ func TestRegistryDiagnosticReturnsOnlyBoundedConnectivityFacts(t *testing.T) {
 	if _, err := registry.Diagnose(context.Background(), "mimo", DefaultMimoModel); err == nil {
 		t.Fatal("unconfigured Provider diagnostic was accepted")
 	}
+}
+
+func TestHarnessQualificationIsSyntheticExactAndDurable(t *testing.T) {
+	settings := routeSettings{}
+	registry := registryWithQualificationProvider("a")
+	before := registry.Snapshot()
+	harness := before.Providers[len(before.Providers)-1].Harnesses[0]
+	if harness.QualificationStatus != llm.HarnessQualificationRequired ||
+		harness.RootEligible {
+		t.Fatalf("unqualified model was projected as ready: %#v", harness)
+	}
+	result, err := registry.QualifyHarness(context.Background(), settings,
+		"qualification-test", "model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ProtocolVersion != HarnessQualificationProtocolVersion ||
+		result.Status != HarnessDiagnosticQualified ||
+		result.Outcome != string(llm.OutcomeSuccess) ||
+		result.ModelCalls != 2 || result.SyntheticToolCalls != 1 ||
+		result.ToolExecuted || result.ResponseContentReturned ||
+		!result.Harness.RootEligible ||
+		result.Harness.QualificationStatus != llm.HarnessQualificationVerified {
+		t.Fatalf("unexpected Harness qualification result: %#v", result)
+	}
+	if len(settings) != 1 {
+		t.Fatalf("qualification persistence count=%d", len(settings))
+	}
+
+	restarted := registryWithQualificationProvider("a")
+	if err := restarted.LoadRouteSettings(context.Background(), settings); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := restarted.Router().HarnessProfile(llm.ModelRef{
+		Provider: "qualification-test", Model: "model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.QualificationStatus != llm.HarnessQualificationVerified {
+		t.Fatalf("qualification was not restored: %#v", restored)
+	}
+
+	changed := registryWithQualificationProvider("b")
+	if err := changed.LoadRouteSettings(context.Background(), settings); err != nil {
+		t.Fatal(err)
+	}
+	stale, err := changed.Router().HarnessProfile(llm.ModelRef{
+		Provider: "qualification-test", Model: "model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stale.QualificationStatus != llm.HarnessQualificationRequired {
+		t.Fatalf("qualification escaped its transport binding: %#v", stale)
+	}
+}
+
+func TestHarnessQualificationRejectsResponseModelDrift(t *testing.T) {
+	settings := routeSettings{}
+	registry := registryWithQualificationResponseModel("a", "different-model")
+	result, err := registry.QualifyHarness(context.Background(), settings,
+		"qualification-test", "model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != HarnessDiagnosticIncompatible ||
+		result.Outcome != string(llm.OutcomeInvalidResponse) ||
+		result.ModelCalls != 1 || result.Harness.RootEligible ||
+		len(settings) != 0 {
+		t.Fatalf("response identity drift was accepted: result=%#v settings=%#v",
+			result, settings)
+	}
+}
+
+type qualificationProvider struct {
+	binding       string
+	responseModel string
+}
+
+func (*qualificationProvider) Name() string { return "qualification-test" }
+
+func (*qualificationProvider) ListModels(context.Context) ([]llm.ModelInfo, error) {
+	return []llm.ModelInfo{{ID: "model", Provider: "qualification-test"}}, nil
+}
+
+func (p *qualificationProvider) Chat(ctx context.Context,
+	request llm.ChatRequest,
+) (*llm.ChatResponse, error) {
+	stream, err := p.StreamChat(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	var text strings.Builder
+	for chunk := range stream {
+		text.WriteString(chunk.Text)
+		if chunk.Done {
+			return &llm.ChatResponse{Text: text.String(), ToolCalls: chunk.ToolCalls,
+				Usage: *chunk.Usage, Provider: chunk.Provider, Model: chunk.Model}, nil
+		}
+	}
+	return nil, errors.New("qualification test stream ended")
+}
+
+func (p *qualificationProvider) StreamChat(_ context.Context,
+	request llm.ChatRequest,
+) (<-chan llm.ChatChunk, error) {
+	response := &llm.ChatResponse{
+		Provider: p.Name(), Model: p.responseModel,
+		Usage: llm.Usage{InputTokens: 1, OutputTokens: 1, TotalTokens: 2},
+	}
+	switch request.Metadata["phase"] {
+	case "tool_call":
+		words := strings.Fields(request.Messages[len(request.Messages)-1].Content)
+		nonce := strings.TrimSuffix(words[len(words)-1], ".")
+		response.ToolCalls = []llm.ToolCall{{
+			ID: "probe-call", Name: "prayu_harness_echo",
+			Arguments: json.RawMessage(`{"nonce":"` + nonce + `"}`),
+		}}
+	case "tool_result_and_json":
+		var result harnessProbeResponse
+		for _, message := range request.Messages {
+			for _, toolResult := range message.ToolResults {
+				_ = json.Unmarshal([]byte(toolResult.Content), &result)
+			}
+		}
+		encoded, _ := json.Marshal(harnessProbeResponse{
+			Version: HarnessProbeProtocolVersion, Status: "ok", Nonce: result.Nonce,
+		})
+		response.Text = string(encoded)
+	default:
+		return nil, errors.New("unexpected qualification phase")
+	}
+	chunks := make(chan llm.ChatChunk, 2)
+	if response.Text != "" {
+		chunks <- llm.ChatChunk{Text: response.Text}
+	}
+	chunks <- llm.FinalChatChunk(response)
+	close(chunks)
+	return chunks, nil
+}
+
+func (*qualificationProvider) SupportsTools(string) bool    { return true }
+func (*qualificationProvider) SupportsVision(string) bool   { return false }
+func (*qualificationProvider) SupportsJSONMode(string) bool { return false }
+
+func (p *qualificationProvider) DescribeModelHarness(string) llm.ModelHarness {
+	return llm.ModelHarness{
+		ProtocolVersion:     llm.ModelHarnessProtocolVersion,
+		TransportProtocol:   llm.HarnessTransportAnthropicMessages,
+		ToolStrategy:        llm.HarnessToolStrategyNative,
+		JSONStrategy:        llm.HarnessJSONStrategyPrompt,
+		QualificationStatus: llm.HarnessQualificationRequired,
+		BindingDigest:       strings.Repeat(p.binding, 64),
+	}
+}
+
+func registryWithQualificationProvider(binding string) *Registry {
+	return registryWithQualificationResponseModel(binding, "model")
+}
+
+func registryWithQualificationResponseModel(binding string, responseModel string) *Registry {
+	registry := New(nil)
+	provider := &qualificationProvider{binding: binding, responseModel: responseModel}
+	registry.router.RegisterProvider(provider)
+	registry.providers = append(registry.providers, ProviderAvailability{
+		Name: provider.Name(), Kind: ProviderKindAnthropicCompatible,
+		Status: ProviderAvailable, Models: []string{"model"},
+		CredentialSource: "none", NetworkRequired: true,
+	})
+	registry.available[provider.Name()] = struct{}{}
+	sort.Slice(registry.providers, func(i, j int) bool {
+		return registry.providers[i].Name < registry.providers[j].Name
+	})
+	return registry
 }
 
 func contains(values []string, value string) bool {

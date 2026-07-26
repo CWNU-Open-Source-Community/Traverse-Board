@@ -1938,10 +1938,46 @@ v85 历史迁移测试降级链遗漏和一个 staticcheck 未使用摘要函数
 整树归属；C5 独立做一次性 Profile 落盘/恢复/精确清理；C6 独立做 exact-scope localhost CDP
 导航、DOM 与截图。请求改包/重放、安全放宽和 CTF Instrumented 继续后置，三项权限不得合并开放。
 
+## Model Harness A1/A2/A3 批次：协议策略、最小请求与显式资格校验
+
+任务 ID：`Model-Harness-Protocol-Minimization-Qualification-v85`。本轮不新增 SQLite migration，
+schema 保持 v85；OpenAPI 从 75/83/182 更新为 76 path / 84 operation / 185 schema。
+
+Model Harness A1 新增 Go-owned `model_harness.v1`。每个精确 Provider/Model 现在有 transport、
+tool、JSON、streaming 与 qualification 档案，并绑定 Provider、模型、Base URL 与策略摘要。
+Mock 是离线 `trusted_builtin`；Anthropic-compatible 使用 native tool + prompt JSON，默认
+`qualification_required`。旧的编译期 Provider 接口保留显式 `provider_contract` 兼容档案，生产
+Provider 应实现新的描述接口。
+
+A2 把 Root Supervisor、Specialist 与 read-only Fan-out 全部接到同一调用前预检。Root 只有在
+ToolCall、ToolResult、strict JSON 和 streaming 四项均合格时才可携带工具；Specialist/Fan-out
+无条件移除工具 Schema，并按 exact profile 选择 native 或 prompt JSON。过期、改变绑定或不合格
+模型在正常 Provider 调用前失败关闭，避免一个模型只因 HTTP 形状兼容就进入 Agent Tool loop。
+
+A3 新增 `model_harness_qualification.v1`：CLI `provider qualify`、独立 HTTP control、Desktop 模型
+页及 React 客户端共用同一 Go Service。外部模型最多收到两次 30 秒内的有界请求：先返回恰好一次
+随机 nonce 合成 ToolCall，再消费合成 ToolResult 并返回精确 `model_harness_probe.v1` JSON。
+合成 Tool 从不 dispatch，公开响应内容固定为空，不包含 prompt、model text、Tool args、API key、
+Base URL、环境变量名或 raw error。成功记录复用现有 provider setting，仅保存 hash 绑定、能力
+bool 与七天时限；启动时只恢复未过期且精确匹配的记录。模型 availability 读取仍不发网络请求，
+连通性诊断和 Harness qualification 保持两个独立按钮/命令。
+
+三切片功能门通过定向 Go、全仓 Go 约 398.8 秒、全仓 vet、聚焦 race、零告警 staticcheck、
+module verify、42 文件 149 React、strict TypeScript、Vite production build 与确定性
+OpenAPI/TypeScript generation。组合审计发现并修复
+两项可靠性问题：Fan-out shard request 的协议预处理原先通过 range 值拷贝赋值，prompt/native
+JSON 策略可能未写回实际请求；资格流原先也未像普通 Agent 调用一样拒绝最终 Provider/Model 身份
+漂移。现已分别增加双 shard 与错误模型身份回归测试。未发现权限扩大、真实 Tool 执行、
+Shell/File/Browser/Docker/目标网络动作或敏感内容持久化。边界见 ADR 0074。
+
+当前下一批仍为 P11-C4/C5/C6，但进入真实浏览器启动前必须再次复核本机永久删除守卫、Job Object
+整树终止、一次性 Profile 精确所有权与 CDP exact-scope。Model Harness qualification 只证明有界
+协议兼容性，不代表模型质量、安全性或执行授权。
+
 ## 八、仓库同步与恢复约定
 
 规范远程仓库：`https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench`。
 
 每三个聚焦切片组成一个交付批次；第三片后统一执行功能复核、普通/聚焦测试、组合差异审查、项目记忆更新、Git 提交、GitHub 推送和 CI 复核。每两个批次即六个切片再执行全仓 race、vet、staticcheck、govulncheck、依赖/隐私与完整构建健壮性门。当前仓库直接开发并推送 `main`；除非用户明确要求，不创建功能分支或 PR。
 
-长对话恢复时依次阅读：`README.md`、`docs/PROJECT_MEMORY.md`、`docs/PROJECT_STATUS.md`、本文件、`docs/TASK_BOOK.md`、`docs/http-api.md`、`docs/errors.md`，再按序阅读 `docs/adr/0001-*.md` 到 `docs/adr/0073-browser-publisher-launch-lease-and-review-gates.md`。
+长对话恢复时依次阅读：`README.md`、`docs/PROJECT_MEMORY.md`、`docs/PROJECT_STATUS.md`、本文件、`docs/TASK_BOOK.md`、`docs/http-api.md`、`docs/errors.md`，再按序阅读 `docs/adr/0001-*.md` 到 `docs/adr/0074-model-harness-protocol-profiles-and-qualification.md`。

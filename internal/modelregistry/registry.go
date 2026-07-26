@@ -16,7 +16,7 @@ import (
 	"cyberagent-workbench/internal/redact"
 )
 
-const ProtocolVersion = "model_availability.v1"
+const ProtocolVersion = "model_availability.v2"
 
 const ReloadProtocolVersion = "provider_registry_reload.v1"
 
@@ -63,16 +63,18 @@ type ProviderAvailability struct {
 	Kind               string
 	Status             string
 	Models             []string
+	Harnesses          []HarnessAvailability
 	CredentialSource   string
 	NetworkRequired    bool
 	ConfigurationError bool
 }
 
 type RouteAvailability struct {
-	Name      string
-	Provider  string
-	Model     string
-	Available bool
+	Name         string
+	Provider     string
+	Model        string
+	Available    bool
+	HarnessReady bool
 }
 
 type Snapshot struct {
@@ -120,14 +122,15 @@ type CredentialReader interface {
 }
 
 type Registry struct {
-	mu          sync.RWMutex
-	routeMu     sync.Mutex
-	router      *llm.Router
-	providers   []ProviderAvailability
-	available   map[string]struct{}
-	lookup      EnvironmentLookup
-	credentials credentialLookup
-	generation  uint64
+	mu              sync.RWMutex
+	routeMu         sync.Mutex
+	qualificationMu sync.Mutex
+	router          *llm.Router
+	providers       []ProviderAvailability
+	available       map[string]struct{}
+	lookup          EnvironmentLookup
+	credentials     credentialLookup
+	generation      uint64
 }
 
 type anthropicEnvironment struct {
@@ -241,6 +244,8 @@ func (r *Registry) Reload(ctx context.Context, reader RouteSettingReader) (Reloa
 	copy(providers, candidate.providers)
 	for index := range providers {
 		providers[index].Models = append([]string(nil), candidate.providers[index].Models...)
+		providers[index].Harnesses = append([]HarnessAvailability(nil),
+			candidate.providers[index].Harnesses...)
 	}
 	available := make(map[string]struct{}, len(candidate.available))
 	for name := range candidate.available {
@@ -300,7 +305,7 @@ func (r *Registry) LoadRouteSettings(ctx context.Context, reader RouteSettingRea
 		}
 		r.router.SetRoute(route, ref)
 	}
-	return nil
+	return r.loadHarnessQualifications(ctx, reader)
 }
 
 func (r *Registry) SelectRoute(ctx context.Context, writer RouteSettingWriter,
@@ -336,7 +341,9 @@ func (r *Registry) SelectRoute(ctx context.Context, writer RouteSettingWriter,
 	// the process exits between persistence and this update, startup reloads the
 	// durable setting before serving requests.
 	r.router.SetRoute(route, llm.ModelRef{Provider: provider, Model: model})
-	return RouteAvailability{Name: route, Provider: provider, Model: model, Available: true}, nil
+	profile, _ := r.router.HarnessProfile(llm.ModelRef{Provider: provider, Model: model})
+	return RouteAvailability{Name: route, Provider: provider, Model: model, Available: true,
+		HarnessReady: rootHarnessReady(profile)}, nil
 }
 
 func (r *Registry) Diagnose(ctx context.Context, provider string,
@@ -403,9 +410,16 @@ func (r *Registry) Snapshot() Snapshot {
 	for index, provider := range r.providers {
 		providers[index] = provider
 		providers[index].Models = make([]string, len(provider.Models))
+		providers[index].Harnesses = make([]HarnessAvailability, 0, len(provider.Models))
 		for modelIndex, model := range provider.Models {
 			providers[index].Models[modelIndex] = availabilityIdentifier(model,
 				maxPublicModelNameBytes)
+			if profile, err := r.router.HarnessProfile(llm.ModelRef{
+				Provider: provider.Name, Model: model,
+			}); err == nil {
+				providers[index].Harnesses = append(providers[index].Harnesses,
+					harnessAvailability(model, profile))
+			}
 		}
 	}
 	available := make(map[string]struct{}, len(r.available))
@@ -419,9 +433,11 @@ func (r *Registry) Snapshot() Snapshot {
 		_, registered := available[ref.Provider]
 		provider := availabilityIdentifier(ref.Provider, maxPublicProviderNameBytes)
 		model := availabilityIdentifier(ref.Model, maxPublicModelNameBytes)
+		profile, profileErr := r.router.HarnessProfile(ref)
 		outRoutes = append(outRoutes, RouteAvailability{
 			Name: name, Provider: provider, Model: model,
-			Available: registered && provider == ref.Provider && model == ref.Model,
+			Available:    registered && provider == ref.Provider && model == ref.Model,
+			HarnessReady: profileErr == nil && rootHarnessReady(profile),
 		})
 	}
 	return Snapshot{ProtocolVersion: ProtocolVersion, Generation: r.generation,

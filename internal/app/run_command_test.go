@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -831,12 +833,57 @@ func TestRunDelegationReviewCLIIsExplicitAndIdempotent(t *testing.T) {
 func TestExecuteContextCancelsProviderAndPersistsFailure(t *testing.T) {
 	t.Setenv("CYBERAGENT_HOME", t.TempDir())
 	entered := make(chan struct{})
+	noncePattern := regexp.MustCompile(`[a-f0-9]{32}`)
+	var requestCount atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			t.Errorf("read Provider request: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		if flusher, ok := w.(http.Flusher); ok {
-			flusher.Flush()
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Error("test Provider does not support streaming")
+			return
 		}
+		current := requestCount.Add(1)
+		if current <= 2 {
+			nonce := noncePattern.FindString(string(body))
+			if nonce == "" {
+				t.Errorf("qualification request %d omitted nonce: %s", current, body)
+				return
+			}
+			var payloads []string
+			if current == 1 {
+				partial, _ := json.Marshal(`{"nonce":"` + nonce + `"}`)
+				payloads = []string{
+					`{"type":"message_start","message":{"model":"test-model","usage":{"input_tokens":1,"output_tokens":0}}}`,
+					`{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"probe-call","name":"prayu_harness_echo","input":{}}}`,
+					`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":` + string(partial) + `}}`,
+					`{"type":"content_block_stop","index":0}`,
+					`{"type":"message_delta","usage":{"output_tokens":1}}`,
+					`{"type":"message_stop"}`,
+				}
+			} else {
+				text, _ := json.Marshal(`{"version":"model_harness_probe.v1","status":"ok","nonce":"` +
+					nonce + `"}`)
+				payloads = []string{
+					`{"type":"message_start","message":{"model":"test-model","usage":{"input_tokens":1,"output_tokens":0}}}`,
+					`{"type":"content_block_delta","delta":{"type":"text_delta","text":` + string(text) + `}}`,
+					`{"type":"message_delta","usage":{"output_tokens":1}}`,
+					`{"type":"message_stop"}`,
+				}
+			}
+			for _, payload := range payloads {
+				_, _ = fmt.Fprintf(w, "data: %s\n\n", payload)
+				flusher.Flush()
+			}
+			return
+		}
+		flusher.Flush()
 		close(entered)
 		<-request.Context().Done()
 	}))
@@ -844,6 +891,12 @@ func TestExecuteContextCancelsProviderAndPersistsFailure(t *testing.T) {
 	t.Setenv("MIMO_API_KEY", "test-provider-key")
 	t.Setenv("MIMO_BASE_URL", server.URL)
 	t.Setenv("MIMO_MODEL", "test-model")
+	qualified, stderr, code := executeTestCommand(t, "provider", "qualify",
+		"mimo/test-model")
+	if code != 0 || stderr != "" || !strings.Contains(qualified, "root_eligible: true") {
+		t.Fatalf("Harness qualification failed: output=%q stderr=%q code=%d",
+			qualified, stderr, code)
+	}
 
 	created, stderr, code := executeTestCommand(t, "run", "create", "signal cancellation", "--profile", "review", "--route", "mimo/test-model")
 	if code != 0 {

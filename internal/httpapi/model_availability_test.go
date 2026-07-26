@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/modelregistry"
 	"cyberagent-workbench/internal/store"
 )
@@ -66,13 +67,17 @@ func TestModelAvailabilityIsRedactedAndDoesNotProbeProviders(t *testing.T) {
 	for _, provider := range envelope.Data.Providers {
 		if provider.Name == "mimo" {
 			foundMimo = provider.Status == modelregistry.ProviderAvailable &&
-				len(provider.Models) == 1 && provider.Models[0] == "mimo-http-test"
+				len(provider.Models) == 1 && provider.Models[0] == "mimo-http-test" &&
+				len(provider.Harnesses) == 1 &&
+				provider.Harnesses[0].QualificationStatus ==
+					llm.HarnessQualificationRequired &&
+				!provider.Harnesses[0].RootEligible
 		}
 	}
 	for _, route := range envelope.Data.Routes {
 		if route.Name == "code" {
 			foundCode = route.Available && route.Provider == "mimo" &&
-				route.Model == "mimo-http-test"
+				route.Model == "mimo-http-test" && !route.HarnessReady
 		}
 	}
 	if !foundMimo || !foundCode {

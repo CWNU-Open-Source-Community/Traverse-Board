@@ -8,15 +8,25 @@ function modelClient(overrides: Partial<CyberAgentClient> = {}): CyberAgentClien
   return {
     hasModelControl: true,
     modelAvailability: vi.fn().mockResolvedValue({
-      protocol_version: "model_availability.v1",
+      protocol_version: "model_availability.v2",
       generation: 1,
       providers: [{ name: "mock", kind: "local", status: "available",
         models: ["mock-code", "mock-fast"], credential_source: "none",
-        network_required: false, configuration_error: false }],
-      routes: [{ name: "code", provider: "mock", model: "mock-code", available: true }],
+        network_required: false, configuration_error: false,
+        harnesses: ["mock-code", "mock-fast"].map((model) => ({
+          protocol_version: "model_harness.v1", model, transport_protocol: "mock",
+          tool_strategy: "native", json_strategy: "native",
+          qualification_status: "trusted_builtin", tool_calls_qualified: true,
+          tool_results_qualified: true, strict_json_qualified: true,
+          streaming_qualified: true, root_eligible: true,
+          structured_json_eligible: true, qualified_at: "", expires_at: "",
+        })) }],
+      routes: [{ name: "code", provider: "mock", model: "mock-code", available: true,
+        harness_ready: true }],
     }),
     selectModelRoute: vi.fn().mockResolvedValue({
       name: "code", provider: "mock", model: "mock-fast", available: true,
+      harness_ready: true,
     }),
     ...overrides,
   } as unknown as CyberAgentClient;

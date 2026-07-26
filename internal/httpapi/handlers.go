@@ -361,9 +361,14 @@ func (a *API) modelAvailability(request *http.Request) (any, *Page, error) {
 	snapshot := a.modelRegistry.Snapshot()
 	providers := make([]ProviderAvailabilityView, len(snapshot.Providers))
 	for index, provider := range snapshot.Providers {
+		harnesses := make([]ModelHarnessAvailabilityView, len(provider.Harnesses))
+		for harnessIndex, harness := range provider.Harnesses {
+			harnesses[harnessIndex] = modelHarnessAvailabilityView(harness)
+		}
 		providers[index] = ProviderAvailabilityView{
 			Name: provider.Name, Kind: provider.Kind, Status: provider.Status,
 			Models:             append([]string{}, provider.Models...),
+			Harnesses:          harnesses,
 			CredentialSource:   provider.CredentialSource,
 			NetworkRequired:    provider.NetworkRequired,
 			ConfigurationError: provider.ConfigurationError,
@@ -373,7 +378,7 @@ func (a *API) modelAvailability(request *http.Request) (any, *Page, error) {
 	for index, route := range snapshot.Routes {
 		routes[index] = ModelRouteAvailabilityView{
 			Name: route.Name, Provider: route.Provider, Model: route.Model,
-			Available: route.Available,
+			Available: route.Available, HarnessReady: route.HarnessReady,
 		}
 	}
 	return ModelAvailabilityView{ProtocolVersion: snapshot.ProtocolVersion,

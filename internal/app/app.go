@@ -209,7 +209,7 @@ func (a *App) printHelp() {
 	fmt.Fprintln(a.out, "  cyberagent script new|run")
 	fmt.Fprintln(a.out, "  cyberagent ctf init|analyze|writeup")
 	fmt.Fprintln(a.out, "  cyberagent learn ask")
-	fmt.Fprintln(a.out, "  cyberagent provider list|test")
+	fmt.Fprintln(a.out, "  cyberagent provider list|test|qualify")
 	fmt.Fprintln(a.out, "  cyberagent model list|set")
 	fmt.Fprintln(a.out, "  cyberagent skill list|show|validate|package|import|installed|remove|select|selection|select-external|external-selection")
 	fmt.Fprintln(a.out, "  cyberagent context compact|show")
@@ -679,23 +679,9 @@ func (a *App) providerCommand(ctx context.Context, args []string) error {
 		if len(args) > 1 {
 			route = args[1]
 		}
-		var ref llm.ModelRef
-		if strings.Contains(route, "/") {
-			parsed, parseErr := llm.ParseModelRef(route)
-			if parseErr != nil {
-				return parseErr
-			}
-			ref = parsed
-		} else {
-			for _, candidate := range a.models.Snapshot().Routes {
-				if candidate.Name == route && candidate.Available {
-					ref = llm.ModelRef{Provider: candidate.Provider, Model: candidate.Model}
-					break
-				}
-			}
-			if ref.Provider == "" {
-				return fmt.Errorf("model route %q is unavailable", route)
-			}
+		ref, err := a.providerModelRef(route)
+		if err != nil {
+			return err
 		}
 		result, err := application.NewModelControlService(a.models, a.store).Diagnose(ctx,
 			application.DiagnoseProviderRequest{
@@ -711,9 +697,50 @@ func (a *App) providerCommand(ctx context.Context, args []string) error {
 			result.ModelCalled, result.ToolCalled, result.ResponseContentReturned,
 			result.DurationMillis)
 		return nil
+	case "qualify":
+		if len(args) != 2 {
+			return errors.New("usage: cyberagent provider qualify <route|provider/model>")
+		}
+		if err := a.ensureStore(); err != nil {
+			return err
+		}
+		ref, err := a.providerModelRef(args[1])
+		if err != nil {
+			return err
+		}
+		result, err := application.NewModelControlService(a.models, a.store).QualifyHarness(ctx,
+			application.QualifyModelHarnessRequest{
+				Version:  modelregistry.HarnessQualificationProtocolVersion,
+				Provider: ref.Provider, Model: ref.Model, ConfirmQualification: true,
+			})
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(a.out, "protocol: %s\nprovider: %s\nmodel: %s\nstatus: %s\noutcome: %s\nretryable: %t\nnetwork_request_attempted: %t\nmodel_calls: %d\nsynthetic_tool_calls: %d\ntool_executed: %t\nresponse_content_returned: %t\ntransport_protocol: %s\ntool_strategy: %s\njson_strategy: %s\nqualification_status: %s\nroot_eligible: %t\nduration_ms: %d\n",
+			result.ProtocolVersion, result.Provider, result.Model, result.Status,
+			result.Outcome, result.Retryable, result.NetworkRequestAttempted,
+			result.ModelCalls, result.SyntheticToolCalls, result.ToolExecuted,
+			result.ResponseContentReturned, result.Harness.TransportProtocol,
+			result.Harness.ToolStrategy, result.Harness.JSONStrategy,
+			result.Harness.QualificationStatus, result.Harness.RootEligible,
+			result.DurationMillis)
+		return nil
 	default:
 		return fmt.Errorf("unknown provider subcommand %q", args[0])
 	}
+}
+
+func (a *App) providerModelRef(route string) (llm.ModelRef, error) {
+	route = strings.TrimSpace(route)
+	if strings.Contains(route, "/") {
+		return llm.ParseModelRef(route)
+	}
+	for _, candidate := range a.models.Snapshot().Routes {
+		if candidate.Name == route && candidate.Available {
+			return llm.ModelRef{Provider: candidate.Provider, Model: candidate.Model}, nil
+		}
+	}
+	return llm.ModelRef{}, fmt.Errorf("model route %q is unavailable", route)
 }
 
 func (a *App) modelCommand(ctx context.Context, args []string) error {

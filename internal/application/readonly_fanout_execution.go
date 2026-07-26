@@ -149,10 +149,11 @@ func (s *ReadOnlyFanoutExecutionService) Execute(ctx context.Context,
 		return ExecuteReadOnlyFanoutResult{}, apperror.Wrap(
 			apperror.CodeInvalidArgument, "Run model route is invalid", err)
 	}
-	if !s.router.SupportsJSONMode(modelRef) {
+	if _, err := prepareModelHarnessRequest(s.router, modelRef,
+		llm.HarnessWorkloadFanout, llm.ChatRequest{}); err != nil {
 		return ExecuteReadOnlyFanoutResult{}, apperror.New(
 			apperror.CodeFailedPrecondition,
-			"read-only fan-out requires a registered JSON-mode model")
+			"read-only fan-out requires a qualified strict-JSON model Harness")
 	}
 	decision := normalizeReadOnlyFanoutExecutionDecision(s.checker.CheckText(
 		"readonly_fanout_execution", plan.Goal+"\nworkspace_scope="+plan.ScopePath))
@@ -318,6 +319,13 @@ func (s *ReadOnlyFanoutExecutionService) executeWithLease(ctx context.Context,
 		}
 		return err
 	}
+	if err := prepareReadOnlyFanoutShardRequests(s.router, modelRef, requests); err != nil {
+		if operationFound {
+			return s.failRecoveredExecution(ctx, lease, execution,
+				"incompatible_model_harness", err.Error(), result)
+		}
+		return err
+	}
 	usageBefore, err := s.store.GetRunAgentUsage(ctx, run.ID)
 	if err != nil {
 		return apperror.Normalize(err)
@@ -362,6 +370,20 @@ func (s *ReadOnlyFanoutExecutionService) executeWithLease(ctx context.Context,
 		result.UsageAfter = usageAfter
 	}
 	return errors.Join(err, usageErr)
+}
+
+func prepareReadOnlyFanoutShardRequests(router *llm.Router, modelRef llm.ModelRef,
+	requests map[int]*readOnlyFanoutShardRequest,
+) error {
+	for _, request := range requests {
+		prepared, err := prepareModelHarnessRequest(router, modelRef,
+			llm.HarnessWorkloadFanout, request.Request)
+		if err != nil {
+			return err
+		}
+		request.Request = prepared
+	}
+	return nil
 }
 
 func newReadOnlyFanoutExecution(plan domain.ReadOnlyFanoutPlan, executionID string,

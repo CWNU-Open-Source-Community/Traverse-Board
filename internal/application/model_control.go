@@ -15,6 +15,8 @@ type ModelControlRegistry interface {
 	SelectRoute(context.Context, modelregistry.RouteSettingWriter, string, string, string) (
 		modelregistry.RouteAvailability, error)
 	Diagnose(context.Context, string, string) (modelregistry.DiagnosticResult, error)
+	QualifyHarness(context.Context, modelregistry.RouteSettingWriter, string, string) (
+		modelregistry.HarnessQualificationResult, error)
 }
 
 type ModelControlService struct {
@@ -34,6 +36,13 @@ type DiagnoseProviderRequest struct {
 	Provider          string
 	Model             string
 	ConfirmDiagnostic bool
+}
+
+type QualifyModelHarnessRequest struct {
+	Version              string
+	Provider             string
+	Model                string
+	ConfirmQualification bool
 }
 
 func NewModelControlService(registry ModelControlRegistry,
@@ -91,6 +100,33 @@ func (s *ModelControlService) Diagnose(ctx context.Context,
 	result, err := s.registry.Diagnose(ctx, request.Provider, request.Model)
 	if err != nil {
 		return modelregistry.DiagnosticResult{}, apperror.Normalize(err)
+	}
+	return result, nil
+}
+
+func (s *ModelControlService) QualifyHarness(ctx context.Context,
+	request QualifyModelHarnessRequest,
+) (modelregistry.HarnessQualificationResult, error) {
+	if s == nil || s.registry == nil || s.settings == nil {
+		return modelregistry.HarnessQualificationResult{}, apperror.New(
+			apperror.CodeFailedPrecondition, "model control dependencies are required")
+	}
+	if request.Version != modelregistry.HarnessQualificationProtocolVersion ||
+		!request.ConfirmQualification ||
+		!validModelControlValue(request.Provider, 128) ||
+		!validModelControlValue(request.Model, 256) {
+		return modelregistry.HarnessQualificationResult{}, apperror.New(
+			apperror.CodeInvalidArgument, "model Harness qualification request is invalid")
+	}
+	if !snapshotContainsProviderModel(s.registry.Snapshot(), request.Provider, request.Model) {
+		return modelregistry.HarnessQualificationResult{}, apperror.New(
+			apperror.CodeFailedPrecondition,
+			"model Harness qualification Provider model is unavailable")
+	}
+	result, err := s.registry.QualifyHarness(ctx, s.settings,
+		request.Provider, request.Model)
+	if err != nil {
+		return modelregistry.HarnessQualificationResult{}, apperror.Normalize(err)
 	}
 	return result, nil
 }

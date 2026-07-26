@@ -341,7 +341,7 @@ td code { font-size: 11px; }
 .model-availability-section { min-width: 0; }
 .model-availability-section h3 { display: flex; align-items: center; gap: 7px; margin: 0 0 9px; font-size: 12px; }
 .model-provider-list, .model-route-list { border-top: 1px solid var(--border); }
-.model-provider-row { min-height: 58px; display: grid; grid-template-columns: minmax(110px, .8fr) minmax(150px, 1.5fr) 100px auto 34px; align-items: center; gap: 12px; padding: 9px 3px; border-bottom: 1px solid var(--border); font-size: 11px; }
+.model-provider-row { min-height: 58px; display: grid; grid-template-columns: minmax(110px, .8fr) minmax(150px, 1.35fr) minmax(120px, 1fr) auto auto 34px 34px; align-items: center; gap: 10px; padding: 9px 3px; border-bottom: 1px solid var(--border); font-size: 11px; }
 .model-provider-row > div { min-width: 0; display: grid; gap: 3px; }
 .model-provider-row strong, .model-provider-row small, .model-provider-row > span { overflow-wrap: anywhere; }
 .model-provider-row small, .model-provider-row > span { color: var(--muted); }

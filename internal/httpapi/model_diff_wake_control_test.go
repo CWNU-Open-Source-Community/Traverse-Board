@@ -88,6 +88,19 @@ func TestModelDiffAndWakeHTTPControlsRemainCapabilitySeparated(t *testing.T) {
 		strings.Contains(diagnostic.Body.String(), `"text"`) {
 		t.Fatalf("diagnostic crossed its content-free boundary: %s", diagnostic.Body.String())
 	}
+	qualification := performSessionMessageRequest(t, api, http.MethodPost,
+		ModelHarnessQualificationPath, testControlToken, "", "application/json",
+		strings.NewReader(`{"version":"model_harness_qualification.v1","provider":"mock","model":"mock-code","confirm_qualification":true}`))
+	if qualification.Code != http.StatusAccepted ||
+		!strings.Contains(qualification.Body.String(), `"status":"qualified"`) ||
+		!strings.Contains(qualification.Body.String(), `"model_calls":0`) ||
+		!strings.Contains(qualification.Body.String(), `"tool_executed":false`) ||
+		!strings.Contains(qualification.Body.String(), `"response_content_returned":false`) ||
+		strings.Contains(qualification.Body.String(), `"response"`) ||
+		strings.Contains(qualification.Body.String(), `"prompt"`) {
+		t.Fatalf("Harness qualification crossed its content-free boundary: %s",
+			qualification.Body.String())
+	}
 
 	listPath := "/api/v1/runs/" + run.ID + "/file-edits"
 	list := performSessionMessageRequest(t, api, http.MethodGet, listPath,

@@ -1,6 +1,6 @@
 # Prayu Project Memory
 
-Last updated: 2026-07-25
+Last updated: 2026-07-26
 
 ## Resume First
 
@@ -86,8 +86,9 @@ Read in this order after a long context break:
 76. `docs/adr/0071-inert-browser-executable-profile-lifecycle-and-sealed-cdp.md`
 77. `docs/adr/0072-workbench-docks-and-operator-confirmed-workspace-opening.md`
 78. `docs/adr/0073-browser-publisher-launch-lease-and-review-gates.md`
-79. `docs/DESKTOP_PLAN.md`
-80. `docs/SKILL_PACKAGE_PLAN.md`
+79. `docs/adr/0074-model-harness-protocol-profiles-and-qualification.md`
+80. `docs/DESKTOP_PLAN.md`
+81. `docs/SKILL_PACKAGE_PLAN.md`
 
 ## Current Baseline
 
@@ -100,8 +101,9 @@ Read in this order after a long context break:
 - `README.md` carries the canonical bilingual schema timeline in strict `v1 -> v85` order. `internal/store/readme_history_test.go` binds its row count and ordering to `LatestSchemaVersion`, so a future migration cannot silently leave the public history missing or out of sequence.
 - Main languages: Go control plane, TypeScript React/Vite local console, and deterministic Rust 1.97.1 digest/ZIP protocol functions. Rust has no Agent, LLM, config, key, persistence, network, filesystem, subprocess, or product-lifecycle ownership.
 - Analyzer status: P10-A1 through P10-B3 fix `analyzer_protocol.v1`, a two-entry inert `analyzer_descriptor.v1` Registry, strict digest and `archive.inventory.v1` result validation, bounded Rust stdin/stdout functions, and two five-vector semantic/bytes/SHA suites with separate CI. The ZIP function only reads an in-memory central directory and never opens, decompresses, extracts, or writes entry data. A Go-to-Rust product process bridge, product invocation, Run/Event/SQLite persistence, and Artifact commit remain absent. See ADR 0062, ADR 0063, and `analyzers/README.md`.
+- Model Harness status: non-schema A1/A2/A3 adds `model_harness.v1` exact transport/tool/JSON/streaming profiles, Go preflight for Root/Specialist/read-only Fan-out, and `model_harness_qualification.v1` at-most-two-call synthetic qualification. Mock is trusted offline; Anthropic-compatible models require explicit qualification. Qualification stores only exact binding digest, capability booleans, and seven-day expiry in existing Provider settings; the synthetic Tool is never executed, availability remains no-probe, and qualification grants no Tool/Shell/file/browser/Docker authority. OpenAPI is 76/84/185; SQLite remains v85. See ADR 0074.
 - Browser status: P11-A1 through P11-C3 now fix three Profiles, exact target scope, inert session plans, fixed-location executable discovery, disposable-profile recovery plans, sealed Disabled/Fake CDP, same-handle Windows Authenticode acceptance, immutable launch attempts/generation leases, and independent operator review. Chrome and Edge can become `accepted_for_review`; arbitrary Chromium remains refused. Review acceptance still grants no process, network, profile-write, termination, cleanup, CDP, or Artifact authority. No built-in browser process or UI exists. See ADR 0069, ADR 0071, and ADR 0073.
-- Desktop status: D0-A/D0-B and D1-R1 through D1-G13/V12 pin Wails v2.13.0 and build a reproducible Windows development/portable-test binary with an embedded React bundle, in-process Go API, ephemeral memory-only tokens, resumable event polling, same-database recovery, controlled Run/Session/lifecycle/Plan/approval workflows, explicit model diagnostics/routes, safely recoverable Monaco proposal/Diff editing, read-only Repository state/redacted Diff/local history/exact-commit metadata/redacted preview/navigable exact-file history/exact-commit comparison with keyboard-accessible paired base/head previews, independent multi-file review, separate immutable verification plans/results/associations plus snapshot-stable exact per-item drilldown/download/receipt history/non-authorizing review and Handoff coverage, digest-bound Code Handoff export with exact fail-closed receipt-review navigation, bounded Code Journey audit facts, generation-safe Windows Credential Manager Provider controls, and a default-off one-concurrent/one-step wake worker. D1-UX7/UX8/UX9 add composable Summary/Bottom/Right docks plus a pathless, native-confirmed operator action for opening one registered Workspace in a fixed recognized external application. The renderer receives no path/command/environment/arbitrary arguments; this is not Agent, Runner, Tool, or Shell execution. Schema v85 browser launch facts are internal non-starting records and add no Desktop browser surface. The 2026-07-22 repair tests the real Wails server-form request rather than an absolute-URL mock, and one exact legacy v30 preview checksum upgrades in place while unknown history remains rejected. Windows 10 release coverage remains pending and `release_ready=false`. There is no installer, formal signed release, registry/startup/update behavior, embedded terminal, real Shell/Local/Docker Agent execution, or install-time Skill execution. See ADR 0033 through ADR 0061, ADR 0064, ADR 0068, ADR 0070, ADR 0072, ADR 0073, and `docs/DESKTOP_PLAN.md`.
+- Desktop status: D0-A/D0-B and D1-R1 through D1-G13/V12 pin Wails v2.13.0 and build a reproducible Windows development/portable-test binary with an embedded React bundle, in-process Go API, ephemeral memory-only tokens, resumable event polling, same-database recovery, controlled Run/Session/lifecycle/Plan/approval workflows, separate model connectivity diagnostics/routes/Harness qualification, safely recoverable Monaco proposal/Diff editing, read-only Repository state/redacted Diff/local history/exact-commit metadata/redacted preview/navigable exact-file history/exact-commit comparison with keyboard-accessible paired base/head previews, independent multi-file review, separate immutable verification plans/results/associations plus snapshot-stable exact per-item drilldown/download/receipt history/non-authorizing review and Handoff coverage, digest-bound Code Handoff export with exact fail-closed receipt-review navigation, bounded Code Journey audit facts, generation-safe Windows Credential Manager Provider controls, and a default-off one-concurrent/one-step wake worker. D1-UX7/UX8/UX9 add composable Summary/Bottom/Right docks plus a pathless, native-confirmed operator action for opening one registered Workspace in a fixed recognized external application. The renderer receives no path/command/environment/arbitrary arguments; this is not Agent, Runner, Tool, or Shell execution. Schema v85 browser launch facts are internal non-starting records and add no Desktop browser surface. The 2026-07-22 repair tests the real Wails server-form request rather than an absolute-URL mock, and one exact legacy v30 preview checksum upgrades in place while unknown history remains rejected. Windows 10 release coverage remains pending and `release_ready=false`. There is no installer, formal signed release, registry/startup/update behavior, embedded terminal, real Shell/Local/Docker Agent execution, or install-time Skill execution. See ADR 0033 through ADR 0061, ADR 0064, ADR 0068, ADR 0070, ADR 0072 through ADR 0074, and `docs/DESKTOP_PLAN.md`.
 - Prayu UX status: D1-UX1 through D1-UX9 introduce the Prayu user-facing identity, supplied workspace/Settings backgrounds and wordmark, a CSS-generated selected-state brush, a cream translucent work surface, functional Settings navigation and display-only density, a frameless Wails titlebar, a bounded persisted resizable sidebar, a Go-backed Agent composer, and the compact four-control workbench toolbar. Summary/Review/Files/Side Tasks use existing read-only Go surfaces; Browser and embedded Terminal remain explicitly inert. Open Workspace is operator-confirmed and pathless at the renderer boundary. Stable CyberAgent compatibility identifiers remain unchanged. See ADR 0064, ADR 0070, and ADR 0072.
 - Custom Skill status: the five embedded `skill.v1` guides and explicitly selected external packages are Run-loadable through separate protocols. Schema v69 adds persistent content-addressed import/history; schema v70 adds a second explicitly confirmed exact Run selection and redacted user-role root/Specialist context; schema v71 adds bounded read-only provenance across HTTP/TUI/Web. D1-A adds a pathless, one-time-handle preview boundary; D1-B1 adds explicit HTTP/Desktop registration through the same inert Registry. External packages remain untrusted and grant no declared tools. Installation executes no content and still does not select a package for a Run. See ADR 0024, ADR 0031 through ADR 0033, ADR 0041, and `docs/SKILL_PACKAGE_PLAN.md`.
 - Protected-delete status: explicit recursive, absolute/traversing/wildcard, environment-derived, command-substituted, current-home, PowerShell/`cmd`, and common interpreter deletion intents are permanently denied before approval across Shell, ScriptProcess, and Sandbox Policy. This is defense in depth; Local/container process execution remains disabled and a future executor still requires OS/container isolation. See ADR 0025.
@@ -141,8 +143,9 @@ Automated checks pass, while the manual Windows 10/WebView2 matrix correctly kee
 ## Security Invariants
 
 - Go owns Policy, scope, budgets, state transitions, Docker/process control, API-key access, and file permissions.
-- `model_availability.v1` is a deterministic no-probe projection. API keys, Base URLs, environment-variable names, clients, and raw errors never enter it; secret-like or malformed model/route identifiers fail closed or are redacted.
+- `model_availability.v2` is a deterministic no-probe projection. It adds only bounded Harness profiles/readiness; API keys, Base URLs, environment-variable names, clients, binding digests, prompts, model output, Tool arguments, and raw errors never enter it. Secret-like or malformed model/route identifiers fail closed or are redacted.
 - `provider_diagnostic.v1` is explicit and content-free. Each invocation may make one bounded model request, but model text, secrets, endpoints, environment-variable names, clients, and raw errors never enter the result. Route persistence succeeds before the in-memory Router changes.
+- `model_harness_qualification.v1` is a separate explicitly confirmed operation. It may make at most two bounded external model requests, dispatches no Tool, and returns no prompt/response/arguments/raw error. A persisted qualification is exact-binding, seven-day, and capability-only; changing Provider/model/Base URL/strategy or reaching expiry fails closed. Qualification does not prove model quality or grant execution authority.
 - `provider_credential.v1` is status-only after mutation. Windows stores exact supported Provider keys in Credential Manager with a 2,560-byte ceiling; plaintext never enters SQLite, events, logs, model context, frontend persistence, or any response. Non-Windows platforms have no plaintext fallback and environment variables keep priority. Go atomically advances a generation only after the complete candidate Registry, persisted routes, and required credential reads succeed; otherwise the old generation remains active.
 - File-edit review exact-binds Run/Mission/Session/Workspace/proposal/approval and returns metadata plus bounded redacted Diff only. `approve_intent` never writes a file. Schema v76 apply is a separate capability that rechecks Policy, Workspace resolution, original/current hash, target hash, and idempotent result; browsers submit neither path nor body.
 - `file_edit_proposal.v1` accepts only a five-minute opaque handle and replacement text after Go has issued complete, untruncated, unredacted UTF-8 for the exact running Run/active Session/Workspace. The handle is one-intent, current hash and Policy are rechecked, and the result remains pending without a file write.
@@ -1861,6 +1864,42 @@ authoritative.
 中文交接：C1-C3 已把发布者/同句柄复核、持久化 attempt/代际 lease 和独立 reviewer 串成 schema
 v85，但这仍是“启动前门禁”。本机只读烟测没有启动 Chrome/Edge。下一批才可逐项考虑 Safe Web
 真实启动、一次性 Profile 落盘与最小 CDP；三者必须继续拆开审计。
+
+## Completed Model Harness Protocol And Qualification (A1/A2/A3)
+
+Model Harness A1 adds Go-owned `model_harness.v1`. A profile is bound to one exact Provider/model
+and records transport (`mock`, `anthropic_messages`, or legacy `provider_contract`), Tool strategy,
+JSON strategy, streaming behavior, qualification status, and a binding digest. Mock is a trusted
+offline profile. The Anthropic-compatible Provider uses native Tool calls and prompt-directed JSON
+but starts as `qualification_required`; an in-process legacy Provider receives an explicitly named
+compatibility profile for source compatibility and should migrate to the describer interface.
+
+A2 calls one shared Go preflight immediately before Root, Specialist, and read-only Fan-out model
+requests. Root requires qualified ToolCall, ToolResult, strict-JSON, and streaming behavior before
+it can send Tools. Specialist and Fan-out are always no-tool workloads and Go removes any supplied
+Tool definitions. Native JSON is enabled only for a native profile; prompt JSON remains transport
+specific. An expired, changed, or incomplete qualification fails before the Provider call.
+
+A3 adds `model_harness_qualification.v1` to the existing Registry settings plus CLI, HTTP, Desktop,
+and React. Explicit confirmation may perform at most two 30-second-bounded streamed calls for an
+external model. The first must return exactly one in-memory nonce ToolCall; the second must consume
+the synthetic ToolResult, make no further ToolCall, and return exact `model_harness_probe.v1` JSON.
+No synthetic Tool is dispatched. Chunks, bytes, JSON fields, and persisted records are bounded.
+Success stores only the exact binding digest, four capability booleans, and a seven-day expiry.
+Startup restores only an exact unexpired binding. Read-only availability remains no-probe and now
+uses `model_availability.v2`; connectivity diagnostic and Harness qualification remain separate.
+
+The integrated gate passes full Go in about 398.8 seconds, vet, focused race, zero-warning
+staticcheck, module verification, 42 files/149 React tests, strict TypeScript, Vite production
+build, and deterministic 76/84/185 OpenAPI/TypeScript generation. Audit caught and fixed a
+Fan-out range-value write-back bug plus missing final streamed
+Provider/model identity rejection during qualification. Two-shard and wrong-model regression tests
+pin both fixes. No real Tool, Shell, file, browser, Docker, target-network, analyzer, or new
+authority path was used. SQLite remains v85. ADR 0074 is authoritative.
+
+中文交接：模型接入现在不再只看“HTTP 能通”。外部模型必须通过一次合成 ToolCall 与一次精确 JSON
+回执，且资格绑定精确 Provider/模型/地址/策略并会过期。普通连通性测试和资格校验仍是两个动作；
+资格通过也不会开放 Shell、文件、浏览器或 Docker。
 
 ## Next Slice
 

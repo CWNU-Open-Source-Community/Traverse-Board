@@ -532,6 +532,12 @@ func (s *RunSupervisor) stepWithLeaseMode(ctx context.Context, lease domain.RunE
 			modelRequest = supervisorProtocolRepairRequest(request, repairReason)
 			modelContextLayout = modelContextLayout.shifted(1)
 		}
+		modelRequest, err = prepareModelHarnessRequest(s.router, ref,
+			llm.HarnessWorkloadRoot, modelRequest)
+		if err != nil {
+			failure := s.recordFailure(ctx, &result, err, 0)
+			return result, failure
+		}
 		modelRequest, err = supervisorRequestWithinBudget(modelRequest, turn.Run.Budget, turn.Checkpoint)
 		if err != nil {
 			failure := s.recordFailure(ctx, &result, err, 0)

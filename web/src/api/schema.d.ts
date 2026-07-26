@@ -164,6 +164,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/models/harness-qualifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Qualify one exact model Harness
+         * @description Makes at most two bounded model requests using one synthetic in-memory echo tool. It executes no tool, shell, file, browser, Docker, or network target action; response text and raw Provider errors are never returned.
+         */
+        post: operations["qualifyModelHarness"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/models/routes/{route}": {
         parameters: {
             query?: never;
@@ -2498,7 +2518,7 @@ export interface components {
             /** Format: int64 */
             generation: number;
             /** @enum {string} */
-            protocol_version: "model_availability.v1";
+            protocol_version: "model_availability.v2";
             providers: components["schemas"]["ProviderAvailabilityView"][];
             routes: components["schemas"]["ModelRouteAvailabilityView"][];
         };
@@ -2520,8 +2540,58 @@ export interface components {
             /** @enum {string} */
             status: "pending" | "observed" | "resolved";
         };
+        ModelHarnessAvailabilityView: {
+            expires_at: string;
+            /** @enum {string} */
+            json_strategy: "native" | "prompt" | "none";
+            model: string;
+            /** @enum {string} */
+            protocol_version: "model_harness.v1";
+            /** @enum {string} */
+            qualification_status: "trusted_builtin" | "qualification_required" | "verified";
+            qualified_at: string;
+            root_eligible: boolean;
+            streaming_qualified: boolean;
+            strict_json_qualified: boolean;
+            structured_json_eligible: boolean;
+            tool_calls_qualified: boolean;
+            tool_results_qualified: boolean;
+            /** @enum {string} */
+            tool_strategy: "native" | "none";
+            /** @enum {string} */
+            transport_protocol: "mock" | "anthropic_messages" | "provider_contract";
+        };
+        ModelHarnessQualificationRequestView: {
+            confirm_qualification: boolean;
+            model: string;
+            provider: string;
+            /** @enum {string} */
+            version: "model_harness_qualification.v1";
+        };
+        ModelHarnessQualificationView: {
+            /** Format: int64 */
+            duration_ms: number;
+            harness: components["schemas"]["ModelHarnessAvailabilityView"];
+            model: string;
+            /** Format: int32 */
+            model_calls: number;
+            network_request_attempted: boolean;
+            /** @enum {string} */
+            outcome: "success" | "retryable" | "rate_limited" | "invalid_response" | "cancelled" | "permanent";
+            /** @enum {string} */
+            protocol_version: "model_harness_qualification.v1";
+            provider: string;
+            response_content_returned: boolean;
+            retryable: boolean;
+            /** @enum {string} */
+            status: "qualified" | "incompatible" | "unreachable";
+            /** Format: int32 */
+            synthetic_tool_calls: number;
+            tool_executed: boolean;
+        };
         ModelRouteAvailabilityView: {
             available: boolean;
+            harness_ready: boolean;
             model: string;
             name: string;
             provider: string;
@@ -2751,6 +2821,7 @@ export interface components {
             configuration_error: boolean;
             /** @enum {string} */
             credential_source: "none" | "environment" | "system";
+            harnesses: components["schemas"]["ModelHarnessAvailabilityView"][];
             /** @enum {string} */
             kind: "local" | "anthropic_compatible";
             models: string[];
@@ -4643,6 +4714,45 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["ProviderDiagnosticView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    qualifyModelHarness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelHarnessQualificationRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ModelHarnessQualificationView"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";

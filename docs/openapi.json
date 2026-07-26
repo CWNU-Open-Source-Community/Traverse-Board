@@ -641,6 +641,94 @@
         "x-cyberagent-read-only": false
       }
     },
+    "/api/v1/models/harness-qualifications": {
+      "post": {
+        "operationId": "qualifyModelHarness",
+        "summary": "Qualify one exact model Harness",
+        "description": "Makes at most two bounded model requests using one synthetic in-memory echo tool. It executes no tool, shell, file, browser, Docker, or network target action; response text and raw Provider errors are never returned.",
+        "tags": [
+          "Control"
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ModelHarnessQualificationView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelHarnessQualificationRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/models/routes/{route}": {
       "post": {
         "operationId": "selectModelRoute",
@@ -11867,7 +11955,7 @@
           },
           "protocol_version": {
             "enum": [
-              "model_availability.v1"
+              "model_availability.v2"
             ],
             "type": "string"
           },
@@ -11966,10 +12054,211 @@
         ],
         "type": "object"
       },
+      "ModelHarnessAvailabilityView": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_at": {
+            "type": "string"
+          },
+          "json_strategy": {
+            "enum": [
+              "native",
+              "prompt",
+              "none"
+            ],
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "enum": [
+              "model_harness.v1"
+            ],
+            "type": "string"
+          },
+          "qualification_status": {
+            "enum": [
+              "trusted_builtin",
+              "qualification_required",
+              "verified"
+            ],
+            "type": "string"
+          },
+          "qualified_at": {
+            "type": "string"
+          },
+          "root_eligible": {
+            "type": "boolean"
+          },
+          "streaming_qualified": {
+            "type": "boolean"
+          },
+          "strict_json_qualified": {
+            "type": "boolean"
+          },
+          "structured_json_eligible": {
+            "type": "boolean"
+          },
+          "tool_calls_qualified": {
+            "type": "boolean"
+          },
+          "tool_results_qualified": {
+            "type": "boolean"
+          },
+          "tool_strategy": {
+            "enum": [
+              "native",
+              "none"
+            ],
+            "type": "string"
+          },
+          "transport_protocol": {
+            "enum": [
+              "mock",
+              "anthropic_messages",
+              "provider_contract"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "model",
+          "transport_protocol",
+          "tool_strategy",
+          "json_strategy",
+          "qualification_status",
+          "tool_calls_qualified",
+          "tool_results_qualified",
+          "strict_json_qualified",
+          "streaming_qualified",
+          "root_eligible",
+          "structured_json_eligible",
+          "qualified_at",
+          "expires_at"
+        ],
+        "type": "object"
+      },
+      "ModelHarnessQualificationRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm_qualification": {
+            "type": "boolean"
+          },
+          "model": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              "model_harness_qualification.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "provider",
+          "model",
+          "confirm_qualification"
+        ],
+        "type": "object"
+      },
+      "ModelHarnessQualificationView": {
+        "additionalProperties": false,
+        "properties": {
+          "duration_ms": {
+            "format": "int64",
+            "maximum": 60000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "harness": {
+            "$ref": "#/components/schemas/ModelHarnessAvailabilityView"
+          },
+          "model": {
+            "type": "string"
+          },
+          "model_calls": {
+            "format": "int32",
+            "maximum": 2,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "network_request_attempted": {
+            "type": "boolean"
+          },
+          "outcome": {
+            "enum": [
+              "success",
+              "retryable",
+              "rate_limited",
+              "invalid_response",
+              "cancelled",
+              "permanent"
+            ],
+            "type": "string"
+          },
+          "protocol_version": {
+            "enum": [
+              "model_harness_qualification.v1"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "response_content_returned": {
+            "type": "boolean"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "qualified",
+              "incompatible",
+              "unreachable"
+            ],
+            "type": "string"
+          },
+          "synthetic_tool_calls": {
+            "format": "int32",
+            "maximum": 16,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tool_executed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "provider",
+          "model",
+          "status",
+          "outcome",
+          "retryable",
+          "network_request_attempted",
+          "model_calls",
+          "synthetic_tool_calls",
+          "tool_executed",
+          "response_content_returned",
+          "duration_ms",
+          "harness"
+        ],
+        "type": "object"
+      },
       "ModelRouteAvailabilityView": {
         "additionalProperties": false,
         "properties": {
           "available": {
+            "type": "boolean"
+          },
+          "harness_ready": {
             "type": "boolean"
           },
           "model": {
@@ -11986,7 +12275,8 @@
           "name",
           "provider",
           "model",
-          "available"
+          "available",
+          "harness_ready"
         ],
         "type": "object"
       },
@@ -12889,6 +13179,12 @@
             ],
             "type": "string"
           },
+          "harnesses": {
+            "items": {
+              "$ref": "#/components/schemas/ModelHarnessAvailabilityView"
+            },
+            "type": "array"
+          },
           "kind": {
             "enum": [
               "local",
@@ -12922,6 +13218,7 @@
           "kind",
           "status",
           "models",
+          "harnesses",
           "credential_source",
           "network_required",
           "configuration_error"

@@ -1,8 +1,8 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, Check, Cpu, KeyRound, LoaderCircle, Route, Save, Trash2, X } from "lucide-react";
+import { Activity, Check, Cpu, KeyRound, LoaderCircle, Route, Save, ShieldCheck, Trash2, X } from "lucide-react";
 import type { CyberAgentClient } from "../api/client";
-import type { ProviderDiagnosticView } from "../api/types";
+import type { ModelHarnessQualificationView, ProviderDiagnosticView } from "../api/types";
 import { ErrorState, LoadingState, StatusBadge } from "./common";
 
 export function ModelAvailabilityDialog({ client, open, onClose }: {
@@ -28,6 +28,7 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
   const queryClient = useQueryClient();
   const [selections, setSelections] = useState<Record<string, string>>({});
   const [diagnostic, setDiagnostic] = useState<ProviderDiagnosticView | null>(null);
+  const [qualification, setQualification] = useState<ModelHarnessQualificationView | null>(null);
   const [credentialBusy, setCredentialBusy] = useState("");
   const [credentialError, setCredentialError] = useState("");
   const [credentialRestart, setCredentialRestart] = useState(false);
@@ -61,6 +62,15 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
       client.diagnoseProvider({ version: "provider_diagnostic.v1", provider, model,
         confirm_diagnostic: true }),
     onSuccess: setDiagnostic,
+  });
+  const qualificationMutation = useMutation({
+    mutationFn: ({ provider, model }: { provider: string; model: string }) =>
+      client.qualifyModelHarness({ version: "model_harness_qualification.v1",
+        provider, model, confirm_qualification: true }),
+    onSuccess: async (result) => {
+      setQualification(result);
+      await queryClient.invalidateQueries({ queryKey: ["models", "availability"] });
+    },
   });
   const changeCredential = async (provider: string, action: "set" | "delete") => {
     if (credentialBusy) return;
@@ -101,7 +111,7 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
           <div>
             <span className="dialog-icon"><Cpu aria-hidden="true" size={18} /></span>
             <div><h2>{presentation === "dialog" ? "Models / 模型" : "模型切换"}</h2>
-              <small>model_availability.v1</small></div>
+              <small>model_availability.v2</small></div>
           </div>
           {presentation === "dialog" && <button aria-label="Close model availability" className="icon-button"
             onClick={onClose} title="Close" type="button">
@@ -116,27 +126,47 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
               <section className="model-availability-section">
                 <h3><Cpu aria-hidden="true" size={14} />Providers</h3>
                 <div className="model-provider-list">
-                  {query.data.providers.map((provider) => (
-                    <div className="model-provider-row" key={provider.name}>
+                  {query.data.providers.map((provider) => {
+                    const harness = provider.harnesses[0];
+                    return <div className="model-provider-row" key={provider.name}>
                       <div><strong>{provider.name}</strong><small>{provider.kind}</small></div>
                       <span>{provider.models.join(", ") || "No configured model"}</span>
-                      <span>{provider.credential_source}</span>
+                      <span>{harness
+                        ? `${harness.transport_protocol} · JSON ${harness.json_strategy}`
+                        : provider.credential_source}</span>
                       <StatusBadge status={provider.status} />
+                      {harness && <StatusBadge status={harness.qualification_status} />}
                       {client.hasModelControl && provider.status === "available" &&
                         provider.models[0] && (
-                          <button aria-label={`Diagnose ${provider.name}`} className="icon-button"
-                            disabled={diagnosticMutation.isPending}
-                            onClick={() => diagnosticMutation.mutate({ provider: provider.name,
-                              model: provider.models[0]! })}
-                            title="Run explicit connectivity diagnostic" type="button">
-                            {diagnosticMutation.isPending &&
-                              diagnosticMutation.variables?.provider === provider.name
-                              ? <LoaderCircle aria-hidden="true" className="spin" size={15} />
-                              : <Activity aria-hidden="true" size={15} />}
-                          </button>
+                          <>
+                            <button aria-label={`Diagnose ${provider.name}`} className="icon-button"
+                              disabled={diagnosticMutation.isPending ||
+                                qualificationMutation.isPending}
+                              onClick={() => diagnosticMutation.mutate({ provider: provider.name,
+                                model: provider.models[0]! })}
+                              title="Run one-call connectivity diagnostic" type="button">
+                              {diagnosticMutation.isPending &&
+                                diagnosticMutation.variables?.provider === provider.name
+                                ? <LoaderCircle aria-hidden="true" className="spin" size={15} />
+                                : <Activity aria-hidden="true" size={15} />}
+                            </button>
+                            <button aria-label={`Qualify ${provider.name} Harness`}
+                              className="icon-button"
+                              disabled={diagnosticMutation.isPending ||
+                                qualificationMutation.isPending || harness?.root_eligible === true}
+                              onClick={() => qualificationMutation.mutate({
+                                provider: provider.name, model: provider.models[0]!,
+                              })}
+                              title="Run two-call synthetic Harness qualification" type="button">
+                              {qualificationMutation.isPending &&
+                                qualificationMutation.variables?.provider === provider.name
+                                ? <LoaderCircle aria-hidden="true" className="spin" size={15} />
+                                : <ShieldCheck aria-hidden="true" size={15} />}
+                            </button>
+                          </>
                         )}
                     </div>
-                  ))}
+                  })}
                 </div>
                 {diagnostic && <div className="model-diagnostic-result" role="status">
                   <span>{diagnostic.provider}/{diagnostic.model}</span>
@@ -147,6 +177,16 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
                 {diagnosticMutation.isError && <div className="inline-warning" role="alert">
                   {diagnosticMutation.error instanceof Error
                     ? diagnosticMutation.error.message : "Provider diagnostic failed"}
+                </div>}
+                {qualification && <div className="model-diagnostic-result" role="status">
+                  <span>{qualification.provider}/{qualification.model}</span>
+                  <StatusBadge status={qualification.status} />
+                  <span>{qualification.harness.transport_protocol}</span>
+                  <span>{qualification.model_calls} model calls</span>
+                </div>}
+                {qualificationMutation.isError && <div className="inline-warning" role="alert">
+                  {qualificationMutation.error instanceof Error
+                    ? qualificationMutation.error.message : "Model Harness qualification failed"}
                 </div>}
               </section>
               {client.hasProviderCredentials && <section className="model-availability-section">
@@ -210,7 +250,8 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
                             </option>
                           )))}
                       </select> : <span>{route.provider}/{route.model}</span>}
-                      <StatusBadge status={route.available ? "available" : "unavailable"} />
+                      <StatusBadge status={!route.available ? "unavailable"
+                        : route.harness_ready ? "harness ready" : "qualification required"} />
                       {client.hasModelControl && <button aria-label={`Save ${route.name} route`}
                         className="icon-button" disabled={routeMutation.isPending}
                         onClick={() => routeMutation.mutate({ route: route.name,

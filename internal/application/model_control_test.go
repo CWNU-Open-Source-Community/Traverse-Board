@@ -57,3 +57,26 @@ func TestModelControlRequiresExplicitDiagnosticConfirmation(t *testing.T) {
 		t.Fatalf("unexpected diagnostic result: %#v", result)
 	}
 }
+
+func TestModelControlSeparatesHarnessQualificationFromConnectivity(t *testing.T) {
+	service := NewModelControlService(modelregistry.New(nil), modelRouteSettings{})
+	if _, err := service.QualifyHarness(context.Background(), QualifyModelHarnessRequest{
+		Version:  modelregistry.HarnessQualificationProtocolVersion,
+		Provider: "mock", Model: "mock-code",
+	}); err == nil {
+		t.Fatal("Harness qualification without explicit confirmation was accepted")
+	}
+	result, err := service.QualifyHarness(context.Background(), QualifyModelHarnessRequest{
+		Version:  modelregistry.HarnessQualificationProtocolVersion,
+		Provider: "mock", Model: "mock-code", ConfirmQualification: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != modelregistry.HarnessDiagnosticQualified ||
+		result.ModelCalls != 0 || result.SyntheticToolCalls != 0 ||
+		result.ToolExecuted || result.ResponseContentReturned ||
+		!result.Harness.RootEligible {
+		t.Fatalf("unexpected built-in Harness qualification: %#v", result)
+	}
+}

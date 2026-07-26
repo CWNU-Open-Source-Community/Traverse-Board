@@ -529,10 +529,17 @@ describe("CyberAgentClient", () => {
 
   it("validates redacted model availability without probing through the client", async () => {
     const data = {
-      protocol_version: "model_availability.v1", generation: 1,
+      protocol_version: "model_availability.v2", generation: 1,
       providers: [{ name: "mock", kind: "local", status: "available", models: ["mock-code"],
+        harnesses: [{ protocol_version: "model_harness.v1", model: "mock-code",
+          transport_protocol: "mock", tool_strategy: "native", json_strategy: "native",
+          qualification_status: "trusted_builtin", tool_calls_qualified: true,
+          tool_results_qualified: true, strict_json_qualified: true,
+          streaming_qualified: true, root_eligible: true,
+          structured_json_eligible: true, qualified_at: "", expires_at: "" }],
         credential_source: "none", network_required: false, configuration_error: false }],
-      routes: [{ name: "code", provider: "mock", model: "mock-code", available: true }],
+      routes: [{ name: "code", provider: "mock", model: "mock-code", available: true,
+        harness_ready: true }],
     };
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-models", data,
@@ -641,12 +648,27 @@ describe("CyberAgentClient", () => {
   });
 
   it("validates content-free model diagnostics and exact persisted routes", async () => {
-    const route = { name: "code", provider: "mock", model: "mock-code", available: true };
+    const route = { name: "code", provider: "mock", model: "mock-code", available: true,
+      harness_ready: true };
     const diagnostic = {
       protocol_version: "provider_diagnostic.v1", provider: "mock", model: "mock-code",
       status: "reachable", outcome: "success", retryable: false,
       network_request_attempted: false, model_called: true, tool_called: false,
       response_content_returned: false, duration_ms: 2,
+    };
+    const qualification = {
+      protocol_version: "model_harness_qualification.v1", provider: "mock",
+      model: "mock-code", status: "qualified", outcome: "success", retryable: false,
+      network_request_attempted: false, model_calls: 0, synthetic_tool_calls: 0,
+      tool_executed: false, response_content_returned: false, duration_ms: 0,
+      harness: {
+        protocol_version: "model_harness.v1", model: "mock-code",
+        transport_protocol: "mock", tool_strategy: "native", json_strategy: "native",
+        qualification_status: "trusted_builtin", tool_calls_qualified: true,
+        tool_results_qualified: true, strict_json_qualified: true,
+        streaming_qualified: true, root_eligible: true,
+        structured_json_eligible: true, qualified_at: "", expires_at: "",
+      },
     };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
@@ -654,6 +676,9 @@ describe("CyberAgentClient", () => {
       }), { status: 202, headers: { "Content-Type": "application/json" } }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
         version: "api.v1", request_id: "req-diagnostic", data: diagnostic,
+      }), { status: 202, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-qualification", data: qualification,
       }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
     const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
@@ -666,6 +691,10 @@ describe("CyberAgentClient", () => {
       version: "provider_diagnostic.v1", provider: "mock", model: "mock-code",
       confirm_diagnostic: true,
     })).resolves.toEqual(diagnostic);
+    await expect(client.qualifyModelHarness({
+      version: "model_harness_qualification.v1", provider: "mock", model: "mock-code",
+      confirm_qualification: true,
+    })).resolves.toEqual(qualification);
     expect((fetchMock.mock.calls[0]?.[1] as RequestInit).headers)
       .not.toHaveProperty("Idempotency-Key");
 
