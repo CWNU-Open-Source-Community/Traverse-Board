@@ -1,6 +1,6 @@
 # CyberAgent Workbench 进度书
 
-更新时间：2026-07-25
+更新时间：2026-07-27
 
 ## 一、当前阶段
 
@@ -11,10 +11,10 @@
 从 schema v49 起采用“双指标”，不再使用容易混淆的单一“整体产品愿景”百分比：
 
 - 架构完成度：约 99%；其中 V2 Run-centric 控制平面约 99%。该指标衡量 Go 主控、持久化状态机和模块边界的覆盖程度。
-- 产品可用度：完整 Code + Cyber 产品约 95-97%；其中通用 Coding Agent 工作流约 95-96%，Cyber 自动化工作流约 20%。该指标衡量用户现在能够完成多少真实端到端任务。
+- 产品可用度：完整 Code + Cyber 产品约 96-98%；其中通用 Coding Agent 工作流约 96-97%，Cyber 自动化工作流约 20%。该指标衡量用户现在能够完成多少真实端到端任务。
 - 上述数值是依据已测试任务切片给出的工程估算，不是性能基准，也不代表仍被安全关闭的功能已经可用。
 
-V2 的 P0/P1 已完成，P2 已具备稳定的单 Agent 恢复、Provider streaming、主动取消、有界工具循环和跨进程 execution lease。P3-P5 已落地 Work/Note/Context、最多两个核心 child、独立 1/2/4/6 只读 Fan-out、Tool Gateway、审批/Grant、预算、ScriptProcess 与 Artifact。P9/Desktop 已推进到 schema v85 / D1-G13/V12，通用运行时安全面已推进到 H1-H3/R10/C1-C3：除既有 Run/Session/Plan/审批/Workspace/证据/回执/行动中心外，现有 API/Desktop 还支持安全恢复的 Monaco FileEdit、独立多文件汇总、exact-root 只读 Repository、可导航精确文件历史、精确提交比较与键盘可访问的成对 base/head 预览、snapshot-keyset 逐检查项验证下钻、确定性快照下载、不可变 record-only 回执历史及不授权元数据复核、带精确 Verify 导航的 Code Handoff、带有界审计事实的 Code Journey、累计上下文记忆、Provider generation reload 和有界 wake worker。P10-A1 至 P10-B3 已建立 Go/Rust 确定性分析协议、惰性 descriptor Registry、开发期 digest 与内存 ZIP 中央目录函数及两套双语言黄金向量，但没有产品进程桥或 Artifact 写入。P11-C1 至 C3 又完成同句柄 Windows 发布者接纳、不可变 browser launch attempt/代际 lease 和独立 review；接受仍不授予启动权限。R9/R10 strict receipt compatibility rejection 与 accepted-envelope golden 仍只存在于内部 `NonProductOnly` 测试边界，且不宣称 wall-clock order、raw output、process identity、CPU/memory OS enforcement 或产品执行。真实 Local/Docker/Shell/内置浏览器/Rust analyzer 产品进程、安装脚本/钩子和远程 Skill 分发继续关闭。
+V2 的 P0/P1 已完成，P2 已具备稳定的单 Agent 恢复、Provider streaming、主动取消、有界工具循环和跨进程 execution lease。P3-P5 已落地 Work/Note/Context、最多两个核心 child、独立 1/2/4/6 只读 Fan-out、Tool Gateway、审批/Grant、预算、ScriptProcess 与 Artifact。P9/Desktop 已推进到 schema v87 / P12-B3：在既有 Run、编辑、Repository、验证/Handoff、模型 Harness、记忆与 wake worker 上，新增四种操作者确认的一次性 Windows 固定命令，以及默认关闭、用户所有的 ConPTY/xterm Debug 终端。固定命令使用受限低完整性令牌、创建时 Job Object、写前 intent/不可变 receipt；终端原始状态仅在进程内，Agent 默认不能输入。P10 analyzer 仍没有产品进程桥，P11 browser review 仍不授予启动。任意 Agent Shell、网络沙箱、Docker PTY、内置浏览器、安装脚本/钩子和远程 Skill 分发继续关闭。
 
 P8 已推进到 schema v37 及其只读 CI 投影：v35 把完成的 Fan-out execution 投影为通用 `draft` Finding、不可变 `model_assertion` Evidence 和可重建的 Markdown/JSON Report；v36 增加同 Run 冻结 Artifact Evidence、一次性 operator `validated/rejected` 决定与完整复核；v37 以独立不可变事实完成 `validated -> accepted -> fixed`，并强制修复 Evidence 来自接受后新建且未用于验证的同 Run Artifact。验证、接受和修复始终分离；SARIF、通用 CI gate 与 GitHub Actions annotations 均为同一持久化事实上的 Go 只读投影。
 
@@ -1972,9 +1972,60 @@ Shell/File/Browser/Docker/目标网络动作或敏感内容持久化。首次远
 矩阵均通过，但生成期依赖 `brace-expansion` 命中高危 DoS 公告；精确 override 到 5.0.8 后，
 OpenAPI 生成、149 项测试和构建不变，`npm audit` 降为 0 漏洞。边界见 ADR 0074。
 
-当前下一批仍为 P11-C4/C5/C6，但进入真实浏览器启动前必须再次复核本机永久删除守卫、Job Object
-整树终止、一次性 Profile 精确所有权与 CDP exact-scope。Model Harness qualification 只证明有界
-协议兼容性，不代表模型质量、安全性或执行授权。
+## P12-A1/A2/A3 批次：执行交互意图、短租约与非启动计划
+
+任务 ID：`P12-Execution-Interaction-Trust-v86`。P12-A1 将 SQLite 推进到 v86，增加
+`preview|controlled|debug|cyber` 不授权交互快照；操作者必须在 quiescent Run 上显式确认
+Workspace 信任，模型、Agent、Skill 和仓库内容不能切档。所有快照仍固定 process/network/
+authorization/capability 为 false。
+
+P12-A2 增加进程内 `executionauth.Broker`，令牌精确绑定 Workspace、Run、terminal、interaction
+ID/修订号和 Debug/Cyber 模式，最长 15 分钟，重启失效。P12-A3 只编译 `git-status`、
+`git-diff-check`、`go-version` 和固定 `powershell-workspace-list`，不接受 raw shell、任意 argv、
+环境、stdin、网络或持久进程，计划固定不启动。三切片完整门和四项审计修复见 ADR 0075 与任务书。
+
+## P12-B1/B2/B3 批次：受控 Windows 执行、用户终端与撤销
+
+任务 ID：`P12-Controlled-Windows-Execution-And-User-Terminal-v87`。P12-B1 将 SQLite 推进到
+v87，并新增独立 `run command-execute`。CLI 只执行 P12-A3 四种固定模板，先持久化 intent，
+再使用 Windows 受限低完整性令牌和创建时 Job Object；固定单进程、512 MiB、NUL stdin、最小
+环境、输出/超时/取消/整树回收。Windows/Known Folder 路径不再信任环境变量，Git system/global
+config、hooks、fsmonitor、external diff 和 textconv 均关闭。receipt 只保存元数据和 prefix
+SHA-256，raw stdout/stderr 只写当前 CLI；不完整 intent 不自动重试。组合审计证明旧版
+PowerShell 相对路径在 `-Command` 后可能被当作表达式求值；现改为 Go 生成 canonical UTF-8
+hex，固定脚本严格校验/解码后才构造 `LiteralPath`。SQLite 也直接拒绝不可能的 capture/
+observed/truncated/digest/time/limit 回执关系。
+
+P12-B2 增加默认关闭的 `--enable-user-terminal`。Go 只为 exact trusted Code/Local/Debug Run
+启动当前用户 `powershell -NoLogo -NoProfile` ConPTY，进程在创建时进入 32-process/2-GiB Job。
+2 GiB 是聚合 Job 内存上限。Manager 最多八会话、每会话 4 MiB 环形输出；React 使用精确版本
+xterm 6/FitAddon，用户显式启动
+并默认独占输入，路径、环境、进程身份、输入和输出均不落库。
+
+P12-B3 将内部 terminal write 绑定到 P12-A2 精确短租约，但不增加签发 UI。bridge 不能启动、
+替换、resize 或 retarget 终端；锁屏、断开、注销、睡眠/恢复、Run 终止、profile/interaction
+变化、terminal 替换和 shutdown 均进入实际撤销路径。Run-to-Workspace ID 不可变；已有
+Workspace-scope revoker 仅供未来独立切换入口调用，本批 renderer 没有该入口。WTS 监听安装失败时
+terminal-enabled Desktop 启动失败关闭，host 事件不会关闭 Prayu 主窗口。
+
+最终三切片及累计六切片健壮性门已通过：`go test -p 1 -count=1 ./...` 用时 796.6 秒；
+`go vet ./...`、零告警 `staticcheck ./...`、Runner/Terminal race、module verify/tidy、
+零可达漏洞 `govulncheck`、secure Desktop tags、真实受限进程/ConPTY/Windows host-boundary
+opt-in smoke、43 文件 151 项 React、strict TypeScript、Vite production build、npm 零漏洞
+均为绿色。Windows 可复现双构建 SHA-256 为
+`6f60f97096a06305e26d3c68ef26f93622c80a4784ad23ea72d2b28353fc2e77`，
+`release_ready=false`。
+
+组合审计修复了 PowerShell path-expression 注入、Go/SQLite 接受不可能回执关系、环境重定向的
+shell 解析、renderer stale-start、terminal Manager 失败清理，以及一项关键可靠性问题：raw Win32
+pipe read handle 与 `os.File` 曾同时拥有同一句柄，finalizer 可能误关已复用的 IOCP 句柄；现在只向
+collector 转移一次所有权，并在发布结果前精确关闭。Defender 的 ML 启发式曾因 Policy 测试 EXE
+静态包含整组危险命令样例而误报；测试改为运行时拼装完全相同的夹具，Policy 和断言没有放宽。
+非测试文件凭据模式扫描为零，启用路径无已知未解决高/中风险。
+
+当前残余边界：低完整性不是独立网络沙箱或 Workspace-only 文件能力；自定义 Go/Git 安装可能
+失败关闭；renderer 不能签发 Agent 输入租约；Docker PTY、任意 Agent Shell 和真实浏览器仍不存在。
+边界见 ADR 0076。
 
 ## 八、仓库同步与恢复约定
 
@@ -1982,4 +2033,4 @@ OpenAPI 生成、149 项测试和构建不变，`npm audit` 降为 0 漏洞。�
 
 每三个聚焦切片组成一个交付批次；第三片后统一执行功能复核、普通/聚焦测试、组合差异审查、项目记忆更新、Git 提交、GitHub 推送和 CI 复核。每两个批次即六个切片再执行全仓 race、vet、staticcheck、govulncheck、依赖/隐私与完整构建健壮性门。当前仓库直接开发并推送 `main`；除非用户明确要求，不创建功能分支或 PR。
 
-长对话恢复时依次阅读：`README.md`、`docs/PROJECT_MEMORY.md`、`docs/PROJECT_STATUS.md`、本文件、`docs/TASK_BOOK.md`、`docs/http-api.md`、`docs/errors.md`，再按序阅读 `docs/adr/0001-*.md` 到 `docs/adr/0074-model-harness-protocol-profiles-and-qualification.md`。
+长对话恢复时依次阅读：`README.md`、`docs/PROJECT_MEMORY.md`、`docs/PROJECT_STATUS.md`、本文件、`docs/TASK_BOOK.md`、`docs/http-api.md`、`docs/errors.md`，再按序阅读 `docs/adr/0001-*.md` 到 `docs/adr/0076-controlled-windows-execution-and-user-terminal.md`。

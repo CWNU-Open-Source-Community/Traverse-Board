@@ -5,6 +5,7 @@ export const desktopSkillPreviewProtocol = "desktop_skill_package_preview.v1";
 export const desktopSkillInstallProtocol = "desktop_skill_package_install.v1";
 export const desktopWorkspaceLauncherProtocol = "desktop_workspace_launcher_list.v1";
 export const desktopWorkspaceOpenProtocol = "desktop_workspace_open.v1";
+export const desktopUserTerminalProtocol = "desktop_user_terminal.v1";
 
 export interface DesktopOperationReceipt {
   protocol_version: "operation_receipt.v1";
@@ -43,14 +44,53 @@ export interface DesktopConnectionBootstrap {
   run_wake_execution_enabled: boolean;
   run_wake_worker_enabled: boolean;
   read_only_default: boolean;
-  process_execution_enabled: false;
-  shell_execution_enabled: false;
+  process_execution_enabled: boolean;
+  shell_execution_enabled: boolean;
   docker_execution_enabled: false;
   skill_installation_enabled: boolean;
   evidence_attachment_enabled: boolean;
   verification_evidence_enabled: boolean;
+  user_terminal_enabled: boolean;
+  agent_terminal_input_default: false;
   workspace_open_enabled: boolean;
   renderer_path_input_supported: false;
+}
+
+export interface DesktopTerminalSession {
+  protocol_version: typeof desktopUserTerminalProtocol;
+  session_id: string;
+  run_id: string;
+  state: "running" | "exited" | "failed";
+  backend: string;
+  columns: number;
+  rows: number;
+  output_base_cursor: number;
+  output_next_cursor: number;
+  exit_code: number;
+  user_owned: true;
+  agent_input_default: false;
+  job_assigned_at_creation: true;
+  kill_on_job_close: true;
+  persistent: true;
+  process_local: true;
+  raw_output_persisted: false;
+}
+
+export interface DesktopTerminalOutput {
+  protocol_version: typeof desktopUserTerminalProtocol;
+  session_id: string;
+  base_cursor: number;
+  next_cursor: number;
+  data_base64: string;
+  data_bytes: number;
+  dropped: boolean;
+  state: "running" | "exited" | "failed";
+}
+
+export interface DesktopTerminalWriteResult {
+  protocol_version: typeof desktopUserTerminalProtocol;
+  session_id: string;
+  bytes_written: number;
 }
 
 export interface DesktopWorkspaceLauncher {
@@ -164,10 +204,46 @@ interface NativeDesktopBridge {
   PreviewSkillPackage: (handle: string) => Promise<unknown>;
   SelectSkillPackage: () => Promise<unknown>;
   WorkspaceLaunchers?: (workspaceID: string) => Promise<unknown>;
+  StartUserTerminal?: (request: {
+    protocol_version: typeof desktopUserTerminalProtocol;
+    run_id: string;
+    columns: number;
+    rows: number;
+    replace_existing: boolean;
+    confirm_debug_boundary: true;
+  }) => Promise<unknown>;
+  GetUserTerminal?: (sessionID: string) => Promise<unknown>;
+  ReadUserTerminal?: (request: {
+    protocol_version: typeof desktopUserTerminalProtocol;
+    session_id: string;
+    cursor: number;
+    max_bytes: number;
+  }) => Promise<unknown>;
+  WriteUserTerminal?: (request: {
+    protocol_version: typeof desktopUserTerminalProtocol;
+    session_id: string;
+    data: string;
+    user_confirmed: true;
+  }) => Promise<unknown>;
+  ResizeUserTerminal?: (request: {
+    protocol_version: typeof desktopUserTerminalProtocol;
+    session_id: string;
+    columns: number;
+    rows: number;
+    user_confirmed: true;
+  }) => Promise<unknown>;
+  CloseUserTerminal?: (request: {
+    protocol_version: typeof desktopUserTerminalProtocol;
+    session_id: string;
+    user_confirmed: true;
+  }) => Promise<unknown>;
 }
 
 type NativeWorkspaceBridge = NativeDesktopBridge & Required<Pick<NativeDesktopBridge,
   "OpenWorkspace" | "WorkspaceLaunchers">>;
+type NativeTerminalBridge = NativeDesktopBridge & Required<Pick<NativeDesktopBridge,
+  "StartUserTerminal" | "GetUserTerminal" | "ReadUserTerminal" |
+  "WriteUserTerminal" | "ResizeUserTerminal" | "CloseUserTerminal">>;
 
 declare global {
   interface Window {
@@ -297,6 +373,115 @@ export async function openDesktopWorkspace(workspaceID: string,
   return value;
 }
 
+export function desktopUserTerminalEnabled(): boolean {
+  return activeBootstrap?.user_terminal_enabled === true && getTerminalBridge() !== null;
+}
+
+export async function startDesktopUserTerminal(runID: string,
+  columns = 120, rows = 32, replaceExisting = false): Promise<DesktopTerminalSession> {
+  const bridge = getTerminalBridge();
+  if (!bridge || !activeBootstrap?.user_terminal_enabled) {
+    throw new Error("Desktop user terminal is disabled");
+  }
+  if (!validWorkspaceID(runID) || !validTerminalSize(columns, rows)) {
+    throw new Error("Desktop terminal start request was rejected");
+  }
+  const value = await bridge.StartUserTerminal({
+    protocol_version: desktopUserTerminalProtocol,
+    run_id: runID,
+    columns,
+    rows,
+    replace_existing: replaceExisting,
+    confirm_debug_boundary: true,
+  });
+  if (!validTerminalSession(value, runID)) {
+    throw new Error("Desktop terminal session was rejected");
+  }
+  return value;
+}
+
+export async function getDesktopUserTerminal(
+  sessionID: string,
+): Promise<DesktopTerminalSession> {
+  const bridge = getTerminalBridge();
+  if (!bridge || !activeBootstrap?.user_terminal_enabled || !validWorkspaceID(sessionID)) {
+    throw new Error("Desktop user terminal is disabled");
+  }
+  const value = await bridge.GetUserTerminal(sessionID);
+  if (!validTerminalSession(value)) {
+    throw new Error("Desktop terminal session was rejected");
+  }
+  return value;
+}
+
+export async function readDesktopUserTerminal(sessionID: string,
+  cursor: number, maxBytes = 65536): Promise<DesktopTerminalOutput> {
+  const bridge = getTerminalBridge();
+  if (!bridge || !activeBootstrap?.user_terminal_enabled ||
+    !validWorkspaceID(sessionID) || !safeCount(cursor) ||
+    !Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > 65536) {
+    throw new Error("Desktop terminal read request was rejected");
+  }
+  const value = await bridge.ReadUserTerminal({
+    protocol_version: desktopUserTerminalProtocol,
+    session_id: sessionID,
+    cursor,
+    max_bytes: maxBytes,
+  });
+  if (!validTerminalOutput(value, sessionID)) {
+    throw new Error("Desktop terminal output was rejected");
+  }
+  return value;
+}
+
+export async function writeDesktopUserTerminal(sessionID: string,
+  data: string): Promise<DesktopTerminalWriteResult> {
+  const bridge = getTerminalBridge();
+  const bytes = new TextEncoder().encode(data).byteLength;
+  if (!bridge || !activeBootstrap?.user_terminal_enabled ||
+    !validWorkspaceID(sessionID) || bytes < 1 || bytes > 16 * 1024) {
+    throw new Error("Desktop terminal input was rejected");
+  }
+  const value = await bridge.WriteUserTerminal({
+    protocol_version: desktopUserTerminalProtocol,
+    session_id: sessionID,
+    data,
+    user_confirmed: true,
+  });
+  if (!validTerminalWriteResult(value, sessionID, bytes)) {
+    throw new Error("Desktop terminal write result was rejected");
+  }
+  return value;
+}
+
+export async function resizeDesktopUserTerminal(sessionID: string,
+  columns: number, rows: number): Promise<void> {
+  const bridge = getTerminalBridge();
+  if (!bridge || !activeBootstrap?.user_terminal_enabled ||
+    !validWorkspaceID(sessionID) || !validTerminalSize(columns, rows)) {
+    throw new Error("Desktop terminal resize request was rejected");
+  }
+  await bridge.ResizeUserTerminal({
+    protocol_version: desktopUserTerminalProtocol,
+    session_id: sessionID,
+    columns,
+    rows,
+    user_confirmed: true,
+  });
+}
+
+export async function closeDesktopUserTerminal(sessionID: string): Promise<void> {
+  const bridge = getTerminalBridge();
+  if (!bridge || !activeBootstrap?.user_terminal_enabled || !validWorkspaceID(sessionID)) {
+    throw new Error("Desktop terminal close request was rejected");
+  }
+  await bridge.CloseUserTerminal({
+    protocol_version: desktopUserTerminalProtocol,
+    session_id: sessionID,
+    user_confirmed: true,
+  });
+}
+
 export function desktopErrorMessage(value: unknown): string {
   if (value instanceof Error && value.message.trim()) {
     return value.message;
@@ -327,12 +512,26 @@ function getWorkspaceBridge(): NativeWorkspaceBridge | null {
   return bridge as NativeWorkspaceBridge;
 }
 
+function getTerminalBridge(): NativeTerminalBridge | null {
+  const bridge = getBridge();
+  if (!bridge || typeof bridge.StartUserTerminal !== "function" ||
+    typeof bridge.GetUserTerminal !== "function" ||
+    typeof bridge.ReadUserTerminal !== "function" ||
+    typeof bridge.WriteUserTerminal !== "function" ||
+    typeof bridge.ResizeUserTerminal !== "function" ||
+    typeof bridge.CloseUserTerminal !== "function") {
+    return null;
+  }
+  return bridge as NativeTerminalBridge;
+}
+
 function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
   if (!hasExactKeys(value, [
     "api_base_url", "api_version", "app_version", "approval_control_enabled",
     "control_enabled", "control_token", "docker_execution_enabled", "file_edit_apply_enabled",
     "evidence_attachment_enabled",
 	"verification_evidence_enabled",
+    "user_terminal_enabled", "agent_terminal_input_default",
     "file_edit_proposal_enabled", "file_edit_review_enabled", "model_control_enabled",
     "provider_credential_enabled", "process_execution_enabled",
     "protocol_version", "read_only_default",
@@ -367,7 +566,9 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     typeof value.run_wake_worker_enabled === "boolean" &&
     typeof value.skill_installation_enabled === "boolean" &&
     typeof value.evidence_attachment_enabled === "boolean" &&
-	typeof value.verification_evidence_enabled === "boolean" &&
+    typeof value.verification_evidence_enabled === "boolean" &&
+    typeof value.user_terminal_enabled === "boolean" &&
+    value.agent_terminal_input_default === false &&
     typeof value.workspace_open_enabled === "boolean" &&
     (value.control_token !== "") === (value.control_enabled || value.run_creation_enabled ||
       value.session_message_enabled || value.session_steering_control_enabled ||
@@ -378,7 +579,8 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
 	  value.run_wake_control_enabled || value.file_edit_apply_enabled ||
       value.run_wake_execution_enabled || value.run_wake_worker_enabled ||
       value.skill_installation_enabled ||
-      value.evidence_attachment_enabled || value.verification_evidence_enabled) &&
+      value.evidence_attachment_enabled || value.verification_evidence_enabled ||
+      value.user_terminal_enabled) &&
     (value.control_token === "" || validToken(value.control_token)) &&
     value.control_token !== value.read_token &&
     value.read_only_default === !(value.control_enabled || value.run_creation_enabled ||
@@ -390,10 +592,71 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
 	  value.run_wake_control_enabled || value.file_edit_apply_enabled ||
       value.run_wake_execution_enabled || value.run_wake_worker_enabled ||
       value.skill_installation_enabled ||
-      value.evidence_attachment_enabled || value.verification_evidence_enabled) &&
-    value.process_execution_enabled === false && value.shell_execution_enabled === false &&
+      value.evidence_attachment_enabled || value.verification_evidence_enabled ||
+      value.user_terminal_enabled) &&
+    value.process_execution_enabled === value.user_terminal_enabled &&
+    value.shell_execution_enabled === value.user_terminal_enabled &&
     value.docker_execution_enabled === false &&
     value.renderer_path_input_supported === false;
+}
+
+function validTerminalSession(value: unknown,
+  runID?: string): value is DesktopTerminalSession {
+  if (!hasExactKeys(value, ["agent_input_default", "backend", "columns", "exit_code",
+    "job_assigned_at_creation", "kill_on_job_close", "output_base_cursor",
+    "output_next_cursor", "persistent", "process_local", "protocol_version",
+    "raw_output_persisted", "rows", "run_id", "session_id", "state", "user_owned"])) {
+    return false;
+  }
+  return value.protocol_version === desktopUserTerminalProtocol &&
+    validWorkspaceID(value.session_id) && validWorkspaceID(value.run_id) &&
+    (runID === undefined || value.run_id === runID) &&
+    (value.state === "running" || value.state === "exited" || value.state === "failed") &&
+    boundedText(value.backend, 1, 64) && validTerminalSize(value.columns, value.rows) &&
+    safeCount(value.output_base_cursor) && safeCount(value.output_next_cursor) &&
+    value.output_next_cursor >= value.output_base_cursor &&
+    Number.isInteger(value.exit_code) && value.user_owned === true &&
+    value.agent_input_default === false && value.job_assigned_at_creation === true &&
+    value.kill_on_job_close === true && value.persistent === true &&
+    value.process_local === true && value.raw_output_persisted === false;
+}
+
+function validTerminalOutput(value: unknown,
+  sessionID: string): value is DesktopTerminalOutput {
+  return hasExactKeys(value, ["base_cursor", "data_base64", "data_bytes", "dropped",
+    "next_cursor", "protocol_version", "session_id", "state"]) &&
+    value.protocol_version === desktopUserTerminalProtocol &&
+    value.session_id === sessionID && safeCount(value.base_cursor) &&
+    safeCount(value.next_cursor) && value.next_cursor >= value.base_cursor &&
+    safeCount(value.data_bytes) && value.data_bytes <= 65536 &&
+    validBase64Payload(value.data_base64, value.data_bytes) &&
+    typeof value.dropped === "boolean" &&
+    (value.state === "running" || value.state === "exited" || value.state === "failed");
+}
+
+function validBase64Payload(value: unknown, expectedBytes: number): boolean {
+  if (typeof value !== "string" || value.length > 4 * Math.ceil(65536 / 3) ||
+    value.length % 4 !== 0 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+    return false;
+  }
+  try {
+    return window.atob(value).length === expectedBytes;
+  } catch {
+    return false;
+  }
+}
+
+function validTerminalWriteResult(value: unknown, sessionID: string,
+  expectedBytes: number): value is DesktopTerminalWriteResult {
+  return hasExactKeys(value, ["bytes_written", "protocol_version", "session_id"]) &&
+    value.protocol_version === desktopUserTerminalProtocol &&
+    value.session_id === sessionID && value.bytes_written === expectedBytes;
+}
+
+function validTerminalSize(columns: unknown, rows: unknown): columns is number {
+  return Number.isInteger(columns) && Number.isInteger(rows) &&
+    (columns as number) >= 20 && (columns as number) <= 300 &&
+    (rows as number) >= 5 && (rows as number) <= 120;
 }
 
 function validWorkspaceLauncherList(value: unknown,

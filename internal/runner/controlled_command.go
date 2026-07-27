@@ -20,7 +20,7 @@ const (
 	DefaultControlledCommandTimeout         = 30 * time.Second
 	MaxControlledCommandTimeout             = 2 * time.Minute
 	MaxControlledRelativePathRunes          = 512
-	controlledPowerShellWorkspaceListScript = `& { param([string]$RelativePath) Get-ChildItem -LiteralPath $RelativePath -Force | Select-Object Name,Length,Attributes | ConvertTo-Json -Compress }`
+	controlledPowerShellWorkspaceListScript = `& { param([string]$RelativePathHex) if ($RelativePathHex -notmatch '\Ah[0-9a-f]+\z' -or (($RelativePathHex.Length - 1) % 2) -ne 0) { throw 'invalid relative path' }; $Hex = $RelativePathHex.Substring(1); $Bytes = [byte[]]@(for ($Index = 0; $Index -lt $Hex.Length; $Index += 2) { [Convert]::ToByte($Hex.Substring($Index, 2), 16) }); $RelativePath = [Text.Encoding]::UTF8.GetString($Bytes); Get-ChildItem -LiteralPath $RelativePath -Force | Select-Object Name,Length,Attributes | ConvertTo-Json -Compress }`
 )
 
 var ErrControlledCommandBoundary = errors.New(
@@ -121,7 +121,7 @@ func PlanControlledCommand(request ControlledCommandPlanRequest) (
 		plan.Argv = []string{"status", "--short", "--branch", "--untracked-files=no"}
 	case ControlledCommandGitDiffCheck:
 		plan.ExecutableID = "git"
-		plan.Argv = []string{"diff", "--check"}
+		plan.Argv = []string{"diff", "--check", "--no-ext-diff", "--no-textconv"}
 	case ControlledCommandGoVersion:
 		plan.ExecutableID = "go"
 		plan.Argv = []string{"version"}
@@ -133,7 +133,7 @@ func PlanControlledCommand(request ControlledCommandPlanRequest) (
 			"-NoLogo", "-NoProfile", "-NonInteractive",
 			"-ExecutionPolicy", "Restricted", "-Command",
 			controlledPowerShellWorkspaceListScript,
-			plan.RelativePath,
+			encodeControlledRelativePath(plan.RelativePath),
 		}
 	default:
 		return ControlledCommandPlan{}, ErrControlledCommandBoundary
@@ -231,7 +231,8 @@ func (p ControlledCommandPlan) Validate() error {
 		}
 	case ControlledCommandGitDiffCheck:
 		if p.ExecutableID != "git" ||
-			!equalStrings(p.Argv, []string{"diff", "--check"}) ||
+			!equalStrings(p.Argv,
+				[]string{"diff", "--check", "--no-ext-diff", "--no-textconv"}) ||
 			p.RelativePath != "" || p.GoOwnedPowerShellScript {
 			return ErrControlledCommandBoundary
 		}
@@ -249,7 +250,8 @@ func (p ControlledCommandPlan) Validate() error {
 			p.Argv[3] != "-ExecutionPolicy" || p.Argv[4] != "Restricted" ||
 			p.Argv[5] != "-Command" ||
 			p.Argv[6] != controlledPowerShellWorkspaceListScript ||
-			p.Argv[7] != p.RelativePath ||
+			p.Argv[7] != encodeControlledRelativePath(p.RelativePath) ||
+			decodeControlledRelativePath(p.Argv[7]) != p.RelativePath ||
 			validateControlledRelativePath(p.RelativePath) != nil {
 			return ErrControlledCommandBoundary
 		}
@@ -288,6 +290,28 @@ func normalizeControlledRelativePath(value string) string {
 		return "."
 	}
 	return filepath.Clean(value)
+}
+
+func encodeControlledRelativePath(value string) string {
+	return "h" + hex.EncodeToString([]byte(value))
+}
+
+func decodeControlledRelativePath(value string) string {
+	const maxEncodedBytes = 1 + MaxControlledRelativePathRunes*utf8.UTFMax*2
+	if len(value) < 3 || len(value) > maxEncodedBytes || value[0] != 'h' ||
+		(len(value)-1)%2 != 0 {
+		return ""
+	}
+	decoded, err := hex.DecodeString(value[1:])
+	if err != nil || !utf8.Valid(decoded) {
+		return ""
+	}
+	path := string(decoded)
+	if encodeControlledRelativePath(path) != value ||
+		validateControlledRelativePath(path) != nil {
+		return ""
+	}
+	return path
 }
 
 func controlledCommandPlanFingerprint(plan ControlledCommandPlan) string {

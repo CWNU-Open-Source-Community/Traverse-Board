@@ -25,6 +25,7 @@ import type {
   WorkItemView,
 } from "../api/types";
 import {
+  closeDesktopUserTerminal,
   desktopErrorMessage,
   listDesktopWorkspaceLaunchers,
   openDesktopWorkspace,
@@ -35,6 +36,7 @@ import { usePagedResource } from "../hooks/use-paged-resource";
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from "./common";
 import { RepositoryDiffPanel } from "./repository-diff-panel";
 import { WorkspaceExplorer } from "./workspace-explorer";
+import { UserTerminalPanel } from "./user-terminal-panel";
 
 export type WorkbenchResourceKind = "run" | "session";
 type SidecarTab = "review" | "terminal" | "browser" | "files" | "tasks";
@@ -76,10 +78,21 @@ export function WorkbenchDock({ children, client, desktop, resourceKind, runID, 
   const [sidecarVisible, setSidecarVisible] = useState(false);
   const [sidecarTab, setSidecarTab] = useState<SidecarTab>("files");
   const [sidecarMenuOpen, setSidecarMenuOpen] = useState(false);
+  const [terminalSessionID, setTerminalSessionID] = useState("");
+  const terminalRunRef = useRef(runID);
   const sidecarMenuRef = useRef<HTMLDivElement>(null);
   const context = useWorkbenchContext(client, resourceKind, runID, sessionID);
 
   useDismissablePopover(sidecarMenuRef, sidecarMenuOpen, () => setSidecarMenuOpen(false));
+  useEffect(() => {
+    if (terminalRunRef.current === runID) return;
+    const previousSession = terminalSessionID;
+    terminalRunRef.current = runID;
+    setTerminalSessionID("");
+    if (previousSession) {
+      void closeDesktopUserTerminal(previousSession).catch(() => undefined);
+    }
+  }, [runID, terminalSessionID]);
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       if (!event.ctrlKey || event.metaKey) return;
@@ -148,7 +161,9 @@ export function WorkbenchDock({ children, client, desktop, resourceKind, runID, 
           <div className="workspace-panel-stage">{children}</div>
           {summaryVisible && <WorkbenchSummary client={client} context={context} />}
         </div>
-        {bottomVisible && <BottomPanel onClose={() => setBottomVisible(false)} />}
+        {bottomVisible && <BottomPanel desktop={desktop} runID={runID}
+          sessionID={terminalSessionID} onSession={setTerminalSessionID}
+          onClose={() => setBottomVisible(false)} />}
       </div>
       {sidecarVisible && <aside aria-label="右侧工具栏" className="workbench-sidecar">
         <header className="workbench-sidecar-tabs">
@@ -291,16 +306,23 @@ function SummaryRepository({ query, workspaceID }: {
   </section>;
 }
 
-function BottomPanel({ onClose }: { onClose: () => void }) {
+function BottomPanel({ desktop, runID, sessionID, onSession, onClose }: {
+  desktop: boolean;
+  runID: string;
+  sessionID: string;
+  onSession: (sessionID: string) => void;
+  onClose: () => void;
+}) {
   return <section aria-label="底部面板" className="workbench-bottom-panel">
     <header><button className="active" type="button"><SquareTerminal aria-hidden="true" size={14} />终端</button>
       <button aria-label="关闭底部面板" className="workspace-panel-icon" onClick={onClose}
         title="关闭底部面板" type="button"><X aria-hidden="true" size={15} /></button></header>
-    <div className="workbench-terminal-empty">
+    {desktop ? <UserTerminalPanel runID={runID} sessionID={sessionID}
+      onSession={onSession} /> : <div className="workbench-terminal-empty">
       <SquareTerminal aria-hidden="true" size={22} />
       <strong>终端尚未启用</strong>
       <span>当前权限档位不会启动本机 Shell</span>
-    </div>
+    </div>}
   </section>;
 }
 

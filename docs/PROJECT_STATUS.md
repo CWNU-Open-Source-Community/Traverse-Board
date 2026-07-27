@@ -1,14 +1,16 @@
 # Project Status
 
-Last updated: 2026-07-26
+Last updated: 2026-07-27
 
 ## Resume Context
 
-The latest P12-A1/A2/A3 batch advances SQLite to v86 and fixes Prayu's execution-interaction trust model. A Run may record operator-selected `preview|controlled|debug|cyber` intent, but every durable snapshot remains non-authorizing and non-starting. Debug/Cyber Agent terminal input requires a process-local, exact-scoped, revocable lease that lasts at most 15 minutes and is lost on restart. The controlled command path accepts only four Go-owned one-shot templates and produces a start-blocked plan; it does not invoke Git, PowerShell, or any other process. ADR 0075 defines the Code/Debug/Cyber boundaries. The preceding non-schema Model Harness batch remains governed by ADR 0074.
+The latest P12-B1/B2/B3 batch advances SQLite to v87 and implements the first deliberately narrow production execution surfaces. `run command-execute` can execute only the four P12-A Go-owned templates after explicit operator confirmation. Windows uses a restricted low-integrity token, creation-time Job Object, one-process and 512 MiB limits, closed stdin, a stripped environment, bounded output, deadline/cancellation, and tree reap. Schema v87 persists the exact intent before start and an immutable metadata-only receipt afterward; output bodies remain transient and a prepared intent without a receipt is never automatically retried.
 
-Current database schema is v86. Schemas v78-v81 add immutable operator verification evidence, livelock recovery, verification plans, and explicit plan-item/evidence associations; schema v82 adds conservative complete-request model-context planning and immutable cumulative handoff memory; schema v83 adds immutable metadata-only verification snapshot receipt history; schema v84 adds one immutable non-authorizing metadata review per exact receipt; schema v85 adds non-starting browser launch attempts, generation leases, idempotency facts, and independent reviews; schema v86 adds operator-selected execution-interaction intent without execution authority. Code/Desktop work remains D1-G13/V12. R9 strictly rejects malformed, future, digest-mismatched, or authority-widening receipt envelopes, while R10 pins accepted envelope bytes/SHA only behind the internal `NonProductOnly` Runner boundary. `model_harness.v1` now distinguishes transport compatibility from streamed ToolCall/ToolResult/strict-JSON compatibility, strips tools from Specialist and Fan-out, and fails an unqualified external model before normal Agent invocation. P10-A1 through P10-B3 establish a Go-owned analyzer boundary: a strict bounded request/result/error protocol, a fixed inert two-entry descriptor Registry, deterministic digest and in-memory ZIP central-directory functions, strict no-extraction archive result validation, and two independent Go/Rust five-vector suites. There is no Go-to-Rust product process bridge, file/path input, Run/Event/SQLite persistence, or Artifact commit. Root and Specialist requests use a 32K conservative fallback with explicit output/safety reservations, repeated compaction preserves a predecessor-bound cumulative handoff chain, and arbitrary repository documents remain untrusted evidence instead of instructions. Operators can compare any two exact local commit trees, use focus-safe keyboard navigation in the paired redacted preview, page through one frozen verification-item snapshot, download a deterministic metadata-only Markdown/JSON representation, record an immutable digest receipt, separately confirm or dispute only its metadata, carry bounded review metadata into a regenerable Code Handoff/Journey audit, and navigate only after Verify independently matches exact review/receipt/plan/item digests. Browser acceptance binds exact Windows file bytes/identity/publisher; immutable attempts and independent review still cannot start a process. P12 interaction selection and command planning also remain non-starting. R9/R10, P10, P11-C, P12-A, and Harness qualification do not claim wall-clock order, raw output, process identity, CPU/memory enforcement, verified OS quotas, signal identity, model quality/safety, or product execution. None grants general Shell, LocalRunner, Docker, child scheduling, install hooks, renderer host-path authority, credential readback, document instruction authority, automatic Skill selection, result acceptance, or product process execution.
+Windows Desktop can now expose a default-off user-owned ConPTY/xterm terminal with `--enable-user-terminal`. It requires an exact trusted Code/Local/Debug Run, the user starts and types into it, and terminal state, environment, input, output, and process identity are not persisted. The internal Agent-input bridge can write only after consuming a P12-A2 bearer bound to the exact Workspace/Run/terminal/interaction revision. Host lock, disconnect, logoff, sleep/resume, binding change, Run termination, terminal replacement, and shutdown revoke leases. The renderer cannot issue such a lease or give the terminal to a model. ADR 0075 defines the trust model; ADR 0076 defines the production implementation and residual limits.
 
-Schema v63 remains the blocked Sandbox start-gate review; schemas v48-v68 keep Local and container-process execution disabled. Schema v64 records only backend preference, schema v65 records non-authorizing machine-capture receipts, schema v66 adds recoverable ownership, schema v67 permits only five fixed read-only daemon GETs after explicit Linux opt-in, and schema v68 records a non-authorizing receipt decision without contacting Docker. No Agent-controlled path starts a Runner, container, Shell, browser, or Rust analyzer. ADR 0072 separately permits the operator, after a native confirmation, to start one fixed recognized external application for an exact registered Workspace; it is not an Agent execution bridge. ADR 0024 through ADR 0074 record the current Skill, Sandbox, Desktop, runtime, analyzer, browser, workbench, and model-Harness boundaries.
+Current database schema is v87. Schema v85 remains the non-starting browser acceptance/lease/review ledger, v86 records operator-selected `preview|controlled|debug|cyber` interaction intent without general authority, and v87 adds controlled-command write-ahead intents and immutable receipts. The established Run, context, verification, repository, Handoff/Journey, Harness, Skill, and multi-Agent boundaries remain unchanged. The controlled Windows executor is not a general LocalRunner or network sandbox: it accepts no executable path, raw Shell, arbitrary argv, environment, stdin, hook, or persistent process, and custom executable installations may fail closed. The Debug terminal is user-owned rather than Agent-owned. There is still no Docker PTY, real built-in browser, Go-to-Rust product process bridge, install-time hook, organizational IAM, or model-driven child scheduling.
+
+Schema v63 remains the blocked Docker Sandbox start-gate review; schemas v48-v68 keep container-process execution disabled. The separate P12-B executor starts only four closed operator-confirmed native templates and grants no Agent Shell. ADR 0072 separately permits the operator to open one recognized external application for an exact Workspace; that is also not an Agent execution bridge. ADR 0024 through ADR 0076 record the current Skill, Sandbox, Desktop, runtime, analyzer, browser, workbench, model-Harness, interaction, and terminal boundaries.
 
 Prayu is a local-first Go agent runtime for coding and controlled cyber-oriented work. The CLI-first implementation has resumable Runs, a durable root Agent Coordinator, bounded review-gated Specialist delegation, a separate read-only 1/2/4/6 Fan-out pool, persisted sessions and model calls, context compaction, WorkItems/Notes/Artifacts, a unified Tool Gateway, embedded and inert user Skills, Finding/Evidence/Report lifecycles with SARIF/CI output, loopback HTTP/SSE/OpenAPI, a Run-first TUI, a React/Vite console, and a Windows Wails shell with independently gated Run/Session/Plan/approval, FileEdit proposal/review/apply, Provider credentials, foreground/bounded wake, inert Skills, actions/evidence, and navigation. The `cyberagent` CLI and other established CyberAgent identifiers remain compatibility contracts. Core delegation remains capped at two children and only the original application operator can schedule it; models, ordinary tools, HTTP, and the Desktop native bridge cannot autonomously spawn or schedule children.
 
@@ -228,18 +230,28 @@ Use these files first when resuming:
 - `internal/store/run_execution_interactions.go`
 - `internal/executionauth/terminal_lease.go`
 - `internal/runner/controlled_command.go`
+- `internal/runner/controlled_execution.go`
+- `internal/runner/controlled_execution_windows.go`
+- `internal/store/controlled_command_executions.go`
+- `internal/terminal/session.go`
+- `internal/terminal/agent_input.go`
+- `internal/terminal/backend_windows.go`
+- `internal/terminal/host_boundary_windows.go`
+- `internal/desktop/user_terminal.go`
+- `web/src/components/user-terminal-panel.tsx`
 - `internal/app/run_command.go`
 - `docs/adr/0075-execution-interaction-trust-model.md`
+- `docs/adr/0076-controlled-windows-execution-and-user-terminal.md`
 
 ## Progress Review
 
 - Architecture completion: about 99%; the V2 run-centric control plane is about 99% complete.
-- Product usability: about 95-97% for the complete Code + Cyber product.
-- Generic coding-agent workflow usability: about 95-96%.
+- Product usability: about 96-98% for the complete Code + Cyber product.
+- Generic coding-agent workflow usability: about 96-97%.
 - Cyber autonomous-workflow usability: about 20%.
 - These values are engineering estimates derived from tested roadmap slices, not performance benchmarks. The retired single-axis "overall product vision" percentage must not be used for current status.
 
-Latest implemented batch: P12-A1/A2/A3 on schema v86. It adds durable non-authorizing `preview|controlled|debug|cyber` intent, a process-local exact-scoped Agent terminal-input lease, and four fixed non-starting one-shot command plans. The interaction record, lease, and command plan are deliberately separate: none starts a process or grants Shell, network, profile, Docker, or terminal authority. Functional-gate results are recorded in the P12 section at the end of this document. ADR 0075 is authoritative. The operational built-in browser and product LocalRunner/ConPTY/Docker PTY remain unavailable.
+Latest implemented batch: P12-B1/B2/B3 on schema v87. Four fixed plans now have a separate operator-only Windows execution path with write-ahead intent, immutable metadata receipt, restricted low-integrity identity, creation-time Job Object, bounded resources/output, cancellation, and tree reap. Desktop has a default-off user-owned ConPTY/xterm session for exact trusted Code/Local/Debug bindings. The internal Agent-input bridge consumes only an exact short lease and is revoked by host, Run, terminal, and durable-binding lifecycle changes; no renderer grant path exists. ADR 0076 is authoritative. Arbitrary Agent Shell, independent network isolation, Docker PTY, and the operational built-in browser remain unavailable.
 
 Completed:
 
@@ -307,7 +319,7 @@ Completed:
 - TUI async action loop: sends, refreshes, and tool approve/deny actions enter a `busy` state and complete through Bubble Tea commands without freezing the UI event path.
 - TUI workspace context side panel: attached sessions show workspace ID/name/root and lightweight local directory counts without reading file contents.
 - Safety policy skeleton for high-risk cyber text/tool calls.
-- Redacting Noop runner, explicitly fail-closed LocalRunner, and detection-only placeholder Docker runner; no production code can start a host process.
+- Redacting Noop runner, explicitly fail-closed general LocalRunner, and detection-only placeholder Docker runner. The only production host-process exceptions are the operator-confirmed pathless external Workspace opener, four exact one-shot P12-B command templates, and the default-off user-owned Debug ConPTY. None is a general Agent Runner.
 - Manual context compaction with persisted summaries.
 - Accepted ADR 0001: Go is the sole control plane; future TypeScript calls Go over HTTP/WebSocket, while Rust remains a deterministic JSON analyzer behind Go.
 - Accepted ADR 0002: Mission/Run aggregates, RunSupervisor, a single AgentCoordinator, structured WorkItems/Notes/Findings, lifecycle actions, and a unified event stream.
@@ -2283,28 +2295,93 @@ revoked-token summaries remain bounded. Documentation also now uses the exact
 CLI flag names. No unresolved high/medium issue is known on an enabled path.
 ADR 0075 is authoritative.
 
+## Latest Controlled Execution And User Terminal Batch
+
+P12-B1 advances SQLite to v87. `run command-execute` first compiles the same
+closed P12-A3 plan, derives a stable request identity from its fingerprint, and
+persists `controlled_command_execution_intent.v1` before process creation.
+Windows resolves only Go-owned fixed installation candidates through Win32
+Windows/Known Folder APIs, pins and validates a non-reparse regular PE, starts
+it with a restricted low-integrity token, and assigns its process tree to a Job
+Object at creation. The Job permits one active process and 512 MiB, stdin is
+`NUL`, environment inheritance is disabled, Git configuration/hooks/fsmonitor/
+external diff are disabled, output captures 64 KiB per stream and observes at
+most 64 MiB, and deadline/cancellation terminates and reaps the tree. The
+immutable receipt persists only exit/resource/boundary facts, byte counts, and
+captured-prefix SHA-256 values. Raw output is transient. A prepared intent with
+no receipt fails closed and is never automatically retried. The
+PowerShell-relative path is canonical UTF-8 hex data decoded only by the fixed
+script, preventing path text from becoming an expression. Go and SQLite both
+enforce exact output-count, truncation, digest, chronology, and limit evidence.
+
+P12-B2 adds a default-off Windows ConPTY backend and xterm 6 UI. The exact
+Code/Local/Debug interaction and trusted registered Workspace are revalidated
+before the user confirms start. The process is current-user Windows PowerShell
+with `-NoLogo -NoProfile`, assigned to a creation-time Job Object and limited
+to 32 processes and 2 GiB aggregate Job memory. At most eight sessions and
+4 MiB rolling output per session exist in memory. Only the user-facing bridge
+can start, write, resize, or close; no environment, process identity, input, or
+output enters SQLite.
+
+P12-B3 connects the internal terminal write path to the P12-A2 lease Broker
+without adding a grant surface. The bridge cannot start, replace, resize, or
+retarget a terminal. A hidden native Windows boundary monitor revokes all
+Agent-input leases on lock, disconnect, logoff, suspend, or resume. A bounded
+binding reconciler closes an affected user terminal when its Run terminates or
+its profile/interaction binding changes, while replacement and shutdown revoke
+associated leases. Run-to-Workspace identity is immutable; the internal
+Workspace-scope revoker is reserved for any future independent switch surface
+and is not exposed by the renderer. WTS subscription failure aborts the
+terminal-enabled Desktop startup rather than silently weakening revocation.
+
+The final serialized repository-wide Go suite passed in 796.6 seconds. `go vet`,
+warning-free `staticcheck`, Runner/Terminal race, module verification/tidy,
+zero-reachable-finding `govulncheck`, secure Desktop tags, real Windows
+restricted-process/ConPTY/host-boundary opt-in smokes, 151 React tests across 43
+files, strict TypeScript, the Vite production build, zero-vulnerability npm
+audit, and a reproducible Windows double build are green. The executable
+SHA-256 is
+`6f60f97096a06305e26d3c68ef26f93622c80a4784ad23ea72d2b28353fc2e77`;
+release diagnostics remain `release_ready=false`.
+
+The combined review fixed a PowerShell path-expression injection, impossible
+receipt relationships in Go/SQLite, environment-derived shell resolution, a
+stale renderer start race, terminal-manager failure cleanup, and a critical
+reliability defect where both a raw Win32 handle and `os.File` owned the same
+pipe read handle. Ownership now transfers exactly once and the collector closes
+it before publishing the result; full Runner and real-process tests no longer
+corrupt reused IOCP handles. Defender's ML heuristic also falsely classified
+the Policy test executable because complete destructive examples were embedded
+as static strings; tests now assemble the same exact fixtures at runtime,
+without changing Policy behavior. No unresolved high/medium issue is known on
+an enabled path.
+
+Residual boundaries remain explicit: low integrity is not a workspace-only
+filesystem capability or a network sandbox; custom executable locations may be
+unavailable; the renderer cannot issue Agent-input leases; Cyber Docker PTY
+remains absent. ADR 0076 is authoritative.
+
 ## Recommended Next Batch
 
-Candidate slices are P12-B1 a Windows product backend limited to the exact
-controlled structured-argv plan with an OS restricted identity/sandbox, Job
-Object whole-tree ownership, bounded output, timeout, cancellation, and restart
-audit; P12-B2 a user-owned ConPTY terminal with no Agent input path; and P12-B3
-an Agent-input bridge that consumes only the exact short-lived P12-A2 lease and
-revokes on lock, sleep, exit, Workspace switch, Run termination, and terminal
-replacement. Keep the three authorities separate: B1 must not create a
-persistent terminal, B2 must not accept Agent input, and B3 must not start or
-retarget a terminal. Run the three-slice functional gate after B3; the next
-six-slice robustness gate is due after the following batch.
+Recommended slices are P12-C1/C2/C3: add a model-visible but non-executing
+proposal for the four closed command kinds; add an independent operator review
+that can invoke only the exact v87 request through a separately enabled
+capability; and convert the bounded, redacted result into provenance-marked
+untrusted evidence for the originating Run without treating command output as
+instructions. The model must never provide an executable path, raw argv,
+environment, stdin, operation key, or terminal lease. This would make the first
+real command path useful to the Agent loop without turning the user ConPTY into
+an Agent Shell.
 
 P11-C4/C5/C6 browser start/Profile/CDP and P10-F1/F2/F3 remain queued rather
 than discarded. They must not be folded into the terminal Runner batch.
 
-Keep the Local profile disabled until a real
-OS sandbox makes protected host roots unavailable or read-only; never map it to
-unrestricted `os/exec`. Product Docker start/wait/TERM/KILL/orphan behavior still
+Keep the general LocalRunner disabled until a real workspace filesystem and
+network sandbox makes protected host roots unavailable or read-only; never map
+it to unrestricted `os/exec`. Product Docker start/wait/TERM/KILL/orphan behavior still
 requires a later independent release gate; R2-R10 test-binary conformance and post-reap
 metadata are not production evidence. The manual Windows 10 matrix, signed distribution,
-product analyzer execution, xterm input, network grants, end-user process execution, and
-CTF solving remain deferred.
+product analyzer execution, Agent-owned xterm input, network grants, arbitrary
+end-user process execution, and CTF solving remain deferred.
 
 Real Local/container-process execution remains disabled until every v51 check has independently verified and independently accepted production evidence and Sandbox retained-resource cleanup, resource/network, cancellation, running-orphan, and atomic Artifact-export paths pass separate audits. Schema v52 simulation, v53 metadata observation, v54 compilation/fake writes, v55-v56 non-started daemon rehearsals, v57 sealing, v58 durable capture requirements, v59 never-started handoff evidence, v60 projection plans, v61 never-started volume application, v62 cleanup, v63 design review, v64 profile selection, v65 non-authorizing capture receipts, v66 recoverable capture ownership, v67 read-only daemon metadata, and v68 receipt acceptance do not satisfy that requirement. TypeScript, future Rust analyzers, and model providers remain unable to bypass the Go Tool Gateway or Policy boundary.

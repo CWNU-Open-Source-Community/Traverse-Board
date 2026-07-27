@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,6 +24,7 @@ import (
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/policy"
 	reporting "cyberagent-workbench/internal/report"
+	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/store"
 	"cyberagent-workbench/internal/toolgateway"
 )
@@ -264,6 +266,124 @@ func TestRunCommandPlanExposesOnlyClosedNonStartingEnvelope(t *testing.T) {
 	if _, stderr, code := executeTestCommand(t, "run", "command-plan",
 		runID, "powershell", "--path", "whoami"); code != 1 || !strings.Contains(stderr, "unsupported command kind") {
 		t.Fatalf("arbitrary PowerShell kind stderr=%q code=%d", stderr, code)
+	}
+}
+
+type controlledCommandExecutorStub struct {
+	calls int
+}
+
+func (s *controlledCommandExecutorStub) Available() bool {
+	return true
+}
+
+func (s *controlledCommandExecutorStub) Execute(_ context.Context,
+	request runner.ControlledExecutionRequest,
+) (runner.ControlledExecutionResult, error) {
+	s.calls++
+	stdout := []byte("go version controlled-test")
+	stdoutDigest := sha256.Sum256(stdout)
+	emptyDigest := sha256.Sum256(nil)
+	now := time.Date(2026, 7, 26, 18, 0, 0, 0, time.UTC)
+	return runner.ControlledExecutionResult{
+		ProtocolVersion:          runner.ControlledExecutionProtocolVersion,
+		PolicyVersion:            runner.ControlledExecutionPolicyVersion,
+		RequestID:                runner.ControlledExecutionRequestID(request.Plan),
+		PlanID:                   request.Plan.ID,
+		PlanFingerprint:          request.Plan.Fingerprint,
+		RunID:                    request.Plan.RunID,
+		WorkspaceID:              request.Plan.WorkspaceID,
+		InteractionSnapshotID:    request.Plan.InteractionSnapshotID,
+		InteractionRevision:      request.Plan.InteractionRevision,
+		ExecutionProfileRevision: request.Plan.ExecutionProfileRevision,
+		Kind:                     request.Plan.Kind,
+		Backend:                  "controlled-cli-test",
+		Stdout: runner.ControlledOutput{
+			Data: stdout, ObservedBytes: int64(len(stdout)),
+			CapturedBytes:        len(stdout),
+			CapturedPrefixSHA256: fmt.Sprintf("%x", stdoutDigest),
+		},
+		Stderr: runner.ControlledOutput{
+			CapturedPrefixSHA256: fmt.Sprintf("%x", emptyDigest),
+		},
+		StartedAt: now, CompletedAt: now.Add(time.Second),
+		TreeReaped: true, RestrictedToken: true, LowIntegrityToken: true,
+		JobAssignedAtCreation: true, KillOnJobClose: true,
+		ActiveProcessLimit: 1,
+		ProcessMemoryLimit: runner.MaxControlledProcessMemoryBytes,
+		StdinClosed:        true, ProductExecutionEnabled: true,
+	}, nil
+}
+
+func TestRunCommandExecuteIsConfirmedAuditedAndExactlyOnce(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CYBERAGENT_HOME", home)
+	if _, stderr, code := executeTestCommand(t, "workspace", "init",
+		"command-execute-demo"); code != 0 {
+		t.Fatalf("workspace init failed: %s", stderr)
+	}
+	created, stderr, code := executeTestCommand(t, "run", "create",
+		"execute one controlled command", "--workspace", "command-execute-demo",
+		"--max-turns", "2")
+	if code != 0 || stderr != "" {
+		t.Fatalf("run create output=%q stderr=%q code=%d", created, stderr, code)
+	}
+	runID := runIDPattern.FindString(created)
+	if _, stderr, code := executeTestCommand(t, "run", "execution-profile", "set",
+		runID, "local", "--operation-key",
+		"cli-command-execute-profile-0001"); code != 0 {
+		t.Fatalf("local profile selection failed: %s", stderr)
+	}
+	if _, stderr, code := executeTestCommand(t, "run",
+		"execution-interaction", "set", runID, "controlled",
+		"--trust", "trusted", "--confirm-workspace-trust",
+		"--operation-key",
+		"cli-command-execute-interaction-0001"); code != 0 {
+		t.Fatalf("controlled interaction selection failed: %s", stderr)
+	}
+	stub := &controlledCommandExecutorStub{}
+	execute := func(arguments ...string) (string, string, int) {
+		t.Helper()
+		var out bytes.Buffer
+		var errOut bytes.Buffer
+		code := executeContextWithConfig(context.Background(), arguments,
+			&out, &errOut, func(app *App) {
+				app.controlledCommands = stub
+			})
+		return out.String(), errOut.String(), code
+	}
+	if _, stderr, code := execute("run", "command-execute", runID,
+		"go-version", "--operation-key", "controlled-execute-0001"); code != 2 || !strings.Contains(stderr, "--confirm-execution") ||
+		stub.calls != 0 {
+		t.Fatalf("missing confirmation stderr=%q code=%d calls=%d",
+			stderr, code, stub.calls)
+	}
+	first, stderr, code := execute("run", "command-execute", runID,
+		"go-version", "--operation-key", "controlled-execute-0001",
+		"--confirm-execution")
+	if code != 0 || stderr != "" || stub.calls != 1 ||
+		!strings.Contains(first, "raw_output_persisted: false") ||
+		!strings.Contains(first, "raw_output_available: true") ||
+		!strings.Contains(first, "replayed: false") ||
+		!strings.Contains(first, "stdout_begin\ngo version controlled-test\nstdout_end") {
+		t.Fatalf("first execution output=%q stderr=%q code=%d calls=%d",
+			first, stderr, code, stub.calls)
+	}
+	replayed, stderr, code := execute("run", "command-execute", runID,
+		"go-version", "--operation-key", "controlled-execute-0001",
+		"--confirm-execution")
+	if code != 0 || stderr != "" || stub.calls != 1 ||
+		!strings.Contains(replayed, "raw_output_available: false") ||
+		!strings.Contains(replayed, "replayed: true") ||
+		strings.Contains(replayed, "go version controlled-test") {
+		t.Fatalf("replay output=%q stderr=%q code=%d calls=%d",
+			replayed, stderr, code, stub.calls)
+	}
+	if _, stderr, code := execute("run", "command-execute", runID,
+		"git-status", "--operation-key", "controlled-execute-0001",
+		"--confirm-execution"); code == 0 ||
+		!strings.Contains(stderr, "different intent") || stub.calls != 1 {
+		t.Fatalf("conflict stderr=%q code=%d calls=%d", stderr, code, stub.calls)
 	}
 }
 

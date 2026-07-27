@@ -2015,6 +2015,65 @@ body {
 .workbench-tool-empty strong { color: #4f463d; font-size: 12px; }
 .workbench-terminal-empty span,
 .workbench-tool-empty span { font-size: 10px; }
+.user-terminal-panel {
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  grid-template-rows: 30px minmax(0, 1fr);
+  overflow: hidden;
+  background: #171512;
+}
+.user-terminal-controls {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 9px;
+  border-bottom: 1px solid rgb(242 228 204 / 9%);
+  color: #c8bba8;
+  background: #1e1b17;
+}
+.user-terminal-controls button {
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 7px;
+  border: 1px solid rgb(242 228 204 / 13%);
+  border-radius: 5px;
+  color: #f2e4cc;
+  background: #29241e;
+  font-size: 10px;
+}
+.user-terminal-controls button:hover:not(:disabled) {
+  border-color: rgb(245 130 49 / 55%);
+  background: #34291f;
+}
+.user-terminal-controls button:disabled { opacity: .45; }
+.user-terminal-state {
+  flex: 0 0 auto;
+  color: #948779;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+.user-terminal-state.running { color: #8fbf71; }
+.user-terminal-state.failed { color: #ef6b5d; }
+.user-terminal-message {
+  min-width: 0;
+  overflow: hidden;
+  color: #ef9b6b;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.user-terminal-host {
+  min-width: 0;
+  min-height: 0;
+  padding: 6px 8px;
+  overflow: hidden;
+}
+.user-terminal-host .xterm { height: 100%; }
+.user-terminal-host .xterm-viewport { scrollbar-width: thin; }
 
 .workbench-sidecar {
   display: flex;

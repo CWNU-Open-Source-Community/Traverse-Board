@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const LatestSchemaVersion = 86
+const LatestSchemaVersion = 87
 
 type migration struct {
 	Version    int
@@ -8503,6 +8503,121 @@ var sandboxDockerObservationStatements = []string{
 	`CREATE TRIGGER trg_sandbox_docker_observation_operation_delete_immutable
 		BEFORE DELETE ON sandbox_docker_observation_operations BEGIN
 			SELECT RAISE(ABORT, 'Docker observation operation cannot be deleted');
+		END;`,
+}
+
+var controlledCommandExecutionStatements = []string{
+	`CREATE TABLE controlled_command_execution_intents (
+		request_id TEXT PRIMARY KEY,
+		protocol_version TEXT NOT NULL,
+		policy_version TEXT NOT NULL,
+		plan_id TEXT NOT NULL UNIQUE,
+		plan_fingerprint TEXT NOT NULL UNIQUE,
+		run_id TEXT NOT NULL,
+		workspace_id TEXT NOT NULL,
+		interaction_snapshot_id TEXT NOT NULL,
+		interaction_revision INTEGER NOT NULL,
+		execution_profile_revision INTEGER NOT NULL,
+		kind TEXT NOT NULL,
+		requested_by TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE CASCADE,
+		FOREIGN KEY(workspace_id) REFERENCES workspaces(id),
+		FOREIGN KEY(interaction_snapshot_id)
+			REFERENCES run_execution_interaction_snapshots(id),
+		CHECK(protocol_version = 'controlled_command_execution_intent.v1'),
+		CHECK(policy_version = 'controlled_command_execution_policy.v1'),
+		CHECK(interaction_revision > 0),
+		CHECK(execution_profile_revision > 0),
+		CHECK(kind IN ('git-status', 'git-diff-check', 'go-version',
+			'powershell-workspace-list'))
+	);`,
+	`CREATE INDEX idx_controlled_execution_intents_run_created
+		ON controlled_command_execution_intents(run_id, created_at, request_id);`,
+	`CREATE TABLE controlled_command_execution_receipts (
+		request_id TEXT PRIMARY KEY,
+		protocol_version TEXT NOT NULL,
+		policy_version TEXT NOT NULL,
+		backend TEXT NOT NULL,
+		exit_code INTEGER NOT NULL,
+		stdout_observed_bytes INTEGER NOT NULL,
+		stdout_captured_bytes INTEGER NOT NULL,
+		stdout_prefix_sha256 TEXT NOT NULL,
+		stdout_truncated INTEGER NOT NULL,
+		stderr_observed_bytes INTEGER NOT NULL,
+		stderr_captured_bytes INTEGER NOT NULL,
+		stderr_prefix_sha256 TEXT NOT NULL,
+		stderr_truncated INTEGER NOT NULL,
+		started_at TEXT NOT NULL,
+		completed_at TEXT NOT NULL,
+		timed_out INTEGER NOT NULL,
+		cancelled INTEGER NOT NULL,
+		output_limit_exceeded INTEGER NOT NULL,
+		tree_reaped INTEGER NOT NULL,
+		restricted_token INTEGER NOT NULL,
+		low_integrity_token INTEGER NOT NULL,
+		job_assigned_at_creation INTEGER NOT NULL,
+		kill_on_job_close INTEGER NOT NULL,
+		active_process_limit INTEGER NOT NULL,
+		process_memory_limit INTEGER NOT NULL,
+		stdin_closed INTEGER NOT NULL,
+		environment_inherited INTEGER NOT NULL,
+		network_requested INTEGER NOT NULL,
+		persistent_process INTEGER NOT NULL,
+		product_execution_enabled INTEGER NOT NULL,
+		FOREIGN KEY(request_id)
+			REFERENCES controlled_command_execution_intents(request_id)
+				ON DELETE CASCADE,
+		CHECK(protocol_version = 'controlled_command_execution.v1'),
+		CHECK(policy_version = 'controlled_command_execution_policy.v1'),
+		CHECK(stdout_observed_bytes BETWEEN 0 AND 67108864
+			AND stdout_captured_bytes =
+				CASE WHEN stdout_observed_bytes > 65536
+					THEN 65536 ELSE stdout_observed_bytes END),
+		CHECK(stderr_observed_bytes BETWEEN 0 AND 67108864
+			AND stderr_captured_bytes =
+				CASE WHEN stderr_observed_bytes > 65536
+					THEN 65536 ELSE stderr_observed_bytes END),
+		CHECK(length(stdout_prefix_sha256) = 64
+			AND stdout_prefix_sha256 NOT GLOB '*[^0-9a-f]*'),
+		CHECK(length(stderr_prefix_sha256) = 64
+			AND stderr_prefix_sha256 NOT GLOB '*[^0-9a-f]*'),
+		CHECK(stdout_truncated IN (0, 1)
+			AND stdout_truncated = (stdout_observed_bytes > stdout_captured_bytes)),
+		CHECK(stderr_truncated IN (0, 1)
+			AND stderr_truncated = (stderr_observed_bytes > stderr_captured_bytes)),
+		CHECK(julianday(started_at) IS NOT NULL
+			AND julianday(completed_at) IS NOT NULL
+			AND julianday(completed_at) >= julianday(started_at)),
+		CHECK(timed_out IN (0, 1) AND cancelled IN (0, 1)
+			AND NOT (timed_out = 1 AND cancelled = 1)),
+		CHECK(output_limit_exceeded IN (0, 1)
+			AND (output_limit_exceeded = 0
+				OR stdout_observed_bytes = 67108864
+				OR stderr_observed_bytes = 67108864)),
+		CHECK(tree_reaped = 1 AND restricted_token = 1
+			AND low_integrity_token = 1),
+		CHECK(job_assigned_at_creation = 1 AND kill_on_job_close = 1),
+		CHECK(active_process_limit = 1 AND process_memory_limit = 536870912),
+		CHECK(stdin_closed = 1 AND environment_inherited = 0
+			AND network_requested = 0 AND persistent_process = 0
+			AND product_execution_enabled = 1)
+	);`,
+	`CREATE TRIGGER trg_controlled_execution_intent_update_immutable
+		BEFORE UPDATE ON controlled_command_execution_intents BEGIN
+			SELECT RAISE(ABORT, 'controlled command execution intent cannot be updated');
+		END;`,
+	`CREATE TRIGGER trg_controlled_execution_intent_delete_immutable
+		BEFORE DELETE ON controlled_command_execution_intents BEGIN
+			SELECT RAISE(ABORT, 'controlled command execution intent cannot be deleted');
+		END;`,
+	`CREATE TRIGGER trg_controlled_execution_receipt_update_immutable
+		BEFORE UPDATE ON controlled_command_execution_receipts BEGIN
+			SELECT RAISE(ABORT, 'controlled command execution receipt cannot be updated');
+		END;`,
+	`CREATE TRIGGER trg_controlled_execution_receipt_delete_immutable
+		BEFORE DELETE ON controlled_command_execution_receipts BEGIN
+			SELECT RAISE(ABORT, 'controlled command execution receipt cannot be deleted');
 		END;`,
 }
 

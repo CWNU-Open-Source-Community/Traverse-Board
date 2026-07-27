@@ -187,3 +187,45 @@ func TestTerminalInputLeaseRevocationReleasesActiveCapacity(t *testing.T) {
 			len(broker.entries), len(broker.revoked))
 	}
 }
+
+func TestTerminalInputLeaseRevokesOnlyExactTerminal(t *testing.T) {
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	random := bytes.NewReader(append(
+		bytes.Repeat([]byte{0x75}, terminalLeaseTokenBytes),
+		bytes.Repeat([]byte{0x76}, terminalLeaseTokenBytes)...))
+	broker := newTerminalInputBroker(func() time.Time { return now }, random)
+	firstScope := TerminalInputScope{
+		WorkspaceID: "workspace-terminal", RunID: "run-terminal-one",
+		TerminalSessionID:     "terminal-one",
+		InteractionSnapshotID: "interaction-terminal-one",
+		InteractionRevision:   2,
+		Mode:                  domain.RunExecutionInteractionDebug,
+	}
+	first, err := broker.Issue(IssueTerminalInputLeaseRequest{
+		Scope: firstScope, RequestedBy: "desktop_operator",
+		OperatorConfirmed: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondScope := firstScope
+	secondScope.RunID = "run-terminal-two"
+	secondScope.TerminalSessionID = "terminal-two"
+	secondScope.InteractionSnapshotID = "interaction-terminal-two"
+	second, err := broker.Issue(IssueTerminalInputLeaseRequest{
+		Scope: secondScope, RequestedBy: "desktop_operator",
+		OperatorConfirmed: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revoked := broker.RevokeTerminal(firstScope.TerminalSessionID); revoked != 1 {
+		t.Fatalf("revoked=%d want=1", revoked)
+	}
+	if _, err := broker.Authorize(first.Token, firstScope); !errors.Is(err, ErrLeaseRevoked) {
+		t.Fatalf("first terminal lease survived replacement: %v", err)
+	}
+	if _, err := broker.Authorize(second.Token, secondScope); err != nil {
+		t.Fatalf("exact terminal revoke crossed scope: %v", err)
+	}
+}

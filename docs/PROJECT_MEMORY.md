@@ -1,6 +1,6 @@
 # Prayu Project Memory
 
-Last updated: 2026-07-26
+Last updated: 2026-07-27
 
 ## Resume First
 
@@ -87,24 +87,27 @@ Read in this order after a long context break:
 77. `docs/adr/0072-workbench-docks-and-operator-confirmed-workspace-opening.md`
 78. `docs/adr/0073-browser-publisher-launch-lease-and-review-gates.md`
 79. `docs/adr/0074-model-harness-protocol-profiles-and-qualification.md`
-80. `docs/DESKTOP_PLAN.md`
-81. `docs/SKILL_PACKAGE_PLAN.md`
+80. `docs/adr/0075-execution-interaction-trust-model.md`
+81. `docs/adr/0076-controlled-windows-execution-and-user-terminal.md`
+82. `docs/DESKTOP_PLAN.md`
+83. `docs/SKILL_PACKAGE_PLAN.md`
 
 ## Current Baseline
 
 - Architecture completion: about 99%; the V2 run-centric control plane is about 99% complete.
-- Product usability: about 95-97% for the complete Code + Cyber product.
-- Generic coding-agent workflow usability: about 95-96%.
+- Product usability: about 96-98% for the complete Code + Cyber product.
+- Generic coding-agent workflow usability: about 96-97%.
 - Cyber autonomous-workflow usability: about 20%.
 - These are engineering estimates based on tested roadmap slices, not performance benchmarks. Do not reuse the retired single-axis "overall product vision" percentage.
-- Database schema: v85.
-- `README.md` carries the canonical bilingual schema timeline in strict `v1 -> v85` order. `internal/store/readme_history_test.go` binds its row count and ordering to `LatestSchemaVersion`, so a future migration cannot silently leave the public history missing or out of sequence.
+- Database schema: v87.
+- `README.md` carries the canonical bilingual schema timeline in strict `v1 -> v87` order. `internal/store/readme_history_test.go` binds its row count and ordering to `LatestSchemaVersion`, so a future migration cannot silently leave the public history missing or out of sequence.
 - Main languages: Go control plane, TypeScript React/Vite local console, and deterministic Rust 1.97.1 digest/ZIP protocol functions. Rust has no Agent, LLM, config, key, persistence, network, filesystem, subprocess, or product-lifecycle ownership.
 - Analyzer status: P10-A1 through P10-B3 fix `analyzer_protocol.v1`, a two-entry inert `analyzer_descriptor.v1` Registry, strict digest and `archive.inventory.v1` result validation, bounded Rust stdin/stdout functions, and two five-vector semantic/bytes/SHA suites with separate CI. The ZIP function only reads an in-memory central directory and never opens, decompresses, extracts, or writes entry data. A Go-to-Rust product process bridge, product invocation, Run/Event/SQLite persistence, and Artifact commit remain absent. See ADR 0062, ADR 0063, and `analyzers/README.md`.
-- Model Harness status: non-schema A1/A2/A3 adds `model_harness.v1` exact transport/tool/JSON/streaming profiles, Go preflight for Root/Specialist/read-only Fan-out, and `model_harness_qualification.v1` at-most-two-call synthetic qualification. Mock is trusted offline; Anthropic-compatible models require explicit qualification. Qualification stores only exact binding digest, capability booleans, and seven-day expiry in existing Provider settings; the synthetic Tool is never executed, availability remains no-probe, and qualification grants no Tool/Shell/file/browser/Docker authority. OpenAPI is 76/84/185; SQLite remains v85. See ADR 0074.
+- Model Harness status: non-schema A1/A2/A3 adds `model_harness.v1` exact transport/tool/JSON/streaming profiles, Go preflight for Root/Specialist/read-only Fan-out, and `model_harness_qualification.v1` at-most-two-call synthetic qualification. Mock is trusted offline; Anthropic-compatible models require explicit qualification. Qualification stores only exact binding digest, capability booleans, and seven-day expiry in existing Provider settings; the synthetic Tool is never executed, availability remains no-probe, and qualification grants no Tool/Shell/file/browser/Docker authority. OpenAPI is 76/84/185. See ADR 0074.
 - Browser status: P11-A1 through P11-C3 now fix three Profiles, exact target scope, inert session plans, fixed-location executable discovery, disposable-profile recovery plans, sealed Disabled/Fake CDP, same-handle Windows Authenticode acceptance, immutable launch attempts/generation leases, and independent operator review. Chrome and Edge can become `accepted_for_review`; arbitrary Chromium remains refused. Review acceptance still grants no process, network, profile-write, termination, cleanup, CDP, or Artifact authority. No built-in browser process or UI exists. See ADR 0069, ADR 0071, and ADR 0073.
-- Desktop status: D0-A/D0-B and D1-R1 through D1-G13/V12 pin Wails v2.13.0 and build a reproducible Windows development/portable-test binary with an embedded React bundle, in-process Go API, ephemeral memory-only tokens, resumable event polling, same-database recovery, controlled Run/Session/lifecycle/Plan/approval workflows, separate model connectivity diagnostics/routes/Harness qualification, safely recoverable Monaco proposal/Diff editing, read-only Repository state/redacted Diff/local history/exact-commit metadata/redacted preview/navigable exact-file history/exact-commit comparison with keyboard-accessible paired base/head previews, independent multi-file review, separate immutable verification plans/results/associations plus snapshot-stable exact per-item drilldown/download/receipt history/non-authorizing review and Handoff coverage, digest-bound Code Handoff export with exact fail-closed receipt-review navigation, bounded Code Journey audit facts, generation-safe Windows Credential Manager Provider controls, and a default-off one-concurrent/one-step wake worker. D1-UX7/UX8/UX9 add composable Summary/Bottom/Right docks plus a pathless, native-confirmed operator action for opening one registered Workspace in a fixed recognized external application. The renderer receives no path/command/environment/arbitrary arguments; this is not Agent, Runner, Tool, or Shell execution. Schema v85 browser launch facts are internal non-starting records and add no Desktop browser surface. The 2026-07-22 repair tests the real Wails server-form request rather than an absolute-URL mock, and one exact legacy v30 preview checksum upgrades in place while unknown history remains rejected. Windows 10 release coverage remains pending and `release_ready=false`. There is no installer, formal signed release, registry/startup/update behavior, embedded terminal, real Shell/Local/Docker Agent execution, or install-time Skill execution. See ADR 0033 through ADR 0061, ADR 0064, ADR 0068, ADR 0070, ADR 0072 through ADR 0074, and `docs/DESKTOP_PLAN.md`.
-- Prayu UX status: D1-UX1 through D1-UX9 introduce the Prayu user-facing identity, supplied workspace/Settings backgrounds and wordmark, a CSS-generated selected-state brush, a cream translucent work surface, functional Settings navigation and display-only density, a frameless Wails titlebar, a bounded persisted resizable sidebar, a Go-backed Agent composer, and the compact four-control workbench toolbar. Summary/Review/Files/Side Tasks use existing read-only Go surfaces; Browser and embedded Terminal remain explicitly inert. Open Workspace is operator-confirmed and pathless at the renderer boundary. Stable CyberAgent compatibility identifiers remain unchanged. See ADR 0064, ADR 0070, and ADR 0072.
+- Desktop status: the established Wails v2.13.0 shell retains its embedded React/in-process Go API, Run/editor/repository/verification/Handoff/model/credential/wake workflows and composable docks. P12-B2 adds a default-off user-owned ConPTY/xterm terminal for an exact trusted Code/Local/Debug Run. The user starts and types into it; terminal state, environment, input, output, and process identity are process-local, and the renderer cannot issue Agent-input leases. Windows 10 release coverage remains pending and `release_ready=false`. There is no installer, formal signed release, registry/startup/update behavior, general Agent Shell, Docker PTY, real built-in browser, or install-time Skill execution. See ADR 0033 through ADR 0061, ADR 0064, ADR 0068, ADR 0070, ADR 0072 through ADR 0076, and `docs/DESKTOP_PLAN.md`.
+- Prayu UX status: D1-UX1 through D1-UX9 introduce the Prayu identity, supplied backgrounds/wordmark, CSS selected brush, cream translucent work surface, Settings, frameless titlebar, resizable sidebar, Go-backed composer, and four-control toolbar. Summary/Review/Files/Side Tasks use existing bounded Go surfaces. Browser remains inert; Terminal becomes real only when the Desktop is explicitly started with `--enable-user-terminal`, and remains user-owned. Open Workspace stays operator-confirmed and pathless at the renderer boundary. Stable CyberAgent compatibility identifiers remain unchanged. See ADR 0064, ADR 0070, ADR 0072, and ADR 0076.
+- Execution status: P12-A1/A2/A3 adds durable interaction intent, exact process-local Agent-input leases, and four non-starting fixed command plans. P12-B1/B2/B3 advances SQLite to v87 and adds a separate operator-only Windows execution path plus the user terminal. Controlled commands use a restricted low-integrity token, creation-time Job Object, one-process/512 MiB/output/deadline/cancellation/tree-reap controls, write-ahead intent, and immutable metadata receipt. Git configuration/hooks/fsmonitor/external diff are disabled and raw output is transient. This is not a general LocalRunner or network sandbox. The internal Agent-input bridge has no renderer grant path and revokes on host, Run, terminal, and durable-binding lifecycle changes. See ADR 0075 and ADR 0076.
 - Custom Skill status: the five embedded `skill.v1` guides and explicitly selected external packages are Run-loadable through separate protocols. Schema v69 adds persistent content-addressed import/history; schema v70 adds a second explicitly confirmed exact Run selection and redacted user-role root/Specialist context; schema v71 adds bounded read-only provenance across HTTP/TUI/Web. D1-A adds a pathless, one-time-handle preview boundary; D1-B1 adds explicit HTTP/Desktop registration through the same inert Registry. External packages remain untrusted and grant no declared tools. Installation executes no content and still does not select a package for a Run. See ADR 0024, ADR 0031 through ADR 0033, ADR 0041, and `docs/SKILL_PACKAGE_PLAN.md`.
 - Protected-delete status: explicit recursive, absolute/traversing/wildcard, environment-derived, command-substituted, current-home, PowerShell/`cmd`, and common interpreter deletion intents are permanently denied before approval across Shell, ScriptProcess, and Sandbox Policy. This is defense in depth; Local/container process execution remains disabled and a future executor still requires OS/container isolation. See ADR 0025.
 - Canonical branch: `main`; do not create a branch or PR unless the user asks.
@@ -1904,15 +1907,68 @@ vulnerabilities. SQLite remains v85. ADR 0074 is authoritative.
 回执，且资格绑定精确 Provider/模型/地址/策略并会过期。普通连通性测试和资格校验仍是两个动作；
 资格通过也不会开放 Shell、文件、浏览器或 Docker。
 
+## P12-B Controlled Execution And User Terminal Handoff
+
+P12-B1 advances SQLite to v87 and is the first product host-process slice. It is
+not the general `LocalRunner`: `run command-execute` can start only the exact
+`git-status`, hardened `git-diff-check`, `go-version`, or fixed
+`powershell-workspace-list` template after operator confirmation. The intent is
+persisted before start. Windows uses OS-derived installation roots, pins one
+non-reparse regular PE, creates a restricted low-integrity token, assigns a
+creation-time Job Object, permits one process/512 MiB, closes stdin and inherited
+environment, bounds captured/observed output, and reaps on timeout/cancel.
+Receipts contain metadata and hashes only; raw stdout/stderr is transient. There
+is no independent network sandbox, arbitrary executable/argv, or automatic retry
+after an uncertain start. The PowerShell relative path is canonical UTF-8 hex
+data decoded only by the fixed script, so path text cannot become an expression.
+Go and SQLite both validate exact output-count, truncation, digest, time, and
+limit relationships.
+
+P12-B2 adds `--enable-user-terminal`. It creates a current-user Windows
+PowerShell `-NoLogo -NoProfile` ConPTY only for an exact trusted
+Code/Local/Debug Run, with creation-time Job ownership, at most eight process-local
+sessions, and a 4 MiB rolling output buffer. xterm is the user interface. The
+user starts and types; no terminal bytes, environment, or process identity are
+persisted.
+
+P12-B3 wires only an internal Agent input consumer. It requires the exact
+P12-A2 bearer and cannot start, replace, resize, or retarget a terminal. Native
+lock/disconnect/logoff/suspend/resume, Run termination, profile or interaction
+change, terminal replacement, and shutdown revoke leases. Run-to-Workspace
+identity is immutable; a Workspace-scope revoker exists for a future independent
+switch path but is not wired to the renderer. The Desktop renderer has no
+lease-issuance route.
+
+Final P12-B verification: `go test -p 1 -count=1 ./...` passed in 796.6 seconds;
+vet, warning-free staticcheck, Runner/Terminal race, module verify/tidy,
+zero-reachable-finding govulncheck, secure Desktop tags, real Windows
+restricted-process/ConPTY/host-boundary opt-in smokes, 43 files/151 React,
+strict TypeScript, Vite, zero-vulnerability npm audit, and the reproducible
+Desktop double build passed. The executable SHA-256 is
+`6f60f97096a06305e26d3c68ef26f93622c80a4784ad23ea72d2b28353fc2e77`;
+`release_ready=false`.
+
+The combined audit fixed PowerShell path-expression injection, forged/impossible
+receipt relationships, stale renderer start and shutdown cleanup, and a
+double-owned Win32 pipe read handle that could close a reused IOCP handle after
+`os.NewFile` finalization. Pipe ownership now transfers to exactly one collector
+and closes before result publication. Complete destructive Policy test examples
+are assembled at runtime to avoid a Defender ML false positive; the exact
+fixtures and permanent-denial behavior are unchanged. No enabled path has a
+known unresolved high/medium issue.
+
 ## Next Slice
 
-The next three-slice candidates are:
+The recommended next three-slice batch is P12-C1/C2/C3:
 
-1. P11-C4: add a Safe Web production start adapter only after exact acceptance/review revalidation, with no shell and with Windows Job Object whole-tree kill-on-close ownership. Navigation and profile writes stay absent.
-2. P11-C5: separately materialize one disposable Profile generation, persist a marker, reconcile restart state, and delete only an exact released owned generation. Personal browser Profiles remain permanently forbidden.
-3. P11-C6: separately add exact-scope localhost CDP navigation, DOM metadata, and screenshot capture with bounded deadlines and evidence. Request mutation/replay and CTF security relaxations remain disabled.
-4. After C6 run the three-slice functional gate. The next six-slice robustness gate is due after the following three-slice batch.
-5. P10-F1/F2/F3 remain queued. The manual Windows 10 matrix, signed distribution, real Sandbox release gate, xterm input, real browser/network grants, product analyzer execution, and CTF solving remain separate.
+1. add a model-visible but non-executing proposal for only the four closed command kinds;
+2. add a separately enabled operator review that invokes only the exact v87 request;
+3. project the bounded redacted result back as provenance-marked untrusted Run evidence, never as instructions.
+
+P11-C4/C5/C6 Safe Web start/Profile/CDP and P10-F1/F2/F3 analyzer
+preflight remain queued. Docker PTY, arbitrary Agent Shell, request mutation,
+CTF browser relaxations, signed distribution, and the Windows 10 matrix remain
+separate gates.
 
 ## Local Machine Note
 
@@ -1923,7 +1979,7 @@ Run Rust build/test commands from a Developer PowerShell or after loading `VsDev
 the source, pinned toolchain, and `Cargo.lock` remain the reproducible authority. `cargo audit`
 is installed; this version accepts the default lockfile scan rather than a `--locked` flag.
 
-The default `~/.cyberagent-workbench/cyberagent.db` currently carries a historical schema-v30 checksum that differs from this repository's immutable migration definition, so CLI startup correctly fails closed with `migration 30 checksum or name mismatch` and Desktop shows a bounded `FAILED_PRECONDITION`/startup code instead of silently resetting it. The v75-v85 and D1-Q2 through D1-G13/V12 plus H1-H3/R10/C1-E3/P11-C1-C3 slices did not rewrite migrations 1-74, and fresh/upgrade fixtures pass. Preserve that local database for backup/diagnosis; do not delete it or rewrite `schema_migrations` automatically. Desktop visual and recovery tests use separate `CYBERAGENT_HOME` directories under the repository's ignored build root or the OS temporary root.
+The default `~/.cyberagent-workbench/cyberagent.db` currently carries a historical schema-v30 checksum that differs from this repository's immutable migration definition, so CLI startup correctly fails closed with `migration 30 checksum or name mismatch` and Desktop shows a bounded `FAILED_PRECONDITION`/startup code instead of silently resetting it. The v75-v87 and D1-Q2 through P12-B3 slices did not rewrite migrations 1-74, and fresh/upgrade fixtures pass. Preserve that local database for backup/diagnosis; do not delete it or rewrite `schema_migrations` automatically. Desktop visual and recovery tests use separate `CYBERAGENT_HOME` directories under the repository's ignored build root or the OS temporary root.
 
 ## Delivery Loop
 

@@ -60,6 +60,8 @@ type ConnectionBootstrap struct {
 	SkillInstallationEnabled      bool   `json:"skill_installation_enabled"`
 	EvidenceAttachmentEnabled     bool   `json:"evidence_attachment_enabled"`
 	VerificationEvidenceEnabled   bool   `json:"verification_evidence_enabled"`
+	UserTerminalEnabled           bool   `json:"user_terminal_enabled"`
+	AgentTerminalInputDefault     bool   `json:"agent_terminal_input_default"`
 	WorkspaceOpenEnabled          bool   `json:"workspace_open_enabled"`
 	RendererPathInputSupported    bool   `json:"renderer_path_input_supported"`
 }
@@ -142,6 +144,7 @@ type DesktopBridgeConfig struct {
 	SkillInstallationEnabled      bool
 	EvidenceAttachmentEnabled     bool
 	VerificationEvidenceEnabled   bool
+	UserTerminalEnabled           bool
 	APIVersion                    string
 	AppVersion                    string
 	UIDigest                      string
@@ -150,6 +153,7 @@ type DesktopBridgeConfig struct {
 	SkillInstaller                SkillPackageInstaller
 	WorkspaceResolver             WorkspaceResolver
 	WorkspaceLauncher             NativeWorkspaceLauncher
+	UserTerminalController        UserTerminalController
 }
 
 // DesktopBridge is the complete renderer binding surface for D0-A. Keep this
@@ -162,6 +166,7 @@ type DesktopBridge struct {
 	skillInstaller      SkillPackageInstaller
 	workspaceResolver   WorkspaceResolver
 	workspaceLauncher   NativeWorkspaceLauncher
+	userTerminal        UserTerminalController
 	bootstrap           ConnectionBootstrap
 	dialogActive        atomic.Bool
 	workspaceOpenActive atomic.Bool
@@ -188,7 +193,8 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 	controlEnabled = controlEnabled || config.FileEditApplyEnabled ||
 		config.RunWakeExecutionEnabled || config.RunWakeWorkerEnabled ||
 		config.SkillInstallationEnabled ||
-		config.EvidenceAttachmentEnabled || config.VerificationEvidenceEnabled
+		config.EvidenceAttachmentEnabled || config.VerificationEvidenceEnabled ||
+		config.UserTerminalEnabled
 	if controlEnabled && config.ControlToken == "" {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop control capabilities require a control token")
@@ -204,6 +210,10 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 	if (config.WorkspaceResolver == nil) != (config.WorkspaceLauncher == nil) {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop workspace opening requires paired resolver and launcher dependencies")
+	}
+	if config.UserTerminalEnabled && config.UserTerminalController == nil {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"desktop user terminal requires the Go terminal controller")
 	}
 	readHash := sha256.Sum256([]byte(config.ReadToken))
 	controlHash := sha256.Sum256([]byte(config.ControlToken))
@@ -226,6 +236,7 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 		skillInstaller:    config.SkillInstaller,
 		workspaceResolver: config.WorkspaceResolver,
 		workspaceLauncher: config.WorkspaceLauncher,
+		userTerminal:      config.UserTerminalController,
 		bootstrap: ConnectionBootstrap{
 			ProtocolVersion: ConnectionBootstrapProtocolVersion,
 			APIBaseURL:      DesktopAPIBasePath, APIVersion: apiVersion, AppVersion: appVersion,
@@ -247,14 +258,102 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 			RunWakeExecutionEnabled:       config.RunWakeExecutionEnabled,
 			RunWakeWorkerEnabled:          config.RunWakeWorkerEnabled,
 			ReadOnlyDefault:               !controlEnabled,
-			ProcessExecutionEnabled:       false, ShellExecutionEnabled: false, DockerExecutionEnabled: false,
-			SkillInstallationEnabled:    config.SkillInstallationEnabled,
-			EvidenceAttachmentEnabled:   config.EvidenceAttachmentEnabled,
-			VerificationEvidenceEnabled: config.VerificationEvidenceEnabled,
-			WorkspaceOpenEnabled:        config.WorkspaceResolver != nil,
-			RendererPathInputSupported:  false,
+			ProcessExecutionEnabled:       config.UserTerminalEnabled,
+			ShellExecutionEnabled:         config.UserTerminalEnabled,
+			DockerExecutionEnabled:        false,
+			SkillInstallationEnabled:      config.SkillInstallationEnabled,
+			EvidenceAttachmentEnabled:     config.EvidenceAttachmentEnabled,
+			VerificationEvidenceEnabled:   config.VerificationEvidenceEnabled,
+			UserTerminalEnabled:           config.UserTerminalEnabled,
+			AgentTerminalInputDefault:     false,
+			WorkspaceOpenEnabled:          config.WorkspaceResolver != nil,
+			RendererPathInputSupported:    false,
 		},
 	}, nil
+}
+
+func (b *DesktopBridge) StartUserTerminal(
+	request DesktopTerminalStartRequest,
+) (DesktopTerminalSession, error) {
+	if b == nil || !b.bootstrap.UserTerminalEnabled || b.userTerminal == nil {
+		return DesktopTerminalSession{}, apperror.New(apperror.CodeNotFound,
+			"desktop user terminal is disabled")
+	}
+	ctx, err := b.lifecycleContext()
+	if err != nil {
+		return DesktopTerminalSession{}, err
+	}
+	return b.userTerminal.Start(ctx, request)
+}
+
+func (b *DesktopBridge) GetUserTerminal(
+	sessionID string,
+) (DesktopTerminalSession, error) {
+	if b == nil || !b.bootstrap.UserTerminalEnabled || b.userTerminal == nil {
+		return DesktopTerminalSession{}, apperror.New(apperror.CodeNotFound,
+			"desktop user terminal is disabled")
+	}
+	ctx, err := b.lifecycleContext()
+	if err != nil {
+		return DesktopTerminalSession{}, err
+	}
+	return b.userTerminal.Get(ctx, sessionID)
+}
+
+func (b *DesktopBridge) ReadUserTerminal(
+	request DesktopTerminalReadRequest,
+) (DesktopTerminalOutput, error) {
+	if b == nil || !b.bootstrap.UserTerminalEnabled || b.userTerminal == nil {
+		return DesktopTerminalOutput{}, apperror.New(apperror.CodeNotFound,
+			"desktop user terminal is disabled")
+	}
+	ctx, err := b.lifecycleContext()
+	if err != nil {
+		return DesktopTerminalOutput{}, err
+	}
+	return b.userTerminal.Read(ctx, request)
+}
+
+func (b *DesktopBridge) WriteUserTerminal(
+	request DesktopTerminalWriteRequest,
+) (DesktopTerminalWriteResult, error) {
+	if b == nil || !b.bootstrap.UserTerminalEnabled || b.userTerminal == nil {
+		return DesktopTerminalWriteResult{}, apperror.New(apperror.CodeNotFound,
+			"desktop user terminal is disabled")
+	}
+	ctx, err := b.lifecycleContext()
+	if err != nil {
+		return DesktopTerminalWriteResult{}, err
+	}
+	return b.userTerminal.Write(ctx, request)
+}
+
+func (b *DesktopBridge) ResizeUserTerminal(
+	request DesktopTerminalResizeRequest,
+) error {
+	if b == nil || !b.bootstrap.UserTerminalEnabled || b.userTerminal == nil {
+		return apperror.New(apperror.CodeNotFound,
+			"desktop user terminal is disabled")
+	}
+	ctx, err := b.lifecycleContext()
+	if err != nil {
+		return err
+	}
+	return b.userTerminal.Resize(ctx, request)
+}
+
+func (b *DesktopBridge) CloseUserTerminal(
+	request DesktopTerminalCloseRequest,
+) error {
+	if b == nil || !b.bootstrap.UserTerminalEnabled || b.userTerminal == nil {
+		return apperror.New(apperror.CodeNotFound,
+			"desktop user terminal is disabled")
+	}
+	ctx, err := b.lifecycleContext()
+	if err != nil {
+		return err
+	}
+	return b.userTerminal.Close(ctx, request)
 }
 
 // Bootstrap returns same-origin in-memory connection material. It performs no

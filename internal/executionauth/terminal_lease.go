@@ -271,6 +271,12 @@ func (b *TerminalInputBroker) RevokeRun(runID string) int {
 	})
 }
 
+func (b *TerminalInputBroker) RevokeTerminal(terminalSessionID string) int {
+	return b.revokeMatching(func(scope TerminalInputScope) bool {
+		return scope.TerminalSessionID == strings.TrimSpace(terminalSessionID)
+	})
+}
+
 func (b *TerminalInputBroker) RevokeWorkspace(workspaceID string) int {
 	return b.revokeMatching(func(scope TerminalInputScope) bool {
 		return scope.WorkspaceID == strings.TrimSpace(workspaceID)

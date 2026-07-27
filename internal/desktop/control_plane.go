@@ -8,15 +8,18 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/credential"
+	"cyberagent-workbench/internal/executionauth"
 	"cyberagent-workbench/internal/httpapi"
 	"cyberagent-workbench/internal/modelregistry"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/skills"
 	"cyberagent-workbench/internal/store"
+	terminalruntime "cyberagent-workbench/internal/terminal"
 	"cyberagent-workbench/internal/toolgateway"
 )
 
@@ -24,16 +27,22 @@ import (
 // It does not listen on a socket and it adds no renderer authority beyond the
 // tokens explicitly supplied in ControlPlaneConfig.
 type ControlPlane struct {
-	stateStore     *store.SQLiteStore
-	handler        http.Handler
-	closeOnce      sync.Once
-	closeErr       error
-	skillInstaller *application.SkillPackageRegistryService
-	wakeWorker     *application.RunWakeWorker
-	workerMu       sync.Mutex
-	workerCancel   context.CancelFunc
-	workerDone     chan struct{}
-	closed         bool
+	stateStore       *store.SQLiteStore
+	handler          http.Handler
+	closeOnce        sync.Once
+	closeErr         error
+	skillInstaller   *application.SkillPackageRegistryService
+	userTerminal     *desktopUserTerminalService
+	terminalManager  *terminalruntime.Manager
+	boundaryMonitor  *terminalruntime.HostBoundaryMonitor
+	terminalWorkerMu sync.Mutex
+	terminalCancel   context.CancelFunc
+	terminalDone     chan struct{}
+	wakeWorker       *application.RunWakeWorker
+	workerMu         sync.Mutex
+	workerCancel     context.CancelFunc
+	workerDone       chan struct{}
+	closed           bool
 }
 
 type ControlPlaneConfig struct {
@@ -60,6 +69,7 @@ type ControlPlaneConfig struct {
 	SkillInstallationEnabled      bool
 	EvidenceAttachmentEnabled     bool
 	VerificationEvidenceEnabled   bool
+	UserTerminalEnabled           bool
 	AppVersion                    string
 	UIHandler                     http.Handler
 	CredentialStore               credential.Store
@@ -141,6 +151,31 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		skillInstaller = application.NewSkillPackageRegistryService(stateStore,
 			objects, registry)
 	}
+	var terminalManager *terminalruntime.Manager
+	var userTerminal *desktopUserTerminalService
+	var boundaryMonitor *terminalruntime.HostBoundaryMonitor
+	if config.UserTerminalEnabled {
+		terminalBroker := executionauth.NewTerminalInputBroker()
+		terminalManager, err = terminalruntime.NewPlatformManager(terminalBroker)
+		if err != nil {
+			_ = stateStore.Close()
+			return nil, err
+		}
+		userTerminal, err = newDesktopUserTerminalService(stateStore,
+			terminalManager)
+		if err != nil {
+			_ = terminalManager.Shutdown()
+			_ = stateStore.Close()
+			return nil, err
+		}
+		boundaryMonitor, err = terminalruntime.NewPlatformHostBoundaryMonitor(
+			terminalManager)
+		if err != nil {
+			_ = terminalManager.Shutdown()
+			_ = stateStore.Close()
+			return nil, err
+		}
+	}
 	api, err := httpapi.New(stateStore, httpapi.Config{
 		AccessToken: config.ReadToken, ControlToken: config.ControlToken,
 		RunControlEnabled:             config.RunControlEnabled,
@@ -179,11 +214,16 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		AppVersion:                    config.AppVersion, UIHandler: config.UIHandler,
 	})
 	if err != nil {
+		if terminalManager != nil {
+			_ = terminalManager.Shutdown()
+		}
 		_ = stateStore.Close()
 		return nil, err
 	}
 	return &ControlPlane{stateStore: stateStore, handler: api.Handler(),
-		skillInstaller: skillInstaller, wakeWorker: wakeWorker}, nil
+		skillInstaller: skillInstaller, userTerminal: userTerminal,
+		terminalManager: terminalManager, boundaryMonitor: boundaryMonitor,
+		wakeWorker: wakeWorker}, nil
 }
 
 func (c *ControlPlane) Handler() http.Handler {
@@ -198,6 +238,13 @@ func (c *ControlPlane) SkillInstaller() SkillPackageInstaller {
 		return nil
 	}
 	return c.skillInstaller
+}
+
+func (c *ControlPlane) UserTerminalController() UserTerminalController {
+	if c == nil {
+		return nil
+	}
+	return c.userTerminal
 }
 
 // ResolveWorkspace keeps the registered root inside the Go control plane. The
@@ -254,6 +301,56 @@ func (c *ControlPlane) StartWakeWorker(parent context.Context) error {
 	return nil
 }
 
+func (c *ControlPlane) StartTerminalBoundaryMonitor(parent context.Context) error {
+	if c == nil {
+		return errors.New("desktop control plane is unavailable")
+	}
+	if c.boundaryMonitor == nil {
+		return nil
+	}
+	if parent == nil || parent.Err() != nil {
+		return errors.New("desktop terminal boundary context is required")
+	}
+	c.terminalWorkerMu.Lock()
+	defer c.terminalWorkerMu.Unlock()
+	c.workerMu.Lock()
+	closed := c.closed
+	c.workerMu.Unlock()
+	if closed || c.terminalDone != nil {
+		return errors.New("desktop terminal boundary monitor is already started")
+	}
+	if err := c.boundaryMonitor.Start(parent); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithCancel(parent)
+	c.terminalCancel = cancel
+	c.terminalDone = make(chan struct{})
+	go c.runTerminalBindingWorker(ctx, c.terminalDone)
+	return nil
+}
+
+func (c *ControlPlane) runTerminalBindingWorker(ctx context.Context,
+	done chan struct{},
+) {
+	defer close(done)
+	const interval = 500 * time.Millisecond
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	if c.userTerminal != nil {
+		c.userTerminal.reconcileBindings(ctx)
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if c.userTerminal != nil {
+				c.userTerminal.reconcileBindings(ctx)
+			}
+		}
+	}
+}
+
 func (c *ControlPlane) Close() error {
 	if c == nil {
 		return nil
@@ -271,11 +368,29 @@ func (c *ControlPlane) Close() error {
 		if done != nil {
 			<-done
 		}
+		c.terminalWorkerMu.Lock()
+		terminalCancel, terminalDone := c.terminalCancel, c.terminalDone
+		c.terminalCancel = nil
+		c.terminalDone = nil
+		c.terminalWorkerMu.Unlock()
+		if terminalCancel != nil {
+			terminalCancel()
+		}
+		if terminalDone != nil {
+			<-terminalDone
+		}
 		if c.stateStore == nil {
 			c.closeErr = errors.New("desktop control plane store is unavailable")
 			return
 		}
-		c.closeErr = c.stateStore.Close()
+		if c.boundaryMonitor != nil {
+			c.closeErr = errors.Join(c.closeErr, c.boundaryMonitor.Stop())
+		}
+		if c.terminalManager != nil {
+			c.closeErr = errors.Join(c.closeErr,
+				c.terminalManager.Shutdown())
+		}
+		c.closeErr = errors.Join(c.closeErr, c.stateStore.Close())
 	})
 	return c.closeErr
 }

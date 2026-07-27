@@ -313,6 +313,7 @@ func migrationPlan() []migration {
 		{Version: 84, Name: "immutable non-authorizing verification snapshot receipt reviews", Statements: operatorVerificationSnapshotReceiptReviewStatements},
 		{Version: 85, Name: "durable non-starting browser launch gates", Statements: browserLaunchGateStatements},
 		{Version: 86, Name: "operator-selected execution interaction boundaries", Statements: runExecutionInteractionStatements},
+		{Version: 87, Name: "auditable controlled Windows command execution", Statements: controlledCommandExecutionStatements},
 	}
 }
 

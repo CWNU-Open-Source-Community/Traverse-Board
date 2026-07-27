@@ -3,6 +3,7 @@ package runner
 import (
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,6 +36,18 @@ func TestControlledCommandPlanUsesClosedStructuredArgv(t *testing.T) {
 	}
 }
 
+func TestControlledGitDiffPlanDisablesExternalDrivers(t *testing.T) {
+	request := controlledCommandTestRequest(t, ControlledCommandGitDiffCheck)
+	plan, err := PlanControlledCommand(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"diff", "--check", "--no-ext-diff", "--no-textconv"}
+	if plan.ExecutableID != "git" || !equalStrings(plan.Argv, want) {
+		t.Fatalf("Git Diff plan may invoke repository-configured drivers: %+v", plan)
+	}
+}
+
 func TestControlledPowerShellPlanAcceptsOnlyGoOwnedOneShotTemplate(t *testing.T) {
 	request := controlledCommandTestRequest(t,
 		ControlledCommandPowerShellWorkspaceList)
@@ -46,7 +59,9 @@ func TestControlledPowerShellPlanAcceptsOnlyGoOwnedOneShotTemplate(t *testing.T)
 	if plan.ExecutableID != "windows-powershell" ||
 		!plan.GoOwnedPowerShellScript || len(plan.Argv) != 8 ||
 		plan.Argv[1] != "-NoProfile" || plan.Argv[2] != "-NonInteractive" ||
-		plan.Argv[4] != "Restricted" || plan.Argv[7] != request.RelativePath ||
+		plan.Argv[4] != "Restricted" ||
+		plan.Argv[7] != encodeControlledRelativePath(request.RelativePath) ||
+		decodeControlledRelativePath(plan.Argv[7]) != request.RelativePath ||
 		plan.CallerShellTextAccepted || !plan.StartBlocked {
 		t.Fatalf("unexpected PowerShell plan: %+v", plan)
 	}
@@ -59,6 +74,27 @@ func TestControlledPowerShellPlanAcceptsOnlyGoOwnedOneShotTemplate(t *testing.T)
 	request.RelativePath = ".."
 	if _, err := PlanControlledCommand(request); !errors.Is(err, ErrControlledCommandBoundary) {
 		t.Fatalf("escaping path error=%v", err)
+	}
+}
+
+func TestControlledPowerShellPathIsTransportedAsData(t *testing.T) {
+	request := controlledCommandTestRequest(t,
+		ControlledCommandPowerShellWorkspaceList)
+	request.RelativePath = "(Write-Output PWN)"
+	plan, err := PlanControlledCommand(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(plan.Argv[7], request.RelativePath) ||
+		decodeControlledRelativePath(plan.Argv[7]) != request.RelativePath {
+		t.Fatalf("relative path was not safely encoded: %q", plan.Argv[7])
+	}
+	tampered := plan
+	tampered.Argv = append([]string(nil), plan.Argv...)
+	tampered.Argv[7] = request.RelativePath
+	tampered.Fingerprint = controlledCommandPlanFingerprint(tampered)
+	if err := tampered.Validate(); err == nil {
+		t.Fatal("raw PowerShell expression was accepted as path transport")
 	}
 }
 

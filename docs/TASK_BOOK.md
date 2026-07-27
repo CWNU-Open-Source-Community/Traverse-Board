@@ -1,6 +1,6 @@
 # CyberAgent Workbench V2 任务书
 
-更新时间：2026-07-26
+更新时间：2026-07-27
 
 ## 目标
 
@@ -11,8 +11,8 @@ CTF 专用求解继续排在最后。前置目标是让代码、审查、学习�
 ## 当前基线
 
 - 架构完成度：约 99%；其中 V2 Run-centric 控制平面约 99%。
-- 产品可用度：完整 Code + Cyber 产品约 95-97%。
-- 通用 Coding Agent 工作流可用度：约 95-96%。
+- 产品可用度：完整 Code + Cyber 产品约 96-98%。
+- 通用 Coding Agent 工作流可用度：约 96-97%。
 - Cyber 自动化工作流可用度：约 20%。
 - 以上是依据可验证任务切片给出的工程估算，不是性能基准；从 schema v49 起停用单一“完整产品愿景”百分比。
 
@@ -22,11 +22,11 @@ P8 已推进到 schema v37：v35 将完成的 Fan-out execution 确定性投影�
 
 金额预算、HTTP 或模型自主 child 调度和真实 Sandbox 进程执行尚未实现；schema v48 的严格 Sandbox Manifest、schema v49 的精确审批/重新提交/禁用候选、schema v50 的禁用态 Artifact 绑定、独立 fencing、取消与清理恢复、schema v51 的禁用态后端/输出预检、schema v52 的仅模拟后端证据与内存输出事务、schema v53 的固定本机端点只读 Docker 观测、schema v54 的确定性容器计划与假写事务、schema v55 默认关闭的 Docker 创建/核验/删除演练、schema v56 的可恢复预写意图、代际租约和 stage/cleanup 检查点、schema v57 的 descriptor-pinned、kernel-sealed 宿主输入捕获证据、schema v58 的 daemon stage 前持久化捕获要求、schema v59 的 daemon-owned/readback-verified/fully-cleaned 输入交接、schema v60 的严格 runtime-input projection plan、schema v61 的可恢复只读卷应用与 never-started target，以及 schema v62 的保留资源检查与可恢复精确清理已经落地。v55-v62 仍不启动容器进程。operator-only 显式 child schedule/continue、no-tool child turn、最多两个 child 的有界并发、一次 child repair、Coordinator、Run 工具预算、跨进程执行互斥，以及 root/child 精确跨进程主动取消均已落地。
 
-P7 已推进到 schema v71 与非 schema D1-B1，P9/Desktop 产品面已推进到 schema v86 与 D1-G13/V12，通用运行时安全面已推进到 H1-H3/R10/C1-C3/P12-A3：除既有 Run/Session/Plan/审批、Workspace/证据/回执/行动中心外，FileEdit 支持安全恢复和多文件独立审阅，Windows Credential Manager 可触发 generation-safe Provider Registry 原子 reload，普通浏览器与 Desktop 共享 metadata-only capability/worker health，并新增 Go-owned 只读仓库状态/脱敏 Diff/历史/精确提交预览/可导航精确文件历史/精确提交比较与成对 base/head 预览、不可变操作者验证、snapshot-keyset 逐检查项下钻、确定性快照下载和不可变 record-only 回执历史、可恢复 Code Handoff/导出及累计上下文记忆。H1-H3 增加 Tool 硬超时/特殊文件拒绝、有界同步等待图与可恢复 Run 无进展熔断；R10 只在内部 `NonProductOnly` 测试边界固定接受信封 bytes/SHA，不宣称 wall-clock order、raw output、process identity、CPU/memory OS enforcement、signal identity 或产品执行。P11-C1-C3 增加同句柄发布者接纳、不可变 launch attempt/代际 lease 和独立 review，但启动权仍为 false。P12-A1-A3 增加不授权的执行交互意图、进程内短期 Agent 输入租约和固定模板的一次性命令计划，仍不启动进程。各项由独立 capability 或 read-only 契约控制；renderer 不提交 host path、不能回读密钥，worker 不持有 Tool Runner，也不授予通用 Shell、LocalRunner、Docker、浏览器、Git hook、安装 hook 或子 Agent 能力。
+P7 已推进到 schema v71 与非 schema D1-B1，P9/Desktop 产品面已推进到 schema v87 与 D1-G13/V12，通用运行时安全面已推进到 H1-H3/R10/C1-C3/P12-B3。P12-A1-A3 建立不授权的执行交互意图、进程内短期 Agent 输入租约和固定模板计划；P12-B1-B3 再接入四种 Windows 一次性受控执行、用户所有的 ConPTY/xterm Debug 终端，以及只消费精确短租约的内部 Agent 输入桥。固定命令使用受限低完整性令牌、创建时 Job Object、单进程/内存/输出/超时/取消边界和 schema v87 写前 intent/不可变 receipt；用户终端默认关闭，renderer 不能签发 Agent 输入租约。任意 Shell、网络沙箱、Docker PTY、浏览器启动、Git hook、安装 hook 和模型自主 child 调度仍未开放。
 
 schema v64 已增加 Go-owned `run_execution_profile.v1`：每个 Run 默认 `preview`，操作者可在 `created` 或无活动 lease 的 `paused` 状态选择 `preview|docker|local`。CLI、HTTP/OpenAPI 与 React 使用同一状态机；所有档位仍固定零进程、零执行授权和零 capability。
 
-schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固定 16 项机器 probe 和摘要协议，CLI 只接受同一操作者的 v63 阻塞审查、稳定操作键和显式确认。schema v66 再增加 collector 调用前持久化的 attempt、摘要化 operation、过期 generation lease、当前代 quiescent reconciliation、类型化 failure 和原子 result。schema v67 只在 Linux 显式 opt-in 后执行五次固定 GET，schema v68 再增加一次不可变操作员接纳/拒绝决定。所有 start/process/export/Artifact authority 继续为 false。schema v69-v86 与 Desktop D1-A 至 D1-G13/V12 已完成外部 Skill 安全链、桌面恢复、日常 Run 控制、模型/Plan/审批、FileEdit 提案/审阅/apply/恢复/多文件汇总、Provider generation reload、持久化 wake/worker health、惰性 Skill、Workspace evidence、恢复回执、行动中心、键盘导航、只读 Repository/脱敏 Diff/历史/精确提交预览/可导航精确文件历史/精确提交比较及键盘可访问成对预览、不可变操作者验证/计划/关联/snapshot-keyset 逐项下钻/快照下载/record-only 回执历史/不授权复核、带精确 Verify 导航的 Code Handoff/export、带有界审计事实的 Code Journey、累计上下文记忆、不启动的浏览器接纳/租约/复核账本，以及 Code/Debug/Cyber 分离的执行交互意图。R9/R10 仅增加内部 Runner 回执兼容拒绝门和接受信封黄金向量；P10-A1 至 P10-B3 已增加 Go-owned analyzer 协议/惰性 Registry、Rust digest/内存 ZIP 中央目录纯函数与两套共享向量，但没有产品进程桥。SQLite 当前为 v86。
+schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固定 16 项机器 probe 和摘要协议，CLI 只接受同一操作者的 v63 阻塞审查、稳定操作键和显式确认。schema v66 再增加 collector 调用前持久化的 attempt、摘要化 operation、过期 generation lease、当前代 quiescent reconciliation、类型化 failure 和原子 result。schema v67 只在 Linux 显式 opt-in 后执行五次固定 GET，schema v68 再增加一次不可变操作员接纳/拒绝决定。所有 Docker start/process/export/Artifact authority 继续为 false。schema v69-v87 与 Desktop D1-A 至 P12-B 已完成外部 Skill、桌面恢复、Run 控制、模型/Plan/审批、FileEdit、Provider、wake、Repository、验证/Handoff/记忆、浏览器非启动账本、执行交互、受控命令审计与用户终端。R9/R10 仍只属于内部 Runner 回执兼容边界；P10 analyzer 仍没有产品进程桥。SQLite 当前为 v87。
 
 ## 执行原则
 
@@ -476,7 +476,7 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 - [ ] Desktop D2（发布成熟度阶段）：发布便携 ZIP 与签名 MSIX，处理 WebView2 检测、per-user 安装、升级/降级、卸载、用户数据保留、SBOM、哈希与签名；自动更新另设门禁。
 - [ ] Desktop D3：企业 MSI、Store、远程环境、自定义协议、文件关联、自启动和后台服务按需独立立项，不在基础桌面端默认启用。
 - [x] Monaco 只编辑 Go 授权的有界 source，并只创建待审 FileEdit proposal。
-- [ ] xterm.js 只展示未来由 Go 授权的终端会话；当前没有真实进程可连接。
+- [x] xterm.js 只连接 Go 创建的用户所有 Debug ConPTY；默认关闭、用户输入优先，原始终端字节和环境不持久化，Agent 默认不能输入。
 
 验收标准：CLI、TUI、CI、Web 对同一 Run 显示一致状态；关闭 UI 不会停止后台 Run。当前 golden 已固定五类 Run lifecycle、Run/Mission/Session/status、完整 event sequence/tail、Agent count、Headless 0/4/7 终态退出、TUI 截断、HTTP cursor、空页和零事件续传语义；前端测试同时固定终态徽标、opaque cursor 追加与 bearer 不进入 URL。
 
@@ -527,9 +527,10 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 - [x] P12-A2：新增进程内 Agent 终端输入租约；精确绑定 Workspace/Run/terminal/interaction snapshot+revision/mode，随机 bearer 不落盘、最长 15 分钟、支持多层撤销且重启失效；活动与撤销摘要分别限制 256 项，租约不创建终端或进程权限。
 - [x] P12-A3：新增 `git-status`、`git-diff-check`、`go-version`、`powershell-workspace-list` 四种固定模板的非启动命令计划与 CLI；禁止任意 executable/raw shell/env/stdin/network，固定 `start_blocked=true`。
 - [x] P12-A1/A2/A3 三切片功能门：最终全仓 Go 507.1 秒、vet、42 文件 149 React、strict TypeScript/Vite build、README v1-v86 顺序和无进程启动审计通过；审计修复 v86 旧迁移夹具链、Run 状态变化后的幂等回放、撤销租约占用活动容量和过期 interaction scope 四项健壮性问题，启用路径无已知未解决高/中风险。
-- [ ] P12-B1：只为 `controlled` 固定 argv 接入 Windows 受限身份/OS 沙箱与 Job Object 整树所有权；有界 stdout/stderr、超时、取消、重启审计，禁止持久终端。
-- [ ] P12-B2：实现用户所有的 ConPTY 生命周期和界面；默认只有用户可输入，Agent 输入路径不存在。
-- [ ] P12-B3：Agent 输入桥只消费 P12-A2 精确短租约，并在锁屏、睡眠、退出、Workspace 切换、Run 终止和 terminal 替换时撤销；不启动或重定向终端。
+- [x] P12-B1 / schema v87：`controlled` 四种固定模板接入 Windows 受限低完整性令牌和创建时 Job Object；单进程、512 MiB、闭合 stdin/环境、64 KiB capture/64 MiB observed、超时/取消/整树回收，写前 intent 与不可变摘要 receipt，raw output 不落库。PowerShell 相对路径使用 Go 生成的 canonical UTF-8 hex 数据传输，固定脚本解码后才交给 `LiteralPath`，拒绝表达式注入。SQLite 自身复核精确 capture/observed/truncated/digest/time/limit 关系。它不是任意 Shell 或独立网络沙箱。
+- [x] P12-B2：实现默认关闭、用户所有的 Windows ConPTY + xterm 生命周期和界面；只接受 exact Code/Local/Debug trusted Workspace，用户显式启动并默认独占输入，会话/环境/输出不持久化。
+- [x] P12-B3：内部 Agent 输入桥只消费 P12-A2 精确短租约，不启动/替换/重定向终端；已接入锁屏、断开、注销、睡眠/恢复、应用退出、Profile/interaction 变化、Run 终止和 terminal 替换撤销。Run 的 Workspace ID 不可变；内部另有 Workspace-scope 撤销方法供未来独立切换入口调用，但 renderer 当前既不能切换租约 scope，也不能签发租约。
+- [x] P12-B1/B2/B3 三切片及累计六切片健壮性门：全仓串行 Go 796.6 秒、vet、零告警 staticcheck、Runner/Terminal race、真实 Windows restricted-process/ConPTY/host-boundary opt-in smoke、43 文件 151 React、strict TypeScript/Vite、npm 零漏洞、module verify/tidy、零可达 govulncheck 和 Windows 可复现双构建全绿；GUI SHA-256 `6f60f97096a06305e26d3c68ef26f93622c80a4784ad23ea72d2b28353fc2e77`，`release_ready=false`。审计修复 PowerShell 路径表达式注入、回执关系绕过、Win32 pipe read handle 双重所有权、终端 stale-start 与关闭清理；启用路径无已知未解决高/中风险。
 - [ ] P11-C4：仅实现 Safe Web 真实进程启动；必须在 adapter 前精确复核 v85 acceptance/review，并用 Windows Job Object 绑定整棵进程树，无 Shell、无导航、无 Profile 写入。
 - [ ] P11-C5：独立实现一次性 Profile generation 创建、marker、重启恢复和 exact released-owned 清理；个人 Chrome/Edge Profile 永久禁止。
 - [ ] P11-C6：独立实现 exact-scope localhost CDP 导航、DOM metadata 与截图；请求改包/重放和 CTF 安全放宽继续关闭。

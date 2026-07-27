@@ -28,6 +28,76 @@ type testSkillPackagePicker struct {
 	calls   int
 }
 
+type testUserTerminalController struct {
+	startRequest  DesktopTerminalStartRequest
+	readRequest   DesktopTerminalReadRequest
+	writeRequest  DesktopTerminalWriteRequest
+	resizeRequest DesktopTerminalResizeRequest
+	closeRequest  DesktopTerminalCloseRequest
+}
+
+func (c *testUserTerminalController) Start(_ context.Context,
+	request DesktopTerminalStartRequest,
+) (DesktopTerminalSession, error) {
+	c.startRequest = request
+	return DesktopTerminalSession{
+		ProtocolVersion: DesktopUserTerminalProtocolVersion,
+		SessionID:       "user-terminal-test", RunID: request.RunID,
+		State: "running", Backend: "test-user-terminal",
+		Columns: request.Columns, Rows: request.Rows,
+		UserOwned: true, JobAssignedAtCreation: true,
+		KillOnJobClose: true, Persistent: true, ProcessLocal: true,
+	}, nil
+}
+
+func (c *testUserTerminalController) Get(_ context.Context,
+	sessionID string,
+) (DesktopTerminalSession, error) {
+	return DesktopTerminalSession{
+		ProtocolVersion: DesktopUserTerminalProtocolVersion,
+		SessionID:       sessionID, RunID: "run-terminal-test",
+		State: "running", Backend: "test-user-terminal",
+		Columns: 100, Rows: 30, UserOwned: true,
+		JobAssignedAtCreation: true, KillOnJobClose: true,
+		Persistent: true, ProcessLocal: true,
+	}, nil
+}
+
+func (c *testUserTerminalController) Read(_ context.Context,
+	request DesktopTerminalReadRequest,
+) (DesktopTerminalOutput, error) {
+	c.readRequest = request
+	return DesktopTerminalOutput{
+		ProtocolVersion: DesktopUserTerminalProtocolVersion,
+		SessionID:       request.SessionID, BaseCursor: request.Cursor,
+		NextCursor: request.Cursor, State: "running",
+	}, nil
+}
+
+func (c *testUserTerminalController) Write(_ context.Context,
+	request DesktopTerminalWriteRequest,
+) (DesktopTerminalWriteResult, error) {
+	c.writeRequest = request
+	return DesktopTerminalWriteResult{
+		ProtocolVersion: DesktopUserTerminalProtocolVersion,
+		SessionID:       request.SessionID, BytesWritten: len([]byte(request.Data)),
+	}, nil
+}
+
+func (c *testUserTerminalController) Resize(_ context.Context,
+	request DesktopTerminalResizeRequest,
+) error {
+	c.resizeRequest = request
+	return nil
+}
+
+func (c *testUserTerminalController) Close(_ context.Context,
+	request DesktopTerminalCloseRequest,
+) error {
+	c.closeRequest = request
+	return nil
+}
+
 func (p *testSkillPackagePicker) OpenSkillPackage(ctx context.Context) (string, error) {
 	p.mu.Lock()
 	p.calls++
@@ -52,13 +122,17 @@ func (p *testSkillPackagePicker) OpenSkillPackage(ctx context.Context) (string, 
 	return path, err
 }
 
-func TestDesktopBridgeBindsOnlySixBoundedMethods(t *testing.T) {
+func TestDesktopBridgeBindsOnlyTwelveBoundedMethods(t *testing.T) {
 	typ := reflect.TypeFor[*DesktopBridge]()
-	if typ.NumMethod() != 6 {
-		t.Fatalf("exported method count = %d, want 6", typ.NumMethod())
+	if typ.NumMethod() != 12 {
+		t.Fatalf("exported method count = %d, want 12", typ.NumMethod())
 	}
-	want := []string{"Bootstrap", "InstallSkillPackage", "OpenWorkspace", "PreviewSkillPackage",
-		"SelectSkillPackage", "WorkspaceLaunchers"}
+	want := []string{
+		"Bootstrap", "CloseUserTerminal", "GetUserTerminal",
+		"InstallSkillPackage", "OpenWorkspace", "PreviewSkillPackage",
+		"ReadUserTerminal", "ResizeUserTerminal", "SelectSkillPackage",
+		"StartUserTerminal", "WorkspaceLaunchers", "WriteUserTerminal",
+	}
 	for index, name := range want {
 		if method := typ.Method(index); method.Name != name {
 			t.Fatalf("method %d = %s, want %s", index, method.Name, name)
@@ -98,7 +172,8 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		bootstrap.ReadOnlyDefault || bootstrap.ProcessExecutionEnabled ||
 		bootstrap.ShellExecutionEnabled || bootstrap.DockerExecutionEnabled ||
 		bootstrap.SkillInstallationEnabled || bootstrap.EvidenceAttachmentEnabled ||
-		bootstrap.VerificationEvidenceEnabled ||
+		bootstrap.VerificationEvidenceEnabled || bootstrap.UserTerminalEnabled ||
+		bootstrap.AgentTerminalInputDefault ||
 		bootstrap.WorkspaceOpenEnabled ||
 		bootstrap.RendererPathInputSupported {
 		t.Fatalf("unexpected bootstrap: %#v", bootstrap)
@@ -120,9 +195,85 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		"run_wake_execution_enabled", "run_wake_worker_enabled",
 		"session_message_enabled", "session_steering_control_enabled",
 		"skill_installation_enabled", "evidence_attachment_enabled",
-		"verification_evidence_enabled", "ui_digest",
+		"verification_evidence_enabled", "user_terminal_enabled",
+		"agent_terminal_input_default", "ui_digest",
 		"workspace_open_enabled",
 	})
+}
+
+func TestDesktopBridgeUserTerminalIsExplicitAndUserOnly(t *testing.T) {
+	selector, preview := NewSkillPackagePreviewBoundary()
+	controller := &testUserTerminalController{}
+	bridge, err := NewDesktopBridge(DesktopBridgeConfig{
+		ContextProvider: func() context.Context { return context.Background() },
+		FilePicker:      &testSkillPackagePicker{}, ReadToken: testDesktopReadToken,
+		ControlToken: testDesktopControlToken, UserTerminalEnabled: true,
+		APIVersion: "api.v1", AppVersion: "test", UIDigest: testDesktopUIDigest,
+		Selector: selector, PreviewBridge: preview,
+		UserTerminalController: controller,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap, err := bridge.Bootstrap()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bootstrap.UserTerminalEnabled || !bootstrap.ProcessExecutionEnabled ||
+		!bootstrap.ShellExecutionEnabled || bootstrap.AgentTerminalInputDefault ||
+		bootstrap.ReadOnlyDefault || bootstrap.DockerExecutionEnabled {
+		t.Fatalf("user terminal bootstrap widened authority: %#v", bootstrap)
+	}
+	startRequest := DesktopTerminalStartRequest{
+		ProtocolVersion: DesktopUserTerminalProtocolVersion,
+		RunID:           "run-terminal-test", Columns: 100, Rows: 30,
+		ConfirmDebugBoundary: true,
+	}
+	session, err := bridge.StartUserTerminal(startRequest)
+	if err != nil || session.SessionID != "user-terminal-test" ||
+		controller.startRequest != startRequest {
+		t.Fatalf("start session=%#v request=%#v err=%v",
+			session, controller.startRequest, err)
+	}
+	readRequest := DesktopTerminalReadRequest{
+		ProtocolVersion: DesktopUserTerminalProtocolVersion,
+		SessionID:       session.SessionID, MaxBytes: 1024,
+	}
+	if _, err := bridge.ReadUserTerminal(readRequest); err != nil ||
+		controller.readRequest != readRequest {
+		t.Fatalf("read request=%#v err=%v", controller.readRequest, err)
+	}
+	writeRequest := DesktopTerminalWriteRequest{
+		ProtocolVersion: DesktopUserTerminalProtocolVersion,
+		SessionID:       session.SessionID, Data: "dir\r", UserConfirmed: true,
+	}
+	if _, err := bridge.WriteUserTerminal(writeRequest); err != nil ||
+		controller.writeRequest != writeRequest {
+		t.Fatalf("write request=%#v err=%v", controller.writeRequest, err)
+	}
+	resizeRequest := DesktopTerminalResizeRequest{
+		ProtocolVersion: DesktopUserTerminalProtocolVersion,
+		SessionID:       session.SessionID, Columns: 110, Rows: 35,
+		UserConfirmed: true,
+	}
+	if err := bridge.ResizeUserTerminal(resizeRequest); err != nil ||
+		controller.resizeRequest != resizeRequest {
+		t.Fatalf("resize request=%#v err=%v", controller.resizeRequest, err)
+	}
+	closeRequest := DesktopTerminalCloseRequest{
+		ProtocolVersion: DesktopUserTerminalProtocolVersion,
+		SessionID:       session.SessionID, UserConfirmed: true,
+	}
+	if err := bridge.CloseUserTerminal(closeRequest); err != nil ||
+		controller.closeRequest != closeRequest {
+		t.Fatalf("close request=%#v err=%v", controller.closeRequest, err)
+	}
+
+	disabled := newTestDesktopBridge(t, context.Background(),
+		&testSkillPackagePicker{})
+	if _, err := disabled.StartUserTerminal(startRequest); apperror.CodeOf(err) != apperror.CodeNotFound {
+		t.Fatalf("disabled terminal error=%v", err)
+	}
 }
 
 func TestDesktopBridgeSeparatesEvidenceAttachmentFromOtherControls(t *testing.T) {
@@ -464,6 +615,14 @@ func TestNewDesktopBridgeRejectsInvalidMetadataAndDependencies(t *testing.T) {
 		{name: "approval without token", change: func(c *DesktopBridgeConfig) { c.ApprovalControlEnabled = true }},
 		{name: "evidence without token", change: func(c *DesktopBridgeConfig) { c.EvidenceAttachmentEnabled = true }},
 		{name: "verification without token", change: func(c *DesktopBridgeConfig) { c.VerificationEvidenceEnabled = true }},
+		{name: "terminal without token", change: func(c *DesktopBridgeConfig) {
+			c.UserTerminalEnabled = true
+			c.UserTerminalController = &testUserTerminalController{}
+		}},
+		{name: "terminal without controller", change: func(c *DesktopBridgeConfig) {
+			c.ControlToken = testDesktopControlToken
+			c.UserTerminalEnabled = true
+		}},
 		{name: "bad digest", change: func(c *DesktopBridgeConfig) { c.UIDigest = strings.Repeat("g", 64) }},
 		{name: "missing version", change: func(c *DesktopBridgeConfig) { c.APIVersion = "" }},
 		{name: "workspace resolver without launcher", change: func(c *DesktopBridgeConfig) {

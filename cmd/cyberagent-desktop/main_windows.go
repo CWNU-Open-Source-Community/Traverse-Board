@@ -61,6 +61,7 @@ type desktopOptions struct {
 	skillInstallation      bool
 	evidenceAttachment     bool
 	verificationEvidence   bool
+	userTerminal           bool
 	version                bool
 }
 
@@ -237,6 +238,8 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		"enable idempotent non-authorizing Workspace evidence attachment")
 	verificationEvidence := fs.Bool("enable-verification-evidence", false,
 		"enable immutable operator verification evidence recording")
+	userTerminal := fs.Bool("enable-user-terminal", false,
+		"enable the user-owned Debug ConPTY terminal")
 	version := fs.Bool("version", false, "print version and exit")
 	if err := fs.Parse(args); err != nil {
 		return desktopOptions{}, err
@@ -262,6 +265,7 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		skillInstallation:      *skillInstallation,
 		evidenceAttachment:     *evidenceAttachment,
 		verificationEvidence:   *verificationEvidence,
+		userTerminal:           *userTerminal,
 		version:                *version}, nil
 }
 
@@ -288,7 +292,7 @@ func runDesktop(config desktopOptions) error {
 		config.providerCredentials || config.fileEditReview || config.fileEditProposals ||
 		config.runWakeControl || config.fileEditApply || config.runWakeExecution ||
 		config.runWakeWorker || config.skillInstallation || config.evidenceAttachment ||
-		config.verificationEvidence {
+		config.verificationEvidence || config.userTerminal {
 		controlToken, err = httpapi.GenerateAccessToken()
 		if err != nil {
 			return err
@@ -318,6 +322,7 @@ func runDesktop(config desktopOptions) error {
 		SkillInstallationEnabled:      config.skillInstallation,
 		EvidenceAttachmentEnabled:     config.evidenceAttachment,
 		VerificationEvidenceEnabled:   config.verificationEvidence,
+		UserTerminalEnabled:           config.userTerminal,
 		AppVersion:                    app.Version, UIHandler: bundle,
 		OnWakeWorkerError: func(runErr error) {
 			fmt.Fprintln(os.Stderr, "wake-worker:", runErr)
@@ -331,6 +336,10 @@ func runDesktop(config desktopOptions) error {
 	if err := controlPlane.StartWakeWorker(context.Background()); err != nil {
 		return apperror.Wrap(apperror.CodeFailedPrecondition,
 			"desktop wake worker could not start", err)
+	}
+	if err := controlPlane.StartTerminalBoundaryMonitor(context.Background()); err != nil {
+		return apperror.Wrap(apperror.CodeFailedPrecondition,
+			"desktop terminal boundary monitor could not start", err)
 	}
 
 	lifecycle := desktop.NewLifecycle(wailsWindowRestorer{})
@@ -356,9 +365,11 @@ func runDesktop(config desktopOptions) error {
 		SkillInstallationEnabled:      config.skillInstallation,
 		EvidenceAttachmentEnabled:     config.evidenceAttachment,
 		VerificationEvidenceEnabled:   config.verificationEvidence,
+		UserTerminalEnabled:           config.userTerminal,
 		AppVersion:                    app.Version, UIDigest: bundle.Digest(), Selector: selector,
 		PreviewBridge: preview, SkillInstaller: controlPlane.SkillInstaller(),
 		WorkspaceResolver: controlPlane, WorkspaceLauncher: newNativeWorkspaceLauncher(),
+		UserTerminalController: controlPlane.UserTerminalController(),
 	})
 	if err != nil {
 		return err

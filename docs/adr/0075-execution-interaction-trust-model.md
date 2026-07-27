@@ -88,9 +88,11 @@ The bearer is never persisted. The Broker stores only its SHA-256 lookup key,
 uses a 15-second to 15-minute TTL, and rejects cross-scope or stale-interaction
 use. Active leases and revoked-token summaries are independently capped at 256,
 so revocation immediately releases active capacity without allowing unbounded
-tombstones. Workspace switch, Run cancellation, application lock/sleep/exit,
-explicit revoke, and process restart must revoke the grant. Controlled mode can
-never receive this persistent-input capability.
+tombstones. Run cancellation, application lock/sleep/exit, explicit revoke,
+and process restart must revoke the grant. Any future independent Workspace
+switch path must call the Broker's Workspace-scope revocation before changing
+UI ownership. Controlled mode can never receive this persistent-input
+capability.
 
 ### P12-A3: Closed one-shot command plan
 
@@ -104,8 +106,11 @@ never receive this persistent-input capability.
 There is no arbitrary executable, raw command, shell concatenation, inherited
 environment, stdin, PowerShell Profile, persistent process, or requested
 network. The PowerShell form uses one fixed Go-owned `Get-ChildItem
--LiteralPath` template and a normalized Workspace-relative argument. CLI output
-does not expose the registered host root or script body.
+-LiteralPath` template. Go transports the normalized Workspace-relative path
+as canonical UTF-8 hex data, and the fixed script validates and decodes it
+before constructing the literal path; caller text is never evaluated as a
+PowerShell expression. CLI output does not expose the registered host root or
+script body.
 
 This batch deliberately fixes `start_blocked=true` and
 `product_execution_enabled=false`. It is an authorization and adapter-preflight

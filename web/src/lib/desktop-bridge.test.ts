@@ -33,6 +33,8 @@ const bootstrap = {
   skill_installation_enabled: false,
   evidence_attachment_enabled: false,
   verification_evidence_enabled: false,
+  user_terminal_enabled: false,
+  agent_terminal_input_default: false,
   workspace_open_enabled: false,
   renderer_path_input_supported: false,
 };
@@ -362,6 +364,103 @@ describe("desktop native bridge", () => {
     await expect(module.openDesktopWorkspace("workspace-1", "terminal -- powershell"))
       .rejects.toThrow("request was rejected");
   });
+
+  it("uses a user-only terminal contract and validates decoded output bytes", async () => {
+    const enabled = {
+      ...bootstrap,
+      control_token: "control-token-0123456789abcdefghijkl",
+      read_only_default: false,
+      process_execution_enabled: true,
+      shell_execution_enabled: true,
+      user_terminal_enabled: true,
+    };
+    const session = {
+      protocol_version: "desktop_user_terminal.v1",
+      session_id: "user-terminal-1",
+      run_id: "run-1",
+      state: "running",
+      backend: "windows-conpty",
+      columns: 120,
+      rows: 32,
+      output_base_cursor: 0,
+      output_next_cursor: 2,
+      exit_code: 0,
+      user_owned: true,
+      agent_input_default: false,
+      job_assigned_at_creation: true,
+      kill_on_job_close: true,
+      persistent: true,
+      process_local: true,
+      raw_output_persisted: false,
+    };
+    const start = vi.fn().mockResolvedValue(session);
+    const get = vi.fn().mockResolvedValue(session);
+    const read = vi.fn()
+      .mockResolvedValueOnce({
+        protocol_version: "desktop_user_terminal.v1",
+        session_id: session.session_id,
+        base_cursor: 0,
+        next_cursor: 2,
+        data_base64: "b2s=",
+        data_bytes: 2,
+        dropped: false,
+        state: "running",
+      })
+      .mockResolvedValueOnce({
+        protocol_version: "desktop_user_terminal.v1",
+        session_id: session.session_id,
+        base_cursor: 0,
+        next_cursor: 2,
+        data_base64: "b2s=",
+        data_bytes: 3,
+        dropped: false,
+        state: "running",
+      });
+    const write = vi.fn().mockResolvedValue({
+      protocol_version: "desktop_user_terminal.v1",
+      session_id: session.session_id,
+      bytes_written: 2,
+    });
+    const resize = vi.fn().mockResolvedValue(undefined);
+    const close = vi.fn().mockResolvedValue(undefined);
+    installBridge({
+      Bootstrap: vi.fn().mockResolvedValue(enabled),
+      StartUserTerminal: start,
+      GetUserTerminal: get,
+      ReadUserTerminal: read,
+      WriteUserTerminal: write,
+      ResizeUserTerminal: resize,
+      CloseUserTerminal: close,
+    });
+    const module = await import("./desktop-bridge");
+    await module.loadDesktopBootstrap();
+    await expect(module.startDesktopUserTerminal("run-1")).resolves.toEqual(session);
+    await expect(module.getDesktopUserTerminal(session.session_id)).resolves.toEqual(session);
+    await expect(module.readDesktopUserTerminal(session.session_id, 0))
+      .resolves.toMatchObject({ data_base64: "b2s=", data_bytes: 2 });
+    await expect(module.writeDesktopUserTerminal(session.session_id, "ok"))
+      .resolves.toMatchObject({ bytes_written: 2 });
+    await expect(module.resizeDesktopUserTerminal(session.session_id, 100, 30))
+      .resolves.toBeUndefined();
+    await expect(module.closeDesktopUserTerminal(session.session_id))
+      .resolves.toBeUndefined();
+    expect(start).toHaveBeenCalledWith({
+      protocol_version: "desktop_user_terminal.v1",
+      run_id: "run-1",
+      columns: 120,
+      rows: 32,
+      replace_existing: false,
+      confirm_debug_boundary: true,
+    });
+    expect(write).toHaveBeenCalledWith({
+      protocol_version: "desktop_user_terminal.v1",
+      session_id: session.session_id,
+      data: "ok",
+      user_confirmed: true,
+    });
+    await expect(module.readDesktopUserTerminal(session.session_id, 0))
+      .rejects.toThrow("output was rejected");
+  });
 });
 
 function installBridge(overrides: Partial<{
@@ -371,6 +470,12 @@ function installBridge(overrides: Partial<{
   SelectSkillPackage: () => Promise<unknown>;
   OpenWorkspace: (request: unknown) => Promise<unknown>;
   WorkspaceLaunchers: (workspaceID: string) => Promise<unknown>;
+  StartUserTerminal: (request: unknown) => Promise<unknown>;
+  GetUserTerminal: (sessionID: string) => Promise<unknown>;
+  ReadUserTerminal: (request: unknown) => Promise<unknown>;
+  WriteUserTerminal: (request: unknown) => Promise<unknown>;
+  ResizeUserTerminal: (request: unknown) => Promise<unknown>;
+  CloseUserTerminal: (request: unknown) => Promise<unknown>;
 }>) {
   window.go = {
     desktop: {

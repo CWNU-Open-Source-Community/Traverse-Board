@@ -266,7 +266,7 @@ func validateRunExecutionInteractionChangedEvent(event events.Event,
 		event.MissionID != snapshot.MissionID || event.SubjectID != snapshot.ID ||
 		!event.CreatedAt.Equal(snapshot.CreatedAt) {
 		return errors.New(
-			"Run execution interaction event identity does not match its snapshot")
+			"run execution interaction event identity does not match its snapshot")
 	}
 	if err := rejectDuplicateJSONFields(event.PayloadJSON); err != nil {
 		return err
@@ -300,7 +300,7 @@ func validateRunExecutionInteractionChangedEvent(event events.Event,
 		return err
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return errors.New("Run execution interaction event contains trailing data")
+		return errors.New("run execution interaction event contains trailing data")
 	}
 	if payload.Protocol != snapshot.ProtocolVersion ||
 		payload.Revision != snapshot.Revision || !payload.From.Valid() ||
@@ -322,7 +322,7 @@ func validateRunExecutionInteractionChangedEvent(event events.Event,
 		payload.ExecutionAuthorized == nil || *payload.ExecutionAuthorized ||
 		payload.CapabilityGrant == nil || *payload.CapabilityGrant {
 		return errors.New(
-			"Run execution interaction event does not match its closed authority boundary")
+			"run execution interaction event does not match its closed authority boundary")
 	}
 	return nil
 }

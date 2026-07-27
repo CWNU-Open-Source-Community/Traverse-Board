@@ -75,6 +75,8 @@ describe("ConnectionGate", () => {
       skill_installation_enabled: false,
       evidence_attachment_enabled: false,
       verification_evidence_enabled: false,
+      user_terminal_enabled: false,
+      agent_terminal_input_default: false,
       workspace_open_enabled: false,
       renderer_path_input_supported: false,
     });

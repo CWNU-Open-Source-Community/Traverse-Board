@@ -14,9 +14,17 @@ import (
 	"cyberagent-workbench/internal/coordinator"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/idgen"
+	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/runner"
+	"cyberagent-workbench/internal/store"
 	"cyberagent-workbench/internal/workspace"
 )
+
+type controlledCommandExecutor interface {
+	Available() bool
+	Execute(context.Context,
+		runner.ControlledExecutionRequest) (runner.ControlledExecutionResult, error)
+}
 
 func (a *App) runCommand(ctx context.Context, args []string) error {
 	if len(args) == 0 {
@@ -45,6 +53,8 @@ func (a *App) runCommand(ctx context.Context, args []string) error {
 		return a.runExecutionInteraction(ctx, args[1:])
 	case "command-plan":
 		return a.runCommandPlan(ctx, args[1:])
+	case "command-execute":
+		return a.runCommandExecute(ctx, args[1:])
 	case "events":
 		return a.runEvents(ctx, service, args[1:])
 	case "step":
@@ -1562,6 +1572,208 @@ func (a *App) runCommandPlan(ctx context.Context, args []string) error {
 		plan.RelativePath, plan.TimeoutMilliseconds, plan.GoOwnedPowerShellScript,
 		plan.Fingerprint)
 	return nil
+}
+
+func (a *App) runCommandExecute(ctx context.Context, args []string) error {
+	fs := newFlagSet("run command-execute", a.errOut)
+	relativePath := fs.String("path", "",
+		"Workspace-relative path for PowerShell list")
+	timeout := fs.Duration("timeout", runner.DefaultControlledCommandTimeout,
+		"one-shot command timeout")
+	operationKey := fs.String("operation-key", "",
+		"stable operator-owned execution operation key")
+	operator := fs.String("operator", "cli_operator", "operator identity")
+	confirm := fs.Bool("confirm-execution", false,
+		"confirm one controlled OS-restricted process")
+	if err := fs.Parse(reorderFlags(args, map[string]bool{
+		"path": true, "timeout": true, "operation-key": true,
+		"operator": true, "confirm-execution": false,
+	})); err != nil {
+		return err
+	}
+	if fs.NArg() != 2 || !domain.ValidAgentID(strings.TrimSpace(*operationKey)) ||
+		!domain.ValidAgentID(strings.TrimSpace(*operator)) || !*confirm {
+		return apperror.New(apperror.CodeInvalidArgument,
+			"usage: cyberagent run command-execute <run-id> git-status|git-diff-check|go-version|powershell-workspace-list --operation-key <key> --confirm-execution [--path <relative>] [--timeout <duration>] [--operator <id>]")
+	}
+	kind, err := runner.ParseControlledCommandKind(fs.Arg(1))
+	if err != nil {
+		return err
+	}
+	runRecord, mission, workspaceRecord, interaction, profile, mode, err :=
+		a.loadControlledCommandBindings(ctx, fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	operationDigest := runmutation.Fingerprint(
+		"controlled_command_execution_operation.v1", runRecord.ID,
+		strings.TrimSpace(*operationKey))
+	plan, err := runner.PlanControlledCommand(runner.ControlledCommandPlanRequest{
+		ID:          "controlled-command-plan-" + operationDigest[:24],
+		WorkspaceID: mission.WorkspaceID, WorkspaceRoot: workspaceRecord.RootPath,
+		Interaction: interaction, CurrentProfile: profile,
+		CurrentSurface: mode.Surface, Kind: kind, RelativePath: *relativePath,
+		Timeout: *timeout,
+	})
+	if err != nil {
+		return err
+	}
+	executor, err := a.controlledCommandExecutor()
+	if err != nil {
+		return err
+	}
+	if !executor.Available() {
+		return runner.ErrControlledExecutionPlatform
+	}
+	intent, err := runner.NewControlledExecutionIntent(plan,
+		strings.TrimSpace(*operator), time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	replayed, err := a.store.PrepareControlledExecutionIntent(ctx, intent)
+	if err != nil {
+		return err
+	}
+	if replayed {
+		receipt, found, err := a.store.GetControlledExecutionReceipt(ctx,
+			intent.RequestID)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return apperror.New(apperror.CodeFailedPrecondition,
+				"controlled command execution has a prepared intent without a receipt; automatic retry is disabled")
+		}
+		return writeControlledExecutionReceipt(a.out, receipt, true, false)
+	}
+	result, executeErr := executor.Execute(ctx, runner.ControlledExecutionRequest{
+		Plan: plan, WorkspaceRoot: workspaceRecord.RootPath,
+		Interaction: interaction, CurrentProfile: profile,
+		CurrentSurface: mode.Surface, RequestedBy: strings.TrimSpace(*operator),
+		OperatorConfirmed: true,
+	})
+	if validationErr := result.Validate(); validationErr != nil {
+		if executeErr != nil {
+			return errors.Join(executeErr, validationErr)
+		}
+		return validationErr
+	}
+	receipt, _, recordErr := a.store.RecordControlledExecutionResult(ctx, result)
+	if recordErr != nil {
+		return recordErr
+	}
+	if err := writeControlledExecutionReceipt(a.out, receipt, false, true); err != nil {
+		return err
+	}
+	if err := writeTransientControlledOutput(a.out, "stdout", result.Stdout.Data); err != nil {
+		return err
+	}
+	if err := writeTransientControlledOutput(a.out, "stderr", result.Stderr.Data); err != nil {
+		return err
+	}
+	return executeErr
+}
+
+func (a *App) controlledCommandExecutor() (controlledCommandExecutor, error) {
+	if a.controlledCommands != nil {
+		return a.controlledCommands, nil
+	}
+	executor, err := runner.NewPlatformControlledExecutor()
+	if err != nil {
+		return nil, err
+	}
+	a.controlledCommands = executor
+	return executor, nil
+}
+
+func (a *App) loadControlledCommandBindings(ctx context.Context, runID string) (
+	domain.Run, domain.Mission, store.WorkspaceRecord,
+	domain.RunExecutionInteractionSnapshot,
+	domain.RunExecutionProfileSnapshot, domain.RunModeSnapshot, error,
+) {
+	runRecord, err := a.store.GetRun(ctx, strings.TrimSpace(runID))
+	if err != nil {
+		return domain.Run{}, domain.Mission{}, store.WorkspaceRecord{},
+			domain.RunExecutionInteractionSnapshot{},
+			domain.RunExecutionProfileSnapshot{}, domain.RunModeSnapshot{}, err
+	}
+	mission, err := a.store.GetMission(ctx, runRecord.MissionID)
+	if err != nil {
+		return domain.Run{}, domain.Mission{}, store.WorkspaceRecord{},
+			domain.RunExecutionInteractionSnapshot{},
+			domain.RunExecutionProfileSnapshot{}, domain.RunModeSnapshot{}, err
+	}
+	if strings.TrimSpace(mission.WorkspaceID) == "" {
+		return domain.Run{}, domain.Mission{}, store.WorkspaceRecord{},
+			domain.RunExecutionInteractionSnapshot{},
+			domain.RunExecutionProfileSnapshot{}, domain.RunModeSnapshot{},
+			apperror.New(apperror.CodeFailedPrecondition,
+				"controlled command execution requires a registered Workspace")
+	}
+	workspaceRecord, err := a.store.GetWorkspaceByID(ctx, mission.WorkspaceID)
+	if err != nil {
+		return domain.Run{}, domain.Mission{}, store.WorkspaceRecord{},
+			domain.RunExecutionInteractionSnapshot{},
+			domain.RunExecutionProfileSnapshot{}, domain.RunModeSnapshot{}, err
+	}
+	interaction, err := a.store.GetRunExecutionInteraction(ctx, runRecord.ID)
+	if err != nil {
+		return domain.Run{}, domain.Mission{}, store.WorkspaceRecord{},
+			domain.RunExecutionInteractionSnapshot{},
+			domain.RunExecutionProfileSnapshot{}, domain.RunModeSnapshot{}, err
+	}
+	profile, err := a.store.GetRunExecutionProfile(ctx, runRecord.ID)
+	if err != nil {
+		return domain.Run{}, domain.Mission{}, store.WorkspaceRecord{},
+			domain.RunExecutionInteractionSnapshot{},
+			domain.RunExecutionProfileSnapshot{}, domain.RunModeSnapshot{}, err
+	}
+	mode, err := a.store.GetRunMode(ctx, runRecord.ID)
+	return runRecord, mission, workspaceRecord, interaction, profile, mode, err
+}
+
+func writeControlledExecutionReceipt(
+	out interface{ Write([]byte) (int, error) },
+	receipt store.ControlledExecutionReceipt, replayed bool,
+	rawOutputAvailable bool,
+) error {
+	_, err := fmt.Fprintf(out,
+		"request: %s\nprotocol: %s\npolicy: %s\nbackend: %s\nexit_code: %d\nstdout_observed_bytes: %d\nstdout_captured_bytes: %d\nstdout_prefix_sha256: %s\nstdout_truncated: %t\nstderr_observed_bytes: %d\nstderr_captured_bytes: %d\nstderr_prefix_sha256: %s\nstderr_truncated: %t\ntimed_out: %t\ncancelled: %t\noutput_limit_exceeded: %t\ntree_reaped: %t\nrestricted_token: %t\nlow_integrity_token: %t\njob_assigned_at_creation: %t\nkill_on_job_close: %t\nactive_process_limit: %d\nprocess_memory_limit: %d\nstdin_closed: %t\nenvironment_inherited: %t\nnetwork_requested: %t\npersistent_process: %t\nproduct_execution_enabled: %t\nraw_output_persisted: false\nraw_output_available: %t\nreplayed: %t\n",
+		receipt.RequestID, receipt.ProtocolVersion, receipt.PolicyVersion,
+		receipt.Backend, receipt.ExitCode, receipt.StdoutObservedBytes,
+		receipt.StdoutCapturedBytes, receipt.StdoutPrefixSHA256,
+		receipt.StdoutTruncated, receipt.StderrObservedBytes,
+		receipt.StderrCapturedBytes, receipt.StderrPrefixSHA256,
+		receipt.StderrTruncated, receipt.TimedOut, receipt.Cancelled,
+		receipt.OutputLimitExceeded, receipt.TreeReaped,
+		receipt.RestrictedToken, receipt.LowIntegrityToken,
+		receipt.JobAssignedAtCreation, receipt.KillOnJobClose,
+		receipt.ActiveProcessLimit, receipt.ProcessMemoryLimit,
+		receipt.StdinClosed, receipt.EnvironmentInherited,
+		receipt.NetworkRequested, receipt.PersistentProcess,
+		receipt.ProductExecutionEnabled, rawOutputAvailable, replayed)
+	return err
+}
+
+func writeTransientControlledOutput(
+	out interface{ Write([]byte) (int, error) }, stream string, data []byte,
+) error {
+	if len(data) == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "%s_begin\n", stream); err != nil {
+		return err
+	}
+	if _, err := out.Write(data); err != nil {
+		return err
+	}
+	if data[len(data)-1] != '\n' {
+		if _, err := out.Write([]byte("\n")); err != nil {
+			return err
+		}
+	}
+	_, err := fmt.Fprintf(out, "%s_end\n", stream)
+	return err
 }
 
 func (a *App) runEvents(ctx context.Context, service *application.RunService, args []string) error {

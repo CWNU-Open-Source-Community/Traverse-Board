@@ -108,7 +108,7 @@ func TestRunExecutionInteractionIsImmutableIdempotentAndProfileBound(t *testing.
 }
 
 func removeSchemaV86ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV87ForTestStatements(), []string{
 		`DROP TRIGGER trg_run_execution_interaction_operation_delete_immutable`,
 		`DROP TRIGGER trg_run_execution_interaction_operation_update_immutable`,
 		`DROP TRIGGER trg_run_execution_interaction_snapshot_delete_immutable`,
@@ -119,7 +119,7 @@ func removeSchemaV86ForTestStatements() []string {
 		`DROP INDEX idx_run_execution_interaction_snapshots_run_revision`,
 		`DROP TABLE run_execution_interaction_snapshots`,
 		`DELETE FROM schema_migrations WHERE version = 86`,
-	}
+	}...)
 }
 
 func TestSchemaV86BackfillsUntrustedPreviewInteraction(t *testing.T) {
