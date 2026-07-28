@@ -6,18 +6,28 @@ CyberAgent Workbench exposes a Go-controlled local `api.v1` for durable SQLite s
 
 ## 启动 / Start
 
-省略 `CYBERAGENT_API_TOKEN` 时，进程会生成并打印一个临时只读 token。全部二十七个 control POST 默认关闭；只有设置不同的 `CYBERAGENT_API_CONTROL_TOKEN` 并启用相应 Go capability 才能访问。两个 token 都必须是 32 到 512 字节的规范 UTF-8，不能包含空白或控制字符，且不能相同；CLI 不会回显环境提供的值。
+省略 `CYBERAGENT_API_TOKEN` 时，进程会生成并打印一个临时只读 token。全部 control POST 默认关闭；只有设置不同的 `CYBERAGENT_API_CONTROL_TOKEN` 并启用相应 Go capability 才能访问。两个 token 都必须是 32 到 512 字节的规范 UTF-8，不能包含空白或控制字符，且不能相同；CLI 不会回显环境提供的值。
 
-When `CYBERAGENT_API_TOKEN` is absent, the process generates and prints a temporary read token. All twenty-seven control POST operations are disabled by default; access requires both a distinct `CYBERAGENT_API_CONTROL_TOKEN` and the corresponding Go capability. Both tokens must be 32 to 512 bytes of normalized UTF-8 without whitespace or control characters, and they must differ. The CLI never echoes an environment-provided value.
+When `CYBERAGENT_API_TOKEN` is absent, the process generates and prints a temporary read token. All control POST operations are disabled by default; access requires both a distinct `CYBERAGENT_API_CONTROL_TOKEN` and the corresponding Go capability. Both tokens must be 32 to 512 bytes of normalized UTF-8 without whitespace or control characters, and they must differ. The CLI never echoes an environment-provided value.
 
 ```powershell
 $env:CYBERAGENT_API_TOKEN = "<a-random-token-of-at-least-32-bytes>"
 $env:CYBERAGENT_API_CONTROL_TOKEN = "<a-different-random-token-of-at-least-32-bytes>"
 go run ./cmd/cyberagent api serve --listen 127.0.0.1:8765 --ui-dir web/dist
 
-# Representative optional independent controls in the current v85 API surface.
+# Representative optional independent controls in the current v88 API surface.
 go run ./cmd/cyberagent api serve --listen 127.0.0.1:8765 --ui-dir web/dist --enable-file-edit-proposals --enable-provider-credentials --enable-wake-worker
+
+# Four-level permission selector. Higher gates require every lower gate.
+go run ./cmd/cyberagent api serve --listen 127.0.0.1:8765 --ui-dir web/dist `
+  --enable-permission-control --enable-danger-full-access `
+  --enable-debug-maximum-access
 ```
+
+权限开关只让 API 选择和评估对应策略，不会自动创建任意命令执行器。当前只有
+`conservative` 固定模板执行链已接入。`approval`、`full_access` 和 `debug`
+的任意宿主命令/Agent 持久终端传输仍关闭。未设置
+`CYBERAGENT_API_CONTROL_TOKEN` 时，permission control 不能启动。
 
 The command prints:
 
@@ -218,6 +228,7 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8765/api/v1/skills/packages/inst
 | `POST` | `/api/v1/runs/{run_id}/active-call/cancel` | Separately authorized exact active-call cancellation request |
 | `POST` | `/api/v1/runs/{run_id}/agents/{agent_id}/active-call/cancel` | Separately authorized exact Specialist-call cancellation request |
 | `POST` | `/api/v1/runs/{run_id}/execution-profile` | Select `preview|docker|local` intent; never starts a process or grants authority |
+| `POST` | `/api/v1/runs/{run_id}/execution-permission` | Operator-select `conservative|approval|full_access|debug`; exact confirmation and process startup gate required, persisted selection never grants authority |
 | `POST` | `/api/v1/runs/{run_id}/lifecycle` | Idempotent `start|pause|resume` under exact state/quiescence/lease gates |
 | `POST` | `/api/v1/runs/{run_id}/execute` | Freeze and execute at most eight pending inputs through the existing RunSupervisor |
 | `POST` | `/api/v1/runs/{run_id}/plan/direction` | Select one persisted direction and create its bounded WorkItems/Note; no phase change or execution |

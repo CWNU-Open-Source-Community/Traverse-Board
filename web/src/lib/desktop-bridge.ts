@@ -28,6 +28,10 @@ export interface DesktopConnectionBootstrap {
   read_token: string;
   control_token: string;
   control_enabled: boolean;
+  execution_permission_control_enabled: boolean;
+  operator_approval_enabled: boolean;
+  danger_full_access_enabled: boolean;
+  debug_maximum_access_enabled: boolean;
   run_creation_enabled: boolean;
   session_message_enabled: boolean;
   session_steering_control_enabled: boolean;
@@ -528,6 +532,8 @@ function getTerminalBridge(): NativeTerminalBridge | null {
 function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
   if (!hasExactKeys(value, [
     "api_base_url", "api_version", "app_version", "approval_control_enabled",
+    "execution_permission_control_enabled", "operator_approval_enabled",
+    "danger_full_access_enabled", "debug_maximum_access_enabled",
     "control_enabled", "control_token", "docker_execution_enabled", "file_edit_apply_enabled",
     "evidence_attachment_enabled",
 	"verification_evidence_enabled",
@@ -549,6 +555,10 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     value.api_version === "api.v1" && boundedText(value.app_version, 1, 64) &&
     isSHA256(value.ui_digest) && validToken(value.read_token) &&
     typeof value.control_token === "string" && typeof value.control_enabled === "boolean" &&
+    typeof value.execution_permission_control_enabled === "boolean" &&
+    typeof value.operator_approval_enabled === "boolean" &&
+    typeof value.danger_full_access_enabled === "boolean" &&
+    typeof value.debug_maximum_access_enabled === "boolean" &&
     typeof value.run_creation_enabled === "boolean" &&
     typeof value.session_message_enabled === "boolean" &&
     typeof value.session_steering_control_enabled === "boolean" &&
@@ -571,6 +581,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     value.agent_terminal_input_default === false &&
     typeof value.workspace_open_enabled === "boolean" &&
     (value.control_token !== "") === (value.control_enabled || value.run_creation_enabled ||
+      value.execution_permission_control_enabled ||
       value.session_message_enabled || value.session_steering_control_enabled ||
       value.run_lifecycle_enabled || value.run_execution_enabled ||
 	  value.plan_delivery_control_enabled || value.approval_control_enabled ||
@@ -583,7 +594,14 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
       value.user_terminal_enabled) &&
     (value.control_token === "" || validToken(value.control_token)) &&
     value.control_token !== value.read_token &&
+    ((!value.execution_permission_control_enabled &&
+      !value.operator_approval_enabled && !value.danger_full_access_enabled &&
+      !value.debug_maximum_access_enabled) ||
+      (value.execution_permission_control_enabled &&
+      (!value.danger_full_access_enabled || value.operator_approval_enabled) &&
+      (!value.debug_maximum_access_enabled || value.danger_full_access_enabled))) &&
     value.read_only_default === !(value.control_enabled || value.run_creation_enabled ||
+      value.execution_permission_control_enabled ||
       value.session_message_enabled || value.session_steering_control_enabled ||
       value.run_lifecycle_enabled || value.run_execution_enabled ||
 	  value.plan_delivery_control_enabled || value.approval_control_enabled ||

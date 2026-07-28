@@ -115,7 +115,11 @@ func TestAPIServeCLIStartsAuthenticatedLoopbackServerWithoutPersistingToken(t *t
 	var stderr synchronizedBuffer
 	done := make(chan int, 1)
 	go func() {
-		done <- ExecuteContext(ctx, []string{"api", "serve", "--listen", "127.0.0.1:0"}, &stdout, &stderr)
+		done <- ExecuteContext(ctx, []string{
+			"api", "serve", "--listen", "127.0.0.1:0",
+			"--enable-permission-control", "--enable-danger-full-access",
+			"--enable-debug-maximum-access",
+		}, &stdout, &stderr)
 	}()
 
 	output := waitForAPIProcessOutput(t, &stdout, &stderr, done, func(output string) bool {
@@ -130,7 +134,11 @@ func TestAPIServeCLIStartsAuthenticatedLoopbackServerWithoutPersistingToken(t *t
 		!strings.Contains(output, "api_token_source: "+apiTokenEnvironment) ||
 		!strings.Contains(output, "api_token_generated: false") ||
 		!strings.Contains(output, "api_control_enabled: true") ||
-		!strings.Contains(output, "api_control_token_source: "+apiControlTokenEnvironment) {
+		!strings.Contains(output, "api_control_token_source: "+apiControlTokenEnvironment) ||
+		!strings.Contains(output, "execution_permission_control_enabled: true") ||
+		!strings.Contains(output, "operator_approval_enabled: true") ||
+		!strings.Contains(output, "danger_full_access_enabled: true") ||
+		!strings.Contains(output, "debug_maximum_access_enabled: true") {
 		t.Fatalf("environment token reporting is unsafe or incomplete: %s", output)
 	}
 
@@ -148,6 +156,27 @@ func TestAPIServeCLIStartsAuthenticatedLoopbackServerWithoutPersistingToken(t *t
 	if readErr != nil || response.StatusCode != http.StatusOK || !json.Valid(body) ||
 		!bytes.Contains(body, []byte(`"version":"api.v1"`)) {
 		t.Fatalf("unexpected CLI API response: status=%d body=%s err=%v", response.StatusCode, body, readErr)
+	}
+	capabilityRequest, err := http.NewRequest(http.MethodGet,
+		baseURL+"/capabilities", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capabilityRequest.Header.Set("Authorization", "Bearer "+token)
+	capabilityResponse, err := (&http.Client{Timeout: 2 * time.Second}).
+		Do(capabilityRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capabilityBody, readErr := io.ReadAll(capabilityResponse.Body)
+	_ = capabilityResponse.Body.Close()
+	if readErr != nil || capabilityResponse.StatusCode != http.StatusOK ||
+		!bytes.Contains(capabilityBody,
+			[]byte(`"execution_permission_control_enabled":true`)) ||
+		!bytes.Contains(capabilityBody,
+			[]byte(`"debug_maximum_access_enabled":true`)) {
+		t.Fatalf("execution permission capability is not wired by api serve: status=%d body=%s err=%v",
+			capabilityResponse.StatusCode, capabilityBody, readErr)
 	}
 
 	messageRequest, err := http.NewRequest(http.MethodPost,
@@ -185,6 +214,32 @@ func TestAPIServeCLIStartsAuthenticatedLoopbackServerWithoutPersistingToken(t *t
 	}
 	assertDirectoryOmitsValue(t, home, token)
 	assertDirectoryOmitsValue(t, home, controlToken)
+}
+
+func TestAPIServeCLIRejectsInvalidExecutionPermissionStartupGates(t *testing.T) {
+	t.Setenv("CYBERAGENT_HOME", t.TempDir())
+	t.Setenv(apiTokenEnvironment, "")
+	t.Setenv(apiControlTokenEnvironment, "")
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := ExecuteContext(context.Background(), []string{
+		"api", "serve", "--enable-danger-full-access",
+	}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(),
+		"danger full access requires permission control") {
+		t.Fatalf("invalid hierarchy stdout=%q stderr=%q code=%d",
+			stdout.String(), stderr.String(), code)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	code = ExecuteContext(context.Background(), []string{
+		"api", "serve", "--enable-permission-control",
+	}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(),
+		"require CYBERAGENT_API_CONTROL_TOKEN") {
+		t.Fatalf("missing control token stdout=%q stderr=%q code=%d",
+			stdout.String(), stderr.String(), code)
+	}
 }
 
 func TestAPIServeCLIGeneratesUsableProcessToken(t *testing.T) {

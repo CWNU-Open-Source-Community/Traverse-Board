@@ -14,7 +14,7 @@
 - 产品可用度：完整 Code + Cyber 产品约 96-98%；其中通用 Coding Agent 工作流约 96-97%，Cyber 自动化工作流约 20%。该指标衡量用户现在能够完成多少真实端到端任务。
 - 上述数值是依据已测试任务切片给出的工程估算，不是性能基准，也不代表仍被安全关闭的功能已经可用。
 
-V2 的 P0/P1 已完成，P2 已具备稳定的单 Agent 恢复、Provider streaming、主动取消、有界工具循环和跨进程 execution lease。P3-P5 已落地 Work/Note/Context、最多两个核心 child、独立 1/2/4/6 只读 Fan-out、Tool Gateway、审批/Grant、预算、ScriptProcess 与 Artifact。P9/Desktop 已推进到 schema v87 / P12-B3：在既有 Run、编辑、Repository、验证/Handoff、模型 Harness、记忆与 wake worker 上，新增四种操作者确认的一次性 Windows 固定命令，以及默认关闭、用户所有的 ConPTY/xterm Debug 终端。固定命令使用受限低完整性令牌、创建时 Job Object、写前 intent/不可变 receipt；终端原始状态仅在进程内，Agent 默认不能输入。P10 analyzer 仍没有产品进程桥，P11 browser review 仍不授予启动。任意 Agent Shell、网络沙箱、Docker PTY、内置浏览器、安装脚本/钩子和远程 Skill 分发继续关闭。
+V2 的 P0/P1 已完成，P2 已具备稳定的单 Agent 恢复、Provider streaming、主动取消、有界工具循环和跨进程 execution lease。P3-P5 已落地 Work/Note/Context、最多两个核心 child、独立 1/2/4/6 只读 Fan-out、Tool Gateway、审批/Grant、预算、ScriptProcess 与 Artifact。P9/Desktop 已推进到 schema v88 / P12-C3：在既有 Run、编辑、Repository、验证/Handoff、模型 Harness、记忆、受控命令与用户终端上，新增 `conservative|approval|full_access|debug` 四档权限快照、CLI/API/Desktop/React 选择、单调启动闸门和统一 Go 授权判定。持久化选择不授予真正执行权；当前只有保守档接入固定模板，任意审批/完全访问宿主命令与 Debug Agent 持久终端仍关闭。P10 analyzer 仍没有产品进程桥，P11 browser review 仍不授予启动。网络沙箱、Docker PTY、内置浏览器、安装脚本/钩子和远程 Skill 分发继续关闭。
 
 P8 已推进到 schema v37 及其只读 CI 投影：v35 把完成的 Fan-out execution 投影为通用 `draft` Finding、不可变 `model_assertion` Evidence 和可重建的 Markdown/JSON Report；v36 增加同 Run 冻结 Artifact Evidence、一次性 operator `validated/rejected` 决定与完整复核；v37 以独立不可变事实完成 `validated -> accepted -> fixed`，并强制修复 Evidence 来自接受后新建且未用于验证的同 Run Artifact。验证、接受和修复始终分离；SARIF、通用 CI gate 与 GitHub Actions annotations 均为同一持久化事实上的 Go 只读投影。
 
@@ -2027,10 +2027,50 @@ collector 转移一次所有权，并在发布结果前精确关闭。Defender �
 失败关闭；renderer 不能签发 Agent 输入租约；Docker PTY、任意 Agent Shell 和真实浏览器仍不存在。
 边界见 ADR 0076。
 
+## P12-C1/C2/C3 + Desktop D1-UX10：四档权限与原生 Acrylic 权限中心
+
+任务 ID：`P12-Run-Permission-And-Desktop-Acrylic-v88`。P12-C1 将 SQLite 推进到 v88，
+用不可变 `run_execution_permission.v1` 记录 `conservative|approval|full_access|debug`
+操作者选择。持久化快照永久固定 process/execution/capability authority 为 false；新旧 Run
+都从保守档开始，模型、Agent、Skill 和仓库内容不能切档。
+
+P12-C2 将同一服务接入 CLI、HTTP/OpenAPI、Desktop bootstrap 和 React。每个高权限档有自己的
+精确确认，HTTP control 默认关闭并同时要求 control bearer 与独立 capability。P12-C3 新增统一
+Go `executionauth` 判定；permission-control、danger-full-access、debug-maximum-access
+按单调层级启用，Desktop Debug 另需用户终端。每次实际操作都重新读取当前进程启动闸门，SQLite
+模式字符串不能在重启后恢复执行权。当前只有保守档的四个固定模板可执行；approval/full-access
+任意命令 transport 和 Agent-owned Debug ConPTY 仍未实现。
+
+Desktop D1-UX10 新增独立“权限”设置页，将权限上限、交互方式和执行环境清楚分为三个
+Run-scoped 控件并复用现有 Go 控制链。无选中 Run 时页面只显示空状态。设置侧栏复用工作台
+232/286/420 px 有界拖拽、键盘和双击复位。Wails Windows 壳启用原生 Acrylic、
+transparent WebView 和 system theme；React 改用浅/深色玻璃令牌及 CSS 圆角白色选中态，
+移除整页墨色背景和截图式选中素材。Windows 在关闭透明度、最大化或不支持合成时可回退为
+更不透明表面，这不影响功能或权限。
+
+最终功能门通过：`go test ./...`、`go vet ./...`、零告警 staticcheck、零可达漏洞
+govulncheck、Desktop secure tag test/vet、module verify 与
+`internal/domain|application|httpapi|store|executionauth` race 全绿；React 为 45 文件
+156 项，strict TypeScript、Vite production build 和 npm audit（零漏洞）通过。Go 生成的
+OpenAPI 与提交快照逐字一致，当前为 78 path / 86 operation / 192 schema，TypeScript binding
+同步再生。最终便携 GUI SHA-256 为
+`5e0840207e83b986350001473caf4b40322031c3339565c7b6b7e4a9204043b4`；
+自动 Windows 兼容检查通过，但 Windows 10/WebView2 人工矩阵未签，因此
+`release_ready=false`，无安装器、注册表、自启动或服务。
+
+真实非最大化 Windows 窗口验收确认：Acrylic 会采样窗口后方壁纸，浅/深色切换生效，权限页
+存在，白色圆角选中态由组件本身绘制，设置侧栏可从 286 px 拖到 350 px。验收只控制临时 Prayu
+进程并在结束后停止，未操作或关闭 Codex。组合审计修复五项可靠性问题：保守档 CLI 曾错误显示
+runtime gate 不可用，非法启动闸门层级和缺失 control token 曾缺少稳定 `INVALID_ARGUMENT`
+语义，提交的 OpenAPI 快照曾落后于 Go 生成器，切换 Run 后提权确认界面状态也曾可能沿用；
+权限子面板现以精确 Run ID 隔离并有回归测试；一处大写开头的 Go 错误文本也已规范化。
+修复后启用路径无已知未解决高/中风险。
+边界见 ADR 0077 与 ADR 0078。
+
 ## 八、仓库同步与恢复约定
 
 规范远程仓库：`https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench`。
 
 每三个聚焦切片组成一个交付批次；第三片后统一执行功能复核、普通/聚焦测试、组合差异审查、项目记忆更新、Git 提交、GitHub 推送和 CI 复核。每两个批次即六个切片再执行全仓 race、vet、staticcheck、govulncheck、依赖/隐私与完整构建健壮性门。当前仓库直接开发并推送 `main`；除非用户明确要求，不创建功能分支或 PR。
 
-长对话恢复时依次阅读：`README.md`、`docs/PROJECT_MEMORY.md`、`docs/PROJECT_STATUS.md`、本文件、`docs/TASK_BOOK.md`、`docs/http-api.md`、`docs/errors.md`，再按序阅读 `docs/adr/0001-*.md` 到 `docs/adr/0076-controlled-windows-execution-and-user-terminal.md`。
+长对话恢复时依次阅读：`README.md`、`docs/PROJECT_MEMORY.md`、`docs/PROJECT_STATUS.md`、本文件、`docs/TASK_BOOK.md`、`docs/http-api.md`、`docs/errors.md`，再按序阅读 `docs/adr/0001-*.md` 到 `docs/adr/0078-desktop-permission-center-and-native-acrylic.md`。

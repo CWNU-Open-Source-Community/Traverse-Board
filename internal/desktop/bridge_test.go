@@ -166,6 +166,9 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		!bootstrap.RunLifecycleEnabled || !bootstrap.RunExecutionEnabled ||
 		bootstrap.PlanDeliveryControlEnabled || bootstrap.ApprovalControlEnabled ||
 		bootstrap.ModelControlEnabled || bootstrap.ProviderCredentialEnabled ||
+		bootstrap.ExecutionPermissionControlEnabled ||
+		bootstrap.OperatorApprovalEnabled || bootstrap.DangerFullAccessEnabled ||
+		bootstrap.DebugMaximumAccessEnabled ||
 		bootstrap.FileEditReviewEnabled || bootstrap.FileEditProposalEnabled ||
 		bootstrap.RunWakeControlEnabled || bootstrap.FileEditApplyEnabled ||
 		bootstrap.RunWakeExecutionEnabled || bootstrap.RunWakeWorkerEnabled ||
@@ -185,6 +188,8 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 	assertExactJSONKeys(t, string(raw), []string{
 		"api_base_url", "api_version", "app_version", "approval_control_enabled",
 		"control_enabled", "control_token",
+		"execution_permission_control_enabled", "operator_approval_enabled",
+		"danger_full_access_enabled", "debug_maximum_access_enabled",
 		"docker_execution_enabled", "file_edit_review_enabled", "file_edit_proposal_enabled",
 		"model_control_enabled", "provider_credential_enabled",
 		"file_edit_apply_enabled",

@@ -34,6 +34,11 @@ export default function App() {
   const token = useConnectionStore((state) => state.token);
   const controlToken = useConnectionStore((state) => state.controlToken);
   const runControlEnabled = useConnectionStore((state) => state.runControlEnabled);
+  const executionPermissionControlEnabled = useConnectionStore(
+    (state) => state.executionPermissionControlEnabled);
+  const operatorApprovalEnabled = useConnectionStore((state) => state.operatorApprovalEnabled);
+  const dangerFullAccessEnabled = useConnectionStore((state) => state.dangerFullAccessEnabled);
+  const debugMaximumAccessEnabled = useConnectionStore((state) => state.debugMaximumAccessEnabled);
   const runCreationEnabled = useConnectionStore((state) => state.runCreationEnabled);
   const sessionMessageEnabled = useConnectionStore((state) => state.sessionMessageEnabled);
   const sessionSteeringControlEnabled = useConnectionStore(
@@ -60,6 +65,10 @@ export default function App() {
   }
   return <ConnectedWorkbench token={token} controlToken={controlToken}
     runControlEnabled={runControlEnabled} runCreationEnabled={runCreationEnabled}
+    executionPermissionControlEnabled={executionPermissionControlEnabled}
+    operatorApprovalEnabled={operatorApprovalEnabled}
+    dangerFullAccessEnabled={dangerFullAccessEnabled}
+    debugMaximumAccessEnabled={debugMaximumAccessEnabled}
     sessionMessageEnabled={sessionMessageEnabled}
     sessionSteeringControlEnabled={sessionSteeringControlEnabled}
     runLifecycleEnabled={runLifecycleEnabled} runExecutionEnabled={runExecutionEnabled}
@@ -77,6 +86,8 @@ export default function App() {
 }
 
 function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreationEnabled,
+  executionPermissionControlEnabled, operatorApprovalEnabled, dangerFullAccessEnabled,
+  debugMaximumAccessEnabled,
   sessionMessageEnabled, sessionSteeringControlEnabled, runLifecycleEnabled,
   runExecutionEnabled, planDeliveryControlEnabled, approvalControlEnabled,
   modelControlEnabled, providerCredentialEnabled, fileEditReviewEnabled,
@@ -87,6 +98,10 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   controlToken: string;
   runControlEnabled: boolean;
   runCreationEnabled: boolean;
+  executionPermissionControlEnabled: boolean;
+  operatorApprovalEnabled: boolean;
+  dangerFullAccessEnabled: boolean;
+  debugMaximumAccessEnabled: boolean;
   sessionMessageEnabled: boolean;
   sessionSteeringControlEnabled: boolean;
   runLifecycleEnabled: boolean;
@@ -117,6 +132,8 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   const desktop = desktopBridgeAvailable();
   const client = useMemo(() => new CyberAgentClient(token, undefined, controlToken, {
     runControlEnabled, runCreationEnabled, sessionMessageEnabled,
+    executionPermissionControlEnabled, operatorApprovalEnabled,
+    dangerFullAccessEnabled, debugMaximumAccessEnabled,
     sessionSteeringControlEnabled,
     runLifecycleEnabled, runExecutionEnabled,
     planDeliveryControlEnabled, approvalControlEnabled, modelControlEnabled,
@@ -124,7 +141,9 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     fileEditApplyEnabled, runWakeControlEnabled, runWakeExecutionEnabled,
     runWakeWorkerEnabled, skillInstallationEnabled, evidenceAttachmentEnabled,
     verificationEvidenceEnabled,
-  }), [token, controlToken, runControlEnabled, runCreationEnabled, sessionMessageEnabled,
+  }), [token, controlToken, runControlEnabled, runCreationEnabled,
+    executionPermissionControlEnabled, operatorApprovalEnabled,
+    dangerFullAccessEnabled, debugMaximumAccessEnabled, sessionMessageEnabled,
     sessionSteeringControlEnabled, runLifecycleEnabled, runExecutionEnabled,
     planDeliveryControlEnabled, approvalControlEnabled, modelControlEnabled,
     providerCredentialEnabled, fileEditReviewEnabled, fileEditProposalEnabled,
@@ -146,6 +165,10 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   });
   const settingsCapabilities = useMemo<SettingsCapability[]>(() => [
     { id: "run-control", label: "执行档位", enabled: runControlEnabled },
+    { id: "permission-control", label: "权限档位", enabled: executionPermissionControlEnabled },
+    { id: "operator-approval", label: "用户审批", enabled: operatorApprovalEnabled },
+    { id: "full-access", label: "完全访问", enabled: dangerFullAccessEnabled },
+    { id: "debug-access", label: "调试权限", enabled: debugMaximumAccessEnabled },
     { id: "run-creation", label: "创建任务", enabled: runCreationEnabled },
     { id: "session-message", label: "会话消息", enabled: sessionMessageEnabled },
     { id: "steering", label: "队列引导", enabled: sessionSteeringControlEnabled },
@@ -164,9 +187,10 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     { id: "skill-install", label: "Skill 安装", enabled: skillInstallationEnabled },
     { id: "evidence", label: "证据挂载", enabled: evidenceAttachmentEnabled },
     { id: "verification", label: "验证证据", enabled: verificationEvidenceEnabled },
-  ], [approvalControlEnabled, evidenceAttachmentEnabled, fileEditApplyEnabled,
+  ], [approvalControlEnabled, dangerFullAccessEnabled, debugMaximumAccessEnabled,
+    evidenceAttachmentEnabled, executionPermissionControlEnabled, fileEditApplyEnabled,
     fileEditProposalEnabled, fileEditReviewEnabled, modelControlEnabled,
-    planDeliveryControlEnabled, providerCredentialEnabled, runControlEnabled,
+    operatorApprovalEnabled, planDeliveryControlEnabled, providerCredentialEnabled, runControlEnabled,
     runCreationEnabled, runExecutionEnabled, runLifecycleEnabled,
     runWakeControlEnabled, runWakeExecutionEnabled, runWakeWorkerEnabled,
     sessionMessageEnabled, sessionSteeringControlEnabled, skillInstallationEnabled,
@@ -305,10 +329,10 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
             title={panelTitle}>
             {workspaceContent}
           </WorkbenchFrame>
-        </div> : <SettingsView capabilities={settingsCapabilities} desktop={desktop}
+        </div> : <SettingsView capabilities={settingsCapabilities} client={client} desktop={desktop}
           health={healthQuery.data ?? health ?? null} onBack={() => setSurface("workspace")}
           onOpenModels={() => setModelsOpen(true)}
-          onOpenSkills={() => setSkillPreviewOpen(true)} />}
+          onOpenSkills={() => setSkillPreviewOpen(true)} selectedRunID={selectedRunID} />}
       </div>
       <DesktopSkillPreviewDialog installationEnabled={skillInstallationEnabled}
         open={skillPreviewOpen} onClose={() => setSkillPreviewOpen(false)} />

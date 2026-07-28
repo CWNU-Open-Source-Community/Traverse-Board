@@ -15,6 +15,7 @@ import (
 	"cyberagent-workbench/internal/app"
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/desktop"
+	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/httpapi"
 	"cyberagent-workbench/internal/webui"
 	webassets "cyberagent-workbench/web"
@@ -43,6 +44,9 @@ type webView2RuntimeProbe struct {
 
 type desktopOptions struct {
 	profileControl         bool
+	permissionControl      bool
+	dangerFullAccess       bool
+	debugMaximumAccess     bool
 	runCreation            bool
 	sessionMessages        bool
 	sessionSteeringControl bool
@@ -202,6 +206,12 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 	fs.SetOutput(os.Stderr)
 	profileControl := fs.Bool("enable-profile-control", false,
 		"enable only the non-authorizing Run execution-profile control")
+	permissionControl := fs.Bool("enable-permission-control", false,
+		"enable operator selection of execution permission modes")
+	dangerFullAccess := fs.Bool("enable-danger-full-access", false,
+		"enable unsandboxed one-shot host execution permission selection")
+	debugMaximumAccess := fs.Bool("enable-debug-maximum-access", false,
+		"enable persistent maximum-access debug permission selection")
 	runCreation := fs.Bool("enable-run-creation", false,
 		"enable idempotent workspace-bound Run creation")
 	sessionMessages := fs.Bool("enable-session-messages", false,
@@ -247,7 +257,21 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 	if fs.NArg() != 0 {
 		return desktopOptions{}, errors.New("cyberagent-desktop accepts no positional arguments")
 	}
+	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled:   *permissionControl,
+		DangerFullAccessEnabled:   *dangerFullAccess,
+		DebugMaximumAccessEnabled: *debugMaximumAccess,
+	}
+	if err := capabilities.Validate(); err != nil {
+		return desktopOptions{}, err
+	}
+	if *debugMaximumAccess && !*userTerminal {
+		return desktopOptions{}, errors.New(
+			"debug maximum access requires --enable-user-terminal")
+	}
 	return desktopOptions{profileControl: *profileControl, runCreation: *runCreation,
+		permissionControl: *permissionControl, dangerFullAccess: *dangerFullAccess,
+		debugMaximumAccess:     *debugMaximumAccess,
 		sessionMessages:        *sessionMessages,
 		sessionSteeringControl: *sessionSteeringControl,
 		runLifecycle:           *runLifecycle,
@@ -286,7 +310,8 @@ func runDesktop(config desktopOptions) error {
 		return err
 	}
 	controlToken := ""
-	if config.profileControl || config.runCreation || config.sessionMessages ||
+	if config.profileControl || config.permissionControl || config.runCreation ||
+		config.sessionMessages ||
 		config.sessionSteeringControl || config.runLifecycle || config.runExecution ||
 		config.planDeliveryControl || config.approvalControl || config.modelControl ||
 		config.providerCredentials || config.fileEditReview || config.fileEditProposals ||
@@ -305,6 +330,12 @@ func runDesktop(config desktopOptions) error {
 		DatabasePath: databasePath, HomePath: homePath, ReadToken: readToken,
 		ControlToken:      controlToken,
 		RunControlEnabled: config.profileControl, RunCreationEnabled: config.runCreation,
+		ExecutionPermissionControlEnabled: config.permissionControl,
+		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
+			OperatorApprovalEnabled:   config.permissionControl,
+			DangerFullAccessEnabled:   config.dangerFullAccess,
+			DebugMaximumAccessEnabled: config.debugMaximumAccess,
+		},
 		SessionMessageEnabled:         config.sessionMessages,
 		SessionSteeringControlEnabled: config.sessionSteeringControl,
 		RunLifecycleEnabled:           config.runLifecycle,
@@ -348,25 +379,29 @@ func runDesktop(config desktopOptions) error {
 		ContextProvider: lifecycle.Context, FilePicker: nativeSkillPackagePicker{},
 		ReadToken: readToken, ControlToken: controlToken, APIVersion: httpapi.Version,
 		RunControlEnabled: config.profileControl, RunCreationEnabled: config.runCreation,
-		SessionMessageEnabled:         config.sessionMessages,
-		SessionSteeringControlEnabled: config.sessionSteeringControl,
-		RunLifecycleEnabled:           config.runLifecycle,
-		RunExecutionEnabled:           config.runExecution,
-		PlanDeliveryControlEnabled:    config.planDeliveryControl,
-		ApprovalControlEnabled:        config.approvalControl,
-		ModelControlEnabled:           config.modelControl,
-		ProviderCredentialEnabled:     config.providerCredentials,
-		FileEditReviewEnabled:         config.fileEditReview,
-		FileEditProposalEnabled:       config.fileEditProposals,
-		RunWakeControlEnabled:         config.runWakeControl,
-		FileEditApplyEnabled:          config.fileEditApply,
-		RunWakeExecutionEnabled:       config.runWakeExecution,
-		RunWakeWorkerEnabled:          config.runWakeWorker,
-		SkillInstallationEnabled:      config.skillInstallation,
-		EvidenceAttachmentEnabled:     config.evidenceAttachment,
-		VerificationEvidenceEnabled:   config.verificationEvidence,
-		UserTerminalEnabled:           config.userTerminal,
-		AppVersion:                    app.Version, UIDigest: bundle.Digest(), Selector: selector,
+		ExecutionPermissionControlEnabled: config.permissionControl,
+		OperatorApprovalEnabled:           config.permissionControl,
+		DangerFullAccessEnabled:           config.dangerFullAccess,
+		DebugMaximumAccessEnabled:         config.debugMaximumAccess,
+		SessionMessageEnabled:             config.sessionMessages,
+		SessionSteeringControlEnabled:     config.sessionSteeringControl,
+		RunLifecycleEnabled:               config.runLifecycle,
+		RunExecutionEnabled:               config.runExecution,
+		PlanDeliveryControlEnabled:        config.planDeliveryControl,
+		ApprovalControlEnabled:            config.approvalControl,
+		ModelControlEnabled:               config.modelControl,
+		ProviderCredentialEnabled:         config.providerCredentials,
+		FileEditReviewEnabled:             config.fileEditReview,
+		FileEditProposalEnabled:           config.fileEditProposals,
+		RunWakeControlEnabled:             config.runWakeControl,
+		FileEditApplyEnabled:              config.fileEditApply,
+		RunWakeExecutionEnabled:           config.runWakeExecution,
+		RunWakeWorkerEnabled:              config.runWakeWorker,
+		SkillInstallationEnabled:          config.skillInstallation,
+		EvidenceAttachmentEnabled:         config.evidenceAttachment,
+		VerificationEvidenceEnabled:       config.verificationEvidence,
+		UserTerminalEnabled:               config.userTerminal,
+		AppVersion:                        app.Version, UIDigest: bundle.Digest(), Selector: selector,
 		PreviewBridge: preview, SkillInstaller: controlPlane.SkillInstaller(),
 		WorkspaceResolver: controlPlane, WorkspaceLauncher: newNativeWorkspaceLauncher(),
 		UserTerminalController: controlPlane.UserTerminalController(),
@@ -379,7 +414,7 @@ func runDesktop(config desktopOptions) error {
 		Title: app.Name, Width: 1440, Height: 900, MinWidth: 1024, MinHeight: 680,
 		Frameless:        true,
 		WindowStartState: options.Normal,
-		BackgroundColour: options.NewRGB(23, 22, 20),
+		BackgroundColour: options.NewRGBA(0, 0, 0, 0),
 		AssetServer: &assetserver.Options{
 			Handler: inProcessAPIHandler{next: controlPlane.Handler()},
 		},
@@ -399,18 +434,23 @@ func runDesktop(config desktopOptions) error {
 			UniqueId:               desktopSingleInstanceID,
 			OnSecondInstanceLaunch: secondInstanceHandler(lifecycle),
 		},
-		Windows: &windows.Options{
-			Theme: windows.SystemDefault, WebviewIsTransparent: false, WindowIsTranslucent: false,
-			DisablePinchZoom: true, IsZoomControlEnabled: true, EnableSwipeGestures: false,
-			WebviewDisableRendererCodeIntegrity: false, WindowClassName: "CyberAgentWorkbench",
-			Messages: desktopWebView2Messages(),
-		},
-		Debug: options.Debug{OpenInspectorOnStartup: false},
+		Windows: desktopWindowsOptions(),
+		Debug:   options.Debug{OpenInspectorOnStartup: false},
 		ErrorFormatter: func(err error) any {
 			normalized := apperror.Normalize(err)
 			return desktopBindingError{Code: string(apperror.CodeOf(normalized)), Message: normalized.Error()}
 		},
 	})
+}
+
+func desktopWindowsOptions() *windows.Options {
+	return &windows.Options{
+		Theme: windows.SystemDefault, BackdropType: windows.Acrylic,
+		WebviewIsTransparent: true, WindowIsTranslucent: true,
+		DisablePinchZoom: true, IsZoomControlEnabled: true, EnableSwipeGestures: false,
+		WebviewDisableRendererCodeIntegrity: false, WindowClassName: "CyberAgentWorkbench",
+		Messages: desktopWebView2Messages(),
+	}
 }
 
 func requireWebView2Runtime(probe webView2RuntimeProbe) error {

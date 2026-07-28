@@ -1,6 +1,8 @@
 interface WailsWindowRuntime {
   Quit?: () => void;
   WindowMinimise?: () => void;
+  WindowSetDarkTheme?: () => void;
+  WindowSetLightTheme?: () => void;
   WindowToggleMaximise?: () => void;
 }
 
@@ -20,4 +22,12 @@ export function toggleDesktopWindowMaximised(): void {
 
 export function closeDesktopWindow(): void {
   window.runtime?.Quit?.();
+}
+
+export function setDesktopWindowTheme(theme: "light" | "dark"): void {
+  if (theme === "light") {
+    window.runtime?.WindowSetLightTheme?.();
+  } else {
+    window.runtime?.WindowSetDarkTheme?.();
+  }
 }

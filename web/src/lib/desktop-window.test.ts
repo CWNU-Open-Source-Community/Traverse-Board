@@ -1,5 +1,5 @@
 import { closeDesktopWindow, minimiseDesktopWindow,
-  toggleDesktopWindowMaximised } from "./desktop-window";
+  setDesktopWindowTheme, toggleDesktopWindowMaximised } from "./desktop-window";
 
 describe("desktop window controls", () => {
   afterEach(() => {
@@ -10,16 +10,22 @@ describe("desktop window controls", () => {
     const runtime = {
       Quit: vi.fn(),
       WindowMinimise: vi.fn(),
+      WindowSetDarkTheme: vi.fn(),
+      WindowSetLightTheme: vi.fn(),
       WindowToggleMaximise: vi.fn(),
     };
     Object.defineProperty(window, "runtime", { configurable: true, value: runtime });
 
     minimiseDesktopWindow();
     toggleDesktopWindowMaximised();
+    setDesktopWindowTheme("light");
+    setDesktopWindowTheme("dark");
     closeDesktopWindow();
 
     expect(runtime.WindowMinimise).toHaveBeenCalledTimes(1);
     expect(runtime.WindowToggleMaximise).toHaveBeenCalledTimes(1);
+    expect(runtime.WindowSetLightTheme).toHaveBeenCalledTimes(1);
+    expect(runtime.WindowSetDarkTheme).toHaveBeenCalledTimes(1);
     expect(runtime.Quit).toHaveBeenCalledTimes(1);
   });
 
@@ -27,6 +33,8 @@ describe("desktop window controls", () => {
     expect(() => {
       minimiseDesktopWindow();
       toggleDesktopWindowMaximised();
+      setDesktopWindowTheme("light");
+      setDesktopWindowTheme("dark");
       closeDesktopWindow();
     }).not.toThrow();
   });

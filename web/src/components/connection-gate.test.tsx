@@ -53,6 +53,10 @@ describe("ConnectionGate", () => {
       read_token: "desktop-read-token-0123456789abcdef",
       control_token: "",
       control_enabled: false,
+      execution_permission_control_enabled: false,
+      operator_approval_enabled: false,
+      danger_full_access_enabled: false,
+      debug_maximum_access_enabled: false,
       run_creation_enabled: false,
       session_message_enabled: false,
       session_steering_control_enabled: false,
@@ -104,6 +108,8 @@ describe("ConnectionGate", () => {
 function runtimeCapabilities() {
   return {
     protocol_version: "runtime_capabilities.v1",
+    execution_permission_control_enabled: true, operator_approval_enabled: true,
+    danger_full_access_enabled: true, debug_maximum_access_enabled: true,
     run_control_enabled: true, run_creation_enabled: true, session_message_enabled: true,
     session_steering_control_enabled: true, run_lifecycle_enabled: true,
     run_execution_enabled: true, plan_delivery_control_enabled: true,

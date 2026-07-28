@@ -592,6 +592,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/execution-interaction": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Select a Run execution interaction boundary
+         * @description Records operator-selected Preview, controlled Code, Debug, or Cyber interaction intent. It never starts a process, grants terminal input, enables networking, or bypasses the execution profile and process-local gates.
+         */
+        post: operations["selectRunExecutionInteraction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/execution-permission": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Select a Run execution permission mode
+         * @description Records one of four orthogonal permission ceilings: conservative fixed templates, per-command user approval, danger-full-access one-shot host execution, or maximum-access debug. The persisted snapshot never grants runtime authority; every elevated selection and operation must revalidate process-local startup gates.
+         */
+        post: operations["selectRunExecutionPermission"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/execution-profile": {
         parameters: {
             query?: never;
@@ -2111,6 +2151,11 @@ export interface components {
             run_id: string;
             truncated: boolean;
         };
+        ExecutionPermissionRuntimeView: {
+            danger_full_access_enabled: boolean;
+            debug_maximum_access_enabled: boolean;
+            operator_approval_enabled: boolean;
+        };
         ExternalSkillDeliveryView: {
             /** Format: int32 */
             committed: number;
@@ -3223,7 +3268,9 @@ export interface components {
         };
         RunDetailView: {
             checkpoint?: components["schemas"]["SupervisorCheckpointView"];
+            execution_interaction: components["schemas"]["RunExecutionInteractionView"];
             execution_lease?: components["schemas"]["RunExecutionLeaseView"];
+            execution_permission: components["schemas"]["RunExecutionPermissionView"];
             execution_profile: components["schemas"]["RunExecutionProfileView"];
             external_skills?: components["schemas"]["ExternalSkillProjectionView"];
             mission: components["schemas"]["MissionView"];
@@ -3291,6 +3338,53 @@ export interface components {
             /** @enum {string} */
             version: "run_execution_handoff.v1";
         };
+        RunExecutionInteractionControlRequestView: {
+            confirm_container_boundary?: boolean;
+            confirm_debug_boundary?: boolean;
+            confirm_workspace_trust?: boolean;
+            /** @enum {string} */
+            mode: "preview" | "controlled" | "debug" | "cyber";
+            reason?: string;
+            /** @enum {string} */
+            trust: "untrusted" | "trusted";
+        };
+        RunExecutionInteractionControlView: {
+            execution_interaction: components["schemas"]["RunExecutionInteractionView"];
+            replayed: boolean;
+        };
+        RunExecutionInteractionView: {
+            agent_input_default: boolean;
+            capability_grant: boolean;
+            /** @enum {string} */
+            command_form: "none" | "structured_argv" | "user_conpty" | "container_pty";
+            /** Format: date-time */
+            created_at: string;
+            execution_authorized: boolean;
+            /** @enum {string} */
+            execution_profile: "preview" | "docker" | "local";
+            /** Format: int64 */
+            execution_profile_revision: number;
+            /** @enum {string} */
+            mode: "preview" | "controlled" | "debug" | "cyber";
+            /** @enum {string} */
+            network_scope: "disabled";
+            operator_confirmed: boolean;
+            persistent_terminal: boolean;
+            /** @enum {string} */
+            policy_version: "execution_interaction_policy.v1";
+            process_enabled: boolean;
+            /** @enum {string} */
+            protocol_version: "run_execution_interaction.v1";
+            /** @enum {string} */
+            required_gate: "none" | "local_os_sandbox_gate" | "debug_agent_input_lease" | "cyber_container_terminal_gate";
+            /** Format: int64 */
+            revision: number;
+            /** @enum {string} */
+            surface: "code" | "cyber";
+            user_input_available: boolean;
+            /** @enum {string} */
+            workspace_trust: "untrusted" | "trusted";
+        };
         RunExecutionLeaseView: {
             /** Format: date-time */
             acquired_at: string;
@@ -3306,6 +3400,51 @@ export interface components {
             renewed_at: string;
             /** @enum {string} */
             status: "active" | "released";
+        };
+        RunExecutionPermissionControlRequestView: {
+            confirm_danger_full_access?: boolean;
+            confirm_debug_access?: boolean;
+            confirm_user_approval?: boolean;
+            /** @enum {string} */
+            mode: "conservative" | "approval" | "full_access" | "debug";
+            reason?: string;
+        };
+        RunExecutionPermissionControlView: {
+            execution_permission: components["schemas"]["RunExecutionPermissionView"];
+            replayed: boolean;
+        };
+        RunExecutionPermissionView: {
+            agent_terminal_input: boolean;
+            /** @enum {string} */
+            approval_policy: "fixed_templates" | "per_command" | "none";
+            background_process: boolean;
+            capability_grant: boolean;
+            /** @enum {string} */
+            command_scope: "fixed_templates" | "arbitrary_stateless" | "arbitrary_persistent";
+            /** Format: date-time */
+            created_at: string;
+            execution_authorized: boolean;
+            /** @enum {string} */
+            filesystem_scope: "workspace_guarded" | "host_full";
+            /** @enum {string} */
+            mode: "conservative" | "approval" | "full_access" | "debug";
+            /** @enum {string} */
+            network_scope: "disabled" | "host";
+            operator_confirmed: boolean;
+            persistent_terminal: boolean;
+            /** @enum {string} */
+            policy_version: "execution_permission_policy.v1";
+            process_enabled: boolean;
+            /** @enum {string} */
+            protocol_version: "run_execution_permission.v1";
+            /** @enum {string} */
+            required_gate: "conservative_control" | "operator_approval" | "danger_full_access" | "debug_maximum_access";
+            /** Format: int64 */
+            revision: number;
+            /** @enum {string} */
+            risk_tier: "minimal" | "elevated" | "high";
+            runtime: components["schemas"]["ExecutionPermissionRuntimeView"];
+            runtime_gate_available: boolean;
         };
         RunExecutionProfileControlRequestView: {
             /** @enum {string} */
@@ -3514,12 +3653,16 @@ export interface components {
         };
         RuntimeCapabilitiesView: {
             approval_control_enabled: boolean;
+            danger_full_access_enabled: boolean;
+            debug_maximum_access_enabled: boolean;
             docker_execution_enabled: boolean;
             evidence_attachment_enabled: boolean;
+            execution_permission_control_enabled: boolean;
             file_edit_apply_enabled: boolean;
             file_edit_proposal_enabled: boolean;
             file_edit_review_enabled: boolean;
             model_control_enabled: boolean;
+            operator_approval_enabled: boolean;
             plan_delivery_control_enabled: boolean;
             process_execution_enabled: boolean;
             /** @enum {string} */
@@ -5626,6 +5769,98 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["RunExecutionControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    selectRunExecutionInteraction: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque operation key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunExecutionInteractionControlRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["RunExecutionInteractionControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    selectRunExecutionPermission: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque operation key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunExecutionPermissionControlRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["RunExecutionPermissionControlView"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";

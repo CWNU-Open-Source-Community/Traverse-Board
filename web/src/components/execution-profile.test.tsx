@@ -3,7 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CyberAgentClient } from "../api/client";
 import type { RunDetailView, RunExecutionProfileView } from "../api/types";
-import { ExecutionProfilePanel } from "./run-workspace";
+import { ExecutionProfilePanel } from "./run-permission-settings";
 
 function detail(profile: RunExecutionProfileView["profile"] = "preview"): RunDetailView {
   return {
@@ -29,9 +29,23 @@ function detail(profile: RunExecutionProfileView["profile"] = "preview"): RunDet
       process_enabled: false,
       execution_authorized: false, capability_grant: false,
     },
+    execution_permission: {
+      protocol_version: "run_execution_permission.v1", revision: 1,
+      mode: "conservative", approval_policy: "fixed_templates",
+      command_scope: "fixed_templates", filesystem_scope: "workspace_guarded",
+      network_scope: "disabled", persistent_terminal: false,
+      background_process: false, agent_terminal_input: false, risk_tier: "minimal",
+      required_gate: "conservative_control",
+      policy_version: "execution_permission_policy.v1", operator_confirmed: false,
+      runtime_gate_available: true,
+      runtime: { operator_approval_enabled: false, danger_full_access_enabled: false,
+        debug_maximum_access_enabled: false },
+      created_at: "2026-07-17T00:00:00Z", process_enabled: false,
+      execution_authorized: false, capability_grant: false,
+    },
     operator_steering: { pending: 0, prepared: 0, committed: 0, cancelled: 0, messages: [] },
     tool_usage: { consumed: 0, limit: 10, remaining: 10 },
-  } as RunDetailView;
+  } as unknown as RunDetailView;
 }
 
 describe("ExecutionProfilePanel", () => {
@@ -41,9 +55,8 @@ describe("ExecutionProfilePanel", () => {
     render(<QueryClientProvider client={new QueryClient()}>
       <ExecutionProfilePanel client={new CyberAgentClient("read-token")} detail={detail()} />
     </QueryClientProvider>);
-    expect(screen.getByText("Read-only connection")).toBeInTheDocument();
+    expect(screen.getByText("只读连接")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Docker/ })).toBeDisabled();
-    expect(screen.getByText("Execution authorized: no")).toBeInTheDocument();
   });
 
   it("submits one control request and adopts the returned non-authorizing profile", async () => {
@@ -58,7 +71,9 @@ describe("ExecutionProfilePanel", () => {
     const user = userEvent.setup();
     render(<QueryClientProvider client={queryClient}>
       <ExecutionProfilePanel
-        client={new CyberAgentClient("read-token", "/api/v1", "control-token")}
+        client={new CyberAgentClient("read-token", "/api/v1", "control-token", {
+          runControlEnabled: true,
+        })}
         detail={detail()}
       />
     </QueryClientProvider>);

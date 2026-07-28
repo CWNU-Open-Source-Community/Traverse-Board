@@ -13,6 +13,7 @@ import (
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/coordinator"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/executionauth"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/runner"
@@ -51,6 +52,8 @@ func (a *App) runCommand(ctx context.Context, args []string) error {
 		return a.runExecutionProfile(ctx, args[1:])
 	case "execution-interaction":
 		return a.runExecutionInteraction(ctx, args[1:])
+	case "execution-permission":
+		return a.runExecutionPermission(ctx, args[1:])
 	case "command-plan":
 		return a.runCommandPlan(ctx, args[1:])
 	case "command-execute":
@@ -1509,6 +1512,90 @@ func writeRunExecutionInteraction(out interface{ Write([]byte) (int, error) },
 		interaction.CreatedAt.Format(time.RFC3339Nano), replayed)
 }
 
+func (a *App) runExecutionPermission(ctx context.Context, args []string) error {
+	if len(args) == 1 {
+		capabilities := domain.ExecutionPermissionRuntimeCapabilities{}
+		service := application.NewRunExecutionPermissionService(a.store, capabilities)
+		permission, err := service.Current(ctx, args[0])
+		if err != nil {
+			return err
+		}
+		writeRunExecutionPermission(a.out, permission, false,
+			capabilities.Allows(permission.Mode))
+		return nil
+	}
+	if len(args) == 0 || args[0] != "set" {
+		return errors.New("usage: cyberagent run execution-permission <run-id> | cyberagent run execution-permission set <run-id> conservative|approval|full_access|debug --operation-key <key> [--confirm-user-approval|--confirm-danger-full-access|--confirm-debug-access] [--enable-permission-control] [--enable-danger-full-access] [--enable-debug-maximum-access] [--operator <id>] [--reason <text>]")
+	}
+	fs := newFlagSet("run execution-permission set", a.errOut)
+	operationKey := fs.String("operation-key", "",
+		"stable execution-permission operation key")
+	operator := fs.String("operator", "cli_operator", "operator identity")
+	reason := fs.String("reason", "", "redacted selection reason")
+	confirmApproval := fs.Bool("confirm-user-approval", false,
+		"confirm exact per-command operator approval")
+	confirmFull := fs.Bool("confirm-danger-full-access", false,
+		"confirm unsandboxed one-shot host access")
+	confirmDebug := fs.Bool("confirm-debug-access", false,
+		"confirm persistent maximum-access debug capabilities")
+	enableControl := fs.Bool("enable-permission-control", false,
+		"enable permission elevation for this process")
+	enableFull := fs.Bool("enable-danger-full-access", false,
+		"enable danger-full-access for this process")
+	enableDebug := fs.Bool("enable-debug-maximum-access", false,
+		"enable maximum debug access for this process")
+	if err := fs.Parse(reorderFlags(args[1:], map[string]bool{
+		"operation-key": true, "operator": true, "reason": true,
+		"confirm-user-approval": false, "confirm-danger-full-access": false,
+		"confirm-debug-access": false, "enable-permission-control": false,
+		"enable-danger-full-access": false, "enable-debug-maximum-access": false,
+	})); err != nil {
+		return err
+	}
+	if fs.NArg() != 2 || strings.TrimSpace(*operationKey) == "" {
+		return errors.New("usage: cyberagent run execution-permission set <run-id> conservative|approval|full_access|debug --operation-key <key> [--confirm-user-approval|--confirm-danger-full-access|--confirm-debug-access] [--enable-permission-control] [--enable-danger-full-access] [--enable-debug-maximum-access] [--operator <id>] [--reason <text>]")
+	}
+	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled:   *enableControl,
+		DangerFullAccessEnabled:   *enableFull,
+		DebugMaximumAccessEnabled: *enableDebug,
+	}
+	if err := capabilities.Validate(); err != nil {
+		return apperror.Wrap(apperror.CodeInvalidArgument,
+			err.Error(), err)
+	}
+	service := application.NewRunExecutionPermissionService(a.store, capabilities)
+	result, err := service.Change(ctx,
+		application.ChangeRunExecutionPermissionRequest{
+			RunID: fs.Arg(0), Mode: fs.Arg(1), OperationKey: *operationKey,
+			RequestedBy: *operator, Reason: *reason,
+			ConfirmUserApproval:     *confirmApproval,
+			ConfirmDangerFullAccess: *confirmFull,
+			ConfirmDebugAccess:      *confirmDebug,
+		})
+	if err != nil {
+		return err
+	}
+	writeRunExecutionPermission(a.out, result.Permission, result.Replayed,
+		capabilities.Allows(result.Permission.Mode))
+	return nil
+}
+
+func writeRunExecutionPermission(out interface{ Write([]byte) (int, error) },
+	permission domain.RunExecutionPermissionSnapshot, replayed bool,
+	runtimeGateAvailable bool,
+) {
+	fmt.Fprintf(out, "run: %s\nmission: %s\nprotocol: %s\nrevision: %d\nmode: %s\napproval_policy: %s\ncommand_scope: %s\nfilesystem_scope: %s\nnetwork_scope: %s\npersistent_terminal: %t\nbackground_process: %t\nagent_terminal_input: %t\nrisk_tier: %s\nrequired_gate: %s\npolicy: %s\noperator_confirmed: %t\nrequested_by: %s\nreason: %s\ncreated_at: %s\nruntime_gate_available: %t\nprocess_enabled: false\nexecution_authorized: false\ncapability_grant: false\nreplayed: %t\n",
+		permission.RunID, permission.MissionID, permission.ProtocolVersion,
+		permission.Revision, permission.Mode, permission.ApprovalPolicy,
+		permission.CommandScope, permission.FilesystemScope, permission.NetworkScope,
+		permission.PersistentTerminal, permission.BackgroundProcess,
+		permission.AgentTerminalInput, permission.RiskTier, permission.RequiredGate,
+		permission.PolicyVersion, permission.OperatorConfirmed, permission.RequestedBy,
+		permission.Reason, permission.CreatedAt.Format(time.RFC3339Nano),
+		runtimeGateAvailable, replayed)
+}
+
 func (a *App) runCommandPlan(ctx context.Context, args []string) error {
 	fs := newFlagSet("run command-plan", a.errOut)
 	relativePath := fs.String("path", "",
@@ -1585,9 +1672,17 @@ func (a *App) runCommandExecute(ctx context.Context, args []string) error {
 	operator := fs.String("operator", "cli_operator", "operator identity")
 	confirm := fs.Bool("confirm-execution", false,
 		"confirm one controlled OS-restricted process")
+	enablePermissionControl := fs.Bool("enable-permission-control", false,
+		"enable elevated permission evaluation for this process")
+	enableFullAccess := fs.Bool("enable-danger-full-access", false,
+		"enable danger-full-access evaluation for this process")
+	enableDebugAccess := fs.Bool("enable-debug-maximum-access", false,
+		"enable maximum debug evaluation for this process")
 	if err := fs.Parse(reorderFlags(args, map[string]bool{
 		"path": true, "timeout": true, "operation-key": true,
 		"operator": true, "confirm-execution": false,
+		"enable-permission-control": false, "enable-danger-full-access": false,
+		"enable-debug-maximum-access": false,
 	})); err != nil {
 		return err
 	}
@@ -1600,10 +1695,30 @@ func (a *App) runCommandExecute(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	runRecord, mission, workspaceRecord, interaction, profile, mode, err :=
+	runtimeCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled:   *enablePermissionControl,
+		DangerFullAccessEnabled:   *enableFullAccess,
+		DebugMaximumAccessEnabled: *enableDebugAccess,
+	}
+	if err := runtimeCapabilities.Validate(); err != nil {
+		return apperror.Wrap(apperror.CodeInvalidArgument,
+			err.Error(), err)
+	}
+	runRecord, mission, workspaceRecord, interaction, profile, permission, mode, err :=
 		a.loadControlledCommandBindings(ctx, fs.Arg(0))
 	if err != nil {
 		return err
+	}
+	permissionDecision, err := executionauth.EvaluateExecutionPermission(
+		permission, runtimeCapabilities, executionauth.PermissionRequest{
+			Kind:             executionauth.PermissionOperationFixedTemplate,
+			OperatorApproved: true,
+		})
+	if err != nil {
+		return err
+	}
+	if !permissionDecision.Allowed {
+		return apperror.New(apperror.CodePolicyDenied, permissionDecision.Reason)
 	}
 	operationDigest := runmutation.Fingerprint(
 		"controlled_command_execution_operation.v1", runRecord.ID,
@@ -1689,24 +1804,28 @@ func (a *App) controlledCommandExecutor() (controlledCommandExecutor, error) {
 func (a *App) loadControlledCommandBindings(ctx context.Context, runID string) (
 	domain.Run, domain.Mission, store.WorkspaceRecord,
 	domain.RunExecutionInteractionSnapshot,
-	domain.RunExecutionProfileSnapshot, domain.RunModeSnapshot, error,
+	domain.RunExecutionProfileSnapshot, domain.RunExecutionPermissionSnapshot,
+	domain.RunModeSnapshot, error,
 ) {
 	runRecord, err := a.store.GetRun(ctx, strings.TrimSpace(runID))
 	if err != nil {
 		return domain.Run{}, domain.Mission{}, store.WorkspaceRecord{},
 			domain.RunExecutionInteractionSnapshot{},
-			domain.RunExecutionProfileSnapshot{}, domain.RunModeSnapshot{}, err
+			domain.RunExecutionProfileSnapshot{},
+			domain.RunExecutionPermissionSnapshot{}, domain.RunModeSnapshot{}, err
 	}
 	mission, err := a.store.GetMission(ctx, runRecord.MissionID)
 	if err != nil {
 		return domain.Run{}, domain.Mission{}, store.WorkspaceRecord{},
 			domain.RunExecutionInteractionSnapshot{},
-			domain.RunExecutionProfileSnapshot{}, domain.RunModeSnapshot{}, err
+			domain.RunExecutionProfileSnapshot{},
+			domain.RunExecutionPermissionSnapshot{}, domain.RunModeSnapshot{}, err
 	}
 	if strings.TrimSpace(mission.WorkspaceID) == "" {
 		return domain.Run{}, domain.Mission{}, store.WorkspaceRecord{},
 			domain.RunExecutionInteractionSnapshot{},
-			domain.RunExecutionProfileSnapshot{}, domain.RunModeSnapshot{},
+			domain.RunExecutionProfileSnapshot{},
+			domain.RunExecutionPermissionSnapshot{}, domain.RunModeSnapshot{},
 			apperror.New(apperror.CodeFailedPrecondition,
 				"controlled command execution requires a registered Workspace")
 	}
@@ -1714,22 +1833,32 @@ func (a *App) loadControlledCommandBindings(ctx context.Context, runID string) (
 	if err != nil {
 		return domain.Run{}, domain.Mission{}, store.WorkspaceRecord{},
 			domain.RunExecutionInteractionSnapshot{},
-			domain.RunExecutionProfileSnapshot{}, domain.RunModeSnapshot{}, err
+			domain.RunExecutionProfileSnapshot{},
+			domain.RunExecutionPermissionSnapshot{}, domain.RunModeSnapshot{}, err
 	}
 	interaction, err := a.store.GetRunExecutionInteraction(ctx, runRecord.ID)
 	if err != nil {
 		return domain.Run{}, domain.Mission{}, store.WorkspaceRecord{},
 			domain.RunExecutionInteractionSnapshot{},
-			domain.RunExecutionProfileSnapshot{}, domain.RunModeSnapshot{}, err
+			domain.RunExecutionProfileSnapshot{},
+			domain.RunExecutionPermissionSnapshot{}, domain.RunModeSnapshot{}, err
 	}
 	profile, err := a.store.GetRunExecutionProfile(ctx, runRecord.ID)
 	if err != nil {
 		return domain.Run{}, domain.Mission{}, store.WorkspaceRecord{},
 			domain.RunExecutionInteractionSnapshot{},
-			domain.RunExecutionProfileSnapshot{}, domain.RunModeSnapshot{}, err
+			domain.RunExecutionProfileSnapshot{},
+			domain.RunExecutionPermissionSnapshot{}, domain.RunModeSnapshot{}, err
+	}
+	permission, err := a.store.GetRunExecutionPermission(ctx, runRecord.ID)
+	if err != nil {
+		return domain.Run{}, domain.Mission{}, store.WorkspaceRecord{},
+			domain.RunExecutionInteractionSnapshot{},
+			domain.RunExecutionProfileSnapshot{},
+			domain.RunExecutionPermissionSnapshot{}, domain.RunModeSnapshot{}, err
 	}
 	mode, err := a.store.GetRunMode(ctx, runRecord.ID)
-	return runRecord, mission, workspaceRecord, interaction, profile, mode, err
+	return runRecord, mission, workspaceRecord, interaction, profile, permission, mode, err
 }
 
 func writeControlledExecutionReceipt(

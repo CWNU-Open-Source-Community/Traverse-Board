@@ -314,6 +314,7 @@ func migrationPlan() []migration {
 		{Version: 85, Name: "durable non-starting browser launch gates", Statements: browserLaunchGateStatements},
 		{Version: 86, Name: "operator-selected execution interaction boundaries", Statements: runExecutionInteractionStatements},
 		{Version: 87, Name: "auditable controlled Windows command execution", Statements: controlledCommandExecutionStatements},
+		{Version: 88, Name: "operator-selected four-level execution permissions", Statements: runExecutionPermissionStatements},
 	}
 }
 

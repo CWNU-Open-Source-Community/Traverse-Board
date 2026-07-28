@@ -106,6 +106,8 @@ describe("CyberAgentClient", () => {
   it("discovers bounded process capabilities without runtime enable authority", async () => {
     const data = {
       protocol_version: "runtime_capabilities.v1",
+      execution_permission_control_enabled: true, operator_approval_enabled: true,
+      danger_full_access_enabled: true, debug_maximum_access_enabled: true,
       run_control_enabled: true, run_creation_enabled: true,
       session_message_enabled: true, session_steering_control_enabled: true,
       run_lifecycle_enabled: true, run_execution_enabled: true,
@@ -128,6 +130,8 @@ describe("CyberAgentClient", () => {
     const view = await new CyberAgentClient("read-secret").runtimeCapabilities();
     expect(view).toEqual(data);
     expect(clientCapabilitiesFromRuntime(view)).toMatchObject({
+      executionPermissionControlEnabled: true, operatorApprovalEnabled: true,
+      dangerFullAccessEnabled: true, debugMaximumAccessEnabled: true,
       fileEditProposalEnabled: true, providerCredentialEnabled: true,
       runWakeWorkerEnabled: true,
       verificationEvidenceEnabled: true,

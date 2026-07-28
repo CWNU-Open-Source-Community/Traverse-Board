@@ -89,6 +89,20 @@ function detail(): RunDetailView {
       policy_version: "execution_profile_policy.v1", capability_grant: false,
       execution_authorized: false, process_enabled: false, revision: 1,
       requested_by: "system", reason: "default", created_at: "2026-07-19T00:00:00Z" },
+    execution_permission: {
+      protocol_version: "run_execution_permission.v1", revision: 1,
+      mode: "conservative", approval_policy: "fixed_templates",
+      command_scope: "fixed_templates", filesystem_scope: "workspace_guarded",
+      network_scope: "disabled", persistent_terminal: false,
+      background_process: false, agent_terminal_input: false, risk_tier: "minimal",
+      required_gate: "conservative_control",
+      policy_version: "execution_permission_policy.v1", operator_confirmed: false,
+      runtime_gate_available: true,
+      runtime: { operator_approval_enabled: false, danger_full_access_enabled: false,
+        debug_maximum_access_enabled: false },
+      created_at: "2026-07-19T00:00:00Z", process_enabled: false,
+      execution_authorized: false, capability_grant: false,
+    },
     tool_usage: { consumed: 0, remaining: 8, limit: 8 },
-  } as RunDetailView;
+  } as unknown as RunDetailView;
 }

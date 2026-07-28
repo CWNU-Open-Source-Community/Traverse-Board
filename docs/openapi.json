@@ -2865,6 +2865,240 @@
         "x-cyberagent-read-only": false
       }
     },
+    "/api/v1/runs/{run_id}/execution-interaction": {
+      "post": {
+        "operationId": "selectRunExecutionInteraction",
+        "summary": "Select a Run execution interaction boundary",
+        "description": "Records operator-selected Preview, controlled Code, Debug, or Cyber interaction intent. It never starts a process, grants terminal input, enables networking, or bypasses the execution profile and process-local gates.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque operation key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/RunExecutionInteractionControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunExecutionInteractionControlRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/execution-permission": {
+      "post": {
+        "operationId": "selectRunExecutionPermission",
+        "summary": "Select a Run execution permission mode",
+        "description": "Records one of four orthogonal permission ceilings: conservative fixed templates, per-command user approval, danger-full-access one-shot host execution, or maximum-access debug. The persisted snapshot never grants runtime authority; every elevated selection and operation must revalidate process-local startup gates.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque operation key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/RunExecutionPermissionControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunExecutionPermissionControlRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/runs/{run_id}/execution-profile": {
       "post": {
         "operationId": "selectRunExecutionProfile",
@@ -10409,6 +10643,26 @@
         ],
         "type": "object"
       },
+      "ExecutionPermissionRuntimeView": {
+        "additionalProperties": false,
+        "properties": {
+          "danger_full_access_enabled": {
+            "type": "boolean"
+          },
+          "debug_maximum_access_enabled": {
+            "type": "boolean"
+          },
+          "operator_approval_enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "operator_approval_enabled",
+          "danger_full_access_enabled",
+          "debug_maximum_access_enabled"
+        ],
+        "type": "object"
+      },
       "ExternalSkillDeliveryView": {
         "additionalProperties": false,
         "properties": {
@@ -14823,8 +15077,14 @@
           "checkpoint": {
             "$ref": "#/components/schemas/SupervisorCheckpointView"
           },
+          "execution_interaction": {
+            "$ref": "#/components/schemas/RunExecutionInteractionView"
+          },
           "execution_lease": {
             "$ref": "#/components/schemas/RunExecutionLeaseView"
+          },
+          "execution_permission": {
+            "$ref": "#/components/schemas/RunExecutionPermissionView"
           },
           "execution_profile": {
             "$ref": "#/components/schemas/RunExecutionProfileView"
@@ -14856,6 +15116,8 @@
           "mission",
           "mode",
           "execution_profile",
+          "execution_permission",
+          "execution_interaction",
           "operator_steering",
           "tool_usage"
         ],
@@ -15096,6 +15358,188 @@
         ],
         "type": "object"
       },
+      "RunExecutionInteractionControlRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm_container_boundary": {
+            "type": "boolean"
+          },
+          "confirm_debug_boundary": {
+            "type": "boolean"
+          },
+          "confirm_workspace_trust": {
+            "type": "boolean"
+          },
+          "mode": {
+            "enum": [
+              "preview",
+              "controlled",
+              "debug",
+              "cyber"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 1024,
+            "type": "string"
+          },
+          "trust": {
+            "enum": [
+              "untrusted",
+              "trusted"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "trust"
+        ],
+        "type": "object"
+      },
+      "RunExecutionInteractionControlView": {
+        "additionalProperties": false,
+        "properties": {
+          "execution_interaction": {
+            "$ref": "#/components/schemas/RunExecutionInteractionView"
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "execution_interaction",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "RunExecutionInteractionView": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_input_default": {
+            "type": "boolean"
+          },
+          "capability_grant": {
+            "type": "boolean"
+          },
+          "command_form": {
+            "enum": [
+              "none",
+              "structured_argv",
+              "user_conpty",
+              "container_pty"
+            ],
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "execution_authorized": {
+            "type": "boolean"
+          },
+          "execution_profile": {
+            "enum": [
+              "preview",
+              "docker",
+              "local"
+            ],
+            "type": "string"
+          },
+          "execution_profile_revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "mode": {
+            "enum": [
+              "preview",
+              "controlled",
+              "debug",
+              "cyber"
+            ],
+            "type": "string"
+          },
+          "network_scope": {
+            "enum": [
+              "disabled"
+            ],
+            "type": "string"
+          },
+          "operator_confirmed": {
+            "type": "boolean"
+          },
+          "persistent_terminal": {
+            "type": "boolean"
+          },
+          "policy_version": {
+            "enum": [
+              "execution_interaction_policy.v1"
+            ],
+            "type": "string"
+          },
+          "process_enabled": {
+            "type": "boolean"
+          },
+          "protocol_version": {
+            "enum": [
+              "run_execution_interaction.v1"
+            ],
+            "type": "string"
+          },
+          "required_gate": {
+            "enum": [
+              "none",
+              "local_os_sandbox_gate",
+              "debug_agent_input_lease",
+              "cyber_container_terminal_gate"
+            ],
+            "type": "string"
+          },
+          "revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "surface": {
+            "enum": [
+              "code",
+              "cyber"
+            ],
+            "type": "string"
+          },
+          "user_input_available": {
+            "type": "boolean"
+          },
+          "workspace_trust": {
+            "enum": [
+              "untrusted",
+              "trusted"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "revision",
+          "mode",
+          "surface",
+          "execution_profile",
+          "execution_profile_revision",
+          "workspace_trust",
+          "command_form",
+          "persistent_terminal",
+          "user_input_available",
+          "agent_input_default",
+          "network_scope",
+          "required_gate",
+          "policy_version",
+          "operator_confirmed",
+          "created_at",
+          "process_enabled",
+          "execution_authorized",
+          "capability_grant"
+        ],
+        "type": "object"
+      },
       "RunExecutionLeaseView": {
         "additionalProperties": false,
         "properties": {
@@ -15144,6 +15588,185 @@
           "acquired_at",
           "renewed_at",
           "expires_at"
+        ],
+        "type": "object"
+      },
+      "RunExecutionPermissionControlRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm_danger_full_access": {
+            "type": "boolean"
+          },
+          "confirm_debug_access": {
+            "type": "boolean"
+          },
+          "confirm_user_approval": {
+            "type": "boolean"
+          },
+          "mode": {
+            "enum": [
+              "conservative",
+              "approval",
+              "full_access",
+              "debug"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 1024,
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "type": "object"
+      },
+      "RunExecutionPermissionControlView": {
+        "additionalProperties": false,
+        "properties": {
+          "execution_permission": {
+            "$ref": "#/components/schemas/RunExecutionPermissionView"
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "execution_permission",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "RunExecutionPermissionView": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_terminal_input": {
+            "type": "boolean"
+          },
+          "approval_policy": {
+            "enum": [
+              "fixed_templates",
+              "per_command",
+              "none"
+            ],
+            "type": "string"
+          },
+          "background_process": {
+            "type": "boolean"
+          },
+          "capability_grant": {
+            "type": "boolean"
+          },
+          "command_scope": {
+            "enum": [
+              "fixed_templates",
+              "arbitrary_stateless",
+              "arbitrary_persistent"
+            ],
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "execution_authorized": {
+            "type": "boolean"
+          },
+          "filesystem_scope": {
+            "enum": [
+              "workspace_guarded",
+              "host_full"
+            ],
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "conservative",
+              "approval",
+              "full_access",
+              "debug"
+            ],
+            "type": "string"
+          },
+          "network_scope": {
+            "enum": [
+              "disabled",
+              "host"
+            ],
+            "type": "string"
+          },
+          "operator_confirmed": {
+            "type": "boolean"
+          },
+          "persistent_terminal": {
+            "type": "boolean"
+          },
+          "policy_version": {
+            "enum": [
+              "execution_permission_policy.v1"
+            ],
+            "type": "string"
+          },
+          "process_enabled": {
+            "type": "boolean"
+          },
+          "protocol_version": {
+            "enum": [
+              "run_execution_permission.v1"
+            ],
+            "type": "string"
+          },
+          "required_gate": {
+            "enum": [
+              "conservative_control",
+              "operator_approval",
+              "danger_full_access",
+              "debug_maximum_access"
+            ],
+            "type": "string"
+          },
+          "revision": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "risk_tier": {
+            "enum": [
+              "minimal",
+              "elevated",
+              "high"
+            ],
+            "type": "string"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/ExecutionPermissionRuntimeView"
+          },
+          "runtime_gate_available": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "revision",
+          "mode",
+          "approval_policy",
+          "command_scope",
+          "filesystem_scope",
+          "network_scope",
+          "persistent_terminal",
+          "background_process",
+          "agent_terminal_input",
+          "risk_tier",
+          "required_gate",
+          "policy_version",
+          "operator_confirmed",
+          "runtime_gate_available",
+          "runtime",
+          "created_at",
+          "process_enabled",
+          "execution_authorized",
+          "capability_grant"
         ],
         "type": "object"
       },
@@ -15923,10 +16546,19 @@
           "approval_control_enabled": {
             "type": "boolean"
           },
+          "danger_full_access_enabled": {
+            "type": "boolean"
+          },
+          "debug_maximum_access_enabled": {
+            "type": "boolean"
+          },
           "docker_execution_enabled": {
             "type": "boolean"
           },
           "evidence_attachment_enabled": {
+            "type": "boolean"
+          },
+          "execution_permission_control_enabled": {
             "type": "boolean"
           },
           "file_edit_apply_enabled": {
@@ -15939,6 +16571,9 @@
             "type": "boolean"
           },
           "model_control_enabled": {
+            "type": "boolean"
+          },
+          "operator_approval_enabled": {
             "type": "boolean"
           },
           "plan_delivery_control_enabled": {
@@ -15999,6 +16634,10 @@
         "required": [
           "protocol_version",
           "run_control_enabled",
+          "execution_permission_control_enabled",
+          "operator_approval_enabled",
+          "danger_full_access_enabled",
+          "debug_maximum_access_enabled",
           "run_creation_enabled",
           "session_message_enabled",
           "session_steering_control_enabled",

@@ -30,40 +30,44 @@ const (
 // binding. Tokens stay in renderer memory and are never written to browser
 // storage, SQLite, logs, command output, or the Windows registry.
 type ConnectionBootstrap struct {
-	ProtocolVersion               string `json:"protocol_version"`
-	APIBaseURL                    string `json:"api_base_url"`
-	APIVersion                    string `json:"api_version"`
-	AppVersion                    string `json:"app_version"`
-	UIDigest                      string `json:"ui_digest"`
-	ReadToken                     string `json:"read_token"`
-	ControlToken                  string `json:"control_token"`
-	ControlEnabled                bool   `json:"control_enabled"`
-	RunCreationEnabled            bool   `json:"run_creation_enabled"`
-	SessionMessageEnabled         bool   `json:"session_message_enabled"`
-	SessionSteeringControlEnabled bool   `json:"session_steering_control_enabled"`
-	RunLifecycleEnabled           bool   `json:"run_lifecycle_enabled"`
-	RunExecutionEnabled           bool   `json:"run_execution_enabled"`
-	PlanDeliveryControlEnabled    bool   `json:"plan_delivery_control_enabled"`
-	ApprovalControlEnabled        bool   `json:"approval_control_enabled"`
-	ModelControlEnabled           bool   `json:"model_control_enabled"`
-	ProviderCredentialEnabled     bool   `json:"provider_credential_enabled"`
-	FileEditReviewEnabled         bool   `json:"file_edit_review_enabled"`
-	FileEditProposalEnabled       bool   `json:"file_edit_proposal_enabled"`
-	RunWakeControlEnabled         bool   `json:"run_wake_control_enabled"`
-	FileEditApplyEnabled          bool   `json:"file_edit_apply_enabled"`
-	RunWakeExecutionEnabled       bool   `json:"run_wake_execution_enabled"`
-	RunWakeWorkerEnabled          bool   `json:"run_wake_worker_enabled"`
-	ReadOnlyDefault               bool   `json:"read_only_default"`
-	ProcessExecutionEnabled       bool   `json:"process_execution_enabled"`
-	ShellExecutionEnabled         bool   `json:"shell_execution_enabled"`
-	DockerExecutionEnabled        bool   `json:"docker_execution_enabled"`
-	SkillInstallationEnabled      bool   `json:"skill_installation_enabled"`
-	EvidenceAttachmentEnabled     bool   `json:"evidence_attachment_enabled"`
-	VerificationEvidenceEnabled   bool   `json:"verification_evidence_enabled"`
-	UserTerminalEnabled           bool   `json:"user_terminal_enabled"`
-	AgentTerminalInputDefault     bool   `json:"agent_terminal_input_default"`
-	WorkspaceOpenEnabled          bool   `json:"workspace_open_enabled"`
-	RendererPathInputSupported    bool   `json:"renderer_path_input_supported"`
+	ProtocolVersion                   string `json:"protocol_version"`
+	APIBaseURL                        string `json:"api_base_url"`
+	APIVersion                        string `json:"api_version"`
+	AppVersion                        string `json:"app_version"`
+	UIDigest                          string `json:"ui_digest"`
+	ReadToken                         string `json:"read_token"`
+	ControlToken                      string `json:"control_token"`
+	ControlEnabled                    bool   `json:"control_enabled"`
+	ExecutionPermissionControlEnabled bool   `json:"execution_permission_control_enabled"`
+	OperatorApprovalEnabled           bool   `json:"operator_approval_enabled"`
+	DangerFullAccessEnabled           bool   `json:"danger_full_access_enabled"`
+	DebugMaximumAccessEnabled         bool   `json:"debug_maximum_access_enabled"`
+	RunCreationEnabled                bool   `json:"run_creation_enabled"`
+	SessionMessageEnabled             bool   `json:"session_message_enabled"`
+	SessionSteeringControlEnabled     bool   `json:"session_steering_control_enabled"`
+	RunLifecycleEnabled               bool   `json:"run_lifecycle_enabled"`
+	RunExecutionEnabled               bool   `json:"run_execution_enabled"`
+	PlanDeliveryControlEnabled        bool   `json:"plan_delivery_control_enabled"`
+	ApprovalControlEnabled            bool   `json:"approval_control_enabled"`
+	ModelControlEnabled               bool   `json:"model_control_enabled"`
+	ProviderCredentialEnabled         bool   `json:"provider_credential_enabled"`
+	FileEditReviewEnabled             bool   `json:"file_edit_review_enabled"`
+	FileEditProposalEnabled           bool   `json:"file_edit_proposal_enabled"`
+	RunWakeControlEnabled             bool   `json:"run_wake_control_enabled"`
+	FileEditApplyEnabled              bool   `json:"file_edit_apply_enabled"`
+	RunWakeExecutionEnabled           bool   `json:"run_wake_execution_enabled"`
+	RunWakeWorkerEnabled              bool   `json:"run_wake_worker_enabled"`
+	ReadOnlyDefault                   bool   `json:"read_only_default"`
+	ProcessExecutionEnabled           bool   `json:"process_execution_enabled"`
+	ShellExecutionEnabled             bool   `json:"shell_execution_enabled"`
+	DockerExecutionEnabled            bool   `json:"docker_execution_enabled"`
+	SkillInstallationEnabled          bool   `json:"skill_installation_enabled"`
+	EvidenceAttachmentEnabled         bool   `json:"evidence_attachment_enabled"`
+	VerificationEvidenceEnabled       bool   `json:"verification_evidence_enabled"`
+	UserTerminalEnabled               bool   `json:"user_terminal_enabled"`
+	AgentTerminalInputDefault         bool   `json:"agent_terminal_input_default"`
+	WorkspaceOpenEnabled              bool   `json:"workspace_open_enabled"`
+	RendererPathInputSupported        bool   `json:"renderer_path_input_supported"`
 }
 
 type SkillPackageDialogStatus string
@@ -121,39 +125,43 @@ type SkillPackageInstallResult struct {
 }
 
 type DesktopBridgeConfig struct {
-	ContextProvider               func() context.Context
-	FilePicker                    SkillPackageFilePicker
-	ReadToken                     string
-	ControlToken                  string
-	RunControlEnabled             bool
-	RunCreationEnabled            bool
-	SessionMessageEnabled         bool
-	SessionSteeringControlEnabled bool
-	RunLifecycleEnabled           bool
-	RunExecutionEnabled           bool
-	PlanDeliveryControlEnabled    bool
-	ApprovalControlEnabled        bool
-	ModelControlEnabled           bool
-	ProviderCredentialEnabled     bool
-	FileEditReviewEnabled         bool
-	FileEditProposalEnabled       bool
-	RunWakeControlEnabled         bool
-	FileEditApplyEnabled          bool
-	RunWakeExecutionEnabled       bool
-	RunWakeWorkerEnabled          bool
-	SkillInstallationEnabled      bool
-	EvidenceAttachmentEnabled     bool
-	VerificationEvidenceEnabled   bool
-	UserTerminalEnabled           bool
-	APIVersion                    string
-	AppVersion                    string
-	UIDigest                      string
-	Selector                      NativeSkillPackageSelector
-	PreviewBridge                 *SkillPackagePreviewBridge
-	SkillInstaller                SkillPackageInstaller
-	WorkspaceResolver             WorkspaceResolver
-	WorkspaceLauncher             NativeWorkspaceLauncher
-	UserTerminalController        UserTerminalController
+	ContextProvider                   func() context.Context
+	FilePicker                        SkillPackageFilePicker
+	ReadToken                         string
+	ControlToken                      string
+	RunControlEnabled                 bool
+	ExecutionPermissionControlEnabled bool
+	OperatorApprovalEnabled           bool
+	DangerFullAccessEnabled           bool
+	DebugMaximumAccessEnabled         bool
+	RunCreationEnabled                bool
+	SessionMessageEnabled             bool
+	SessionSteeringControlEnabled     bool
+	RunLifecycleEnabled               bool
+	RunExecutionEnabled               bool
+	PlanDeliveryControlEnabled        bool
+	ApprovalControlEnabled            bool
+	ModelControlEnabled               bool
+	ProviderCredentialEnabled         bool
+	FileEditReviewEnabled             bool
+	FileEditProposalEnabled           bool
+	RunWakeControlEnabled             bool
+	FileEditApplyEnabled              bool
+	RunWakeExecutionEnabled           bool
+	RunWakeWorkerEnabled              bool
+	SkillInstallationEnabled          bool
+	EvidenceAttachmentEnabled         bool
+	VerificationEvidenceEnabled       bool
+	UserTerminalEnabled               bool
+	APIVersion                        string
+	AppVersion                        string
+	UIDigest                          string
+	Selector                          NativeSkillPackageSelector
+	PreviewBridge                     *SkillPackagePreviewBridge
+	SkillInstaller                    SkillPackageInstaller
+	WorkspaceResolver                 WorkspaceResolver
+	WorkspaceLauncher                 NativeWorkspaceLauncher
+	UserTerminalController            UserTerminalController
 }
 
 // DesktopBridge is the complete renderer binding surface for D0-A. Keep this
@@ -183,7 +191,8 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop bridge tokens must be normalized bounded values")
 	}
-	controlEnabled := config.RunControlEnabled || config.RunCreationEnabled ||
+	controlEnabled := config.RunControlEnabled ||
+		config.ExecutionPermissionControlEnabled || config.RunCreationEnabled ||
 		config.SessionMessageEnabled ||
 		config.SessionSteeringControlEnabled || config.RunLifecycleEnabled ||
 		config.RunExecutionEnabled || config.PlanDeliveryControlEnabled ||
@@ -215,6 +224,20 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop user terminal requires the Go terminal controller")
 	}
+	permissionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled:   config.OperatorApprovalEnabled,
+		DangerFullAccessEnabled:   config.DangerFullAccessEnabled,
+		DebugMaximumAccessEnabled: config.DebugMaximumAccessEnabled,
+	}
+	if err := permissionCapabilities.Validate(); err != nil {
+		return nil, apperror.Wrap(apperror.CodeInvalidArgument,
+			"desktop execution permission capabilities are invalid", err)
+	}
+	if (config.OperatorApprovalEnabled || config.DangerFullAccessEnabled ||
+		config.DebugMaximumAccessEnabled) && !config.ExecutionPermissionControlEnabled {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"desktop execution permission capabilities require permission control")
+	}
 	readHash := sha256.Sum256([]byte(config.ReadToken))
 	controlHash := sha256.Sum256([]byte(config.ControlToken))
 	if config.ControlToken != "" && subtle.ConstantTimeCompare(readHash[:], controlHash[:]) == 1 {
@@ -241,33 +264,37 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 			ProtocolVersion: ConnectionBootstrapProtocolVersion,
 			APIBaseURL:      DesktopAPIBasePath, APIVersion: apiVersion, AppVersion: appVersion,
 			UIDigest: config.UIDigest, ReadToken: config.ReadToken, ControlToken: config.ControlToken,
-			ControlEnabled:                config.RunControlEnabled,
-			RunCreationEnabled:            config.RunCreationEnabled,
-			SessionMessageEnabled:         config.SessionMessageEnabled,
-			SessionSteeringControlEnabled: config.SessionSteeringControlEnabled,
-			RunLifecycleEnabled:           config.RunLifecycleEnabled,
-			RunExecutionEnabled:           config.RunExecutionEnabled,
-			PlanDeliveryControlEnabled:    config.PlanDeliveryControlEnabled,
-			ApprovalControlEnabled:        config.ApprovalControlEnabled,
-			ModelControlEnabled:           config.ModelControlEnabled,
-			ProviderCredentialEnabled:     config.ProviderCredentialEnabled,
-			FileEditReviewEnabled:         config.FileEditReviewEnabled,
-			FileEditProposalEnabled:       config.FileEditProposalEnabled,
-			RunWakeControlEnabled:         config.RunWakeControlEnabled,
-			FileEditApplyEnabled:          config.FileEditApplyEnabled,
-			RunWakeExecutionEnabled:       config.RunWakeExecutionEnabled,
-			RunWakeWorkerEnabled:          config.RunWakeWorkerEnabled,
-			ReadOnlyDefault:               !controlEnabled,
-			ProcessExecutionEnabled:       config.UserTerminalEnabled,
-			ShellExecutionEnabled:         config.UserTerminalEnabled,
-			DockerExecutionEnabled:        false,
-			SkillInstallationEnabled:      config.SkillInstallationEnabled,
-			EvidenceAttachmentEnabled:     config.EvidenceAttachmentEnabled,
-			VerificationEvidenceEnabled:   config.VerificationEvidenceEnabled,
-			UserTerminalEnabled:           config.UserTerminalEnabled,
-			AgentTerminalInputDefault:     false,
-			WorkspaceOpenEnabled:          config.WorkspaceResolver != nil,
-			RendererPathInputSupported:    false,
+			ControlEnabled:                    config.RunControlEnabled,
+			ExecutionPermissionControlEnabled: config.ExecutionPermissionControlEnabled,
+			OperatorApprovalEnabled:           config.OperatorApprovalEnabled,
+			DangerFullAccessEnabled:           config.DangerFullAccessEnabled,
+			DebugMaximumAccessEnabled:         config.DebugMaximumAccessEnabled,
+			RunCreationEnabled:                config.RunCreationEnabled,
+			SessionMessageEnabled:             config.SessionMessageEnabled,
+			SessionSteeringControlEnabled:     config.SessionSteeringControlEnabled,
+			RunLifecycleEnabled:               config.RunLifecycleEnabled,
+			RunExecutionEnabled:               config.RunExecutionEnabled,
+			PlanDeliveryControlEnabled:        config.PlanDeliveryControlEnabled,
+			ApprovalControlEnabled:            config.ApprovalControlEnabled,
+			ModelControlEnabled:               config.ModelControlEnabled,
+			ProviderCredentialEnabled:         config.ProviderCredentialEnabled,
+			FileEditReviewEnabled:             config.FileEditReviewEnabled,
+			FileEditProposalEnabled:           config.FileEditProposalEnabled,
+			RunWakeControlEnabled:             config.RunWakeControlEnabled,
+			FileEditApplyEnabled:              config.FileEditApplyEnabled,
+			RunWakeExecutionEnabled:           config.RunWakeExecutionEnabled,
+			RunWakeWorkerEnabled:              config.RunWakeWorkerEnabled,
+			ReadOnlyDefault:                   !controlEnabled,
+			ProcessExecutionEnabled:           config.UserTerminalEnabled,
+			ShellExecutionEnabled:             config.UserTerminalEnabled,
+			DockerExecutionEnabled:            false,
+			SkillInstallationEnabled:          config.SkillInstallationEnabled,
+			EvidenceAttachmentEnabled:         config.EvidenceAttachmentEnabled,
+			VerificationEvidenceEnabled:       config.VerificationEvidenceEnabled,
+			UserTerminalEnabled:               config.UserTerminalEnabled,
+			AgentTerminalInputDefault:         false,
+			WorkspaceOpenEnabled:              config.WorkspaceResolver != nil,
+			RendererPathInputSupported:        false,
 		},
 	}, nil
 }

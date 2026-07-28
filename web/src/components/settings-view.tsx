@@ -1,18 +1,24 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   ArrowLeft,
   CircleUserRound,
   Cpu,
   Info,
   Keyboard,
+  Moon,
   PackageSearch,
   Palette,
   Search,
   Settings,
   ShieldCheck,
   SlidersHorizontal,
+  Sun,
 } from "lucide-react";
+import type { CyberAgentClient } from "../api/client";
 import type { HealthView } from "../api/types";
+import { applyPrayuTheme, readPrayuTheme, type PrayuTheme } from "../lib/appearance";
+import { RunPermissionSettings } from "./run-permission-settings";
+import { SidebarResizeHandle, clampSidebarWidth, defaultSidebarWidth } from "./workbench-frame";
 
 export type SettingsCapability = {
   id: string;
@@ -20,10 +26,11 @@ export type SettingsCapability = {
   enabled: boolean;
 };
 
-type SettingsSection = "profile" | "general" | "appearance" | "shortcuts" | "about";
+type SettingsSection = "profile" | "general" | "permissions" | "appearance" | "shortcuts" | "about";
 type Density = "comfortable" | "compact";
 
 const densityStorageKey = "prayu.ui-density";
+const settingsSidebarWidthStorageKey = "prayu.settings.sidebar.width.v1";
 
 function readDensity(): Density {
   if (typeof window === "undefined") return "comfortable";
@@ -43,6 +50,17 @@ function persistDensity(density: Density) {
   }
 }
 
+function readSettingsSidebarWidth(): number {
+  if (typeof window === "undefined") return defaultSidebarWidth;
+  try {
+    const stored = Number(window.localStorage.getItem(settingsSidebarWidthStorageKey));
+    return Number.isFinite(stored) && stored > 0
+      ? clampSidebarWidth(stored) : defaultSidebarWidth;
+  } catch {
+    return defaultSidebarWidth;
+  }
+}
+
 const navigation: Array<{
   id: SettingsSection;
   label: string;
@@ -50,6 +68,7 @@ const navigation: Array<{
 }> = [
   { id: "general", label: "常规", icon: Settings },
   { id: "profile", label: "个人资料", icon: CircleUserRound },
+  { id: "permissions", label: "权限", icon: ShieldCheck },
   { id: "appearance", label: "外观", icon: Palette },
   { id: "shortcuts", label: "键盘快捷键", icon: Keyboard },
   { id: "about", label: "关于", icon: Info },
@@ -57,15 +76,19 @@ const navigation: Array<{
 
 export function SettingsView({
   capabilities,
+  client,
   desktop,
   health,
+  selectedRunID,
   onBack,
   onOpenModels,
   onOpenSkills,
 }: {
   capabilities: SettingsCapability[];
+  client: CyberAgentClient;
   desktop: boolean;
   health: HealthView | null;
+  selectedRunID: string;
   onBack: () => void;
   onOpenModels: () => void;
   onOpenSkills: () => void;
@@ -73,6 +96,8 @@ export function SettingsView({
   const [section, setSection] = useState<SettingsSection>("profile");
   const [query, setQuery] = useState("");
   const [density, setDensity] = useState<Density>(readDensity);
+  const [theme, setTheme] = useState<PrayuTheme>(readPrayuTheme);
+  const [sidebarWidth, setSidebarWidth] = useState(readSettingsSidebarWidth);
   const visibleNavigation = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
     return navigation.filter((item) => !normalized ||
@@ -84,8 +109,23 @@ export function SettingsView({
     persistDensity(density);
   }, [density]);
 
+  useEffect(() => {
+    applyPrayuTheme(theme);
+  }, [theme]);
+
+  const resizeSidebar = (value: number) => {
+    const normalized = clampSidebarWidth(value);
+    setSidebarWidth(normalized);
+    try {
+      window.localStorage.setItem(settingsSidebarWidthStorageKey, String(normalized));
+    } catch {
+      // Window geometry remains usable when browser storage is unavailable.
+    }
+  };
+
   return (
-    <div className="settings-shell">
+    <div className="settings-shell"
+      style={{ "--prayu-settings-sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
       <aside className="settings-sidebar">
         <button className="settings-back" onClick={onBack} type="button">
           <ArrowLeft aria-hidden="true" size={17} />返回应用
@@ -114,6 +154,7 @@ export function SettingsView({
           </button>
         </nav>
       </aside>
+      <SidebarResizeHandle onChange={resizeSidebar} value={sidebarWidth} />
       <main className="settings-main">
         <header className="settings-header">
           <strong>{navigation.find((item) => item.id === section)?.label}</strong>
@@ -131,8 +172,10 @@ export function SettingsView({
             desktop={desktop} health={health} />}
           {section === "general" && <GeneralSettings capabilities={capabilities}
             desktop={desktop} health={health} />}
-          {section === "appearance" && <AppearanceSettings density={density}
-            onDensityChange={setDensity} />}
+          {section === "permissions" && <RunPermissionSettings client={client}
+            runID={selectedRunID} />}
+          {section === "appearance" && <AppearanceSettings density={density} theme={theme}
+            onDensityChange={setDensity} onThemeChange={setTheme} />}
           {section === "shortcuts" && <ShortcutSettings />}
           {section === "about" && <AboutSettings desktop={desktop} health={health} />}
         </div>
@@ -213,12 +256,23 @@ function GeneralSettings({ capabilities, desktop, health }: {
   </section>;
 }
 
-function AppearanceSettings({ density, onDensityChange }: {
+function AppearanceSettings({ density, theme, onDensityChange, onThemeChange }: {
   density: Density;
+  theme: PrayuTheme;
   onDensityChange: (density: Density) => void;
+  onThemeChange: (theme: PrayuTheme) => void;
 }) {
   return <section className="settings-page-section">
     <h1>外观</h1>
+    <div className="appearance-setting-row">
+      <div><strong>外观模式</strong><span>Theme</span></div>
+      <div className="prayu-segmented" role="group" aria-label="外观模式">
+        <button aria-pressed={theme === "light"} onClick={() => onThemeChange("light")}
+          type="button"><Sun aria-hidden="true" size={14} />浅色</button>
+        <button aria-pressed={theme === "dark"} onClick={() => onThemeChange("dark")}
+          type="button"><Moon aria-hidden="true" size={14} />深色</button>
+      </div>
+    </div>
     <div className="appearance-setting-row">
       <div><strong>界面密度</strong><span>Workspace density</span></div>
       <div className="prayu-segmented" role="group" aria-label="界面密度">
@@ -227,10 +281,6 @@ function AppearanceSettings({ density, onDensityChange }: {
         <button aria-pressed={density === "compact"}
           onClick={() => onDensityChange("compact")} type="button">紧凑</button>
       </div>
-    </div>
-    <div className="appearance-preview" aria-label="Prayu 水墨主题预览">
-      <span /><div><strong>Prayu Ink</strong><small>Orange / Ivory / Charcoal</small></div>
-      <ShieldCheck aria-hidden="true" size={17} />
     </div>
   </section>;
 }

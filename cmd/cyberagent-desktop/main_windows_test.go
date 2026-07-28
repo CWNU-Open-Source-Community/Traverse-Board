@@ -15,6 +15,7 @@ import (
 	"cyberagent-workbench/internal/desktop"
 
 	"github.com/wailsapp/wails/v2/pkg/options"
+	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
 
 type testWindowRestorer struct {
@@ -48,6 +49,7 @@ func TestDesktopOptionsDefaultToReadOnlyAndRequireExplicitCapabilities(t *testin
 		want desktopOptions
 	}{
 		{flag: "--enable-profile-control", want: desktopOptions{profileControl: true}},
+		{flag: "--enable-permission-control", want: desktopOptions{permissionControl: true}},
 		{flag: "--enable-run-creation", want: desktopOptions{runCreation: true}},
 		{flag: "--enable-session-messages", want: desktopOptions{sessionMessages: true}},
 		{flag: "--enable-session-steering-control", want: desktopOptions{sessionSteeringControl: true}},
@@ -78,6 +80,28 @@ func TestDesktopOptionsDefaultToReadOnlyAndRequireExplicitCapabilities(t *testin
 	if _, err := parseDesktopOptions([]string{"unexpected"}); err == nil {
 		t.Fatal("desktop positional argument was accepted")
 	}
+	if _, err := parseDesktopOptions([]string{
+		"--enable-danger-full-access",
+	}); err == nil {
+		t.Fatal("danger-full-access without permission control was accepted")
+	}
+	if _, err := parseDesktopOptions([]string{
+		"--enable-permission-control", "--enable-danger-full-access",
+		"--enable-debug-maximum-access",
+	}); err == nil {
+		t.Fatal("maximum debug access without the user terminal was accepted")
+	}
+	maximum, err := parseDesktopOptions([]string{
+		"--enable-permission-control", "--enable-danger-full-access",
+		"--enable-debug-maximum-access", "--enable-user-terminal",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !maximum.permissionControl || !maximum.dangerFullAccess ||
+		!maximum.debugMaximumAccess || !maximum.userTerminal {
+		t.Fatalf("maximum debug capability set is incomplete: %+v", maximum)
+	}
 }
 
 func TestDesktopStartupFailureMessageIsBoundedAndPathFree(t *testing.T) {
@@ -88,6 +112,20 @@ func TestDesktopStartupFailureMessageIsBoundedAndPathFree(t *testing.T) {
 		strings.Contains(message, "PRIVATE") || strings.Contains(message, "cyberagent.db") ||
 		len(message) > 256 {
 		t.Fatalf("unsafe startup failure message: %q", message)
+	}
+}
+
+func TestDesktopWindowUsesNativeAcrylicWithoutWeakeningRendererIntegrity(t *testing.T) {
+	window := desktopWindowsOptions()
+	if window == nil || window.Theme != windows.SystemDefault ||
+		window.BackdropType != windows.Acrylic ||
+		!window.WebviewIsTransparent || !window.WindowIsTranslucent {
+		t.Fatalf("native Acrylic boundary is incomplete: %#v", window)
+	}
+	if window.WebviewDisableRendererCodeIntegrity || window.EnableSwipeGestures ||
+		!window.DisablePinchZoom || !window.IsZoomControlEnabled ||
+		window.WindowClassName != "CyberAgentWorkbench" || window.Messages == nil {
+		t.Fatalf("Acrylic changed protected desktop defaults: %#v", window)
 	}
 }
 

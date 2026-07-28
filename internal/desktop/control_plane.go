@@ -13,6 +13,7 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/credential"
+	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/executionauth"
 	"cyberagent-workbench/internal/httpapi"
 	"cyberagent-workbench/internal/modelregistry"
@@ -46,34 +47,36 @@ type ControlPlane struct {
 }
 
 type ControlPlaneConfig struct {
-	DatabasePath                  string
-	HomePath                      string
-	ReadToken                     string
-	ControlToken                  string
-	RunControlEnabled             bool
-	RunCreationEnabled            bool
-	SessionMessageEnabled         bool
-	SessionSteeringControlEnabled bool
-	RunLifecycleEnabled           bool
-	RunExecutionEnabled           bool
-	PlanDeliveryControlEnabled    bool
-	ApprovalControlEnabled        bool
-	ModelControlEnabled           bool
-	ProviderCredentialEnabled     bool
-	FileEditReviewEnabled         bool
-	FileEditProposalEnabled       bool
-	RunWakeControlEnabled         bool
-	FileEditApplyEnabled          bool
-	RunWakeExecutionEnabled       bool
-	RunWakeWorkerEnabled          bool
-	SkillInstallationEnabled      bool
-	EvidenceAttachmentEnabled     bool
-	VerificationEvidenceEnabled   bool
-	UserTerminalEnabled           bool
-	AppVersion                    string
-	UIHandler                     http.Handler
-	CredentialStore               credential.Store
-	OnWakeWorkerError             func(error)
+	DatabasePath                      string
+	HomePath                          string
+	ReadToken                         string
+	ControlToken                      string
+	RunControlEnabled                 bool
+	ExecutionPermissionControlEnabled bool
+	ExecutionPermissionCapabilities   domain.ExecutionPermissionRuntimeCapabilities
+	RunCreationEnabled                bool
+	SessionMessageEnabled             bool
+	SessionSteeringControlEnabled     bool
+	RunLifecycleEnabled               bool
+	RunExecutionEnabled               bool
+	PlanDeliveryControlEnabled        bool
+	ApprovalControlEnabled            bool
+	ModelControlEnabled               bool
+	ProviderCredentialEnabled         bool
+	FileEditReviewEnabled             bool
+	FileEditProposalEnabled           bool
+	RunWakeControlEnabled             bool
+	FileEditApplyEnabled              bool
+	RunWakeExecutionEnabled           bool
+	RunWakeWorkerEnabled              bool
+	SkillInstallationEnabled          bool
+	EvidenceAttachmentEnabled         bool
+	VerificationEvidenceEnabled       bool
+	UserTerminalEnabled               bool
+	AppVersion                        string
+	UIHandler                         http.Handler
+	CredentialStore                   credential.Store
+	OnWakeWorkerError                 func(error)
 }
 
 func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
@@ -178,40 +181,42 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	}
 	api, err := httpapi.New(stateStore, httpapi.Config{
 		AccessToken: config.ReadToken, ControlToken: config.ControlToken,
-		RunControlEnabled:             config.RunControlEnabled,
-		RunCreationEnabled:            config.RunCreationEnabled,
-		SessionMessageEnabled:         config.SessionMessageEnabled,
-		SessionSteeringControlEnabled: config.SessionSteeringControlEnabled,
-		RunLifecycleEnabled:           config.RunLifecycleEnabled,
-		RunExecutionEnabled:           config.RunExecutionEnabled,
-		PlanDeliveryControlEnabled:    config.PlanDeliveryControlEnabled,
-		ApprovalControlEnabled:        config.ApprovalControlEnabled,
-		ModelControlEnabled:           config.ModelControlEnabled,
-		ProviderCredentialEnabled:     config.ProviderCredentialEnabled,
-		FileEditReviewEnabled:         config.FileEditReviewEnabled,
-		FileEditProposalEnabled:       config.FileEditProposalEnabled,
-		RunWakeControlEnabled:         config.RunWakeControlEnabled,
-		FileEditApplyEnabled:          config.FileEditApplyEnabled,
-		RunWakeExecutionEnabled:       config.RunWakeExecutionEnabled,
-		RunWakeWorkerEnabled:          config.RunWakeWorkerEnabled,
-		SkillInstallationEnabled:      config.SkillInstallationEnabled,
-		EvidenceAttachmentEnabled:     config.EvidenceAttachmentEnabled,
-		VerificationEvidenceEnabled:   config.VerificationEvidenceEnabled,
-		RunLifecycleController:        lifecycleControl,
-		RunExecutionController:        executionControl,
-		PlanDeliveryController:        planDeliveryControl,
-		ApprovalController:            approvalControl,
-		ModelControlController:        modelControl,
-		ProviderCredentialController:  providerCredentialControl,
-		FileEditReviewController:      fileEditReview,
-		FileEditProposalController:    fileEditProposal,
-		RunWakeController:             runWakeControl,
-		FileEditApplyController:       fileEditApply,
-		RunWakeExecutionController:    runWakeExecution,
-		RunWakeWorkerHealthSource:     workerHealth,
-		SkillInstallationController:   skillInstaller,
-		ModelRegistry:                 models,
-		AppVersion:                    config.AppVersion, UIHandler: config.UIHandler,
+		RunControlEnabled:                 config.RunControlEnabled,
+		ExecutionPermissionControlEnabled: config.ExecutionPermissionControlEnabled,
+		ExecutionPermissionCapabilities:   config.ExecutionPermissionCapabilities,
+		RunCreationEnabled:                config.RunCreationEnabled,
+		SessionMessageEnabled:             config.SessionMessageEnabled,
+		SessionSteeringControlEnabled:     config.SessionSteeringControlEnabled,
+		RunLifecycleEnabled:               config.RunLifecycleEnabled,
+		RunExecutionEnabled:               config.RunExecutionEnabled,
+		PlanDeliveryControlEnabled:        config.PlanDeliveryControlEnabled,
+		ApprovalControlEnabled:            config.ApprovalControlEnabled,
+		ModelControlEnabled:               config.ModelControlEnabled,
+		ProviderCredentialEnabled:         config.ProviderCredentialEnabled,
+		FileEditReviewEnabled:             config.FileEditReviewEnabled,
+		FileEditProposalEnabled:           config.FileEditProposalEnabled,
+		RunWakeControlEnabled:             config.RunWakeControlEnabled,
+		FileEditApplyEnabled:              config.FileEditApplyEnabled,
+		RunWakeExecutionEnabled:           config.RunWakeExecutionEnabled,
+		RunWakeWorkerEnabled:              config.RunWakeWorkerEnabled,
+		SkillInstallationEnabled:          config.SkillInstallationEnabled,
+		EvidenceAttachmentEnabled:         config.EvidenceAttachmentEnabled,
+		VerificationEvidenceEnabled:       config.VerificationEvidenceEnabled,
+		RunLifecycleController:            lifecycleControl,
+		RunExecutionController:            executionControl,
+		PlanDeliveryController:            planDeliveryControl,
+		ApprovalController:                approvalControl,
+		ModelControlController:            modelControl,
+		ProviderCredentialController:      providerCredentialControl,
+		FileEditReviewController:          fileEditReview,
+		FileEditProposalController:        fileEditProposal,
+		RunWakeController:                 runWakeControl,
+		FileEditApplyController:           fileEditApply,
+		RunWakeExecutionController:        runWakeExecution,
+		RunWakeWorkerHealthSource:         workerHealth,
+		SkillInstallationController:       skillInstaller,
+		ModelRegistry:                     models,
+		AppVersion:                        config.AppVersion, UIHandler: config.UIHandler,
 	})
 	if err != nil {
 		if terminalManager != nil {

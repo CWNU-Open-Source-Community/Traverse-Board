@@ -34,6 +34,10 @@ export function ConnectionGate() {
       queryClient.clear();
       connect(bootstrap.read_token, health, bootstrap.control_token, {
         runControlEnabled: bootstrap.control_enabled,
+        executionPermissionControlEnabled: bootstrap.execution_permission_control_enabled,
+        operatorApprovalEnabled: bootstrap.operator_approval_enabled,
+        dangerFullAccessEnabled: bootstrap.danger_full_access_enabled,
+        debugMaximumAccessEnabled: bootstrap.debug_maximum_access_enabled,
         runCreationEnabled: bootstrap.run_creation_enabled,
         sessionMessageEnabled: bootstrap.session_message_enabled,
         sessionSteeringControlEnabled: bootstrap.session_steering_control_enabled,

@@ -53,6 +53,10 @@ cyberagent run graph <run-id>
 cyberagent run lease <run-id>
 cyberagent run execution-interaction <run-id>
 cyberagent run execution-interaction set <run-id> controlled --operation-key <stable-key> --trust trusted --confirm-workspace-trust --operator operator
+cyberagent run execution-permission <run-id>
+cyberagent run execution-permission set <run-id> approval --operation-key <stable-key> --enable-permission-control --confirm-user-approval
+cyberagent run execution-permission set <run-id> full_access --operation-key <stable-key> --enable-permission-control --enable-danger-full-access --confirm-danger-full-access
+cyberagent run execution-permission set <run-id> debug --operation-key <stable-key> --enable-permission-control --enable-danger-full-access --enable-debug-maximum-access --confirm-debug-access
 cyberagent run command-plan <run-id> git-status
 cyberagent run command-plan <run-id> git-diff-check --timeout 30s
 cyberagent run command-plan <run-id> go-version
@@ -67,6 +71,8 @@ cyberagent run cancel <run-id>
 A Mission is the stable goal and authorization scope. A Run is one resumable execution attempt. Each new Run creates a dedicated active Session unless `--session <id>` selects an unattached active Session. Session creation or attachment, Run creation, and their initial events commit together in SQLite.
 
 Schema v86 separates execution interaction intent from general runtime authority. `preview` is the default. `controlled` requires a Code-surface Run, the Local execution profile, explicit operator trust, and an explicit Workspace-boundary confirmation. `debug` additionally requests a user-owned ConPTY terminal, while `cyber` requires a Cyber-surface Run and Docker profile. Models, Agents, Skills, and repository content cannot select these modes. Every interaction snapshot still fixes process execution, network, capability grants, and execution authorization to false. Schema v87 records the separate, closed one-shot command path with write-ahead intents and immutable metadata-only receipts rather than widening that snapshot.
+
+Schema v88 adds an orthogonal `conservative|approval|full_access|debug` permission selector. `conservative` is the default and is the only mode currently connected to an executor. `approval` defines exact per-command approval, `full_access` defines unsandboxed one-shot host access, and `debug` additionally defines persistent terminal, background-process, and Agent-input authority. Elevated selection requires its exact confirmation plus process-local startup gates. Persisted snapshots never grant authority and remain fixed to `process_enabled=false`, `execution_authorized=false`, and `capability_grant=false`; each operation rechecks the current process. Arbitrary approval/full-access command transport and the Agent-owned Debug terminal are not implemented yet.
 
 Debug/Cyber Agent terminal input is a separate process-local lease bound to one Workspace, Run, terminal session, exact interaction snapshot ID/revision, and interaction mode. The opaque bearer is never persisted, lasts at most 15 minutes, can be revoked immediately, and becomes invalid on restart. Active leases and revoked-token summaries are independently bounded to 256 entries. Host lock/disconnect/logoff, sleep/resume, Run termination, Workspace or interaction rebinding, terminal replacement, and shutdown revoke affected leases. A selected mode is not a lease, and a lease is not process authority. The current bridge is internal to Go; the Desktop renderer cannot issue a lease or let a model type into the user terminal.
 

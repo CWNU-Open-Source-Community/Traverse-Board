@@ -11,6 +11,10 @@ const bootstrap = {
   read_token: "read-token-0123456789abcdefghijklmnop",
   control_token: "",
   control_enabled: false,
+  execution_permission_control_enabled: false,
+  operator_approval_enabled: false,
+  danger_full_access_enabled: false,
+  debug_maximum_access_enabled: false,
   run_creation_enabled: false,
   session_message_enabled: false,
   session_steering_control_enabled: false,
@@ -186,6 +190,13 @@ describe("desktop native bridge", () => {
 
     vi.resetModules();
     installBridge({ Bootstrap: vi.fn().mockResolvedValue({ ...bootstrap, source_path: "C:\\PRIVATE" }) });
+    module = await import("./desktop-bridge");
+    await expect(module.loadDesktopBootstrap()).rejects.toThrow("rejected");
+
+    vi.resetModules();
+    const missingPermissionFlag = { ...bootstrap } as Record<string, unknown>;
+    delete missingPermissionFlag.execution_permission_control_enabled;
+    installBridge({ Bootstrap: vi.fn().mockResolvedValue(missingPermissionFlag) });
     module = await import("./desktop-bridge");
     await expect(module.loadDesktopBootstrap()).rejects.toThrow("rejected");
 

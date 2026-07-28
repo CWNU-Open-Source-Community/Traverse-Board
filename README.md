@@ -7,13 +7,13 @@
 
 项目从 schema v49 起同时使用两项工程指标，避免把“架构已经搭好”误解为“产品已经完整可用”。这些百分比是基于当前任务书和可验证工作流的工程估算，不是性能基准。
 
-- **架构完成度 / Architecture completion：约 99%**。衡量 Go 控制平面、Run/Session、状态恢复、Policy、审批、预算、事件流、Tool Gateway、Agent 协调、Skills、报告、Sandbox 协议及 Go/TypeScript/Rust 边界的覆盖程度；其中 V2 Run-centric Runtime 约 99%。schema v87 已覆盖同步等待环检测、工具硬超时、Run 活锁熔断、模型总上下文闸门、累计交接记忆、验证与浏览器接纳账本、`preview|controlled|debug|cyber` 执行交互意图，以及受控命令的写前 intent/不可变 receipt。Windows 现在能在受限低完整性令牌和创建时 Job Object 下执行四种 Go 固定模板；Debug 可显式启用用户所有的 ConPTY/xterm 终端，Agent 输入仍由独立短租约约束。任意 Shell、独立网络沙箱、Docker PTY、analyzer 产品子进程与真实浏览器仍未开放。
-- **产品可用度 / Product usability：约 96-98%**。衡量普通用户能否依靠当前 CLI、TUI、Web 和 Windows Desktop 完成真实端到端工作。通用 Coding Agent 工作流约 96-97%，Cyber 自动化工作流约 20%；除现有 Run、编辑、仓库、验证、Handoff、凭证、wake worker 和模型 Harness 外，CLI 已能由操作者确认执行四种一次性受控命令，Windows Desktop 可通过默认关闭的启动开关提供用户输入优先的真实终端。模型不能提交任意命令、环境、stdin 或终端启动请求，终端原始输出只在进程内存在。Agent 可控的通用宿主 Shell、网络隔离执行、Docker 持久终端、内置浏览器、安装脚本/钩子、Windows 10 人工发布矩阵和 Cyber 工具链仍未完成。
+- **架构完成度 / Architecture completion：约 99%**。衡量 Go 控制平面、Run/Session、状态恢复、Policy、审批、预算、事件流、Tool Gateway、Agent 协调、Skills、报告、Sandbox 协议及 Go/TypeScript/Rust 边界的覆盖程度；其中 V2 Run-centric Runtime 约 99%。schema v88 在既有同步等待环、工具硬超时、Run 活锁、上下文、交接记忆、验证、浏览器接纳、执行交互和受控命令边界上，新增 `conservative|approval|full_access|debug` 四档 Run 执行权限策略。选择由操作者完成并不可变审计，每次操作还必须通过当前进程启动闸门；持久化快照永远不直接授予执行权。
+- **产品可用度 / Product usability：约 96-98%**。衡量普通用户能否依靠当前 CLI、TUI、Web 和 Windows Desktop 完成真实端到端工作。通用 Coding Agent 工作流约 96-97%，Cyber 自动化工作流约 20%；CLI、HTTP 与 Desktop/React 已能展示并切换四档权限，保守档继续执行现有四种固定模板。用户审批、完全访问和调试档的授权合同已经建立，但任意宿主命令传输与 Agent 持久终端执行器仍关闭，不能只靠切档获得能力。网络隔离执行、Docker 持久终端、内置浏览器、安装脚本/钩子、Windows 10 人工发布矩阵和 Cyber 工具链仍未完成。
 
 Starting with schema v49, the project reports two engineering indicators so architectural maturity is not mistaken for end-user completeness. These percentages are roadmap estimates backed by tested workflows, not performance benchmarks.
 
-- **Architecture completion: about 99%.** Schema v87 retains the existing deadlock, deadline, livelock, context, handoff, verification, browser, and interaction controls, and adds write-ahead intents plus immutable receipts for controlled commands. Windows can now execute four Go-owned templates under a restricted low-integrity token and creation-time Job Object. Debug may explicitly enable a user-owned ConPTY/xterm terminal, while Agent input remains a separate short-lived capability. Arbitrary Shell, an independent network sandbox, Docker PTY, analyzer product subprocesses, and a real browser remain unavailable.
-- **Product usability: about 96-98%.** The generic coding-agent workflow is about 96-97% usable and Cyber automation about 20%. In addition to the established Run, editing, repository, verification, handoff, credential, wake-worker, and model-Harness workflows, the CLI now supports operator-confirmed execution of four closed one-shot commands. Windows Desktop can expose a real user-first terminal behind a default-off startup flag. Models cannot submit executable paths, arbitrary command text, environment variables, stdin, or terminal-start requests, and raw terminal output remains process-local. General Agent-controlled host Shell, network-isolated execution, persistent Docker terminals, the built-in browser, install hooks, the Windows 10 release matrix, and the Cyber toolchain remain unfinished.
+- **Architecture completion: about 99%.** Schema v88 adds four orthogonal Run permission policies, `conservative|approval|full_access|debug`, over the existing deadlock, budget, context, browser, interaction, and controlled-command boundaries. Selection is operator-owned and immutable-audited, while every operation must still pass the current process startup gate. A persisted snapshot never grants authority by itself.
+- **Product usability: about 96-98%.** The generic coding-agent workflow is about 96-97% usable and Cyber automation about 20%. CLI, HTTP, and Desktop/React can now show and switch all four policies; conservative mode continues to consume the existing four fixed command templates. The authorization contracts for approval, full access, and debug exist, but arbitrary host-command transport and an Agent-owned persistent terminal remain closed. Network-isolated execution, Docker terminals, the built-in browser, install hooks, the Windows 10 release matrix, and the Cyber toolchain remain unfinished.
 
 ## 项目简介 / Project Overview
 
@@ -36,6 +36,22 @@ Each user objective is stored as a `Mission`, while each resumable execution att
 The current priority is the general-purpose Agent runtime and its controlled multi-agent kernel. CTF capabilities will be added later as Profiles and Skills on the same foundation rather than as a separate execution system.
 
 `Prayu` is the current product and interface name. The `cyberagent` CLI, `cyberagent-workbench` Go module, `.cyberagent-workbench` data directory, `CYBERAGENT_*` environment variables, compatibility HTTP headers, and credential targets remain stable to protect existing scripts, databases, and credentials. They are compatibility identifiers, not a second product or control plane.
+
+## 桌面权限中心与原生玻璃 / Desktop Permission Center And Native Glass
+
+Windows Desktop 现在提供独立的“权限”设置页，把当前 Run 的三项执行控制集中展示：
+
+- 权限上限：`conservative|approval|full_access|debug`；
+- 交互方式：`preview|controlled|debug|cyber`；
+- 执行环境：`preview|local|docker`。
+
+三者仍是互相独立、由 Go 联合校验的状态。页面必须绑定一个已选择的 Run；没有 Run 时只显示空状态，不会修改全局默认值。高权限档继续要求精确人工确认和当前进程启动闸门，界面上的选中态本身不授予进程、终端、文件或网络能力。
+
+设置侧栏复用工作台同一套 232-420 px 有界拖拽、键盘调整、双击复位和本地宽度记忆。Windows Wails 窗口使用原生 Acrylic、透明 WebView 与浅色/深色玻璃令牌；窗口移动时由系统合成器采样真实桌面壁纸，选中的导航和分段控制呈现高对比圆角白色表面。Prayu 不再用整页背景图或截图冒充毛玻璃。Windows 关闭透明效果、远程/节能环境或窗口最大化时，系统可能回退为更不透明的可读表面。
+
+Windows Desktop now has a dedicated Permission settings page for the selected Run's permission ceiling, interaction shape, and execution environment. These remain separate Go-validated dimensions. With no Run selected, the page is inert; selecting a control never grants runtime authority by itself.
+
+The Settings sidebar reuses the accessible 232-420 px workbench resizer. On Windows, Wails uses the native Acrylic backdrop with a transparent WebView and real light/dark glass tokens. The compositor samples the actual desktop as the window moves; Prayu does not simulate blur with a wallpaper screenshot. Windows may use a more opaque readable fallback when transparency is disabled, the window is maximized, or the session cannot provide Acrylic. See [ADR 0078](docs/adr/0078-desktop-permission-center-and-native-acrylic.md).
 
 ## 企业能力边界 / Enterprise Capability Boundary
 
@@ -64,9 +80,9 @@ Prayu no longer treats an Anthropic/OpenAI-shaped HTTP endpoint as proof that a 
 
 Built-in Mock is the trusted offline baseline. Mimo, DeepSeek, and other Anthropic-compatible models begin as `qualification_required`. An operator can run `cyberagent provider qualify <route|provider/model>` or use the separate Desktop qualification control. The bounded two-call probe requires one synthetic nonce ToolCall followed by exact JSON after a synthetic ToolResult. The Tool is never executed, and the public result contains no prompt, response body, Tool arguments, key, base URL, or raw Provider error. Qualification is bound to the exact configuration for seven days and is distinct from ordinary connectivity diagnostics.
 
-## 执行交互信任模型 / Execution Interaction Trust Model
+## 执行交互与权限模型 / Execution Interaction And Permission Models
 
-Prayu 不用一个“完全访问”开关覆盖所有工作面，而是固定三种执行信任模型：
+Prayu 把“如何呈现执行”与“最多允许什么”分成两个正交维度。schema v86 的三类执行信任模型决定交互形态：
 
 ```text
 Code：Codex 式工作区沙箱 + Claude 式无状态命令
@@ -76,6 +92,17 @@ Cyber：仅隔离容器内使用 Strix 式持久终端
 
 schema v86 的 `run_execution_interaction.v1` 记录 `preview|controlled|debug|cyber` 操作者意图。`controlled` 必须绑定 Code/Local 与显式工作区信任；`debug` 在此基础上请求用户 ConPTY，但 Agent 默认不能输入；`cyber` 必须绑定 Cyber/Docker。模型、Agent、Skill 和仓库内容不能切档。所有交互快照仍固定 `process_enabled=false`、`execution_authorized=false`、`capability_grant=false`；真实的一次性执行由 schema v87 的独立 intent/receipt 协议表示，不把交互意图改写成通用权限。
 
+schema v88 的 `run_execution_permission.v1` 再由操作者选择四档权限上限：
+
+| 权限档位 | 当前合同 | 当前产品执行状态 |
+| --- | --- | --- |
+| `conservative` 保守 | Go 固定模板、工作区受控、网络关闭 | 已接入现有受控命令执行器 |
+| `approval` 用户审批 | 每条精确的一次性命令都要人工批准 | 选择、审计与授权判定已完成；任意命令执行器未接入 |
+| `full_access` 完全访问 | 无逐命令审批的一次性宿主文件与网络访问 | 选择、审计与启动闸门已完成；宿主执行器未接入 |
+| `debug` 调试 | 完全访问、持久终端、后台进程及 Agent 输入 | 选择、审计与最大权限闸门已完成；Agent 持久终端未接入 |
+
+高权限能力不会随 SQLite 选择自动恢复。HTTP/Desktop 进程必须分别显式开启 permission-control、danger-full-access 和 debug-maximum-access，且高档位按层级依赖低档位；Desktop 的 Debug 最大权限还要求同时启用用户终端。模型、Agent、Skill、README 和仓库内容不能切换权限。所有 v88 快照继续固定 `process_enabled=false`、`execution_authorized=false`、`capability_grant=false`，每次实际操作都由 Go 根据当前进程能力重新判定。
+
 Agent 对 Debug/Cyber 终端的输入使用独立的进程内短期令牌，精确绑定 Workspace、Run、TerminalSession、执行交互快照 ID/修订号和模式，最长 15 分钟，不写 SQLite，重启即失效。活动租约与已撤销摘要各自有 256 项上限，撤销不会占住新租约容量。已接入路径会在宿主锁屏、断开、注销、睡眠/恢复、Run 终止、执行 Profile/交互绑定变化、终端替换和应用退出时撤销；Run 的 Workspace ID 本身不可变，未来若增加独立 Workspace 切换入口，必须显式调用已有的 Workspace-scope 撤销能力。当前 Agent 输入桥只存在 Go 内部，Desktop renderer 没有签发租约或让模型输入终端的入口。
 
 `controlled_command_plan.v1` 只接受 `git-status`、`git-diff-check`、`go-version` 和固定 Go 模板的 `powershell-workspace-list`；不接受任意 Shell 文本、环境继承、stdin、PowerShell Profile、网络请求或持久进程，计划本身继续固定 `start_blocked=true`。PowerShell 的动态相对路径先由 Go 编码为严格十六进制数据，再由固定脚本解码成 UTF-8 `LiteralPath`，不会作为 PowerShell 表达式求值。schema v87 新增独立的操作者命令 `run command-execute`：先持久化精确 plan intent，再用 Windows 受限低完整性令牌、创建时 Job Object、单进程和 512 MiB 上限启动一次，限制输出、超时、取消和整树回收，最后只保存元数据与输出摘要。stdout/stderr 正文仅写当前 CLI，不进入 SQLite。该边界没有独立网络沙箱，因此只开放四种无网络固定模板；自定义安装位置不可用时失败关闭。
@@ -84,15 +111,24 @@ Agent 对 Debug/Cyber 终端的输入使用独立的进程内短期令牌，精�
 cyberagent run execution-profile set <run-id> local --operation-key <key>
 cyberagent run execution-interaction set <run-id> controlled `
   --trust trusted --confirm-workspace-trust --operation-key <key>
+cyberagent run execution-permission set <run-id> approval `
+  --operation-key <key> --enable-permission-control --confirm-user-approval
+cyberagent run execution-permission set <run-id> full_access `
+  --operation-key <key> --enable-permission-control `
+  --enable-danger-full-access --confirm-danger-full-access
+cyberagent run execution-permission set <run-id> debug `
+  --operation-key <key> --enable-permission-control `
+  --enable-danger-full-access --enable-debug-maximum-access `
+  --confirm-debug-access
 cyberagent run command-plan <run-id> git-status
 cyberagent run command-plan <run-id> powershell-workspace-list --path src
 cyberagent run command-execute <run-id> go-version `
   --operation-key <key> --confirm-execution
 ```
 
-`command-plan` 只生成非启动计划；`command-execute` 是分离的操作者确认执行入口，模型和仓库内容不能代替确认。PowerShell 参数本身不是沙箱，低完整性令牌也不是工作区专用文件能力或网络阻断。完整决策见 [ADR 0075](docs/adr/0075-execution-interaction-trust-model.md) 与 [ADR 0076](docs/adr/0076-controlled-windows-execution-and-user-terminal.md)。
+`execution-permission` 只选择可请求的策略上限，不是通用执行入口。`command-plan` 只生成非启动计划；`command-execute` 是分离的操作者确认执行入口，当前仍只接受四种固定模板。模型和仓库内容不能代替确认。PowerShell 参数本身不是沙箱，低完整性令牌也不是工作区专用文件能力或网络阻断。完整决策见 [ADR 0075](docs/adr/0075-execution-interaction-trust-model.md)、[ADR 0076](docs/adr/0076-controlled-windows-execution-and-user-terminal.md) 与 [ADR 0077](docs/adr/0077-four-level-run-execution-permissions.md)。
 
-Prayu uses three execution trust models instead of one global full-access switch: closed stateless commands for Code, a user-first Debug terminal with separately leased Agent input, and persistent Cyber terminals only inside an isolated container. Schema v86 persists operator intent rather than general runtime authority. Schema v87 separately records write-ahead command intents and immutable metadata-only receipts. Four Go-owned Windows templates can run under a restricted low-integrity token and a creation-time Job Object; output bodies are transient. A default-off Desktop flag enables a user-owned ConPTY/xterm terminal for exact Code/Local/Debug bindings. There is still no arbitrary Agent Shell, renderer-issued Agent input lease, independent network sandbox, or Docker terminal.
+Prayu separates interaction shape from permission ceiling. Schema v86 records `preview|controlled|debug|cyber` interaction intent; schema v88 records `conservative|approval|full_access|debug` permission policy. Selection never persists runtime authority, and every operation rechecks process-local startup capabilities. Only conservative fixed-template execution is connected today. Arbitrary approval/full-access command transport and the Agent-owned persistent debug terminal remain closed.
 
 ## 工作台面板 / Workbench Dock Controls
 
@@ -139,9 +175,9 @@ The third layer performs cache-only, no-network Windows Authenticode verificatio
 
 ## 开发历程 / Development History
 
-下表是唯一按时间排序的 schema 开发历程，完整保留了早期 `v1`、`v2`、`v3`，并连续列到当前 `v87`。这里的 `vN` 是不可变 SQLite schema/runtime 里程碑，不等同于产品发布版本；后面的架构说明按能力域组织，因此不再承担版本排序职责。
+下表是唯一按时间排序的 schema 开发历程，完整保留了早期 `v1`、`v2`、`v3`，并连续列到当前 `v88`。这里的 `vN` 是不可变 SQLite schema/runtime 里程碑，不等同于产品发布版本；后面的架构说明按能力域组织，因此不再承担版本排序职责。
 
-The table below is the canonical chronological schema history. It includes every immutable SQLite schema/runtime milestone from `v1` through the current `v87`. These schema numbers are not product release versions; the architecture notes that follow are grouped by capability instead of chronology.
+The table below is the canonical chronological schema history. It includes every immutable SQLite schema/runtime milestone from `v1` through the current `v88`. These schema numbers are not product release versions; the architecture notes that follow are grouped by capability instead of chronology.
 
 | Schema | 中文里程碑 | English milestone |
 | --- | --- | --- |
@@ -232,6 +268,7 @@ The table below is the canonical chronological schema history. It includes every
 | v85 | 可恢复且不启动的浏览器接纳、租约与人工复核门 | durable non-starting browser acceptance, lease, and operator-review gates |
 | v86 | 操作者选择且不授权的执行交互边界 | operator-selected non-authorizing execution interaction boundaries |
 | v87 | 受控命令的写前 intent 与不可变执行回执 | write-ahead intents and immutable receipts for controlled commands |
+| v88 | 操作者选择、运行期重校验的四档执行权限 | operator-selected four-level execution permissions with runtime re-gating |
 
 ### v85 之后的近期运行时里程碑 / Recent runtime milestones after v85
 
@@ -248,10 +285,11 @@ The table below is the canonical chronological schema history. It includes every
 | P12-B1 / schema v87 | Windows 受限低完整性一次性固定命令、创建时 Job Object、写前 intent 与不可变 receipt | restricted low-integrity one-shot Windows templates, creation-time Job Object, write-ahead intent, and immutable receipt |
 | P12-B2 | 默认关闭的用户 ConPTY/xterm Debug 终端 | default-off user-owned ConPTY/xterm Debug terminal |
 | P12-B3 | 精确短租约 Agent 输入桥与宿主/Run/绑定撤销 | exact short-lease Agent-input bridge with host, Run, and binding revocation |
+| P12-C1-C3 / schema v88 | 四档权限快照、CLI/API/Desktop/React 选择、进程启动闸门及统一执行授权判定 | four permission snapshots, CLI/API/Desktop/React selection, process startup gates, and unified execution authorization |
 
-Model Harness 批次没有新增迁移；P12-A1 将 SQLite 推进到 schema v86，P12-B1 再推进到 v87。P12-B2/B3 的终端和租约都只存在当前进程，不保存原始输入、输出、环境或令牌。下一批继续处理产品执行策略与终端可用性，但任意 Agent Shell、Docker PTY、真实浏览器启动、Profile 落盘和 CDP 不会因此提前开放。
+Model Harness 批次没有新增迁移；P12-A1 将 SQLite 推进到 schema v86，P12-B1 推进到 v87，P12-C1-C3 再推进到 v88。P12-B2/B3 的终端和租约都只存在当前进程，不保存原始输入、输出、环境或令牌。下一批按顺序接入审批命令提案、完全访问的一次性宿主执行器和 Debug Agent 终端绑定；在各自实现和审计完成前，任意 Agent Shell、Docker PTY、真实浏览器启动、Profile 落盘和 CDP 不会开放。
 
-Model Harness added protocol profiles, request minimization, unified preflight, and explicit two-call qualification without a migration. P12-A1 advances SQLite to v86 and P12-B1 to v87. P12-B2/B3 keep terminal bytes, environment, and lease tokens process-local. Arbitrary Agent Shell, Docker PTY, real browser start, disposable Profile materialization, and CDP remain separate future gates.
+Model Harness added protocol profiles, request minimization, unified preflight, and explicit two-call qualification without a migration. P12-A1 advances SQLite to v86, P12-B1 to v87, and P12-C1-C3 to v88. P12-B2/B3 keep terminal bytes, environment, and lease tokens process-local. Approval command proposals, the full-access one-shot host executor, and the Debug Agent terminal binding remain separate next gates.
 
 P12-B 三切片最终门已通过：全仓串行 Go 测试 796.6 秒、`go vet`、零告警 `staticcheck`、Runner/Terminal race、真实 Windows 受控进程/ConPTY/宿主边界 opt-in 冒烟、43 个文件 151 项 React 测试、strict TypeScript、Vite production build、零漏洞 npm audit、module verify/tidy 和零可达漏洞 `govulncheck` 均为绿色。Windows 可复现双构建 SHA-256 为 `6f60f97096a06305e26d3c68ef26f93622c80a4784ad23ea72d2b28353fc2e77`，仍是 `release_ready=false` 的未签名便携测试程序。组合审计修复 PowerShell 路径表达式注入、不可能执行回执、Win32 管道读取句柄双重所有权、终端启动竞态和关闭清理问题；启用路径没有已知未解决的高/中风险。
 
@@ -539,11 +577,11 @@ React adds Actions and Evidence Run tabs plus a `Ctrl+K` command palette. Action
 
 ## Windows 桌面端 / Windows Desktop
 
-Desktop D0-A、D0-B 与 D1-R1 至 D1-G13/V12 自动化核心已完成；项目全局 SQLite 当前为 v87，并包含非产品 R10 Runner 回执黄金边界、不启动的浏览器接纳账本，以及 P12-B 的受控命令和用户终端边界。项目固定 Wails v2.13.0 稳定版，并提供 Windows `cyberagent-desktop` 开发/便携测试二进制。Vite production bundle 在编译期嵌入；现有 Go `api.v1` Handler 直接接入 Wails AssetServer，不监听 TCP 端口，也不建立第二套业务 API。桌面端默认只读，每类 mutation 都由独立显式 flag 开启。本地 Monaco、Repository、验证、Handoff/Journey、系统凭证和 wake worker 继续复用既有 Go read/control 边界；`--enable-user-terminal` 只为精确 Code/Local/Debug Run 开放用户所有的 ConPTY/xterm，会话、环境和输出不持久化，Agent 默认不能输入。通用 Agent Shell、Docker PTY 和浏览器仍关闭。
+Desktop D0-A、D0-B、D1-R1 至 D1-G13/V12 与 D1-UX10 自动化核心已完成；项目全局 SQLite 当前为 v88，并包含非产品 R10 Runner 回执黄金边界、不启动的浏览器接纳账本、P12-B 受控命令和用户终端，以及 P12-C 四档权限边界。项目固定 Wails v2.13.0 稳定版，并提供 Windows `cyberagent-desktop` 开发/便携测试二进制。Vite production bundle 在编译期嵌入；现有 Go `api.v1` Handler 直接接入 Wails AssetServer，不监听 TCP 端口，也不建立第二套业务 API。桌面端默认只读，每类 mutation 都由独立显式 flag 开启。本地 Monaco、Repository、验证、Handoff/Journey、系统凭证和 wake worker 继续复用既有 Go read/control 边界；`--enable-user-terminal` 只为精确 Code/Local/Debug Run 开放用户所有的 ConPTY/xterm，会话、环境和输出不持久化，Agent 默认不能输入。原生 Acrylic、浅/深色主题和独立权限设置页不增加任何运行权限。通用 Agent Shell、Docker PTY 和浏览器仍关闭。
 
 原生 `.zip` 对话框现已接入 ADR 0033：本地路径只在 Go 内部短暂存在，经过严格 `skill_package.v1` 校验后立即丢弃；React 只能得到五分钟、单次消费的不透明句柄和有界风险元数据。Renderer 绑定面只有 `Bootstrap`、`SelectSkillPackage`、`PreviewSkillPackage`、`InstallSkillPackage` 四个方法；安装方法只消费 Go 发放的确认句柄，不能提交路径、文件字节、命令或权限位。进程、Shell、Docker、网络、Provider、工具和 capability authority 全部固定为 false。
 
-The automated Desktop core is now at schema v87, including the test-only R10 receipt boundary, the non-starting browser ledger, and P12-B controlled-command and user-terminal boundaries. Wails v2.13.0 embeds the Vite production bundle and connects the existing Go `api.v1` Handler directly to the AssetServer without opening a TCP listener. The shell remains read-first and independently gates mutations. `--enable-user-terminal` exposes a user-owned ConPTY/xterm session only for an exact Code/Local/Debug Run; session state, environment, and output are not persisted, and Agent input is off by default. General Agent Shell, Docker PTY, and the built-in browser remain disabled.
+The automated Desktop core is now at schema v88 and D1-UX10, including the test-only R10 receipt boundary, the non-starting browser ledger, P12-B controlled-command/user-terminal boundaries, and the P12-C four-level permission ceiling. Wails v2.13.0 embeds the Vite production bundle and connects the existing Go `api.v1` Handler directly to the AssetServer without opening a TCP listener. The shell remains read-first and independently gates mutations. `--enable-user-terminal` exposes a user-owned ConPTY/xterm session only for an exact Code/Local/Debug Run; session state, environment, and output are not persisted, and Agent input is off by default. Native Acrylic, light/dark themes, and the dedicated Permission settings page add no runtime authority. General Agent Shell, Docker PTY, and the built-in browser remain disabled.
 
 The ADR 0033 native `.zip` flow is now visible. A selected path exists briefly inside Go, is strictly validated as `skill_package.v1`, and is then discarded. React receives only a five-minute, single-use opaque handle and bounded risk metadata. The complete renderer binding surface is `Bootstrap`, `SelectSkillPackage`, `PreviewSkillPackage`, and `InstallSkillPackage`; installation consumes only a Go-issued confirmation handle and accepts no path, bytes, command, or authority field. Process, Shell, Docker, network, Provider, tool, and capability authority remain false.
 
@@ -569,7 +607,7 @@ Build locally with `powershell -ExecutionPolicy Bypass -File scripts/build-deskt
 
 ### 中文详解
 
-以下内容按能力域和当前阅读价值组织，不代表 schema 时间顺序；需要核对开发先后时，请以上方 `v1 -> v87` 表为准。
+以下内容按能力域和当前阅读价值组织，不代表 schema 时间顺序；需要核对开发先后时，请以上方 `v1 -> v88` 表为准。
 
 P7 Skills 的第一条纵向链路已经落地。Go 内置并严格校验 `code`、`review`、`learn`、`script` 与跨 Profile 的 `plan-delivery` 五份 `skill.v1` 工作流指导，包括固定版本、兼容 Profile、工具前置声明、相对内容路径、UTF-8、字节数、保守 token 上界和 SHA-256。只读 Registry 与 `skill list/show/validate` 不创建数据库，也不读取任意外部路径；当前内置指导版本为 `1.1.0`，工具依赖绝不直接授予执行权限。
 
@@ -742,7 +780,7 @@ Bubble Tea TUI 现在以 Run-first 选择器启动，可在最近 50 个 Run 与
 
 ### English details
 
-The following notes are organized by capability and current reading value, not by schema order. Use the canonical `v1 -> v87` table above whenever chronology matters.
+The following notes are organized by capability and current reading value, not by schema order. Use the canonical `v1 -> v88` table above whenever chronology matters.
 
 The first P7 Skills vertical slice is now in place. Go embeds and strictly validates five `skill.v1` workflow guides for `code`, `review`, `learn`, `script`, and cross-Profile `plan-delivery`, including pinned versions, compatible Profiles, tool prerequisites, relative content paths, UTF-8, byte counts, a conservative token upper bound, and SHA-256. The read-only Registry and `skill list/show/validate` create no database and accept no arbitrary external path. The current built-in guidance version is `1.1.0`, and a declared tool dependency is never a capability grant.
 
@@ -1158,7 +1196,7 @@ capability independently, so TypeScript is not a security boundary.
 - `file_edit_change_set.v1` summarizes at most 100 exact Run/Session/Workspace FileEdits and their Diff byte counts. It explicitly preserves independent review/apply, non-atomic partial state, and no batch mutation; every file retains its existing operation, Policy/hash recheck, and receipt.
 - The Code-only Journey navigates Scope, Plan, Queue and execute, Review, and Verify and report through existing Go capabilities. The React component has no API client or composite mutation and does not automatically apply to Cyber mode.
 
-### Windows Desktop (through schema v87 / P12-B)
+### Windows Desktop (through schema v88 / P12-C and D1-UX10)
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/build-desktop.ps1
@@ -1231,7 +1269,7 @@ go run ./cmd/cyberagent doctor portable --json
 .\build\desktop\cyberagent-desktop.exe --enable-file-edit-review --enable-file-edit-apply --enable-run-wake --enable-run-wake-execution
 ```
 
-The desktop shell embeds the same React production UI and calls the Go API in process; it opens no listening port and needs no manually copied bearer token. It requires Windows 10/11 with WebView2 Evergreen Runtime, fails closed without implicitly downloading it, and resumes event polling from a Run-bound high-water cursor. Default launch creates no terminal. Explicit flags independently expose each Go control. The optional wake worker remains a bounded 1 x 1-step consumer. The optional user terminal is a process-local current-user ConPTY for an exact trusted Code/Local/Debug Run; it is not the Agent Runner. The reproducible executable is still an unsigned development/portable-test artifact, not an installer or formal release; automated diagnostics keep `release_ready=false` until the Windows 10/WebView2 manual matrix is signed. See [docs/DESKTOP_PLAN.md](docs/DESKTOP_PLAN.md), [ADR 0034](docs/adr/0034-embedded-read-first-wails-shell.md), and [ADR 0076](docs/adr/0076-controlled-windows-execution-and-user-terminal.md).
+The desktop shell embeds the same React production UI and calls the Go API in process; it opens no listening port and needs no manually copied bearer token. It requires Windows 10/11 with WebView2 Evergreen Runtime, fails closed without implicitly downloading it, and resumes event polling from a Run-bound high-water cursor. Default launch creates no terminal. Explicit flags independently expose each Go control. The optional wake worker remains a bounded 1 x 1-step consumer. The optional user terminal is a process-local current-user ConPTY for an exact trusted Code/Local/Debug Run; it is not the Agent Runner. Native Acrylic, transparent WebView rendering, light/dark appearance, and the dedicated permission center remain presentation and operator-control surfaces rather than execution capabilities. The reproducible executable is still an unsigned development/portable-test artifact, not an installer or formal release; automated diagnostics keep `release_ready=false` until the Windows 10/WebView2 manual matrix is signed. See [docs/DESKTOP_PLAN.md](docs/DESKTOP_PLAN.md), [ADR 0034](docs/adr/0034-embedded-read-first-wails-shell.md), [ADR 0076](docs/adr/0076-controlled-windows-execution-and-user-terminal.md), and [ADR 0078](docs/adr/0078-desktop-permission-center-and-native-acrylic.md).
 
 schema v72 / D1-R1 本地发布门已通过：全仓普通与 race 测试分别用时 271.5 秒和 257.9 秒，普通/安全 Desktop 测试与 vet/staticcheck/govulncheck 均通过；React 为 14 个文件 45 项测试，严格 TypeScript、生产构建、确定性 OpenAPI 生成和 npm 零高危漏洞检查均为绿色。审计修复了旧 schema 降级夹具中的 v72 trigger 拆除顺序、创建与旧 Run 控制权限串联风险、重放初态复核、非法 UTF-8 JSON、初始 root/时间线/事件总数约束，以及响应 Goal/Workspace/模式绑定和 UTF-8 字节边界；当前没有已知未解决高/中风险。<br>
 The schema-v72/D1-R1 local release gate passed the full ordinary and race suites in 271.5s and 257.9s, ordinary/secure-Desktop tests plus vet/staticcheck/govulncheck, 45 React tests across 14 files, strict TypeScript, the production build, deterministic OpenAPI generation, and the zero-high-severity npm audit. The audit fixed historical-schema trigger teardown order, capability coupling, initial-state replay validation, invalid UTF-8 JSON, exact root/timeline/event-count binding, response binding for Goal/Workspace/mode, and UTF-8 byte limits. No unresolved high/medium issue is known.
@@ -2528,11 +2566,11 @@ Read [docs/PROJECT_MEMORY.md](docs/PROJECT_MEMORY.md), [docs/PROJECT_STATUS.md](
 
 The latest decisions are [ADR 0029](docs/adr/0029-bounded-linux-read-only-docker-evidence-harness.md), [ADR 0030](docs/adr/0030-immutable-docker-production-evidence-review.md), [ADR 0031](docs/adr/0031-content-addressed-inert-skill-registry.md), [ADR 0032](docs/adr/0032-external-skill-run-context.md), [ADR 0033](docs/adr/0033-pathless-desktop-skill-preview.md), [ADR 0034](docs/adr/0034-embedded-read-first-wails-shell.md), [ADR 0035](docs/adr/0035-desktop-lifecycle-and-event-resumption.md), [ADR 0036](docs/adr/0036-idempotent-controlled-run-creation.md), [ADR 0037](docs/adr/0037-controlled-session-message-submission.md), [ADR 0038](docs/adr/0038-idempotent-run-control-and-bounded-handoff.md), [ADR 0039](docs/adr/0039-model-plan-and-approval-controls.md), [ADR 0040](docs/adr/0040-provider-diff-wake-controls.md), [ADR 0041](docs/adr/0041-explicit-wake-file-apply-and-inert-skill-install.md), [ADR 0042](docs/adr/0042-receipts-explorer-portable-build.md), [ADR 0043](docs/adr/0043-workspace-search-evidence-attachment-receipt-history.md), [ADR 0044](docs/adr/0044-operator-action-center-evidence-inventory-command-palette.md), [ADR 0045](docs/adr/0045-go-issued-editor-system-credentials-bounded-wake-worker.md), [ADR 0046](docs/adr/0046-safe-editor-recovery-provider-generation-worker-health.md), [ADR 0047](docs/adr/0047-read-only-repository-change-set-code-journey.md), [ADR 0048](docs/adr/0048-bounded-diff-verification-code-handoff.md), [ADR 0049](docs/adr/0049-deadlock-livelock-runtime-guards.md), [ADR 0050](docs/adr/0050-repository-history-verification-plan-handoff-export.md), [ADR 0051](docs/adr/0051-exact-commit-verification-association-runner-lifecycle.md), [ADR 0052](docs/adr/0052-conservative-model-context-cumulative-handoff-memory.md), [ADR 0053](docs/adr/0053-commit-preview-handoff-coverage-process-conformance.md), [ADR 0054](docs/adr/0054-file-history-verification-drilldown-runner-exit-evidence.md), [ADR 0055](docs/adr/0055-history-navigation-verification-pagination-runner-runtime-evidence.md), [ADR 0056](docs/adr/0056-exact-commit-comparison-keyset-verification-runner-control-evidence.md), [ADR 0057](docs/adr/0057-comparison-preview-verification-snapshot-runner-timeline-evidence.md), [ADR 0058](docs/adr/0058-paired-comparison-snapshot-receipts-runner-evidence-set.md), and [ADR 0059](docs/adr/0059-paired-navigation-receipt-review-runner-golden-vectors.md).
 
-The newest decisions are [ADR 0061](docs/adr/0061-exact-receipt-review-navigation-audit-facts-envelope-golden.md), [ADR 0062](docs/adr/0062-go-owned-analyzer-protocol-rust-fixture-shared-vectors.md), [ADR 0063](docs/adr/0063-inert-analyzer-registry-zip-inventory-shared-vectors.md), [ADR 0064](docs/adr/0064-prayu-brand-and-dual-surface-desktop-shell.md), [ADR 0065](docs/adr/0065-non-starting-analyzer-invocation-bridge.md), [ADR 0066](docs/adr/0066-test-only-analyzer-subprocess-conformance.md), [ADR 0067](docs/adr/0067-inert-analyzer-result-staging-and-product-adapter-threat-model.md), [ADR 0068](docs/adr/0068-real-wails-startup-and-migration-compatibility.md), [ADR 0069](docs/adr/0069-go-owned-browser-profiles-target-scope-and-session-plan.md), [ADR 0070](docs/adr/0070-frameless-workbench-resizable-sidebar-agent-composer.md), [ADR 0071](docs/adr/0071-inert-browser-executable-profile-lifecycle-and-sealed-cdp.md), [ADR 0072](docs/adr/0072-workbench-docks-and-operator-confirmed-workspace-opening.md), [ADR 0073](docs/adr/0073-browser-publisher-launch-lease-and-review-gates.md), [ADR 0074](docs/adr/0074-model-harness-protocol-profiles-and-qualification.md), [ADR 0075](docs/adr/0075-execution-interaction-trust-model.md), and [ADR 0076](docs/adr/0076-controlled-windows-execution-and-user-terminal.md).
+The newest decisions are [ADR 0061](docs/adr/0061-exact-receipt-review-navigation-audit-facts-envelope-golden.md), [ADR 0062](docs/adr/0062-go-owned-analyzer-protocol-rust-fixture-shared-vectors.md), [ADR 0063](docs/adr/0063-inert-analyzer-registry-zip-inventory-shared-vectors.md), [ADR 0064](docs/adr/0064-prayu-brand-and-dual-surface-desktop-shell.md), [ADR 0065](docs/adr/0065-non-starting-analyzer-invocation-bridge.md), [ADR 0066](docs/adr/0066-test-only-analyzer-subprocess-conformance.md), [ADR 0067](docs/adr/0067-inert-analyzer-result-staging-and-product-adapter-threat-model.md), [ADR 0068](docs/adr/0068-real-wails-startup-and-migration-compatibility.md), [ADR 0069](docs/adr/0069-go-owned-browser-profiles-target-scope-and-session-plan.md), [ADR 0070](docs/adr/0070-frameless-workbench-resizable-sidebar-agent-composer.md), [ADR 0071](docs/adr/0071-inert-browser-executable-profile-lifecycle-and-sealed-cdp.md), [ADR 0072](docs/adr/0072-workbench-docks-and-operator-confirmed-workspace-opening.md), [ADR 0073](docs/adr/0073-browser-publisher-launch-lease-and-review-gates.md), [ADR 0074](docs/adr/0074-model-harness-protocol-profiles-and-qualification.md), [ADR 0075](docs/adr/0075-execution-interaction-trust-model.md), [ADR 0076](docs/adr/0076-controlled-windows-execution-and-user-terminal.md), [ADR 0077](docs/adr/0077-four-level-run-execution-permissions.md), and [ADR 0078](docs/adr/0078-desktop-permission-center-and-native-acrylic.md).
 
-Windows Desktop D0-A/D0-B、D1-R1 至 D1-G13/V12、D1-UX1 至 D1-UX9，加 R10 非产品 Runner 回执信封黄金边界的自动化核心已实现，但仍是未签名开发/便携测试壳，不是安装版；内置终端/浏览器和 Windows 10 实机发布矩阵仍待完成。分阶段方案见 [docs/DESKTOP_PLAN.md](docs/DESKTOP_PLAN.md)。自定义 Skill 已具备严格 `skill_package.v1` 校验、schema v69 本地惰性 Registry、schema v70 CLI Run 选择/最小上下文、schema v71 三端只读来源投影，以及 HTTP/Desktop 显式确认的惰性安装；签名、远程分发和安装时执行仍未开放。详情见 [docs/SKILL_PACKAGE_PLAN.md](docs/SKILL_PACKAGE_PLAN.md)。
+Windows Desktop D0-A/D0-B、D1-R1 至 D1-G13/V12、D1-UX1 至 D1-UX10，加 R10 非产品 Runner 回执信封黄金边界的自动化核心已实现，但仍是未签名开发/便携测试壳，不是安装版；用户所有的可选终端已实现，Agent 持久终端、内置浏览器和 Windows 10 实机发布矩阵仍待完成。分阶段方案见 [docs/DESKTOP_PLAN.md](docs/DESKTOP_PLAN.md)。自定义 Skill 已具备严格 `skill_package.v1` 校验、schema v69 本地惰性 Registry、schema v70 CLI Run 选择/最小上下文、schema v71 三端只读来源投影，以及 HTTP/Desktop 显式确认的惰性安装；签名、远程分发和安装时执行仍未开放。详情见 [docs/SKILL_PACKAGE_PLAN.md](docs/SKILL_PACKAGE_PLAN.md)。
 
-The automated Windows Desktop core now reaches D1-G13/V12 and D1-UX9 plus the non-product R10 Runner envelope-golden boundary, but it remains an unsigned development/portable-test client rather than an installer. The embedded terminal/browser and Windows 10 real-machine release matrix are still pending. See [docs/DESKTOP_PLAN.md](docs/DESKTOP_PLAN.md) for the phased Wails/React/Go plan. Custom Skills now have strict `skill_package.v1` validation, the schema-v69 local inert Registry, schema-v70 CLI Run selection/minimized context, schema-v71 read-only provenance across HTTP/TUI/Web, and explicitly confirmed inert HTTP/Desktop installation. Signatures, remote distribution, and install-time execution remain closed. See [docs/SKILL_PACKAGE_PLAN.md](docs/SKILL_PACKAGE_PLAN.md).
+The automated Windows Desktop core now reaches D1-G13/V12 and D1-UX10 plus the non-product R10 Runner envelope-golden boundary, but it remains an unsigned development/portable-test client rather than an installer. The optional user-owned terminal is implemented; an Agent-owned persistent terminal, the built-in browser, and the Windows 10 real-machine release matrix remain pending. See [docs/DESKTOP_PLAN.md](docs/DESKTOP_PLAN.md) for the phased Wails/React/Go plan. Custom Skills now have strict `skill_package.v1` validation, the schema-v69 local inert Registry, schema-v70 CLI Run selection/minimized context, schema-v71 read-only provenance across HTTP/TUI/Web, and explicitly confirmed inert HTTP/Desktop installation. Signatures, remote distribution, and install-time execution remain closed. See [docs/SKILL_PACKAGE_PLAN.md](docs/SKILL_PACKAGE_PLAN.md).
 
 ## Repository Workflow
 
@@ -2548,7 +2586,7 @@ This project is licensed by the repository owner under the [Apache License 2.0](
 
 ## Development Priority
 
-The current priority is the V2 run-centric runtime. P0 and P1 are complete. P2 supports resumable root Agent turns, cumulative token/model-time accounting, bounded execution and Provider retry loops, strict Supervisor-owned `continue`, `finish`, and `wait` actions, one Run execution path for ordinary CLI/TUI Session chat, real Provider streaming with bounded `model.delta` progress, local and schema v18 cross-process active-call cancellation, Bubble Tea live metadata, durable model events, exactly one restart-safe lifecycle-protocol repair, the schema v16 bounded structured-memory tool loop, and schema v17 execution leases with heartbeat/fencing. P3 includes migration v9 Work Board and v10 Notes. P4 covers the schema-v19 root Coordinator through schema-v34 read-only Fan-out. P5 includes the unified Tool Gateway, durable approvals/Grants, typed processes, Artifacts, and structured tools. P9 now includes authenticated API/event surfaces, controlled Run/Session/lifecycle/bounded execution, explicit Provider diagnostics/routes and generation-safe Windows system-credential controls, Plan/Deliver, constrained approvals, schema-v76 review/apply plus safely recoverable Go-issued Monaco proposals, repository state/redacted Diff/history/exact-commit preview/navigation/comparison with keyboard-accessible paired base/head previews and multi-file review projections, immutable operator verification/coverage with snapshot-stable exact-item pagination, deterministic snapshot download, immutable metadata-only receipt history and non-authorizing receipt review, a regenerable Code Handoff/export with exact review navigation and bounded Code Journey audit facts, explicit foreground wake consumption and a default-off 1 x 1 worker, inert Skill installation, receipts, bounded Workspace exploration/search, evidence attachment/inventory, operator actions, command palette, portable-build diagnostics, React/Vite, TUI, Headless, and Windows Desktop through D1-G13/V12 plus D1-UX9. xterm, the embedded browser, the Windows 10 release matrix, and true Agent-controlled Local/Docker execution remain pending. CTF-specific solving logic stays deferred until the generic runtime is stable.
+The current priority is the V2 run-centric runtime. P0 and P1 are complete. P2 supports resumable root Agent turns, cumulative token/model-time accounting, bounded execution and Provider retry loops, strict Supervisor-owned `continue`, `finish`, and `wait` actions, one Run execution path for ordinary CLI/TUI Session chat, real Provider streaming with bounded `model.delta` progress, local and schema v18 cross-process active-call cancellation, Bubble Tea live metadata, durable model events, exactly one restart-safe lifecycle-protocol repair, the schema v16 bounded structured-memory tool loop, and schema v17 execution leases with heartbeat/fencing. P3 includes migration v9 Work Board and v10 Notes. P4 covers the schema-v19 root Coordinator through schema-v34 read-only Fan-out. P5 includes the unified Tool Gateway, durable approvals/Grants, typed processes, Artifacts, and structured tools. P9 now includes authenticated API/event surfaces, controlled Run/Session/lifecycle/bounded execution, explicit Provider diagnostics/routes and generation-safe Windows system-credential controls, Plan/Deliver, constrained approvals, schema-v76 review/apply plus safely recoverable Go-issued Monaco proposals, repository state/redacted Diff/history/exact-commit preview/navigation/comparison with keyboard-accessible paired base/head previews and multi-file review projections, immutable operator verification/coverage with snapshot-stable exact-item pagination, deterministic snapshot download, immutable metadata-only receipt history and non-authorizing receipt review, a regenerable Code Handoff/export with exact review navigation and bounded Code Journey audit facts, explicit foreground wake consumption and a default-off 1 x 1 worker, inert Skill installation, receipts, bounded Workspace exploration/search, evidence attachment/inventory, operator actions, command palette, portable-build diagnostics, React/Vite, TUI, Headless, and Windows Desktop through D1-G13/V12 plus D1-UX10. The optional user terminal is available, while an Agent-owned Debug terminal, the embedded browser, the Windows 10 release matrix, and true Agent-controlled Local/Docker execution remain pending. CTF-specific solving logic stays deferred until the generic runtime is stable.
 
 P10 now includes A1 through D3: Go-owned strict analyzer request/result/error envelopes and limits, a fixed inert descriptor Registry, a bounded no-extraction ZIP inventory contract, a pinned Rust 1.97.1 implementation, independent Go/Rust shared-vector CI, a canonical non-starting invocation candidate, a sealed Disabled/Fake bridge, inert executable identity/preflight records, and a separately compiled Linux/Windows subprocess conformance harness. The real adapter is test-only; no product invocation, file/path input, Run/Event/SQLite persistence, or Artifact commit exists yet.
 

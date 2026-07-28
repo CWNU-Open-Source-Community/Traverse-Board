@@ -17,6 +17,7 @@ const (
 	RunPhaseChangedEvent                          = "run.phase_changed"
 	RunExecutionProfileSelectedEvent              = "run.execution_profile_selected"
 	RunExecutionInteractionSelectedEvent          = "run.execution_interaction_selected"
+	RunExecutionPermissionSelectedEvent           = "run.execution_permission_selected"
 	ControlledCommandExecutionPreparedEvent       = "controlled_command.execution_prepared"
 	ControlledCommandExecutionCompletedEvent      = "controlled_command.execution_completed"
 	RunStatusChangedEvent                         = "run.status_changed"

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { CyberAgentClient } from "../api/client";
 import { SettingsView, type SettingsCapability } from "./settings-view";
 
 const capabilities: SettingsCapability[] = [
@@ -13,6 +14,7 @@ const health = {
   app_version: "test",
   schema_version: 84,
 };
+const client = new CyberAgentClient("read-token");
 
 describe("SettingsView", () => {
   beforeEach(() => {
@@ -25,7 +27,8 @@ describe("SettingsView", () => {
   });
 
   it("projects real runtime facts and moves the selected brush state with navigation", () => {
-    render(<SettingsView capabilities={capabilities} desktop health={health}
+    render(<SettingsView capabilities={capabilities} client={client} desktop health={health}
+      selectedRunID=""
       onBack={vi.fn()} onOpenModels={vi.fn()} onOpenSkills={vi.fn()} />);
 
     expect(screen.getByRole("heading", { name: "Prayu" })).toBeInTheDocument();
@@ -42,7 +45,8 @@ describe("SettingsView", () => {
   it("keeps display density local and leaves model and Skill actions explicit", () => {
     const onOpenModels = vi.fn();
     const onOpenSkills = vi.fn();
-    render(<SettingsView capabilities={capabilities} desktop health={health}
+    render(<SettingsView capabilities={capabilities} client={client} desktop health={health}
+      selectedRunID=""
       onBack={vi.fn()} onOpenModels={onOpenModels} onOpenSkills={onOpenSkills} />);
 
     fireEvent.click(screen.getByRole("button", { name: "外观" }));
@@ -64,7 +68,8 @@ describe("SettingsView", () => {
       throw new DOMException("storage disabled", "SecurityError");
     });
 
-    expect(() => render(<SettingsView capabilities={capabilities} desktop health={health}
+    expect(() => render(<SettingsView capabilities={capabilities} client={client}
+      desktop health={health} selectedRunID=""
       onBack={vi.fn()} onOpenModels={vi.fn()} onOpenSkills={vi.fn()} />)).not.toThrow();
     fireEvent.click(screen.getByRole("button", { name: "外观" }));
     expect(screen.getByRole("button", { name: "舒展" })).toHaveAttribute("aria-pressed", "true");

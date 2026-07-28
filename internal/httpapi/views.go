@@ -722,6 +722,57 @@ type RunExecutionProfileView struct {
 	CapabilityGrant     bool      `json:"capability_grant"`
 }
 
+type ExecutionPermissionRuntimeView struct {
+	OperatorApprovalEnabled   bool `json:"operator_approval_enabled"`
+	DangerFullAccessEnabled   bool `json:"danger_full_access_enabled"`
+	DebugMaximumAccessEnabled bool `json:"debug_maximum_access_enabled"`
+}
+
+type RunExecutionPermissionView struct {
+	ProtocolVersion      string                         `json:"protocol_version"`
+	Revision             int64                          `json:"revision"`
+	Mode                 string                         `json:"mode"`
+	ApprovalPolicy       string                         `json:"approval_policy"`
+	CommandScope         string                         `json:"command_scope"`
+	FilesystemScope      string                         `json:"filesystem_scope"`
+	NetworkScope         string                         `json:"network_scope"`
+	PersistentTerminal   bool                           `json:"persistent_terminal"`
+	BackgroundProcess    bool                           `json:"background_process"`
+	AgentTerminalInput   bool                           `json:"agent_terminal_input"`
+	RiskTier             string                         `json:"risk_tier"`
+	RequiredGate         string                         `json:"required_gate"`
+	PolicyVersion        string                         `json:"policy_version"`
+	OperatorConfirmed    bool                           `json:"operator_confirmed"`
+	RuntimeGateAvailable bool                           `json:"runtime_gate_available"`
+	Runtime              ExecutionPermissionRuntimeView `json:"runtime"`
+	CreatedAt            time.Time                      `json:"created_at"`
+	ProcessEnabled       bool                           `json:"process_enabled"`
+	ExecutionAuthorized  bool                           `json:"execution_authorized"`
+	CapabilityGrant      bool                           `json:"capability_grant"`
+}
+
+type RunExecutionInteractionView struct {
+	ProtocolVersion          string    `json:"protocol_version"`
+	Revision                 int64     `json:"revision"`
+	Mode                     string    `json:"mode"`
+	Surface                  string    `json:"surface"`
+	ExecutionProfile         string    `json:"execution_profile"`
+	ExecutionProfileRevision int64     `json:"execution_profile_revision"`
+	WorkspaceTrust           string    `json:"workspace_trust"`
+	CommandForm              string    `json:"command_form"`
+	PersistentTerminal       bool      `json:"persistent_terminal"`
+	UserInputAvailable       bool      `json:"user_input_available"`
+	AgentInputDefault        bool      `json:"agent_input_default"`
+	NetworkScope             string    `json:"network_scope"`
+	RequiredGate             string    `json:"required_gate"`
+	PolicyVersion            string    `json:"policy_version"`
+	OperatorConfirmed        bool      `json:"operator_confirmed"`
+	CreatedAt                time.Time `json:"created_at"`
+	ProcessEnabled           bool      `json:"process_enabled"`
+	ExecutionAuthorized      bool      `json:"execution_authorized"`
+	CapabilityGrant          bool      `json:"capability_grant"`
+}
+
 type SupervisorCheckpointView struct {
 	RunID           string    `json:"run_id"`
 	NextTurn        int       `json:"next_turn"`
@@ -841,16 +892,18 @@ type PlanDeliveryStateView struct {
 }
 
 type RunDetailView struct {
-	Run              RunView                      `json:"run"`
-	Mission          MissionView                  `json:"mission"`
-	Mode             RunModeView                  `json:"mode"`
-	ExecutionProfile RunExecutionProfileView      `json:"execution_profile"`
-	Checkpoint       *SupervisorCheckpointView    `json:"checkpoint,omitempty"`
-	Lease            *RunExecutionLeaseView       `json:"execution_lease,omitempty"`
-	Steering         OperatorSteeringQueueView    `json:"operator_steering"`
-	ToolUsage        ToolUsageView                `json:"tool_usage"`
-	PlanDelivery     *PlanDeliveryStateView       `json:"plan_delivery,omitempty"`
-	ExternalSkills   *ExternalSkillProjectionView `json:"external_skills,omitempty"`
+	Run                  RunView                      `json:"run"`
+	Mission              MissionView                  `json:"mission"`
+	Mode                 RunModeView                  `json:"mode"`
+	ExecutionProfile     RunExecutionProfileView      `json:"execution_profile"`
+	ExecutionPermission  RunExecutionPermissionView   `json:"execution_permission"`
+	ExecutionInteraction RunExecutionInteractionView  `json:"execution_interaction"`
+	Checkpoint           *SupervisorCheckpointView    `json:"checkpoint,omitempty"`
+	Lease                *RunExecutionLeaseView       `json:"execution_lease,omitempty"`
+	Steering             OperatorSteeringQueueView    `json:"operator_steering"`
+	ToolUsage            ToolUsageView                `json:"tool_usage"`
+	PlanDelivery         *PlanDeliveryStateView       `json:"plan_delivery,omitempty"`
+	ExternalSkills       *ExternalSkillProjectionView `json:"external_skills,omitempty"`
 }
 
 type SessionView struct {
@@ -1023,6 +1076,52 @@ func runExecutionProfileView(
 		ProcessEnabled:      value.ProcessEnabled,
 		ExecutionAuthorized: value.ExecutionAuthorized,
 		CapabilityGrant:     value.CapabilityGrant,
+	}
+}
+
+func runExecutionPermissionView(value domain.RunExecutionPermissionSnapshot,
+	capabilities domain.ExecutionPermissionRuntimeCapabilities,
+) RunExecutionPermissionView {
+	return RunExecutionPermissionView{
+		ProtocolVersion: value.ProtocolVersion, Revision: value.Revision,
+		Mode: string(value.Mode), ApprovalPolicy: string(value.ApprovalPolicy),
+		CommandScope:       string(value.CommandScope),
+		FilesystemScope:    string(value.FilesystemScope),
+		NetworkScope:       string(value.NetworkScope),
+		PersistentTerminal: value.PersistentTerminal,
+		BackgroundProcess:  value.BackgroundProcess,
+		AgentTerminalInput: value.AgentTerminalInput, RiskTier: string(value.RiskTier),
+		RequiredGate: string(value.RequiredGate), PolicyVersion: value.PolicyVersion,
+		OperatorConfirmed:    value.OperatorConfirmed,
+		RuntimeGateAvailable: capabilities.Allows(value.Mode),
+		Runtime:              executionPermissionRuntimeView(capabilities),
+		CreatedAt:            value.CreatedAt, ProcessEnabled: value.ProcessEnabled,
+		ExecutionAuthorized: value.ExecutionAuthorized,
+		CapabilityGrant:     value.CapabilityGrant,
+	}
+}
+
+func runExecutionInteractionView(
+	value domain.RunExecutionInteractionSnapshot,
+) RunExecutionInteractionView {
+	return RunExecutionInteractionView{
+		ProtocolVersion: value.ProtocolVersion, Revision: value.Revision,
+		Mode: string(value.Mode), Surface: string(value.Surface),
+		ExecutionProfile:         string(value.ExecutionProfile),
+		ExecutionProfileRevision: value.ExecutionProfileRevision,
+		WorkspaceTrust:           string(value.WorkspaceTrust),
+		CommandForm:              string(value.CommandForm),
+		PersistentTerminal:       value.PersistentTerminal,
+		UserInputAvailable:       value.UserInputAvailable,
+		AgentInputDefault:        false,
+		NetworkScope:             string(value.NetworkScope),
+		RequiredGate:             string(value.RequiredGate),
+		PolicyVersion:            value.PolicyVersion,
+		OperatorConfirmed:        value.OperatorConfirmed,
+		CreatedAt:                value.CreatedAt,
+		ProcessEnabled:           false,
+		ExecutionAuthorized:      false,
+		CapabilityGrant:          false,
 	}
 }
 

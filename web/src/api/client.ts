@@ -96,6 +96,10 @@ export type QueryValue = boolean | number | string | undefined;
 
 export interface ClientCapabilities {
   runControlEnabled?: boolean;
+  executionPermissionControlEnabled?: boolean;
+  operatorApprovalEnabled?: boolean;
+  dangerFullAccessEnabled?: boolean;
+  debugMaximumAccessEnabled?: boolean;
   runCreationEnabled?: boolean;
   sessionMessageEnabled?: boolean;
   sessionSteeringControlEnabled?: boolean;
@@ -655,6 +659,8 @@ function parseProviderCredentialList(value: unknown): ProviderCredentialListView
 
 function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
   const capabilityKeys = ["approval_control_enabled", "docker_execution_enabled",
+    "execution_permission_control_enabled", "operator_approval_enabled",
+    "danger_full_access_enabled", "debug_maximum_access_enabled",
     "evidence_attachment_enabled", "verification_evidence_enabled",
     "file_edit_apply_enabled", "file_edit_proposal_enabled",
     "file_edit_review_enabled", "model_control_enabled", "plan_delivery_control_enabled",
@@ -697,6 +703,10 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
 export function clientCapabilitiesFromRuntime(value: RuntimeCapabilitiesView): ClientCapabilities {
   return {
     runControlEnabled: value.run_control_enabled,
+    executionPermissionControlEnabled: value.execution_permission_control_enabled,
+    operatorApprovalEnabled: value.operator_approval_enabled,
+    dangerFullAccessEnabled: value.danger_full_access_enabled,
+    debugMaximumAccessEnabled: value.debug_maximum_access_enabled,
     runCreationEnabled: value.run_creation_enabled,
     sessionMessageEnabled: value.session_message_enabled,
     sessionSteeringControlEnabled: value.session_steering_control_enabled,
@@ -2827,6 +2837,7 @@ function safeBoundedCount(value: unknown, maximum: number): value is number {
 export class CyberAgentClient {
   readonly baseURL: string;
   readonly hasControl: boolean;
+  readonly hasExecutionPermissionControl: boolean;
   readonly hasRunCreation: boolean;
   readonly hasSessionMessages: boolean;
   readonly hasSessionSteeringControl: boolean;
@@ -2858,6 +2869,8 @@ export class CyberAgentClient {
     this.baseURL = normalizeBaseURL(baseURL);
     const controlPresent = controlToken.trim() !== "";
     this.hasControl = controlPresent && (capabilities.runControlEnabled ?? true);
+    this.hasExecutionPermissionControl = controlPresent &&
+      (capabilities.executionPermissionControlEnabled ?? false);
     this.hasRunCreation = controlPresent && (capabilities.runCreationEnabled ?? true);
     this.hasSessionMessages = controlPresent && (capabilities.sessionMessageEnabled ?? true);
     this.hasSessionSteeringControl = controlPresent &&

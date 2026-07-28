@@ -11,6 +11,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
+	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/httpapi"
 	"cyberagent-workbench/internal/skills"
 	"cyberagent-workbench/internal/webui"
@@ -44,9 +45,16 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		"enable OS-owned Provider credential changes")
 	wakeWorker := fs.Bool("enable-wake-worker", false,
 		"enable the bounded single-owner Run wake worker")
+	permissionControl := fs.Bool("enable-permission-control", false,
+		"enable operator-selected Run execution permissions")
+	dangerFullAccess := fs.Bool("enable-danger-full-access", false,
+		"enable danger-full-access permission selection")
+	debugMaximumAccess := fs.Bool("enable-debug-maximum-access", false,
+		"enable maximum Debug permission selection")
 	if err := fs.Parse(reorderFlags(args, map[string]bool{"listen": true, "ui-dir": true,
 		"enable-file-edit-proposals": false, "enable-provider-credentials": false,
-		"enable-wake-worker": false})); err != nil {
+		"enable-wake-worker": false, "enable-permission-control": false,
+		"enable-danger-full-access": false, "enable-debug-maximum-access": false})); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 {
@@ -55,8 +63,19 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 
 	accessToken := os.Getenv(apiTokenEnvironment)
 	controlToken := os.Getenv(apiControlTokenEnvironment)
-	if (*fileEditProposals || *providerCredentials || *wakeWorker) && controlToken == "" {
-		return errors.New("interactive proposals, Provider credentials, and the wake worker require CYBERAGENT_API_CONTROL_TOKEN")
+	permissionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled:   *permissionControl,
+		DangerFullAccessEnabled:   *dangerFullAccess,
+		DebugMaximumAccessEnabled: *debugMaximumAccess,
+	}
+	if err := permissionCapabilities.Validate(); err != nil {
+		return apperror.Wrap(apperror.CodeInvalidArgument,
+			err.Error(), err)
+	}
+	if (*fileEditProposals || *providerCredentials || *wakeWorker ||
+		*permissionControl) && controlToken == "" {
+		return apperror.New(apperror.CodeInvalidArgument,
+			"interactive proposals, Provider credentials, the wake worker, and execution permission control require CYBERAGENT_API_CONTROL_TOKEN")
 	}
 	generated := accessToken == ""
 	if generated {
@@ -121,39 +140,41 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	api, err := httpapi.New(a.store, httpapi.Config{
 		AccessToken: accessToken, ControlToken: controlToken,
 		RunControlEnabled: controlToken != "", RunCreationEnabled: controlToken != "",
-		SessionMessageEnabled:         controlToken != "",
-		SessionSteeringControlEnabled: controlToken != "",
-		RunLifecycleEnabled:           controlToken != "",
-		RunExecutionEnabled:           controlToken != "",
-		PlanDeliveryControlEnabled:    controlToken != "",
-		ApprovalControlEnabled:        controlToken != "",
-		ModelControlEnabled:           controlToken != "",
-		ProviderCredentialEnabled:     *providerCredentials,
-		FileEditReviewEnabled:         controlToken != "",
-		FileEditProposalEnabled:       *fileEditProposals,
-		RunWakeControlEnabled:         controlToken != "",
-		FileEditApplyEnabled:          controlToken != "",
-		RunWakeExecutionEnabled:       controlToken != "",
-		RunWakeWorkerEnabled:          *wakeWorker,
-		SkillInstallationEnabled:      controlToken != "",
-		EvidenceAttachmentEnabled:     controlToken != "",
-		VerificationEvidenceEnabled:   controlToken != "",
-		RunLifecycleController:        lifecycleControl,
-		RunExecutionController:        executionControl,
-		PlanDeliveryController:        planDeliveryControl,
-		ApprovalController:            approvalControl,
-		ModelControlController:        modelControl,
-		ProviderCredentialController:  providerCredentialControl,
-		FileEditReviewController:      fileEditReview,
-		FileEditProposalController:    fileEditProposal,
-		RunWakeController:             runWakeControl,
-		FileEditApplyController:       fileEditApply,
-		RunWakeExecutionController:    runWakeExecution,
-		RunWakeWorkerHealthSource:     workerHealth,
-		SkillInstallationController:   skillInstallation,
-		ModelRegistry:                 a.models,
-		AppVersion:                    Version,
-		UIHandler:                     uiBundle,
+		SessionMessageEnabled:             controlToken != "",
+		SessionSteeringControlEnabled:     controlToken != "",
+		RunLifecycleEnabled:               controlToken != "",
+		RunExecutionEnabled:               controlToken != "",
+		PlanDeliveryControlEnabled:        controlToken != "",
+		ApprovalControlEnabled:            controlToken != "",
+		ModelControlEnabled:               controlToken != "",
+		ProviderCredentialEnabled:         *providerCredentials,
+		FileEditReviewEnabled:             controlToken != "",
+		FileEditProposalEnabled:           *fileEditProposals,
+		RunWakeControlEnabled:             controlToken != "",
+		FileEditApplyEnabled:              controlToken != "",
+		RunWakeExecutionEnabled:           controlToken != "",
+		RunWakeWorkerEnabled:              *wakeWorker,
+		ExecutionPermissionControlEnabled: *permissionControl,
+		ExecutionPermissionCapabilities:   permissionCapabilities,
+		SkillInstallationEnabled:          controlToken != "",
+		EvidenceAttachmentEnabled:         controlToken != "",
+		VerificationEvidenceEnabled:       controlToken != "",
+		RunLifecycleController:            lifecycleControl,
+		RunExecutionController:            executionControl,
+		PlanDeliveryController:            planDeliveryControl,
+		ApprovalController:                approvalControl,
+		ModelControlController:            modelControl,
+		ProviderCredentialController:      providerCredentialControl,
+		FileEditReviewController:          fileEditReview,
+		FileEditProposalController:        fileEditProposal,
+		RunWakeController:                 runWakeControl,
+		FileEditApplyController:           fileEditApply,
+		RunWakeExecutionController:        runWakeExecution,
+		RunWakeWorkerHealthSource:         workerHealth,
+		SkillInstallationController:       skillInstallation,
+		ModelRegistry:                     a.models,
+		AppVersion:                        Version,
+		UIHandler:                         uiBundle,
 	})
 	if err != nil {
 		return err
@@ -203,6 +224,10 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	fmt.Fprintf(a.out, "file_edit_proposals_enabled: %t\nprovider_credentials_enabled: %t\nwake_worker_enabled: %t\nwake_worker_concurrency: %d\nwake_worker_max_steps: %d\n",
 		*fileEditProposals, *providerCredentials, *wakeWorker,
 		application.RunWakeWorkerConcurrency, application.RunWakeWorkerMaxSteps)
+	fmt.Fprintf(a.out, "execution_permission_control_enabled: %t\noperator_approval_enabled: %t\ndanger_full_access_enabled: %t\ndebug_maximum_access_enabled: %t\n",
+		*permissionControl, permissionCapabilities.OperatorApprovalEnabled,
+		permissionCapabilities.DangerFullAccessEnabled,
+		permissionCapabilities.DebugMaximumAccessEnabled)
 	fmt.Fprintln(a.out, "note: the API is loopback-only; control is separately authorized and tokens are not persisted")
 	return server.Serve(ctx, listener)
 }

@@ -12,6 +12,10 @@ interface ConnectionState {
   token: string;
   controlToken: string;
   runControlEnabled: boolean;
+  executionPermissionControlEnabled: boolean;
+  operatorApprovalEnabled: boolean;
+  dangerFullAccessEnabled: boolean;
+  debugMaximumAccessEnabled: boolean;
   runCreationEnabled: boolean;
   sessionMessageEnabled: boolean;
   sessionSteeringControlEnabled: boolean;
@@ -51,6 +55,10 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   token: "",
   controlToken: "",
   runControlEnabled: false,
+  executionPermissionControlEnabled: false,
+  operatorApprovalEnabled: false,
+  dangerFullAccessEnabled: false,
+  debugMaximumAccessEnabled: false,
   runCreationEnabled: false,
   sessionMessageEnabled: false,
   sessionSteeringControlEnabled: false,
@@ -73,6 +81,11 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
     const present = controlToken.trim() !== "";
     set({ token, health, controlToken,
       runControlEnabled: present && (capabilities.runControlEnabled ?? true),
+      executionPermissionControlEnabled: present &&
+        (capabilities.executionPermissionControlEnabled ?? false),
+      operatorApprovalEnabled: present && (capabilities.operatorApprovalEnabled ?? false),
+      dangerFullAccessEnabled: present && (capabilities.dangerFullAccessEnabled ?? false),
+      debugMaximumAccessEnabled: present && (capabilities.debugMaximumAccessEnabled ?? false),
       runCreationEnabled: present && (capabilities.runCreationEnabled ?? true),
       sessionMessageEnabled: present && (capabilities.sessionMessageEnabled ?? true),
       sessionSteeringControlEnabled: present &&
@@ -98,6 +111,8 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   },
   disconnect: () => set({ token: "", controlToken: "", health: null,
     runControlEnabled: false, runCreationEnabled: false, sessionMessageEnabled: false,
+    executionPermissionControlEnabled: false, operatorApprovalEnabled: false,
+    dangerFullAccessEnabled: false, debugMaximumAccessEnabled: false,
     sessionSteeringControlEnabled: false,
     runLifecycleEnabled: false, runExecutionEnabled: false,
 	planDeliveryControlEnabled: false, approvalControlEnabled: false,

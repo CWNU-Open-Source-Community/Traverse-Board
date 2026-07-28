@@ -26,8 +26,11 @@ import {
   ScanSearch,
   ShieldAlert,
   ShieldCheck,
+  ShieldOff,
   StickyNote,
   Terminal,
+  UserCheck,
+  Bug,
   ChevronsRight,
   View,
   Wrench,
@@ -43,6 +46,8 @@ import type {
   RunDetailView,
   RunExecutionProfileControlView,
   RunExecutionProfileView,
+  RunExecutionPermissionControlView,
+  RunExecutionPermissionView,
   RunExecutionControlView,
   RunLifecycleControlRequestView,
   RunLifecycleControlView,
@@ -326,7 +331,7 @@ function RunOverview({ client, detail }: { client: CyberAgentClient; detail: Run
       </section>
       <RunControlPanel client={client} detail={detail} />
       <RunWakePanel client={client} detail={detail} />
-      <ExecutionProfilePanel client={client} detail={detail} />
+      <ExecutionBoundarySummary detail={detail} />
       <section className="detail-section">
         <h2>执行状态</h2>
         <dl className="detail-grid">
@@ -458,83 +463,22 @@ export function RunControlPanel({ client, detail }: {
   );
 }
 
-const executionProfiles: Array<{
-  id: RunExecutionProfileView["profile"];
-  label: string;
-  detail: string;
-  icon: typeof View;
-}> = [
-  { id: "preview", label: "Preview", detail: "No process", icon: View },
-  { id: "docker", label: "Docker", detail: "Isolated gate", icon: Container },
-  { id: "local", label: "Host workspace", detail: "OS sandbox gate", icon: Terminal },
-];
-
-export function ExecutionProfilePanel({ client, detail }: {
-  client: CyberAgentClient;
-  detail: RunDetailView;
-}) {
-  const queryClient = useQueryClient();
-  const profile = detail.execution_profile;
-  const mutableStatus = detail.run.status === "created" || detail.run.status === "paused";
-  const mutable = client.hasControl && mutableStatus && !detail.execution_lease?.active;
-  const mutation = useMutation({
-    mutationFn: (target: RunExecutionProfileView["profile"]) => client.postControl<RunExecutionProfileControlView>(
-      `/runs/${encodeURIComponent(detail.run.id)}/execution-profile`,
-      { profile: target, reason: "web console execution profile selection" },
-      `web-execution-profile-${globalThis.crypto.randomUUID()}`,
-    ),
-    onSuccess: (result) => {
-      queryClient.setQueryData<RunDetailView>(["run", detail.run.id], (current) => current
-        ? { ...current, execution_profile: result.execution_profile }
-        : current);
-      void queryClient.invalidateQueries({ queryKey: ["run", detail.run.id, "events"] });
-    },
-  });
-  let boundary = "Selection is intent only";
-  if (!client.hasControl) {
-    boundary = "Read-only connection";
-  } else if (!mutableStatus) {
-    boundary = "Pause the Run before changing profile";
-  } else if (detail.execution_lease?.active) {
-    boundary = "Active execution lease";
-  }
-  return (
-    <section className="detail-section execution-profile-section">
-      <div className="section-heading">
-        <h2><Container aria-hidden="true" size={15} />Execution environment / 执行环境</h2>
-        <StatusBadge status={profile.risk_tier} />
-      </div>
-      <div aria-label="Run execution profile" className="execution-profile-segments" role="group">
-        {executionProfiles.map(({ id, label, detail: optionDetail, icon: Icon }) => (
-          <button
-            aria-pressed={profile.profile === id}
-            className={profile.profile === id ? "selected" : ""}
-            disabled={!mutable || mutation.isPending || profile.profile === id}
-            key={id}
-            onClick={() => mutation.mutate(id)}
-            title={`Select ${label}`}
-            type="button"
-          >
-            <Icon aria-hidden="true" size={16} />
-            <span><strong>{label}</strong><small>{optionDetail}</small></span>
-          </button>
-        ))}
-      </div>
-      <div className="execution-profile-boundary">
-        <span>{boundary}</span>
-        <span>Backend: {profile.backend}</span>
-        <span>Approval: {profile.approval_policy}</span>
-        <span>Gate: {profile.required_gate}</span>
-        <span>Process enabled: no</span>
-        <span>Execution authorized: no</span>
-      </div>
-      {mutation.isError && (
-        <div className="inline-warning" role="alert">
-          {mutation.error instanceof Error ? mutation.error.message : "Execution profile selection failed"}
-        </div>
-      )}
-    </section>
-  );
+function ExecutionBoundarySummary({ detail }: { detail: RunDetailView }) {
+  return <section className="detail-section execution-boundary-summary">
+    <div className="section-heading">
+      <h2><ShieldCheck aria-hidden="true" size={15} />权限摘要</h2>
+      <span>设置 &gt; 权限</span>
+    </div>
+    <dl className="detail-grid compact">
+      <KeyValue label="Permission" value={detail.execution_permission.mode} />
+      <KeyValue label="Interaction" value={detail.execution_interaction.mode} />
+      <KeyValue label="Environment" value={detail.execution_profile.profile} />
+      <KeyValue label="Workspace trust"
+        value={detail.execution_interaction.workspace_trust} />
+      <KeyValue label="Runtime authority" value="disabled" />
+      <KeyValue label="Agent input" value="disabled by default" />
+    </dl>
+  </section>;
 }
 
 export function OperatorSteeringPanel({ state }: { state: OperatorSteeringQueueView }) {

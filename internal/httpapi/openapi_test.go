@@ -77,6 +77,8 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 					item.Post.OperationID == "requestSpecialistModelCancellation") ||
 				(path == RunExecutionProfileControlPathTemplate &&
 					item.Post.OperationID == "selectRunExecutionProfile") ||
+				(path == RunExecutionPermissionControlPathTemplate &&
+					item.Post.OperationID == "selectRunExecutionPermission") ||
 				(path == RunCreationControlPath && item.Post.OperationID == "createRun") ||
 				(path == SessionMessageControlPathTemplate &&
 					item.Post.OperationID == "submitSessionMessage") ||
@@ -125,7 +127,9 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 				(path == VerificationSnapshotReceiptPathTemplate &&
 					item.Post.OperationID == "recordRunVerificationSnapshotReceipt") ||
 				(path == VerificationSnapshotReceiptReviewPathTemplate &&
-					item.Post.OperationID == "recordRunVerificationSnapshotReceiptReview")
+					item.Post.OperationID == "recordRunVerificationSnapshotReceiptReview") ||
+				(path == RunExecutionInteractionControlPathTemplate &&
+					item.Post.OperationID == "selectRunExecutionInteraction")
 			if !validControl ||
 				item.Post.ReadOnly || item.Post.Responses["202"] == nil || item.Post.RequestBody == nil ||
 				len(item.Post.Security) != 1 || item.Post.Security[0]["ControlBearerAuth"] == nil {
@@ -168,6 +172,8 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 			if method != "get" && !((path == ModelCancellationPathTemplate ||
 				path == SpecialistModelCancellationPathTemplate ||
 				path == RunExecutionProfileControlPathTemplate ||
+				path == RunExecutionPermissionControlPathTemplate ||
+				path == RunExecutionInteractionControlPathTemplate ||
 				path == RunCreationControlPath || path == SessionMessageControlPathTemplate ||
 				path == SessionSteeringCancellationPathTemplate ||
 				path == RunLifecycleControlPathTemplate ||
@@ -261,6 +267,20 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		application.CreateRunRequest{Goal: "OpenAPI execution profile target", Profile: "code",
 			Budget: domain.Budget{MaxTurns: 2}})
 	if err != nil {
+		t.Fatal(err)
+	}
+	_, interactionRun, err := application.NewRunService(fixture.store).Create(t.Context(),
+		application.CreateRunRequest{Goal: "OpenAPI execution interaction target", Profile: "code",
+			Budget: domain.Budget{MaxTurns: 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := application.NewRunExecutionProfileService(fixture.store).Change(t.Context(),
+		application.ChangeRunExecutionProfileRequest{
+			RunID: interactionRun.ID, Profile: string(domain.RunExecutionProfileLocal),
+			OperationKey: "openapi-interaction-profile-0001",
+			RequestedBy:  "openapi_test", Reason: "prepare controlled interaction",
+		}); err != nil {
 		t.Fatal(err)
 	}
 	_, lifecycleRun, err := application.NewRunService(fixture.store).Create(t.Context(),
@@ -498,6 +518,10 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 			requestPath = strings.ReplaceAll(requestPath, "{agent_id}", child.ID)
 		} else if spec.Path == RunExecutionProfileControlPathTemplate {
 			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", profileRun.ID)
+		} else if spec.Path == RunExecutionPermissionControlPathTemplate {
+			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", profileRun.ID)
+		} else if spec.Path == RunExecutionInteractionControlPathTemplate {
+			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", interactionRun.ID)
 		} else if spec.Path == RunLifecycleControlPathTemplate {
 			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", lifecycleRun.ID)
 		} else if spec.Path == PlanDirectionControlPathTemplate ||
@@ -628,6 +652,11 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 						fmt.Sprint(openAPIReceipt.Receipt.EventSequence) + `,` +
 						`"decision":"metadata_confirmed",` +
 						`"confirm_non_authorizing_review":true}`
+				} else if spec.Path == RunExecutionPermissionControlPathTemplate {
+					body = `{"mode":"full_access","confirm_danger_full_access":true}`
+				} else if spec.Path == RunExecutionInteractionControlPathTemplate {
+					body = `{"mode":"controlled","trust":"trusted",` +
+						`"confirm_workspace_trust":true}`
 				} else if spec.Path != RunExecutionProfileControlPathTemplate {
 					attemptID := fixture.checkpoint.AttemptID
 					modelAttempt := 1

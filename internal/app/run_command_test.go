@@ -222,6 +222,83 @@ func TestRunExecutionInteractionCLIRequiresExplicitOperatorBoundaries(t *testing
 	}
 }
 
+func TestRunExecutionPermissionCLIRequiresRuntimeGateAndExactConfirmation(t *testing.T) {
+	t.Setenv("CYBERAGENT_HOME", t.TempDir())
+	created, stderr, code := executeTestCommand(t, "run", "create",
+		"choose an execution permission boundary", "--max-turns", "2")
+	if code != 0 || stderr != "" {
+		t.Fatalf("run create output=%q stderr=%q code=%d", created, stderr, code)
+	}
+	runID := runIDPattern.FindString(created)
+	shown, stderr, code := executeTestCommand(t, "run", "execution-permission",
+		runID)
+	if code != 0 || stderr != "" ||
+		!strings.Contains(shown, "mode: conservative") ||
+		!strings.Contains(shown, "approval_policy: fixed_templates") ||
+		!strings.Contains(shown, "runtime_gate_available: true") ||
+		!strings.Contains(shown, "execution_authorized: false") {
+		t.Fatalf("unexpected initial permission output=%q stderr=%q code=%d",
+			shown, stderr, code)
+	}
+	if _, stderr, code := executeTestCommand(t, "run", "execution-permission",
+		"set", runID, "approval",
+		"--operation-key", "cli-permission-no-runtime-gate-0001",
+		"--confirm-user-approval"); code != 5 ||
+		!strings.Contains(stderr, "lacks gate") {
+		t.Fatalf("closed runtime gate stderr=%q code=%d", stderr, code)
+	}
+	if _, stderr, code := executeTestCommand(t, "run", "execution-permission",
+		"set", runID, "approval",
+		"--operation-key", "cli-permission-no-confirmation-0001",
+		"--enable-permission-control"); code != 2 ||
+		!strings.Contains(stderr, "exact user-approval confirmation") {
+		t.Fatalf("missing approval confirmation stderr=%q code=%d", stderr, code)
+	}
+	approval, stderr, code := executeTestCommand(t, "run", "execution-permission",
+		"set", runID, "approval",
+		"--operation-key", "cli-permission-approval-0001",
+		"--enable-permission-control", "--confirm-user-approval")
+	if code != 0 || stderr != "" ||
+		!strings.Contains(approval, "mode: approval") ||
+		!strings.Contains(approval, "approval_policy: per_command") ||
+		!strings.Contains(approval, "command_scope: arbitrary_stateless") ||
+		!strings.Contains(approval, "runtime_gate_available: true") ||
+		!strings.Contains(approval, "execution_authorized: false") {
+		t.Fatalf("unexpected approval output=%q stderr=%q code=%d",
+			approval, stderr, code)
+	}
+	full, stderr, code := executeTestCommand(t, "run", "execution-permission",
+		"set", runID, "full_access",
+		"--operation-key", "cli-permission-full-access-0001",
+		"--enable-permission-control", "--enable-danger-full-access",
+		"--confirm-danger-full-access")
+	if code != 0 || stderr != "" ||
+		!strings.Contains(full, "mode: full_access") ||
+		!strings.Contains(full, "approval_policy: none") ||
+		!strings.Contains(full, "filesystem_scope: host_full") ||
+		!strings.Contains(full, "network_scope: host") ||
+		!strings.Contains(full, "persistent_terminal: false") ||
+		!strings.Contains(full, "execution_authorized: false") {
+		t.Fatalf("unexpected full-access output=%q stderr=%q code=%d",
+			full, stderr, code)
+	}
+	debug, stderr, code := executeTestCommand(t, "run", "execution-permission",
+		"set", runID, "debug",
+		"--operation-key", "cli-permission-debug-0001",
+		"--enable-permission-control", "--enable-danger-full-access",
+		"--enable-debug-maximum-access", "--confirm-debug-access")
+	if code != 0 || stderr != "" ||
+		!strings.Contains(debug, "mode: debug") ||
+		!strings.Contains(debug, "command_scope: arbitrary_persistent") ||
+		!strings.Contains(debug, "persistent_terminal: true") ||
+		!strings.Contains(debug, "background_process: true") ||
+		!strings.Contains(debug, "agent_terminal_input: true") ||
+		!strings.Contains(debug, "capability_grant: false") {
+		t.Fatalf("unexpected debug output=%q stderr=%q code=%d",
+			debug, stderr, code)
+	}
+}
+
 func TestRunCommandPlanExposesOnlyClosedNonStartingEnvelope(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("CYBERAGENT_HOME", home)

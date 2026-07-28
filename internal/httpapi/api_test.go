@@ -186,6 +186,11 @@ func newAPIFixture(t *testing.T) *apiFixture {
 	api, err := New(st, Config{
 		AccessToken: testAccessToken, ControlToken: testControlToken,
 		RunControlEnabled: true, RunCreationEnabled: true, SessionMessageEnabled: true,
+		ExecutionPermissionControlEnabled: true,
+		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
+			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+			DebugMaximumAccessEnabled: true,
+		},
 		SessionSteeringControlEnabled: true,
 		AppVersion:                    "test-version",
 	})

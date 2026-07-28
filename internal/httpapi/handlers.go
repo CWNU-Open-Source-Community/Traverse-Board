@@ -57,6 +57,9 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 			resources = append(resources, "model-cancellation-control",
 				"specialist-model-cancellation-control", "execution-profile-control")
 		}
+		if a.executionPermissionControlEnabled {
+			resources = append(resources, "execution-permission-control")
+		}
 		if a.verificationEvidenceEnabled {
 			resources = append(resources, "verification-evidence-control", "verification-plan-control", "verification-plan-association-control", "verification-snapshot-receipt-control")
 		}
@@ -754,13 +757,24 @@ func (a *API) run(request *http.Request, runID string) (any, *Page, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	executionPermission, err := a.store.GetRunExecutionPermission(request.Context(), run.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	executionInteraction, err := a.store.GetRunExecutionInteraction(request.Context(), run.ID)
+	if err != nil {
+		return nil, nil, err
+	}
 	usage, err := a.store.GetToolCallUsage(request.Context(), run.ID)
 	if err != nil {
 		return nil, nil, err
 	}
 	detail := RunDetailView{Run: runView(run), Mission: missionView(mission),
 		Mode: runModeView(mode), ExecutionProfile: runExecutionProfileView(executionProfile),
-		ToolUsage: toolUsageView(usage)}
+		ExecutionPermission: runExecutionPermissionView(
+			executionPermission, a.executionPermissionCapabilities),
+		ExecutionInteraction: runExecutionInteractionView(executionInteraction),
+		ToolUsage:            toolUsageView(usage)}
 	checkpoint, found, err := a.store.GetSupervisorCheckpoint(request.Context(), run.ID)
 	if err != nil {
 		return nil, nil, err
