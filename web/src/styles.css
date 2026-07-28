@@ -1,5 +1,6 @@
 :root {
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: "SF Pro Text", "Segoe UI Variable Text", -apple-system, BlinkMacSystemFont,
+    "Segoe UI", system-ui, sans-serif;
   color: #17202a;
   background: transparent;
   font-synthesis: none;
@@ -889,7 +890,7 @@ body { background: transparent; }
 .titlebar-navigation { gap: 5px; }
 .titlebar-menu { gap: 2px; margin-left: 9px; }
 .titlebar-product { position: absolute; left: 50%; gap: 7px; transform: translateX(-50%); }
-.titlebar-product span { color: #f07828; font: italic 700 18px Georgia, serif; }
+.titlebar-product span { color: currentColor; font: 700 16px/1 "SF Pro Display", "Segoe UI Variable Display", sans-serif; }
 .titlebar-product strong { font-size: 12px; font-weight: 600; }
 .titlebar-icon,
 .titlebar-menu button {
@@ -956,14 +957,6 @@ body { background: transparent; }
   overflow: hidden;
 }
 
-.sidebar-brand img {
-  width: 210px;
-  height: 70px;
-  display: block;
-  object-fit: cover;
-  mix-blend-mode: screen;
-}
-
 .sidebar-create {
   min-height: 38px;
   display: flex;
@@ -991,40 +984,6 @@ body { background: transparent; }
   color: #bcae9d;
   isolation: isolate;
 }
-.prayu-shell .resource-tabs button.active {
-  color: #f8e3c8;
-  background: rgb(91 48 25 / 74%);
-  box-shadow: inset 0 0 0 1px rgb(238 119 42 / 34%);
-}
-.prayu-shell .resource-tabs button.active::before,
-.prayu-shell .resource-row.selected::before,
-.settings-sidebar nav button.active::before {
-  position: absolute;
-  inset: 0;
-  z-index: -2;
-  background:
-    linear-gradient(90deg, rgb(49 39 31 / 82%) 0 42%, rgb(115 57 28 / 62%) 70%,
-      rgb(224 100 29 / 88%) 100%),
-    repeating-linear-gradient(-7deg, transparent 0 3px, rgb(255 185 113 / 20%) 3px 4px,
-      transparent 4px 8px);
-  clip-path: polygon(0 8%, 74% 5%, 100% 16%, 97% 35%, 100% 54%, 94% 67%, 100% 87%,
-    61% 92%, 26% 100%, 0 89%);
-  opacity: .96;
-  content: "";
-}
-.prayu-shell .resource-tabs button.active::after,
-.settings-sidebar nav button.active::after {
-  position: absolute;
-  inset: 0 auto 0 0;
-  z-index: -1;
-  width: 48%;
-  background: #29241f;
-  content: "";
-}
-.settings-sidebar nav button.active::after { width: 62%; }
-.prayu-shell .resource-tabs button.active svg,
-.settings-sidebar nav button.active svg { color: #ff8534; }
-
 .prayu-shell .sidebar-tools {
   grid-template-columns: minmax(0, 1fr) 32px;
   padding: 7px 10px 6px;
@@ -1077,21 +1036,6 @@ body { background: transparent; }
   isolation: isolate;
 }
 .prayu-shell .resource-row:hover { background: rgb(235 211 183 / 7%); }
-.prayu-shell .resource-row.selected {
-  border-color: rgb(238 119 42 / 38%);
-  color: #f8e3c8;
-  background: rgb(91 48 25 / 72%);
-  box-shadow: inset 3px 0 0 #f07828;
-}
-.prayu-shell .resource-row.selected::before { opacity: .94; }
-.prayu-shell .resource-row.selected::after {
-  position: absolute;
-  inset: 0 auto 0 0;
-  z-index: -1;
-  width: 42%;
-  background: #29241f;
-  content: "";
-}
 .prayu-shell .resource-row > span:not(.resource-row-top),
 .prayu-shell .resource-row time { color: #9f9182; }
 .prayu-shell .resource-row.selected > span:not(.resource-row-top),
@@ -1225,12 +1169,6 @@ body { background: transparent; }
   isolation: isolate;
 }
 .settings-sidebar nav button:hover:not(:disabled) { background: rgb(239 211 177 / 7%); }
-.settings-sidebar nav button.active {
-  border-color: rgb(238 119 42 / 34%);
-  color: #f8e3c8;
-  background: rgb(91 48 25 / 74%);
-  box-shadow: inset 3px 0 0 #f07828;
-}
 .settings-sidebar nav button:disabled { opacity: .42; cursor: default; }
 
 .settings-main { min-width: 0; min-height: 0; background: rgb(13 12 11 / 14%); }
@@ -1372,7 +1310,6 @@ body { background: transparent; }
   box-shadow: 0 22px 70px rgb(0 0 0 / 28%);
   backdrop-filter: blur(8px);
 }
-.connection-wordmark { width: 190px; height: 64px; display: block; object-fit: cover; mix-blend-mode: multiply; }
 .connection-heading { margin-top: 26px; }
 .connection-panel .token-row button { background: #d7661d; }
 
@@ -1382,7 +1319,6 @@ body { background: transparent; }
 
 @media (max-width: 1000px) {
   .prayu-shell .shell-body { grid-template-columns: 270px minmax(0, 1fr); }
-  .sidebar-brand img { width: 180px; height: 61px; }
   .profile-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .profile-metrics > div { border-bottom: 1px solid rgb(224 147 86 / 24%); }
   .profile-metrics > div:nth-child(3n) { border-right: 0; }
@@ -1397,7 +1333,6 @@ body { background: transparent; }
   .prayu-shell .shell-body { height: auto; display: block; }
   .prayu-shell .resource-sidebar { height: 410px; }
   .sidebar-brand { height: 68px; }
-  .sidebar-brand img { width: 148px; height: 50px; }
   .prayu-shell .main-workspace { min-height: 560px; margin: 0; border-left: 0; border-radius: 0; }
   .settings-shell { height: auto; display: block; overflow: visible; }
   .settings-sidebar { max-height: 310px; border-right: 0; border-bottom: 1px solid rgb(239 211 177 / 15%); }
@@ -1483,17 +1418,6 @@ body { background: transparent; }
   padding: 4px 20px 0 29px;
 }
 
-.prayu-sidebar .sidebar-brand img {
-  position: absolute;
-  top: -10px;
-  left: -34px;
-  width: 375px;
-  height: auto;
-  object-fit: contain;
-  filter: contrast(1.06) brightness(1.05);
-  mix-blend-mode: screen;
-}
-
 .sidebar-brand-action {
   position: absolute;
   top: 18px;
@@ -1538,39 +1462,6 @@ body { background: transparent; }
 }
 
 .sidebar-primary-navigation button:hover { background: rgb(239 216 188 / 8%); }
-
-.sidebar-primary-navigation button.active {
-  border-color: rgb(231 111 35 / 25%);
-  color: #ffe6c7;
-  background: rgb(67 46 31 / 48%);
-}
-
-.sidebar-primary-navigation button.active::before,
-.prayu-sidebar .sidebar-history-row.selected::before {
-  position: absolute;
-  inset: 0;
-  z-index: -2;
-  background:
-    linear-gradient(90deg, rgb(49 39 31 / 82%) 0 42%, rgb(115 57 28 / 62%) 70%, rgb(224 100 29 / 88%) 100%),
-    repeating-linear-gradient(-7deg, transparent 0 3px, rgb(255 185 113 / 20%) 3px 4px,
-      transparent 4px 8px);
-  clip-path: polygon(0 8%, 74% 5%, 100% 16%, 97% 35%, 100% 54%, 94% 67%, 100% 87%,
-    61% 92%, 26% 100%, 0 89%);
-  opacity: .96;
-  content: "";
-}
-
-.sidebar-primary-navigation button.active::after,
-.prayu-sidebar .sidebar-history-row.selected::after {
-  position: absolute;
-  inset: 0 auto 0 0;
-  z-index: -1;
-  width: 34%;
-  background: linear-gradient(90deg, rgb(35 31 27 / 96%), rgb(35 31 27 / 70%), transparent);
-  content: "";
-}
-
-.sidebar-primary-navigation button.active svg { color: #ff8435; }
 
 .sidebar-history-search {
   height: 34px;
@@ -1630,7 +1521,7 @@ body { background: transparent; }
   background: transparent;
   cursor: pointer;
 }
-.sidebar-history-heading button:hover:not(:disabled) { color: #ff8435; background: rgb(239 216 188 / 8%); }
+.sidebar-history-heading button:hover:not(:disabled) { color: var(--prayu-text); background: var(--prayu-control-hover); }
 .sidebar-history-heading button:disabled { opacity: .5; }
 .sidebar-history-heading small { color: #7e7266; font-size: 9px; }
 
@@ -1655,15 +1546,7 @@ body { background: transparent; }
 }
 
 .prayu-sidebar .sidebar-history-row:hover { background: rgb(239 216 188 / 7%); }
-.prayu-sidebar .sidebar-history-row.selected {
-  border-color: rgb(238 119 42 / 27%);
-  color: #ffe5c4;
-  background: rgb(67 46 31 / 42%);
-  box-shadow: inset 2px 0 0 #f07828;
-}
-.prayu-sidebar .sidebar-history-row.selected::after { width: 44%; }
 .prayu-sidebar .sidebar-history-row > svg { color: #b5a38f; }
-.prayu-sidebar .sidebar-history-row.selected > svg { color: #ff8435; }
 
 .sidebar-history-copy {
   min-width: 0;
@@ -1678,8 +1561,6 @@ body { background: transparent; }
 }
 .sidebar-history-copy strong { font-size: 11px; font-weight: 500; }
 .sidebar-history-copy small { color: #938677; font-size: 9px; }
-.sidebar-history-row.selected .sidebar-history-copy small { color: #c5a88b; }
-
 .history-status {
   width: 6px;
   height: 6px;
@@ -2450,7 +2331,6 @@ body { background: transparent; }
   .prayu-shell.workspace-mode .shell-body {
     grid-template-columns: minmax(232px, var(--prayu-sidebar-width, 270px)) 16px minmax(0, 1fr);
   }
-  .prayu-sidebar .sidebar-brand img { left: -26px; width: 330px; height: auto; }
   .prayu-starter-composer { width: min(680px, calc(100% - 48px)); }
   .workbench-dock-layout.with-sidecar {
     grid-template-columns: minmax(0, 1fr) minmax(260px, 288px);
@@ -2466,7 +2346,6 @@ body { background: transparent; }
   .sidebar-resize-handle { display: none; }
   .prayu-shell .resource-sidebar.prayu-sidebar { height: min(440px, 50dvh); }
   .prayu-sidebar .sidebar-brand { height: 72px; }
-  .prayu-sidebar .sidebar-brand img { top: -8px; left: -17px; width: 255px; height: auto; }
   .prayu-shell .main-workspace.prayu-conversation-panel {
     min-height: 560px;
     margin: 0;
@@ -2506,7 +2385,7 @@ body { background: transparent; }
   --prayu-panel-strong: rgb(20 21 25 / 76%);
   --prayu-control: rgb(255 255 255 / 7%);
   --prayu-control-hover: rgb(255 255 255 / 13%);
-  --prayu-selected: rgb(255 255 255 / 92%);
+  --prayu-selected: #ffffff;
   --prayu-selected-ink: #16171a;
   --prayu-text: #f5f5f6;
   --prayu-muted: #a8abb1;
@@ -2526,7 +2405,7 @@ body { background: transparent; }
   --prayu-panel-strong: rgb(255 255 255 / 82%);
   --prayu-control: rgb(255 255 255 / 42%);
   --prayu-control-hover: rgb(255 255 255 / 70%);
-  --prayu-selected: rgb(255 255 255 / 96%);
+  --prayu-selected: #ffffff;
   --prayu-selected-ink: #17181b;
   --prayu-text: #202124;
   --prayu-muted: #62666d;
@@ -2536,6 +2415,26 @@ body { background: transparent; }
   --prayu-focus: #0b73ce;
   --prayu-accent: #0877d1;
   --prayu-danger: #b42318;
+}
+
+[data-prayu-theme="glass"] {
+  --prayu-window: rgb(8 12 18 / 14%);
+  --prayu-titlebar: rgb(20 25 33 / 24%);
+  --prayu-sidebar: rgb(18 24 32 / 22%);
+  --prayu-panel: rgb(18 24 32 / 30%);
+  --prayu-panel-strong: rgb(18 24 32 / 42%);
+  --prayu-control: rgb(255 255 255 / 10%);
+  --prayu-control-hover: rgb(255 255 255 / 18%);
+  --prayu-selected: #ffffff;
+  --prayu-selected-ink: #111317;
+  --prayu-text: #f8f9fb;
+  --prayu-muted: #c4c8d0;
+  --prayu-border: rgb(255 255 255 / 17%);
+  --prayu-border-strong: rgb(255 255 255 / 30%);
+  --prayu-shadow: rgb(0 0 0 / 28%);
+  --prayu-focus: #8fd3ff;
+  --prayu-accent: #72c5ff;
+  --prayu-danger: #ff8a80;
 }
 
 html,
@@ -2604,6 +2503,15 @@ summary:focus-visible {
   backdrop-filter: blur(34px) saturate(155%);
 }
 
+[data-prayu-theme="glass"] .prayu-shell .resource-sidebar,
+[data-prayu-theme="glass"] .prayu-shell .resource-sidebar.prayu-sidebar,
+[data-prayu-theme="glass"] .settings-sidebar,
+[data-prayu-theme="glass"] .prayu-shell .main-workspace,
+[data-prayu-theme="glass"] .prayu-shell .main-workspace.prayu-conversation-panel,
+[data-prayu-theme="glass"] .settings-main {
+  backdrop-filter: blur(46px) saturate(185%);
+}
+
 .prayu-shell .main-workspace,
 .prayu-shell .main-workspace.prayu-conversation-panel,
 .settings-main {
@@ -2642,37 +2550,38 @@ summary:focus-visible {
   box-shadow: inset 0 0 0 1px var(--prayu-border);
 }
 
-.prayu-shell .resource-tabs button.active::before,
-.prayu-shell .resource-tabs button.active::after,
-.prayu-shell .resource-row.selected::before,
-.prayu-shell .resource-row.selected::after,
-.settings-sidebar nav button.active::before,
-.settings-sidebar nav button.active::after {
-  display: none;
-}
-
 .prayu-shell .resource-tabs button,
+.sidebar-primary-navigation button,
 .settings-sidebar nav button,
 .sidebar-create,
 .sidebar-profile,
 .prayu-shell .resource-row {
-  border-radius: 8px;
+  border-radius: 12px;
   color: var(--prayu-muted);
+  transition:
+    color 140ms ease,
+    background 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
 }
 
-.prayu-shell .resource-tabs button:hover:not(:disabled),
-.settings-sidebar nav button:hover:not(:disabled),
+.prayu-shell .resource-tabs button:hover:not(:disabled):not(.active),
+.sidebar-primary-navigation button:hover:not(:disabled):not(.active),
+.settings-sidebar nav button:hover:not(:disabled):not(.active),
 .sidebar-create:hover,
 .sidebar-profile:hover,
-.prayu-shell .resource-row:hover {
+.prayu-shell .resource-row:hover:not(.selected) {
   border-color: var(--prayu-border);
   color: var(--prayu-text);
   background: var(--prayu-control-hover);
 }
 
 .prayu-shell .resource-tabs button.active,
+.sidebar-primary-navigation button.active,
 .settings-sidebar nav button.active,
-.prayu-shell .resource-row.selected {
+.prayu-shell .resource-row.selected,
+.prayu-sidebar .sidebar-history-row.selected {
   border-color: rgb(255 255 255 / 55%);
   color: var(--prayu-selected-ink);
   background: var(--prayu-selected);
@@ -2682,11 +2591,41 @@ summary:focus-visible {
 }
 
 .prayu-shell .resource-tabs button.active svg,
+.sidebar-primary-navigation button.active svg,
 .settings-sidebar nav button.active svg,
 .prayu-shell .resource-row.selected svg,
 .prayu-shell .resource-row.selected > span:not(.resource-row-top),
-.prayu-shell .resource-row.selected time {
+.prayu-shell .resource-row.selected time,
+.prayu-sidebar .sidebar-history-row.selected svg {
   color: var(--prayu-selected-ink);
+}
+
+.prayu-sidebar .sidebar-history-row.selected .sidebar-history-copy small {
+  color: var(--prayu-selected-ink);
+  opacity: .66;
+}
+
+.sidebar-primary-navigation {
+  gap: 5px;
+  padding: 0 12px 12px;
+}
+
+.sidebar-primary-navigation button {
+  min-height: 42px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  background: transparent;
+  backdrop-filter: blur(18px) saturate(145%);
+}
+
+.sidebar-primary-navigation button:active:not(:disabled) {
+  transform: scale(.985);
+}
+
+.prayu-sidebar .sidebar-history-row.selected {
+  box-shadow:
+    0 6px 20px rgb(0 0 0 / 16%),
+    inset 0 1px 0 rgb(255 255 255 / 72%);
 }
 
 .prayu-shell .search-field,
@@ -2774,6 +2713,118 @@ summary:focus-visible {
   box-shadow: 0 0 0 5px var(--prayu-control);
 }
 
+.prayu-brand {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--prayu-text);
+  font-family: "SF Pro Display", "Segoe UI Variable Display", -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.prayu-brand-icon {
+  position: relative;
+  width: 48px;
+  aspect-ratio: 1;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--prayu-border-strong);
+  border-radius: 14px;
+  color: var(--prayu-selected-ink);
+  background: var(--prayu-selected);
+  box-shadow:
+    0 10px 28px rgb(0 0 0 / 20%),
+    inset 0 1px 0 rgb(255 255 255 / 88%),
+    inset 0 -1px 0 rgb(0 0 0 / 8%);
+}
+
+.prayu-brand-glyph {
+  position: relative;
+  z-index: 1;
+  font-size: 28px;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.prayu-brand-glint {
+  position: absolute;
+  inset: 0 0 56%;
+  border-bottom: 1px solid rgb(255 255 255 / 68%);
+  background: rgb(255 255 255 / 28%);
+}
+
+.prayu-brand-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.prayu-brand-copy strong {
+  overflow: hidden;
+  font-size: 19px;
+  font-weight: 650;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prayu-brand-copy small {
+  overflow: hidden;
+  color: var(--prayu-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prayu-brand-hero {
+  gap: 16px;
+}
+
+.prayu-brand-hero .prayu-brand-icon {
+  width: 68px;
+  border-radius: 20px;
+}
+
+.prayu-brand-hero .prayu-brand-glyph { font-size: 39px; }
+.prayu-brand-hero .prayu-brand-copy strong { font-size: 28px; }
+.prayu-brand-hero .prayu-brand-copy small { font-size: 11px; }
+
+.prayu-sidebar .sidebar-brand {
+  height: 88px;
+  align-items: center;
+  padding: 12px 56px 8px 20px;
+}
+
+.prayu-sidebar .sidebar-brand .prayu-brand {
+  width: 100%;
+}
+
+.profile-avatar.prayu-brand,
+.about-mark.prayu-brand {
+  display: inline-flex;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.profile-avatar .prayu-brand-icon {
+  width: 84px;
+  border-radius: 23px;
+}
+
+.profile-avatar .prayu-brand-glyph { font-size: 46px; }
+
+.about-mark .prayu-brand-icon {
+  width: 78px;
+  border-radius: 21px;
+}
+
+.about-mark .prayu-brand-glyph { font-size: 43px; }
+
 .profile-identity p,
 .profile-identity p span,
 .capability-activity header span,
@@ -2828,7 +2879,7 @@ summary:focus-visible {
   gap: 3px;
   padding: 3px;
   border-color: var(--prayu-border);
-  border-radius: 10px;
+  border-radius: 13px;
   background: var(--prayu-control);
   backdrop-filter: blur(18px);
 }
@@ -2840,7 +2891,7 @@ summary:focus-visible {
   justify-content: center;
   gap: 6px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 10px;
   color: var(--prayu-muted);
   background: transparent;
 }
@@ -2848,7 +2899,17 @@ summary:focus-visible {
 .prayu-segmented button[aria-pressed="true"] {
   color: var(--prayu-selected-ink);
   background: var(--prayu-selected);
-  box-shadow: 0 3px 12px rgb(0 0 0 / 14%);
+  box-shadow:
+    0 5px 16px rgb(0 0 0 / 16%),
+    inset 0 1px 0 rgb(255 255 255 / 82%);
+}
+
+.appearance-theme-picker {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.appearance-theme-picker button {
+  min-width: 86px;
 }
 
 .shortcut-list kbd {
@@ -3044,4 +3105,20 @@ summary:focus-visible {
   .permission-option-grid-three,
   .permission-option-grid-four,
   .permission-facts { grid-template-columns: 1fr; }
+  .appearance-setting-row {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 12px 0;
+  }
+  .appearance-theme-picker button { min-width: 0; }
+  .prayu-sidebar .sidebar-brand {
+    height: 76px;
+    padding: 10px 52px 8px 16px;
+  }
+  .prayu-sidebar .prayu-brand-icon {
+    width: 42px;
+    border-radius: 12px;
+  }
+  .prayu-sidebar .prayu-brand-glyph { font-size: 25px; }
+  .prayu-sidebar .prayu-brand-copy strong { font-size: 17px; }
 }

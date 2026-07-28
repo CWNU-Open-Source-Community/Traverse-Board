@@ -1,6 +1,6 @@
 import { setDesktopWindowTheme } from "./desktop-window";
 
-export type PrayuTheme = "light" | "dark";
+export type PrayuTheme = "light" | "dark" | "glass";
 
 const themeStorageKey = "prayu.theme";
 
@@ -8,7 +8,7 @@ export function readPrayuTheme(): PrayuTheme {
   if (typeof window === "undefined") return "dark";
   try {
     const stored = window.localStorage.getItem(themeStorageKey);
-    if (stored === "light" || stored === "dark") return stored;
+    if (stored === "light" || stored === "dark" || stored === "glass") return stored;
   } catch {
     // Fall through to the system preference.
   }
@@ -17,7 +17,7 @@ export function readPrayuTheme(): PrayuTheme {
 
 export function applyPrayuTheme(theme: PrayuTheme, persist = true): void {
   document.documentElement.dataset.prayuTheme = theme;
-  document.documentElement.style.colorScheme = theme;
+  document.documentElement.style.colorScheme = theme === "light" ? "light" : "dark";
   setDesktopWindowTheme(theme);
   if (!persist) return;
   try {

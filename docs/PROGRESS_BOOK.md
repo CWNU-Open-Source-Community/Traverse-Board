@@ -2067,6 +2067,24 @@ runtime gate 不可用，非法启动闸门层级和缺失 control token 曾缺�
 修复后启用路径无已知未解决高/中风险。
 边界见 ADR 0077 与 ADR 0078。
 
+## Desktop D1-UX11：Prayu 标识与三档液态玻璃外观
+
+任务 ID：`Desktop-Prayu-Liquid-Glass-UX11`。本批为三个前端切片，不改变 SQLite schema、
+OpenAPI、Go 权限或执行能力。UX11-A 用 CSS/React `PrayuBrand` 圆角应用标识替代 2.09 MiB
+艺术字图片，并在连接页、工作台、个人资料和关于页复用同一组件。UX11-B 统一工作台、历史会话、
+设置导航、资源列表和分段控制的透明/半透明/纯白选中语义；旧橙色笔刷的渐变、裁切、伪元素和
+隐藏覆盖规则已从源码物理删除，选中控件悬停时仍保持纯白。UX11-C 新增可持久化的
+`浅色|深色|透明玻璃` 三档外观；Desktop 透明档继续使用 Windows 原生 Acrylic，普通浏览器使用
+可读的深色半透明回退，不伪造壁纸模糊。
+
+功能复核覆盖 1440x1000 浅色/透明玻璃工作台与设置页，以及 390x844 移动设置页。桌面选中态
+计算值为 `rgb(255, 255, 255)`，旧 `::before/::after` 内容均为 `none`；移动端三个外观按钮各
+116 px，文档与 body `scrollWidth` 均为 390 px，无横向溢出。前端 46 文件 158 项 React 测试、
+strict TypeScript、Vite production build 和 `npm audit` 零漏洞通过。Vitest 仍输出既有 jsdom
+Canvas 未实现提示和 `App.test.tsx` 的异步 `act()` 告警，但没有失败或本批新增告警。视觉验收只
+启动隔离的 loopback Prayu 服务和无头 Chrome，完成后浏览器、两个精确 PID 与端口
+8877/8878 均已关闭；未操作 Codex 主窗口。
+
 ## 八、仓库同步与恢复约定
 
 规范远程仓库：`https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench`。

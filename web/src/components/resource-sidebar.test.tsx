@@ -97,7 +97,7 @@ describe("ResourceSidebar", () => {
     await waitFor(() => expect(getPage.mock.calls.some((call) =>
       call[0] === "/runs" && call[2] === "cursor-terminal-page")).toBe(true));
     expect(useConnectionStore.getState().selectedRunID).toBe("run-paused");
-    expect(screen.getByAltText("Prayu")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Prayu" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "工作台导航" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "模型切换" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "自动定时" })).toBeInTheDocument();

@@ -5,6 +5,7 @@ import {
   Cpu,
   Info,
   Keyboard,
+  Layers3,
   Moon,
   PackageSearch,
   Palette,
@@ -17,6 +18,7 @@ import {
 import type { CyberAgentClient } from "../api/client";
 import type { HealthView } from "../api/types";
 import { applyPrayuTheme, readPrayuTheme, type PrayuTheme } from "../lib/appearance";
+import { PrayuBrand } from "./prayu-brand";
 import { RunPermissionSettings } from "./run-permission-settings";
 import { SidebarResizeHandle, clampSidebarWidth, defaultSidebarWidth } from "./workbench-frame";
 
@@ -193,7 +195,7 @@ function ProfileSettings({ capabilities, desktop, health }: {
   return (
     <div className="profile-settings">
       <section className="profile-identity">
-        <span className="profile-avatar" aria-hidden="true">P</span>
+        <PrayuBrand className="profile-avatar" variant="icon" />
         <h1>Prayu</h1>
         <p>@local-operator <span>Local</span></p>
       </section>
@@ -266,11 +268,13 @@ function AppearanceSettings({ density, theme, onDensityChange, onThemeChange }: 
     <h1>外观</h1>
     <div className="appearance-setting-row">
       <div><strong>外观模式</strong><span>Theme</span></div>
-      <div className="prayu-segmented" role="group" aria-label="外观模式">
+      <div className="prayu-segmented appearance-theme-picker" role="group" aria-label="外观模式">
         <button aria-pressed={theme === "light"} onClick={() => onThemeChange("light")}
           type="button"><Sun aria-hidden="true" size={14} />浅色</button>
         <button aria-pressed={theme === "dark"} onClick={() => onThemeChange("dark")}
           type="button"><Moon aria-hidden="true" size={14} />深色</button>
+        <button aria-pressed={theme === "glass"} onClick={() => onThemeChange("glass")}
+          type="button"><Layers3 aria-hidden="true" size={14} />透明玻璃</button>
       </div>
     </div>
     <div className="appearance-setting-row">
@@ -300,7 +304,7 @@ function ShortcutSettings() {
 
 function AboutSettings({ desktop, health }: { desktop: boolean; health: HealthView | null }) {
   return <section className="settings-page-section about-prayu">
-    <span className="about-mark">P</span>
+    <PrayuBrand className="about-mark" variant="icon" />
     <h1>Prayu</h1>
     <p>Local-first AI Agent Workbench</p>
     <dl className="settings-row-list">

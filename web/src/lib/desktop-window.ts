@@ -24,7 +24,7 @@ export function closeDesktopWindow(): void {
   window.runtime?.Quit?.();
 }
 
-export function setDesktopWindowTheme(theme: "light" | "dark"): void {
+export function setDesktopWindowTheme(theme: "light" | "dark" | "glass"): void {
   if (theme === "light") {
     window.runtime?.WindowSetLightTheme?.();
   } else {

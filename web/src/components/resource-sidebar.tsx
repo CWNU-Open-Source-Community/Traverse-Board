@@ -14,13 +14,13 @@ import {
   SquarePen,
   X,
 } from "lucide-react";
-import prayuWordmark from "../assets/prayu-wordmark.png";
 import type { CyberAgentClient } from "../api/client";
 import type { RunView, SessionView } from "../api/types";
 import { usePagedResource } from "../hooks/use-paged-resource";
 import { formatCompactDate, shortID } from "../lib/format";
 import { useConnectionStore } from "../state/connection";
 import { ErrorState, LoadMoreButton, LoadingState } from "./common";
+import { PrayuBrand } from "./prayu-brand";
 
 export type WorkbenchSection =
   | "conversation"
@@ -100,7 +100,7 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
   return (
     <aside className="resource-sidebar prayu-sidebar">
       <div className="sidebar-brand">
-        <img alt="Prayu" src={prayuWordmark} />
+        <PrayuBrand />
         <button aria-label="搜索历史对话" className="sidebar-brand-action"
           onClick={() => setSearchOpen((open) => !open)} title="搜索历史对话" type="button">
           {searchOpen ? <X aria-hidden="true" size={16} /> : <Search aria-hidden="true" size={16} />}

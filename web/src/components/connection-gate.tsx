@@ -1,10 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, LoaderCircle } from "lucide-react";
-import prayuWordmark from "../assets/prayu-wordmark.png";
 import { CyberAgentClient, clientCapabilitiesFromRuntime } from "../api/client";
 import { desktopBridgeAvailable, desktopErrorMessage, loadDesktopBootstrap } from "../lib/desktop-bridge";
 import { useConnectionStore } from "../state/connection";
+import { PrayuBrand } from "./prayu-brand";
 
 export function ConnectionGate() {
   const [token, setToken] = useState("");
@@ -98,7 +98,7 @@ export function ConnectionGate() {
   return (
     <main className="connection-page">
       <form className="connection-panel" onSubmit={submit}>
-        <img alt="Prayu" className="connection-wordmark" src={prayuWordmark} />
+        <PrayuBrand className="connection-brand" variant="hero" />
         <div className="connection-heading">
           <h1>连接本地控制面</h1>
           <p>Prayu · Go API / api.v1</p>

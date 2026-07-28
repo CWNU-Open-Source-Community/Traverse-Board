@@ -22,12 +22,15 @@ Desktop D1-UX10 gives the three execution dimensions one dedicated `权限`
 Settings page without combining their authority. It is Run-scoped, uses the
 existing Go HTTP/OpenAPI controls, and is inert when no Run is selected.
 Settings now reuses the 232-420 px accessible workbench resizer. The Windows
-Wails shell uses native Acrylic with a transparent WebView and real light/dark
-glass tokens; the old full-window background images and pasted selected-state
-assets are no longer part of the surface. Native composition can become more
-opaque when Windows disables transparency or maximizes the window. Renderer
-integrity and every Go capability check remain unchanged. ADR 0078 defines
-this presentation and authorization boundary.
+Wails shell uses native Acrylic with a transparent WebView. D1-UX11 adds a
+CSS/React Prayu app mark plus persisted light/dark/transparent-glass appearance
+tokens. Idle controls are transparent, hover is translucent, and selected
+navigation/segmented controls are opaque white. The image wordmark and legacy
+orange-brush gradients, clipping paths, and pseudo-elements are deleted.
+Native composition can become more opaque when Windows disables transparency
+or maximizes the window. Renderer integrity and every Go capability check
+remain unchanged. ADR 0078 defines this presentation and authorization
+boundary.
 
 The previous P12-B1/B2/B3 batch advanced SQLite to v87 and implemented the first deliberately narrow production execution surfaces. `run command-execute` can execute only the four P12-A Go-owned templates after explicit operator confirmation. Windows uses a restricted low-integrity token, creation-time Job Object, one-process and 512 MiB limits, closed stdin, a stripped environment, bounded output, deadline/cancellation, and tree reap. Schema v87 persists the exact intent before start and an immutable metadata-only receipt afterward; output bodies remain transient and a prepared intent without a receipt is never automatically retried.
 
@@ -289,7 +292,7 @@ Use these files first when resuming:
 - Cyber autonomous-workflow usability: about 20%.
 - These values are engineering estimates derived from tested roadmap slices, not performance benchmarks. The retired single-axis "overall product vision" percentage must not be used for current status.
 
-Latest implemented batch: P12-C1/C2/C3 plus Desktop D1-UX10 on schema v88. The four-level permission ceiling is durable and operator-owned but is re-gated through the current process before every operation. CLI, HTTP/OpenAPI, Desktop, React, and the four fixed controlled templates share the same Go resolver. The dedicated Run-scoped permission center also exposes interaction and execution-environment selection, while Settings gains the shared bounded resizer and native Windows Acrylic light/dark surface. ADR 0077 and ADR 0078 are authoritative. Arbitrary Agent Shell, independent network isolation, Docker PTY, and the operational built-in browser remain unavailable.
+Latest implemented batch: P12-C1/C2/C3 plus Desktop D1-UX11 on schema v88. The four-level permission ceiling is durable and operator-owned but is re-gated through the current process before every operation. CLI, HTTP/OpenAPI, Desktop, React, and the four fixed controlled templates share the same Go resolver. The dedicated Run-scoped permission center also exposes interaction and execution-environment selection. Settings has the shared bounded resizer, native Windows Acrylic, a CSS/React Prayu app mark, and persisted light/dark/transparent-glass appearance; selected controls are opaque white and the legacy orange-brush implementation is deleted. ADR 0077 and ADR 0078 are authoritative. Arbitrary Agent Shell, independent network isolation, Docker PTY, and the operational built-in browser remain unavailable.
 
 Completed:
 

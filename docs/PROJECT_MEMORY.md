@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-28
 
-## Current Checkpoint: P12-C / Schema v88
+## Current Checkpoint: P12-C / Schema v88 + Desktop D1-UX11
 
 Prayu now has four orthogonal Run execution permission policies:
 `conservative`, `approval`, `full_access`, and `debug`. Schema v88 persists an
@@ -26,7 +26,7 @@ next sequence is P12-D1 exact command proposal/review, P12-D2 bounded one-shot
 full-access executor, and P12-D3 separately authorized persistent Debug
 terminal binding. ADR 0077 is authoritative.
 
-Desktop D1-UX10 now gives those controls one dedicated `权限` Settings page.
+Desktop D1-UX10 gives those controls one dedicated `权限` Settings page.
 Permission ceiling, interaction shape, and execution environment remain
 separate Run-scoped values and continue through the existing Go HTTP/OpenAPI
 services. With no selected Run, the page is inert. UI state never substitutes
@@ -34,12 +34,16 @@ for a current `executionauth` decision.
 
 The Settings sidebar now reuses the accessible workbench resizer with the same
 232/286/420 px minimum/default/maximum bounds. Windows Wails uses a native
-Acrylic backdrop, transparent WebView, and light/dark glass tokens instead of
-the old full-window ink backgrounds. Windows remains free to use a more opaque
-fallback when transparency is disabled or the window is maximized. Real-window
-verification covered Acrylic wallpaper sampling, both themes, selected states,
-the permission page, and a 286-to-350 px Settings resize. ADR 0078 is
-authoritative.
+Acrylic backdrop and transparent WebView instead of the old full-window ink
+backgrounds. D1-UX11 adds a CSS/React Prayu app mark and persisted
+light/dark/transparent-glass tokens. Idle controls are transparent, hover is
+translucent, and selected navigation and segmented controls are opaque white;
+the legacy orange-brush gradients, clipping paths, pseudo-elements, and image
+wordmark are deleted. Windows remains free to use a more opaque fallback when
+transparency is disabled or the window is maximized. Real-window verification
+covered Acrylic wallpaper sampling, and headless desktop/mobile verification
+covered all three themes, selected states, no pseudo-element brush, and no
+390 px horizontal overflow. ADR 0078 remains authoritative.
 
 ## Resume First
 
@@ -146,8 +150,8 @@ Read in this order after a long context break:
 - Analyzer status: P10-A1 through P10-B3 fix `analyzer_protocol.v1`, a two-entry inert `analyzer_descriptor.v1` Registry, strict digest and `archive.inventory.v1` result validation, bounded Rust stdin/stdout functions, and two five-vector semantic/bytes/SHA suites with separate CI. The ZIP function only reads an in-memory central directory and never opens, decompresses, extracts, or writes entry data. A Go-to-Rust product process bridge, product invocation, Run/Event/SQLite persistence, and Artifact commit remain absent. See ADR 0062, ADR 0063, and `analyzers/README.md`.
 - Model Harness status: non-schema A1/A2/A3 adds `model_harness.v1` exact transport/tool/JSON/streaming profiles, Go preflight for Root/Specialist/read-only Fan-out, and `model_harness_qualification.v1` at-most-two-call synthetic qualification. Mock is trusted offline; Anthropic-compatible models require explicit qualification. Qualification stores only exact binding digest, capability booleans, and seven-day expiry in existing Provider settings; the synthetic Tool is never executed, availability remains no-probe, and qualification grants no Tool/Shell/file/browser/Docker authority. Current OpenAPI is 78 paths / 86 operations / 192 schemas. See ADR 0074.
 - Browser status: P11-A1 through P11-C3 now fix three Profiles, exact target scope, inert session plans, fixed-location executable discovery, disposable-profile recovery plans, sealed Disabled/Fake CDP, same-handle Windows Authenticode acceptance, immutable launch attempts/generation leases, and independent operator review. Chrome and Edge can become `accepted_for_review`; arbitrary Chromium remains refused. Review acceptance still grants no process, network, profile-write, termination, cleanup, CDP, or Artifact authority. No built-in browser process or UI exists. See ADR 0069, ADR 0071, and ADR 0073.
-- Desktop status: the established Wails v2.13.0 shell retains its embedded React/in-process Go API, Run/editor/repository/verification/Handoff/model/credential/wake workflows and composable docks. P12-B2 adds a default-off user-owned ConPTY/xterm terminal for an exact trusted Code/Local/Debug Run. The user starts and types into it; terminal state, environment, input, output, and process identity are process-local, and the renderer cannot issue Agent-input leases. D1-UX10 adds native Windows Acrylic, transparent WebView rendering, light/dark appearance tokens, and the resizable permission-centered Settings surface without weakening renderer integrity. Windows 10 release coverage remains pending and `release_ready=false`. There is no installer, formal signed release, registry/startup/update behavior, general Agent Shell, Docker PTY, real built-in browser, or install-time Skill execution. See ADR 0033 through ADR 0061, ADR 0064, ADR 0068, ADR 0070, ADR 0072 through ADR 0078, and `docs/DESKTOP_PLAN.md`.
-- Prayu UX status: D1-UX1 through D1-UX10 introduce the Prayu identity/wordmark, frameless titlebar, bounded resizable workbench and Settings sidebars, Go-backed composer, four-control toolbar, dedicated permission center, native Acrylic, and real light/dark glass tokens. Full-window ink backgrounds and screenshot-based selected overlays are no longer used; selected navigation and segmented controls are CSS-rendered rounded surfaces. Summary/Review/Files/Side Tasks use existing bounded Go surfaces. Browser remains inert; Terminal becomes real only when the Desktop is explicitly started with `--enable-user-terminal`, and remains user-owned. Open Workspace stays operator-confirmed and pathless at the renderer boundary. Stable CyberAgent compatibility identifiers remain unchanged. See ADR 0064, ADR 0070, ADR 0072, ADR 0076, and ADR 0078.
+- Desktop status: the established Wails v2.13.0 shell retains its embedded React/in-process Go API, Run/editor/repository/verification/Handoff/model/credential/wake workflows and composable docks. P12-B2 adds a default-off user-owned ConPTY/xterm terminal for an exact trusted Code/Local/Debug Run. The user starts and types into it; terminal state, environment, input, output, and process identity are process-local, and the renderer cannot issue Agent-input leases. D1-UX10/UX11 add native Windows Acrylic, transparent WebView rendering, persisted light/dark/transparent-glass appearance tokens, and the resizable permission-centered Settings surface without weakening renderer integrity. Windows 10 release coverage remains pending and `release_ready=false`. There is no installer, formal signed release, registry/startup/update behavior, general Agent Shell, Docker PTY, real built-in browser, or install-time Skill execution. See ADR 0033 through ADR 0061, ADR 0064, ADR 0068, ADR 0070, ADR 0072 through ADR 0078, and `docs/DESKTOP_PLAN.md`.
+- Prayu UX status: D1-UX1 through D1-UX11 introduce the Prayu identity, frameless titlebar, bounded resizable workbench and Settings sidebars, Go-backed composer, four-control toolbar, dedicated permission center, native Acrylic, a CSS/React app mark, and three persisted appearance choices. Full-window ink backgrounds, screenshot-based selected overlays, the image wordmark, and orange-brush CSS are no longer used; selected navigation and segmented controls are opaque-white CSS rounded surfaces. Summary/Review/Files/Side Tasks use existing bounded Go surfaces. Browser remains inert; Terminal becomes real only when the Desktop is explicitly started with `--enable-user-terminal`, and remains user-owned. Open Workspace stays operator-confirmed and pathless at the renderer boundary. Stable CyberAgent compatibility identifiers remain unchanged. See ADR 0064, ADR 0070, ADR 0072, ADR 0076, and ADR 0078.
 - Execution status: P12-A1/A2/A3 adds durable interaction intent, exact process-local Agent-input leases, and four non-starting fixed command plans. P12-B1/B2/B3 advances SQLite to v87 and adds a separate operator-only Windows execution path plus the user terminal. P12-C1/C2/C3 advances SQLite to v88 and adds the four-level permission ceiling plus one Go `executionauth` resolver used by CLI, HTTP, Desktop, React, and the controlled command entry. Controlled commands use a restricted low-integrity token, creation-time Job Object, one-process/512 MiB/output/deadline/cancellation/tree-reap controls, write-ahead intent, and immutable metadata receipt. Git configuration/hooks/fsmonitor/external diff are disabled and raw output is transient. This is not a general LocalRunner or network sandbox. The internal Agent-input bridge has no renderer grant path and revokes on host, Run, terminal, and durable-binding lifecycle changes. See ADR 0075 through ADR 0078.
 - Custom Skill status: the five embedded `skill.v1` guides and explicitly selected external packages are Run-loadable through separate protocols. Schema v69 adds persistent content-addressed import/history; schema v70 adds a second explicitly confirmed exact Run selection and redacted user-role root/Specialist context; schema v71 adds bounded read-only provenance across HTTP/TUI/Web. D1-A adds a pathless, one-time-handle preview boundary; D1-B1 adds explicit HTTP/Desktop registration through the same inert Registry. External packages remain untrusted and grant no declared tools. Installation executes no content and still does not select a package for a Run. See ADR 0024, ADR 0031 through ADR 0033, ADR 0041, and `docs/SKILL_PACKAGE_PLAN.md`.
 - Protected-delete status: explicit recursive, absolute/traversing/wildcard, environment-derived, command-substituted, current-home, PowerShell/`cmd`, and common interpreter deletion intents are permanently denied before approval across Shell, ScriptProcess, and Sandbox Policy. This is defense in depth; Local/container process execution remains disabled and a future executor still requires OS/container isolation. See ADR 0025.
@@ -2000,11 +2004,17 @@ known unresolved high/medium issue.
 
 ## Next Slice
 
-The recommended next three-slice batch is P12-C1/C2/C3:
+The recommended next three-slice batch is P12-D1/D2/D3:
 
-1. add a model-visible but non-executing proposal for only the four closed command kinds;
-2. add a separately enabled operator review that invokes only the exact v87 request;
-3. project the bounded redacted result back as provenance-marked untrusted Run evidence, never as instructions.
+1. add a non-executing arbitrary one-shot command proposal bound to the exact Run,
+   permission snapshot, argv, cwd, environment intent, and network intent, with a
+   separate operator review in `approval`;
+2. add the separately gated `full_access` one-shot host executor with write-ahead
+   intent, immutable receipt, deadline, cancellation, process-tree reap, and an
+   explicit non-sandbox warning;
+3. add the separately authorized Agent-owned persistent terminal binding only for
+   `debug`, with a short lease, background-process bounds, host/Run lifecycle
+   revocation, and clearly distinguished user-versus-Agent input.
 
 P11-C4/C5/C6 Safe Web start/Profile/CDP and P10-F1/F2/F3 analyzer
 preflight remain queued. Docker PTY, arbitrary Agent Shell, request mutation,

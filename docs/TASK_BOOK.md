@@ -536,6 +536,10 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 - [x] P12-C3：新增 Go `executionauth` 统一判定，并在现有固定模板执行入口重新检查当前 Run 权限；permission-control、danger-full-access、debug-maximum-access 启动闸门单调依赖，Debug Desktop 还必须显式开启用户终端。持久化选择不随重启恢复权限。
 - [x] Desktop D1-UX10：新增独立“权限”设置页，将权限上限、交互方式和执行环境集中为三个 Run-scoped Go 控制；无 Run 时失败关闭。设置侧栏复用 232/286/420 px 有界拖拽，Windows 改用原生 Acrylic、透明 WebView、浅/深色令牌和 CSS 圆角白色选中态，不再使用整页背景图或截图选中素材；边界见 ADR 0078。
 - [x] P12-C1/C2/C3 + D1-UX10 功能门：全仓 Go、vet、零告警 staticcheck、零可达漏洞 govulncheck、五个高风险包 race、Desktop secure tags、module verify、OpenAPI 78/86/192 精确再生、45 文件 156 React、strict TypeScript、Vite production build 与 npm audit 零漏洞全绿；最终便携 GUI SHA-256 `5e0840207e83b986350001473caf4b40322031c3339565c7b6b7e4a9204043b4`，自动兼容门通过且 `release_ready=false`。真实 Windows 窗口复核覆盖壁纸随位置变化的 Acrylic、浅/深色、权限空状态和设置侧栏 286→350 px 拖拽；验收后只关闭临时 Prayu 进程。审计修复保守档 CLI 错误显示 runtime gate 不可用、启动闸门参数错误退出语义不稳定、OpenAPI 快照漂移、跨 Run 选择后可能残留的提权确认界面状态和一处 Go 错误文本规范问题，启用路径无已知未解决高/中风险。
+- [x] Desktop D1-UX11-A：新增 CSS/React `PrayuBrand` 圆角应用标识，替换连接页和工作台的 2.09 MiB 艺术字图片，并复用到个人资料与关于页。
+- [x] Desktop D1-UX11-B：统一导航、历史会话、资源列表和分段控制的液态玻璃状态；空闲透明、悬停半透明、选中纯白不透明。物理删除旧橙色笔刷的渐变、裁切、伪元素和隐藏覆盖规则。
+- [x] Desktop D1-UX11-C：新增持久化 `浅色|深色|透明玻璃` 外观档位；Desktop 透明档复用原生 Acrylic，普通浏览器失败可读回退，390 px 视口无横向溢出。
+- [x] Desktop D1-UX11 三切片功能门：46 文件 158 项 React、strict TypeScript、Vite production build、npm audit 零漏洞和桌面/移动无头视觉复核通过；选中态计算值为纯白且无伪元素内容，隔离验收进程与端口已清理。本批不修改 schema、OpenAPI 或运行权限。
 - [ ] P12-D1：实现只生成、不执行的任意一次性命令提案，精确绑定 Run/权限快照/argv/cwd/env/network intent，并在 `approval` 档建立独立人工审阅。
 - [ ] P12-D2：实现 `full_access` 一次性宿主执行器；启动前重新消费统一授权，使用写前 intent、不可变 receipt、超时/取消/进程树回收和醒目危险提示，不把它宣传为沙箱。
 - [ ] P12-D3：只为 `debug` 实现 Agent 持久终端绑定；要求最大权限启动闸门、独立限时鉴权、后台进程上限、终止/锁屏/Run 生命周期撤销，并与用户终端输入来源清晰区分。

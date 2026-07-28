@@ -26,7 +26,7 @@ describe("SettingsView", () => {
     vi.restoreAllMocks();
   });
 
-  it("projects real runtime facts and moves the selected brush state with navigation", () => {
+  it("projects real runtime facts and moves the selected state with navigation", () => {
     render(<SettingsView capabilities={capabilities} client={client} desktop health={health}
       selectedRunID=""
       onBack={vi.fn()} onOpenModels={vi.fn()} onOpenSkills={vi.fn()} />);
@@ -50,6 +50,11 @@ describe("SettingsView", () => {
       onBack={vi.fn()} onOpenModels={onOpenModels} onOpenSkills={onOpenSkills} />);
 
     fireEvent.click(screen.getByRole("button", { name: "外观" }));
+    fireEvent.click(screen.getByRole("button", { name: "透明玻璃" }));
+    expect(screen.getByRole("button", { name: "透明玻璃" }))
+      .toHaveAttribute("aria-pressed", "true");
+    expect(document.documentElement.dataset.prayuTheme).toBe("glass");
+    expect(window.localStorage.getItem("prayu.theme")).toBe("glass");
     fireEvent.click(screen.getByRole("button", { name: "紧凑" }));
     expect(document.documentElement.dataset.prayuDensity).toBe("compact");
     expect(window.localStorage.getItem("prayu.ui-density")).toBe("compact");
