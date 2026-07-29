@@ -546,6 +546,49 @@ func TestExternalSkillProjectionIsAbsentWithoutRunSelection(t *testing.T) {
 		http.StatusNotFound, "NOT_FOUND")
 }
 
+func TestRunActivitySeparatesPublicUpdatesFromHarnessEvidence(t *testing.T) {
+	fixture := newAPIFixture(t)
+	response := fixture.get(t, "/api/v1/runs/"+fixture.run.ID+"/activity?limit=100")
+	var activity RunActivityView
+	decodeData(t, response, &activity)
+	if activity.Version != "run_activity.v1" || activity.RunID != fixture.run.ID ||
+		activity.ThroughSequence <= 0 || activity.PrivateReasoningIncluded ||
+		len(activity.Items) < 3 {
+		t.Fatalf("unexpected Run activity: %#v", activity)
+	}
+	var modelUpdate, harnessEvent bool
+	for _, item := range activity.Items {
+		if item.Source == "model" && item.Kind == "model_update" &&
+			item.Detail == "inspection started" && !item.Verifiable {
+			modelUpdate = true
+		}
+		if item.Source == "harness" && item.Kind == "model_call" &&
+			item.Title == "模型调用开始" && item.Verifiable {
+			harnessEvent = true
+		}
+	}
+	if !modelUpdate || !harnessEvent {
+		t.Fatalf("activity provenance was not separated: %#v", activity.Items)
+	}
+	body := response.Body.String()
+	for _, forbidden := range []string{fixture.secret, fixture.leaseID, `"payload"`,
+		`"thinking"`, `"command"`, "echo api evidence"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("Run activity exposed private/raw data %q: %s", forbidden, body)
+		}
+	}
+	for _, requestPath := range []string{
+		"/api/v1/runs/" + fixture.run.ID + "/activity?limit=0",
+		"/api/v1/runs/" + fixture.run.ID + "/activity?limit=101",
+		"/api/v1/runs/" + fixture.run.ID + "/activity?unknown=true",
+	} {
+		assertAPIError(t, fixture.get(t, requestPath), http.StatusBadRequest,
+			"INVALID_ARGUMENT")
+	}
+	assertAPIError(t, fixture.get(t, "/api/v1/runs/missing/activity"),
+		http.StatusNotFound, "NOT_FOUND")
+}
+
 func TestReadAPIPaginationCursorIsOpaqueScopedAndBounded(t *testing.T) {
 	fixture := newAPIFixture(t)
 	first := fixture.get(t, "/api/v1/runs/"+fixture.run.ID+"/notes?limit=2")

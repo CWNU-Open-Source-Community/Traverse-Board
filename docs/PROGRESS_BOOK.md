@@ -2131,10 +2131,40 @@ Windows 10/WebView2/显示缩放人工矩阵仍未完成，因此正确保持
 Application 与 SQLite 对保留 Supervisor reviewer 身份拒绝不一致的问题；
 最终未发现已知未解决高/中风险。
 
+## P13-A1/A2/A3：模型公开更新与 Harness 活动时间线
+
+任务 ID：`P13-Public-Run-Activity`。本批不修改 SQLite schema v89，也不增加
+mutation 或执行能力。P13-A1 新增纯 Go `run_activity.v1`：只从公开 Session
+消息与明确白名单 Run events 生成模型、用户、Harness 三类活动，统一做
+UTF-8、控制字符、密钥脱敏和 rune 上限处理。未知事件直接省略，provider
+thinking、model delta、raw event payload、Prompt、Tool 参数和 Tool 输出没有
+投影路径。
+
+P13-A2 在 Desktop Run 工作区增加默认“活动”页，按持久 sequence 正序展示。
+模型公开更新不会标记为执行事实；Harness 行才显示 Go 记录的可验证状态。
+原始 Events 继续留在独立诊断页，SSE/Wails polling 只触发活动 endpoint 重读。
+服务端响应固定 `private_reasoning_included=false`；React 如收到 true 会拒绝
+渲染，不能把私有推理误显示为普通活动。
+
+P13-A3 强化 `root_lifecycle.v1.message`：它只能是面向用户的简洁进度或结果，
+描述已完成动作、验证结果和相关下一步，禁止私有思维链、隐藏 Prompt、密钥
+和 raw Tool output，并要求明确区分模型判断与 Harness 验证事实。它复刻的是
+Codex 类产品的“公开模型 commentary + 工具/生命周期事件”体验，不声称读取
+模型隐藏推理。边界见 ADR 0080。
+
+无缓存串行全仓 Go 483.9 秒、全仓 vet、零告警 staticcheck、
+`runactivity/httpapi/application` race、零可达漏洞 govulncheck、module
+verify/tidy、48 文件 165 项 React、strict TypeScript、82 path / 90 operation /
+199 schema OpenAPI 确定性再生成、Vite production build 和 npm audit 零漏洞
+全部通过。当前未发现私有 thinking、raw delta/payload、Prompt、Tool 参数/
+输出或新增 authority 的可达泄漏路径。Anthropic `thinking` 与
+`thinking_delta` 均有回归测试证明不会进入公开文本；动态状态也收敛为固定
+枚举，未知值不会进入 React CSS class。
+
 ## 八、仓库同步与恢复约定
 
 规范远程仓库：`https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench`。
 
 每三个聚焦切片组成一个交付批次；第三片后统一执行功能复核、普通/聚焦测试、组合差异审查、项目记忆更新、Git 提交、GitHub 推送和 CI 复核。每两个批次即六个切片再执行全仓 race、vet、staticcheck、govulncheck、依赖/隐私与完整构建健壮性门。当前仓库直接开发并推送 `main`；除非用户明确要求，不创建功能分支或 PR。
 
-长对话恢复时依次阅读：`README.md`、`docs/PROJECT_MEMORY.md`、`docs/PROJECT_STATUS.md`、本文件、`docs/TASK_BOOK.md`、`docs/http-api.md`、`docs/errors.md`，再按序阅读 `docs/adr/0001-*.md` 到 `docs/adr/0079-review-gated-fixed-command-proposals.md`。
+长对话恢复时依次阅读：`README.md`、`docs/PROJECT_MEMORY.md`、`docs/PROJECT_STATUS.md`、本文件、`docs/TASK_BOOK.md`、`docs/http-api.md`、`docs/errors.md`，再按序阅读 `docs/adr/0001-*.md` 到 `docs/adr/0080-public-model-updates-and-harness-activity.md`。

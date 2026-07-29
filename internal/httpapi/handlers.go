@@ -19,6 +19,7 @@ import (
 	"cyberagent-workbench/internal/fileedit"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/repository"
+	"cyberagent-workbench/internal/runactivity"
 	"cyberagent-workbench/internal/workspace"
 )
 
@@ -52,7 +53,7 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 			"external-skills", "workspaces", "workspace-explorer", "workspace-search", "models",
 			"repository-state", "repository-diff", "repository-history", "repository-file-history", "repository-commit-detail", "repository-commit-comparison", "repository-commit-file-preview", "verification-evidence", "verification-plan", "verification-plan-coverage", "verification-snapshot-export", "verification-snapshot-receipts", "code-handoff", "code-handoff-export",
 			"operation-receipts", "operator-actions", "evidence-inventory",
-			"event-stream", "event-poll", "capabilities", "openapi"}
+			"run-activity", "event-stream", "event-poll", "capabilities", "openapi"}
 		if a.controlEnabled {
 			resources = append(resources, "model-cancellation-control",
 				"specialist-model-cancellation-control", "execution-profile-control")
@@ -435,6 +436,8 @@ func (a *API) routeRuns(request *http.Request, segments []string) (any, *Page, e
 			return a.runFindingReports(request, segments[1])
 		case "events":
 			return a.runEvents(request, segments[1])
+		case "activity":
+			return a.runActivity(request, segments[1])
 		case "work-items":
 			return a.runWorkItems(request, segments[1])
 		case "notes":
@@ -898,6 +901,45 @@ func (a *API) runEvents(request *http.Request, runID string) (any, *Page, error)
 	}
 	views, page := trimPage(views, pageRequest)
 	return views, page, nil
+}
+
+func (a *API) runActivity(request *http.Request, runID string) (any, *Page, error) {
+	values := request.URL.Query()
+	if err := validateSingleQueryValues(values, "limit"); err != nil {
+		return nil, nil, err
+	}
+	if _, err := a.store.GetRun(request.Context(), runID); err != nil {
+		return nil, nil, err
+	}
+	limit := runactivity.MaxSourceEvents
+	if raw, ok := singleQueryValue(values, "limit"); ok {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > runactivity.MaxSourceEvents {
+			return nil, nil, apperror.New(apperror.CodeInvalidArgument,
+				fmt.Sprintf("run activity limit must be between 1 and %d",
+					runactivity.MaxSourceEvents))
+		}
+		limit = parsed
+	}
+	latest, err := a.store.LatestRunEventSequence(request.Context(), runID)
+	if err != nil {
+		return nil, nil, err
+	}
+	afterSequence := latest - int64(limit)
+	if afterSequence < 0 {
+		afterSequence = 0
+	}
+	source, err := a.store.ListRunEventsAfterSequence(request.Context(), runID,
+		afterSequence, limit)
+	if err != nil {
+		return nil, nil, err
+	}
+	projection, err := runactivity.Build(runID, source, afterSequence > 0)
+	if err != nil {
+		return nil, nil, apperror.Wrap(apperror.CodeFailedPrecondition,
+			"durable Run activity could not be projected", err)
+	}
+	return runActivityView(projection), nil, nil
 }
 
 func (a *API) runWorkItems(request *http.Request, runID string) (any, *Page, error) {

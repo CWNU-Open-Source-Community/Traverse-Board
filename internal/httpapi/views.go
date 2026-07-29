@@ -10,6 +10,7 @@ import (
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/operationreceipt"
 	"cyberagent-workbench/internal/operatoraction"
+	"cyberagent-workbench/internal/runactivity"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/toolbudget"
 )
@@ -949,6 +950,28 @@ type EventView struct {
 	CreatedAt time.Time       `json:"created_at"`
 }
 
+type RunActivityView struct {
+	Version                  string                `json:"version"`
+	RunID                    string                `json:"run_id"`
+	ThroughSequence          int64                 `json:"through_sequence"`
+	Truncated                bool                  `json:"truncated"`
+	PrivateReasoningIncluded bool                  `json:"private_reasoning_included"`
+	Items                    []RunActivityItemView `json:"items"`
+}
+
+type RunActivityItemView struct {
+	ID                    string    `json:"id"`
+	Sequence              int64     `json:"sequence"`
+	Kind                  string    `json:"kind"`
+	Source                string    `json:"source"`
+	Title                 string    `json:"title"`
+	Detail                string    `json:"detail,omitempty"`
+	Status                string    `json:"status,omitempty"`
+	Verifiable            bool      `json:"verifiable"`
+	InstructionAuthorized bool      `json:"instruction_authorized"`
+	CreatedAt             time.Time `json:"created_at"`
+}
+
 type WorkItemView struct {
 	ID                 string     `json:"id"`
 	RunID              string     `json:"run_id"`
@@ -1235,6 +1258,23 @@ func eventView(value events.Event) EventView {
 	return EventView{EventID: value.EventID, Version: value.Version, RunID: value.RunID,
 		MissionID: value.MissionID, Sequence: value.Sequence, Type: value.Type, Source: value.Source,
 		SubjectID: value.SubjectID, Payload: json.RawMessage(value.PayloadJSON), CreatedAt: value.CreatedAt}
+}
+
+func runActivityView(value runactivity.Projection) RunActivityView {
+	items := make([]RunActivityItemView, len(value.Items))
+	for index, item := range value.Items {
+		items[index] = RunActivityItemView{
+			ID: item.ID, Sequence: item.Sequence, Kind: string(item.Kind),
+			Source: string(item.Source), Title: item.Title, Detail: item.Detail,
+			Status: item.Status, Verifiable: item.Verifiable,
+			InstructionAuthorized: item.InstructionAuthorized, CreatedAt: item.CreatedAt,
+		}
+	}
+	return RunActivityView{
+		Version: value.Version, RunID: value.RunID,
+		ThroughSequence: value.ThroughSequence, Truncated: value.Truncated,
+		PrivateReasoningIncluded: value.PrivateReasoningIncluded, Items: items,
+	}
 }
 
 func workItemView(value domain.WorkItem) WorkItemView {

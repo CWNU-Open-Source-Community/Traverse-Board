@@ -328,6 +328,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Project public Run activity
+         * @description Returns bounded public model updates, operator messages, and a Go-owned allowlist of verifiable Harness lifecycle events. It never includes private chain-of-thought, provider thinking blocks, raw prompts, event payloads, tool arguments, tool output, commands, or hidden error text.
+         */
+        get: operations["getRunActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/agent-graph": {
         parameters: {
             query?: never;
@@ -3396,6 +3416,32 @@ export interface components {
             /** Format: int32 */
             worktree_count: number;
         };
+        RunActivityItemView: {
+            /** Format: date-time */
+            created_at: string;
+            detail?: string;
+            id: string;
+            instruction_authorized: boolean;
+            /** @enum {string} */
+            kind: "harness_status" | "model_update" | "operator_input" | "model_call" | "tool_call" | "approval" | "file_change" | "plan";
+            /** Format: int64 */
+            sequence: number;
+            /** @enum {string} */
+            source: "harness" | "model" | "operator";
+            status?: string;
+            title: string;
+            verifiable: boolean;
+        };
+        RunActivityView: {
+            items: components["schemas"]["RunActivityItemView"][];
+            private_reasoning_included: boolean;
+            run_id: string;
+            /** Format: int64 */
+            through_sequence: number;
+            truncated: boolean;
+            /** @enum {string} */
+            version: "run_activity.v1";
+        };
         RunConfigView: {
             interactive: boolean;
             model_route: string;
@@ -5369,6 +5415,44 @@ export interface operations {
             413: components["responses"]["RequestEntityTooLarge"];
             414: components["responses"]["RequestTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getRunActivity: {
+        parameters: {
+            query?: {
+                /** @description Maximum recent durable source events considered by the projection */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["RunActivityView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
         };

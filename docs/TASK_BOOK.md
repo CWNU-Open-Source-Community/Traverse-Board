@@ -544,6 +544,10 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 - [x] P12-D2：新增独立操作者 approve/deny 与一次性执行服务；审批使用不可变 review 和幂等 operation，拒绝模型/Agent/Skill/Repository/Supervisor 身份，批准必须二次确认。执行前重新加载全部绑定、复编译固定计划、复核当前进程权限闸门，再复用 v87 受限 Runner；写前 intent 没有结果时禁止自动重试。
 - [x] P12-D3：CLI、HTTP/OpenAPI、Desktop `--enable-command-proposals` 和 React Approvals 面板接入提案/审阅/结果；输出限 16 KiB，清洗控制字符并脱敏，以 `go_command_result`、`instruction_authorized=false` 回到 Session，raw stdout/stderr 不落库。边界见 ADR 0079。
 - [x] P12-D1/D2/D3 schema v89 功能门：全仓 ordinary Go 421.8 秒、全仓 vet/staticcheck、v89 五包聚焦 race、零可达漏洞 govulncheck、module verify/tidy、secure Desktop test/vet、47 文件 162 项 React、strict TypeScript、确定性 OpenAPI 81/89/197、Vite production build 与 npm 零漏洞全部通过。Windows 可复现双构建和自动兼容检查全绿，未签名 GUI 为 42,497,024 字节，SHA-256 `2129db52a0a5e403b2fe49f19bc330af02aae7ebca56addb3e09ad4f0bc4b35a`；Windows 10/WebView2/缩放人工矩阵仍使 `release_ready=false`。审计已统一 Go/SQLite 对保留 Supervisor reviewer 身份的拒绝；迁移顺序、凭据、权限、任意 Shell 入口和 diff 审计未发现已知未解决高/中风险。
+- [x] P13-A1：新增无迁移 `run_activity.v1` 只读投影；只组合公开 Session 消息与 Go 白名单 Run events，区分 model/operator/harness 来源，统一脱敏、UTF-8/控制字符清洗和长度上限，不映射 thinking、model delta、raw payload、工具参数或工具输出。
+- [x] P13-A2：Desktop Run 默认打开“活动”时间线；模型公开更新与 Harness 可验证事实使用不同标签，原始 Events 保持独立诊断页，SSE/轮询仅触发持久投影刷新。客户端若收到 `private_reasoning_included=true` 会失败关闭。
+- [x] P13-A3：强化 Root `root_lifecycle.v1.message` 为公开进度/结果合同，要求区分模型判断与 Harness 验证结果，禁止私有思维链、隐藏 Prompt、密钥和 raw Tool output；边界见 ADR 0080。
+- [x] P13-A1/A2/A3 三切片及累计健壮性门：无缓存串行全仓 Go 483.9 秒、全仓 vet、零告警 staticcheck、`runactivity/httpapi/application` race、零可达漏洞 govulncheck、module verify/tidy、48 文件 165 项 React、strict TypeScript、82/90/199 OpenAPI 确定性再生成、Vite production build 与 npm audit 零漏洞全绿；隐私审计未发现 thinking、raw delta/payload、Prompt、Tool 参数/输出或新增 authority 的可达投影路径。
 - [ ] P12-E1：先为 `approval` 单独威胁建模任意一次性命令提案协议；不得扩写 v89 固定协议，必须精确绑定 argv/cwd/env/network intent 与独立人工审阅。
 - [ ] P12-E2：实现单独启动闸门后的 `full_access` 一次性宿主执行器；写前 intent、不可变 receipt、超时/取消/进程树回收和醒目非沙箱提示全部必需。
 - [ ] P12-E3：只为 `debug` 实现 Agent 持久终端绑定；要求最大权限启动闸门、独立限时鉴权、后台进程上限、终止/锁屏/Run 生命周期撤销，并与用户终端输入来源清晰区分。

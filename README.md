@@ -80,6 +80,17 @@ Prayu no longer treats an Anthropic/OpenAI-shaped HTTP endpoint as proof that a 
 
 Built-in Mock is the trusted offline baseline. Mimo, DeepSeek, and other Anthropic-compatible models begin as `qualification_required`. An operator can run `cyberagent provider qualify <route|provider/model>` or use the separate Desktop qualification control. The bounded two-call probe requires one synthetic nonce ToolCall followed by exact JSON after a synthetic ToolResult. The Tool is never executed, and the public result contains no prompt, response body, Tool arguments, key, base URL, or raw Provider error. Qualification is bound to the exact configuration for seven days and is distinct from ordinary connectivity diagnostics.
 
+## 公开活动与推理边界 / Public Activity And Reasoning Boundary
+
+Prayu 不展示、推断或伪造模型私有思维链。桌面 Run 默认“活动”页组合的是两类明确分开的信息：
+
+- **模型公开更新**：Root Agent 的 `root_lifecycle.v1.message`，用于简洁说明已经完成的动作、公开结果和下一步；它是模型写给用户看的进度文字，不是隐藏推理；
+- **Harness 事件**：由 Go 根据持久 Run events 白名单生成的可验证状态，例如模型调用开始/完成、工具轮次、审批、文件变更、计划检查点和 Run 生命周期。
+
+`GET /api/v1/runs/{run_id}/activity` 返回 `run_activity.v1`。投影会再次执行脱敏与长度限制，不透传原始事件 payload、Prompt、provider `thinking`、模型 delta、工具参数或工具输出。响应固定声明 `private_reasoning_included=false`；桌面端若收到相反声明会失败关闭。SSE/轮询只触发刷新，SQLite Run events 仍是唯一事实源；原始“事件”页继续作为独立诊断视图。
+
+Prayu does not display, infer, or fabricate private model chain-of-thought. The default Run Activity view separates model-authored public updates from verifiable Go-owned Harness events. `run_activity.v1` redacts and bounds every projected detail and never forwards raw event payloads, prompts, provider thinking blocks, model deltas, tool arguments, or tool output. The response fixes `private_reasoning_included=false`, and the Desktop fails closed if that invariant is ever violated. Streaming is only a refresh signal; durable Run events remain the source of truth.
+
 ## 执行交互与权限模型 / Execution Interaction And Permission Models
 
 Prayu 把“如何呈现执行”与“最多允许什么”分成两个正交维度。schema v86 的三类执行信任模型决定交互形态：

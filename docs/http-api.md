@@ -239,6 +239,7 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8765/api/v1/skills/packages/inst
 | `POST` | `/api/v1/runs` | Idempotently create one closed Mission/Run/Session in a registered Workspace |
 | `GET` | `/api/v1/runs/{run_id}` | Run, Mission, immutable execution-mode/profile snapshots, read-only Plan/checkpoint/external-Skill metadata, tool usage, token-free execution-lease summary |
 | `GET` | `/api/v1/runs/{run_id}/external-skills` | Bounded external-Skill provenance and root/Specialist delivery counts; no content, paths, digests, or private identities |
+| `GET` | `/api/v1/runs/{run_id}/activity` | Chronological public model updates plus allowlisted Harness facts; redacted/bounded, no private reasoning, raw payload, Prompt, Tool arguments, or Tool output |
 | `GET` | `/api/v1/runs/{run_id}/events` | Ordered Run events; pagination |
 | `GET` | `/api/v1/runs/{run_id}/events/poll` | Bounded non-streaming event batch; shared Run-bound high-water `cursor` |
 | `GET` | `/api/v1/runs/{run_id}/events/stream` | Bounded SSE projection; opaque `cursor` or `Last-Event-ID` resume |

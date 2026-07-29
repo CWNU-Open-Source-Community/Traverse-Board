@@ -1,8 +1,23 @@
 # Prayu Project Memory
 
-Last updated: 2026-07-29
+Last updated: 2026-07-30
 
-## Current Checkpoint: P12-D / Schema v89 + Desktop D1-UX11
+## Current Checkpoint: P13-A / Schema v89 + Public Activity
+
+Prayu now opens a Run on `run_activity.v1`: a chronological, read-only
+projection that separates public model updates, operator input, and verifiable
+Go Harness events. It never maps provider thinking, model deltas, raw event
+payloads, prompts, Tool arguments, or Tool output. Detail is allowlisted,
+redacted, control-character cleaned, and bounded. The response fixes
+`private_reasoning_included=false`; React rejects the whole projection if that
+flag is ever true. SSE/Desktop polling only causes a reread of durable events.
+Raw Events remain a separate diagnostic tab.
+
+Root `root_lifecycle.v1.message` is now explicitly a concise public
+progress/result field: completed action, verified outcome, and next step where
+relevant. It is not chain-of-thought and must distinguish model judgment from
+Harness-verified facts. ADR 0080 is authoritative. No migration or new
+authority was added.
 
 Prayu now has a review-gated model-to-command path over the four existing
 Go-owned diagnostics. Schema v89 lets the root RunSupervisor submit
@@ -149,7 +164,7 @@ Read in this order after a long context break:
 - `README.md` carries the canonical bilingual schema timeline in strict `v1 -> v89` order. `internal/store/readme_history_test.go` binds its row count and ordering to `LatestSchemaVersion`, so a future migration cannot silently leave the public history missing or out of sequence.
 - Main languages: Go control plane, TypeScript React/Vite local console, and deterministic Rust 1.97.1 digest/ZIP protocol functions. Rust has no Agent, LLM, config, key, persistence, network, filesystem, subprocess, or product-lifecycle ownership.
 - Analyzer status: P10-A1 through P10-B3 fix `analyzer_protocol.v1`, a two-entry inert `analyzer_descriptor.v1` Registry, strict digest and `archive.inventory.v1` result validation, bounded Rust stdin/stdout functions, and two five-vector semantic/bytes/SHA suites with separate CI. The ZIP function only reads an in-memory central directory and never opens, decompresses, extracts, or writes entry data. A Go-to-Rust product process bridge, product invocation, Run/Event/SQLite persistence, and Artifact commit remain absent. See ADR 0062, ADR 0063, and `analyzers/README.md`.
-- Model Harness status: non-schema A1/A2/A3 adds `model_harness.v1` exact transport/tool/JSON/streaming profiles, Go preflight for Root/Specialist/read-only Fan-out, and `model_harness_qualification.v1` at-most-two-call synthetic qualification. Mock is trusted offline; Anthropic-compatible models require explicit qualification. Qualification stores only exact binding digest, capability booleans, and seven-day expiry in existing Provider settings; the synthetic Tool is never executed, availability remains no-probe, and qualification grants no Tool/Shell/file/browser/Docker authority. Current OpenAPI is 81 paths / 89 operations / 197 schemas. See ADR 0074.
+- Model Harness status: non-schema A1/A2/A3 adds `model_harness.v1` exact transport/tool/JSON/streaming profiles, Go preflight for Root/Specialist/read-only Fan-out, and `model_harness_qualification.v1` at-most-two-call synthetic qualification. Mock is trusted offline; Anthropic-compatible models require explicit qualification. Qualification stores only exact binding digest, capability booleans, and seven-day expiry in existing Provider settings; the synthetic Tool is never executed, availability remains no-probe, and qualification grants no Tool/Shell/file/browser/Docker authority. P13-A adds the separate public-activity read projection. Current OpenAPI is 82 paths / 90 operations / 199 schemas. See ADR 0074 and ADR 0080.
 - Browser status: P11-A1 through P11-C3 now fix three Profiles, exact target scope, inert session plans, fixed-location executable discovery, disposable-profile recovery plans, sealed Disabled/Fake CDP, same-handle Windows Authenticode acceptance, immutable launch attempts/generation leases, and independent operator review. Chrome and Edge can become `accepted_for_review`; arbitrary Chromium remains refused. Review acceptance still grants no process, network, profile-write, termination, cleanup, CDP, or Artifact authority. No built-in browser process or UI exists. See ADR 0069, ADR 0071, and ADR 0073.
 - Desktop status: the established Wails v2.13.0 shell retains its embedded React/in-process Go API, Run/editor/repository/verification/Handoff/model/credential/wake workflows and composable docks. P12-B2 adds a default-off user-owned ConPTY/xterm terminal for an exact trusted Code/Local/Debug Run. The user starts and types into it; terminal state, environment, input, output, and process identity are process-local, and the renderer cannot issue Agent-input leases. D1-UX10/UX11 add native Windows Acrylic, transparent WebView rendering, persisted light/dark/transparent-glass appearance tokens, and the resizable permission-centered Settings surface without weakening renderer integrity. Windows 10 release coverage remains pending and `release_ready=false`. There is no installer, formal signed release, registry/startup/update behavior, general Agent Shell, Docker PTY, real built-in browser, or install-time Skill execution. See ADR 0033 through ADR 0061, ADR 0064, ADR 0068, ADR 0070, ADR 0072 through ADR 0078, and `docs/DESKTOP_PLAN.md`.
 - Prayu UX status: D1-UX1 through D1-UX11 introduce the Prayu identity, frameless titlebar, bounded resizable workbench and Settings sidebars, Go-backed composer, four-control toolbar, dedicated permission center, native Acrylic, a CSS/React app mark, and three persisted appearance choices. Full-window ink backgrounds, screenshot-based selected overlays, the image wordmark, and orange-brush CSS are no longer used; selected navigation and segmented controls are opaque-white CSS rounded surfaces. Summary/Review/Files/Side Tasks use existing bounded Go surfaces. Browser remains inert; Terminal becomes real only when the Desktop is explicitly started with `--enable-user-terminal`, and remains user-owned. Open Workspace stays operator-confirmed and pathless at the renderer boundary. Stable CyberAgent compatibility identifiers remain unchanged. See ADR 0064, ADR 0070, ADR 0072, ADR 0076, and ADR 0078.
@@ -2004,9 +2019,24 @@ are assembled at runtime to avoid a Defender ML false positive; the exact
 fixtures and permanent-denial behavior are unchanged. No enabled path has a
 known unresolved high/medium issue.
 
+## Completed Public Activity Projection (P13-A1/A2/A3)
+
+P13-A1 adds pure Go `run_activity.v1` over an explicit event allowlist.
+P13-A2 makes it the default Desktop Run view and keeps raw Events separate.
+P13-A3 fixes root `message` semantics as public progress, not hidden reasoning.
+The API is read-only, uses existing schema-v89 events, and grants no new
+authority. Focused Go, 48-file/165-item React, strict TypeScript, OpenAPI
+82/90/199, and Vite production checks pass. The uncached serialized full Go
+suite passed in 483.9 seconds; repository-wide vet/staticcheck, focused
+`runactivity/httpapi/application` race, zero-reachable govulncheck, module
+verify/tidy, deterministic API regeneration, and npm zero-vulnerability audit
+also pass. Anthropic `thinking`/`thinking_delta` exclusion and the fixed
+activity-status enum have dedicated regressions, so private reasoning and
+payload-controlled CSS tokens fail closed. See ADR 0080.
+
 ## Next Slice
 
-The recommended next execution batch is P12-E1/E2/E3. It must not widen the
+The recommended execution batch returns to P12-E1/E2/E3. It must not widen the
 schema-v89 fixed-proposal protocol in place:
 
 1. threat-model a separate arbitrary one-shot proposal protocol for `approval`,

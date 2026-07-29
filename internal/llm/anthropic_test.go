@@ -76,6 +76,38 @@ func TestAnthropicCompatibleProviderChat(t *testing.T) {
 	}
 }
 
+func TestAnthropicCompatibleProviderDoesNotProjectThinkingBlocksAsText(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id":"msg_thinking",
+			"type":"message",
+			"role":"assistant",
+			"model":"thinking-model",
+			"content":[
+				{"type":"thinking","thinking":"private reasoning must stay private"},
+				{"type":"text","text":"public result"}
+			],
+			"usage":{"input_tokens":5,"output_tokens":4}
+		}`))
+	}))
+	defer server.Close()
+	provider, err := NewAnthropicCompatibleProvider(AnthropicCompatibleConfig{
+		Name: "test", BaseURL: server.URL, APIKey: "secret", DefaultModel: "thinking-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := provider.Chat(t.Context(),
+		ChatRequest{Messages: []Message{{Role: "user", Content: "inspect"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Text != "public result" || strings.Contains(response.Text, "private reasoning") {
+		t.Fatalf("provider thinking entered public text: %q", response.Text)
+	}
+}
+
 func TestAnthropicCompatibleProviderStreamsSSEWithFinalUsage(t *testing.T) {
 	var captured anthropicMessageRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -127,6 +159,47 @@ func TestAnthropicCompatibleProviderStreamsSSEWithFinalUsage(t *testing.T) {
 		final.Usage.InputTokens != 7 || final.Usage.OutputTokens != 2 || final.Usage.TotalTokens != 9 ||
 		final.Provider != "test" || final.Model != "stream-model" {
 		t.Fatalf("unexpected stream captured=%#v text=%q final=%#v", captured, text.String(), final)
+	}
+}
+
+func TestAnthropicCompatibleProviderDoesNotStreamThinkingDeltasAsText(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher := w.(http.Flusher)
+		for _, payload := range []string{
+			`{"type":"message_start","message":{"model":"thinking-stream","usage":{"input_tokens":5,"output_tokens":0}}}`,
+			`{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"private"}}`,
+			`{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"hidden trace"}}`,
+			`{"type":"content_block_stop","index":0}`,
+			`{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"public update"}}`,
+			`{"type":"message_delta","usage":{"output_tokens":3}}`,
+			`{"type":"message_stop"}`,
+		} {
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", payload)
+			flusher.Flush()
+		}
+	}))
+	defer server.Close()
+	provider, err := NewAnthropicCompatibleProvider(AnthropicCompatibleConfig{
+		Name: "test", BaseURL: server.URL, APIKey: "secret", DefaultModel: "thinking-stream",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunks, err := provider.StreamChat(t.Context(),
+		ChatRequest{Messages: []Message{{Role: "user", Content: "inspect"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var text strings.Builder
+	for chunk := range chunks {
+		if chunk.Err != nil {
+			t.Fatal(chunk.Err)
+		}
+		text.WriteString(chunk.Text)
+	}
+	if text.String() != "public update" || strings.Contains(text.String(), "hidden trace") {
+		t.Fatalf("provider thinking delta entered public text: %q", text.String())
 	}
 }
 

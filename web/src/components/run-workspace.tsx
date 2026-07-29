@@ -18,6 +18,7 @@ import {
   ListChecks,
   ListOrdered,
   LoaderCircle,
+  MessageSquareText,
   Network,
   Pause,
   Paperclip,
@@ -43,6 +44,7 @@ import type {
   MessageView,
   OperatorSteeringQueueView,
   PlanDeliveryStateView,
+  RunActivityView,
   RunDetailView,
   RunExecutionProfileControlView,
   RunExecutionProfileView,
@@ -76,12 +78,14 @@ import type { ReceiptReviewNavigationTarget } from "./receipt-review-navigation"
 import { WorkspaceExplorer } from "./workspace-explorer";
 import { SessionComposer } from "./session-composer";
 import { AgentGraphPanel, DelegationsPanel, ExternalSkillsPanel, FanoutPanel, FindingsPanel } from "./run-projections";
+import { RunActivityTimeline } from "./run-activity-timeline";
 
-type RunTab = "overview" | "journey" | "actions" | "approvals" | "diffs" | "repository" | "files" | "evidence" | "verify" | "handoff" |
+type RunTab = "activity" | "overview" | "journey" | "actions" | "approvals" | "diffs" | "repository" | "files" | "evidence" | "verify" | "handoff" |
   "receipts" | "agents" | "delegations" | "fanout" | "findings" | "events" | "work" |
   "notes" | "artifacts" | "tools";
 
 const tabs: Array<{ id: RunTab; label: string; icon: typeof Activity }> = [
+  { id: "activity", label: "活动", icon: MessageSquareText },
   { id: "overview", label: "概览", icon: Gauge },
   { id: "journey", label: "Journey", icon: ListOrdered },
   { id: "actions", label: "Actions", icon: ListChecks },
@@ -109,7 +113,7 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
   runID: string;
   onOpenPlugins?: () => void;
 }) {
-  const [tab, setTab] = useState<RunTab>("overview");
+  const [tab, setTab] = useState<RunTab>("activity");
   const [fileTarget, setFileTarget] = useState({ runID, path: "." });
   const [receiptReviewTarget, setReceiptReviewTarget] =
     useState<ReceiptReviewNavigationTarget | null>(null);
@@ -135,6 +139,13 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
   const toolsQuery = usePagedResource<SupervisorToolRoundView>(client, ["run", runID, "tools"],
     `/runs/${encodeURIComponent(runID)}/tool-rounds`, { limit: 100 }, Boolean(runID) && tab === "tools");
   const stream = useRunEventStream(client, runID);
+  const activityQuery = useQuery({
+    queryKey: ["run", runID, "activity"],
+    queryFn: ({ signal }) => client.get<RunActivityView>(
+      `/runs/${encodeURIComponent(runID)}/activity`, { limit: 100 }, signal),
+    enabled: Boolean(runID) && tab === "activity",
+  });
+  const latestStreamFrame = stream.frames.at(-1);
   const journeyHandoffQuery = useQuery({
     queryKey: ["run", runID, "code-handoff"],
     queryFn: ({ signal }) => client.codeHandoff(runID, signal),
@@ -148,6 +159,21 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
   useEffect(() => {
     if (tab !== "verify") setReceiptReviewTarget(null);
   }, [tab]);
+
+  useEffect(() => {
+    if (tab !== "activity" || !latestStreamFrame ||
+      latestStreamFrame.event.type === "model.delta" ||
+      latestStreamFrame.sequence <= (activityQuery.data?.through_sequence ?? 0)) {
+      return;
+    }
+    void queryClient.invalidateQueries({ queryKey: ["run", runID, "activity"] });
+  }, [
+    activityQuery.data?.through_sequence,
+    latestStreamFrame,
+    queryClient,
+    runID,
+    tab,
+  ]);
 
   const openReceiptReview = (target: ReceiptReviewNavigationTarget) => {
     setReceiptReviewTarget({ ...target });
@@ -224,6 +250,12 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
         ))}
       </nav>
       <div className="workspace-content">
+        {tab === "activity" && (
+          activityQuery.isLoading ? <LoadingState label="加载活动" /> :
+            activityQuery.isError || !activityQuery.data ?
+              <ErrorState error={activityQuery.error} /> :
+              <RunActivityTimeline activity={activityQuery.data} streamError={stream.error} />
+        )}
         {tab === "overview" && <RunOverview client={client} detail={detail} />}
         {tab === "journey" && detail.mode.surface === "code" &&
           <CodeJourney detail={detail}

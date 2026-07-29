@@ -1452,6 +1452,95 @@
         "x-cyberagent-read-only": false
       }
     },
+    "/api/v1/runs/{run_id}/activity": {
+      "get": {
+        "operationId": "getRunActivity",
+        "summary": "Project public Run activity",
+        "description": "Returns bounded public model updates, operator messages, and a Go-owned allowlist of verifiable Harness lifecycle events. It never includes private chain-of-thought, provider thinking blocks, raw prompts, event payloads, tool arguments, tool output, commands, or hidden error text.",
+        "tags": [
+          "Runs"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum recent durable source events considered by the projection",
+            "schema": {
+              "default": 100,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/RunActivityView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
     "/api/v1/runs/{run_id}/agent-graph": {
       "get": {
         "operationId": "getRunAgentGraph",
@@ -15639,6 +15728,112 @@
           "process_started",
           "network_used",
           "hooks_executed"
+        ],
+        "type": "object"
+      },
+      "RunActivityItemView": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "instruction_authorized": {
+            "type": "boolean"
+          },
+          "kind": {
+            "enum": [
+              "harness_status",
+              "model_update",
+              "operator_input",
+              "model_call",
+              "tool_call",
+              "approval",
+              "file_change",
+              "plan"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "source": {
+            "enum": [
+              "harness",
+              "model",
+              "operator"
+            ],
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "verifiable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "sequence",
+          "kind",
+          "source",
+          "title",
+          "verifiable",
+          "instruction_authorized",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "RunActivityView": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RunActivityItemView"
+            },
+            "type": "array"
+          },
+          "private_reasoning_included": {
+            "type": "boolean"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "through_sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "version": {
+            "enum": [
+              "run_activity.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "run_id",
+          "through_sequence",
+          "truncated",
+          "private_reasoning_included",
+          "items"
         ],
         "type": "object"
       },

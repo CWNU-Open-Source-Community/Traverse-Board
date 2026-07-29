@@ -22,6 +22,7 @@ import (
 	"cyberagent-workbench/internal/operationreceipt"
 	"cyberagent-workbench/internal/operatoraction"
 	"cyberagent-workbench/internal/repository"
+	"cyberagent-workbench/internal/runactivity"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/skills"
 	"cyberagent-workbench/internal/verification"
@@ -536,6 +537,15 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			Tag: "Runs", Description: "Returns the ordered append-only Run event stream.",
 			DataType: reflect.TypeOf(EventView{}), Collection: true, Paginated: true, NotFound: true,
 			Parameters: append([]openAPIParameter{runID}, paginationParameters()...)},
+		{Path: "/api/v1/runs/{run_id}/activity", OperationID: "getRunActivity",
+			Summary: "Project public Run activity", Tag: "Runs",
+			Description: "Returns bounded public model updates, operator messages, and a Go-owned allowlist of verifiable Harness lifecycle events. It never includes private chain-of-thought, provider thinking blocks, raw prompts, event payloads, tool arguments, tool output, commands, or hidden error text.",
+			DataType:    reflect.TypeOf(RunActivityView{}), NotFound: true,
+			Parameters: []openAPIParameter{runID,
+				{Name: "limit", In: "query", Description: "Maximum recent durable source events considered by the projection",
+					Schema: map[string]any{"type": "integer", "minimum": 1,
+						"maximum": runactivity.MaxSourceEvents,
+						"default": runactivity.MaxSourceEvents}}}},
 		{Path: "/api/v1/runs/{run_id}/agent-graph", OperationID: "getRunAgentGraph",
 			Summary: "Inspect the bounded Agent graph", Tag: "Agents",
 			Description: "Returns root and Specialist projections plus completion summaries without lease or fencing state.",
@@ -1362,6 +1372,9 @@ func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[str
 
 var openAPIFieldEnums = map[string][]string{
 	"EventView.version":                                       {events.EnvelopeVersion},
+	"RunActivityView.version":                                 {runactivity.ProtocolVersion},
+	"RunActivityItemView.kind":                                {string(runactivity.KindHarnessStatus), string(runactivity.KindModelUpdate), string(runactivity.KindOperatorInput), string(runactivity.KindModelCall), string(runactivity.KindToolCall), string(runactivity.KindApproval), string(runactivity.KindFileChange), string(runactivity.KindPlan)},
+	"RunActivityItemView.source":                              {string(runactivity.SourceHarness), string(runactivity.SourceModel), string(runactivity.SourceOperator)},
 	"IndexView.api_version":                                   {Version},
 	"HealthView.status":                                       {"ok"},
 	"HealthView.api_version":                                  {Version},

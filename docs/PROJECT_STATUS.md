@@ -1,8 +1,20 @@
 # Project Status
 
-Last updated: 2026-07-29
+Last updated: 2026-07-30
 
 ## Resume Context
+
+The non-schema P13-A1/A2/A3 batch adds `run_activity.v1`, a read-only public
+activity projection over existing durable Run events. It separates
+model-authored public updates, operator input, and Go-owned verifiable Harness
+facts. Unknown events, provider thinking, model deltas, raw payloads, prompts,
+Tool arguments, and Tool output are omitted; projected text is redacted and
+bounded. The response fixes `private_reasoning_included=false`, and React fails
+closed if that invariant is ever contradicted. Desktop Run workspaces now open
+on the chronological Activity view while raw Events remain a separate
+diagnostic surface. Streaming only triggers a durable reread. The root
+`message` contract now requests concise public progress/result prose and
+explicitly forbids private chain-of-thought. ADR 0080 defines the boundary.
 
 The latest P12-D1/D2/D3 batch advances SQLite to v89 and adds one deliberately
 narrow model-to-command workflow. The root RunSupervisor may submit a strict
@@ -2426,17 +2438,40 @@ filesystem capability or a network sandbox; custom executable locations may be
 unavailable; the renderer cannot issue Agent-input leases; Cyber Docker PTY
 remains absent. ADR 0076 is authoritative.
 
+## Latest Public Activity Batch
+
+P13-A1 adds the pure Go `run_activity.v1` projection and one bounded read
+endpoint. P13-A2 makes that projection the default Desktop Run view with clear
+model/Harness/operator source labels and keeps raw Events separate. P13-A3
+strengthens `root_lifecycle.v1.message` as a public-progress contract rather
+than a private-reasoning channel. This batch does not change SQLite schema v89
+or add any mutation, model Tool, execution, filesystem, network, terminal,
+browser, Docker, or approval capability.
+
+The uncached serialized repository-wide Go suite passed in 483.9 seconds.
+Repository-wide vet, warning-free staticcheck, focused
+`runactivity/httpapi/application` race, zero-reachable-finding govulncheck,
+module verification/tidy, 165 React tests across 48 files, strict TypeScript,
+deterministic OpenAPI generation at 82 paths / 90 operations / 199 schemas,
+the Vite production build, and zero-vulnerability npm audit all pass. The
+privacy audit confirms that model thinking, raw deltas, prompts, event
+payloads, Tool arguments, and Tool output have no projection path. Secret
+redaction and rune bounds apply after allowlist extraction, and the React
+surface rejects any projection claiming private reasoning is included.
+Dedicated Anthropic regressions omit both `thinking` and `thinking_delta`;
+dynamic event statuses are normalized to a fixed enum before they can become
+React CSS class tokens.
+
 ## Recommended Next Batch
 
-Recommended slices are P12-C1/C2/C3: add a model-visible but non-executing
-proposal for the four closed command kinds; add an independent operator review
-that can invoke only the exact v87 request through a separately enabled
-capability; and convert the bounded, redacted result into provenance-marked
-untrusted evidence for the originating Run without treating command output as
-instructions. The model must never provide an executable path, raw argv,
-environment, stdin, operation key, or terminal lease. This would make the first
-real command path useful to the Agent loop without turning the user ConPTY into
-an Agent Shell.
+Recommended slices return to P12-E1/E2/E3. First threat-model a separate
+arbitrary one-shot proposal protocol for `approval`; do not widen the
+schema-v89 fixed-command format. Then add a separately gated `full_access`
+one-shot host executor only with write-ahead intent, immutable receipt,
+deadline, cancellation, process-tree reap, and explicit non-sandbox warning.
+Finally, add an Agent-owned persistent terminal only for `debug`, with a
+separate short authorization lease, background-process limits, host/Run
+lifecycle revocation, and visibly distinct user-versus-Agent input.
 
 P11-C4/C5/C6 browser start/Profile/CDP and P10-F1/F2/F3 remain queued rather
 than discarded. They must not be folded into the terminal Runner batch.
