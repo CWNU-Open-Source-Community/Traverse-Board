@@ -2165,6 +2165,317 @@
         "x-cyberagent-read-only": true
       }
     },
+    "/api/v1/runs/{run_id}/command-proposals": {
+      "get": {
+        "operationId": "listControlledCommandProposals",
+        "summary": "List fixed command proposals",
+        "description": "Returns at most one hundred metadata-only Agent proposals for Go-owned fixed command templates. No executable, argv, shell text, environment, raw output, or execution authority is exposed.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of newest proposals",
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/ControlledCommandProposalView"
+                      },
+                      "type": "array"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/runs/{run_id}/command-proposals/{proposal_id}": {
+      "get": {
+        "operationId": "getControlledCommandProposal",
+        "summary": "Inspect one fixed command proposal",
+        "description": "Returns the exact Run-bound proposal, operator review, result, and metadata-only receipt. Raw stdout and stderr are never persisted or returned by this read endpoint.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "proposal_id",
+            "in": "path",
+            "description": "Controlled command proposal identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ControlledCommandProposalView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/runs/{run_id}/command-proposals/{proposal_id}/review": {
+      "post": {
+        "operationId": "reviewControlledCommandProposal",
+        "summary": "Approve or deny one fixed command proposal",
+        "description": "Records an operator-only decision for one exact proposal fingerprint. Approval may execute only its precompiled Go-owned command once through the restricted runner; returned bounded evidence is untrusted and has no instruction authority.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "proposal_id",
+            "in": "path",
+            "description": "Controlled command proposal identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque review key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ControlledCommandProposalView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ControlledCommandProposalReviewRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/runs/{run_id}/delegations": {
       "get": {
         "operationId": "listRunDelegations",
@@ -10031,6 +10342,359 @@
         ],
         "type": "object"
       },
+      "ControlledCommandExecutionReceiptView": {
+        "additionalProperties": false,
+        "properties": {
+          "active_process_limit": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "backend": {
+            "type": "string"
+          },
+          "cancelled": {
+            "type": "boolean"
+          },
+          "completed_at": {
+            "type": "string"
+          },
+          "environment_inherited": {
+            "type": "boolean"
+          },
+          "exit_code": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "job_assigned_at_creation": {
+            "type": "boolean"
+          },
+          "kill_on_job_close": {
+            "type": "boolean"
+          },
+          "low_integrity_token": {
+            "type": "boolean"
+          },
+          "network_requested": {
+            "type": "boolean"
+          },
+          "output_limit_exceeded": {
+            "type": "boolean"
+          },
+          "persistent_process": {
+            "type": "boolean"
+          },
+          "process_memory_limit": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "product_execution_enabled": {
+            "type": "boolean"
+          },
+          "request_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "restricted_token": {
+            "type": "boolean"
+          },
+          "started_at": {
+            "type": "string"
+          },
+          "stderr_captured_bytes": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "stderr_observed_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "stderr_prefix_sha256": {
+            "type": "string"
+          },
+          "stderr_truncated": {
+            "type": "boolean"
+          },
+          "stdin_closed": {
+            "type": "boolean"
+          },
+          "stdout_captured_bytes": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "stdout_observed_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "stdout_prefix_sha256": {
+            "type": "string"
+          },
+          "stdout_truncated": {
+            "type": "boolean"
+          },
+          "timed_out": {
+            "type": "boolean"
+          },
+          "tree_reaped": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "request_id",
+          "backend",
+          "exit_code",
+          "stdout_observed_bytes",
+          "stdout_captured_bytes",
+          "stdout_prefix_sha256",
+          "stdout_truncated",
+          "stderr_observed_bytes",
+          "stderr_captured_bytes",
+          "stderr_prefix_sha256",
+          "stderr_truncated",
+          "started_at",
+          "completed_at",
+          "timed_out",
+          "cancelled",
+          "output_limit_exceeded",
+          "tree_reaped",
+          "restricted_token",
+          "low_integrity_token",
+          "job_assigned_at_creation",
+          "kill_on_job_close",
+          "active_process_limit",
+          "process_memory_limit",
+          "stdin_closed",
+          "environment_inherited",
+          "network_requested",
+          "persistent_process",
+          "product_execution_enabled"
+        ],
+        "type": "object"
+      },
+      "ControlledCommandProposalResultView": {
+        "additionalProperties": false,
+        "properties": {
+          "automatic_retry_allowed": {
+            "type": "boolean"
+          },
+          "content_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "instruction_authorized": {
+            "type": "boolean"
+          },
+          "raw_output_persisted": {
+            "type": "boolean"
+          },
+          "source_kind": {
+            "type": "string"
+          },
+          "source_ref": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "source_kind",
+          "source_ref",
+          "content_sha256",
+          "instruction_authorized",
+          "raw_output_persisted",
+          "automatic_retry_allowed",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "ControlledCommandProposalReviewRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm_execution": {
+            "type": "boolean"
+          },
+          "decision": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "decision"
+        ],
+        "type": "object"
+      },
+      "ControlledCommandProposalReviewView": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_grant": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "reviewed_by": {
+            "type": "string"
+          },
+          "single_use_execution_authorized": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "decision",
+          "reviewed_by",
+          "reason",
+          "single_use_execution_authorized",
+          "capability_grant",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "ControlledCommandProposalView": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_grant": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "evidence_instruction_authorized": {
+            "type": "boolean"
+          },
+          "execution_authorized": {
+            "type": "boolean"
+          },
+          "execution_replayed": {
+            "type": "boolean"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "instruction_authorized": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "mission_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "operator_review_required": {
+            "type": "boolean"
+          },
+          "permission_mode": {
+            "type": "string"
+          },
+          "permission_revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/ControlledCommandExecutionReceiptView"
+          },
+          "relative_path": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/components/schemas/ControlledCommandProposalResultView"
+          },
+          "review": {
+            "$ref": "#/components/schemas/ControlledCommandProposalReviewView"
+          },
+          "review_replayed": {
+            "type": "boolean"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "timeout_milliseconds": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "untrusted_evidence": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "protocol_version",
+          "policy_version",
+          "run_id",
+          "mission_id",
+          "session_id",
+          "workspace_id",
+          "kind",
+          "timeout_milliseconds",
+          "purpose",
+          "permission_mode",
+          "permission_revision",
+          "operator_review_required",
+          "instruction_authorized",
+          "execution_authorized",
+          "capability_grant",
+          "fingerprint",
+          "created_at",
+          "evidence_instruction_authorized"
+        ],
+        "type": "object"
+      },
       "DelegationApplicationView": {
         "additionalProperties": false,
         "properties": {
@@ -16546,6 +17210,9 @@
           "approval_control_enabled": {
             "type": "boolean"
           },
+          "controlled_command_proposal_control_enabled": {
+            "type": "boolean"
+          },
           "danger_full_access_enabled": {
             "type": "boolean"
           },
@@ -16645,6 +17312,7 @@
           "run_execution_enabled",
           "plan_delivery_control_enabled",
           "approval_control_enabled",
+          "controlled_command_proposal_control_enabled",
           "model_control_enabled",
           "provider_credential_enabled",
           "file_edit_review_enabled",

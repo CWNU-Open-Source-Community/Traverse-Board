@@ -1,8 +1,8 @@
 # 本地 HTTP API / Local HTTP API
 
-CyberAgent Workbench 提供由 Go 控制的本地 `api.v1`，用于检查 SQLite 持久状态并投影可恢复 Run events。独立 capability 允许受控 Run/Session/Plan/审批、Provider 诊断/路由/系统凭证、FileEdit 提案/只读恢复/审阅/apply、wake 意图/前台消费、不可变操作者验证、metadata-only 快照回执及其不授权复核，以及惰性 Skill 安装。只读面还提供 capability/worker health、exact-root Repository 状态与脱敏 Diff、非原子的多文件 FileEdit 汇总、逐验证项确定性快照下载/回执历史和带有界复核元数据的可重建 Code Handoff。API 不编辑/重排消息、不接受快照或验证结果、不执行验证或 Skill、不启动 Git/通用宿主/容器进程，也不替代 Policy、Tool Gateway 或 Sandbox 门禁。
+CyberAgent Workbench 提供由 Go 控制的本地 `api.v1`，用于检查 SQLite 持久状态并投影可恢复 Run events。独立 capability 允许受控 Run/Session/Plan/审批、固定命令提案审阅、Provider 诊断/路由/系统凭证、FileEdit 提案/只读恢复/审阅/apply、wake 意图/前台消费、不可变操作者验证、metadata-only 快照回执及其不授权复核，以及惰性 Skill 安装。只读面还提供 capability/worker health、exact-root Repository 状态与脱敏 Diff、非原子的多文件 FileEdit 汇总、逐验证项确定性快照下载/回执历史和带有界复核元数据的可重建 Code Handoff。API 不编辑/重排消息、不接受快照或验证结果、不执行验证或 Skill、不启动任意 Git/通用宿主/容器进程，也不替代 Policy、Tool Gateway 或 Sandbox 门禁。
 
-CyberAgent Workbench exposes a Go-controlled local `api.v1` for durable SQLite state and resumable Run-event projections. Independent capabilities permit controlled Run/Session/Plan/approval operations, Provider diagnostics/routes/system credentials, FileEdit propose/read-only recovery/review/apply, wake intent/foreground consumption, immutable operator verification, metadata-only snapshot receipts and their non-authorizing review, and inert Skill installation. Read-only surfaces also expose capabilities/worker health, exact-root Repository state and redacted Diffs, non-atomic multi-file FileEdit summaries, deterministic per-check verification snapshot downloads/receipt history, and a regenerable Code handoff with bounded review metadata. The API cannot edit/reorder messages, accept a snapshot or verification result, execute verification or a Skill, start Git or a general host/container process, or replace Policy, the Tool Gateway, or Sandbox gates.
+CyberAgent Workbench exposes a Go-controlled local `api.v1` for durable SQLite state and resumable Run-event projections. Independent capabilities permit controlled Run/Session/Plan/approval operations, fixed-command proposal review, Provider diagnostics/routes/system credentials, FileEdit propose/read-only recovery/review/apply, wake intent/foreground consumption, immutable operator verification, metadata-only snapshot receipts and their non-authorizing review, and inert Skill installation. Read-only surfaces also expose capabilities/worker health, exact-root Repository state and redacted Diffs, non-atomic multi-file FileEdit summaries, deterministic per-check verification snapshot downloads/receipt history, and a regenerable Code handoff with bounded review metadata. The API cannot edit/reorder messages, accept a snapshot or verification result, execute verification or a Skill, start arbitrary Git or a general host/container process, or replace Policy, the Tool Gateway, or Sandbox gates.
 
 ## 启动 / Start
 
@@ -15,7 +15,7 @@ $env:CYBERAGENT_API_TOKEN = "<a-random-token-of-at-least-32-bytes>"
 $env:CYBERAGENT_API_CONTROL_TOKEN = "<a-different-random-token-of-at-least-32-bytes>"
 go run ./cmd/cyberagent api serve --listen 127.0.0.1:8765 --ui-dir web/dist
 
-# Representative optional independent controls in the current v88 API surface.
+# Representative optional independent controls in the current v89 API surface.
 go run ./cmd/cyberagent api serve --listen 127.0.0.1:8765 --ui-dir web/dist --enable-file-edit-proposals --enable-provider-credentials --enable-wake-worker
 
 # Four-level permission selector. Higher gates require every lower gate.
@@ -25,9 +25,32 @@ go run ./cmd/cyberagent api serve --listen 127.0.0.1:8765 --ui-dir web/dist `
 ```
 
 权限开关只让 API 选择和评估对应策略，不会自动创建任意命令执行器。当前只有
-`conservative` 固定模板执行链已接入。`approval`、`full_access` 和 `debug`
-的任意宿主命令/Agent 持久终端传输仍关闭。未设置
+四种固定模板执行链与 v89 固定提案审批已接入。`approval`、`full_access` 和
+`debug` 的任意宿主命令/Agent 持久终端传输仍关闭。未设置
 `CYBERAGENT_API_CONTROL_TOKEN` 时，permission control 不能启动。
+
+设置独立 control token 后，普通 `api serve` 同时开放固定提案 review route；
+Desktop 则必须额外使用 `--enable-command-proposals`。三条 endpoint 为：
+
+```text
+GET  /api/v1/runs/{run_id}/command-proposals
+GET  /api/v1/runs/{run_id}/command-proposals/{proposal_id}
+POST /api/v1/runs/{run_id}/command-proposals/{proposal_id}/review
+```
+
+POST 需要 control bearer、稳定 `Idempotency-Key` 和
+`controlled_command_proposal_review.v1`。`approve` 必须携带
+`confirm_execution=true`；`deny` 必须为 false。批准只执行提案中已编译的同一
+Go 固定模板一次，不能提交 Shell、argv、env 或网络字段。一次性响应可返回最多
+16 KiB 的脱敏不可信证据；后续 GET 只返回 metadata，不返回 raw stdout/stderr。
+
+With a distinct control token, ordinary `api serve` also enables fixed-proposal
+review. Desktop requires `--enable-command-proposals`. Approval requires an
+exact idempotency key and `confirm_execution=true`, then revalidates all durable
+bindings and current process gates before one restricted execution. No endpoint
+accepts Shell, argv, environment, or network intent. The approving response may
+return up to 16 KiB of redacted untrusted evidence; later reads return metadata
+only.
 
 The command prints:
 

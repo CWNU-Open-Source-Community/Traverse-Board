@@ -5,6 +5,10 @@ export type ApprovalDecisionControlRequestView = components["schemas"]["Approval
 export type ApprovalDecisionControlView = components["schemas"]["ApprovalDecisionControlView"];
 export type ApprovalQueueItemView = components["schemas"]["ApprovalQueueItemView"];
 export type ApprovalQueueView = components["schemas"]["ApprovalQueueView"];
+export type ControlledCommandProposalReviewRequestView =
+  components["schemas"]["ControlledCommandProposalReviewRequestView"];
+export type ControlledCommandProposalView =
+  components["schemas"]["ControlledCommandProposalView"];
 export type AgentGraphView = components["schemas"]["AgentGraphView"];
 export type ArtifactView = components["schemas"]["ArtifactView"];
 export type DelegationView = components["schemas"]["DelegationView"];

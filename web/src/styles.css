@@ -673,6 +673,17 @@ td code { font-size: 11px; }
 .approval-row-main small { color: var(--muted); font-size: 10px; }
 .approval-row-main code { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; }
 .approval-row-main time { color: var(--muted); font-size: 10px; text-align: right; }
+.command-proposal-queue { margin-top: 24px; }
+.command-proposal-purpose { margin: 10px 0 0; color: var(--text); font-size: 12px; line-height: 1.5; }
+.command-proposal-path { display: block; width: fit-content; max-width: 100%; margin-top: 8px;
+  overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; }
+.command-proposal-evidence { margin-top: 12px; border: 1px solid #d4932c;
+  background: #fff8e9; }
+.command-proposal-evidence > strong { display: flex; align-items: center; gap: 7px; padding: 9px 10px;
+  border-bottom: 1px solid #d4932c; color: #714800; font-size: 11px; }
+.command-proposal-evidence pre { max-height: 240px; margin: 0; padding: 10px; overflow: auto;
+  color: var(--ink); font: 10px/1.55 "Cascadia Code", Consolas, monospace;
+  white-space: pre-wrap; word-break: break-word; }
 .approval-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 .approval-actions input { width: min(300px, 100%); min-width: 120px; height: 34px; padding: 0 9px; border: 1px solid var(--border-strong); border-radius: 5px; }
 .run-creation-dialog { width: min(620px, 100%); }

@@ -25,6 +25,7 @@ import (
 	"cyberagent-workbench/internal/fileedit"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/policy"
+	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/skills"
 	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/verification"
@@ -92,6 +93,8 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 					item.Post.OperationID == "enterPlanDelivery") ||
 				(path == ApprovalDecisionControlPathTemplate &&
 					item.Post.OperationID == "decideRunApproval") ||
+				(path == ControlledCommandProposalReviewPathTemplate &&
+					item.Post.OperationID == "reviewControlledCommandProposal") ||
 				(path == RunExecutionControlPathTemplate &&
 					item.Post.OperationID == "executeRunSelection") ||
 				(path == ModelRouteControlPathTemplate &&
@@ -180,6 +183,7 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 				path == PlanDirectionControlPathTemplate ||
 				path == PlanDeliveryControlPathTemplate ||
 				path == ApprovalDecisionControlPathTemplate ||
+				path == ControlledCommandProposalReviewPathTemplate ||
 				path == RunExecutionControlPathTemplate ||
 				path == ModelRouteControlPathTemplate ||
 				path == ProviderDiagnosticPath || path == ModelHarnessQualificationPath ||
@@ -220,6 +224,11 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 		"decision_reason", "requested_by", "reviewed_by", "grant_id"} {
 		assertOpenAPISchemaOmits(t, document.Components.Schemas,
 			"ApprovalQueueItemView", field)
+	}
+	for _, field := range []string{"executable", "argv", "shell", "environment",
+		"raw_output"} {
+		assertOpenAPISchemaOmits(t, document.Components.Schemas,
+			"ControlledCommandProposalView", field)
 	}
 	assertOpenAPISchemaOmits(t, document.Components.Schemas, "AgentNodeView", "status_reason")
 	assertOpenAPISchemaOmits(t, document.Components.Schemas, "DelegationReviewView", "reason")
@@ -385,6 +394,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	fixture.api.runExecutionEnabled = true
 	fixture.api.planDeliveryControlEnabled = true
 	fixture.api.approvalControlEnabled = true
+	fixture.api.controlledCommandProposalControlEnabled = true
 	fixture.api.modelControlEnabled = true
 	fixture.api.providerCredentialEnabled = true
 	fixture.api.fileEditReviewEnabled = true
@@ -402,6 +412,27 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	fixture.api.planDeliveryController = application.NewPlanDeliveryControlService(fixture.store)
 	fixture.api.approvalController = application.NewApprovalControlService(fixture.store,
 		gateway, checker)
+	fixture.api.controlledCommandProposalController =
+		&controlledCommandProposalControllerStub{
+			view: application.ControlledCommandProposalView{
+				Proposal: runner.ControlledCommandProposal{
+					ID:                  "controlled-command-proposal-openapi",
+					ProtocolVersion:     runner.ControlledCommandProposalProtocolVersion,
+					PolicyVersion:       runner.ControlledCommandProposalPolicyVersion,
+					RunID:               fixture.run.ID,
+					MissionID:           fixture.run.MissionID,
+					SessionID:           fixture.run.SessionID,
+					WorkspaceID:         fixture.workspace.ID,
+					Kind:                runner.ControlledCommandGitStatus,
+					TimeoutMilliseconds: 5000,
+					Purpose:             "inspect OpenAPI Git state",
+					PermissionMode:      domain.RunExecutionPermissionConservative,
+					PermissionRevision:  1,
+					Fingerprint:         strings.Repeat("a", 64),
+					CreatedAt:           time.Now().UTC(),
+				},
+			},
+		}
 	fixture.api.modelControlController = application.NewModelControlService(
 		fixture.api.modelRegistry, fixture.store)
 	credentialStore := credential.NewMemoryStore()
@@ -501,6 +532,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		"{artifact_id}":  fixture.artifactID,
 		"{report_id}":    "report-openapi-missing-0001",
 		"{approval_id}":  approvalRecord.ID,
+		"{proposal_id}":  "controlled-command-proposal-openapi",
 		"{edit_id}":      fileEditRecord.ID,
 		"{object_id}":    strings.Repeat("a", 40),
 		"{plan_id}":      verificationPlan.Plan.ID,
@@ -582,6 +614,9 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 					body = `{"version":"plan_delivery_control.v1"}`
 				} else if spec.Path == ApprovalDecisionControlPathTemplate {
 					body = `{"version":"approval_control.v1","action":"approve_once"}`
+				} else if spec.Path == ControlledCommandProposalReviewPathTemplate {
+					body = `{"version":"controlled_command_proposal_review.v1",` +
+						`"decision":"deny"}`
 				} else if spec.Path == RunExecutionControlPathTemplate {
 					body = `{"version":"run_execution_handoff.v1","max_steps":1}`
 				} else if spec.Path == ModelRouteControlPathTemplate {

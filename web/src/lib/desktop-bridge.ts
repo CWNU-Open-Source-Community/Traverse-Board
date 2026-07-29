@@ -39,6 +39,7 @@ export interface DesktopConnectionBootstrap {
   run_execution_enabled: boolean;
   plan_delivery_control_enabled: boolean;
   approval_control_enabled: boolean;
+  controlled_command_proposal_control_enabled: boolean;
   model_control_enabled: boolean;
   provider_credential_enabled: boolean;
   file_edit_review_enabled: boolean;
@@ -532,6 +533,7 @@ function getTerminalBridge(): NativeTerminalBridge | null {
 function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
   if (!hasExactKeys(value, [
     "api_base_url", "api_version", "app_version", "approval_control_enabled",
+    "controlled_command_proposal_control_enabled",
     "execution_permission_control_enabled", "operator_approval_enabled",
     "danger_full_access_enabled", "debug_maximum_access_enabled",
     "control_enabled", "control_token", "docker_execution_enabled", "file_edit_apply_enabled",
@@ -566,6 +568,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     typeof value.run_execution_enabled === "boolean" &&
     typeof value.plan_delivery_control_enabled === "boolean" &&
     typeof value.approval_control_enabled === "boolean" &&
+    typeof value.controlled_command_proposal_control_enabled === "boolean" &&
 	typeof value.model_control_enabled === "boolean" &&
 	typeof value.provider_credential_enabled === "boolean" &&
 	typeof value.file_edit_review_enabled === "boolean" &&
@@ -585,6 +588,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
       value.session_message_enabled || value.session_steering_control_enabled ||
       value.run_lifecycle_enabled || value.run_execution_enabled ||
 	  value.plan_delivery_control_enabled || value.approval_control_enabled ||
+	  value.controlled_command_proposal_control_enabled ||
 	  value.model_control_enabled || value.provider_credential_enabled ||
 	  value.file_edit_review_enabled || value.file_edit_proposal_enabled ||
 	  value.run_wake_control_enabled || value.file_edit_apply_enabled ||
@@ -605,6 +609,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
       value.session_message_enabled || value.session_steering_control_enabled ||
       value.run_lifecycle_enabled || value.run_execution_enabled ||
 	  value.plan_delivery_control_enabled || value.approval_control_enabled ||
+	  value.controlled_command_proposal_control_enabled ||
 	  value.model_control_enabled || value.provider_credential_enabled ||
 	  value.file_edit_review_enabled || value.file_edit_proposal_enabled ||
 	  value.run_wake_control_enabled || value.file_edit_apply_enabled ||

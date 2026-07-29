@@ -1,30 +1,30 @@
 # Prayu Project Memory
 
-Last updated: 2026-07-28
+Last updated: 2026-07-29
 
-## Current Checkpoint: P12-C / Schema v88 + Desktop D1-UX11
+## Current Checkpoint: P12-D / Schema v89 + Desktop D1-UX11
 
-Prayu now has four orthogonal Run execution permission policies:
-`conservative`, `approval`, `full_access`, and `debug`. Schema v88 persists an
-immutable operator selection and idempotent operation, but every snapshot keeps
-`process_enabled=false`, `execution_authorized=false`, and
-`capability_grant=false`. Actual authority is recomputed for every operation
-from process-local startup capabilities.
+Prayu now has a review-gated model-to-command path over the four existing
+Go-owned diagnostics. Schema v89 lets the root RunSupervisor submit
+`controlled_command_propose` for `git-status`, `git-diff-check`, `go-version`,
+or `powershell-workspace-list`. The strict Tool accepts no executable, Shell,
+argv, environment, stdin, network, background-process, persistence, or
+capability field. Proposal creation is durable but non-authorizing.
 
-The hierarchy is monotonic: permission control enables `approval`,
-danger-full-access additionally enables `full_access`, and
-debug-maximum-access additionally enables `debug`. Desktop Debug also requires
-the separately enabled user terminal. Models, Agents, Skills, and repository
-content cannot select a mode. CLI, HTTP/OpenAPI, Desktop bootstrap, and React
-share the same Go contract; the ordinary local API now exposes the same
-explicit startup flags.
+An independent operator review is bound to the exact proposal fingerprint.
+Approval rechecks the current Run, Mission, Session, Workspace, interaction,
+execution profile, permission snapshot, Code/Cyber mode, process-local startup
+gates, and regenerated fixed-plan fingerprint before reusing the schema-v87
+restricted one-shot runner. Denial starts nothing. A write-ahead execution
+intent without a result is never retried automatically.
 
-Only `conservative` is connected to the existing four fixed Windows command
-templates. `approval` and `full_access` do not yet have arbitrary host-command
-transport, and `debug` does not yet give an Agent the persistent ConPTY. The
-next sequence is P12-D1 exact command proposal/review, P12-D2 bounded one-shot
-full-access executor, and P12-D3 separately authorized persistent Debug
-terminal binding. ADR 0077 is authoritative.
+The result is normalized, secret-redacted, limited to 16 KiB, marked
+`UNTRUSTED GO COMMAND RESULT`, and appended to the exact Session with
+`instruction_authorized=false`. Raw stdout/stderr is not persisted. CLI,
+HTTP/OpenAPI, Desktop, and React expose the same review contract; Desktop keeps
+it default-off behind `--enable-command-proposals`. Arbitrary approval-mode
+commands, full-access host execution, and an Agent-owned persistent Debug
+terminal remain closed. ADR 0079 is authoritative.
 
 Desktop D1-UX10 gives those controls one dedicated `权限` Settings page.
 Permission ceiling, interaction shape, and execution environment remain
@@ -134,8 +134,9 @@ Read in this order after a long context break:
 81. `docs/adr/0076-controlled-windows-execution-and-user-terminal.md`
 82. `docs/adr/0077-four-level-run-execution-permissions.md`
 83. `docs/adr/0078-desktop-permission-center-and-native-acrylic.md`
-84. `docs/DESKTOP_PLAN.md`
-85. `docs/SKILL_PACKAGE_PLAN.md`
+84. `docs/adr/0079-review-gated-fixed-command-proposals.md`
+85. `docs/DESKTOP_PLAN.md`
+86. `docs/SKILL_PACKAGE_PLAN.md`
 
 ## Current Baseline
 
@@ -144,15 +145,16 @@ Read in this order after a long context break:
 - Generic coding-agent workflow usability: about 96-97%.
 - Cyber autonomous-workflow usability: about 20%.
 - These are engineering estimates based on tested roadmap slices, not performance benchmarks. Do not reuse the retired single-axis "overall product vision" percentage.
-- Database schema: v88.
-- `README.md` carries the canonical bilingual schema timeline in strict `v1 -> v88` order. `internal/store/readme_history_test.go` binds its row count and ordering to `LatestSchemaVersion`, so a future migration cannot silently leave the public history missing or out of sequence.
+- Database schema: v89.
+- `README.md` carries the canonical bilingual schema timeline in strict `v1 -> v89` order. `internal/store/readme_history_test.go` binds its row count and ordering to `LatestSchemaVersion`, so a future migration cannot silently leave the public history missing or out of sequence.
 - Main languages: Go control plane, TypeScript React/Vite local console, and deterministic Rust 1.97.1 digest/ZIP protocol functions. Rust has no Agent, LLM, config, key, persistence, network, filesystem, subprocess, or product-lifecycle ownership.
 - Analyzer status: P10-A1 through P10-B3 fix `analyzer_protocol.v1`, a two-entry inert `analyzer_descriptor.v1` Registry, strict digest and `archive.inventory.v1` result validation, bounded Rust stdin/stdout functions, and two five-vector semantic/bytes/SHA suites with separate CI. The ZIP function only reads an in-memory central directory and never opens, decompresses, extracts, or writes entry data. A Go-to-Rust product process bridge, product invocation, Run/Event/SQLite persistence, and Artifact commit remain absent. See ADR 0062, ADR 0063, and `analyzers/README.md`.
-- Model Harness status: non-schema A1/A2/A3 adds `model_harness.v1` exact transport/tool/JSON/streaming profiles, Go preflight for Root/Specialist/read-only Fan-out, and `model_harness_qualification.v1` at-most-two-call synthetic qualification. Mock is trusted offline; Anthropic-compatible models require explicit qualification. Qualification stores only exact binding digest, capability booleans, and seven-day expiry in existing Provider settings; the synthetic Tool is never executed, availability remains no-probe, and qualification grants no Tool/Shell/file/browser/Docker authority. Current OpenAPI is 78 paths / 86 operations / 192 schemas. See ADR 0074.
+- Model Harness status: non-schema A1/A2/A3 adds `model_harness.v1` exact transport/tool/JSON/streaming profiles, Go preflight for Root/Specialist/read-only Fan-out, and `model_harness_qualification.v1` at-most-two-call synthetic qualification. Mock is trusted offline; Anthropic-compatible models require explicit qualification. Qualification stores only exact binding digest, capability booleans, and seven-day expiry in existing Provider settings; the synthetic Tool is never executed, availability remains no-probe, and qualification grants no Tool/Shell/file/browser/Docker authority. Current OpenAPI is 81 paths / 89 operations / 197 schemas. See ADR 0074.
 - Browser status: P11-A1 through P11-C3 now fix three Profiles, exact target scope, inert session plans, fixed-location executable discovery, disposable-profile recovery plans, sealed Disabled/Fake CDP, same-handle Windows Authenticode acceptance, immutable launch attempts/generation leases, and independent operator review. Chrome and Edge can become `accepted_for_review`; arbitrary Chromium remains refused. Review acceptance still grants no process, network, profile-write, termination, cleanup, CDP, or Artifact authority. No built-in browser process or UI exists. See ADR 0069, ADR 0071, and ADR 0073.
 - Desktop status: the established Wails v2.13.0 shell retains its embedded React/in-process Go API, Run/editor/repository/verification/Handoff/model/credential/wake workflows and composable docks. P12-B2 adds a default-off user-owned ConPTY/xterm terminal for an exact trusted Code/Local/Debug Run. The user starts and types into it; terminal state, environment, input, output, and process identity are process-local, and the renderer cannot issue Agent-input leases. D1-UX10/UX11 add native Windows Acrylic, transparent WebView rendering, persisted light/dark/transparent-glass appearance tokens, and the resizable permission-centered Settings surface without weakening renderer integrity. Windows 10 release coverage remains pending and `release_ready=false`. There is no installer, formal signed release, registry/startup/update behavior, general Agent Shell, Docker PTY, real built-in browser, or install-time Skill execution. See ADR 0033 through ADR 0061, ADR 0064, ADR 0068, ADR 0070, ADR 0072 through ADR 0078, and `docs/DESKTOP_PLAN.md`.
 - Prayu UX status: D1-UX1 through D1-UX11 introduce the Prayu identity, frameless titlebar, bounded resizable workbench and Settings sidebars, Go-backed composer, four-control toolbar, dedicated permission center, native Acrylic, a CSS/React app mark, and three persisted appearance choices. Full-window ink backgrounds, screenshot-based selected overlays, the image wordmark, and orange-brush CSS are no longer used; selected navigation and segmented controls are opaque-white CSS rounded surfaces. Summary/Review/Files/Side Tasks use existing bounded Go surfaces. Browser remains inert; Terminal becomes real only when the Desktop is explicitly started with `--enable-user-terminal`, and remains user-owned. Open Workspace stays operator-confirmed and pathless at the renderer boundary. Stable CyberAgent compatibility identifiers remain unchanged. See ADR 0064, ADR 0070, ADR 0072, ADR 0076, and ADR 0078.
-- Execution status: P12-A1/A2/A3 adds durable interaction intent, exact process-local Agent-input leases, and four non-starting fixed command plans. P12-B1/B2/B3 advances SQLite to v87 and adds a separate operator-only Windows execution path plus the user terminal. P12-C1/C2/C3 advances SQLite to v88 and adds the four-level permission ceiling plus one Go `executionauth` resolver used by CLI, HTTP, Desktop, React, and the controlled command entry. Controlled commands use a restricted low-integrity token, creation-time Job Object, one-process/512 MiB/output/deadline/cancellation/tree-reap controls, write-ahead intent, and immutable metadata receipt. Git configuration/hooks/fsmonitor/external diff are disabled and raw output is transient. This is not a general LocalRunner or network sandbox. The internal Agent-input bridge has no renderer grant path and revokes on host, Run, terminal, and durable-binding lifecycle changes. See ADR 0075 through ADR 0078.
+- Execution status: P12-A1/A2/A3 adds durable interaction intent, exact process-local Agent-input leases, and four non-starting fixed command plans. P12-B1/B2/B3 advances SQLite to v87 and adds a separate operator-only Windows execution path plus the user terminal. P12-C1/C2/C3 advances SQLite to v88 and adds the four-level permission ceiling plus one Go `executionauth` resolver. P12-D1/D2/D3 advances SQLite to v89 and lets only the root Supervisor record a strict fixed-command proposal; an independent operator review revalidates all durable bindings and current runtime gates before one schema-v87 restricted execution, then returns bounded redacted output as non-authorizing Session evidence. This is not a general LocalRunner, arbitrary Shell, or network sandbox. The internal Agent-input bridge still has no renderer grant path and revokes on host, Run, terminal, and durable-binding lifecycle changes. See ADR 0075 through ADR 0079.
+- P12-D release gate: full ordinary Go (421.8 seconds), vet/staticcheck, focused v89 race, zero-reachable-finding govulncheck, module verify/tidy, secure Desktop test/vet, 47 files and 162 React tests, strict TypeScript, deterministic 81-path/89-operation/197-schema OpenAPI, Vite, and zero-vulnerability npm audit all pass. The reproducible unsigned Windows binary is 42,497,024 bytes with SHA-256 `2129db52a0a5e403b2fe49f19bc330af02aae7ebca56addb3e09ad4f0bc4b35a`; automated compatibility checks pass, while the required Windows 10/WebView2/display-scaling matrix correctly keeps `release_ready=false`. The final audit aligned shared Go and SQLite reviewer validation to reject all reserved Supervisor identities. No unresolved high/medium issue is known in the enabled v89 path.
 - Custom Skill status: the five embedded `skill.v1` guides and explicitly selected external packages are Run-loadable through separate protocols. Schema v69 adds persistent content-addressed import/history; schema v70 adds a second explicitly confirmed exact Run selection and redacted user-role root/Specialist context; schema v71 adds bounded read-only provenance across HTTP/TUI/Web. D1-A adds a pathless, one-time-handle preview boundary; D1-B1 adds explicit HTTP/Desktop registration through the same inert Registry. External packages remain untrusted and grant no declared tools. Installation executes no content and still does not select a package for a Run. See ADR 0024, ADR 0031 through ADR 0033, ADR 0041, and `docs/SKILL_PACKAGE_PLAN.md`.
 - Protected-delete status: explicit recursive, absolute/traversing/wildcard, environment-derived, command-substituted, current-home, PowerShell/`cmd`, and common interpreter deletion intents are permanently denied before approval across Shell, ScriptProcess, and Sandbox Policy. This is defense in depth; Local/container process execution remains disabled and a future executor still requires OS/container isolation. See ADR 0025.
 - Canonical branch: `main`; do not create a branch or PR unless the user asks.
@@ -2004,17 +2006,18 @@ known unresolved high/medium issue.
 
 ## Next Slice
 
-The recommended next three-slice batch is P12-D1/D2/D3:
+The recommended next execution batch is P12-E1/E2/E3. It must not widen the
+schema-v89 fixed-proposal protocol in place:
 
-1. add a non-executing arbitrary one-shot command proposal bound to the exact Run,
-   permission snapshot, argv, cwd, environment intent, and network intent, with a
-   separate operator review in `approval`;
-2. add the separately gated `full_access` one-shot host executor with write-ahead
-   intent, immutable receipt, deadline, cancellation, process-tree reap, and an
-   explicit non-sandbox warning;
-3. add the separately authorized Agent-owned persistent terminal binding only for
-   `debug`, with a short lease, background-process bounds, host/Run lifecycle
-   revocation, and clearly distinguished user-versus-Agent input.
+1. threat-model a separate arbitrary one-shot proposal protocol for `approval`,
+   including exact argv/cwd/environment/network intent and explicit operator
+   review;
+2. add a separately gated `full_access` one-shot host executor only after the
+   transport has its own write-ahead intent, immutable receipt, deadline,
+   cancellation, process-tree reap, and explicit non-sandbox warning;
+3. add an Agent-owned persistent terminal only for `debug`, with a separate
+   short authorization lease, background-process bounds, host/Run lifecycle
+   revocation, and visibly distinct user-versus-Agent input.
 
 P11-C4/C5/C6 Safe Web start/Profile/CDP and P10-F1/F2/F3 analyzer
 preflight remain queued. Docker PTY, arbitrary Agent Shell, request mutation,
@@ -2030,7 +2033,7 @@ Run Rust build/test commands from a Developer PowerShell or after loading `VsDev
 the source, pinned toolchain, and `Cargo.lock` remain the reproducible authority. `cargo audit`
 is installed; this version accepts the default lockfile scan rather than a `--locked` flag.
 
-The default `~/.cyberagent-workbench/cyberagent.db` currently carries a historical schema-v30 checksum that differs from this repository's immutable migration definition, so CLI startup correctly fails closed with `migration 30 checksum or name mismatch` and Desktop shows a bounded `FAILED_PRECONDITION`/startup code instead of silently resetting it. The v75-v88 and D1-Q2 through P12-C3 slices did not rewrite migrations 1-74, and fresh/upgrade fixtures pass. Preserve that local database for backup/diagnosis; do not delete it or rewrite `schema_migrations` automatically. Desktop visual and recovery tests use separate `CYBERAGENT_HOME` directories under the repository's ignored build root or the OS temporary root.
+The default `~/.cyberagent-workbench/cyberagent.db` currently carries a historical schema-v30 checksum that differs from this repository's immutable migration definition, so CLI startup correctly fails closed with `migration 30 checksum or name mismatch` and Desktop shows a bounded `FAILED_PRECONDITION`/startup code instead of silently resetting it. The v75-v89 and D1-Q2 through P12-D3 slices did not rewrite migrations 1-74, and fresh/upgrade fixtures pass. Preserve that local database for backup/diagnosis; do not delete it or rewrite `schema_migrations` automatically. Desktop visual and recovery tests use separate `CYBERAGENT_HOME` directories under the repository's ignored build root or the OS temporary root.
 
 ## Delivery Loop
 

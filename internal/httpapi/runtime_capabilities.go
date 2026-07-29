@@ -39,6 +39,7 @@ type RuntimeCapabilitiesView struct {
 	RunExecutionEnabled               bool                    `json:"run_execution_enabled"`
 	PlanDeliveryControlEnabled        bool                    `json:"plan_delivery_control_enabled"`
 	ApprovalControlEnabled            bool                    `json:"approval_control_enabled"`
+	ControlledCommandProposalEnabled  bool                    `json:"controlled_command_proposal_control_enabled"`
 	ModelControlEnabled               bool                    `json:"model_control_enabled"`
 	ProviderCredentialEnabled         bool                    `json:"provider_credential_enabled"`
 	FileEditReviewEnabled             bool                    `json:"file_edit_review_enabled"`
@@ -97,20 +98,21 @@ func (a *API) runtimeCapabilities(request *http.Request) (any, *Page, error) {
 		SessionMessageEnabled:             a.sessionMessageEnabled,
 		SessionSteeringControlEnabled:     a.sessionSteeringControlEnabled,
 		RunLifecycleEnabled:               a.runLifecycleEnabled, RunExecutionEnabled: a.runExecutionEnabled,
-		PlanDeliveryControlEnabled:  a.planDeliveryControlEnabled,
-		ApprovalControlEnabled:      a.approvalControlEnabled,
-		ModelControlEnabled:         a.modelControlEnabled,
-		ProviderCredentialEnabled:   a.providerCredentialEnabled,
-		FileEditReviewEnabled:       a.fileEditReviewEnabled,
-		FileEditProposalEnabled:     a.fileEditProposalEnabled,
-		FileEditApplyEnabled:        a.fileEditApplyEnabled,
-		RunWakeControlEnabled:       a.runWakeControlEnabled,
-		RunWakeExecutionEnabled:     a.runWakeExecutionEnabled,
-		RunWakeWorkerEnabled:        a.runWakeWorkerEnabled,
-		SkillInstallationEnabled:    a.skillInstallationEnabled,
-		EvidenceAttachmentEnabled:   a.evidenceAttachmentEnabled,
-		VerificationEvidenceEnabled: a.verificationEvidenceEnabled,
-		ProcessExecutionEnabled:     false, ShellExecutionEnabled: false,
+		PlanDeliveryControlEnabled:       a.planDeliveryControlEnabled,
+		ApprovalControlEnabled:           a.approvalControlEnabled,
+		ControlledCommandProposalEnabled: a.controlledCommandProposalControlEnabled,
+		ModelControlEnabled:              a.modelControlEnabled,
+		ProviderCredentialEnabled:        a.providerCredentialEnabled,
+		FileEditReviewEnabled:            a.fileEditReviewEnabled,
+		FileEditProposalEnabled:          a.fileEditProposalEnabled,
+		FileEditApplyEnabled:             a.fileEditApplyEnabled,
+		RunWakeControlEnabled:            a.runWakeControlEnabled,
+		RunWakeExecutionEnabled:          a.runWakeExecutionEnabled,
+		RunWakeWorkerEnabled:             a.runWakeWorkerEnabled,
+		SkillInstallationEnabled:         a.skillInstallationEnabled,
+		EvidenceAttachmentEnabled:        a.evidenceAttachmentEnabled,
+		VerificationEvidenceEnabled:      a.verificationEvidenceEnabled,
+		ProcessExecutionEnabled:          false, ShellExecutionEnabled: false,
 		DockerExecutionEnabled: false, WakeWorker: worker,
 	}, nil, nil
 }

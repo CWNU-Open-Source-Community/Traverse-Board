@@ -26,6 +26,7 @@ func TestRuntimeCapabilitiesAreReadOnlyAndDefaultClosed(t *testing.T) {
 		view.RunControlEnabled != fixture.api.controlEnabled ||
 		view.RunCreationEnabled != fixture.api.runCreationEnabled ||
 		view.SessionMessageEnabled != fixture.api.sessionMessageEnabled ||
+		view.ControlledCommandProposalEnabled ||
 		view.FileEditProposalEnabled || view.ProviderCredentialEnabled ||
 		view.RunWakeWorkerEnabled ||
 		view.ProcessExecutionEnabled || view.ShellExecutionEnabled ||
@@ -50,7 +51,7 @@ func TestRuntimeCapabilitiesProjectBoundedWorkerHealthWithoutPrivateState(t *tes
 		MaxSteps:           application.RunWakeWorkerMaxSteps,
 	}}
 	api, err := New(fixture.store, Config{AccessToken: testAccessToken,
-		ControlToken: testControlToken,
+		ControlToken:         testControlToken,
 		RunWakeWorkerEnabled: true, RunWakeWorkerHealthSource: source,
 		AppVersion: "worker-health-test"})
 	if err != nil {
@@ -79,11 +80,11 @@ func TestRuntimeCapabilitiesRejectWorkerWithoutControlToken(t *testing.T) {
 	_, err := New(fixture.store, Config{AccessToken: testAccessToken,
 		RunWakeWorkerEnabled: true, RunWakeWorkerHealthSource: wakeWorkerHealthFake{
 			health: application.RunWakeWorkerHealth{
-				ProtocolVersion: application.RunWakeWorkerHealthProtocolVersion,
-				State: application.RunWakeWorkerReady,
+				ProtocolVersion:    application.RunWakeWorkerHealthProtocolVersion,
+				State:              application.RunWakeWorkerReady,
 				PollIntervalMillis: application.DefaultRunWakeWorkerInterval.Milliseconds(),
-				Concurrency: application.RunWakeWorkerConcurrency,
-				MaxSteps: application.RunWakeWorkerMaxSteps,
+				Concurrency:        application.RunWakeWorkerConcurrency,
+				MaxSteps:           application.RunWakeWorkerMaxSteps,
 			},
 		}, AppVersion: "worker-control-token-test"})
 	if err == nil || apperror.CodeOf(err) != apperror.CodeInvalidArgument {
@@ -97,10 +98,10 @@ func TestRuntimeCapabilitiesRejectImpossibleWorkerHealth(t *testing.T) {
 		ControlToken: testControlToken, RunWakeWorkerEnabled: true,
 		RunWakeWorkerHealthSource: wakeWorkerHealthFake{health: application.RunWakeWorkerHealth{
 			ProtocolVersion: application.RunWakeWorkerHealthProtocolVersion,
-			State: application.RunWakeWorkerStopped, Active: true,
+			State:           application.RunWakeWorkerStopped, Active: true,
 			PollIntervalMillis: application.DefaultRunWakeWorkerInterval.Milliseconds(),
-			Concurrency: application.RunWakeWorkerConcurrency,
-			MaxSteps: application.RunWakeWorkerMaxSteps,
+			Concurrency:        application.RunWakeWorkerConcurrency,
+			MaxSteps:           application.RunWakeWorkerMaxSteps,
 		}}, AppVersion: "invalid-worker-health-test"})
 	if err != nil {
 		t.Fatal(err)

@@ -1,6 +1,6 @@
 # CyberAgent Workbench V2 任务书
 
-更新时间：2026-07-27
+更新时间：2026-07-29
 
 ## 目标
 
@@ -22,11 +22,11 @@ P8 已推进到 schema v37：v35 将完成的 Fan-out execution 确定性投影�
 
 金额预算、HTTP 或模型自主 child 调度和真实 Sandbox 进程执行尚未实现；schema v48 的严格 Sandbox Manifest、schema v49 的精确审批/重新提交/禁用候选、schema v50 的禁用态 Artifact 绑定、独立 fencing、取消与清理恢复、schema v51 的禁用态后端/输出预检、schema v52 的仅模拟后端证据与内存输出事务、schema v53 的固定本机端点只读 Docker 观测、schema v54 的确定性容器计划与假写事务、schema v55 默认关闭的 Docker 创建/核验/删除演练、schema v56 的可恢复预写意图、代际租约和 stage/cleanup 检查点、schema v57 的 descriptor-pinned、kernel-sealed 宿主输入捕获证据、schema v58 的 daemon stage 前持久化捕获要求、schema v59 的 daemon-owned/readback-verified/fully-cleaned 输入交接、schema v60 的严格 runtime-input projection plan、schema v61 的可恢复只读卷应用与 never-started target，以及 schema v62 的保留资源检查与可恢复精确清理已经落地。v55-v62 仍不启动容器进程。operator-only 显式 child schedule/continue、no-tool child turn、最多两个 child 的有界并发、一次 child repair、Coordinator、Run 工具预算、跨进程执行互斥，以及 root/child 精确跨进程主动取消均已落地。
 
-P7 已推进到 schema v71 与非 schema D1-B1，P9/Desktop 产品面已推进到 schema v88 与 D1-G13/V12，通用运行时安全面已推进到 H1-H3/R10/C1-C3/P12-C3。P12-A1-A3 建立不授权的执行交互意图、进程内短期 Agent 输入租约和固定模板计划；P12-B1-B3 接入四种 Windows 一次性受控执行、用户所有的 ConPTY/xterm Debug 终端，以及只消费精确短租约的内部 Agent 输入桥；P12-C1-C3 再增加 `conservative|approval|full_access|debug` 四档权限快照、CLI/API/Desktop/React 选择入口、进程启动闸门和统一 Go 授权判定。权限快照永不持久化真正执行权。当前只有保守档接入固定模板执行器；审批/完全访问任意宿主命令与 Debug Agent 持久终端仍未开放。
+P7 已推进到 schema v71 与非 schema D1-B1，P9/Desktop 产品面已推进到 schema v89 与 D1-G13/V12，通用运行时安全面已推进到 H1-H3/R10/C1-C3/P12-D3。P12-A1-A3 建立不授权的执行交互意图、进程内短期 Agent 输入租约和固定模板计划；P12-B1-B3 接入四种 Windows 一次性受控执行、用户所有的 ConPTY/xterm Debug 终端，以及只消费精确短租约的内部 Agent 输入桥；P12-C1-C3 再增加 `conservative|approval|full_access|debug` 四档权限快照、CLI/API/Desktop/React 选择入口、进程启动闸门和统一 Go 授权判定；P12-D1-D3 让 Root Agent 只能申请同四种固定诊断动作，由独立操作者审批后执行一次，并把有界脱敏结果作为不可信 Session 证据回送。权限快照和提案都不持久化真正执行权；审批/完全访问任意宿主命令与 Debug Agent 持久终端仍未开放。
 
 schema v64 已增加 Go-owned `run_execution_profile.v1`：每个 Run 默认 `preview`，操作者可在 `created` 或无活动 lease 的 `paused` 状态选择 `preview|docker|local`。CLI、HTTP/OpenAPI 与 React 使用同一状态机；所有档位仍固定零进程、零执行授权和零 capability。
 
-schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固定 16 项机器 probe 和摘要协议，CLI 只接受同一操作者的 v63 阻塞审查、稳定操作键和显式确认。schema v66 再增加 collector 调用前持久化的 attempt、摘要化 operation、过期 generation lease、当前代 quiescent reconciliation、类型化 failure 和原子 result。schema v67 只在 Linux 显式 opt-in 后执行五次固定 GET，schema v68 再增加一次不可变操作员接纳/拒绝决定。所有 Docker start/process/export/Artifact authority 继续为 false。schema v69-v88 与 Desktop D1-A 至 P12-C 已完成外部 Skill、桌面恢复、Run 控制、模型/Plan/审批、FileEdit、Provider、wake、Repository、验证/Handoff/记忆、浏览器非启动账本、执行交互、受控命令审计、用户终端与四档权限控制面。R9/R10 仍只属于内部 Runner 回执兼容边界；P10 analyzer 仍没有产品进程桥。SQLite 当前为 v88。
+schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固定 16 项机器 probe 和摘要协议，CLI 只接受同一操作者的 v63 阻塞审查、稳定操作键和显式确认。schema v66 再增加 collector 调用前持久化的 attempt、摘要化 operation、过期 generation lease、当前代 quiescent reconciliation、类型化 failure 和原子 result。schema v67 只在 Linux 显式 opt-in 后执行五次固定 GET，schema v68 再增加一次不可变操作员接纳/拒绝决定。所有 Docker start/process/export/Artifact authority 继续为 false。schema v69-v89 与 Desktop D1-A 至 P12-D 已完成外部 Skill、桌面恢复、Run 控制、模型/Plan/审批、FileEdit、Provider、wake、Repository、验证/Handoff/记忆、浏览器非启动账本、执行交互、受控命令审计、用户终端、四档权限控制面和固定命令提案审批。R9/R10 仍只属于内部 Runner 回执兼容边界；P10 analyzer 仍没有产品进程桥。SQLite 当前为 v89。
 
 ## 执行原则
 
@@ -540,9 +540,13 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 - [x] Desktop D1-UX11-B：统一导航、历史会话、资源列表和分段控制的液态玻璃状态；空闲透明、悬停半透明、选中纯白不透明。物理删除旧橙色笔刷的渐变、裁切、伪元素和隐藏覆盖规则。
 - [x] Desktop D1-UX11-C：新增持久化 `浅色|深色|透明玻璃` 外观档位；Desktop 透明档复用原生 Acrylic，普通浏览器失败可读回退，390 px 视口无横向溢出。
 - [x] Desktop D1-UX11 三切片功能门：46 文件 158 项 React、strict TypeScript、Vite production build、npm audit 零漏洞和桌面/移动无头视觉复核通过；选中态计算值为纯白且无伪元素内容，隔离验收进程与端口已清理。本批不修改 schema、OpenAPI 或运行权限。
-- [ ] P12-D1：实现只生成、不执行的任意一次性命令提案，精确绑定 Run/权限快照/argv/cwd/env/network intent，并在 `approval` 档建立独立人工审阅。
-- [ ] P12-D2：实现 `full_access` 一次性宿主执行器；启动前重新消费统一授权，使用写前 intent、不可变 receipt、超时/取消/进程树回收和醒目危险提示，不把它宣传为沙箱。
-- [ ] P12-D3：只为 `debug` 实现 Agent 持久终端绑定；要求最大权限启动闸门、独立限时鉴权、后台进程上限、终止/锁屏/Run 生命周期撤销，并与用户终端输入来源清晰区分。
+- [x] P12-D1 / schema v89：新增 Root-only `controlled_command_propose`，只接受 `git-status|git-diff-check|go-version|powershell-workspace-list`、用途、固定相对路径和超时；无 executable、Shell、argv、env、stdin、network、persistence 或 capability 字段。提案精确绑定 Run/Mission/Session/Workspace/Root/Tool lease、交互/Profile/权限修订和计划指纹，创建时不执行、不授权。
+- [x] P12-D2：新增独立操作者 approve/deny 与一次性执行服务；审批使用不可变 review 和幂等 operation，拒绝模型/Agent/Skill/Repository/Supervisor 身份，批准必须二次确认。执行前重新加载全部绑定、复编译固定计划、复核当前进程权限闸门，再复用 v87 受限 Runner；写前 intent 没有结果时禁止自动重试。
+- [x] P12-D3：CLI、HTTP/OpenAPI、Desktop `--enable-command-proposals` 和 React Approvals 面板接入提案/审阅/结果；输出限 16 KiB，清洗控制字符并脱敏，以 `go_command_result`、`instruction_authorized=false` 回到 Session，raw stdout/stderr 不落库。边界见 ADR 0079。
+- [x] P12-D1/D2/D3 schema v89 功能门：全仓 ordinary Go 421.8 秒、全仓 vet/staticcheck、v89 五包聚焦 race、零可达漏洞 govulncheck、module verify/tidy、secure Desktop test/vet、47 文件 162 项 React、strict TypeScript、确定性 OpenAPI 81/89/197、Vite production build 与 npm 零漏洞全部通过。Windows 可复现双构建和自动兼容检查全绿，未签名 GUI 为 42,497,024 字节，SHA-256 `2129db52a0a5e403b2fe49f19bc330af02aae7ebca56addb3e09ad4f0bc4b35a`；Windows 10/WebView2/缩放人工矩阵仍使 `release_ready=false`。审计已统一 Go/SQLite 对保留 Supervisor reviewer 身份的拒绝；迁移顺序、凭据、权限、任意 Shell 入口和 diff 审计未发现已知未解决高/中风险。
+- [ ] P12-E1：先为 `approval` 单独威胁建模任意一次性命令提案协议；不得扩写 v89 固定协议，必须精确绑定 argv/cwd/env/network intent 与独立人工审阅。
+- [ ] P12-E2：实现单独启动闸门后的 `full_access` 一次性宿主执行器；写前 intent、不可变 receipt、超时/取消/进程树回收和醒目非沙箱提示全部必需。
+- [ ] P12-E3：只为 `debug` 实现 Agent 持久终端绑定；要求最大权限启动闸门、独立限时鉴权、后台进程上限、终止/锁屏/Run 生命周期撤销，并与用户终端输入来源清晰区分。
 - [ ] P11-C4：仅实现 Safe Web 真实进程启动；必须在 adapter 前精确复核 v85 acceptance/review，并用 Windows Job Object 绑定整棵进程树，无 Shell、无导航、无 Profile 写入。
 - [ ] P11-C5：独立实现一次性 Profile generation 创建、marker、重启恢复和 exact released-owned 清理；个人 Chrome/Edge Profile 永久禁止。
 - [ ] P11-C6：独立实现 exact-scope localhost CDP 导航、DOM metadata 与截图；请求改包/重放和 CTF 安全放宽继续关闭。

@@ -112,6 +112,7 @@ describe("CyberAgentClient", () => {
       session_message_enabled: true, session_steering_control_enabled: true,
       run_lifecycle_enabled: true, run_execution_enabled: true,
       plan_delivery_control_enabled: true, approval_control_enabled: true,
+      controlled_command_proposal_control_enabled: true,
       model_control_enabled: true, provider_credential_enabled: true,
       file_edit_review_enabled: true, file_edit_proposal_enabled: true,
       file_edit_apply_enabled: true, run_wake_control_enabled: true,
@@ -132,6 +133,7 @@ describe("CyberAgentClient", () => {
     expect(clientCapabilitiesFromRuntime(view)).toMatchObject({
       executionPermissionControlEnabled: true, operatorApprovalEnabled: true,
       dangerFullAccessEnabled: true, debugMaximumAccessEnabled: true,
+      controlledCommandProposalControlEnabled: true,
       fileEditProposalEnabled: true, providerCredentialEnabled: true,
       runWakeWorkerEnabled: true,
       verificationEvidenceEnabled: true,
@@ -649,6 +651,82 @@ describe("CyberAgentClient", () => {
       data: { ...queue, items: [{ ...queue.items[0], session_id: "" }] },
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     await expect(client.approvalQueue("run-1")).rejects.toThrow("invalid");
+  });
+
+  it("reviews only fixed Go command proposals and rejects instruction-bearing evidence", async () => {
+    const pending = {
+      id: "command-proposal-1", protocol_version: "controlled_command_proposal.v1",
+      policy_version: "controlled_command_proposal_policy.v1", run_id: "run-1",
+      mission_id: "mission-1", session_id: "session-1", workspace_id: "workspace-1",
+      kind: "git-status", timeout_milliseconds: 30_000,
+      purpose: "Inspect the current repository state", permission_mode: "conservative",
+      permission_revision: 1, operator_review_required: true,
+      instruction_authorized: false, execution_authorized: false, capability_grant: false,
+      fingerprint: "a".repeat(64), created_at: "2026-07-29T00:00:00Z",
+      evidence_instruction_authorized: false,
+    };
+    const reviewed = {
+      ...pending,
+      review: { id: "review-1", decision: "approve", reviewed_by: "http_control_operator",
+        reason: "Operator approved the exact fixed Go command",
+        single_use_execution_authorized: true, capability_grant: false,
+        created_at: "2026-07-29T00:01:00Z" },
+      result: { id: "result-1", status: "completed", source_kind: "go_command_result",
+        source_ref: "session-message-1", content_sha256: "b".repeat(64),
+        instruction_authorized: false, raw_output_persisted: false,
+        automatic_retry_allowed: false, created_at: "2026-07-29T00:01:01Z" },
+      receipt: {
+        request_id: "controlled-exec-0001", backend: "windows-controlled-v1", exit_code: 0,
+        stdout_observed_bytes: 6, stdout_captured_bytes: 6,
+        stdout_prefix_sha256: "c".repeat(64), stdout_truncated: false,
+        stderr_observed_bytes: 0, stderr_captured_bytes: 0,
+        stderr_prefix_sha256: "d".repeat(64), stderr_truncated: false,
+        started_at: "2026-07-29T00:01:00Z", completed_at: "2026-07-29T00:01:01Z",
+        timed_out: false, cancelled: false, output_limit_exceeded: false, tree_reaped: true,
+        restricted_token: true, low_integrity_token: true, job_assigned_at_creation: true,
+        kill_on_job_close: true, active_process_limit: 1,
+        process_memory_limit: 512 * 1024 * 1024, stdin_closed: true,
+        environment_inherited: false, network_requested: false, persistent_process: false,
+        product_execution_enabled: true,
+      },
+      review_replayed: false, execution_replayed: false,
+      untrusted_evidence: "UNTRUSTED GO COMMAND RESULT\nstdout_begin\nclean\nstdout_end",
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "request-proposals", data: [pending],
+        page: { limit: 100 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "request-review", data: reviewed,
+      }), { status: 202, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "request-invalid-result",
+        data: { ...reviewed, evidence_instruction_authorized: true },
+      }), { status: 202, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+      runControlEnabled: false, controlledCommandProposalControlEnabled: true,
+    });
+
+    await expect(client.controlledCommandProposals("run-1"))
+      .resolves.toMatchObject({ items: [pending], requestID: "request-proposals" });
+    const body = { version: "controlled_command_proposal_review.v1",
+      decision: "approve", reason: "Operator approved the exact fixed Go command",
+      confirm_execution: true };
+    await expect(client.reviewControlledCommandProposal(
+      "run-1", "command-proposal-1", body, "web-command-proposal-operation-0001",
+    )).resolves.toEqual(reviewed);
+    expect(fetchMock.mock.calls[0]?.[0])
+      .toBe("/api/v1/runs/run-1/command-proposals?limit=100");
+    expect(fetchMock.mock.calls[1]?.[0])
+      .toBe("/api/v1/runs/run-1/command-proposals/command-proposal-1/review");
+    const reviewInit = fetchMock.mock.calls[1]?.[1] as RequestInit;
+    expect(reviewInit.headers).toMatchObject({ Authorization: "Bearer control-secret" });
+    expect(JSON.parse(String(reviewInit.body))).toEqual(body);
+    await expect(client.reviewControlledCommandProposal(
+      "run-1", "command-proposal-1", body, "web-command-proposal-operation-0002",
+    )).rejects.toThrow("invalid");
   });
 
   it("validates content-free model diagnostics and exact persisted routes", async () => {

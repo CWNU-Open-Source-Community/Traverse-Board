@@ -50,7 +50,10 @@ func TestRunSupervisorExecutesAllowlistedStructuredToolAndContinuesModel(t *test
 			items[0], root, found, err)
 	}
 	requests := provider.Requests()
-	if len(requests) != 2 || len(requests[0].Tools) != 3 || hasToolResults(requests[0]) ||
+	if len(requests) != 2 ||
+		!hasToolSpec(requests[0], "work_item_create") ||
+		!hasToolSpec(requests[0], "controlled_command_propose") ||
+		hasToolResults(requests[0]) ||
 		!hasToolResult(requests[1], "work_item") {
 		t.Fatalf("model did not receive the structured tool transcript: %#v", requests)
 	}
@@ -508,6 +511,15 @@ func textResponse(text string) *llm.ChatResponse {
 func hasToolResults(request llm.ChatRequest) bool {
 	for _, message := range request.Messages {
 		if len(message.ToolResults) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func hasToolSpec(request llm.ChatRequest, name string) bool {
+	for _, tool := range request.Tools {
+		if tool.Name == name {
 			return true
 		}
 	}

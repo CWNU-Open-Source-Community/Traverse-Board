@@ -40,23 +40,24 @@ type ScriptRunStore interface {
 }
 
 type Gateway struct {
-	store                 Store
-	grantStore            approval.GrantStore
-	budgetStore           toolbudget.Store
-	artifactStore         artifact.Store
-	policyRecorder        policy.DecisionRecorder
-	checker               policy.Checker
-	workspaceRootResolver WorkspaceRootResolver
-	legacyTools           *toolrun.Manager
-	legacyEdits           *fileedit.Manager
-	scriptStore           scriptprocess.Store
-	scriptRunStore        ScriptRunStore
-	scriptProcesses       *scriptprocess.Manager
-	artifacts             *artifact.Manager
-	structuredMemory      StructuredMemoryExecutor
-	delegationProposals   SpecialistDelegationExecutor
-	planDeliveryProposals PlanDeliveryExecutor
-	waitGraph             *waitgraph.Graph
+	store                      Store
+	grantStore                 approval.GrantStore
+	budgetStore                toolbudget.Store
+	artifactStore              artifact.Store
+	policyRecorder             policy.DecisionRecorder
+	checker                    policy.Checker
+	workspaceRootResolver      WorkspaceRootResolver
+	legacyTools                *toolrun.Manager
+	legacyEdits                *fileedit.Manager
+	scriptStore                scriptprocess.Store
+	scriptRunStore             ScriptRunStore
+	scriptProcesses            *scriptprocess.Manager
+	artifacts                  *artifact.Manager
+	structuredMemory           StructuredMemoryExecutor
+	delegationProposals        SpecialistDelegationExecutor
+	planDeliveryProposals      PlanDeliveryExecutor
+	controlledCommandProposals ControlledCommandProposalExecutor
+	waitGraph                  *waitgraph.Graph
 }
 
 type WorkspaceRootResolver func(ctx context.Context, workspaceID string) (string, error)
@@ -123,6 +124,10 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (Outcome, error) {
 	if normalized.Name == PlanDeliveryProposeTool && g.planDeliveryProposals == nil {
 		return Outcome{}, errors.New("Plan/Delivery proposal executor is required")
 	}
+	if normalized.Name == ControlledCommandProposeTool &&
+		g.controlledCommandProposals == nil {
+		return Outcome{}, errors.New("controlled command proposal executor is required")
+	}
 	fallback := waitgraph.External(normalized.RequestedBy)
 	if normalized.AgentID != "" {
 		fallback = waitgraph.Agent(normalized.AgentID)
@@ -162,6 +167,8 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (Outcome, error) {
 		return g.invokeSpecialistDelegation(ctx, normalized)
 	case PlanDeliveryProposeTool:
 		return g.invokePlanDelivery(ctx, normalized)
+	case ControlledCommandProposeTool:
+		return g.invokeControlledCommandProposal(ctx, normalized)
 	default:
 		return Outcome{}, fmt.Errorf("unsupported tool %q", normalized.Name)
 	}
@@ -691,7 +698,9 @@ func gatewayDecision(source policy.Decision, mode ApprovalMode, fallbackRisk str
 
 func validateToolArguments(call ToolCall) error {
 	if call.Name == WorkItemCreateTool || call.Name == NoteCreateTool ||
-		call.Name == SpecialistDelegationProposeTool || call.Name == PlanDeliveryProposeTool {
+		call.Name == SpecialistDelegationProposeTool ||
+		call.Name == PlanDeliveryProposeTool ||
+		call.Name == ControlledCommandProposeTool {
 		if len(call.Arguments) != 0 {
 			return fmt.Errorf("tool %s accepts a JSON payload instead of string arguments", call.Name)
 		}
@@ -719,6 +728,12 @@ func validateToolArguments(call ToolCall) error {
 				return errors.New("Plan/Delivery proposals require a fenced root Supervisor")
 			}
 			_, _, err := normalizePlanDeliveryPayload(call.Payload)
+			return err
+		case ControlledCommandProposeTool:
+			if call.RequestedBy != "run_supervisor" || call.AgentID == "" || call.LeaseID == "" {
+				return errors.New("controlled command proposals require a fenced root Supervisor")
+			}
+			_, _, err := normalizeControlledCommandProposalPayload(call.Payload)
 			return err
 		}
 	}

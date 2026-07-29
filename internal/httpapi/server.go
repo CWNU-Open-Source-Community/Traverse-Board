@@ -203,92 +203,96 @@ type Store interface {
 }
 
 type Config struct {
-	AccessToken                       string
-	ControlToken                      string
-	RunControlEnabled                 bool
-	ExecutionPermissionControlEnabled bool
-	RunCreationEnabled                bool
-	SessionMessageEnabled             bool
-	SessionSteeringControlEnabled     bool
-	RunLifecycleEnabled               bool
-	RunExecutionEnabled               bool
-	PlanDeliveryControlEnabled        bool
-	ApprovalControlEnabled            bool
-	ModelControlEnabled               bool
-	ProviderCredentialEnabled         bool
-	FileEditReviewEnabled             bool
-	FileEditProposalEnabled           bool
-	RunWakeControlEnabled             bool
-	FileEditApplyEnabled              bool
-	RunWakeExecutionEnabled           bool
-	RunWakeWorkerEnabled              bool
-	SkillInstallationEnabled          bool
-	EvidenceAttachmentEnabled         bool
-	VerificationEvidenceEnabled       bool
-	ExecutionPermissionCapabilities   domain.ExecutionPermissionRuntimeCapabilities
-	RunLifecycleController            RunLifecycleController
-	RunExecutionController            RunExecutionController
-	PlanDeliveryController            PlanDeliveryController
-	ApprovalController                ApprovalController
-	ModelControlController            ModelControlController
-	ProviderCredentialController      ProviderCredentialController
-	FileEditReviewController          FileEditReviewController
-	FileEditProposalController        FileEditProposalController
-	RunWakeController                 RunWakeController
-	FileEditApplyController           FileEditApplyController
-	RunWakeExecutionController        RunWakeExecutionController
-	RunWakeWorkerHealthSource         RunWakeWorkerHealthSource
-	SkillInstallationController       SkillInstallationController
-	ModelRegistry                     *modelregistry.Registry
-	AppVersion                        string
-	EventStream                       EventStreamConfig
-	UIHandler                         http.Handler
+	AccessToken                             string
+	ControlToken                            string
+	RunControlEnabled                       bool
+	ExecutionPermissionControlEnabled       bool
+	RunCreationEnabled                      bool
+	SessionMessageEnabled                   bool
+	SessionSteeringControlEnabled           bool
+	RunLifecycleEnabled                     bool
+	RunExecutionEnabled                     bool
+	PlanDeliveryControlEnabled              bool
+	ApprovalControlEnabled                  bool
+	ControlledCommandProposalControlEnabled bool
+	ModelControlEnabled                     bool
+	ProviderCredentialEnabled               bool
+	FileEditReviewEnabled                   bool
+	FileEditProposalEnabled                 bool
+	RunWakeControlEnabled                   bool
+	FileEditApplyEnabled                    bool
+	RunWakeExecutionEnabled                 bool
+	RunWakeWorkerEnabled                    bool
+	SkillInstallationEnabled                bool
+	EvidenceAttachmentEnabled               bool
+	VerificationEvidenceEnabled             bool
+	ExecutionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
+	RunLifecycleController                  RunLifecycleController
+	RunExecutionController                  RunExecutionController
+	PlanDeliveryController                  PlanDeliveryController
+	ApprovalController                      ApprovalController
+	ControlledCommandProposalController     ControlledCommandProposalController
+	ModelControlController                  ModelControlController
+	ProviderCredentialController            ProviderCredentialController
+	FileEditReviewController                FileEditReviewController
+	FileEditProposalController              FileEditProposalController
+	RunWakeController                       RunWakeController
+	FileEditApplyController                 FileEditApplyController
+	RunWakeExecutionController              RunWakeExecutionController
+	RunWakeWorkerHealthSource               RunWakeWorkerHealthSource
+	SkillInstallationController             SkillInstallationController
+	ModelRegistry                           *modelregistry.Registry
+	AppVersion                              string
+	EventStream                             EventStreamConfig
+	UIHandler                               http.Handler
 }
 
 type API struct {
-	store                             Store
-	tokenHash                         [sha256.Size]byte
-	controlTokenHash                  [sha256.Size]byte
-	controlEnabled                    bool
-	executionPermissionControlEnabled bool
-	runCreationEnabled                bool
-	sessionMessageEnabled             bool
-	sessionSteeringControlEnabled     bool
-	runLifecycleEnabled               bool
-	runExecutionEnabled               bool
-	planDeliveryControlEnabled        bool
-	approvalControlEnabled            bool
-	modelControlEnabled               bool
-	providerCredentialEnabled         bool
-	fileEditReviewEnabled             bool
-	fileEditProposalEnabled           bool
-	runWakeControlEnabled             bool
-	fileEditApplyEnabled              bool
-	runWakeExecutionEnabled           bool
-	runWakeWorkerEnabled              bool
-	skillInstallationEnabled          bool
-	evidenceAttachmentEnabled         bool
-	verificationEvidenceEnabled       bool
-	executionPermissionCapabilities   domain.ExecutionPermissionRuntimeCapabilities
-	runLifecycleController            RunLifecycleController
-	runExecutionController            RunExecutionController
-	planDeliveryController            PlanDeliveryController
-	approvalController                ApprovalController
-	modelControlController            ModelControlController
-	providerCredentialController      ProviderCredentialController
-	fileEditReviewController          FileEditReviewController
-	fileEditProposalController        FileEditProposalController
-	runWakeController                 RunWakeController
-	fileEditApplyController           FileEditApplyController
-	runWakeExecutionController        RunWakeExecutionController
-	runWakeWorkerHealthSource         RunWakeWorkerHealthSource
-	skillInstallationController       SkillInstallationController
-	modelRegistry                     *modelregistry.Registry
-	appVersion                        string
-	openAPI                           []byte
-	eventStream                       EventStreamConfig
-	eventStreamSlots                  chan struct{}
-	uiHandler                         http.Handler
+	store                                   Store
+	tokenHash                               [sha256.Size]byte
+	controlTokenHash                        [sha256.Size]byte
+	controlEnabled                          bool
+	executionPermissionControlEnabled       bool
+	runCreationEnabled                      bool
+	sessionMessageEnabled                   bool
+	sessionSteeringControlEnabled           bool
+	runLifecycleEnabled                     bool
+	runExecutionEnabled                     bool
+	planDeliveryControlEnabled              bool
+	approvalControlEnabled                  bool
+	controlledCommandProposalControlEnabled bool
+	modelControlEnabled                     bool
+	providerCredentialEnabled               bool
+	fileEditReviewEnabled                   bool
+	fileEditProposalEnabled                 bool
+	runWakeControlEnabled                   bool
+	fileEditApplyEnabled                    bool
+	runWakeExecutionEnabled                 bool
+	runWakeWorkerEnabled                    bool
+	skillInstallationEnabled                bool
+	evidenceAttachmentEnabled               bool
+	verificationEvidenceEnabled             bool
+	executionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
+	runLifecycleController                  RunLifecycleController
+	runExecutionController                  RunExecutionController
+	planDeliveryController                  PlanDeliveryController
+	approvalController                      ApprovalController
+	controlledCommandProposalController     ControlledCommandProposalController
+	modelControlController                  ModelControlController
+	providerCredentialController            ProviderCredentialController
+	fileEditReviewController                FileEditReviewController
+	fileEditProposalController              FileEditProposalController
+	runWakeController                       RunWakeController
+	fileEditApplyController                 FileEditApplyController
+	runWakeExecutionController              RunWakeExecutionController
+	runWakeWorkerHealthSource               RunWakeWorkerHealthSource
+	skillInstallationController             SkillInstallationController
+	modelRegistry                           *modelregistry.Registry
+	appVersion                              string
+	openAPI                                 []byte
+	eventStream                             EventStreamConfig
+	eventStreamSlots                        chan struct{}
+	uiHandler                               http.Handler
 }
 
 func New(store Store, config Config) (*API, error) {
@@ -318,6 +322,7 @@ func New(store Store, config Config) (*API, error) {
 		config.SessionSteeringControlEnabled || config.RunLifecycleEnabled ||
 		config.RunExecutionEnabled || config.PlanDeliveryControlEnabled ||
 		config.ApprovalControlEnabled || config.ModelControlEnabled ||
+		config.ControlledCommandProposalControlEnabled ||
 		config.ProviderCredentialEnabled ||
 		config.FileEditReviewEnabled || config.FileEditProposalEnabled ||
 		config.RunWakeControlEnabled ||
@@ -344,6 +349,11 @@ func New(store Store, config Config) (*API, error) {
 	if config.ApprovalControlEnabled && config.ApprovalController == nil {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API approval controller is required when enabled")
+	}
+	if config.ControlledCommandProposalControlEnabled &&
+		config.ControlledCommandProposalController == nil {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"HTTP API controlled command proposal controller is required when enabled")
 	}
 	if config.ModelControlEnabled && config.ModelControlController == nil {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
@@ -414,39 +424,42 @@ func New(store Store, config Config) (*API, error) {
 		executionPermissionControlEnabled: controlTokenPresent &&
 			config.ExecutionPermissionControlEnabled,
 		runCreationEnabled: controlTokenPresent && config.RunCreationEnabled, appVersion: version,
-		sessionMessageEnabled:           controlTokenPresent && config.SessionMessageEnabled,
-		sessionSteeringControlEnabled:   controlTokenPresent && config.SessionSteeringControlEnabled,
-		runLifecycleEnabled:             controlTokenPresent && config.RunLifecycleEnabled,
-		runExecutionEnabled:             controlTokenPresent && config.RunExecutionEnabled,
-		planDeliveryControlEnabled:      controlTokenPresent && config.PlanDeliveryControlEnabled,
-		approvalControlEnabled:          controlTokenPresent && config.ApprovalControlEnabled,
-		modelControlEnabled:             controlTokenPresent && config.ModelControlEnabled,
-		providerCredentialEnabled:       controlTokenPresent && config.ProviderCredentialEnabled,
-		fileEditReviewEnabled:           controlTokenPresent && config.FileEditReviewEnabled,
-		fileEditProposalEnabled:         controlTokenPresent && config.FileEditProposalEnabled,
-		runWakeControlEnabled:           controlTokenPresent && config.RunWakeControlEnabled,
-		fileEditApplyEnabled:            controlTokenPresent && config.FileEditApplyEnabled,
-		runWakeExecutionEnabled:         controlTokenPresent && config.RunWakeExecutionEnabled,
-		runWakeWorkerEnabled:            controlTokenPresent && config.RunWakeWorkerEnabled,
-		skillInstallationEnabled:        controlTokenPresent && config.SkillInstallationEnabled,
-		evidenceAttachmentEnabled:       controlTokenPresent && config.EvidenceAttachmentEnabled,
-		verificationEvidenceEnabled:     controlTokenPresent && config.VerificationEvidenceEnabled,
-		executionPermissionCapabilities: config.ExecutionPermissionCapabilities,
-		runLifecycleController:          config.RunLifecycleController,
-		runExecutionController:          config.RunExecutionController,
-		planDeliveryController:          config.PlanDeliveryController,
-		approvalController:              config.ApprovalController,
-		modelControlController:          config.ModelControlController,
-		providerCredentialController:    config.ProviderCredentialController,
-		fileEditReviewController:        config.FileEditReviewController,
-		fileEditProposalController:      config.FileEditProposalController,
-		runWakeController:               config.RunWakeController,
-		fileEditApplyController:         config.FileEditApplyController,
-		runWakeExecutionController:      config.RunWakeExecutionController,
-		runWakeWorkerHealthSource:       config.RunWakeWorkerHealthSource,
-		skillInstallationController:     config.SkillInstallationController,
-		modelRegistry:                   modelRegistry,
-		openAPI:                         document, eventStream: eventStream,
+		sessionMessageEnabled:         controlTokenPresent && config.SessionMessageEnabled,
+		sessionSteeringControlEnabled: controlTokenPresent && config.SessionSteeringControlEnabled,
+		runLifecycleEnabled:           controlTokenPresent && config.RunLifecycleEnabled,
+		runExecutionEnabled:           controlTokenPresent && config.RunExecutionEnabled,
+		planDeliveryControlEnabled:    controlTokenPresent && config.PlanDeliveryControlEnabled,
+		approvalControlEnabled:        controlTokenPresent && config.ApprovalControlEnabled,
+		controlledCommandProposalControlEnabled: controlTokenPresent &&
+			config.ControlledCommandProposalControlEnabled,
+		modelControlEnabled:                 controlTokenPresent && config.ModelControlEnabled,
+		providerCredentialEnabled:           controlTokenPresent && config.ProviderCredentialEnabled,
+		fileEditReviewEnabled:               controlTokenPresent && config.FileEditReviewEnabled,
+		fileEditProposalEnabled:             controlTokenPresent && config.FileEditProposalEnabled,
+		runWakeControlEnabled:               controlTokenPresent && config.RunWakeControlEnabled,
+		fileEditApplyEnabled:                controlTokenPresent && config.FileEditApplyEnabled,
+		runWakeExecutionEnabled:             controlTokenPresent && config.RunWakeExecutionEnabled,
+		runWakeWorkerEnabled:                controlTokenPresent && config.RunWakeWorkerEnabled,
+		skillInstallationEnabled:            controlTokenPresent && config.SkillInstallationEnabled,
+		evidenceAttachmentEnabled:           controlTokenPresent && config.EvidenceAttachmentEnabled,
+		verificationEvidenceEnabled:         controlTokenPresent && config.VerificationEvidenceEnabled,
+		executionPermissionCapabilities:     config.ExecutionPermissionCapabilities,
+		runLifecycleController:              config.RunLifecycleController,
+		runExecutionController:              config.RunExecutionController,
+		planDeliveryController:              config.PlanDeliveryController,
+		approvalController:                  config.ApprovalController,
+		controlledCommandProposalController: config.ControlledCommandProposalController,
+		modelControlController:              config.ModelControlController,
+		providerCredentialController:        config.ProviderCredentialController,
+		fileEditReviewController:            config.FileEditReviewController,
+		fileEditProposalController:          config.FileEditProposalController,
+		runWakeController:                   config.RunWakeController,
+		fileEditApplyController:             config.FileEditApplyController,
+		runWakeExecutionController:          config.RunWakeExecutionController,
+		runWakeWorkerHealthSource:           config.RunWakeWorkerHealthSource,
+		skillInstallationController:         config.SkillInstallationController,
+		modelRegistry:                       modelRegistry,
+		openAPI:                             document, eventStream: eventStream,
 		eventStreamSlots: make(chan struct{}, eventStream.MaxConnections),
 		uiHandler:        config.UIHandler}, nil
 }
@@ -586,6 +599,12 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if runID, approvalID, matched := matchApprovalDecisionControlPath(request.URL.Path); matched {
 		a.serveApprovalDecisionControl(tracked, request, requestID, runID, approvalID)
+		return
+	}
+	if runID, proposalID, route, matched :=
+		matchControlledCommandProposalPath(request.URL.Path); matched {
+		a.serveControlledCommandProposal(
+			tracked, request, requestID, runID, proposalID, route)
 		return
 	}
 	if route, kind, matched := matchModelControlPath(request.URL.Path); matched {

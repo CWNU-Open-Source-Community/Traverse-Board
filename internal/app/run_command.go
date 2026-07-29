@@ -58,6 +58,8 @@ func (a *App) runCommand(ctx context.Context, args []string) error {
 		return a.runCommandPlan(ctx, args[1:])
 	case "command-execute":
 		return a.runCommandExecute(ctx, args[1:])
+	case "command-proposal":
+		return a.runCommandProposal(ctx, args[1:])
 	case "events":
 		return a.runEvents(ctx, service, args[1:])
 	case "step":
@@ -107,6 +109,179 @@ func (a *App) runCommand(ctx context.Context, args []string) error {
 	default:
 		return fmt.Errorf("unknown run subcommand %q", args[0])
 	}
+}
+
+func (a *App) runCommandProposal(ctx context.Context, args []string) error {
+	if len(args) == 0 {
+		return errors.New(
+			"usage: cyberagent run command-proposal list|show|review")
+	}
+	switch args[0] {
+	case "list":
+		fs := newFlagSet("run command-proposal list", a.errOut)
+		limit := fs.Int("limit", 50, "maximum proposals")
+		if err := fs.Parse(reorderFlags(args[1:],
+			map[string]bool{"limit": true})); err != nil {
+			return err
+		}
+		if fs.NArg() != 1 || *limit <= 0 || *limit > 100 {
+			return errors.New(
+				"usage: cyberagent run command-proposal list <run-id> [--limit <1..100>]")
+		}
+		service := application.NewControlledCommandProposalReviewService(
+			a.store, nil, domain.ExecutionPermissionRuntimeCapabilities{})
+		views, err := service.List(ctx, fs.Arg(0), *limit)
+		if err != nil {
+			return err
+		}
+		if len(views) == 0 {
+			fmt.Fprintln(a.out, "no controlled command proposals")
+			return nil
+		}
+		for _, view := range views {
+			review := "pending"
+			result := "none"
+			if view.Review != nil {
+				review = string(view.Review.Decision)
+			}
+			if view.Result != nil {
+				result = string(view.Result.Status)
+			}
+			fmt.Fprintf(a.out,
+				"%s\tkind=%s\treview=%s\tresult=%s\tpurpose=%s\tcreated_at=%s\n",
+				view.Proposal.ID, view.Proposal.Kind, review, result,
+				view.Proposal.Purpose,
+				view.Proposal.CreatedAt.Format(time.RFC3339Nano))
+		}
+		return nil
+	case "show":
+		fs := newFlagSet("run command-proposal show", a.errOut)
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if fs.NArg() != 1 {
+			return errors.New(
+				"usage: cyberagent run command-proposal show <proposal-id>")
+		}
+		service := application.NewControlledCommandProposalReviewService(
+			a.store, nil, domain.ExecutionPermissionRuntimeCapabilities{})
+		view, err := service.Get(ctx, fs.Arg(0))
+		if err != nil {
+			return err
+		}
+		return writeControlledCommandProposalView(a.out, view)
+	case "review":
+		fs := newFlagSet("run command-proposal review", a.errOut)
+		operationKey := fs.String("operation-key", "",
+			"stable operator-owned review operation key")
+		operator := fs.String("operator", "cli_operator",
+			"operator identity")
+		reason := fs.String("reason", "", "review reason")
+		confirm := fs.Bool("confirm-execution", false,
+			"confirm execution of the exact approved fixed action")
+		enablePermissionControl := fs.Bool("enable-permission-control", false,
+			"enable user-approval permission evaluation for this process")
+		enableFullAccess := fs.Bool("enable-danger-full-access", false,
+			"enable danger-full-access evaluation for this process")
+		enableDebugAccess := fs.Bool("enable-debug-maximum-access", false,
+			"enable maximum debug evaluation for this process")
+		if err := fs.Parse(reorderFlags(args[1:], map[string]bool{
+			"operation-key": true, "operator": true, "reason": true,
+			"confirm-execution":           false,
+			"enable-permission-control":   false,
+			"enable-danger-full-access":   false,
+			"enable-debug-maximum-access": false,
+		})); err != nil {
+			return err
+		}
+		if fs.NArg() != 2 {
+			return errors.New(
+				"usage: cyberagent run command-proposal review <proposal-id> approve|deny --operation-key <key> [--confirm-execution] [--operator <id>] [--reason <text>]")
+		}
+		capabilities := domain.ExecutionPermissionRuntimeCapabilities{
+			OperatorApprovalEnabled:   *enablePermissionControl,
+			DangerFullAccessEnabled:   *enableFullAccess,
+			DebugMaximumAccessEnabled: *enableDebugAccess,
+		}
+		if err := capabilities.Validate(); err != nil {
+			return apperror.Wrap(apperror.CodeInvalidArgument,
+				err.Error(), err)
+		}
+		executor, err := a.controlledCommandExecutor()
+		if err != nil {
+			return err
+		}
+		service := application.NewControlledCommandProposalReviewService(
+			a.store, executor, capabilities)
+		result, err := service.Review(ctx,
+			application.ReviewControlledCommandProposalRequest{
+				ProposalID: fs.Arg(0), Decision: fs.Arg(1),
+				OperationKey: *operationKey, ReviewedBy: *operator,
+				Reason: *reason, ConfirmExecution: *confirm,
+			})
+		if err != nil {
+			return err
+		}
+		if err := writeControlledCommandProposalView(
+			a.out, result.View); err != nil {
+			return err
+		}
+		fmt.Fprintf(a.out,
+			"review_replayed: %t\nexecution_replayed: %t\n",
+			result.ReviewReplayed, result.ExecutionReplayed)
+		if result.EvidenceContent != "" {
+			fmt.Fprintln(a.out, "untrusted_evidence_begin")
+			fmt.Fprintln(a.out, result.EvidenceContent)
+			fmt.Fprintln(a.out, "untrusted_evidence_end")
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown run command-proposal subcommand %q",
+			args[0])
+	}
+}
+
+func writeControlledCommandProposalView(
+	out interface{ Write([]byte) (int, error) },
+	view application.ControlledCommandProposalView,
+) error {
+	proposal := view.Proposal
+	if _, err := fmt.Fprintf(out,
+		"proposal: %s\nprotocol: %s\npolicy: %s\nrun: %s\nmission: %s\nsession: %s\nworkspace: %s\nkind: %s\nrelative_path: %s\ntimeout_millis: %d\npurpose: %s\npermission_mode: %s\npermission_revision: %d\noperator_review_required: true\ninstruction_authorized: false\nexecution_authorized: false\ncapability_grant: false\nfingerprint: %s\n",
+		proposal.ID, proposal.ProtocolVersion, proposal.PolicyVersion,
+		proposal.RunID, proposal.MissionID, proposal.SessionID,
+		proposal.WorkspaceID, proposal.Kind, proposal.RelativePath,
+		proposal.TimeoutMilliseconds, proposal.Purpose,
+		proposal.PermissionMode, proposal.PermissionRevision,
+		proposal.Fingerprint); err != nil {
+		return err
+	}
+	if view.Review == nil {
+		_, err := fmt.Fprintln(out, "review: pending")
+		return err
+	}
+	if _, err := fmt.Fprintf(out,
+		"review: %s\nreview_id: %s\nreviewed_by: %s\nreview_reason: %s\nsingle_use_execution_authorized: %t\n",
+		view.Review.Decision, view.Review.ID, view.Review.ReviewedBy,
+		view.Review.Reason,
+		view.Review.SingleUseExecutionAuthorized); err != nil {
+		return err
+	}
+	if view.Result == nil {
+		_, err := fmt.Fprintln(out, "result: none")
+		return err
+	}
+	if _, err := fmt.Fprintf(out,
+		"result: %s\nresult_id: %s\nsource_kind: %s\nsource_ref: %s\nresult_instruction_authorized: false\nraw_output_persisted: false\nautomatic_retry_allowed: false\n",
+		view.Result.Status, view.Result.ID, view.Result.SourceKind,
+		view.Result.SourceRef); err != nil {
+		return err
+	}
+	if view.Receipt != nil {
+		return writeControlledExecutionReceipt(
+			out, *view.Receipt, false, false)
+	}
+	return nil
 }
 
 func (a *App) runOperatorSteering(ctx context.Context, args []string) error {

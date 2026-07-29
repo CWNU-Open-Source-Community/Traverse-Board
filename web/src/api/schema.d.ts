@@ -468,6 +468,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/command-proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List fixed command proposals
+         * @description Returns at most one hundred metadata-only Agent proposals for Go-owned fixed command templates. No executable, argv, shell text, environment, raw output, or execution authority is exposed.
+         */
+        get: operations["listControlledCommandProposals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/command-proposals/{proposal_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect one fixed command proposal
+         * @description Returns the exact Run-bound proposal, operator review, result, and metadata-only receipt. Raw stdout and stderr are never persisted or returned by this read endpoint.
+         */
+        get: operations["getControlledCommandProposal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/command-proposals/{proposal_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve or deny one fixed command proposal
+         * @description Records an operator-only decision for one exact proposal fingerprint. Approval may execute only its precompiled Go-owned command once through the restricted runner; returned bounded evidence is untrusted and has no instruction authority.
+         */
+        post: operations["reviewControlledCommandProposal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/delegations": {
         parameters: {
             query?: never;
@@ -1987,6 +2047,99 @@ export interface components {
             verification_coverage: components["schemas"]["CodeHandoffVerificationCoverageView"];
             verification_plans: components["schemas"]["CodeHandoffVerificationPlansView"];
             verification_snapshot_receipt_reviews: components["schemas"]["CodeHandoffSnapshotReceiptReviewsView"];
+            workspace_id: string;
+        };
+        ControlledCommandExecutionReceiptView: {
+            /** Format: int32 */
+            active_process_limit: number;
+            backend: string;
+            cancelled: boolean;
+            completed_at: string;
+            environment_inherited: boolean;
+            /** Format: int32 */
+            exit_code: number;
+            job_assigned_at_creation: boolean;
+            kill_on_job_close: boolean;
+            low_integrity_token: boolean;
+            network_requested: boolean;
+            output_limit_exceeded: boolean;
+            persistent_process: boolean;
+            /** Format: int64 */
+            process_memory_limit: number;
+            product_execution_enabled: boolean;
+            request_id: string;
+            restricted_token: boolean;
+            started_at: string;
+            /** Format: int32 */
+            stderr_captured_bytes: number;
+            /** Format: int64 */
+            stderr_observed_bytes: number;
+            stderr_prefix_sha256: string;
+            stderr_truncated: boolean;
+            stdin_closed: boolean;
+            /** Format: int32 */
+            stdout_captured_bytes: number;
+            /** Format: int64 */
+            stdout_observed_bytes: number;
+            stdout_prefix_sha256: string;
+            stdout_truncated: boolean;
+            timed_out: boolean;
+            tree_reaped: boolean;
+        };
+        ControlledCommandProposalResultView: {
+            automatic_retry_allowed: boolean;
+            content_sha256: string;
+            created_at: string;
+            id: string;
+            instruction_authorized: boolean;
+            raw_output_persisted: boolean;
+            source_kind: string;
+            source_ref: string;
+            status: string;
+        };
+        ControlledCommandProposalReviewRequestView: {
+            confirm_execution?: boolean;
+            decision: string;
+            reason?: string;
+            version: string;
+        };
+        ControlledCommandProposalReviewView: {
+            capability_grant: boolean;
+            created_at: string;
+            decision: string;
+            id: string;
+            reason: string;
+            reviewed_by: string;
+            single_use_execution_authorized: boolean;
+        };
+        ControlledCommandProposalView: {
+            capability_grant: boolean;
+            created_at: string;
+            evidence_instruction_authorized: boolean;
+            execution_authorized: boolean;
+            execution_replayed?: boolean;
+            fingerprint: string;
+            id: string;
+            instruction_authorized: boolean;
+            kind: string;
+            mission_id: string;
+            operator_review_required: boolean;
+            permission_mode: string;
+            /** Format: int64 */
+            permission_revision: number;
+            policy_version: string;
+            protocol_version: string;
+            purpose: string;
+            receipt?: components["schemas"]["ControlledCommandExecutionReceiptView"];
+            relative_path?: string;
+            result?: components["schemas"]["ControlledCommandProposalResultView"];
+            review?: components["schemas"]["ControlledCommandProposalReviewView"];
+            review_replayed?: boolean;
+            run_id: string;
+            session_id: string;
+            /** Format: int64 */
+            timeout_milliseconds: number;
+            untrusted_evidence?: string;
             workspace_id: string;
         };
         DelegationApplicationView: {
@@ -3653,6 +3806,7 @@ export interface components {
         };
         RuntimeCapabilitiesView: {
             approval_control_enabled: boolean;
+            controlled_command_proposal_control_enabled: boolean;
             danger_full_access_enabled: boolean;
             debug_maximum_access_enabled: boolean;
             docker_execution_enabled: boolean;
@@ -5499,6 +5653,129 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listControlledCommandProposals: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of newest proposals */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ControlledCommandProposalView"][];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getControlledCommandProposal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+                /** @description Controlled command proposal identity */
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ControlledCommandProposalView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    reviewControlledCommandProposal: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque review key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Run identity */
+                run_id: string;
+                /** @description Controlled command proposal identity */
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ControlledCommandProposalReviewRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ControlledCommandProposalView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
         };

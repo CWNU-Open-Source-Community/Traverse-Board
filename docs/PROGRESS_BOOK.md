@@ -1,6 +1,6 @@
 # CyberAgent Workbench 进度书
 
-更新时间：2026-07-27
+更新时间：2026-07-29
 
 ## 一、当前阶段
 
@@ -14,7 +14,7 @@
 - 产品可用度：完整 Code + Cyber 产品约 96-98%；其中通用 Coding Agent 工作流约 96-97%，Cyber 自动化工作流约 20%。该指标衡量用户现在能够完成多少真实端到端任务。
 - 上述数值是依据已测试任务切片给出的工程估算，不是性能基准，也不代表仍被安全关闭的功能已经可用。
 
-V2 的 P0/P1 已完成，P2 已具备稳定的单 Agent 恢复、Provider streaming、主动取消、有界工具循环和跨进程 execution lease。P3-P5 已落地 Work/Note/Context、最多两个核心 child、独立 1/2/4/6 只读 Fan-out、Tool Gateway、审批/Grant、预算、ScriptProcess 与 Artifact。P9/Desktop 已推进到 schema v88 / P12-C3：在既有 Run、编辑、Repository、验证/Handoff、模型 Harness、记忆、受控命令与用户终端上，新增 `conservative|approval|full_access|debug` 四档权限快照、CLI/API/Desktop/React 选择、单调启动闸门和统一 Go 授权判定。持久化选择不授予真正执行权；当前只有保守档接入固定模板，任意审批/完全访问宿主命令与 Debug Agent 持久终端仍关闭。P10 analyzer 仍没有产品进程桥，P11 browser review 仍不授予启动。网络沙箱、Docker PTY、内置浏览器、安装脚本/钩子和远程 Skill 分发继续关闭。
+V2 的 P0/P1 已完成，P2 已具备稳定的单 Agent 恢复、Provider streaming、主动取消、有界工具循环和跨进程 execution lease。P3-P5 已落地 Work/Note/Context、最多两个核心 child、独立 1/2/4/6 只读 Fan-out、Tool Gateway、审批/Grant、预算、ScriptProcess 与 Artifact。P9/Desktop 已推进到 schema v89 / P12-D3：v88 建立 `conservative|approval|full_access|debug` 四档权限与运行期重校验，v89 再让 Root Agent 只能申请四种 Go 固定诊断动作，由独立操作者审批后复用受限一次性 Runner，并把限长脱敏输出作为无指令权限的 Session 证据回送。任意审批/完全访问宿主命令与 Debug Agent 持久终端仍关闭。P10 analyzer 仍没有产品进程桥，P11 browser review 仍不授予启动。网络沙箱、Docker PTY、内置浏览器、安装脚本/钩子和远程 Skill 分发继续关闭。
 
 P8 已推进到 schema v37 及其只读 CI 投影：v35 把完成的 Fan-out execution 投影为通用 `draft` Finding、不可变 `model_assertion` Evidence 和可重建的 Markdown/JSON Report；v36 增加同 Run 冻结 Artifact Evidence、一次性 operator `validated/rejected` 决定与完整复核；v37 以独立不可变事实完成 `validated -> accepted -> fixed`，并强制修复 Evidence 来自接受后新建且未用于验证的同 Run Artifact。验证、接受和修复始终分离；SARIF、通用 CI gate 与 GitHub Actions annotations 均为同一持久化事实上的 Go 只读投影。
 
@@ -2085,10 +2085,56 @@ Canvas 未实现提示和 `App.test.tsx` 的异步 `act()` 告警，但没有失
 启动隔离的 loopback Prayu 服务和无头 Chrome，完成后浏览器、两个精确 PID 与端口
 8877/8878 均已关闭；未操作 Codex 主窗口。
 
+## P12-D1/D2/D3：Agent 固定命令提案、独立审批与不可信结果
+
+任务 ID：`P12-Review-Gated-Fixed-Command-Proposals-v89`。P12-D1 将 SQLite
+推进到 v89，并给 Root RunSupervisor 增加 `controlled_command_propose`。
+严格 JSON 只接受协议版本、`git-status`、`git-diff-check`、`go-version`、
+`powershell-workspace-list`、有界用途、仅目录枚举可用的工作区相对路径和
+1-120,000 毫秒超时。未知字段失败关闭，模型不能提交 executable、Shell、
+argv、环境、stdin、网络、后台进程、持久化或 capability。
+
+提案创建不启动进程，固定 `execution_authorized=false` 与
+`capability_grant=false`，并精确绑定 Run、Mission、Session、Workspace、
+Root Agent、活动 Tool invocation/lease、交互快照与修订、执行 Profile 修订、
+权限快照与修订、预编译计划指纹和幂等 operation。Specialist 与只读 Fan-out
+仍不接收该 Tool。
+
+P12-D2 增加独立操作者 review。模型、Agent、Skill、Repository 和 Supervisor
+不能担任 reviewer；approve 需要独立 `confirm_execution`，deny 不能携带确认。
+批准后 Go 重新加载当前 Run/Mission/Workspace/交互/Profile/权限/Code-Cyber
+模式，重新编译固定计划并比较指纹，再复核当前进程启动闸门。执行复用 v87
+低完整性、创建时 Job Object、单进程/内存/输出/超时/取消/整树回收边界。
+写前 intent 已存在而无持久结果时禁止自动重试，避免不确定执行被重复触发。
+
+P12-D3 将 CLI `run command-proposal list|show|review`、三个 HTTP/OpenAPI
+endpoint、Desktop `--enable-command-proposals` 和 React Approvals 面板接入同一
+Go 服务。结果清洗无效 UTF-8 与控制字符、执行 secret redaction、限制为 16 KiB，
+以 `UNTRUSTED GO COMMAND RESULT` 和 `instruction_authorized=false` 写入精确
+Session；raw stdout/stderr 不落库，读取 endpoint 只返回 proposal/review/result
+和 metadata-only receipt。
+
+该批没有实现任意 approval/full-access Shell、Agent-owned Debug 终端、网络沙箱、
+Docker PTY 或真实内置浏览器。下一执行批次重命名为 P12-E1/E2/E3，必须使用独立
+协议和威胁模型，不能把 v89 固定提案原地扩成通用 Shell。边界见 ADR 0079。
+
+最终三切片功能门全绿：全仓 ordinary Go 421.8 秒、全仓 vet/staticcheck、
+v89 Runner/Store/ToolGateway/Application/HTTP 聚焦 race、零可达漏洞
+govulncheck、module verify/tidy、secure Desktop test/vet、47 文件 162 项 React、
+strict TypeScript、确定性 OpenAPI/TypeScript、Vite production build 与 npm
+零漏洞全部通过。OpenAPI 为 81 path / 89 operation / 197 schema。Windows
+可复现双构建与自动兼容检查通过，未签名 GUI 为 42,497,024 字节，SHA-256
+`2129db52a0a5e403b2fe49f19bc330af02aae7ebca56addb3e09ad4f0bc4b35a`；
+Windows 10/WebView2/显示缩放人工矩阵仍未完成，因此正确保持
+`release_ready=false`。组合审计未发现 v89 中的 executable、任意 Shell/argv、
+环境、网络、持久进程或模型自批入口。审计发现并修复共享 Go validator、
+Application 与 SQLite 对保留 Supervisor reviewer 身份拒绝不一致的问题；
+最终未发现已知未解决高/中风险。
+
 ## 八、仓库同步与恢复约定
 
 规范远程仓库：`https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench`。
 
 每三个聚焦切片组成一个交付批次；第三片后统一执行功能复核、普通/聚焦测试、组合差异审查、项目记忆更新、Git 提交、GitHub 推送和 CI 复核。每两个批次即六个切片再执行全仓 race、vet、staticcheck、govulncheck、依赖/隐私与完整构建健壮性门。当前仓库直接开发并推送 `main`；除非用户明确要求，不创建功能分支或 PR。
 
-长对话恢复时依次阅读：`README.md`、`docs/PROJECT_MEMORY.md`、`docs/PROJECT_STATUS.md`、本文件、`docs/TASK_BOOK.md`、`docs/http-api.md`、`docs/errors.md`，再按序阅读 `docs/adr/0001-*.md` 到 `docs/adr/0078-desktop-permission-center-and-native-acrylic.md`。
+长对话恢复时依次阅读：`README.md`、`docs/PROJECT_MEMORY.md`、`docs/PROJECT_STATUS.md`、本文件、`docs/TASK_BOOK.md`、`docs/http-api.md`、`docs/errors.md`，再按序阅读 `docs/adr/0001-*.md` 到 `docs/adr/0079-review-gated-fixed-command-proposals.md`。

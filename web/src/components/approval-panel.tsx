@@ -8,6 +8,7 @@ import type {
 } from "../api/types";
 import { formatDate, shortID } from "../lib/format";
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from "./common";
+import { ControlledCommandProposalPanel } from "./controlled-command-proposal-panel";
 
 type ApprovalAction = ApprovalDecisionControlRequestView["action"];
 
@@ -58,6 +59,7 @@ export function ApprovalPanel({ client, runID }: { client: CyberAgentClient; run
       intent: `${item.id}:${action}:${reason}` });
   };
   return (
+    <>
     <section className="approval-queue" aria-label="Pending approvals">
       <header className="approval-queue-header">
         <div><ShieldCheck aria-hidden="true" size={16} /><strong>Pending approvals</strong></div>
@@ -111,5 +113,7 @@ export function ApprovalPanel({ client, runID }: { client: CyberAgentClient; run
         {mutation.error instanceof Error ? mutation.error.message : "Approval decision failed"}
       </div>}
     </section>
+    <ControlledCommandProposalPanel client={client} runID={runID} />
+    </>
   );
 }

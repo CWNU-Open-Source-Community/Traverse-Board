@@ -116,6 +116,8 @@ func (a *App) newToolGateway() *toolgateway.Gateway {
 		WithStructuredMemoryExecutor(application.NewStructuredMemoryToolExecutor(a.store)).
 		WithSpecialistDelegationExecutor(application.NewSpecialistDelegationToolExecutor(a.store)).
 		WithPlanDeliveryExecutor(application.NewPlanDeliveryToolExecutor(a.store)).
+		WithControlledCommandProposalExecutor(
+			application.NewControlledCommandProposalToolExecutor(a.store)).
 		WithWorkspaceRootResolver(func(ctx context.Context, workspaceID string) (string, error) {
 			rec, err := a.store.GetWorkspaceByID(ctx, workspaceID)
 			return rec.RootPath, err

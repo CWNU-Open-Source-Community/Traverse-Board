@@ -1,22 +1,37 @@
 # Project Status
 
-Last updated: 2026-07-28
+Last updated: 2026-07-29
 
 ## Resume Context
 
-The latest P12-C1/C2/C3 batch advances SQLite to v88 and adds four orthogonal
-Run execution permission policies: `conservative`, `approval`, `full_access`,
-and `debug`. Immutable selection is available through CLI, HTTP/OpenAPI,
-Desktop bootstrap, and React. Elevated modes require exact operator
-confirmation and process-local startup gates, and every operation rechecks
-those gates through the Go `executionauth` resolver. Persisted snapshots always
-retain zero process, execution, and capability authority.
+The latest P12-D1/D2/D3 batch advances SQLite to v89 and adds one deliberately
+narrow model-to-command workflow. The root RunSupervisor may submit a strict
+`controlled_command_propose` request for `git-status`, `git-diff-check`,
+`go-version`, or `powershell-workspace-list`. The Tool schema has no executable,
+Shell, argv, environment, stdin, network, background-process, persistence, or
+capability field, and proposal creation starts no process.
 
-Only conservative mode currently consumes the existing four Go-owned command
-templates. Approval and full-access arbitrary host-command transport remain
-unimplemented; Debug does not yet grant an Agent the persistent terminal. The
-existing ConPTY remains user-owned and Agent input remains separately leased.
-ADR 0077 defines this boundary and P12-D1/D2/D3 are the next execution slices.
+An independent operator may approve or deny through CLI, HTTP/OpenAPI, or
+Desktop/React. Approval rechecks the exact current Run/Mission/Session/
+Workspace, interaction/profile/permission revisions, mode, process-local
+startup gates, and regenerated fixed-plan fingerprint before reusing the v87
+restricted one-shot runner. Results are redacted, capped at 16 KiB, persisted
+without raw stdout/stderr as untrusted Session evidence, and cannot authorize
+new instructions. Prepared execution intents are never retried automatically.
+ADR 0079 defines the boundary.
+
+The P12-D release gate is green: the 421.8-second full Go suite, vet,
+staticcheck, focused v89 race, zero-reachable-finding govulncheck, module
+verification/tidy, secure Desktop tests/vet, 47 files and 162 React tests,
+strict TypeScript, deterministic 81-path/89-operation/197-schema OpenAPI,
+Vite production build, and zero-vulnerability npm audit all pass. A
+reproducible Windows double build produced a 42,497,024-byte unsigned binary
+with SHA-256
+`2129db52a0a5e403b2fe49f19bc330af02aae7ebca56addb3e09ad4f0bc4b35a`.
+Automated compatibility checks pass; the required Windows 10/WebView2/display
+matrix remains manual, so `release_ready=false` is intentional. The final audit
+also aligned the shared validator, application service, and SQLite constraints
+to reject all reserved Supervisor reviewer identities.
 
 Desktop D1-UX10 gives the three execution dimensions one dedicated `权限`
 Settings page without combining their authority. It is Run-scoped, uses the
@@ -36,9 +51,9 @@ The previous P12-B1/B2/B3 batch advanced SQLite to v87 and implemented the first
 
 Windows Desktop can now expose a default-off user-owned ConPTY/xterm terminal with `--enable-user-terminal`. It requires an exact trusted Code/Local/Debug Run, the user starts and types into it, and terminal state, environment, input, output, and process identity are not persisted. The internal Agent-input bridge can write only after consuming a P12-A2 bearer bound to the exact Workspace/Run/terminal/interaction revision. Host lock, disconnect, logoff, sleep/resume, binding change, Run termination, terminal replacement, and shutdown revoke leases. The renderer cannot issue such a lease or give the terminal to a model. ADR 0075 defines the trust model; ADR 0076 defines the production implementation and residual limits.
 
-Current database schema is v88. Schema v85 remains the non-starting browser acceptance/lease/review ledger, v86 records operator-selected `preview|controlled|debug|cyber` interaction intent without general authority, v87 adds controlled-command write-ahead intents and immutable receipts, and v88 records the four-level permission ceiling with runtime re-gating. The established Run, context, verification, repository, Handoff/Journey, Harness, Skill, and multi-Agent boundaries remain unchanged. The controlled Windows executor is not a general LocalRunner or network sandbox: it accepts no executable path, raw Shell, arbitrary argv, environment, stdin, hook, or persistent process, and custom executable installations may fail closed. The Debug terminal is user-owned rather than Agent-owned. There is still no Docker PTY, real built-in browser, Go-to-Rust product process bridge, install-time hook, organizational IAM, or model-driven child scheduling.
+Current database schema is v89. Schema v85 remains the non-starting browser acceptance/lease/review ledger, v86 records operator-selected `preview|controlled|debug|cyber` interaction intent without general authority, v87 adds controlled-command write-ahead intents and immutable receipts, v88 records the four-level permission ceiling with runtime re-gating, and v89 adds immutable fixed-command proposal/review/result ledgers. The established Run, context, verification, repository, Handoff/Journey, Harness, Skill, and multi-Agent boundaries remain unchanged. The controlled Windows executor is not a general LocalRunner or network sandbox: it accepts no executable path, raw Shell, arbitrary argv, environment, stdin, hook, or persistent process, and custom executable installations may fail closed. The Debug terminal is user-owned rather than Agent-owned. There is still no Docker PTY, real built-in browser, Go-to-Rust product process bridge, install-time hook, organizational IAM, or model-driven child scheduling.
 
-Schema v63 remains the blocked Docker Sandbox start-gate review; schemas v48-v68 keep container-process execution disabled. The separate P12-B executor starts only four closed operator-confirmed native templates and grants no Agent Shell. ADR 0072 separately permits the operator to open one recognized external application for an exact Workspace; that is also not an Agent execution bridge. ADR 0024 through ADR 0078 record the current Skill, Sandbox, Desktop, runtime, analyzer, browser, workbench, model-Harness, interaction, terminal, permission, and presentation boundaries.
+Schema v63 remains the blocked Docker Sandbox start-gate review; schemas v48-v68 keep container-process execution disabled. The separate P12-B executor starts only four closed operator-confirmed native templates, and P12-D only lets the root Agent propose those same templates. Neither grants an Agent Shell. ADR 0072 separately permits the operator to open one recognized external application for an exact Workspace; that is also not an Agent execution bridge. ADR 0024 through ADR 0079 record the current Skill, Sandbox, Desktop, runtime, analyzer, browser, workbench, model-Harness, interaction, terminal, permission, presentation, and fixed-proposal boundaries.
 
 Prayu is a local-first Go agent runtime for coding and controlled cyber-oriented work. The CLI-first implementation has resumable Runs, a durable root Agent Coordinator, bounded review-gated Specialist delegation, a separate read-only 1/2/4/6 Fan-out pool, persisted sessions and model calls, context compaction, WorkItems/Notes/Artifacts, a unified Tool Gateway, embedded and inert user Skills, Finding/Evidence/Report lifecycles with SARIF/CI output, loopback HTTP/SSE/OpenAPI, a Run-first TUI, a React/Vite console, and a Windows Wails shell with independently gated Run/Session/Plan/approval, FileEdit proposal/review/apply, Provider credentials, foreground/bounded wake, inert Skills, actions/evidence, and navigation. The `cyberagent` CLI and other established CyberAgent identifiers remain compatibility contracts. Core delegation remains capped at two children and only the original application operator can schedule it; models, ordinary tools, HTTP, and the Desktop native bridge cannot autonomously spawn or schedule children.
 
@@ -272,8 +287,16 @@ Use these files first when resuming:
 - `internal/executionauth/permission.go`
 - `internal/store/migration_v88.go`
 - `internal/store/run_execution_permissions.go`
+- `internal/store/migration_v89.go`
+- `internal/store/controlled_command_proposals.go`
+- `internal/runner/controlled_command_proposal.go`
+- `internal/application/controlled_command_proposal_tool.go`
+- `internal/application/controlled_command_proposal_review.go`
+- `internal/toolgateway/controlled_command_proposal.go`
+- `internal/httpapi/controlled_command_proposal_control.go`
 - `internal/httpapi/execution_interaction_control.go`
 - `internal/httpapi/execution_permission_control.go`
+- `web/src/components/controlled-command-proposal-panel.tsx`
 - `web/src/components/run-permission-settings.tsx`
 - `web/src/components/settings-view.tsx`
 - `web/src/lib/appearance.ts`
@@ -283,6 +306,7 @@ Use these files first when resuming:
 - `docs/adr/0076-controlled-windows-execution-and-user-terminal.md`
 - `docs/adr/0077-four-level-run-execution-permissions.md`
 - `docs/adr/0078-desktop-permission-center-and-native-acrylic.md`
+- `docs/adr/0079-review-gated-fixed-command-proposals.md`
 
 ## Progress Review
 
@@ -292,7 +316,7 @@ Use these files first when resuming:
 - Cyber autonomous-workflow usability: about 20%.
 - These values are engineering estimates derived from tested roadmap slices, not performance benchmarks. The retired single-axis "overall product vision" percentage must not be used for current status.
 
-Latest implemented batch: P12-C1/C2/C3 plus Desktop D1-UX11 on schema v88. The four-level permission ceiling is durable and operator-owned but is re-gated through the current process before every operation. CLI, HTTP/OpenAPI, Desktop, React, and the four fixed controlled templates share the same Go resolver. The dedicated Run-scoped permission center also exposes interaction and execution-environment selection. Settings has the shared bounded resizer, native Windows Acrylic, a CSS/React Prayu app mark, and persisted light/dark/transparent-glass appearance; selected controls are opaque white and the legacy orange-brush implementation is deleted. ADR 0077 and ADR 0078 are authoritative. Arbitrary Agent Shell, independent network isolation, Docker PTY, and the operational built-in browser remain unavailable.
+Latest implemented batch: P12-D1/D2/D3 on schema v89. The root Agent may propose only the four Go-owned fixed templates; proposal creation grants no execution, an independent operator review is exact and single-use, and approved execution reuses the v87 restricted runner after full binding and runtime-gate revalidation. CLI, HTTP/OpenAPI, Desktop, and React expose the same proposal/review/result facts. Results are bounded non-authorizing evidence and raw stdout/stderr is not persisted. ADR 0079 is authoritative. Arbitrary Agent Shell, arbitrary approval/full-access commands, Agent-owned Debug terminal input, independent network isolation, Docker PTY, and the operational built-in browser remain unavailable.
 
 Completed:
 
@@ -302,7 +326,7 @@ Completed:
 - Go CLI entrypoint and command dispatch.
 - Schema v19-v38 Agent Coordinator with stable root identity, idempotent inbox operations, strict wake/dependency semantics, explicit internal-only Specialist admission, validated same-Run Agent ownership for WorkItems/Notes, exact-attempt CompletionReports, a default-disabled Specialist Attempt Runtime, two-phase exactly-once root and Specialist instruction context, internal no-tool Specialist model turns, one isolated child lifecycle repair, durable schedule start/stop summaries, exact cross-process child-call cancellation, review-gated root delegation proposals, immutable operator review facts, recoverable operator application, and explicit operator schedule requests. A policy permits at most two depth-one children with parent-Skill subsets, dedicated Sessions, reserved budgets, lease-fenced turns, cumulative exactly-once usage accounting, redacted crash notifications, takeover recovery, lifecycle interruption, SHA-256-backed recovery snapshots, and atomic Supervisor/Run integration. The scheduler runs at most two ready children per round under one lease, fans cancellation out to siblings, reconciles root plus child token/model-time usage from SQLite before and after every round, and converges orphaned schedules to `abandoned/worker_lost` on takeover. Schema v26 atomically records child model terminal state, usage, Policy, and allowed redacted Session messages. Schema v27 selects strict direct-parent instructions plus active child-owned WorkItems/Notes and preserves pending instructions across crash, interruption, and takeover. Schema v28 separates global model sequence from primary/repair transport counters, charges both valid usage reports cumulatively, excludes raw invalid output from prompts/history/events, and aborts unresolved repair before Attempt termination. Schema v29 keeps schedule/cancellation events free of model text and fencing identities. Schema v30 verifies the active root, lease, scope, parent-Skill subset, remaining child capacity, and suggested budget before persisting an immutable proposal. Schema v31 records one redacted approved/rejected decision with digest-only replay. Schema v32 rechecks Policy and live invariants, then correlates each existing admission/message operation with a recoverable assignment transition; it creates ready children but no Attempt or schedule. Schema v38 requires a same-operator immutable request before those children may execute. Public/model approval, application, spawn, and autonomous scheduling remain unavailable; ordinary tools and HTTP cannot schedule.
 - Authenticated loopback-only `api.v1` read plane with stable envelopes, typed errors, bounded cursor pagination, graceful shutdown, and Run/Session/Event/WorkItem/Note/Artifact/ToolRound plus token-free execution-lease inspection.
-- Go DTO/OpenAPI-first Workspace explore/search, repository state/Diff/history/exact navigation/navigable comparison, model availability/Harness qualification/diagnostics/routes/generation, runtime capabilities/worker health, Run creation/lifecycle/bounded execution/wake intent/foreground consume, controlled Session queue/cancellation/evidence attachment/inventory, operator action center, Plan/Deliver, approvals, verification evidence/plans/snapshot-paginated exact-item coverage, deterministic snapshot export, immutable record-only snapshot receipts and non-authorizing receipt reviews, Code Handoff/export with bounded review metadata, FileEdit proposal/read-only recovery/review/apply, inert Skill install, terminal receipt history, Agent graph, delegation, read-only Fan-out, Finding/Report, execution-profile/interaction/permission controls, external-Skill provenance, SSE, and high-water event-poll projections with bounded Store queries and generated React/Vite views. The current contract has 78 paths, 86 operations, and 192 schemas. Ordinary DTOs expose no Workspace root, Provider key/Base URL/environment name, Harness binding digest/probe prompt/response/Tool args, submitted Session body, model/tool output, approval command/path/content, private lifecycle narrative, private identity, operation key, lease owner, or fencing identity; FileEdit recovery is the narrow read-only exception that returns integrity-checked stored bodies for one exact pending proposal, while the sole archive-bearing install request remains strict, bounded, and pathless.
+- Go DTO/OpenAPI-first Workspace explore/search, repository state/Diff/history/exact navigation/navigable comparison, model availability/Harness qualification/diagnostics/routes/generation, runtime capabilities/worker health, Run creation/lifecycle/bounded execution/wake intent/foreground consume, controlled Session queue/cancellation/evidence attachment/inventory, operator action center, Plan/Deliver, approvals, fixed-command proposal review, verification evidence/plans/snapshot-paginated exact-item coverage, deterministic snapshot export, immutable record-only snapshot receipts and non-authorizing receipt reviews, Code Handoff/export with bounded review metadata, FileEdit proposal/read-only recovery/review/apply, inert Skill install, terminal receipt history, Agent graph, delegation, read-only Fan-out, Finding/Report, execution-profile/interaction/permission controls, external-Skill provenance, SSE, and high-water event-poll projections with bounded Store queries and generated React/Vite views. The current contract has 81 paths, 89 operations, and 197 schemas. Ordinary DTOs expose no Workspace root, Provider key/Base URL/environment name, Harness binding digest/probe prompt/response/Tool args, submitted Session body, model/tool raw output, arbitrary command/argv/environment, private lifecycle narrative, private identity, operation key, lease owner, or fencing identity; FileEdit recovery is the narrow read-only exception that returns integrity-checked stored bodies for one exact pending proposal, while the sole archive-bearing install request remains strict, bounded, and pathless.
 - Schema v18 root and schema v29 Specialist cross-process active-call cancellation with a distinct optional control token, exact Run/Agent/attempt/model preconditions, one-to-one hashed idempotency, audit-first request/observation, worker-owned context signalling, atomic terminal resolution, and stale-attempt/worker-loss cleanup. Read and control capabilities are not interchangeable, and clients never receive or submit fencing tokens.
 - Deterministic OpenAPI 3.1 generation from Go DTOs and an explicit route catalog, with `api openapi` stdout/file export, a protected raw `/api/v1/openapi.json` endpoint, a committed golden document, live-handler contract tests, capability separation, and forbidden-internal-field checks.
 - Bounded read-only `/api/v1/runs/{run_id}/events/stream` SSE backed by durable SQLite sequences, with Run-bound opaque cursors, `Last-Event-ID` resume, heartbeats, cross-connection polling, per-frame write deadlines, event/time/batch bounds, process-wide connection slots, and server-shutdown cancellation. Go/OpenAPI/TypeScript share the literal envelope version `v1`; the client cancels the response body before reconnect after any parse/transport failure so malformed streams cannot exhaust browser connection slots.

@@ -278,6 +278,89 @@ type ControlledExecutionResult struct {
 	ProductExecutionEnabled  bool
 }
 
+// ControlledExecutionReceipt is the metadata-only durable projection of a
+// sealed execution result. Raw stdout and stderr deliberately do not belong to
+// this type.
+type ControlledExecutionReceipt struct {
+	RequestID               string
+	ProtocolVersion         string
+	PolicyVersion           string
+	Backend                 string
+	ExitCode                int
+	StdoutObservedBytes     int64
+	StdoutCapturedBytes     int
+	StdoutPrefixSHA256      string
+	StdoutTruncated         bool
+	StderrObservedBytes     int64
+	StderrCapturedBytes     int
+	StderrPrefixSHA256      string
+	StderrTruncated         bool
+	StartedAt               time.Time
+	CompletedAt             time.Time
+	TimedOut                bool
+	Cancelled               bool
+	OutputLimitExceeded     bool
+	TreeReaped              bool
+	RestrictedToken         bool
+	LowIntegrityToken       bool
+	JobAssignedAtCreation   bool
+	KillOnJobClose          bool
+	ActiveProcessLimit      int
+	ProcessMemoryLimit      int64
+	StdinClosed             bool
+	EnvironmentInherited    bool
+	NetworkRequested        bool
+	PersistentProcess       bool
+	ProductExecutionEnabled bool
+}
+
+func (r ControlledExecutionReceipt) Validate() error {
+	expectedStdoutCapture := r.StdoutObservedBytes
+	if expectedStdoutCapture > MaxControlledOutputCaptureBytes {
+		expectedStdoutCapture = MaxControlledOutputCaptureBytes
+	}
+	expectedStderrCapture := r.StderrObservedBytes
+	if expectedStderrCapture > MaxControlledOutputCaptureBytes {
+		expectedStderrCapture = MaxControlledOutputCaptureBytes
+	}
+	if !validIdentity(r.RequestID) ||
+		r.ProtocolVersion != ControlledExecutionProtocolVersion ||
+		r.PolicyVersion != ControlledExecutionPolicyVersion ||
+		!validIdentity(r.Backend) ||
+		r.StdoutObservedBytes < 0 ||
+		r.StdoutObservedBytes > MaxControlledOutputObservedBytes ||
+		r.StdoutCapturedBytes < 0 ||
+		r.StdoutCapturedBytes > MaxControlledOutputCaptureBytes ||
+		int64(r.StdoutCapturedBytes) > r.StdoutObservedBytes ||
+		int64(r.StdoutCapturedBytes) != expectedStdoutCapture ||
+		!validSHA256(r.StdoutPrefixSHA256) ||
+		r.StdoutTruncated !=
+			(r.StdoutObservedBytes > int64(r.StdoutCapturedBytes)) ||
+		r.StderrObservedBytes < 0 ||
+		r.StderrObservedBytes > MaxControlledOutputObservedBytes ||
+		r.StderrCapturedBytes < 0 ||
+		r.StderrCapturedBytes > MaxControlledOutputCaptureBytes ||
+		int64(r.StderrCapturedBytes) > r.StderrObservedBytes ||
+		int64(r.StderrCapturedBytes) != expectedStderrCapture ||
+		!validSHA256(r.StderrPrefixSHA256) ||
+		r.StderrTruncated !=
+			(r.StderrObservedBytes > int64(r.StderrCapturedBytes)) ||
+		r.StartedAt.IsZero() || r.CompletedAt.Before(r.StartedAt) ||
+		(r.TimedOut && r.Cancelled) || !r.TreeReaped ||
+		(r.OutputLimitExceeded &&
+			r.StdoutObservedBytes != MaxControlledOutputObservedBytes &&
+			r.StderrObservedBytes != MaxControlledOutputObservedBytes) ||
+		!r.RestrictedToken || !r.LowIntegrityToken ||
+		!r.JobAssignedAtCreation || !r.KillOnJobClose ||
+		r.ActiveProcessLimit != 1 ||
+		r.ProcessMemoryLimit != MaxControlledProcessMemoryBytes ||
+		!r.StdinClosed || r.EnvironmentInherited || r.NetworkRequested ||
+		r.PersistentProcess || !r.ProductExecutionEnabled {
+		return ErrControlledExecutionBoundary
+	}
+	return nil
+}
+
 func (r ControlledExecutionResult) Validate() error {
 	if r.ProtocolVersion != ControlledExecutionProtocolVersion ||
 		r.PolicyVersion != ControlledExecutionPolicyVersion ||
@@ -457,7 +540,8 @@ func validExecutionOperator(value string) bool {
 		return false
 	}
 	switch strings.ToLower(value) {
-	case "agent", "llm", "model", "repository", "repo", "skill":
+	case "agent", "llm", "model", "repository", "repo", "skill",
+		"supervisor", "run_supervisor":
 		return false
 	default:
 		return true

@@ -45,6 +45,8 @@ export function ConnectionGate() {
         runExecutionEnabled: bootstrap.run_execution_enabled,
         planDeliveryControlEnabled: bootstrap.plan_delivery_control_enabled,
         approvalControlEnabled: bootstrap.approval_control_enabled,
+        controlledCommandProposalControlEnabled:
+          bootstrap.controlled_command_proposal_control_enabled,
 		modelControlEnabled: bootstrap.model_control_enabled,
 		providerCredentialEnabled: bootstrap.provider_credential_enabled,
 		fileEditReviewEnabled: bootstrap.file_edit_review_enabled,

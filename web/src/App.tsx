@@ -48,6 +48,8 @@ export default function App() {
   const planDeliveryControlEnabled = useConnectionStore(
     (state) => state.planDeliveryControlEnabled);
   const approvalControlEnabled = useConnectionStore((state) => state.approvalControlEnabled);
+  const controlledCommandProposalControlEnabled = useConnectionStore(
+    (state) => state.controlledCommandProposalControlEnabled);
   const modelControlEnabled = useConnectionStore((state) => state.modelControlEnabled);
   const providerCredentialEnabled = useConnectionStore((state) => state.providerCredentialEnabled);
   const fileEditReviewEnabled = useConnectionStore((state) => state.fileEditReviewEnabled);
@@ -74,6 +76,7 @@ export default function App() {
     runLifecycleEnabled={runLifecycleEnabled} runExecutionEnabled={runExecutionEnabled}
     planDeliveryControlEnabled={planDeliveryControlEnabled}
     approvalControlEnabled={approvalControlEnabled} modelControlEnabled={modelControlEnabled}
+    controlledCommandProposalControlEnabled={controlledCommandProposalControlEnabled}
     providerCredentialEnabled={providerCredentialEnabled}
     fileEditReviewEnabled={fileEditReviewEnabled} fileEditApplyEnabled={fileEditApplyEnabled}
     fileEditProposalEnabled={fileEditProposalEnabled}
@@ -90,6 +93,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   debugMaximumAccessEnabled,
   sessionMessageEnabled, sessionSteeringControlEnabled, runLifecycleEnabled,
   runExecutionEnabled, planDeliveryControlEnabled, approvalControlEnabled,
+  controlledCommandProposalControlEnabled,
   modelControlEnabled, providerCredentialEnabled, fileEditReviewEnabled,
   fileEditProposalEnabled, fileEditApplyEnabled, runWakeControlEnabled,
   runWakeExecutionEnabled, runWakeWorkerEnabled, skillInstallationEnabled,
@@ -108,6 +112,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   runExecutionEnabled: boolean;
   planDeliveryControlEnabled: boolean;
   approvalControlEnabled: boolean;
+  controlledCommandProposalControlEnabled: boolean;
   modelControlEnabled: boolean;
   providerCredentialEnabled: boolean;
   fileEditReviewEnabled: boolean;
@@ -137,6 +142,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     sessionSteeringControlEnabled,
     runLifecycleEnabled, runExecutionEnabled,
     planDeliveryControlEnabled, approvalControlEnabled, modelControlEnabled,
+    controlledCommandProposalControlEnabled,
     providerCredentialEnabled, fileEditReviewEnabled, fileEditProposalEnabled,
     fileEditApplyEnabled, runWakeControlEnabled, runWakeExecutionEnabled,
     runWakeWorkerEnabled, skillInstallationEnabled, evidenceAttachmentEnabled,
@@ -146,6 +152,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     dangerFullAccessEnabled, debugMaximumAccessEnabled, sessionMessageEnabled,
     sessionSteeringControlEnabled, runLifecycleEnabled, runExecutionEnabled,
     planDeliveryControlEnabled, approvalControlEnabled, modelControlEnabled,
+    controlledCommandProposalControlEnabled,
     providerCredentialEnabled, fileEditReviewEnabled, fileEditProposalEnabled,
     fileEditApplyEnabled, runWakeControlEnabled, runWakeExecutionEnabled,
     runWakeWorkerEnabled, skillInstallationEnabled, evidenceAttachmentEnabled,
@@ -176,6 +183,8 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     { id: "execution", label: "有界执行", enabled: runExecutionEnabled },
     { id: "plan-delivery", label: "计划交付", enabled: planDeliveryControlEnabled },
     { id: "approval", label: "审批", enabled: approvalControlEnabled },
+    { id: "command-proposals", label: "固定命令审批",
+      enabled: controlledCommandProposalControlEnabled },
     { id: "model", label: "模型配置", enabled: modelControlEnabled },
     { id: "credentials", label: "系统凭证", enabled: providerCredentialEnabled },
     { id: "edit-review", label: "编辑审阅", enabled: fileEditReviewEnabled },
@@ -187,7 +196,8 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     { id: "skill-install", label: "Skill 安装", enabled: skillInstallationEnabled },
     { id: "evidence", label: "证据挂载", enabled: evidenceAttachmentEnabled },
     { id: "verification", label: "验证证据", enabled: verificationEvidenceEnabled },
-  ], [approvalControlEnabled, dangerFullAccessEnabled, debugMaximumAccessEnabled,
+  ], [approvalControlEnabled, controlledCommandProposalControlEnabled,
+    dangerFullAccessEnabled, debugMaximumAccessEnabled,
     evidenceAttachmentEnabled, executionPermissionControlEnabled, fileEditApplyEnabled,
     fileEditProposalEnabled, fileEditReviewEnabled, modelControlEnabled,
     operatorApprovalEnabled, planDeliveryControlEnabled, providerCredentialEnabled, runControlEnabled,

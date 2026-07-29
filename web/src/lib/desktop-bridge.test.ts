@@ -22,6 +22,7 @@ const bootstrap = {
   run_execution_enabled: false,
   plan_delivery_control_enabled: false,
   approval_control_enabled: false,
+  controlled_command_proposal_control_enabled: false,
   model_control_enabled: false,
   provider_credential_enabled: false,
   file_edit_review_enabled: false,
@@ -181,6 +182,18 @@ describe("desktop native bridge", () => {
     installBridge({ Bootstrap: vi.fn().mockResolvedValue(approvalOnly) });
     module = await import("./desktop-bridge");
     await expect(module.loadDesktopBootstrap()).resolves.toEqual(approvalOnly);
+  });
+
+  it("accepts fixed command proposal review as an independent capability", async () => {
+    const commandProposalOnly = {
+      ...bootstrap,
+      control_token: "control-token-0123456789abcdefghijkl",
+      controlled_command_proposal_control_enabled: true,
+      read_only_default: false,
+    };
+    installBridge({ Bootstrap: vi.fn().mockResolvedValue(commandProposalOnly) });
+    const module = await import("./desktop-bridge");
+    await expect(module.loadDesktopBootstrap()).resolves.toEqual(commandProposalOnly);
   });
 
   it("rejects authority widening and extra local-file fields", async () => {

@@ -78,6 +78,10 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 		if a.approvalControlEnabled {
 			resources = append(resources, "approval-control")
 		}
+		if a.controlledCommandProposalControlEnabled {
+			resources = append(resources,
+				"controlled-command-proposal-control")
+		}
 		if a.modelControlEnabled {
 			resources = append(resources, "model-control")
 		}

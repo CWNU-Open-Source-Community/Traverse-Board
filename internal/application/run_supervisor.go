@@ -99,6 +99,7 @@ type RunSupervisorStore interface {
 	StructuredMemoryMutationStore
 	SpecialistDelegationMutationStore
 	PlanDeliveryProposalMutationStore
+	ControlledCommandProposalMutationStore
 	toolgateway.Store
 }
 
@@ -198,7 +199,9 @@ func NewRunSupervisor(store RunSupervisorStore, router *llm.Router, checker poli
 		tools: toolgateway.New(store, checker).
 			WithStructuredMemoryExecutor(NewStructuredMemoryToolExecutor(store)).
 			WithSpecialistDelegationExecutor(NewSpecialistDelegationToolExecutor(store)).
-			WithPlanDeliveryExecutor(NewPlanDeliveryToolExecutor(store)),
+			WithPlanDeliveryExecutor(NewPlanDeliveryToolExecutor(store)).
+			WithControlledCommandProposalExecutor(
+				NewControlledCommandProposalToolExecutor(store)),
 		skillRegistry: skillRegistry, skillRegistryErr: skillRegistryErr,
 	}
 }

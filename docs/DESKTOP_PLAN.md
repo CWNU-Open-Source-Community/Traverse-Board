@@ -1,6 +1,6 @@
 # Prayu Desktop Plan
 
-状态：Desktop D0-A、D0-B、D1-R1 至 D1-G13/V12 与 D1-UX10 自动化核心已完成，数据库 schema 为 v88。Wails v2.13.0 Windows 壳、嵌入式 React bundle、进程内 Go API、同库恢复、高水位事件续传、WebView2 失败关闭、内存令牌、原生 `.zip` 对话框、路径隔离 Skill、受控 Run/Session/Plan/审批、安全恢复的 Monaco FileEdit、只读 Repository/脱敏 Diff/本地历史/精确提交预览/可导航精确文件历史/精确提交比较与键盘可访问的成对 base/head 预览、多文件独立审阅、不可变操作者验证、snapshot-keyset 逐检查项下钻/快照下载/record-only 回执历史/不授权复核、可恢复 Code Handoff、Code Journey、generation-safe Windows Credential Manager Provider reload、默认关闭的有界 wake worker、用户所有的可选 ConPTY/xterm、四档 Run 权限控制和独立权限设置页已经落地。R10 仍只在内部 `NonProductOnly` 测试边界固定接受信封的 bytes/SHA；P10 Analyzer 与 P11 浏览器接纳都没有 Desktop 产品进程入口。Windows 10 实机矩阵、Agent-owned Debug 终端、内置浏览器启动、安装包、签名正式发行、注册表、自启动、更新和任意高权限执行器仍未实现。
+状态：Desktop D0-A、D0-B、D1-R1 至 D1-G13/V12 与 D1-UX11 自动化核心已完成，数据库 schema 为 v89。Wails v2.13.0 Windows 壳、嵌入式 React bundle、进程内 Go API、同库恢复、高水位事件续传、WebView2 失败关闭、内存令牌、原生 `.zip` 对话框、路径隔离 Skill、受控 Run/Session/Plan/审批、安全恢复的 Monaco FileEdit、只读 Repository/脱敏 Diff/本地历史/精确提交预览/可导航精确文件历史/精确提交比较与键盘可访问的成对 base/head 预览、多文件独立审阅、不可变操作者验证、snapshot-keyset 逐检查项下钻/快照下载/record-only 回执历史/不授权复核、可恢复 Code Handoff、Code Journey、generation-safe Windows Credential Manager Provider reload、默认关闭的有界 wake worker、用户所有的可选 ConPTY/xterm、四档 Run 权限控制、独立权限设置页和固定命令提案审批面板已经落地。R10 仍只在内部 `NonProductOnly` 测试边界固定接受信封的 bytes/SHA；P10 Analyzer 与 P11 浏览器接纳都没有 Desktop 产品进程入口。Windows 10 实机矩阵、Agent-owned Debug 终端、内置浏览器启动、安装包、签名正式发行、注册表、自启动、更新和任意高权限执行器仍未实现。
 
 D1-UX1 至 D1-UX10 已把用户可见名称统一为 Prayu，并落地艺术字、无边框标题栏、透明热区的有界可调工作台/设置侧栏、复用既有 Go 边界的 Agent 输入区、可组合工具面板、独立权限中心，以及 Windows 原生 Acrylic 和浅/深色玻璃令牌。D1-UX10 明确取代早期整页工作台/设置背景和笔刷式选中视觉；选中态现在由 CSS 绘制为高对比圆角白色表面。设置页只调用 Go-owned 运行时与控制服务；内置浏览器仍未启动，用户终端只有显式开关后才可用且不属于 Agent。TypeScript 没有获得凭证、Policy、工具、Shell、Docker 或通用进程权限；模型与权限切换仍走既有 Go mutation。操作员可在原生确认后用固定外部应用打开精确已登记 Workspace，但 renderer 不接收路径、命令、环境或任意参数，该能力不属于 Agent/Runner/Shell。CLI、module、数据目录和协议标识继续兼容既有 CyberAgent 名称。
 
@@ -37,7 +37,7 @@ D1-UX1 至 D1-UX10 已把用户可见名称统一为 Prayu，并落地艺术字�
 
 ## D0-A 至 D1-G13/V12 当前实现
 
-- `cmd/cyberagent-desktop` 只在 Windows `desktop,wv2runtime.error` build tags 下编译，production 构建再增加 `production`；默认 read-only。共十九项独立 Go gate，包含 `--enable-file-edit-proposals`、`--enable-provider-credentials`、`--enable-wake-worker` 和独立的 `--enable-verification-evidence`；单项启用不能访问 sibling route。模型可用性、Workspace search、receipt history、operator actions、evidence inventory 和凭证配置状态只使用 read token；`Ctrl+K` 只在客户端导航或刷新这些读取。
+- `cmd/cyberagent-desktop` 只在 Windows `desktop,wv2runtime.error` build tags 下编译，production 构建再增加 `production`；默认 read-only。独立 Go gate 包含 `--enable-file-edit-proposals`、`--enable-provider-credentials`、`--enable-wake-worker`、`--enable-verification-evidence` 和 `--enable-command-proposals`；单项启用不能访问 sibling route。模型可用性、Workspace search、receipt history、operator actions、evidence inventory 和凭证配置状态只使用 read token；`Ctrl+K` 只在客户端导航或刷新这些读取。
 - `web/dist` 以 compile-time embed 进入二进制；Go 在启动前验证 index、内容哈希资源、类型、数量、单项/总大小并复制为不可变内存快照。
 - Wails AssetServer 直接调用现有 `httpapi.API` Handler，不监听 TCP 端口；同一 Go 层继续负责 Bearer、Host、CSP、Policy、SQLite 和 DTO。
 - Renderer 绑定面只有 `Bootstrap`、`SelectSkillPackage`、`PreviewSkillPackage`、`InstallSkillPackage` 四个方法。最后一项只消费 Go 发放的短期确认句柄；renderer path/bytes、进程、Shell、Docker、安装时执行和能力授予全部不可达。
@@ -112,6 +112,19 @@ go run ./cmd/cyberagent doctor portable --json
 ```
 
 Plan 选择只消费已持久化的三方向提案并创建既有 WorkItem/Note 事实，进入 Deliver 必须第二次显式操作。审批队列不返回命令、路径、文件内容、指纹或原因；approve-once 会重检 Policy，且只能得到 dry-run Shell 或 process-disabled ScriptProcess 结果。文件替换不能通过该入口批准，永久拒绝不能覆盖，所有进程/文件写入/Grant 权限仍为 false。
+
+显式启用 Agent 固定命令提案审阅：
+
+```powershell
+.\build\desktop\cyberagent-desktop.exe --enable-command-proposals
+```
+
+该开关只让 Approvals 页读取、批准或拒绝 schema-v89 提案。Agent 只能申请四种
+Go 固定模板；点击批准还会显示一次原生浏览器确认，并由 Go 重新核对当前 Run
+绑定和进程权限闸门。结果以最多 16 KiB 的脱敏不可信证据显示并写入 Session，
+raw stdout/stderr 不落库。它不开放任意 Shell、argv、环境、网络或持久终端。
+若 Run 选择 `approval|full_access|debug`，Desktop 进程还必须同时用对应的
+permission startup flags 启动。
 
 显式启用 Diff apply、一次前台 wake 消费或惰性 Skill 安装：
 
@@ -260,6 +273,7 @@ Plan 选择只消费已持久化的三方向提案并创建既有 WorkItem/Note 
 - [x] D1-UX8：摘要、审阅、文件与侧边任务复用既有只读/有界 Go 能力；终端和浏览器明确保持未启动。
 - [x] D1-UX9：pathless 原生工作区打开完成；仅操作员确认后启动固定外部应用，不授予 renderer 或 Agent 通用进程能力，边界见 ADR 0072。
 - [x] D1-UX10：独立权限页集中三个 Run-scoped 执行维度；设置侧栏复用 232/286/420 px 调整，Windows 使用原生 Acrylic、透明 WebView 和浅/深色 CSS 玻璃令牌。无 Run 时失败关闭，选中态和主题都不授予能力，边界见 ADR 0078。
+- [x] P12-D1/D2/D3 / schema v89：Approvals 页增加默认关闭的固定命令提案队列；严格四选一 Tool、独立操作者 review、一次性受限执行和 16 KiB 不可信结果投影共用 Go HTTP/OpenAPI 服务，renderer 不获得 Shell/argv/env/network/terminal 权限，边界见 ADR 0079。
 - [x] P10-A1/A2/A3：完成 Go-owned analyzer request/result/error 协议、无 LLM/网络/密钥/路径的 Rust metadata fixture 和 Go/Rust shared golden vectors；未增加 Desktop surface、产品 invocation 或 Artifact commit。secure Desktop 与可复现双构建通过，GUI SHA-256 `69ed40aede0cfc23e075df824fecf6c1ef7b4b0586a8f4b685b7d8aa95dde3b4`，`release_ready=false`；边界见 ADR 0062。
 - [x] P10-B1/B2/B3：完成惰性 analyzer descriptor Registry、memory-only/no-extraction ZIP inventory 协议及 Rust/shared adversarial vectors；未增加 Desktop analyzer UI、产品 invocation 或 Local/Docker 执行。secure Desktop 与可复现双构建通过，GUI SHA-256 `871c6270de44f3d6aecd31064127cdbfb400c5d6e6936e44698bcc30b0c611db`，`release_ready=false`；边界见 ADR 0063。
 - [x] P10-C1/C2/C3：完成无启动 invocation candidate、密封 Disabled/Fake Transport 与八类失败/重放向量；Desktop surface 与真实 analyzer process 继续关闭。累计六片门通过，GUI SHA-256 `82a5f7b4f012c0bc39da13d3b00cc98831e8002653a4a59f54d58f63e7126b50`，`release_ready=false`；边界见 ADR 0065。

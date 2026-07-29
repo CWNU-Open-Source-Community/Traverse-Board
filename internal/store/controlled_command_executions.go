@@ -38,85 +38,7 @@ const controlledExecutionReceiptSelect = `SELECT request_id, protocol_version,
 	persistent_process, product_execution_enabled
 	FROM controlled_command_execution_receipts WHERE request_id = ?`
 
-type ControlledExecutionReceipt struct {
-	RequestID               string
-	ProtocolVersion         string
-	PolicyVersion           string
-	Backend                 string
-	ExitCode                int
-	StdoutObservedBytes     int64
-	StdoutCapturedBytes     int
-	StdoutPrefixSHA256      string
-	StdoutTruncated         bool
-	StderrObservedBytes     int64
-	StderrCapturedBytes     int
-	StderrPrefixSHA256      string
-	StderrTruncated         bool
-	StartedAt               time.Time
-	CompletedAt             time.Time
-	TimedOut                bool
-	Cancelled               bool
-	OutputLimitExceeded     bool
-	TreeReaped              bool
-	RestrictedToken         bool
-	LowIntegrityToken       bool
-	JobAssignedAtCreation   bool
-	KillOnJobClose          bool
-	ActiveProcessLimit      int
-	ProcessMemoryLimit      int64
-	StdinClosed             bool
-	EnvironmentInherited    bool
-	NetworkRequested        bool
-	PersistentProcess       bool
-	ProductExecutionEnabled bool
-}
-
-func (r ControlledExecutionReceipt) Validate() error {
-	expectedStdoutCapture := r.StdoutObservedBytes
-	if expectedStdoutCapture > runner.MaxControlledOutputCaptureBytes {
-		expectedStdoutCapture = runner.MaxControlledOutputCaptureBytes
-	}
-	expectedStderrCapture := r.StderrObservedBytes
-	if expectedStderrCapture > runner.MaxControlledOutputCaptureBytes {
-		expectedStderrCapture = runner.MaxControlledOutputCaptureBytes
-	}
-	if !validControlledExecutionStoreIdentity(r.RequestID) ||
-		r.ProtocolVersion != runner.ControlledExecutionProtocolVersion ||
-		r.PolicyVersion != runner.ControlledExecutionPolicyVersion ||
-		!validControlledExecutionStoreIdentity(r.Backend) ||
-		r.StdoutObservedBytes < 0 ||
-		r.StdoutObservedBytes > runner.MaxControlledOutputObservedBytes ||
-		r.StdoutCapturedBytes < 0 ||
-		r.StdoutCapturedBytes > runner.MaxControlledOutputCaptureBytes ||
-		int64(r.StdoutCapturedBytes) > r.StdoutObservedBytes ||
-		int64(r.StdoutCapturedBytes) != expectedStdoutCapture ||
-		!validStoreDigest(r.StdoutPrefixSHA256) ||
-		r.StdoutTruncated !=
-			(r.StdoutObservedBytes > int64(r.StdoutCapturedBytes)) ||
-		r.StderrObservedBytes < 0 ||
-		r.StderrObservedBytes > runner.MaxControlledOutputObservedBytes ||
-		r.StderrCapturedBytes < 0 ||
-		r.StderrCapturedBytes > runner.MaxControlledOutputCaptureBytes ||
-		int64(r.StderrCapturedBytes) > r.StderrObservedBytes ||
-		int64(r.StderrCapturedBytes) != expectedStderrCapture ||
-		!validStoreDigest(r.StderrPrefixSHA256) ||
-		r.StderrTruncated !=
-			(r.StderrObservedBytes > int64(r.StderrCapturedBytes)) ||
-		r.StartedAt.IsZero() || r.CompletedAt.Before(r.StartedAt) ||
-		(r.TimedOut && r.Cancelled) || !r.TreeReaped ||
-		(r.OutputLimitExceeded &&
-			r.StdoutObservedBytes != runner.MaxControlledOutputObservedBytes &&
-			r.StderrObservedBytes != runner.MaxControlledOutputObservedBytes) ||
-		!r.RestrictedToken || !r.LowIntegrityToken ||
-		!r.JobAssignedAtCreation || !r.KillOnJobClose ||
-		r.ActiveProcessLimit != 1 ||
-		r.ProcessMemoryLimit != runner.MaxControlledProcessMemoryBytes ||
-		!r.StdinClosed || r.EnvironmentInherited || r.NetworkRequested ||
-		r.PersistentProcess || !r.ProductExecutionEnabled {
-		return runner.ErrControlledExecutionBoundary
-	}
-	return nil
-}
+type ControlledExecutionReceipt = runner.ControlledExecutionReceipt
 
 func (s *SQLiteStore) PrepareControlledExecutionIntent(ctx context.Context,
 	intent runner.ControlledExecutionIntent,
@@ -235,15 +157,30 @@ func (s *SQLiteStore) RecordControlledExecutionResult(ctx context.Context,
 			apperror.Wrap(apperror.CodeInvalidArgument,
 				"controlled command execution result is invalid", err)
 	}
-	receipt := projectControlledExecutionReceipt(result)
-	if err := receipt.Validate(); err != nil {
-		return ControlledExecutionReceipt{}, false, err
-	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		return ControlledExecutionReceipt{}, false, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	receipt, replayed, err := recordControlledExecutionResultTx(ctx, tx, result)
+	if err != nil {
+		return ControlledExecutionReceipt{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return ControlledExecutionReceipt{}, false, err
+	}
+	return receipt, replayed, nil
+}
+
+func recordControlledExecutionResultTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	result runner.ControlledExecutionResult,
+) (ControlledExecutionReceipt, bool, error) {
+	receipt := projectControlledExecutionReceipt(result)
+	if err := receipt.Validate(); err != nil {
+		return ControlledExecutionReceipt{}, false, err
+	}
 	intent, found, err := getControlledExecutionIntent(ctx, tx,
 		result.RequestID)
 	if err != nil {
@@ -270,9 +207,6 @@ func (s *SQLiteStore) RecordControlledExecutionResult(ctx context.Context,
 			return ControlledExecutionReceipt{}, false, apperror.New(
 				apperror.CodeConflict,
 				"controlled command execution receipt conflicts with its durable record")
-		}
-		if err := tx.Commit(); err != nil {
-			return ControlledExecutionReceipt{}, false, err
 		}
 		return existing, true, nil
 	}
@@ -325,10 +259,20 @@ func (s *SQLiteStore) RecordControlledExecutionResult(ctx context.Context,
 		}); err != nil {
 		return ControlledExecutionReceipt{}, false, err
 	}
-	if err := tx.Commit(); err != nil {
-		return ControlledExecutionReceipt{}, false, err
-	}
 	return receipt, false, nil
+}
+
+func (s *SQLiteStore) GetControlledExecutionIntent(
+	ctx context.Context,
+	requestID string,
+) (runner.ControlledExecutionIntent, bool, error) {
+	requestID = strings.TrimSpace(requestID)
+	if !validControlledExecutionStoreIdentity(requestID) {
+		return runner.ControlledExecutionIntent{}, false,
+			apperror.New(apperror.CodeInvalidArgument,
+				"controlled command execution request id is invalid")
+	}
+	return getControlledExecutionIntent(ctx, s.db, requestID)
 }
 
 func (s *SQLiteStore) GetControlledExecutionReceipt(ctx context.Context,

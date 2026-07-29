@@ -129,7 +129,7 @@ func TestSchemaV88BackfillsConservativeExecutionPermission(t *testing.T) {
 }
 
 func removeSchemaV88ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV89ForTestStatements(), []string{
 		`DROP TRIGGER trg_run_execution_permission_operation_delete_immutable`,
 		`DROP TRIGGER trg_run_execution_permission_operation_update_immutable`,
 		`DROP TRIGGER trg_run_execution_permission_snapshot_delete_immutable`,
@@ -140,5 +140,5 @@ func removeSchemaV88ForTestStatements() []string {
 		`DROP INDEX idx_run_execution_permission_snapshots_run_revision`,
 		`DROP TABLE run_execution_permission_snapshots`,
 		`DELETE FROM schema_migrations WHERE version = 88`,
-	}
+	}...)
 }

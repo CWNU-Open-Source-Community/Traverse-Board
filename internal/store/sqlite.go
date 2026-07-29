@@ -315,6 +315,7 @@ func migrationPlan() []migration {
 		{Version: 86, Name: "operator-selected execution interaction boundaries", Statements: runExecutionInteractionStatements},
 		{Version: 87, Name: "auditable controlled Windows command execution", Statements: controlledCommandExecutionStatements},
 		{Version: 88, Name: "operator-selected four-level execution permissions", Statements: runExecutionPermissionStatements},
+		{Version: 89, Name: "review-gated Agent controlled command proposals", Statements: controlledCommandProposalStatements},
 	}
 }
 

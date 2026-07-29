@@ -392,6 +392,49 @@ func (s *controlledCommandExecutorStub) Execute(_ context.Context,
 	}, nil
 }
 
+func TestRunCommandProposalCLIRequiresExactReviewWithoutImplicitExecution(t *testing.T) {
+	t.Setenv("CYBERAGENT_HOME", t.TempDir())
+	stub := &controlledCommandExecutorStub{}
+	execute := func(arguments ...string) (string, string, int) {
+		t.Helper()
+		var out bytes.Buffer
+		var errOut bytes.Buffer
+		code := executeContextWithConfig(context.Background(), arguments,
+			&out, &errOut, func(app *App) {
+				app.controlledCommands = stub
+			})
+		return out.String(), errOut.String(), code
+	}
+
+	listed, stderr, code := execute(
+		"run", "command-proposal", "list", "missing-run")
+	if code != 0 || stderr != "" ||
+		!strings.Contains(listed, "no controlled command proposals") ||
+		stub.calls != 0 {
+		t.Fatalf("proposal list executed a command: output=%q stderr=%q code=%d calls=%d",
+			listed, stderr, code, stub.calls)
+	}
+
+	_, stderr, code = execute(
+		"run", "command-proposal", "review",
+		"missing-proposal", "approve",
+		"--operation-key", "cli-command-proposal-review-0001")
+	if code != 2 || !strings.Contains(stderr,
+		"approval requires exact execution confirmation") || stub.calls != 0 {
+		t.Fatalf("unconfirmed proposal approval was not closed: stderr=%q code=%d calls=%d",
+			stderr, code, stub.calls)
+	}
+
+	_, stderr, code = execute(
+		"run", "command-proposal", "review",
+		"missing-proposal", "deny",
+		"--operation-key", "cli-command-proposal-review-0002")
+	if code == 0 || strings.TrimSpace(stderr) == "" || stub.calls != 0 {
+		t.Fatalf("proposal denial reached command execution: stderr=%q code=%d calls=%d",
+			stderr, code, stub.calls)
+	}
+}
+
 func TestRunCommandExecuteIsConfirmedAuditedAndExactlyOnce(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("CYBERAGENT_HOME", home)

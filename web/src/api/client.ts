@@ -5,6 +5,8 @@ import type {
   ApprovalQueueView,
   CodeHandoffView,
   CodeHandoffExportView,
+  ControlledCommandProposalReviewRequestView,
+  ControlledCommandProposalView,
   ErrorEnvelope,
   EvidenceAttachmentRequestView,
   EvidenceAttachmentView,
@@ -107,6 +109,7 @@ export interface ClientCapabilities {
   runExecutionEnabled?: boolean;
   planDeliveryControlEnabled?: boolean;
   approvalControlEnabled?: boolean;
+  controlledCommandProposalControlEnabled?: boolean;
   modelControlEnabled?: boolean;
   providerCredentialEnabled?: boolean;
   fileEditReviewEnabled?: boolean;
@@ -568,6 +571,118 @@ function parseApprovalDecision(value: unknown, expectedRunID: string, expectedAp
   return value as unknown as ApprovalDecisionControlView;
 }
 
+function parseControlledCommandProposalReceipt(value: unknown): boolean {
+  if (!hasExactKeys(value, ["active_process_limit", "backend", "cancelled", "completed_at",
+    "environment_inherited", "exit_code", "job_assigned_at_creation", "kill_on_job_close",
+    "low_integrity_token", "network_requested", "output_limit_exceeded", "persistent_process",
+    "process_memory_limit", "product_execution_enabled", "request_id", "restricted_token",
+    "started_at", "stderr_captured_bytes", "stderr_observed_bytes", "stderr_prefix_sha256",
+    "stderr_truncated", "stdin_closed", "stdout_captured_bytes", "stdout_observed_bytes",
+    "stdout_prefix_sha256", "stdout_truncated", "timed_out", "tree_reaped"]) ||
+    !boundedIdentity(value.request_id) || value.backend !== "windows-controlled-v1" ||
+    typeof value.exit_code !== "number" || !Number.isSafeInteger(value.exit_code) ||
+    !safeBoundedCount(value.stdout_observed_bytes, 64 * 1024 * 1024) ||
+    !safeBoundedCount(value.stdout_captured_bytes, 64 * 1024) ||
+    !safeBoundedCount(value.stderr_observed_bytes, 64 * 1024 * 1024) ||
+    !safeBoundedCount(value.stderr_captured_bytes, 64 * 1024) ||
+    value.stdout_captured_bytes > value.stdout_observed_bytes ||
+    value.stderr_captured_bytes > value.stderr_observed_bytes ||
+    !isSHA256(value.stdout_prefix_sha256) || !isSHA256(value.stderr_prefix_sha256) ||
+    typeof value.stdout_truncated !== "boolean" ||
+    typeof value.stderr_truncated !== "boolean" ||
+    !validDate(value.started_at) || !validDate(value.completed_at) ||
+    Date.parse(value.completed_at) < Date.parse(value.started_at) ||
+    typeof value.timed_out !== "boolean" || typeof value.cancelled !== "boolean" ||
+    typeof value.output_limit_exceeded !== "boolean" || value.tree_reaped !== true ||
+    value.restricted_token !== true || value.low_integrity_token !== true ||
+    value.job_assigned_at_creation !== true || value.kill_on_job_close !== true ||
+    value.active_process_limit !== 1 || value.process_memory_limit !== 512 * 1024 * 1024 ||
+    value.stdin_closed !== true || value.environment_inherited !== false ||
+    value.network_requested !== false || value.persistent_process !== false ||
+    value.product_execution_enabled !== true) {
+    return false;
+  }
+  return true;
+}
+
+function parseControlledCommandProposal(value: unknown, expectedRunID: string,
+  expectedProposalID = ""): ControlledCommandProposalView {
+  const required = ["capability_grant", "created_at", "evidence_instruction_authorized",
+    "execution_authorized", "fingerprint", "id", "instruction_authorized", "kind",
+    "mission_id", "operator_review_required", "permission_mode", "permission_revision",
+    "policy_version", "protocol_version", "purpose", "run_id", "session_id",
+    "timeout_milliseconds", "workspace_id"];
+  const optional = ["execution_replayed", "receipt", "relative_path", "result", "review",
+    "review_replayed", "untrusted_evidence"];
+  if (!isRecord(value) || !hasOnlyKeys(value, [...required, ...optional]) ||
+    required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
+    value.protocol_version !== "controlled_command_proposal.v1" ||
+    value.policy_version !== "controlled_command_proposal_policy.v1" ||
+    value.run_id !== expectedRunID ||
+    (expectedProposalID !== "" && value.id !== expectedProposalID) ||
+    !boundedIdentity(value.id) || !boundedIdentity(value.run_id) ||
+    !boundedIdentity(value.mission_id) || !boundedIdentity(value.session_id) ||
+    !boundedIdentity(value.workspace_id) ||
+    !["git-status", "git-diff-check", "go-version", "powershell-workspace-list"]
+      .includes(String(value.kind)) ||
+    !boundedText(value.purpose, 4_800) ||
+    !["conservative", "approval", "full_access", "debug"]
+      .includes(String(value.permission_mode)) ||
+    !safePositiveInteger(value.permission_revision) ||
+    !safePositiveInteger(value.timeout_milliseconds) ||
+    value.timeout_milliseconds > 120_000 ||
+    value.operator_review_required !== true || value.instruction_authorized !== false ||
+    value.execution_authorized !== false || value.capability_grant !== false ||
+    !isSHA256(value.fingerprint) || !validDate(value.created_at) ||
+    value.evidence_instruction_authorized !== false ||
+    (value.relative_path !== undefined &&
+      (!boundedText(value.relative_path, 1024) ||
+        !validWorkspaceRelativePath(value.relative_path))) ||
+    (value.review_replayed !== undefined && typeof value.review_replayed !== "boolean") ||
+    (value.execution_replayed !== undefined && typeof value.execution_replayed !== "boolean") ||
+    (value.untrusted_evidence !== undefined &&
+      (typeof value.untrusted_evidence !== "string" ||
+        value.untrusted_evidence.length > 16 * 1024 ||
+        !value.untrusted_evidence.startsWith("UNTRUSTED GO COMMAND RESULT")))) {
+    throw new APIRequestError("Controlled command proposal response is invalid",
+      "INVALID_RESPONSE", 502);
+  }
+  if (value.review !== undefined) {
+    const review = value.review;
+    if (!hasExactKeys(review, ["capability_grant", "created_at", "decision", "id", "reason",
+      "reviewed_by", "single_use_execution_authorized"]) ||
+      !boundedIdentity(review.id) || !boundedIdentity(review.reviewed_by) ||
+      !boundedText(review.reason, 4_096) || !validDate(review.created_at) ||
+      (review.decision !== "approve" && review.decision !== "deny") ||
+      review.single_use_execution_authorized !== (review.decision === "approve") ||
+      review.capability_grant !== false) {
+      throw new APIRequestError("Controlled command review response is invalid",
+        "INVALID_RESPONSE", 502);
+    }
+  }
+  if (value.result !== undefined) {
+    const result = value.result;
+    if (!hasExactKeys(result, ["automatic_retry_allowed", "content_sha256", "created_at", "id",
+      "instruction_authorized", "raw_output_persisted", "source_kind", "source_ref", "status"]) ||
+      !boundedIdentity(result.id) || !boundedIdentity(result.source_ref) ||
+      (result.status !== "completed" && result.status !== "failed") ||
+      result.source_kind !== "go_command_result" || !isSHA256(result.content_sha256) ||
+      result.instruction_authorized !== false || result.raw_output_persisted !== false ||
+      result.automatic_retry_allowed !== false || !validDate(result.created_at)) {
+      throw new APIRequestError("Controlled command result response is invalid",
+        "INVALID_RESPONSE", 502);
+    }
+  }
+  if ((value.result === undefined) !== (value.receipt === undefined) ||
+    (value.receipt !== undefined && !parseControlledCommandProposalReceipt(value.receipt)) ||
+    value.result !== undefined && value.review === undefined ||
+    value.untrusted_evidence !== undefined && value.result === undefined) {
+    throw new APIRequestError("Controlled command proposal response crossed its execution boundary",
+      "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as ControlledCommandProposalView;
+}
+
 function parseModelRouteControl(value: unknown, route: string,
   request: ModelRouteControlRequestView): ModelAvailabilityView["routes"][number] {
   if (!hasExactKeys(value, ["available", "harness_ready", "model", "name", "provider"]) ||
@@ -659,6 +774,7 @@ function parseProviderCredentialList(value: unknown): ProviderCredentialListView
 
 function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
   const capabilityKeys = ["approval_control_enabled", "docker_execution_enabled",
+    "controlled_command_proposal_control_enabled",
     "execution_permission_control_enabled", "operator_approval_enabled",
     "danger_full_access_enabled", "debug_maximum_access_enabled",
     "evidence_attachment_enabled", "verification_evidence_enabled",
@@ -714,6 +830,8 @@ export function clientCapabilitiesFromRuntime(value: RuntimeCapabilitiesView): C
     runExecutionEnabled: value.run_execution_enabled,
     planDeliveryControlEnabled: value.plan_delivery_control_enabled,
     approvalControlEnabled: value.approval_control_enabled,
+    controlledCommandProposalControlEnabled:
+      value.controlled_command_proposal_control_enabled,
     modelControlEnabled: value.model_control_enabled,
     providerCredentialEnabled: value.provider_credential_enabled,
     fileEditReviewEnabled: value.file_edit_review_enabled,
@@ -2845,6 +2963,7 @@ export class CyberAgentClient {
   readonly hasRunExecution: boolean;
   readonly hasPlanDelivery: boolean;
   readonly hasApprovalControl: boolean;
+  readonly hasControlledCommandProposalControl: boolean;
   readonly hasModelControl: boolean;
   readonly hasProviderCredentials: boolean;
   readonly hasFileEditReview: boolean;
@@ -2879,6 +2998,8 @@ export class CyberAgentClient {
     this.hasRunExecution = controlPresent && (capabilities.runExecutionEnabled ?? true);
     this.hasPlanDelivery = controlPresent && (capabilities.planDeliveryControlEnabled ?? true);
     this.hasApprovalControl = controlPresent && (capabilities.approvalControlEnabled ?? true);
+    this.hasControlledCommandProposalControl = controlPresent &&
+      (capabilities.controlledCommandProposalControlEnabled ?? false);
     this.hasModelControl = controlPresent && (capabilities.modelControlEnabled ?? true);
     this.hasProviderCredentials = controlPresent &&
       (capabilities.providerCredentialEnabled ?? false);
@@ -3576,6 +3697,54 @@ export class CyberAgentClient {
       `/runs/${encodeURIComponent(runID)}/approvals`, {}, signal,
     );
     return parseApprovalQueue(value, runID);
+  }
+
+  async controlledCommandProposals(runID: string,
+    signal?: AbortSignal): Promise<PageResult<ControlledCommandProposalView>> {
+    if (!this.hasControlledCommandProposalControl ||
+      !boundedIdentity(runID) || runID.trim() !== runID) {
+      throw new Error("Controlled command proposal capability and normalized Run are required");
+    }
+    const page = await this.getPage<unknown>(
+      `/runs/${encodeURIComponent(runID)}/command-proposals`, { limit: 100 }, "", signal,
+    );
+    return {
+      ...page,
+      items: page.items.map((item) => parseControlledCommandProposal(item, runID)),
+    };
+  }
+
+  async controlledCommandProposal(runID: string, proposalID: string,
+    signal?: AbortSignal): Promise<ControlledCommandProposalView> {
+    if (!this.hasControlledCommandProposalControl ||
+      !boundedIdentity(runID) || runID.trim() !== runID ||
+      !boundedIdentity(proposalID) || proposalID.trim() !== proposalID) {
+      throw new Error("Controlled command proposal capability and normalized identities are required");
+    }
+    return parseControlledCommandProposal(await this.get<unknown>(
+      `/runs/${encodeURIComponent(runID)}/command-proposals/${encodeURIComponent(proposalID)}`,
+      {}, signal,
+    ), runID, proposalID);
+  }
+
+  async reviewControlledCommandProposal(runID: string, proposalID: string,
+    body: ControlledCommandProposalReviewRequestView, idempotencyKey: string,
+    signal?: AbortSignal): Promise<ControlledCommandProposalView> {
+    if (!this.hasControlledCommandProposalControl ||
+      !boundedIdentity(runID) || runID.trim() !== runID ||
+      !boundedIdentity(proposalID) || proposalID.trim() !== proposalID ||
+      body.version !== "controlled_command_proposal_review.v1" ||
+      (body.decision !== "approve" && body.decision !== "deny") ||
+      body.confirm_execution !== (body.decision === "approve") ||
+      (body.reason !== undefined &&
+        (!boundedText(body.reason, 4_096) || /[\u0000-\u001f\u007f]/u.test(body.reason)))) {
+      throw new Error("An exact controlled command review request is required");
+    }
+    const result = await this.sendControl<unknown>(
+      `/runs/${encodeURIComponent(runID)}/command-proposals/${encodeURIComponent(proposalID)}/review`,
+      body, idempotencyKey, signal,
+    );
+    return parseControlledCommandProposal(result, runID, proposalID);
   }
 
   async decideApproval(runID: string, approvalID: string,

@@ -57,6 +57,7 @@ func TestDesktopOptionsDefaultToReadOnlyAndRequireExplicitCapabilities(t *testin
 		{flag: "--enable-run-execution", want: desktopOptions{runExecution: true}},
 		{flag: "--enable-plan-delivery", want: desktopOptions{planDeliveryControl: true}},
 		{flag: "--enable-approvals", want: desktopOptions{approvalControl: true}},
+		{flag: "--enable-command-proposals", want: desktopOptions{commandProposalControl: true}},
 		{flag: "--enable-model-control", want: desktopOptions{modelControl: true}},
 		{flag: "--enable-provider-credentials", want: desktopOptions{providerCredentials: true}},
 		{flag: "--enable-file-edit-review", want: desktopOptions{fileEditReview: true}},

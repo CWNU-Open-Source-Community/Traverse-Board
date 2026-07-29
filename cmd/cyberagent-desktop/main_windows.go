@@ -54,6 +54,7 @@ type desktopOptions struct {
 	runExecution           bool
 	planDeliveryControl    bool
 	approvalControl        bool
+	commandProposalControl bool
 	modelControl           bool
 	providerCredentials    bool
 	fileEditReview         bool
@@ -226,6 +227,8 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		"enable operator Plan direction selection and explicit Deliver transition")
 	approvalControl := fs.Bool("enable-approvals", false,
 		"enable bounded approve-once and deny decisions for durable approvals")
+	commandProposalControl := fs.Bool("enable-command-proposals", false,
+		"enable review and one-shot execution of Agent-proposed fixed Go commands")
 	modelControl := fs.Bool("enable-model-control", false,
 		"enable persisted model route selection and explicit connectivity diagnostics")
 	providerCredentials := fs.Bool("enable-provider-credentials", false,
@@ -278,6 +281,7 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		runExecution:           *runExecution,
 		planDeliveryControl:    *planDeliveryControl,
 		approvalControl:        *approvalControl,
+		commandProposalControl: *commandProposalControl,
 		modelControl:           *modelControl,
 		providerCredentials:    *providerCredentials,
 		fileEditReview:         *fileEditReview,
@@ -314,6 +318,7 @@ func runDesktop(config desktopOptions) error {
 		config.sessionMessages ||
 		config.sessionSteeringControl || config.runLifecycle || config.runExecution ||
 		config.planDeliveryControl || config.approvalControl || config.modelControl ||
+		config.commandProposalControl ||
 		config.providerCredentials || config.fileEditReview || config.fileEditProposals ||
 		config.runWakeControl || config.fileEditApply || config.runWakeExecution ||
 		config.runWakeWorker || config.skillInstallation || config.evidenceAttachment ||
@@ -336,25 +341,26 @@ func runDesktop(config desktopOptions) error {
 			DangerFullAccessEnabled:   config.dangerFullAccess,
 			DebugMaximumAccessEnabled: config.debugMaximumAccess,
 		},
-		SessionMessageEnabled:         config.sessionMessages,
-		SessionSteeringControlEnabled: config.sessionSteeringControl,
-		RunLifecycleEnabled:           config.runLifecycle,
-		RunExecutionEnabled:           config.runExecution,
-		PlanDeliveryControlEnabled:    config.planDeliveryControl,
-		ApprovalControlEnabled:        config.approvalControl,
-		ModelControlEnabled:           config.modelControl,
-		ProviderCredentialEnabled:     config.providerCredentials,
-		FileEditReviewEnabled:         config.fileEditReview,
-		FileEditProposalEnabled:       config.fileEditProposals,
-		RunWakeControlEnabled:         config.runWakeControl,
-		FileEditApplyEnabled:          config.fileEditApply,
-		RunWakeExecutionEnabled:       config.runWakeExecution,
-		RunWakeWorkerEnabled:          config.runWakeWorker,
-		SkillInstallationEnabled:      config.skillInstallation,
-		EvidenceAttachmentEnabled:     config.evidenceAttachment,
-		VerificationEvidenceEnabled:   config.verificationEvidence,
-		UserTerminalEnabled:           config.userTerminal,
-		AppVersion:                    app.Version, UIHandler: bundle,
+		SessionMessageEnabled:                   config.sessionMessages,
+		SessionSteeringControlEnabled:           config.sessionSteeringControl,
+		RunLifecycleEnabled:                     config.runLifecycle,
+		RunExecutionEnabled:                     config.runExecution,
+		PlanDeliveryControlEnabled:              config.planDeliveryControl,
+		ApprovalControlEnabled:                  config.approvalControl,
+		ControlledCommandProposalControlEnabled: config.commandProposalControl,
+		ModelControlEnabled:                     config.modelControl,
+		ProviderCredentialEnabled:               config.providerCredentials,
+		FileEditReviewEnabled:                   config.fileEditReview,
+		FileEditProposalEnabled:                 config.fileEditProposals,
+		RunWakeControlEnabled:                   config.runWakeControl,
+		FileEditApplyEnabled:                    config.fileEditApply,
+		RunWakeExecutionEnabled:                 config.runWakeExecution,
+		RunWakeWorkerEnabled:                    config.runWakeWorker,
+		SkillInstallationEnabled:                config.skillInstallation,
+		EvidenceAttachmentEnabled:               config.evidenceAttachment,
+		VerificationEvidenceEnabled:             config.verificationEvidence,
+		UserTerminalEnabled:                     config.userTerminal,
+		AppVersion:                              app.Version, UIHandler: bundle,
 		OnWakeWorkerError: func(runErr error) {
 			fmt.Fprintln(os.Stderr, "wake-worker:", runErr)
 		},
@@ -379,29 +385,30 @@ func runDesktop(config desktopOptions) error {
 		ContextProvider: lifecycle.Context, FilePicker: nativeSkillPackagePicker{},
 		ReadToken: readToken, ControlToken: controlToken, APIVersion: httpapi.Version,
 		RunControlEnabled: config.profileControl, RunCreationEnabled: config.runCreation,
-		ExecutionPermissionControlEnabled: config.permissionControl,
-		OperatorApprovalEnabled:           config.permissionControl,
-		DangerFullAccessEnabled:           config.dangerFullAccess,
-		DebugMaximumAccessEnabled:         config.debugMaximumAccess,
-		SessionMessageEnabled:             config.sessionMessages,
-		SessionSteeringControlEnabled:     config.sessionSteeringControl,
-		RunLifecycleEnabled:               config.runLifecycle,
-		RunExecutionEnabled:               config.runExecution,
-		PlanDeliveryControlEnabled:        config.planDeliveryControl,
-		ApprovalControlEnabled:            config.approvalControl,
-		ModelControlEnabled:               config.modelControl,
-		ProviderCredentialEnabled:         config.providerCredentials,
-		FileEditReviewEnabled:             config.fileEditReview,
-		FileEditProposalEnabled:           config.fileEditProposals,
-		RunWakeControlEnabled:             config.runWakeControl,
-		FileEditApplyEnabled:              config.fileEditApply,
-		RunWakeExecutionEnabled:           config.runWakeExecution,
-		RunWakeWorkerEnabled:              config.runWakeWorker,
-		SkillInstallationEnabled:          config.skillInstallation,
-		EvidenceAttachmentEnabled:         config.evidenceAttachment,
-		VerificationEvidenceEnabled:       config.verificationEvidence,
-		UserTerminalEnabled:               config.userTerminal,
-		AppVersion:                        app.Version, UIDigest: bundle.Digest(), Selector: selector,
+		ExecutionPermissionControlEnabled:       config.permissionControl,
+		OperatorApprovalEnabled:                 config.permissionControl,
+		DangerFullAccessEnabled:                 config.dangerFullAccess,
+		DebugMaximumAccessEnabled:               config.debugMaximumAccess,
+		SessionMessageEnabled:                   config.sessionMessages,
+		SessionSteeringControlEnabled:           config.sessionSteeringControl,
+		RunLifecycleEnabled:                     config.runLifecycle,
+		RunExecutionEnabled:                     config.runExecution,
+		PlanDeliveryControlEnabled:              config.planDeliveryControl,
+		ApprovalControlEnabled:                  config.approvalControl,
+		ControlledCommandProposalControlEnabled: config.commandProposalControl,
+		ModelControlEnabled:                     config.modelControl,
+		ProviderCredentialEnabled:               config.providerCredentials,
+		FileEditReviewEnabled:                   config.fileEditReview,
+		FileEditProposalEnabled:                 config.fileEditProposals,
+		RunWakeControlEnabled:                   config.runWakeControl,
+		FileEditApplyEnabled:                    config.fileEditApply,
+		RunWakeExecutionEnabled:                 config.runWakeExecution,
+		RunWakeWorkerEnabled:                    config.runWakeWorker,
+		SkillInstallationEnabled:                config.skillInstallation,
+		EvidenceAttachmentEnabled:               config.evidenceAttachment,
+		VerificationEvidenceEnabled:             config.verificationEvidence,
+		UserTerminalEnabled:                     config.userTerminal,
+		AppVersion:                              app.Version, UIDigest: bundle.Digest(), Selector: selector,
 		PreviewBridge: preview, SkillInstaller: controlPlane.SkillInstaller(),
 		WorkspaceResolver: controlPlane, WorkspaceLauncher: newNativeWorkspaceLauncher(),
 		UserTerminalController: controlPlane.UserTerminalController(),

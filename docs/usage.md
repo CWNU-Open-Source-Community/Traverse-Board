@@ -63,6 +63,10 @@ cyberagent run command-plan <run-id> go-version
 cyberagent run command-plan <run-id> powershell-workspace-list --path scripts
 cyberagent run command-execute <run-id> go-version --operation-key <stable-key> --confirm-execution
 cyberagent run command-execute <run-id> powershell-workspace-list --path scripts --operation-key <stable-key> --confirm-execution
+cyberagent run command-proposal list <run-id> --limit 50
+cyberagent run command-proposal show <proposal-id>
+cyberagent run command-proposal review <proposal-id> approve --operation-key <stable-key> --confirm-execution
+cyberagent run command-proposal review <proposal-id> deny --operation-key <stable-key> --reason "not needed"
 cyberagent run pause <run-id>
 cyberagent run resume <run-id>
 cyberagent run cancel <run-id>
@@ -80,10 +84,26 @@ Debug/Cyber Agent terminal input is a separate process-local lease bound to one 
 
 `run command-execute` is a separate Windows-only operator action over the exact same four templates. It requires a stable operation key and `--confirm-execution`, writes the intent before start, revalidates the latest Run/profile/interaction/Workspace binding, and then uses a restricted low-integrity token plus a creation-time Job Object. The Job fixes one active process, 512 MiB process memory, closed stdin, a stripped environment, bounded output, deadline/cancellation, and tree reap. Git hooks, global/system configuration, fsmonitor, external diff, and text conversion are disabled. Only byte counts, prefix hashes, result state, and boundary facts are stored; stdout/stderr bodies are printed transiently and never persisted. A prepared intent without a receipt is not automatically retried after restart. This is not a general LocalRunner or network sandbox: only fixed offline templates are accepted, custom executable paths cannot be supplied, and unsupported installations fail closed.
 
+Schema v89 lets only the root RunSupervisor record
+`controlled_command_propose` for those same four templates. The strict payload
+contains only version, kind, purpose, the optional fixed Workspace-relative
+listing path, and timeout. It has no Shell, executable, argv, environment,
+stdin, network, persistence, or capability field. Proposal creation starts
+nothing. `run command-proposal review` is an independent operator action;
+approval requires `--confirm-execution`, revalidates the exact current durable
+bindings and process-local permission gates, then reuses the restricted runner
+once. Denial starts nothing. The result is redacted, capped at 16 KiB, and
+appended as `UNTRUSTED GO COMMAND RESULT` with
+`instruction_authorized=false`; raw output is not persisted and a prepared
+execution is never retried automatically.
+
 The Windows Desktop user terminal is default-off. Build normally, then launch it explicitly:
 
 ```powershell
 .\build\desktop\cyberagent-desktop.exe --enable-user-terminal
+
+# Expose the fixed-proposal review queue and one-shot restricted execution.
+.\build\desktop\cyberagent-desktop.exe --enable-command-proposals
 ```
 
 The selected Run must have exact Code/Local/Debug bindings and a trusted Workspace. The user must click Start and is the only default input source. Prayu starts Windows PowerShell with `-NoLogo -NoProfile` in a ConPTY assigned to a creation-time Job Object, keeps at most eight process-local sessions and 4 MiB of rolling output per session, and closes the session if its durable binding changes or its Run terminates. Environment, process identity, input, and output are not written to SQLite. This is a Debug convenience surface, not an Agent Shell and not a Cyber Docker terminal.
