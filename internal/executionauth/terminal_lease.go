@@ -33,12 +33,16 @@ var (
 )
 
 type TerminalInputScope struct {
-	WorkspaceID           string
-	RunID                 string
-	TerminalSessionID     string
-	InteractionSnapshotID string
-	InteractionRevision   int64
-	Mode                  domain.RunExecutionInteractionMode
+	WorkspaceID              string
+	RunID                    string
+	TerminalSessionID        string
+	InteractionSnapshotID    string
+	InteractionRevision      int64
+	ExecutionProfileRevision int64
+	PermissionSnapshotID     string
+	PermissionRevision       int64
+	PermissionMode           domain.RunExecutionPermissionMode
+	Mode                     domain.RunExecutionInteractionMode
 }
 
 func (s TerminalInputScope) Validate() error {
@@ -47,14 +51,20 @@ func (s TerminalInputScope) Validate() error {
 		"Run id":                  s.RunID,
 		"Terminal id":             s.TerminalSessionID,
 		"Interaction snapshot id": s.InteractionSnapshotID,
+		"Permission snapshot id":  s.PermissionSnapshotID,
 	} {
 		if !domain.ValidAgentID(value) || strings.ContainsRune(value, 0) {
 			return fmt.Errorf("%w: %s is invalid", ErrLeaseBoundary, label)
 		}
 	}
-	if s.InteractionRevision <= 0 {
+	if s.InteractionRevision <= 0 || s.ExecutionProfileRevision <= 0 ||
+		s.PermissionRevision <= 0 {
 		return fmt.Errorf("%w: interaction revision must be positive",
 			ErrLeaseBoundary)
+	}
+	if s.PermissionMode != domain.RunExecutionPermissionDebug {
+		return fmt.Errorf("%w: permission mode %q cannot receive persistent Agent input",
+			ErrLeaseBoundary, s.PermissionMode)
 	}
 	switch s.Mode {
 	case domain.RunExecutionInteractionDebug, domain.RunExecutionInteractionCyber:

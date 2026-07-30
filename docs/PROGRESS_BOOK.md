@@ -1,12 +1,14 @@
 # CyberAgent Workbench 进度书
 
-更新时间：2026-07-29
+更新时间：2026-07-30
 
 ## 一、当前阶段
 
 项目正在从可运行的 v0.1 CLI/TUI 骨架迁移到 V2 Run-centric Runtime。CTF 专用求解能力继续后置，当前先完成主流 AI Agent 工具需要的通用运行时。
 
-最新非 schema 桌面修复完成了一次真实产品验收纠偏：此前可复现构建与单元测试没有模拟 Wails v2 在 Windows 上交给自定义 AssetServer 的 server-form 请求，导致合法请求被 Prayu 自身误判为 403；同时一个真实 v30 预览数据库的已记录校验和不在当前 canonical 历史中，启动在迁移前失败。现已按真实 `Host + wails.io + 空 URL authority` 形态严格接入，并只对白名单中的一个 v30 历史校验和兼容。真实数据库副本先完成 v30→v84 保数据升级与完整性检查，随后默认配置的 EXE 已实际渲染工作台和设置页、正常退出，原库关闭后仍为 `integrity=ok`。今后 Desktop 门禁必须包含真实窗口渲染与历史库升级，不再以“编译成功”替代“软件可用”。边界见 ADR 0068。
+最新 P12-E1/E2/E3 批次把 SQLite 推进到 v90。任意一次性命令采用与 v89 固定模板分离的非授权合同；真实宿主执行目前只有操作者 CLI 能在 `full_access`、当前进程闸门和双确认后调用，按当前 Windows 用户运行并明确不是沙箱。Debug Agent 输入只存在于 Go 内部短租约控制器，复用用户已启动的 ConPTY，renderer、HTTP、Skill、仓库内容和模型都没有签发或写入入口。边界见 ADR 0081。
+
+此前非 schema 桌面修复完成了一次真实产品验收纠偏：可复现构建与单元测试没有模拟 Wails v2 在 Windows 上交给自定义 AssetServer 的 server-form 请求，导致合法请求被 Prayu 自身误判为 403；同时一个真实 v30 预览数据库的已记录校验和不在当时 canonical 历史中，启动在迁移前失败。现已按真实 `Host + wails.io + 空 URL authority` 形态严格接入，并只对白名单中的一个 v30 历史校验和兼容。真实数据库副本先完成 v30→v84 保数据升级与完整性检查，随后默认配置的 EXE 已实际渲染工作台和设置页、正常退出，原库关闭后仍为 `integrity=ok`。今后 Desktop 门禁必须包含真实窗口渲染与历史库升级，不再以“编译成功”替代“软件可用”。边界见 ADR 0068。
 
 从 schema v49 起采用“双指标”，不再使用容易混淆的单一“整体产品愿景”百分比：
 
@@ -14,7 +16,7 @@
 - 产品可用度：完整 Code + Cyber 产品约 96-98%；其中通用 Coding Agent 工作流约 96-97%，Cyber 自动化工作流约 20%。该指标衡量用户现在能够完成多少真实端到端任务。
 - 上述数值是依据已测试任务切片给出的工程估算，不是性能基准，也不代表仍被安全关闭的功能已经可用。
 
-V2 的 P0/P1 已完成，P2 已具备稳定的单 Agent 恢复、Provider streaming、主动取消、有界工具循环和跨进程 execution lease。P3-P5 已落地 Work/Note/Context、最多两个核心 child、独立 1/2/4/6 只读 Fan-out、Tool Gateway、审批/Grant、预算、ScriptProcess 与 Artifact。P9/Desktop 已推进到 schema v89 / P12-D3：v88 建立 `conservative|approval|full_access|debug` 四档权限与运行期重校验，v89 再让 Root Agent 只能申请四种 Go 固定诊断动作，由独立操作者审批后复用受限一次性 Runner，并把限长脱敏输出作为无指令权限的 Session 证据回送。任意审批/完全访问宿主命令与 Debug Agent 持久终端仍关闭。P10 analyzer 仍没有产品进程桥，P11 browser review 仍不授予启动。网络沙箱、Docker PTY、内置浏览器、安装脚本/钩子和远程 Skill 分发继续关闭。
+V2 的 P0/P1 已完成，P2 已具备稳定的单 Agent 恢复、Provider streaming、主动取消、有界工具循环和跨进程 execution lease。P3-P5 已落地 Work/Note/Context、最多两个核心 child、独立 1/2/4/6 只读 Fan-out、Tool Gateway、审批/Grant、预算、ScriptProcess 与 Artifact。P9/Desktop 已推进到 schema v90 / P12-E3：v88 建立 `conservative|approval|full_access|debug` 四档权限与运行期重校验，v89 让 Root Agent 只能申请四种 Go 固定诊断动作，v90 再增加默认关闭、仅操作者 CLI 可达的非沙箱宿主一次性执行账本。任意 `approval` 提案仍只有无执行权 Go 合同；Debug Agent 输入仍只有 Go 内部短租约控制器，没有产品或模型入口。P10 analyzer 仍没有产品进程桥，P11 browser review 仍不授予启动。独立网络沙箱、Docker PTY、内置浏览器、安装脚本/钩子和远程 Skill 分发继续关闭。
 
 P8 已推进到 schema v37 及其只读 CI 投影：v35 把完成的 Fan-out execution 投影为通用 `draft` Finding、不可变 `model_assertion` Evidence 和可重建的 Markdown/JSON Report；v36 增加同 Run 冻结 Artifact Evidence、一次性 operator `validated/rejected` 决定与完整复核；v37 以独立不可变事实完成 `validated -> accepted -> fixed`，并强制修复 Evidence 来自接受后新建且未用于验证的同 Run Artifact。验证、接受和修复始终分离；SARIF、通用 CI gate 与 GitHub Actions annotations 均为同一持久化事实上的 Go 只读投影。
 
@@ -122,7 +124,7 @@ P6 当前已推进到 schema v68：v63 固定阻塞态 start-gate 审查，v64 �
 
 ### 存储与 Run 架构
 
-- CGO SQLite 驱动 `github.com/mattn/go-sqlite3`，当前 schema 版本为 v85。
+- CGO SQLite 驱动 `github.com/mattn/go-sqlite3`，当前 schema 版本为 v90。
 - checksum 校验的版本化事务 migration，可保留旧库数据原地升级。
 - Mission、Run 和 append-only Run Events 持久化。
 - schema v3 为非空 `session_id` 建立唯一关联并拒绝引用不存在 Session 的 Run。
@@ -2161,10 +2163,50 @@ verify/tidy、48 文件 165 项 React、strict TypeScript、82 path / 90 operati
 `thinking_delta` 均有回归测试证明不会进入公开文本；动态状态也收敛为固定
 枚举，未知值不会进入 React CSS class。
 
+## P12-E1/E2/E3：分离式宿主执行与 Debug 输入控制
+
+任务 ID：`P12-Gated-Host-Execution-Debug-Input-v90`。P12-E1 新增与 v89
+固定命令协议完全分离的 `host_command.v1`、`host_command_proposal.v1` 和
+独立 review 合同。合同冻结 executable SHA-256、argv、cwd、脱敏环境键和摘要、
+明确 `network_intent=host`、超时、用途以及 Run/Workspace/交互/Profile/权限
+修订；创建事实固定不授权、批准只能单次使用。本片没有持久化、模型 Tool、
+HTTP、Desktop 或执行入口。
+
+P12-E2 将 SQLite 推进到 v90，并新增操作者 CLI `run host-execute`。它只接受
+Code/Local/Controlled/trusted Run 与 durable `full_access`，同时要求当前进程
+permission-control/danger-full-access 闸门和两项精确确认。Windows adapter 不经
+Shell，使用精确 PE 路径和 SHA-256、清洗环境、闭合 stdin、创建时 Job Object、
+32 进程/2 GiB、限长输出、超时/取消和整树回收；执行前先持久化 intent，结果
+只存 metadata receipt。该进程按当前 Windows 用户访问宿主文件系统和网络，
+明确不是沙箱；HTTP、Desktop、Skill 和模型均不可调用。
+
+P12-E3 增加 Go-only Debug Agent 输入控制器。它只绑定用户已启动的 exact
+Code/Local/Debug ConPTY，要求 durable `debug`、当前进程最大权限闸门、用户终端
+闸门和双确认。内存 bearer 有效期 15 秒至 15 分钟，精确绑定 Workspace、Run、
+terminal、interaction、Profile 和 permission 修订；每次只接受一个完整 UTF-8
+命令行并先通过永久 Policy。持久审计仅记录摘要和字节数，不记录 bearer 或输入
+原文；不确定写入不重试，宿主事件、Run/绑定漂移、终端替换、过期和 shutdown
+都会撤销。renderer、HTTP、Skill、仓库内容和模型没有 grant/write 路由。
+
+本批与前一 P13-A 批累计六片，因此完成全仓健壮性门。无缓存串行 Go 全仓测试
+576.3 秒通过；全仓 race 717.6 秒通过且无竞态。vet、零告警 staticcheck、
+govulncheck 零可达漏洞、module verify/tidy、secure Desktop tags、48 文件
+165 项 React、strict TypeScript、确定性 OpenAPI、Vite production build、
+npm audit 零漏洞、Rust fmt/7+2 tests/clippy、隐私与 authority 扫描全部通过。
+Windows Desktop 可复现构建为 42,757,120 bytes，SHA-256
+`801bda9b5343b72999827beeb3bfecd6fdd907b9795736f540637b77a26cb771`；
+`release_ready=false` 仍正确。另以显式 opt-in 仅启动当前 Go 测试二进制，
+按精确路径/SHA 验证 Windows adapter，普通与 race 均通过；门禁没有运行任意
+用户程序或产品 `host-execute`。审计未发现未解决的高危或中危问题。低风险
+剩余边界是 `full_access` 无法证明任意编译后二进制行为安全、cwd 可在校验后
+被外部进程改变，以及 Debug revoke/write 之间仍存在极窄并发窗口；这些路径
+均要求显式高权限、保留 write-ahead/摘要审计并禁止不确定结果自动重试。
+边界见 ADR 0081。
+
 ## 八、仓库同步与恢复约定
 
 规范远程仓库：`https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench`。
 
 每三个聚焦切片组成一个交付批次；第三片后统一执行功能复核、普通/聚焦测试、组合差异审查、项目记忆更新、Git 提交、GitHub 推送和 CI 复核。每两个批次即六个切片再执行全仓 race、vet、staticcheck、govulncheck、依赖/隐私与完整构建健壮性门。当前仓库直接开发并推送 `main`；除非用户明确要求，不创建功能分支或 PR。
 
-长对话恢复时依次阅读：`README.md`、`docs/PROJECT_MEMORY.md`、`docs/PROJECT_STATUS.md`、本文件、`docs/TASK_BOOK.md`、`docs/http-api.md`、`docs/errors.md`，再按序阅读 `docs/adr/0001-*.md` 到 `docs/adr/0080-public-model-updates-and-harness-activity.md`。
+长对话恢复时依次阅读：`README.md`、`docs/PROJECT_MEMORY.md`、`docs/PROJECT_STATUS.md`、本文件、`docs/TASK_BOOK.md`、`docs/http-api.md`、`docs/errors.md`，再按序阅读 `docs/adr/0001-*.md` 到 `docs/adr/0081-gated-host-execution-and-debug-terminal-input.md`。

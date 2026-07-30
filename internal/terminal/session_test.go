@@ -323,15 +323,33 @@ func terminalStartTestRequestFor(t *testing.T, suffix string) StartRequest {
 	if err != nil {
 		t.Fatal(err)
 	}
+	initialPermission, err := domain.NewInitialRunExecutionPermissionSnapshot(
+		"permission-terminal-conservative-"+suffix, run, mission,
+		"test_operator", at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	debugPermission, err := initialPermission.Next(
+		"permission-terminal-debug-"+suffix,
+		domain.RunExecutionPermissionDebug, true, "test_operator",
+		"debug maximum access", at.Add(3*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
 	return StartRequest{
 		ID: "terminal-" + suffix, Scope: SessionScope{
 			WorkspaceID: mission.WorkspaceID, RunID: run.ID,
 			InteractionSnapshotID: debug.ID,
 			InteractionRevision:   debug.Revision, Mode: debug.Mode,
+			ExecutionProfileRevision: local.Revision,
+			PermissionSnapshotID:     debugPermission.ID,
+			PermissionRevision:       debugPermission.Revision,
+			PermissionMode:           debugPermission.Mode,
 		},
 		WorkspaceRoot: filepath.Clean(t.TempDir()),
 		Interaction:   debug, CurrentProfile: local,
-		Columns: 100, Rows: 30, RequestedBy: "test_operator",
+		CurrentPermission: debugPermission,
+		Columns:           100, Rows: 30, RequestedBy: "test_operator",
 		OperatorConfirmed: true,
 	}
 }

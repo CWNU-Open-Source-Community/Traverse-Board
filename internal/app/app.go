@@ -57,6 +57,7 @@ type App struct {
 	runtimeResourceClean sandbox.DockerRuntimeInputResourceCleanupTransport
 	productionEvidence   sandbox.DockerProductionEvidenceCollector
 	controlledCommands   controlledCommandExecutor
+	hostCommands         hostCommandExecutor
 }
 
 func Execute(args []string, out io.Writer, errOut io.Writer) int {
@@ -226,7 +227,7 @@ func (a *App) printHelp() {
 	fmt.Fprintln(a.out, "  cyberagent report finding attach|validate|reject|accept|remediation|fix|verify")
 	fmt.Fprintln(a.out, "  cyberagent api serve|openapi")
 	fmt.Fprintln(a.out, "  cyberagent headless events")
-	fmt.Fprintln(a.out, "  cyberagent run create|adapt-task|list|show|mode|phase|execution-profile|execution-interaction|execution-permission|command-plan|command-execute|events|usage|start|step|execute|checkpoint|graph|lease|finish|fail|pause|resume|cancel|delegations|delegation|plans|plan|delivery|steer|fanouts|fanout|sandbox|wake")
+	fmt.Fprintln(a.out, "  cyberagent run create|adapt-task|list|show|mode|phase|execution-profile|execution-interaction|execution-permission|command-plan|command-execute|host-execute|events|usage|start|step|execute|checkpoint|graph|lease|finish|fail|pause|resume|cancel|delegations|delegation|plans|plan|delivery|steer|fanouts|fanout|sandbox|wake")
 	fmt.Fprintln(a.out, "  cyberagent run plan show|choose|selection")
 	fmt.Fprintln(a.out, "  cyberagent run delivery checkpoint|list|show")
 	fmt.Fprintln(a.out, "  cyberagent run fanout plan|execute|show|execution|report")

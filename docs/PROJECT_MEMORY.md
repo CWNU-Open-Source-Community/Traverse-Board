@@ -2,44 +2,51 @@
 
 Last updated: 2026-07-30
 
-## Current Checkpoint: P13-A / Schema v89 + Public Activity
+## Current Checkpoint: P12-E / Schema v90 + Gated Host Execution
 
-Prayu now opens a Run on `run_activity.v1`: a chronological, read-only
-projection that separates public model updates, operator input, and verifiable
-Go Harness events. It never maps provider thinking, model deltas, raw event
-payloads, prompts, Tool arguments, or Tool output. Detail is allowlisted,
-redacted, control-character cleaned, and bounded. The response fixes
-`private_reasoning_included=false`; React rejects the whole projection if that
-flag is ever true. SSE/Desktop polling only causes a reread of durable events.
-Raw Events remain a separate diagnostic tab.
+P12-E1 keeps arbitrary one-shot commands separate from the schema-v89 fixed
+diagnostics. `host_command.v1` freezes exact executable SHA-256, argv, cwd,
+sanitized environment names/digest, explicit host-network intent, timeout, and
+Run/Workspace/interaction/Profile/permission revisions. The Root Supervisor
+may form only a non-authorizing `approval` proposal, and an independent
+operator review is exact and single-use. This is currently a Go domain and
+threat-model contract only: it has no persistence, model Tool, HTTP, Desktop,
+or execution route.
 
-Root `root_lifecycle.v1.message` is now explicitly a concise public
-progress/result field: completed action, verified outcome, and next step where
-relevant. It is not chain-of-thought and must distinguish model judgment from
-Harness-verified facts. ADR 0080 is authoritative. No migration or new
-authority was added.
+P12-E2 advances SQLite to v90 and adds operator CLI `run host-execute` for an
+exact trusted Code/Local/Controlled Run with durable `full_access`, current
+permission-control/danger-full-access process gates, and two explicit
+confirmations. Windows uses exact `CreateProcess`, PE/SHA pinning, sanitized
+environment, closed stdin, creation-time Job Object, 32-process/2-GiB bounds,
+bounded output, timeout/cancellation, and tree reap. Intent is durable before
+start; receipt is metadata-only; environment values and raw output remain
+transient; an uncertain intent is never retried automatically. This is
+non-sandboxed current-user host filesystem and network access, and has no
+HTTP, Desktop, or model invocation path.
 
-Prayu now has a review-gated model-to-command path over the four existing
-Go-owned diagnostics. Schema v89 lets the root RunSupervisor submit
-`controlled_command_propose` for `git-status`, `git-diff-check`, `go-version`,
-or `powershell-workspace-list`. The strict Tool accepts no executable, Shell,
-argv, environment, stdin, network, background-process, persistence, or
-capability field. Proposal creation is durable but non-authorizing.
+P12-E3 adds a Go-only Debug Agent-input controller over an already-running
+user ConPTY. A 15-second to 15-minute memory bearer binds the exact Workspace,
+Run, terminal, interaction, Profile, and permission revisions. Every write is
+one complete UTF-8 command line, runs permanent Policy, and writes only
+metadata/digest audit events. Tokens and raw input never enter SQLite;
+uncertain writes are not retried. Host lifecycle, Run/binding drift, terminal
+replacement, expiry, and shutdown revoke the grant. The controller lives only
+inside the Go Desktop `ControlPlane`; renderer, HTTP, Skills, repository
+content, and models cannot grant or invoke it. ADR 0081 is authoritative.
 
-An independent operator review is bound to the exact proposal fingerprint.
-Approval rechecks the current Run, Mission, Session, Workspace, interaction,
-execution profile, permission snapshot, Code/Cyber mode, process-local startup
-gates, and regenerated fixed-plan fingerprint before reusing the schema-v87
-restricted one-shot runner. Denial starts nothing. A write-ahead execution
-intent without a result is never retried automatically.
+P13-A remains the user-facing reasoning boundary. `run_activity.v1` separates
+public model updates, operator input, and verifiable Go Harness events. It
+never maps provider thinking, model deltas, raw payloads, prompts, Tool
+arguments, or Tool output, and fixes `private_reasoning_included=false`.
+`root_lifecycle.v1.message` is public progress/result prose, not private
+chain-of-thought. ADR 0080 is authoritative.
 
-The result is normalized, secret-redacted, limited to 16 KiB, marked
-`UNTRUSTED GO COMMAND RESULT`, and appended to the exact Session with
-`instruction_authorized=false`. Raw stdout/stderr is not persisted. CLI,
-HTTP/OpenAPI, Desktop, and React expose the same review contract; Desktop keeps
-it default-off behind `--enable-command-proposals`. Arbitrary approval-mode
-commands, full-access host execution, and an Agent-owned persistent Debug
-terminal remain closed. ADR 0079 is authoritative.
+Schema v89 fixed-command proposals remain the conservative model execution
+path. The Root can request only `git-status`, `git-diff-check`, `go-version`,
+or `powershell-workspace-list`; an independent operator review revalidates all
+bindings before the v87 restricted runner executes once, and the bounded
+result returns as `instruction_authorized=false` evidence. ADR 0079 is
+authoritative.
 
 Desktop D1-UX10 gives those controls one dedicated `权限` Settings page.
 Permission ceiling, interaction shape, and execution environment remain
@@ -150,8 +157,10 @@ Read in this order after a long context break:
 82. `docs/adr/0077-four-level-run-execution-permissions.md`
 83. `docs/adr/0078-desktop-permission-center-and-native-acrylic.md`
 84. `docs/adr/0079-review-gated-fixed-command-proposals.md`
-85. `docs/DESKTOP_PLAN.md`
-86. `docs/SKILL_PACKAGE_PLAN.md`
+85. `docs/adr/0080-public-model-updates-and-harness-activity.md`
+86. `docs/adr/0081-gated-host-execution-and-debug-terminal-input.md`
+87. `docs/DESKTOP_PLAN.md`
+88. `docs/SKILL_PACKAGE_PLAN.md`
 
 ## Current Baseline
 
@@ -160,16 +169,16 @@ Read in this order after a long context break:
 - Generic coding-agent workflow usability: about 96-97%.
 - Cyber autonomous-workflow usability: about 20%.
 - These are engineering estimates based on tested roadmap slices, not performance benchmarks. Do not reuse the retired single-axis "overall product vision" percentage.
-- Database schema: v89.
-- `README.md` carries the canonical bilingual schema timeline in strict `v1 -> v89` order. `internal/store/readme_history_test.go` binds its row count and ordering to `LatestSchemaVersion`, so a future migration cannot silently leave the public history missing or out of sequence.
+- Database schema: v90.
+- `README.md` carries the canonical bilingual schema timeline in strict `v1 -> v90` order. `internal/store/readme_history_test.go` binds its row count and ordering to `LatestSchemaVersion`, so a future migration cannot silently leave the public history missing or out of sequence.
 - Main languages: Go control plane, TypeScript React/Vite local console, and deterministic Rust 1.97.1 digest/ZIP protocol functions. Rust has no Agent, LLM, config, key, persistence, network, filesystem, subprocess, or product-lifecycle ownership.
 - Analyzer status: P10-A1 through P10-B3 fix `analyzer_protocol.v1`, a two-entry inert `analyzer_descriptor.v1` Registry, strict digest and `archive.inventory.v1` result validation, bounded Rust stdin/stdout functions, and two five-vector semantic/bytes/SHA suites with separate CI. The ZIP function only reads an in-memory central directory and never opens, decompresses, extracts, or writes entry data. A Go-to-Rust product process bridge, product invocation, Run/Event/SQLite persistence, and Artifact commit remain absent. See ADR 0062, ADR 0063, and `analyzers/README.md`.
 - Model Harness status: non-schema A1/A2/A3 adds `model_harness.v1` exact transport/tool/JSON/streaming profiles, Go preflight for Root/Specialist/read-only Fan-out, and `model_harness_qualification.v1` at-most-two-call synthetic qualification. Mock is trusted offline; Anthropic-compatible models require explicit qualification. Qualification stores only exact binding digest, capability booleans, and seven-day expiry in existing Provider settings; the synthetic Tool is never executed, availability remains no-probe, and qualification grants no Tool/Shell/file/browser/Docker authority. P13-A adds the separate public-activity read projection. Current OpenAPI is 82 paths / 90 operations / 199 schemas. See ADR 0074 and ADR 0080.
 - Browser status: P11-A1 through P11-C3 now fix three Profiles, exact target scope, inert session plans, fixed-location executable discovery, disposable-profile recovery plans, sealed Disabled/Fake CDP, same-handle Windows Authenticode acceptance, immutable launch attempts/generation leases, and independent operator review. Chrome and Edge can become `accepted_for_review`; arbitrary Chromium remains refused. Review acceptance still grants no process, network, profile-write, termination, cleanup, CDP, or Artifact authority. No built-in browser process or UI exists. See ADR 0069, ADR 0071, and ADR 0073.
-- Desktop status: the established Wails v2.13.0 shell retains its embedded React/in-process Go API, Run/editor/repository/verification/Handoff/model/credential/wake workflows and composable docks. P12-B2 adds a default-off user-owned ConPTY/xterm terminal for an exact trusted Code/Local/Debug Run. The user starts and types into it; terminal state, environment, input, output, and process identity are process-local, and the renderer cannot issue Agent-input leases. D1-UX10/UX11 add native Windows Acrylic, transparent WebView rendering, persisted light/dark/transparent-glass appearance tokens, and the resizable permission-centered Settings surface without weakening renderer integrity. Windows 10 release coverage remains pending and `release_ready=false`. There is no installer, formal signed release, registry/startup/update behavior, general Agent Shell, Docker PTY, real built-in browser, or install-time Skill execution. See ADR 0033 through ADR 0061, ADR 0064, ADR 0068, ADR 0070, ADR 0072 through ADR 0078, and `docs/DESKTOP_PLAN.md`.
+- Desktop status: the established Wails v2.13.0 shell retains its embedded React/in-process Go API, Run/editor/repository/verification/Handoff/model/credential/wake workflows and composable docks. P12-B2 adds a default-off user-owned ConPTY/xterm terminal for an exact trusted Code/Local/Debug Run. P12-E3 adds a process-local Go controller that can grant one short, audited Agent-input binding only under Debug maximum access, but it is not exposed to the renderer, HTTP, or models. Terminal state, environment, bearer, input, output, and process identity remain process-local. D1-UX10/UX11 add native Windows Acrylic, transparent WebView rendering, persisted light/dark/transparent-glass appearance tokens, and the resizable permission-centered Settings surface without weakening renderer integrity. Windows 10 release coverage remains pending and `release_ready=false`. There is no installer, formal signed release, registry/startup/update behavior, general model Shell, Docker PTY, real built-in browser, or install-time Skill execution. See ADR 0033 through ADR 0061, ADR 0064, ADR 0068, ADR 0070, ADR 0072 through ADR 0081, and `docs/DESKTOP_PLAN.md`.
 - Prayu UX status: D1-UX1 through D1-UX11 introduce the Prayu identity, frameless titlebar, bounded resizable workbench and Settings sidebars, Go-backed composer, four-control toolbar, dedicated permission center, native Acrylic, a CSS/React app mark, and three persisted appearance choices. Full-window ink backgrounds, screenshot-based selected overlays, the image wordmark, and orange-brush CSS are no longer used; selected navigation and segmented controls are opaque-white CSS rounded surfaces. Summary/Review/Files/Side Tasks use existing bounded Go surfaces. Browser remains inert; Terminal becomes real only when the Desktop is explicitly started with `--enable-user-terminal`, and remains user-owned. Open Workspace stays operator-confirmed and pathless at the renderer boundary. Stable CyberAgent compatibility identifiers remain unchanged. See ADR 0064, ADR 0070, ADR 0072, ADR 0076, and ADR 0078.
-- Execution status: P12-A1/A2/A3 adds durable interaction intent, exact process-local Agent-input leases, and four non-starting fixed command plans. P12-B1/B2/B3 advances SQLite to v87 and adds a separate operator-only Windows execution path plus the user terminal. P12-C1/C2/C3 advances SQLite to v88 and adds the four-level permission ceiling plus one Go `executionauth` resolver. P12-D1/D2/D3 advances SQLite to v89 and lets only the root Supervisor record a strict fixed-command proposal; an independent operator review revalidates all durable bindings and current runtime gates before one schema-v87 restricted execution, then returns bounded redacted output as non-authorizing Session evidence. This is not a general LocalRunner, arbitrary Shell, or network sandbox. The internal Agent-input bridge still has no renderer grant path and revokes on host, Run, terminal, and durable-binding lifecycle changes. See ADR 0075 through ADR 0079.
-- P12-D release gate: full ordinary Go (421.8 seconds), vet/staticcheck, focused v89 race, zero-reachable-finding govulncheck, module verify/tidy, secure Desktop test/vet, 47 files and 162 React tests, strict TypeScript, deterministic 81-path/89-operation/197-schema OpenAPI, Vite, and zero-vulnerability npm audit all pass. The reproducible unsigned Windows binary is 42,497,024 bytes with SHA-256 `2129db52a0a5e403b2fe49f19bc330af02aae7ebca56addb3e09ad4f0bc4b35a`; automated compatibility checks pass, while the required Windows 10/WebView2/display-scaling matrix correctly keeps `release_ready=false`. The final audit aligned shared Go and SQLite reviewer validation to reject all reserved Supervisor identities. No unresolved high/medium issue is known in the enabled v89 path.
+- Execution status: P12-A1/A2/A3 adds durable interaction intent, exact process-local Agent-input leases, and four non-starting fixed command plans. P12-B1/B2/B3 advances SQLite to v87 and adds a separate restricted operator-only Windows path plus the user terminal. P12-C1/C2/C3 advances SQLite to v88 and adds the four-level permission ceiling plus one Go `executionauth` resolver. P12-D1/D2/D3 advances SQLite to v89 and adds the conservative fixed-command Agent request/review/result path. P12-E1/E2/E3 separates the arbitrary `approval` contract, advances SQLite to v90 for a dual-confirmed operator-only non-sandboxed Windows one-shot executor, and adds a Go-only Debug terminal Agent-input controller. The approval contract has no persistence/product route, `host-execute` has no HTTP/Desktop/model route, and Debug input has no renderer/HTTP/model route. See ADR 0075 through ADR 0081.
+- P12-E release gate: completed. The uncached serial Go suite passed in 576.3 seconds and the full race suite passed in 717.6 seconds with no races. Vet, zero-warning staticcheck, govulncheck (zero reachable vulnerabilities), module verify/tidy, secure Desktop tags, 48-file/165-test React, strict TypeScript, deterministic OpenAPI, Vite, npm audit, Rust format/7+2 tests/clippy, privacy/authority scans, and reproducible Windows Desktop build all passed. The portable executable is 42,757,120 bytes with SHA-256 `801bda9b5343b72999827beeb3bfecd6fdd907b9795736f540637b77a26cb771`; `release_ready=false` remains correct. A separate opt-in adapter test launched only the current Go test binary by exact path/SHA and passed ordinary plus race execution. No arbitrary user program or product `host-execute` command was run during verification.
 - Custom Skill status: the five embedded `skill.v1` guides and explicitly selected external packages are Run-loadable through separate protocols. Schema v69 adds persistent content-addressed import/history; schema v70 adds a second explicitly confirmed exact Run selection and redacted user-role root/Specialist context; schema v71 adds bounded read-only provenance across HTTP/TUI/Web. D1-A adds a pathless, one-time-handle preview boundary; D1-B1 adds explicit HTTP/Desktop registration through the same inert Registry. External packages remain untrusted and grant no declared tools. Installation executes no content and still does not select a package for a Run. See ADR 0024, ADR 0031 through ADR 0033, ADR 0041, and `docs/SKILL_PACKAGE_PLAN.md`.
 - Protected-delete status: explicit recursive, absolute/traversing/wildcard, environment-derived, command-substituted, current-home, PowerShell/`cmd`, and common interpreter deletion intents are permanently denied before approval across Shell, ScriptProcess, and Sandbox Policy. This is defense in depth; Local/container process execution remains disabled and a future executor still requires OS/container isolation. See ADR 0025.
 - Canonical branch: `main`; do not create a branch or PR unless the user asks.
@@ -2034,25 +2043,51 @@ also pass. Anthropic `thinking`/`thinking_delta` exclusion and the fixed
 activity-status enum have dedicated regressions, so private reasoning and
 payload-controlled CSS tokens fail closed. See ADR 0080.
 
+## Completed Gated Host Execution And Debug Input (P12-E1/E2/E3)
+
+P12-E1 introduces the separate `host_command.v1` proposal/review domain. It
+freezes executable SHA-256, argv, cwd, sanitized environment metadata, host
+network intent, timeout, and all durable Run bindings without extending the
+schema-v89 fixed diagnostic Tool. The contract is non-authorizing and has no
+persistence, model, HTTP, Desktop, or execution route.
+
+P12-E2 advances SQLite to v90. Operator CLI `run host-execute` requires an
+exact Code/Local/Controlled/trusted Run, durable `full_access`, current
+permission-control and danger-full-access gates, and two confirmations.
+Windows uses exact non-Shell process creation, PE/SHA pinning, a sanitized
+environment, closed stdin, creation-time Job ownership, 32-process/2-GiB
+bounds, output/deadline/cancellation limits, and process-tree reap. A durable
+intent precedes start; a metadata-only receipt follows; raw output and
+environment values remain transient. This is current-user non-sandboxed host
+filesystem and network access and is not exposed through HTTP, Desktop, or a
+model Tool.
+
+P12-E3 adds a Go-only controller over an existing user ConPTY. A short
+process-local bearer exact-binds Workspace, Run, terminal, interaction,
+Profile, and permission revisions. One complete UTF-8 command line passes
+permanent Policy before write. Grant, prepared, completed, and revoked events
+retain only metadata, digests, and byte counts. Uncertain writes are never
+retried. Host lifecycle, Run/binding drift, terminal replacement, expiry, and
+shutdown revoke the binding. The renderer, HTTP, Skills, repository content,
+and models cannot issue or use it. See ADR 0081.
+
 ## Next Slice
 
-The recommended execution batch returns to P12-E1/E2/E3. It must not widen the
-schema-v89 fixed-proposal protocol in place:
+The recommended next batch is P11-C4/C5/C6, keeping browser execution split
+into three independently auditable slices:
 
-1. threat-model a separate arbitrary one-shot proposal protocol for `approval`,
-   including exact argv/cwd/environment/network intent and explicit operator
-   review;
-2. add a separately gated `full_access` one-shot host executor only after the
-   transport has its own write-ahead intent, immutable receipt, deadline,
-   cancellation, process-tree reap, and explicit non-sandbox warning;
-3. add an Agent-owned persistent terminal only for `debug`, with a separate
-   short authorization lease, background-process bounds, host/Run lifecycle
-   revocation, and visibly distinct user-versus-Agent input.
+1. launch only a Safe Web process after exact v85 acceptance/review
+   revalidation and bind its entire process tree to a Windows Job Object;
+2. create, mark, recover, and clean exactly one disposable Profile generation
+   without touching personal Chrome/Edge profiles;
+3. add exact-scope localhost CDP navigation, bounded DOM metadata, and
+   screenshots only.
 
-P11-C4/C5/C6 Safe Web start/Profile/CDP and P10-F1/F2/F3 analyzer
-preflight remain queued. Docker PTY, arbitrary Agent Shell, request mutation,
-CTF browser relaxations, signed distribution, and the Windows 10 matrix remain
-separate gates.
+There must still be no request mutation/replay, arbitrary remote debugging,
+CTF security-disable flags, personal profile reuse, cross-target navigation,
+or model-controlled host browser outside the accepted scope. P10-F1/F2/F3
+analyzer preflight remains queued. Docker PTY, arbitrary model Shell, signed
+distribution, and the Windows 10 matrix remain separate gates.
 
 ## Local Machine Note
 
@@ -2063,7 +2098,7 @@ Run Rust build/test commands from a Developer PowerShell or after loading `VsDev
 the source, pinned toolchain, and `Cargo.lock` remain the reproducible authority. `cargo audit`
 is installed; this version accepts the default lockfile scan rather than a `--locked` flag.
 
-The default `~/.cyberagent-workbench/cyberagent.db` currently carries a historical schema-v30 checksum that differs from this repository's immutable migration definition, so CLI startup correctly fails closed with `migration 30 checksum or name mismatch` and Desktop shows a bounded `FAILED_PRECONDITION`/startup code instead of silently resetting it. The v75-v89 and D1-Q2 through P12-D3 slices did not rewrite migrations 1-74, and fresh/upgrade fixtures pass. Preserve that local database for backup/diagnosis; do not delete it or rewrite `schema_migrations` automatically. Desktop visual and recovery tests use separate `CYBERAGENT_HOME` directories under the repository's ignored build root or the OS temporary root.
+The default `~/.cyberagent-workbench/cyberagent.db` currently carries a historical schema-v30 checksum that differs from this repository's immutable migration definition, so CLI startup correctly fails closed with `migration 30 checksum or name mismatch` and Desktop shows a bounded `FAILED_PRECONDITION`/startup code instead of silently resetting it. The v75-v90 and D1-Q2 through P12-E3 slices did not rewrite migrations 1-74, and fresh/upgrade fixtures pass. Preserve that local database for backup/diagnosis; do not delete it or rewrite `schema_migrations` automatically. Desktop visual and recovery tests use separate `CYBERAGENT_HOME` directories under the repository's ignored build root or the OS temporary root.
 
 ## Delivery Loop
 

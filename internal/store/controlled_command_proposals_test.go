@@ -47,7 +47,7 @@ func TestSchemaV89AddsImmutableControlledCommandProposalLedger(t *testing.T) {
 }
 
 func removeSchemaV89ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV90ForTestStatements(), []string{
 		`DROP TRIGGER trg_controlled_command_result_delete_immutable`,
 		`DROP TRIGGER trg_controlled_command_result_update_immutable`,
 		`DROP TRIGGER trg_controlled_command_review_delete_immutable`,
@@ -67,5 +67,5 @@ func removeSchemaV89ForTestStatements() []string {
 		`DROP INDEX idx_controlled_command_proposals_run_created`,
 		`DROP TABLE controlled_command_proposals`,
 		`DELETE FROM schema_migrations WHERE version = 89`,
-	}
+	}...)
 }

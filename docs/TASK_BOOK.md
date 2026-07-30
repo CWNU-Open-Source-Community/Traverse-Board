@@ -1,6 +1,6 @@
 # CyberAgent Workbench V2 任务书
 
-更新时间：2026-07-29
+更新时间：2026-07-30
 
 ## 目标
 
@@ -22,11 +22,11 @@ P8 已推进到 schema v37：v35 将完成的 Fan-out execution 确定性投影�
 
 金额预算、HTTP 或模型自主 child 调度和真实 Sandbox 进程执行尚未实现；schema v48 的严格 Sandbox Manifest、schema v49 的精确审批/重新提交/禁用候选、schema v50 的禁用态 Artifact 绑定、独立 fencing、取消与清理恢复、schema v51 的禁用态后端/输出预检、schema v52 的仅模拟后端证据与内存输出事务、schema v53 的固定本机端点只读 Docker 观测、schema v54 的确定性容器计划与假写事务、schema v55 默认关闭的 Docker 创建/核验/删除演练、schema v56 的可恢复预写意图、代际租约和 stage/cleanup 检查点、schema v57 的 descriptor-pinned、kernel-sealed 宿主输入捕获证据、schema v58 的 daemon stage 前持久化捕获要求、schema v59 的 daemon-owned/readback-verified/fully-cleaned 输入交接、schema v60 的严格 runtime-input projection plan、schema v61 的可恢复只读卷应用与 never-started target，以及 schema v62 的保留资源检查与可恢复精确清理已经落地。v55-v62 仍不启动容器进程。operator-only 显式 child schedule/continue、no-tool child turn、最多两个 child 的有界并发、一次 child repair、Coordinator、Run 工具预算、跨进程执行互斥，以及 root/child 精确跨进程主动取消均已落地。
 
-P7 已推进到 schema v71 与非 schema D1-B1，P9/Desktop 产品面已推进到 schema v89 与 D1-G13/V12，通用运行时安全面已推进到 H1-H3/R10/C1-C3/P12-D3。P12-A1-A3 建立不授权的执行交互意图、进程内短期 Agent 输入租约和固定模板计划；P12-B1-B3 接入四种 Windows 一次性受控执行、用户所有的 ConPTY/xterm Debug 终端，以及只消费精确短租约的内部 Agent 输入桥；P12-C1-C3 再增加 `conservative|approval|full_access|debug` 四档权限快照、CLI/API/Desktop/React 选择入口、进程启动闸门和统一 Go 授权判定；P12-D1-D3 让 Root Agent 只能申请同四种固定诊断动作，由独立操作者审批后执行一次，并把有界脱敏结果作为不可信 Session 证据回送。权限快照和提案都不持久化真正执行权；审批/完全访问任意宿主命令与 Debug Agent 持久终端仍未开放。
+P7 已推进到 schema v71 与非 schema D1-B1，P9/Desktop 产品面已推进到 schema v90 与 D1-G13/V12，通用运行时安全面已推进到 H1-H3/R10/C1-C3/P12-E3。P12-A1-A3 建立不授权的执行交互意图、进程内短期 Agent 输入租约和固定模板计划；P12-B1-B3 接入四种 Windows 一次性受控执行、用户所有的 ConPTY/xterm Debug 终端，以及只消费精确短租约的内部 Agent 输入桥；P12-C1-C3 再增加 `conservative|approval|full_access|debug` 四档权限快照、CLI/API/Desktop/React 选择入口、进程启动闸门和统一 Go 授权判定；P12-D1-D3 让 Root Agent 只能申请同四种固定诊断动作，由独立操作者审批后执行一次，并把有界脱敏结果作为不可信 Session 证据回送。P12-E1-E3 又把任意 `approval` 合同、操作者专用 `full_access` Windows 一次性宿主执行器和 Go-only Debug Agent 输入控制器分成三个边界。任意 `approval` 仍无持久化/模型/产品执行流，`host-execute` 仍无 HTTP/Desktop/模型入口，Debug 输入仍无 renderer/HTTP/模型入口；权限快照本身继续不持久化真正执行权。
 
 schema v64 已增加 Go-owned `run_execution_profile.v1`：每个 Run 默认 `preview`，操作者可在 `created` 或无活动 lease 的 `paused` 状态选择 `preview|docker|local`。CLI、HTTP/OpenAPI 与 React 使用同一状态机；所有档位仍固定零进程、零执行授权和零 capability。
 
-schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固定 16 项机器 probe 和摘要协议，CLI 只接受同一操作者的 v63 阻塞审查、稳定操作键和显式确认。schema v66 再增加 collector 调用前持久化的 attempt、摘要化 operation、过期 generation lease、当前代 quiescent reconciliation、类型化 failure 和原子 result。schema v67 只在 Linux 显式 opt-in 后执行五次固定 GET，schema v68 再增加一次不可变操作员接纳/拒绝决定。所有 Docker start/process/export/Artifact authority 继续为 false。schema v69-v89 与 Desktop D1-A 至 P12-D 已完成外部 Skill、桌面恢复、Run 控制、模型/Plan/审批、FileEdit、Provider、wake、Repository、验证/Handoff/记忆、浏览器非启动账本、执行交互、受控命令审计、用户终端、四档权限控制面和固定命令提案审批。R9/R10 仍只属于内部 Runner 回执兼容边界；P10 analyzer 仍没有产品进程桥。SQLite 当前为 v89。
+schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固定 16 项机器 probe 和摘要协议，CLI 只接受同一操作者的 v63 阻塞审查、稳定操作键和显式确认。schema v66 再增加 collector 调用前持久化的 attempt、摘要化 operation、过期 generation lease、当前代 quiescent reconciliation、类型化 failure 和原子 result。schema v67 只在 Linux 显式 opt-in 后执行五次固定 GET，schema v68 再增加一次不可变操作员接纳/拒绝决定。所有 Docker start/process/export/Artifact authority 继续为 false。schema v69-v90 与 Desktop D1-A 至 P12-E 已完成外部 Skill、桌面恢复、Run 控制、模型/Plan/审批、FileEdit、Provider、wake、Repository、验证/Handoff/记忆、浏览器非启动账本、执行交互、受控命令审计、用户终端、四档权限控制面、固定命令提案审批和非沙箱宿主执行账本。R9/R10 仍只属于内部 Runner 回执兼容边界；P10 analyzer 仍没有产品进程桥。SQLite 当前为 v90。
 
 ## 执行原则
 
@@ -548,9 +548,10 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 - [x] P13-A2：Desktop Run 默认打开“活动”时间线；模型公开更新与 Harness 可验证事实使用不同标签，原始 Events 保持独立诊断页，SSE/轮询仅触发持久投影刷新。客户端若收到 `private_reasoning_included=true` 会失败关闭。
 - [x] P13-A3：强化 Root `root_lifecycle.v1.message` 为公开进度/结果合同，要求区分模型判断与 Harness 验证结果，禁止私有思维链、隐藏 Prompt、密钥和 raw Tool output；边界见 ADR 0080。
 - [x] P13-A1/A2/A3 三切片及累计健壮性门：无缓存串行全仓 Go 483.9 秒、全仓 vet、零告警 staticcheck、`runactivity/httpapi/application` race、零可达漏洞 govulncheck、module verify/tidy、48 文件 165 项 React、strict TypeScript、82/90/199 OpenAPI 确定性再生成、Vite production build 与 npm audit 零漏洞全绿；隐私审计未发现 thinking、raw delta/payload、Prompt、Tool 参数/输出或新增 authority 的可达投影路径。
-- [ ] P12-E1：先为 `approval` 单独威胁建模任意一次性命令提案协议；不得扩写 v89 固定协议，必须精确绑定 argv/cwd/env/network intent 与独立人工审阅。
-- [ ] P12-E2：实现单独启动闸门后的 `full_access` 一次性宿主执行器；写前 intent、不可变 receipt、超时/取消/进程树回收和醒目非沙箱提示全部必需。
-- [ ] P12-E3：只为 `debug` 实现 Agent 持久终端绑定；要求最大权限启动闸门、独立限时鉴权、后台进程上限、终止/锁屏/Run 生命周期撤销，并与用户终端输入来源清晰区分。
+- [x] P12-E1：新增与 v89 分离的 `host_command.v1`、`host_command_proposal.v1` 和独立 review 合同；精确绑定 executable SHA-256、argv、cwd、脱敏环境键/摘要、`network_intent=host`、超时、Run/Workspace/交互/Profile/权限修订，固定不授权和单次审批。本片没有持久化、模型 Tool、HTTP/Desktop 或执行入口。
+- [x] P12-E2 / schema v90：新增操作者 CLI `run host-execute`。仅接受 Code/Local/Controlled/trusted + `full_access`，要求本进程 permission-control/danger-full-access 和双确认；Windows 使用无 Shell 的精确 PE/SHA `CreateProcess`、创建时 Job Object、32 进程/2 GiB、受控环境、闭合 stdin、输出/超时/取消/整树回收，以及 write-ahead intent 和 metadata-only receipt。该执行器按当前 Windows 用户访问宿主文件系统和网络，明确不是沙箱，且无 HTTP/Desktop/模型入口。
+- [x] P12-E3：新增 Go-only Debug Agent 输入控制器；只绑定已经由用户启动的 exact Code/Local/Debug ConPTY，要求 `debug` 权限、本进程最大权限闸门和两项显式确认。15 秒至 15 分钟的内存 bearer 绑定 Workspace/Run/terminal/interaction/Profile/permission，单次只写一个完整 UTF-8 命令行并先过永久 Policy；审计只存摘要/字节数，不存令牌或原文，不确定结果禁止重试，并在宿主、Run、绑定、终端、到期和 shutdown 生命周期撤销。renderer、HTTP、Skill、仓库和模型没有入口。
+- [x] P12-E1/E2/E3 与累计六切片健壮性门：无缓存串行 Go 全仓 576.3 秒、全仓 race 717.6 秒且零竞态，vet/staticcheck/govulncheck/module、secure Desktop、48 文件 165 项 React、TypeScript/OpenAPI/Vite/npm、Rust fmt/7+2 tests/clippy、隐私/authority 扫描及可复现 Windows 构建全绿；二进制 42,757,120 bytes、SHA-256 `801bda9b5343b72999827beeb3bfecd6fdd907b9795736f540637b77a26cb771`。opt-in Windows adapter 仅启动当前 Go 测试二进制并通过普通/race；未运行任意用户程序或产品宿主命令，未发现未解决的高危或中危问题。
 - [ ] P11-C4：仅实现 Safe Web 真实进程启动；必须在 adapter 前精确复核 v85 acceptance/review，并用 Windows Job Object 绑定整棵进程树，无 Shell、无导航、无 Profile 写入。
 - [ ] P11-C5：独立实现一次性 Profile generation 创建、marker、重启恢复和 exact released-owned 清理；个人 Chrome/Edge Profile 永久禁止。
 - [ ] P11-C6：独立实现 exact-scope localhost CDP 导航、DOM metadata 与截图；请求改包/重放和 CTF 安全放宽继续关闭。

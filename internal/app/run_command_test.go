@@ -392,6 +392,61 @@ func (s *controlledCommandExecutorStub) Execute(_ context.Context,
 	}, nil
 }
 
+type hostCommandExecutorStub struct {
+	calls   int
+	request runner.HostExecutionRequest
+}
+
+func (s *hostCommandExecutorStub) Available() bool {
+	return true
+}
+
+func (s *hostCommandExecutorStub) Execute(_ context.Context,
+	request runner.HostExecutionRequest,
+) (runner.HostExecutionResult, error) {
+	s.calls++
+	s.request = request
+	stdout := []byte("host command test output")
+	stdoutDigest := sha256.Sum256(stdout)
+	emptyDigest := sha256.Sum256(nil)
+	now := time.Date(2026, 7, 30, 18, 0, 0, 0, time.UTC)
+	intent := request.Intent
+	return runner.HostExecutionResult{
+		ProtocolVersion:          runner.HostExecutionProtocolVersion,
+		PolicyVersion:            runner.HostExecutionPolicyVersion,
+		RequestID:                intent.RequestID,
+		OperationKeyDigest:       intent.OperationKeyDigest,
+		RunID:                    intent.RunID,
+		MissionID:                intent.MissionID,
+		SessionID:                intent.SessionID,
+		WorkspaceID:              intent.WorkspaceID,
+		InteractionSnapshotID:    intent.InteractionSnapshotID,
+		InteractionRevision:      intent.InteractionRevision,
+		ExecutionProfileRevision: intent.ExecutionProfileRevision,
+		PermissionSnapshotID:     intent.PermissionSnapshotID,
+		PermissionRevision:       intent.PermissionRevision,
+		PermissionMode:           intent.PermissionMode,
+		SpecFingerprint:          intent.Spec.Fingerprint,
+		Backend:                  "host-cli-test",
+		Stdout: runner.ControlledOutput{
+			Data:                 stdout,
+			ObservedBytes:        int64(len(stdout)),
+			CapturedBytes:        len(stdout),
+			CapturedPrefixSHA256: fmt.Sprintf("%x", stdoutDigest),
+		},
+		Stderr: runner.ControlledOutput{
+			CapturedPrefixSHA256: fmt.Sprintf("%x", emptyDigest),
+		},
+		StartedAt: now, CompletedAt: now.Add(time.Second),
+		TreeReaped: true, NonSandboxed: true,
+		JobAssignedAtCreation: true, KillOnJobClose: true,
+		ActiveProcessLimit: runner.MaxHostActiveProcesses,
+		JobMemoryLimit:     runner.MaxHostProcessMemoryBytes,
+		StdinClosed:        true, NetworkRequested: true,
+		ProductExecutionEnabled: true,
+	}, nil
+}
+
 func TestRunCommandProposalCLIRequiresExactReviewWithoutImplicitExecution(t *testing.T) {
 	t.Setenv("CYBERAGENT_HOME", t.TempDir())
 	stub := &controlledCommandExecutorStub{}
@@ -504,6 +559,133 @@ func TestRunCommandExecuteIsConfirmedAuditedAndExactlyOnce(t *testing.T) {
 		"--confirm-execution"); code == 0 ||
 		!strings.Contains(stderr, "different intent") || stub.calls != 1 {
 		t.Fatalf("conflict stderr=%q code=%d calls=%d", stderr, code, stub.calls)
+	}
+}
+
+func TestRunHostExecuteRequiresFullAccessAndIsExactlyOnce(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CYBERAGENT_HOME", home)
+	if _, stderr, code := executeTestCommand(t, "workspace", "init",
+		"host-execute-demo"); code != 0 {
+		t.Fatalf("workspace init failed: %s", stderr)
+	}
+	created, stderr, code := executeTestCommand(t, "run", "create",
+		"execute one explicit non-sandboxed host command",
+		"--workspace", "host-execute-demo", "--max-turns", "2")
+	if code != 0 || stderr != "" {
+		t.Fatalf("run create output=%q stderr=%q code=%d",
+			created, stderr, code)
+	}
+	runID := runIDPattern.FindString(created)
+	if _, stderr, code := executeTestCommand(t, "run", "execution-profile",
+		"set", runID, "local", "--operation-key",
+		"cli-host-execute-profile-0001"); code != 0 {
+		t.Fatalf("local profile selection failed: %s", stderr)
+	}
+	if _, stderr, code := executeTestCommand(t, "run",
+		"execution-interaction", "set", runID, "controlled",
+		"--trust", "trusted", "--confirm-workspace-trust",
+		"--operation-key",
+		"cli-host-execute-interaction-0001"); code != 0 {
+		t.Fatalf("controlled interaction selection failed: %s", stderr)
+	}
+	if _, stderr, code := executeTestCommand(t, "run",
+		"execution-permission", "set", runID, "full_access",
+		"--operation-key", "cli-host-execute-permission-0001",
+		"--enable-permission-control", "--enable-danger-full-access",
+		"--confirm-danger-full-access"); code != 0 {
+		t.Fatalf("full-access permission selection failed: %s", stderr)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stub := &hostCommandExecutorStub{}
+	execute := func(arguments ...string) (string, string, int) {
+		t.Helper()
+		var out bytes.Buffer
+		var errOut bytes.Buffer
+		code := executeContextWithConfig(context.Background(), arguments,
+			&out, &errOut, func(app *App) {
+				app.hostCommands = stub
+			})
+		return out.String(), errOut.String(), code
+	}
+	base := []string{
+		"run", "host-execute", runID,
+		"--executable", executable, "--arg", "version",
+		"--operation-key", "host-execute-0001",
+		"--confirm-danger-full-access",
+		"--confirm-non-sandboxed-host-execution",
+		"--enable-permission-control", "--enable-danger-full-access",
+	}
+	withoutConfirmation := append([]string(nil), base...)
+	withoutConfirmation = withoutConfirmation[:len(withoutConfirmation)-3]
+	if _, stderr, code := execute(withoutConfirmation...); code != 2 ||
+		!strings.Contains(stderr,
+			"--confirm-non-sandboxed-host-execution") ||
+		stub.calls != 0 {
+		t.Fatalf("missing confirmation stderr=%q code=%d calls=%d",
+			stderr, code, stub.calls)
+	}
+	withoutGate := append([]string(nil), base[:len(base)-1]...)
+	if _, stderr, code := execute(withoutGate...); code != 5 ||
+		!strings.Contains(stderr, "required permission gate") ||
+		stub.calls != 0 {
+		t.Fatalf("missing runtime gate stderr=%q code=%d calls=%d",
+			stderr, code, stub.calls)
+	}
+
+	first, stderr, code := execute(base...)
+	if code != 0 ||
+		!strings.Contains(stderr, "NON-SANDBOXED HOST EXECUTION") ||
+		stub.calls != 1 ||
+		!strings.Contains(first, "non_sandboxed: true") ||
+		!strings.Contains(first, "automatic_retry_allowed: false") ||
+		!strings.Contains(first, "environment_values_persisted: false") ||
+		!strings.Contains(first, "raw_output_available: true") ||
+		!strings.Contains(first, "replayed: false") ||
+		!strings.Contains(first,
+			"stdout_begin\nhost command test output\nstdout_end") {
+		t.Fatalf("first execution output=%q stderr=%q code=%d calls=%d",
+			first, stderr, code, stub.calls)
+	}
+	if !stub.request.ExplicitlyConfirmed ||
+		stub.request.Permission.Mode !=
+			domain.RunExecutionPermissionFullAccess ||
+		stub.request.Intent.AutomaticRetryAllowed ||
+		len(stub.request.Environment) == 0 {
+		t.Fatalf("unexpected host request: %+v", stub.request)
+	}
+	replayed, stderr, code := execute(base...)
+	if code != 0 ||
+		!strings.Contains(stderr, "NON-SANDBOXED HOST EXECUTION") ||
+		stub.calls != 1 ||
+		!strings.Contains(replayed, "raw_output_available: false") ||
+		!strings.Contains(replayed, "replayed: true") ||
+		strings.Contains(replayed, "host command test output") {
+		t.Fatalf("replay output=%q stderr=%q code=%d calls=%d",
+			replayed, stderr, code, stub.calls)
+	}
+	conflict := append([]string(nil), base...)
+	conflict = append(conflict, "--arg", "different")
+	if _, stderr, code := execute(conflict...); code == 0 ||
+		!strings.Contains(stderr, "different intent") ||
+		stub.calls != 1 {
+		t.Fatalf("conflict stderr=%q code=%d calls=%d",
+			stderr, code, stub.calls)
+	}
+	denied := append([]string(nil), base...)
+	for index := range denied {
+		if denied[index] == "host-execute-0001" {
+			denied[index] = "host-execute-policy-denied-0001"
+		}
+	}
+	denied = append(denied, "--arg", "masscan", "--arg", "0.0.0.0/0")
+	if _, stderr, code := execute(denied...); code != 5 ||
+		!strings.Contains(stderr, "safety pattern") || stub.calls != 1 {
+		t.Fatalf("policy denial stderr=%q code=%d calls=%d",
+			stderr, code, stub.calls)
 	}
 }
 

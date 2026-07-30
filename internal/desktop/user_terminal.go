@@ -10,6 +10,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/executionauth"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/store"
 	terminalruntime "cyberagent-workbench/internal/terminal"
@@ -106,18 +107,26 @@ type DesktopTerminalWriteResult struct {
 // desktopUserTerminalService keeps all path and durable state lookups in Go.
 // Its Wails projection accepts only Run/session IDs and user keystrokes.
 type desktopUserTerminalService struct {
-	store   *store.SQLiteStore
-	manager *terminalruntime.Manager
+	store        *store.SQLiteStore
+	manager      *terminalruntime.Manager
+	capabilities domain.ExecutionPermissionRuntimeCapabilities
 }
 
 func newDesktopUserTerminalService(stateStore *store.SQLiteStore,
 	manager *terminalruntime.Manager,
+	capabilities domain.ExecutionPermissionRuntimeCapabilities,
 ) (*desktopUserTerminalService, error) {
 	if stateStore == nil || manager == nil || !manager.Available() {
 		return nil, apperror.New(apperror.CodeFailedPrecondition,
 			"desktop user terminal runtime is unavailable")
 	}
-	return &desktopUserTerminalService{store: stateStore, manager: manager}, nil
+	if err := capabilities.Validate(); err != nil {
+		return nil, apperror.Wrap(apperror.CodeFailedPrecondition,
+			"desktop terminal permission capabilities are invalid", err)
+	}
+	return &desktopUserTerminalService{
+		store: stateStore, manager: manager, capabilities: capabilities,
+	}, nil
 }
 
 func (s *desktopUserTerminalService) Start(ctx context.Context,
@@ -169,24 +178,51 @@ func (s *desktopUserTerminalService) Start(ctx context.Context,
 		return DesktopTerminalSession{}, classifyTerminalLookup(err,
 			"desktop terminal interaction lookup failed")
 	}
-	if mode.Surface != domain.ExecutionSurfaceCode ||
-		interaction.Mode != domain.RunExecutionInteractionDebug {
-		return DesktopTerminalSession{}, apperror.New(
+	permission, err := s.store.GetRunExecutionPermission(ctx, run.ID)
+	if err != nil {
+		return DesktopTerminalSession{}, classifyTerminalLookup(err,
+			"desktop terminal permission lookup failed")
+	}
+	decision, err := executionauth.EvaluateExecutionPermission(
+		permission, s.capabilities, executionauth.PermissionRequest{
+			Kind:              executionauth.PermissionOperationPersistentTerminal,
+			HostFilesystem:    true,
+			Network:           true,
+			BackgroundProcess: true,
+		})
+	if err != nil {
+		return DesktopTerminalSession{}, apperror.Wrap(
 			apperror.CodeFailedPrecondition,
-			"desktop user terminal requires the Code Debug interaction mode")
+			"desktop terminal permission request is invalid", err)
+	}
+	if mode.Surface != domain.ExecutionSurfaceCode ||
+		profile.Profile != domain.RunExecutionProfileLocal ||
+		interaction.Mode != domain.RunExecutionInteractionDebug ||
+		interaction.WorkspaceTrust != domain.WorkspaceTrustTrusted ||
+		permission.Mode != domain.RunExecutionPermissionDebug ||
+		!decision.Allowed || !decision.PersistentTerminal ||
+		!decision.BackgroundProcess {
+		return DesktopTerminalSession{}, apperror.New(
+			apperror.CodePolicyDenied,
+			"desktop user terminal requires Code/Local/Debug and the current debug maximum-access process gate")
 	}
 	root := filepath.Clean(workspace.RootPath)
 	session, err := s.manager.Start(ctx, terminalruntime.StartRequest{
 		ID: idgen.New("user-terminal"),
 		Scope: terminalruntime.SessionScope{
-			WorkspaceID:           mission.WorkspaceID,
-			RunID:                 run.ID,
-			InteractionSnapshotID: interaction.ID,
-			InteractionRevision:   interaction.Revision,
-			Mode:                  interaction.Mode,
+			WorkspaceID:              mission.WorkspaceID,
+			RunID:                    run.ID,
+			InteractionSnapshotID:    interaction.ID,
+			InteractionRevision:      interaction.Revision,
+			ExecutionProfileRevision: profile.Revision,
+			PermissionSnapshotID:     permission.ID,
+			PermissionRevision:       permission.Revision,
+			PermissionMode:           permission.Mode,
+			Mode:                     interaction.Mode,
 		},
 		WorkspaceRoot: root, Interaction: interaction,
-		CurrentProfile: profile, Columns: request.Columns, Rows: request.Rows,
+		CurrentProfile: profile, CurrentPermission: permission,
+		Columns: request.Columns, Rows: request.Rows,
 		RequestedBy: "desktop_operator", OperatorConfirmed: true,
 		ReplaceExisting: request.ReplaceExisting,
 	})
@@ -303,10 +339,13 @@ func (s *desktopUserTerminalService) reconcileBindings(ctx context.Context) int 
 		mode, modeErr := s.store.GetRunMode(ctx, run.ID)
 		profile, profileErr := s.store.GetRunExecutionProfile(ctx, run.ID)
 		interaction, interactionErr := s.store.GetRunExecutionInteraction(ctx, run.ID)
-		if modeErr != nil || profileErr != nil || interactionErr != nil {
+		permission, permissionErr := s.store.GetRunExecutionPermission(ctx, run.ID)
+		if modeErr != nil || profileErr != nil || interactionErr != nil ||
+			permissionErr != nil {
 			if errors.Is(modeErr, sql.ErrNoRows) ||
 				errors.Is(profileErr, sql.ErrNoRows) ||
-				errors.Is(interactionErr, sql.ErrNoRows) {
+				errors.Is(interactionErr, sql.ErrNoRows) ||
+				errors.Is(permissionErr, sql.ErrNoRows) {
 				_ = s.manager.CloseForBindingInvalidation(session.ID)
 				closed++
 			}
@@ -316,6 +355,12 @@ func (s *desktopUserTerminalService) reconcileBindings(ctx context.Context) int 
 			profile.Profile != domain.RunExecutionProfileLocal ||
 			interaction.ID != session.Scope.InteractionSnapshotID ||
 			interaction.Revision != session.Scope.InteractionRevision ||
+			profile.Revision != session.Scope.ExecutionProfileRevision ||
+			permission.ID != session.Scope.PermissionSnapshotID ||
+			permission.Revision != session.Scope.PermissionRevision ||
+			permission.Mode != session.Scope.PermissionMode ||
+			permission.Mode != domain.RunExecutionPermissionDebug ||
+			!s.capabilities.Allows(permission.Mode) ||
 			interaction.Mode != session.Scope.Mode ||
 			interaction.Mode != domain.RunExecutionInteractionDebug ||
 			interaction.ExecutionProfileRevision != profile.Revision {

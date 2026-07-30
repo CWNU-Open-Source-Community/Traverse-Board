@@ -16,10 +16,14 @@ func TestTerminalInputLeaseIsExactScopedTimeBoundAndProcessLocal(t *testing.T) {
 		bytes.NewReader(bytes.Repeat([]byte{0x42}, terminalLeaseTokenBytes)))
 	scope := TerminalInputScope{
 		WorkspaceID: "workspace-debug", RunID: "run-debug",
-		TerminalSessionID:     "terminal-debug",
-		InteractionSnapshotID: "interaction-debug",
-		InteractionRevision:   2,
-		Mode:                  domain.RunExecutionInteractionDebug,
+		TerminalSessionID:        "terminal-debug",
+		InteractionSnapshotID:    "interaction-debug",
+		InteractionRevision:      2,
+		ExecutionProfileRevision: 2,
+		PermissionSnapshotID:     "permission-debug",
+		PermissionRevision:       2,
+		PermissionMode:           domain.RunExecutionPermissionDebug,
+		Mode:                     domain.RunExecutionInteractionDebug,
 	}
 	issued, err := broker.Issue(IssueTerminalInputLeaseRequest{
 		Scope: scope, RequestedBy: "desktop_operator",
@@ -46,6 +50,11 @@ func TestTerminalInputLeaseIsExactScopedTimeBoundAndProcessLocal(t *testing.T) {
 	if _, err := broker.Authorize(issued.Token, stale); !errors.Is(err, ErrLeaseDenied) {
 		t.Fatalf("stale interaction token error=%v", err)
 	}
+	stale = scope
+	stale.PermissionRevision++
+	if _, err := broker.Authorize(issued.Token, stale); !errors.Is(err, ErrLeaseDenied) {
+		t.Fatalf("stale permission token error=%v", err)
+	}
 	now = now.Add(time.Minute)
 	if _, err := broker.Authorize(issued.Token, scope); !errors.Is(err, ErrLeaseExpired) {
 		t.Fatalf("expired token error=%v", err)
@@ -63,10 +72,14 @@ func TestTerminalInputLeaseRejectsControlledModeAndSelfAuthorization(t *testing.
 	broker := newTerminalInputBroker(func() time.Time { return now }, random)
 	controlled := TerminalInputScope{
 		WorkspaceID: "workspace-code", RunID: "run-code",
-		TerminalSessionID:     "terminal-code",
-		InteractionSnapshotID: "interaction-code",
-		InteractionRevision:   2,
-		Mode:                  domain.RunExecutionInteractionControlled,
+		TerminalSessionID:        "terminal-code",
+		InteractionSnapshotID:    "interaction-code",
+		InteractionRevision:      2,
+		ExecutionProfileRevision: 2,
+		PermissionSnapshotID:     "permission-code",
+		PermissionRevision:       2,
+		PermissionMode:           domain.RunExecutionPermissionDebug,
+		Mode:                     domain.RunExecutionInteractionControlled,
 	}
 	if _, err := broker.Issue(IssueTerminalInputLeaseRequest{
 		Scope: controlled, RequestedBy: "desktop_operator",
@@ -94,10 +107,14 @@ func TestTerminalInputLeaseRevocationFansOutByWorkspace(t *testing.T) {
 	broker := newTerminalInputBroker(func() time.Time { return now }, random)
 	firstScope := TerminalInputScope{
 		WorkspaceID: "workspace-one", RunID: "run-one",
-		TerminalSessionID:     "terminal-one",
-		InteractionSnapshotID: "interaction-one",
-		InteractionRevision:   2,
-		Mode:                  domain.RunExecutionInteractionDebug,
+		TerminalSessionID:        "terminal-one",
+		InteractionSnapshotID:    "interaction-one",
+		InteractionRevision:      2,
+		ExecutionProfileRevision: 2,
+		PermissionSnapshotID:     "permission-one",
+		PermissionRevision:       2,
+		PermissionMode:           domain.RunExecutionPermissionDebug,
+		Mode:                     domain.RunExecutionInteractionDebug,
 	}
 	first, err := broker.Issue(IssueTerminalInputLeaseRequest{
 		Scope: firstScope, RequestedBy: "desktop_operator",
@@ -108,10 +125,14 @@ func TestTerminalInputLeaseRevocationFansOutByWorkspace(t *testing.T) {
 	}
 	secondScope := TerminalInputScope{
 		WorkspaceID: "workspace-two", RunID: "run-two",
-		TerminalSessionID:     "terminal-two",
-		InteractionSnapshotID: "interaction-two",
-		InteractionRevision:   3,
-		Mode:                  domain.RunExecutionInteractionCyber,
+		TerminalSessionID:        "terminal-two",
+		InteractionSnapshotID:    "interaction-two",
+		InteractionRevision:      3,
+		ExecutionProfileRevision: 3,
+		PermissionSnapshotID:     "permission-two",
+		PermissionRevision:       3,
+		PermissionMode:           domain.RunExecutionPermissionDebug,
+		Mode:                     domain.RunExecutionInteractionCyber,
 	}
 	second, err := broker.Issue(IssueTerminalInputLeaseRequest{
 		Scope: secondScope, RequestedBy: "desktop_operator",
@@ -155,9 +176,13 @@ func TestTerminalInputLeaseRevocationReleasesActiveCapacity(t *testing.T) {
 				RunID:       "run-capacity",
 				TerminalSessionID: "terminal-" + string(rune('a'+index%26)) +
 					"-" + time.Duration(index).String(),
-				InteractionSnapshotID: "interaction-capacity",
-				InteractionRevision:   2,
-				Mode:                  domain.RunExecutionInteractionDebug,
+				InteractionSnapshotID:    "interaction-capacity",
+				InteractionRevision:      2,
+				ExecutionProfileRevision: 2,
+				PermissionSnapshotID:     "permission-capacity",
+				PermissionRevision:       2,
+				PermissionMode:           domain.RunExecutionPermissionDebug,
+				Mode:                     domain.RunExecutionInteractionDebug,
 			},
 			RequestedBy: "desktop_operator", OperatorConfirmed: true,
 		})
@@ -170,12 +195,16 @@ func TestTerminalInputLeaseRevocationReleasesActiveCapacity(t *testing.T) {
 	}
 	if _, err := broker.Issue(IssueTerminalInputLeaseRequest{
 		Scope: TerminalInputScope{
-			WorkspaceID:           "workspace-capacity",
-			RunID:                 "run-capacity",
-			TerminalSessionID:     "terminal-after-revoke",
-			InteractionSnapshotID: "interaction-capacity-next",
-			InteractionRevision:   3,
-			Mode:                  domain.RunExecutionInteractionDebug,
+			WorkspaceID:              "workspace-capacity",
+			RunID:                    "run-capacity",
+			TerminalSessionID:        "terminal-after-revoke",
+			InteractionSnapshotID:    "interaction-capacity-next",
+			InteractionRevision:      3,
+			ExecutionProfileRevision: 3,
+			PermissionSnapshotID:     "permission-capacity-next",
+			PermissionRevision:       3,
+			PermissionMode:           domain.RunExecutionPermissionDebug,
+			Mode:                     domain.RunExecutionInteractionDebug,
 		},
 		RequestedBy: "desktop_operator", OperatorConfirmed: true,
 	}); err != nil {
@@ -196,10 +225,14 @@ func TestTerminalInputLeaseRevokesOnlyExactTerminal(t *testing.T) {
 	broker := newTerminalInputBroker(func() time.Time { return now }, random)
 	firstScope := TerminalInputScope{
 		WorkspaceID: "workspace-terminal", RunID: "run-terminal-one",
-		TerminalSessionID:     "terminal-one",
-		InteractionSnapshotID: "interaction-terminal-one",
-		InteractionRevision:   2,
-		Mode:                  domain.RunExecutionInteractionDebug,
+		TerminalSessionID:        "terminal-one",
+		InteractionSnapshotID:    "interaction-terminal-one",
+		InteractionRevision:      2,
+		ExecutionProfileRevision: 2,
+		PermissionSnapshotID:     "permission-terminal-one",
+		PermissionRevision:       2,
+		PermissionMode:           domain.RunExecutionPermissionDebug,
+		Mode:                     domain.RunExecutionInteractionDebug,
 	}
 	first, err := broker.Issue(IssueTerminalInputLeaseRequest{
 		Scope: firstScope, RequestedBy: "desktop_operator",
@@ -212,6 +245,7 @@ func TestTerminalInputLeaseRevokesOnlyExactTerminal(t *testing.T) {
 	secondScope.RunID = "run-terminal-two"
 	secondScope.TerminalSessionID = "terminal-two"
 	secondScope.InteractionSnapshotID = "interaction-terminal-two"
+	secondScope.PermissionSnapshotID = "permission-terminal-two"
 	second, err := broker.Issue(IssueTerminalInputLeaseRequest{
 		Scope: secondScope, RequestedBy: "desktop_operator",
 		OperatorConfirmed: true,

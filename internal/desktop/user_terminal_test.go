@@ -112,7 +112,11 @@ func TestDesktopUserTerminalRequiresCurrentDebugBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer manager.Shutdown()
-	service, err := newDesktopUserTerminalService(state, manager)
+	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+		DebugMaximumAccessEnabled: true,
+	}
+	service, err := newDesktopUserTerminalService(state, manager, capabilities)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,6 +145,21 @@ func TestDesktopUserTerminalRequiresCurrentDebugBinding(t *testing.T) {
 		}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := service.Start(ctx, start); err == nil {
+		t.Fatal("debug interaction without debug permission started a user terminal")
+	}
+	permissionService := application.NewRunExecutionPermissionService(
+		state, capabilities)
+	if _, err := permissionService.Change(ctx,
+		application.ChangeRunExecutionPermissionRequest{
+			RunID: run.ID, Mode: "debug",
+			OperationKey:       "desktop-terminal-permission-0001",
+			RequestedBy:        "test_operator",
+			Reason:             "enable user-owned debug terminal",
+			ConfirmDebugAccess: true,
+		}); err != nil {
+		t.Fatal(err)
+	}
 	session, err := service.Start(ctx, start)
 	if err != nil {
 		t.Fatal(err)
@@ -164,6 +183,34 @@ func TestDesktopUserTerminalRequiresCurrentDebugBinding(t *testing.T) {
 	backend.process.mu.Unlock()
 	if input != "go test\r" {
 		t.Fatalf("terminal input=%q", input)
+	}
+	if _, err := permissionService.Change(ctx,
+		application.ChangeRunExecutionPermissionRequest{
+			RunID: run.ID, Mode: "conservative",
+			OperationKey: "desktop-terminal-permission-0002",
+			RequestedBy:  "test_operator", Reason: "leave maximum access",
+		}); err != nil {
+		t.Fatal(err)
+	}
+	if count := service.reconcileBindings(ctx); count != 1 {
+		t.Fatalf("permission reconciliation closed %d sessions", count)
+	}
+	if _, err := service.Get(ctx, session.SessionID); err == nil {
+		t.Fatal("terminal remained available after its permission binding changed")
+	}
+	if _, err := permissionService.Change(ctx,
+		application.ChangeRunExecutionPermissionRequest{
+			RunID: run.ID, Mode: "debug",
+			OperationKey:       "desktop-terminal-permission-0003",
+			RequestedBy:        "test_operator",
+			Reason:             "restore maximum access",
+			ConfirmDebugAccess: true,
+		}); err != nil {
+		t.Fatal(err)
+	}
+	session, err = service.Start(ctx, start)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if _, err := application.NewRunExecutionInteractionService(state).Change(ctx,
 		application.ChangeRunExecutionInteractionRequest{

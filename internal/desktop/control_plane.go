@@ -35,6 +35,7 @@ type ControlPlane struct {
 	closeErr         error
 	skillInstaller   *application.SkillPackageRegistryService
 	userTerminal     *desktopUserTerminalService
+	debugAgentInput  application.DebugTerminalAgentInputController
 	terminalManager  *terminalruntime.Manager
 	boundaryMonitor  *terminalruntime.HostBoundaryMonitor
 	terminalWorkerMu sync.Mutex
@@ -158,6 +159,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	}
 	var terminalManager *terminalruntime.Manager
 	var userTerminal *desktopUserTerminalService
+	var debugAgentInput application.DebugTerminalAgentInputController
 	var boundaryMonitor *terminalruntime.HostBoundaryMonitor
 	if config.UserTerminalEnabled {
 		terminalBroker := executionauth.NewTerminalInputBroker()
@@ -167,7 +169,22 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 			return nil, err
 		}
 		userTerminal, err = newDesktopUserTerminalService(stateStore,
-			terminalManager)
+			terminalManager, config.ExecutionPermissionCapabilities)
+		if err != nil {
+			_ = terminalManager.Shutdown()
+			_ = stateStore.Close()
+			return nil, err
+		}
+		agentInputBridge, bridgeErr := terminalruntime.NewAgentInputBridge(
+			terminalManager, terminalBroker)
+		if bridgeErr != nil {
+			_ = terminalManager.Shutdown()
+			_ = stateStore.Close()
+			return nil, bridgeErr
+		}
+		debugAgentInput, err = application.NewDebugTerminalAgentInputService(
+			stateStore, agentInputBridge, checker,
+			config.ExecutionPermissionCapabilities, true)
 		if err != nil {
 			_ = terminalManager.Shutdown()
 			_ = stateStore.Close()
@@ -243,6 +260,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	}
 	return &ControlPlane{stateStore: stateStore, handler: api.Handler(),
 		skillInstaller: skillInstaller, userTerminal: userTerminal,
+		debugAgentInput: debugAgentInput,
 		terminalManager: terminalManager, boundaryMonitor: boundaryMonitor,
 		wakeWorker: wakeWorker}, nil
 }
@@ -266,6 +284,16 @@ func (c *ControlPlane) UserTerminalController() UserTerminalController {
 		return nil
 	}
 	return c.userTerminal
+}
+
+// DebugTerminalAgentInputController is a Go-only orchestration boundary. It is
+// intentionally absent from the Wails bridge and HTTP API, so renderer code,
+// repository content, Skills, and models cannot mint terminal-input leases.
+func (c *ControlPlane) DebugTerminalAgentInputController() application.DebugTerminalAgentInputController {
+	if c == nil {
+		return nil
+	}
+	return c.debugAgentInput
 }
 
 // ResolveWorkspace keeps the registered root inside the Go control plane. The
@@ -360,6 +388,9 @@ func (c *ControlPlane) runTerminalBindingWorker(ctx context.Context,
 	if c.userTerminal != nil {
 		c.userTerminal.reconcileBindings(ctx)
 	}
+	if c.debugAgentInput != nil {
+		c.debugAgentInput.Reconcile(ctx)
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -367,6 +398,9 @@ func (c *ControlPlane) runTerminalBindingWorker(ctx context.Context,
 		case <-ticker.C:
 			if c.userTerminal != nil {
 				c.userTerminal.reconcileBindings(ctx)
+			}
+			if c.debugAgentInput != nil {
+				c.debugAgentInput.Reconcile(ctx)
 			}
 		}
 	}
@@ -399,6 +433,12 @@ func (c *ControlPlane) Close() error {
 		}
 		if terminalDone != nil {
 			<-terminalDone
+		}
+		if c.debugAgentInput != nil {
+			shutdownContext, shutdownCancel := context.WithTimeout(
+				context.Background(), 2*time.Second)
+			c.debugAgentInput.Shutdown(shutdownContext)
+			shutdownCancel()
 		}
 		if c.stateStore == nil {
 			c.closeErr = errors.New("desktop control plane store is unavailable")

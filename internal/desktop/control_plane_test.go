@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -56,6 +57,47 @@ func TestControlPlaneResolvesOnlyRegisteredWorkspaceRoots(t *testing.T) {
 	}
 	if _, err := plane.ResolveWorkspace(t.Context(), "bad workspace"); apperror.CodeOf(err) != apperror.CodeInvalidArgument {
 		t.Fatalf("invalid Workspace error = %v, code = %s", err, apperror.CodeOf(err))
+	}
+}
+
+func TestControlPlaneKeepsDebugAgentInputInsideGoControlPlane(t *testing.T) {
+	disabled, err := OpenControlPlane(ControlPlaneConfig{
+		DatabasePath: filepath.Join(t.TempDir(), "debug-agent-disabled.db"),
+		ReadToken:    desktopControlPlaneTestToken,
+		AppVersion:   "desktop-test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if disabled.DebugTerminalAgentInputController() != nil {
+		t.Fatal("disabled Desktop process exposed a debug Agent-input controller")
+	}
+	if err := disabled.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" {
+		return
+	}
+
+	enabled, err := OpenControlPlane(ControlPlaneConfig{
+		DatabasePath:                      filepath.Join(t.TempDir(), "debug-agent-enabled.db"),
+		ReadToken:                         desktopControlPlaneTestToken,
+		ControlToken:                      desktopControlPlaneControlToken,
+		UserTerminalEnabled:               true,
+		ExecutionPermissionControlEnabled: true,
+		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
+			OperatorApprovalEnabled:   true,
+			DangerFullAccessEnabled:   true,
+			DebugMaximumAccessEnabled: true,
+		},
+		AppVersion: "desktop-test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer enabled.Close()
+	if enabled.DebugTerminalAgentInputController() == nil {
+		t.Fatal("debug-enabled Go control plane did not retain its internal controller")
 	}
 }
 

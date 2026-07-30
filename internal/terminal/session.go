@@ -46,18 +46,26 @@ const (
 )
 
 type SessionScope struct {
-	WorkspaceID           string
-	RunID                 string
-	InteractionSnapshotID string
-	InteractionRevision   int64
-	Mode                  domain.RunExecutionInteractionMode
+	WorkspaceID              string
+	RunID                    string
+	InteractionSnapshotID    string
+	InteractionRevision      int64
+	ExecutionProfileRevision int64
+	PermissionSnapshotID     string
+	PermissionRevision       int64
+	PermissionMode           domain.RunExecutionPermissionMode
+	Mode                     domain.RunExecutionInteractionMode
 }
 
 func (s SessionScope) Validate() error {
 	if !domain.ValidAgentID(s.WorkspaceID) ||
 		!domain.ValidAgentID(s.RunID) ||
 		!domain.ValidAgentID(s.InteractionSnapshotID) ||
-		s.InteractionRevision <= 0 {
+		!domain.ValidAgentID(s.PermissionSnapshotID) ||
+		s.InteractionRevision <= 0 ||
+		s.ExecutionProfileRevision <= 0 ||
+		s.PermissionRevision <= 0 ||
+		s.PermissionMode != domain.RunExecutionPermissionDebug {
 		return ErrTerminalBoundary
 	}
 	switch s.Mode {
@@ -75,6 +83,7 @@ type StartRequest struct {
 	WorkspaceRoot     string
 	Interaction       domain.RunExecutionInteractionSnapshot
 	CurrentProfile    domain.RunExecutionProfileSnapshot
+	CurrentPermission domain.RunExecutionPermissionSnapshot
 	Columns           int
 	Rows              int
 	RequestedBy       string
@@ -673,12 +682,17 @@ func validateStartRequest(request StartRequest) error {
 		request.Columns < MinColumns || request.Columns > MaxColumns ||
 		request.Rows < MinRows || request.Rows > MaxRows ||
 		request.Interaction.Validate() != nil ||
-		request.CurrentProfile.Validate() != nil {
+		request.CurrentProfile.Validate() != nil ||
+		request.CurrentPermission.Validate() != nil {
 		return ErrTerminalBoundary
 	}
 	if request.Scope.RunID != request.Interaction.RunID ||
 		request.Scope.InteractionSnapshotID != request.Interaction.ID ||
 		request.Scope.InteractionRevision != request.Interaction.Revision ||
+		request.Scope.ExecutionProfileRevision != request.CurrentProfile.Revision ||
+		request.Scope.PermissionSnapshotID != request.CurrentPermission.ID ||
+		request.Scope.PermissionRevision != request.CurrentPermission.Revision ||
+		request.Scope.PermissionMode != request.CurrentPermission.Mode ||
 		request.Scope.Mode != request.Interaction.Mode ||
 		request.Interaction.WorkspaceTrust != domain.WorkspaceTrustTrusted ||
 		request.Interaction.AgentInputDefault ||
@@ -688,7 +702,13 @@ func validateStartRequest(request StartRequest) error {
 		request.CurrentProfile.RunID != request.Interaction.RunID ||
 		request.CurrentProfile.MissionID != request.Interaction.MissionID ||
 		request.CurrentProfile.Revision !=
-			request.Interaction.ExecutionProfileRevision {
+			request.Interaction.ExecutionProfileRevision ||
+		request.CurrentPermission.RunID != request.Interaction.RunID ||
+		request.CurrentPermission.MissionID != request.Interaction.MissionID ||
+		request.CurrentPermission.Mode != domain.RunExecutionPermissionDebug ||
+		!request.CurrentPermission.PersistentTerminal ||
+		!request.CurrentPermission.BackgroundProcess ||
+		!request.CurrentPermission.AgentTerminalInput {
 		return ErrTerminalBoundary
 	}
 	switch request.Scope.Mode {

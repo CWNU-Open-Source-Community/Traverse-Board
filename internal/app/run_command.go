@@ -2,9 +2,15 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +21,7 @@ import (
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/executionauth"
 	"cyberagent-workbench/internal/idgen"
+	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/store"
@@ -25,6 +32,12 @@ type controlledCommandExecutor interface {
 	Available() bool
 	Execute(context.Context,
 		runner.ControlledExecutionRequest) (runner.ControlledExecutionResult, error)
+}
+
+type hostCommandExecutor interface {
+	Available() bool
+	Execute(context.Context,
+		runner.HostExecutionRequest) (runner.HostExecutionResult, error)
 }
 
 func (a *App) runCommand(ctx context.Context, args []string) error {
@@ -58,6 +71,8 @@ func (a *App) runCommand(ctx context.Context, args []string) error {
 		return a.runCommandPlan(ctx, args[1:])
 	case "command-execute":
 		return a.runCommandExecute(ctx, args[1:])
+	case "host-execute":
+		return a.runHostExecute(ctx, args[1:])
 	case "command-proposal":
 		return a.runCommandProposal(ctx, args[1:])
 	case "events":
@@ -1964,6 +1979,186 @@ func (a *App) runCommandExecute(ctx context.Context, args []string) error {
 	return executeErr
 }
 
+func (a *App) runHostExecute(ctx context.Context, args []string) error {
+	fs := newFlagSet("run host-execute", a.errOut)
+	executable := fs.String("executable", "",
+		"absolute path to the exact host executable")
+	var commandArgs repeatedString
+	fs.Var(&commandArgs, "arg", "one exact argv value; repeat for multiple values")
+	workingDirectory := fs.String("cwd", "",
+		"absolute working directory; defaults to the Workspace root")
+	timeout := fs.Duration("timeout", 2*time.Minute,
+		"one-shot host command timeout")
+	operationKey := fs.String("operation-key", "",
+		"stable operator-owned execution operation key")
+	operator := fs.String("operator", "cli_operator", "operator identity")
+	purpose := fs.String("purpose", "operator-requested one-shot host command",
+		"bounded non-secret execution purpose")
+	confirmFullAccess := fs.Bool("confirm-danger-full-access", false,
+		"confirm danger-full-access for this exact command")
+	confirmHostExecution := fs.Bool(
+		"confirm-non-sandboxed-host-execution", false,
+		"confirm current-user execution without an OS filesystem or network sandbox")
+	enablePermissionControl := fs.Bool("enable-permission-control", false,
+		"enable elevated permission evaluation for this process")
+	enableFullAccess := fs.Bool("enable-danger-full-access", false,
+		"enable danger-full-access evaluation for this process")
+	if err := fs.Parse(reorderFlags(args, map[string]bool{
+		"executable": true, "arg": true, "cwd": true, "timeout": true,
+		"operation-key": true, "operator": true, "purpose": true,
+		"confirm-danger-full-access":           false,
+		"confirm-non-sandboxed-host-execution": false,
+		"enable-permission-control":            false,
+		"enable-danger-full-access":            false,
+	})); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 ||
+		!domain.ValidAgentID(strings.TrimSpace(*operationKey)) ||
+		!domain.ValidAgentID(strings.TrimSpace(*operator)) ||
+		strings.TrimSpace(*executable) == "" ||
+		!*confirmFullAccess || !*confirmHostExecution {
+		return apperror.New(apperror.CodeInvalidArgument,
+			"usage: cyberagent run host-execute <run-id> --executable <absolute-path> [--arg <value> ...] [--cwd <absolute-path>] --operation-key <key> --confirm-danger-full-access --confirm-non-sandboxed-host-execution --enable-permission-control --enable-danger-full-access [--timeout <duration>] [--operator <id>] [--purpose <text>]")
+	}
+	runtimeCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled: *enablePermissionControl,
+		DangerFullAccessEnabled: *enableFullAccess,
+	}
+	if err := runtimeCapabilities.Validate(); err != nil {
+		return apperror.Wrap(apperror.CodeInvalidArgument, err.Error(), err)
+	}
+	runRecord, mission, workspaceRecord, interaction, profile, permission, mode, err :=
+		a.loadControlledCommandBindings(ctx, fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	permissionDecision, err := executionauth.EvaluateExecutionPermission(
+		permission, runtimeCapabilities, executionauth.PermissionRequest{
+			Kind:           executionauth.PermissionOperationStatelessCommand,
+			HostFilesystem: true,
+			Network:        true,
+		})
+	if err != nil {
+		return err
+	}
+	if !permissionDecision.Allowed ||
+		!permissionDecision.HostFilesystem || !permissionDecision.Network {
+		return apperror.New(apperror.CodePolicyDenied,
+			permissionDecision.Reason)
+	}
+
+	executablePath, executableDigest, err :=
+		hashHostExecutable(strings.TrimSpace(*executable))
+	if err != nil {
+		return err
+	}
+	cwd := strings.TrimSpace(*workingDirectory)
+	if cwd == "" {
+		cwd = workspaceRecord.RootPath
+	}
+	cwd, err = filepath.Abs(cwd)
+	if err != nil {
+		return apperror.Wrap(apperror.CodeInvalidArgument,
+			"host working directory is invalid", err)
+	}
+	cwd = filepath.Clean(cwd)
+	environment := safeHostEnvironment()
+	spec, err := runner.NewHostCommandSpec(runner.HostCommandSpecRequest{
+		ExecutablePath: executablePath, ExecutableSHA256: executableDigest,
+		Argv:             append([]string(nil), commandArgs...),
+		WorkingDirectory: cwd, Environment: environment,
+		NetworkIntent:       runner.HostNetworkIntentHost,
+		TimeoutMilliseconds: timeout.Milliseconds(),
+		Purpose:             strings.TrimSpace(*purpose),
+	})
+	if err != nil {
+		return apperror.Wrap(apperror.CodeInvalidArgument,
+			"host command envelope is invalid", err)
+	}
+	policyText := strings.Join(append(
+		[]string{spec.ExecutablePath}, spec.Argv...), " ")
+	if decision := a.checker.CheckText("tool_run.shell", policyText); !decision.Allowed {
+		return apperror.New(apperror.CodePolicyDenied, decision.Reason)
+	}
+
+	operationDigest := runmutation.Fingerprint(
+		"host_command_execution_operation.v1", runRecord.ID,
+		strings.TrimSpace(*operationKey))
+	intent, err := runner.NewHostExecutionIntent(
+		runner.HostExecutionIntentRequest{
+			OperationKeyDigest: operationDigest,
+			RunID:              runRecord.ID,
+			MissionID:          mission.ID,
+			SessionID:          runRecord.SessionID,
+			WorkspaceID:        mission.WorkspaceID,
+			Interaction:        interaction,
+			Profile:            profile,
+			Permission:         permission,
+			Spec:               spec,
+			RequestedBy:        strings.TrimSpace(*operator),
+			CreatedAt:          time.Now().UTC(),
+		})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(a.errOut,
+		"WARNING: NON-SANDBOXED HOST EXECUTION uses the current Windows user, host filesystem, and host network. The exact intent is durable and automatic retry is disabled.")
+	replayed, err := a.store.PrepareHostExecutionIntent(ctx, intent)
+	if err != nil {
+		return err
+	}
+	if replayed {
+		receipt, found, err := a.store.GetHostExecutionReceipt(
+			ctx, intent.RequestID)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return apperror.New(apperror.CodeFailedPrecondition,
+				"host command execution has a durable intent without a receipt; outcome is uncertain and automatic retry is disabled")
+		}
+		return writeHostExecutionReceipt(a.out, receipt, true, false)
+	}
+	executor, err := a.hostCommandExecutor()
+	if err != nil {
+		return err
+	}
+	if !executor.Available() {
+		return runner.ErrHostCommandPlatform
+	}
+	result, executeErr := executor.Execute(ctx, runner.HostExecutionRequest{
+		Intent: intent, Environment: environment,
+		Interaction: interaction, CurrentProfile: profile,
+		Permission: permission, Runtime: runtimeCapabilities,
+		CurrentSurface:      mode.Surface,
+		RequestedBy:         strings.TrimSpace(*operator),
+		ExplicitlyConfirmed: true,
+	})
+	if validationErr := result.Validate(); validationErr != nil {
+		if executeErr != nil {
+			return errors.Join(executeErr, validationErr)
+		}
+		return validationErr
+	}
+	receipt, _, recordErr := a.store.RecordHostExecutionResult(ctx, result)
+	if recordErr != nil {
+		return recordErr
+	}
+	if err := writeHostExecutionReceipt(a.out, receipt, false, true); err != nil {
+		return err
+	}
+	if err := writeTransientControlledOutput(
+		a.out, "stdout", result.Stdout.Data); err != nil {
+		return err
+	}
+	if err := writeTransientControlledOutput(
+		a.out, "stderr", result.Stderr.Data); err != nil {
+		return err
+	}
+	return executeErr
+}
+
 func (a *App) controlledCommandExecutor() (controlledCommandExecutor, error) {
 	if a.controlledCommands != nil {
 		return a.controlledCommands, nil
@@ -1974,6 +2169,85 @@ func (a *App) controlledCommandExecutor() (controlledCommandExecutor, error) {
 	}
 	a.controlledCommands = executor
 	return executor, nil
+}
+
+func (a *App) hostCommandExecutor() (hostCommandExecutor, error) {
+	if a.hostCommands != nil {
+		return a.hostCommands, nil
+	}
+	executor, err := runner.NewPlatformHostExecutor()
+	if err != nil {
+		return nil, err
+	}
+	a.hostCommands = executor
+	return executor, nil
+}
+
+func hashHostExecutable(value string) (string, string, error) {
+	absolutePath, err := filepath.Abs(strings.TrimSpace(value))
+	if err != nil {
+		return "", "", apperror.Wrap(apperror.CodeInvalidArgument,
+			"host executable path is invalid", err)
+	}
+	absolutePath = filepath.Clean(absolutePath)
+	info, err := os.Lstat(absolutePath)
+	if err != nil {
+		return "", "", apperror.Wrap(apperror.CodeInvalidArgument,
+			"host executable cannot be inspected", err)
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 ||
+		info.Size() < 512 || info.Size() > 1<<30 {
+		return "", "", apperror.New(apperror.CodeInvalidArgument,
+			"host executable must be a regular non-link file between 512 bytes and 1 GiB")
+	}
+	file, err := os.Open(absolutePath)
+	if err != nil {
+		return "", "", apperror.Wrap(apperror.CodeInvalidArgument,
+			"host executable cannot be opened", err)
+	}
+	defer file.Close()
+	digest := sha256.New()
+	if _, err := io.Copy(digest, file); err != nil {
+		return "", "", apperror.Wrap(apperror.CodeInvalidArgument,
+			"host executable cannot be hashed", err)
+	}
+	return absolutePath, hex.EncodeToString(digest.Sum(nil)), nil
+}
+
+func safeHostEnvironment() []string {
+	allowed := []string{
+		"SystemRoot", "WINDIR", "SystemDrive", "ComSpec", "Path", "PATHEXT",
+		"TEMP", "TMP", "USERPROFILE", "HOMEDRIVE", "HOMEPATH",
+		"LOCALAPPDATA", "APPDATA", "ProgramData", "ProgramFiles",
+		"ProgramW6432", "CommonProgramFiles", "CommonProgramW6432",
+		"PSModulePath", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE",
+		"PROCESSOR_IDENTIFIER", "PROCESSOR_LEVEL", "PROCESSOR_REVISION", "OS",
+	}
+	environment := make([]string, 0, len(allowed)+1)
+	pathFound := false
+	for _, key := range allowed {
+		value, ok := os.LookupEnv(key)
+		if !ok || value == "" {
+			continue
+		}
+		entry := key + "=" + value
+		if redact.String(entry) != entry {
+			continue
+		}
+		if strings.EqualFold(key, "Path") {
+			pathFound = true
+		}
+		environment = append(environment, entry)
+	}
+	if !pathFound {
+		environment = append(environment, "Path=")
+	}
+	environment = append(environment, "NO_COLOR=1")
+	sort.Slice(environment, func(left, right int) bool {
+		return strings.ToLower(environment[left]) <
+			strings.ToLower(environment[right])
+	})
+	return environment
 }
 
 func (a *App) loadControlledCommandBindings(ctx context.Context, runID string) (
@@ -2056,6 +2330,30 @@ func writeControlledExecutionReceipt(
 		receipt.StdinClosed, receipt.EnvironmentInherited,
 		receipt.NetworkRequested, receipt.PersistentProcess,
 		receipt.ProductExecutionEnabled, rawOutputAvailable, replayed)
+	return err
+}
+
+func writeHostExecutionReceipt(
+	out interface{ Write([]byte) (int, error) },
+	receipt runner.HostExecutionReceipt, replayed bool,
+	rawOutputAvailable bool,
+) error {
+	_, err := fmt.Fprintf(out,
+		"request: %s\nprotocol: %s\npolicy: %s\nbackend: %s\nexit_code: %d\nstdout_observed_bytes: %d\nstdout_captured_bytes: %d\nstdout_prefix_sha256: %s\nstdout_truncated: %t\nstderr_observed_bytes: %d\nstderr_captured_bytes: %d\nstderr_prefix_sha256: %s\nstderr_truncated: %t\ntimed_out: %t\ncancelled: %t\noutput_limit_exceeded: %t\ntree_reaped: %t\nnon_sandboxed: %t\nrestricted_token: %t\nlow_integrity_token: %t\njob_assigned_at_creation: %t\nkill_on_job_close: %t\nactive_process_limit: %d\njob_memory_limit: %d\nstdin_closed: %t\nenvironment_inherited: %t\nnetwork_requested: %t\npersistent_process: %t\nproduct_execution_enabled: %t\nautomatic_retry_allowed: false\nenvironment_values_persisted: false\nraw_output_persisted: false\nraw_output_available: %t\nreplayed: %t\n",
+		receipt.RequestID, receipt.ProtocolVersion, receipt.PolicyVersion,
+		receipt.Backend, receipt.ExitCode, receipt.StdoutObservedBytes,
+		receipt.StdoutCapturedBytes, receipt.StdoutPrefixSHA256,
+		receipt.StdoutTruncated, receipt.StderrObservedBytes,
+		receipt.StderrCapturedBytes, receipt.StderrPrefixSHA256,
+		receipt.StderrTruncated, receipt.TimedOut, receipt.Cancelled,
+		receipt.OutputLimitExceeded, receipt.TreeReaped,
+		receipt.NonSandboxed, receipt.RestrictedToken,
+		receipt.LowIntegrityToken, receipt.JobAssignedAtCreation,
+		receipt.KillOnJobClose, receipt.ActiveProcessLimit,
+		receipt.JobMemoryLimit, receipt.StdinClosed,
+		receipt.EnvironmentInherited, receipt.NetworkRequested,
+		receipt.PersistentProcess, receipt.ProductExecutionEnabled,
+		rawOutputAvailable, replayed)
 	return err
 }
 

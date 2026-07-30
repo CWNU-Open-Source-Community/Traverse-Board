@@ -67,10 +67,14 @@ func (b *AgentInputBridge) Issue(ctx context.Context,
 	}
 	scope := executionauth.TerminalInputScope{
 		WorkspaceID: session.Scope.WorkspaceID, RunID: session.Scope.RunID,
-		TerminalSessionID:     session.ID,
-		InteractionSnapshotID: session.Scope.InteractionSnapshotID,
-		InteractionRevision:   session.Scope.InteractionRevision,
-		Mode:                  session.Scope.Mode,
+		TerminalSessionID:        session.ID,
+		InteractionSnapshotID:    session.Scope.InteractionSnapshotID,
+		InteractionRevision:      session.Scope.InteractionRevision,
+		ExecutionProfileRevision: session.Scope.ExecutionProfileRevision,
+		PermissionSnapshotID:     session.Scope.PermissionSnapshotID,
+		PermissionRevision:       session.Scope.PermissionRevision,
+		PermissionMode:           session.Scope.PermissionMode,
+		Mode:                     session.Scope.Mode,
 	}
 	issued, err := b.broker.Issue(executionauth.IssueTerminalInputLeaseRequest{
 		Scope: scope, RequestedBy: request.RequestedBy,
@@ -104,6 +108,12 @@ func (b *AgentInputBridge) Write(ctx context.Context,
 		session.Scope.InteractionSnapshotID !=
 			request.Scope.InteractionSnapshotID ||
 		session.Scope.InteractionRevision != request.Scope.InteractionRevision ||
+		session.Scope.ExecutionProfileRevision !=
+			request.Scope.ExecutionProfileRevision ||
+		session.Scope.PermissionSnapshotID !=
+			request.Scope.PermissionSnapshotID ||
+		session.Scope.PermissionRevision != request.Scope.PermissionRevision ||
+		session.Scope.PermissionMode != request.Scope.PermissionMode ||
 		session.Scope.Mode != request.Scope.Mode ||
 		session.ID != lease.Scope.TerminalSessionID {
 		return AgentWriteResult{}, ErrAgentInputBridgeDenied
