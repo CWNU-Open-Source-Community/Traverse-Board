@@ -1,6 +1,6 @@
 # CyberAgent Workbench V2 任务书
 
-更新时间：2026-07-30
+更新时间：2026-08-02
 
 ## 目标
 
@@ -22,7 +22,7 @@ P8 已推进到 schema v37：v35 将完成的 Fan-out execution 确定性投影�
 
 金额预算、HTTP 或模型自主 child 调度和真实 Sandbox 进程执行尚未实现；schema v48 的严格 Sandbox Manifest、schema v49 的精确审批/重新提交/禁用候选、schema v50 的禁用态 Artifact 绑定、独立 fencing、取消与清理恢复、schema v51 的禁用态后端/输出预检、schema v52 的仅模拟后端证据与内存输出事务、schema v53 的固定本机端点只读 Docker 观测、schema v54 的确定性容器计划与假写事务、schema v55 默认关闭的 Docker 创建/核验/删除演练、schema v56 的可恢复预写意图、代际租约和 stage/cleanup 检查点、schema v57 的 descriptor-pinned、kernel-sealed 宿主输入捕获证据、schema v58 的 daemon stage 前持久化捕获要求、schema v59 的 daemon-owned/readback-verified/fully-cleaned 输入交接、schema v60 的严格 runtime-input projection plan、schema v61 的可恢复只读卷应用与 never-started target，以及 schema v62 的保留资源检查与可恢复精确清理已经落地。v55-v62 仍不启动容器进程。operator-only 显式 child schedule/continue、no-tool child turn、最多两个 child 的有界并发、一次 child repair、Coordinator、Run 工具预算、跨进程执行互斥，以及 root/child 精确跨进程主动取消均已落地。
 
-P7 已推进到 schema v71 与非 schema D1-B1，P9/Desktop 产品面已推进到 schema v91 与 D1-G13/V12，通用运行时安全面已推进到 H1-H3/R10/C1-C3/P12-E3/P11-C4C。P12-A1-A3 建立不授权的执行交互意图、进程内短期 Agent 输入租约和固定模板计划；P12-B1-B3 接入四种 Windows 一次性受控执行、用户所有的 ConPTY/xterm Debug 终端，以及只消费精确短租约的内部 Agent 输入桥；P12-C1-C3 再增加 `conservative|approval|full_access|debug` 四档宿主权限快照；P11-C4A-C4C 独立增加 `restricted|full_debug` CDP 权限上限、进程启动闸门和 CLI/API/Desktop/React 控制。所有权限快照本身继续不持久化真正执行权。
+P7 已推进到 schema v71 与非 schema D1-B1，P9/Desktop 产品面已推进到 schema v91 与 D1-G13/V12，通用运行时安全面已推进到 H1-H3/R10/C1-C3/P12-E3/P11-C7。P12-A1-A3 建立不授权的执行交互意图、进程内短期 Agent 输入租约和固定模板计划；P12-B1-B3 接入四种 Windows 一次性受控执行、用户所有的 ConPTY/xterm Debug 终端，以及只消费精确短租约的内部 Agent 输入桥；P12-C1-C3 再增加 `conservative|approval|full_access|debug` 四档宿主权限快照；P11-C4A-C4C 独立增加 `restricted|full_debug` CDP 权限上限和操作者控制，P11-C5-C7 再完成无产品入口的 Safe Web 进程、一次性 Profile 与受限 loopback CDP 核心。所有持久快照继续不携带真正运行 authority。
 
 schema v64 已增加 Go-owned `run_execution_profile.v1`：每个 Run 默认 `preview`，操作者可在 `created` 或无活动 lease 的 `paused` 状态选择 `preview|docker|local`。CLI、HTTP/OpenAPI 与 React 使用同一状态机；所有档位仍固定零进程、零执行授权和零 capability。
 
@@ -555,9 +555,13 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 - [x] P11-C4A / schema v91：新增不可变 `run_browser_cdp_permission.v1`，把 `restricted` 导航/DOM/截图上限与 `full_debug` 抓包/改包/重放/Cookie/任意方法上限分离；四项运行 authority 永久为 false，迁移旧 Run 为受限档。
 - [x] P11-C4B：CLI、HTTP/OpenAPI、Desktop 启动闸门和 Run detail 接入同一 Go 服务；完整 CDP 必须绑定当前 `debug` 执行权限、独立 full-CDP 闸门与精确确认，重启后选择不恢复 authority。
 - [x] P11-C4C：权限设置页增加“受限 CDP”和“完整 CDP（调试）”，完整档固定显示“高度敏感权限”；选择不启动浏览器、不打开 transport，也不授予网络、Profile 或方法执行权，边界见 ADR 0082。
-- [ ] P11-C5：仅实现 Safe Web 真实进程启动；必须在 adapter 前精确复核 v85 acceptance/review，并用 Windows Job Object 绑定整棵进程树，无 Shell、无导航、无 Profile 写入。
-- [ ] P11-C6：独立实现一次性 Profile generation 创建、marker、重启恢复和 exact released-owned 清理；个人 Chrome/Edge Profile 永久禁止。
-- [ ] P11-C7：独立实现 exact-scope localhost Restricted CDP transport、导航、DOM metadata 与截图；请求改包/重放、Cookie 和完整 CDP 继续关闭。
+- [x] P11-C5：实现无产品入口的 Safe Web Windows 真实进程 adapter；启动前精确复核 v85 acceptance/review 与 v91 受限权限，以固定参数、无 Shell 创建并在创建时绑定整棵 Job Object 进程树。
+- [x] P11-C6：实现一次性 Profile generation 创建、canonical marker、环境目录、重启恢复、quiescent release 和 exact released-owned 清理；个人 Chrome/Edge Profile、外来 marker 与间接路径永久拒绝。
+- [x] P11-C7：实现 exact-scope literal-loopback Restricted CDP transport、导航、DOM metadata 与 PNG 截图；请求正文/改包/重放、Cookie、脚本执行和完整 CDP 继续关闭，返回内容固定为不可信证据；边界见 ADR 0083。
+- [x] P11-C4A-C4C + P11-C5-C7 累计六切片完整健壮性门：全仓 ordinary Go 495.8 秒通过；全仓 race 首轮除 Store 默认 10 分钟包超时外全部通过，Store 以 30 分钟上限重跑 503.5 秒通过且零竞态；vet/staticcheck、零可达 govulncheck、module verify/tidy、48 文件 178 项 React、strict TypeScript/API/Vite/npm、Rust fmt/7+2 tests/clippy/真实夹具一致性及 Windows 可复现构建全绿。GUI SHA-256 `a6ac44c0078e32577c7a90bce2a159f22b44400607862dfd6e83704faef1cbdb`；没有启动真实浏览器。审计把缺少 OS 级网络隔离列为产品接线阻断项，当前核心保持无 CLI/HTTP/Desktop/模型入口。
+- [ ] P11-C8A：建立浏览器 OS/容器级网络隔离 probe 与生产证据，证明除 exact literal-loopback target 外的连接在 CDP 之外也被拒绝；未通过时保持 adapter 无产品入口。
+- [ ] P11-C8B：增加可恢复 runtime lifecycle 编排、事件/receipt、进程退出到 Profile release/cleanup 的精确对账；不增加模型 Tool。
+- [ ] P11-C8C：仅在 C8A/C8B 独立接纳后增加操作者专用的 Restricted Safe Web 产品入口；完整 CDP、个人 Profile 和模型控制继续分离。
 - [ ] P11-D：CTF Lab 抓包/改包/重放、Cookie 与代理；所有请求继续绑定 exact scope、预算和事件审计。
 - [ ] P11-E：仅容器内开放 Instrumented 安全放宽并强制证据标记，默认档永久保持浏览器原生安全。
 - [ ] 在 Profiles/Skills/Finding/Sandbox 稳定后实现 CTF Mission Profile。

@@ -1,33 +1,38 @@
 # Project Status
 
-Last updated: 2026-08-01
+Last updated: 2026-08-02
 
 ## Resume Context
 
-The latest P11-C4A/C4B/C4C batch advances SQLite to v91 and adds an
-independent browser-CDP permission ceiling. Every Run starts at `restricted`,
-which describes only future exact-scope navigation, bounded DOM snapshots, and
-screenshots. `full_debug` additionally describes request capture, mutation,
-replay, Cookie access, and arbitrary CDP methods; the Desktop labels it
-`高度敏感权限`. It can be selected only while the Run is created or quiescently
-paused, after the Run execution permission is already `debug`, the current
-process was started with ordinary and full-CDP gates, and the operator provides
-the exact confirmation.
+The latest P11-C5/C6/C7 batch keeps SQLite at v91 and implements a concrete but
+product-inert Restricted Safe Web runtime core. A short-lived Go authorization
+revalidates the exact schema-v85 acceptance/review, schema-v91 restricted
+permission, process-local gates, executable, Run/Workspace/Session, disposable
+Profile generation, scope, budget, attempt, lease, and deadlines. The Windows
+adapter uses fixed arguments and no Shell, starts suspended, and atomically
+binds the complete process tree to a bounded Job Object before resume.
 
-The v91 snapshot is an immutable policy ceiling, not a browser capability.
-SQLite, Go, HTTP/OpenAPI, and React all keep `transport_enabled`,
-`browser_start_authorized`, `runtime_authorized`, and `capability_grant` false.
-Selection cannot start Chromium, create or delete a Profile, connect a socket,
-access a Cookie, mutate a request, or call a CDP method. Models, Agents, Tools,
-Skills, repository content, documents, and browser content cannot select a
-mode. CLI/API/Desktop controls recheck process-local gates on every operation,
-and persisted selection does not restore authority after restart. ADR 0082 is
-authoritative.
+The disposable Profile lifecycle creates only the exact owned generation with
+a canonical marker and process-local lease, supports fenced stale-generation
+recovery and quiescent release, and cleans only a released exact owner after
+quarantine/recheck. Personal Chrome/Edge profiles, foreign markers, indirect
+paths, active generations, and replayed cleanup fail closed.
 
-The current generated contract contains 83 paths, 91 operations, and 203
-schemas. The real Safe Web process starter, disposable Profile lifecycle, and
-Restricted CDP transport remain separate P11-C5/C6/C7 work; Full CDP runtime
-and CTF request instrumentation remain later work.
+The restricted transport dials only the exact Profile's literal `127.0.0.1`
+DevTools endpoint without a proxy. It owns one disposable browser context and
+target, rechecks every navigation/redirect/subresource against the same scope
+and budget, and exposes only bounded DOM metadata plus bounded PNG screenshots.
+There is no page text, `Runtime.evaluate`, Cookie/body access, request mutation
+or replay, arbitrary method dispatch, or Full Debug implementation. Every
+result is untrusted evidence.
+
+No CLI, HTTP, Desktop, Tool, Skill, or model route can invoke this core. Tests
+use fake process creation and a local scripted WebSocket and launch no installed
+browser. CDP Fetch interception is not an OS network sandbox, so verified
+OS/container network containment and recoverable runtime orchestration block
+product activation. The generated API contract remains 83 paths, 91
+operations, and 203 schemas. ADR 0083 is authoritative; ADR 0082 remains the
+permission-ceiling authority.
 
 The non-schema P13-A1/A2/A3 batch adds `run_activity.v1`, a read-only public
 activity projection over existing durable Run events. It separates
@@ -130,9 +135,9 @@ The previous P12-B1/B2/B3 batch advanced SQLite to v87 and implemented the first
 
 Windows Desktop can now expose a default-off user-owned ConPTY/xterm terminal with `--enable-user-terminal`. It requires an exact trusted Code/Local/Debug Run, the user starts and types into it, and terminal state, environment, input, output, and process identity are not persisted. The internal Agent-input bridge can write only after consuming a P12-A2 bearer bound to the exact Workspace/Run/terminal/interaction revision. Host lock, disconnect, logoff, sleep/resume, binding change, Run termination, terminal replacement, and shutdown revoke leases. The renderer cannot issue such a lease or give the terminal to a model. ADR 0075 defines the trust model; ADR 0076 defines the production implementation and residual limits.
 
-Current database schema is v91. Schema v85 remains the non-starting browser acceptance/lease/review ledger, v86 records operator-selected `preview|controlled|debug|cyber` interaction intent without general authority, v87 adds restricted fixed-command write-ahead intents and immutable receipts, v88 records the four-level host-permission ceiling with runtime re-gating, v89 adds immutable fixed-command proposal/review/result ledgers, v90 adds the separate non-sandboxed one-shot host-execution intent/receipt ledger, and v91 adds independent `restricted|full_debug` browser-CDP ceilings. The established Run, context, verification, repository, Handoff/Journey, Harness, Skill, and multi-Agent boundaries remain unchanged. The v87 controlled executor is not a general LocalRunner or network sandbox and accepts no arbitrary executable, Shell, argv, environment, stdin, hook, or persistent process. The v90 host executor does accept one exact operator-supplied executable and argv but only under explicit `full_access`; it is intentionally non-sandboxed and currently CLI-only. The v91 CDP selector starts no browser, opens no transport, and grants no runtime capability. The Debug terminal remains user-owned, while Agent input is a Go-internal short-lease controller with no model or renderer route. There is still no Docker PTY, real built-in browser, Go-to-Rust product process bridge, install-time hook, organizational IAM, or model-driven child scheduling.
+Current database schema is v91. Schema v85 remains the browser acceptance/lease/review ledger, v86 records operator-selected `preview|controlled|debug|cyber` interaction intent without general authority, v87 adds restricted fixed-command write-ahead intents and immutable receipts, v88 records the four-level host-permission ceiling with runtime re-gating, v89 adds immutable fixed-command proposal/review/result ledgers, v90 adds the separate non-sandboxed one-shot host-execution intent/receipt ledger, and v91 adds independent `restricted|full_debug` browser-CDP ceilings. The established Run, context, verification, repository, Handoff/Journey, Harness, Skill, and multi-Agent boundaries remain unchanged. The v87 controlled executor is not a general LocalRunner or network sandbox and accepts no arbitrary executable, Shell, argv, environment, stdin, hook, or persistent process. The v90 host executor does accept one exact operator-supplied executable and argv but only under explicit `full_access`; it is intentionally non-sandboxed and currently CLI-only. The v91 selector itself still starts no browser and grants no runtime capability; P11-C5-C7 adds a separate internal restricted process/Profile/transport core with no product route. The Debug terminal remains user-owned, while Agent input is a Go-internal short-lease controller with no model or renderer route. There is still no Docker PTY, operational built-in browser, Full CDP, Go-to-Rust product process bridge, install-time hook, organizational IAM, or model-driven child scheduling.
 
-Schema v63 remains the blocked Docker Sandbox start-gate review; schemas v48-v68 keep container-process execution disabled. The separate P12-B executor starts only four closed operator-confirmed native templates, and P12-D only lets the root Agent propose those same templates. P12-E does not turn either path into a general model Shell: the only arbitrary host execution is the operator-only v90 CLI, and Debug Agent input has no model/product route. Schema v91 likewise records browser-CDP ceilings without a process or transport. ADR 0072 separately permits the operator to open one recognized external application for an exact Workspace; that is also not an Agent execution bridge. ADR 0024 through ADR 0082 record the current Skill, Sandbox, Desktop, runtime, analyzer, browser, workbench, model-Harness, interaction, terminal, permission, presentation, activity, fixed-proposal, host-execution, and CDP-permission boundaries.
+Schema v63 remains the blocked Docker Sandbox start-gate review; schemas v48-v68 keep container-process execution disabled. The separate P12-B executor starts only four closed operator-confirmed native templates, and P12-D only lets the root Agent propose those same templates. P12-E does not turn either path into a general model Shell: the only arbitrary host execution is the operator-only v90 CLI, and Debug Agent input has no model/product route. Schema v91 records browser-CDP ceilings; the non-schema P11-C5-C7 runtime core is separately unreachable from every product surface until network containment passes. ADR 0072 separately permits the operator to open one recognized external application for an exact Workspace; that is also not an Agent execution bridge. ADR 0024 through ADR 0083 record the current Skill, Sandbox, Desktop, runtime, analyzer, browser, workbench, model-Harness, interaction, terminal, permission, presentation, activity, fixed-proposal, host-execution, CDP-permission, and restricted-runtime boundaries.
 
 Prayu is a local-first Go agent runtime for coding and controlled cyber-oriented work. The CLI-first implementation has resumable Runs, a durable root Agent Coordinator, bounded review-gated Specialist delegation, a separate read-only 1/2/4/6 Fan-out pool, persisted sessions and model calls, context compaction, WorkItems/Notes/Artifacts, a unified Tool Gateway, embedded and inert user Skills, Finding/Evidence/Report lifecycles with SARIF/CI output, loopback HTTP/SSE/OpenAPI, a Run-first TUI, a React/Vite console, and a Windows Wails shell with independently gated Run/Session/Plan/approval, FileEdit proposal/review/apply, Provider credentials, foreground/bounded wake, inert Skills, actions/evidence, and navigation. The `cyberagent` CLI and other established CyberAgent identifiers remain compatibility contracts. Core delegation remains capped at two children and only the original application operator can schedule it; models, ordinary tools, HTTP, and the Desktop native bridge cannot autonomously spawn or schedule children.
 
@@ -410,21 +415,25 @@ Use these files first when resuming:
 - Cyber autonomous-workflow usability: about 20%.
 - These values are engineering estimates derived from tested roadmap slices, not performance benchmarks. The retired single-axis "overall product vision" percentage must not be used for current status.
 
-Latest implemented batch: P11-C4A/C4B/C4C on schema v91. It adds immutable
-`restricted|full_debug` browser-CDP policy snapshots, exact operator-only
-CLI/API/Desktop selection, process-local gates, and a Permission-page control.
-Full mode is marked `高度敏感权限` and requires the current Run's `debug`
-execution permission plus the dedicated full-CDP startup gate. All snapshots
-retain zero transport, browser-start, runtime, and capability authority. No
-browser process, Profile write, network connection, Cookie access, request
-mutation, or CDP method can occur in this batch. ADR 0082 is authoritative.
+Latest implemented batch: P11-C5/C6/C7 on schema v91. It adds a short-lived
+restricted-runtime authorization, creation-time Job-bound Safe Web Windows
+process adapter, exact disposable-Profile lifecycle, and closed literal-loopback
+CDP navigation/DOM-metadata/PNG core. It has no product route and cannot expose
+page text, scripts, Cookies, bodies, request mutation/replay, arbitrary methods,
+or Full Debug CDP. ADR 0083 is authoritative.
 
-Delivery verification passed the complete Go suite (`go test -count=1 ./...`,
-about 578 seconds), focused application/HTTP race tests, ordinary and secure
-Desktop-tag tests and vet, module verification, 48 frontend test files / 178
-tests, strict TypeScript, the production Vite build, and npm high-severity audit
-with zero vulnerabilities. The v91 source audit found no browser/process start,
-CDP transport, remote-debugging argument, or persisted runtime-authority path.
+Together with P11-C4A/C4B/C4C, the six-slice robustness gate passed the complete
+ordinary Go suite in 495.8 seconds. Repository-wide race coverage passed after
+the Store package, which reached the default ten-minute package timeout, was
+rerun under a 30-minute limit and completed in 503.453 seconds with no race
+report. Vet, warning-free staticcheck, zero reachable govulncheck findings,
+module verify/tidy, 48 frontend test files / 178 tests, strict
+TypeScript/API/Vite/npm, Rust fmt/tests/Clippy/conformance, and the reproducible
+Windows build all passed. The build SHA-256 is
+`a6ac44c0078e32577c7a90bce2a159f22b44400607862dfd6e83704faef1cbdb`.
+Tests used fake processes and a local scripted WebSocket and started no real
+browser. The audit makes OS/container network containment a release blocker,
+because CDP request interception alone cannot exclude browser-internal bypasses.
 
 Completed:
 
@@ -2560,14 +2569,13 @@ React CSS class tokens.
 
 ## Recommended Next Batch
 
-Recommended slices now continue with P11-C5/C6/C7. C5 may start only one
-independently reviewed Safe Web executable after exact v85 acceptance/review
-revalidation and must bind the complete process tree to a Windows Job Object.
-C6 must independently implement disposable Profile generation ownership,
-recovery, and exact cleanup while permanently refusing personal
-Chrome/Edge profiles. C7 may add only exact-scope localhost Restricted-CDP navigation,
-bounded DOM metadata, and screenshots; request interception/replay and CTF
-security relaxation remain later, separately reviewed work.
+Recommended slices now continue with P11-C8A/C8B/C8C. C8A must establish an
+OS- or container-enforced browser network boundary and production evidence that
+denies every connection outside the exact literal-loopback target independently
+of CDP. C8B must add recoverable runtime orchestration and durable
+events/receipts that reconcile process exit, Profile release, and exact cleanup.
+C8C may add an operator-only Restricted Safe Web product adapter only after both
+independent reviews pass. It must not add a model Tool or Full Debug CDP.
 
 P10-F1/F2/F3 remain queued rather than discarded. Browser work must not widen
 the P12-E host executor or Debug terminal contracts.
@@ -2577,7 +2585,7 @@ network sandbox makes protected host roots unavailable or read-only; never map
 it to unrestricted `os/exec`. Product Docker start/wait/TERM/KILL/orphan behavior still
 requires a later independent release gate; R2-R10 test-binary conformance and post-reap
 metadata are not production evidence. The manual Windows 10 matrix, signed distribution,
-product analyzer execution, Agent-owned xterm input, network grants, arbitrary
+product analyzer execution, Agent-owned xterm input, Full CDP, arbitrary
 end-user process execution, and CTF solving remain deferred.
 
 Real Local/container-process execution remains disabled until every v51 check has independently verified and independently accepted production evidence and Sandbox retained-resource cleanup, resource/network, cancellation, running-orphan, and atomic Artifact-export paths pass separate audits. Schema v52 simulation, v53 metadata observation, v54 compilation/fake writes, v55-v56 non-started daemon rehearsals, v57 sealing, v58 durable capture requirements, v59 never-started handoff evidence, v60 projection plans, v61 never-started volume application, v62 cleanup, v63 design review, v64 profile selection, v65 non-authorizing capture receipts, v66 recoverable capture ownership, v67 read-only daemon metadata, and v68 receipt acceptance do not satisfy that requirement. TypeScript, future Rust analyzers, and model providers remain unable to bypass the Go Tool Gateway or Policy boundary.

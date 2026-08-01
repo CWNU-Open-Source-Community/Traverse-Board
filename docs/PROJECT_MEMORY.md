@@ -1,8 +1,34 @@
 # Prayu Project Memory
 
-Last updated: 2026-08-01
+Last updated: 2026-08-02
 
-## Current Checkpoint: P11-C4 / Schema v91 + Browser CDP Permission Ceilings
+## Current Checkpoint: P11-C5/C6/C7 / Schema v91 + Restricted Browser Runtime Core
+
+P11-C5 adds a product-inert Safe Web Windows process adapter. A short-lived
+`BrowserStartAuthorization` exact-binds the schema-v85 acceptance/review,
+schema-v91 restricted permission, executable identity, Run/Workspace/Session,
+Profile generation, target scope, budget, attempt, lease, and process-local
+gates. Windows starts a fixed argument set without a Shell, suspended and
+atomically Job-bound before resume; kill-on-close, process, memory, and runtime
+limits cover the complete process tree.
+
+P11-C6 materializes only the exact disposable Profile generation. Canonical
+owner markers, process-local leases, Profile-local environment directories,
+generation ancestry, quiescent release, quarantine/recheck, and exact-owned
+cleanup reject personal profiles, foreign markers, indirect paths, active
+generations, and replayed cleanup.
+
+P11-C7 adds a closed literal-loopback CDP transport for one owned browser
+context and target. It permits only exact-scope navigation, bounded DOM
+metadata, and bounded PNG screenshots. Page text, `Runtime.evaluate`, Cookies,
+bodies, request mutation/replay, arbitrary methods, and Full Debug CDP have no
+path. Evidence is always untrusted. No CLI, HTTP, Desktop, Tool, Skill, or model
+route exists, and tests use fake processes plus a local scripted WebSocket.
+Because CDP Fetch interception is not an OS network sandbox, verified
+OS/container network containment and recoverable runtime orchestration block
+product activation. ADR 0083 is authoritative.
+
+### Previous Checkpoint: P11-C4 / Schema v91 + Browser CDP Permission Ceilings
 
 P11-C4A adds immutable `run_browser_cdp_permission.v1` snapshots and operation
 replay. Every new or migrated Run starts at `restricted`, whose policy ceiling
@@ -25,7 +51,7 @@ browser. The generated contract is 83 paths / 91 operations / 203 schemas.
 No browser process, Profile write, network connection, CDP transport, Cookie
 read, request mutation, or CDP method was enabled. ADR 0082 is authoritative.
 
-### Previous Checkpoint: P12-E / Schema v90 + Gated Host Execution
+### Earlier Checkpoint: P12-E / Schema v90 + Gated Host Execution
 
 P12-E1 keeps arbitrary one-shot commands separate from the schema-v89 fixed
 diagnostics. `host_command.v1` freezes exact executable SHA-256, argv, cwd,
@@ -198,10 +224,10 @@ Read in this order after a long context break:
 - Main languages: Go control plane, TypeScript React/Vite local console, and deterministic Rust 1.97.1 digest/ZIP protocol functions. Rust has no Agent, LLM, config, key, persistence, network, filesystem, subprocess, or product-lifecycle ownership.
 - Analyzer status: P10-A1 through P10-B3 fix `analyzer_protocol.v1`, a two-entry inert `analyzer_descriptor.v1` Registry, strict digest and `archive.inventory.v1` result validation, bounded Rust stdin/stdout functions, and two five-vector semantic/bytes/SHA suites with separate CI. The ZIP function only reads an in-memory central directory and never opens, decompresses, extracts, or writes entry data. A Go-to-Rust product process bridge, product invocation, Run/Event/SQLite persistence, and Artifact commit remain absent. See ADR 0062, ADR 0063, and `analyzers/README.md`.
 - Model Harness status: non-schema A1/A2/A3 adds `model_harness.v1` exact transport/tool/JSON/streaming profiles, Go preflight for Root/Specialist/read-only Fan-out, and `model_harness_qualification.v1` at-most-two-call synthetic qualification. Mock is trusted offline; Anthropic-compatible models require explicit qualification. Qualification stores only exact binding digest, capability booleans, and seven-day expiry in existing Provider settings; the synthetic Tool is never executed, availability remains no-probe, and qualification grants no Tool/Shell/file/browser/Docker authority. P13-A adds the separate public-activity read projection. Current OpenAPI is 83 paths / 91 operations / 203 schemas. See ADR 0074 and ADR 0080.
-- Browser status: P11-A1 through P11-C3 fix three Profiles, exact target scope, inert plans, fixed-location discovery, disposable-profile recovery plans, sealed Disabled/Fake CDP, same-handle Authenticode acceptance, immutable launch attempts/leases, and independent review. P11-C4A-C4C adds independent `restricted|full_debug` CDP policy ceilings and operator controls. Full mode is highly sensitive and requires Debug plus dedicated process gates, but every snapshot still denies transport, browser start, runtime, and capability authority. No built-in browser process or usable CDP transport exists. See ADR 0069, ADR 0071, ADR 0073, and ADR 0082.
-- Desktop status: the established Wails v2.13.0 shell retains its embedded React/in-process Go API, Run/editor/repository/verification/Handoff/model/credential/wake workflows and composable docks. P12-B2 adds a default-off user-owned ConPTY/xterm terminal for an exact trusted Code/Local/Debug Run. P12-E3 adds a process-local Go controller that can grant one short, audited Agent-input binding only under Debug maximum access, but it is not exposed to the renderer, HTTP, or models. P11-C4 adds operator-only CDP policy selection to the resizable permission-centered Settings surface without adding browser runtime authority. Windows 10 release coverage remains pending and `release_ready=false`. There is no installer, formal signed release, registry/startup/update behavior, general model Shell, Docker PTY, real built-in browser, real CDP transport, or install-time Skill execution. See ADR 0033 through ADR 0061, ADR 0064, ADR 0068, ADR 0070, ADR 0072 through ADR 0082, and `docs/DESKTOP_PLAN.md`.
+- Browser status: P11-A1 through P11-C3 fix three Profiles, exact target scope, inert plans, fixed-location discovery, disposable-profile recovery plans, sealed Disabled/Fake CDP, same-handle Authenticode acceptance, immutable launch attempts/leases, and independent review. P11-C4A-C4C adds independent `restricted|full_debug` CDP policy ceilings and operator controls. P11-C5-C7 adds a concrete Safe Web Windows process adapter, exact disposable-Profile lifecycle, and closed literal-loopback restricted CDP transport, but keeps them product-inert. There is no CLI/HTTP/Desktop/Tool/Skill/model route or interactive browser, and Full Debug CDP remains unavailable. Verified OS/container network containment blocks activation. See ADR 0069, ADR 0071, ADR 0073, ADR 0082, and ADR 0083.
+- Desktop status: the established Wails v2.13.0 shell retains its embedded React/in-process Go API, Run/editor/repository/verification/Handoff/model/credential/wake workflows and composable docks. P12-B2 adds a default-off user-owned ConPTY/xterm terminal for an exact trusted Code/Local/Debug Run. P12-E3 adds a process-local Go controller that can grant one short, audited Agent-input binding only under Debug maximum access, but it is not exposed to the renderer, HTTP, or models. P11-C4 adds operator-only CDP policy selection; P11-C5-C7 adds only an internal browser core and no Desktop binding. Windows 10 release coverage remains pending and `release_ready=false`. There is no installer, formal signed release, registry/startup/update behavior, general model Shell, Docker PTY, operational built-in browser, Full CDP, or install-time Skill execution. See ADR 0033 through ADR 0061, ADR 0064, ADR 0068, ADR 0070, ADR 0072 through ADR 0083, and `docs/DESKTOP_PLAN.md`.
 - Prayu UX status: D1-UX1 through D1-UX11 introduce the Prayu identity, frameless titlebar, bounded resizable workbench and Settings sidebars, Go-backed composer, four-control toolbar, dedicated permission center, native Acrylic, a CSS/React app mark, and three persisted appearance choices. Full-window ink backgrounds, screenshot-based selected overlays, the image wordmark, and orange-brush CSS are no longer used; selected navigation and segmented controls are opaque-white CSS rounded surfaces. Summary/Review/Files/Side Tasks use existing bounded Go surfaces. Browser remains inert; Terminal becomes real only when the Desktop is explicitly started with `--enable-user-terminal`, and remains user-owned. Open Workspace stays operator-confirmed and pathless at the renderer boundary. Stable CyberAgent compatibility identifiers remain unchanged. See ADR 0064, ADR 0070, ADR 0072, ADR 0076, and ADR 0078.
-- Execution status: P12-A1/A2/A3 adds durable interaction intent, exact process-local Agent-input leases, and four non-starting fixed command plans. P12-B1/B2/B3 advances SQLite to v87 and adds a separate restricted operator-only Windows path plus the user terminal. P12-C1/C2/C3 advances SQLite to v88 and adds the four-level host permission ceiling plus one Go `executionauth` resolver. P12-D1/D2/D3 advances SQLite to v89 and adds the conservative fixed-command Agent request/review/result path. P12-E1/E2/E3 advances SQLite to v90 for a dual-confirmed operator-only non-sandboxed Windows one-shot executor and a Go-only Debug terminal-input controller. P11-C4A-C4C independently advances SQLite to v91 for restricted/full-debug CDP policy ceilings; it adds no process or transport authority. See ADR 0075 through ADR 0082.
+- Execution status: P12-A1/A2/A3 adds durable interaction intent, exact process-local Agent-input leases, and four non-starting fixed command plans. P12-B1/B2/B3 advances SQLite to v87 and adds a separate restricted operator-only Windows path plus the user terminal. P12-C1/C2/C3 advances SQLite to v88 and adds the four-level host permission ceiling plus one Go `executionauth` resolver. P12-D1/D2/D3 advances SQLite to v89 and adds the conservative fixed-command Agent request/review/result path. P12-E1/E2/E3 advances SQLite to v90 for a dual-confirmed operator-only non-sandboxed Windows one-shot executor and a Go-only Debug terminal-input controller. P11-C4A-C4C independently advances SQLite to v91 for restricted/full-debug CDP policy ceilings. P11-C5-C7 adds a separate product-inert browser process/Profile/transport core without widening host execution or exposing a route. See ADR 0075 through ADR 0083.
 - P12-E release gate: completed. The uncached serial Go suite passed in 576.3 seconds and the full race suite passed in 717.6 seconds with no races. Vet, zero-warning staticcheck, govulncheck (zero reachable vulnerabilities), module verify/tidy, secure Desktop tags, 48-file/165-test React, strict TypeScript, deterministic OpenAPI, Vite, npm audit, Rust format/7+2 tests/clippy, privacy/authority scans, and reproducible Windows Desktop build all passed. The portable executable is 42,757,120 bytes with SHA-256 `801bda9b5343b72999827beeb3bfecd6fdd907b9795736f540637b77a26cb771`; `release_ready=false` remains correct. A separate opt-in adapter test launched only the current Go test binary by exact path/SHA and passed ordinary plus race execution. No arbitrary user program or product `host-execute` command was run during verification.
 - Custom Skill status: the five embedded `skill.v1` guides and explicitly selected external packages are Run-loadable through separate protocols. Schema v69 adds persistent content-addressed import/history; schema v70 adds a second explicitly confirmed exact Run selection and redacted user-role root/Specialist context; schema v71 adds bounded read-only provenance across HTTP/TUI/Web. D1-A adds a pathless, one-time-handle preview boundary; D1-B1 adds explicit HTTP/Desktop registration through the same inert Registry. External packages remain untrusted and grant no declared tools. Installation executes no content and still does not select a package for a Run. See ADR 0024, ADR 0031 through ADR 0033, ADR 0041, and `docs/SKILL_PACKAGE_PLAN.md`.
 - Protected-delete status: explicit recursive, absolute/traversing/wildcard, environment-derived, command-substituted, current-home, PowerShell/`cmd`, and common interpreter deletion intents are permanently denied before approval across Shell, ScriptProcess, and Sandbox Policy. This is defense in depth; Local/container process execution remains disabled and a future executor still requires OS/container isolation. See ADR 0025.
@@ -2126,23 +2152,65 @@ high-severity npm audit with zero vulnerabilities. A source audit found no
 authority=true assignment, browser/process launch, remote-debugging flag, or
 CDP transport dependency in the v91 path.
 
+## Completed Restricted Loopback Browser Runtime Core (P11-C5/C6/C7)
+
+P11-C5 implements a Windows-only Safe Web process adapter behind exact,
+short-lived runtime authorization. It revalidates the pinned executable,
+schema-v85 acceptance/review, schema-v91 restricted permission, ownership,
+scope, budget, attempt, generation lease, and deadlines. A fixed argument set
+starts without a Shell and joins a kill-on-close, bounded Job Object at process
+creation time before its primary thread resumes.
+
+P11-C6 materializes and owns only one exact disposable Profile generation.
+Canonical markers, process-local leases, exact ancestry, Profile-local
+environment directories, quiescent release, and quarantine/recheck cleanup
+prevent personal-profile reuse, indirect-path cleanup, foreign-marker
+adoption, active-generation deletion, and replayed cleanup.
+
+P11-C7 adds one closed restricted CDP transport. It dials only the exact
+Profile's literal `127.0.0.1` endpoint without a proxy, owns one disposable
+browser context/target, denies downloads, service workers, cache, and
+out-of-scope requests, and exposes only navigation, bounded DOM metadata, and
+bounded PNG screenshots. It cannot expose text, evaluate scripts, read
+Cookies/bodies, mutate/replay requests, or dispatch arbitrary methods. Full
+Debug CDP remains a separate unavailable implementation.
+
+This batch and P11-C4A-C4C form the six-slice robustness gate. The complete
+ordinary Go suite passed in 495.8 seconds. The repository-wide race pass was
+green except that `internal/store` reached the default ten-minute package
+timeout; the same Store race suite then passed in 503.453 seconds under an
+explicit 30-minute ceiling with no race report. Vet, warning-free staticcheck,
+zero reachable govulncheck findings, module verify/tidy, 48 Vitest files / 178
+tests, strict TypeScript/API/Vite/npm, Rust fmt/7+2 tests/Clippy/conformance,
+and the reproducible Windows build all passed. The GUI SHA-256 is
+`a6ac44c0078e32577c7a90bce2a159f22b44400607862dfd6e83704faef1cbdb`.
+Tests used fake process creation and a local scripted WebSocket and started no
+installed browser.
+
+The combined audit found no unresolved high/medium issue on an enabled route
+because no product route exists. It did identify one release blocker: CDP
+Fetch interception cannot prove that browser-internal networking has no bypass.
+An OS/container network boundary with production evidence must pass before a
+CLI, HTTP, Desktop, Tool, Skill, or model adapter is allowed. See ADR 0083.
+
 ## Next Slice
 
-The recommended next batch is P11-C5/C6/C7, keeping browser execution split
-into three independently auditable slices:
+The recommended next batch is P11-C8A/C8B/C8C, preserving independent release
+gates:
 
-1. launch only a Safe Web process after exact v85 acceptance/review
-   revalidation and bind its entire process tree to a Windows Job Object;
-2. create, mark, recover, and clean exactly one disposable Profile generation
-   without touching personal Chrome/Edge profiles;
-3. add exact-scope localhost CDP navigation, bounded DOM metadata, and
-   screenshots only.
+1. establish an OS- or container-enforced browser network-containment probe
+   and production evidence that denies every connection outside the exact
+   literal-loopback target independently of CDP;
+2. add recoverable runtime orchestration and durable events/receipts that
+   reconcile process exit, Profile release, and exact cleanup;
+3. only after both reviews pass, add an operator-only Restricted Safe Web
+   product adapter. It must not add a model Tool or Full Debug CDP.
 
 There must still be no request mutation/replay, arbitrary remote debugging,
 CTF security-disable flags, personal profile reuse, cross-target navigation,
-or model-controlled host browser outside the accepted scope. P10-F1/F2/F3
-analyzer preflight remains queued. Docker PTY, arbitrary model Shell, signed
-distribution, and the Windows 10 matrix remain separate gates.
+or model-controlled host browser. P10-F1/F2/F3 analyzer preflight remains
+queued. Docker PTY, arbitrary model Shell, signed distribution, and the
+Windows 10 matrix remain separate gates.
 
 ## Local Machine Note
 
@@ -2153,7 +2221,7 @@ Run Rust build/test commands from a Developer PowerShell or after loading `VsDev
 the source, pinned toolchain, and `Cargo.lock` remain the reproducible authority. `cargo audit`
 is installed; this version accepts the default lockfile scan rather than a `--locked` flag.
 
-The default `~/.cyberagent-workbench/cyberagent.db` currently carries a historical schema-v30 checksum that differs from this repository's immutable migration definition, so CLI startup correctly fails closed with `migration 30 checksum or name mismatch` and Desktop shows a bounded `FAILED_PRECONDITION`/startup code instead of silently resetting it. The v75-v91 and D1-Q2 through P11-C4C slices did not rewrite migrations 1-74, and fresh/upgrade fixtures pass. Preserve that local database for backup/diagnosis; do not delete it or rewrite `schema_migrations` automatically. Desktop visual and recovery tests use separate `CYBERAGENT_HOME` directories under the repository's ignored build root or the OS temporary root.
+The default `~/.cyberagent-workbench/cyberagent.db` currently carries a historical schema-v30 checksum that differs from this repository's immutable migration definition, so CLI startup correctly fails closed with `migration 30 checksum or name mismatch` and Desktop shows a bounded `FAILED_PRECONDITION`/startup code instead of silently resetting it. The v75-v91 and D1-Q2 through P11-C7 slices did not rewrite migrations 1-74, and fresh/upgrade fixtures pass. Preserve that local database for backup/diagnosis; do not delete it or rewrite `schema_migrations` automatically. Desktop visual and recovery tests use separate `CYBERAGENT_HOME` directories under the repository's ignored build root or the OS temporary root.
 
 ## Delivery Loop
 

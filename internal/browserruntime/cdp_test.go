@@ -280,12 +280,23 @@ func TestCDPContractsRejectTamperingSchemaWideningAndUnsealedTransport(t *testin
 	}
 }
 
-func TestBrowserRuntimeProductionFilesContainNoLaunchNetworkOrDeleteAdapter(t *testing.T) {
+func TestBrowserRuntimeProductionPrimitivesStayInAuditedAdapters(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var source strings.Builder
+	allowed := map[string]map[string]bool{
+		`"github.com/gorilla/websocket"`: {"restricted_cdp_transport.go": true},
+		"websocket.Dialer":               {"restricted_cdp_transport.go": true},
+		"windows.CreateProcess":          {"browser_process_windows.go": true},
+		"os.Remove":                      {"profile_materializer.go": true},
+		"os.RemoveAll":                   {"profile_materializer.go": true},
+		"os.Mkdir":                       {"profile_materializer.go": true},
+		"os.Rename": {
+			"profile_materializer.go": true,
+			"profile_path_other.go":   true,
+		},
+	}
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") ||
 			strings.HasSuffix(entry.Name(), "_test.go") {
@@ -295,15 +306,18 @@ func TestBrowserRuntimeProductionFilesContainNoLaunchNetworkOrDeleteAdapter(t *t
 		if readErr != nil {
 			t.Fatal(readErr)
 		}
-		source.Write(raw)
-	}
-	for _, forbidden := range []string{
-		`"os/exec"`, `"net/http"`, `"github.com/gorilla/websocket"`,
-		"exec.Command", "http.Client", "websocket.Dialer", "os.Remove", "os.RemoveAll",
-		"os.Mkdir", "os.MkdirAll",
-	} {
-		if strings.Contains(source.String(), forbidden) {
-			t.Fatalf("browser runtime production source contains forbidden adapter %q", forbidden)
+		for primitive, files := range allowed {
+			if strings.Contains(string(raw), primitive) && !files[entry.Name()] {
+				t.Fatalf("browser runtime primitive %q escaped audited adapter into %s",
+					primitive, entry.Name())
+			}
+		}
+		for _, forbidden := range []string{`"os/exec"`, `"net/http"`,
+			"exec.Command", "http.Client", "os.MkdirAll"} {
+			if strings.Contains(string(raw), forbidden) {
+				t.Fatalf("browser runtime production source contains forbidden adapter %q in %s",
+					forbidden, entry.Name())
+			}
 		}
 	}
 }

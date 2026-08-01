@@ -1,12 +1,12 @@
 # CyberAgent Workbench 进度书
 
-更新时间：2026-08-01
+更新时间：2026-08-02
 
 ## 一、当前阶段
 
 项目正在从可运行的 v0.1 CLI/TUI 骨架迁移到 V2 Run-centric Runtime。CTF 专用求解能力继续后置，当前先完成主流 AI Agent 工具需要的通用运行时。
 
-最新 P11-C4A/C4B/C4C 批次把 SQLite 推进到 v91，并将浏览器 CDP 权限独立拆成 `restricted|full_debug`。受限档只声明未来导航、DOM 和截图上限；完整调试档再声明请求捕获/改写/重放、Cookie 和任意方法，并在权限页固定显示“高度敏感权限”。完整档必须绑定当前 `debug` 执行权限、本进程专用闸门和精确人工确认。两档都固定 transport、browser-start、runtime 与 capability authority 为 false，因此本批没有启动浏览器、创建 Profile、访问网络或调用 CDP。边界见 ADR 0082。
+最新 P11-C5/C6/C7 批次保持 SQLite v91 不变，完成无产品入口的受限浏览器运行时核心：Safe Web Windows 进程在创建时绑定 Job Object，一次性 Profile 具备 exact ownership/recovery/release/cleanup，literal-loopback CDP 只允许导航、有界 DOM metadata 与 PNG 截图。页面文本、脚本执行、Cookie/正文、改包、重放、任意方法和完整 CDP 均没有路径。CLI、HTTP、Desktop、Tool、Skill 与模型不能调用该核心，测试只用 fake process 和本地 scripted WebSocket，没有启动真实浏览器。CDP 拦截不是 OS 网络沙箱，独立网络隔离证据仍是产品接线阻断项。边界见 ADR 0083。
 
 此前非 schema 桌面修复完成了一次真实产品验收纠偏：可复现构建与单元测试没有模拟 Wails v2 在 Windows 上交给自定义 AssetServer 的 server-form 请求，导致合法请求被 Prayu 自身误判为 403；同时一个真实 v30 预览数据库的已记录校验和不在当时 canonical 历史中，启动在迁移前失败。现已按真实 `Host + wails.io + 空 URL authority` 形态严格接入，并只对白名单中的一个 v30 历史校验和兼容。真实数据库副本先完成 v30→v84 保数据升级与完整性检查，随后默认配置的 EXE 已实际渲染工作台和设置页、正常退出，原库关闭后仍为 `integrity=ok`。今后 Desktop 门禁必须包含真实窗口渲染与历史库升级，不再以“编译成功”替代“软件可用”。边界见 ADR 0068。
 
@@ -16,7 +16,7 @@
 - 产品可用度：完整 Code + Cyber 产品约 96-98%；其中通用 Coding Agent 工作流约 96-97%，Cyber 自动化工作流约 20%。该指标衡量用户现在能够完成多少真实端到端任务。
 - 上述数值是依据已测试任务切片给出的工程估算，不是性能基准，也不代表仍被安全关闭的功能已经可用。
 
-V2 的 P0/P1 已完成，P2 已具备稳定的单 Agent 恢复、Provider streaming、主动取消、有界工具循环和跨进程 execution lease。P3-P5 已落地 Work/Note/Context、最多两个核心 child、独立 1/2/4/6 只读 Fan-out、Tool Gateway、审批/Grant、预算、ScriptProcess 与 Artifact。P9/Desktop 已推进到 schema v91：v88 建立 `conservative|approval|full_access|debug` 四档宿主权限，v89 增加四种固定诊断动作的 Agent 提案，v90 增加操作者 CLI 非沙箱一次性宿主执行账本，v91 再增加独立的受限/完整调试 CDP 权限上限。P10 analyzer 仍没有产品进程桥，P11 browser review 与 CDP 选择仍不授予启动或 transport。独立网络沙箱、Docker PTY、真实内置浏览器、安装脚本/钩子和远程 Skill 分发继续关闭。
+V2 的 P0/P1 已完成，P2 已具备稳定的单 Agent 恢复、Provider streaming、主动取消、有界工具循环和跨进程 execution lease。P3-P5 已落地 Work/Note/Context、最多两个核心 child、独立 1/2/4/6 只读 Fan-out、Tool Gateway、审批/Grant、预算、ScriptProcess 与 Artifact。P9/Desktop 已推进到 schema v91：v88 建立 `conservative|approval|full_access|debug` 四档宿主权限，v89 增加四种固定诊断动作的 Agent 提案，v90 增加操作者 CLI 非沙箱一次性宿主执行账本，v91 再增加独立的受限/完整调试 CDP 权限上限。P10 analyzer 仍没有产品进程桥；P11 已有内部受限 process/Profile/CDP 核心，但没有产品 adapter，完整 CDP 也继续关闭。独立网络沙箱、Docker PTY、可操作内置浏览器、安装脚本/钩子和远程 Skill 分发继续关闭。
 
 P8 已推进到 schema v37 及其只读 CI 投影：v35 把完成的 Fan-out execution 投影为通用 `draft` Finding、不可变 `model_assertion` Evidence 和可重建的 Markdown/JSON Report；v36 增加同 Run 冻结 Artifact Evidence、一次性 operator `validated/rejected` 决定与完整复核；v37 以独立不可变事实完成 `validated -> accepted -> fixed`，并强制修复 Evidence 来自接受后新建且未用于验证的同 Run Artifact。验证、接受和修复始终分离；SARIF、通用 CI gate 与 GitHub Actions annotations 均为同一持久化事实上的 Go 只读投影。
 
@@ -2230,10 +2230,46 @@ TypeScript 类型检查和 Vite production build 通过，`npm audit --audit-lev
 报告 0 漏洞。权限专项扫描未发现任何 CDP authority=true、浏览器启动、
 `remote-debugging`、`chromedp` 或进程创建路径；本批没有启动浏览器。
 
+## P11-C5/C6/C7：受限 loopback 浏览器运行时核心
+
+任务 ID：`P11-Restricted-Loopback-Browser-Runtime-Core`。本批不新增 migration，
+schema 保持 v91。P11-C5 新增短期 `BrowserStartAuthorization`：精确绑定 Session、Run、
+Workspace、acceptance/review、可执行身份、generation、Scope、预算、attempt、lease、
+restricted CDP 权限与本进程时限。Windows adapter 重新打开并复核同一可执行文件，不使用
+Shell，以固定参数创建 suspended 进程，并在恢复主线程前原子加入带有 kill-on-close、2 GiB、
+32 进程和运行时上限的 Job Object。失败路径统一关闭句柄和整棵进程树。
+
+P11-C6 只创建精确 disposable Profile generation。canonical owner marker、进程内 lease、
+Profile-local 环境目录、generation ancestry、quiescent release 与 quarantine/recheck cleanup
+共同约束生命周期。个人 Chrome/Edge Profile、外来/损坏 marker、间接路径、活动 generation、
+跨 owner 或重复 cleanup 均失败关闭；清理只作用于 released exact owner。
+
+P11-C7 只从该 Profile 的有界 `DevToolsActivePort` 读取 literal `127.0.0.1` WebSocket，
+不使用代理，并拥有一个 dispose-on-detach browser context 和 target。导航、重定向和子资源
+逐项复核 exact loopback Scope 与预算；越界请求失败。闭合方法表只含生命周期、导航、
+有界 DOM metadata 与 PNG screenshot。页面文本、`Runtime.evaluate`、Cookie、请求/响应正文、
+改包、重放、任意 CDP 和完整调试模式均没有实现路径；证据固定为不可信内容。
+
+本批与 P11-C4A/C4B/C4C 构成六切片完整健壮性门。全仓 ordinary Go 495.8 秒通过；全仓
+race 除 Store 触达默认 10 分钟 package timeout 外均通过，Store 使用 30 分钟上限独立重跑
+503.453 秒通过且无竞态。`go vet`、零告警 `staticcheck`、零可达 `govulncheck`、module
+verify/tidy、48 files / 178 React tests、strict TypeScript/API/Vite/npm、Rust fmt/7+2
+tests/Clippy/真实夹具一致性和 Windows 可复现构建全绿。GUI SHA-256 为
+`a6ac44c0078e32577c7a90bce2a159f22b44400607862dfd6e83704faef1cbdb`，
+`release_ready=false`；验证没有启动本机浏览器。
+
+组合审计修复了错误字符串静态检查、测试提前 skip 掩盖 malformed endpoint、CDP 方法 Scope
+断言不足，以及会让人误以为已有网络沙箱的字段命名。剩余发布阻断项是浏览器 OS/容器网络
+隔离：Fetch interception 无法覆盖所有浏览器内部网络行为。因此当前核心没有
+CLI/HTTP/Desktop/Tool/Skill/模型入口。下一批固定为 P11-C8A 网络隔离证据、P11-C8B 可恢复
+lifecycle/receipt 对账、P11-C8C 在前两项独立通过后才增加 operator-only Restricted Safe Web
+入口；完整 CDP 继续保持“高度敏感权限”且无实现。边界见
+[ADR 0083](adr/0083-restricted-loopback-browser-runtime-core.md)。
+
 ## 八、仓库同步与恢复约定
 
 规范远程仓库：`https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench`。
 
 每三个聚焦切片组成一个交付批次；第三片后统一执行功能复核、普通/聚焦测试、组合差异审查、项目记忆更新、Git 提交、GitHub 推送和 CI 复核。每两个批次即六个切片再执行全仓 race、vet、staticcheck、govulncheck、依赖/隐私与完整构建健壮性门。当前仓库直接开发并推送 `main`；除非用户明确要求，不创建功能分支或 PR。
 
-长对话恢复时依次阅读：`README.md`、`docs/PROJECT_MEMORY.md`、`docs/PROJECT_STATUS.md`、本文件、`docs/TASK_BOOK.md`、`docs/http-api.md`、`docs/errors.md`，再按序阅读 `docs/adr/0001-*.md` 到 `docs/adr/0082-browser-cdp-permission-ceilings.md`。
+长对话恢复时依次阅读：`README.md`、`docs/PROJECT_MEMORY.md`、`docs/PROJECT_STATUS.md`、本文件、`docs/TASK_BOOK.md`、`docs/http-api.md`、`docs/errors.md`，再按序阅读 `docs/adr/0001-*.md` 到 `docs/adr/0083-restricted-loopback-browser-runtime-core.md`。

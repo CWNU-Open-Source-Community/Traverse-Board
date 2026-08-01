@@ -252,7 +252,7 @@ func validateRunBrowserCDPPermissionSelectedEvent(event events.Event,
 		event.Source != "run_browser_cdp_permission" || event.RunID != snapshot.RunID ||
 		event.MissionID != snapshot.MissionID || event.SubjectID != snapshot.ID ||
 		!event.CreatedAt.Equal(snapshot.CreatedAt) {
-		return errors.New("Run browser CDP permission event identity does not match its snapshot")
+		return errors.New("run browser CDP permission event identity does not match its snapshot")
 	}
 	if err := rejectDuplicateJSONFields(event.PayloadJSON); err != nil {
 		return err
@@ -300,7 +300,7 @@ func validateRunBrowserCDPPermissionSelectedEvent(event events.Event,
 		payload.RequestedBy != snapshot.RequestedBy || payload.Reason != snapshot.Reason ||
 		payload.TransportEnabled || payload.BrowserStartAuthorized ||
 		payload.RuntimeAuthorized || payload.CapabilityGrant {
-		return errors.New("Run browser CDP permission event payload does not match its snapshot")
+		return errors.New("run browser CDP permission event payload does not match its snapshot")
 	}
 	return nil
 }
