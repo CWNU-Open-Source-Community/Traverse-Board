@@ -6,6 +6,7 @@ import {
   Code2,
   Container,
   Eye,
+  Globe2,
   LoaderCircle,
   MonitorUp,
   ShieldAlert,
@@ -17,6 +18,8 @@ import {
 import type { CyberAgentClient } from "../api/client";
 import type {
   RunDetailView,
+  RunBrowserCDPPermissionControlView,
+  RunBrowserCDPPermissionView,
   RunExecutionInteractionControlRequestView,
   RunExecutionInteractionControlView,
   RunExecutionInteractionView,
@@ -65,6 +68,8 @@ export function RunPermissionSettings({ client, runID }: {
     </div>
     <ExecutionPermissionPanel client={client} detail={detail}
       key={`permission-${detail.run.id}`} />
+    <BrowserCDPPermissionPanel client={client} detail={detail}
+      key={`browser-cdp-${detail.run.id}`} />
     <ExecutionInteractionPanel client={client} detail={detail}
       key={`interaction-${detail.run.id}`} />
     <ExecutionProfilePanel client={client} detail={detail}
@@ -260,6 +265,103 @@ export function ExecutionPermissionPanel({ client, detail }: {
       </dl>
       {mutation.isError && <MutationError error={mutation.error}
         fallback="权限档位切换失败" />}
+    </section>
+  );
+}
+
+const browserCDPPermissions: Array<{
+  id: RunBrowserCDPPermissionView["mode"];
+  label: string;
+  detail: string;
+  dangerous: boolean;
+}> = [
+  { id: "restricted", label: "受限 CDP", detail: "导航、DOM 与截图", dangerous: false },
+  { id: "full_debug", label: "完整 CDP（调试）", detail: "请求改写、Cookie 与任意方法", dangerous: true },
+];
+
+export function BrowserCDPPermissionPanel({ client, detail }: {
+  client: CyberAgentClient;
+  detail: RunDetailView;
+}) {
+  const queryClient = useQueryClient();
+  const permission = detail.browser_cdp_permission;
+  const [confirmFull, setConfirmFull] = useState(false);
+  const mutableStatus = detail.run.status === "created" || detail.run.status === "paused";
+  const mutable = client.hasBrowserCDPPermissionControl && mutableStatus &&
+    !detail.execution_lease?.active;
+  const fullAvailable = client.hasFullCDPDebug && permission.runtime.full_debug_enabled &&
+    permission.runtime.execution_debug_selected && detail.execution_permission.mode === "debug";
+  const mutation = useMutation({
+    mutationFn: (target: RunBrowserCDPPermissionView["mode"]) =>
+      client.postControl<RunBrowserCDPPermissionControlView>(
+        `/runs/${encodeURIComponent(detail.run.id)}/browser-cdp-permission`,
+        {
+          mode: target,
+          reason: "settings browser CDP permission selection",
+          ...(target === "full_debug" ? { confirm_full_cdp_debug: true } : {}),
+        },
+        `settings-browser-cdp-permission-${globalThis.crypto.randomUUID()}`,
+      ),
+    onSuccess: (result) => {
+      setConfirmFull(false);
+      queryClient.setQueryData<RunDetailView>(["run", detail.run.id], (current) => current
+        ? { ...current, browser_cdp_permission: result.browser_cdp_permission }
+        : current);
+      void queryClient.invalidateQueries({ queryKey: ["run", detail.run.id, "events"] });
+    },
+  });
+  const choose = (target: RunBrowserCDPPermissionView["mode"]) => {
+    if (target === "restricted") mutation.mutate(target);
+    else setConfirmFull(true);
+  };
+  let boundary = "独立 CDP 权限上限";
+  if (!client.hasBrowserCDPPermissionControl) boundary = "启动时未开放 CDP 权限控制";
+  else if (!mutableStatus) boundary = "请先暂停 Run";
+  else if (detail.execution_lease?.active) boundary = "执行租约占用中";
+  return (
+    <section className="permission-control-card browser-cdp-permission-section">
+      <div className="section-heading">
+        <div>
+          <h2><Globe2 aria-hidden="true" size={16} />浏览器 CDP</h2>
+          <span>{boundary}</span>
+        </div>
+        <StatusBadge status={permission.risk_tier} />
+      </div>
+      <div aria-label="Run browser CDP permission"
+        className="permission-option-grid permission-option-grid-two" role="group">
+        {browserCDPPermissions.map(({ id, label, detail: optionDetail, dangerous }) => {
+          const available = id === "restricted" || fullAvailable;
+          return <button aria-pressed={permission.mode === id}
+            className={dangerous ? "danger" : ""}
+            disabled={!mutable || mutation.isPending || permission.mode === id || !available}
+            key={id} onClick={() => choose(id)} type="button">
+            {dangerous
+              ? <ShieldAlert aria-hidden="true" size={17} />
+              : <ShieldCheck aria-hidden="true" size={17} />}
+            <span>
+              <strong>{label}</strong>
+              {dangerous && <em className="sensitive-permission-label">高度敏感权限</em>}
+              <small>{available ? optionDetail : "需要调试模式与专用启动闸门"}</small>
+            </span>
+            {permission.mode === id && <Check aria-hidden="true" size={15} />}
+          </button>;
+        })}
+      </div>
+      {confirmFull && <PermissionConfirmation
+        description="允许请求捕获、改写与重放、Cookie 访问和任意 CDP 方法。选择不会自动启动浏览器。"
+        label="完整 CDP（调试） · 高度敏感权限"
+        loading={mutation.isPending} onCancel={() => setConfirmFull(false)}
+        onConfirm={() => mutation.mutate("full_debug")} />}
+      <dl className="permission-facts">
+        <div><dt>Restricted</dt><dd>navigate · DOM · screenshot</dd></div>
+        <div><dt>Full debug</dt><dd>requests · cookies · arbitrary methods</dd></div>
+        <div><dt>Transport</dt><dd>{permission.transport_enabled ? "enabled" : "closed"}</dd></div>
+      </dl>
+      <p className="permission-closed-note">
+        此处只保存能力上限；浏览器启动、CDP 传输与运行时授权仍保持关闭。
+      </p>
+      {mutation.isError && <MutationError error={mutation.error}
+        fallback="浏览器 CDP 权限切换失败" />}
     </section>
   );
 }

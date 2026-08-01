@@ -1,12 +1,12 @@
 # CyberAgent Workbench 进度书
 
-更新时间：2026-07-30
+更新时间：2026-08-01
 
 ## 一、当前阶段
 
 项目正在从可运行的 v0.1 CLI/TUI 骨架迁移到 V2 Run-centric Runtime。CTF 专用求解能力继续后置，当前先完成主流 AI Agent 工具需要的通用运行时。
 
-最新 P12-E1/E2/E3 批次把 SQLite 推进到 v90。任意一次性命令采用与 v89 固定模板分离的非授权合同；真实宿主执行目前只有操作者 CLI 能在 `full_access`、当前进程闸门和双确认后调用，按当前 Windows 用户运行并明确不是沙箱。Debug Agent 输入只存在于 Go 内部短租约控制器，复用用户已启动的 ConPTY，renderer、HTTP、Skill、仓库内容和模型都没有签发或写入入口。边界见 ADR 0081。
+最新 P11-C4A/C4B/C4C 批次把 SQLite 推进到 v91，并将浏览器 CDP 权限独立拆成 `restricted|full_debug`。受限档只声明未来导航、DOM 和截图上限；完整调试档再声明请求捕获/改写/重放、Cookie 和任意方法，并在权限页固定显示“高度敏感权限”。完整档必须绑定当前 `debug` 执行权限、本进程专用闸门和精确人工确认。两档都固定 transport、browser-start、runtime 与 capability authority 为 false，因此本批没有启动浏览器、创建 Profile、访问网络或调用 CDP。边界见 ADR 0082。
 
 此前非 schema 桌面修复完成了一次真实产品验收纠偏：可复现构建与单元测试没有模拟 Wails v2 在 Windows 上交给自定义 AssetServer 的 server-form 请求，导致合法请求被 Prayu 自身误判为 403；同时一个真实 v30 预览数据库的已记录校验和不在当时 canonical 历史中，启动在迁移前失败。现已按真实 `Host + wails.io + 空 URL authority` 形态严格接入，并只对白名单中的一个 v30 历史校验和兼容。真实数据库副本先完成 v30→v84 保数据升级与完整性检查，随后默认配置的 EXE 已实际渲染工作台和设置页、正常退出，原库关闭后仍为 `integrity=ok`。今后 Desktop 门禁必须包含真实窗口渲染与历史库升级，不再以“编译成功”替代“软件可用”。边界见 ADR 0068。
 
@@ -16,7 +16,7 @@
 - 产品可用度：完整 Code + Cyber 产品约 96-98%；其中通用 Coding Agent 工作流约 96-97%，Cyber 自动化工作流约 20%。该指标衡量用户现在能够完成多少真实端到端任务。
 - 上述数值是依据已测试任务切片给出的工程估算，不是性能基准，也不代表仍被安全关闭的功能已经可用。
 
-V2 的 P0/P1 已完成，P2 已具备稳定的单 Agent 恢复、Provider streaming、主动取消、有界工具循环和跨进程 execution lease。P3-P5 已落地 Work/Note/Context、最多两个核心 child、独立 1/2/4/6 只读 Fan-out、Tool Gateway、审批/Grant、预算、ScriptProcess 与 Artifact。P9/Desktop 已推进到 schema v90 / P12-E3：v88 建立 `conservative|approval|full_access|debug` 四档权限与运行期重校验，v89 让 Root Agent 只能申请四种 Go 固定诊断动作，v90 再增加默认关闭、仅操作者 CLI 可达的非沙箱宿主一次性执行账本。任意 `approval` 提案仍只有无执行权 Go 合同；Debug Agent 输入仍只有 Go 内部短租约控制器，没有产品或模型入口。P10 analyzer 仍没有产品进程桥，P11 browser review 仍不授予启动。独立网络沙箱、Docker PTY、内置浏览器、安装脚本/钩子和远程 Skill 分发继续关闭。
+V2 的 P0/P1 已完成，P2 已具备稳定的单 Agent 恢复、Provider streaming、主动取消、有界工具循环和跨进程 execution lease。P3-P5 已落地 Work/Note/Context、最多两个核心 child、独立 1/2/4/6 只读 Fan-out、Tool Gateway、审批/Grant、预算、ScriptProcess 与 Artifact。P9/Desktop 已推进到 schema v91：v88 建立 `conservative|approval|full_access|debug` 四档宿主权限，v89 增加四种固定诊断动作的 Agent 提案，v90 增加操作者 CLI 非沙箱一次性宿主执行账本，v91 再增加独立的受限/完整调试 CDP 权限上限。P10 analyzer 仍没有产品进程桥，P11 browser review 与 CDP 选择仍不授予启动或 transport。独立网络沙箱、Docker PTY、真实内置浏览器、安装脚本/钩子和远程 Skill 分发继续关闭。
 
 P8 已推进到 schema v37 及其只读 CI 投影：v35 把完成的 Fan-out execution 投影为通用 `draft` Finding、不可变 `model_assertion` Evidence 和可重建的 Markdown/JSON Report；v36 增加同 Run 冻结 Artifact Evidence、一次性 operator `validated/rejected` 决定与完整复核；v37 以独立不可变事实完成 `validated -> accepted -> fixed`，并强制修复 Evidence 来自接受后新建且未用于验证的同 Run Artifact。验证、接受和修复始终分离；SARIF、通用 CI gate 与 GitHub Actions annotations 均为同一持久化事实上的 Go 只读投影。
 
@@ -124,7 +124,7 @@ P6 当前已推进到 schema v68：v63 固定阻塞态 start-gate 审查，v64 �
 
 ### 存储与 Run 架构
 
-- CGO SQLite 驱动 `github.com/mattn/go-sqlite3`，当前 schema 版本为 v90。
+- CGO SQLite 驱动 `github.com/mattn/go-sqlite3`，当前 schema 版本为 v91。
 - checksum 校验的版本化事务 migration，可保留旧库数据原地升级。
 - Mission、Run 和 append-only Run Events 持久化。
 - schema v3 为非空 `session_id` 建立唯一关联并拒绝引用不存在 Session 的 Run。
@@ -2203,10 +2203,37 @@ Windows Desktop 可复现构建为 42,757,120 bytes，SHA-256
 均要求显式高权限、保留 write-ahead/摘要审计并禁止不确定结果自动重试。
 边界见 ADR 0081。
 
+## P11-C4A/C4B/C4C：受限与完整调试 CDP 权限
+
+任务 ID：`P11-Browser-CDP-Permission-Ceilings-v91`。P11-C4A 新增不可变
+`run_browser_cdp_permission.v1` 快照、幂等 operation 和 schema v91 迁移。每个
+新旧 Run 均从 `restricted` 开始；`full_debug` 只是能力上限，不是 transport。
+SQLite 与 Go 双层固定 `transport_enabled=false`、
+`browser_start_authorized=false`、`runtime_authorized=false` 和
+`capability_grant=false`，快照及 operation 均不可更新或删除。
+
+P11-C4B 将同一应用服务接入 CLI、HTTP/OpenAPI、Desktop bootstrap 与 Run detail。
+受限档要求 `browser_cdp_control`；完整档还要求当前 Run 执行权限为 `debug`、
+`full_cdp_debug` 本进程闸门和精确人工确认。模型、Agent、Tool、Skill、浏览器、
+文档与仓库内容都不能切换档位，持久选择也不能跨进程恢复 authority。
+
+P11-C4C 在“设置 > 权限”增加两个独立按钮：`受限 CDP` 与
+`完整 CDP（调试）`。完整档旁固定显示“高度敏感权限”，不可用时明确提示需要
+调试模式与专用启动闸门；确认框再次说明选择不会启动浏览器。OpenAPI/TypeScript
+已确定性再生为 83 path / 91 operation / 203 schema。真实 Safe Web 进程、一次性
+Profile 和 Restricted CDP transport 继续拆分为 P11-C5/C6/C7。
+
+三切片功能门已通过：`go test -count=1 ./...` 全仓通过（约 578 秒），
+application/HTTP 的 `-race` 通过，普通与安全 Desktop tags 的 `go vet`/测试通过，
+Go modules 完整且 `go mod tidy` 无漂移。React/Vitest 为 48 files / 178 tests，
+TypeScript 类型检查和 Vite production build 通过，`npm audit --audit-level=high`
+报告 0 漏洞。权限专项扫描未发现任何 CDP authority=true、浏览器启动、
+`remote-debugging`、`chromedp` 或进程创建路径；本批没有启动浏览器。
+
 ## 八、仓库同步与恢复约定
 
 规范远程仓库：`https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench`。
 
 每三个聚焦切片组成一个交付批次；第三片后统一执行功能复核、普通/聚焦测试、组合差异审查、项目记忆更新、Git 提交、GitHub 推送和 CI 复核。每两个批次即六个切片再执行全仓 race、vet、staticcheck、govulncheck、依赖/隐私与完整构建健壮性门。当前仓库直接开发并推送 `main`；除非用户明确要求，不创建功能分支或 PR。
 
-长对话恢复时依次阅读：`README.md`、`docs/PROJECT_MEMORY.md`、`docs/PROJECT_STATUS.md`、本文件、`docs/TASK_BOOK.md`、`docs/http-api.md`、`docs/errors.md`，再按序阅读 `docs/adr/0001-*.md` 到 `docs/adr/0081-gated-host-execution-and-debug-terminal-input.md`。
+长对话恢复时依次阅读：`README.md`、`docs/PROJECT_MEMORY.md`、`docs/PROJECT_STATUS.md`、本文件、`docs/TASK_BOOK.md`、`docs/http-api.md`、`docs/errors.md`，再按序阅读 `docs/adr/0001-*.md` 到 `docs/adr/0082-browser-cdp-permission-ceilings.md`。

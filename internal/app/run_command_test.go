@@ -297,6 +297,47 @@ func TestRunExecutionPermissionCLIRequiresRuntimeGateAndExactConfirmation(t *tes
 		t.Fatalf("unexpected debug output=%q stderr=%q code=%d",
 			debug, stderr, code)
 	}
+	cdp, stderr, code := executeTestCommand(t, "run", "browser-cdp-permission", runID)
+	if code != 0 || stderr != "" ||
+		!strings.Contains(cdp, "mode: restricted") ||
+		!strings.Contains(cdp, "navigate_allowed: true") ||
+		!strings.Contains(cdp, "request_mutation_allowed: false") ||
+		!strings.Contains(cdp, "transport_enabled: false") {
+		t.Fatalf("unexpected initial browser CDP output=%q stderr=%q code=%d",
+			cdp, stderr, code)
+	}
+	if _, stderr, code := executeTestCommand(t, "run", "browser-cdp-permission",
+		"set", runID, "full_debug",
+		"--operation-key", "cli-browser-cdp-no-gate-0001",
+		"--enable-browser-cdp-control", "--confirm-full-cdp-debug"); code != 5 ||
+		!strings.Contains(stderr, "lacks gate") {
+		t.Fatalf("closed browser CDP gate stderr=%q code=%d", stderr, code)
+	}
+	if _, stderr, code := executeTestCommand(t, "run", "browser-cdp-permission",
+		"set", runID, "full_debug",
+		"--operation-key", "cli-browser-cdp-no-confirmation-0001",
+		"--enable-browser-cdp-control", "--enable-full-cdp-debug",
+		"--enable-permission-control", "--enable-danger-full-access",
+		"--enable-debug-maximum-access"); code != 2 ||
+		!strings.Contains(stderr, "exact highly-sensitive confirmation") {
+		t.Fatalf("missing browser CDP confirmation stderr=%q code=%d", stderr, code)
+	}
+	fullCDP, stderr, code := executeTestCommand(t, "run", "browser-cdp-permission",
+		"set", runID, "full_debug",
+		"--operation-key", "cli-browser-cdp-full-0001",
+		"--enable-browser-cdp-control", "--enable-full-cdp-debug",
+		"--enable-permission-control", "--enable-danger-full-access",
+		"--enable-debug-maximum-access", "--confirm-full-cdp-debug")
+	if code != 0 || stderr != "" ||
+		!strings.Contains(fullCDP, "mode: full_debug") ||
+		!strings.Contains(fullCDP, "request_mutation_allowed: true") ||
+		!strings.Contains(fullCDP, "cookie_access_allowed: true") ||
+		!strings.Contains(fullCDP, "arbitrary_method_allowed: true") ||
+		!strings.Contains(fullCDP, "transport_enabled: false") ||
+		!strings.Contains(fullCDP, "runtime_authorized: false") {
+		t.Fatalf("unexpected full browser CDP output=%q stderr=%q code=%d",
+			fullCDP, stderr, code)
+	}
 }
 
 func TestRunCommandPlanExposesOnlyClosedNonStartingEnvelope(t *testing.T) {

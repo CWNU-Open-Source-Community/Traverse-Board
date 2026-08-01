@@ -10,6 +10,7 @@ export type ControlledCommandProposalReviewRequestView =
 export type ControlledCommandProposalView =
   components["schemas"]["ControlledCommandProposalView"];
 export type AgentGraphView = components["schemas"]["AgentGraphView"];
+export type AgentNodeView = components["schemas"]["AgentNodeView"];
 export type ArtifactView = components["schemas"]["ArtifactView"];
 export type DelegationView = components["schemas"]["DelegationView"];
 export type EventView = components["schemas"]["EventView"];
@@ -76,6 +77,9 @@ export type RunExecutionProfileControlView = components["schemas"]["RunExecution
 export type RunExecutionProfileView = components["schemas"]["RunExecutionProfileView"];
 export type RunExecutionPermissionControlView = components["schemas"]["RunExecutionPermissionControlView"];
 export type RunExecutionPermissionView = components["schemas"]["RunExecutionPermissionView"];
+export type RunBrowserCDPPermissionControlView =
+  components["schemas"]["RunBrowserCDPPermissionControlView"];
+export type RunBrowserCDPPermissionView = components["schemas"]["RunBrowserCDPPermissionView"];
 export type RunExecutionInteractionControlRequestView = components["schemas"]["RunExecutionInteractionControlRequestView"];
 export type RunExecutionInteractionControlView = components["schemas"]["RunExecutionInteractionControlView"];
 export type RunExecutionInteractionView = components["schemas"]["RunExecutionInteractionView"];
@@ -85,6 +89,9 @@ export type RunLifecycleControlRequestView = components["schemas"]["RunLifecycle
 export type RunLifecycleControlView = components["schemas"]["RunLifecycleControlView"];
 export type RunExecutionControlRequestView = components["schemas"]["RunExecutionControlRequestView"];
 export type RunExecutionControlView = components["schemas"]["RunExecutionControlView"];
+export type ModelCancellationRequestView = components["schemas"]["ModelCancellationRequestView"];
+export type ModelCancellationView = components["schemas"]["ModelCancellationView"];
+export type SpecialistModelCancellationView = components["schemas"]["SpecialistModelCancellationView"];
 export type SessionMessageControlRequestView = components["schemas"]["SessionMessageControlRequestView"];
 export type SessionMessageControlView = components["schemas"]["SessionMessageControlView"];
 export type SessionSteeringCancellationRequestView = components["schemas"]["SessionSteeringCancellationRequestView"];

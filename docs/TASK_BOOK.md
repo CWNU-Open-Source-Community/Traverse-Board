@@ -22,11 +22,11 @@ P8 已推进到 schema v37：v35 将完成的 Fan-out execution 确定性投影�
 
 金额预算、HTTP 或模型自主 child 调度和真实 Sandbox 进程执行尚未实现；schema v48 的严格 Sandbox Manifest、schema v49 的精确审批/重新提交/禁用候选、schema v50 的禁用态 Artifact 绑定、独立 fencing、取消与清理恢复、schema v51 的禁用态后端/输出预检、schema v52 的仅模拟后端证据与内存输出事务、schema v53 的固定本机端点只读 Docker 观测、schema v54 的确定性容器计划与假写事务、schema v55 默认关闭的 Docker 创建/核验/删除演练、schema v56 的可恢复预写意图、代际租约和 stage/cleanup 检查点、schema v57 的 descriptor-pinned、kernel-sealed 宿主输入捕获证据、schema v58 的 daemon stage 前持久化捕获要求、schema v59 的 daemon-owned/readback-verified/fully-cleaned 输入交接、schema v60 的严格 runtime-input projection plan、schema v61 的可恢复只读卷应用与 never-started target，以及 schema v62 的保留资源检查与可恢复精确清理已经落地。v55-v62 仍不启动容器进程。operator-only 显式 child schedule/continue、no-tool child turn、最多两个 child 的有界并发、一次 child repair、Coordinator、Run 工具预算、跨进程执行互斥，以及 root/child 精确跨进程主动取消均已落地。
 
-P7 已推进到 schema v71 与非 schema D1-B1，P9/Desktop 产品面已推进到 schema v90 与 D1-G13/V12，通用运行时安全面已推进到 H1-H3/R10/C1-C3/P12-E3。P12-A1-A3 建立不授权的执行交互意图、进程内短期 Agent 输入租约和固定模板计划；P12-B1-B3 接入四种 Windows 一次性受控执行、用户所有的 ConPTY/xterm Debug 终端，以及只消费精确短租约的内部 Agent 输入桥；P12-C1-C3 再增加 `conservative|approval|full_access|debug` 四档权限快照、CLI/API/Desktop/React 选择入口、进程启动闸门和统一 Go 授权判定；P12-D1-D3 让 Root Agent 只能申请同四种固定诊断动作，由独立操作者审批后执行一次，并把有界脱敏结果作为不可信 Session 证据回送。P12-E1-E3 又把任意 `approval` 合同、操作者专用 `full_access` Windows 一次性宿主执行器和 Go-only Debug Agent 输入控制器分成三个边界。任意 `approval` 仍无持久化/模型/产品执行流，`host-execute` 仍无 HTTP/Desktop/模型入口，Debug 输入仍无 renderer/HTTP/模型入口；权限快照本身继续不持久化真正执行权。
+P7 已推进到 schema v71 与非 schema D1-B1，P9/Desktop 产品面已推进到 schema v91 与 D1-G13/V12，通用运行时安全面已推进到 H1-H3/R10/C1-C3/P12-E3/P11-C4C。P12-A1-A3 建立不授权的执行交互意图、进程内短期 Agent 输入租约和固定模板计划；P12-B1-B3 接入四种 Windows 一次性受控执行、用户所有的 ConPTY/xterm Debug 终端，以及只消费精确短租约的内部 Agent 输入桥；P12-C1-C3 再增加 `conservative|approval|full_access|debug` 四档宿主权限快照；P11-C4A-C4C 独立增加 `restricted|full_debug` CDP 权限上限、进程启动闸门和 CLI/API/Desktop/React 控制。所有权限快照本身继续不持久化真正执行权。
 
 schema v64 已增加 Go-owned `run_execution_profile.v1`：每个 Run 默认 `preview`，操作者可在 `created` 或无活动 lease 的 `paused` 状态选择 `preview|docker|local`。CLI、HTTP/OpenAPI 与 React 使用同一状态机；所有档位仍固定零进程、零执行授权和零 capability。
 
-schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固定 16 项机器 probe 和摘要协议，CLI 只接受同一操作者的 v63 阻塞审查、稳定操作键和显式确认。schema v66 再增加 collector 调用前持久化的 attempt、摘要化 operation、过期 generation lease、当前代 quiescent reconciliation、类型化 failure 和原子 result。schema v67 只在 Linux 显式 opt-in 后执行五次固定 GET，schema v68 再增加一次不可变操作员接纳/拒绝决定。所有 Docker start/process/export/Artifact authority 继续为 false。schema v69-v90 与 Desktop D1-A 至 P12-E 已完成外部 Skill、桌面恢复、Run 控制、模型/Plan/审批、FileEdit、Provider、wake、Repository、验证/Handoff/记忆、浏览器非启动账本、执行交互、受控命令审计、用户终端、四档权限控制面、固定命令提案审批和非沙箱宿主执行账本。R9/R10 仍只属于内部 Runner 回执兼容边界；P10 analyzer 仍没有产品进程桥。SQLite 当前为 v90。
+schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固定 16 项机器 probe 和摘要协议，CLI 只接受同一操作者的 v63 阻塞审查、稳定操作键和显式确认。schema v66 再增加 collector 调用前持久化的 attempt、摘要化 operation、过期 generation lease、当前代 quiescent reconciliation、类型化 failure 和原子 result。schema v67 只在 Linux 显式 opt-in 后执行五次固定 GET，schema v68 再增加一次不可变操作员接纳/拒绝决定。所有 Docker start/process/export/Artifact authority 继续为 false。schema v69-v91 与 Desktop D1-A 至 P12-E 已完成外部 Skill、桌面恢复、Run 控制、模型/Plan/审批、FileEdit、Provider、wake、Repository、验证/Handoff/记忆、浏览器非启动账本、执行交互、受控命令审计、用户终端、四档宿主权限、固定命令提案审批、非沙箱宿主执行账本和独立 CDP 权限上限。R9/R10 仍只属于内部 Runner 回执兼容边界；P10 analyzer 仍没有产品进程桥。SQLite 当前为 v91。
 
 ## 执行原则
 
@@ -534,7 +534,7 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 - [x] P12-C1 / schema v88：新增 `run_execution_permission.v1` 不可变快照与幂等操作；所有新旧 Run 默认 `conservative`，四档策略固定审批、命令、文件、网络、持久终端、后台进程与 Agent 输入上限，快照永久固定零运行时授权。
 - [x] P12-C2：CLI、HTTP/OpenAPI、Desktop bootstrap 和 React 工作台接入 `conservative|approval|full_access|debug` 选择；高权限模式要求自己的精确确认，模型/Agent/Skill/仓库内容不可切档，HTTP capability 默认关闭。
 - [x] P12-C3：新增 Go `executionauth` 统一判定，并在现有固定模板执行入口重新检查当前 Run 权限；permission-control、danger-full-access、debug-maximum-access 启动闸门单调依赖，Debug Desktop 还必须显式开启用户终端。持久化选择不随重启恢复权限。
-- [x] Desktop D1-UX10：新增独立“权限”设置页，将权限上限、交互方式和执行环境集中为三个 Run-scoped Go 控制；无 Run 时失败关闭。设置侧栏复用 232/286/420 px 有界拖拽，Windows 改用原生 Acrylic、透明 WebView、浅/深色令牌和 CSS 圆角白色选中态，不再使用整页背景图或截图选中素材；边界见 ADR 0078。
+- [x] Desktop D1-UX10：新增独立“权限”设置页，将 Run-scoped 权限与执行控制集中展示；无 Run 时失败关闭。设置侧栏复用 232/286/420 px 有界拖拽，Windows 改用原生 Acrylic、透明 WebView、浅/深色令牌和 CSS 圆角白色选中态，不再使用整页背景图或截图选中素材；边界见 ADR 0078。
 - [x] P12-C1/C2/C3 + D1-UX10 功能门：全仓 Go、vet、零告警 staticcheck、零可达漏洞 govulncheck、五个高风险包 race、Desktop secure tags、module verify、OpenAPI 78/86/192 精确再生、45 文件 156 React、strict TypeScript、Vite production build 与 npm audit 零漏洞全绿；最终便携 GUI SHA-256 `5e0840207e83b986350001473caf4b40322031c3339565c7b6b7e4a9204043b4`，自动兼容门通过且 `release_ready=false`。真实 Windows 窗口复核覆盖壁纸随位置变化的 Acrylic、浅/深色、权限空状态和设置侧栏 286→350 px 拖拽；验收后只关闭临时 Prayu 进程。审计修复保守档 CLI 错误显示 runtime gate 不可用、启动闸门参数错误退出语义不稳定、OpenAPI 快照漂移、跨 Run 选择后可能残留的提权确认界面状态和一处 Go 错误文本规范问题，启用路径无已知未解决高/中风险。
 - [x] Desktop D1-UX11-A：新增 CSS/React `PrayuBrand` 圆角应用标识，替换连接页和工作台的 2.09 MiB 艺术字图片，并复用到个人资料与关于页。
 - [x] Desktop D1-UX11-B：统一导航、历史会话、资源列表和分段控制的液态玻璃状态；空闲透明、悬停半透明、选中纯白不透明。物理删除旧橙色笔刷的渐变、裁切、伪元素和隐藏覆盖规则。
@@ -552,9 +552,12 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 - [x] P12-E2 / schema v90：新增操作者 CLI `run host-execute`。仅接受 Code/Local/Controlled/trusted + `full_access`，要求本进程 permission-control/danger-full-access 和双确认；Windows 使用无 Shell 的精确 PE/SHA `CreateProcess`、创建时 Job Object、32 进程/2 GiB、受控环境、闭合 stdin、输出/超时/取消/整树回收，以及 write-ahead intent 和 metadata-only receipt。该执行器按当前 Windows 用户访问宿主文件系统和网络，明确不是沙箱，且无 HTTP/Desktop/模型入口。
 - [x] P12-E3：新增 Go-only Debug Agent 输入控制器；只绑定已经由用户启动的 exact Code/Local/Debug ConPTY，要求 `debug` 权限、本进程最大权限闸门和两项显式确认。15 秒至 15 分钟的内存 bearer 绑定 Workspace/Run/terminal/interaction/Profile/permission，单次只写一个完整 UTF-8 命令行并先过永久 Policy；审计只存摘要/字节数，不存令牌或原文，不确定结果禁止重试，并在宿主、Run、绑定、终端、到期和 shutdown 生命周期撤销。renderer、HTTP、Skill、仓库和模型没有入口。
 - [x] P12-E1/E2/E3 与累计六切片健壮性门：无缓存串行 Go 全仓 576.3 秒、全仓 race 717.6 秒且零竞态，vet/staticcheck/govulncheck/module、secure Desktop、48 文件 165 项 React、TypeScript/OpenAPI/Vite/npm、Rust fmt/7+2 tests/clippy、隐私/authority 扫描及可复现 Windows 构建全绿；二进制 42,757,120 bytes、SHA-256 `801bda9b5343b72999827beeb3bfecd6fdd907b9795736f540637b77a26cb771`。opt-in Windows adapter 仅启动当前 Go 测试二进制并通过普通/race；未运行任意用户程序或产品宿主命令，未发现未解决的高危或中危问题。
-- [ ] P11-C4：仅实现 Safe Web 真实进程启动；必须在 adapter 前精确复核 v85 acceptance/review，并用 Windows Job Object 绑定整棵进程树，无 Shell、无导航、无 Profile 写入。
-- [ ] P11-C5：独立实现一次性 Profile generation 创建、marker、重启恢复和 exact released-owned 清理；个人 Chrome/Edge Profile 永久禁止。
-- [ ] P11-C6：独立实现 exact-scope localhost CDP 导航、DOM metadata 与截图；请求改包/重放和 CTF 安全放宽继续关闭。
+- [x] P11-C4A / schema v91：新增不可变 `run_browser_cdp_permission.v1`，把 `restricted` 导航/DOM/截图上限与 `full_debug` 抓包/改包/重放/Cookie/任意方法上限分离；四项运行 authority 永久为 false，迁移旧 Run 为受限档。
+- [x] P11-C4B：CLI、HTTP/OpenAPI、Desktop 启动闸门和 Run detail 接入同一 Go 服务；完整 CDP 必须绑定当前 `debug` 执行权限、独立 full-CDP 闸门与精确确认，重启后选择不恢复 authority。
+- [x] P11-C4C：权限设置页增加“受限 CDP”和“完整 CDP（调试）”，完整档固定显示“高度敏感权限”；选择不启动浏览器、不打开 transport，也不授予网络、Profile 或方法执行权，边界见 ADR 0082。
+- [ ] P11-C5：仅实现 Safe Web 真实进程启动；必须在 adapter 前精确复核 v85 acceptance/review，并用 Windows Job Object 绑定整棵进程树，无 Shell、无导航、无 Profile 写入。
+- [ ] P11-C6：独立实现一次性 Profile generation 创建、marker、重启恢复和 exact released-owned 清理；个人 Chrome/Edge Profile 永久禁止。
+- [ ] P11-C7：独立实现 exact-scope localhost Restricted CDP transport、导航、DOM metadata 与截图；请求改包/重放、Cookie 和完整 CDP 继续关闭。
 - [ ] P11-D：CTF Lab 抓包/改包/重放、Cookie 与代理；所有请求继续绑定 exact scope、预算和事件审计。
 - [ ] P11-E：仅容器内开放 Instrumented 安全放宽并强制证据标记，默认档永久保持浏览器原生安全。
 - [ ] 在 Profiles/Skills/Finding/Sandbox 稳定后实现 CTF Mission Profile。

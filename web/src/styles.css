@@ -138,6 +138,8 @@ code, pre { font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
 .command-button.danger { border-color: #a65a5a; color: #8c2f2f; }
 .command-button.danger:hover:not(:disabled) { border-color: #8c2f2f; background: #fff1f1; color: #7b2525; }
 .run-control-result { min-height: 30px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; color: var(--muted); font-size: 11px; }
+.run-cancel-hint { margin: 0; color: var(--muted); font-size: 11px; }
+.run-cancel-reason { flex: 1 1 160px; min-width: 120px; height: 34px; padding: 0 9px; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--surface); color: var(--ink); }
 .execution-profile-segments { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--border-strong); border-radius: 6px; }
 .execution-profile-segments button { min-width: 0; min-height: 58px; display: flex; align-items: center; justify-content: center; gap: 9px; padding: 9px 12px; border: 0; border-right: 1px solid var(--border); background: var(--surface); cursor: pointer; }
 .execution-profile-segments button:last-child { border-right: 0; }
@@ -231,6 +233,13 @@ td code { font-size: 11px; }
 .note-item header span, .note-item footer, .tool-round > header span, .tool-round > header time { color: var(--muted); font-size: 11px; }
 .note-item p { max-height: 240px; margin: 13px 0; overflow: auto; font-size: 13px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 .note-item footer { padding-top: 10px; border-top: 1px solid #e6eaed; }
+.note-item footer > div { display: flex; align-items: center; gap: 10px; }
+.row-detail-toggle { padding: 3px 10px; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--surface); color: var(--muted); font-size: 11px; cursor: pointer; white-space: nowrap; }
+.row-detail-toggle:hover { color: var(--ink); border-color: var(--accent); }
+.row-detail-toggle[aria-expanded="true"] { color: var(--accent); border-color: var(--accent); }
+.detail-row > td { background: var(--surface-subtle); }
+.detail-row .detail-grid { margin: 0; }
+.note-item .detail-grid { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 .tool-round > header { padding: 11px 13px; border-bottom: 1px solid var(--border); background: var(--surface-subtle); }
 .tool-call { padding: 0 13px; border-bottom: 1px solid var(--border); }
 .tool-call:last-child { border-bottom: 0; }
@@ -266,6 +275,7 @@ td code { font-size: 11px; }
 .external-skill-list small, .external-skill-list li > span { color: var(--muted); }
 .external-skill-order { font-family: monospace; }
 .completion-summary { display: flex; align-items: flex-start; gap: 9px; padding: 11px 15px; border-top: 1px solid var(--border); background: var(--surface-subtle); font-size: 12px; line-height: 1.5; }
+.agent-cancel-control { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .assignment-list { border-bottom: 1px solid var(--border); }
 .assignment-list section { padding: 12px 15px; border-bottom: 1px solid #e7ebee; }
 .assignment-list section:last-child { border-bottom: 0; }
@@ -2986,6 +2996,7 @@ summary:focus-visible {
 }
 .permission-option-grid-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .permission-option-grid-four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.permission-option-grid-two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
 .permission-option-grid > button {
   min-width: 0;
@@ -3030,6 +3041,20 @@ summary:focus-visible {
   display: grid;
   gap: 4px;
 }
+.sensitive-permission-label {
+  width: max-content;
+  max-width: 100%;
+  padding: 2px 6px;
+  border: 1px solid color-mix(in srgb, var(--prayu-danger) 44%, transparent);
+  border-radius: 999px;
+  color: var(--prayu-danger);
+  background: color-mix(in srgb, var(--prayu-danger) 10%, transparent);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+}
 .permission-option-grid strong,
 .permission-option-grid small {
   overflow: hidden;
@@ -3056,6 +3081,13 @@ summary:focus-visible {
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.permission-closed-note {
+  margin: 10px 0 0;
+  color: var(--prayu-muted);
+  font-size: 10px;
+  line-height: 1.45;
 }
 
 .permission-confirmation,
@@ -3311,6 +3343,7 @@ summary:focus-visible {
   }
   .settings-main { min-height: 620px; }
   .permission-option-grid-three,
+  .permission-option-grid-two,
   .permission-option-grid-four,
   .permission-facts { grid-template-columns: 1fr; }
   .appearance-setting-row {

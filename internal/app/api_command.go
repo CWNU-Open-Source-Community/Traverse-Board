@@ -51,10 +51,15 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		"enable danger-full-access permission selection")
 	debugMaximumAccess := fs.Bool("enable-debug-maximum-access", false,
 		"enable maximum Debug permission selection")
+	browserCDPControl := fs.Bool("enable-browser-cdp-control", false,
+		"enable operator-selected browser CDP permissions")
+	fullCDPDebug := fs.Bool("enable-full-cdp-debug", false,
+		"enable highly sensitive complete CDP debugging selection")
 	if err := fs.Parse(reorderFlags(args, map[string]bool{"listen": true, "ui-dir": true,
 		"enable-file-edit-proposals": false, "enable-provider-credentials": false,
 		"enable-wake-worker": false, "enable-permission-control": false,
-		"enable-danger-full-access": false, "enable-debug-maximum-access": false})); err != nil {
+		"enable-danger-full-access": false, "enable-debug-maximum-access": false,
+		"enable-browser-cdp-control": false, "enable-full-cdp-debug": false})); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 {
@@ -72,8 +77,19 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		return apperror.Wrap(apperror.CodeInvalidArgument,
 			err.Error(), err)
 	}
+	browserCDPCapabilities := domain.BrowserCDPPermissionRuntimeCapabilities{
+		ControlEnabled: *browserCDPControl, FullDebugEnabled: *fullCDPDebug,
+	}
+	if err := browserCDPCapabilities.Validate(); err != nil {
+		return apperror.Wrap(apperror.CodeInvalidArgument, err.Error(), err)
+	}
+	if browserCDPCapabilities.FullDebugEnabled &&
+		!permissionCapabilities.DebugMaximumAccessEnabled {
+		return apperror.New(apperror.CodeInvalidArgument,
+			"full CDP debug requires maximum Debug execution capability")
+	}
 	if (*fileEditProposals || *providerCredentials || *wakeWorker ||
-		*permissionControl) && controlToken == "" {
+		*permissionControl || *browserCDPControl) && controlToken == "" {
 		return apperror.New(apperror.CodeInvalidArgument,
 			"interactive proposals, Provider credentials, the wake worker, and execution permission control require CYBERAGENT_API_CONTROL_TOKEN")
 	}
@@ -164,6 +180,8 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		RunWakeWorkerEnabled:                    *wakeWorker,
 		ExecutionPermissionControlEnabled:       *permissionControl,
 		ExecutionPermissionCapabilities:         permissionCapabilities,
+		BrowserCDPPermissionControlEnabled:      *browserCDPControl,
+		BrowserCDPPermissionCapabilities:        browserCDPCapabilities,
 		SkillInstallationEnabled:                controlToken != "",
 		EvidenceAttachmentEnabled:               controlToken != "",
 		VerificationEvidenceEnabled:             controlToken != "",
@@ -237,6 +255,8 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		*permissionControl, permissionCapabilities.OperatorApprovalEnabled,
 		permissionCapabilities.DangerFullAccessEnabled,
 		permissionCapabilities.DebugMaximumAccessEnabled)
+	fmt.Fprintf(a.out, "browser_cdp_permission_control_enabled: %t\nfull_cdp_debug_enabled: %t\n",
+		*browserCDPControl, browserCDPCapabilities.FullDebugEnabled)
 	fmt.Fprintln(a.out, "note: the API is loopback-only; control is separately authorized and tokens are not persisted")
 	return server.Serve(ctx, listener)
 }

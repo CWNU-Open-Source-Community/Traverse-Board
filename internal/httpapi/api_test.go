@@ -191,6 +191,10 @@ func newAPIFixture(t *testing.T) *apiFixture {
 			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
 			DebugMaximumAccessEnabled: true,
 		},
+		BrowserCDPPermissionControlEnabled: true,
+		BrowserCDPPermissionCapabilities: domain.BrowserCDPPermissionRuntimeCapabilities{
+			ControlEnabled: true, FullDebugEnabled: true,
+		},
 		SessionSteeringControlEnabled: true,
 		AppVersion:                    "test-version",
 	})

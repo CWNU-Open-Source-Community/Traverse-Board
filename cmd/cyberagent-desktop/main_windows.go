@@ -47,6 +47,8 @@ type desktopOptions struct {
 	permissionControl      bool
 	dangerFullAccess       bool
 	debugMaximumAccess     bool
+	browserCDPControl      bool
+	fullCDPDebug           bool
 	runCreation            bool
 	sessionMessages        bool
 	sessionSteeringControl bool
@@ -213,6 +215,10 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		"enable unsandboxed one-shot host execution permission selection")
 	debugMaximumAccess := fs.Bool("enable-debug-maximum-access", false,
 		"enable persistent maximum-access debug permission selection")
+	browserCDPControl := fs.Bool("enable-browser-cdp-control", false,
+		"enable browser CDP permission selection")
+	fullCDPDebug := fs.Bool("enable-full-cdp-debug", false,
+		"enable highly sensitive complete CDP debugging selection")
 	runCreation := fs.Bool("enable-run-creation", false,
 		"enable idempotent workspace-bound Run creation")
 	sessionMessages := fs.Bool("enable-session-messages", false,
@@ -272,9 +278,15 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		return desktopOptions{}, errors.New(
 			"debug maximum access requires --enable-user-terminal")
 	}
+	if *fullCDPDebug && (!*browserCDPControl || !*debugMaximumAccess) {
+		return desktopOptions{}, errors.New(
+			"full CDP debug requires --enable-browser-cdp-control and --enable-debug-maximum-access")
+	}
 	return desktopOptions{profileControl: *profileControl, runCreation: *runCreation,
 		permissionControl: *permissionControl, dangerFullAccess: *dangerFullAccess,
 		debugMaximumAccess:     *debugMaximumAccess,
+		browserCDPControl:      *browserCDPControl,
+		fullCDPDebug:           *fullCDPDebug,
 		sessionMessages:        *sessionMessages,
 		sessionSteeringControl: *sessionSteeringControl,
 		runLifecycle:           *runLifecycle,
@@ -314,7 +326,8 @@ func runDesktop(config desktopOptions) error {
 		return err
 	}
 	controlToken := ""
-	if config.profileControl || config.permissionControl || config.runCreation ||
+	if config.profileControl || config.permissionControl || config.browserCDPControl ||
+		config.runCreation ||
 		config.sessionMessages ||
 		config.sessionSteeringControl || config.runLifecycle || config.runExecution ||
 		config.planDeliveryControl || config.approvalControl || config.modelControl ||
@@ -340,6 +353,11 @@ func runDesktop(config desktopOptions) error {
 			OperatorApprovalEnabled:   config.permissionControl,
 			DangerFullAccessEnabled:   config.dangerFullAccess,
 			DebugMaximumAccessEnabled: config.debugMaximumAccess,
+		},
+		BrowserCDPPermissionControlEnabled: config.browserCDPControl,
+		BrowserCDPPermissionCapabilities: domain.BrowserCDPPermissionRuntimeCapabilities{
+			ControlEnabled:   config.browserCDPControl,
+			FullDebugEnabled: config.fullCDPDebug,
 		},
 		SessionMessageEnabled:                   config.sessionMessages,
 		SessionSteeringControlEnabled:           config.sessionSteeringControl,
@@ -386,6 +404,8 @@ func runDesktop(config desktopOptions) error {
 		ReadToken: readToken, ControlToken: controlToken, APIVersion: httpapi.Version,
 		RunControlEnabled: config.profileControl, RunCreationEnabled: config.runCreation,
 		ExecutionPermissionControlEnabled:       config.permissionControl,
+		BrowserCDPPermissionControlEnabled:      config.browserCDPControl,
+		FullCDPDebugEnabled:                     config.fullCDPDebug,
 		OperatorApprovalEnabled:                 config.permissionControl,
 		DangerFullAccessEnabled:                 config.dangerFullAccess,
 		DebugMaximumAccessEnabled:               config.debugMaximumAccess,

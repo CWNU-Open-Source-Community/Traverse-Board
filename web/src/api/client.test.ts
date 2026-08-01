@@ -73,6 +73,16 @@ const runExecutionData = {
   execution_started: true, model_called: true, tool_called: false, capability_grant: false,
 };
 
+const modelCancellationData = {
+  id: "cancel-model-1", run_id: "run-1", attempt_id: "attempt-1", model_attempt: 1,
+  status: "pending", requested_at: "2026-07-18T00:00:00Z", replayed: false,
+};
+
+const specialistModelCancellationData = {
+  id: "cancel-agent-1", run_id: "run-1", agent_id: "agent-1", attempt_id: "attempt-2",
+  model_attempt: 2, status: "observed", requested_at: "2026-07-18T00:00:00Z", replayed: false,
+};
+
 describe("CyberAgentClient", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -108,6 +118,7 @@ describe("CyberAgentClient", () => {
       protocol_version: "runtime_capabilities.v1",
       execution_permission_control_enabled: true, operator_approval_enabled: true,
       danger_full_access_enabled: true, debug_maximum_access_enabled: true,
+      browser_cdp_permission_control_enabled: true, full_cdp_debug_enabled: true,
       run_control_enabled: true, run_creation_enabled: true,
       session_message_enabled: true, session_steering_control_enabled: true,
       run_lifecycle_enabled: true, run_execution_enabled: true,
@@ -133,6 +144,7 @@ describe("CyberAgentClient", () => {
     expect(clientCapabilitiesFromRuntime(view)).toMatchObject({
       executionPermissionControlEnabled: true, operatorApprovalEnabled: true,
       dangerFullAccessEnabled: true, debugMaximumAccessEnabled: true,
+      browserCDPPermissionControlEnabled: true, fullCDPDebugEnabled: true,
       controlledCommandProposalControlEnabled: true,
       fileEditProposalEnabled: true, providerCredentialEnabled: true,
       runWakeWorkerEnabled: true,
@@ -531,6 +543,165 @@ describe("CyberAgentClient", () => {
       version: "run_execution_handoff.v1", max_steps: 1,
     }, "web-run-execution-operation-0003")).rejects.toThrow("capability");
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("cancels a Supervisor model call and validates the bound response", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-cancel-model", data: modelCancellationData,
+    }), { status: 202, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+      runControlEnabled: true,
+    });
+    expect(client.hasControl).toBe(true);
+    await expect(client.cancelModelCall("run-1", {
+      attempt_id: "attempt-1", model_attempt: 1, reason: "operator halt",
+    }, "web-run-cancel-call-0001")).resolves.toEqual(modelCancellationData);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/runs/run-1/active-call/cancel");
+    expect(url).not.toContain("control-secret");
+    expect(init.headers).toMatchObject({ Authorization: "Bearer control-secret",
+      "Idempotency-Key": "web-run-cancel-call-0001" });
+    expect(init.body).toBe(JSON.stringify({
+      attempt_id: "attempt-1", model_attempt: 1, reason: "operator halt",
+    }));
+    expect(String(init.body)).not.toContain("control-secret");
+  });
+
+  it("cancels a Specialist model call on its nested agent path", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-cancel-specialist", data: specialistModelCancellationData,
+    }), { status: 202, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+      runControlEnabled: true,
+    });
+    await expect(client.cancelSpecialistModelCall("run-1", "agent-1", {
+      attempt_id: "attempt-2", model_attempt: 2,
+    }, "web-agent-cancel-call-0001")).resolves.toEqual(specialistModelCancellationData);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/runs/run-1/agents/agent-1/active-call/cancel");
+    expect(init.headers).toMatchObject({ Authorization: "Bearer control-secret",
+      "Idempotency-Key": "web-agent-cancel-call-0001" });
+    expect(init.body).toBe(JSON.stringify({ attempt_id: "attempt-2", model_attempt: 2 }));
+  });
+
+  it("requires a control token before cancelling any model call", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    const client = new CyberAgentClient("read-secret");
+    await expect(client.cancelModelCall("run-1", { attempt_id: "attempt-1", model_attempt: 1 },
+      "web-run-cancel-call-0002")).rejects.toThrow("control bearer token");
+    await expect(client.cancelSpecialistModelCall("run-1", "agent-1",
+      { attempt_id: "attempt-2", model_attempt: 2 }, "web-agent-cancel-call-0002"))
+      .rejects.toThrow("control bearer token");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects a model cancellation response bound to a different attempt", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-cancel-forged",
+      data: { ...modelCancellationData, model_attempt: 2 },
+    }), { status: 202, headers: { "Content-Type": "application/json" } })));
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+      runControlEnabled: true,
+    });
+    await expect(client.cancelModelCall("run-1", { attempt_id: "attempt-1", model_attempt: 1 },
+      "web-run-cancel-call-0003")).rejects.toThrow("invalid");
+  });
+
+  it("rejects a Specialist cancellation response bound to a different agent", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-cancel-specialist-forged",
+      data: { ...specialistModelCancellationData, agent_id: "agent-other" },
+    }), { status: 202, headers: { "Content-Type": "application/json" } })));
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+      runControlEnabled: true,
+    });
+    await expect(client.cancelSpecialistModelCall("run-1", "agent-1",
+      { attempt_id: "attempt-2", model_attempt: 2 }, "web-agent-cancel-call-0003"))
+      .rejects.toThrow("invalid");
+  });
+
+  it("reads a single artifact detail over the access token", async () => {
+    const data = {
+      id: "artifact-1", run_id: "run-1", session_id: "session-1", workspace_id: "ws-1",
+      kind: "log", source_id: "source-1", tool_name: "shell", stream: "stdout",
+      mime: "text/plain", encoding: "utf-8", size_bytes: 42, redacted: false,
+      sha256: "a".repeat(64), created_at: "2026-07-31T00:00:00Z",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-artifact", data,
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret");
+    await expect(client.getArtifact("artifact-1")).resolves.toEqual(data);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/artifacts/artifact-1");
+    expect(init.headers).toMatchObject({ Authorization: "Bearer read-secret" });
+  });
+
+  it("rejects an artifact response bound to a different identity", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-artifact-forged",
+      data: { id: "artifact-other", run_id: "run-1" },
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    await expect(new CyberAgentClient("read-secret").getArtifact("artifact-1"))
+      .rejects.toThrow("invalid");
+  });
+
+  it("reads a single note detail over the access token", async () => {
+    const data = {
+      id: "note-1", run_id: "run-1", owner: "root", owner_agent_id: "agent-1",
+      category: "decision", visibility: "run", status: "active", pinned: true,
+      title: "Decision", content: "body", tags: ["a"], source_refs: ["ref-1"],
+      evidence_ids: ["ev-1"], version: 3, created_at: "2026-07-31T00:00:00Z",
+      updated_at: "2026-07-31T01:00:00Z",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-note", data,
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(new CyberAgentClient("read-secret").getNote("note-1")).resolves.toEqual(data);
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/notes/note-1");
+  });
+
+  it("reads a single work item detail over the access token", async () => {
+    const data = {
+      id: "work-1", run_id: "run-1", title: "Task", status: "in_progress",
+      priority: "high", version: 2, acceptance_criteria: ["done"], dependencies: [],
+      created_at: "2026-07-31T00:00:00Z", updated_at: "2026-07-31T01:00:00Z",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-work", data,
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(new CyberAgentClient("read-secret").getWorkItem("work-1")).resolves.toEqual(data);
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/work-items/work-1");
+  });
+
+  it("reads the run external skill projection and binds it to the run", async () => {
+    const data = {
+      protocol_version: "external_skill_projection.v1", run_id: "run-1", skills: [],
+    };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-external-skills", data,
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(new CyberAgentClient("read-secret").getRunExternalSkills("run-1"))
+      .resolves.toEqual(data);
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/runs/run-1/external-skills");
+  });
+
+  it("rejects an external skill projection bound to a different run or protocol", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-external-skills-forged",
+      data: { protocol_version: "external_skill_projection.v1", run_id: "run-other", skills: [] },
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    await expect(new CyberAgentClient("read-secret").getRunExternalSkills("run-1"))
+      .rejects.toThrow("invalid");
   });
 
   it("validates redacted model availability without probing through the client", async () => {

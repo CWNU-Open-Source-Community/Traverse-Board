@@ -3,6 +3,7 @@ import type {
   ApprovalDecisionControlRequestView,
   ApprovalDecisionControlView,
   ApprovalQueueView,
+  ArtifactView,
   CodeHandoffView,
   CodeHandoffExportView,
   ControlledCommandProposalReviewRequestView,
@@ -11,6 +12,7 @@ import type {
   EvidenceAttachmentRequestView,
   EvidenceAttachmentView,
   EvidenceInventoryView,
+  ExternalSkillProjectionView,
   FileEditApplyRequestView,
   FileEditApplyView,
   FileEditChangeSetView,
@@ -27,6 +29,10 @@ import type {
   ModelHarnessQualificationRequestView,
   ModelHarnessQualificationView,
   ModelRouteControlRequestView,
+  ModelCancellationRequestView,
+  ModelCancellationView,
+  SpecialistModelCancellationView,
+  NoteView,
   OperationReceiptView,
   OperationReceiptHistoryView,
   OperatorActionCenterView,
@@ -72,6 +78,7 @@ import type {
   SuccessEnvelope,
   WorkspaceExplorerView,
   WorkspaceSearchView,
+  WorkItemView,
   VerificationEvidenceControlView,
   VerificationEvidenceInventoryView,
   VerificationEvidenceRequestView,
@@ -99,6 +106,8 @@ export type QueryValue = boolean | number | string | undefined;
 export interface ClientCapabilities {
   runControlEnabled?: boolean;
   executionPermissionControlEnabled?: boolean;
+  browserCDPPermissionControlEnabled?: boolean;
+  fullCDPDebugEnabled?: boolean;
   operatorApprovalEnabled?: boolean;
   dangerFullAccessEnabled?: boolean;
   debugMaximumAccessEnabled?: boolean;
@@ -344,6 +353,44 @@ function parseRunLifecycleControl(value: unknown, expectedRunID: string,
       "INVALID_RESPONSE", 502);
   }
   return value as unknown as RunLifecycleControlView;
+}
+
+function isModelCancellationStatus(value: unknown): boolean {
+  return value === "pending" || value === "observed" || value === "resolved";
+}
+
+function parseModelCancellation(value: unknown, expectedRunID: string,
+  request: ModelCancellationRequestView): ModelCancellationView {
+  if (!hasExactKeys(value, ["attempt_id", "id", "model_attempt", "replayed",
+    "requested_at", "run_id", "status"]) ||
+    !boundedIdentity(value.id) || value.run_id !== expectedRunID ||
+    !boundedIdentity(value.run_id) || value.attempt_id !== request.attempt_id ||
+    !boundedIdentity(value.attempt_id) ||
+    !safePositiveInteger(value.model_attempt) ||
+    value.model_attempt !== request.model_attempt ||
+    typeof value.replayed !== "boolean" || !validDate(value.requested_at) ||
+    !isModelCancellationStatus(value.status)) {
+    throw new APIRequestError("Model cancellation response is invalid", "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as ModelCancellationView;
+}
+
+function parseSpecialistModelCancellation(value: unknown, expectedRunID: string,
+  expectedAgentID: string, request: ModelCancellationRequestView): SpecialistModelCancellationView {
+  if (!hasExactKeys(value, ["agent_id", "attempt_id", "id", "model_attempt", "replayed",
+    "requested_at", "run_id", "status"]) ||
+    !boundedIdentity(value.id) || value.run_id !== expectedRunID ||
+    !boundedIdentity(value.run_id) || value.agent_id !== expectedAgentID ||
+    !boundedIdentity(value.agent_id) || value.attempt_id !== request.attempt_id ||
+    !boundedIdentity(value.attempt_id) ||
+    !safePositiveInteger(value.model_attempt) ||
+    value.model_attempt !== request.model_attempt ||
+    typeof value.replayed !== "boolean" || !validDate(value.requested_at) ||
+    !isModelCancellationStatus(value.status)) {
+    throw new APIRequestError("Specialist model cancellation response is invalid",
+      "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as SpecialistModelCancellationView;
 }
 
 function isRunStatus(value: unknown): boolean {
@@ -774,6 +821,7 @@ function parseProviderCredentialList(value: unknown): ProviderCredentialListView
 
 function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
   const capabilityKeys = ["approval_control_enabled", "docker_execution_enabled",
+    "browser_cdp_permission_control_enabled", "full_cdp_debug_enabled",
     "controlled_command_proposal_control_enabled",
     "execution_permission_control_enabled", "operator_approval_enabled",
     "danger_full_access_enabled", "debug_maximum_access_enabled",
@@ -808,6 +856,8 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
     ((worker.state === "ready" || worker.state === "stopped") && worker.active) ||
     ((worker.state === "running" || worker.state === "draining") && !worker.active) ||
     (!worker.enabled && (worker.state !== "disabled" || worker.active || worker.poll_interval_ms !== 0)) ||
+    (value.full_cdp_debug_enabled && (!value.browser_cdp_permission_control_enabled ||
+      !value.debug_maximum_access_enabled)) ||
     value.process_execution_enabled !== false || value.shell_execution_enabled !== false ||
     value.docker_execution_enabled !== false) {
     throw new APIRequestError("Run wake worker capability response is invalid",
@@ -820,6 +870,8 @@ export function clientCapabilitiesFromRuntime(value: RuntimeCapabilitiesView): C
   return {
     runControlEnabled: value.run_control_enabled,
     executionPermissionControlEnabled: value.execution_permission_control_enabled,
+    browserCDPPermissionControlEnabled: value.browser_cdp_permission_control_enabled,
+    fullCDPDebugEnabled: value.full_cdp_debug_enabled,
     operatorApprovalEnabled: value.operator_approval_enabled,
     dangerFullAccessEnabled: value.danger_full_access_enabled,
     debugMaximumAccessEnabled: value.debug_maximum_access_enabled,
@@ -2956,6 +3008,8 @@ export class CyberAgentClient {
   readonly baseURL: string;
   readonly hasControl: boolean;
   readonly hasExecutionPermissionControl: boolean;
+  readonly hasBrowserCDPPermissionControl: boolean;
+  readonly hasFullCDPDebug: boolean;
   readonly hasRunCreation: boolean;
   readonly hasSessionMessages: boolean;
   readonly hasSessionSteeringControl: boolean;
@@ -2990,6 +3044,10 @@ export class CyberAgentClient {
     this.hasControl = controlPresent && (capabilities.runControlEnabled ?? true);
     this.hasExecutionPermissionControl = controlPresent &&
       (capabilities.executionPermissionControlEnabled ?? false);
+    this.hasBrowserCDPPermissionControl = controlPresent &&
+      (capabilities.browserCDPPermissionControlEnabled ?? false);
+    this.hasFullCDPDebug = this.hasBrowserCDPPermissionControl &&
+      (capabilities.fullCDPDebugEnabled ?? false);
     this.hasRunCreation = controlPresent && (capabilities.runCreationEnabled ?? true);
     this.hasSessionMessages = controlPresent && (capabilities.sessionMessageEnabled ?? true);
     this.hasSessionSteeringControl = controlPresent &&
@@ -3028,6 +3086,65 @@ export class CyberAgentClient {
   async modelAvailability(signal?: AbortSignal): Promise<ModelAvailabilityView> {
     const value = await this.get<unknown>("/models", {}, signal);
     return parseModelAvailability(value);
+  }
+
+  async getArtifact(artifactID: string, signal?: AbortSignal): Promise<ArtifactView> {
+    const normalized = boundedIdentity(artifactID);
+    if (!normalized || normalized !== artifactID) {
+      throw new Error("A normalized artifact identity is required");
+    }
+    const value = await this.get<unknown>(
+      `/artifacts/${encodeURIComponent(artifactID)}`, {}, signal,
+    );
+    if (!isRecord(value) || value.id !== artifactID || !boundedIdentity(value.run_id)) {
+      throw new APIRequestError("Artifact response is invalid", "INVALID_RESPONSE", 502);
+    }
+    return value as unknown as ArtifactView;
+  }
+
+  async getNote(noteID: string, signal?: AbortSignal): Promise<NoteView> {
+    const normalized = boundedIdentity(noteID);
+    if (!normalized || normalized !== noteID) {
+      throw new Error("A normalized note identity is required");
+    }
+    const value = await this.get<unknown>(
+      `/notes/${encodeURIComponent(noteID)}`, {}, signal,
+    );
+    if (!isRecord(value) || value.id !== noteID || !boundedIdentity(value.run_id)) {
+      throw new APIRequestError("Note response is invalid", "INVALID_RESPONSE", 502);
+    }
+    return value as unknown as NoteView;
+  }
+
+  async getWorkItem(workItemID: string, signal?: AbortSignal): Promise<WorkItemView> {
+    const normalized = boundedIdentity(workItemID);
+    if (!normalized || normalized !== workItemID) {
+      throw new Error("A normalized work item identity is required");
+    }
+    const value = await this.get<unknown>(
+      `/work-items/${encodeURIComponent(workItemID)}`, {}, signal,
+    );
+    if (!isRecord(value) || value.id !== workItemID || !boundedIdentity(value.run_id)) {
+      throw new APIRequestError("Work item response is invalid", "INVALID_RESPONSE", 502);
+    }
+    return value as unknown as WorkItemView;
+  }
+
+  async getRunExternalSkills(runID: string,
+    signal?: AbortSignal): Promise<ExternalSkillProjectionView> {
+    const normalized = boundedIdentity(runID);
+    if (!normalized || normalized !== runID) {
+      throw new Error("A normalized Run identity is required");
+    }
+    const value = await this.get<unknown>(
+      `/runs/${encodeURIComponent(runID)}/external-skills`, {}, signal,
+    );
+    if (!isRecord(value) || value.run_id !== runID ||
+      value.protocol_version !== "external_skill_projection.v1") {
+      throw new APIRequestError("External skill projection response is invalid",
+        "INVALID_RESPONSE", 502);
+    }
+    return value as unknown as ExternalSkillProjectionView;
   }
 
   async workspaceExplore(workspaceID: string, path = ".",
@@ -3658,6 +3775,46 @@ export class CyberAgentClient {
       `/runs/${encodeURIComponent(runID)}/execute`, body, idempotencyKey, signal,
     );
     return parseRunExecutionControl(result, runID, body);
+  }
+
+  async cancelModelCall(runID: string, body: ModelCancellationRequestView,
+    idempotencyKey: string, signal?: AbortSignal): Promise<ModelCancellationView> {
+    if (!this.hasControl) {
+      throw new Error("A control bearer token is required for this operation");
+    }
+    const normalizedRunID = boundedIdentity(runID);
+    if (!normalizedRunID || normalizedRunID !== runID) {
+      throw new Error("A normalized Run identity is required");
+    }
+    if (!boundedIdentity(body.attempt_id) || !safePositiveInteger(body.model_attempt)) {
+      throw new Error("A bound attempt identity and model attempt are required");
+    }
+    const result = await this.sendControl<unknown>(
+      `/runs/${encodeURIComponent(runID)}/active-call/cancel`, body, idempotencyKey, signal,
+    );
+    return parseModelCancellation(result, runID, body);
+  }
+
+  async cancelSpecialistModelCall(runID: string, agentID: string,
+    body: ModelCancellationRequestView, idempotencyKey: string,
+    signal?: AbortSignal): Promise<SpecialistModelCancellationView> {
+    if (!this.hasControl) {
+      throw new Error("A control bearer token is required for this operation");
+    }
+    const normalizedRunID = boundedIdentity(runID);
+    const normalizedAgentID = boundedIdentity(agentID);
+    if (!normalizedRunID || normalizedRunID !== runID ||
+      !normalizedAgentID || normalizedAgentID !== agentID) {
+      throw new Error("Normalized Run and Agent identities are required");
+    }
+    if (!boundedIdentity(body.attempt_id) || !safePositiveInteger(body.model_attempt)) {
+      throw new Error("A bound attempt identity and model attempt are required");
+    }
+    const result = await this.sendControl<unknown>(
+      `/runs/${encodeURIComponent(runID)}/agents/${encodeURIComponent(agentID)}/active-call/cancel`,
+      body, idempotencyKey, signal,
+    );
+    return parseSpecialistModelCancellation(result, runID, agentID, body);
   }
 
   async selectPlanDirection(runID: string, body: PlanDirectionControlRequestView,

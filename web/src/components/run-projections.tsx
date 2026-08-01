@@ -1,14 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { FileSearch, GitBranch, Network, PackageCheck, ScanSearch, ShieldAlert } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Ban, FileSearch, GitBranch, LoaderCircle, Network, PackageCheck, ScanSearch, ShieldAlert } from "lucide-react";
 import type { CyberAgentClient } from "../api/client";
 import type {
   AgentGraphView,
+  AgentNodeView,
   DelegationView,
   ExternalSkillProjectionView,
   FanoutPlanView,
   FindingReportSummaryView,
   FindingReportView,
+  ModelCancellationRequestView,
+  SpecialistModelCancellationView,
 } from "../api/types";
 import { usePagedResource } from "../hooks/use-paged-resource";
 import { formatBytes, formatDate, formatNumber, shortID } from "../lib/format";
@@ -46,6 +49,19 @@ export function ExternalSkillsPanel({ projection }: { projection: ExternalSkillP
   );
 }
 
+export function ExternalSkillsSection({ client, runID, initial }: {
+  client: CyberAgentClient;
+  runID: string;
+  initial: ExternalSkillProjectionView;
+}) {
+  const query = useQuery({
+    queryKey: ["run", runID, "external-skills"],
+    queryFn: ({ signal }) => client.getRunExternalSkills(runID, signal),
+    initialData: initial,
+  });
+  return <ExternalSkillsPanel projection={query.data ?? initial} />;
+}
+
 export function AgentGraphPanel({ client, runID }: ProjectionProps) {
   const query = useQuery({
     queryKey: ["run", runID, "agent-graph"],
@@ -76,8 +92,65 @@ export function AgentGraphPanel({ client, runID }: ProjectionProps) {
               <span>{node.completion.summary}</span>
             </div>
           )}
+          {client.hasControl && node.status === "running" && node.active_attempt_id &&
+            node.id !== query.data.root_agent_id && (
+            <SpecialistCancelControl agent={node} client={client} runID={runID} />
+          )}
         </article>
       ))}
+    </div>
+  );
+}
+
+function SpecialistCancelControl({ agent, client, runID }: {
+  agent: AgentNodeView;
+  client: CyberAgentClient;
+  runID: string;
+}) {
+  const queryClient = useQueryClient();
+  const attemptID = agent.active_attempt_id ?? "";
+  const [modelAttempt, setModelAttempt] = useState(1);
+  const [lastResult, setLastResult] = useState<SpecialistModelCancellationView | null>(null);
+  const operationKey = useRef<string | null>(null);
+  const cancel = useMutation({
+    mutationFn: () => {
+      const key = operationKey.current ??
+        (operationKey.current = `web-agent-cancel-call-${globalThis.crypto.randomUUID()}`);
+      const body: ModelCancellationRequestView = { attempt_id: attemptID, model_attempt: modelAttempt };
+      return client.cancelSpecialistModelCall(runID, agent.id, body, key);
+    },
+    onSuccess: (result) => {
+      operationKey.current = null;
+      setLastResult(result);
+      void queryClient.invalidateQueries({ queryKey: ["run", runID, "agent-graph"] });
+      void queryClient.invalidateQueries({ queryKey: ["run", runID, "events"] });
+    },
+  });
+  return (
+    <div className="agent-cancel-control">
+      <div className="run-execution-control">
+        <label htmlFor={`agent-cancel-attempt-${agent.id}`}>Model attempt</label>
+        <input id={`agent-cancel-attempt-${agent.id}`} min={1} type="number"
+          onChange={(event) => setModelAttempt(Math.max(1,
+            Number.parseInt(event.target.value, 10) || 1))} value={modelAttempt} />
+      </div>
+      <button className="command-button danger" disabled={cancel.isPending}
+        onClick={() => cancel.mutate()} type="button">
+        {cancel.isPending
+          ? <LoaderCircle aria-hidden="true" className="spin" size={16} />
+          : <Ban aria-hidden="true" size={16} />}
+        取消模型调用
+      </button>
+      {lastResult && (
+        <div className="run-control-result" role="status">
+          <StatusBadge status={lastResult.status} />
+          <span>attempt {lastResult.model_attempt}</span>
+          {lastResult.replayed && <span>replayed</span>}
+        </div>
+      )}
+      {cancel.error && <div className="inline-warning" role="alert">
+        {cancel.error instanceof Error ? cancel.error.message : "取消模型调用失败"}
+      </div>}
     </div>
   );
 }

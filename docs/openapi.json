@@ -2085,6 +2085,123 @@
         "x-cyberagent-read-only": true
       }
     },
+    "/api/v1/runs/{run_id}/browser-cdp-permission": {
+      "post": {
+        "operationId": "selectRunBrowserCDPPermission",
+        "summary": "Select a Run browser CDP permission mode",
+        "description": "Records either restricted exact-scope navigation, DOM, and screenshot intent or a highly sensitive full-debug CDP ceiling. Selection never starts a browser, opens a CDP transport, authorizes a target, or grants runtime capability; full debug also requires the current Run execution permission and process-local startup capability to be Debug.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque operation key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/RunBrowserCDPPermissionControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunBrowserCDPPermissionControlRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/runs/{run_id}/code-handoff": {
       "get": {
         "operationId": "getCodeHandoff",
@@ -9438,6 +9555,26 @@
         ],
         "type": "object"
       },
+      "BrowserCDPPermissionRuntimeView": {
+        "additionalProperties": false,
+        "properties": {
+          "control_enabled": {
+            "type": "boolean"
+          },
+          "execution_debug_selected": {
+            "type": "boolean"
+          },
+          "full_debug_enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "control_enabled",
+          "full_debug_enabled",
+          "execution_debug_selected"
+        ],
+        "type": "object"
+      },
       "BudgetView": {
         "additionalProperties": false,
         "properties": {
@@ -15837,6 +15974,161 @@
         ],
         "type": "object"
       },
+      "RunBrowserCDPPermissionControlRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm_full_cdp_debug": {
+            "type": "boolean"
+          },
+          "mode": {
+            "enum": [
+              "restricted",
+              "full_debug"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "type": "object"
+      },
+      "RunBrowserCDPPermissionControlView": {
+        "additionalProperties": false,
+        "properties": {
+          "browser_cdp_permission": {
+            "$ref": "#/components/schemas/RunBrowserCDPPermissionView"
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "browser_cdp_permission",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "RunBrowserCDPPermissionView": {
+        "additionalProperties": false,
+        "properties": {
+          "arbitrary_method_allowed": {
+            "type": "boolean"
+          },
+          "browser_start_authorized": {
+            "type": "boolean"
+          },
+          "capability_grant": {
+            "type": "boolean"
+          },
+          "cookie_access_allowed": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "dom_snapshot_allowed": {
+            "type": "boolean"
+          },
+          "mode": {
+            "enum": [
+              "restricted",
+              "full_debug"
+            ],
+            "type": "string"
+          },
+          "navigate_allowed": {
+            "type": "boolean"
+          },
+          "operator_confirmed": {
+            "type": "boolean"
+          },
+          "policy_version": {
+            "enum": [
+              "browser_cdp_permission_policy.v1"
+            ],
+            "type": "string"
+          },
+          "protocol_version": {
+            "enum": [
+              "run_browser_cdp_permission.v1"
+            ],
+            "type": "string"
+          },
+          "request_capture_allowed": {
+            "type": "boolean"
+          },
+          "request_mutation_allowed": {
+            "type": "boolean"
+          },
+          "request_replay_allowed": {
+            "type": "boolean"
+          },
+          "required_gate": {
+            "enum": [
+              "browser_cdp_control",
+              "full_cdp_debug"
+            ],
+            "type": "string"
+          },
+          "revision": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "risk_tier": {
+            "enum": [
+              "minimal",
+              "high"
+            ],
+            "type": "string"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/BrowserCDPPermissionRuntimeView"
+          },
+          "runtime_authorized": {
+            "type": "boolean"
+          },
+          "runtime_gate_available": {
+            "type": "boolean"
+          },
+          "screenshot_allowed": {
+            "type": "boolean"
+          },
+          "transport_enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "revision",
+          "mode",
+          "navigate_allowed",
+          "dom_snapshot_allowed",
+          "screenshot_allowed",
+          "request_capture_allowed",
+          "request_mutation_allowed",
+          "request_replay_allowed",
+          "cookie_access_allowed",
+          "arbitrary_method_allowed",
+          "risk_tier",
+          "required_gate",
+          "policy_version",
+          "operator_confirmed",
+          "runtime_gate_available",
+          "runtime",
+          "created_at",
+          "transport_enabled",
+          "browser_start_authorized",
+          "runtime_authorized",
+          "capability_grant"
+        ],
+        "type": "object"
+      },
       "RunConfigView": {
         "additionalProperties": false,
         "properties": {
@@ -15933,6 +16225,9 @@
       "RunDetailView": {
         "additionalProperties": false,
         "properties": {
+          "browser_cdp_permission": {
+            "$ref": "#/components/schemas/RunBrowserCDPPermissionView"
+          },
           "checkpoint": {
             "$ref": "#/components/schemas/SupervisorCheckpointView"
           },
@@ -15976,6 +16271,7 @@
           "mode",
           "execution_profile",
           "execution_permission",
+          "browser_cdp_permission",
           "execution_interaction",
           "operator_steering",
           "tool_usage"
@@ -17405,6 +17701,9 @@
           "approval_control_enabled": {
             "type": "boolean"
           },
+          "browser_cdp_permission_control_enabled": {
+            "type": "boolean"
+          },
           "controlled_command_proposal_control_enabled": {
             "type": "boolean"
           },
@@ -17430,6 +17729,9 @@
             "type": "boolean"
           },
           "file_edit_review_enabled": {
+            "type": "boolean"
+          },
+          "full_cdp_debug_enabled": {
             "type": "boolean"
           },
           "model_control_enabled": {
@@ -17500,6 +17802,8 @@
           "operator_approval_enabled",
           "danger_full_access_enabled",
           "debug_maximum_access_enabled",
+          "browser_cdp_permission_control_enabled",
+          "full_cdp_debug_enabled",
           "run_creation_enabled",
           "session_message_enabled",
           "session_steering_control_enabled",

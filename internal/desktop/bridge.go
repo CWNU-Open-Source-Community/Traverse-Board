@@ -39,6 +39,8 @@ type ConnectionBootstrap struct {
 	ControlToken                            string `json:"control_token"`
 	ControlEnabled                          bool   `json:"control_enabled"`
 	ExecutionPermissionControlEnabled       bool   `json:"execution_permission_control_enabled"`
+	BrowserCDPPermissionControlEnabled      bool   `json:"browser_cdp_permission_control_enabled"`
+	FullCDPDebugEnabled                     bool   `json:"full_cdp_debug_enabled"`
 	OperatorApprovalEnabled                 bool   `json:"operator_approval_enabled"`
 	DangerFullAccessEnabled                 bool   `json:"danger_full_access_enabled"`
 	DebugMaximumAccessEnabled               bool   `json:"debug_maximum_access_enabled"`
@@ -132,6 +134,8 @@ type DesktopBridgeConfig struct {
 	ControlToken                            string
 	RunControlEnabled                       bool
 	ExecutionPermissionControlEnabled       bool
+	BrowserCDPPermissionControlEnabled      bool
+	FullCDPDebugEnabled                     bool
 	OperatorApprovalEnabled                 bool
 	DangerFullAccessEnabled                 bool
 	DebugMaximumAccessEnabled               bool
@@ -194,7 +198,8 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 			"desktop bridge tokens must be normalized bounded values")
 	}
 	controlEnabled := config.RunControlEnabled ||
-		config.ExecutionPermissionControlEnabled || config.RunCreationEnabled ||
+		config.ExecutionPermissionControlEnabled ||
+		config.BrowserCDPPermissionControlEnabled || config.RunCreationEnabled ||
 		config.SessionMessageEnabled ||
 		config.SessionSteeringControlEnabled || config.RunLifecycleEnabled ||
 		config.RunExecutionEnabled || config.PlanDeliveryControlEnabled ||
@@ -241,6 +246,18 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop execution permission capabilities require permission control")
 	}
+	browserCDPCapabilities := domain.BrowserCDPPermissionRuntimeCapabilities{
+		ControlEnabled:   config.BrowserCDPPermissionControlEnabled,
+		FullDebugEnabled: config.FullCDPDebugEnabled,
+	}
+	if err := browserCDPCapabilities.Validate(); err != nil {
+		return nil, apperror.Wrap(apperror.CodeInvalidArgument,
+			"desktop browser CDP permission capabilities are invalid", err)
+	}
+	if config.FullCDPDebugEnabled && !config.DebugMaximumAccessEnabled {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"desktop full CDP debug requires maximum Debug execution capability")
+	}
 	readHash := sha256.Sum256([]byte(config.ReadToken))
 	controlHash := sha256.Sum256([]byte(config.ControlToken))
 	if config.ControlToken != "" && subtle.ConstantTimeCompare(readHash[:], controlHash[:]) == 1 {
@@ -269,6 +286,8 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 			UIDigest: config.UIDigest, ReadToken: config.ReadToken, ControlToken: config.ControlToken,
 			ControlEnabled:                          config.RunControlEnabled,
 			ExecutionPermissionControlEnabled:       config.ExecutionPermissionControlEnabled,
+			BrowserCDPPermissionControlEnabled:      config.BrowserCDPPermissionControlEnabled,
+			FullCDPDebugEnabled:                     config.FullCDPDebugEnabled,
 			OperatorApprovalEnabled:                 config.OperatorApprovalEnabled,
 			DangerFullAccessEnabled:                 config.DangerFullAccessEnabled,
 			DebugMaximumAccessEnabled:               config.DebugMaximumAccessEnabled,

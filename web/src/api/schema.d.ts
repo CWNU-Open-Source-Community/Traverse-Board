@@ -448,6 +448,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/browser-cdp-permission": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Select a Run browser CDP permission mode
+         * @description Records either restricted exact-scope navigation, DOM, and screenshot intent or a highly sensitive full-debug CDP ceiling. Selection never starts a browser, opens a CDP transport, authorizes a target, or grants runtime capability; full debug also requires the current Run execution permission and process-local startup capability to be Debug.
+         */
+        post: operations["selectRunBrowserCDPPermission"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/code-handoff": {
         parameters: {
             query?: never;
@@ -1810,6 +1830,11 @@ export interface components {
             stream: "stdout" | "stderr";
             tool_name: string;
             workspace_id?: string;
+        };
+        BrowserCDPPermissionRuntimeView: {
+            control_enabled: boolean;
+            execution_debug_selected: boolean;
+            full_debug_enabled: boolean;
         };
         BudgetView: {
             /** Format: double */
@@ -3442,6 +3467,47 @@ export interface components {
             /** @enum {string} */
             version: "run_activity.v1";
         };
+        RunBrowserCDPPermissionControlRequestView: {
+            confirm_full_cdp_debug?: boolean;
+            /** @enum {string} */
+            mode: "restricted" | "full_debug";
+            reason?: string;
+        };
+        RunBrowserCDPPermissionControlView: {
+            browser_cdp_permission: components["schemas"]["RunBrowserCDPPermissionView"];
+            replayed: boolean;
+        };
+        RunBrowserCDPPermissionView: {
+            arbitrary_method_allowed: boolean;
+            browser_start_authorized: boolean;
+            capability_grant: boolean;
+            cookie_access_allowed: boolean;
+            /** Format: date-time */
+            created_at: string;
+            dom_snapshot_allowed: boolean;
+            /** @enum {string} */
+            mode: "restricted" | "full_debug";
+            navigate_allowed: boolean;
+            operator_confirmed: boolean;
+            /** @enum {string} */
+            policy_version: "browser_cdp_permission_policy.v1";
+            /** @enum {string} */
+            protocol_version: "run_browser_cdp_permission.v1";
+            request_capture_allowed: boolean;
+            request_mutation_allowed: boolean;
+            request_replay_allowed: boolean;
+            /** @enum {string} */
+            required_gate: "browser_cdp_control" | "full_cdp_debug";
+            /** Format: int64 */
+            revision: number;
+            /** @enum {string} */
+            risk_tier: "minimal" | "high";
+            runtime: components["schemas"]["BrowserCDPPermissionRuntimeView"];
+            runtime_authorized: boolean;
+            runtime_gate_available: boolean;
+            screenshot_allowed: boolean;
+            transport_enabled: boolean;
+        };
         RunConfigView: {
             interactive: boolean;
             model_route: string;
@@ -3466,6 +3532,7 @@ export interface components {
             session: components["schemas"]["SessionView"];
         };
         RunDetailView: {
+            browser_cdp_permission: components["schemas"]["RunBrowserCDPPermissionView"];
             checkpoint?: components["schemas"]["SupervisorCheckpointView"];
             execution_interaction: components["schemas"]["RunExecutionInteractionView"];
             execution_lease?: components["schemas"]["RunExecutionLeaseView"];
@@ -3852,6 +3919,7 @@ export interface components {
         };
         RuntimeCapabilitiesView: {
             approval_control_enabled: boolean;
+            browser_cdp_permission_control_enabled: boolean;
             controlled_command_proposal_control_enabled: boolean;
             danger_full_access_enabled: boolean;
             debug_maximum_access_enabled: boolean;
@@ -3861,6 +3929,7 @@ export interface components {
             file_edit_apply_enabled: boolean;
             file_edit_proposal_enabled: boolean;
             file_edit_review_enabled: boolean;
+            full_cdp_debug_enabled: boolean;
             model_control_enabled: boolean;
             operator_approval_enabled: boolean;
             plan_delivery_control_enabled: boolean;
@@ -5664,6 +5733,52 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    selectRunBrowserCDPPermission: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque operation key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunBrowserCDPPermissionControlRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["RunBrowserCDPPermissionControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
         };

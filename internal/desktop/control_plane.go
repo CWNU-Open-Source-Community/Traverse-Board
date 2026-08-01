@@ -56,6 +56,8 @@ type ControlPlaneConfig struct {
 	RunControlEnabled                       bool
 	ExecutionPermissionControlEnabled       bool
 	ExecutionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
+	BrowserCDPPermissionControlEnabled      bool
+	BrowserCDPPermissionCapabilities        domain.BrowserCDPPermissionRuntimeCapabilities
 	RunCreationEnabled                      bool
 	SessionMessageEnabled                   bool
 	SessionSteeringControlEnabled           bool
@@ -215,6 +217,8 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		RunControlEnabled:                       config.RunControlEnabled,
 		ExecutionPermissionControlEnabled:       config.ExecutionPermissionControlEnabled,
 		ExecutionPermissionCapabilities:         config.ExecutionPermissionCapabilities,
+		BrowserCDPPermissionControlEnabled:      config.BrowserCDPPermissionControlEnabled,
+		BrowserCDPPermissionCapabilities:        config.BrowserCDPPermissionCapabilities,
 		RunCreationEnabled:                      config.RunCreationEnabled,
 		SessionMessageEnabled:                   config.SessionMessageEnabled,
 		SessionSteeringControlEnabled:           config.SessionSteeringControlEnabled,

@@ -36,6 +36,9 @@ export default function App() {
   const runControlEnabled = useConnectionStore((state) => state.runControlEnabled);
   const executionPermissionControlEnabled = useConnectionStore(
     (state) => state.executionPermissionControlEnabled);
+  const browserCDPPermissionControlEnabled = useConnectionStore(
+    (state) => state.browserCDPPermissionControlEnabled);
+  const fullCDPDebugEnabled = useConnectionStore((state) => state.fullCDPDebugEnabled);
   const operatorApprovalEnabled = useConnectionStore((state) => state.operatorApprovalEnabled);
   const dangerFullAccessEnabled = useConnectionStore((state) => state.dangerFullAccessEnabled);
   const debugMaximumAccessEnabled = useConnectionStore((state) => state.debugMaximumAccessEnabled);
@@ -68,6 +71,8 @@ export default function App() {
   return <ConnectedWorkbench token={token} controlToken={controlToken}
     runControlEnabled={runControlEnabled} runCreationEnabled={runCreationEnabled}
     executionPermissionControlEnabled={executionPermissionControlEnabled}
+    browserCDPPermissionControlEnabled={browserCDPPermissionControlEnabled}
+    fullCDPDebugEnabled={fullCDPDebugEnabled}
     operatorApprovalEnabled={operatorApprovalEnabled}
     dangerFullAccessEnabled={dangerFullAccessEnabled}
     debugMaximumAccessEnabled={debugMaximumAccessEnabled}
@@ -90,7 +95,7 @@ export default function App() {
 
 function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreationEnabled,
   executionPermissionControlEnabled, operatorApprovalEnabled, dangerFullAccessEnabled,
-  debugMaximumAccessEnabled,
+  debugMaximumAccessEnabled, browserCDPPermissionControlEnabled, fullCDPDebugEnabled,
   sessionMessageEnabled, sessionSteeringControlEnabled, runLifecycleEnabled,
   runExecutionEnabled, planDeliveryControlEnabled, approvalControlEnabled,
   controlledCommandProposalControlEnabled,
@@ -103,6 +108,8 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   runControlEnabled: boolean;
   runCreationEnabled: boolean;
   executionPermissionControlEnabled: boolean;
+  browserCDPPermissionControlEnabled: boolean;
+  fullCDPDebugEnabled: boolean;
   operatorApprovalEnabled: boolean;
   dangerFullAccessEnabled: boolean;
   debugMaximumAccessEnabled: boolean;
@@ -139,6 +146,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     runControlEnabled, runCreationEnabled, sessionMessageEnabled,
     executionPermissionControlEnabled, operatorApprovalEnabled,
     dangerFullAccessEnabled, debugMaximumAccessEnabled,
+    browserCDPPermissionControlEnabled, fullCDPDebugEnabled,
     sessionSteeringControlEnabled,
     runLifecycleEnabled, runExecutionEnabled,
     planDeliveryControlEnabled, approvalControlEnabled, modelControlEnabled,
@@ -149,7 +157,8 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     verificationEvidenceEnabled,
   }), [token, controlToken, runControlEnabled, runCreationEnabled,
     executionPermissionControlEnabled, operatorApprovalEnabled,
-    dangerFullAccessEnabled, debugMaximumAccessEnabled, sessionMessageEnabled,
+    dangerFullAccessEnabled, debugMaximumAccessEnabled,
+    browserCDPPermissionControlEnabled, fullCDPDebugEnabled, sessionMessageEnabled,
     sessionSteeringControlEnabled, runLifecycleEnabled, runExecutionEnabled,
     planDeliveryControlEnabled, approvalControlEnabled, modelControlEnabled,
     controlledCommandProposalControlEnabled,

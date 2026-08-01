@@ -50,6 +50,7 @@ func TestDesktopOptionsDefaultToReadOnlyAndRequireExplicitCapabilities(t *testin
 	}{
 		{flag: "--enable-profile-control", want: desktopOptions{profileControl: true}},
 		{flag: "--enable-permission-control", want: desktopOptions{permissionControl: true}},
+		{flag: "--enable-browser-cdp-control", want: desktopOptions{browserCDPControl: true}},
 		{flag: "--enable-run-creation", want: desktopOptions{runCreation: true}},
 		{flag: "--enable-session-messages", want: desktopOptions{sessionMessages: true}},
 		{flag: "--enable-session-steering-control", want: desktopOptions{sessionSteeringControl: true}},
@@ -92,15 +93,22 @@ func TestDesktopOptionsDefaultToReadOnlyAndRequireExplicitCapabilities(t *testin
 	}); err == nil {
 		t.Fatal("maximum debug access without the user terminal was accepted")
 	}
+	if _, err := parseDesktopOptions([]string{
+		"--enable-full-cdp-debug",
+	}); err == nil {
+		t.Fatal("full CDP debug without its parent gates was accepted")
+	}
 	maximum, err := parseDesktopOptions([]string{
 		"--enable-permission-control", "--enable-danger-full-access",
 		"--enable-debug-maximum-access", "--enable-user-terminal",
+		"--enable-browser-cdp-control", "--enable-full-cdp-debug",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !maximum.permissionControl || !maximum.dangerFullAccess ||
-		!maximum.debugMaximumAccess || !maximum.userTerminal {
+		!maximum.debugMaximumAccess || !maximum.userTerminal ||
+		!maximum.browserCDPControl || !maximum.fullCDPDebug {
 		t.Fatalf("maximum debug capability set is incomplete: %+v", maximum)
 	}
 }

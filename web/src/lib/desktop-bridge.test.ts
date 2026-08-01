@@ -12,6 +12,8 @@ const bootstrap = {
   control_token: "",
   control_enabled: false,
   execution_permission_control_enabled: false,
+  browser_cdp_permission_control_enabled: false,
+  full_cdp_debug_enabled: false,
   operator_approval_enabled: false,
   danger_full_access_enabled: false,
   debug_maximum_access_enabled: false,
@@ -199,6 +201,16 @@ describe("desktop native bridge", () => {
   it("rejects authority widening and extra local-file fields", async () => {
     installBridge({ Bootstrap: vi.fn().mockResolvedValue({ ...bootstrap, process_execution_enabled: true }) });
     let module = await import("./desktop-bridge");
+    await expect(module.loadDesktopBootstrap()).rejects.toThrow("rejected");
+
+    vi.resetModules();
+    installBridge({ Bootstrap: vi.fn().mockResolvedValue({
+      ...bootstrap,
+      control_token: "control-token-0123456789abcdefghijkl",
+      full_cdp_debug_enabled: true,
+      read_only_default: false,
+    }) });
+    module = await import("./desktop-bridge");
     await expect(module.loadDesktopBootstrap()).rejects.toThrow("rejected");
 
     vi.resetModules();

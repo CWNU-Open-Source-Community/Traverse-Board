@@ -168,6 +168,7 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		bootstrap.ControlledCommandProposalControlEnabled ||
 		bootstrap.ModelControlEnabled || bootstrap.ProviderCredentialEnabled ||
 		bootstrap.ExecutionPermissionControlEnabled ||
+		bootstrap.BrowserCDPPermissionControlEnabled || bootstrap.FullCDPDebugEnabled ||
 		bootstrap.OperatorApprovalEnabled || bootstrap.DangerFullAccessEnabled ||
 		bootstrap.DebugMaximumAccessEnabled ||
 		bootstrap.FileEditReviewEnabled || bootstrap.FileEditProposalEnabled ||
@@ -191,6 +192,7 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		"control_enabled", "control_token",
 		"controlled_command_proposal_control_enabled",
 		"execution_permission_control_enabled", "operator_approval_enabled",
+		"browser_cdp_permission_control_enabled", "full_cdp_debug_enabled",
 		"danger_full_access_enabled", "debug_maximum_access_enabled",
 		"docker_execution_enabled", "file_edit_review_enabled", "file_edit_proposal_enabled",
 		"model_control_enabled", "provider_credential_enabled",

@@ -119,6 +119,7 @@ func TestAPIServeCLIStartsAuthenticatedLoopbackServerWithoutPersistingToken(t *t
 			"api", "serve", "--listen", "127.0.0.1:0",
 			"--enable-permission-control", "--enable-danger-full-access",
 			"--enable-debug-maximum-access",
+			"--enable-browser-cdp-control", "--enable-full-cdp-debug",
 		}, &stdout, &stderr)
 	}()
 
@@ -138,7 +139,9 @@ func TestAPIServeCLIStartsAuthenticatedLoopbackServerWithoutPersistingToken(t *t
 		!strings.Contains(output, "execution_permission_control_enabled: true") ||
 		!strings.Contains(output, "operator_approval_enabled: true") ||
 		!strings.Contains(output, "danger_full_access_enabled: true") ||
-		!strings.Contains(output, "debug_maximum_access_enabled: true") {
+		!strings.Contains(output, "debug_maximum_access_enabled: true") ||
+		!strings.Contains(output, "browser_cdp_permission_control_enabled: true") ||
+		!strings.Contains(output, "full_cdp_debug_enabled: true") {
 		t.Fatalf("environment token reporting is unsafe or incomplete: %s", output)
 	}
 
@@ -174,7 +177,10 @@ func TestAPIServeCLIStartsAuthenticatedLoopbackServerWithoutPersistingToken(t *t
 		!bytes.Contains(capabilityBody,
 			[]byte(`"execution_permission_control_enabled":true`)) ||
 		!bytes.Contains(capabilityBody,
-			[]byte(`"debug_maximum_access_enabled":true`)) {
+			[]byte(`"debug_maximum_access_enabled":true`)) ||
+		!bytes.Contains(capabilityBody,
+			[]byte(`"browser_cdp_permission_control_enabled":true`)) ||
+		!bytes.Contains(capabilityBody, []byte(`"full_cdp_debug_enabled":true`)) {
 		t.Fatalf("execution permission capability is not wired by api serve: status=%d body=%s err=%v",
 			capabilityResponse.StatusCode, capabilityBody, readErr)
 	}
@@ -238,6 +244,16 @@ func TestAPIServeCLIRejectsInvalidExecutionPermissionStartupGates(t *testing.T) 
 	if code != 2 || !strings.Contains(stderr.String(),
 		"require CYBERAGENT_API_CONTROL_TOKEN") {
 		t.Fatalf("missing control token stdout=%q stderr=%q code=%d",
+			stdout.String(), stderr.String(), code)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	code = ExecuteContext(context.Background(), []string{
+		"api", "serve", "--enable-full-cdp-debug",
+	}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(),
+		"full CDP debug requires browser CDP control") {
+		t.Fatalf("invalid browser CDP hierarchy stdout=%q stderr=%q code=%d",
 			stdout.String(), stderr.String(), code)
 	}
 }

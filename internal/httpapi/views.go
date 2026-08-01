@@ -752,6 +752,37 @@ type RunExecutionPermissionView struct {
 	CapabilityGrant      bool                           `json:"capability_grant"`
 }
 
+type BrowserCDPPermissionRuntimeView struct {
+	ControlEnabled         bool `json:"control_enabled"`
+	FullDebugEnabled       bool `json:"full_debug_enabled"`
+	ExecutionDebugSelected bool `json:"execution_debug_selected"`
+}
+
+type RunBrowserCDPPermissionView struct {
+	ProtocolVersion        string                          `json:"protocol_version"`
+	Revision               int64                           `json:"revision"`
+	Mode                   string                          `json:"mode"`
+	NavigateAllowed        bool                            `json:"navigate_allowed"`
+	DOMSnapshotAllowed     bool                            `json:"dom_snapshot_allowed"`
+	ScreenshotAllowed      bool                            `json:"screenshot_allowed"`
+	RequestCaptureAllowed  bool                            `json:"request_capture_allowed"`
+	RequestMutationAllowed bool                            `json:"request_mutation_allowed"`
+	RequestReplayAllowed   bool                            `json:"request_replay_allowed"`
+	CookieAccessAllowed    bool                            `json:"cookie_access_allowed"`
+	ArbitraryMethodAllowed bool                            `json:"arbitrary_method_allowed"`
+	RiskTier               string                          `json:"risk_tier"`
+	RequiredGate           string                          `json:"required_gate"`
+	PolicyVersion          string                          `json:"policy_version"`
+	OperatorConfirmed      bool                            `json:"operator_confirmed"`
+	RuntimeGateAvailable   bool                            `json:"runtime_gate_available"`
+	Runtime                BrowserCDPPermissionRuntimeView `json:"runtime"`
+	CreatedAt              time.Time                       `json:"created_at"`
+	TransportEnabled       bool                            `json:"transport_enabled"`
+	BrowserStartAuthorized bool                            `json:"browser_start_authorized"`
+	RuntimeAuthorized      bool                            `json:"runtime_authorized"`
+	CapabilityGrant        bool                            `json:"capability_grant"`
+}
+
 type RunExecutionInteractionView struct {
 	ProtocolVersion          string    `json:"protocol_version"`
 	Revision                 int64     `json:"revision"`
@@ -898,6 +929,7 @@ type RunDetailView struct {
 	Mode                 RunModeView                  `json:"mode"`
 	ExecutionProfile     RunExecutionProfileView      `json:"execution_profile"`
 	ExecutionPermission  RunExecutionPermissionView   `json:"execution_permission"`
+	BrowserCDPPermission RunBrowserCDPPermissionView  `json:"browser_cdp_permission"`
 	ExecutionInteraction RunExecutionInteractionView  `json:"execution_interaction"`
 	Checkpoint           *SupervisorCheckpointView    `json:"checkpoint,omitempty"`
 	Lease                *RunExecutionLeaseView       `json:"execution_lease,omitempty"`
@@ -1121,6 +1153,41 @@ func runExecutionPermissionView(value domain.RunExecutionPermissionSnapshot,
 		CreatedAt:            value.CreatedAt, ProcessEnabled: value.ProcessEnabled,
 		ExecutionAuthorized: value.ExecutionAuthorized,
 		CapabilityGrant:     value.CapabilityGrant,
+	}
+}
+
+func runBrowserCDPPermissionView(value domain.RunBrowserCDPPermissionSnapshot,
+	capabilities domain.BrowserCDPPermissionRuntimeCapabilities,
+	executionPermission domain.RunExecutionPermissionSnapshot,
+) RunBrowserCDPPermissionView {
+	executionDebugSelected :=
+		executionPermission.Mode == domain.RunExecutionPermissionDebug
+	runtimeAvailable := capabilities.Allows(value.Mode)
+	if value.Mode == domain.RunBrowserCDPPermissionFullDebug && !executionDebugSelected {
+		runtimeAvailable = false
+	}
+	return RunBrowserCDPPermissionView{
+		ProtocolVersion: value.ProtocolVersion, Revision: value.Revision,
+		Mode: string(value.Mode), NavigateAllowed: value.NavigateAllowed,
+		DOMSnapshotAllowed:     value.DOMSnapshotAllowed,
+		ScreenshotAllowed:      value.ScreenshotAllowed,
+		RequestCaptureAllowed:  value.RequestCaptureAllowed,
+		RequestMutationAllowed: value.RequestMutationAllowed,
+		RequestReplayAllowed:   value.RequestReplayAllowed,
+		CookieAccessAllowed:    value.CookieAccessAllowed,
+		ArbitraryMethodAllowed: value.ArbitraryMethodAllowed,
+		RiskTier:               string(value.RiskTier), RequiredGate: string(value.RequiredGate),
+		PolicyVersion: value.PolicyVersion, OperatorConfirmed: value.OperatorConfirmed,
+		RuntimeGateAvailable: runtimeAvailable,
+		Runtime: BrowserCDPPermissionRuntimeView{
+			ControlEnabled:         capabilities.ControlEnabled,
+			FullDebugEnabled:       capabilities.FullDebugEnabled,
+			ExecutionDebugSelected: executionDebugSelected,
+		},
+		CreatedAt: value.CreatedAt, TransportEnabled: value.TransportEnabled,
+		BrowserStartAuthorized: value.BrowserStartAuthorized,
+		RuntimeAuthorized:      value.RuntimeAuthorized,
+		CapabilityGrant:        value.CapabilityGrant,
 	}
 }
 

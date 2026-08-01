@@ -768,6 +768,11 @@ func (a *API) run(request *http.Request, runID string) (any, *Page, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	browserCDPPermission, err := a.store.GetRunBrowserCDPPermission(
+		request.Context(), run.ID)
+	if err != nil {
+		return nil, nil, err
+	}
 	executionInteraction, err := a.store.GetRunExecutionInteraction(request.Context(), run.ID)
 	if err != nil {
 		return nil, nil, err
@@ -780,6 +785,8 @@ func (a *API) run(request *http.Request, runID string) (any, *Page, error) {
 		Mode: runModeView(mode), ExecutionProfile: runExecutionProfileView(executionProfile),
 		ExecutionPermission: runExecutionPermissionView(
 			executionPermission, a.executionPermissionCapabilities),
+		BrowserCDPPermission: runBrowserCDPPermissionView(browserCDPPermission,
+			a.browserCDPPermissionCapabilities, executionPermission),
 		ExecutionInteraction: runExecutionInteractionView(executionInteraction),
 		ToolUsage:            toolUsageView(usage)}
 	checkpoint, found, err := a.store.GetSupervisorCheckpoint(request.Context(), run.ID)

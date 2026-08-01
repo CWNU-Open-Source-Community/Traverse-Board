@@ -76,6 +76,16 @@ type Store interface {
 		snapshot domain.RunExecutionPermissionSnapshot,
 		operation domain.RunExecutionPermissionOperation,
 		event events.Event) (domain.RunExecutionPermissionSnapshot, bool, error)
+	GetRunBrowserCDPPermission(ctx context.Context,
+		runID string) (domain.RunBrowserCDPPermissionSnapshot, error)
+	GetRunBrowserCDPPermissionSnapshot(ctx context.Context,
+		id string) (domain.RunBrowserCDPPermissionSnapshot, error)
+	GetRunBrowserCDPPermissionOperation(ctx context.Context,
+		keyDigest string) (domain.RunBrowserCDPPermissionOperation, bool, error)
+	TransitionRunBrowserCDPPermission(ctx context.Context,
+		snapshot domain.RunBrowserCDPPermissionSnapshot,
+		operation domain.RunBrowserCDPPermissionOperation,
+		event events.Event) (domain.RunBrowserCDPPermissionSnapshot, bool, error)
 	GetRunExecutionInteraction(ctx context.Context,
 		runID string) (domain.RunExecutionInteractionSnapshot, error)
 	GetRunExecutionInteractionSnapshot(ctx context.Context,
@@ -207,6 +217,7 @@ type Config struct {
 	ControlToken                            string
 	RunControlEnabled                       bool
 	ExecutionPermissionControlEnabled       bool
+	BrowserCDPPermissionControlEnabled      bool
 	RunCreationEnabled                      bool
 	SessionMessageEnabled                   bool
 	SessionSteeringControlEnabled           bool
@@ -227,6 +238,7 @@ type Config struct {
 	EvidenceAttachmentEnabled               bool
 	VerificationEvidenceEnabled             bool
 	ExecutionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
+	BrowserCDPPermissionCapabilities        domain.BrowserCDPPermissionRuntimeCapabilities
 	RunLifecycleController                  RunLifecycleController
 	RunExecutionController                  RunExecutionController
 	PlanDeliveryController                  PlanDeliveryController
@@ -253,6 +265,7 @@ type API struct {
 	controlTokenHash                        [sha256.Size]byte
 	controlEnabled                          bool
 	executionPermissionControlEnabled       bool
+	browserCDPPermissionControlEnabled      bool
 	runCreationEnabled                      bool
 	sessionMessageEnabled                   bool
 	sessionSteeringControlEnabled           bool
@@ -273,6 +286,7 @@ type API struct {
 	evidenceAttachmentEnabled               bool
 	verificationEvidenceEnabled             bool
 	executionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
+	browserCDPPermissionCapabilities        domain.BrowserCDPPermissionRuntimeCapabilities
 	runLifecycleController                  RunLifecycleController
 	runExecutionController                  RunExecutionController
 	planDeliveryController                  PlanDeliveryController
@@ -318,6 +332,7 @@ func New(store Store, config Config) (*API, error) {
 		}
 	}
 	if (config.RunControlEnabled || config.ExecutionPermissionControlEnabled ||
+		config.BrowserCDPPermissionControlEnabled ||
 		config.RunCreationEnabled || config.SessionMessageEnabled ||
 		config.SessionSteeringControlEnabled || config.RunLifecycleEnabled ||
 		config.RunExecutionEnabled || config.PlanDeliveryControlEnabled ||
@@ -402,6 +417,20 @@ func New(store Store, config Config) (*API, error) {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API execution permission capabilities require execution permission control")
 	}
+	if err := config.BrowserCDPPermissionCapabilities.Validate(); err != nil {
+		return nil, apperror.Wrap(apperror.CodeInvalidArgument,
+			"HTTP API browser CDP permission capabilities are invalid", err)
+	}
+	if config.BrowserCDPPermissionCapabilities.ControlEnabled !=
+		config.BrowserCDPPermissionControlEnabled {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"HTTP API browser CDP capability must exactly match browser CDP control")
+	}
+	if config.BrowserCDPPermissionCapabilities.FullDebugEnabled &&
+		!config.ExecutionPermissionCapabilities.DebugMaximumAccessEnabled {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"HTTP API full CDP debug requires maximum Debug execution capability")
+	}
 	version := strings.TrimSpace(config.AppVersion)
 	if version == "" {
 		version = "unknown"
@@ -423,6 +452,8 @@ func New(store Store, config Config) (*API, error) {
 		controlEnabled:   controlTokenPresent && config.RunControlEnabled,
 		executionPermissionControlEnabled: controlTokenPresent &&
 			config.ExecutionPermissionControlEnabled,
+		browserCDPPermissionControlEnabled: controlTokenPresent &&
+			config.BrowserCDPPermissionControlEnabled,
 		runCreationEnabled: controlTokenPresent && config.RunCreationEnabled, appVersion: version,
 		sessionMessageEnabled:         controlTokenPresent && config.SessionMessageEnabled,
 		sessionSteeringControlEnabled: controlTokenPresent && config.SessionSteeringControlEnabled,
@@ -444,6 +475,7 @@ func New(store Store, config Config) (*API, error) {
 		evidenceAttachmentEnabled:           controlTokenPresent && config.EvidenceAttachmentEnabled,
 		verificationEvidenceEnabled:         controlTokenPresent && config.VerificationEvidenceEnabled,
 		executionPermissionCapabilities:     config.ExecutionPermissionCapabilities,
+		browserCDPPermissionCapabilities:    config.BrowserCDPPermissionCapabilities,
 		runLifecycleController:              config.RunLifecycleController,
 		runExecutionController:              config.RunExecutionController,
 		planDeliveryController:              config.PlanDeliveryController,
@@ -679,6 +711,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if runID, matched := matchRunExecutionPermissionControlPath(request.URL.Path); matched {
 		a.serveRunExecutionPermissionControl(tracked, request, requestID, runID)
+		return
+	}
+	if runID, matched := matchRunBrowserCDPPermissionControlPath(request.URL.Path); matched {
+		a.serveRunBrowserCDPPermissionControl(tracked, request, requestID, runID)
 		return
 	}
 	if runID, matched := matchRunExecutionInteractionControlPath(request.URL.Path); matched {

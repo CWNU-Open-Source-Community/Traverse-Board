@@ -149,6 +149,16 @@ func createMissionRunTx(ctx context.Context, tx *sql.Tx, mission domain.Mission,
 		executionPermission, run, mission); err != nil {
 		return err
 	}
+	browserCDPPermission, err := domain.NewInitialRunBrowserCDPPermissionSnapshot(
+		idgen.New("run-browser-cdp-permission"), run, mission, mode.RequestedBy,
+		run.CreatedAt)
+	if err != nil {
+		return err
+	}
+	if err := insertInitialRunBrowserCDPPermissionSnapshotTx(ctx, tx,
+		browserCDPPermission, run, mission); err != nil {
+		return err
+	}
 	for _, event := range initialEvents {
 		if _, err := insertRunEventTx(ctx, tx, event); err != nil {
 			return err

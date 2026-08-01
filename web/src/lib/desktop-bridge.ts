@@ -29,6 +29,8 @@ export interface DesktopConnectionBootstrap {
   control_token: string;
   control_enabled: boolean;
   execution_permission_control_enabled: boolean;
+  browser_cdp_permission_control_enabled: boolean;
+  full_cdp_debug_enabled: boolean;
   operator_approval_enabled: boolean;
   danger_full_access_enabled: boolean;
   debug_maximum_access_enabled: boolean;
@@ -535,6 +537,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     "api_base_url", "api_version", "app_version", "approval_control_enabled",
     "controlled_command_proposal_control_enabled",
     "execution_permission_control_enabled", "operator_approval_enabled",
+    "browser_cdp_permission_control_enabled", "full_cdp_debug_enabled",
     "danger_full_access_enabled", "debug_maximum_access_enabled",
     "control_enabled", "control_token", "docker_execution_enabled", "file_edit_apply_enabled",
     "evidence_attachment_enabled",
@@ -558,6 +561,8 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     isSHA256(value.ui_digest) && validToken(value.read_token) &&
     typeof value.control_token === "string" && typeof value.control_enabled === "boolean" &&
     typeof value.execution_permission_control_enabled === "boolean" &&
+    typeof value.browser_cdp_permission_control_enabled === "boolean" &&
+    typeof value.full_cdp_debug_enabled === "boolean" &&
     typeof value.operator_approval_enabled === "boolean" &&
     typeof value.danger_full_access_enabled === "boolean" &&
     typeof value.debug_maximum_access_enabled === "boolean" &&
@@ -585,6 +590,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     typeof value.workspace_open_enabled === "boolean" &&
     (value.control_token !== "") === (value.control_enabled || value.run_creation_enabled ||
       value.execution_permission_control_enabled ||
+      value.browser_cdp_permission_control_enabled ||
       value.session_message_enabled || value.session_steering_control_enabled ||
       value.run_lifecycle_enabled || value.run_execution_enabled ||
 	  value.plan_delivery_control_enabled || value.approval_control_enabled ||
@@ -604,8 +610,11 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
       (value.execution_permission_control_enabled &&
       (!value.danger_full_access_enabled || value.operator_approval_enabled) &&
       (!value.debug_maximum_access_enabled || value.danger_full_access_enabled))) &&
+    (!value.full_cdp_debug_enabled ||
+      (value.browser_cdp_permission_control_enabled && value.debug_maximum_access_enabled)) &&
     value.read_only_default === !(value.control_enabled || value.run_creation_enabled ||
       value.execution_permission_control_enabled ||
+      value.browser_cdp_permission_control_enabled ||
       value.session_message_enabled || value.session_steering_control_enabled ||
       value.run_lifecycle_enabled || value.run_execution_enabled ||
 	  value.plan_delivery_control_enabled || value.approval_control_enabled ||

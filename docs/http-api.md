@@ -15,16 +15,23 @@ $env:CYBERAGENT_API_TOKEN = "<a-random-token-of-at-least-32-bytes>"
 $env:CYBERAGENT_API_CONTROL_TOKEN = "<a-different-random-token-of-at-least-32-bytes>"
 go run ./cmd/cyberagent api serve --listen 127.0.0.1:8765 --ui-dir web/dist
 
-# Representative optional independent controls in the current v89 API surface.
+# Representative optional independent controls in the current v91 API surface.
 go run ./cmd/cyberagent api serve --listen 127.0.0.1:8765 --ui-dir web/dist --enable-file-edit-proposals --enable-provider-credentials --enable-wake-worker
 
 # Four-level permission selector. Higher gates require every lower gate.
 go run ./cmd/cyberagent api serve --listen 127.0.0.1:8765 --ui-dir web/dist `
   --enable-permission-control --enable-danger-full-access `
   --enable-debug-maximum-access
+
+# Browser-CDP permission selection. Full CDP additionally requires Debug maximum access.
+go run ./cmd/cyberagent api serve --listen 127.0.0.1:8765 --ui-dir web/dist `
+  --enable-permission-control --enable-danger-full-access `
+  --enable-debug-maximum-access --enable-browser-cdp-control `
+  --enable-full-cdp-debug
 ```
 
-权限开关只让 API 选择和评估对应策略，不会自动创建任意命令执行器。当前只有
+权限开关只让 API 选择和评估对应策略，不会自动创建任意命令执行器或 CDP
+transport。当前只有
 四种固定模板执行链与 v89 固定提案审批已接入。`approval`、`full_access` 和
 `debug` 的任意宿主命令/Agent 持久终端传输仍关闭。未设置
 `CYBERAGENT_API_CONTROL_TOKEN` 时，permission control 不能启动。
@@ -253,6 +260,7 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8765/api/v1/skills/packages/inst
 | `POST` | `/api/v1/runs/{run_id}/agents/{agent_id}/active-call/cancel` | Separately authorized exact Specialist-call cancellation request |
 | `POST` | `/api/v1/runs/{run_id}/execution-profile` | Select `preview|docker|local` intent; never starts a process or grants authority |
 | `POST` | `/api/v1/runs/{run_id}/execution-permission` | Operator-select `conservative|approval|full_access|debug`; exact confirmation and process startup gate required, persisted selection never grants authority |
+| `POST` | `/api/v1/runs/{run_id}/browser-cdp-permission` | Operator-select `restricted|full_debug`; full mode requires Debug execution permission, dedicated startup gate and exact confirmation; selection never starts a browser or opens CDP |
 | `POST` | `/api/v1/runs/{run_id}/lifecycle` | Idempotent `start|pause|resume` under exact state/quiescence/lease gates |
 | `POST` | `/api/v1/runs/{run_id}/execute` | Freeze and execute at most eight pending inputs through the existing RunSupervisor |
 | `POST` | `/api/v1/runs/{run_id}/plan/direction` | Select one persisted direction and create its bounded WorkItems/Note; no phase change or execution |
@@ -413,9 +421,9 @@ cyberagent api openapi
 cyberagent api openapi --output docs/openapi.json
 ```
 
-运行时的 `/api/v1/openapi.json` 返回同一份原始文档，仍要求 loopback 与 read Bearer 认证，不接受 query 或 body。它使用 `application/vnd.oai.openapi+json`，不套普通 `api.v1` envelope。当前契约有 75 个 path、83 个 operation 和 182 个 schema。测试逐条命中公开 handler，并确认普通 DTO 不包含 Workspace root、Artifact/Skill/Session 正文、模型输出、工具参数、私有 lifecycle、operation/fencing/lease owner、API key、Provider Base URL 或环境变量名。Explorer/Search/Repository Diff/History/Commit Detail 绝不返回 Workspace root；它们只提供有界、脱敏且明确非授权的 Workspace 投影。行动中心、证据清单、验证计划/结果/显式关联 coverage、逐检查项 snapshot export/回执历史/不授权复核和带有界复核元数据的 Code Handoff 只提供闭集或有界 metadata，不包含 private operation、message/report body 或 capability。Skill 安装请求仍是唯一有界 archive 传输，并明确排除 path/content/command/hook 字段；证据附件请求只包含相对引用与投影摘要，verification evidence POST 只包含闭集 outcome 与有界文本，association POST 只包含精确 plan/item/evidence identity，snapshot receipt POST 只包含精确 plan/item/high-water/digest metadata 与显式确认，receipt review POST 只包含 exact receipt/digest/event/closed decision 与不授权确认。
+运行时的 `/api/v1/openapi.json` 返回同一份原始文档，仍要求 loopback 与 read Bearer 认证，不接受 query 或 body。它使用 `application/vnd.oai.openapi+json`，不套普通 `api.v1` envelope。当前契约有 83 个 path、91 个 operation 和 203 个 schema。测试逐条命中公开 handler，并确认普通 DTO 不包含 Workspace root、Artifact/Skill/Session 正文、模型输出、工具参数、私有 lifecycle、operation/fencing/lease owner、API key、Provider Base URL 或环境变量名。CDP 权限响应只投影固定能力布尔值、当前进程闸门和四项 false authority，不包含 endpoint、browser path、Profile、Cookie、请求正文或 CDP payload。
 
-The runtime `/api/v1/openapi.json` returns the same raw document under the loopback and read-bearer boundary and accepts neither a query nor a body. It uses `application/vnd.oai.openapi+json` rather than the ordinary `api.v1` envelope. The contract contains 76 paths, 84 operations, and 185 schemas. Tests exercise every handler and verify that ordinary DTOs omit Workspace roots, Artifact/Skill/Session bodies, model output, Tool arguments, Harness binding/probe content, private lifecycle, operation/fencing/lease-owner identities, API keys, Provider base URLs, and environment-variable names. Explorer, Search, Repository Diff, History, and Commit Detail never return a Workspace root; they are bounded, redacted, explicitly non-authorizing Workspace projections. Operator actions, evidence inventory, verification plans/outcomes/explicit-association coverage, per-check snapshot export/receipt history/non-authorizing review, and Code Handoff with bounded review metadata expose only closed or bounded metadata without private operations, message/report bodies, or capability fields. The Skill-install request remains the sole bounded archive transport and explicitly omits path, content, command, and hook fields; evidence attachment carries only a relative reference and projected digest, verification evidence POST carries only a closed outcome and bounded text, association POST carries only exact plan/item/evidence identity, snapshot receipt POST carries only exact plan/item/high-water/digest metadata plus explicit confirmation, receipt review POST carries only exact receipt/digest/event/closed decision plus non-authorizing confirmation, and Harness qualification POST carries only exact Provider/model identity plus explicit confirmation.
+The runtime `/api/v1/openapi.json` returns the same raw document under the loopback and read-bearer boundary and accepts neither a query nor a body. It uses `application/vnd.oai.openapi+json` rather than the ordinary `api.v1` envelope. The contract contains 83 paths, 91 operations, and 203 schemas. Tests exercise every handler and verify that ordinary DTOs omit Workspace roots, Artifact/Skill/Session bodies, model output, Tool arguments, private lifecycle, operation/fencing/lease-owner identities, API keys, Provider base URLs, and environment-variable names. CDP permission responses expose only closed capability booleans, current process gates, and four false authority fields; they contain no endpoint, browser path, Profile, Cookie, request body, or CDP payload.
 
 ## 主动取消 / Active-Call Cancellation
 

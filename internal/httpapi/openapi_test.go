@@ -80,6 +80,8 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 					item.Post.OperationID == "selectRunExecutionProfile") ||
 				(path == RunExecutionPermissionControlPathTemplate &&
 					item.Post.OperationID == "selectRunExecutionPermission") ||
+				(path == RunBrowserCDPPermissionControlPathTemplate &&
+					item.Post.OperationID == "selectRunBrowserCDPPermission") ||
 				(path == RunCreationControlPath && item.Post.OperationID == "createRun") ||
 				(path == SessionMessageControlPathTemplate &&
 					item.Post.OperationID == "submitSessionMessage") ||
@@ -176,6 +178,7 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 				path == SpecialistModelCancellationPathTemplate ||
 				path == RunExecutionProfileControlPathTemplate ||
 				path == RunExecutionPermissionControlPathTemplate ||
+				path == RunBrowserCDPPermissionControlPathTemplate ||
 				path == RunExecutionInteractionControlPathTemplate ||
 				path == RunCreationControlPath || path == SessionMessageControlPathTemplate ||
 				path == SessionSteeringCancellationPathTemplate ||
@@ -276,6 +279,29 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		application.CreateRunRequest{Goal: "OpenAPI execution profile target", Profile: "code",
 			Budget: domain.Budget{MaxTurns: 2}})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := application.NewRunExecutionPermissionService(fixture.store,
+		domain.ExecutionPermissionRuntimeCapabilities{
+			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+			DebugMaximumAccessEnabled: true,
+		}).Change(t.Context(), application.ChangeRunExecutionPermissionRequest{
+		RunID: profileRun.ID, Mode: string(domain.RunExecutionPermissionDebug),
+		OperationKey: "openapi-browser-cdp-debug-permission-0001",
+		RequestedBy:  "openapi_test", Reason: "prepare full CDP debug contract",
+		ConfirmDebugAccess: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := application.NewRunBrowserCDPPermissionService(fixture.store,
+		domain.BrowserCDPPermissionRuntimeCapabilities{
+			ControlEnabled: true, FullDebugEnabled: true,
+		}).Change(t.Context(), application.ChangeRunBrowserCDPPermissionRequest{
+		RunID: profileRun.ID, Mode: string(domain.RunBrowserCDPPermissionFullDebug),
+		OperationKey: "openapi-browser-cdp-permission-0001",
+		RequestedBy:  "openapi_test", Reason: "prepare restricted transition target",
+		ConfirmFullCDPDebug: true,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	_, interactionRun, err := application.NewRunService(fixture.store).Create(t.Context(),
@@ -552,6 +578,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", profileRun.ID)
 		} else if spec.Path == RunExecutionPermissionControlPathTemplate {
 			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", profileRun.ID)
+		} else if spec.Path == RunBrowserCDPPermissionControlPathTemplate {
+			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", profileRun.ID)
 		} else if spec.Path == RunExecutionInteractionControlPathTemplate {
 			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", interactionRun.ID)
 		} else if spec.Path == RunLifecycleControlPathTemplate {
@@ -689,6 +717,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 						`"confirm_non_authorizing_review":true}`
 				} else if spec.Path == RunExecutionPermissionControlPathTemplate {
 					body = `{"mode":"full_access","confirm_danger_full_access":true}`
+				} else if spec.Path == RunBrowserCDPPermissionControlPathTemplate {
+					body = `{"mode":"restricted"}`
 				} else if spec.Path == RunExecutionInteractionControlPathTemplate {
 					body = `{"mode":"controlled","trust":"trusted",` +
 						`"confirm_workspace_trust":true}`

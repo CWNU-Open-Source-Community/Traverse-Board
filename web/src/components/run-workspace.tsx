@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
+  Ban,
   Boxes,
   BookOpenCheck,
   Check,
@@ -42,6 +43,8 @@ import type {
   EventView,
   NoteView,
   MessageView,
+  ModelCancellationRequestView,
+  ModelCancellationView,
   OperatorSteeringQueueView,
   PlanDeliveryStateView,
   RunActivityView,
@@ -77,7 +80,7 @@ import { VerificationPlan } from "./verification-plan";
 import type { ReceiptReviewNavigationTarget } from "./receipt-review-navigation";
 import { WorkspaceExplorer } from "./workspace-explorer";
 import { SessionComposer } from "./session-composer";
-import { AgentGraphPanel, DelegationsPanel, ExternalSkillsPanel, FanoutPanel, FindingsPanel } from "./run-projections";
+import { AgentGraphPanel, DelegationsPanel, ExternalSkillsSection, FanoutPanel, FindingsPanel } from "./run-projections";
 import { RunActivityTimeline } from "./run-activity-timeline";
 
 type RunTab = "activity" | "overview" | "journey" | "actions" | "approvals" | "diffs" | "repository" | "files" | "evidence" | "verify" | "handoff" |
@@ -303,19 +306,19 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
         )}
         {tab === "work" && (
           <CollectionState query={workQuery} empty="暂无任务">
-            <WorkTable items={work} />
+            <WorkTable client={client} items={work} />
             <LoadMoreButton hasNextPage={Boolean(workQuery.hasNextPage)} isFetching={workQuery.isFetchingNextPage} onClick={() => void workQuery.fetchNextPage()} />
           </CollectionState>
         )}
         {tab === "notes" && (
           <CollectionState query={notesQuery} empty="暂无记忆">
-            <NoteList notes={notes} />
+            <NoteList client={client} notes={notes} />
             <LoadMoreButton hasNextPage={Boolean(notesQuery.hasNextPage)} isFetching={notesQuery.isFetchingNextPage} onClick={() => void notesQuery.fetchNextPage()} />
           </CollectionState>
         )}
         {tab === "artifacts" && (
           <CollectionState query={artifactsQuery} empty="暂无产物">
-            <ArtifactTable artifacts={artifacts} />
+            <ArtifactTable artifacts={artifacts} client={client} />
             <LoadMoreButton hasNextPage={Boolean(artifactsQuery.hasNextPage)} isFetching={artifactsQuery.isFetchingNextPage} onClick={() => void artifactsQuery.fetchNextPage()} />
           </CollectionState>
         )}
@@ -362,6 +365,7 @@ function RunOverview({ client, detail }: { client: CyberAgentClient; detail: Run
         </dl>
       </section>
       <RunControlPanel client={client} detail={detail} />
+      <ActiveCallCancelPanel client={client} detail={detail} />
       <RunWakePanel client={client} detail={detail} />
       <ExecutionBoundarySummary detail={detail} />
       <section className="detail-section">
@@ -387,7 +391,7 @@ function RunOverview({ client, detail }: { client: CyberAgentClient; detail: Run
       <OperatorSteeringPanel state={steering} />
       {detail.plan_delivery && <PlanDeliveryPanel client={client} detail={detail}
         state={detail.plan_delivery} />}
-      {detail.external_skills && <ExternalSkillsPanel projection={detail.external_skills} />}
+      {detail.external_skills && <ExternalSkillsSection client={client} initial={detail.external_skills} runID={detail.run.id} />}
     </div>
   );
 }
@@ -490,6 +494,75 @@ export function RunControlPanel({ client, detail }: {
       )}
       {error && <div className="inline-warning" role="alert">
         {error instanceof Error ? error.message : "Run control failed"}
+      </div>}
+    </section>
+  );
+}
+
+function ActiveCallCancelPanel({ client, detail }: {
+  client: CyberAgentClient;
+  detail: RunDetailView;
+}) {
+  const queryClient = useQueryClient();
+  const attemptID = detail.checkpoint?.attempt_id ?? "";
+  const [modelAttempt, setModelAttempt] = useState(1);
+  const [reason, setReason] = useState("");
+  const [lastResult, setLastResult] = useState<ModelCancellationView | null>(null);
+  const operationKey = useRef<string | null>(null);
+  const cancel = useMutation({
+    mutationFn: () => {
+      const key = operationKey.current ??
+        (operationKey.current = `web-run-cancel-call-${globalThis.crypto.randomUUID()}`);
+      const trimmed = reason.trim();
+      const body: ModelCancellationRequestView = trimmed.length > 0
+        ? { attempt_id: attemptID, model_attempt: modelAttempt, reason: trimmed }
+        : { attempt_id: attemptID, model_attempt: modelAttempt };
+      return client.cancelModelCall(detail.run.id, body, key);
+    },
+    onSuccess: (result) => {
+      operationKey.current = null;
+      setLastResult(result);
+      void queryClient.invalidateQueries({ queryKey: ["run", detail.run.id] });
+      void queryClient.invalidateQueries({ queryKey: ["run", detail.run.id, "events"] });
+    },
+  });
+  if (!client.hasControl || !attemptID) {
+    return null;
+  }
+  return (
+    <section className="detail-section run-control-section">
+      <div className="section-heading">
+        <h2><Ban aria-hidden="true" size={15} />取消模型调用</h2>
+        <StatusBadge status={detail.execution_lease?.active ? "busy" : detail.run.status} />
+      </div>
+      <p className="run-cancel-hint">中断 Supervisor 当前进行中的模型调用（attempt {shortID(attemptID)}）。</p>
+      <div className="run-control-row">
+        <div className="run-execution-control">
+          <label htmlFor={`run-cancel-attempt-${detail.run.id}`}>Model attempt</label>
+          <input id={`run-cancel-attempt-${detail.run.id}`} min={1} type="number"
+            onChange={(event) => setModelAttempt(Math.max(1,
+              Number.parseInt(event.target.value, 10) || 1))} value={modelAttempt} />
+        </div>
+        <input aria-label="取消原因（可选）" className="run-cancel-reason" maxLength={1024}
+          onChange={(event) => setReason(event.target.value)}
+          placeholder="原因（可选）" type="text" value={reason} />
+        <button className="command-button" disabled={cancel.isPending}
+          onClick={() => cancel.mutate()} type="button">
+          {cancel.isPending
+            ? <LoaderCircle aria-hidden="true" className="spin" size={16} />
+            : <Ban aria-hidden="true" size={16} />}
+          取消调用
+        </button>
+      </div>
+      {lastResult && (
+        <div className="run-control-result" role="status">
+          <StatusBadge status={lastResult.status} />
+          <span>attempt {lastResult.model_attempt}</span>
+          {lastResult.replayed && <span>replayed</span>}
+        </div>
+      )}
+      {cancel.error && <div className="inline-warning" role="alert">
+        {cancel.error instanceof Error ? cancel.error.message : "取消模型调用失败"}
       </div>}
     </section>
   );
@@ -705,18 +778,57 @@ function EventList({ events }: { events: EventView[] }) {
   );
 }
 
-function WorkTable({ items }: { items: WorkItemView[] }) {
+function WorkTable({ client, items }: { client: CyberAgentClient; items: WorkItemView[] }) {
+  const [expanded, setExpanded] = useState<string | null>(null);
   if (items.length === 0) {
     return <EmptyState>暂无任务</EmptyState>;
   }
   return (
-    <div className="table-scroll"><table><thead><tr><th>任务</th><th>状态</th><th>优先级</th><th>Owner</th><th>版本</th></tr></thead><tbody>
-      {items.map((item) => <tr key={item.id}><td><strong>{item.title}</strong>{item.description && <small>{item.description}</small>}</td><td><StatusBadge status={item.status} /></td><td>{item.priority}</td><td>{item.owner_agent_id || item.owner || "-"}</td><td>v{item.version}</td></tr>)}
+    <div className="table-scroll"><table><thead><tr><th>任务</th><th>状态</th><th>优先级</th><th>Owner</th><th>版本</th><th aria-label="详情" /></tr></thead><tbody>
+      {items.map((item) => (
+        <Fragment key={item.id}>
+          <tr>
+            <td><strong>{item.title}</strong>{item.description && <small>{item.description}</small>}</td>
+            <td><StatusBadge status={item.status} /></td>
+            <td>{item.priority}</td>
+            <td>{item.owner_agent_id || item.owner || "-"}</td>
+            <td>v{item.version}</td>
+            <td><button aria-expanded={expanded === item.id} className="row-detail-toggle" onClick={() => setExpanded(expanded === item.id ? null : item.id)} type="button">{expanded === item.id ? "收起" : "详情"}</button></td>
+          </tr>
+          {expanded === item.id && <tr className="detail-row"><td colSpan={6}><WorkItemDetail client={client} id={item.id} /></td></tr>}
+        </Fragment>
+      ))}
     </tbody></table></div>
   );
 }
 
-function NoteList({ notes }: { notes: NoteView[] }) {
+function WorkItemDetail({ client, id }: { client: CyberAgentClient; id: string }) {
+  const query = useQuery({ queryKey: ["work-item", id], queryFn: ({ signal }) => client.getWorkItem(id, signal) });
+  if (query.isLoading) {
+    return <LoadingState label="加载任务详情" />;
+  }
+  if (query.isError || !query.data) {
+    return <ErrorState error={query.error} />;
+  }
+  const item = query.data;
+  return (
+    <dl className="detail-grid">
+      <KeyValue label="ID" value={item.id} />
+      <KeyValue label="Run" value={item.run_id} />
+      <KeyValue label="Owner agent" value={item.owner_agent_id} />
+      <KeyValue label="Owner" value={item.owner} />
+      <KeyValue label="Blocked" value={item.blocked_reason} />
+      <KeyValue label="Acceptance" value={item.acceptance_criteria.join(" · ")} />
+      <KeyValue label="Dependencies" value={item.dependencies.join(" · ")} />
+      <KeyValue label="Created" value={formatDate(item.created_at)} />
+      <KeyValue label="Updated" value={formatDate(item.updated_at)} />
+      <KeyValue label="Completed" value={item.completed_at ? formatDate(item.completed_at) : "-"} />
+    </dl>
+  );
+}
+
+function NoteList({ client, notes }: { client: CyberAgentClient; notes: NoteView[] }) {
+  const [expanded, setExpanded] = useState<string | null>(null);
   if (notes.length === 0) {
     return <EmptyState>暂无记忆</EmptyState>;
   }
@@ -724,19 +836,89 @@ function NoteList({ notes }: { notes: NoteView[] }) {
     <article className="note-item" key={note.id}>
       <header><div><strong>{note.title}</strong><span>{note.category} / {note.visibility}</span></div><StatusBadge status={note.status} /></header>
       <p>{note.content}</p>
-      <footer><span>{note.tags.join(" · ") || "untagged"}</span><time dateTime={note.updated_at}>{formatDate(note.updated_at)}</time></footer>
+      <footer><span>{note.tags.join(" · ") || "untagged"}</span><div><time dateTime={note.updated_at}>{formatDate(note.updated_at)}</time><button aria-expanded={expanded === note.id} className="row-detail-toggle" onClick={() => setExpanded(expanded === note.id ? null : note.id)} type="button">{expanded === note.id ? "收起" : "详情"}</button></div></footer>
+      {expanded === note.id && <NoteDetail client={client} id={note.id} />}
     </article>
   ))}</div>;
 }
 
-function ArtifactTable({ artifacts }: { artifacts: ArtifactView[] }) {
+function NoteDetail({ client, id }: { client: CyberAgentClient; id: string }) {
+  const query = useQuery({ queryKey: ["note", id], queryFn: ({ signal }) => client.getNote(id, signal) });
+  if (query.isLoading) {
+    return <LoadingState label="加载记忆详情" />;
+  }
+  if (query.isError || !query.data) {
+    return <ErrorState error={query.error} />;
+  }
+  const note = query.data;
+  return (
+    <dl className="detail-grid">
+      <KeyValue label="ID" value={note.id} />
+      <KeyValue label="Run" value={note.run_id} />
+      <KeyValue label="Owner agent" value={note.owner_agent_id} />
+      <KeyValue label="Owner" value={note.owner} />
+      <KeyValue label="Pinned" value={note.pinned ? "yes" : "no"} />
+      <KeyValue label="Version" value={`v${note.version}`} />
+      <KeyValue label="Tags" value={note.tags.join(" · ")} />
+      <KeyValue label="Source refs" value={note.source_refs.join(" · ")} />
+      <KeyValue label="Evidence" value={note.evidence_ids.join(" · ")} />
+      <KeyValue label="Created" value={formatDate(note.created_at)} />
+      <KeyValue label="Updated" value={formatDate(note.updated_at)} />
+      <KeyValue label="Archived" value={note.archived_at ? formatDate(note.archived_at) : "-"} />
+    </dl>
+  );
+}
+
+function ArtifactTable({ artifacts, client }: { artifacts: ArtifactView[]; client: CyberAgentClient }) {
+  const [expanded, setExpanded] = useState<string | null>(null);
   if (artifacts.length === 0) {
     return <EmptyState>暂无产物</EmptyState>;
   }
   return (
-    <div className="table-scroll"><table><thead><tr><th>Descriptor</th><th>Tool / stream</th><th>MIME</th><th>大小</th><th>SHA-256</th></tr></thead><tbody>
-      {artifacts.map((item) => <tr key={item.id}><td><strong>{shortID(item.id)}</strong><small>{item.kind}{item.redacted ? " / redacted" : ""}</small></td><td>{item.tool_name}<small>{item.stream}</small></td><td>{item.mime}</td><td>{formatBytes(item.size_bytes)}</td><td><code>{shortID(item.sha256)}</code></td></tr>)}
+    <div className="table-scroll"><table><thead><tr><th>Descriptor</th><th>Tool / stream</th><th>MIME</th><th>大小</th><th>SHA-256</th><th aria-label="详情" /></tr></thead><tbody>
+      {artifacts.map((item) => (
+        <Fragment key={item.id}>
+          <tr>
+            <td><strong>{shortID(item.id)}</strong><small>{item.kind}{item.redacted ? " / redacted" : ""}</small></td>
+            <td>{item.tool_name}<small>{item.stream}</small></td>
+            <td>{item.mime}</td>
+            <td>{formatBytes(item.size_bytes)}</td>
+            <td><code>{shortID(item.sha256)}</code></td>
+            <td><button aria-expanded={expanded === item.id} className="row-detail-toggle" onClick={() => setExpanded(expanded === item.id ? null : item.id)} type="button">{expanded === item.id ? "收起" : "详情"}</button></td>
+          </tr>
+          {expanded === item.id && <tr className="detail-row"><td colSpan={6}><ArtifactDetail client={client} id={item.id} /></td></tr>}
+        </Fragment>
+      ))}
     </tbody></table></div>
+  );
+}
+
+function ArtifactDetail({ client, id }: { client: CyberAgentClient; id: string }) {
+  const query = useQuery({ queryKey: ["artifact", id], queryFn: ({ signal }) => client.getArtifact(id, signal) });
+  if (query.isLoading) {
+    return <LoadingState label="加载产物详情" />;
+  }
+  if (query.isError || !query.data) {
+    return <ErrorState error={query.error} />;
+  }
+  const item = query.data;
+  return (
+    <dl className="detail-grid">
+      <KeyValue label="ID" value={item.id} />
+      <KeyValue label="Run" value={item.run_id} />
+      <KeyValue label="Session" value={item.session_id} />
+      <KeyValue label="Workspace" value={item.workspace_id} />
+      <KeyValue label="Kind" value={item.kind} />
+      <KeyValue label="Source" value={item.source_id} />
+      <KeyValue label="Tool" value={item.tool_name} />
+      <KeyValue label="Stream" value={item.stream} />
+      <KeyValue label="MIME" value={item.mime} />
+      <KeyValue label="Encoding" value={item.encoding} />
+      <KeyValue label="Size" value={formatBytes(item.size_bytes)} />
+      <KeyValue label="Redacted" value={item.redacted ? "yes" : "no"} />
+      <KeyValue label="SHA-256" value={<code>{item.sha256}</code>} />
+      <KeyValue label="Created" value={formatDate(item.created_at)} />
+    </dl>
   );
 }
 

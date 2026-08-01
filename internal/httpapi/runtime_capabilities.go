@@ -26,35 +26,37 @@ type RunWakeWorkerHealthView struct {
 }
 
 type RuntimeCapabilitiesView struct {
-	ProtocolVersion                   string                  `json:"protocol_version"`
-	RunControlEnabled                 bool                    `json:"run_control_enabled"`
-	ExecutionPermissionControlEnabled bool                    `json:"execution_permission_control_enabled"`
-	OperatorApprovalEnabled           bool                    `json:"operator_approval_enabled"`
-	DangerFullAccessEnabled           bool                    `json:"danger_full_access_enabled"`
-	DebugMaximumAccessEnabled         bool                    `json:"debug_maximum_access_enabled"`
-	RunCreationEnabled                bool                    `json:"run_creation_enabled"`
-	SessionMessageEnabled             bool                    `json:"session_message_enabled"`
-	SessionSteeringControlEnabled     bool                    `json:"session_steering_control_enabled"`
-	RunLifecycleEnabled               bool                    `json:"run_lifecycle_enabled"`
-	RunExecutionEnabled               bool                    `json:"run_execution_enabled"`
-	PlanDeliveryControlEnabled        bool                    `json:"plan_delivery_control_enabled"`
-	ApprovalControlEnabled            bool                    `json:"approval_control_enabled"`
-	ControlledCommandProposalEnabled  bool                    `json:"controlled_command_proposal_control_enabled"`
-	ModelControlEnabled               bool                    `json:"model_control_enabled"`
-	ProviderCredentialEnabled         bool                    `json:"provider_credential_enabled"`
-	FileEditReviewEnabled             bool                    `json:"file_edit_review_enabled"`
-	FileEditProposalEnabled           bool                    `json:"file_edit_proposal_enabled"`
-	FileEditApplyEnabled              bool                    `json:"file_edit_apply_enabled"`
-	RunWakeControlEnabled             bool                    `json:"run_wake_control_enabled"`
-	RunWakeExecutionEnabled           bool                    `json:"run_wake_execution_enabled"`
-	RunWakeWorkerEnabled              bool                    `json:"run_wake_worker_enabled"`
-	SkillInstallationEnabled          bool                    `json:"skill_installation_enabled"`
-	EvidenceAttachmentEnabled         bool                    `json:"evidence_attachment_enabled"`
-	VerificationEvidenceEnabled       bool                    `json:"verification_evidence_enabled"`
-	ProcessExecutionEnabled           bool                    `json:"process_execution_enabled"`
-	ShellExecutionEnabled             bool                    `json:"shell_execution_enabled"`
-	DockerExecutionEnabled            bool                    `json:"docker_execution_enabled"`
-	WakeWorker                        RunWakeWorkerHealthView `json:"wake_worker"`
+	ProtocolVersion                    string                  `json:"protocol_version"`
+	RunControlEnabled                  bool                    `json:"run_control_enabled"`
+	ExecutionPermissionControlEnabled  bool                    `json:"execution_permission_control_enabled"`
+	OperatorApprovalEnabled            bool                    `json:"operator_approval_enabled"`
+	DangerFullAccessEnabled            bool                    `json:"danger_full_access_enabled"`
+	DebugMaximumAccessEnabled          bool                    `json:"debug_maximum_access_enabled"`
+	BrowserCDPPermissionControlEnabled bool                    `json:"browser_cdp_permission_control_enabled"`
+	FullCDPDebugEnabled                bool                    `json:"full_cdp_debug_enabled"`
+	RunCreationEnabled                 bool                    `json:"run_creation_enabled"`
+	SessionMessageEnabled              bool                    `json:"session_message_enabled"`
+	SessionSteeringControlEnabled      bool                    `json:"session_steering_control_enabled"`
+	RunLifecycleEnabled                bool                    `json:"run_lifecycle_enabled"`
+	RunExecutionEnabled                bool                    `json:"run_execution_enabled"`
+	PlanDeliveryControlEnabled         bool                    `json:"plan_delivery_control_enabled"`
+	ApprovalControlEnabled             bool                    `json:"approval_control_enabled"`
+	ControlledCommandProposalEnabled   bool                    `json:"controlled_command_proposal_control_enabled"`
+	ModelControlEnabled                bool                    `json:"model_control_enabled"`
+	ProviderCredentialEnabled          bool                    `json:"provider_credential_enabled"`
+	FileEditReviewEnabled              bool                    `json:"file_edit_review_enabled"`
+	FileEditProposalEnabled            bool                    `json:"file_edit_proposal_enabled"`
+	FileEditApplyEnabled               bool                    `json:"file_edit_apply_enabled"`
+	RunWakeControlEnabled              bool                    `json:"run_wake_control_enabled"`
+	RunWakeExecutionEnabled            bool                    `json:"run_wake_execution_enabled"`
+	RunWakeWorkerEnabled               bool                    `json:"run_wake_worker_enabled"`
+	SkillInstallationEnabled           bool                    `json:"skill_installation_enabled"`
+	EvidenceAttachmentEnabled          bool                    `json:"evidence_attachment_enabled"`
+	VerificationEvidenceEnabled        bool                    `json:"verification_evidence_enabled"`
+	ProcessExecutionEnabled            bool                    `json:"process_execution_enabled"`
+	ShellExecutionEnabled              bool                    `json:"shell_execution_enabled"`
+	DockerExecutionEnabled             bool                    `json:"docker_execution_enabled"`
+	WakeWorker                         RunWakeWorkerHealthView `json:"wake_worker"`
 }
 
 func (a *API) runtimeCapabilities(request *http.Request) (any, *Page, error) {
@@ -91,13 +93,15 @@ func (a *API) runtimeCapabilities(request *http.Request) (any, *Page, error) {
 	return RuntimeCapabilitiesView{
 		ProtocolVersion:   RuntimeCapabilitiesProtocolVersion,
 		RunControlEnabled: a.controlEnabled, RunCreationEnabled: a.runCreationEnabled,
-		ExecutionPermissionControlEnabled: a.executionPermissionControlEnabled,
-		OperatorApprovalEnabled:           a.executionPermissionCapabilities.OperatorApprovalEnabled,
-		DangerFullAccessEnabled:           a.executionPermissionCapabilities.DangerFullAccessEnabled,
-		DebugMaximumAccessEnabled:         a.executionPermissionCapabilities.DebugMaximumAccessEnabled,
-		SessionMessageEnabled:             a.sessionMessageEnabled,
-		SessionSteeringControlEnabled:     a.sessionSteeringControlEnabled,
-		RunLifecycleEnabled:               a.runLifecycleEnabled, RunExecutionEnabled: a.runExecutionEnabled,
+		ExecutionPermissionControlEnabled:  a.executionPermissionControlEnabled,
+		OperatorApprovalEnabled:            a.executionPermissionCapabilities.OperatorApprovalEnabled,
+		DangerFullAccessEnabled:            a.executionPermissionCapabilities.DangerFullAccessEnabled,
+		DebugMaximumAccessEnabled:          a.executionPermissionCapabilities.DebugMaximumAccessEnabled,
+		BrowserCDPPermissionControlEnabled: a.browserCDPPermissionControlEnabled,
+		FullCDPDebugEnabled:                a.browserCDPPermissionCapabilities.FullDebugEnabled,
+		SessionMessageEnabled:              a.sessionMessageEnabled,
+		SessionSteeringControlEnabled:      a.sessionSteeringControlEnabled,
+		RunLifecycleEnabled:                a.runLifecycleEnabled, RunExecutionEnabled: a.runExecutionEnabled,
 		PlanDeliveryControlEnabled:       a.planDeliveryControlEnabled,
 		ApprovalControlEnabled:           a.approvalControlEnabled,
 		ControlledCommandProposalEnabled: a.controlledCommandProposalControlEnabled,

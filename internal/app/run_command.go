@@ -67,6 +67,8 @@ func (a *App) runCommand(ctx context.Context, args []string) error {
 		return a.runExecutionInteraction(ctx, args[1:])
 	case "execution-permission":
 		return a.runExecutionPermission(ctx, args[1:])
+	case "browser-cdp-permission":
+		return a.runBrowserCDPPermission(ctx, args[1:])
 	case "command-plan":
 		return a.runCommandPlan(ctx, args[1:])
 	case "command-execute":
@@ -1784,6 +1786,96 @@ func writeRunExecutionPermission(out interface{ Write([]byte) (int, error) },
 		permission.PolicyVersion, permission.OperatorConfirmed, permission.RequestedBy,
 		permission.Reason, permission.CreatedAt.Format(time.RFC3339Nano),
 		runtimeGateAvailable, replayed)
+}
+
+func (a *App) runBrowserCDPPermission(ctx context.Context, args []string) error {
+	if len(args) == 1 {
+		capabilities := domain.BrowserCDPPermissionRuntimeCapabilities{}
+		service := application.NewRunBrowserCDPPermissionService(a.store, capabilities)
+		permission, err := service.Current(ctx, args[0])
+		if err != nil {
+			return err
+		}
+		writeRunBrowserCDPPermission(a.out, permission, false,
+			capabilities.Allows(permission.Mode))
+		return nil
+	}
+	if len(args) == 0 || args[0] != "set" {
+		return errors.New("usage: cyberagent run browser-cdp-permission <run-id> | cyberagent run browser-cdp-permission set <run-id> restricted|full_debug --operation-key <key> [--confirm-full-cdp-debug] [--enable-browser-cdp-control] [--enable-full-cdp-debug --enable-permission-control --enable-danger-full-access --enable-debug-maximum-access] [--operator <id>] [--reason <text>]")
+	}
+	fs := newFlagSet("run browser-cdp-permission set", a.errOut)
+	operationKey := fs.String("operation-key", "", "stable browser-CDP operation key")
+	operator := fs.String("operator", "cli_operator", "operator identity")
+	reason := fs.String("reason", "", "redacted selection reason")
+	confirmFull := fs.Bool("confirm-full-cdp-debug", false,
+		"confirm highly sensitive complete CDP debugging")
+	enableControl := fs.Bool("enable-browser-cdp-control", false,
+		"enable browser CDP permission control for this process")
+	enableFull := fs.Bool("enable-full-cdp-debug", false,
+		"enable complete CDP debug selection for this process")
+	enablePermissionControl := fs.Bool("enable-permission-control", false,
+		"enable execution permission control for this process")
+	enableDangerFullAccess := fs.Bool("enable-danger-full-access", false,
+		"enable danger-full-access for this process")
+	enableDebugMaximumAccess := fs.Bool("enable-debug-maximum-access", false,
+		"enable maximum Debug access for this process")
+	if err := fs.Parse(reorderFlags(args[1:], map[string]bool{
+		"operation-key": true, "operator": true, "reason": true,
+		"confirm-full-cdp-debug": false, "enable-browser-cdp-control": false,
+		"enable-full-cdp-debug": false, "enable-permission-control": false,
+		"enable-danger-full-access": false, "enable-debug-maximum-access": false,
+	})); err != nil {
+		return err
+	}
+	if fs.NArg() != 2 || strings.TrimSpace(*operationKey) == "" {
+		return errors.New("usage: cyberagent run browser-cdp-permission set <run-id> restricted|full_debug --operation-key <key> [--confirm-full-cdp-debug] [--enable-browser-cdp-control] [--enable-full-cdp-debug --enable-permission-control --enable-danger-full-access --enable-debug-maximum-access] [--operator <id>] [--reason <text>]")
+	}
+	executionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled:   *enablePermissionControl,
+		DangerFullAccessEnabled:   *enableDangerFullAccess,
+		DebugMaximumAccessEnabled: *enableDebugMaximumAccess,
+	}
+	if err := executionCapabilities.Validate(); err != nil {
+		return apperror.Wrap(apperror.CodeInvalidArgument, err.Error(), err)
+	}
+	if *enableFull && !executionCapabilities.DebugMaximumAccessEnabled {
+		return apperror.New(apperror.CodeInvalidArgument,
+			"full CDP debug requires --enable-permission-control, --enable-danger-full-access, and --enable-debug-maximum-access")
+	}
+	capabilities := domain.BrowserCDPPermissionRuntimeCapabilities{
+		ControlEnabled: *enableControl, FullDebugEnabled: *enableFull,
+	}
+	if err := capabilities.Validate(); err != nil {
+		return apperror.Wrap(apperror.CodeInvalidArgument, err.Error(), err)
+	}
+	service := application.NewRunBrowserCDPPermissionService(a.store, capabilities)
+	result, err := service.Change(ctx, application.ChangeRunBrowserCDPPermissionRequest{
+		RunID: fs.Arg(0), Mode: fs.Arg(1), OperationKey: *operationKey,
+		RequestedBy: *operator, Reason: *reason,
+		ConfirmFullCDPDebug: *confirmFull,
+	})
+	if err != nil {
+		return err
+	}
+	writeRunBrowserCDPPermission(a.out, result.Permission, result.Replayed,
+		capabilities.Allows(result.Permission.Mode))
+	return nil
+}
+
+func writeRunBrowserCDPPermission(out interface{ Write([]byte) (int, error) },
+	permission domain.RunBrowserCDPPermissionSnapshot, replayed bool,
+	runtimeGateAvailable bool,
+) {
+	fmt.Fprintf(out, "run: %s\nmission: %s\nprotocol: %s\nrevision: %d\nmode: %s\nnavigate_allowed: %t\ndom_snapshot_allowed: %t\nscreenshot_allowed: %t\nrequest_capture_allowed: %t\nrequest_mutation_allowed: %t\nrequest_replay_allowed: %t\ncookie_access_allowed: %t\narbitrary_method_allowed: %t\nrisk_tier: %s\nrequired_gate: %s\npolicy: %s\noperator_confirmed: %t\nrequested_by: %s\nreason: %s\ncreated_at: %s\nruntime_gate_available: %t\ntransport_enabled: false\nbrowser_start_authorized: false\nruntime_authorized: false\ncapability_grant: false\nreplayed: %t\n",
+		permission.RunID, permission.MissionID, permission.ProtocolVersion,
+		permission.Revision, permission.Mode, permission.NavigateAllowed,
+		permission.DOMSnapshotAllowed, permission.ScreenshotAllowed,
+		permission.RequestCaptureAllowed, permission.RequestMutationAllowed,
+		permission.RequestReplayAllowed, permission.CookieAccessAllowed,
+		permission.ArbitraryMethodAllowed, permission.RiskTier,
+		permission.RequiredGate, permission.PolicyVersion,
+		permission.OperatorConfirmed, permission.RequestedBy, permission.Reason,
+		permission.CreatedAt.Format(time.RFC3339Nano), runtimeGateAvailable, replayed)
 }
 
 func (a *App) runCommandPlan(ctx context.Context, args []string) error {
