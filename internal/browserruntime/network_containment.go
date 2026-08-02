@@ -16,7 +16,7 @@ const (
 	WindowsWFPBrowserContainmentAdapterName          = "windows_wfp_dynamic.v1"
 	DisabledBrowserContainmentAdapterName            = "disabled"
 	FakeBrowserContainmentAdapterName                = "fake"
-	BrowserNetworkContainmentPolicyVersion           = "browser_network_containment_policy.v1"
+	BrowserNetworkContainmentPolicyVersion           = "browser_network_containment_policy.v2"
 	MaxBrowserNetworkEvidenceTTL                     = 15 * time.Minute
 )
 

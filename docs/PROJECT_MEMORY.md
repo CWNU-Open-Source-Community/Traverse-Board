@@ -2249,6 +2249,18 @@ Schema v92 was not rerun or changed. C8C remains disabled until a fresh
 administrator WFP probe returns `passed=true` and independent review plus the
 same-executable application-ID issue are resolved.
 
+The next elevated rerun failed in about 182ms with
+`baseline_browser_exited_before_canaries`. The same process path passes under a
+normal token, and the Windows starter previously inherited the elevated parent
+token. `windows_browser_job.v2` now uses the same user's UAC linked standard
+token whenever the parent is elevated. Before `ResumeThread`, it verifies the
+child has the same SID, is not elevated, and has Medium Integrity; absence or
+ambiguity fails closed as `*_standard_user_token_unavailable`. The network
+policy is now `browser_network_containment_policy.v2`, invalidating v1 evidence.
+No Explorer token, Chromium sandbox-disable flag, schema migration, or product
+browser route was added. Non-elevated real-Edge smoke, browserruntime package
+tests, focused race, and package vet pass; elevated production rerun remains.
+
 ## Next Slice
 
 P11-C8C stays blocked until an administrator-run WFP probe passes, an

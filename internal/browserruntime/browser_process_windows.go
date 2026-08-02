@@ -24,9 +24,16 @@ import (
 const (
 	browserJobExitCode         = 125
 	procThreadAttributeJobList = 0x0002000D
+	browserMediumIntegrityRID  = 0x00002000
+	browserHighIntegrityRID    = 0x00003000
 )
 
 type windowsBrowserProcessStarter struct{}
+
+type windowsBrowserLaunchAuthority struct {
+	token  windows.Token
+	asUser bool
+}
 
 type windowsBrowserProcess struct {
 	mu        sync.Mutex
@@ -103,6 +110,12 @@ func (windowsBrowserProcessStarter) Start(ctx context.Context,
 		windows.CloseHandle(job)
 		return nil, err
 	}
+	launchAuthority, err := acquireWindowsBrowserLaunchAuthority()
+	if err != nil {
+		windows.CloseHandle(job)
+		return nil, err
+	}
+	defer launchAuthority.Close()
 	startup := windows.StartupInfoEx{
 		StartupInfo:             windows.StartupInfo{Cb: uint32(unsafe.Sizeof(windows.StartupInfoEx{}))},
 		ProcThreadAttributeList: attributes.List(),
@@ -111,10 +124,29 @@ func (windowsBrowserProcessStarter) Start(ctx context.Context,
 	flags := uint32(windows.CREATE_SUSPENDED | windows.CREATE_NO_WINDOW |
 		windows.CREATE_UNICODE_ENVIRONMENT | windows.EXTENDED_STARTUPINFO_PRESENT)
 	startedAt := time.Now().UTC()
-	if err := windows.CreateProcess(applicationName, commandLinePointer, nil, nil, false,
-		flags, &environment[0], directoryPointer, &startup.StartupInfo, &processInfo); err != nil {
+	if launchAuthority.asUser {
+		err = windows.CreateProcessAsUser(launchAuthority.token, applicationName,
+			commandLinePointer, nil, nil, false, flags, &environment[0],
+			directoryPointer, &startup.StartupInfo, &processInfo)
+	} else {
+		err = windows.CreateProcess(applicationName, commandLinePointer, nil, nil, false,
+			flags, &environment[0], directoryPointer, &startup.StartupInfo, &processInfo)
+	}
+	if err != nil {
 		windows.CloseHandle(job)
+		if launchAuthority.asUser {
+			return nil, errors.Join(ErrBrowserStandardUserTokenUnavailable,
+				fmt.Errorf("start accepted browser process as standard user: %w", err))
+		}
 		return nil, fmt.Errorf("start accepted browser process: %w", err)
+	}
+	if err := verifyWindowsBrowserChildAuthority(processInfo.Process); err != nil {
+		windows.CloseHandle(processInfo.Thread)
+		_ = windows.TerminateJobObject(job, browserJobExitCode)
+		_, _ = windows.WaitForSingleObject(processInfo.Process, 5_000)
+		windows.CloseHandle(processInfo.Process)
+		windows.CloseHandle(job)
+		return nil, err
 	}
 	process := &windowsBrowserProcess{
 		job: job, process: processInfo.Process, pid: int(processInfo.ProcessId),
@@ -131,6 +163,116 @@ func (windowsBrowserProcessStarter) Start(ctx context.Context,
 	windows.CloseHandle(processInfo.Thread)
 	go process.wait()
 	return process, nil
+}
+
+func (authority *windowsBrowserLaunchAuthority) Close() {
+	if authority == nil || !authority.asUser || authority.token == 0 {
+		return
+	}
+	_ = authority.token.Close()
+	authority.token = 0
+}
+
+func acquireWindowsBrowserLaunchAuthority() (windowsBrowserLaunchAuthority, error) {
+	current := windows.GetCurrentProcessToken()
+	elevated, err := windowsBrowserTokenElevated(current)
+	if err != nil {
+		return windowsBrowserLaunchAuthority{}, errors.Join(
+			ErrBrowserStandardUserTokenUnavailable, err)
+	}
+	if !elevated {
+		return windowsBrowserLaunchAuthority{}, nil
+	}
+	linked, err := current.GetLinkedToken()
+	if err != nil {
+		return windowsBrowserLaunchAuthority{}, errors.Join(
+			ErrBrowserStandardUserTokenUnavailable, err)
+	}
+	if err := validateWindowsBrowserStandardUserToken(current, linked); err != nil {
+		_ = linked.Close()
+		return windowsBrowserLaunchAuthority{}, err
+	}
+	return windowsBrowserLaunchAuthority{token: linked, asUser: true}, nil
+}
+
+func verifyWindowsBrowserChildAuthority(process windows.Handle) error {
+	var token windows.Token
+	if err := windows.OpenProcessToken(process, windows.TOKEN_QUERY, &token); err != nil {
+		return errors.Join(ErrBrowserStandardUserTokenUnavailable, err)
+	}
+	defer token.Close()
+	return validateWindowsBrowserStandardUserToken(windows.GetCurrentProcessToken(), token)
+}
+
+func validateWindowsBrowserStandardUserToken(parent windows.Token,
+	candidate windows.Token,
+) error {
+	sameUser, err := windowsBrowserTokensHaveSameUser(parent, candidate)
+	if err != nil || !sameUser {
+		return errors.Join(ErrBrowserStandardUserTokenUnavailable, err)
+	}
+	elevated, err := windowsBrowserTokenElevated(candidate)
+	if err != nil || elevated {
+		return errors.Join(ErrBrowserStandardUserTokenUnavailable, err)
+	}
+	integrityRID, err := windowsBrowserTokenIntegrityRID(candidate)
+	if err != nil || integrityRID < browserMediumIntegrityRID ||
+		integrityRID >= browserHighIntegrityRID {
+		return errors.Join(ErrBrowserStandardUserTokenUnavailable, err)
+	}
+	return nil
+}
+
+func windowsBrowserTokensHaveSameUser(left windows.Token,
+	right windows.Token,
+) (bool, error) {
+	leftUser, err := left.GetTokenUser()
+	if err != nil {
+		return false, err
+	}
+	rightUser, err := right.GetTokenUser()
+	if err != nil {
+		return false, err
+	}
+	if leftUser.User.Sid == nil || rightUser.User.Sid == nil {
+		return false, ErrBrowserRuntimeBoundary
+	}
+	return leftUser.User.Sid.Equals(rightUser.User.Sid), nil
+}
+
+func windowsBrowserTokenElevated(token windows.Token) (bool, error) {
+	var elevated uint32
+	var returned uint32
+	if err := windows.GetTokenInformation(token, windows.TokenElevation,
+		(*byte)(unsafe.Pointer(&elevated)), uint32(unsafe.Sizeof(elevated)),
+		&returned); err != nil {
+		return false, err
+	}
+	if returned != uint32(unsafe.Sizeof(elevated)) {
+		return false, ErrBrowserRuntimeBoundary
+	}
+	return elevated != 0, nil
+}
+
+func windowsBrowserTokenIntegrityRID(token windows.Token) (uint32, error) {
+	var required uint32
+	err := windows.GetTokenInformation(token, windows.TokenIntegrityLevel,
+		nil, 0, &required)
+	if !errors.Is(err, windows.ERROR_INSUFFICIENT_BUFFER) ||
+		required < uint32(unsafe.Sizeof(windows.Tokenmandatorylabel{})) {
+		return 0, errors.Join(ErrBrowserRuntimeBoundary, err)
+	}
+	buffer := make([]byte, required)
+	if err := windows.GetTokenInformation(token, windows.TokenIntegrityLevel,
+		&buffer[0], required, &required); err != nil {
+		return 0, err
+	}
+	label := (*windows.Tokenmandatorylabel)(unsafe.Pointer(&buffer[0]))
+	if label.Label.Sid == nil || label.Label.Sid.SubAuthorityCount() == 0 {
+		return 0, ErrBrowserRuntimeBoundary
+	}
+	return label.Label.Sid.SubAuthority(
+		uint32(label.Label.Sid.SubAuthorityCount() - 1)), nil
 }
 
 func (process *windowsBrowserProcess) PID() int              { return process.pid }

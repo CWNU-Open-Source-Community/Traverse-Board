@@ -427,6 +427,8 @@ func browserNetworkProbeRunFailureCode(phase string, runErr error) string {
 	switch {
 	case errors.Is(runErr, errBrowserNetworkProbeProcessExited):
 		return prefix + "_browser_exited_before_canaries"
+	case errors.Is(runErr, ErrBrowserStandardUserTokenUnavailable):
+		return prefix + "_standard_user_token_unavailable"
 	case errors.Is(runErr, context.DeadlineExceeded):
 		return prefix + "_canary_timeout"
 	case errors.Is(runErr, context.Canceled):

@@ -19,6 +19,8 @@ func TestBrowserNetworkProbeRunFailureCodesAreSpecificAndBounded(t *testing.T) {
 	}{
 		{"baseline", errBrowserNetworkProbeProcessExited,
 			"baseline_browser_exited_before_canaries"},
+		{"baseline", ErrBrowserStandardUserTokenUnavailable,
+			"baseline_standard_user_token_unavailable"},
 		{"baseline", context.DeadlineExceeded, "baseline_canary_timeout"},
 		{"restricted", context.Canceled, "restricted_probe_cancelled"},
 		{"restricted", errors.New("fixture"), "restricted_runtime_failed"},

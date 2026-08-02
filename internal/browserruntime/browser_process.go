@@ -14,14 +14,16 @@ import (
 const (
 	BrowserStartSpecProtocolVersion   = "browser_start_spec.v1"
 	BrowserProcessExitProtocolVersion = "browser_process_exit.v1"
-	WindowsBrowserProcessAdapterName  = "windows_browser_job.v1"
+	WindowsBrowserProcessAdapterName  = "windows_browser_job.v2"
 	MaxBrowserProcessCount            = 32
 	MaxBrowserJobMemoryBytes          = 2 * 1024 * 1024 * 1024
 )
 
 var (
-	ErrBrowserRuntimeBoundary    = errors.New("browser runtime boundary is invalid")
-	ErrBrowserRuntimeUnavailable = errors.New("browser runtime is unavailable")
+	ErrBrowserRuntimeBoundary              = errors.New("browser runtime boundary is invalid")
+	ErrBrowserRuntimeUnavailable           = errors.New("browser runtime is unavailable")
+	ErrBrowserStandardUserTokenUnavailable = errors.New(
+		"browser standard-user launch token is unavailable")
 )
 
 type BrowserStartSpec struct {
