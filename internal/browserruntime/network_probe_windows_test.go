@@ -9,6 +9,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"golang.org/x/sys/windows"
 )
 
 func TestBrowserNetworkProbeRunFailureCodesAreSpecificAndBounded(t *testing.T) {
@@ -21,7 +23,19 @@ func TestBrowserNetworkProbeRunFailureCodesAreSpecificAndBounded(t *testing.T) {
 			"baseline_browser_exited_before_canaries"},
 		{"baseline", ErrBrowserStandardUserTokenUnavailable,
 			"baseline_standard_user_token_unavailable"},
+		{"baseline", errors.Join(ErrBrowserStandardUserTokenUnavailable,
+			browserProcessStartStageFailure("process_create_with_token", errors.New("fixture"))),
+			"baseline_process_create_with_token_standard_user_token_unavailable"},
+		{"baseline", errors.Join(ErrBrowserStandardUserTokenUnavailable,
+			browserProcessStartStageFailure("process_create", windows.ERROR_ACCESS_DENIED)),
+			"baseline_process_create_access_denied"},
 		{"baseline", context.DeadlineExceeded, "baseline_canary_timeout"},
+		{"baseline", browserProcessStartStageFailure("process_resume", errors.New("fixture")),
+			"baseline_process_resume_failed"},
+		{"baseline", errors.Join(errBrowserNetworkProbeProfilePrepare, errors.New("fixture")),
+			"baseline_profile_prepare_failed"},
+		{"restricted", errBrowserNetworkProbeTreeNotReaped,
+			"restricted_process_tree_not_reaped"},
 		{"restricted", context.Canceled, "restricted_probe_cancelled"},
 		{"restricted", errors.New("fixture"), "restricted_runtime_failed"},
 	}

@@ -22,8 +22,18 @@ import (
 
 const browserNetworkProbeProfilePrefix = "prayu-browser-network-probe-"
 
-var errBrowserNetworkProbeProcessExited = errors.New(
-	"browser network probe process exited before its canaries")
+var (
+	errBrowserNetworkProbeProcessExited = errors.New(
+		"browser network probe process exited before its canaries")
+	errBrowserNetworkProbeProfilePrepare = errors.New(
+		"browser network probe Profile preparation failed")
+	errBrowserNetworkProbeProfileCleanup = errors.New(
+		"browser network probe Profile cleanup failed")
+	errBrowserNetworkProbeProcessStop = errors.New(
+		"browser network probe process stop failed")
+	errBrowserNetworkProbeTreeNotReaped = errors.New(
+		"browser network probe process tree was not reaped")
+)
 
 type browserNetworkProbeEndpoint struct {
 	address  netip.Addr
@@ -345,15 +355,15 @@ func runBrowserNetworkProbePhase(ctx context.Context, identity BrowserExecutable
 ) (runErr error) {
 	profilePath, err := os.MkdirTemp("", browserNetworkProbeProfilePrefix)
 	if err != nil {
-		return err
+		return errors.Join(errBrowserNetworkProbeProfilePrepare, err)
 	}
 	defer func() {
 		if cleanupErr := cleanupBrowserNetworkProbeProfile(profilePath); cleanupErr != nil && runErr == nil {
-			runErr = fmt.Errorf("clean browser network probe Profile: %w", cleanupErr)
+			runErr = errors.Join(errBrowserNetworkProbeProfileCleanup, cleanupErr)
 		}
 	}()
 	if err := ensureProfileEnvironmentDirectories(profilePath); err != nil {
-		return err
+		return errors.Join(errBrowserNetworkProbeProfilePrepare, err)
 	}
 	startedAt := time.Now().UTC()
 	deadline := startedAt.Add(BrowserNetworkProbeTimeout)
@@ -410,11 +420,11 @@ waitForCanaries:
 	stopContext, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer stopCancel()
 	if err := process.Stop(stopContext, false); err != nil {
-		return err
+		return errors.Join(errBrowserNetworkProbeProcessStop, err)
 	}
 	exit, ok := process.Exit()
 	if !ok || !exit.TreeReaped {
-		return errors.New("browser network probe process tree was not reaped")
+		return errBrowserNetworkProbeTreeNotReaped
 	}
 	return nil
 }
@@ -423,6 +433,21 @@ func browserNetworkProbeRunFailureCode(phase string, runErr error) string {
 	prefix := "restricted"
 	if phase == "baseline" {
 		prefix = "baseline"
+	}
+	if stage, ok := browserProcessStartFailureStage(runErr); ok {
+		switch stage {
+		case "executable_pin", "profile_validate", "job_create", "job_bind",
+			"command_prepare", "environment_prepare", "authority_acquire",
+			"process_create", "process_create_with_token", "child_authority",
+			"process_resume":
+			if reason := browserProcessStartFailureReason(runErr); reason != "" {
+				return prefix + "_" + stage + "_" + reason
+			}
+			if errors.Is(runErr, ErrBrowserStandardUserTokenUnavailable) {
+				return prefix + "_" + stage + "_standard_user_token_unavailable"
+			}
+			return prefix + "_" + stage + "_failed"
+		}
 	}
 	switch {
 	case errors.Is(runErr, errBrowserNetworkProbeProcessExited):
@@ -433,6 +458,14 @@ func browserNetworkProbeRunFailureCode(phase string, runErr error) string {
 		return prefix + "_canary_timeout"
 	case errors.Is(runErr, context.Canceled):
 		return prefix + "_probe_cancelled"
+	case errors.Is(runErr, errBrowserNetworkProbeProfilePrepare):
+		return prefix + "_profile_prepare_failed"
+	case errors.Is(runErr, errBrowserNetworkProbeProfileCleanup):
+		return prefix + "_profile_cleanup_failed"
+	case errors.Is(runErr, errBrowserNetworkProbeProcessStop):
+		return prefix + "_process_stop_failed"
+	case errors.Is(runErr, errBrowserNetworkProbeTreeNotReaped):
+		return prefix + "_process_tree_not_reaped"
 	default:
 		return prefix + "_runtime_failed"
 	}

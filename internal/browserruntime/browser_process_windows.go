@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 	"unicode/utf16"
 	"unsafe"
@@ -30,9 +31,56 @@ const (
 
 type windowsBrowserProcessStarter struct{}
 
+var createProcessWithTokenW = windows.NewLazySystemDLL("advapi32.dll").NewProc(
+	"CreateProcessWithTokenW")
+
 type windowsBrowserLaunchAuthority struct {
 	token  windows.Token
 	asUser bool
+}
+
+type browserProcessStartStageError struct {
+	stage string
+	err   error
+}
+
+func (err *browserProcessStartStageError) Error() string {
+	return fmt.Sprintf("browser process %s: %v", err.stage, err.err)
+}
+
+func (err *browserProcessStartStageError) Unwrap() error { return err.err }
+
+func browserProcessStartStageFailure(stage string, err error) error {
+	return &browserProcessStartStageError{stage: stage, err: err}
+}
+
+func browserProcessStartFailureStage(err error) (string, bool) {
+	var stageErr *browserProcessStartStageError
+	if !errors.As(err, &stageErr) || stageErr == nil || stageErr.stage == "" {
+		return "", false
+	}
+	return stageErr.stage, true
+}
+
+func browserProcessStartFailureReason(err error) string {
+	switch {
+	case errors.Is(err, windows.ERROR_ACCESS_DENIED):
+		return "access_denied"
+	case errors.Is(err, windows.ERROR_PRIVILEGE_NOT_HELD):
+		return "privilege_not_held"
+	case errors.Is(err, windows.ERROR_INVALID_PARAMETER):
+		return "invalid_parameter"
+	case errors.Is(err, windows.ERROR_INVALID_HANDLE):
+		return "invalid_handle"
+	case errors.Is(err, windows.ERROR_NOT_SUPPORTED):
+		return "not_supported"
+	case errors.Is(err, windows.ERROR_FILE_NOT_FOUND):
+		return "file_not_found"
+	case errors.Is(err, windows.ERROR_PATH_NOT_FOUND):
+		return "path_not_found"
+	default:
+		return ""
+	}
 }
 
 type windowsBrowserProcess struct {
@@ -66,54 +114,54 @@ func (windowsBrowserProcessStarter) Start(ctx context.Context,
 	}
 	executable, err := pinBrowserExecutable(spec.ExecutablePath, spec.ExecutableSHA256)
 	if err != nil {
-		return nil, err
+		return nil, browserProcessStartStageFailure("executable_pin", err)
 	}
 	defer executable.Close()
 	if err := validateBrowserEnvironmentDirectories(spec.ProfilePath); err != nil {
-		return nil, err
+		return nil, browserProcessStartStageFailure("profile_validate", err)
 	}
 	job, err := newBrowserJob(spec)
 	if err != nil {
-		return nil, fmt.Errorf("create browser Job Object: %w", err)
+		return nil, browserProcessStartStageFailure("job_create", err)
 	}
 	attributes, err := windows.NewProcThreadAttributeList(1)
 	if err != nil {
 		windows.CloseHandle(job)
-		return nil, err
+		return nil, browserProcessStartStageFailure("job_bind", err)
 	}
 	defer attributes.Delete()
 	jobHandles := []windows.Handle{job}
 	if err := attributes.Update(procThreadAttributeJobList,
 		unsafe.Pointer(&jobHandles[0]), unsafe.Sizeof(jobHandles[0])); err != nil {
 		windows.CloseHandle(job)
-		return nil, fmt.Errorf("bind browser Job Object at process creation: %w", err)
+		return nil, browserProcessStartStageFailure("job_bind", err)
 	}
 	applicationName, err := windows.UTF16PtrFromString(spec.ExecutablePath)
 	if err != nil {
 		windows.CloseHandle(job)
-		return nil, ErrBrowserRuntimeBoundary
+		return nil, browserProcessStartStageFailure("command_prepare", ErrBrowserRuntimeBoundary)
 	}
 	commandLine := windows.ComposeCommandLine(append([]string{spec.ExecutablePath},
 		spec.Arguments...))
 	commandLinePointer, err := windows.UTF16PtrFromString(commandLine)
 	if err != nil {
 		windows.CloseHandle(job)
-		return nil, ErrBrowserRuntimeBoundary
+		return nil, browserProcessStartStageFailure("command_prepare", ErrBrowserRuntimeBoundary)
 	}
 	directoryPointer, err := windows.UTF16PtrFromString(filepath.Dir(spec.ExecutablePath))
 	if err != nil {
 		windows.CloseHandle(job)
-		return nil, ErrBrowserRuntimeBoundary
+		return nil, browserProcessStartStageFailure("command_prepare", ErrBrowserRuntimeBoundary)
 	}
 	environment, err := browserEnvironmentBlock(spec.ProfilePath)
 	if err != nil {
 		windows.CloseHandle(job)
-		return nil, err
+		return nil, browserProcessStartStageFailure("environment_prepare", err)
 	}
 	launchAuthority, err := acquireWindowsBrowserLaunchAuthority()
 	if err != nil {
 		windows.CloseHandle(job)
-		return nil, err
+		return nil, browserProcessStartStageFailure("authority_acquire", err)
 	}
 	defer launchAuthority.Close()
 	startup := windows.StartupInfoEx{
@@ -124,21 +172,30 @@ func (windowsBrowserProcessStarter) Start(ctx context.Context,
 	flags := uint32(windows.CREATE_SUSPENDED | windows.CREATE_NO_WINDOW |
 		windows.CREATE_UNICODE_ENVIRONMENT | windows.EXTENDED_STARTUPINFO_PRESENT)
 	startedAt := time.Now().UTC()
+	processCreateStage := "process_create"
 	if launchAuthority.asUser {
 		err = windows.CreateProcessAsUser(launchAuthority.token, applicationName,
 			commandLinePointer, nil, nil, false, flags, &environment[0],
 			directoryPointer, &startup.StartupInfo, &processInfo)
+		if errors.Is(err, windows.ERROR_PRIVILEGE_NOT_HELD) ||
+			errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+			processCreateStage = "process_create_with_token"
+			err = createWindowsBrowserProcessWithToken(launchAuthority.token,
+				applicationName, commandLinePointer, flags, &environment[0],
+				directoryPointer, &startup.StartupInfo, &processInfo)
+		}
 	} else {
 		err = windows.CreateProcess(applicationName, commandLinePointer, nil, nil, false,
 			flags, &environment[0], directoryPointer, &startup.StartupInfo, &processInfo)
 	}
 	if err != nil {
 		windows.CloseHandle(job)
+		stageErr := browserProcessStartStageFailure(processCreateStage, err)
 		if launchAuthority.asUser {
 			return nil, errors.Join(ErrBrowserStandardUserTokenUnavailable,
-				fmt.Errorf("start accepted browser process as standard user: %w", err))
+				stageErr)
 		}
-		return nil, fmt.Errorf("start accepted browser process: %w", err)
+		return nil, stageErr
 	}
 	if err := verifyWindowsBrowserChildAuthority(processInfo.Process); err != nil {
 		windows.CloseHandle(processInfo.Thread)
@@ -146,7 +203,7 @@ func (windowsBrowserProcessStarter) Start(ctx context.Context,
 		_, _ = windows.WaitForSingleObject(processInfo.Process, 5_000)
 		windows.CloseHandle(processInfo.Process)
 		windows.CloseHandle(job)
-		return nil, err
+		return nil, browserProcessStartStageFailure("child_authority", err)
 	}
 	process := &windowsBrowserProcess{
 		job: job, process: processInfo.Process, pid: int(processInfo.ProcessId),
@@ -158,11 +215,35 @@ func (windowsBrowserProcessStarter) Start(ctx context.Context,
 		_, _ = windows.WaitForSingleObject(processInfo.Process, 5_000)
 		windows.CloseHandle(processInfo.Process)
 		windows.CloseHandle(job)
-		return nil, fmt.Errorf("resume browser process: %w", err)
+		return nil, browserProcessStartStageFailure("process_resume", err)
 	}
 	windows.CloseHandle(processInfo.Thread)
 	go process.wait()
 	return process, nil
+}
+
+func createWindowsBrowserProcessWithToken(token windows.Token, applicationName,
+	commandLine *uint16, flags uint32, environment *uint16, directory *uint16,
+	startup *windows.StartupInfo, processInfo *windows.ProcessInformation,
+) error {
+	result, _, callErr := createProcessWithTokenW.Call(
+		uintptr(token),
+		0,
+		uintptr(unsafe.Pointer(applicationName)),
+		uintptr(unsafe.Pointer(commandLine)),
+		uintptr(flags),
+		uintptr(unsafe.Pointer(environment)),
+		uintptr(unsafe.Pointer(directory)),
+		uintptr(unsafe.Pointer(startup)),
+		uintptr(unsafe.Pointer(processInfo)),
+	)
+	if result != 0 {
+		return nil
+	}
+	if callErr != nil && callErr != syscall.Errno(0) {
+		return callErr
+	}
+	return windows.ERROR_INVALID_FUNCTION
 }
 
 func (authority *windowsBrowserLaunchAuthority) Close() {
@@ -188,11 +269,23 @@ func acquireWindowsBrowserLaunchAuthority() (windowsBrowserLaunchAuthority, erro
 		return windowsBrowserLaunchAuthority{}, errors.Join(
 			ErrBrowserStandardUserTokenUnavailable, err)
 	}
+	defer linked.Close()
 	if err := validateWindowsBrowserStandardUserToken(current, linked); err != nil {
-		_ = linked.Close()
 		return windowsBrowserLaunchAuthority{}, err
 	}
-	return windowsBrowserLaunchAuthority{token: linked, asUser: true}, nil
+	var primary windows.Token
+	desiredAccess := uint32(windows.TOKEN_QUERY | windows.TOKEN_DUPLICATE |
+		windows.TOKEN_ASSIGN_PRIMARY)
+	if err := windows.DuplicateTokenEx(linked, desiredAccess, nil,
+		windows.SecurityImpersonation, windows.TokenPrimary, &primary); err != nil {
+		return windowsBrowserLaunchAuthority{}, errors.Join(
+			ErrBrowserStandardUserTokenUnavailable, err)
+	}
+	if err := validateWindowsBrowserStandardUserPrimaryToken(current, primary); err != nil {
+		_ = primary.Close()
+		return windowsBrowserLaunchAuthority{}, err
+	}
+	return windowsBrowserLaunchAuthority{token: primary, asUser: true}, nil
 }
 
 func verifyWindowsBrowserChildAuthority(process windows.Handle) error {
@@ -201,7 +294,8 @@ func verifyWindowsBrowserChildAuthority(process windows.Handle) error {
 		return errors.Join(ErrBrowserStandardUserTokenUnavailable, err)
 	}
 	defer token.Close()
-	return validateWindowsBrowserStandardUserToken(windows.GetCurrentProcessToken(), token)
+	return validateWindowsBrowserStandardUserPrimaryToken(
+		windows.GetCurrentProcessToken(), token)
 }
 
 func validateWindowsBrowserStandardUserToken(parent windows.Token,
@@ -221,6 +315,33 @@ func validateWindowsBrowserStandardUserToken(parent windows.Token,
 		return errors.Join(ErrBrowserStandardUserTokenUnavailable, err)
 	}
 	return nil
+}
+
+func validateWindowsBrowserStandardUserPrimaryToken(parent windows.Token,
+	candidate windows.Token,
+) error {
+	if err := validateWindowsBrowserStandardUserToken(parent, candidate); err != nil {
+		return err
+	}
+	primary, err := windowsBrowserTokenIsPrimary(candidate)
+	if err != nil || !primary {
+		return errors.Join(ErrBrowserStandardUserTokenUnavailable, err)
+	}
+	return nil
+}
+
+func windowsBrowserTokenIsPrimary(token windows.Token) (bool, error) {
+	var tokenType uint32
+	var outLength uint32
+	if err := windows.GetTokenInformation(token, windows.TokenType,
+		(*byte)(unsafe.Pointer(&tokenType)), uint32(unsafe.Sizeof(tokenType)),
+		&outLength); err != nil {
+		return false, err
+	}
+	if outLength != uint32(unsafe.Sizeof(tokenType)) {
+		return false, ErrBrowserRuntimeBoundary
+	}
+	return tokenType == windows.TokenPrimary, nil
 }
 
 func windowsBrowserTokensHaveSameUser(left windows.Token,
