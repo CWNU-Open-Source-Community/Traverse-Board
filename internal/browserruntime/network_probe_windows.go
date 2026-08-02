@@ -22,6 +22,9 @@ import (
 
 const browserNetworkProbeProfilePrefix = "prayu-browser-network-probe-"
 
+var errBrowserNetworkProbeProcessExited = errors.New(
+	"browser network probe process exited before its canaries")
+
 type browserNetworkProbeEndpoint struct {
 	address  netip.Addr
 	port     uint16
@@ -89,7 +92,11 @@ func runPlatformBrowserNetworkContainmentProbe(ctx context.Context,
 	if baselineCleanupErr != nil || !baselineGuard.CleanupVerified() {
 		return finishBrowserNetworkProbeReport(report, "baseline_wfp_cleanup_failed")
 	}
-	if baselineRunErr != nil || !baseline.All() {
+	if baselineRunErr != nil {
+		return finishBrowserNetworkProbeReport(report,
+			browserNetworkProbeRunFailureCode("baseline", baselineRunErr))
+	}
+	if !baseline.All() {
 		return finishBrowserNetworkProbeReport(report, "baseline_canaries_not_observed")
 	}
 
@@ -121,7 +128,11 @@ func runPlatformBrowserNetworkContainmentProbe(ctx context.Context,
 	if restrictedCleanupErr != nil || !restrictedGuard.CleanupVerified() {
 		return finishBrowserNetworkProbeReport(report, "restricted_wfp_cleanup_failed")
 	}
-	if restrictedRunErr != nil || !restricted.Exact {
+	if restrictedRunErr != nil {
+		return finishBrowserNetworkProbeReport(report,
+			browserNetworkProbeRunFailureCode("restricted", restrictedRunErr))
+	}
+	if !restricted.Exact {
 		return finishBrowserNetworkProbeReport(report, "restricted_target_not_observed")
 	}
 	switch {
@@ -351,7 +362,8 @@ func runBrowserNetworkProbePhase(ctx context.Context, identity BrowserExecutable
 		ProtocolVersion:               BrowserStartSpecProtocolVersion,
 		ExecutableIdentityFingerprint: identity.Fingerprint,
 		ExecutablePath:                identity.CanonicalPath, ExecutableSHA256: identity.ExecutableSHA256,
-		ProfilePath: profilePath, Arguments: fixedBrowserNetworkProbeArguments(profilePath, targetURL),
+		ProfilePath: profilePath, Arguments: fixedBrowserNetworkProbeArguments(
+			profilePath, targetURL, harness.Targets()),
 		InitialURL: targetURL, ActiveProcessLimit: MaxBrowserProcessCount,
 		JobMemoryLimitBytes: MaxBrowserJobMemoryBytes, LoopbackNavigationRequired: true,
 		HostNameResolutionDisabled: true, NetworkDefaultDeny: true,
@@ -371,13 +383,20 @@ func runBrowserNetworkProbePhase(ctx context.Context, identity BrowserExecutable
 		}
 		return observation.Exact
 	}
+waitForCanaries:
 	for !condition() {
 		select {
 		case <-phaseContext.Done():
+			if condition() {
+				break waitForCanaries
+			}
 			_ = process.Stop(context.Background(), true)
 			return phaseContext.Err()
 		case <-process.Done():
-			return errors.New("browser network probe process exited before its canaries")
+			if condition() {
+				break waitForCanaries
+			}
+			return errBrowserNetworkProbeProcessExited
 		case <-time.After(20 * time.Millisecond):
 		}
 	}
@@ -400,15 +419,57 @@ func runBrowserNetworkProbePhase(ctx context.Context, identity BrowserExecutable
 	return nil
 }
 
-func fixedBrowserNetworkProbeArguments(profilePath string, targetURL string) []string {
+func browserNetworkProbeRunFailureCode(phase string, runErr error) string {
+	prefix := "restricted"
+	if phase == "baseline" {
+		prefix = "baseline"
+	}
+	switch {
+	case errors.Is(runErr, errBrowserNetworkProbeProcessExited):
+		return prefix + "_browser_exited_before_canaries"
+	case errors.Is(runErr, context.DeadlineExceeded):
+		return prefix + "_canary_timeout"
+	case errors.Is(runErr, context.Canceled):
+		return prefix + "_probe_cancelled"
+	default:
+		return prefix + "_runtime_failed"
+	}
+}
+
+func fixedBrowserNetworkProbeArguments(profilePath string, targetURL string,
+	targets []windowsWFPRemoteTarget,
+) []string {
 	return []string{
 		"--headless=new", "--user-data-dir=" + profilePath, "--no-first-run",
 		"--no-default-browser-check", "--disable-background-networking",
 		"--disable-component-update", "--disable-default-apps", "--disable-extensions",
 		"--disable-sync", "--disable-translate", "--disable-breakpad",
 		"--disable-crash-reporter", "--metrics-recording-only", "--password-store=basic",
-		"--no-proxy-server", "--host-resolver-rules=MAP * ~NOTFOUND", targetURL,
+		"--no-proxy-server", "--host-resolver-rules=" +
+			browserNetworkProbeResolverRules(targets), targetURL,
 	}
+}
+
+func browserNetworkProbeResolverRules(targets []windowsWFPRemoteTarget) string {
+	addresses := make([]string, 0, len(targets))
+	seen := make(map[netip.Addr]struct{}, len(targets))
+	for _, target := range targets {
+		address := target.Address.Unmap()
+		if !address.IsValid() {
+			continue
+		}
+		if _, exists := seen[address]; exists {
+			continue
+		}
+		seen[address] = struct{}{}
+		addresses = append(addresses, address.String())
+	}
+	sort.Strings(addresses)
+	rules := []string{"MAP * ~NOTFOUND"}
+	for _, address := range addresses {
+		rules = append(rules, "EXCLUDE "+address)
+	}
+	return strings.Join(rules, ", ")
 }
 
 func removeBrowserNetworkProbeProfile(path string) error {

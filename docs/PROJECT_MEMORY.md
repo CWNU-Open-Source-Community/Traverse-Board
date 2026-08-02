@@ -2229,6 +2229,26 @@ disposable-Profile deletion, and an exclusive concurrent `Finalize` claim. Two
 concurrent finalizers now yield exactly one successful cleanup and one receipt.
 No installed browser or product route was started.
 
+### 2026-08-02 WFP Probe Follow-up
+
+The first elevated Edge probe crossed elevation and proved dynamic WFP-session
+creation plus atomic filter installation, then failed closed with
+`baseline_canaries_not_observed`. A focused no-WFP smoke test using the same
+production Job Object, disposable Profile, and five local canaries reproduced
+zero requests. The cause was the fixed Chromium resolver rule: `MAP *
+~NOTFOUND` also suppressed IP literals. The probe now keeps DNS default-deny
+while adding deterministic `EXCLUDE` entries only for its five Go-created
+canary addresses; WFP continues to bind the exact address/port scope. The real
+installed-Edge baseline then passed in about 0.6 seconds.
+
+Probe runtime errors now distinguish early browser exit, canary timeout,
+caller cancellation, and other runtime failure, and the completion race
+rechecks the observation before failing. Focused probe tests, the full
+`internal/browserruntime` package, package vet, and focused race detection pass.
+Schema v92 was not rerun or changed. C8C remains disabled until a fresh
+administrator WFP probe returns `passed=true` and independent review plus the
+same-executable application-ID issue are resolved.
+
 ## Next Slice
 
 P11-C8C stays blocked until an administrator-run WFP probe passes, an

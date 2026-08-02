@@ -559,7 +559,7 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 - [x] P11-C6：实现一次性 Profile generation 创建、canonical marker、环境目录、重启恢复、quiescent release 和 exact released-owned 清理；个人 Chrome/Edge Profile、外来 marker 与间接路径永久拒绝。
 - [x] P11-C7：实现 exact-scope literal-loopback Restricted CDP transport、导航、DOM metadata 与 PNG 截图；请求正文/改包/重放、Cookie、脚本执行和完整 CDP 继续关闭，返回内容固定为不可信证据；边界见 ADR 0083。
 - [x] P11-C4A-C4C + P11-C5-C7 累计六切片完整健壮性门：全仓 ordinary Go 495.8 秒通过；全仓 race 首轮除 Store 默认 10 分钟包超时外全部通过，Store 以 30 分钟上限重跑 503.5 秒通过且零竞态；vet/staticcheck、零可达 govulncheck、module verify/tidy、48 文件 178 项 React、strict TypeScript/API/Vite/npm、Rust fmt/7+2 tests/clippy/真实夹具一致性及 Windows 可复现构建全绿。GUI SHA-256 `a6ac44c0078e32577c7a90bce2a159f22b44400607862dfd6e83704faef1cbdb`；没有启动真实浏览器。审计把缺少 OS 级网络隔离列为产品接线阻断项，当前核心保持无 CLI/HTTP/Desktop/模型入口。
-- [ ] P11-C8A（实现完成，生产验收待管理员证据）：Windows WFP 动态会话 probe 已实现 exact literal-loopback allow 与 IPv4/IPv6 默认拒绝、Job/Filter/Profile 清理核验；当前非管理员实机证据以 `wfp_elevation_required` 在启动浏览器前失败关闭，因此 adapter 继续无产品入口。
+- [ ] P11-C8A（实现完成，生产验收待管理员重跑）：管理员探针已证明 WFP 动态会话和原子安装；修复 `MAP * ~NOTFOUND` 误拦本机 IP 字面量后，真实 Edge baseline 五项 canary 已通过。仍需取得 `passed=true` 的管理员 WFP 生产证据并完成独立复核，因此 adapter 继续无产品入口。
 - [x] P11-C8B / schema v92：完成可恢复 runtime lifecycle 编排、只追加 checkpoint/receipt、恢复投影、审计事件，以及进程退出到 WFP/Profile release/cleanup 的精确对账；未增加模型 Tool。
 - [x] P11-C8A/C8B 功能门与组合审计：全仓 Go 约 435 秒、vet/staticcheck、browserruntime 普通/race 和 Linux 无 CGO 交叉编译通过；修复 WFP x64 ABI 对齐、Profile 删除后复核和并发 Finalize 唯一收据，未启动真实浏览器。
 - [ ] P11-C8C：仅在 C8A/C8B 独立接纳后增加操作者专用的 Restricted Safe Web 产品入口；完整 CDP、个人 Profile 和模型控制继续分离。
