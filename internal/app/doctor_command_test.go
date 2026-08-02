@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"cyberagent-workbench/internal/browserruntime"
 	"cyberagent-workbench/internal/buildinfo"
 )
 
@@ -44,5 +45,16 @@ func TestDoctorPortableTextIncludesManualMatrixBoundary(t *testing.T) {
 		!strings.Contains(stdout.String(), "windows_10_runtime_matrix: manual") ||
 		!strings.Contains(stdout.String(), "fingerprint:") {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestDoctorBrowserNetworkProbeFailsBeforeDiscoveryWithoutExactConfirmation(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Execute([]string{"doctor", "browser-network-probe", "--product", "edge",
+		"--collector", "doctor-test-operator", "--confirm", "yes", "--json"},
+		&stdout, &stderr)
+	if code == 0 || stdout.Len() != 0 ||
+		!strings.Contains(stderr.String(), browserruntime.BrowserNetworkProbeConfirmation) {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 }

@@ -56,6 +56,8 @@ const (
 	BrowserLaunchAttemptPreparedEvent             = "browser.launch_attempt_prepared"
 	BrowserLaunchLeaseRecordedEvent               = "browser.launch_lease_recorded"
 	BrowserLaunchReviewedEvent                    = "browser.launch_reviewed"
+	BrowserRuntimeCheckpointRecordedEvent         = "browser.runtime_checkpoint_recorded"
+	BrowserRuntimeReceiptRecordedEvent            = "browser.runtime_receipt_recorded"
 	PolicyDecisionEvent                           = "policy.decision"
 	ToolProposedEvent                             = "tool.proposed"
 	ToolApprovedEvent                             = "tool.approved"

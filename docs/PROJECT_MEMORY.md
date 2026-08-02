@@ -2193,24 +2193,53 @@ Fetch interception cannot prove that browser-internal networking has no bypass.
 An OS/container network boundary with production evidence must pass before a
 CLI, HTTP, Desktop, Tool, Skill, or model adapter is allowed. See ADR 0083.
 
+## Completed WFP Containment And Recoverable Browser Lifecycle (P11-C8A/C8B)
+
+P11-C8A implements a CDP-independent Windows WFP dynamic-session probe. It
+atomically installs one exact executable/address/TCP-port permit above IPv4 and
+IPv6 default-deny filters, starts the accepted browser in a creation-time Job,
+and verifies wrong-port, alternate-loopback, local non-loopback, IPv6, process,
+Filter ID, and disposable-Profile cleanup behavior. It accepts no proxy,
+caller URL, public target, personal Profile, or security-disable flag.
+
+The local non-elevated production probe failed closed with
+`wfp_elevation_required` before browser creation. Therefore implementation is
+complete but production acceptance is not. C8C remains unavailable. WFP
+application-ID rules affect every process using the same executable path, so
+the long-lived product adapter must also resolve that process-wide race.
+
+P11-C8B advances SQLite to v92 with append-only
+`browser_runtime_checkpoint.v1` and `browser_runtime_receipt.v1`. The exact
+stage chain reconciles CDP close, process-tree quiescence, WFP teardown, Profile
+release, cleanup, completion, failure, and recovery. Cleanup continues under a
+bounded independent context after caller cancellation, CDP-close failure, or
+checkpoint persistence failure. Profile release requires verified process and
+network cleanup. Events and receipts are redacted and contain no raw output,
+page material, screenshot, personal Profile, or Full CDP data.
+
+Windows SDK ABI regression tests fix the manually bound WFP structures at the
+native x64 offsets (`FWPM_ACTION0` 20 bytes and `FWPM_FILTER0` 200 bytes) and
+verify IPv4 host-order values. See ADR 0084.
+
+The final batch gate ran once: `go test -count=1 ./...` passed in about 435
+seconds, followed by repository-wide vet and warning-free staticcheck, focused
+ordinary/race browser-runtime tests, and a CGO-disabled Linux cross-compile.
+The combined audit fixed native WFP ABI alignment, explicit verification after
+disposable-Profile deletion, and an exclusive concurrent `Finalize` claim. Two
+concurrent finalizers now yield exactly one successful cleanup and one receipt.
+No installed browser or product route was started.
+
 ## Next Slice
 
-The recommended next batch is P11-C8A/C8B/C8C, preserving independent release
-gates:
+P11-C8C stays blocked until an administrator-run WFP probe passes, an
+independent reviewer accepts the evidence, and the same-executable process-wide
+effect has a product-safe answer. Only then may an operator-only Restricted
+Safe Web adapter be considered. It must not add a model Tool, personal Profile,
+request mutation/replay, arbitrary remote debugging, CTF security-disable
+flags, or Full Debug CDP.
 
-1. establish an OS- or container-enforced browser network-containment probe
-   and production evidence that denies every connection outside the exact
-   literal-loopback target independently of CDP;
-2. add recoverable runtime orchestration and durable events/receipts that
-   reconcile process exit, Profile release, and exact cleanup;
-3. only after both reviews pass, add an operator-only Restricted Safe Web
-   product adapter. It must not add a model Tool or Full Debug CDP.
-
-There must still be no request mutation/replay, arbitrary remote debugging,
-CTF security-disable flags, personal profile reuse, cross-target navigation,
-or model-controlled host browser. P10-F1/F2/F3 analyzer preflight remains
-queued. Docker PTY, arbitrary model Shell, signed distribution, and the
-Windows 10 matrix remain separate gates.
+P10-F1/F2/F3 analyzer preflight remains queued. Docker PTY, arbitrary model
+Shell, signed distribution, and the Windows 10 matrix remain separate gates.
 
 ## Local Machine Note
 

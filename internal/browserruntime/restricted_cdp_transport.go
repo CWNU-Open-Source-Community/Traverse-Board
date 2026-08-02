@@ -156,7 +156,11 @@ func OpenRestrictedBrowserSession(ctx context.Context,
 	session SessionPlan, identity BrowserExecutableIdentity,
 	acceptance BrowserAcceptanceCandidate, ownership ProfileOwnershipPlan,
 	attempt BrowserLaunchAttempt, launchLease BrowserLaunchLease,
-	review BrowserLaunchReview, permission domain.RunBrowserCDPPermissionSnapshot,
+	review BrowserLaunchReview,
+	networkEvidence BrowserNetworkContainmentEvidence,
+	networkReview BrowserNetworkContainmentReview,
+	networkPlan BrowserNetworkContainmentPlan,
+	permission domain.RunBrowserCDPPermissionSnapshot,
 	profileLease ProfileRuntimeLease, process *BrowserProcess,
 ) (*RestrictedBrowserSession, error) {
 	if err := ValidateRestrictedCDPAuthorization(authorization, start, session,
@@ -164,7 +168,8 @@ func OpenRestrictedBrowserSession(ctx context.Context,
 		return nil, err
 	}
 	if err := ValidateBrowserStartAuthorization(start, session, identity, acceptance,
-		ownership, attempt, launchLease, review, permission); err != nil {
+		ownership, attempt, launchLease, review, networkEvidence, networkReview,
+		networkPlan, permission); err != nil {
 		return nil, err
 	}
 	if err := ValidateProfileRuntimeLease(profileLease, start, ownership); err != nil {
@@ -178,7 +183,7 @@ func OpenRestrictedBrowserSession(ctx context.Context,
 	}
 	spec := process.StartSpec()
 	if err := validateBrowserStartSpec(spec, start, identity, ownership,
-		profileLease); err != nil {
+		profileLease, networkPlan, spec.NetworkContainmentFingerprint); err != nil {
 		return nil, err
 	}
 	marker, err := readProfileOwnerMarker(ownership.DirectoryPath)

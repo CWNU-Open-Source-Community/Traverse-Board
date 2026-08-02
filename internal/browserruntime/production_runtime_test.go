@@ -15,16 +15,19 @@ import (
 )
 
 type browserRuntimeFacts struct {
-	session       SessionPlan
-	identity      BrowserExecutableIdentity
-	acceptance    BrowserAcceptanceCandidate
-	ownership     ProfileOwnershipPlan
-	attempt       BrowserLaunchAttempt
-	launchLease   BrowserLaunchLease
-	review        BrowserLaunchReview
-	permission    domain.RunBrowserCDPPermissionSnapshot
-	authorization BrowserStartAuthorization
-	now           time.Time
+	session         SessionPlan
+	identity        BrowserExecutableIdentity
+	acceptance      BrowserAcceptanceCandidate
+	ownership       ProfileOwnershipPlan
+	attempt         BrowserLaunchAttempt
+	launchLease     BrowserLaunchLease
+	review          BrowserLaunchReview
+	networkEvidence BrowserNetworkContainmentEvidence
+	networkReview   BrowserNetworkContainmentReview
+	networkPlan     BrowserNetworkContainmentPlan
+	permission      domain.RunBrowserCDPPermissionSnapshot
+	authorization   BrowserStartAuthorization
+	now             time.Time
 }
 
 func newLoopbackBrowserRuntimeFacts(t *testing.T) browserRuntimeFacts {
@@ -79,26 +82,54 @@ func buildBrowserRuntimeFacts(t *testing.T, session SessionPlan,
 	if err != nil {
 		t.Fatal(err)
 	}
+	networkEvidence, err := BuildBrowserNetworkContainmentEvidence(identity, acceptance,
+		BrowserNetworkProbeReport{
+			ID: "browser-network-evidence-production", CollectorIdentity: "network-probe-operator",
+			Adapter:                WindowsWFPBrowserContainmentAdapterName,
+			DynamicSessionObserved: true, AtomicInstallObserved: true,
+			ExactTargetObserved: true, WrongPortDenied: true,
+			WrongLoopbackAddressDenied: true, NonLoopbackAddressDenied: true,
+			IPv6Denied: true, RuleCleanupObserved: true, Production: true,
+			StartedAt: now.Add(2 * time.Second), CompletedAt: now.Add(3 * time.Second),
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	networkReview, err := BuildBrowserNetworkContainmentReview(networkEvidence,
+		identity, acceptance, "browser-network-review-production",
+		"independent-network-reviewer", true, now.Add(4*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	networkPlan, err := BuildBrowserNetworkContainmentPlan(session, identity,
+		acceptance, networkEvidence, networkReview, now.Add(5*time.Second),
+		networkEvidence.ExpiresAt)
+	if err != nil {
+		t.Fatal(err)
+	}
 	authorization, err := AuthorizeSafeWebStart(session, identity, acceptance,
-		ownership, attempt, launchLease, review, permission,
+		ownership, attempt, launchLease, review, networkEvidence, networkReview,
+		networkPlan, permission,
 		domain.BrowserCDPPermissionRuntimeCapabilities{ControlEnabled: true},
 		ProductionRuntimeCapabilities{SafeWebStartEnabled: true,
-			DisposableProfileEnabled: true, RestrictedCDPEnabled: true},
-		now.Add(2*time.Second))
+			DisposableProfileEnabled: true, NetworkContainmentEnabled: true,
+			RestrictedCDPEnabled: true}, now.Add(6*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return browserRuntimeFacts{session: session, identity: identity,
 		acceptance: acceptance, ownership: ownership, attempt: attempt,
-		launchLease: launchLease, review: review, permission: permission,
-		authorization: authorization, now: now.Add(2 * time.Second)}
+		launchLease: launchLease, review: review, networkEvidence: networkEvidence,
+		networkReview: networkReview, networkPlan: networkPlan, permission: permission,
+		authorization: authorization, now: now.Add(6 * time.Second)}
 }
 
 func (facts browserRuntimeFacts) materialize(t *testing.T) ProfileRuntimeLease {
 	t.Helper()
 	lease, err := MaterializeDisposableProfile(facts.authorization, facts.session,
 		facts.identity, facts.acceptance, facts.ownership, facts.attempt,
-		facts.launchLease, facts.review, facts.permission, facts.now)
+		facts.launchLease, facts.review, facts.networkEvidence, facts.networkReview,
+		facts.networkPlan, facts.permission, facts.now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +140,8 @@ func TestSafeWebAuthorizationRequiresRestrictedLiteralLoopbackAndRuntimeGates(t 
 	facts := newLoopbackBrowserRuntimeFacts(t)
 	if err := ValidateBrowserStartAuthorization(facts.authorization, facts.session,
 		facts.identity, facts.acceptance, facts.ownership, facts.attempt,
-		facts.launchLease, facts.review, facts.permission); err != nil {
+		facts.launchLease, facts.review, facts.networkEvidence, facts.networkReview,
+		facts.networkPlan, facts.permission); err != nil {
 		t.Fatal(err)
 	}
 
@@ -145,10 +177,12 @@ func TestSafeWebAuthorizationRequiresRestrictedLiteralLoopbackAndRuntimeGates(t 
 		t.Fatal(err)
 	}
 	if _, err := AuthorizeSafeWebStart(publicSession, facts.identity, facts.acceptance,
-		publicOwnership, publicAttempt, publicLease, publicReview, facts.permission,
+		publicOwnership, publicAttempt, publicLease, publicReview, facts.networkEvidence,
+		facts.networkReview, facts.networkPlan, facts.permission,
 		domain.BrowserCDPPermissionRuntimeCapabilities{ControlEnabled: true},
 		ProductionRuntimeCapabilities{SafeWebStartEnabled: true,
-			DisposableProfileEnabled: true}, facts.now.Add(2*time.Second)); err == nil {
+			DisposableProfileEnabled: true, NetworkContainmentEnabled: true},
+		facts.now.Add(2*time.Second)); err == nil {
 		t.Fatal("public browser target unexpectedly received runtime authority")
 	}
 
@@ -159,15 +193,17 @@ func TestSafeWebAuthorizationRequiresRestrictedLiteralLoopbackAndRuntimeGates(t 
 		t.Fatal(err)
 	}
 	if _, err := AuthorizeSafeWebStart(facts.session, facts.identity, facts.acceptance,
-		facts.ownership, facts.attempt, facts.launchLease, facts.review, full,
+		facts.ownership, facts.attempt, facts.launchLease, facts.review,
+		facts.networkEvidence, facts.networkReview, facts.networkPlan, full,
 		domain.BrowserCDPPermissionRuntimeCapabilities{ControlEnabled: true,
 			FullDebugEnabled: true}, ProductionRuntimeCapabilities{
 			SafeWebStartEnabled: true, DisposableProfileEnabled: true,
-			RestrictedCDPEnabled: true}, facts.now); err == nil {
+			NetworkContainmentEnabled: true, RestrictedCDPEnabled: true}, facts.now); err == nil {
 		t.Fatal("full-debug CDP permission unexpectedly entered the restricted runtime")
 	}
 	if _, err := AuthorizeSafeWebStart(facts.session, facts.identity, facts.acceptance,
-		facts.ownership, facts.attempt, facts.launchLease, facts.review, facts.permission,
+		facts.ownership, facts.attempt, facts.launchLease, facts.review,
+		facts.networkEvidence, facts.networkReview, facts.networkPlan, facts.permission,
 		domain.BrowserCDPPermissionRuntimeCapabilities{ControlEnabled: true},
 		ProductionRuntimeCapabilities{}, facts.now); err == nil {
 		t.Fatal("disabled process-local runtime gates unexpectedly authorized a start")
@@ -280,6 +316,54 @@ type fakeBrowserProcessStarter struct {
 	process *fakeBrowserPlatformProcess
 }
 
+type fakeBrowserNetworkContainmentFactory struct {
+	available bool
+}
+
+func (factory *fakeBrowserNetworkContainmentFactory) Name() string {
+	return FakeBrowserContainmentAdapterName
+}
+
+func (factory *fakeBrowserNetworkContainmentFactory) Available() bool {
+	return factory != nil && factory.available
+}
+
+func (factory *fakeBrowserNetworkContainmentFactory) Prepare(
+	plan BrowserNetworkContainmentPlan,
+) (browserNetworkContainmentGuard, error) {
+	if !factory.Available() || plan.Adapter != WindowsWFPBrowserContainmentAdapterName {
+		return nil, ErrBrowserRuntimeUnavailable
+	}
+	return &fakeBrowserNetworkContainmentGuard{
+		fingerprint: strings.Repeat("a", 64),
+	}, nil
+}
+
+type fakeBrowserNetworkContainmentGuard struct {
+	fingerprint string
+	closed      bool
+}
+
+func (guard *fakeBrowserNetworkContainmentGuard) Adapter() string {
+	return WindowsWFPBrowserContainmentAdapterName
+}
+
+func (guard *fakeBrowserNetworkContainmentGuard) Fingerprint() string {
+	if guard == nil {
+		return ""
+	}
+	return guard.fingerprint
+}
+
+func (guard *fakeBrowserNetworkContainmentGuard) Close() error {
+	guard.closed = true
+	return nil
+}
+
+func (guard *fakeBrowserNetworkContainmentGuard) CleanupVerified() bool {
+	return guard != nil && guard.closed
+}
+
 func (starter *fakeBrowserProcessStarter) Name() string    { return "fake-browser-process.v1" }
 func (starter *fakeBrowserProcessStarter) Available() bool { return true }
 func (starter *fakeBrowserProcessStarter) Start(_ context.Context,
@@ -338,13 +422,14 @@ func TestBrowserProcessControllerUsesFixedArgumentsAndBroadcastExit(t *testing.T
 				return errors.New("revalidation received different evidence")
 			}
 			return nil
-		})
+		}, &fakeBrowserNetworkContainmentFactory{available: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	process, err := controller.Start(t.Context(), facts.authorization, facts.session,
 		facts.identity, facts.acceptance, facts.ownership, facts.attempt,
-		facts.launchLease, facts.review, facts.permission, profileLease, facts.now)
+		facts.launchLease, facts.review, facts.networkEvidence, facts.networkReview,
+		facts.networkPlan, facts.permission, profileLease, facts.now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,6 +452,11 @@ func TestBrowserProcessControllerUsesFixedArgumentsAndBroadcastExit(t *testing.T
 	}
 	<-firstWaiter
 	<-secondWaiter
+	containmentVerified, containmentErr := process.WaitForContainmentCleanup(t.Context())
+	if containmentErr != nil || !containmentVerified {
+		t.Fatalf("browser network containment cleanup verified=%t err=%v",
+			containmentVerified, containmentErr)
+	}
 	exit, ok := process.Exit()
 	if !ok || !exit.TreeReaped || !exit.Cancelled || exit.TimedOut ||
 		exit.StartSpecFingerprint != spec.Fingerprint ||
@@ -384,14 +474,15 @@ func TestBrowserProcessControllerRejectsMarkerTampering(t *testing.T) {
 	}
 	starter := &fakeBrowserProcessStarter{}
 	controller, err := newBrowserProcessController(starter,
-		func(BrowserExecutableIdentity, BrowserAcceptanceCandidate) error { return nil })
+		func(BrowserExecutableIdentity, BrowserAcceptanceCandidate) error { return nil },
+		&fakeBrowserNetworkContainmentFactory{available: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := controller.Start(t.Context(), facts.authorization, facts.session,
 		facts.identity, facts.acceptance, facts.ownership, facts.attempt,
-		facts.launchLease, facts.review, facts.permission, profileLease,
-		facts.now); err == nil {
+		facts.launchLease, facts.review, facts.networkEvidence, facts.networkReview,
+		facts.networkPlan, facts.permission, profileLease, facts.now); err == nil {
 		t.Fatal("tampered Profile marker unexpectedly started a browser")
 	}
 	if len(starter.started) != 0 {

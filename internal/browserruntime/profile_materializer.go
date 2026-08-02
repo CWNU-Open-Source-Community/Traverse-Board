@@ -69,11 +69,16 @@ func MaterializeDisposableProfile(authorization BrowserStartAuthorization,
 	session SessionPlan, identity BrowserExecutableIdentity,
 	acceptance BrowserAcceptanceCandidate, ownership ProfileOwnershipPlan,
 	attempt BrowserLaunchAttempt, launchLease BrowserLaunchLease,
-	review BrowserLaunchReview, permission domain.RunBrowserCDPPermissionSnapshot,
+	review BrowserLaunchReview,
+	networkEvidence BrowserNetworkContainmentEvidence,
+	networkReview BrowserNetworkContainmentReview,
+	networkPlan BrowserNetworkContainmentPlan,
+	permission domain.RunBrowserCDPPermissionSnapshot,
 	now time.Time,
 ) (ProfileRuntimeLease, error) {
 	if err := ValidateBrowserStartAuthorization(authorization, session, identity,
-		acceptance, ownership, attempt, launchLease, review, permission); err != nil {
+		acceptance, ownership, attempt, launchLease, review, networkEvidence,
+		networkReview, networkPlan, permission); err != nil {
 		return ProfileRuntimeLease{}, err
 	}
 	now = now.UTC()

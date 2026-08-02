@@ -7,12 +7,12 @@
 
 项目从 schema v49 起同时使用两项工程指标，避免把“架构已经搭好”误解为“产品已经完整可用”。这些百分比是基于当前任务书和可验证工作流的工程估算，不是性能基准。
 
-- **架构完成度 / Architecture completion：约 99%**。衡量 Go 控制平面、Run/Session、状态恢复、Policy、审批、预算、事件流、Tool Gateway、Agent 协调、Skills、报告、Sandbox 协议及 Go/TypeScript/Rust 边界的覆盖程度；其中 V2 Run-centric Runtime 约 99%。schema v91 提供独立的 `restricted|full_debug` CDP 权限快照；P11-C5-C7 在不新增 migration 的前提下补上 Safe Web Windows 进程、一次性 Profile 和受限 loopback CDP 内核，但保持无产品入口。
+- **架构完成度 / Architecture completion：约 99%**。衡量 Go 控制平面、Run/Session、状态恢复、Policy、审批、预算、事件流、Tool Gateway、Agent 协调、Skills、报告、Sandbox 协议及 Go/TypeScript/Rust 边界的覆盖程度；其中 V2 Run-centric Runtime 约 99%。当前 schema v92：v91 提供独立的 `restricted|full_debug` CDP 权限快照；P11-C5-C8B 进一步补上 Safe Web Windows 进程、一次性 Profile、受限 loopback CDP、WFP 默认拒绝探针和可恢复生命周期账本，但保持无产品入口。
 - **产品可用度 / Product usability：约 96-98%**。衡量普通用户能否依靠当前 CLI、TUI、Web 和 Windows Desktop 完成真实端到端工作。通用 Coding Agent 工作流约 97%，Cyber 自动化工作流约 20%；四种固定诊断动作已形成 Agent 提案到人工审批的完整链，操作者还可在双重确认和本次进程闸门下从 CLI 执行一次非沙箱宿主命令。任意 `approval` 提案、Debug Agent 输入和受限浏览器内核仍无模型、HTTP 或 React 产品入口。独立浏览器网络隔离、Docker 持久终端、可操作的内置浏览器窗口、安装脚本/钩子、Windows 10 人工发布矩阵和 Cyber 工具链仍未完成。
 
 Starting with schema v49, the project reports two engineering indicators so architectural maturity is not mistaken for end-user completeness. These percentages are roadmap estimates backed by tested workflows, not performance benchmarks.
 
-- **Architecture completion: about 99%.** Schema v91 adds an independent `restricted|full_debug` browser-CDP policy ceiling. Without another migration, P11-C5-C7 add a product-inert Safe Web Windows process adapter, disposable Profile lifecycle, and restricted loopback CDP core.
+- **Architecture completion: about 99%.** Schema v91 adds an independent `restricted|full_debug` browser-CDP policy ceiling. P11-C5-C8B add a product-inert Safe Web Windows process adapter, disposable Profile lifecycle, restricted loopback CDP, a WFP default-deny probe, and schema-v92 recoverable lifecycle records.
 - **Product usability: about 96-98%.** The generic coding-agent workflow is about 97% usable and Cyber automation about 20%. Fixed diagnostics have an end-to-end Agent-proposal workflow, and an operator can explicitly launch one non-sandboxed host command from the CLI under the current process gates. Arbitrary approval proposals, Debug Agent input, and the restricted browser core still have no model, HTTP, or React product route. Independent browser network containment, Docker terminals, an operational built-in browser window, install hooks, the Windows 10 release matrix, and the Cyber toolchain remain unfinished.
 
 ## 项目简介 / Project Overview
@@ -227,11 +227,17 @@ CDP Fetch 拦截不是 OS 网络沙箱。浏览器内部或后台连接未必都
 
 P11-C5-C7 implement the internal Safe Web production core: creation-time Windows Job assignment, an exactly owned disposable Profile lifecycle, and a closed literal-loopback CDP transport for navigation, bounded DOM metadata, and PNG screenshots. It exposes no page text, script evaluation, Cookies, bodies, request mutation/replay, or arbitrary methods. Full Debug CDP remains a separate highly sensitive permission. The six-slice robustness gate is green and launches no real browser. Because CDP Fetch interception is not an OS network sandbox, independently verified OS/container network containment and recoverable lifecycle orchestration are mandatory before any product route or interactive window is enabled. See ADR 0083.
 
+P11-C8A/C8B add a Windows WFP dynamic-session probe and schema-v92 lifecycle accounting. The probe has no CDP, proxy, caller URL, public target, or persistent Profile; it independently checks the exact literal-loopback target, wrong port, another loopback address, a non-loopback local address, IPv6 default deny, Job-tree termination, filter-ID removal, and exact temporary-Profile cleanup. The current non-elevated machine run failed closed with `wfp_elevation_required` before starting a browser. C8B records append-only `running -> cdp_closed -> process_quiescent -> network_released -> profile_released -> completed|failed` checkpoints and a redacted receipt. Cleanup continues even if CDP close or checkpoint persistence fails. C8C remains disabled until one administrator-run production probe passes and is independently reviewed.
+
+本批最终功能门一次完成：`go test -count=1 ./...` 用时约 435 秒并通过，随后 `go vet ./...`、零告警 `staticcheck ./...`、`internal/browserruntime` 普通测试与 `-race`、以及 Linux `CGO_ENABLED=0` 交叉编译均通过。组合审计修复三项健壮性问题：Windows x64 WFP 手写 ABI 对齐、探针一次性 Profile 删除后的显式复核，以及并发 `Finalize` 只能由一个调用者领取终结权并只写一份收据。没有启动真实浏览器，也没有开放 C8C 产品入口。
+
+The final batch gate passed the repository-wide Go suite once in about 435 seconds, followed by repository-wide vet and warning-free staticcheck, focused ordinary/race browser-runtime tests, and a CGO-disabled Linux cross-compile. The audit fixed native WFP ABI alignment, explicit post-delete disposable-Profile verification, and exclusive concurrent lifecycle finalization with exactly one receipt. No installed browser was started and C8C remains unavailable.
+
 ## 开发历程 / Development History
 
-下表是唯一按时间排序的 schema 开发历程，完整保留了早期 `v1`、`v2`、`v3`，并连续列到当前 `v91`。这里的 `vN` 是不可变 SQLite schema/runtime 里程碑，不等同于产品发布版本；后面的架构说明按能力域组织，因此不再承担版本排序职责。
+下表是唯一按时间排序的 schema 开发历程，完整保留了早期 `v1`、`v2`、`v3`，并连续列到当前 `v92`。这里的 `vN` 是不可变 SQLite schema/runtime 里程碑，不等同于产品发布版本；后面的架构说明按能力域组织，因此不再承担版本排序职责。
 
-The table below is the canonical chronological schema history. It includes every immutable SQLite schema/runtime milestone from `v1` through the current `v91`. These schema numbers are not product release versions; the architecture notes that follow are grouped by capability instead of chronology.
+The table below is the canonical chronological schema history. It includes every immutable SQLite schema/runtime milestone from `v1` through the current `v92`. These schema numbers are not product release versions; the architecture notes that follow are grouped by capability instead of chronology.
 
 | Schema | 中文里程碑 | English milestone |
 | --- | --- | --- |
@@ -326,6 +332,7 @@ The table below is the canonical chronological schema history. It includes every
 | v89 | Agent 固定命令提案、独立审批和不可信结果回送 | review-gated Agent fixed-command proposals with untrusted result projection |
 | v90 | 非沙箱一次性宿主命令执行账本 | non-sandboxed one-shot host-command execution ledger |
 | v91 | 独立的受限/完整调试 CDP 权限快照 | independent restricted/full-debug CDP permission snapshots |
+| v92 | 可恢复且只追加的浏览器运行时生命周期记录 | recoverable append-only browser runtime lifecycle records |
 
 ### v85 之后的近期运行时里程碑 / Recent runtime milestones after v85
 
@@ -350,10 +357,13 @@ The table below is the canonical chronological schema history. It includes every
 | P12-E3 | Go-only Debug 终端 Agent 输入短租约、审计与撤销控制器 | Go-only short-lived Debug terminal Agent-input controller with audit and revocation |
 | P11-C4A-C4C / schema v91 | 受限/完整调试 CDP 权限快照、CLI/API/Desktop 控制与高敏警告 | restricted/full-debug CDP snapshots, CLI/API/Desktop controls, and highly-sensitive warning |
 | P11-C5-C7 | 无产品入口的 Safe Web Windows 进程、一次性 Profile 与受限 loopback CDP 内核 | product-inert Safe Web Windows process, disposable Profile, and restricted loopback CDP core |
+| P11-C8A | 无 CDP 的 Windows WFP 默认拒绝探针；当前本机证据因缺少管理员权限而失败关闭 | CDP-independent Windows WFP default-deny probe; current local evidence fails closed without elevation |
+| P11-C8B / schema v92 | 只追加 runtime checkpoint/receipt、恢复投影及进程-WFP-Profile 清理对账 | append-only runtime checkpoints/receipts, recovery projection, and process-WFP-Profile cleanup accounting |
+| P11-C8C | 等待管理员 WFP 生产证据后才开放的操作者受限入口 | operator-only restricted entry withheld pending elevated WFP production evidence |
 
-Model Harness、P13-A 与 P11-C5-C7 批次没有新增迁移；P12-A1 将 SQLite 推进到 schema v86，P12-B1 推进到 v87，P12-C1-C3 推进到 v88，P12-D1-D3 推进到 v89，P12-E2 推进到 v90，P11-C4A 再推进到 v91。v91 仍只记录 CDP 能力上限；P11-C5-C7 的进程/Profile/受限 transport 核心只存在于 Go 内部，没有 CLI/HTTP/Desktop/Tool/Skill/模型入口。Docker PTY、产品内置浏览器和完整 CDP 继续关闭。
+Model Harness、P13-A 与 P11-C5-C8A 批次没有新增迁移；P12-A1 将 SQLite 推进到 schema v86，P12-B1 推进到 v87，P12-C1-C3 推进到 v88，P12-D1-D3 推进到 v89，P12-E2 推进到 v90，P11-C4A 推进到 v91，P11-C8B 再推进到 v92。v92 只追加生命周期检查点、收据和恢复投影；进程/Profile/受限 transport 核心仍没有 CLI/HTTP/Desktop/Tool/Skill/模型启动入口。Docker PTY、产品内置浏览器和完整 CDP 继续关闭。
 
-Model Harness, P13-A, and P11-C5-C7 add no migration. P12-A1 advances SQLite to v86, P12-B1 to v87, P12-C1-C3 to v88, P12-D1-D3 to v89, P12-E2 to v90, and P11-C4A to v91. Schema v91 still records only the CDP policy ceiling; the P11-C5-C7 process/Profile/restricted-transport core is internal Go code with no CLI, HTTP, Desktop, Tool, Skill, or model route. Docker PTY, the operational built-in browser, and Full CDP remain disabled.
+Model Harness, P13-A, and P11-C5-C8A add no migration. P12-A1 advances SQLite to v86, P12-B1 to v87, P12-C1-C3 to v88, P12-D1-D3 to v89, P12-E2 to v90, P11-C4A to v91, and P11-C8B to v92. Schema v92 adds only lifecycle checkpoints, receipts, and recovery projections; no CLI, HTTP, Desktop, Tool, Skill, or model start route reaches the browser core. Docker PTY, the operational built-in browser, and Full CDP remain disabled.
 
 P12-B 三切片最终门已通过：全仓串行 Go 测试 796.6 秒、`go vet`、零告警 `staticcheck`、Runner/Terminal race、真实 Windows 受控进程/ConPTY/宿主边界 opt-in 冒烟、43 个文件 151 项 React 测试、strict TypeScript、Vite production build、零漏洞 npm audit、module verify/tidy 和零可达漏洞 `govulncheck` 均为绿色。Windows 可复现双构建 SHA-256 为 `6f60f97096a06305e26d3c68ef26f93622c80a4784ad23ea72d2b28353fc2e77`，仍是 `release_ready=false` 的未签名便携测试程序。组合审计修复 PowerShell 路径表达式注入、不可能执行回执、Win32 管道读取句柄双重所有权、终端启动竞态和关闭清理问题；启用路径没有已知未解决的高/中风险。
 
@@ -1260,7 +1270,7 @@ capability independently, so TypeScript is not a security boundary.
 - `file_edit_change_set.v1` summarizes at most 100 exact Run/Session/Workspace FileEdits and their Diff byte counts. It explicitly preserves independent review/apply, non-atomic partial state, and no batch mutation; every file retains its existing operation, Policy/hash recheck, and receipt.
 - The Code-only Journey navigates Scope, Plan, Queue and execute, Review, and Verify and report through existing Go capabilities. The React component has no API client or composite mutation and does not automatically apply to Cyber mode.
 
-### Windows Desktop (through schema v91 / P11-C7, P12-E, and D1-UX11)
+### Windows Desktop (through schema v92 / P11-C8B, P12-E, and D1-UX11)
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/build-desktop.ps1

@@ -287,11 +287,21 @@ func TestBrowserRuntimeProductionPrimitivesStayInAuditedAdapters(t *testing.T) {
 	}
 	allowed := map[string]map[string]bool{
 		`"github.com/gorilla/websocket"`: {"restricted_cdp_transport.go": true},
+		`"net/http"`:                     {"network_probe_windows.go": true},
 		"websocket.Dialer":               {"restricted_cdp_transport.go": true},
 		"windows.CreateProcess":          {"browser_process_windows.go": true},
-		"os.Remove":                      {"profile_materializer.go": true},
-		"os.RemoveAll":                   {"profile_materializer.go": true},
-		"os.Mkdir":                       {"profile_materializer.go": true},
+		"os.Remove": {
+			"profile_materializer.go":  true,
+			"network_probe_windows.go": true,
+		},
+		"os.RemoveAll": {
+			"profile_materializer.go":  true,
+			"network_probe_windows.go": true,
+		},
+		"os.Mkdir": {
+			"profile_materializer.go":  true,
+			"network_probe_windows.go": true,
+		},
 		"os.Rename": {
 			"profile_materializer.go": true,
 			"profile_path_other.go":   true,
@@ -312,7 +322,7 @@ func TestBrowserRuntimeProductionPrimitivesStayInAuditedAdapters(t *testing.T) {
 					primitive, entry.Name())
 			}
 		}
-		for _, forbidden := range []string{`"os/exec"`, `"net/http"`,
+		for _, forbidden := range []string{`"os/exec"`,
 			"exec.Command", "http.Client", "os.MkdirAll"} {
 			if strings.Contains(string(raw), forbidden) {
 				t.Fatalf("browser runtime production source contains forbidden adapter %q in %s",

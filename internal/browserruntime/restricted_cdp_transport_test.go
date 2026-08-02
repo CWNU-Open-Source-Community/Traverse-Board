@@ -30,15 +30,18 @@ func TestRestrictedCDPNavigatesInspectsAndScreenshotsWithoutArbitraryMethods(t *
 	defer func() { _ = process.Stop(context.Background()) }()
 	authorization, err := AuthorizeRestrictedCDP(facts.authorization, facts.session,
 		facts.identity, facts.acceptance, facts.ownership, facts.attempt,
-		facts.launchLease, facts.review, facts.permission,
+		facts.launchLease, facts.review, facts.networkEvidence, facts.networkReview,
+		facts.networkPlan, facts.permission,
 		ProductionRuntimeCapabilities{SafeWebStartEnabled: true,
-			DisposableProfileEnabled: true, RestrictedCDPEnabled: true}, facts.now)
+			DisposableProfileEnabled: true, NetworkContainmentEnabled: true,
+			RestrictedCDPEnabled: true}, facts.now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	runtime, err := OpenRestrictedBrowserSession(t.Context(), authorization,
 		facts.authorization, facts.session, facts.identity, facts.acceptance,
 		facts.ownership, facts.attempt, facts.launchLease, facts.review,
+		facts.networkEvidence, facts.networkReview, facts.networkPlan,
 		facts.permission, profileLease, process)
 	if err != nil {
 		t.Fatal(err)
@@ -111,9 +114,11 @@ func TestRestrictedCDPRejectsMalformedEndpointFile(t *testing.T) {
 	defer func() { _ = process.Stop(context.Background()) }()
 	authorization, err := AuthorizeRestrictedCDP(facts.authorization, facts.session,
 		facts.identity, facts.acceptance, facts.ownership, facts.attempt,
-		facts.launchLease, facts.review, facts.permission,
+		facts.launchLease, facts.review, facts.networkEvidence, facts.networkReview,
+		facts.networkPlan, facts.permission,
 		ProductionRuntimeCapabilities{SafeWebStartEnabled: true,
-			DisposableProfileEnabled: true, RestrictedCDPEnabled: true}, facts.now)
+			DisposableProfileEnabled: true, NetworkContainmentEnabled: true,
+			RestrictedCDPEnabled: true}, facts.now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,6 +130,7 @@ func TestRestrictedCDPRejectsMalformedEndpointFile(t *testing.T) {
 	if _, err := OpenRestrictedBrowserSession(t.Context(), authorization,
 		facts.authorization, facts.session, facts.identity, facts.acceptance,
 		facts.ownership, facts.attempt, facts.launchLease, facts.review,
+		facts.networkEvidence, facts.networkReview, facts.networkPlan,
 		facts.permission, profileLease, process); err == nil {
 		t.Fatal("malformed DevTools endpoint unexpectedly opened a CDP session")
 	}
@@ -137,9 +143,11 @@ func TestRestrictedCDPRejectsIndirectEndpointFile(t *testing.T) {
 	defer func() { _ = process.Stop(context.Background()) }()
 	authorization, err := AuthorizeRestrictedCDP(facts.authorization, facts.session,
 		facts.identity, facts.acceptance, facts.ownership, facts.attempt,
-		facts.launchLease, facts.review, facts.permission,
+		facts.launchLease, facts.review, facts.networkEvidence, facts.networkReview,
+		facts.networkPlan, facts.permission,
 		ProductionRuntimeCapabilities{SafeWebStartEnabled: true,
-			DisposableProfileEnabled: true, RestrictedCDPEnabled: true}, facts.now)
+			DisposableProfileEnabled: true, NetworkContainmentEnabled: true,
+			RestrictedCDPEnabled: true}, facts.now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,6 +167,7 @@ func TestRestrictedCDPRejectsIndirectEndpointFile(t *testing.T) {
 	if _, err := OpenRestrictedBrowserSession(t.Context(), authorization,
 		facts.authorization, facts.session, facts.identity, facts.acceptance,
 		facts.ownership, facts.attempt, facts.launchLease, facts.review,
+		facts.networkEvidence, facts.networkReview, facts.networkPlan,
 		facts.permission, profileLease, process); err == nil {
 		t.Fatal("indirect DevTools endpoint unexpectedly opened a CDP session")
 	}
@@ -203,13 +212,15 @@ func startFakeBrowserProcess(t *testing.T, facts browserRuntimeFacts,
 ) *BrowserProcess {
 	t.Helper()
 	controller, err := newBrowserProcessController(&fakeBrowserProcessStarter{},
-		func(BrowserExecutableIdentity, BrowserAcceptanceCandidate) error { return nil })
+		func(BrowserExecutableIdentity, BrowserAcceptanceCandidate) error { return nil },
+		&fakeBrowserNetworkContainmentFactory{available: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	process, err := controller.Start(t.Context(), facts.authorization, facts.session,
 		facts.identity, facts.acceptance, facts.ownership, facts.attempt,
-		facts.launchLease, facts.review, facts.permission, profileLease, facts.now)
+		facts.launchLease, facts.review, facts.networkEvidence, facts.networkReview,
+		facts.networkPlan, facts.permission, profileLease, facts.now)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2567,15 +2567,39 @@ Dedicated Anthropic regressions omit both `thinking` and `thinking_delta`;
 dynamic event statuses are normalized to a fixed enum before they can become
 React CSS class tokens.
 
+## Current P11-C8 Status
+
+P11-C8A code is implemented as a Windows WFP dynamic-session production probe.
+It independently checks exact-target allow, IPv4/IPv6 default deny, process-tree
+termination, Filter ID removal, and disposable-Profile cleanup without CDP,
+proxy, public traffic, or relaxed browser security. The current non-elevated
+machine run failed closed with `wfp_elevation_required` before browser launch,
+so production evidence is still unaccepted.
+
+P11-C8B is complete and advances SQLite to schema v92. Append-only runtime
+checkpoints/receipts provide restart recovery and exact process-WFP-Profile
+accounting. Cancellation and intermediate close/persistence failures do not
+skip best-effort cleanup, and Profile release requires process quiescence plus
+verified network teardown. The records are redacted.
+
+C8C remains deliberately absent. The code does not project A/B implementation
+as product readiness. A long-lived adapter must also address that a WFP
+application-ID rule affects every process launched from the same executable
+path. ADR 0084 is authoritative.
+
+The final C8 batch gate ran once and passed the full Go suite in about 435
+seconds, repository-wide vet/staticcheck, focused ordinary/race browser-runtime
+tests, and a CGO-disabled Linux cross-compile. Audit fixes cover native WFP ABI
+alignment, verified disposable-Profile cleanup, and exclusive concurrent
+lifecycle finalization with exactly one receipt. No new authority or browser
+launch route was enabled.
+
 ## Recommended Next Batch
 
-Recommended slices now continue with P11-C8A/C8B/C8C. C8A must establish an
-OS- or container-enforced browser network boundary and production evidence that
-denies every connection outside the exact literal-loopback target independently
-of CDP. C8B must add recoverable runtime orchestration and durable
-events/receipts that reconcile process exit, Profile release, and exact cleanup.
-C8C may add an operator-only Restricted Safe Web product adapter only after both
-independent reviews pass. It must not add a model Tool or Full Debug CDP.
+First obtain and independently review one administrator-run WFP production
+probe, then resolve the same-executable process-wide effect. Only after both
+gates pass may P11-C8C add an operator-only Restricted Safe Web product adapter.
+It must not add a model Tool or Full Debug CDP.
 
 P10-F1/F2/F3 remain queued rather than discarded. Browser work must not widen
 the P12-E host executor or Debug terminal contracts.

@@ -20,15 +20,17 @@ const (
 // ProductionRuntimeCapabilities are process-local startup gates. Persisted
 // policy selections never populate these values.
 type ProductionRuntimeCapabilities struct {
-	SafeWebStartEnabled      bool `json:"safe_web_start_enabled"`
-	DisposableProfileEnabled bool `json:"disposable_profile_enabled"`
-	RestrictedCDPEnabled     bool `json:"restricted_cdp_enabled"`
+	SafeWebStartEnabled       bool `json:"safe_web_start_enabled"`
+	DisposableProfileEnabled  bool `json:"disposable_profile_enabled"`
+	NetworkContainmentEnabled bool `json:"network_containment_enabled"`
+	RestrictedCDPEnabled      bool `json:"restricted_cdp_enabled"`
 }
 
 func (capabilities ProductionRuntimeCapabilities) Validate() error {
 	if capabilities.RestrictedCDPEnabled &&
-		(!capabilities.SafeWebStartEnabled || !capabilities.DisposableProfileEnabled) {
-		return errors.New("restricted CDP requires Safe Web start and disposable Profile gates")
+		(!capabilities.SafeWebStartEnabled || !capabilities.DisposableProfileEnabled ||
+			!capabilities.NetworkContainmentEnabled) {
+		return errors.New("restricted CDP requires Safe Web, disposable Profile, and network containment gates")
 	}
 	if capabilities.SafeWebStartEnabled != capabilities.DisposableProfileEnabled {
 		return errors.New("safe-web start and disposable Profile gates must be enabled together")
@@ -45,6 +47,9 @@ type BrowserStartAuthorization struct {
 	ExecutableIdentityFingerprint string    `json:"executable_identity_fingerprint"`
 	AcceptanceFingerprint         string    `json:"acceptance_fingerprint"`
 	ProfileOwnershipFingerprint   string    `json:"profile_ownership_fingerprint"`
+	NetworkEvidenceFingerprint    string    `json:"network_evidence_fingerprint"`
+	NetworkReviewFingerprint      string    `json:"network_review_fingerprint"`
+	NetworkPlanFingerprint        string    `json:"network_plan_fingerprint"`
 	AttemptFingerprint            string    `json:"attempt_fingerprint"`
 	LeaseFingerprint              string    `json:"lease_fingerprint"`
 	ReviewFingerprint             string    `json:"review_fingerprint"`
@@ -58,6 +63,7 @@ type BrowserStartAuthorization struct {
 	ProfileReleaseAuthorized      bool      `json:"profile_release_authorized"`
 	ExactOwnedCleanupAuthorized   bool      `json:"exact_owned_cleanup_authorized"`
 	LoopbackNavigationRequired    bool      `json:"loopback_navigation_required"`
+	NetworkContainmentAuthorized  bool      `json:"network_containment_authorized"`
 	PersonalProfileAuthorized     bool      `json:"personal_profile_authorized"`
 	ShellAuthorized               bool      `json:"shell_authorized"`
 	FullCDPAuthorized             bool      `json:"full_cdp_authorized"`
@@ -93,6 +99,9 @@ type RestrictedCDPAuthorization struct {
 func AuthorizeSafeWebStart(session SessionPlan, identity BrowserExecutableIdentity,
 	acceptance BrowserAcceptanceCandidate, ownership ProfileOwnershipPlan,
 	attempt BrowserLaunchAttempt, lease BrowserLaunchLease, review BrowserLaunchReview,
+	networkEvidence BrowserNetworkContainmentEvidence,
+	networkReview BrowserNetworkContainmentReview,
+	networkPlan BrowserNetworkContainmentPlan,
 	permission domain.RunBrowserCDPPermissionSnapshot,
 	permissionCapabilities domain.BrowserCDPPermissionRuntimeCapabilities,
 	runtimeCapabilities ProductionRuntimeCapabilities, now time.Time,
@@ -110,11 +119,16 @@ func AuthorizeSafeWebStart(session SessionPlan, identity BrowserExecutableIdenti
 	if err := runtimeCapabilities.Validate(); err != nil {
 		return BrowserStartAuthorization{}, err
 	}
+	if err := ValidateBrowserNetworkContainmentPlan(networkPlan, session, identity,
+		acceptance, networkEvidence, networkReview); err != nil {
+		return BrowserStartAuthorization{}, err
+	}
 	if !review.AcceptedForFutureAdapter ||
 		permission.Mode != domain.RunBrowserCDPPermissionRestricted ||
 		permission.RunID != session.RunID || !permissionCapabilities.ControlEnabled ||
 		!runtimeCapabilities.SafeWebStartEnabled ||
-		!runtimeCapabilities.DisposableProfileEnabled {
+		!runtimeCapabilities.DisposableProfileEnabled ||
+		!runtimeCapabilities.NetworkContainmentEnabled {
 		return BrowserStartAuthorization{}, errors.New("safe-web runtime gates are not all satisfied")
 	}
 	if err := validateRestrictedLoopbackSession(session); err != nil {
@@ -131,6 +145,9 @@ func AuthorizeSafeWebStart(session SessionPlan, identity BrowserExecutableIdenti
 		ExecutableIdentityFingerprint: identity.Fingerprint,
 		AcceptanceFingerprint:         acceptance.Fingerprint,
 		ProfileOwnershipFingerprint:   ownership.Fingerprint,
+		NetworkEvidenceFingerprint:    networkEvidence.Fingerprint,
+		NetworkReviewFingerprint:      networkReview.Fingerprint,
+		NetworkPlanFingerprint:        networkPlan.Fingerprint,
 		AttemptFingerprint:            attempt.Fingerprint,
 		LeaseFingerprint:              lease.Fingerprint,
 		ReviewFingerprint:             review.Fingerprint,
@@ -144,13 +161,15 @@ func AuthorizeSafeWebStart(session SessionPlan, identity BrowserExecutableIdenti
 		ProfileReleaseAuthorized:      true,
 		ExactOwnedCleanupAuthorized:   true,
 		LoopbackNavigationRequired:    true,
+		NetworkContainmentAuthorized:  true,
 		IssuedAt:                      now,
 		StartDeadline:                 lease.ExpiresAt,
 		RuntimeDeadline:               runtimeDeadline,
 	}
 	authorization.Fingerprint = browserRuntimeFingerprint(authorization)
 	if err := ValidateBrowserStartAuthorization(authorization, session, identity,
-		acceptance, ownership, attempt, lease, review, permission); err != nil {
+		acceptance, ownership, attempt, lease, review, networkEvidence,
+		networkReview, networkPlan, permission); err != nil {
 		return BrowserStartAuthorization{}, err
 	}
 	return authorization, nil
@@ -160,6 +179,9 @@ func ValidateBrowserStartAuthorization(authorization BrowserStartAuthorization,
 	session SessionPlan, identity BrowserExecutableIdentity,
 	acceptance BrowserAcceptanceCandidate, ownership ProfileOwnershipPlan,
 	attempt BrowserLaunchAttempt, lease BrowserLaunchLease, review BrowserLaunchReview,
+	networkEvidence BrowserNetworkContainmentEvidence,
+	networkReview BrowserNetworkContainmentReview,
+	networkPlan BrowserNetworkContainmentPlan,
 	permission domain.RunBrowserCDPPermissionSnapshot,
 ) error {
 	if err := ValidateBrowserLaunchReview(review, session, identity, acceptance,
@@ -167,6 +189,10 @@ func ValidateBrowserStartAuthorization(authorization BrowserStartAuthorization,
 		return err
 	}
 	if err := permission.Validate(); err != nil {
+		return err
+	}
+	if err := ValidateBrowserNetworkContainmentPlan(networkPlan, session, identity,
+		acceptance, networkEvidence, networkReview); err != nil {
 		return err
 	}
 	if err := validateRestrictedLoopbackSession(session); err != nil {
@@ -177,6 +203,9 @@ func ValidateBrowserStartAuthorization(authorization BrowserStartAuthorization,
 		authorization.ExecutableIdentityFingerprint != identity.Fingerprint ||
 		authorization.AcceptanceFingerprint != acceptance.Fingerprint ||
 		authorization.ProfileOwnershipFingerprint != ownership.Fingerprint ||
+		authorization.NetworkEvidenceFingerprint != networkEvidence.Fingerprint ||
+		authorization.NetworkReviewFingerprint != networkReview.Fingerprint ||
+		authorization.NetworkPlanFingerprint != networkPlan.Fingerprint ||
 		authorization.AttemptFingerprint != attempt.Fingerprint ||
 		authorization.LeaseFingerprint != lease.Fingerprint ||
 		authorization.ReviewFingerprint != review.Fingerprint ||
@@ -191,10 +220,13 @@ func ValidateBrowserStartAuthorization(authorization BrowserStartAuthorization,
 		!authorization.ProfileReleaseAuthorized ||
 		!authorization.ExactOwnedCleanupAuthorized ||
 		!authorization.LoopbackNavigationRequired ||
+		!authorization.NetworkContainmentAuthorized ||
 		authorization.PersonalProfileAuthorized || authorization.ShellAuthorized ||
 		authorization.FullCDPAuthorized || authorization.IssuedAt.IsZero() ||
 		authorization.StartDeadline.IsZero() || authorization.RuntimeDeadline.IsZero() ||
 		!authorization.StartDeadline.Equal(lease.ExpiresAt) ||
+		authorization.IssuedAt.Before(networkPlan.CreatedAt) ||
+		authorization.RuntimeDeadline.After(networkPlan.ExpiresAt) ||
 		!authorization.StartDeadline.After(authorization.IssuedAt) ||
 		!authorization.RuntimeDeadline.After(authorization.IssuedAt) ||
 		authorization.RuntimeDeadline.Sub(authorization.IssuedAt) !=
@@ -209,11 +241,15 @@ func AuthorizeRestrictedCDP(start BrowserStartAuthorization,
 	session SessionPlan, identity BrowserExecutableIdentity,
 	acceptance BrowserAcceptanceCandidate, ownership ProfileOwnershipPlan,
 	attempt BrowserLaunchAttempt, lease BrowserLaunchLease, review BrowserLaunchReview,
+	networkEvidence BrowserNetworkContainmentEvidence,
+	networkReview BrowserNetworkContainmentReview,
+	networkPlan BrowserNetworkContainmentPlan,
 	permission domain.RunBrowserCDPPermissionSnapshot,
 	runtimeCapabilities ProductionRuntimeCapabilities, now time.Time,
 ) (RestrictedCDPAuthorization, error) {
 	if err := ValidateBrowserStartAuthorization(start, session, identity, acceptance,
-		ownership, attempt, lease, review, permission); err != nil {
+		ownership, attempt, lease, review, networkEvidence, networkReview,
+		networkPlan, permission); err != nil {
 		return RestrictedCDPAuthorization{}, err
 	}
 	if err := runtimeCapabilities.Validate(); err != nil {

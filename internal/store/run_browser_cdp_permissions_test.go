@@ -141,7 +141,7 @@ func TestSchemaV91BackfillsRestrictedBrowserCDPPermission(t *testing.T) {
 }
 
 func removeSchemaV91ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV92ForTestStatements(), []string{
 		`DROP TRIGGER trg_run_browser_cdp_permission_operation_delete_immutable`,
 		`DROP TRIGGER trg_run_browser_cdp_permission_operation_update_immutable`,
 		`DROP TRIGGER trg_run_browser_cdp_permission_snapshot_delete_immutable`,
@@ -152,5 +152,5 @@ func removeSchemaV91ForTestStatements() []string {
 		`DROP INDEX idx_run_browser_cdp_permission_snapshots_run_revision`,
 		`DROP TABLE run_browser_cdp_permission_snapshots`,
 		`DELETE FROM schema_migrations WHERE version = 91`,
-	}
+	}...)
 }

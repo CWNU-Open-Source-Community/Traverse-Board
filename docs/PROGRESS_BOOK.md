@@ -2266,10 +2266,41 @@ lifecycle/receipt 对账、P11-C8C 在前两项独立通过后才增加 operator
 入口；完整 CDP 继续保持“高度敏感权限”且无实现。边界见
 [ADR 0083](adr/0083-restricted-loopback-browser-runtime-core.md)。
 
+## P11-C8A/C8B/C8C：WFP 网络证据与可恢复浏览器生命周期
+
+任务 ID：`P11-Browser-Network-Containment-Lifecycle-v92`。C8A 已实现 Windows
+WFP 动态会话探针：精确允许一个 literal-loopback TCP 目标，并在同一应用路径上对
+IPv4/IPv6 其余连接默认拒绝。探针不打开 CDP、代理、调用者 URL 或个人 Profile；它
+独立核验错误端口、另一 loopback、非 loopback 本机地址、IPv6、Job 进程树、Filter ID
+移除和一次性 Profile 清理。本机非管理员运行在浏览器启动前以
+`wfp_elevation_required` 失败关闭，因此 C8A 的实现完成、生产验收仍待管理员证据。
+
+C8B 将 SQLite 推进到 schema v92。`browser_runtime_checkpoint.v1` 以
+`running -> cdp_closed -> process_quiescent -> network_released ->
+profile_released -> completed|failed` 记录只追加检查点；
+`browser_runtime_receipt.v1` 对账最终进程、WFP 和 Profile 状态。调用取消、CDP 关闭
+失败或中间持久化失败都不会跳过后续资源清理；只有进程树安静且 WFP Filter 已确认移除
+才允许释放 Profile。事件和收据只含绑定摘要，不含页面、截图、原始输出、个人 Profile
+或完整 CDP。
+
+C8C 未实现产品入口。A/B 代码存在不会自动满足准入门；管理员态 WFP 生产探针和独立
+复核未通过前，CLI/HTTP/Desktop/Tool/Skill/模型均不能启动该浏览器。Windows SDK ABI
+复核还固定了 `FWPM_ACTION0` 的 20-byte 布局、`FWPM_FILTER0` 的 200-byte 布局和 IPv4
+host-order 条件值，防止手写 syscall 结构错位。边界见
+[ADR 0084](adr/0084-windows-wfp-browser-containment-and-runtime-lifecycle.md)。
+
+本批最终功能门只执行一次：全仓 `go test -count=1 ./...` 约 435 秒通过，随后全仓
+`go vet`、零告警 `staticcheck`、`internal/browserruntime` 普通与 race 测试，以及
+`CGO_ENABLED=0` 的 Linux 交叉编译均通过。组合审计修复三项健壮性缺口：Windows x64
+WFP 手写 ABI 对齐、一次性 Profile 删除后的显式存在性复核，以及并发 `Finalize` 的
+唯一领取门；回归证明两个并发调用中恰好一个成功且只写入一份 receipt。第一次 Linux
+CGO 交叉尝试因本机没有 Linux C 交叉工具链而不可执行，不属于项目失败。没有启动真实
+浏览器，也没有新增产品 authority。
+
 ## 八、仓库同步与恢复约定
 
 规范远程仓库：`https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench`。
 
 每三个聚焦切片组成一个交付批次；第三片后统一执行功能复核、普通/聚焦测试、组合差异审查、项目记忆更新、Git 提交、GitHub 推送和 CI 复核。每两个批次即六个切片再执行全仓 race、vet、staticcheck、govulncheck、依赖/隐私与完整构建健壮性门。当前仓库直接开发并推送 `main`；除非用户明确要求，不创建功能分支或 PR。
 
-长对话恢复时依次阅读：`README.md`、`docs/PROJECT_MEMORY.md`、`docs/PROJECT_STATUS.md`、本文件、`docs/TASK_BOOK.md`、`docs/http-api.md`、`docs/errors.md`，再按序阅读 `docs/adr/0001-*.md` 到 `docs/adr/0083-restricted-loopback-browser-runtime-core.md`。
+长对话恢复时依次阅读：`README.md`、`docs/PROJECT_MEMORY.md`、`docs/PROJECT_STATUS.md`、本文件、`docs/TASK_BOOK.md`、`docs/http-api.md`、`docs/errors.md`，再按序阅读 `docs/adr/0001-*.md` 到 `docs/adr/0084-windows-wfp-browser-containment-and-runtime-lifecycle.md`。
