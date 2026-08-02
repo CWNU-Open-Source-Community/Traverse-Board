@@ -3,6 +3,9 @@
 > 本地优先、可恢复、可审计的通用 AI Agent 工作台<br>
 > A local-first, resumable, and auditable workbench for general-purpose AI agents.
 
+> **仓库命名 / Repository naming**：当前产品名与界面品牌统一为 **Prayu**。为避免既有活动记录、收藏、外部链接和协作入口受到影响，GitHub 仓库名称与地址暂时保留为 [`Qiyuanqiii/CTF-CyberAgent-Workbench`](https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench)。这个历史 slug 只是稳定定位符，不是第二个产品名；本阶段不会重命名仓库、Go module、CLI 或数据目录。<br>
+> **Prayu** is the product and interface name. The GitHub repository slug and URL remain unchanged for link and activity continuity. The legacy slug is a stable locator, not a second product identity; this phase does not rename the repository, Go module, CLI, or data directory.
+
 ## 完成度口径 / Progress Metrics
 
 项目从 schema v49 起同时使用两项工程指标，避免把“架构已经搭好”误解为“产品已经完整可用”。这些百分比是基于当前任务书和可验证工作流的工程估算，不是性能基准。
@@ -228,6 +231,23 @@ CDP Fetch 拦截不是 OS 网络沙箱。浏览器内部或后台连接未必都
 P11-C5-C7 implement the internal Safe Web production core: creation-time Windows Job assignment, an exactly owned disposable Profile lifecycle, and a closed literal-loopback CDP transport for navigation, bounded DOM metadata, and PNG screenshots. It exposes no page text, script evaluation, Cookies, bodies, request mutation/replay, or arbitrary methods. Full Debug CDP remains a separate highly sensitive permission. The six-slice robustness gate is green and launches no real browser. Because CDP Fetch interception is not an OS network sandbox, independently verified OS/container network containment and recoverable lifecycle orchestration are mandatory before any product route or interactive window is enabled. See ADR 0083.
 
 P11-C8A/C8B add a Windows WFP dynamic-session probe and schema-v92 lifecycle accounting. The probe has no CDP, proxy, caller URL, public target, or persistent Profile; it independently checks the exact literal-loopback target, wrong port, another loopback address, a non-loopback local address, IPv6 default deny, Job-tree termination, filter-ID removal, and exact temporary-Profile cleanup. The current non-elevated machine run failed closed with `wfp_elevation_required` before starting a browser. C8B records append-only `running -> cdp_closed -> process_quiescent -> network_released -> profile_released -> completed|failed` checkpoints and a redacted receipt. Cleanup continues even if CDP close or checkpoint persistence fails. C8C remains disabled until one administrator-run production probe passes and is independently reviewed.
+
+### 管理员 WFP 实机证据 / Administrator WFP Evidence
+
+WFP（Windows Filtering Platform）是 Windows 的操作系统级网络过滤层。普通权限无法安装这组临时过滤规则，因此此前的 `wfp_elevation_required` 只证明 Prayu 会在权限不足时安全拒绝，不能证明真实规则在本机能够正确允许唯一目标并拒绝其余网络。
+
+关闭所选浏览器的既有实例后，在**管理员 PowerShell** 中运行：
+
+```powershell
+cd "D:\GitProjects\CTF CyberAgent Workbench"
+go run ./cmd/cyberagent doctor browser-network-probe --product edge --collector local-operator --confirm RUN-LOCAL-WFP-BROWSER-PROBE --json
+```
+
+探针最长运行 12 秒，只访问本机临时 canary，不使用 CDP、代理、DNS、调用者 URL、公网目标或个人 Profile。合格 JSON 必须同时证明动态 WFP 会话与原子规则安装、精确 loopback 目标可达、错误端口/另一 loopback/非 loopback 本机地址/IPv6 均被拒绝、规则和临时 Profile 已清理，并固定 `cdp_used=false`、`synthetic=false`、`production=true`、`passed=true`。证据有效期为 15 分钟，复核者身份必须与采集者不同。当前独立复核仍是内部 Go 合同，没有伪装成已经可用的 CLI/桌面审批按钮；请保留原始 JSON，不要手工修改。
+
+一次成功探针仍**不会自动启用浏览器入口**。C8C 还必须解决 WFP application-ID 规则按可执行文件路径作用、可能同时影响同一路径下其他 Edge/Chrome 进程的问题，并完成独立复核和产品接线审计；在此之前 CLI、HTTP、Desktop、Tool、Skill 和模型均没有浏览器启动路由。
+
+WFP is the Windows OS-level network filtering boundary. The elevated probe produces short-lived, machine-generated evidence that only one exact loopback address/port is reachable while the remaining IPv4/IPv6 canaries are denied and all temporary resources are removed. A passing probe is necessary but not sufficient for C8C: independent review and a product-safe answer to WFP's executable-wide application-ID effect are still required, so no browser launch route is enabled automatically.
 
 本批最终功能门一次完成：`go test -count=1 ./...` 用时约 435 秒并通过，随后 `go vet ./...`、零告警 `staticcheck ./...`、`internal/browserruntime` 普通测试与 `-race`、以及 Linux `CGO_ENABLED=0` 交叉编译均通过。组合审计修复三项健壮性问题：Windows x64 WFP 手写 ABI 对齐、探针一次性 Profile 删除后的显式复核，以及并发 `Finalize` 只能由一个调用者领取终结权并只写一份收据。没有启动真实浏览器，也没有开放 C8C 产品入口。
 
