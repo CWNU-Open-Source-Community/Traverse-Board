@@ -2616,6 +2616,37 @@ alignment, verified disposable-Profile cleanup, and exclusive concurrent
 lifecycle finalization with exactly one receipt. No new authority or browser
 launch route was enabled.
 
+## Current P10-G Status
+
+P10-G1 verifies one canonical caller-owned provenance statement with a
+domain-separated Ed25519 detached signature. It rebinds the existing release
+candidate and emits digest-only verification metadata; platform signature,
+immutable handle, release approval, and all execution authority remain false.
+
+P10-G2 records one exact operator acknowledgement of the request, signed
+release, provenance verification, resource limits, sandbox plan, and F3 design
+review. It is deliberately unauthenticated and cannot become a durable grant,
+capability, override, process-start authorization, persistence route, or
+Artifact commit.
+
+P10-G3 exercises Windows Job Object and Linux rlimit/no-new-privileges/seccomp
+behavior only from platform test files. The evidence explicitly does not prove
+read-only filesystem enforcement, dedicated identity, immutable-handle
+handoff, complete sandbox enforcement, or product readiness. Production
+analyzer files still contain no process starter, and no CLI, HTTP, Desktop,
+Tool, or Skill surface can invoke one. ADR 0086 is authoritative.
+
+The six-slice gate passed the 513.5-second uncached Go suite, the 547-second
+full race suite, repository vet/staticcheck, zero-reachable-finding
+govulncheck, Go module verification/tidy, five additional focused Analyzer race
+repetitions, 178 React tests, strict TypeScript/Vite, zero-vulnerability npm
+audit, Rust fmt/test/clippy/RustSec, secure Desktop checks, and a reproducible
+Windows double build. Newly reported `brace-expansion` and `postcss` advisories
+were fixed by exact 5.0.9 and 8.5.25 overrides and the Web gate was rerun. The GUI SHA-256 is
+`d9bf7dc005d513046777cf7ad6a8fcf49a64190de1bef76ca822cbaf53ca9e48`;
+release readiness remains false. No unresolved high/medium issue is known on
+an enabled path.
+
 ## Recommended Next Batch
 
 First obtain and independently review one administrator-run WFP production
@@ -2623,8 +2654,11 @@ probe, then resolve the same-executable process-wide effect. Only after both
 gates pass may P11-C8C add an operator-only Restricted Safe Web product adapter.
 It must not add a model Tool or Full Debug CDP.
 
-P10-F1/F2/F3 remain queued rather than discarded. Browser work must not widen
-the P12-E host executor or Debug terminal contracts.
+P10-F1 through P10-G3 are complete. The next recommended analyzer batch is
+P10-H1/H2/H3: caller-owned immutable-handle handoff, dedicated low-privilege
+identity, and read-only filesystem/private-staging enforcement, still without
+a product surface. Browser work must not widen the P12-E host executor or
+Debug terminal contracts.
 
 Keep the general LocalRunner disabled until a real workspace filesystem and
 network sandbox makes protected host roots unavailable or read-only; never map

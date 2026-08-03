@@ -2289,6 +2289,43 @@ tightening; Rust workspace 7+2 tests passed. After the audit renamed two
 overclaiming fields and tightened truncated PE/ELF rejection, the affected Go
 package passed again. Schema remains v92 and product metrics are unchanged.
 
+## Completed Analyzer Provenance And Sandbox Candidate Batch (P10-G1/G2/G3)
+
+P10-G1 adds canonical caller-byte `analyzer_provenance_statement.v1` and
+`analyzer_provenance_verification.v1`. The release statement is signed with
+Ed25519 over a fixed domain-separated payload and binds source, revision,
+recipe, signer, executable, format evidence, release, GOOS, and GOARCH. Raw
+statement, key, and signature bytes are not returned. Platform signature,
+immutable handle, release approval, and every execution authority remain
+false.
+
+P10-G2 adds `analyzer_scope_limits_approval.v1`. The same operator who reviewed
+the F3 design candidate must provide one exact confirmation for the exact
+request, release, provenance verification, resource limits, and sandbox plan.
+The receipt is not authenticated and is not a durable grant, capability grant,
+override, process-start authorization, persistence route, or Artifact commit.
+
+P10-G3 adds real Windows and Linux process observations only in `_test.go`.
+Windows verifies configured Job Object memory/CPU/process/kill-on-close limits,
+minimal environment, second-process rejection, and tree reaping. Linux CI
+verifies rlimits, `no_new_privs`, an architecture-checked seccomp socket deny,
+minimal environment, and process-group reaping. Read-only filesystem,
+dedicated identity, immutable-handle handoff, and complete product sandbox
+enforcement remain explicitly unverified. Production analyzer files still
+contain no process starter or product surface. See ADR 0086.
+
+The six-slice robustness gate passed the uncached repository Go suite in about
+513.5 seconds, the full race suite in 547 seconds, repository vet/staticcheck,
+zero-reachable-finding govulncheck, Go module verification/tidy, 5 additional
+focused Analyzer race repetitions, 178 React tests across 48 files, strict
+TypeScript/Vite, zero-vulnerability npm audit, Rust fmt/test/clippy/RustSec,
+secure Desktop checks, and a reproducible Windows double build. The dependency
+gate found and fixed newly reported `brace-expansion` and `postcss` advisories
+by pinning 5.0.9 and 8.5.25, then reran Web tests and build. The final GUI SHA-256 is
+`d9bf7dc005d513046777cf7ad6a8fcf49a64190de1bef76ca822cbaf53ca9e48`;
+release readiness remains false. No unresolved high/medium issue is known on
+an enabled path. Schema and product metrics remain unchanged.
+
 ## Next Slice
 
 P11-C8C remains blocked and is tracked in GitHub Issue #1. Do not spend normal
@@ -2298,12 +2335,11 @@ operator-only Restricted Safe Web adapter must still exclude model Tools,
 personal Profiles, request mutation/replay, arbitrary remote debugging, CTF
 security-disable flags, and Full Debug CDP.
 
-The next mainline batch is P10-G1/G2/G3: caller-byte detached
-signature/provenance cryptographic verification, an exact scope/limits
-operator approval receipt, and test-only Windows/Linux resource/sandbox
-enforcement conformance. It must still add no product process starter. This is
-the second three-slice batch in the current six-slice cycle, so its delivery
-also triggers the full robustness gate. Docker PTY, arbitrary model Shell,
+The next recommended analyzer batch is P10-H1/H2/H3: still without a product
+surface, prove caller-owned immutable-handle handoff, dedicated low-privilege
+identity, and read-only filesystem/private-staging enforcement on Windows and
+Linux. Only after a separate threat model and acceptance gate may a product
+adapter receive controlled start authority. Docker PTY, arbitrary model Shell,
 signed distribution, and the Windows 10 matrix remain separate gates.
 
 ## Local Machine Note

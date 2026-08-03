@@ -495,7 +495,9 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 - [x] P10-E1/E2/E3：已建立无授权 validated-result/Artifact candidate、test-only atomic staging/rollback/replay/crash recovery，以及 20 项产品 adapter 启动阻塞控制；本阶段仍不启动产品进程。
 - [x] P10-F1/F2/F3：已建立纯 caller-byte PE/ELF/architecture 证据、digest-only release manifest/operator allowlist 候选和仅接受设计候选的 resource/sandbox launch plan review；路径、命令、进程、网络、持久化与产品启动权限全部保持关闭，见 ADR 0085。
 - [x] P10-F1/F2/F3 三切片功能门：最终 analyzer 普通/race、vet、零告警 staticcheck 与 Rust 7+2 测试通过；全仓普通 Go 门在组合审计前通过，审计收紧格式边界和避免过度声明的字段后，受影响包再次全绿。schema v92 与产品入口不变。
-- [ ] P10-G1/G2/G3：建立纯 caller-byte detached signature/provenance 密码学验证、精确 scope/limits 操作者批准收据，以及仅测试的 Windows/Linux resource/sandbox enforcement conformance；仍不得增加产品 process starter。
+- [x] P10-G1/G2/G3：已建立纯 caller-byte canonical Ed25519 detached signature/provenance 验证、精确 scope/limits 操作者批准收据，以及仅 `_test.go` 可用的 Windows Job Object 与 Linux rlimit/no_new_privs/seccomp enforcement conformance；产品 process starter、授权与持久化入口仍为零，见 ADR 0086。
+- [x] P10-G1/G2/G3 累计六切片健壮性门：513.5 秒 uncached 全仓 Go、547 秒全仓 race、全仓 vet/staticcheck、零可达 govulncheck、Go module、48 文件 178 项 Web、strict TypeScript/Vite、零漏洞 npm audit、Rust fmt/test/clippy/RustSec、secure Desktop 与 Windows 可复现双构建通过；传递依赖 `brace-expansion`/`postcss` 已固定到修复版，GUI SHA-256 `d9bf7dc005d513046777cf7ad6a8fcf49a64190de1bef76ca822cbaf53ca9e48`。审计未发现启用路径上的未解决高/中风险。
+- [ ] P10-H1/H2/H3（建议）：继续以无产品入口方式证明 caller-owned immutable-handle handoff、专用低权限身份和只读 filesystem/staging enforcement；完成独立威胁模型与跨平台证据后，才评审 product adapter 是否可以获得受控 start 权限。
 - [ ] Go 在未来产品桥上验证协议、退出码、超时、结果大小和 Artifact 候选后，才允许进入独立的持久化/证据切片。
 
 阶段验收：当前纯函数/fixture/Disabled/Fake bridge 对畸形、未来、重复、扩权、崩溃、超时、取消、错误 analyzer、未知退出和超大输入/输出均失败关闭；test-only 真实 Rust 门已固定进程树取消、TERM/KILL、孤儿清理、stderr 隐私与原子暂存恢复。最终验收仍要求产品 adapter 解决 TOCTOU-safe immutable identity、签名/来源验证、资源沙箱 enforcement、显式授权、durable recovery 和原子 Artifact 提交语义。

@@ -10,12 +10,12 @@
 
 项目从 schema v49 起同时使用两项工程指标，避免把“架构已经搭好”误解为“产品已经完整可用”。这些百分比是基于当前任务书和可验证工作流的工程估算，不是性能基准。
 
-- **架构完成度 / Architecture completion：约 99%**。衡量 Go 控制平面、Run/Session、状态恢复、Policy、审批、预算、事件流、Tool Gateway、Agent 协调、Skills、报告、Sandbox 协议及 Go/TypeScript/Rust 边界的覆盖程度；其中 V2 Run-centric Runtime 约 99%。当前 schema v92：v91 提供独立的 `restricted|full_debug` CDP 权限快照；P11-C5-C8B 进一步补上 Safe Web Windows 进程、一次性 Profile、受限 loopback CDP、WFP 默认拒绝探针和可恢复生命周期账本，但保持无产品入口。P10-F1-F3 又以纯 caller-byte 方式固定 PE/ELF 与架构证据、digest-only 发布候选，以及始终阻止启动的资源/沙箱设计复核对象。
+- **架构完成度 / Architecture completion：约 99%**。衡量 Go 控制平面、Run/Session、状态恢复、Policy、审批、预算、事件流、Tool Gateway、Agent 协调、Skills、报告、Sandbox 协议及 Go/TypeScript/Rust 边界的覆盖程度；其中 V2 Run-centric Runtime 约 99%。当前 schema v92：v91 提供独立的 `restricted|full_debug` CDP 权限快照；P11-C5-C8B 进一步补上 Safe Web Windows 进程、一次性 Profile、受限 loopback CDP、WFP 默认拒绝探针和可恢复生命周期账本，但保持无产品入口。P10-F1-G3 又以纯 caller-byte 方式固定 PE/ELF 与架构证据、digest-only 发布候选、canonical Ed25519 来源验证、精确 scope/limits 人工确认，以及仅测试可用的 Windows/Linux 沙箱符合性证据。
 - **产品可用度 / Product usability：约 96-98%**。衡量普通用户能否依靠当前 CLI、TUI、Web 和 Windows Desktop 完成真实端到端工作。通用 Coding Agent 工作流约 97%，Cyber 自动化工作流约 20%；四种固定诊断动作已形成 Agent 提案到人工审批的完整链，操作者还可在双重确认和本次进程闸门下从 CLI 执行一次非沙箱宿主命令。任意 `approval` 提案、Debug Agent 输入和受限浏览器内核仍无模型、HTTP 或 React 产品入口。独立浏览器网络隔离、Docker 持久终端、可操作的内置浏览器窗口、安装脚本/钩子、Windows 10 人工发布矩阵和 Cyber 工具链仍未完成。
 
 Starting with schema v49, the project reports two engineering indicators so architectural maturity is not mistaken for end-user completeness. These percentages are roadmap estimates backed by tested workflows, not performance benchmarks.
 
-- **Architecture completion: about 99%.** Schema v91 adds an independent `restricted|full_debug` browser-CDP policy ceiling. P11-C5-C8B add a product-inert Safe Web Windows process adapter, disposable Profile lifecycle, restricted loopback CDP, a WFP default-deny probe, and schema-v92 recoverable lifecycle records. P10-F1-F3 add caller-byte PE/ELF and architecture evidence, digest-only release candidates, and a resource/sandbox design-review object that cannot authorize process start.
+- **Architecture completion: about 99%.** Schema v91 adds an independent `restricted|full_debug` browser-CDP policy ceiling. P11-C5-C8B add a product-inert Safe Web Windows process adapter, disposable Profile lifecycle, restricted loopback CDP, a WFP default-deny probe, and schema-v92 recoverable lifecycle records. P10-F1-G3 add caller-byte PE/ELF evidence, digest-only release candidates, canonical Ed25519 provenance verification, exact scope/limits acknowledgement, and test-only Windows/Linux sandbox conformance without product execution authority.
 - **Product usability: about 96-98%.** The generic coding-agent workflow is about 97% usable and Cyber automation about 20%. Fixed diagnostics have an end-to-end Agent-proposal workflow, and an operator can explicitly launch one non-sandboxed host command from the CLI under the current process gates. Arbitrary approval proposals, Debug Agent input, and the restricted browser core still have no model, HTTP, or React product route. Independent browser network containment, Docker terminals, an operational built-in browser window, install hooks, the Windows 10 release matrix, and the Cyber toolchain remain unfinished.
 
 ## 项目简介 / Project Overview
@@ -2553,6 +2553,44 @@ review accepts only a design candidate: start remains blocked and every executio
 persistence, Artifact, network, filesystem, and product authority remains false. No product
 surface or schema changed.
 
+### P10-G1/G2/G3：签名来源验证、精确范围批准与测试态 OS 沙箱符合性
+
+P10-G1 新增 `analyzer_provenance_statement.v1` 和
+`analyzer_provenance_verification.v1`。Go 只接受调用方提供的规范 JSON、Ed25519 公钥和 detached
+signature，并使用固定 domain separation 验证精确字节；statement 同时绑定 release、GOOS/GOARCH、
+可执行文件与格式证据摘要、signer、源码仓库、revision 和 build recipe 摘要。验证结果不回显原始
+statement、公钥或签名，也不把 detached signature 误称为平台签名、immutable handle 或发布批准。
+
+P10-G2 新增 `analyzer_scope_limits_approval.v1`。操作者必须与 F3 设计复核者一致，并使用精确确认语句
+批准同一 request、executable、release、provenance verification、launch review、resource plan 和
+sandbox plan。收据记录的是“精确范围与限制已经人工确认”，不是身份认证、durable grant、capability
+grant 或执行授权；网络、宿主文件、结果持久化、Artifact commit 与 operator override 继续为 false。
+
+P10-G3 只在 `_test.go` 中运行真实 OS 子进程。Windows 测试查询 Job Object 的单进程、256 MiB、CPU
+时间和 close-on-job 约束，验证第二个进程被拒绝、显式最小环境和进程树回收；Linux CI 测试查询
+`RLIMIT_DATA`/`RLIMIT_CPU`、`no_new_privs`，安装按 architecture 校验的 seccomp 规则并验证
+`socket` 被 `EPERM` 拒绝。二者都明确不声称已证明只读文件系统、专用身份、immutable handle 或完整
+产品沙箱；生产 Go 文件仍没有 analyzer process starter，CLI/API/Desktop/Tool/Skill 也没有执行入口。
+
+六切片健壮性门通过一轮 uncached 全仓 Go（约 513.5 秒，其中 Store 约 493.7 秒）、547 秒全仓
+race、全仓 vet/staticcheck、零可达漏洞 govulncheck、Go module 一致性、48 个文件 178 项 React、
+strict TypeScript/Vite、零漏洞 npm audit、Rust fmt 与 7+2 tests/clippy/RustSec、secure Desktop 与
+Windows 可复现双构建。依赖审计发现并精确升级 `brace-expansion` 至 5.0.9、`postcss` 至 8.5.25，
+重新测试后保持全绿。最终 Windows GUI SHA-256 为
+`d9bf7dc005d513046777cf7ad6a8fcf49a64190de1bef76ca822cbaf53ca9e48`；release diagnostics 仍为
+false。Analyzer 另通过五轮聚焦 race 和组合安全审查；未发现启用路径上的未解决高/中风险。schema
+保持 v92，架构完成度约 99%、产品可用度约 96-98%，因为本批没有新增用户执行能力。边界见
+[ADR 0086](docs/adr/0086-analyzer-signed-provenance-scope-approval-and-test-sandbox-conformance.md)。
+
+This non-schema P10-G1/G2/G3 batch verifies one canonical, domain-separated Ed25519
+provenance statement from caller-owned bytes; records an exact operator acknowledgement of
+the request, release, provenance, resources, and sandbox requirements; and exercises bounded
+Windows Job Object and Linux rlimit/no-new-privileges/seccomp behavior only from test files.
+The evidence is deliberately incomplete: read-only filesystem enforcement, a dedicated
+identity, immutable-handle handoff, and a production sandbox remain unverified. No product
+process starter, execution grant, persistence route, Artifact commit, or user-facing analyzer
+surface was added.
+
 ### D1-UX4/UX5/UX6：无边框工作台、可调侧栏与 Agent 输入区
 
 本批不新增 migration，schema/OpenAPI 仍为 v84 与 75 path / 83 operation / 182 schema。
@@ -2730,7 +2768,7 @@ Read [docs/PROJECT_MEMORY.md](docs/PROJECT_MEMORY.md), [docs/PROJECT_STATUS.md](
 
 The latest decisions are [ADR 0029](docs/adr/0029-bounded-linux-read-only-docker-evidence-harness.md), [ADR 0030](docs/adr/0030-immutable-docker-production-evidence-review.md), [ADR 0031](docs/adr/0031-content-addressed-inert-skill-registry.md), [ADR 0032](docs/adr/0032-external-skill-run-context.md), [ADR 0033](docs/adr/0033-pathless-desktop-skill-preview.md), [ADR 0034](docs/adr/0034-embedded-read-first-wails-shell.md), [ADR 0035](docs/adr/0035-desktop-lifecycle-and-event-resumption.md), [ADR 0036](docs/adr/0036-idempotent-controlled-run-creation.md), [ADR 0037](docs/adr/0037-controlled-session-message-submission.md), [ADR 0038](docs/adr/0038-idempotent-run-control-and-bounded-handoff.md), [ADR 0039](docs/adr/0039-model-plan-and-approval-controls.md), [ADR 0040](docs/adr/0040-provider-diff-wake-controls.md), [ADR 0041](docs/adr/0041-explicit-wake-file-apply-and-inert-skill-install.md), [ADR 0042](docs/adr/0042-receipts-explorer-portable-build.md), [ADR 0043](docs/adr/0043-workspace-search-evidence-attachment-receipt-history.md), [ADR 0044](docs/adr/0044-operator-action-center-evidence-inventory-command-palette.md), [ADR 0045](docs/adr/0045-go-issued-editor-system-credentials-bounded-wake-worker.md), [ADR 0046](docs/adr/0046-safe-editor-recovery-provider-generation-worker-health.md), [ADR 0047](docs/adr/0047-read-only-repository-change-set-code-journey.md), [ADR 0048](docs/adr/0048-bounded-diff-verification-code-handoff.md), [ADR 0049](docs/adr/0049-deadlock-livelock-runtime-guards.md), [ADR 0050](docs/adr/0050-repository-history-verification-plan-handoff-export.md), [ADR 0051](docs/adr/0051-exact-commit-verification-association-runner-lifecycle.md), [ADR 0052](docs/adr/0052-conservative-model-context-cumulative-handoff-memory.md), [ADR 0053](docs/adr/0053-commit-preview-handoff-coverage-process-conformance.md), [ADR 0054](docs/adr/0054-file-history-verification-drilldown-runner-exit-evidence.md), [ADR 0055](docs/adr/0055-history-navigation-verification-pagination-runner-runtime-evidence.md), [ADR 0056](docs/adr/0056-exact-commit-comparison-keyset-verification-runner-control-evidence.md), [ADR 0057](docs/adr/0057-comparison-preview-verification-snapshot-runner-timeline-evidence.md), [ADR 0058](docs/adr/0058-paired-comparison-snapshot-receipts-runner-evidence-set.md), and [ADR 0059](docs/adr/0059-paired-navigation-receipt-review-runner-golden-vectors.md).
 
-The newest decisions are [ADR 0061](docs/adr/0061-exact-receipt-review-navigation-audit-facts-envelope-golden.md), [ADR 0062](docs/adr/0062-go-owned-analyzer-protocol-rust-fixture-shared-vectors.md), [ADR 0063](docs/adr/0063-inert-analyzer-registry-zip-inventory-shared-vectors.md), [ADR 0064](docs/adr/0064-prayu-brand-and-dual-surface-desktop-shell.md), [ADR 0065](docs/adr/0065-non-starting-analyzer-invocation-bridge.md), [ADR 0066](docs/adr/0066-test-only-analyzer-subprocess-conformance.md), [ADR 0067](docs/adr/0067-inert-analyzer-result-staging-and-product-adapter-threat-model.md), [ADR 0068](docs/adr/0068-real-wails-startup-and-migration-compatibility.md), [ADR 0069](docs/adr/0069-go-owned-browser-profiles-target-scope-and-session-plan.md), [ADR 0070](docs/adr/0070-frameless-workbench-resizable-sidebar-agent-composer.md), [ADR 0071](docs/adr/0071-inert-browser-executable-profile-lifecycle-and-sealed-cdp.md), [ADR 0072](docs/adr/0072-workbench-docks-and-operator-confirmed-workspace-opening.md), [ADR 0073](docs/adr/0073-browser-publisher-launch-lease-and-review-gates.md), [ADR 0074](docs/adr/0074-model-harness-protocol-profiles-and-qualification.md), [ADR 0075](docs/adr/0075-execution-interaction-trust-model.md), [ADR 0076](docs/adr/0076-controlled-windows-execution-and-user-terminal.md), [ADR 0077](docs/adr/0077-four-level-run-execution-permissions.md), [ADR 0078](docs/adr/0078-desktop-permission-center-and-native-acrylic.md), [ADR 0079](docs/adr/0079-review-gated-fixed-command-proposals.md), [ADR 0080](docs/adr/0080-public-model-updates-and-harness-activity.md), [ADR 0081](docs/adr/0081-gated-host-execution-and-debug-terminal-input.md), [ADR 0082](docs/adr/0082-browser-cdp-permission-ceilings.md), and [ADR 0083](docs/adr/0083-restricted-loopback-browser-runtime-core.md).
+The newest decisions are [ADR 0061](docs/adr/0061-exact-receipt-review-navigation-audit-facts-envelope-golden.md), [ADR 0062](docs/adr/0062-go-owned-analyzer-protocol-rust-fixture-shared-vectors.md), [ADR 0063](docs/adr/0063-inert-analyzer-registry-zip-inventory-shared-vectors.md), [ADR 0064](docs/adr/0064-prayu-brand-and-dual-surface-desktop-shell.md), [ADR 0065](docs/adr/0065-non-starting-analyzer-invocation-bridge.md), [ADR 0066](docs/adr/0066-test-only-analyzer-subprocess-conformance.md), [ADR 0067](docs/adr/0067-inert-analyzer-result-staging-and-product-adapter-threat-model.md), [ADR 0068](docs/adr/0068-real-wails-startup-and-migration-compatibility.md), [ADR 0069](docs/adr/0069-go-owned-browser-profiles-target-scope-and-session-plan.md), [ADR 0070](docs/adr/0070-frameless-workbench-resizable-sidebar-agent-composer.md), [ADR 0071](docs/adr/0071-inert-browser-executable-profile-lifecycle-and-sealed-cdp.md), [ADR 0072](docs/adr/0072-workbench-docks-and-operator-confirmed-workspace-opening.md), [ADR 0073](docs/adr/0073-browser-publisher-launch-lease-and-review-gates.md), [ADR 0074](docs/adr/0074-model-harness-protocol-profiles-and-qualification.md), [ADR 0075](docs/adr/0075-execution-interaction-trust-model.md), [ADR 0076](docs/adr/0076-controlled-windows-execution-and-user-terminal.md), [ADR 0077](docs/adr/0077-four-level-run-execution-permissions.md), [ADR 0078](docs/adr/0078-desktop-permission-center-and-native-acrylic.md), [ADR 0079](docs/adr/0079-review-gated-fixed-command-proposals.md), [ADR 0080](docs/adr/0080-public-model-updates-and-harness-activity.md), [ADR 0081](docs/adr/0081-gated-host-execution-and-debug-terminal-input.md), [ADR 0082](docs/adr/0082-browser-cdp-permission-ceilings.md), [ADR 0083](docs/adr/0083-restricted-loopback-browser-runtime-core.md), [ADR 0084](docs/adr/0084-windows-wfp-browser-containment-and-runtime-lifecycle.md), [ADR 0085](docs/adr/0085-analyzer-format-release-and-launch-plan-candidates.md), and [ADR 0086](docs/adr/0086-analyzer-signed-provenance-scope-approval-and-test-sandbox-conformance.md).
 
 Windows Desktop D0-A/D0-B、D1-R1 至 D1-G13/V12、D1-UX1 至 D1-UX11，加 R10 非产品 Runner 回执信封黄金边界的自动化核心已实现，但仍是未签名开发/便携测试壳，不是安装版；用户所有的可选终端已实现，Debug Agent 输入只有 Go-only 短租约控制器且尚未接模型或 renderer。P11-C5-C7 受限浏览器核心已经存在，但因缺少独立网络隔离和产品 adapter，桌面内置浏览器仍不可用；Windows 10 实机发布矩阵也待完成。分阶段方案见 [docs/DESKTOP_PLAN.md](docs/DESKTOP_PLAN.md)。自定义 Skill 已具备严格 `skill_package.v1` 校验、schema v69 本地惰性 Registry、schema v70 CLI Run 选择/最小上下文、schema v71 三端只读来源投影，以及 HTTP/Desktop 显式确认的惰性安装；签名、远程分发和安装时执行仍未开放。详情见 [docs/SKILL_PACKAGE_PLAN.md](docs/SKILL_PACKAGE_PLAN.md)。
 

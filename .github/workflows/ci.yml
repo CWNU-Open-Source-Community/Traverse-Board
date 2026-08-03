@@ -119,7 +119,7 @@ jobs:
         shell: pwsh
         run: |
           $env:CYBERAGENT_ANALYZER_CONFORMANCE_BINARY = Join-Path $env:GITHUB_WORKSPACE "analyzers\target\debug\cyberagent-analyzer-fixture.exe"
-          go test -count=1 ./internal/analyzer -run '^Test(SubprocessConformance|AnalyzerResultStaging)'
+          go test -count=1 ./internal/analyzer -run '^Test(SubprocessConformance|AnalyzerResultStaging|AnalyzerSandboxEnforcementConformance)'
       - name: Build and verify portable Desktop shell
         shell: pwsh
         run: ./scripts/build-desktop.ps1 -SkipFrontend -VerifyReproducible

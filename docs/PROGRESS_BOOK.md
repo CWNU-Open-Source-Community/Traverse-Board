@@ -2303,7 +2303,7 @@ CGO 交叉尝试因本机没有 Linux C 交叉工具链而不可执行，不属�
 
 每三个聚焦切片组成一个交付批次；第三片后统一执行功能复核、普通/聚焦测试、组合差异审查、项目记忆更新、Git 提交、GitHub 推送和 CI 复核。每两个批次即六个切片再执行全仓 race、vet、staticcheck、govulncheck、依赖/隐私与完整构建健壮性门。当前仓库直接开发并推送 `main`；除非用户明确要求，不创建功能分支或 PR。
 
-长对话恢复时依次阅读：`README.md`、`docs/PROJECT_MEMORY.md`、`docs/PROJECT_STATUS.md`、本文件、`docs/TASK_BOOK.md`、`docs/http-api.md`、`docs/errors.md`，再按序阅读 `docs/adr/0001-*.md` 到 `docs/adr/0085-analyzer-format-release-and-launch-plan-candidates.md`。
+长对话恢复时依次阅读：`README.md`、`docs/PROJECT_MEMORY.md`、`docs/PROJECT_STATUS.md`、本文件、`docs/TASK_BOOK.md`、`docs/http-api.md`、`docs/errors.md`，再按序阅读 `docs/adr/0001-*.md` 到 `docs/adr/0086-analyzer-signed-provenance-scope-approval-and-test-sandbox-conformance.md`。
 
 ## P10-F1/F2/F3：调用方字节格式证据、发布候选与设计复核启动计划
 
@@ -2340,3 +2340,38 @@ Agent 约 97%、Cyber 自动化约 20%，均保持不变。
 scope/limits 操作者批准收据、仅测试的 Windows/Linux resource/sandbox enforcement
 conformance；仍不增加产品 process starter。该批完成后累计六片，执行完整健壮性门。WFP/C8C
 继续由 GitHub Issue #1 跟踪，不在主线重复探针。
+
+## P10-G1/G2/G3：签名来源、精确批准与 OS 沙箱测试符合性
+
+任务 ID：`P10-Analyzer-Signed-Provenance-Scope-Approval-Sandbox-Conformance`。本批不新增
+migration、API 或 UI，schema 保持 v92。P10-G1 新增 canonical
+`analyzer_provenance_statement.v1` 与 `analyzer_provenance_verification.v1`，以固定 domain
+separation 验证调用方提供的 Ed25519 detached signature，并把 release、GOOS/GOARCH、executable、
+format evidence、signer、source/revision/build recipe 全部绑定到同一规范字节。结果只含摘要与验证
+事实，不回显 statement/key/signature，不声称平台签名、immutable handle 或发布批准。
+
+P10-G2 新增 `analyzer_scope_limits_approval.v1`。同一设计 reviewer 必须用精确确认语句复核同一
+request、release、provenance、resource/sandbox plan 和 launch review。它只证明操作者确认了范围与
+限制；`approval_authenticated`、durable/capability grant、execution/process/product/network/filesystem、
+result persistence、Artifact commit 和 override 均固定为 false。
+
+P10-G3 的真实子进程只存在于平台 `_test.go`。Windows 查询并验证 Job Object 的单进程、memory、
+CPU、kill-on-close、最小环境和 tree reap；Linux CI 查询 rlimit/no_new_privs，安装 architecture-checked
+seccomp socket/connect deny，并验证最小环境和 process-group reap。二者都把 read-only filesystem、
+dedicated identity、immutable handle 和 complete sandbox enforcement 记录为未验证；没有 production
+starter 或产品入口。边界见
+[ADR 0086](adr/0086-analyzer-signed-provenance-scope-approval-and-test-sandbox-conformance.md)。
+
+累计六切片健壮性门通过：uncached 全仓 Go 约 513.5 秒（Analyzer 约 2.2 秒，Store 约 493.7 秒）、
+547 秒全仓 race、全仓 vet/staticcheck、零可达 govulncheck、Go module verify/tidy、五轮额外聚焦
+Analyzer race、48 文件 178 项 Web、strict TypeScript/Vite、零漏洞 npm audit、Rust
+fmt/test/clippy/RustSec、secure Desktop 与 Windows 可复现双构建通过。依赖门发现新通告后把
+`brace-expansion` 固定到 5.0.9、`postcss` 固定到 8.5.25，并重跑 Web 测试和构建。GUI SHA-256 为
+`d9bf7dc005d513046777cf7ad6a8fcf49a64190de1bef76ca822cbaf53ca9e48`，release readiness 仍为
+false。组合审计未发现启用路径上的未解决高/中风险；架构约 99%、产品可用度约 96-98%、通用
+Coding Agent 约 97%、Cyber 自动化约 20%，均保持不变。
+
+下一批建议 P10-H1/H2/H3：继续无产品入口地证明 caller-owned immutable-handle handoff、专用低权限
+identity 和 read-only filesystem/private staging enforcement。只有完成独立威胁模型和跨平台证据
+验收后，才评审 product adapter 的受控 start 权限。WFP/C8C 仍由 GitHub Issue #1 跟踪，不在主线
+重复探针。
