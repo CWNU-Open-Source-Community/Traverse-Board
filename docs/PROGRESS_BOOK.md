@@ -2303,4 +2303,40 @@ CGO 交叉尝试因本机没有 Linux C 交叉工具链而不可执行，不属�
 
 每三个聚焦切片组成一个交付批次；第三片后统一执行功能复核、普通/聚焦测试、组合差异审查、项目记忆更新、Git 提交、GitHub 推送和 CI 复核。每两个批次即六个切片再执行全仓 race、vet、staticcheck、govulncheck、依赖/隐私与完整构建健壮性门。当前仓库直接开发并推送 `main`；除非用户明确要求，不创建功能分支或 PR。
 
-长对话恢复时依次阅读：`README.md`、`docs/PROJECT_MEMORY.md`、`docs/PROJECT_STATUS.md`、本文件、`docs/TASK_BOOK.md`、`docs/http-api.md`、`docs/errors.md`，再按序阅读 `docs/adr/0001-*.md` 到 `docs/adr/0084-windows-wfp-browser-containment-and-runtime-lifecycle.md`。
+长对话恢复时依次阅读：`README.md`、`docs/PROJECT_MEMORY.md`、`docs/PROJECT_STATUS.md`、本文件、`docs/TASK_BOOK.md`、`docs/http-api.md`、`docs/errors.md`，再按序阅读 `docs/adr/0001-*.md` 到 `docs/adr/0085-analyzer-format-release-and-launch-plan-candidates.md`。
+
+## P10-F1/F2/F3：调用方字节格式证据、发布候选与设计复核启动计划
+
+任务 ID：`P10-Analyzer-Release-Preflight-Candidates`。本批不新增 migration、API 或 UI，
+schema 保持 v92。P10-F1 新增严格的 `analyzer_executable_format.v1`，仅检查调用方提供的
+完整字节并绑定 invocation candidate、identity、preflight、字节数与 SHA-256。PE/ELF
+结构、边界、可执行类型和 machine 必须与目标 GOOS/GOARCH 一致；它不读取路径、不构造命令、
+不启动进程，也不证明语义、来源或 immutable handle。
+
+P10-F2 新增 digest-only 的 release manifest、最多 64 项且由 Go 调用方显式提供的 operator
+allowlist，以及精确 release candidate。候选固定 executable、format evidence、provenance
+statement、signer identity 和 signature envelope 摘要；allowlist 匹配只是策略事实，
+provenance/signature/platform/immutable-handle/release approval 及所有执行、网络和宿主文件
+authority 均保持 false。
+
+P10-F3 新增 `analyzer_launch_plan.v1` 与 `analyzer_launch_plan_review.v1`。计划绑定 wall/CPU、
+256 MiB、单进程、共享输出上限，以及 Windows restricted-token Job 或 Linux
+namespace/seccomp 的候选要求；专用非管理员身份、只读输入、私有暂存、网络拒绝、最小环境、
+进程树回收和 no-replace handoff 都是 required 但未 verified。操作者精确确认只接受设计候选，
+不会批准执行；计划不含路径、命令、argv、环境、输入正文或 starter，且固定
+`start_blocked=true`。边界见
+[ADR 0085](adr/0085-analyzer-format-release-and-launch-plan-candidates.md)。
+
+三切片功能门通过：最终 `go test ./internal/analyzer -count=1` 用时约 2.2 秒，包级 vet、
+零告警 staticcheck 和聚焦 race 通过；全仓普通 Go 测试在组合审计前代码上约 562.9 秒通过，
+其中 Store 单包约 546.8 秒但没有挂死；Rust workspace 的 7 项单元测试和 2 项共享测试通过。
+组合审计未发现未解决高/中风险，并修复两类低风险过度声明：拒绝截断的 PE/ELF image，
+把 `complete_image_inspected` 改为 `complete_image_bound`，把 `network_denied` 改为
+`network_deny_required`。最终受影响包再次通过普通测试、vet 与 staticcheck。静态扫描确认新生产
+文件没有 OS 文件、网络、数据库或进程调用。架构约 99%、产品可用度约 96-98%、通用 Coding
+Agent 约 97%、Cyber 自动化约 20%，均保持不变。
+
+下一批为 P10-G1/G2/G3：纯 caller-byte detached signature/provenance 密码学验证、精确
+scope/limits 操作者批准收据、仅测试的 Windows/Linux resource/sandbox enforcement
+conformance；仍不增加产品 process starter。该批完成后累计六片，执行完整健壮性门。WFP/C8C
+继续由 GitHub Issue #1 跟踪，不在主线重复探针。

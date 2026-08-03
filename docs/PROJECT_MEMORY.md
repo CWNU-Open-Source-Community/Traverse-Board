@@ -2261,17 +2261,50 @@ No Explorer token, Chromium sandbox-disable flag, schema migration, or product
 browser route was added. Non-elevated real-Edge smoke, browserruntime package
 tests, focused race, and package vet pass; elevated production rerun remains.
 
+## Completed Analyzer Format, Release, And Launch Candidates (P10-F1/F2/F3)
+
+P10-F1 adds strict `analyzer_executable_format.v1` evidence over caller-owned
+bytes. It binds the invocation candidate, executable identity, preflight,
+whole-image byte count, and SHA-256; validates bounded PE/ELF structures and
+requires exact GOOS/GOARCH format and machine agreement. It does not read a
+path, launch a command, or prove executable semantics, provenance, or an
+immutable handle.
+
+P10-F2 adds digest-only release manifest, operator allowlist, and release
+candidate protocols. An exact allowlist match pins the executable, format
+evidence, provenance statement, signer identity, and signature envelope, but
+does not verify cryptography or grant release, process, network, filesystem,
+or product authority.
+
+P10-F3 adds a deterministic resource/sandbox launch-plan candidate and an
+exact operator design review. Hard limits and enforcement are required but
+remain unverified. The plan contains no path, command, argv, environment,
+input body, or process starter; `start_blocked=true`, and the review cannot
+authorize execution. See ADR 0085.
+
+The three-slice functional gate passed: final analyzer ordinary tests, vet,
+warning-free staticcheck, and focused race passed; the repository-wide
+ordinary Go suite passed in about 562.9 seconds before the final semantic
+tightening; Rust workspace 7+2 tests passed. After the audit renamed two
+overclaiming fields and tightened truncated PE/ELF rejection, the affected Go
+package passed again. Schema remains v92 and product metrics are unchanged.
+
 ## Next Slice
 
-P11-C8C stays blocked until an administrator-run WFP probe passes, an
-independent reviewer accepts the evidence, and the same-executable process-wide
-effect has a product-safe answer. Only then may an operator-only Restricted
-Safe Web adapter be considered. It must not add a model Tool, personal Profile,
-request mutation/replay, arbitrary remote debugging, CTF security-disable
-flags, or Full Debug CDP.
+P11-C8C remains blocked and is tracked in GitHub Issue #1. Do not spend normal
+mainline turns rerunning the WFP probe or earlier v92 audits until external
+evidence or the product-safe same-executable design changes. A future
+operator-only Restricted Safe Web adapter must still exclude model Tools,
+personal Profiles, request mutation/replay, arbitrary remote debugging, CTF
+security-disable flags, and Full Debug CDP.
 
-P10-F1/F2/F3 analyzer preflight remains queued. Docker PTY, arbitrary model
-Shell, signed distribution, and the Windows 10 matrix remain separate gates.
+The next mainline batch is P10-G1/G2/G3: caller-byte detached
+signature/provenance cryptographic verification, an exact scope/limits
+operator approval receipt, and test-only Windows/Linux resource/sandbox
+enforcement conformance. It must still add no product process starter. This is
+the second three-slice batch in the current six-slice cycle, so its delivery
+also triggers the full robustness gate. Docker PTY, arbitrary model Shell,
+signed distribution, and the Windows 10 matrix remain separate gates.
 
 ## Local Machine Note
 

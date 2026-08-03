@@ -493,10 +493,12 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 - [x] 独立设计只导入标准库的 disabled/fake Go bridge；真实子进程生命周期仍须下一阶段单独审计，未通过前不接 Run/Event/SQLite/Artifact。
 - [x] P10-D1/D2/D3：已建立无启动 executable identity/preflight，并用仅测试、明确 non-product 的 Rust fixture adapter 固定 crash/timeout/cancel/TERM-KILL/tree-reap/orphan/stderr 边界；Linux/Windows CI 均执行真实夹具门。
 - [x] P10-E1/E2/E3：已建立无授权 validated-result/Artifact candidate、test-only atomic staging/rollback/replay/crash recovery，以及 20 项产品 adapter 启动阻塞控制；本阶段仍不启动产品进程。
-- [ ] P10-F1/F2/F3：建立纯 caller-byte PE/ELF/architecture 检查、digest-pinned release manifest/provenance allowlist 候选和操作者复核的 resource/sandbox launch plan；三项都不得取得启动权限。
+- [x] P10-F1/F2/F3：已建立纯 caller-byte PE/ELF/architecture 证据、digest-only release manifest/operator allowlist 候选和仅接受设计候选的 resource/sandbox launch plan review；路径、命令、进程、网络、持久化与产品启动权限全部保持关闭，见 ADR 0085。
+- [x] P10-F1/F2/F3 三切片功能门：最终 analyzer 普通/race、vet、零告警 staticcheck 与 Rust 7+2 测试通过；全仓普通 Go 门在组合审计前通过，审计收紧格式边界和避免过度声明的字段后，受影响包再次全绿。schema v92 与产品入口不变。
+- [ ] P10-G1/G2/G3：建立纯 caller-byte detached signature/provenance 密码学验证、精确 scope/limits 操作者批准收据，以及仅测试的 Windows/Linux resource/sandbox enforcement conformance；仍不得增加产品 process starter。
 - [ ] Go 在未来产品桥上验证协议、退出码、超时、结果大小和 Artifact 候选后，才允许进入独立的持久化/证据切片。
 
-阶段验收：当前纯函数/fixture/Disabled/Fake bridge 对畸形、未来、重复、扩权、崩溃、超时、取消、错误 analyzer、未知退出和超大输入/输出均失败关闭；test-only 真实 Rust 门已固定进程树取消、TERM/KILL、孤儿清理、stderr 隐私与原子暂存恢复。最终验收仍要求产品 adapter 解决 TOCTOU-safe identity、格式/签名/来源、资源沙箱、显式授权、durable recovery 和原子 Artifact 提交语义。
+阶段验收：当前纯函数/fixture/Disabled/Fake bridge 对畸形、未来、重复、扩权、崩溃、超时、取消、错误 analyzer、未知退出和超大输入/输出均失败关闭；test-only 真实 Rust 门已固定进程树取消、TERM/KILL、孤儿清理、stderr 隐私与原子暂存恢复。最终验收仍要求产品 adapter 解决 TOCTOU-safe immutable identity、签名/来源验证、资源沙箱 enforcement、显式授权、durable recovery 和原子 Artifact 提交语义。
 
 ## P11：CTF 与安全分析能力
 

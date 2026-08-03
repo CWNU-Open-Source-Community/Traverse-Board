@@ -10,12 +10,12 @@
 
 项目从 schema v49 起同时使用两项工程指标，避免把“架构已经搭好”误解为“产品已经完整可用”。这些百分比是基于当前任务书和可验证工作流的工程估算，不是性能基准。
 
-- **架构完成度 / Architecture completion：约 99%**。衡量 Go 控制平面、Run/Session、状态恢复、Policy、审批、预算、事件流、Tool Gateway、Agent 协调、Skills、报告、Sandbox 协议及 Go/TypeScript/Rust 边界的覆盖程度；其中 V2 Run-centric Runtime 约 99%。当前 schema v92：v91 提供独立的 `restricted|full_debug` CDP 权限快照；P11-C5-C8B 进一步补上 Safe Web Windows 进程、一次性 Profile、受限 loopback CDP、WFP 默认拒绝探针和可恢复生命周期账本，但保持无产品入口。
+- **架构完成度 / Architecture completion：约 99%**。衡量 Go 控制平面、Run/Session、状态恢复、Policy、审批、预算、事件流、Tool Gateway、Agent 协调、Skills、报告、Sandbox 协议及 Go/TypeScript/Rust 边界的覆盖程度；其中 V2 Run-centric Runtime 约 99%。当前 schema v92：v91 提供独立的 `restricted|full_debug` CDP 权限快照；P11-C5-C8B 进一步补上 Safe Web Windows 进程、一次性 Profile、受限 loopback CDP、WFP 默认拒绝探针和可恢复生命周期账本，但保持无产品入口。P10-F1-F3 又以纯 caller-byte 方式固定 PE/ELF 与架构证据、digest-only 发布候选，以及始终阻止启动的资源/沙箱设计复核对象。
 - **产品可用度 / Product usability：约 96-98%**。衡量普通用户能否依靠当前 CLI、TUI、Web 和 Windows Desktop 完成真实端到端工作。通用 Coding Agent 工作流约 97%，Cyber 自动化工作流约 20%；四种固定诊断动作已形成 Agent 提案到人工审批的完整链，操作者还可在双重确认和本次进程闸门下从 CLI 执行一次非沙箱宿主命令。任意 `approval` 提案、Debug Agent 输入和受限浏览器内核仍无模型、HTTP 或 React 产品入口。独立浏览器网络隔离、Docker 持久终端、可操作的内置浏览器窗口、安装脚本/钩子、Windows 10 人工发布矩阵和 Cyber 工具链仍未完成。
 
 Starting with schema v49, the project reports two engineering indicators so architectural maturity is not mistaken for end-user completeness. These percentages are roadmap estimates backed by tested workflows, not performance benchmarks.
 
-- **Architecture completion: about 99%.** Schema v91 adds an independent `restricted|full_debug` browser-CDP policy ceiling. P11-C5-C8B add a product-inert Safe Web Windows process adapter, disposable Profile lifecycle, restricted loopback CDP, a WFP default-deny probe, and schema-v92 recoverable lifecycle records.
+- **Architecture completion: about 99%.** Schema v91 adds an independent `restricted|full_debug` browser-CDP policy ceiling. P11-C5-C8B add a product-inert Safe Web Windows process adapter, disposable Profile lifecycle, restricted loopback CDP, a WFP default-deny probe, and schema-v92 recoverable lifecycle records. P10-F1-F3 add caller-byte PE/ELF and architecture evidence, digest-only release candidates, and a resource/sandbox design-review object that cannot authorize process start.
 - **Product usability: about 96-98%.** The generic coding-agent workflow is about 97% usable and Cyber automation about 20%. Fixed diagnostics have an end-to-end Agent-proposal workflow, and an operator can explicitly launch one non-sandboxed host command from the CLI under the current process gates. Arbitrary approval proposals, Debug Agent input, and the restricted browser core still have no model, HTTP, or React product route. Independent browser network containment, Docker terminals, an operational built-in browser window, install hooks, the Windows 10 release matrix, and the Cyber toolchain remain unfinished.
 
 ## 项目简介 / Project Overview
@@ -2512,6 +2512,46 @@ and process starter remain unchanged and closed. Full ordinary/race, static, vul
 dependency, Rust, Web, Desktop, privacy, and reproducible-build gates pass on the final code.
 The only Go advisory residual is an unreachable module-level `openpgp` notice with no fixed
 version; no imported package or reachable symbol is affected.
+
+### P10-F1/F2/F3：可执行格式证据、发布候选与无启动权限的 Launch Plan
+
+P10-F1 新增严格的 `analyzer_executable_format.v1`。它只检查调用方已经提供的完整字节，
+将 invocation candidate、executable identity、preflight、字节数和 SHA-256 绑定到同一份证据。
+PE 检查 DOS/PE/COFF、optional header、section table、可执行位并拒绝 DLL；ELF 检查 class、
+endianness、type、machine、program-header 边界和非空 `PT_LOAD`。目标格式必须匹配 GOOS，机器
+类型必须匹配 GOARCH。它不读取路径、不创建命令或进程，也不声称证明语义、来源或 immutable
+handle。
+
+P10-F2 新增 `analyzer_release_manifest.v1`、`analyzer_release_allowlist.v1` 和
+`analyzer_release_candidate.v1`。manifest 只保存 executable、format evidence、provenance
+statement、signer identity 和 signature envelope 的摘要；最多 64 项的 operator allowlist
+由 Go 调用方显式传入、排序并拒绝重复，不读取网络或环境。精确匹配只是发布策略候选，不是
+密码学或平台签名验证，因此 provenance/signature/immutable-handle/release approval 与全部执行、
+网络、宿主文件权限仍为 false。
+
+P10-F3 新增 `analyzer_launch_plan.v1` 和 `analyzer_launch_plan_review.v1`。计划将 wall/CPU、
+256 MiB 内存、单进程和共享限长输出绑定到同一请求，并记录 Windows restricted-token Job 或
+Linux namespace/seccomp、专用低权限身份、只读输入、私有暂存、网络拒绝、最小环境、进程树回收
+和 no-replace 结果交接等强制候选控制。`hard_limits_verified` 与
+`enforcement_verified` 固定为 false；精确确认只会得到 `accepted_as_design_candidate`，不会
+批准启动。计划不含路径、命令、argv、环境值、输入正文或 process starter，且
+`start_blocked=true`。
+
+三切片功能门通过：最终 `go test ./internal/analyzer -count=1`、`go vet`、零告警
+`staticcheck` 与聚焦 race 均通过；全仓普通 Go 测试在审计前代码上通过（约 562.9 秒），Rust
+workspace 的 7+2 测试通过。审计随后收紧截断 PE/ELF 边界，并把可能造成过度声明的字段改为
+`complete_image_bound` 和 `network_deny_required`；最终受影响包再次全绿。没有新增 migration、
+OpenAPI、UI、Store、Run/Event、Artifact、CLI、HTTP、Desktop、网络、文件或进程路径，schema
+保持 v92，双指标不变。边界见
+[ADR 0085](docs/adr/0085-analyzer-format-release-and-launch-plan-candidates.md)。
+
+This non-schema P10-F1/F2/F3 batch adds strict caller-byte PE/ELF and target-architecture
+evidence, an exact digest-only release/allowlist candidate, and an operator-reviewable
+resource/sandbox launch-plan candidate. Format and allowlist matches do not prove executable
+semantics, provenance, signatures, immutable-handle identity, or sandbox enforcement. The
+review accepts only a design candidate: start remains blocked and every execution,
+persistence, Artifact, network, filesystem, and product authority remains false. No product
+surface or schema changed.
 
 ### D1-UX4/UX5/UX6：无边框工作台、可调侧栏与 Agent 输入区
 

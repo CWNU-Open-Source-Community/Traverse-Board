@@ -1,10 +1,32 @@
 # Project Status
 
-Last updated: 2026-08-02
+Last updated: 2026-08-03
 
 ## Resume Context
 
-The latest P11-C5/C6/C7 batch keeps SQLite at v91 and implements a concrete but
+The current mainline P10-F1/F2/F3 batch keeps schema v92 and adds three
+product-inert analyzer preflight contracts. `analyzer_executable_format.v1`
+strictly validates caller-owned PE/ELF bytes and exact GOOS/GOARCH agreement.
+Digest-only release manifest, operator allowlist, and release candidate
+protocols pin executable, format, provenance, signer, and signature-envelope
+digests without claiming cryptographic verification. The launch-plan and
+operator-review protocols bind bounded resources and required sandbox controls
+but contain no path, command, argv, environment, input body, or process starter;
+start and every execution/product/persistence/Artifact authority remain closed.
+
+Final analyzer ordinary tests, vet, warning-free staticcheck, and focused race
+pass. The repository-wide ordinary Go suite passed in about 562.9 seconds
+before the final semantic tightening, Rust workspace 7+2 tests pass, and the
+affected package passed again after the audit tightened truncated image
+rejection and renamed two overclaiming fields. No migration, API, UI, file,
+network, database, or process surface changed. Architecture remains about 99%,
+product usability about 96-98%, generic Coding Agent about 97%, and Cyber
+automation about 20%. ADR 0085 is authoritative.
+
+P11-C8C remains blocked under GitHub Issue #1; normal mainline work must not
+rerun that WFP probe until external evidence or design state changes.
+
+The earlier P11-C5/C6/C7 batch keeps SQLite at v91 and implements a concrete but
 product-inert Restricted Safe Web runtime core. A short-lived Go authorization
 revalidates the exact schema-v85 acceptance/review, schema-v91 restricted
 permission, process-local gates, executable, Run/Workspace/Session, disposable
