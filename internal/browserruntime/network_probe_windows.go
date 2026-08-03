@@ -437,6 +437,7 @@ func browserNetworkProbeRunFailureCode(phase string, runErr error) string {
 	if stage, ok := browserProcessStartFailureStage(runErr); ok {
 		switch stage {
 		case "executable_pin", "profile_validate", "job_create", "job_bind",
+			"job_bind_after_token",
 			"command_prepare", "environment_prepare", "authority_acquire",
 			"process_create", "process_create_with_token", "child_authority",
 			"process_resume":

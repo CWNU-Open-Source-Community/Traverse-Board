@@ -32,6 +32,8 @@ func TestBrowserNetworkProbeRunFailureCodesAreSpecificAndBounded(t *testing.T) {
 		{"baseline", context.DeadlineExceeded, "baseline_canary_timeout"},
 		{"baseline", browserProcessStartStageFailure("process_resume", errors.New("fixture")),
 			"baseline_process_resume_failed"},
+		{"baseline", browserProcessStartStageFailure("job_bind_after_token",
+			windows.ERROR_ACCESS_DENIED), "baseline_job_bind_after_token_access_denied"},
 		{"baseline", errors.Join(errBrowserNetworkProbeProfilePrepare, errors.New("fixture")),
 			"baseline_profile_prepare_failed"},
 		{"restricted", errBrowserNetworkProbeTreeNotReaped,

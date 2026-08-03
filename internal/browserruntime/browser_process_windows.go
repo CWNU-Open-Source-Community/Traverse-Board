@@ -143,7 +143,7 @@ func (windowsBrowserProcessStarter) Start(ctx context.Context,
 	}
 	commandLine := windows.ComposeCommandLine(append([]string{spec.ExecutablePath},
 		spec.Arguments...))
-	commandLinePointer, err := windows.UTF16PtrFromString(commandLine)
+	commandLineBuffer, err := windows.UTF16FromString(commandLine)
 	if err != nil {
 		windows.CloseHandle(job)
 		return nil, browserProcessStartStageFailure("command_prepare", ErrBrowserRuntimeBoundary)
@@ -173,19 +173,32 @@ func (windowsBrowserProcessStarter) Start(ctx context.Context,
 		windows.CREATE_UNICODE_ENVIRONMENT | windows.EXTENDED_STARTUPINFO_PRESENT)
 	startedAt := time.Now().UTC()
 	processCreateStage := "process_create"
+	jobBoundAtCreation := true
 	if launchAuthority.asUser {
 		err = windows.CreateProcessAsUser(launchAuthority.token, applicationName,
-			commandLinePointer, nil, nil, false, flags, &environment[0],
+			&commandLineBuffer[0], nil, nil, false, flags, &environment[0],
 			directoryPointer, &startup.StartupInfo, &processInfo)
 		if errors.Is(err, windows.ERROR_PRIVILEGE_NOT_HELD) ||
 			errors.Is(err, windows.ERROR_ACCESS_DENIED) {
 			processCreateStage = "process_create_with_token"
+			fallbackCommandLine, commandErr := windows.UTF16FromString(commandLine)
+			if commandErr != nil {
+				windows.CloseHandle(job)
+				return nil, browserProcessStartStageFailure(
+					"command_prepare", ErrBrowserRuntimeBoundary)
+			}
+			fallbackStartup := windows.StartupInfo{
+				Cb: uint32(unsafe.Sizeof(windows.StartupInfo{})),
+			}
+			fallbackFlags := flags &^ uint32(windows.EXTENDED_STARTUPINFO_PRESENT)
+			processInfo = windows.ProcessInformation{}
+			jobBoundAtCreation = false
 			err = createWindowsBrowserProcessWithToken(launchAuthority.token,
-				applicationName, commandLinePointer, flags, &environment[0],
-				directoryPointer, &startup.StartupInfo, &processInfo)
+				applicationName, &fallbackCommandLine[0], fallbackFlags, &environment[0],
+				directoryPointer, &fallbackStartup, &processInfo)
 		}
 	} else {
-		err = windows.CreateProcess(applicationName, commandLinePointer, nil, nil, false,
+		err = windows.CreateProcess(applicationName, &commandLineBuffer[0], nil, nil, false,
 			flags, &environment[0], directoryPointer, &startup.StartupInfo, &processInfo)
 	}
 	if err != nil {
@@ -196,6 +209,16 @@ func (windowsBrowserProcessStarter) Start(ctx context.Context,
 				stageErr)
 		}
 		return nil, stageErr
+	}
+	if !jobBoundAtCreation {
+		if err := windows.AssignProcessToJobObject(job, processInfo.Process); err != nil {
+			windows.CloseHandle(processInfo.Thread)
+			_ = windows.TerminateProcess(processInfo.Process, browserJobExitCode)
+			_, _ = windows.WaitForSingleObject(processInfo.Process, 5_000)
+			windows.CloseHandle(processInfo.Process)
+			windows.CloseHandle(job)
+			return nil, browserProcessStartStageFailure("job_bind_after_token", err)
+		}
 	}
 	if err := verifyWindowsBrowserChildAuthority(processInfo.Process); err != nil {
 		windows.CloseHandle(processInfo.Thread)
