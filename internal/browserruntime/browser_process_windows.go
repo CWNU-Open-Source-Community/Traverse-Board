@@ -264,16 +264,90 @@ func acquireWindowsBrowserLaunchAuthority() (windowsBrowserLaunchAuthority, erro
 	if !elevated {
 		return windowsBrowserLaunchAuthority{}, nil
 	}
-	linked, err := current.GetLinkedToken()
+	primary, err := acquireWindowsInteractiveShellPrimaryToken(current)
 	if err != nil {
 		return windowsBrowserLaunchAuthority{}, errors.Join(
 			ErrBrowserStandardUserTokenUnavailable, err)
 	}
-	if err := validateWindowsBrowserStandardUserPrimaryToken(current, linked); err != nil {
-		_ = linked.Close()
-		return windowsBrowserLaunchAuthority{}, err
+	return windowsBrowserLaunchAuthority{token: primary, asUser: true}, nil
+}
+
+func acquireWindowsInteractiveShellPrimaryToken(parent windows.Token) (windows.Token, error) {
+	shellWindow := windows.GetShellWindow()
+	if shellWindow == 0 || !windows.IsWindow(shellWindow) {
+		return 0, errors.New("windows interactive shell window is unavailable")
 	}
-	return windowsBrowserLaunchAuthority{token: linked, asUser: true}, nil
+	var shellPID uint32
+	if _, err := windows.GetWindowThreadProcessId(shellWindow, &shellPID); err != nil || shellPID == 0 {
+		return 0, errors.Join(errors.New("windows interactive shell process is unavailable"), err)
+	}
+	var currentSession uint32
+	var shellSession uint32
+	if err := windows.ProcessIdToSessionId(uint32(os.Getpid()), &currentSession); err != nil {
+		return 0, err
+	}
+	if err := windows.ProcessIdToSessionId(shellPID, &shellSession); err != nil {
+		return 0, err
+	}
+	if shellSession != currentSession {
+		return 0, errors.New("windows interactive shell belongs to another session")
+	}
+	process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION,
+		false, shellPID)
+	if err != nil {
+		return 0, err
+	}
+	defer windows.CloseHandle(process)
+	imagePath, err := windowsProcessImagePath(process)
+	if err != nil {
+		return 0, err
+	}
+	windowsDirectory, err := windows.GetWindowsDirectory()
+	if err != nil {
+		return 0, err
+	}
+	expectedPath := filepath.Clean(filepath.Join(windowsDirectory, "explorer.exe"))
+	if !strings.EqualFold(imagePath, expectedPath) ||
+		!profilePathHasNoIndirection(expectedPath) {
+		return 0, errors.New("windows interactive shell executable is not trusted")
+	}
+	var shellToken windows.Token
+	if err := windows.OpenProcessToken(process,
+		windows.TOKEN_QUERY|windows.TOKEN_DUPLICATE, &shellToken); err != nil {
+		return 0, err
+	}
+	defer shellToken.Close()
+	if err := validateWindowsBrowserStandardUserPrimaryToken(parent, shellToken); err != nil {
+		return 0, err
+	}
+	var primary windows.Token
+	desiredAccess := uint32(windows.TOKEN_QUERY | windows.TOKEN_DUPLICATE |
+		windows.TOKEN_ASSIGN_PRIMARY)
+	if err := windows.DuplicateTokenEx(shellToken, desiredAccess, nil,
+		windows.SecurityImpersonation, windows.TokenPrimary, &primary); err != nil {
+		return 0, err
+	}
+	if err := validateWindowsBrowserStandardUserPrimaryToken(parent, primary); err != nil {
+		_ = primary.Close()
+		return 0, err
+	}
+	return primary, nil
+}
+
+func windowsProcessImagePath(process windows.Handle) (string, error) {
+	buffer := make([]uint16, 32*1024)
+	size := uint32(len(buffer))
+	if err := windows.QueryFullProcessImageName(process, 0, &buffer[0], &size); err != nil {
+		return "", err
+	}
+	if size == 0 || size >= uint32(len(buffer)) {
+		return "", ErrBrowserRuntimeBoundary
+	}
+	path := filepath.Clean(windows.UTF16ToString(buffer[:size]))
+	if !filepath.IsAbs(path) || path == "." || strings.ContainsRune(path, 0) {
+		return "", ErrBrowserRuntimeBoundary
+	}
+	return path, nil
 }
 
 func verifyWindowsBrowserChildAuthority(process windows.Handle) error {
@@ -291,6 +365,10 @@ func validateWindowsBrowserStandardUserToken(parent windows.Token,
 ) error {
 	sameUser, err := windowsBrowserTokensHaveSameUser(parent, candidate)
 	if err != nil || !sameUser {
+		return errors.Join(ErrBrowserStandardUserTokenUnavailable, err)
+	}
+	sameSession, err := windowsBrowserTokensHaveSameSession(parent, candidate)
+	if err != nil || !sameSession {
 		return errors.Join(ErrBrowserStandardUserTokenUnavailable, err)
 	}
 	elevated, err := windowsBrowserTokenElevated(candidate)
@@ -347,6 +425,34 @@ func windowsBrowserTokensHaveSameUser(left windows.Token,
 		return false, ErrBrowserRuntimeBoundary
 	}
 	return leftUser.User.Sid.Equals(rightUser.User.Sid), nil
+}
+
+func windowsBrowserTokensHaveSameSession(left windows.Token,
+	right windows.Token,
+) (bool, error) {
+	leftSession, err := windowsBrowserTokenSessionID(left)
+	if err != nil {
+		return false, err
+	}
+	rightSession, err := windowsBrowserTokenSessionID(right)
+	if err != nil {
+		return false, err
+	}
+	return leftSession == rightSession, nil
+}
+
+func windowsBrowserTokenSessionID(token windows.Token) (uint32, error) {
+	var sessionID uint32
+	var returned uint32
+	if err := windows.GetTokenInformation(token, windows.TokenSessionId,
+		(*byte)(unsafe.Pointer(&sessionID)), uint32(unsafe.Sizeof(sessionID)),
+		&returned); err != nil {
+		return 0, err
+	}
+	if returned != uint32(unsafe.Sizeof(sessionID)) {
+		return 0, ErrBrowserRuntimeBoundary
+	}
+	return sessionID, nil
 }
 
 func windowsBrowserTokenElevated(token windows.Token) (bool, error) {

@@ -122,3 +122,18 @@ func TestInstalledEdgeBrowserNetworkProbeBaselineSmoke(t *testing.T) {
 		t.Fatalf("installed Edge baseline incomplete: %+v", observation)
 	}
 }
+
+func TestWindowsInteractiveShellPrimaryTokenSmoke(t *testing.T) {
+	if os.Getenv("CYBERAGENT_BROWSER_PROBE_SMOKE") != "1" {
+		t.Skip("set CYBERAGENT_BROWSER_PROBE_SMOKE=1 to inspect the interactive shell token")
+	}
+	current := windows.GetCurrentProcessToken()
+	token, err := acquireWindowsInteractiveShellPrimaryToken(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer token.Close()
+	if err := validateWindowsBrowserStandardUserPrimaryToken(current, token); err != nil {
+		t.Fatal(err)
+	}
+}
