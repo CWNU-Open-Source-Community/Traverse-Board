@@ -269,23 +269,11 @@ func acquireWindowsBrowserLaunchAuthority() (windowsBrowserLaunchAuthority, erro
 		return windowsBrowserLaunchAuthority{}, errors.Join(
 			ErrBrowserStandardUserTokenUnavailable, err)
 	}
-	defer linked.Close()
-	if err := validateWindowsBrowserStandardUserToken(current, linked); err != nil {
+	if err := validateWindowsBrowserStandardUserPrimaryToken(current, linked); err != nil {
+		_ = linked.Close()
 		return windowsBrowserLaunchAuthority{}, err
 	}
-	var primary windows.Token
-	desiredAccess := uint32(windows.TOKEN_QUERY | windows.TOKEN_DUPLICATE |
-		windows.TOKEN_ASSIGN_PRIMARY)
-	if err := windows.DuplicateTokenEx(linked, desiredAccess, nil,
-		windows.SecurityImpersonation, windows.TokenPrimary, &primary); err != nil {
-		return windowsBrowserLaunchAuthority{}, errors.Join(
-			ErrBrowserStandardUserTokenUnavailable, err)
-	}
-	if err := validateWindowsBrowserStandardUserPrimaryToken(current, primary); err != nil {
-		_ = primary.Close()
-		return windowsBrowserLaunchAuthority{}, err
-	}
-	return windowsBrowserLaunchAuthority{token: primary, asUser: true}, nil
+	return windowsBrowserLaunchAuthority{token: linked, asUser: true}, nil
 }
 
 func verifyWindowsBrowserChildAuthority(process windows.Handle) error {
