@@ -2373,6 +2373,17 @@ installation after observing the atomically committed operation/tombstone.
 Windows H tests pass 10 repetitions; Skill removal passes 20 ordinary and 5
 race repetitions; affected-package race, vet, and staticcheck pass.
 
+Actions run `30877113396` passed full Go, Web, and native Ubuntu H1/H2/H3, but
+the GitHub-hosted Windows service session returned exact
+`STATUS_DLL_INIT_FAILED` (`0xc0000142`) before the verified Low Integrity helper
+initialized even from the private directory. This is now represented honestly:
+the parent directly verifies the restricted primary token's same user SID,
+disabled effective Administrators membership, Low Integrity, and privilege
+ceiling; Windows CI uses verbose output and skips only for GitHub Windows plus
+that exact status and empty child output. Other errors fail. Local Windows
+still launches and verifies the real child for 10 repetitions. The hosted skip
+is not production or child-process evidence, and no product starter was opened.
+
 ## Next Slice
 
 P11-C8C remains blocked and is tracked in GitHub Issue #1. Do not spend normal

@@ -2406,7 +2406,13 @@ staticcheck 通过；最终全仓普通 Go 功能门 435.4 秒通过，其中 St
 checkout ACL 依赖以 `0xc0000142` 止于 helper 初始化前，现改为从调用方 SID/SYSTEM protected DACL、
 Medium Integrity 私有目录运行精确 helper 副本，未恢复管理员权限。同轮 Ubuntu 全仓还发现既有 Skill
 并发删除读取了 operation 提交前的 installation 快照；现看到原子 operation/tombstone 后重新读取绑定。
-Windows 10 轮、Skill 普通 20 轮/race 5 轮及受影响包 race/vet/staticcheck 均通过，待下一轮 CI 复核。
+Windows 10 轮、Skill 普通 20 轮/race 5 轮及受影响包 race/vet/staticcheck 均通过。
+
+远端 run `30877113396` 的完整 Go、Web 与 Ubuntu 原生 H1/H2/H3 通过，但 GitHub Windows 服务会话即使
+从私有目录启动，仍在已验证 Low Integrity helper 初始化前返回精确 `0xc0000142`。测试现于启动前直接
+复核受限 primary token 的同一用户 SID、有效管理员成员资格关闭、Low Integrity 与权限上限；远端只在
+GitHub Windows、空输出和该精确状态同时成立时以 verbose `SKIP` 明示环境限制，其他错误仍失败。本机
+Windows 真实受限子进程三项连续十轮通过；远端跳过不算子进程或生产证据，产品 starter 继续关闭。
 
 下一批建议 P10-I1/I2/I3：先定义 F/G/H 证据到生产 adapter 的准入矩阵、authenticated operator-owned
 one-shot capability 合同和 restart/failure cleanup 验收，不增加 CLI/HTTP/Desktop/Tool/Skill/Agent

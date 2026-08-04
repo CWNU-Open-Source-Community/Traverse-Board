@@ -13,14 +13,14 @@ a provisioned OS account, complete filesystem sandbox, production starter, or
 execution/persistence/Artifact authority. ADR 0087 is authoritative.
 
 The repository ordinary Go gate passed in about 435.4 seconds. Analyzer
-ordinary/race, vet, warning-free staticcheck, five focused Windows repetitions,
+ordinary/race, vet, warning-free staticcheck, ten focused Windows repetitions,
 native Ubuntu H1/H2/H3, 178 Web tests, production build, and zero-finding npm
 audit pass. The Windows follow-up explicitly disables effective Administrators
 membership instead of treating UAC `TokenElevation` as authority, and Web pins
-`undici 7.29.0` for the current advisory. Follow-up hosted CI is pending. No
-migration, API, UI, database, or product process surface changed. Architecture
-remains about 99%, product usability about 96-98%, generic Coding Agent about
-97%, and Cyber automation about 20%.
+`undici 7.29.0` for the current advisory. No migration, API, UI, database, or
+product process surface changed. Architecture remains about 99%, product
+usability about 96-98%, generic Coding Agent about 97%, and Cyber automation
+about 20%.
 
 Hosted follow-up run `30873766068` passed Web and native Ubuntu H1/H2/H3. It
 found a Windows checkout ACL dependency after administrator membership was
@@ -29,7 +29,15 @@ Ubuntu full suite. Windows now runs the exact helper copy from a protected
 caller-SID/SYSTEM Medium Integrity directory; Skill removal refreshes the
 installation after a concurrent atomic operation/tombstone becomes visible.
 Targeted repeated ordinary/race tests and affected-package vet/staticcheck pass;
-the next hosted run is the remaining gate.
+run `30877113396` then passed full Go, Web, and native Ubuntu but established
+that the GitHub Windows service session still rejects the verified Low
+Integrity helper before initialization with exact `0xc0000142`. The parent now
+verifies same user SID, disabled effective Administrators membership, Low
+Integrity, and the privilege ceiling before spawn. Hosted Windows reports a
+visible skip only for that exact empty-output service-session failure; all
+other errors fail. Local Windows executes the real child for ten repetitions.
+The hosted skip is not child or production evidence, and product authority
+remains closed.
 
 P11-C8C remains blocked under GitHub Issue #1; normal mainline work must not
 rerun that WFP probe until external evidence or design state changes.

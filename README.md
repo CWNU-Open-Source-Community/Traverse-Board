@@ -2602,15 +2602,22 @@ P10-H2 在 Windows 使用禁用最大权限、显式禁用 `BUILTIN\Administrato
 user namespace、UID/GID 65534、`no_new_privs` 和零 effective capabilities。它们是专用于该子进程的
 低权限执行上下文，不是新建的 OS 服务账户；Windows 仍保留调用方 SID，Linux namespace 仍映射回
 调用方账户，因此 `DedicatedAccountObserved=false`，不得过度声称。Windows 以有效管理员组成员资格
-而非 UAC `TokenElevation` 作为授权事实，避免管理员托管 runner 的诊断状态造成误判。托管 runner
-工作目录可能只经 Administrators ACL 可执行，因此测试 helper 会复制到调用方 SID 与 SYSTEM 专属、
-Medium Integrity 的私有目录；这不会恢复管理员组，也不会创建产品进程入口。
+而非 UAC `TokenElevation` 作为授权事实，避免管理员托管 runner 的诊断状态造成误判。测试 helper
+从调用方 SID 与 SYSTEM 专属、Medium Integrity 的私有目录启动；父进程还会在启动前直接复核受限
+primary token 的用户 SID、有效管理员成员资格、Integrity 与启用权限数。这不会恢复管理员组，也不会
+创建产品进程入口。
 
 P10-H3 在 Windows 组合 protected DACL 与 Low Integrity mandatory label，在 Linux 组合 user
 namespace 与 Landlock；测试 helper 只能读取输入、不能修改输入或外部目录，只能写入 mode-0700/
 私有 staging。结果通过 create-only hard-link 做 no-replace handoff，冲突不能覆盖，暂存与目标残留会
 被复核并清理。该证据仍固定 `CompleteFilesystemSandbox=false`，不代表所有宿主路径、设备和内核接口
 均已隔离。
+
+Actions run `30877113396` 的完整 Go、Web 与 Ubuntu 原生 H1/H2/H3 均通过，但 GitHub-hosted Windows
+服务会话仍在已验证 Low Integrity token 的 helper 初始化前返回精确 `STATUS_DLL_INIT_FAILED`
+(`0xc0000142`)。Windows CI 因而只在 `GITHUB_ACTIONS=true`、`RUNNER_OS=Windows`、无任何子进程输出
+且退出状态精确匹配时显示显式 `SKIP`；任何其他错误继续失败。该跳过只记录托管服务会话限制，不是
+子进程行为或生产隔离证据。本机 Windows 的真实子进程三项测试连续十轮通过，生产 adapter 仍关闭。
 
 所有真实子进程仍只存在于平台 `_test.go`；生产 Analyzer 没有 process starter，CLI、HTTP、Desktop、
 Tool、Skill、Store、Run/Event 与 Artifact 均没有调用入口。Windows 普通/race Analyzer、vet 与零告警
@@ -2623,7 +2630,9 @@ This non-schema P10-H1/H2/H3 batch exercises caller-owned inherited handles afte
 replacement, separate low-privilege token/namespace contexts, and read-only input with private
 staging and no-replace cleanup. Every process remains test-only. The observations do not claim
 a provisioned OS account, a complete filesystem sandbox, production readiness, or any process,
-execution, persistence, Artifact, or product authority.
+execution, persistence, Artifact, or product authority. Hosted Windows verifies the restricted
+token before spawn and visibly skips only its exact service-session `0xc0000142` limitation;
+local Windows still executes the real restricted child, so that skip is not production evidence.
 
 ### D1-UX4/UX5/UX6：无边框工作台、可调侧栏与 Agent 输入区
 

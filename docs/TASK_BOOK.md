@@ -500,6 +500,7 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 - [x] P10-H1/H2/H3：已在平台 `_test.go` 中证明路径替换后的 caller-owned immutable-handle/FD handoff、Windows Low Integrity primary token 与 Linux user-namespace 低权限上下文，以及 Windows protected-DACL/MIC、Linux Landlock 的只读输入/私有 staging/no-replace/cleanup 符合性；专用 OS 账户、完整 filesystem sandbox、产品 starter 和全部运行/持久化权限仍为 false，见 ADR 0087。
 - [x] P10-H1/H2/H3 三切片功能门：最终全仓普通 Go 435.4 秒、Analyzer ordinary/race、vet、零告警 staticcheck、Linux 无 CGO 交叉编译及 Ubuntu 原生 H1/H2/H3 通过；远端复核后再修复 Windows UAC elevation 误判（显式禁用并检查有效 Administrators SID）与 `undici <7.29.0` 新公告，本地五轮 Windows 定向、178 项 Web、build/npm audit 全绿，schema v92 与产品入口保持不变。
 - [x] P10-H 远端跟进：run `30873766068` 通过 Web/Ubuntu 原生边界并暴露 Windows checkout ACL 与既有 Skill removal 陈旧快照竞态；helper 现位于 caller-SID/SYSTEM protected Medium Integrity 私有目录，管理员 SID 仍禁用；幂等 removal 观察到原子 operation 后刷新 tombstone。Windows 10 轮、Skill ordinary 20 轮/race 5 轮及受影响包 race/vet/staticcheck 通过。
+- [x] P10-H 托管 Windows 证据分级：run `30877113396` 通过完整 Go/Web/Ubuntu 门，但 GitHub Windows 服务会话在已验证 Low Integrity helper 初始化前精确返回 `0xc0000142`。父进程先复核同一用户 SID、管理员成员关闭、Low Integrity 与权限上限；CI 仅对 GitHub Windows + 空输出 + 精确状态显示 verbose skip，其他错误失败。本机真实子进程十轮通过；skip 不作为生产证据，产品 starter 仍关闭。
 - [ ] Go 在未来产品桥上验证协议、退出码、超时、结果大小和 Artifact 候选后，才允许进入独立的持久化/证据切片。
 
 阶段验收：当前纯函数/fixture/Disabled/Fake bridge 对畸形、未来、重复、扩权、崩溃、超时、取消、错误 analyzer、未知退出和超大输入/输出均失败关闭；test-only 真实 Rust 门已固定进程树取消、TERM/KILL、孤儿清理、stderr 隐私与原子暂存恢复。最终验收仍要求产品 adapter 解决 TOCTOU-safe immutable identity、签名/来源验证、资源沙箱 enforcement、显式授权、durable recovery 和原子 Artifact 提交语义。

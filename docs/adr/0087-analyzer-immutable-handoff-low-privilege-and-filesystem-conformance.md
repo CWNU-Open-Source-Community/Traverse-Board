@@ -111,6 +111,23 @@ filesystem fixture root uses the same ACL and label, while only result staging
 is relabeled Low Integrity. Administrator membership remains disabled; no
 privilege was restored to make the test pass.
 
+Run `30877113396` passed the full Go, Web, and native Ubuntu gates but showed
+that the GitHub-hosted Windows service session still returns the same
+`STATUS_DLL_INIT_FAILED` before the verified Low Integrity helper initializes,
+even from the private directory. The test therefore verifies the restricted
+primary token in the parent before spawn: same user SID, effective
+Administrators membership false, Low Integrity, and at most one enabled
+privilege. Membership inspection duplicates only the primary token into a
+query-only impersonation token, leaving the launch token unchanged.
+
+The Windows Actions command is verbose and skips only when all of these facts
+hold: GitHub Actions, a Windows runner, empty child output, and the exact
+`0xc0000142` status after the parent-side token verification. Every other
+startup error remains a failure. This explicit hosted-service skip is not
+child-process or production evidence. Local Windows still executes the real
+restricted child and passes all three H tests for ten repetitions. Product
+authority remains closed.
+
 The focused tests fail closed on path replacement, child-handle drift,
 elevation, integrity or privilege drift, input mutation, outside writes,
 staging privacy, replacement handoff, cleanup residue, and any nonzero product

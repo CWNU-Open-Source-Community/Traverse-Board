@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"unsafe"
@@ -119,6 +120,7 @@ func observeAnalyzerLowPrivilegeIdentity(t *testing.T,
 	t.Helper()
 	token := newWindowsAnalyzerLowToken(t)
 	defer token.Close()
+	assertWindowsAnalyzerLowToken(t, token)
 	helperPath := copyWindowsAnalyzerIsolationHelper(t)
 	command := exec.Command(helperPath, "-test.run=^TestAnalyzerIsolationBoundaryHelper$")
 	command.Env = windowsIsolationEnvironment(
@@ -130,6 +132,7 @@ func observeAnalyzerLowPrivilegeIdentity(t *testing.T,
 	}
 	output, err := command.CombinedOutput()
 	if err != nil {
+		skipHostedWindowsServiceInitialization(t, err, output)
 		t.Fatalf("start restricted identity helper: %v output=%q", err, output)
 	}
 	var result windowsIsolationIdentityResult
@@ -189,6 +192,7 @@ func observeAnalyzerFilesystemIsolation(t *testing.T,
 	}
 	token := newWindowsAnalyzerLowToken(t)
 	defer token.Close()
+	assertWindowsAnalyzerLowToken(t, token)
 	helperPath := copyWindowsAnalyzerIsolationHelper(t)
 	command := exec.Command(helperPath, "-test.run=^TestAnalyzerIsolationBoundaryHelper$")
 	command.Env = windowsIsolationEnvironment(
@@ -204,6 +208,7 @@ func observeAnalyzerFilesystemIsolation(t *testing.T,
 	}
 	output, err := command.CombinedOutput()
 	if err != nil {
+		skipHostedWindowsServiceInitialization(t, err, output)
 		t.Fatalf("start filesystem isolation helper: %v output=%q", err, output)
 	}
 	var result windowsIsolationFilesystemResult
@@ -345,6 +350,18 @@ func newWindowsAnalyzerLowToken(t *testing.T) windows.Token {
 
 func inspectWindowsIsolationIdentity() (windowsIsolationIdentityResult, error) {
 	token := windows.GetCurrentProcessToken()
+	return inspectWindowsTokenIdentityWithMembership(token, token.IsMember)
+}
+
+func inspectWindowsTokenIdentity(token windows.Token) (windowsIsolationIdentityResult, error) {
+	return inspectWindowsTokenIdentityWithMembership(token, func(sid *windows.SID) (bool, error) {
+		return windowsTokenIsMember(token, sid)
+	})
+}
+
+func inspectWindowsTokenIdentityWithMembership(token windows.Token,
+	isMember func(*windows.SID) (bool, error),
+) (windowsIsolationIdentityResult, error) {
 	restricted, err := token.IsRestricted()
 	if err != nil {
 		return windowsIsolationIdentityResult{}, err
@@ -354,7 +371,7 @@ func inspectWindowsIsolationIdentity() (windowsIsolationIdentityResult, error) {
 	if err != nil {
 		return windowsIsolationIdentityResult{}, err
 	}
-	administratorMember, err := token.IsMember(administratorSID)
+	administratorMember, err := isMember(administratorSID)
 	if err != nil {
 		return windowsIsolationIdentityResult{}, err
 	}
@@ -376,6 +393,46 @@ func inspectWindowsIsolationIdentity() (windowsIsolationIdentityResult, error) {
 		IntegrityRID:        integrity, EnabledPrivilegeCount: privileges,
 		UserSID: user.User.Sid.String(),
 	}, nil
+}
+
+func windowsTokenIsMember(token windows.Token, sid *windows.SID) (bool, error) {
+	var impersonation windows.Token
+	if err := windows.DuplicateTokenEx(token, windows.TOKEN_QUERY, nil,
+		windows.SecurityImpersonation, windows.TokenImpersonation, &impersonation); err != nil {
+		return false, err
+	}
+	defer impersonation.Close()
+	return impersonation.IsMember(sid)
+}
+
+func assertWindowsAnalyzerLowToken(t *testing.T, token windows.Token) {
+	t.Helper()
+	result, err := inspectWindowsTokenIdentity(token)
+	if err != nil {
+		t.Fatalf("inspect restricted analyzer token: %v", err)
+	}
+	parent, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// IsTokenRestricted only reports a restricting-SID list. This token instead
+	// removes effective authority through disabled SIDs, privileges, and MIC.
+	if result.AdministratorMember || result.IntegrityRID > analyzerLowIntegrityRID ||
+		result.EnabledPrivilegeCount > 1 || result.UserSID != parent.User.Sid.String() {
+		t.Fatalf("unsafe restricted analyzer token: %#v", result)
+	}
+}
+
+func skipHostedWindowsServiceInitialization(t *testing.T, err error, output []byte) {
+	t.Helper()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || uint32(exitErr.ExitCode()) != 0xc0000142 ||
+		len(output) != 0 || !strings.EqualFold(os.Getenv("GITHUB_ACTIONS"), "true") ||
+		!strings.EqualFold(os.Getenv("RUNNER_OS"), "Windows") {
+		return
+	}
+	t.Skip("GitHub Windows service session rejected the verified low-integrity token " +
+		"before helper initialization (STATUS_DLL_INIT_FAILED); product authority remains closed")
 }
 
 func windowsTokenIntegrityRID(token windows.Token) (uint32, error) {
