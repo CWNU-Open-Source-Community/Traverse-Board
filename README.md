@@ -2602,7 +2602,9 @@ P10-H2 在 Windows 使用禁用最大权限、显式禁用 `BUILTIN\Administrato
 user namespace、UID/GID 65534、`no_new_privs` 和零 effective capabilities。它们是专用于该子进程的
 低权限执行上下文，不是新建的 OS 服务账户；Windows 仍保留调用方 SID，Linux namespace 仍映射回
 调用方账户，因此 `DedicatedAccountObserved=false`，不得过度声称。Windows 以有效管理员组成员资格
-而非 UAC `TokenElevation` 作为授权事实，避免管理员托管 runner 的诊断状态造成误判。
+而非 UAC `TokenElevation` 作为授权事实，避免管理员托管 runner 的诊断状态造成误判。托管 runner
+工作目录可能只经 Administrators ACL 可执行，因此测试 helper 会复制到调用方 SID 与 SYSTEM 专属、
+Medium Integrity 的私有目录；这不会恢复管理员组，也不会创建产品进程入口。
 
 P10-H3 在 Windows 组合 protected DACL 与 Low Integrity mandatory label，在 Linux 组合 user
 namespace 与 Landlock；测试 helper 只能读取输入、不能修改输入或外部目录，只能写入 mode-0700/

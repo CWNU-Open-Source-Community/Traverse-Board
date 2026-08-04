@@ -99,8 +99,17 @@ ordinary and race testing, vet, and zero-warning staticcheck. Linux test code
 cross-compiles locally with CGO disabled, and all three tests passed the native
 Ubuntu analyzer gate in GitHub Actions run `30867231130`. That run exposed the
 Windows UAC-provenance mismatch described above; the effective-membership fix
-is covered by five local repetitions and the package race gate pending the
-follow-up hosted-Windows run.
+is covered by local repetitions and the package race gate.
+
+Follow-up run `30873766068` proved the Administrators SID was actually removed,
+then the hosted runner failed before helper initialization with Windows status
+`0xc0000142`: its checkout-resident test executable depended on workspace ACLs
+that were no longer available through the disabled group. The conformance test
+now copies the exact test image into a private directory with a protected DACL
+for the caller SID and SYSTEM plus an explicit Medium Integrity label. The
+filesystem fixture root uses the same ACL and label, while only result staging
+is relabeled Low Integrity. Administrator membership remains disabled; no
+privilege was restored to make the test pass.
 
 The focused tests fail closed on path replacement, child-handle drift,
 elevation, integrity or privilege drift, input mutation, outside writes,

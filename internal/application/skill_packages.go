@@ -309,7 +309,15 @@ func (s *SkillPackageRegistryService) Remove(ctx context.Context,
 			return RemoveSkillPackageResult{}, apperror.New(apperror.CodeConflict,
 				"Skill package removal operation key was already used for different intent")
 		}
-		if installed.Removal == nil || installed.Removal.ID != existing.RemovalID {
+		// The installation read above can precede a concurrent transaction that
+		// atomically commits this operation and its tombstone. Refresh after the
+		// operation becomes visible instead of rejecting the stale snapshot.
+		installed, found, lookupErr = s.store.GetInstalledPackageByRef(ctx,
+			request.Name, request.Version)
+		if lookupErr != nil {
+			return RemoveSkillPackageResult{}, apperror.Normalize(lookupErr)
+		}
+		if !found || installed.Removal == nil || installed.Removal.ID != existing.RemovalID {
 			return RemoveSkillPackageResult{}, apperror.New(apperror.CodeInternal,
 				"stored Skill package removal operation binding is invalid")
 		}

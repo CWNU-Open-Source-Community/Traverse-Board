@@ -2402,6 +2402,12 @@ staticcheck 通过；最终全仓普通 Go 功能门 435.4 秒通过，其中 St
 定向、Analyzer race/vet/staticcheck、178 项 Web、build 与 npm 零漏洞门通过，待远端复核。边界见
 [ADR 0087](adr/0087-analyzer-immutable-handoff-low-privilege-and-filesystem-conformance.md)。
 
+远端 run `30873766068` 的 Web 与 Ubuntu 原生 H1/H2/H3 通过；Windows 在管理员 SID 被真实禁用后因
+checkout ACL 依赖以 `0xc0000142` 止于 helper 初始化前，现改为从调用方 SID/SYSTEM protected DACL、
+Medium Integrity 私有目录运行精确 helper 副本，未恢复管理员权限。同轮 Ubuntu 全仓还发现既有 Skill
+并发删除读取了 operation 提交前的 installation 快照；现看到原子 operation/tombstone 后重新读取绑定。
+Windows 10 轮、Skill 普通 20 轮/race 5 轮及受影响包 race/vet/staticcheck 均通过，待下一轮 CI 复核。
+
 下一批建议 P10-I1/I2/I3：先定义 F/G/H 证据到生产 adapter 的准入矩阵、authenticated operator-owned
 one-shot capability 合同和 restart/failure cleanup 验收，不增加 CLI/HTTP/Desktop/Tool/Skill/Agent
 starter。只有后续独立评审通过才允许连接真实产品执行。WFP/C8C 继续由 GitHub Issue #1 跟踪。

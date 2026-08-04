@@ -22,6 +22,15 @@ migration, API, UI, database, or product process surface changed. Architecture
 remains about 99%, product usability about 96-98%, generic Coding Agent about
 97%, and Cyber automation about 20%.
 
+Hosted follow-up run `30873766068` passed Web and native Ubuntu H1/H2/H3. It
+found a Windows checkout ACL dependency after administrator membership was
+removed and an unrelated pre-existing Skill removal stale-read race in the
+Ubuntu full suite. Windows now runs the exact helper copy from a protected
+caller-SID/SYSTEM Medium Integrity directory; Skill removal refreshes the
+installation after a concurrent atomic operation/tombstone becomes visible.
+Targeted repeated ordinary/race tests and affected-package vet/staticcheck pass;
+the next hosted run is the remaining gate.
+
 P11-C8C remains blocked under GitHub Issue #1; normal mainline work must not
 rerun that WFP probe until external evidence or design state changes.
 

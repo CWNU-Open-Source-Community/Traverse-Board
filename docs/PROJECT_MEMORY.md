@@ -2360,6 +2360,19 @@ membership directly; Web pins 7.29.0. Five focused Windows repetitions,
 Analyzer race/vet/staticcheck, 178 Web tests, production build, and zero-finding
 npm audit pass locally pending the follow-up CI run. See ADR 0087.
 
+Actions run `30873766068` confirmed Web and native Ubuntu gates, then exposed
+two independent races. Hosted Windows removed effective administrator
+membership correctly but could not initialize the checkout-resident helper
+(`0xc0000142`) because the runner workspace depended on Administrators ACLs.
+The test now copies the exact helper into a caller-SID/SYSTEM protected Medium
+Integrity directory and gives the filesystem fixture root the same explicit
+ACL; administrator membership stays disabled. The Ubuntu full suite also
+exposed a pre-existing Skill removal race where an operation became visible
+after an installation snapshot was read. The application now refreshes the
+installation after observing the atomically committed operation/tombstone.
+Windows H tests pass 10 repetitions; Skill removal passes 20 ordinary and 5
+race repetitions; affected-package race, vet, and staticcheck pass.
+
 ## Next Slice
 
 P11-C8C remains blocked and is tracked in GitHub Issue #1. Do not spend normal

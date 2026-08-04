@@ -119,7 +119,8 @@ func observeAnalyzerLowPrivilegeIdentity(t *testing.T,
 	t.Helper()
 	token := newWindowsAnalyzerLowToken(t)
 	defer token.Close()
-	command := exec.Command(os.Args[0], "-test.run=^TestAnalyzerIsolationBoundaryHelper$")
+	helperPath := copyWindowsAnalyzerIsolationHelper(t)
+	command := exec.Command(helperPath, "-test.run=^TestAnalyzerIsolationBoundaryHelper$")
 	command.Env = windowsIsolationEnvironment(
 		analyzerIsolationHelperModeEnv + "=windows-identity")
 	command.Dir = filepath.Join(os.Getenv("SystemRoot"), "System32")
@@ -165,6 +166,9 @@ func observeAnalyzerFilesystemIsolation(t *testing.T,
 ) analyzerFilesystemIsolationObservation {
 	t.Helper()
 	root := t.TempDir()
+	if err := configureWindowsCallerDirectory(root, "ME"); err != nil {
+		t.Fatalf("configure medium-integrity fixture root: %v", err)
+	}
 	inputPath := filepath.Join(root, "input.bin")
 	stagingPath := filepath.Join(root, "staging")
 	outsidePath := filepath.Join(root, "outside")
@@ -185,7 +189,8 @@ func observeAnalyzerFilesystemIsolation(t *testing.T,
 	}
 	token := newWindowsAnalyzerLowToken(t)
 	defer token.Close()
-	command := exec.Command(os.Args[0], "-test.run=^TestAnalyzerIsolationBoundaryHelper$")
+	helperPath := copyWindowsAnalyzerIsolationHelper(t)
+	command := exec.Command(helperPath, "-test.run=^TestAnalyzerIsolationBoundaryHelper$")
 	command.Env = windowsIsolationEnvironment(
 		analyzerIsolationHelperModeEnv+"=windows-filesystem",
 		analyzerIsolationInputEnv+"="+inputPath,
@@ -427,6 +432,10 @@ func windowsTokenEnabledPrivilegeCount(token windows.Token) (uint32, error) {
 }
 
 func configureWindowsLowIntegrityStaging(path string) error {
+	return configureWindowsCallerDirectory(path, "LW")
+}
+
+func configureWindowsCallerDirectory(path, integrityLabel string) error {
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil {
 		return err
@@ -458,7 +467,8 @@ func configureWindowsLowIntegrityStaging(path string) error {
 		nil, nil, acl, nil); err != nil {
 		return err
 	}
-	labelDescriptor, err := windows.SecurityDescriptorFromString("S:(ML;OICI;NW;;;LW)")
+	labelDescriptor, err := windows.SecurityDescriptorFromString(
+		"S:(ML;OICI;NW;;;" + integrityLabel + ")")
 	if err != nil {
 		return err
 	}
@@ -480,9 +490,35 @@ func configureWindowsLowIntegrityStaging(path string) error {
 		return err
 	}
 	if control&windows.SE_DACL_PROTECTED == 0 {
-		return errors.New("staging DACL is not protected")
+		return errors.New("caller directory DACL is not protected")
 	}
 	return nil
+}
+
+func copyWindowsAnalyzerIsolationHelper(t *testing.T) string {
+	t.Helper()
+	directory := t.TempDir()
+	if err := configureWindowsCallerDirectory(directory, "ME"); err != nil {
+		t.Fatalf("configure analyzer helper directory: %v", err)
+	}
+	source, err := os.Open(os.Args[0])
+	if err != nil {
+		t.Fatalf("open analyzer helper source: %v", err)
+	}
+	defer source.Close()
+	destinationPath := filepath.Join(directory, "analyzer-isolation-helper.exe")
+	destination, err := os.OpenFile(destinationPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o500)
+	if err != nil {
+		t.Fatalf("create analyzer helper copy: %v", err)
+	}
+	if _, err := io.Copy(destination, source); err != nil {
+		_ = destination.Close()
+		t.Fatalf("copy analyzer helper: %v", err)
+	}
+	if err := destination.Close(); err != nil {
+		t.Fatalf("close analyzer helper copy: %v", err)
+	}
+	return destinationPath
 }
 
 func windowsIsolationEnvironment(values ...string) []string {
