@@ -2634,6 +2634,40 @@ execution, persistence, Artifact, or product authority. Hosted Windows verifies 
 token before spawn and visibly skips only its exact service-session `0xc0000142` limitation;
 local Windows still executes the real restricted child, so that skip is not production evidence.
 
+### P10-I1/I2/I3：产品准入矩阵、认证能力合同与恢复验收
+
+P10-I1 重新构建并校验 F/G/H 的原始证据链，而不是信任调用方提供的摘要。20 项产品控制中有 18 项
+候选观察、其中 13 项仅为测试符合性、生产验证为 0，全部 20 项仍阻塞启动；候选与测试符合性计数
+有意重叠，但两者都不是生产证据。durable intent 与 append-only audit 继续明确缺失，准入、产品
+adapter、process starter 和全部 authority 均为 false。瞬态证据输入全部使用 `json:"-"`，不会意外
+形成第二套可序列化证据协议。
+
+P10-I2 使用域隔离 Ed25519 签名，把精确准入矩阵、scope、launch plan、release、analyzer、平台、
+executable、操作者批准身份、32 字节非零 nonce 与有界有效期绑定在同一个请求中。请求不含路径、
+命令、argv、环境变量或输入正文。它只是 authenticated request contract，不是 bearer token，也不
+签发启动能力；clock validity、durable replay guard 与 atomic consumption 仍为 false，原始密钥、
+签名和 nonce 也不会进入结果合同。
+
+P10-I3 固定十种有序恢复场景：start 前 intent、已提交但身份未知、deadline、cancel、结果发布前后
+崩溃、孤儿进程树、外来 staging 冲突、终态重放和旧 generation worker。每项都要求幂等重放，并按
+场景要求 write-ahead intent、generation fencing、精确进程身份/树静止、no-replace 与外来资源保护；
+当前 10 项生产验证仍全为 0。没有 lifecycle store、cleanup executor、reconciler 或 apply/start 路径。
+
+本批不新增 migration、API、CLI、HTTP、Desktop、Tool、Skill、Store、Run/Event、Artifact 或真实
+进程，schema 保持 v92。累计六切片健壮性门通过：全仓普通 Go 554.5 秒、race 617.8 秒，vet、
+staticcheck、govulncheck、module verify、48 个 Web 文件/178 项测试、production build、npm audit、
+Rust fmt/test/clippy/RustSec、Desktop 边界和 Linux Analyzer 交叉编译均通过。产品执行仍关闭，详见
+[ADR 0088](docs/adr/0088-analyzer-product-admission-authenticated-capability-and-recovery-acceptance.md)。
+
+This non-schema P10-I1/I2/I3 batch classifies the exact F/G/H evidence without
+promoting candidate or test observations to production proof, verifies a
+domain-separated Ed25519 operator request without issuing a bearer capability,
+and records ten mandatory restart/failure acceptance scenarios. Durable replay,
+atomic consumption, write-ahead lifecycle state, generation fencing, recovery
+execution, append-only audit, and a production sandbox are still absent. No
+product route or process starter was added, so schema v92 and product authority
+remain unchanged.
+
 ### D1-UX4/UX5/UX6：无边框工作台、可调侧栏与 Agent 输入区
 
 本批不新增 migration，schema/OpenAPI 仍为 v84 与 75 path / 83 operation / 182 schema。

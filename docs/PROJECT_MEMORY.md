@@ -2384,6 +2384,36 @@ that exact status and empty child output. Other errors fail. Local Windows
 still launches and verifies the real child for 10 repetitions. The hosted skip
 is not production or child-process evidence, and no product starter was opened.
 
+## Completed Analyzer Product Admission Contracts (P10-I1/I2/I3)
+
+P10-I1 rebuilds the exact F/G/H evidence chain and classifies 20 product
+controls. Eighteen have candidate observations, thirteen of those are only
+test-conformance observations, none are production verified, and all twenty
+remain start blockers. Durable intent and append-only audit are explicitly
+missing. Admission, adapter readiness, process-start readiness, and every
+authority field remain false.
+
+P10-I2 defines domain-separated Ed25519 request and verification contracts
+bound to the exact admission matrix, scope, launch plan, release, analyzer,
+platform, executable, operator identity, nonzero 32-byte nonce, and bounded
+validity interval. The request has no path, command, argv, environment, or input
+body. Signature verification does not issue a bearer capability: clock
+acceptance, durable replay protection, and atomic consumption remain absent,
+and no raw key, signature, or nonce is retained in the contract.
+
+P10-I3 binds ten ordered restart/failure scenarios to those exact contracts.
+All scenarios require idempotent handling and remain open product blockers;
+write-ahead intent, generation fencing, process identity/tree quiescence,
+no-replace publication, and foreign-resource protection are required where
+applicable. No lifecycle store, cleanup executor, recovery reconciler, apply
+path, or process starter exists.
+
+The cumulative six-slice robustness gate passed: full uncached Go in 554.5
+seconds, full race in 617.8 seconds, vet, warning-free staticcheck,
+govulncheck, module verification, 48 Web files/178 tests, API check, production
+build, zero-finding npm audit, Rust fmt/test/clippy/RustSec, Desktop boundaries,
+and Linux no-CGO Analyzer cross-compilation. Schema remains v92. See ADR 0088.
+
 ## Next Slice
 
 P11-C8C remains blocked and is tracked in GitHub Issue #1. Do not spend normal
@@ -2393,13 +2423,14 @@ operator-only Restricted Safe Web adapter must still exclude model Tools,
 personal Profiles, request mutation/replay, arbitrary remote debugging, CTF
 security-disable flags, and Full Debug CDP.
 
-The next recommended analyzer batch is P10-I1/I2/I3: define a production
-adapter admission matrix over the exact F/G/H evidence, an authenticated
-operator-owned one-shot start capability contract, and restart/failure cleanup
-acceptance without adding a CLI, HTTP, Desktop, Tool, Skill, or Agent starter.
-Only an independently reviewed later batch may connect real product execution.
-Docker PTY, arbitrary model Shell, signed distribution, and the Windows 10
-matrix remain separate gates.
+The next recommended analyzer batch is P10-J1/J2/J3. Add a durable one-shot
+nonce/request ledger with exact Run/operator/evidence binding, a
+generation-fenced write-ahead start-intent state machine with atomic
+consume/expiry/cancel transitions, and append-only lifecycle/recovery receipts.
+Use only Disabled/Fake execution; do not add a real process starter. A later
+independent batch may consider product execution only after production OS
+sandbox evidence and recovery acceptance exist. Docker PTY, arbitrary model
+Shell, signed distribution, and the Windows 10 matrix remain separate gates.
 
 ## Local Machine Note
 

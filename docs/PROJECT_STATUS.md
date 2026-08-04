@@ -4,23 +4,22 @@ Last updated: 2026-08-04
 
 ## Resume Context
 
-The current mainline P10-H1/H2/H3 batch keeps schema v92 and exercises three
-product-inert analyzer isolation boundaries only from platform `_test.go`:
-caller-owned immutable Handle/FD handoff after path replacement, a separate
-low-privilege Windows token or Linux user namespace, and read-only input plus
-private staging with no-replace result handoff and cleanup. It does not provide
-a provisioned OS account, complete filesystem sandbox, production starter, or
-execution/persistence/Artifact authority. ADR 0087 is authoritative.
+The current mainline P10-I1/I2/I3 batch keeps schema v92 and adds three
+product-inert Analyzer contracts. P10-I1 rebuilds the exact F/G/H evidence and
+classifies 20 product controls: 18 candidate observations, 13 overlapping
+test-conformance observations, zero production verification, and 20 start
+blockers. P10-I2 verifies a domain-separated Ed25519 operator request but does
+not issue a bearer capability; durable replay, atomic consumption, and clock
+acceptance remain absent. P10-I3 records ten mandatory restart/failure cleanup
+scenarios, all still open. ADR 0088 is authoritative.
 
-The repository ordinary Go gate passed in about 435.4 seconds. Analyzer
-ordinary/race, vet, warning-free staticcheck, ten focused Windows repetitions,
-native Ubuntu H1/H2/H3, 178 Web tests, production build, and zero-finding npm
-audit pass. The Windows follow-up explicitly disables effective Administrators
-membership instead of treating UAC `TokenElevation` as authority, and Web pins
-`undici 7.29.0` for the current advisory. No migration, API, UI, database, or
-product process surface changed. Architecture remains about 99%, product
-usability about 96-98%, generic Coding Agent about 97%, and Cyber automation
-about 20%.
+No migration, API, UI, CLI, database route, product process, capability
+issuance, cleanup executor, or recovery mutation was added. The cumulative
+six-slice gate passed full Go in 554.5 seconds and full race in 617.8 seconds,
+plus vet, warning-free staticcheck, govulncheck, module verification, Web,
+Rust, Desktop-boundary, and Linux cross-compile checks. Architecture remains
+about 99%, product usability about 96-98%, generic Coding Agent about 97%, and
+Cyber automation about 20%.
 
 Hosted follow-up run `30873766068` passed Web and native Ubuntu H1/H2/H3. It
 found a Windows checkout ACL dependency after administrator membership was
@@ -2663,26 +2662,21 @@ were fixed by exact 5.0.9 and 8.5.25 overrides and the Web gate was rerun. The G
 release readiness remains false. No unresolved high/medium issue is known on
 an enabled path.
 
-## Current P10-H Status
+## Current P10-I Status
 
-P10-H1 proves caller-owned immutable object handoff in platform tests. Windows
-passes one exact inherited read handle and Linux passes one exact inherited
-file descriptor; replacing the path before child read does not change the
-object observed by the child.
+P10-I1 provides an exact admission matrix rather than production admission.
+All 20 controls still block start, and candidate/test-conformance observations
+remain explicitly weaker than production evidence.
 
-P10-H2 proves a separate low-privilege execution context, not a provisioned
-account. Windows uses a maximum-privilege-disabled Low Integrity primary token;
-Linux uses a new user namespace, UID/GID 65534, `no_new_privs`, and zero
-effective capabilities. Dedicated-account evidence remains explicitly false.
+P10-I2 authenticates an operator-owned request and binds every relevant digest,
+identity, nonce, and time bound. It deliberately has no path/command/argv/env
+payload and cannot issue or consume a capability. Signature verification alone
+does not make the request executable.
 
-P10-H3 proves scoped read-only input, private writable staging, no-replace
-result handoff, conflict rejection, and cleanup. Windows uses protected DACL
-plus MIC; Linux uses Landlock. Complete filesystem sandboxing remains false.
-Every child process is test-only, production files still contain no starter,
-and no product surface or authority changed. ADR 0087 is authoritative.
-The three-slice functional gate passed the final repository-wide ordinary Go
-suite in 435.4 seconds, Analyzer ordinary/race tests, vet, warning-free
-staticcheck, and a CGO-disabled Linux cross-compile.
+P10-I3 defines ten ordered restart/failure acceptance scenarios. No scenario
+has production proof, and there is no durable ledger, generation fence,
+lifecycle store, cleanup executor, reconciler, apply path, or process starter.
+Strict JSON and tamper/forgery/widening tests pass. ADR 0088 is authoritative.
 
 ## Recommended Next Batch
 
@@ -2692,12 +2686,13 @@ same-executable isolation design should resume that issue. Any future
 operator-only Restricted Safe Web adapter must still exclude model Tools and
 Full Debug CDP.
 
-P10-F1 through P10-H3 are complete at the candidate/test-conformance layer.
-The next recommended analyzer batch is P10-I1/I2/I3: a production-adapter
-admission matrix, authenticated operator-owned one-shot capability contract,
-and restart/failure cleanup acceptance, still without a user or Agent starter.
-Browser work must not widen the P12-E host executor or Debug terminal
-contracts.
+P10-F1 through P10-I3 are complete at the candidate, test-conformance, and
+product-contract layers. The next recommended analyzer batch is P10-J1/J2/J3:
+a durable nonce/request ledger, generation-fenced write-ahead start-intent
+state machine with atomic consume/expiry/cancel transitions, and append-only
+lifecycle/recovery receipts. It must use Disabled/Fake execution and still add
+no real process starter. Browser work must not widen the P12-E host executor or
+Debug terminal contracts.
 
 Keep the general LocalRunner disabled until a real workspace filesystem and
 network sandbox makes protected host roots unavailable or read-only; never map

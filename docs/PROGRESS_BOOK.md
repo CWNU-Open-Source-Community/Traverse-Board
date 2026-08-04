@@ -2417,3 +2417,33 @@ Windows 真实受限子进程三项连续十轮通过；远端跳过不算子进
 下一批建议 P10-I1/I2/I3：先定义 F/G/H 证据到生产 adapter 的准入矩阵、authenticated operator-owned
 one-shot capability 合同和 restart/failure cleanup 验收，不增加 CLI/HTTP/Desktop/Tool/Skill/Agent
 starter。只有后续独立评审通过才允许连接真实产品执行。WFP/C8C 继续由 GitHub Issue #1 跟踪。
+
+## P10-I1/I2/I3：产品准入、认证请求与恢复验收合同
+
+任务 ID：`P10-Analyzer-Product-Admission-Authenticated-Capability-Recovery-Acceptance`。本批不新增
+migration、API、CLI、HTTP、Desktop、Tool、Skill、Store、Run/Event、Artifact 或真实进程，schema
+保持 v92。
+
+P10-I1 不信任摘要替代原始证据，而是重建 F/G/H 完整链后生成 20 项控制矩阵。18 项存在候选观察，
+其中 13 项仅为测试符合性，生产验证为 0，20 项全部阻塞启动；durable intent 与 append-only audit
+仍明确缺失。所有准入、adapter、starter 与 authority 字段保持 false，瞬态证据也禁止 JSON 输出。
+
+P10-I2 使用域隔离 Ed25519 签名精确绑定 admission、scope、launch、release、analyzer、平台、
+executable、操作者身份、32 字节 nonce 与有界时间。请求不携带路径、命令、argv、环境或输入正文。
+验证合同只证明签名与绑定正确，不签发 bearer capability；clock、durable replay guard、atomic
+consumption、capability issued/consumed 和 process starter 均保持 false。
+
+P10-I3 固定十项恢复验收：intent-before-start、submitted-identity-unknown、deadline、cancel、发布前后
+crash、orphan tree、foreign staging collision、terminal replay 与 stale generation。它们要求幂等处理，
+并按场景声明 write-ahead、generation fence、精确进程身份/树静止、no-replace 与外来资源保护，但
+没有 lifecycle store、cleanup executor、reconciler 或 apply 权限，十项生产证据均为 0。
+
+三切片定向 ordinary/race、vet、staticcheck、Desktop tagged 边界与 Linux no-CGO 交叉编译通过。本批
+同时触发累计六切片健壮性门：全仓普通 Go 554.5 秒、race 617.8 秒、全仓 vet/staticcheck、零可达
+govulncheck、module verify、48 文件 178 项 Web、API check/build/npm audit、Rust fmt/test/clippy 与
+本机 1186 条 advisory 缓存 RustSec 全部通过。未发现新增启用入口或高/中风险回归。边界见
+[ADR 0088](adr/0088-analyzer-product-admission-authenticated-capability-and-recovery-acceptance.md)。
+
+下一批建议 P10-J1/J2/J3：仅用 Disabled/Fake 执行建立 durable nonce/request ledger、generation-fenced
+write-ahead start-intent 状态机与 atomic consume/expiry/cancel，以及 append-only lifecycle/recovery
+收据。真实 process starter 仍须等生产 OS sandbox 与恢复证据独立验收后另批评审。
