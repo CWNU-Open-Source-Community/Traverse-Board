@@ -2647,18 +2647,41 @@ were fixed by exact 5.0.9 and 8.5.25 overrides and the Web gate was rerun. The G
 release readiness remains false. No unresolved high/medium issue is known on
 an enabled path.
 
+## Current P10-H Status
+
+P10-H1 proves caller-owned immutable object handoff in platform tests. Windows
+passes one exact inherited read handle and Linux passes one exact inherited
+file descriptor; replacing the path before child read does not change the
+object observed by the child.
+
+P10-H2 proves a separate low-privilege execution context, not a provisioned
+account. Windows uses a maximum-privilege-disabled Low Integrity primary token;
+Linux uses a new user namespace, UID/GID 65534, `no_new_privs`, and zero
+effective capabilities. Dedicated-account evidence remains explicitly false.
+
+P10-H3 proves scoped read-only input, private writable staging, no-replace
+result handoff, conflict rejection, and cleanup. Windows uses protected DACL
+plus MIC; Linux uses Landlock. Complete filesystem sandboxing remains false.
+Every child process is test-only, production files still contain no starter,
+and no product surface or authority changed. ADR 0087 is authoritative.
+The three-slice functional gate passed the final repository-wide ordinary Go
+suite in 435.4 seconds, Analyzer ordinary/race tests, vet, warning-free
+staticcheck, and a CGO-disabled Linux cross-compile.
+
 ## Recommended Next Batch
 
-First obtain and independently review one administrator-run WFP production
-probe, then resolve the same-executable process-wide effect. Only after both
-gates pass may P11-C8C add an operator-only Restricted Safe Web product adapter.
-It must not add a model Tool or Full Debug CDP.
+P11-C8C remains blocked in GitHub Issue #1. Do not spend normal mainline batches
+rerunning the administrator WFP probe; only new external evidence or a changed
+same-executable isolation design should resume that issue. Any future
+operator-only Restricted Safe Web adapter must still exclude model Tools and
+Full Debug CDP.
 
-P10-F1 through P10-G3 are complete. The next recommended analyzer batch is
-P10-H1/H2/H3: caller-owned immutable-handle handoff, dedicated low-privilege
-identity, and read-only filesystem/private-staging enforcement, still without
-a product surface. Browser work must not widen the P12-E host executor or
-Debug terminal contracts.
+P10-F1 through P10-H3 are complete at the candidate/test-conformance layer.
+The next recommended analyzer batch is P10-I1/I2/I3: a production-adapter
+admission matrix, authenticated operator-owned one-shot capability contract,
+and restart/failure cleanup acceptance, still without a user or Agent starter.
+Browser work must not widen the P12-E host executor or Debug terminal
+contracts.
 
 Keep the general LocalRunner disabled until a real workspace filesystem and
 network sandbox makes protected host roots unavailable or read-only; never map

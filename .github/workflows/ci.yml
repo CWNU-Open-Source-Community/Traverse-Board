@@ -81,11 +81,11 @@ jobs:
       - run: cargo clippy --locked --all-targets -- -D warnings
       - name: Build deterministic Rust fixture
         run: cargo build --locked --bin cyberagent-analyzer-fixture
-      - name: Verify Linux subprocess conformance boundary
+      - name: Verify Linux analyzer conformance boundaries
         working-directory: .
         env:
           CYBERAGENT_ANALYZER_CONFORMANCE_BINARY: ${{ github.workspace }}/analyzers/target/debug/cyberagent-analyzer-fixture
-        run: go test -count=1 ./internal/analyzer -run '^Test(SubprocessConformance|AnalyzerResultStaging)'
+        run: go test -count=1 ./internal/analyzer -run '^Test(SubprocessConformance|AnalyzerResultStaging|Analyzer(ImmutableHandleHandoff|DedicatedLowPrivilegeIdentity|ReadOnlyFilesystemPrivateStaging)Conformance)'
 
   desktop:
     name: Windows Desktop shell
@@ -119,7 +119,7 @@ jobs:
         shell: pwsh
         run: |
           $env:CYBERAGENT_ANALYZER_CONFORMANCE_BINARY = Join-Path $env:GITHUB_WORKSPACE "analyzers\target\debug\cyberagent-analyzer-fixture.exe"
-          go test -count=1 ./internal/analyzer -run '^Test(SubprocessConformance|AnalyzerResultStaging|AnalyzerSandboxEnforcementConformance)'
+          go test -count=1 ./internal/analyzer -run '^Test(SubprocessConformance|AnalyzerResultStaging|AnalyzerSandboxEnforcementConformance|Analyzer(ImmutableHandleHandoff|DedicatedLowPrivilegeIdentity|ReadOnlyFilesystemPrivateStaging)Conformance)'
       - name: Build and verify portable Desktop shell
         shell: pwsh
         run: ./scripts/build-desktop.ps1 -SkipFrontend -VerifyReproducible

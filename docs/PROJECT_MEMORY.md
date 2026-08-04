@@ -2326,6 +2326,33 @@ by pinning 5.0.9 and 8.5.25, then reran Web tests and build. The final GUI SHA-2
 release readiness remains false. No unresolved high/medium issue is known on
 an enabled path. Schema and product metrics remain unchanged.
 
+## Completed Analyzer Isolation Boundary Conformance Batch (P10-H1/H2/H3)
+
+P10-H1 opens the analyzer object before replacing its path, then passes only
+the caller-owned read handle on Windows or file descriptor on Linux. The child
+and caller observe the original digest after replacement, while the child
+receives no path authority.
+
+P10-H2 runs a test helper in a separate low-privilege context. Windows uses a
+primary token with maximum privileges disabled and Low Integrity; Linux uses a
+new user namespace mapped to UID/GID 65534 with `no_new_privs` and zero
+effective capabilities. These are dedicated execution contexts, not
+provisioned OS accounts. Windows retains the caller SID and Linux maps back to
+the caller, so `DedicatedAccountObserved` remains false.
+
+P10-H3 gives the helper read-only access to the exact input and write access
+only to private staging. Windows uses a protected DACL plus Low Integrity MIC;
+Linux uses Landlock plus the user namespace. Both platforms verify create-only
+no-replace handoff, conflict rejection, and residue cleanup.
+
+All child processes remain in platform `_test.go`. Complete filesystem
+sandboxing, a provisioned dedicated account, product start, execution,
+persistence, and Artifact authority remain false. Windows ordinary/race tests,
+vet, and warning-free staticcheck pass. Linux cross-compiles locally without
+CGO and is pinned into the Ubuntu native CI gate. The final repository-wide
+ordinary Go functional gate passed in 435.4 seconds; Store completed normally
+in 417.6 seconds. See ADR 0087.
+
 ## Next Slice
 
 P11-C8C remains blocked and is tracked in GitHub Issue #1. Do not spend normal
@@ -2335,12 +2362,13 @@ operator-only Restricted Safe Web adapter must still exclude model Tools,
 personal Profiles, request mutation/replay, arbitrary remote debugging, CTF
 security-disable flags, and Full Debug CDP.
 
-The next recommended analyzer batch is P10-H1/H2/H3: still without a product
-surface, prove caller-owned immutable-handle handoff, dedicated low-privilege
-identity, and read-only filesystem/private-staging enforcement on Windows and
-Linux. Only after a separate threat model and acceptance gate may a product
-adapter receive controlled start authority. Docker PTY, arbitrary model Shell,
-signed distribution, and the Windows 10 matrix remain separate gates.
+The next recommended analyzer batch is P10-I1/I2/I3: define a production
+adapter admission matrix over the exact F/G/H evidence, an authenticated
+operator-owned one-shot start capability contract, and restart/failure cleanup
+acceptance without adding a CLI, HTTP, Desktop, Tool, Skill, or Agent starter.
+Only an independently reviewed later batch may connect real product execution.
+Docker PTY, arbitrary model Shell, signed distribution, and the Windows 10
+matrix remain separate gates.
 
 ## Local Machine Note
 

@@ -10,12 +10,12 @@
 
 项目从 schema v49 起同时使用两项工程指标，避免把“架构已经搭好”误解为“产品已经完整可用”。这些百分比是基于当前任务书和可验证工作流的工程估算，不是性能基准。
 
-- **架构完成度 / Architecture completion：约 99%**。衡量 Go 控制平面、Run/Session、状态恢复、Policy、审批、预算、事件流、Tool Gateway、Agent 协调、Skills、报告、Sandbox 协议及 Go/TypeScript/Rust 边界的覆盖程度；其中 V2 Run-centric Runtime 约 99%。当前 schema v92：v91 提供独立的 `restricted|full_debug` CDP 权限快照；P11-C5-C8B 进一步补上 Safe Web Windows 进程、一次性 Profile、受限 loopback CDP、WFP 默认拒绝探针和可恢复生命周期账本，但保持无产品入口。P10-F1-G3 又以纯 caller-byte 方式固定 PE/ELF 与架构证据、digest-only 发布候选、canonical Ed25519 来源验证、精确 scope/limits 人工确认，以及仅测试可用的 Windows/Linux 沙箱符合性证据。
+- **架构完成度 / Architecture completion：约 99%**。衡量 Go 控制平面、Run/Session、状态恢复、Policy、审批、预算、事件流、Tool Gateway、Agent 协调、Skills、报告、Sandbox 协议及 Go/TypeScript/Rust 边界的覆盖程度；其中 V2 Run-centric Runtime 约 99%。当前 schema v92：v91 提供独立的 `restricted|full_debug` CDP 权限快照；P11-C5-C8B 进一步补上 Safe Web Windows 进程、一次性 Profile、受限 loopback CDP、WFP 默认拒绝探针和可恢复生命周期账本，但保持无产品入口。P10-F1-H3 又以纯 caller-byte/测试态方式固定 PE/ELF 与架构证据、digest-only 发布候选、canonical Ed25519 来源验证、精确 scope/limits 人工确认，以及 Windows/Linux 的资源、不可变句柄、低权限上下文和受限文件系统符合性证据。
 - **产品可用度 / Product usability：约 96-98%**。衡量普通用户能否依靠当前 CLI、TUI、Web 和 Windows Desktop 完成真实端到端工作。通用 Coding Agent 工作流约 97%，Cyber 自动化工作流约 20%；四种固定诊断动作已形成 Agent 提案到人工审批的完整链，操作者还可在双重确认和本次进程闸门下从 CLI 执行一次非沙箱宿主命令。任意 `approval` 提案、Debug Agent 输入和受限浏览器内核仍无模型、HTTP 或 React 产品入口。独立浏览器网络隔离、Docker 持久终端、可操作的内置浏览器窗口、安装脚本/钩子、Windows 10 人工发布矩阵和 Cyber 工具链仍未完成。
 
 Starting with schema v49, the project reports two engineering indicators so architectural maturity is not mistaken for end-user completeness. These percentages are roadmap estimates backed by tested workflows, not performance benchmarks.
 
-- **Architecture completion: about 99%.** Schema v91 adds an independent `restricted|full_debug` browser-CDP policy ceiling. P11-C5-C8B add a product-inert Safe Web Windows process adapter, disposable Profile lifecycle, restricted loopback CDP, a WFP default-deny probe, and schema-v92 recoverable lifecycle records. P10-F1-G3 add caller-byte PE/ELF evidence, digest-only release candidates, canonical Ed25519 provenance verification, exact scope/limits acknowledgement, and test-only Windows/Linux sandbox conformance without product execution authority.
+- **Architecture completion: about 99%.** Schema v91 adds an independent `restricted|full_debug` browser-CDP policy ceiling. P11-C5-C8B add a product-inert Safe Web Windows process adapter, disposable Profile lifecycle, restricted loopback CDP, a WFP default-deny probe, and schema-v92 recoverable lifecycle records. P10-F1-H3 add caller-byte PE/ELF evidence, digest-only release candidates, canonical Ed25519 provenance verification, exact scope/limits acknowledgement, and test-only Windows/Linux resource, immutable-handle, low-privilege-context, and scoped-filesystem conformance without product execution authority.
 - **Product usability: about 96-98%.** The generic coding-agent workflow is about 97% usable and Cyber automation about 20%. Fixed diagnostics have an end-to-end Agent-proposal workflow, and an operator can explicitly launch one non-sandboxed host command from the CLI under the current process gates. Arbitrary approval proposals, Debug Agent input, and the restricted browser core still have no model, HTTP, or React product route. Independent browser network containment, Docker terminals, an operational built-in browser window, install hooks, the Windows 10 release matrix, and the Cyber toolchain remain unfinished.
 
 ## 项目简介 / Project Overview
@@ -2591,6 +2591,35 @@ identity, immutable-handle handoff, and a production sandbox remain unverified. 
 process starter, execution grant, persistence route, Artifact commit, or user-facing analyzer
 surface was added.
 
+### P10-H1/H2/H3：不可变句柄、低权限上下文与文件系统测试符合性
+
+P10-H1 在路径被替换后才启动测试 helper。Windows 只继承调用方已经打开的只读 Handle，Linux 只
+继承同一已打开 FD；子进程和调用方都读到原始对象摘要，而替换路径的字节不会进入子进程权限。
+这证明了测试中的 immutable-handle handoff，不证明生产 loader、平台签名或启动授权。
+
+P10-H2 在 Windows 使用禁用最大权限并降至 Low Integrity 的独立 primary token，在 Linux 使用新的
+user namespace、UID/GID 65534、`no_new_privs` 和零 effective capabilities。它们是专用于该子进程的
+低权限执行上下文，不是新建的 OS 服务账户；Windows 仍保留调用方 SID，Linux namespace 仍映射回
+调用方账户，因此 `DedicatedAccountObserved=false`，不得过度声称。
+
+P10-H3 在 Windows 组合 protected DACL 与 Low Integrity mandatory label，在 Linux 组合 user
+namespace 与 Landlock；测试 helper 只能读取输入、不能修改输入或外部目录，只能写入 mode-0700/
+私有 staging。结果通过 create-only hard-link 做 no-replace handoff，冲突不能覆盖，暂存与目标残留会
+被复核并清理。该证据仍固定 `CompleteFilesystemSandbox=false`，不代表所有宿主路径、设备和内核接口
+均已隔离。
+
+所有真实子进程仍只存在于平台 `_test.go`；生产 Analyzer 没有 process starter，CLI、HTTP、Desktop、
+Tool、Skill、Store、Run/Event 与 Artifact 均没有调用入口。Windows 普通/race Analyzer、vet 与零告警
+staticcheck 已通过；最终全仓普通 Go 功能门用时 435.4 秒通过，Linux 本地完成无 CGO 交叉编译并
+由 Ubuntu CI 原生验收。schema 保持 v92，用户执行能力和双指标不变。边界见
+[ADR 0087](docs/adr/0087-analyzer-immutable-handoff-low-privilege-and-filesystem-conformance.md)。
+
+This non-schema P10-H1/H2/H3 batch exercises caller-owned inherited handles after path
+replacement, separate low-privilege token/namespace contexts, and read-only input with private
+staging and no-replace cleanup. Every process remains test-only. The observations do not claim
+a provisioned OS account, a complete filesystem sandbox, production readiness, or any process,
+execution, persistence, Artifact, or product authority.
+
 ### D1-UX4/UX5/UX6：无边框工作台、可调侧栏与 Agent 输入区
 
 本批不新增 migration，schema/OpenAPI 仍为 v84 与 75 path / 83 operation / 182 schema。
@@ -2790,7 +2819,7 @@ This project is licensed by the repository owner under the [Apache License 2.0](
 
 The current priority is the V2 run-centric runtime. P0 and P1 are complete. P2 supports resumable root Agent turns, cumulative token/model-time accounting, bounded execution and Provider retry loops, strict Supervisor-owned lifecycle actions, one Run path for CLI/TUI Session chat, Provider streaming/cancellation, structured memory, and execution leases. P3-P5 cover Work/Notes, the root Coordinator, bounded Specialist/read-only Fan-out, Tool Gateway, approvals, budgets, and Artifacts. P9 includes the authenticated API, React/Vite/TUI/Headless/Windows Desktop, repository/editor/verification/Handoff workflows, optional user terminal, and operator-only schema-v90 host executor. Schema v91 exposes independent restricted/full-debug CDP policy selection; P11-C5-C7 adds the internal restricted process/Profile/CDP core without a product route. Debug Agent input remains Go-internal; verified browser network containment, the operational built-in browser, Windows 10 release matrix, and Agent-controlled Docker execution remain pending. CTF-specific solving stays deferred until the generic runtime is stable.
 
-P10 now includes A1 through D3: Go-owned strict analyzer request/result/error envelopes and limits, a fixed inert descriptor Registry, a bounded no-extraction ZIP inventory contract, a pinned Rust 1.97.1 implementation, independent Go/Rust shared-vector CI, a canonical non-starting invocation candidate, a sealed Disabled/Fake bridge, inert executable identity/preflight records, and a separately compiled Linux/Windows subprocess conformance harness. The real adapter is test-only; no product invocation, file/path input, Run/Event/SQLite persistence, or Artifact commit exists yet.
+P10 now includes A1 through H3: Go-owned strict analyzer envelopes and limits, an inert Registry, bounded ZIP inventory, pinned Rust fixture and shared vectors, non-starting invocation/identity/release/provenance/approval candidates, test-only Windows/Linux process-resource enforcement, caller-owned immutable-handle handoff, low-privilege execution contexts, and scoped read-only-input/private-staging conformance. The real adapter remains test-only; no product invocation, Run/Event/SQLite persistence, or Artifact commit exists yet.
 
 Keyboard-accessible paired comparison previews, event-high-water/keyset verification pagination, deterministic snapshot export, immutable record-only receipt history, explicit non-authorizing receipt review, exact Handoff/Journey-to-Verify navigation, and non-product R10 accepted-envelope golden vectors are complete. xterm, signed distribution, and the Windows 10 release matrix remain pending. The current narrow controls include read-only repository state, redacted Diff/history/exact-commit preview/navigable exact-file history/comparison, status-only Provider diagnostics/routes/credentials with atomic generation reload, Go-issued FileEdit proposal/read-only recovery plus independently authorized review/apply, immutable operator verification and metadata-only Handoff/snapshot-paginated exact-item coverage/download/receipt history/review, a regenerable non-mutating Code Handoff/export, foreground wake consumption plus an optional 1 x 1-step worker with bounded health, and explicitly confirmed inert Skill registration. R10 pins strict accepted receipt-envelope encoding only inside `NonProductOnly`; wall-clock measurement, raw output, process identity, CPU/memory OS limits, signal identity, and host/container process authority remain false.
 

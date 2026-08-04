@@ -2303,7 +2303,7 @@ CGO 交叉尝试因本机没有 Linux C 交叉工具链而不可执行，不属�
 
 每三个聚焦切片组成一个交付批次；第三片后统一执行功能复核、普通/聚焦测试、组合差异审查、项目记忆更新、Git 提交、GitHub 推送和 CI 复核。每两个批次即六个切片再执行全仓 race、vet、staticcheck、govulncheck、依赖/隐私与完整构建健壮性门。当前仓库直接开发并推送 `main`；除非用户明确要求，不创建功能分支或 PR。
 
-长对话恢复时依次阅读：`README.md`、`docs/PROJECT_MEMORY.md`、`docs/PROJECT_STATUS.md`、本文件、`docs/TASK_BOOK.md`、`docs/http-api.md`、`docs/errors.md`，再按序阅读 `docs/adr/0001-*.md` 到 `docs/adr/0086-analyzer-signed-provenance-scope-approval-and-test-sandbox-conformance.md`。
+长对话恢复时依次阅读：`README.md`、`docs/PROJECT_MEMORY.md`、`docs/PROJECT_STATUS.md`、本文件、`docs/TASK_BOOK.md`、`docs/http-api.md`、`docs/errors.md`，再按序阅读 `docs/adr/0001-*.md` 到 `docs/adr/0087-analyzer-immutable-handoff-low-privilege-and-filesystem-conformance.md`。
 
 ## P10-F1/F2/F3：调用方字节格式证据、发布候选与设计复核启动计划
 
@@ -2375,3 +2375,30 @@ Coding Agent 约 97%、Cyber 自动化约 20%，均保持不变。
 identity 和 read-only filesystem/private staging enforcement。只有完成独立威胁模型和跨平台证据
 验收后，才评审 product adapter 的受控 start 权限。WFP/C8C 仍由 GitHub Issue #1 跟踪，不在主线
 重复探针。
+
+## P10-H1/H2/H3：不可变句柄、低权限上下文与文件系统测试符合性
+
+任务 ID：`P10-Analyzer-Immutable-Handoff-Low-Privilege-Filesystem-Conformance`。本批不新增 migration、
+API 或 UI，schema 保持 v92。P10-H1 在调用方打开只读对象后替换原路径；Windows 子进程只继承
+allowlist 中的同一 Handle，Linux 子进程只继承同一 FD。两端都在路径已变化后读取原始摘要，子进程
+没有路径重查权限。
+
+P10-H2 在 Windows 创建禁用最大权限的 Low Integrity primary token，并验证非提升、调用方与子进程
+integrity 分离及启用权限上限；Linux 创建 user namespace，映射 UID/GID 65534，固定
+`no_new_privs` 与零 effective capabilities。两者是专用执行上下文但不是专用 OS 账户，相关字段保持
+false。race 首轮发现 `x/sys/windows` SID helper 在 checkptr 下使用内部指针，现改为复制并边界检查
+SID 字节后直接解析 integrity RID。
+
+P10-H3 在 Windows 使用 protected DACL + MIC、在 Linux 使用 user namespace + Landlock，验证输入可读
+不可写、外部目录不可写、私有 staging 可写。两端均通过 hard-link create-only 语义验证 no-replace
+handoff、冲突拒绝与残留清理；`CompleteFilesystemSandbox=false`，不声称隔离所有宿主资源。
+
+真实子进程仍只在 `_test.go`，production analyzer 没有 starter，CLI/HTTP/Desktop/Tool/Skill/Store/
+Run/Event/Artifact 权限均未改变。Windows 三项定向测试、完整 Analyzer ordinary/race、vet 和零告警
+staticcheck 通过；最终全仓普通 Go 功能门 435.4 秒通过，其中 Store 417.6 秒正常结束；Linux 无 CGO
+交叉编译通过并进入 Ubuntu 原生 CI。边界见
+[ADR 0087](adr/0087-analyzer-immutable-handoff-low-privilege-and-filesystem-conformance.md)。
+
+下一批建议 P10-I1/I2/I3：先定义 F/G/H 证据到生产 adapter 的准入矩阵、authenticated operator-owned
+one-shot capability 合同和 restart/failure cleanup 验收，不增加 CLI/HTTP/Desktop/Tool/Skill/Agent
+starter。只有后续独立评审通过才允许连接真实产品执行。WFP/C8C 继续由 GitHub Issue #1 跟踪。
