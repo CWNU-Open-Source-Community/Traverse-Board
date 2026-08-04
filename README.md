@@ -2597,10 +2597,12 @@ P10-H1 在路径被替换后才启动测试 helper。Windows 只继承调用方�
 继承同一已打开 FD；子进程和调用方都读到原始对象摘要，而替换路径的字节不会进入子进程权限。
 这证明了测试中的 immutable-handle handoff，不证明生产 loader、平台签名或启动授权。
 
-P10-H2 在 Windows 使用禁用最大权限并降至 Low Integrity 的独立 primary token，在 Linux 使用新的
+P10-H2 在 Windows 使用禁用最大权限、显式禁用 `BUILTIN\Administrators` SID 并降至 Low Integrity
+的独立 primary token，在 Linux 使用新的
 user namespace、UID/GID 65534、`no_new_privs` 和零 effective capabilities。它们是专用于该子进程的
 低权限执行上下文，不是新建的 OS 服务账户；Windows 仍保留调用方 SID，Linux namespace 仍映射回
-调用方账户，因此 `DedicatedAccountObserved=false`，不得过度声称。
+调用方账户，因此 `DedicatedAccountObserved=false`，不得过度声称。Windows 以有效管理员组成员资格
+而非 UAC `TokenElevation` 作为授权事实，避免管理员托管 runner 的诊断状态造成误判。
 
 P10-H3 在 Windows 组合 protected DACL 与 Low Integrity mandatory label，在 Linux 组合 user
 namespace 与 Landlock；测试 helper 只能读取输入、不能修改输入或外部目录，只能写入 mode-0700/
@@ -2611,7 +2613,8 @@ namespace 与 Landlock；测试 helper 只能读取输入、不能修改输入�
 所有真实子进程仍只存在于平台 `_test.go`；生产 Analyzer 没有 process starter，CLI、HTTP、Desktop、
 Tool、Skill、Store、Run/Event 与 Artifact 均没有调用入口。Windows 普通/race Analyzer、vet 与零告警
 staticcheck 已通过；最终全仓普通 Go 功能门用时 435.4 秒通过，Linux 本地完成无 CGO 交叉编译并
-由 Ubuntu CI 原生验收。schema 保持 v92，用户执行能力和双指标不变。边界见
+由 Ubuntu CI 原生验收。远端依赖门出现的新 `undici` 公告已通过固定 7.29.0 修复，本地 178 项 Web
+测试、production build 与零漏洞审计通过。schema 保持 v92，用户执行能力和双指标不变。边界见
 [ADR 0087](docs/adr/0087-analyzer-immutable-handoff-low-privilege-and-filesystem-conformance.md)。
 
 This non-schema P10-H1/H2/H3 batch exercises caller-owned inherited handles after path

@@ -1,27 +1,26 @@
 # Project Status
 
-Last updated: 2026-08-03
+Last updated: 2026-08-04
 
 ## Resume Context
 
-The current mainline P10-F1/F2/F3 batch keeps schema v92 and adds three
-product-inert analyzer preflight contracts. `analyzer_executable_format.v1`
-strictly validates caller-owned PE/ELF bytes and exact GOOS/GOARCH agreement.
-Digest-only release manifest, operator allowlist, and release candidate
-protocols pin executable, format, provenance, signer, and signature-envelope
-digests without claiming cryptographic verification. The launch-plan and
-operator-review protocols bind bounded resources and required sandbox controls
-but contain no path, command, argv, environment, input body, or process starter;
-start and every execution/product/persistence/Artifact authority remain closed.
+The current mainline P10-H1/H2/H3 batch keeps schema v92 and exercises three
+product-inert analyzer isolation boundaries only from platform `_test.go`:
+caller-owned immutable Handle/FD handoff after path replacement, a separate
+low-privilege Windows token or Linux user namespace, and read-only input plus
+private staging with no-replace result handoff and cleanup. It does not provide
+a provisioned OS account, complete filesystem sandbox, production starter, or
+execution/persistence/Artifact authority. ADR 0087 is authoritative.
 
-Final analyzer ordinary tests, vet, warning-free staticcheck, and focused race
-pass. The repository-wide ordinary Go suite passed in about 562.9 seconds
-before the final semantic tightening, Rust workspace 7+2 tests pass, and the
-affected package passed again after the audit tightened truncated image
-rejection and renamed two overclaiming fields. No migration, API, UI, file,
-network, database, or process surface changed. Architecture remains about 99%,
-product usability about 96-98%, generic Coding Agent about 97%, and Cyber
-automation about 20%. ADR 0085 is authoritative.
+The repository ordinary Go gate passed in about 435.4 seconds. Analyzer
+ordinary/race, vet, warning-free staticcheck, five focused Windows repetitions,
+native Ubuntu H1/H2/H3, 178 Web tests, production build, and zero-finding npm
+audit pass. The Windows follow-up explicitly disables effective Administrators
+membership instead of treating UAC `TokenElevation` as authority, and Web pins
+`undici 7.29.0` for the current advisory. Follow-up hosted CI is pending. No
+migration, API, UI, database, or product process surface changed. Architecture
+remains about 99%, product usability about 96-98%, generic Coding Agent about
+97%, and Cyber automation about 20%.
 
 P11-C8C remains blocked under GitHub Issue #1; normal mainline work must not
 rerun that WFP probe until external evidence or design state changes.

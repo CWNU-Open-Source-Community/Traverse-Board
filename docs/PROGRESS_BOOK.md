@@ -2383,8 +2383,9 @@ API 或 UI，schema 保持 v92。P10-H1 在调用方打开只读对象后替换�
 allowlist 中的同一 Handle，Linux 子进程只继承同一 FD。两端都在路径已变化后读取原始摘要，子进程
 没有路径重查权限。
 
-P10-H2 在 Windows 创建禁用最大权限的 Low Integrity primary token，并验证非提升、调用方与子进程
-integrity 分离及启用权限上限；Linux 创建 user namespace，映射 UID/GID 65534，固定
+P10-H2 在 Windows 创建禁用最大权限、显式禁用有效 Administrators SID 的 Low Integrity primary
+token，并验证调用方与子进程 integrity 分离、管理员成员资格关闭及启用权限上限；Linux 创建 user
+namespace，映射 UID/GID 65534，固定
 `no_new_privs` 与零 effective capabilities。两者是专用执行上下文但不是专用 OS 账户，相关字段保持
 false。race 首轮发现 `x/sys/windows` SID helper 在 checkptr 下使用内部指针，现改为复制并边界检查
 SID 字节后直接解析 integrity RID。
@@ -2396,7 +2397,9 @@ handoff、冲突拒绝与残留清理；`CompleteFilesystemSandbox=false`，不�
 真实子进程仍只在 `_test.go`，production analyzer 没有 starter，CLI/HTTP/Desktop/Tool/Skill/Store/
 Run/Event/Artifact 权限均未改变。Windows 三项定向测试、完整 Analyzer ordinary/race、vet 和零告警
 staticcheck 通过；最终全仓普通 Go 功能门 435.4 秒通过，其中 Store 417.6 秒正常结束；Linux 无 CGO
-交叉编译通过并进入 Ubuntu 原生 CI。边界见
+交叉编译通过并由 Ubuntu 原生 CI 验收。首次远端门同时发现 Windows UAC `TokenElevation` 误作授权
+事实以及 `undici <7.29.0` 新公告；现已改为有效管理员成员资格检查并固定 7.29.0，本地五轮 Windows
+定向、Analyzer race/vet/staticcheck、178 项 Web、build 与 npm 零漏洞门通过，待远端复核。边界见
 [ADR 0087](adr/0087-analyzer-immutable-handoff-low-privilege-and-filesystem-conformance.md)。
 
 下一批建议 P10-I1/I2/I3：先定义 F/G/H 证据到生产 adapter 的准入矩阵、authenticated operator-owned

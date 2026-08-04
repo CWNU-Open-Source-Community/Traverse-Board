@@ -35,10 +35,13 @@ signature, or product start authorization.
 
 ### Separate low-privilege execution context
 
-Windows creates a primary token with maximum privileges disabled and lowers
-its mandatory integrity level before starting the helper. The observation
-requires the child to be non-elevated, at Low Integrity, below the caller's
-integrity level, and to have no more than one enabled token privilege. SID
+Windows creates a primary token with maximum privileges disabled, explicitly
+disables the `BUILTIN\Administrators` SID, and lowers its mandatory integrity
+level before starting the helper. The observation requires effective
+administrator membership to be false, Low Integrity below the caller, and no
+more than one enabled token privilege. `TokenElevation` is retained only as
+diagnostic UAC provenance because hosted administrator runners can report it
+as true after effective administrator authority has been removed. SID
 sub-authority parsing uses a copied, bounds-checked byte representation so the
 test also passes Go race/checkptr instrumentation.
 
@@ -93,9 +96,11 @@ every host path, device, namespace, or kernel interface is unavailable.
 Windows locally passes immutable-handle, low-privilege identity-context, and
 read-only/private-staging conformance. The complete Analyzer package passes
 ordinary and race testing, vet, and zero-warning staticcheck. Linux test code
-cross-compiles locally with CGO disabled and the same three tests are pinned
-into the native Ubuntu analyzer CI gate; native Linux acceptance remains a CI
-fact rather than a local Windows claim.
+cross-compiles locally with CGO disabled, and all three tests passed the native
+Ubuntu analyzer gate in GitHub Actions run `30867231130`. That run exposed the
+Windows UAC-provenance mismatch described above; the effective-membership fix
+is covered by five local repetitions and the package race gate pending the
+follow-up hosted-Windows run.
 
 The focused tests fail closed on path replacement, child-handle drift,
 elevation, integrity or privilege drift, input mutation, outside writes,

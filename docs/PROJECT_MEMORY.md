@@ -2334,7 +2334,8 @@ and caller observe the original digest after replacement, while the child
 receives no path authority.
 
 P10-H2 runs a test helper in a separate low-privilege context. Windows uses a
-primary token with maximum privileges disabled and Low Integrity; Linux uses a
+primary token with maximum privileges disabled, the effective Administrators
+SID disabled, and Low Integrity; Linux uses a
 new user namespace mapped to UID/GID 65534 with `no_new_privs` and zero
 effective capabilities. These are dedicated execution contexts, not
 provisioned OS accounts. Windows retains the caller SID and Linux maps back to
@@ -2351,7 +2352,13 @@ persistence, and Artifact authority remain false. Windows ordinary/race tests,
 vet, and warning-free staticcheck pass. Linux cross-compiles locally without
 CGO and is pinned into the Ubuntu native CI gate. The final repository-wide
 ordinary Go functional gate passed in 435.4 seconds; Store completed normally
-in 417.6 seconds. See ADR 0087.
+in 417.6 seconds. Native Ubuntu H1/H2/H3 passed in Actions run `30867231130`.
+That run exposed two follow-up gate failures: hosted Windows treated UAC
+`TokenElevation` as authority, and npm reported the new `undici <7.29.0`
+advisory. Windows now disables the effective Administrators SID and checks
+membership directly; Web pins 7.29.0. Five focused Windows repetitions,
+Analyzer race/vet/staticcheck, 178 Web tests, production build, and zero-finding
+npm audit pass locally pending the follow-up CI run. See ADR 0087.
 
 ## Next Slice
 

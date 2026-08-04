@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"syscall"
 	"testing"
@@ -30,6 +31,7 @@ var analyzerCreateRestrictedToken = windows.NewLazySystemDLL("advapi32.dll").
 type windowsIsolationIdentityResult struct {
 	Restricted            bool   `json:"restricted"`
 	Elevated              bool   `json:"elevated"`
+	AdministratorMember   bool   `json:"administrator_member"`
 	IntegrityRID          uint32 `json:"integrity_rid"`
 	EnabledPrivilegeCount uint32 `json:"enabled_privilege_count"`
 	UserSID               string `json:"user_sid"`
@@ -142,12 +144,15 @@ func observeAnalyzerLowPrivilegeIdentity(t *testing.T,
 		t.Fatal(err)
 	}
 	return analyzerLowPrivilegeIdentityObservation{
-		Mechanism:           "windows_dedicated_low_integrity_primary_token.v1",
+		Mechanism:           "windows_restricted_low_integrity_primary_token.v2",
 		ScopeApprovalSHA256: analyzerIsolationScopeDigest(t, approval),
 		SeparateIdentityContext: result.UserSID == parentUser.User.Sid.String() &&
 			parentIntegrity > result.IntegrityRID,
-		NonAdministratorObserved: !result.Elevated && result.IntegrityRID <= analyzerLowIntegrityRID,
-		AmbientPrivilegesDenied:  result.EnabledPrivilegeCount <= 1,
+		// TokenElevation describes UAC provenance and can remain true after a token
+		// loses its effective administrator group. Membership is the authority check.
+		NonAdministratorObserved: !result.AdministratorMember &&
+			result.IntegrityRID <= analyzerLowIntegrityRID,
+		AmbientPrivilegesDenied: result.EnabledPrivilegeCount <= 1,
 		NoNewPrivilegesObserved: result.EnabledPrivilegeCount <= 1 &&
 			result.IntegrityRID <= analyzerLowIntegrityRID,
 		DedicatedAccountObserved: false,
@@ -301,10 +306,19 @@ func newWindowsAnalyzerLowToken(t *testing.T) windows.Token {
 		t.Fatal(err)
 	}
 	defer source.Close()
+	administratorSID, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	disabledSIDs := []windows.SIDAndAttributes{{Sid: administratorSID}}
 	var restricted windows.Token
 	result, _, callErr := analyzerCreateRestrictedToken.Call(uintptr(source),
-		analyzerDisableMaxPrivilege, 0, 0, 0, 0, 0, 0,
+		analyzerDisableMaxPrivilege,
+		uintptr(len(disabledSIDs)), uintptr(unsafe.Pointer(&disabledSIDs[0])),
+		0, 0, 0, 0,
 		uintptr(unsafe.Pointer(&restricted)))
+	runtime.KeepAlive(disabledSIDs)
+	runtime.KeepAlive(administratorSID)
 	if result == 0 {
 		t.Fatalf("CreateRestrictedToken: %v", callErr)
 	}
@@ -331,6 +345,14 @@ func inspectWindowsIsolationIdentity() (windowsIsolationIdentityResult, error) {
 		return windowsIsolationIdentityResult{}, err
 	}
 	elevated := token.IsElevated()
+	administratorSID, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
+	if err != nil {
+		return windowsIsolationIdentityResult{}, err
+	}
+	administratorMember, err := token.IsMember(administratorSID)
+	if err != nil {
+		return windowsIsolationIdentityResult{}, err
+	}
 	integrity, err := windowsTokenIntegrityRID(token)
 	if err != nil {
 		return windowsIsolationIdentityResult{}, err
@@ -343,9 +365,12 @@ func inspectWindowsIsolationIdentity() (windowsIsolationIdentityResult, error) {
 	if err != nil {
 		return windowsIsolationIdentityResult{}, err
 	}
-	return windowsIsolationIdentityResult{Restricted: restricted, Elevated: elevated,
-		IntegrityRID: integrity, EnabledPrivilegeCount: privileges,
-		UserSID: user.User.Sid.String()}, nil
+	return windowsIsolationIdentityResult{
+		Restricted: restricted, Elevated: elevated,
+		AdministratorMember: administratorMember,
+		IntegrityRID:        integrity, EnabledPrivilegeCount: privileges,
+		UserSID: user.User.Sid.String(),
+	}, nil
 }
 
 func windowsTokenIntegrityRID(token windows.Token) (uint32, error) {

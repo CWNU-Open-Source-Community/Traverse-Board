@@ -43,6 +43,7 @@
       "js-yaml": "4.3.0"
     },
     "brace-expansion": "5.0.9",
-    "postcss": "8.5.25"
+    "postcss": "8.5.25",
+    "undici": "7.29.0"
   }
 }
