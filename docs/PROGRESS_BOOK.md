@@ -2470,3 +2470,40 @@ authority widening。没有 CLI/HTTP/Desktop/Tool/Skill/model route，产品 sta
 request ID/generation 外，还必须精确匹配 Run、Workspace、request fingerprint 和 previous intent
 fingerprint。最终通过 Analyzer 全包、Store v93/迁移/README 聚焦测试、聚焦 `-race`、两包 `go vet`、
 `staticcheck` 与 `git diff --check`。本次不是六切片整仓门，没有重复 P10-I 或 WFP。
+
+## P10-K1/K2/K3：嵌入式 WASI 隔离候选与零执行验收
+
+任务 ID：`P10-Analyzer-Embedded-WASI-Isolation-Compile-Assessment-Ownership`。本批没有 migration，
+schema 保持 v93；没有重复 P10-J、P10-I 或 GitHub Issue #1 的 WFP 工作。
+
+P10-K1 选定 Rust `wasm32-wasip1` + Go `wazero v1.12.0` Interpreter 作为 Analyzer 默认隔离候选，
+不再把平台原生 PE/ELF 子进程作为默认路径。严格 profile 固定 16 MiB module、4096 页/256 MiB memory、
+每次调用独立 runtime/module、context close，无 compiler/JIT、共享 cache、继承 argv/env、filesystem、
+host clock/entropy、socket/custom host module、native process 或 host path。未来只允许合成 argv、空 env、
+确定性随机和有界内存 stdio；全部 product authority 仍为 false。
+
+P10-K2 使用新鲜 Interpreter runtime 只执行 `CompileModule`。它不注册 WASI host、不 instantiate、不调用
+export；第二层有界 import-section parser 还会拒绝 memory/table/global/tag 和未知 module。真实 603,913
+字节 release fixture 的九个 `wasi_snapshot_preview1` import 及签名、`_start|__main_void` 函数 export、
+18 页初始 memory 与运行时上限均通过精确门。恶意 unknown function import、imported memory、缺少 `_start`、
+额外 export、畸形模块、缺失/未知/扩权 JSON 均失败关闭。CI 现在安装 pinned `wasm32-wasip1` target、构建
+release fixture 并由 Go 复核真实能力面。
+
+P10-K3 固定 Go invocation scope 对 runtime、compiled module 和未来 guest instance 的所有权；close 顺序
+为 guest→compiled module→runtime，Run Supervisor 拥有 deadline，reconciler 只做 metadata closure。
+不存在 PID/process tree、跨 Run 复用、background guest、自动 restart、foreign cleanup 或 Artifact commit；
+host crash 不会留下 guest 进程，已 consume 的 v93 请求不得自动 replay，重试需要新签名请求。release
+decision 列出 runtime execution、bounded stdio、deadline close、result handoff、capability consume、
+production evidence、product route 七个未完成门，因此固定 `ready=false/start_blocked=true`。
+
+组合审计发现并修复两项真实问题：二进制 import parser 的名称库存不能与 wazero 提供的函数签名直接
+比较，现分成库存一致与签名白名单两门；module size 上限不能代替 export surface 上限，现只接受 Rust
+固定两项函数导出并在生成评估记录前限制数量和名称长度。最终 Analyzer 全包 3.132 秒、聚焦 race、
+vet、零告警 staticcheck、module verify/tidy、Rust fmt/7+2 tests/clippy 与真实 WASI release build/assessment
+均通过，`git diff --check` 通过；本机缺少 actionlint，工作流语法留给 GitHub Actions 复核。未发现已启用
+路径上的高/中风险，因为本批没有任何执行或产品入口。
+
+本批是新六片周期前三片，不冒充整仓六片门。下一批固定 P10-L1/L2/L3：只在 test-conformance 路径
+实例化并执行真实 WASI fixture，证明有界 stdin/stdout、deadline/cancel/close 和确定性 result validation；
+仍不连接 CLI/HTTP/Desktop/Tool/Skill/模型/Artifact。L3 后执行完整 ordinary/race/vet/staticcheck/
+govulncheck/依赖/隐私/构建健壮性门。WFP/C8C 继续只由 GitHub Issue #1 跟踪。

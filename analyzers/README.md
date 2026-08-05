@@ -27,6 +27,11 @@ Go 还提供不启动进程的 `analyzer_invocation.v1` 候选和包内密封 br
 stdout 上限、退出码、严格结果和八类失败语义。它不调用本目录中的 Rust 二进制，CLI/HTTP/Desktop/
 Run/Event/SQLite/Artifact 也没有接线。
 
+P10-K 另选定 `wasm32-wasip1` 作为未来产品 Analyzer 的默认隔离候选。Go 使用固定的
+`wazero v1.12.0` Interpreter 对 release `.wasm` 做 compile-only 评估：只读取 caller-owned bytes，
+校验精确 import/export、签名和 memory ceiling，不注册 WASI host、不实例化、不调用 `_start`。评估
+结果不保存模块路径或原文。该候选尚无执行 capability，也不改变上面的 Disabled/Fake 产品边界。
+
 Rust 固定使用 `rawzip = 0.5.1` 读取中央目录记录。该 crate 为 MIT 许可、无传递依赖，并在源码
 中 `forbid(unsafe_code)`。Rust 不调用本地文件 API；ZIP 字节仍只来自 Go-owned 请求中的 Base64
 内联内容。
@@ -44,6 +49,8 @@ Set-Location analyzers
 cargo fmt --all -- --check
 cargo test --locked
 cargo clippy --locked --all-targets -- -D warnings
+rustup target add wasm32-wasip1 --toolchain 1.97.1
+cargo +1.97.1 build --locked --target wasm32-wasip1 --package cyberagent-analyzer-fixture --release
 ```
 
 ## English
@@ -73,3 +80,10 @@ Deterministic success or rejection output must also match Go's recomputation for
 request, preventing a valid archive result from being replayed across different inputs with
 the same request ID. The bridge does not invoke this Rust binary; a real subprocess adapter and every product or
 persistence surface remain separate future gates.
+
+P10-K also compiles the pinned fixture for `wasm32-wasip1` and lets Go assess
+the release module through wazero Interpreter compile-only validation. The
+assessment bounds and pins imports, exports, signatures, and memory while
+registering no host module, instantiating no guest, and retaining no module
+path or bytes. This candidate has no execution capability or product route;
+the existing Disabled/Fake bridge remains the only product-side boundary.

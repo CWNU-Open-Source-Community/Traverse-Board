@@ -81,6 +81,15 @@ jobs:
       - run: cargo clippy --locked --all-targets -- -D warnings
       - name: Build deterministic Rust fixture
         run: cargo build --locked --bin cyberagent-analyzer-fixture
+      - name: Build embedded WASI analyzer fixture
+        run: |
+          rustup target add wasm32-wasip1 --toolchain 1.97.1
+          cargo +1.97.1 build --locked --target wasm32-wasip1 --package cyberagent-analyzer-fixture --release
+      - name: Verify embedded WASI import and memory boundaries
+        working-directory: .
+        env:
+          CYBERAGENT_WASI_FIXTURE: ${{ github.workspace }}/analyzers/target/wasm32-wasip1/release/cyberagent-analyzer-fixture.wasm
+        run: go test -count=1 ./internal/analyzer -run '^TestAnalyzerEmbeddedWASIProductionFixtureAssessment$'
       - name: Verify Linux analyzer conformance boundaries
         working-directory: .
         env:

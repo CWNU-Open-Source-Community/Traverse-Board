@@ -10,12 +10,12 @@
 
 项目从 schema v49 起同时使用两项工程指标，避免把“架构已经搭好”误解为“产品已经完整可用”。这些百分比是基于当前任务书和可验证工作流的工程估算，不是性能基准。
 
-- **架构完成度 / Architecture completion：约 99%**。衡量 Go 控制平面、Run/Session、状态恢复、Policy、审批、预算、事件流、Tool Gateway、Agent 协调、Skills、报告、Sandbox 协议及 Go/TypeScript/Rust 边界的覆盖程度；其中 V2 Run-centric Runtime 约 99%。当前 schema v93：v91 提供独立的 `restricted|full_debug` CDP 权限快照，v92 提供可恢复浏览器生命周期账本；v93 再为 Analyzer 增加签名请求/nonce 防重放、generation-fenced 写前意图和只追加恢复收据，但仅接通 `Disabled/Fake`，没有产品进程入口。P10-F1-J3 以 caller-byte、测试符合性与纯元数据方式固定格式、来源、scope、资源隔离、低权限、准入、认证请求和持久恢复边界。
+- **架构完成度 / Architecture completion：约 99%**。衡量 Go 控制平面、Run/Session、状态恢复、Policy、审批、预算、事件流、Tool Gateway、Agent 协调、Skills、报告、Sandbox 协议及 Go/TypeScript/Rust 边界的覆盖程度；其中 V2 Run-centric Runtime 约 99%。当前 schema v93：v91 提供独立的 `restricted|full_debug` CDP 权限快照，v92 提供可恢复浏览器生命周期账本；v93 再为 Analyzer 增加签名请求/nonce 防重放、generation-fenced 写前意图和只追加恢复收据。P10-K 另选定 Go 内嵌 `wazero` Interpreter + Rust `wasm32-wasip1` 的默认隔离候选，并完成真实模块的零实例化导入/内存评估与生命周期所有权；它仍只编译、不实例化、不执行，没有产品入口。
 - **产品可用度 / Product usability：约 96-98%**。衡量普通用户能否依靠当前 CLI、TUI、Web 和 Windows Desktop 完成真实端到端工作。通用 Coding Agent 工作流约 97%，Cyber 自动化工作流约 20%；四种固定诊断动作已形成 Agent 提案到人工审批的完整链，操作者还可在双重确认和本次进程闸门下从 CLI 执行一次非沙箱宿主命令。任意 `approval` 提案、Debug Agent 输入和受限浏览器内核仍无模型、HTTP 或 React 产品入口。独立浏览器网络隔离、Docker 持久终端、可操作的内置浏览器窗口、安装脚本/钩子、Windows 10 人工发布矩阵和 Cyber 工具链仍未完成。
 
 Starting with schema v49, the project reports two engineering indicators so architectural maturity is not mistaken for end-user completeness. These percentages are roadmap estimates backed by tested workflows, not performance benchmarks.
 
-- **Architecture completion: about 99%.** Schema v91 adds an independent `restricted|full_debug` browser-CDP policy ceiling and v92 adds recoverable browser lifecycle records. Schema v93 adds an Analyzer signed-request/nonce replay ledger, generation-fenced write-ahead intents, and append-only recovery receipts. That control plane is restricted to `Disabled/Fake`; it creates no product process route. P10-F1-J3 now cover format, provenance, scope, resource isolation, low privilege, admission, authenticated requests, and durable recovery as caller-byte, test-conformance, or metadata-only evidence without product execution authority.
+- **Architecture completion: about 99%.** Schema v91 adds an independent `restricted|full_debug` browser-CDP policy ceiling, v92 adds recoverable browser lifecycle records, and v93 adds an Analyzer signed-request/nonce ledger plus generation-fenced recovery receipts. P10-K selects an embedded Go `wazero` Interpreter and Rust `wasm32-wasip1` module as the primary isolation candidate, then validates the real module's imports, exports, memory, and per-invocation ownership without instantiating or executing it. No product route or runtime authority is added.
 - **Product usability: about 96-98%.** The generic coding-agent workflow is about 97% usable and Cyber automation about 20%. Fixed diagnostics have an end-to-end Agent-proposal workflow, and an operator can explicitly launch one non-sandboxed host command from the CLI under the current process gates. Arbitrary approval proposals, Debug Agent input, and the restricted browser core still have no model, HTTP, or React product route. Independent browser network containment, Docker terminals, an operational built-in browser window, install hooks, the Windows 10 release matrix, and the Cyber toolchain remain unfinished.
 
 ## 项目简介 / Project Overview
@@ -2701,6 +2701,35 @@ The final focused gate also rejects invented successor states and cross-bound
 receipt ancestry; package tests, race tests, `go vet`, `staticcheck`, and
 `git diff --check` pass. No CLI, HTTP, Desktop, Tool, Skill, or model route was added. See
 [ADR 0089](docs/adr/0089-analyzer-durable-request-intent-and-recovery-ledger.md).
+
+### P10-K1/K2/K3：嵌入式 WASI 隔离候选、零执行评估与所有权
+
+P10-K 不再把原生 PE/ELF 子进程作为 Analyzer 默认落地方向，而是选择 Go 内嵌
+`github.com/tetratelabs/wazero v1.12.0` Interpreter 与 Rust `wasm32-wasip1` 模块。K1 固定每次调用
+独立 runtime/module、256 MiB memory ceiling、16 MiB module ceiling、context close，以及无继承 argv/
+env、无文件系统、无网络、无宿主时钟/熵、无自定义 host module、无 native process 的 profile。未来也
+只能使用合成参数、空环境、确定性随机源和有界内存 stdio。
+
+K2 只调用 `CompileModule`，不注册 WASI host、不 `InstantiateModule`、不调用 `_start`。Go 的第二层
+有界二进制解析器拒绝 memory/table/global/tag 和未知 module 导入；真实 release Rust fixture 只允许九个
+精确签名的 `wasi_snapshot_preview1` 函数，并把函数导出限制为 `_start` 与 Rust 固定辅助导出
+`__main_void`。评估记录只有摘要、大小、有界 import/export 与内存页数，固定
+`instantiated=false`、`guest_executed=false`。
+
+K3 明确 Go 单次调用拥有 runtime、compiled module 和未来 guest instance；不存在 PID/进程树、跨 Run
+复用、后台 guest 或自动重启。Run Supervisor 拥有 deadline，恢复器只关闭元数据；宿主崩溃后不会遗留
+guest 进程，已消费 v93 请求不能自动重放，重试必须使用新签名请求。runtime 执行符合性、有界 stdio、
+deadline close、结果交接、capability 消费、生产证据和产品路由七项门均未完成，所以 release decision
+仍为 `ready=false`、`start_blocked=true`。schema 保持 v93，CLI/HTTP/Desktop/Tool/Skill/模型/Artifact
+均未新增入口。详见 [ADR 0090](docs/adr/0090-embedded-wasi-analyzer-isolation-candidate.md)。
+
+P10-K selects an embedded wazero Interpreter plus a Rust `wasm32-wasip1` module
+as the primary Analyzer isolation candidate. Go validates the real release
+module through compile-only import/export/memory assessment; it registers no
+host module, instantiates no guest, and executes no export. Runtime, module,
+future guest, deadline, close, retry, and recovery ownership are fixed per
+invocation, while seven execution and product-release gates remain open. The
+schema stays at v93 and no user, Agent, Tool, or product route is added.
 
 ### D1-UX4/UX5/UX6：无边框工作台、可调侧栏与 Agent 输入区
 

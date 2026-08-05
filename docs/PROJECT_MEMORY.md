@@ -1,8 +1,38 @@
 # Prayu Project Memory
 
-Last updated: 2026-08-02
+Last updated: 2026-08-05
 
-## Current Checkpoint: P11-C5/C6/C7 / Schema v91 + Restricted Browser Runtime Core
+## Current Checkpoint: P10-K1/K2/K3 / Schema v93 + Compile-Only Embedded WASI Candidate
+
+ADR 0090 selects embedded `wazero v1.12.0` Interpreter plus the pinned Rust
+`wasm32-wasip1` release fixture as the primary Analyzer isolation candidate.
+P10-K1 fixes a 16 MiB module and 4,096-page/256 MiB memory ceiling, one fresh
+runtime/module/future guest per invocation, context-close checks, synthetic
+argv, empty environment, deterministic random source, bounded memory stdio,
+and no filesystem, network, inherited host state, custom host module,
+compiler/JIT, native process, or product authority.
+
+P10-K2 calls only `CompileModule`; it never registers a WASI host,
+instantiates a guest, or calls `_start`. An independent bounded import parser
+rejects non-function imports and cross-checks wazero's function inventory. The
+real 603,913-byte release fixture is fixed to nine exact
+`wasi_snapshot_preview1` imports, `_start|__main_void` function exports, and 18
+initial memory pages. CI builds the same target and runs the Go assessment.
+
+P10-K3 assigns Go invocation scope ownership of runtime, compiled module, and a
+future guest. The Run Supervisor owns deadlines; recovery is metadata-only.
+There is no PID/process tree, cross-Run reuse, background guest, automatic
+restart/replay, foreign cleanup, or Artifact commit. Seven execution/release
+gates remain open, so `ready=false`, `start_blocked=true`, and all authority is
+false. No migration or product route was added; schema stays v93.
+
+Do not repeat P10-J, P10-I, the v93 ledger, or WFP after compaction. The next
+fixed batch is P10-L1/L2/L3: test-only real WASI execution conformance for
+bounded stdin/stdout, deadline/cancel/close, and deterministic result
+validation, followed by the cumulative six-slice full robustness gate. It must
+still add no CLI/HTTP/Desktop/Tool/Skill/model/Artifact product route.
+
+### Earlier Browser Checkpoint: P11-C5/C6/C7 / Schema v91
 
 P11-C5 adds a product-inert Safe Web Windows process adapter. A short-lived
 `BrowserStartAuthorization` exact-binds the schema-v85 acceptance/review,
@@ -2451,12 +2481,15 @@ operator-only Restricted Safe Web adapter must still exclude model Tools,
 personal Profiles, request mutation/replay, arbitrary remote debugging, CTF
 security-disable flags, and Full Debug CDP.
 
-P10-J1/J2/J3 and their focused closeout are complete. Do not repeat the v93 ledger, Fake lifecycle, WFP
-probe, P10-I contracts, or cumulative six-slice gate after context compaction.
-Before any real Analyzer starter is considered, select an independently
-verifiable production OS sandbox evidence path and exact recovery ownership;
-Fake success is not production evidence. Docker PTY, arbitrary model Shell,
-signed distribution, and the Windows 10 matrix remain separate gates.
+P10-K1/K2/K3 and their focused closeout are complete. Do not repeat the v93
+ledger, Fake lifecycle, embedded-WASI architecture selection, WFP probe, P10-I
+contracts, or the prior cumulative six-slice gate after context compaction.
+P10-L1/L2/L3 may execute only the repository WASI fixture in tests, with
+bounded in-memory stdio and explicit deadline/cancellation/close evidence. It
+must not add a product starter, route, capability, persistence mutation, or
+Artifact commit. L3 closes the current six-slice cycle and therefore requires
+the full robustness gate. Docker PTY, arbitrary model Shell, signed
+distribution, and the Windows 10 matrix remain separate gates.
 
 ## Local Machine Note
 

@@ -505,6 +505,9 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 - [x] P10-I 三切片与累计六切片健壮性门：全仓普通 Go 554.5 秒、race 617.8 秒、vet/staticcheck/govulncheck/module verify、48 文件 178 项 Web、build/npm audit、Rust fmt/test/clippy/RustSec、Desktop 边界与 Linux Analyzer 交叉编译均通过；无新增 migration/API/UI/CLI/进程入口，schema 保持 v92。
 - [x] P10-J1/J2/J3 / schema v93：新增唯一 nonce 的签名请求账本、精确 Run/Workspace/operator/evidence 绑定、generation-fenced 写前意图、原子 consume/expiry/cancel、每代只追加脱敏收据，以及只把悬空 consumed/过期 prepared 关闭为 recovery-required/expired 的重启协调；仅允许 Disabled/Fake，真实 process、network、Artifact 与全部 authority 继续为 false，见 ADR 0089。
 - [x] P10-J 三切片功能门：覆盖签名链到 durable 投影、幂等重放、nonce 冲突、错误 Run/Workspace、并发 generation 胜者、终态封闭、重启恢复、v92→v93 迁移、SQL 未知/扩权字段、UPDATE/DELETE 拒绝和脱敏 Run events；没有新增 CLI/HTTP/Desktop/Tool/Skill/模型路由。
+- [x] P10-K1/K2/K3：选定 Go 内嵌 `wazero v1.12.0` Interpreter + Rust `wasm32-wasip1` 为默认 Analyzer 隔离候选；固定 256 MiB memory/16 MiB module 上限、无继承宿主状态/文件系统/网络/native process，完成真实 release fixture 的 compile-only import/export/memory 评估，以及 per-invocation runtime/module/guest、deadline、close、重试和 metadata-only recovery 所有权，见 ADR 0090。
+- [x] P10-K 三切片功能门：Analyzer 全包、聚焦 race、vet/staticcheck、module verify/tidy、Rust fmt/7+2 tests/clippy、真实 WASI release build/assessment 全绿；审计拆分 import 名称库存与签名校验，并精确限制函数导出。`InstantiateModule`、guest execution、WASI host registration、capability、Artifact 和产品路由均不存在；schema 保持 v93。本批是新六片周期前三片，未重复整仓健壮性门。
+- [ ] P10-L1/L2/L3：仅在测试符合性路径执行真实 WASI fixture，依次证明有界 stdin/stdout、deadline/cancel/close 和确定性结果校验；仍不增加产品路由。完成后累计六片并运行整仓 ordinary/race/vet/staticcheck/govulncheck/依赖/隐私/构建门。
 - [ ] Go 在未来产品桥上验证协议、退出码、超时、结果大小和 Artifact 候选后，才允许进入独立的持久化/证据切片。
 
 阶段验收：当前纯函数/fixture/Disabled/Fake bridge 对畸形、未来、重复、扩权、崩溃、超时、取消、错误 analyzer、未知退出和超大输入/输出均失败关闭；test-only 真实 Rust 门已固定进程树取消、TERM/KILL、孤儿清理、stderr 隐私与原子暂存恢复。最终验收仍要求产品 adapter 解决 TOCTOU-safe immutable identity、签名/来源验证、资源沙箱 enforcement、显式授权、durable recovery 和原子 Artifact 提交语义。

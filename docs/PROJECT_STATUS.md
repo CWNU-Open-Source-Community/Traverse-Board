@@ -4,19 +4,21 @@ Last updated: 2026-08-05
 
 ## Resume Context
 
-The current mainline P10-J1/J2/J3 batch advances SQLite to schema v93. It
-projects the P10-I Ed25519 request into a unique-nonce, exact Run/Workspace/
-operator/evidence ledger, adds a generation-fenced write-ahead intent state
-machine with atomic consume/expiry/cancel, and appends one redacted lifecycle
-receipt per generation. Restart reconciliation only closes a dangling
-`consumed` state as `recovery_required` or an expired `prepared` state as
-`expired`. ADR 0089 is authoritative.
+The current mainline checkpoint is P10-K1/K2/K3 at schema v93. ADR 0090 selects
+an embedded `wazero v1.12.0` Interpreter and the pinned Rust
+`wasm32-wasip1` release module as the primary Analyzer isolation candidate.
+Go compile-validates caller-owned module bytes, independently parses the import
+section, and records only bounded import/export/memory evidence. It registers
+no WASI host, instantiates no guest, and calls no export.
 
-The adapter set is exactly `disabled|fake`. Every process, network, filesystem,
-Artifact, capability-issuance, and override authority remains false; there is
-no CLI, HTTP, Desktop, Tool, Skill, model, or real Runner route. Architecture
-remains about 99%, product usability about 96-98%, generic Coding Agent about
-97%, and Cyber automation about 20%.
+Runtime, compiled module, future guest instance, deadline, close, retry, and
+metadata-recovery ownership are per invocation. There is no native process,
+PID, process tree, cross-Run reuse, background guest, automatic replay, or
+Artifact commit. Seven execution and release gates remain open, so the release
+decision is explicitly non-starting. The prior v93 `disabled|fake` ledger is
+unchanged, and there is still no CLI, HTTP, Desktop, Tool, Skill, model, or real
+Runner route. Architecture remains about 99%, product usability about 96-98%,
+generic Coding Agent about 97%, and Cyber automation about 20%.
 
 Hosted follow-up run `30873766068` passed Web and native Ubuntu H1/H2/H3. It
 found a Windows checkout ACL dependency after administrator membership was
@@ -2700,6 +2702,30 @@ and Store focused ordinary/race tests, `go vet`, `staticcheck`, and diff
 whitespace checks pass. No full-repository six-slice gate was claimed or
 repeated for this three-slice batch.
 
+## Current P10-K Status
+
+P10-K1 fixes a strict embedded-WASI profile: wazero Interpreter, Core v2,
+4,096 memory pages, a 16 MiB module ceiling, fresh runtime/module per
+invocation, context-close checks, synthetic argv, empty environment,
+deterministic random input, bounded memory stdio, and no filesystem, network,
+host state, custom host modules, compiler/JIT, native process, or product
+authority.
+
+P10-K2 invokes only `CompileModule`. A bounded parser rejects every non-function
+import and verifies the same function inventory that wazero reports. The real
+603,913-byte Rust release fixture has nine exact WASI imports, only `_start`
+and `__main_void` function exports, and 18 initial memory pages. CI rebuilds and
+reassesses that fixture. Unknown imports, imported memory, missing start, extra
+exports, malformed modules, and strict-JSON widening fail closed.
+
+P10-K3 assigns runtime, module, future guest, deadline, close, retry, and
+recovery ownership without creating an execution path. Seven release gates are
+open and all authority remains false. The final combined audit separated import
+inventory from signature validation and added a bounded export surface. Full
+Analyzer, focused race, vet/staticcheck, module, Rust, and real WASI fixture
+gates pass. This was the first three slices of a six-slice cycle, not a repeated
+full-repository robustness gate.
+
 ## Recommended Next Batch
 
 P11-C8C remains blocked in GitHub Issue #1. Do not spend normal mainline batches
@@ -2708,13 +2734,16 @@ same-executable isolation design should resume that issue. Any future
 operator-only Restricted Safe Web adapter must still exclude model Tools and
 Full Debug CDP.
 
-P10-F1 through P10-J3 are complete at the candidate, test-conformance,
-product-contract, and product-inert durable-control layers. Do not infer
-production readiness from Fake lifecycle success. The next Analyzer batch
-must first select and document a production OS sandbox evidence path and exact
-recovery ownership; a real process starter remains a separate approval-gated
-decision. Browser work must not widen the P12-E host executor or Debug terminal
-contracts.
+P10-F1 through P10-K3 are complete at the candidate, test-conformance,
+product-contract, durable-control, and compile-only embedded-isolation layers.
+Do not infer production readiness from Fake lifecycle or WASI compile success.
+The next fixed batch is P10-L1/L2/L3: test-only execution of the real WASI
+fixture to prove bounded stdin/stdout, deadline/cancellation/close behavior,
+and deterministic result validation. It must expose no product route. After L3,
+run the cumulative six-slice full ordinary/race/static/vulnerability/
+dependency/privacy/build gate. Capability issue/consume, production evidence
+acceptance, and product routing remain later independent decisions. Browser
+work must not widen the P12-E host executor or Debug terminal contracts.
 
 Keep the general LocalRunner disabled until a real workspace filesystem and
 network sandbox makes protected host roots unavailable or read-only; never map
