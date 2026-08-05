@@ -2414,6 +2414,34 @@ govulncheck, module verification, 48 Web files/178 tests, API check, production
 build, zero-finding npm audit, Rust fmt/test/clippy/RustSec, Desktop boundaries,
 and Linux no-CGO Analyzer cross-compilation. Schema remains v92. See ADR 0088.
 
+## Completed Analyzer Durable Start Control Batch (P10-J1/J2/J3)
+
+P10-J1 advances SQLite to schema v93 with an append-only signed-request
+projection. It binds the exact Run, Workspace, operator/evidence digests,
+validity interval, adapter, and a globally unique nonce. Exact replay is
+idempotent; nonce rebinding, terminal Run use, and Workspace mismatch fail.
+No raw nonce, key, signature, path, command, argv, environment, input, or
+process material is retained, and the record is not a bearer capability.
+
+P10-J2 adds generation-fenced write-ahead intents. Disabled is terminal at
+generation one. Fake is restricted to prepared -> consumed and then a closed
+fake/recovery state, or pre-consumption expiry/cancellation. Go validation and
+SQLite triggers independently enforce exact predecessor fingerprints, latest
+generation, signed expiry, strict JSON shape, and zero runtime authority.
+
+P10-J3 appends one redacted receipt and two bounded Run-event projections in
+the same transaction as each intent generation. Restart reconciliation only
+changes dangling consumed metadata to recovery_required and expired prepared
+metadata to expired. It never starts, observes, kills, or cleans a process and
+never commits an Artifact. There is no CLI, HTTP, Desktop, Tool, Skill, model,
+or real Runner route. See ADR 0089.
+
+The 2026-08-05 focused closeout fixed two audit findings: stored successor
+states must be known even when reason is empty, and receipt predecessors must
+match Run, Workspace, request fingerprint, and previous intent fingerprint.
+Analyzer/Store focused ordinary and race tests, `go vet`, `staticcheck`, and
+`git diff --check` pass. This was not another full six-slice repository gate.
+
 ## Next Slice
 
 P11-C8C remains blocked and is tracked in GitHub Issue #1. Do not spend normal
@@ -2423,14 +2451,12 @@ operator-only Restricted Safe Web adapter must still exclude model Tools,
 personal Profiles, request mutation/replay, arbitrary remote debugging, CTF
 security-disable flags, and Full Debug CDP.
 
-The next recommended analyzer batch is P10-J1/J2/J3. Add a durable one-shot
-nonce/request ledger with exact Run/operator/evidence binding, a
-generation-fenced write-ahead start-intent state machine with atomic
-consume/expiry/cancel transitions, and append-only lifecycle/recovery receipts.
-Use only Disabled/Fake execution; do not add a real process starter. A later
-independent batch may consider product execution only after production OS
-sandbox evidence and recovery acceptance exist. Docker PTY, arbitrary model
-Shell, signed distribution, and the Windows 10 matrix remain separate gates.
+P10-J1/J2/J3 and their focused closeout are complete. Do not repeat the v93 ledger, Fake lifecycle, WFP
+probe, P10-I contracts, or cumulative six-slice gate after context compaction.
+Before any real Analyzer starter is considered, select an independently
+verifiable production OS sandbox evidence path and exact recovery ownership;
+Fake success is not production evidence. Docker PTY, arbitrary model Shell,
+signed distribution, and the Windows 10 matrix remain separate gates.
 
 ## Local Machine Note
 

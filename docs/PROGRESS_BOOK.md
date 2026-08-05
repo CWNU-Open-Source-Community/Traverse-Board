@@ -2447,3 +2447,26 @@ govulncheck、module verify、48 文件 178 项 Web、API check/build/npm audit�
 下一批建议 P10-J1/J2/J3：仅用 Disabled/Fake 执行建立 durable nonce/request ledger、generation-fenced
 write-ahead start-intent 状态机与 atomic consume/expiry/cancel，以及 append-only lifecycle/recovery
 收据。真实 process starter 仍须等生产 OS sandbox 与恢复证据独立验收后另批评审。
+
+## P10-J1/J2/J3：持久请求、写前意图与恢复收据
+
+任务 ID：`P10-Analyzer-Durable-Request-Intent-Recovery-Ledger`。P10-J1 将 P10-I2 的完整签名验证结果
+投影到 schema v93：记录精确 Run/Workspace、operator/evidence digest、有效期、`disabled|fake` adapter
+和全局唯一 nonce。相同 ID/指纹幂等，nonce 换载荷、终态 Run、错误 Workspace 均失败；不保存原始
+nonce、密钥、签名、路径、命令、argv、环境、输入或 process spec，也不签发 capability。
+
+P10-J2 增加 write-ahead `analyzer_start_intent.v1`。每次转换生成新 generation 并绑定前代指纹；
+Disabled 第一代终止，Fake 只能 prepared→consumed→fake terminal/recovery，另有消费前 expire/cancel。
+Go 与 SQLite 双重限制状态、最新代、时间和零 authority；并发 consume/cancel 只能有一个前代胜者，
+精确同操作重放返回已提交代。
+
+P10-J3 在每代意图同一事务中写入脱敏 Run event 和 append-only receipt。重启协调器只把悬空 consumed
+记为 recovery_required、把到期 prepared 记为 expired，不进行 process start/observe/kill、文件清理或
+Artifact 提交。三表拒绝 UPDATE/DELETE，严格 JSON 与 SQL trigger 拒绝 unknown/missing/duplicate/
+authority widening。没有 CLI/HTTP/Desktop/Tool/Skill/model route，产品 starter 继续关闭。边界见
+[ADR 0089](adr/0089-analyzer-durable-request-intent-and-recovery-ledger.md)。
+
+三切片收口审计发现并修复两处领域校验缺口：未知的第二代状态不能再借空 reason 通过；receipt 前代除
+request ID/generation 外，还必须精确匹配 Run、Workspace、request fingerprint 和 previous intent
+fingerprint。最终通过 Analyzer 全包、Store v93/迁移/README 聚焦测试、聚焦 `-race`、两包 `go vet`、
+`staticcheck` 与 `git diff --check`。本次不是六切片整仓门，没有重复 P10-I 或 WFP。

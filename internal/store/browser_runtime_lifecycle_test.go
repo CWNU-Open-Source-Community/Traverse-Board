@@ -295,7 +295,7 @@ func browserRuntimeLifecycleStoreFixtureFingerprint(t *testing.T, value any) str
 }
 
 func removeSchemaV92ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV93ForTestStatements(), []string{
 		`DROP TRIGGER trg_browser_runtime_receipt_delete_immutable`,
 		`DROP TRIGGER trg_browser_runtime_receipt_update_immutable`,
 		`DROP TRIGGER trg_browser_runtime_checkpoint_delete_immutable`,
@@ -308,5 +308,5 @@ func removeSchemaV92ForTestStatements() []string {
 		`DROP INDEX idx_browser_runtime_checkpoints_runtime_generation`,
 		`DROP TABLE browser_runtime_checkpoints`,
 		`DELETE FROM schema_migrations WHERE version = 92`,
-	}
+	}...)
 }

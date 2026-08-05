@@ -319,6 +319,7 @@ func migrationPlan() []migration {
 		{Version: 90, Name: "non-sandboxed one-shot host command execution", Statements: hostCommandExecutionStatements},
 		{Version: 91, Name: "operator-selected browser CDP permission ceilings", Statements: runBrowserCDPPermissionStatements},
 		{Version: 92, Name: "recoverable browser runtime lifecycle records", Statements: browserRuntimeLifecycleStatements},
+		{Version: 93, Name: "durable analyzer start request and fake lifecycle controls", Statements: analyzerStartControlStatements},
 	}
 }
 

@@ -1,6 +1,6 @@
 # CyberAgent Workbench V2 任务书
 
-更新时间：2026-08-02
+更新时间：2026-08-05
 
 ## 目标
 
@@ -26,7 +26,7 @@ P7 已推进到 schema v71 与非 schema D1-B1，P9/Desktop 产品面已推进�
 
 schema v64 已增加 Go-owned `run_execution_profile.v1`：每个 Run 默认 `preview`，操作者可在 `created` 或无活动 lease 的 `paused` 状态选择 `preview|docker|local`。CLI、HTTP/OpenAPI 与 React 使用同一状态机；所有档位仍固定零进程、零执行授权和零 capability。
 
-schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固定 16 项机器 probe 和摘要协议，CLI 只接受同一操作者的 v63 阻塞审查、稳定操作键和显式确认。schema v66 再增加 collector 调用前持久化的 attempt、摘要化 operation、过期 generation lease、当前代 quiescent reconciliation、类型化 failure 和原子 result。schema v67 只在 Linux 显式 opt-in 后执行五次固定 GET，schema v68 再增加一次不可变操作员接纳/拒绝决定。所有 Docker start/process/export/Artifact authority 继续为 false。schema v69-v91 与 Desktop D1-A 至 P12-E 已完成外部 Skill、桌面恢复、Run 控制、模型/Plan/审批、FileEdit、Provider、wake、Repository、验证/Handoff/记忆、浏览器非启动账本、执行交互、受控命令审计、用户终端、四档宿主权限、固定命令提案审批、非沙箱宿主执行账本和独立 CDP 权限上限。R9/R10 仍只属于内部 Runner 回执兼容边界；P10 analyzer 仍没有产品进程桥。SQLite 当前为 v91。
+schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固定 16 项机器 probe 和摘要协议，CLI 只接受同一操作者的 v63 阻塞审查、稳定操作键和显式确认。schema v66 再增加 collector 调用前持久化的 attempt、摘要化 operation、过期 generation lease、当前代 quiescent reconciliation、类型化 failure 和原子 result。schema v67 只在 Linux 显式 opt-in 后执行五次固定 GET，schema v68 再增加一次不可变操作员接纳/拒绝决定。所有 Docker start/process/export/Artifact authority 继续为 false。schema v69-v93 与 Desktop D1-A 至 P12-E 已完成外部 Skill、桌面恢复、Run 控制、模型/Plan/审批、FileEdit、Provider、wake、Repository、验证/Handoff/记忆、浏览器非启动与恢复账本、执行交互、受控命令审计、用户终端、四档宿主权限、固定命令提案审批、非沙箱宿主执行账本、独立 CDP 权限上限，以及 Analyzer 一次性请求/写前意图/恢复收据。R9/R10 仍只属于内部 Runner 回执兼容边界；P10 analyzer 仍没有产品进程桥。SQLite 当前为 v93。
 
 ## 执行原则
 
@@ -503,6 +503,8 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 - [x] P10-H 托管 Windows 证据分级：run `30877113396` 通过完整 Go/Web/Ubuntu 门，但 GitHub Windows 服务会话在已验证 Low Integrity helper 初始化前精确返回 `0xc0000142`。父进程先复核同一用户 SID、管理员成员关闭、Low Integrity 与权限上限；CI 仅对 GitHub Windows + 空输出 + 精确状态显示 verbose skip，其他错误失败。本机真实子进程十轮通过；skip 不作为生产证据，产品 starter 仍关闭。
 - [x] P10-I1/I2/I3：已建立精确重建 F/G/H 证据的 20 项产品准入矩阵、域隔离 Ed25519 操作者一次性请求合同，以及覆盖 intent/start/deadline/cancel/crash/orphan/collision/replay/stale-generation 的 10 项恢复验收；生产验证、能力签发/消费、starter、持久化和全部 authority 仍为 false，见 ADR 0088。
 - [x] P10-I 三切片与累计六切片健壮性门：全仓普通 Go 554.5 秒、race 617.8 秒、vet/staticcheck/govulncheck/module verify、48 文件 178 项 Web、build/npm audit、Rust fmt/test/clippy/RustSec、Desktop 边界与 Linux Analyzer 交叉编译均通过；无新增 migration/API/UI/CLI/进程入口，schema 保持 v92。
+- [x] P10-J1/J2/J3 / schema v93：新增唯一 nonce 的签名请求账本、精确 Run/Workspace/operator/evidence 绑定、generation-fenced 写前意图、原子 consume/expiry/cancel、每代只追加脱敏收据，以及只把悬空 consumed/过期 prepared 关闭为 recovery-required/expired 的重启协调；仅允许 Disabled/Fake，真实 process、network、Artifact 与全部 authority 继续为 false，见 ADR 0089。
+- [x] P10-J 三切片功能门：覆盖签名链到 durable 投影、幂等重放、nonce 冲突、错误 Run/Workspace、并发 generation 胜者、终态封闭、重启恢复、v92→v93 迁移、SQL 未知/扩权字段、UPDATE/DELETE 拒绝和脱敏 Run events；没有新增 CLI/HTTP/Desktop/Tool/Skill/模型路由。
 - [ ] Go 在未来产品桥上验证协议、退出码、超时、结果大小和 Artifact 候选后，才允许进入独立的持久化/证据切片。
 
 阶段验收：当前纯函数/fixture/Disabled/Fake bridge 对畸形、未来、重复、扩权、崩溃、超时、取消、错误 analyzer、未知退出和超大输入/输出均失败关闭；test-only 真实 Rust 门已固定进程树取消、TERM/KILL、孤儿清理、stderr 隐私与原子暂存恢复。最终验收仍要求产品 adapter 解决 TOCTOU-safe immutable identity、签名/来源验证、资源沙箱 enforcement、显式授权、durable recovery 和原子 Artifact 提交语义。

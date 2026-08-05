@@ -10,12 +10,12 @@
 
 项目从 schema v49 起同时使用两项工程指标，避免把“架构已经搭好”误解为“产品已经完整可用”。这些百分比是基于当前任务书和可验证工作流的工程估算，不是性能基准。
 
-- **架构完成度 / Architecture completion：约 99%**。衡量 Go 控制平面、Run/Session、状态恢复、Policy、审批、预算、事件流、Tool Gateway、Agent 协调、Skills、报告、Sandbox 协议及 Go/TypeScript/Rust 边界的覆盖程度；其中 V2 Run-centric Runtime 约 99%。当前 schema v92：v91 提供独立的 `restricted|full_debug` CDP 权限快照；P11-C5-C8B 进一步补上 Safe Web Windows 进程、一次性 Profile、受限 loopback CDP、WFP 默认拒绝探针和可恢复生命周期账本，但保持无产品入口。P10-F1-H3 又以纯 caller-byte/测试态方式固定 PE/ELF 与架构证据、digest-only 发布候选、canonical Ed25519 来源验证、精确 scope/limits 人工确认，以及 Windows/Linux 的资源、不可变句柄、低权限上下文和受限文件系统符合性证据。
+- **架构完成度 / Architecture completion：约 99%**。衡量 Go 控制平面、Run/Session、状态恢复、Policy、审批、预算、事件流、Tool Gateway、Agent 协调、Skills、报告、Sandbox 协议及 Go/TypeScript/Rust 边界的覆盖程度；其中 V2 Run-centric Runtime 约 99%。当前 schema v93：v91 提供独立的 `restricted|full_debug` CDP 权限快照，v92 提供可恢复浏览器生命周期账本；v93 再为 Analyzer 增加签名请求/nonce 防重放、generation-fenced 写前意图和只追加恢复收据，但仅接通 `Disabled/Fake`，没有产品进程入口。P10-F1-J3 以 caller-byte、测试符合性与纯元数据方式固定格式、来源、scope、资源隔离、低权限、准入、认证请求和持久恢复边界。
 - **产品可用度 / Product usability：约 96-98%**。衡量普通用户能否依靠当前 CLI、TUI、Web 和 Windows Desktop 完成真实端到端工作。通用 Coding Agent 工作流约 97%，Cyber 自动化工作流约 20%；四种固定诊断动作已形成 Agent 提案到人工审批的完整链，操作者还可在双重确认和本次进程闸门下从 CLI 执行一次非沙箱宿主命令。任意 `approval` 提案、Debug Agent 输入和受限浏览器内核仍无模型、HTTP 或 React 产品入口。独立浏览器网络隔离、Docker 持久终端、可操作的内置浏览器窗口、安装脚本/钩子、Windows 10 人工发布矩阵和 Cyber 工具链仍未完成。
 
 Starting with schema v49, the project reports two engineering indicators so architectural maturity is not mistaken for end-user completeness. These percentages are roadmap estimates backed by tested workflows, not performance benchmarks.
 
-- **Architecture completion: about 99%.** Schema v91 adds an independent `restricted|full_debug` browser-CDP policy ceiling. P11-C5-C8B add a product-inert Safe Web Windows process adapter, disposable Profile lifecycle, restricted loopback CDP, a WFP default-deny probe, and schema-v92 recoverable lifecycle records. P10-F1-H3 add caller-byte PE/ELF evidence, digest-only release candidates, canonical Ed25519 provenance verification, exact scope/limits acknowledgement, and test-only Windows/Linux resource, immutable-handle, low-privilege-context, and scoped-filesystem conformance without product execution authority.
+- **Architecture completion: about 99%.** Schema v91 adds an independent `restricted|full_debug` browser-CDP policy ceiling and v92 adds recoverable browser lifecycle records. Schema v93 adds an Analyzer signed-request/nonce replay ledger, generation-fenced write-ahead intents, and append-only recovery receipts. That control plane is restricted to `Disabled/Fake`; it creates no product process route. P10-F1-J3 now cover format, provenance, scope, resource isolation, low privilege, admission, authenticated requests, and durable recovery as caller-byte, test-conformance, or metadata-only evidence without product execution authority.
 - **Product usability: about 96-98%.** The generic coding-agent workflow is about 97% usable and Cyber automation about 20%. Fixed diagnostics have an end-to-end Agent-proposal workflow, and an operator can explicitly launch one non-sandboxed host command from the CLI under the current process gates. Arbitrary approval proposals, Debug Agent input, and the restricted browser core still have no model, HTTP, or React product route. Independent browser network containment, Docker terminals, an operational built-in browser window, install hooks, the Windows 10 release matrix, and the Cyber toolchain remain unfinished.
 
 ## 项目简介 / Project Overview
@@ -259,9 +259,9 @@ The final batch gate passed the repository-wide Go suite once in about 435 secon
 
 ## 开发历程 / Development History
 
-下表是唯一按时间排序的 schema 开发历程，完整保留了早期 `v1`、`v2`、`v3`，并连续列到当前 `v92`。这里的 `vN` 是不可变 SQLite schema/runtime 里程碑，不等同于产品发布版本；后面的架构说明按能力域组织，因此不再承担版本排序职责。
+下表是唯一按时间排序的 schema 开发历程，完整保留了早期 `v1`、`v2`、`v3`，并连续列到当前 `v93`。这里的 `vN` 是不可变 SQLite schema/runtime 里程碑，不等同于产品发布版本；后面的架构说明按能力域组织，因此不再承担版本排序职责。
 
-The table below is the canonical chronological schema history. It includes every immutable SQLite schema/runtime milestone from `v1` through the current `v92`. These schema numbers are not product release versions; the architecture notes that follow are grouped by capability instead of chronology.
+The table below is the canonical chronological schema history. It includes every immutable SQLite schema/runtime milestone from `v1` through the current `v93`. These schema numbers are not product release versions; the architecture notes that follow are grouped by capability instead of chronology.
 
 | Schema | 中文里程碑 | English milestone |
 | --- | --- | --- |
@@ -357,6 +357,7 @@ The table below is the canonical chronological schema history. It includes every
 | v90 | 非沙箱一次性宿主命令执行账本 | non-sandboxed one-shot host-command execution ledger |
 | v91 | 独立的受限/完整调试 CDP 权限快照 | independent restricted/full-debug CDP permission snapshots |
 | v92 | 可恢复且只追加的浏览器运行时生命周期记录 | recoverable append-only browser runtime lifecycle records |
+| v93 | Analyzer 一次性请求、写前意图与恢复收据 | Analyzer one-shot request, write-ahead intent, and recovery receipts |
 
 ### v85 之后的近期运行时里程碑 / Recent runtime milestones after v85
 
@@ -2667,6 +2668,39 @@ atomic consumption, write-ahead lifecycle state, generation fencing, recovery
 execution, append-only audit, and a production sandbox are still absent. No
 product route or process starter was added, so schema v92 and product authority
 remain unchanged.
+
+### P10-J1/J2/J3：一次性请求账本、写前意图与恢复收据
+
+P10-J1 将 P10-I2 已验证的 Ed25519 请求投影为 schema v93 的只追加账本。记录精确绑定
+Run、Workspace、操作者、准入矩阵、scope、请求/合同摘要、有效期和唯一 nonce；原始 nonce、密钥、
+签名、路径、命令、argv、环境和输入正文不落库。相同 ID/指纹可幂等重放，nonce 被另一请求复用、
+终态 Run 或错误 Workspace 绑定都会失败关闭。该记录仍不是 bearer capability，`capability_issued`、
+`atomic_consumption_present`、process start 和全部 authority 保持 false。
+
+P10-J2 增加 generation-fenced 写前意图。`disabled` 在第一代直接终止；`fake` 只能从 `prepared`
+原子进入 `consumed`，再进入 `fake_succeeded|fake_failed|recovery_required|cancelled`，或在消费前进入
+`expired|cancelled`。Go 与 SQLite trigger 同时校验前代指纹、最新 generation、签名有效期和精确状态
+转换；同一前代的并发消费/取消只允许一个结果提交。所有状态都固定
+`process_start_authorized=false`、`process_observed=false`、`network_authorized=false`，没有真实 Runner。
+
+P10-J3 为每代意图在同一事务中追加一份脱敏 lifecycle receipt 和 Run event。重启协调器只做两件事：
+把悬空 `consumed` 关闭为 `recovery_required`，把过期 `prepared` 关闭为 `expired`；它不会 start、kill、
+扫描进程、清理文件或提交 Artifact。严格 JSON 拒绝重复、缺失、未知和扩权字段，三张表均禁止
+UPDATE/DELETE。CLI、HTTP、Desktop、Tool、Skill 与模型没有调用入口，真实 Analyzer 产品执行仍关闭。
+
+2026-08-05 收口审计补强了独立解码边界：未知后继状态即使携带空 reason 也会失败，收据前代必须同时
+匹配 Run、Workspace、request digest 与 intent 指纹。Analyzer/Store 聚焦普通测试、竞态测试、`go vet`、
+`staticcheck` 和 `git diff --check` 均通过；本批没有宣称整仓六切片门，也没有重复 WFP/P10-I 审计。
+
+P10-J1/J2/J3 advances SQLite to schema v93 with a unique-nonce signed-request
+ledger, generation-fenced write-ahead intents, and one append-only redacted
+receipt per generation. Only Disabled/Fake lifecycle semantics are available.
+Restart reconciliation closes consumed or expired metadata state and never
+starts, observes, terminates, or cleans a real process, nor commits an Artifact.
+The final focused gate also rejects invented successor states and cross-bound
+receipt ancestry; package tests, race tests, `go vet`, `staticcheck`, and
+`git diff --check` pass. No CLI, HTTP, Desktop, Tool, Skill, or model route was added. See
+[ADR 0089](docs/adr/0089-analyzer-durable-request-intent-and-recovery-ledger.md).
 
 ### D1-UX4/UX5/UX6：无边框工作台、可调侧栏与 Agent 输入区
 

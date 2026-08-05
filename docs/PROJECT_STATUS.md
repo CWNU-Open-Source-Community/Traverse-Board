@@ -1,25 +1,22 @@
 # Project Status
 
-Last updated: 2026-08-04
+Last updated: 2026-08-05
 
 ## Resume Context
 
-The current mainline P10-I1/I2/I3 batch keeps schema v92 and adds three
-product-inert Analyzer contracts. P10-I1 rebuilds the exact F/G/H evidence and
-classifies 20 product controls: 18 candidate observations, 13 overlapping
-test-conformance observations, zero production verification, and 20 start
-blockers. P10-I2 verifies a domain-separated Ed25519 operator request but does
-not issue a bearer capability; durable replay, atomic consumption, and clock
-acceptance remain absent. P10-I3 records ten mandatory restart/failure cleanup
-scenarios, all still open. ADR 0088 is authoritative.
+The current mainline P10-J1/J2/J3 batch advances SQLite to schema v93. It
+projects the P10-I Ed25519 request into a unique-nonce, exact Run/Workspace/
+operator/evidence ledger, adds a generation-fenced write-ahead intent state
+machine with atomic consume/expiry/cancel, and appends one redacted lifecycle
+receipt per generation. Restart reconciliation only closes a dangling
+`consumed` state as `recovery_required` or an expired `prepared` state as
+`expired`. ADR 0089 is authoritative.
 
-No migration, API, UI, CLI, database route, product process, capability
-issuance, cleanup executor, or recovery mutation was added. The cumulative
-six-slice gate passed full Go in 554.5 seconds and full race in 617.8 seconds,
-plus vet, warning-free staticcheck, govulncheck, module verification, Web,
-Rust, Desktop-boundary, and Linux cross-compile checks. Architecture remains
-about 99%, product usability about 96-98%, generic Coding Agent about 97%, and
-Cyber automation about 20%.
+The adapter set is exactly `disabled|fake`. Every process, network, filesystem,
+Artifact, capability-issuance, and override authority remains false; there is
+no CLI, HTTP, Desktop, Tool, Skill, model, or real Runner route. Architecture
+remains about 99%, product usability about 96-98%, generic Coding Agent about
+97%, and Cyber automation about 20%.
 
 Hosted follow-up run `30873766068` passed Web and native Ubuntu H1/H2/H3. It
 found a Windows checkout ACL dependency after administrator membership was
@@ -2678,6 +2675,31 @@ has production proof, and there is no durable ledger, generation fence,
 lifecycle store, cleanup executor, reconciler, apply path, or process starter.
 Strict JSON and tamper/forgery/widening tests pass. ADR 0088 is authoritative.
 
+## Current P10-J Status
+
+P10-J1 persists only the verified request projection. A unique nonce cannot be
+rebound, exact replays are idempotent, terminal Runs and mismatched Workspaces
+are rejected, and raw nonce/key/signature/command/process material is absent.
+The record is not a bearer capability.
+
+P10-J2 records the intent before any future start. Disabled terminates at
+generation one. Fake may move from prepared to consumed and then only to a
+closed fake/recovery state; expiry and cancellation are explicit. Go and
+SQLite both enforce ancestry, latest-generation fencing, validity time, and
+all-false runtime authority.
+
+P10-J3 appends a redacted receipt and Run event in the same transaction as
+every intent generation. Reconciliation performs metadata-only closure after
+restart and cannot start, inspect, kill, or clean a process or publish an
+Artifact. Strict JSON, direct-SQL widening, immutable-table, migration,
+concurrency, replay, and recovery tests pass. ADR 0089 is authoritative.
+
+The final focused review also rejects invented successor states and receipt
+predecessors crossing Run, Workspace, request, or intent ancestry. Analyzer
+and Store focused ordinary/race tests, `go vet`, `staticcheck`, and diff
+whitespace checks pass. No full-repository six-slice gate was claimed or
+repeated for this three-slice batch.
+
 ## Recommended Next Batch
 
 P11-C8C remains blocked in GitHub Issue #1. Do not spend normal mainline batches
@@ -2686,13 +2708,13 @@ same-executable isolation design should resume that issue. Any future
 operator-only Restricted Safe Web adapter must still exclude model Tools and
 Full Debug CDP.
 
-P10-F1 through P10-I3 are complete at the candidate, test-conformance, and
-product-contract layers. The next recommended analyzer batch is P10-J1/J2/J3:
-a durable nonce/request ledger, generation-fenced write-ahead start-intent
-state machine with atomic consume/expiry/cancel transitions, and append-only
-lifecycle/recovery receipts. It must use Disabled/Fake execution and still add
-no real process starter. Browser work must not widen the P12-E host executor or
-Debug terminal contracts.
+P10-F1 through P10-J3 are complete at the candidate, test-conformance,
+product-contract, and product-inert durable-control layers. Do not infer
+production readiness from Fake lifecycle success. The next Analyzer batch
+must first select and document a production OS sandbox evidence path and exact
+recovery ownership; a real process starter remains a separate approval-gated
+decision. Browser work must not widen the P12-E host executor or Debug terminal
+contracts.
 
 Keep the general LocalRunner disabled until a real workspace filesystem and
 network sandbox makes protected host roots unavailable or read-only; never map
