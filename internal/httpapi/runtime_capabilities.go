@@ -53,6 +53,7 @@ type RuntimeCapabilitiesView struct {
 	SkillInstallationEnabled           bool                    `json:"skill_installation_enabled"`
 	EvidenceAttachmentEnabled          bool                    `json:"evidence_attachment_enabled"`
 	VerificationEvidenceEnabled        bool                    `json:"verification_evidence_enabled"`
+	EmbeddedAnalyzerExecutionEnabled   bool                    `json:"embedded_analyzer_execution_enabled"`
 	ProcessExecutionEnabled            bool                    `json:"process_execution_enabled"`
 	ShellExecutionEnabled              bool                    `json:"shell_execution_enabled"`
 	DockerExecutionEnabled             bool                    `json:"docker_execution_enabled"`
@@ -116,6 +117,7 @@ func (a *API) runtimeCapabilities(request *http.Request) (any, *Page, error) {
 		SkillInstallationEnabled:         a.skillInstallationEnabled,
 		EvidenceAttachmentEnabled:        a.evidenceAttachmentEnabled,
 		VerificationEvidenceEnabled:      a.verificationEvidenceEnabled,
+		EmbeddedAnalyzerExecutionEnabled: a.embeddedAnalyzerExecutionEnabled,
 		ProcessExecutionEnabled:          false, ShellExecutionEnabled: false,
 		DockerExecutionEnabled: false, WakeWorker: worker,
 	}, nil, nil

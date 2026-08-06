@@ -320,6 +320,8 @@ func migrationPlan() []migration {
 		{Version: 91, Name: "operator-selected browser CDP permission ceilings", Statements: runBrowserCDPPermissionStatements},
 		{Version: 92, Name: "recoverable browser runtime lifecycle records", Statements: browserRuntimeLifecycleStatements},
 		{Version: 93, Name: "durable analyzer start request and fake lifecycle controls", Statements: analyzerStartControlStatements},
+		{Version: 94, Name: "one-shot embedded analyzer execution capabilities", Statements: analyzerExecutionCapabilityStatements},
+		{Version: 95, Name: "atomic embedded analyzer execution artifacts", Statements: analyzerExecutionCommitStatements},
 	}
 }
 

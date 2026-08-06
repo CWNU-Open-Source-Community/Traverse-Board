@@ -43,6 +43,7 @@ type webView2RuntimeProbe struct {
 }
 
 type desktopOptions struct {
+	operatorPreview        bool
 	profileControl         bool
 	permissionControl      bool
 	dangerFullAccess       bool
@@ -68,6 +69,7 @@ type desktopOptions struct {
 	skillInstallation      bool
 	evidenceAttachment     bool
 	verificationEvidence   bool
+	embeddedAnalyzer       bool
 	userTerminal           bool
 	version                bool
 }
@@ -207,6 +209,8 @@ func desktopStartupFailureMessage(err error) string {
 func parseDesktopOptions(args []string) (desktopOptions, error) {
 	fs := flag.NewFlagSet("cyberagent-desktop", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	operatorPreview := fs.Bool("operator-preview", false,
+		"enable the safe operator Desktop capability bundle for local product testing")
 	profileControl := fs.Bool("enable-profile-control", false,
 		"enable only the non-authorizing Run execution-profile control")
 	permissionControl := fs.Bool("enable-permission-control", false,
@@ -257,6 +261,8 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		"enable idempotent non-authorizing Workspace evidence attachment")
 	verificationEvidence := fs.Bool("enable-verification-evidence", false,
 		"enable immutable operator verification evidence recording")
+	embeddedAnalyzer := fs.Bool("enable-embedded-analyzer", false,
+		"enable the fixed bounded embedded Rust/WASI analyzer")
 	userTerminal := fs.Bool("enable-user-terminal", false,
 		"enable the user-owned Debug ConPTY terminal")
 	version := fs.Bool("version", false, "print version and exit")
@@ -265,6 +271,30 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 	}
 	if fs.NArg() != 0 {
 		return desktopOptions{}, errors.New("cyberagent-desktop accepts no positional arguments")
+	}
+	if *operatorPreview {
+		*profileControl = true
+		*permissionControl = true
+		*browserCDPControl = true
+		*runCreation = true
+		*sessionMessages = true
+		*sessionSteeringControl = true
+		*runLifecycle = true
+		*runExecution = true
+		*planDeliveryControl = true
+		*approvalControl = true
+		*commandProposalControl = true
+		*modelControl = true
+		*providerCredentials = true
+		*fileEditReview = true
+		*fileEditProposals = true
+		*runWakeControl = true
+		*fileEditApply = true
+		*runWakeExecution = true
+		*skillInstallation = true
+		*evidenceAttachment = true
+		*verificationEvidence = true
+		*embeddedAnalyzer = true
 	}
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled:   *permissionControl,
@@ -282,7 +312,8 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		return desktopOptions{}, errors.New(
 			"full CDP debug requires --enable-browser-cdp-control and --enable-debug-maximum-access")
 	}
-	return desktopOptions{profileControl: *profileControl, runCreation: *runCreation,
+	return desktopOptions{operatorPreview: *operatorPreview,
+		profileControl: *profileControl, runCreation: *runCreation,
 		permissionControl: *permissionControl, dangerFullAccess: *dangerFullAccess,
 		debugMaximumAccess:     *debugMaximumAccess,
 		browserCDPControl:      *browserCDPControl,
@@ -305,6 +336,7 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		skillInstallation:      *skillInstallation,
 		evidenceAttachment:     *evidenceAttachment,
 		verificationEvidence:   *verificationEvidence,
+		embeddedAnalyzer:       *embeddedAnalyzer,
 		userTerminal:           *userTerminal,
 		version:                *version}, nil
 }
@@ -335,7 +367,7 @@ func runDesktop(config desktopOptions) error {
 		config.providerCredentials || config.fileEditReview || config.fileEditProposals ||
 		config.runWakeControl || config.fileEditApply || config.runWakeExecution ||
 		config.runWakeWorker || config.skillInstallation || config.evidenceAttachment ||
-		config.verificationEvidence || config.userTerminal {
+		config.verificationEvidence || config.embeddedAnalyzer || config.userTerminal {
 		controlToken, err = httpapi.GenerateAccessToken()
 		if err != nil {
 			return err
@@ -377,6 +409,7 @@ func runDesktop(config desktopOptions) error {
 		SkillInstallationEnabled:                config.skillInstallation,
 		EvidenceAttachmentEnabled:               config.evidenceAttachment,
 		VerificationEvidenceEnabled:             config.verificationEvidence,
+		EmbeddedAnalyzerExecutionEnabled:        config.embeddedAnalyzer,
 		UserTerminalEnabled:                     config.userTerminal,
 		AppVersion:                              app.Version, UIHandler: bundle,
 		OnWakeWorkerError: func(runErr error) {
@@ -427,6 +460,7 @@ func runDesktop(config desktopOptions) error {
 		SkillInstallationEnabled:                config.skillInstallation,
 		EvidenceAttachmentEnabled:               config.evidenceAttachment,
 		VerificationEvidenceEnabled:             config.verificationEvidence,
+		EmbeddedAnalyzerExecutionEnabled:        config.embeddedAnalyzer,
 		UserTerminalEnabled:                     config.userTerminal,
 		AppVersion:                              app.Version, UIDigest: bundle.Digest(), Selector: selector,
 		PreviewBridge: preview, SkillInstaller: controlPlane.SkillInstaller(),

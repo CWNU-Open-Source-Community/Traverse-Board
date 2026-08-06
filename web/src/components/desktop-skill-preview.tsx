@@ -8,6 +8,7 @@ import {
   type DesktopSkillPreview,
 } from "../lib/desktop-bridge";
 import { formatBytes, formatNumber } from "../lib/format";
+import { useLocale } from "../lib/locale";
 import { OperationReceipt } from "./operation-receipt";
 
 export function DesktopSkillPreviewDialog({ open, onClose, installationEnabled = false }: {
@@ -15,6 +16,7 @@ export function DesktopSkillPreviewDialog({ open, onClose, installationEnabled =
   onClose: () => void;
   installationEnabled?: boolean;
 }) {
+  const { t } = useLocale();
   const [preview, setPreview] = useState<DesktopSkillPreview | null>(null);
   const [installed, setInstalled] = useState<DesktopSkillInstallResult | null>(null);
   const [surface, setSurface] = useState<"code" | "cyber">("code");
@@ -85,9 +87,9 @@ export function DesktopSkillPreviewDialog({ open, onClose, installationEnabled =
         <header>
           <div>
             <span className="dialog-icon"><FileArchive aria-hidden="true" size={18} /></span>
-            <div><h2 id="desktop-skill-title">Skill 包预览</h2><small>本地结构校验</small></div>
+            <div><h2 id="desktop-skill-title">{t("Skill 包预览", "Skill package preview")}</h2><small>{t("本地结构校验", "Local structure validation")}</small></div>
           </div>
-          <button aria-label="关闭" autoFocus className="icon-button" disabled={loading} onClick={onClose} title="关闭" type="button">
+          <button aria-label={t("关闭", "Close")} autoFocus className="icon-button" disabled={loading} onClick={onClose} title={t("关闭", "Close")} type="button">
             <X aria-hidden="true" size={17} />
           </button>
         </header>
@@ -98,13 +100,13 @@ export function DesktopSkillPreviewDialog({ open, onClose, installationEnabled =
               <FileArchive aria-hidden="true" size={28} />
               <button className="desktop-select-command" disabled={loading} onClick={() => void select()} type="button">
                 {loading ? <LoaderCircle aria-hidden="true" className="spin" size={17} /> : <FolderOpen aria-hidden="true" size={17} />}
-                选择 .zip
+                {t("选择 .zip", "Select .zip")}
               </button>
             </div>
           )}
           {preview && <SkillPreviewDetails preview={preview} />}
           {preview && installationEnabled && !installed && <div className="desktop-install-controls">
-            <div aria-label="Skill surface" className="segmented-control" role="group">
+            <div aria-label={t("Skill 工作面", "Skill surface")} className="segmented-control" role="group">
               <button aria-pressed={surface === "code"} onClick={() => setSurface("code")}
                 type="button">Code</button>
               <button aria-pressed={surface === "cyber"} onClick={() => setSurface("cyber")}
@@ -113,12 +115,12 @@ export function DesktopSkillPreviewDialog({ open, onClose, installationEnabled =
             <label className="desktop-install-confirmation">
               <input checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)}
                 type="checkbox" />
-              <span>确认按不受信任包登记，不授予执行权</span>
+              <span>{t("确认按不受信任包登记，不授予执行权", "Register as an untrusted package without execution authority")}</span>
             </label>
           </div>}
           {installed && <div className="desktop-install-success" role="status">
             <PackageCheck aria-hidden="true" size={17} />
-            <span>{installed.name} {installed.version} 已登记到 {installed.surface}</span>
+            <span>{t(`${installed.name} ${installed.version} 已登记到 ${installed.surface}`, `${installed.name} ${installed.version} registered for ${installed.surface}`)}</span>
           </div>}
           {installed && <OperationReceipt receipt={installed.receipt} />}
           {error && <div className="connection-error" role="alert">{error}</div>}
@@ -126,16 +128,16 @@ export function DesktopSkillPreviewDialog({ open, onClose, installationEnabled =
 
         {preview && (
           <footer>
-            <span><ShieldCheck aria-hidden="true" size={15} />{installed ? "已安全登记" : "已验证，未安装"}</span>
+            <span><ShieldCheck aria-hidden="true" size={15} />{installed ? t("已安全登记", "Safely registered") : t("已验证，未安装", "Validated, not installed")}</span>
             <div className="desktop-dialog-actions">
               {installationEnabled && !installed &&
                 <button className="desktop-select-command" disabled={loading || !confirmed}
                   onClick={() => void install()} type="button">
                   {loading ? <LoaderCircle aria-hidden="true" className="spin" size={16} />
-                    : <PackageCheck aria-hidden="true" size={16} />}安装
+                    : <PackageCheck aria-hidden="true" size={16} />}{t("安装", "Install")}
                 </button>}
               <button className="desktop-select-command" disabled={loading} onClick={() => void select()} type="button">
-                <FolderOpen aria-hidden="true" size={16} />重新选择
+                <FolderOpen aria-hidden="true" size={16} />{t("重新选择", "Choose again")}
               </button>
             </div>
           </footer>
@@ -146,6 +148,7 @@ export function DesktopSkillPreviewDialog({ open, onClose, installationEnabled =
 }
 
 function SkillPreviewDetails({ preview }: { preview: DesktopSkillPreview }) {
+  const { t } = useLocale();
   return (
     <div className="desktop-package-preview">
       <div className="desktop-package-heading">
@@ -153,26 +156,26 @@ function SkillPreviewDetails({ preview }: { preview: DesktopSkillPreview }) {
         <code>{preview.trust_class}</code>
       </div>
       <dl className="desktop-package-metrics">
-        <div><dt>Profiles</dt><dd>{preview.profiles.join(", ")}</dd></div>
-        <div><dt>Tools</dt><dd>{formatNumber(preview.declared_tool_count)}</dd></div>
-        <div><dt>Content</dt><dd>{formatBytes(preview.content_bytes)}</dd></div>
-        <div><dt>Tokens</dt><dd>{formatNumber(preview.content_token_upper_bound)}</dd></div>
-        <div><dt>Archive</dt><dd>{formatBytes(preview.archive_bytes)}</dd></div>
-        <div><dt>Entries</dt><dd>{formatNumber(preview.entry_count)}</dd></div>
+        <div><dt>{t("配置档", "Profiles")}</dt><dd>{preview.profiles.join(", ")}</dd></div>
+        <div><dt>{t("工具", "Tools")}</dt><dd>{formatNumber(preview.declared_tool_count)}</dd></div>
+        <div><dt>{t("内容", "Content")}</dt><dd>{formatBytes(preview.content_bytes)}</dd></div>
+        <div><dt>{t("令牌", "Tokens")}</dt><dd>{formatNumber(preview.content_token_upper_bound)}</dd></div>
+        <div><dt>{t("压缩包", "Archive")}</dt><dd>{formatBytes(preview.archive_bytes)}</dd></div>
+        <div><dt>{t("条目", "Entries")}</dt><dd>{formatNumber(preview.entry_count)}</dd></div>
       </dl>
       <div className="desktop-package-list">
-        <span>Declared tools</span>
+        <span>{t("声明的工具", "Declared tools")}</span>
         <div>{preview.declared_tools.length > 0
           ? preview.declared_tools.map((tool) => <code key={tool}>{tool}</code>)
-          : <small>none</small>}</div>
+          : <small>{t("无", "none")}</small>}</div>
       </div>
       <div className="desktop-package-list">
-        <span>Risk codes</span>
+        <span>{t("风险代码", "Risk codes")}</span>
         <div>{preview.risk_codes.map((risk) => <code key={risk}>{risk}</code>)}</div>
       </div>
       <div className="desktop-package-digests">
-        <span>Archive <code>{preview.archive_sha256.slice(0, 12)}</code></span>
-        <span>Package <code>{preview.package_fingerprint.slice(0, 12)}</code></span>
+        <span>{t("压缩包", "Archive")} <code>{preview.archive_sha256.slice(0, 12)}</code></span>
+        <span>{t("包", "Package")} <code>{preview.package_fingerprint.slice(0, 12)}</code></span>
       </div>
     </div>
   );

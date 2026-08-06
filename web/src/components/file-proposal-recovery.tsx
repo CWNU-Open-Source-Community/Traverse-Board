@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { DiffEditor } from "@monaco-editor/react";
 import { AlertTriangle, History, X } from "lucide-react";
 import type { CyberAgentClient } from "../api/client";
+import { useLocale } from "../lib/locale";
 import { ErrorState, LoadingState, StatusBadge } from "./common";
 
 export function FileProposalRecovery({ client, runID, editID, onClose }: {
@@ -11,6 +12,7 @@ export function FileProposalRecovery({ client, runID, editID, onClose }: {
   editID: string;
   onClose: () => void;
 }) {
+  const { t } = useLocale();
   const [editorState, setEditorState] = useState<"loading" | "ready" | "failed">("loading");
   const query = useQuery({
     queryKey: ["run", runID, "file-edit-recovery", editID],
@@ -27,19 +29,19 @@ export function FileProposalRecovery({ client, runID, editID, onClose }: {
     return () => { active = false; };
   }, []);
   if (query.isLoading) return <RecoveryStatus onClose={onClose}>
-    <LoadingState label="Recovering pending proposal" />
+    <LoadingState label={t("正在恢复待审提案", "Recovering pending proposal")} />
   </RecoveryStatus>;
   if (query.isError || !query.data) return <RecoveryStatus onClose={onClose}>
     <ErrorState error={query.error} />
   </RecoveryStatus>;
   const recovery = query.data;
   return <div className="file-proposal-editor file-proposal-recovery"
-    aria-label={`Recovered proposal for ${recovery.path}`}>
+    aria-label={t(`已恢复 ${recovery.path} 的提案`, `Recovered proposal for ${recovery.path}`)}>
     <header>
       <div><History aria-hidden="true" size={16} /><strong>{recovery.path}</strong>
         <StatusBadge status={recovery.stale ? "stale" : "pending review"} /></div>
-      <button aria-label="Close recovered proposal" className="icon-button"
-        onClick={onClose} title="Close recovery" type="button">
+      <button aria-label={t("关闭已恢复提案", "Close recovered proposal")} className="icon-button"
+        onClick={onClose} title={t("关闭恢复视图", "Close recovery")} type="button">
         <X aria-hidden="true" size={15} />
       </button>
     </header>
@@ -51,14 +53,14 @@ export function FileProposalRecovery({ client, runID, editID, onClose }: {
           scrollBeyondLastLine: false }} theme="vs" /> :
         <div className={`monaco-local-state${editorState === "failed" ? " inline-warning" : ""}`}
           role={editorState === "failed" ? "alert" : "status"}>
-          {editorState === "failed" ? "Local editor assets could not be loaded" : "Loading local editor"}
+          {editorState === "failed" ? t("无法加载本地编辑器资源", "Local editor assets could not be loaded") : t("正在加载本地编辑器", "Loading local editor")}
         </div>}
     </div>
     <footer>
       {recovery.stale && <span className="stale-proposal-status">
-        <AlertTriangle aria-hidden="true" size={14} />Workspace source changed</span>}
-      <span>Original {recovery.original_sha256.slice(0, 12)}</span>
-      <span>Proposal {recovery.proposed_sha256.slice(0, 12)}</span>
+        <AlertTriangle aria-hidden="true" size={14} />{t("工作区源文件已改变", "Workspace source changed")}</span>}
+      <span>{t("原始", "Original")} {recovery.original_sha256.slice(0, 12)}</span>
+      <span>{t("提案", "Proposal")} {recovery.proposed_sha256.slice(0, 12)}</span>
     </footer>
   </div>;
 }
@@ -67,12 +69,13 @@ function RecoveryStatus({ children, onClose }: {
   children: ReactNode;
   onClose: () => void;
 }) {
-  return <section aria-label="File proposal recovery status"
+  const { t } = useLocale();
+  return <section aria-label={t("文件提案恢复状态", "File proposal recovery status")}
     className="file-proposal-editor file-proposal-recovery">
     <header>
-      <div><History aria-hidden="true" size={16} /><strong>Proposal recovery</strong></div>
-      <button aria-label="Close recovered proposal" className="icon-button"
-        onClick={onClose} title="Close recovery" type="button">
+      <div><History aria-hidden="true" size={16} /><strong>{t("提案恢复", "Proposal recovery")}</strong></div>
+      <button aria-label={t("关闭已恢复提案", "Close recovered proposal")} className="icon-button"
+        onClick={onClose} title={t("关闭恢复视图", "Close recovery")} type="button">
         <X aria-hidden="true" size={15} />
       </button>
     </header>

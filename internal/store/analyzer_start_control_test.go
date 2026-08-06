@@ -344,7 +344,7 @@ func directAnalyzerStartRequestInsert(t *testing.T, state *SQLiteStore,
 }
 
 func removeSchemaV93ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV94ForTestStatements(), []string{
 		`DROP TRIGGER trg_analyzer_start_receipt_delete_immutable`,
 		`DROP TRIGGER trg_analyzer_start_receipt_update_immutable`,
 		`DROP TRIGGER trg_analyzer_start_intent_delete_immutable`,
@@ -362,5 +362,5 @@ func removeSchemaV93ForTestStatements() []string {
 		`DROP INDEX idx_analyzer_start_requests_run_registered`,
 		`DROP TABLE analyzer_start_requests`,
 		`DELETE FROM schema_migrations WHERE version = 93`,
-	}
+	}...)
 }

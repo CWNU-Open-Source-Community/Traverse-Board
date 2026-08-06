@@ -8,6 +8,7 @@ import type {
   WorkspaceView,
 } from "../api/types";
 import { useConnectionStore } from "../state/connection";
+import { useLocale } from "../lib/locale";
 
 const profiles: Array<NonNullable<RunCreationControlRequestView["profile"]>> = ["code", "review", "learn", "script"];
 const surfaces: Array<NonNullable<RunCreationControlRequestView["surface"]>> = ["code", "cyber"];
@@ -26,6 +27,7 @@ export function RunCreationDialog({ client, open, onClose, initialGoal = "",
   initialGoal?: string;
   initialPhase?: NonNullable<RunCreationControlRequestView["phase"]>;
 }) {
+  const { t } = useLocale();
   const [goal, setGoal] = useState("");
   const [workspaceID, setWorkspaceID] = useState("");
   const [profile, setProfile] = useState<NonNullable<RunCreationControlRequestView["profile"]>>("code");
@@ -125,13 +127,13 @@ export function RunCreationDialog({ client, open, onClose, initialGoal = "",
         <header>
           <div>
             <span className="dialog-icon"><Plus aria-hidden="true" size={17} /></span>
-            <div><h2 id="run-creation-title">New Run</h2><small>Prayu</small></div>
+            <div><h2 id="run-creation-title">{t("新建 Run", "New Run")}</h2><small>Prayu</small></div>
           </div>
-          <button aria-label="Close" className="icon-button" disabled={mutation.isPending}
-            onClick={close} title="Close" type="button"><X aria-hidden="true" size={16} /></button>
+          <button aria-label={t("关闭", "Close")} className="icon-button" disabled={mutation.isPending}
+            onClick={close} title={t("关闭", "Close")} type="button"><X aria-hidden="true" size={16} /></button>
         </header>
         <div className="desktop-dialog-body run-creation-form">
-          <label><span>Workspace</span>
+          <label><span>{t("工作区", "Workspace")}</span>
             <select disabled={workspaces.isLoading || options.length === 0} onChange={(event) => {
               setWorkspaceID(event.target.value);
               mutation.reset();
@@ -139,40 +141,43 @@ export function RunCreationDialog({ client, open, onClose, initialGoal = "",
               {options.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
             </select>
           </label>
-          <label><span>Goal</span>
+          <label><span>{t("目标", "Goal")}</span>
             <textarea autoFocus maxLength={4096} onChange={(event) => {
               setGoal(event.target.value);
               mutation.reset();
             }} rows={5} value={goal} />
           </label>
-          <label><span>Profile</span>
+          <label><span>{t("任务类型", "Profile")}</span>
             <select onChange={(event) => {
               setProfile(event.target.value as typeof profile);
               mutation.reset();
             }} value={profile}>
-              {profiles.map((value) => <option key={value} value={value}>{value}</option>)}
+              {profiles.map((value) => <option key={value} value={value}>{t(
+                value === "code" ? "编程" : value === "review" ? "审查" : value === "learn" ? "学习" : "脚本",
+                value,
+              )}</option>)}
             </select>
           </label>
           <div className="run-creation-choice-row">
-            <fieldset><legend>Surface</legend><div className="run-creation-segments">
+            <fieldset><legend>{t("工作模式", "Surface")}</legend><div className="run-creation-segments">
               {surfaces.map((value) => <button aria-pressed={surface === value} className={surface === value ? "selected" : ""}
                 key={value} onClick={() => { setSurface(value); mutation.reset(); }} type="button">{value}</button>)}
             </div></fieldset>
-            <fieldset><legend>Phase</legend><div className="run-creation-segments">
+            <fieldset><legend>{t("任务阶段", "Phase")}</legend><div className="run-creation-segments">
               {phases.map((value) => <button aria-pressed={phase === value} className={phase === value ? "selected" : ""}
-                key={value} onClick={() => { setPhase(value); mutation.reset(); }} type="button">{value}</button>)}
+                key={value} onClick={() => { setPhase(value); mutation.reset(); }} type="button">{t(value === "plan" ? "计划" : "交付", value)}</button>)}
             </div></fieldset>
           </div>
-          {workspaces.isError && <p className="connection-error">Workspace list unavailable</p>}
-          {!workspaces.isLoading && options.length === 0 && <p className="connection-error">No Workspace registered</p>}
-          {goalTooLarge && <p className="connection-error">Goal exceeds 4096 UTF-8 bytes</p>}
+          {workspaces.isError && <p className="connection-error">{t("工作区列表不可用", "Workspace list unavailable")}</p>}
+          {!workspaces.isLoading && options.length === 0 && <p className="connection-error">{t("尚未注册工作区", "No Workspace registered")}</p>}
+          {goalTooLarge && <p className="connection-error">{t("目标超过 4096 个 UTF-8 字节", "Goal exceeds 4096 UTF-8 bytes")}</p>}
           {mutation.isError && <p className="connection-error">{errorMessage(mutation.error)}</p>}
         </div>
         <footer className="run-creation-actions">
-          <button className="dialog-secondary" disabled={mutation.isPending} onClick={close} type="button">Cancel</button>
+          <button className="dialog-secondary" disabled={mutation.isPending} onClick={close} type="button">{t("取消", "Cancel")}</button>
           <button className="dialog-primary" disabled={!ready} type="submit">
             {mutation.isPending ? <LoaderCircle aria-hidden="true" className="spin" size={16} /> : <Plus aria-hidden="true" size={16} />}
-            Create Run
+            {t("创建 Run", "Create Run")}
           </button>
         </footer>
       </form>

@@ -1,6 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { SidebarResizeHandle } from "./workbench-frame";
 
+vi.mock("../lib/locale", () => ({
+  useLocale: () => ({ locale: "zh-CN", setLocale: () => undefined,
+    t: (chinese: string) => chinese }),
+}));
+
 describe("SidebarResizeHandle", () => {
   it("supports bounded keyboard resizing and double-click reset", () => {
     const onChange = vi.fn();

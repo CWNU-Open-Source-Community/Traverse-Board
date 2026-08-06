@@ -17,6 +17,84 @@
   --warning: #a15c00;
 }
 
+.embedded-analyzer-panel .panel-heading-row {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.embedded-analyzer-panel .panel-heading-row h2 {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  margin: 0;
+}
+
+.embedded-analyzer-panel .panel-heading-row p {
+  color: var(--muted);
+  margin: 7px 0 18px;
+  max-width: 720px;
+}
+
+.safety-chip {
+  align-items: center;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 999px;
+  color: var(--accent);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 12px;
+  gap: 6px;
+  padding: 6px 9px;
+}
+
+.analyzer-input-field {
+  display: grid;
+  gap: 7px;
+  margin: 18px 0 12px;
+}
+
+.analyzer-input-field > span {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.analyzer-input-field input,
+.analyzer-input-field textarea {
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--ink);
+  font: inherit;
+  min-width: 0;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+.analyzer-input-field small {
+  color: var(--muted);
+}
+
+.analyzer-confirmation {
+  align-items: flex-start;
+  color: var(--muted);
+  display: flex;
+  font-size: 13px;
+  gap: 9px;
+  margin: 14px 0;
+}
+
+.analyzer-confirmation input {
+  accent-color: var(--accent);
+  margin-top: 2px;
+}
+
+.analyzer-result code {
+  overflow-wrap: anywhere;
+}
+
 * { box-sizing: border-box; }
 html, body, #root { min-width: 320px; min-height: 100%; margin: 0; }
 button, input, select { font: inherit; letter-spacing: 0; }

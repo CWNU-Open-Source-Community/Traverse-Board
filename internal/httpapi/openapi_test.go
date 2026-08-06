@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -59,6 +60,17 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 		t.Fatalf("OpenAPI metadata is incomplete: %#v", document)
 	}
 	expectedPaths := sortedOpenAPIPaths()
+	controlSuccessStatuses := make(map[string]string)
+	for _, spec := range openAPIOperationSpecs() {
+		if !spec.Control {
+			continue
+		}
+		status, statusErr := openAPISuccessStatus(spec)
+		if statusErr != nil {
+			t.Fatal(statusErr)
+		}
+		controlSuccessStatuses[spec.Path] = status
+	}
 	actualPaths := make([]string, 0, len(document.Paths))
 	operationIDs := make(map[string]struct{}, len(document.Paths))
 	for path, item := range document.Paths {
@@ -134,9 +146,13 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 				(path == VerificationSnapshotReceiptReviewPathTemplate &&
 					item.Post.OperationID == "recordRunVerificationSnapshotReceiptReview") ||
 				(path == RunExecutionInteractionControlPathTemplate &&
-					item.Post.OperationID == "selectRunExecutionInteraction")
+					item.Post.OperationID == "selectRunExecutionInteraction") ||
+				(path == EmbeddedAnalyzerExecutionPathTemplate &&
+					item.Post.OperationID == "executeEmbeddedAnalyzer")
+			successStatus := controlSuccessStatuses[path]
 			if !validControl ||
-				item.Post.ReadOnly || item.Post.Responses["202"] == nil || item.Post.RequestBody == nil ||
+				item.Post.ReadOnly || successStatus == "" || item.Post.Responses[successStatus] == nil ||
+				item.Post.RequestBody == nil ||
 				len(item.Post.Security) != 1 || item.Post.Security[0]["ControlBearerAuth"] == nil {
 				t.Fatalf("path %s has an incomplete control operation: %#v", path, item.Post)
 			}
@@ -202,7 +218,8 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 				path == VerificationPlanPathTemplate ||
 				path == VerificationAssociationPathTemplate ||
 				path == VerificationSnapshotReceiptPathTemplate ||
-				path == VerificationSnapshotReceiptReviewPathTemplate) &&
+				path == VerificationSnapshotReceiptReviewPathTemplate ||
+				path == EmbeddedAnalyzerExecutionPathTemplate) &&
 				method == "post") {
 				t.Fatalf("OpenAPI path %s exposed unexpected operation %q", path, method)
 			}
@@ -431,6 +448,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	fixture.api.skillInstallationEnabled = true
 	fixture.api.evidenceAttachmentEnabled = true
 	fixture.api.verificationEvidenceEnabled = true
+	fixture.api.embeddedAnalyzerExecutionEnabled = true
 	fixture.api.runLifecycleController = application.NewRunLifecycleControlService(fixture.store)
 	executionController := application.NewRunExecutionHandoffService(
 		fixture.store, llm.NewDefaultRouter(), policy.NewDefaultChecker())
@@ -472,6 +490,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	fixture.api.fileEditApplyController = application.NewFileEditApplyService(fixture.store, checker)
 	fixture.api.runWakeExecutionController = application.NewForegroundRunWakeConsumer(
 		fixture.store, executionController)
+	fixture.api.embeddedAnalyzerExecutionController =
+		application.NewEmbeddedAnalyzerExecutionService(fixture.store)
 	fixture.api.skillInstallationController = application.NewSkillPackageRegistryService(
 		fixture.store, objects, builtins)
 	steering, err := fixture.store.EnqueueOperatorSteering(t.Context(),
@@ -653,6 +673,10 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 					body = `{"version":"provider_diagnostic.v1","provider":"mock","model":"mock-code","confirm_diagnostic":true}`
 				} else if spec.Path == ModelHarnessQualificationPath {
 					body = `{"version":"model_harness_qualification.v1","provider":"mock","model":"mock-code","confirm_qualification":true}`
+				} else if spec.Path == EmbeddedAnalyzerExecutionPathTemplate {
+					body = `{"version":"` + application.EmbeddedAnalyzerExecutionProtocolVersion +
+						`","text":"OpenAPI embedded analyzer fixture\\n","media_type":"text/plain",` +
+						`"confirmation":"` + application.EmbeddedAnalyzerExecutionConfirmation + `"}`
 				} else if spec.Path == ProviderCredentialPathTemplate {
 					body = `{"version":"provider_credential.v1","action":"set",` +
 						`"secret":"temporary-openapi-key","confirm":true}`
@@ -735,7 +759,14 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				response = performControlPathRequest(t, fixture.api, requestPath,
 					"openapi-live-operation-012345-"+spec.OperationID,
 					strings.NewReader(body))
-				expectedStatus = http.StatusAccepted
+				status, statusErr := openAPISuccessStatus(spec)
+				if statusErr != nil {
+					t.Fatal(statusErr)
+				}
+				expectedStatus, statusErr = strconv.Atoi(status)
+				if statusErr != nil {
+					t.Fatal(statusErr)
+				}
 			} else {
 				response = fixture.get(t, requestPath)
 			}

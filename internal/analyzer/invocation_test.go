@@ -456,7 +456,13 @@ func invocationVectorPlan(t *testing.T, vector invocationFailureVector,
 	case "crash":
 		plan.Crash = true
 	case "timeout":
-		plan.Delay = time.Duration(candidate.Limits.TimeoutMilliseconds+25) * time.Millisecond
+		// This vector verifies restart-stable timeout classification, not timer
+		// scheduling. An already-expired deadline keeps the golden result
+		// deterministic even when the full repository test suite saturates the
+		// Windows scheduler.
+		expired, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+		cancel()
+		ctx = expired
 	case "cancelled":
 		cancelled, cancel := context.WithCancel(context.Background())
 		plan.Delay = 50 * time.Millisecond

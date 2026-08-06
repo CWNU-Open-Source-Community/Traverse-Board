@@ -6,6 +6,11 @@ import type { RunDetailView } from "../api/types";
 import { BrowserCDPPermissionPanel, ExecutionPermissionPanel,
   RunPermissionSettings } from "./run-permission-settings";
 
+vi.mock("../lib/locale", () => ({
+  useLocale: () => ({ locale: "zh-CN", setLocale: () => undefined,
+    t: (chinese: string) => chinese }),
+}));
+
 const baseDetail = {
   run: { id: "run-1", mission_id: "mission-1", session_id: "session-1", status: "paused",
     config: { model_route: "mock/model", interactive: true },

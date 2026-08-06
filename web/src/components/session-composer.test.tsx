@@ -4,8 +4,10 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import type { CyberAgentClient } from "../api/client";
 import type { OperatorSteeringQueueView, RunView, SessionMessageControlView,
-  SessionSteeringCancellationView } from "../api/types";
+  SessionSteeringCancellationView, RunExecutionControlView,
+  RunLifecycleControlView } from "../api/types";
 import { SessionComposer, SessionSteeringQueue } from "./session-composer";
+import { LocaleProvider } from "../lib/locale";
 
 const result: SessionMessageControlView = {
   version: "session_message_submission.v1",
@@ -41,6 +43,7 @@ const cancellationResult: SessionSteeringCancellationView = {
 describe("SessionComposer", () => {
   beforeEach(() => {
     localStorage.clear();
+    localStorage.setItem("prayu.locale.v1", "en-US");
     sessionStorage.clear();
   });
 
@@ -50,6 +53,8 @@ describe("SessionComposer", () => {
       .mockResolvedValueOnce(result);
     const client = {
       hasSessionMessages: true,
+      hasRunLifecycle: false,
+      hasRunExecution: false,
       submitSessionMessage,
     } as unknown as CyberAgentClient;
     const user = userEvent.setup();
@@ -70,14 +75,59 @@ describe("SessionComposer", () => {
     });
     expect(first?.[2]).toBe(second?.[2]);
     expect(screen.getByLabelText("Session message")).toHaveValue("");
-    expect(localStorage.length).toBe(0);
+    expect(Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)))
+      .toEqual(["prayu.locale.v1"]);
     expect(sessionStorage.length).toBe(0);
+  });
+
+  it("starts a new Run, commits the message, and executes one model turn", async () => {
+    const controlRunLifecycle = vi.fn().mockResolvedValue({
+      version: "run_lifecycle_control.v1", action: "start", expected_status: "created",
+      applied_status: "running", run: { ...runningRun }, replayed: false,
+      event_sequence_start: 1, event_sequence_end: 2, execution_started: false,
+      model_called: false, tool_called: false, capability_grant: false,
+    } as RunLifecycleControlView);
+    const submitSessionMessage = vi.fn().mockResolvedValue(result);
+    const executeRun = vi.fn().mockResolvedValue({
+      version: "run_execution_handoff.v1", operation_id: "op-1", run_id: "run-1",
+      session_id: "sess-1", max_steps: 1, status: "completed", run_status: "running",
+      steps_completed: 1, stop_reason: "max_steps", selected_count: 1,
+      committed_count: 1, pending_count: 0, prepared_count: 0, cancelled_count: 0,
+      completion_event_sequence: 9, replayed: false, execution_started: true,
+      model_called: true, tool_called: false, capability_grant: false,
+    } as RunExecutionControlView);
+    const client = {
+      hasSessionMessages: true, hasRunLifecycle: true, hasRunExecution: true,
+      controlRunLifecycle, submitSessionMessage, executeRun,
+    } as unknown as CyberAgentClient;
+    const user = userEvent.setup();
+    renderComposer(client, { id: "run-1", status: "created" } as RunView);
+
+    await user.type(screen.getByLabelText("Session message"), "Inspect the repository");
+    await user.click(screen.getByRole("button", { name: "Queue message" }));
+    await screen.findByText("Model reply committed");
+
+    expect(controlRunLifecycle).toHaveBeenCalledWith("run-1", {
+      version: "run_lifecycle_control.v1", action: "start",
+    }, expect.stringMatching(/^web-session-turn-lifecycle-/));
+    expect(submitSessionMessage).toHaveBeenCalledWith("sess-1", {
+      version: "session_message_submission.v1", content: "Inspect the repository",
+    }, expect.stringMatching(/^web-session-message-/));
+    expect(executeRun).toHaveBeenCalledWith("run-1", {
+      version: "run_execution_handoff.v1", max_steps: 1,
+    }, expect.stringMatching(/^web-session-turn-execution-/));
+    expect(controlRunLifecycle.mock.invocationCallOrder[0]).toBeLessThan(
+      submitSessionMessage.mock.invocationCallOrder[0]);
+    expect(submitSessionMessage.mock.invocationCallOrder[0]).toBeLessThan(
+      executeRun.mock.invocationCallOrder[0]);
   });
 
   it("enforces the UTF-8 byte limit before issuing a request", async () => {
     const submitSessionMessage = vi.fn();
     const client = {
       hasSessionMessages: true,
+      hasRunLifecycle: false,
+      hasRunExecution: false,
       submitSessionMessage,
     } as unknown as CyberAgentClient;
     renderComposer(client, runningRun);
@@ -100,6 +150,8 @@ describe("SessionComposer", () => {
 
     const enabled = {
       hasSessionMessages: true,
+      hasRunLifecycle: false,
+      hasRunExecution: false,
       submitSessionMessage: vi.fn(),
     } as unknown as CyberAgentClient;
     rerender(withProvider(<SessionComposer client={enabled} sessionID="sess-1"
@@ -145,7 +197,8 @@ describe("SessionSteeringQueue", () => {
     });
     expect(cancelSessionSteering.mock.calls[0]?.[3]).toBe(
       cancelSessionSteering.mock.calls[1]?.[3]);
-    expect(localStorage.length).toBe(0);
+    expect(Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)))
+      .toEqual(["prayu.locale.v1"]);
     expect(sessionStorage.length).toBe(0);
   });
 
@@ -175,7 +228,7 @@ function renderComposer(client: CyberAgentClient, run: RunView | null) {
 }
 
 function withProvider(node: ReactNode) {
-  return <QueryClientProvider client={new QueryClient({
+  return <LocaleProvider><QueryClientProvider client={new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  })}>{node}</QueryClientProvider>;
+  })}>{node}</QueryClientProvider></LocaleProvider>;
 }

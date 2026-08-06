@@ -125,21 +125,22 @@ type openAPIMediaType struct {
 }
 
 type openAPIOperationSpec struct {
-	Path        string
-	Method      string
-	OperationID string
-	Summary     string
-	Description string
-	Tag         string
-	DataType    reflect.Type
-	Collection  bool
-	Paginated   bool
-	NotFound    bool
-	RawDocument bool
-	Streaming   bool
-	Parameters  []openAPIParameter
-	RequestType reflect.Type
-	Control     bool
+	Path          string
+	Method        string
+	OperationID   string
+	Summary       string
+	Description   string
+	Tag           string
+	DataType      reflect.Type
+	Collection    bool
+	Paginated     bool
+	NotFound      bool
+	RawDocument   bool
+	Streaming     bool
+	Parameters    []openAPIParameter
+	RequestType   reflect.Type
+	Control       bool
+	SuccessStatus int
 }
 
 // GenerateOpenAPI creates the canonical client contract from the Go response DTOs.
@@ -317,6 +318,14 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 						"minLength": domain.MinAgentOperationKeyBytes,
 						"maxLength": domain.MaxAgentOperationKeyBytes, "pattern": `^\S+$`}},
 			}},
+		{Path: EmbeddedAnalyzerExecutionPathTemplate, Method: http.MethodPost,
+			OperationID: "executeEmbeddedAnalyzer", Summary: "Execute the fixed embedded analyzer",
+			Tag:         "Control",
+			Description: "Consumes one bounded text value or workspace-relative regular file through the fixed embedded Rust/WASI fixture. The guest receives only bounded stdin/stdout, no filesystem, environment, network, subprocess, arbitrary module, or reusable execution authority.",
+			DataType:    reflect.TypeOf(EmbeddedAnalyzerExecutionControlView{}),
+			RequestType: reflect.TypeOf(EmbeddedAnalyzerExecutionRequestView{}), Control: true,
+			SuccessStatus: http.StatusCreated,
+			Parameters:    []openAPIParameter{runID}},
 		{Path: "/api/v1/workspaces", OperationID: "listWorkspaces", Summary: "List Workspaces",
 			Tag: "Workspaces", Description: "Returns registered Workspace ids and names without local root paths.",
 			DataType: reflect.TypeOf(WorkspaceView{}), Collection: true, Paginated: true,
@@ -959,11 +968,16 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 
 func buildOpenAPIOperation(spec openAPIOperationSpec, registry *openAPISchemaRegistry) (openAPIOperation, error) {
 	responses := standardOperationResponses(spec.NotFound, spec.Control)
-	successStatus := "200"
+	successStatus, err := openAPISuccessStatus(spec)
+	if err != nil {
+		return openAPIOperation{}, err
+	}
 	successDescription := "Successful read"
 	if spec.Control {
-		successStatus = "202"
 		successDescription = "Control request accepted or idempotently replayed"
+		if successStatus == "201" {
+			successDescription = "Resource created or idempotently replayed"
+		}
 	}
 	if spec.Streaming {
 		responses[successStatus] = openAPIResponse{Description: "Bounded Server-Sent Event stream", Content: map[string]openAPIMediaType{
@@ -998,6 +1012,24 @@ func buildOpenAPIOperation(spec openAPIOperationSpec, registry *openAPISchemaReg
 		}}
 	}
 	return operation, nil
+}
+
+func openAPISuccessStatus(spec openAPIOperationSpec) (string, error) {
+	status := spec.SuccessStatus
+	if status == 0 {
+		if spec.Control {
+			status = http.StatusAccepted
+		} else {
+			status = http.StatusOK
+		}
+	}
+	if status < 200 || status > 299 {
+		return "", fmt.Errorf("OpenAPI path %q has invalid success status %d", spec.Path, status)
+	}
+	if !spec.Control && status != http.StatusOK {
+		return "", fmt.Errorf("OpenAPI read path %q must use status 200", spec.Path)
+	}
+	return fmt.Sprint(status), nil
 }
 
 func successEnvelopeSchema(dataSchema map[string]any, paginated bool, registry *openAPISchemaRegistry) map[string]any {

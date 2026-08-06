@@ -62,6 +62,7 @@ import type {
 import { usePagedResource } from "../hooks/use-paged-resource";
 import { useRunEventStream } from "../hooks/use-run-event-stream";
 import { formatBytes, formatDate, formatNumber, shortID } from "../lib/format";
+import { useLocale } from "../lib/locale";
 import { EmptyState, ErrorState, KeyValue, LoadMoreButton, LoadingState, StatusBadge } from "./common";
 import { ApprovalPanel } from "./approval-panel";
 import { CommandPalette, type CommandPaletteCommand } from "./command-palette";
@@ -82,33 +83,35 @@ import { WorkspaceExplorer } from "./workspace-explorer";
 import { SessionComposer } from "./session-composer";
 import { AgentGraphPanel, DelegationsPanel, ExternalSkillsSection, FanoutPanel, FindingsPanel } from "./run-projections";
 import { RunActivityTimeline } from "./run-activity-timeline";
+import { EmbeddedAnalyzerPanel } from "./embedded-analyzer-panel";
 
 type RunTab = "activity" | "overview" | "journey" | "actions" | "approvals" | "diffs" | "repository" | "files" | "evidence" | "verify" | "handoff" |
   "receipts" | "agents" | "delegations" | "fanout" | "findings" | "events" | "work" |
-  "notes" | "artifacts" | "tools";
+  "notes" | "artifacts" | "tools" | "analyzer";
 
-const tabs: Array<{ id: RunTab; label: string; icon: typeof Activity }> = [
-  { id: "activity", label: "活动", icon: MessageSquareText },
-  { id: "overview", label: "概览", icon: Gauge },
-  { id: "journey", label: "Journey", icon: ListOrdered },
-  { id: "actions", label: "Actions", icon: ListChecks },
-  { id: "approvals", label: "Approvals", icon: ShieldCheck },
-  { id: "diffs", label: "Diffs", icon: FileDiff },
-  { id: "repository", label: "Repository", icon: GitBranch },
-  { id: "files", label: "Files", icon: FolderOpen },
-  { id: "evidence", label: "Evidence", icon: Paperclip },
-  { id: "verify", label: "Verify", icon: ClipboardCheck },
-  { id: "handoff", label: "Handoff", icon: BookOpenCheck },
-  { id: "receipts", label: "Receipts", icon: History },
-  { id: "agents", label: "Agents", icon: GitBranch },
-  { id: "delegations", label: "委派", icon: Network },
-  { id: "fanout", label: "Fan-out", icon: ScanSearch },
-  { id: "findings", label: "发现", icon: ShieldAlert },
-  { id: "events", label: "事件", icon: Activity },
-  { id: "work", label: "任务", icon: ClipboardList },
-  { id: "notes", label: "记忆", icon: StickyNote },
-  { id: "artifacts", label: "产物", icon: FileArchive },
-  { id: "tools", label: "工具", icon: Wrench },
+const tabs: Array<{ id: RunTab; label: [string, string]; icon: typeof Activity }> = [
+  { id: "activity", label: ["活动", "Activity"], icon: MessageSquareText },
+  { id: "overview", label: ["概览", "Overview"], icon: Gauge },
+  { id: "journey", label: ["代码历程", "Journey"], icon: ListOrdered },
+  { id: "actions", label: ["待办操作", "Actions"], icon: ListChecks },
+  { id: "approvals", label: ["审批", "Approvals"], icon: ShieldCheck },
+  { id: "diffs", label: ["差异", "Diffs"], icon: FileDiff },
+  { id: "repository", label: ["代码仓库", "Repository"], icon: GitBranch },
+  { id: "files", label: ["文件", "Files"], icon: FolderOpen },
+  { id: "evidence", label: ["证据", "Evidence"], icon: Paperclip },
+  { id: "verify", label: ["验证", "Verify"], icon: ClipboardCheck },
+  { id: "handoff", label: ["交接", "Handoff"], icon: BookOpenCheck },
+  { id: "receipts", label: ["操作收据", "Receipts"], icon: History },
+  { id: "agents", label: ["子智能体", "Agents"], icon: GitBranch },
+  { id: "delegations", label: ["委派", "Delegations"], icon: Network },
+  { id: "fanout", label: ["并发派发", "Fan-out"], icon: ScanSearch },
+  { id: "findings", label: ["发现", "Findings"], icon: ShieldAlert },
+  { id: "events", label: ["事件", "Events"], icon: Activity },
+  { id: "work", label: ["任务", "Work"], icon: ClipboardList },
+  { id: "notes", label: ["记忆", "Memory"], icon: StickyNote },
+  { id: "artifacts", label: ["产物", "Artifacts"], icon: FileArchive },
+  { id: "tools", label: ["工具", "Tools"], icon: Wrench },
+  { id: "analyzer", label: ["分析器", "Analyzer"], icon: Bug },
 ];
 
 export function RunWorkspace({ client, runID, onOpenPlugins }: {
@@ -116,6 +119,7 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
   runID: string;
   onOpenPlugins?: () => void;
 }) {
+  const { t } = useLocale();
   const [tab, setTab] = useState<RunTab>("activity");
   const [fileTarget, setFileTarget] = useState({ runID, path: "." });
   const [receiptReviewTarget, setReceiptReviewTarget] =
@@ -202,23 +206,25 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
   const contextTokens = useMemo(() => (contextMessagesQuery.data?.pages
     .flatMap((page) => page.items) ?? []).filter((message) => !message.compacted)
     .reduce((total, message) => total + message.token_estimate, 0), [contextMessagesQuery.data]);
-  const visibleTabs = useMemo(() => detailQuery.data?.mode.surface === "cyber"
-    ? tabs.filter(({ id }) => !["journey", "verify", "handoff"].includes(id)) : tabs,
-  [detailQuery.data?.mode.surface]);
+  const visibleTabs = useMemo(() => tabs.filter(({ id }) => {
+    if (id === "analyzer" && !client.hasEmbeddedAnalyzerExecution) return false;
+    return detailQuery.data?.mode.surface !== "cyber" ||
+      !["journey", "verify", "handoff"].includes(id);
+  }), [client, detailQuery.data?.mode.surface]);
   const commands = useMemo<CommandPaletteCommand[]>(() => [
-    ...visibleTabs.map(({ id, label }) => ({ id: `view-${id}`, label: `Open ${label}`,
-      group: "Navigate", keywords: [id, "run"], run: () => setTab(id) })),
-    { id: "refresh-run", label: "Refresh Run data", group: "Data",
+    ...visibleTabs.map(({ id, label }) => ({ id: `view-${id}`, label: t(`打开${label[0]}`, `Open ${label[1]}`),
+      group: t("导航", "Navigate"), keywords: [id, "run"], run: () => setTab(id) })),
+    { id: "refresh-run", label: t("刷新 Run 数据", "Refresh Run data"), group: t("数据", "Data"),
       keywords: ["reload", "sync"], run: () => {
         void queryClient.invalidateQueries({ queryKey: ["run", runID] });
       } },
-  ], [queryClient, runID, visibleTabs]);
+  ], [queryClient, runID, t, visibleTabs]);
 
   if (!runID) {
-    return <EmptyWorkspace icon={<Boxes aria-hidden="true" size={24} />} title="选择一个 Run" />;
+    return <EmptyWorkspace icon={<Boxes aria-hidden="true" size={24} />} title={t("选择一个 Run", "Select a Run")} />;
   }
   if (detailQuery.isLoading) {
-    return <LoadingState label="加载 Run" />;
+    return <LoadingState label={t("加载 Run", "Loading Run")} />;
   }
   if (detailQuery.isError || !detailQuery.data) {
     return <ErrorState error={detailQuery.error} />;
@@ -248,7 +254,7 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
       <nav aria-label="Run 视图" className="workspace-tabs" role="tablist">
         {visibleTabs.map(({ id, label, icon: Icon }) => (
           <button aria-selected={tab === id} className={tab === id ? "active" : ""} key={id} onClick={() => setTab(id)} role="tab" type="button">
-            <Icon aria-hidden="true" size={15} />{label}
+            <Icon aria-hidden="true" size={15} />{t(...label)}
           </button>
         ))}
       </nav>
@@ -328,6 +334,8 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
             <LoadMoreButton hasNextPage={Boolean(toolsQuery.hasNextPage)} isFetching={toolsQuery.isFetchingNextPage} onClick={() => void toolsQuery.fetchNextPage()} />
           </CollectionState>
         )}
+        {tab === "analyzer" && client.hasEmbeddedAnalyzerExecution &&
+          <EmbeddedAnalyzerPanel client={client} runID={runID} />}
       </div>
       {detail.run.session_id && <SessionComposer client={client}
         contextPartial={Boolean(contextMessagesQuery.hasNextPage)} contextTokens={contextTokens}
@@ -338,6 +346,7 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
 }
 
 function RunOverview({ client, detail }: { client: CyberAgentClient; detail: RunDetailView }) {
+  const { t } = useLocale();
   const checkpoint = detail.checkpoint;
   const usage = detail.tool_usage;
   const percent = usage.limit > 0 ? Math.min(100, Math.round((usage.consumed / usage.limit) * 100)) : 0;
@@ -345,23 +354,23 @@ function RunOverview({ client, detail }: { client: CyberAgentClient; detail: Run
   return (
     <div className="overview-layout">
       <section className="metric-strip" aria-label="Run 指标">
-        <div><span>Next turn</span><strong>{checkpoint?.next_turn ?? 0}</strong></div>
-        <div><span>Total tokens</span><strong>{formatNumber(checkpoint?.total_tokens)}</strong></div>
-        <div><span>Tool calls</span><strong>{formatNumber(usage.consumed)} / {formatNumber(usage.limit)}</strong></div>
-        <div><span>Execution</span><strong>{formatNumber(checkpoint?.execution_millis)} ms</strong></div>
+        <div><span>{t("下一轮", "Next turn")}</span><strong>{checkpoint?.next_turn ?? 0}</strong></div>
+        <div><span>{t("累计令牌", "Total tokens")}</span><strong>{formatNumber(checkpoint?.total_tokens)}</strong></div>
+        <div><span>{t("工具调用", "Tool calls")}</span><strong>{formatNumber(usage.consumed)} / {formatNumber(usage.limit)}</strong></div>
+        <div><span>{t("执行耗时", "Execution")}</span><strong>{formatNumber(checkpoint?.execution_millis)} ms</strong></div>
       </section>
       <section className="detail-section">
         <h2>目标与范围</h2>
         <dl className="detail-grid">
-          <KeyValue label="Mission" value={detail.mission.id} />
-          <KeyValue label="Workspace" value={detail.mission.workspace_id} />
-          <KeyValue label="Surface" value={detail.mode.surface} />
-          <KeyValue label="Execution phase" value={detail.mode.phase} />
-          <KeyValue label="Mode revision" value={formatNumber(detail.mode.revision)} />
-          <KeyValue label="Network" value={detail.mission.scope.network_mode} />
-          <KeyValue label="Allowed targets" value={detail.mission.scope.allowed_targets?.join(", ")} />
-          <KeyValue label="Interactive" value={detail.run.config.interactive ? "yes" : "no"} />
-          <KeyValue label="Created" value={formatDate(detail.run.created_at)} />
+          <KeyValue label={t("Mission", "Mission")} value={detail.mission.id} />
+          <KeyValue label={t("工作区", "Workspace")} value={detail.mission.workspace_id} />
+          <KeyValue label={t("工作模式", "Surface")} value={detail.mode.surface} />
+          <KeyValue label={t("执行阶段", "Execution phase")} value={detail.mode.phase} />
+          <KeyValue label={t("模式修订", "Mode revision")} value={formatNumber(detail.mode.revision)} />
+          <KeyValue label={t("网络", "Network")} value={detail.mission.scope.network_mode} />
+          <KeyValue label={t("允许目标", "Allowed targets")} value={detail.mission.scope.allowed_targets?.join(", ")} />
+          <KeyValue label={t("交互式", "Interactive")} value={detail.run.config.interactive ? t("是", "yes") : t("否", "no")} />
+          <KeyValue label={t("创建时间", "Created")} value={formatDate(detail.run.created_at)} />
         </dl>
       </section>
       <RunControlPanel client={client} detail={detail} />
@@ -400,6 +409,7 @@ export function RunControlPanel({ client, detail }: {
   client: CyberAgentClient;
   detail: RunDetailView;
 }) {
+  const { t } = useLocale();
   const queryClient = useQueryClient();
   const [maxSteps, setMaxSteps] = useState(1);
   const [lastExecution, setLastExecution] = useState<RunExecutionControlView | null>(null);
@@ -456,7 +466,7 @@ export function RunControlPanel({ client, detail }: {
   return (
     <section className="detail-section run-control-section">
       <div className="section-heading">
-        <h2><Play aria-hidden="true" size={15} />Run control</h2>
+        <h2><Play aria-hidden="true" size={15} />{t("Run 控制", "Run control")}</h2>
         <StatusBadge status={activeLease ? "busy" : detail.run.status} />
       </div>
       <div className="run-control-row">
@@ -466,12 +476,12 @@ export function RunControlPanel({ client, detail }: {
             {lifecycle.isPending
               ? <LoaderCircle aria-hidden="true" className="spin" size={16} />
               : <LifecycleIcon aria-hidden="true" size={16} />}
-            {lifecycleAction === "start" ? "Start" : lifecycleAction === "pause" ? "Pause" : "Resume"}
+            {lifecycleAction === "start" ? t("启动", "Start") : lifecycleAction === "pause" ? t("暂停", "Pause") : t("恢复", "Resume")}
           </button>
         )}
         {client.hasRunExecution && (
           <div className="run-execution-control">
-            <label htmlFor={`run-max-steps-${detail.run.id}`}>Steps</label>
+            <label htmlFor={`run-max-steps-${detail.run.id}`}>{t("步数", "Steps")}</label>
             <input id={`run-max-steps-${detail.run.id}`} max={8} min={1}
               onChange={(event) => setMaxSteps(Math.max(1, Math.min(8,
                 Number.parseInt(event.target.value, 10) || 1)))} type="number" value={maxSteps} />
@@ -480,7 +490,7 @@ export function RunControlPanel({ client, detail }: {
               {execution.isPending
                 ? <LoaderCircle aria-hidden="true" className="spin" size={16} />
                 : <ChevronsRight aria-hidden="true" size={16} />}
-              Run queue
+              {t("执行队列", "Run queue")}
             </button>
           </div>
         )}
@@ -489,11 +499,11 @@ export function RunControlPanel({ client, detail }: {
         <div className="run-control-result" role="status">
           <StatusBadge status={lastExecution.status} />
           <span>{lastExecution.stop_reason}</span>
-          <span>{lastExecution.steps_completed}/{lastExecution.selected_count} steps</span>
+          <span>{t(`${lastExecution.steps_completed}/${lastExecution.selected_count} 步`, `${lastExecution.steps_completed}/${lastExecution.selected_count} steps`)}</span>
         </div>
       )}
       {error && <div className="inline-warning" role="alert">
-        {error instanceof Error ? error.message : "Run control failed"}
+        {error instanceof Error ? error.message : t("Run 控制失败", "Run control failed")}
       </div>}
     </section>
   );
@@ -503,6 +513,7 @@ function ActiveCallCancelPanel({ client, detail }: {
   client: CyberAgentClient;
   detail: RunDetailView;
 }) {
+  const { t } = useLocale();
   const queryClient = useQueryClient();
   const attemptID = detail.checkpoint?.attempt_id ?? "";
   const [modelAttempt, setModelAttempt] = useState(1);
@@ -532,75 +543,77 @@ function ActiveCallCancelPanel({ client, detail }: {
   return (
     <section className="detail-section run-control-section">
       <div className="section-heading">
-        <h2><Ban aria-hidden="true" size={15} />取消模型调用</h2>
+        <h2><Ban aria-hidden="true" size={15} />{t("取消模型调用", "Cancel model call")}</h2>
         <StatusBadge status={detail.execution_lease?.active ? "busy" : detail.run.status} />
       </div>
-      <p className="run-cancel-hint">中断 Supervisor 当前进行中的模型调用（attempt {shortID(attemptID)}）。</p>
+      <p className="run-cancel-hint">{t(`中断 Supervisor 当前进行中的模型调用（尝试 ${shortID(attemptID)}）。`, `Interrupt the model call currently running under Supervisor (attempt ${shortID(attemptID)}).`)}</p>
       <div className="run-control-row">
         <div className="run-execution-control">
-          <label htmlFor={`run-cancel-attempt-${detail.run.id}`}>Model attempt</label>
+          <label htmlFor={`run-cancel-attempt-${detail.run.id}`}>{t("模型尝试", "Model attempt")}</label>
           <input id={`run-cancel-attempt-${detail.run.id}`} min={1} type="number"
             onChange={(event) => setModelAttempt(Math.max(1,
               Number.parseInt(event.target.value, 10) || 1))} value={modelAttempt} />
         </div>
-        <input aria-label="取消原因（可选）" className="run-cancel-reason" maxLength={1024}
+        <input aria-label={t("取消原因（可选）", "Cancellation reason (optional)")} className="run-cancel-reason" maxLength={1024}
           onChange={(event) => setReason(event.target.value)}
-          placeholder="原因（可选）" type="text" value={reason} />
+          placeholder={t("原因（可选）", "Reason (optional)")} type="text" value={reason} />
         <button className="command-button" disabled={cancel.isPending}
           onClick={() => cancel.mutate()} type="button">
           {cancel.isPending
             ? <LoaderCircle aria-hidden="true" className="spin" size={16} />
             : <Ban aria-hidden="true" size={16} />}
-          取消调用
+          {t("取消调用", "Cancel call")}
         </button>
       </div>
       {lastResult && (
         <div className="run-control-result" role="status">
           <StatusBadge status={lastResult.status} />
-          <span>attempt {lastResult.model_attempt}</span>
-          {lastResult.replayed && <span>replayed</span>}
+          <span>{t("尝试", "attempt")} {lastResult.model_attempt}</span>
+          {lastResult.replayed && <span>{t("已重放", "replayed")}</span>}
         </div>
       )}
       {cancel.error && <div className="inline-warning" role="alert">
-        {cancel.error instanceof Error ? cancel.error.message : "取消模型调用失败"}
+        {cancel.error instanceof Error ? cancel.error.message : t("取消模型调用失败", "Model call cancellation failed")}
       </div>}
     </section>
   );
 }
 
 function ExecutionBoundarySummary({ detail }: { detail: RunDetailView }) {
+  const { t } = useLocale();
   return <section className="detail-section execution-boundary-summary">
     <div className="section-heading">
-      <h2><ShieldCheck aria-hidden="true" size={15} />权限摘要</h2>
-      <span>设置 &gt; 权限</span>
+      <h2><ShieldCheck aria-hidden="true" size={15} />{t("权限摘要", "Permission summary")}</h2>
+      <span>{t("设置 > 权限", "Settings > Permissions")}</span>
     </div>
     <dl className="detail-grid compact">
-      <KeyValue label="Permission" value={detail.execution_permission.mode} />
-      <KeyValue label="Interaction" value={detail.execution_interaction.mode} />
-      <KeyValue label="Environment" value={detail.execution_profile.profile} />
-      <KeyValue label="Workspace trust"
+      <KeyValue label={t("权限", "Permission")} value={detail.execution_permission.mode} />
+      <KeyValue label={t("交互", "Interaction")} value={detail.execution_interaction.mode} />
+      <KeyValue label={t("环境", "Environment")} value={detail.execution_profile.profile} />
+      <KeyValue label={t("工作区信任", "Workspace trust")}
         value={detail.execution_interaction.workspace_trust} />
-      <KeyValue label="Runtime authority" value="disabled" />
-      <KeyValue label="Agent input" value="disabled by default" />
+      <KeyValue label={t("运行时授权", "Runtime authority")} value={t("禁用", "disabled")} />
+      <KeyValue label={t("Agent 输入", "Agent input")} value={t("默认禁用", "disabled by default")} />
     </dl>
   </section>;
 }
 
 export function OperatorSteeringPanel({ state }: { state: OperatorSteeringQueueView }) {
+  const { t } = useLocale();
   return (
     <section className="detail-section steering-section">
       <div className="section-heading">
-        <h2><ListOrdered aria-hidden="true" size={15} />Operator steering</h2>
+        <h2><ListOrdered aria-hidden="true" size={15} />{t("操作者引导", "Operator steering")}</h2>
         <StatusBadge status={state.pending + state.prepared > 0 ? "pending" : "idle"} />
       </div>
       <div className="steering-state-line">
-        <span>Queued {formatNumber(state.pending)}</span>
-        <span>Prepared {formatNumber(state.prepared)}</span>
-        <span>Committed {formatNumber(state.committed)}</span>
-        <span>Cancelled {formatNumber(state.cancelled)}</span>
+        <span>{t("已排队", "Queued")} {formatNumber(state.pending)}</span>
+        <span>{t("已准备", "Prepared")} {formatNumber(state.prepared)}</span>
+        <span>{t("已提交", "Committed")} {formatNumber(state.committed)}</span>
+        <span>{t("已取消", "Cancelled")} {formatNumber(state.cancelled)}</span>
       </div>
-      <div className="steering-list" aria-label="Operator steering metadata">
-        {state.messages.length === 0 ? <p>No operator guidance recorded</p> :
+      <div className="steering-list" aria-label={t("操作者引导元数据", "Operator steering metadata")}>
+        {state.messages.length === 0 ? <p>{t("没有操作者引导记录", "No operator guidance recorded")}</p> :
           state.messages.map((message) => (
             <div className="steering-row" key={message.id}>
               <span>#{message.sequence}</span>
@@ -619,6 +632,7 @@ export function PlanDeliveryPanel({ state, client, detail }: {
   client?: CyberAgentClient;
   detail?: RunDetailView;
 }) {
+  const { t } = useLocale();
   const queryClient = useQueryClient();
   const operationKeys = useRef(new Map<string, string>());
   const operationKey = (intent: string) => {
@@ -640,7 +654,7 @@ export function PlanDeliveryPanel({ state, client, detail }: {
   const directionMutation = useMutation({
     mutationFn: (direction: number) => {
       if (!client || !detail || !state.proposal) {
-        throw new Error("Plan direction control is unavailable");
+        throw new Error(t("计划方向控制不可用", "Plan direction control is unavailable"));
       }
       const intent = `${state.proposal.id}:direction:${direction}`;
       return client.selectPlanDirection(detail.run.id, {
@@ -655,7 +669,7 @@ export function PlanDeliveryPanel({ state, client, detail }: {
   const deliveryMutation = useMutation({
     mutationFn: () => {
       if (!client || !detail || !state.selection) {
-        throw new Error("Plan delivery control is unavailable");
+        throw new Error(t("计划交付控制不可用", "Plan delivery control is unavailable"));
       }
       const intent = `${state.selection.id}:deliver`;
       return client.enterPlanDelivery(detail.run.id, {
@@ -674,22 +688,22 @@ export function PlanDeliveryPanel({ state, client, detail }: {
   const selecting = directionMutation.isPending || deliveryMutation.isPending;
   const controlError = directionMutation.error ?? deliveryMutation.error;
   const status = state.operator_choice_needed
-    ? "Operator choice required"
+    ? t("需要操作者选择", "Operator choice required")
     : state.phase_change_needed
-      ? "Deliver phase required"
-      : "Direction selected";
+      ? t("需要进入交付阶段", "Deliver phase required")
+      : t("已选择方向", "Direction selected");
   return (
     <section className="detail-section plan-delivery-section">
       <div className="section-heading">
-        <h2><ListChecks aria-hidden="true" size={15} />Plan / Delivery</h2>
+        <h2><ListChecks aria-hidden="true" size={15} />{t("计划 / 交付", "Plan / Delivery")}</h2>
         <StatusBadge status={state.operator_choice_needed ? "pending" : "accepted"} />
       </div>
       <div className="plan-state-line">
         <span>{status}</span>
-        <span>Mode revision {formatNumber(state.proposal?.mode_revision)}</span>
-        <span>Delivery gates {formatNumber(state.ready_checkpoints)} / {formatNumber(state.required_checkpoints)}</span>
-        <span>Gate enforcement: {state.delivery_gate_enforced ? "on" : "legacy exempt"}</span>
-        <span>Capability grant: no</span>
+        <span>{t("模式修订", "Mode revision")} {formatNumber(state.proposal?.mode_revision)}</span>
+        <span>{t("交付门", "Delivery gates")} {formatNumber(state.ready_checkpoints)} / {formatNumber(state.required_checkpoints)}</span>
+        <span>{t("门禁执行", "Gate enforcement")}: {state.delivery_gate_enforced ? t("开启", "on") : t("旧版豁免", "legacy exempt")}</span>
+        <span>{t("能力授权：无", "Capability grant: no")}</span>
       </div>
       <div className="plan-direction-list">
         {state.proposal?.directions.map((direction) => (
@@ -698,16 +712,16 @@ export function PlanDeliveryPanel({ state, client, detail }: {
             <summary>
               <span className="plan-ordinal">{direction.ordinal}</span>
               <span><strong>{direction.title}</strong><small>{direction.summary}</small></span>
-              <span>{direction.modules.length} slices</span>
+              <span>{t(`${direction.modules.length} 个切片`, `${direction.modules.length} slices`)}</span>
               {selected === direction.ordinal && <StatusBadge status="selected" />}
             </summary>
             <div className="plan-direction-body">
-              <div><h3>Tradeoffs</h3><ul>{direction.tradeoffs.map((item) => <li key={item}>{item}</li>)}</ul></div>
-              <div><h3>Delivery slices</h3><ol>{direction.modules.map((module) => (
+              <div><h3>{t("权衡", "Tradeoffs")}</h3><ul>{direction.tradeoffs.map((item) => <li key={item}>{item}</li>)}</ul></div>
+              <div><h3>{t("交付切片", "Delivery slices")}</h3><ol>{direction.modules.map((module) => (
                 <li key={module.ordinal}>
                   <strong>{module.title}</strong>
                   <p>{module.objective}</p>
-                  <small>{module.dependencies.length > 0 ? `Depends on ${module.dependencies.join(", ")}` : "No dependencies"}</small>
+                  <small>{module.dependencies.length > 0 ? t(`依赖 ${module.dependencies.join(", ")}`, `Depends on ${module.dependencies.join(", ")}`) : t("无依赖", "No dependencies")}</small>
                 </li>
               ))}</ol></div>
               {mutable && state.operator_choice_needed && state.proposal && (
@@ -715,7 +729,7 @@ export function PlanDeliveryPanel({ state, client, detail }: {
                   onClick={() => directionMutation.mutate(direction.ordinal)} type="button">
                   {directionMutation.isPending && directionMutation.variables === direction.ordinal
                     ? <LoaderCircle aria-hidden="true" className="spin" size={15} />
-                    : <Check aria-hidden="true" size={15} />}Choose direction {direction.ordinal}
+                    : <Check aria-hidden="true" size={15} />}{t(`选择方向 ${direction.ordinal}`, `Choose direction ${direction.ordinal}`)}
                 </button>
               )}
             </div>
@@ -728,7 +742,7 @@ export function PlanDeliveryPanel({ state, client, detail }: {
             onClick={() => deliveryMutation.mutate()} type="button">
             {deliveryMutation.isPending
               ? <LoaderCircle aria-hidden="true" className="spin" size={15} />
-              : <ChevronsRight aria-hidden="true" size={15} />}Enter Deliver
+              : <ChevronsRight aria-hidden="true" size={15} />}{t("进入交付", "Enter Deliver")}
           </button>
         </div>
       )}
@@ -736,18 +750,18 @@ export function PlanDeliveryPanel({ state, client, detail }: {
         <div className="inline-warning" role="alert">
           {controlError instanceof Error
             ? controlError.message
-            : "Plan/Delivery control failed"}
+            : t("计划/交付控制失败", "Plan/Delivery control failed")}
         </div>
       )}
       {state.selection && (
-        <div className="delivery-checkpoint-list" aria-label="Delivery checkpoint history">
-          <h3>Checkpoint history</h3>
-          {state.checkpoints.length === 0 ? <p>No checkpoints recorded</p> : state.checkpoints.map((checkpoint) => (
+        <div className="delivery-checkpoint-list" aria-label={t("交付检查点历史", "Delivery checkpoint history")}>
+          <h3>{t("检查点历史", "Checkpoint history")}</h3>
+          {state.checkpoints.length === 0 ? <p>{t("没有检查点记录", "No checkpoints recorded")}</p> : state.checkpoints.map((checkpoint) => (
             <div className="delivery-checkpoint-row" key={checkpoint.id}>
-              <span>Slice {checkpoint.module_ordinal}/{checkpoint.module_count}</span>
+              <span>{t("切片", "Slice")} {checkpoint.module_ordinal}/{checkpoint.module_count}</span>
               <code>{shortID(checkpoint.work_item_id)}</code>
-              <span>mode r{checkpoint.mode_revision} / work v{checkpoint.work_item_version}</span>
-              {checkpoint.full_gate_required && <span>full gate</span>}
+              <span>{t("模式", "mode")} r{checkpoint.mode_revision} / {t("任务", "work")} v{checkpoint.work_item_version}</span>
+              {checkpoint.full_gate_required && <span>{t("完整门禁", "full gate")}</span>}
               <StatusBadge status={checkpoint.gate_ready ? "ready" : "stale"} />
             </div>
           ))}
@@ -779,12 +793,13 @@ function EventList({ events }: { events: EventView[] }) {
 }
 
 function WorkTable({ client, items }: { client: CyberAgentClient; items: WorkItemView[] }) {
+  const { t } = useLocale();
   const [expanded, setExpanded] = useState<string | null>(null);
   if (items.length === 0) {
     return <EmptyState>暂无任务</EmptyState>;
   }
   return (
-    <div className="table-scroll"><table><thead><tr><th>任务</th><th>状态</th><th>优先级</th><th>Owner</th><th>版本</th><th aria-label="详情" /></tr></thead><tbody>
+    <div className="table-scroll"><table><thead><tr><th>{t("任务", "Task")}</th><th>{t("状态", "Status")}</th><th>{t("优先级", "Priority")}</th><th>{t("负责人", "Owner")}</th><th>{t("版本", "Version")}</th><th aria-label={t("详情", "Details")} /></tr></thead><tbody>
       {items.map((item) => (
         <Fragment key={item.id}>
           <tr>
@@ -793,7 +808,7 @@ function WorkTable({ client, items }: { client: CyberAgentClient; items: WorkIte
             <td>{item.priority}</td>
             <td>{item.owner_agent_id || item.owner || "-"}</td>
             <td>v{item.version}</td>
-            <td><button aria-expanded={expanded === item.id} className="row-detail-toggle" onClick={() => setExpanded(expanded === item.id ? null : item.id)} type="button">{expanded === item.id ? "收起" : "详情"}</button></td>
+            <td><button aria-expanded={expanded === item.id} className="row-detail-toggle" onClick={() => setExpanded(expanded === item.id ? null : item.id)} type="button">{expanded === item.id ? t("收起", "Collapse") : t("详情", "Details")}</button></td>
           </tr>
           {expanded === item.id && <tr className="detail-row"><td colSpan={6}><WorkItemDetail client={client} id={item.id} /></td></tr>}
         </Fragment>
@@ -803,9 +818,10 @@ function WorkTable({ client, items }: { client: CyberAgentClient; items: WorkIte
 }
 
 function WorkItemDetail({ client, id }: { client: CyberAgentClient; id: string }) {
+  const { t } = useLocale();
   const query = useQuery({ queryKey: ["work-item", id], queryFn: ({ signal }) => client.getWorkItem(id, signal) });
   if (query.isLoading) {
-    return <LoadingState label="加载任务详情" />;
+    return <LoadingState label={t("加载任务详情", "Loading task details")} />;
   }
   if (query.isError || !query.data) {
     return <ErrorState error={query.error} />;
@@ -815,19 +831,20 @@ function WorkItemDetail({ client, id }: { client: CyberAgentClient; id: string }
     <dl className="detail-grid">
       <KeyValue label="ID" value={item.id} />
       <KeyValue label="Run" value={item.run_id} />
-      <KeyValue label="Owner agent" value={item.owner_agent_id} />
-      <KeyValue label="Owner" value={item.owner} />
-      <KeyValue label="Blocked" value={item.blocked_reason} />
-      <KeyValue label="Acceptance" value={item.acceptance_criteria.join(" · ")} />
-      <KeyValue label="Dependencies" value={item.dependencies.join(" · ")} />
-      <KeyValue label="Created" value={formatDate(item.created_at)} />
-      <KeyValue label="Updated" value={formatDate(item.updated_at)} />
-      <KeyValue label="Completed" value={item.completed_at ? formatDate(item.completed_at) : "-"} />
+      <KeyValue label={t("负责 Agent", "Owner agent")} value={item.owner_agent_id} />
+      <KeyValue label={t("负责人", "Owner")} value={item.owner} />
+      <KeyValue label={t("阻塞原因", "Blocked")} value={item.blocked_reason} />
+      <KeyValue label={t("验收标准", "Acceptance")} value={item.acceptance_criteria.join(" · ")} />
+      <KeyValue label={t("依赖", "Dependencies")} value={item.dependencies.join(" · ")} />
+      <KeyValue label={t("创建时间", "Created")} value={formatDate(item.created_at)} />
+      <KeyValue label={t("更新时间", "Updated")} value={formatDate(item.updated_at)} />
+      <KeyValue label={t("完成时间", "Completed")} value={item.completed_at ? formatDate(item.completed_at) : "-"} />
     </dl>
   );
 }
 
 function NoteList({ client, notes }: { client: CyberAgentClient; notes: NoteView[] }) {
+  const { t } = useLocale();
   const [expanded, setExpanded] = useState<string | null>(null);
   if (notes.length === 0) {
     return <EmptyState>暂无记忆</EmptyState>;
@@ -836,16 +853,17 @@ function NoteList({ client, notes }: { client: CyberAgentClient; notes: NoteView
     <article className="note-item" key={note.id}>
       <header><div><strong>{note.title}</strong><span>{note.category} / {note.visibility}</span></div><StatusBadge status={note.status} /></header>
       <p>{note.content}</p>
-      <footer><span>{note.tags.join(" · ") || "untagged"}</span><div><time dateTime={note.updated_at}>{formatDate(note.updated_at)}</time><button aria-expanded={expanded === note.id} className="row-detail-toggle" onClick={() => setExpanded(expanded === note.id ? null : note.id)} type="button">{expanded === note.id ? "收起" : "详情"}</button></div></footer>
+      <footer><span>{note.tags.join(" · ") || t("无标签", "untagged")}</span><div><time dateTime={note.updated_at}>{formatDate(note.updated_at)}</time><button aria-expanded={expanded === note.id} className="row-detail-toggle" onClick={() => setExpanded(expanded === note.id ? null : note.id)} type="button">{expanded === note.id ? t("收起", "Collapse") : t("详情", "Details")}</button></div></footer>
       {expanded === note.id && <NoteDetail client={client} id={note.id} />}
     </article>
   ))}</div>;
 }
 
 function NoteDetail({ client, id }: { client: CyberAgentClient; id: string }) {
+  const { t } = useLocale();
   const query = useQuery({ queryKey: ["note", id], queryFn: ({ signal }) => client.getNote(id, signal) });
   if (query.isLoading) {
-    return <LoadingState label="加载记忆详情" />;
+    return <LoadingState label={t("加载记忆详情", "Loading memory details")} />;
   }
   if (query.isError || !query.data) {
     return <ErrorState error={query.error} />;
@@ -855,36 +873,37 @@ function NoteDetail({ client, id }: { client: CyberAgentClient; id: string }) {
     <dl className="detail-grid">
       <KeyValue label="ID" value={note.id} />
       <KeyValue label="Run" value={note.run_id} />
-      <KeyValue label="Owner agent" value={note.owner_agent_id} />
-      <KeyValue label="Owner" value={note.owner} />
-      <KeyValue label="Pinned" value={note.pinned ? "yes" : "no"} />
-      <KeyValue label="Version" value={`v${note.version}`} />
-      <KeyValue label="Tags" value={note.tags.join(" · ")} />
-      <KeyValue label="Source refs" value={note.source_refs.join(" · ")} />
-      <KeyValue label="Evidence" value={note.evidence_ids.join(" · ")} />
-      <KeyValue label="Created" value={formatDate(note.created_at)} />
-      <KeyValue label="Updated" value={formatDate(note.updated_at)} />
-      <KeyValue label="Archived" value={note.archived_at ? formatDate(note.archived_at) : "-"} />
+      <KeyValue label={t("负责 Agent", "Owner agent")} value={note.owner_agent_id} />
+      <KeyValue label={t("负责人", "Owner")} value={note.owner} />
+      <KeyValue label={t("置顶", "Pinned")} value={note.pinned ? t("是", "yes") : t("否", "no")} />
+      <KeyValue label={t("版本", "Version")} value={`v${note.version}`} />
+      <KeyValue label={t("标签", "Tags")} value={note.tags.join(" · ")} />
+      <KeyValue label={t("来源引用", "Source refs")} value={note.source_refs.join(" · ")} />
+      <KeyValue label={t("证据", "Evidence")} value={note.evidence_ids.join(" · ")} />
+      <KeyValue label={t("创建时间", "Created")} value={formatDate(note.created_at)} />
+      <KeyValue label={t("更新时间", "Updated")} value={formatDate(note.updated_at)} />
+      <KeyValue label={t("归档时间", "Archived")} value={note.archived_at ? formatDate(note.archived_at) : "-"} />
     </dl>
   );
 }
 
 function ArtifactTable({ artifacts, client }: { artifacts: ArtifactView[]; client: CyberAgentClient }) {
+  const { t } = useLocale();
   const [expanded, setExpanded] = useState<string | null>(null);
   if (artifacts.length === 0) {
     return <EmptyState>暂无产物</EmptyState>;
   }
   return (
-    <div className="table-scroll"><table><thead><tr><th>Descriptor</th><th>Tool / stream</th><th>MIME</th><th>大小</th><th>SHA-256</th><th aria-label="详情" /></tr></thead><tbody>
+    <div className="table-scroll"><table><thead><tr><th>{t("描述符", "Descriptor")}</th><th>{t("工具 / 流", "Tool / stream")}</th><th>MIME</th><th>{t("大小", "Size")}</th><th>SHA-256</th><th aria-label={t("详情", "Details")} /></tr></thead><tbody>
       {artifacts.map((item) => (
         <Fragment key={item.id}>
           <tr>
-            <td><strong>{shortID(item.id)}</strong><small>{item.kind}{item.redacted ? " / redacted" : ""}</small></td>
+            <td><strong>{shortID(item.id)}</strong><small>{item.kind}{item.redacted ? t(" / 已脱敏", " / redacted") : ""}</small></td>
             <td>{item.tool_name}<small>{item.stream}</small></td>
             <td>{item.mime}</td>
             <td>{formatBytes(item.size_bytes)}</td>
             <td><code>{shortID(item.sha256)}</code></td>
-            <td><button aria-expanded={expanded === item.id} className="row-detail-toggle" onClick={() => setExpanded(expanded === item.id ? null : item.id)} type="button">{expanded === item.id ? "收起" : "详情"}</button></td>
+            <td><button aria-expanded={expanded === item.id} className="row-detail-toggle" onClick={() => setExpanded(expanded === item.id ? null : item.id)} type="button">{expanded === item.id ? t("收起", "Collapse") : t("详情", "Details")}</button></td>
           </tr>
           {expanded === item.id && <tr className="detail-row"><td colSpan={6}><ArtifactDetail client={client} id={item.id} /></td></tr>}
         </Fragment>
@@ -894,9 +913,10 @@ function ArtifactTable({ artifacts, client }: { artifacts: ArtifactView[]; clien
 }
 
 function ArtifactDetail({ client, id }: { client: CyberAgentClient; id: string }) {
+  const { t } = useLocale();
   const query = useQuery({ queryKey: ["artifact", id], queryFn: ({ signal }) => client.getArtifact(id, signal) });
   if (query.isLoading) {
-    return <LoadingState label="加载产物详情" />;
+    return <LoadingState label={t("加载产物详情", "Loading Artifact details")} />;
   }
   if (query.isError || !query.data) {
     return <ErrorState error={query.error} />;
@@ -908,31 +928,32 @@ function ArtifactDetail({ client, id }: { client: CyberAgentClient; id: string }
       <KeyValue label="Run" value={item.run_id} />
       <KeyValue label="Session" value={item.session_id} />
       <KeyValue label="Workspace" value={item.workspace_id} />
-      <KeyValue label="Kind" value={item.kind} />
-      <KeyValue label="Source" value={item.source_id} />
-      <KeyValue label="Tool" value={item.tool_name} />
-      <KeyValue label="Stream" value={item.stream} />
+      <KeyValue label={t("类型", "Kind")} value={item.kind} />
+      <KeyValue label={t("来源", "Source")} value={item.source_id} />
+      <KeyValue label={t("工具", "Tool")} value={item.tool_name} />
+      <KeyValue label={t("流", "Stream")} value={item.stream} />
       <KeyValue label="MIME" value={item.mime} />
-      <KeyValue label="Encoding" value={item.encoding} />
-      <KeyValue label="Size" value={formatBytes(item.size_bytes)} />
-      <KeyValue label="Redacted" value={item.redacted ? "yes" : "no"} />
+      <KeyValue label={t("编码", "Encoding")} value={item.encoding} />
+      <KeyValue label={t("大小", "Size")} value={formatBytes(item.size_bytes)} />
+      <KeyValue label={t("已脱敏", "Redacted")} value={item.redacted ? t("是", "yes") : t("否", "no")} />
       <KeyValue label="SHA-256" value={<code>{item.sha256}</code>} />
-      <KeyValue label="Created" value={formatDate(item.created_at)} />
+      <KeyValue label={t("创建时间", "Created")} value={formatDate(item.created_at)} />
     </dl>
   );
 }
 
 function ToolRounds({ rounds }: { rounds: SupervisorToolRoundView[] }) {
+  const { t } = useLocale();
   if (rounds.length === 0) {
     return <EmptyState>暂无工具轮次</EmptyState>;
   }
   return <div className="tool-rounds">{rounds.map((round) => (
     <section className="tool-round" key={`${round.attempt_id}-${round.turn}-${round.round}`}>
-      <header><strong>Turn {round.turn} / Round {round.round}</strong><span>{round.attempt_id}</span><time dateTime={round.created_at}>{formatDate(round.created_at)}</time></header>
+      <header><strong>{t("回合", "Turn")} {round.turn} / {t("轮次", "Round")} {round.round}</strong><span>{round.attempt_id}</span><time dateTime={round.created_at}>{formatDate(round.created_at)}</time></header>
       {round.calls.map((call) => (
         <details className="tool-call" key={`${call.position}-${call.call_id}`}>
           <summary><span>{call.position}</span><strong>{call.tool_name}</strong><StatusBadge status={call.status} /></summary>
-          <div className="tool-json"><div><label>Payload</label><pre>{JSON.stringify(call.payload, null, 2)}</pre></div><div><label>Result</label><pre>{JSON.stringify(call.result ?? null, null, 2)}</pre></div></div>
+          <div className="tool-json"><div><label>{t("载荷", "Payload")}</label><pre>{JSON.stringify(call.payload, null, 2)}</pre></div><div><label>{t("结果", "Result")}</label><pre>{JSON.stringify(call.result ?? null, null, 2)}</pre></div></div>
         </details>
       ))}
     </section>

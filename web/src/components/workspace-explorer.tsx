@@ -4,6 +4,7 @@ import { ArrowLeft, File, Folder, FolderOpen, Paperclip, Pencil, Search, ShieldC
 import type { CyberAgentClient } from "../api/client";
 import type { WorkspaceSearchView } from "../api/types";
 import { formatBytes } from "../lib/format";
+import { useLocale } from "../lib/locale";
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from "./common";
 import { FileProposalEditor } from "./file-proposal-editor";
 
@@ -13,6 +14,7 @@ export function WorkspaceExplorer({ client, workspaceID, runID = "", initialPath
   runID?: string;
   initialPath?: string;
 }) {
+  const { t } = useLocale();
   const [path, setPath] = useState(initialPath);
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -61,16 +63,16 @@ export function WorkspaceExplorer({ client, workspaceID, runID = "", initialPath
     attachment.mutate({ sourceRef, contentSHA256 });
   };
 
-  if (!workspaceID) return <EmptyState>No Workspace is bound to this Run</EmptyState>;
-  if (query.isLoading) return <LoadingState label="Loading Workspace files" />;
+  if (!workspaceID) return <EmptyState>{t("此 Run 未绑定工作区", "No Workspace is bound to this Run")}</EmptyState>;
+  if (query.isLoading) return <LoadingState label={t("正在加载工作区文件", "Loading Workspace files")} />;
   if (query.isError || !query.data) return <ErrorState error={query.error} />;
   const snapshot = query.data;
 
-  return <section className="workspace-explorer" aria-label="Workspace files">
+  return <section className="workspace-explorer" aria-label={t("工作区文件", "Workspace files")}>
     <header className="explorer-toolbar">
-      <button aria-label="Open parent directory" className="icon-button"
+      <button aria-label={t("打开上级目录", "Open parent directory")} className="icon-button"
         disabled={path === "." || query.isFetching} onClick={() => setPath(parent)}
-        title="Parent directory" type="button">
+        title={t("上级目录", "Parent directory")} type="button">
         <ArrowLeft aria-hidden="true" size={16} />
       </button>
       <FolderOpen aria-hidden="true" size={16} />
@@ -79,42 +81,42 @@ export function WorkspaceExplorer({ client, workspaceID, runID = "", initialPath
       {snapshot.kind === "file" && client.hasEvidenceAttachment && runID &&
         <button className="compact-command" disabled={attachment.isPending}
           onClick={() => attach(snapshot.path, snapshot.provenance.content_sha256)} type="button">
-          <Paperclip aria-hidden="true" size={14} />Attach evidence
+          <Paperclip aria-hidden="true" size={14} />{t("附加证据", "Attach evidence")}
         </button>}
       {snapshot.kind === "file" && client.hasFileEditProposals && runID &&
         !snapshot.truncated && snapshot.redaction_count === 0 &&
         <button className="compact-command" disabled={proposalSource.isPending}
           onClick={() => proposalSource.mutate(snapshot.path)} type="button">
-          <Pencil aria-hidden="true" size={14} />Edit proposal
+          <Pencil aria-hidden="true" size={14} />{t("编辑提案", "Edit proposal")}
         </button>}
     </header>
     <form className="explorer-search" onSubmit={submitSearch} role="search">
       <Search aria-hidden="true" size={15} />
-      <input aria-label="Search Workspace evidence" maxLength={128}
+      <input aria-label={t("搜索工作区证据", "Search Workspace evidence")} maxLength={128}
         onChange={(event) => setSearchInput(event.target.value)}
-        placeholder="Search files" type="search" value={searchInput} />
-      <button aria-label="Search Workspace" className="icon-button"
+        placeholder={t("搜索文件", "Search files")} type="search" value={searchInput} />
+      <button aria-label={t("搜索工作区", "Search Workspace")} className="icon-button"
         disabled={!searchInput.trim() || searchInput.trim() !== searchInput || search.isFetching}
-        title="Search" type="submit"><Search aria-hidden="true" size={15} /></button>
+        title={t("搜索", "Search")} type="submit"><Search aria-hidden="true" size={15} /></button>
     </form>
     <div className="explorer-provenance">
       <ShieldCheck aria-hidden="true" size={14} />
-      <span>{snapshot.provenance.source_kind} / evidence only</span>
-      {snapshot.redaction_count > 0 && <span>{snapshot.redaction_count} redacted</span>}
+      <span>{snapshot.provenance.source_kind} / {t("仅作为证据", "evidence only")}</span>
+      {snapshot.redaction_count > 0 && <span>{t(`${snapshot.redaction_count} 项已脱敏`, `${snapshot.redaction_count} redacted`)}</span>}
       <code>{snapshot.provenance.content_sha256.slice(0, 12)}</code>
     </div>
     {attachment.isError && <ErrorState error={attachment.error} />}
     {proposalSource.isError && <ErrorState error={proposalSource.error} />}
     {attachment.data && <div className="explorer-attachment-status" role="status">
       <ShieldCheck aria-hidden="true" size={14} />
-      Evidence attached as non-authorizing context
+      {t("证据已作为不具授权效力的上下文附加", "Evidence attached as non-authorizing context")}
       {attachment.data.replayed && <StatusBadge status="replayed" />}
     </div>}
     {searchQuery && <WorkspaceSearchResults client={client} runID={runID}
       pending={attachment.isPending} query={search} onAttach={attach}
       onClear={() => setSearchQuery("")} onOpen={(resultPath) => setPath(resultPath)} />}
     {snapshot.kind === "directory" && snapshot.entries.length === 0 &&
-      <EmptyState>Directory is empty</EmptyState>}
+      <EmptyState>{t("目录为空", "Directory is empty")}</EmptyState>}
     {snapshot.kind === "directory" && snapshot.entries.length > 0 &&
       <div className="explorer-list" role="list">
         {snapshot.entries.map((entry) => {
@@ -133,8 +135,8 @@ export function WorkspaceExplorer({ client, workspaceID, runID = "", initialPath
       <FileProposalEditor client={client} onClose={() => proposalSource.reset()}
         runID={runID} source={proposalSource.data} /> :
     snapshot.kind === "file" && <div className="explorer-file">
-      <div><span>{formatBytes(snapshot.returned_bytes)} shown</span>
-        <span>{formatBytes(snapshot.total_bytes)} total</span></div>
+      <div><span>{t(`已显示 ${formatBytes(snapshot.returned_bytes)}`, `${formatBytes(snapshot.returned_bytes)} shown`)}</span>
+        <span>{t(`共 ${formatBytes(snapshot.total_bytes)}`, `${formatBytes(snapshot.total_bytes)} total`)}</span></div>
       <pre>{snapshot.content}</pre>
     </div>}
   </section>;
@@ -149,27 +151,28 @@ function WorkspaceSearchResults({ client, runID, pending, query, onAttach, onCle
   onClear: () => void;
   onOpen: (path: string) => void;
 }) {
-  if (query.isLoading) return <LoadingState label="Searching Workspace" />;
+  const { t } = useLocale();
+  if (query.isLoading) return <LoadingState label={t("正在搜索工作区", "Searching Workspace")} />;
   if (query.isError || !query.data) return <ErrorState error={query.error} />;
   const data = query.data;
-  return <section className="explorer-search-results" aria-label="Workspace search results">
-    <header><strong>{data.results.length} results</strong>
+  return <section className="explorer-search-results" aria-label={t("工作区搜索结果", "Workspace search results")}>
+    <header><strong>{t(`${data.results.length} 个结果`, `${data.results.length} results`)}</strong>
       {data.truncated && <StatusBadge status="truncated" />}
-      <button aria-label="Close search results" className="icon-button" onClick={onClear}
-        title="Close search" type="button"><X aria-hidden="true" size={14} /></button>
+      <button aria-label={t("关闭搜索结果", "Close search results")} className="icon-button" onClick={onClear}
+        title={t("关闭搜索", "Close search")} type="button"><X aria-hidden="true" size={14} /></button>
     </header>
-    {data.results.length === 0 && <EmptyState>No matching evidence</EmptyState>}
+    {data.results.length === 0 && <EmptyState>{t("没有匹配的证据", "No matching evidence")}</EmptyState>}
     {data.results.map((result) => <div className="explorer-search-result" key={result.path}>
       <button className="search-result-open" onClick={() => onOpen(result.path)} type="button">
         <File aria-hidden="true" size={15} />
         <span><strong>{result.path}</strong>
-          <small>{result.line > 0 ? `line ${result.line}` : result.match_kind}</small>
+          <small>{result.line > 0 ? t(`第 ${result.line} 行`, `line ${result.line}`) : result.match_kind}</small>
           {result.snippet && <code>{result.snippet}</code>}</span>
       </button>
       {client.hasEvidenceAttachment && runID &&
-        <button aria-label={`Attach ${result.path} as evidence`} className="icon-button"
+        <button aria-label={t(`将 ${result.path} 附加为证据`, `Attach ${result.path} as evidence`)} className="icon-button"
           disabled={pending} onClick={() => onAttach(result.path,
-            result.provenance.content_sha256)} title="Attach non-authorizing evidence" type="button">
+            result.provenance.content_sha256)} title={t("附加不具授权效力的证据", "Attach non-authorizing evidence")} type="button">
           <Paperclip aria-hidden="true" size={14} />
         </button>}
     </div>)}

@@ -177,7 +177,8 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		bootstrap.ReadOnlyDefault || bootstrap.ProcessExecutionEnabled ||
 		bootstrap.ShellExecutionEnabled || bootstrap.DockerExecutionEnabled ||
 		bootstrap.SkillInstallationEnabled || bootstrap.EvidenceAttachmentEnabled ||
-		bootstrap.VerificationEvidenceEnabled || bootstrap.UserTerminalEnabled ||
+		bootstrap.VerificationEvidenceEnabled || bootstrap.EmbeddedAnalyzerExecutionEnabled ||
+		bootstrap.UserTerminalEnabled ||
 		bootstrap.AgentTerminalInputDefault ||
 		bootstrap.WorkspaceOpenEnabled ||
 		bootstrap.RendererPathInputSupported {
@@ -204,7 +205,8 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		"run_wake_execution_enabled", "run_wake_worker_enabled",
 		"session_message_enabled", "session_steering_control_enabled",
 		"skill_installation_enabled", "evidence_attachment_enabled",
-		"verification_evidence_enabled", "user_terminal_enabled",
+		"verification_evidence_enabled", "embedded_analyzer_execution_enabled",
+		"user_terminal_enabled",
 		"agent_terminal_input_default", "ui_digest",
 		"workspace_open_enabled",
 	})

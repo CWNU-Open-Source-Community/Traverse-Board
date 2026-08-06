@@ -15,33 +15,35 @@ import type {
 } from "../api/types";
 import { usePagedResource } from "../hooks/use-paged-resource";
 import { formatBytes, formatDate, formatNumber, shortID } from "../lib/format";
+import { useLocale } from "../lib/locale";
 import { EmptyState, ErrorState, LoadMoreButton, LoadingState, StatusBadge } from "./common";
 
 export function ExternalSkillsPanel({ projection }: { projection: ExternalSkillProjectionView }) {
+  const { t } = useLocale();
   return (
-    <section className="detail-section external-skills-section" aria-label="External Skill provenance">
+    <section className="detail-section external-skills-section" aria-label={t("外部 Skill 来源", "External Skill provenance")}>
       <div className="section-heading">
-        <h2><PackageCheck aria-hidden="true" size={15} />External skills</h2>
-        <span>{formatNumber(projection.item_count)} selected</span>
+        <h2><PackageCheck aria-hidden="true" size={15} />{t("外部 Skill", "External skills")}</h2>
+        <span>{t(`已选择 ${formatNumber(projection.item_count)} 个`, `${formatNumber(projection.item_count)} selected`)}</span>
       </div>
       <dl className="detail-grid compact external-skill-summary">
-        <Metric label="Surface" value={`${projection.surface} / ${projection.profile}`} />
-        <Metric label="Mode revision" value={formatNumber(projection.mode_revision)} />
-        <Metric label="Token bound" value={`${formatNumber(projection.token_upper_bound)} / ${formatNumber(projection.token_budget)}`} />
-        <Metric label="Root delivery" value={`${formatNumber(projection.root_delivery.committed)} / ${formatNumber(projection.root_delivery.prepared)}`} />
-        <Metric label="Specialist delivery" value={`${formatNumber(projection.specialist_delivery.committed)} / ${formatNumber(projection.specialist_delivery.prepared)}`} />
-        <Metric label="Operator confirmation" value={projection.operator_confirmed ? "Confirmed" : "Missing"} />
-        <Metric label="Context delivery" value={projection.context_delivery_authorized ? "Authorized" : "Closed"} />
-        <Metric label="Tool authority" value={projection.tool_capability_grant ? "Granted" : "Closed"} />
+        <Metric label={t("工作面", "Surface")} value={`${projection.surface} / ${projection.profile}`} />
+        <Metric label={t("模式修订", "Mode revision")} value={formatNumber(projection.mode_revision)} />
+        <Metric label={t("Token 上限", "Token bound")} value={`${formatNumber(projection.token_upper_bound)} / ${formatNumber(projection.token_budget)}`} />
+        <Metric label={t("根 Agent 交付", "Root delivery")} value={`${formatNumber(projection.root_delivery.committed)} / ${formatNumber(projection.root_delivery.prepared)}`} />
+        <Metric label={t("专家 Agent 交付", "Specialist delivery")} value={`${formatNumber(projection.specialist_delivery.committed)} / ${formatNumber(projection.specialist_delivery.prepared)}`} />
+        <Metric label={t("操作者确认", "Operator confirmation")} value={projection.operator_confirmed ? t("已确认", "Confirmed") : t("缺失", "Missing")} />
+        <Metric label={t("上下文交付", "Context delivery")} value={projection.context_delivery_authorized ? t("已授权", "Authorized") : t("关闭", "Closed")} />
+        <Metric label={t("工具权限", "Tool authority")} value={projection.tool_capability_grant ? t("已授予", "Granted") : t("关闭", "Closed")} />
       </dl>
       <ol className="external-skill-list">
         {projection.items.map((item) => (
           <li key={`${item.ordinal}-${item.name}-${item.version}`}>
             <span className="external-skill-order">#{item.ordinal}</span>
             <div><strong>{item.name}@{item.version}</strong><small>{item.trust_class}</small></div>
-            <span>{formatNumber(item.token_upper_bound)} tokens max</span>
-            <span>{formatNumber(item.declared_tool_count)} declared tools</span>
-            <span>{item.specialist_eligible ? "Specialist" : "Root only"}</span>
+            <span>{t(`最多 ${formatNumber(item.token_upper_bound)} Tokens`, `${formatNumber(item.token_upper_bound)} tokens max`)}</span>
+            <span>{t(`${formatNumber(item.declared_tool_count)} 个声明工具`, `${formatNumber(item.declared_tool_count)} declared tools`)}</span>
+            <span>{item.specialist_eligible ? t("专家可用", "Specialist") : t("仅根 Agent", "Root only")}</span>
           </li>
         ))}
       </ol>
@@ -63,6 +65,7 @@ export function ExternalSkillsSection({ client, runID, initial }: {
 }
 
 export function AgentGraphPanel({ client, runID }: ProjectionProps) {
+  const { t } = useLocale();
   const query = useQuery({
     queryKey: ["run", runID, "agent-graph"],
     queryFn: ({ signal }) => client.get<AgentGraphView>(`/runs/${encodeURIComponent(runID)}/agent-graph`, {}, signal),
@@ -71,7 +74,7 @@ export function AgentGraphPanel({ client, runID }: ProjectionProps) {
   if (query.isError || !query.data) return <ErrorState error={query.error} />;
   if (query.data.nodes.length === 0) return <EmptyState>暂无 Agent</EmptyState>;
   return (
-    <div className="projection-stack agent-graph" aria-label="Agent graph">
+    <div className="projection-stack agent-graph" aria-label={t("Agent 图", "Agent graph")}>
       {query.data.nodes.map((node) => (
         <article className={`agent-node agent-depth-${node.depth}`} key={node.id}>
           <header>
@@ -81,8 +84,8 @@ export function AgentGraphPanel({ client, runID }: ProjectionProps) {
           </header>
           <dl className="projection-metrics">
             <Metric label="Session" value={shortID(node.session_id)} />
-            <Metric label="Profile" value={node.profile} />
-            <Metric label="Turns" value={`${formatNumber(node.turns_used)} / ${formatNumber(node.turn_limit)}`} />
+            <Metric label={t("配置档", "Profile")} value={node.profile} />
+            <Metric label={t("回合", "Turns")} value={`${formatNumber(node.turns_used)} / ${formatNumber(node.turn_limit)}`} />
             <Metric label="Tokens" value={`${formatNumber(node.tokens_used)} / ${formatNumber(node.token_limit)}`} />
           </dl>
           <div className="tag-line">{node.skills.map((skill) => <code key={skill}>{skill}</code>)}</div>
@@ -107,6 +110,7 @@ function SpecialistCancelControl({ agent, client, runID }: {
   client: CyberAgentClient;
   runID: string;
 }) {
+  const { t } = useLocale();
   const queryClient = useQueryClient();
   const attemptID = agent.active_attempt_id ?? "";
   const [modelAttempt, setModelAttempt] = useState(1);
@@ -129,7 +133,7 @@ function SpecialistCancelControl({ agent, client, runID }: {
   return (
     <div className="agent-cancel-control">
       <div className="run-execution-control">
-        <label htmlFor={`agent-cancel-attempt-${agent.id}`}>Model attempt</label>
+        <label htmlFor={`agent-cancel-attempt-${agent.id}`}>{t("模型尝试", "Model attempt")}</label>
         <input id={`agent-cancel-attempt-${agent.id}`} min={1} type="number"
           onChange={(event) => setModelAttempt(Math.max(1,
             Number.parseInt(event.target.value, 10) || 1))} value={modelAttempt} />
@@ -139,23 +143,24 @@ function SpecialistCancelControl({ agent, client, runID }: {
         {cancel.isPending
           ? <LoaderCircle aria-hidden="true" className="spin" size={16} />
           : <Ban aria-hidden="true" size={16} />}
-        取消模型调用
+        {t("取消模型调用", "Cancel model call")}
       </button>
       {lastResult && (
         <div className="run-control-result" role="status">
           <StatusBadge status={lastResult.status} />
-          <span>attempt {lastResult.model_attempt}</span>
-          {lastResult.replayed && <span>replayed</span>}
+          <span>{t("尝试", "attempt")} {lastResult.model_attempt}</span>
+          {lastResult.replayed && <span>{t("已重放", "replayed")}</span>}
         </div>
       )}
       {cancel.error && <div className="inline-warning" role="alert">
-        {cancel.error instanceof Error ? cancel.error.message : "取消模型调用失败"}
+        {cancel.error instanceof Error ? cancel.error.message : t("取消模型调用失败", "Model call cancellation failed")}
       </div>}
     </div>
   );
 }
 
 export function DelegationsPanel({ client, runID }: ProjectionProps) {
+  const { t } = useLocale();
   const query = usePagedResource<DelegationView>(client, ["run", runID, "delegations"],
     `/runs/${encodeURIComponent(runID)}/delegations`, { limit: 50 });
   const items = useMemo(() => query.data?.pages.flatMap((page) => page.items) ?? [], [query.data]);
@@ -175,15 +180,15 @@ export function DelegationsPanel({ client, runID }: ProjectionProps) {
               <section key={assignment.ordinal}>
                 <header><span>#{assignment.ordinal}</span><strong>{assignment.title}</strong>{assignment.application_status && <StatusBadge status={assignment.application_status} />}</header>
                 <p>{assignment.goal}</p>
-                <footer><span>{assignment.skills.join(" · ")}</span><span>{formatNumber(assignment.turn_limit)} turns / {formatNumber(assignment.token_limit)} tokens</span>{assignment.agent_id && <code>{shortID(assignment.agent_id)}</code>}</footer>
+                <footer><span>{assignment.skills.join(" · ")}</span><span>{t(`${formatNumber(assignment.turn_limit)} 回合 / ${formatNumber(assignment.token_limit)} Tokens`, `${formatNumber(assignment.turn_limit)} turns / ${formatNumber(assignment.token_limit)} tokens`)}</span>{assignment.agent_id && <code>{shortID(assignment.agent_id)}</code>}</footer>
               </section>
             ))}
           </div>
           <dl className="projection-metrics">
-            <Metric label="Review" value={item.review ? `${item.review.decision} · ${item.review.reviewed_by}` : "pending"} />
-            <Metric label="Application" value={item.application?.status ?? "-"} />
-            <Metric label="Schedule" value={item.latest_schedule?.status ?? (item.latest_schedule ? "requested" : "-")} />
-            <Metric label="Created" value={formatDate(item.created_at)} />
+            <Metric label={t("审阅", "Review")} value={item.review ? `${item.review.decision} · ${item.review.reviewed_by}` : t("待处理", "pending")} />
+            <Metric label={t("应用", "Application")} value={item.application?.status ?? "-"} />
+            <Metric label={t("调度", "Schedule")} value={item.latest_schedule?.status ?? (item.latest_schedule ? t("已请求", "requested") : "-")} />
+            <Metric label={t("创建时间", "Created")} value={formatDate(item.created_at)} />
           </dl>
         </article>
       ))}
@@ -193,6 +198,7 @@ export function DelegationsPanel({ client, runID }: ProjectionProps) {
 }
 
 export function FanoutPanel({ client, runID }: ProjectionProps) {
+  const { t } = useLocale();
   const query = usePagedResource<FanoutPlanView>(client, ["run", runID, "fanout"],
     `/runs/${encodeURIComponent(runID)}/fanout-plans`, { limit: 50 });
   const items = useMemo(() => query.data?.pages.flatMap((page) => page.items) ?? [], [query.data]);
@@ -208,10 +214,10 @@ export function FanoutPanel({ client, runID }: ProjectionProps) {
             <StatusBadge status={plan.latest_execution?.status ?? plan.status} />
           </header>
           <dl className="projection-metrics">
-            <Metric label="Tier" value={`${plan.requested_tier} → ${plan.effective_parallelism}`} />
-            <Metric label="Files" value={formatNumber(plan.file_count)} />
-            <Metric label="Input" value={formatBytes(plan.total_bytes)} />
-            <Metric label="Excluded" value={formatNumber(plan.excluded_count)} />
+            <Metric label={t("档位", "Tier")} value={`${plan.requested_tier} → ${plan.effective_parallelism}`} />
+            <Metric label={t("文件", "Files")} value={formatNumber(plan.file_count)} />
+            <Metric label={t("输入", "Input")} value={formatBytes(plan.total_bytes)} />
+            <Metric label={t("已排除", "Excluded")} value={formatNumber(plan.excluded_count)} />
           </dl>
           {plan.latest_execution ? <ShardTable execution={plan.latest_execution} /> : <div className="projection-placeholder">尚未执行</div>}
         </article>
@@ -222,14 +228,16 @@ export function FanoutPanel({ client, runID }: ProjectionProps) {
 }
 
 function ShardTable({ execution }: { execution: NonNullable<FanoutPlanView["latest_execution"]> }) {
+  const { t } = useLocale();
   return (
-    <div className="table-scroll shard-table"><table><thead><tr><th>Shard</th><th>状态</th><th>模型</th><th>Tokens</th><th>Findings</th><th>耗时</th></tr></thead><tbody>
+    <div className="table-scroll shard-table"><table><thead><tr><th>{t("分片", "Shard")}</th><th>{t("状态", "Status")}</th><th>{t("模型", "Model")}</th><th>{t("令牌", "Tokens")}</th><th>{t("发现", "Findings")}</th><th>{t("耗时", "Duration")}</th></tr></thead><tbody>
       {execution.shards.map((shard) => <tr key={shard.ordinal}><td>#{shard.ordinal}</td><td><StatusBadge status={shard.status} /></td><td>{shard.provider && shard.model ? `${shard.provider}/${shard.model}` : "-"}</td><td>{formatNumber(shard.total_tokens)}</td><td>{formatNumber(shard.finding_count)}</td><td>{formatNumber(shard.elapsed_millis)} ms</td></tr>)}
     </tbody></table></div>
   );
 }
 
 export function FindingsPanel({ client, runID }: ProjectionProps) {
+  const { t } = useLocale();
   const listQuery = usePagedResource<FindingReportSummaryView>(client, ["run", runID, "reports"],
     `/runs/${encodeURIComponent(runID)}/reports`, { limit: 50 });
   const reports = useMemo(() => listQuery.data?.pages.flatMap((page) => page.items) ?? [], [listQuery.data]);
@@ -247,12 +255,12 @@ export function FindingsPanel({ client, runID }: ProjectionProps) {
   if (reports.length === 0) return <EmptyState>暂无 Finding 报告</EmptyState>;
   return (
     <div className="finding-layout">
-      <aside className="report-picker" aria-label="Finding reports">
+      <aside className="report-picker" aria-label={t("Finding 报告", "Finding reports")}>
         {reports.map((report) => (
           <button className={selectedID === report.id ? "selected" : ""} key={report.id} onClick={() => setSelectedID(report.id)} type="button">
             <span><FileSearch aria-hidden="true" size={14} />{shortID(report.id)}</span>
             <strong>{report.title}</strong>
-            <small>{report.finding_count} findings · {report.severity.critical + report.severity.high} high+</small>
+            <small>{t(`${report.finding_count} 项发现 · ${report.severity.critical + report.severity.high} 项高危以上`, `${report.finding_count} findings · ${report.severity.critical + report.severity.high} high+`)}</small>
           </button>
         ))}
         <LoadMoreButton hasNextPage={Boolean(listQuery.hasNextPage)} isFetching={listQuery.isFetchingNextPage} onClick={() => void listQuery.fetchNextPage()} />
@@ -267,16 +275,17 @@ export function FindingsPanel({ client, runID }: ProjectionProps) {
 }
 
 function FindingList({ report }: { report: FindingReportView }) {
+  const { t } = useLocale();
   if (report.findings.length === 0) return <EmptyState>报告没有 Finding</EmptyState>;
   return <div className="projection-stack">{report.findings.map((finding) => (
     <article className="finding-item" key={finding.id}>
       <header className="projection-header"><div><span className="projection-kicker"><ShieldAlert aria-hidden="true" size={14} />#{finding.ordinal} · {finding.category}</span><strong>{finding.title}</strong></div><div className="status-line"><StatusBadge status={finding.severity} /><StatusBadge status={finding.status} /></div></header>
       <p>{finding.detail}</p>
       <dl className="projection-metrics">
-        <Metric label="Location" value={`${finding.relative_path}:${finding.line_start || "-"}`} />
-        <Metric label="Confidence" value={`${finding.confidence}%`} />
-        <Metric label="Evidence" value={`${finding.evidence.length} model / ${finding.lifecycle.validation_evidence_count} validation`} />
-        <Metric label="Remediation" value={formatNumber(finding.lifecycle.remediation_evidence_count)} />
+        <Metric label={t("位置", "Location")} value={`${finding.relative_path}:${finding.line_start || "-"}`} />
+        <Metric label={t("置信度", "Confidence")} value={`${finding.confidence}%`} />
+        <Metric label={t("证据", "Evidence")} value={t(`${finding.evidence.length} 模型 / ${finding.lifecycle.validation_evidence_count} 验证`, `${finding.evidence.length} model / ${finding.lifecycle.validation_evidence_count} validation`)} />
+        <Metric label={t("修复", "Remediation")} value={formatNumber(finding.lifecycle.remediation_evidence_count)} />
       </dl>
     </article>
   ))}</div>;

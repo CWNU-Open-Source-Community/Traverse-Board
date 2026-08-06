@@ -4,6 +4,7 @@ import Editor, { DiffEditor } from "@monaco-editor/react";
 import { Check, FileDiff, LoaderCircle, Pencil, RefreshCw, X } from "lucide-react";
 import type { CyberAgentClient } from "../api/client";
 import type { FileEditProposalSourceView } from "../api/types";
+import { useLocale } from "../lib/locale";
 import { ErrorState, StatusBadge } from "./common";
 
 export function FileProposalEditor({ client, runID, source, onClose }: {
@@ -12,6 +13,7 @@ export function FileProposalEditor({ client, runID, source, onClose }: {
   source: FileEditProposalSourceView;
   onClose: () => void;
 }) {
+  const { t } = useLocale();
   const queryClient = useQueryClient();
   const [activeSource, setActiveSource] = useState(source);
   const [draft, setDraft] = useState(source.content);
@@ -65,29 +67,29 @@ export function FileProposalEditor({ client, runID, source, onClose }: {
     draft === activeSource.content || expired;
   const language = languageForPath(activeSource.path);
 
-  return <section className="file-proposal-editor" aria-label={`Edit proposal for ${activeSource.path}`}>
+  return <section className="file-proposal-editor" aria-label={t(`编辑 ${activeSource.path} 的提案`, `Edit proposal for ${activeSource.path}`)}>
     <header>
       <div><Pencil aria-hidden="true" size={16} /><strong>{activeSource.path}</strong>
         <StatusBadge status="proposal only" /></div>
-      <div className="segmented-control" aria-label="Editor mode">
+      <div className="segmented-control" aria-label={t("编辑器模式", "Editor mode")}>
         <button aria-pressed={mode === "edit"} onClick={() => setMode("edit")} type="button">
-          <Pencil aria-hidden="true" size={14} />Edit
+          <Pencil aria-hidden="true" size={14} />{t("编辑", "Edit")}
         </button>
         <button aria-pressed={mode === "diff"} onClick={() => setMode("diff")} type="button">
-          <FileDiff aria-hidden="true" size={14} />Diff
+          <FileDiff aria-hidden="true" size={14} />{t("差异", "Diff")}
         </button>
       </div>
-      <button aria-label="Close file proposal editor" className="icon-button"
-        onClick={onClose} title="Close editor" type="button">
+      <button aria-label={t("关闭文件提案编辑器", "Close file proposal editor")} className="icon-button"
+        onClick={onClose} title={t("关闭编辑器", "Close editor")} type="button">
         <X aria-hidden="true" size={15} />
       </button>
     </header>
     <div className="monaco-proposal-surface">
       {editorState === "loading" && <div className="monaco-local-state" role="status">
-        Loading local editor
+        {t("正在加载本地编辑器", "Loading local editor")}
       </div>}
       {editorState === "failed" && <div className="monaco-local-state inline-warning" role="alert">
-        Local editor assets could not be loaded
+        {t("无法加载本地编辑器资源", "Local editor assets could not be loaded")}
       </div>}
       {editorState === "ready" && (mode === "edit" ?
         <Editor height="100%" language={language} onChange={(value) => setDraft(value ?? "")}
@@ -101,26 +103,26 @@ export function FileProposalEditor({ client, runID, source, onClose }: {
           theme="vs" />)}
     </div>
     <footer>
-      <span>{bytes.toLocaleString()} / {(256 * 1024).toLocaleString()} bytes</span>
-      <span>Source {activeSource.content_sha256.slice(0, 12)}</span>
+      <span>{bytes.toLocaleString()} / {(256 * 1024).toLocaleString()} {t("字节", "bytes")}</span>
+      <span>{t("来源", "Source")} {activeSource.content_sha256.slice(0, 12)}</span>
       {!mutation.data && (expired || mutation.isError) &&
         <button className="compact-command" disabled={refresh.isPending}
           onClick={() => refresh.mutate()} type="button">
           {refresh.isPending ? <LoaderCircle aria-hidden="true" className="spin" size={14} />
             : <RefreshCw aria-hidden="true" size={14} />}
-          Refresh source
+          {t("刷新来源", "Refresh source")}
         </button>}
       {mutation.data ? <span className="proposal-created-status" role="status">
-        <Check aria-hidden="true" size={14} />Pending review {mutation.data.edit.id.slice(0, 12)}
+        <Check aria-hidden="true" size={14} />{t("等待审阅", "Pending review")} {mutation.data.edit.id.slice(0, 12)}
       </span> : <button className="compact-command" disabled={invalid || mutation.isPending}
         onClick={() => mutation.mutate()} type="button">
         {mutation.isPending ? <LoaderCircle aria-hidden="true" className="spin" size={14} />
           : <FileDiff aria-hidden="true" size={14} />}
-        Create proposal
+        {t("创建提案", "Create proposal")}
       </button>}
     </footer>
     {bytes > 256 * 1024 && <div className="inline-warning" role="alert">
-      Proposal exceeds the 256 KiB Go boundary
+      {t("提案超过 Go 控制平面的 256 KiB 上限", "Proposal exceeds the 256 KiB Go boundary")}
     </div>}
     {mutation.isError && <ErrorState error={mutation.error} />}
     {refresh.isError && <ErrorState error={refresh.error} />}

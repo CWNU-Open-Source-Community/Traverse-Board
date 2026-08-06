@@ -2,35 +2,47 @@
 
 Last updated: 2026-08-05
 
-## Current Checkpoint: P10-K1/K2/K3 / Schema v93 + Compile-Only Embedded WASI Candidate
+## Current Checkpoint: P10-L1 through P10-M3 / Schema v95
 
-ADR 0090 selects embedded `wazero v1.12.0` Interpreter plus the pinned Rust
-`wasm32-wasip1` release fixture as the primary Analyzer isolation candidate.
-P10-K1 fixes a 16 MiB module and 4,096-page/256 MiB memory ceiling, one fresh
-runtime/module/future guest per invocation, context-close checks, synthetic
-argv, empty environment, deterministic random source, bounded memory stdio,
-and no filesystem, network, inherited host state, custom host module,
-compiler/JIT, native process, or product authority.
+P10-L1 executes only the build-embedded, provenance-pinned Rust
+`wasm32-wasip1` fixture through a fresh `wazero v1.12.0` Interpreter runtime.
+It uses bounded in-memory stdin/stdout, deterministic random bytes, a synthetic
+argv, an empty environment, context deadline/cancellation close, strict result
+validation, and no filesystem, network, subprocess, native process, host path,
+or caller-supplied module.
 
-P10-K2 calls only `CompileModule`; it never registers a WASI host,
-instantiates a guest, or calls `_start`. An independent bounded import parser
-rejects non-function imports and cross-checks wazero's function inventory. The
-real 603,913-byte release fixture is fixed to nine exact
-`wasi_snapshot_preview1` imports, `_start|__main_void` function exports, and 18
-initial memory pages. CI builds the same target and runs the Go assessment.
+P10-L2/schema v94 issues a maximum-five-minute one-shot capability exact-bound
+to Run, Workspace, request, candidate, and embedded module. Only the bearer
+digest is durable; SQLite atomically consumes it once and rejects expiry,
+replay, wrong bindings, mutation, and deletion. P10-L3/schema v95 then commits
+the redacted execution record, metadata-only Artifact descriptor, capability
+consumption, and Run events in one transaction. The Artifact body is only the
+validated metadata-summary JSON; raw request/input, bearer, module bytes, file
+contents, and guest stderr never enter the public receipt.
 
-P10-K3 assigns Go invocation scope ownership of runtime, compiled module, and a
-future guest. The Run Supervisor owns deadlines; recovery is metadata-only.
-There is no PID/process tree, cross-Run reuse, background guest, automatic
-restart/replay, foreign cleanup, or Artifact commit. Seven execution/release
-gates remain open, so `ready=false`, `start_blocked=true`, and all authority is
-false. No migration or product route was added; schema stays v93.
+P10-M1 exposes only that fixed service through control-token HTTP/OpenAPI,
+Desktop capability projection, CLI, and a bilingual React panel. P10-M2 adds a
+default-Chinese `zh-CN|en-US` UI switch and verifies real model chat end to end:
+Windows Credential Manager-backed provider reload, exact Harness qualification,
+model route, durable Run/Session user message, one bounded Supervisor step, and
+SQLite assistant-message readback through an Anthropic-compatible SSE server.
 
-Do not repeat P10-J, P10-I, the v93 ledger, or WFP after compaction. The next
-fixed batch is P10-L1/L2/L3: test-only real WASI execution conformance for
-bounded stdin/stdout, deadline/cancel/close, and deterministic result
-validation, followed by the cumulative six-slice full robustness gate. It must
-still add no CLI/HTTP/Desktop/Tool/Skill/model/Artifact product route.
+P10-M3 is complete. The portable package includes a hash-bound
+`Start-Prayu-Operator-Preview.cmd` and bilingual `LOCAL-TEST-GUIDE.txt`; the
+launcher enables only the safe operator bundle and contains no danger-full,
+Debug maximum, Full CDP, user-terminal, or wake-worker flag. An isolated
+`CYBERAGENT_HOME` smoke created and migrated its store, kept the Desktop alive,
+and closed only the exact process it launched.
+
+The cumulative six-slice release gate moved from L3 to after M3 and is complete:
+ordinary Go passed in 610.6 seconds under the explicit 20-minute local release
+timeout; race passed in 503.5 seconds with zero races; vet, staticcheck,
+govulncheck, modules, 50 Web files/182 tests, strict TypeScript/OpenAPI/Vite/npm,
+Rust fmt/7+2 tests/clippy/RustSec/WASI release, reproducible Desktop packaging,
+and isolated smoke all passed. Real Anthropic-compatible Provider chat passed
+three consecutive production-path tests against deterministic local SSE. The
+audit fixed a concurrent Store migration-ledger race and workspace-file read
+TOCTOU. Do not repeat L1-M3, P10-J/K, their full gate, or WFP after compaction.
 
 ### Earlier Browser Checkpoint: P11-C5/C6/C7 / Schema v91
 
@@ -239,25 +251,34 @@ Read in this order after a long context break:
 85. `docs/adr/0080-public-model-updates-and-harness-activity.md`
 86. `docs/adr/0081-gated-host-execution-and-debug-terminal-input.md`
 87. `docs/adr/0082-browser-cdp-permission-ceilings.md`
-88. `docs/DESKTOP_PLAN.md`
-89. `docs/SKILL_PACKAGE_PLAN.md`
+88. `docs/adr/0083-restricted-loopback-browser-runtime-core.md`
+89. `docs/adr/0084-windows-wfp-browser-containment-and-runtime-lifecycle.md`
+90. `docs/adr/0085-analyzer-format-release-and-launch-plan-candidates.md`
+91. `docs/adr/0086-analyzer-signed-provenance-scope-approval-and-test-sandbox-conformance.md`
+92. `docs/adr/0087-analyzer-immutable-handoff-low-privilege-and-filesystem-conformance.md`
+93. `docs/adr/0088-analyzer-product-admission-authenticated-capability-and-recovery-acceptance.md`
+94. `docs/adr/0089-analyzer-durable-request-intent-and-recovery-ledger.md`
+95. `docs/adr/0090-embedded-wasi-analyzer-isolation-candidate.md`
+96. `docs/adr/0091-embedded-analyzer-product-route-bilingual-desktop-preview.md`
+97. `docs/DESKTOP_PLAN.md`
+98. `docs/SKILL_PACKAGE_PLAN.md`
 
 ## Current Baseline
 
 - Architecture completion: about 99%; the V2 run-centric control plane is about 99% complete.
-- Product usability: about 96-98% for the complete Code + Cyber product.
-- Generic coding-agent workflow usability: about 96-97%.
+- Product usability: about 98% for the complete Code + Cyber product.
+- Generic coding-agent workflow usability: about 98%.
 - Cyber autonomous-workflow usability: about 20%.
 - These are engineering estimates based on tested roadmap slices, not performance benchmarks. Do not reuse the retired single-axis "overall product vision" percentage.
-- Database schema: v91.
-- `README.md` carries the canonical bilingual schema timeline in strict `v1 -> v91` order. `internal/store/readme_history_test.go` binds its row count and ordering to `LatestSchemaVersion`, so a future migration cannot silently leave the public history missing or out of sequence.
+- Database schema: v95.
+- `README.md` carries the canonical bilingual schema timeline in strict `v1 -> v95` order. `internal/store/readme_history_test.go` binds its row count and ordering to `LatestSchemaVersion`, so a future migration cannot silently leave the public history missing or out of sequence.
 - Main languages: Go control plane, TypeScript React/Vite local console, and deterministic Rust 1.97.1 digest/ZIP protocol functions. Rust has no Agent, LLM, config, key, persistence, network, filesystem, subprocess, or product-lifecycle ownership.
-- Analyzer status: P10-A1 through P10-B3 fix `analyzer_protocol.v1`, a two-entry inert `analyzer_descriptor.v1` Registry, strict digest and `archive.inventory.v1` result validation, bounded Rust stdin/stdout functions, and two five-vector semantic/bytes/SHA suites with separate CI. The ZIP function only reads an in-memory central directory and never opens, decompresses, extracts, or writes entry data. A Go-to-Rust product process bridge, product invocation, Run/Event/SQLite persistence, and Artifact commit remain absent. See ADR 0062, ADR 0063, and `analyzers/README.md`.
-- Model Harness status: non-schema A1/A2/A3 adds `model_harness.v1` exact transport/tool/JSON/streaming profiles, Go preflight for Root/Specialist/read-only Fan-out, and `model_harness_qualification.v1` at-most-two-call synthetic qualification. Mock is trusted offline; Anthropic-compatible models require explicit qualification. Qualification stores only exact binding digest, capability booleans, and seven-day expiry in existing Provider settings; the synthetic Tool is never executed, availability remains no-probe, and qualification grants no Tool/Shell/file/browser/Docker authority. P13-A adds the separate public-activity read projection. Current OpenAPI is 83 paths / 91 operations / 203 schemas. See ADR 0074 and ADR 0080.
+- Analyzer status: P10-A through P10-K define and validate the Go/Rust protocol and embedded-WASI boundary. P10-L/schema v94-v95 adds real fixed-module execution, one-shot exact-bound authorization, atomic consumption, redacted execution, metadata-only Artifact content, and Run events. P10-M exposes only this embedded module through CLI/control-token HTTP/Desktop/React; callers cannot provide WebAssembly, imports, mount, network, command, argv, environment, or native process. See ADR 0062, ADR 0063, ADR 0090, ADR 0091, and `analyzers/README.md`.
+- Model Harness status: non-schema A1/A2/A3 adds `model_harness.v1` exact transport/tool/JSON/streaming profiles, Go preflight for Root/Specialist/read-only Fan-out, and `model_harness_qualification.v1` at-most-two-call synthetic qualification. Mock is trusted offline; Anthropic-compatible models require explicit qualification. Qualification stores only exact binding digest, capability booleans, and seven-day expiry in existing Provider settings; the synthetic Tool is never executed, availability remains no-probe, and qualification grants no Tool/Shell/file/browser/Docker authority. P13-A adds the separate public-activity read projection. P10-M2 proves the production Anthropic-compatible route and durable chat path against deterministic local SSE. Current OpenAPI is 84 paths / 92 operations / 205 schemas. See ADR 0074, ADR 0080, and ADR 0091.
 - Browser status: P11-A1 through P11-C3 fix three Profiles, exact target scope, inert plans, fixed-location discovery, disposable-profile recovery plans, sealed Disabled/Fake CDP, same-handle Authenticode acceptance, immutable launch attempts/leases, and independent review. P11-C4A-C4C adds independent `restricted|full_debug` CDP policy ceilings and operator controls. P11-C5-C7 adds a concrete Safe Web Windows process adapter, exact disposable-Profile lifecycle, and closed literal-loopback restricted CDP transport, but keeps them product-inert. There is no CLI/HTTP/Desktop/Tool/Skill/model route or interactive browser, and Full Debug CDP remains unavailable. Verified OS/container network containment blocks activation. See ADR 0069, ADR 0071, ADR 0073, ADR 0082, and ADR 0083.
-- Desktop status: the established Wails v2.13.0 shell retains its embedded React/in-process Go API, Run/editor/repository/verification/Handoff/model/credential/wake workflows and composable docks. P12-B2 adds a default-off user-owned ConPTY/xterm terminal for an exact trusted Code/Local/Debug Run. P12-E3 adds a process-local Go controller that can grant one short, audited Agent-input binding only under Debug maximum access, but it is not exposed to the renderer, HTTP, or models. P11-C4 adds operator-only CDP policy selection; P11-C5-C7 adds only an internal browser core and no Desktop binding. Windows 10 release coverage remains pending and `release_ready=false`. There is no installer, formal signed release, registry/startup/update behavior, general model Shell, Docker PTY, operational built-in browser, Full CDP, or install-time Skill execution. See ADR 0033 through ADR 0061, ADR 0064, ADR 0068, ADR 0070, ADR 0072 through ADR 0083, and `docs/DESKTOP_PLAN.md`.
+- Desktop status: the Wails v2.13.0 shell retains its embedded React/in-process Go API, Run/editor/repository/verification/Handoff/model/credential/wake workflows and composable docks. It now defaults to Chinese with a persistent Chinese/English switch under Settings > Personal > General. The safe `--operator-preview` launcher enables model credentials, Harness qualification, routes, Run/Session chat, approvals, file proposals, and the fixed Analyzer without enabling danger-full-access, maximum Debug, Full CDP, Agent terminal input, or Wake Worker. Windows 10/WebView2/scaling coverage, code signing, and installer remain pending, so `release_ready=false`; the local operator-preview chat path is enabled. See ADR 0091 and `docs/DESKTOP_PLAN.md`.
 - Prayu UX status: D1-UX1 through D1-UX11 introduce the Prayu identity, frameless titlebar, bounded resizable workbench and Settings sidebars, Go-backed composer, four-control toolbar, dedicated permission center, native Acrylic, a CSS/React app mark, and three persisted appearance choices. Full-window ink backgrounds, screenshot-based selected overlays, the image wordmark, and orange-brush CSS are no longer used; selected navigation and segmented controls are opaque-white CSS rounded surfaces. Summary/Review/Files/Side Tasks use existing bounded Go surfaces. Browser remains inert; Terminal becomes real only when the Desktop is explicitly started with `--enable-user-terminal`, and remains user-owned. Open Workspace stays operator-confirmed and pathless at the renderer boundary. Stable CyberAgent compatibility identifiers remain unchanged. See ADR 0064, ADR 0070, ADR 0072, ADR 0076, and ADR 0078.
-- Execution status: P12-A1/A2/A3 adds durable interaction intent, exact process-local Agent-input leases, and four non-starting fixed command plans. P12-B1/B2/B3 advances SQLite to v87 and adds a separate restricted operator-only Windows path plus the user terminal. P12-C1/C2/C3 advances SQLite to v88 and adds the four-level host permission ceiling plus one Go `executionauth` resolver. P12-D1/D2/D3 advances SQLite to v89 and adds the conservative fixed-command Agent request/review/result path. P12-E1/E2/E3 advances SQLite to v90 for a dual-confirmed operator-only non-sandboxed Windows one-shot executor and a Go-only Debug terminal-input controller. P11-C4A-C4C independently advances SQLite to v91 for restricted/full-debug CDP policy ceilings. P11-C5-C7 adds a separate product-inert browser process/Profile/transport core without widening host execution or exposing a route. See ADR 0075 through ADR 0083.
+- Execution status: P12-A through P12-E define interaction intent, controlled Windows commands, user terminal, four host-permission levels, review-gated fixed commands, a dual-confirmed operator host executor, and a Go-only Debug terminal-input controller through schema v90. P11-C4 advances to v91 for CDP policy ceilings while C5-C7 remains a separate product-inert browser core. P10-L advances to v95 only for the fixed embedded Analyzer; it does not widen host execution, general Shell, browser, or terminal authority. See ADR 0075 through ADR 0083 and ADR 0091.
 - P12-E release gate: completed. The uncached serial Go suite passed in 576.3 seconds and the full race suite passed in 717.6 seconds with no races. Vet, zero-warning staticcheck, govulncheck (zero reachable vulnerabilities), module verify/tidy, secure Desktop tags, 48-file/165-test React, strict TypeScript, deterministic OpenAPI, Vite, npm audit, Rust format/7+2 tests/clippy, privacy/authority scans, and reproducible Windows Desktop build all passed. The portable executable is 42,757,120 bytes with SHA-256 `801bda9b5343b72999827beeb3bfecd6fdd907b9795736f540637b77a26cb771`; `release_ready=false` remains correct. A separate opt-in adapter test launched only the current Go test binary by exact path/SHA and passed ordinary plus race execution. No arbitrary user program or product `host-execute` command was run during verification.
 - Custom Skill status: the five embedded `skill.v1` guides and explicitly selected external packages are Run-loadable through separate protocols. Schema v69 adds persistent content-addressed import/history; schema v70 adds a second explicitly confirmed exact Run selection and redacted user-role root/Specialist context; schema v71 adds bounded read-only provenance across HTTP/TUI/Web. D1-A adds a pathless, one-time-handle preview boundary; D1-B1 adds explicit HTTP/Desktop registration through the same inert Registry. External packages remain untrusted and grant no declared tools. Installation executes no content and still does not select a package for a Run. See ADR 0024, ADR 0031 through ADR 0033, ADR 0041, and `docs/SKILL_PACKAGE_PLAN.md`.
 - Protected-delete status: explicit recursive, absolute/traversing/wildcard, environment-derived, command-substituted, current-home, PowerShell/`cmd`, and common interpreter deletion intents are permanently denied before approval across Shell, ScriptProcess, and Sandbox Policy. This is defense in depth; Local/container process execution remains disabled and a future executor still requires OS/container isolation. See ADR 0025.
@@ -2481,15 +2502,20 @@ operator-only Restricted Safe Web adapter must still exclude model Tools,
 personal Profiles, request mutation/replay, arbitrary remote debugging, CTF
 security-disable flags, and Full Debug CDP.
 
-P10-K1/K2/K3 and their focused closeout are complete. Do not repeat the v93
-ledger, Fake lifecycle, embedded-WASI architecture selection, WFP probe, P10-I
-contracts, or the prior cumulative six-slice gate after context compaction.
-P10-L1/L2/L3 may execute only the repository WASI fixture in tests, with
-bounded in-memory stdio and explicit deadline/cancellation/close evidence. It
-must not add a product starter, route, capability, persistence mutation, or
-Artifact commit. L3 closes the current six-slice cycle and therefore requires
-the full robustness gate. Docker PTY, arbitrary model Shell, signed
-distribution, and the Windows 10 matrix remain separate gates.
+P10-L1/L2/L3 and P10-M1/M2/M3 are complete at schema v95. Do not repeat the v93
+ledger, Fake lifecycle, embedded-WASI architecture selection, fixed execution,
+one-shot authorization, atomic evidence, bilingual product route, real-chat
+integration, portable preview package, WFP probe, P10-I contracts, or this
+cumulative six-slice gate after context compaction.
+
+The immediate next action is operator acceptance using
+`build\desktop\Start-Prayu-Operator-Preview.cmd`: enter an OS-owned Provider
+credential, run diagnostics and Harness qualification, select the `code` route,
+create a workspace-bound Run, and send a real message. Record reproducible UI or
+endpoint defects without exposing keys. Future implementation must begin from
+those acceptance results or a newly assigned task; Docker PTY, arbitrary model
+Shell, signed distribution, the Windows 10/WebView2/scaling matrix, and WFP/C8C
+remain separate gates.
 
 ## Local Machine Note
 

@@ -6,6 +6,7 @@ import type { CyberAgentClient } from "../api/client";
 import type { VerificationPlanItemCoveragePage, VerificationPlanRequestView } from "../api/types";
 import { downloadTextFile } from "../lib/download";
 import { formatDate } from "../lib/format";
+import { useLocale } from "../lib/locale";
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from "./common";
 import {
   matchesReceiptReviewTarget,
@@ -75,6 +76,7 @@ export function VerificationPlan({ client, runID, receiptReviewTarget }: {
   runID: string;
   receiptReviewTarget?: ReceiptReviewNavigationTarget;
 }) {
+  const { t } = useLocale();
   const queryClient = useQueryClient();
   const operationKey = useRef("");
   const receiptOperationKeys = useRef(new Map<string, string>());
@@ -259,16 +261,16 @@ export function VerificationPlan({ client, runID, receiptReviewTarget }: {
     changeIntent(() => setItems((current) => current.map((item, ordinal) => ordinal === index
       ? { ...item, [key]: value } : item)));
   };
-  return <section aria-label="Verification plan" className="verification-plan">
+  return <section aria-label={t("验证计划", "Verification plan")} className="verification-plan">
     <header className="operator-list-header">
-      <div><ClipboardList aria-hidden="true" size={16} /><h2>Verification plan</h2></div>
-      <div>{query.data && <StatusBadge status={`${query.data.items.length} plans`} />}
+      <div><ClipboardList aria-hidden="true" size={16} /><h2>{t("验证计划", "Verification plan")}</h2></div>
+      <div>{query.data && <StatusBadge status={t(`${query.data.items.length} 个计划`, `${query.data.items.length} plans`)} />}
         {coverageQuery.data && <StatusBadge
-          status={`${coverageQuery.data.observed_plan_item_count}/${coverageQuery.data.plan_item_count} observed`} />}
-        {receiptQuery.data && <StatusBadge status={`${receiptQuery.data.items.length} receipts`} />}
+          status={t(`${coverageQuery.data.observed_plan_item_count}/${coverageQuery.data.plan_item_count} 已观测`, `${coverageQuery.data.observed_plan_item_count}/${coverageQuery.data.plan_item_count} observed`)} />}
+        {receiptQuery.data && <StatusBadge status={t(`${receiptQuery.data.items.length} 个收据`, `${receiptQuery.data.items.length} receipts`)} />}
         {receiptReviewQuery.data &&
-          <StatusBadge status={`${receiptReviewQuery.data.items.length} receipt reviews`} />}
-        <button aria-label="Refresh verification plans" className="icon-button"
+          <StatusBadge status={t(`${receiptReviewQuery.data.items.length} 个收据审阅`, `${receiptReviewQuery.data.items.length} receipt reviews`)} />}
+        <button aria-label={t("刷新验证计划", "Refresh verification plans")} className="icon-button"
           disabled={query.isFetching || coverageQuery.isFetching || coverageDetailQuery.isFetching ||
             receiptQuery.isFetching || receiptReviewQuery.isFetching}
           onClick={() => {
@@ -280,7 +282,7 @@ export function VerificationPlan({ client, runID, receiptReviewTarget }: {
               void receiptReviewQuery.refetch();
             }
           }}
-          title="Refresh" type="button"><RefreshCw aria-hidden="true"
+          title={t("刷新", "Refresh")} type="button"><RefreshCw aria-hidden="true"
             className={query.isFetching || coverageQuery.isFetching ||
               coverageDetailQuery.isFetching || receiptQuery.isFetching ||
               receiptReviewQuery.isFetching ? "spin" : ""}
@@ -289,47 +291,47 @@ export function VerificationPlan({ client, runID, receiptReviewTarget }: {
     {receiptReviewTarget && <div aria-live="polite"
       className={`verification-receipt-focus ${receiptReviewFocusUnavailable ? "unavailable" : ""}`}>
       <StatusBadge status="metadata only" /><StatusBadge status="non-authorizing" />
-      {receiptReviewFocusLoading && <span>Locating exact receipt review</span>}
-      {receiptReviewFocusReady && <span>Exact receipt review focused: {receiptReviewTarget.decision.replaceAll("_", " ")} at event {receiptReviewTarget.review_event_sequence}</span>}
+      {receiptReviewFocusLoading && <span>{t("正在定位精确收据审阅", "Locating exact receipt review")}</span>}
+      {receiptReviewFocusReady && <span>{t(`已定位精确收据审阅：${receiptReviewTarget.decision.replaceAll("_", " ")}，事件 ${receiptReviewTarget.review_event_sequence}`, `Exact receipt review focused: ${receiptReviewTarget.decision.replaceAll("_", " ")} at event ${receiptReviewTarget.review_event_sequence}`)}</span>}
       {receiptReviewFocusUnavailable &&
-        <span>Exact receipt review is unavailable in the bounded Verify inventory</span>}
+        <span>{t("有界验证清单中没有这条精确收据审阅", "Exact receipt review is unavailable in the bounded Verify inventory")}</span>}
     </div>}
     {client.hasVerificationEvidence && <form className="verification-plan-form" onSubmit={submit}>
-      <label>Title<input disabled={record.isPending} maxLength={160} required value={title}
+      <label>{t("标题", "Title")}<input disabled={record.isPending} maxLength={160} required value={title}
         onChange={(event) => changeIntent(() => setTitle(event.target.value))} /></label>
-      <label>Purpose<textarea disabled={record.isPending} maxLength={2048} required rows={2}
+      <label>{t("目的", "Purpose")}<textarea disabled={record.isPending} maxLength={2048} required rows={2}
         value={summary}
         onChange={(event) => changeIntent(() => setSummary(event.target.value))} /></label>
       <div className="verification-plan-items">{items.map((item, index) =>
-        <fieldset key={index}><legend>Check {index + 1}</legend>
-          <label>Check<input aria-label={`Check ${index + 1} title`} disabled={record.isPending}
+        <fieldset key={index}><legend>{t("检查项", "Check")} {index + 1}</legend>
+          <label>{t("检查项", "Check")}<input aria-label={t(`检查项 ${index + 1} 标题`, `Check ${index + 1} title`)} disabled={record.isPending}
             maxLength={160} required
             value={item.title} onChange={(event) => updateItem(index, "title", event.target.value)} /></label>
-          <label>Expected observation<textarea aria-label={`Check ${index + 1} expected observation`}
+          <label>{t("预期观察", "Expected observation")}<textarea aria-label={t(`检查项 ${index + 1} 预期观察`, `Check ${index + 1} expected observation`)}
             disabled={record.isPending} maxLength={1024} required rows={2}
             value={item.expected_observation}
             onChange={(event) => updateItem(index, "expected_observation", event.target.value)} /></label>
-          <button aria-label={`Remove check ${index + 1}`} className="icon-button"
+          <button aria-label={t(`删除检查项 ${index + 1}`, `Remove check ${index + 1}`)} className="icon-button"
             disabled={record.isPending || items.length === 1}
             onClick={() => changeIntent(() => setItems((current) =>
-              current.filter((_, ordinal) => ordinal !== index)))} title="Remove check" type="button">
+              current.filter((_, ordinal) => ordinal !== index)))} title={t("删除检查项", "Remove check")} type="button">
             <Trash2 aria-hidden="true" size={14} /></button>
         </fieldset>)}</div>
       <div className="verification-plan-actions">
         <button className="compact-command" disabled={record.isPending || items.length >= 32}
           onClick={() => changeIntent(() => setItems((current) => [...current, emptyItem()]))}
           type="button">
-          <Plus aria-hidden="true" size={14} />Add check</button>
+          <Plus aria-hidden="true" size={14} />{t("添加检查项", "Add check")}</button>
         <button className="command-button" disabled={record.isPending || !complete} type="submit">
           {record.isPending ? <LoaderCircle aria-hidden="true" className="spin" size={15} /> :
-            <ClipboardList aria-hidden="true" size={15} />}Record plan</button>
+            <ClipboardList aria-hidden="true" size={15} />}{t("记录计划", "Record plan")}</button>
       </div>
     </form>}
     {record.error && <ErrorState error={record.error} />}
-    {query.isLoading && <LoadingState label="Loading verification plans" />}
+    {query.isLoading && <LoadingState label={t("正在加载验证计划", "Loading verification plans")} />}
     {query.isError && <ErrorState error={query.error} />}
     {coverageQuery.isError && <ErrorState error={coverageQuery.error} />}
-    {query.data?.items.length === 0 && <EmptyState>No verification plan recorded</EmptyState>}
+    {query.data?.items.length === 0 && <EmptyState>{t("尚未记录验证计划", "No verification plan recorded")}</EmptyState>}
     {query.data && query.data.items.length > 0 && <div className="verification-plan-list">
       {query.data.items.map((plan) => <article key={plan.id}>
         <header><strong>{plan.title}</strong><StatusBadge status="guidance only" />
@@ -351,46 +353,47 @@ export function VerificationPlan({ client, runID, receiptReviewTarget }: {
                   {coverage.unknown_count > 0 && <StatusBadge status={`${coverage.unknown_count} unknown`} />}
                 </>}
               </div>}
-              <button aria-expanded={selected} aria-label={`Inspect evidence for check ${item.ordinal}`}
+              <button aria-expanded={selected} aria-label={t(`检查第 ${item.ordinal} 项的证据`, `Inspect evidence for check ${item.ordinal}`)}
                 className="icon-button" onClick={() => setCoverageSelection((current) =>
                   current?.planID === plan.id && current.ordinal === item.ordinal ? null :
                     { planID: plan.id, ordinal: item.ordinal })}
-                title="Inspect evidence references" type="button">
+                title={t("检查证据引用", "Inspect evidence references")} type="button">
                 <ListTree aria-hidden="true" size={14} />
               </button>
             </div>
-            {selected && <div aria-label={`Evidence references for check ${item.ordinal}`}
+            {selected && <div aria-label={t(`第 ${item.ordinal} 项的证据引用`, `Evidence references for check ${item.ordinal}`)}
               className="verification-coverage-detail">
-              {coverageDetailQuery.isLoading && <LoadingState label="Loading evidence references" />}
+              {coverageDetailQuery.isLoading && <LoadingState label={t("正在加载证据引用", "Loading evidence references")} />}
               {coverageDetailQuery.isError && <ErrorState error={coverageDetailQuery.error} />}
               {mergedCoverage.error && <ErrorState error={mergedCoverage.error} />}
               {mergedCoverage.detail && !mergedCoverage.error && <>
-                <header><strong>Evidence references</strong>
-                  <span>{mergedCoverage.associations.length} of {mergedCoverage.detail.associated_evidence_count}</span>
+                <header><strong>{t("证据引用", "Evidence references")}</strong>
+                  <span>{t(`${mergedCoverage.associations.length} / ${mergedCoverage.detail.associated_evidence_count}`,
+                    `${mergedCoverage.associations.length} of ${mergedCoverage.detail.associated_evidence_count}`)}</span>
                   {coverageDetailQuery.data?.pages.at(-1)?.page.truncated &&
                     <StatusBadge status="page limit reached" />}
                   <div className="verification-snapshot-actions">
-                    <button aria-label={`Download check ${item.ordinal} verification snapshot as Markdown`}
+                    <button aria-label={t(`将检查项 ${item.ordinal} 的验证快照下载为 Markdown`, `Download check ${item.ordinal} verification snapshot as Markdown`)}
                       className="compact-command" disabled={exportSnapshot.isPending}
                       onClick={() => exportSnapshot.mutate({ planID: plan.id,
                         ordinal: item.ordinal, format: "markdown" })} type="button">
                       <Download aria-hidden="true" size={13} />Markdown</button>
-                    <button aria-label={`Download check ${item.ordinal} verification snapshot as JSON`}
+                    <button aria-label={t(`将检查项 ${item.ordinal} 的验证快照下载为 JSON`, `Download check ${item.ordinal} verification snapshot as JSON`)}
                       className="compact-command" disabled={exportSnapshot.isPending}
                       onClick={() => exportSnapshot.mutate({ planID: plan.id,
                         ordinal: item.ordinal, format: "json" })} type="button">
                       <Download aria-hidden="true" size={13} />JSON</button>
                     {client.hasVerificationEvidence && <>
-                      <button aria-label={`Record check ${item.ordinal} Markdown snapshot receipt`}
+                      <button aria-label={t(`记录检查项 ${item.ordinal} 的 Markdown 快照收据`, `Record check ${item.ordinal} Markdown snapshot receipt`)}
                         className="compact-command" disabled={recordSnapshotReceipt.isPending}
                         onClick={() => recordSnapshotReceipt.mutate({ planID: plan.id,
                           ordinal: item.ordinal, format: "markdown" })} type="button">
-                        <FileCheck2 aria-hidden="true" size={13} />Receipt MD</button>
-                      <button aria-label={`Record check ${item.ordinal} JSON snapshot receipt`}
+                        <FileCheck2 aria-hidden="true" size={13} />{t("收据 MD", "Receipt MD")}</button>
+                      <button aria-label={t(`记录检查项 ${item.ordinal} 的 JSON 快照收据`, `Record check ${item.ordinal} JSON snapshot receipt`)}
                         className="compact-command" disabled={recordSnapshotReceipt.isPending}
                         onClick={() => recordSnapshotReceipt.mutate({ planID: plan.id,
                           ordinal: item.ordinal, format: "json" })} type="button">
-                        <FileCheck2 aria-hidden="true" size={13} />Receipt JSON</button>
+                        <FileCheck2 aria-hidden="true" size={13} />{t("收据 JSON", "Receipt JSON")}</button>
                     </>}
                   </div>
                 </header>
@@ -400,7 +403,7 @@ export function VerificationPlan({ client, runID, receiptReviewTarget }: {
                 {receiptQuery.isError && <ErrorState error={receiptQuery.error} />}
                 {receiptReviewQuery.isError && <ErrorState error={receiptReviewQuery.error} />}
                 {snapshotReceipts.length > 0 &&
-                  <div className="verification-snapshot-receipts"><strong>Snapshot receipts</strong>
+                  <div className="verification-snapshot-receipts"><strong>{t("快照收据", "Snapshot receipts")}</strong>
                     <ul>{snapshotReceipts.map((receipt) => {
                       const review = receiptReviewQuery.data?.items.find((entry) =>
                         entry.receipt_id === receipt.id) ??
@@ -414,37 +417,37 @@ export function VerificationPlan({ client, runID, receiptReviewTarget }: {
                         tabIndex={focused ? -1 : undefined}>
                         <StatusBadge status={receipt.format} />
                         <code title={receipt.content_sha256}>{receipt.content_sha256.slice(0, 12)}</code>
-                        <span>events {receipt.snapshot_high_water_event_sequence} / {receipt.receipt_event_sequence}</span>
+                        <span>{t("事件", "events")} {receipt.snapshot_high_water_event_sequence} / {receipt.receipt_event_sequence}</span>
                         <time dateTime={receipt.recorded_at}>{formatDate(receipt.recorded_at)}</time>
                         <div className="verification-snapshot-review-actions">
                           <StatusBadge status="record only" />
                           {review ? <StatusBadge status={review.decision.replace("metadata_", "")} /> :
                             client.hasVerificationEvidence && <>
-                              <button aria-label={`Confirm metadata for snapshot receipt ${receipt.id}`}
+                              <button aria-label={t(`确认快照收据 ${receipt.id} 的元数据`, `Confirm metadata for snapshot receipt ${receipt.id}`)}
                                 className="compact-command" disabled={reviewSnapshotReceipt.isPending}
                                 onClick={() => reviewSnapshotReceipt.mutate({ receiptID: receipt.id,
                                   contentSHA256: receipt.content_sha256,
                                   eventSequence: receipt.receipt_event_sequence,
                                   decision: "metadata_confirmed" })} type="button">
-                                <Check aria-hidden="true" size={12} />Confirm metadata</button>
-                              <button aria-label={`Dispute metadata for snapshot receipt ${receipt.id}`}
+                                <Check aria-hidden="true" size={12} />{t("确认元数据", "Confirm metadata")}</button>
+                              <button aria-label={t(`质疑快照收据 ${receipt.id} 的元数据`, `Dispute metadata for snapshot receipt ${receipt.id}`)}
                                 className="compact-command" disabled={reviewSnapshotReceipt.isPending}
                                 onClick={() => reviewSnapshotReceipt.mutate({ receiptID: receipt.id,
                                   contentSHA256: receipt.content_sha256,
                                   eventSequence: receipt.receipt_event_sequence,
                                   decision: "metadata_disputed" })} type="button">
-                                <AlertTriangle aria-hidden="true" size={12} />Dispute</button>
+                                <AlertTriangle aria-hidden="true" size={12} />{t("质疑", "Dispute")}</button>
                             </>}
                         </div>
                       </li>;
                     })}</ul>
                   </div>}
                 {mergedCoverage.associations.length === 0 ?
-                  <span className="verification-coverage-empty">No explicit evidence associated</span> :
+                  <span className="verification-coverage-empty">{t("没有显式关联的证据", "No explicit evidence associated")}</span> :
                   <ul>{mergedCoverage.associations.map((association) =>
                     <li key={association.id}><StatusBadge status={association.evidence_outcome} />
                       <code title={association.evidence_id}>{association.evidence_id}</code>
-                      <span>events {association.evidence_event_sequence} / {association.association_event_sequence}</span>
+                      <span>{t("事件", "events")} {association.evidence_event_sequence} / {association.association_event_sequence}</span>
                       <time dateTime={association.associated_at}>{formatDate(association.associated_at)}</time>
                     </li>)}</ul>}
                 {coverageDetailQuery.hasNextPage && <div className="verification-coverage-pagination">
@@ -453,7 +456,7 @@ export function VerificationPlan({ client, runID, receiptReviewTarget }: {
                     {coverageDetailQuery.isFetchingNextPage ?
                       <LoaderCircle aria-hidden="true" className="spin" size={14} /> :
                       <ChevronDown aria-hidden="true" size={14} />}
-                    Load older evidence
+                    {t("加载更早证据", "Load older evidence")}
                   </button>
                 </div>}
               </>}

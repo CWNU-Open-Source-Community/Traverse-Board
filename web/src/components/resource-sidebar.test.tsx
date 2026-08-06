@@ -5,6 +5,11 @@ import type { RunView, SessionView } from "../api/types";
 import { useConnectionStore } from "../state/connection";
 import { ResourceSidebar } from "./resource-sidebar";
 
+vi.mock("../lib/locale", () => ({
+  useLocale: () => ({ locale: "zh-CN", setLocale: () => undefined,
+    t: (chinese: string) => chinese }),
+}));
+
 function run(id: string, status: RunView["status"]): RunView {
   return {
     id,

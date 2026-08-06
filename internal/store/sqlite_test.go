@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -45,6 +46,48 @@ func TestOpenCreatesPrivateSQLitePathOnUnix(t *testing.T) {
 	if directoryInfo.Mode().Perm() != 0o700 || databaseInfo.Mode().Perm() != 0o600 {
 		t.Fatalf("runtime path permissions are not private: dir=%o db=%o",
 			directoryInfo.Mode().Perm(), databaseInfo.Mode().Perm())
+	}
+}
+
+func TestConcurrentOpenRechecksMigrationLedgerAfterWriteLock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "concurrent-open.db")
+	const callers = 6
+	start := make(chan struct{})
+	errorsByCaller := make(chan error, callers)
+	var wait sync.WaitGroup
+	for index := 0; index < callers; index++ {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			<-start
+			state, err := Open(path)
+			if err == nil {
+				err = state.Close()
+			}
+			errorsByCaller <- err
+		}()
+	}
+	close(start)
+	wait.Wait()
+	close(errorsByCaller)
+	for err := range errorsByCaller {
+		if err != nil {
+			t.Fatalf("concurrent Open failed: %v", err)
+		}
+	}
+
+	state, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	if version, err := state.SchemaVersion(t.Context()); err != nil || version != LatestSchemaVersion {
+		t.Fatalf("schema version=%d err=%v", version, err)
+	}
+	var rows int
+	if err := state.db.QueryRowContext(t.Context(),
+		`SELECT COUNT(*) FROM schema_migrations`).Scan(&rows); err != nil || rows != LatestSchemaVersion {
+		t.Fatalf("migration rows=%d err=%v", rows, err)
 	}
 }
 

@@ -13,6 +13,12 @@ $repositoryFull = [System.IO.Path]::GetFullPath($repositoryRoot)
 $binaryPath = Join-Path $outputRoot "cyberagent-desktop.exe"
 $reproBinaryPath = Join-Path $outputRoot "cyberagent-desktop.repro.exe"
 $metadataPath = Join-Path $outputRoot "release-metadata.json"
+$launcherName = "Start-Prayu-Operator-Preview.cmd"
+$guideName = "LOCAL-TEST-GUIDE.txt"
+$launcherSourcePath = Join-Path $repositoryRoot "packaging/windows/$launcherName"
+$guideSourcePath = Join-Path $repositoryRoot "packaging/windows/$guideName"
+$launcherPath = Join-Path $outputRoot $launcherName
+$guidePath = Join-Path $outputRoot $guideName
 
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     throw "Desktop portable build currently supports only Windows"
@@ -23,6 +29,10 @@ if (-not $outputRoot.StartsWith($repositoryFull + [System.IO.Path]::DirectorySep
 }
 if ($Version -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$') {
     throw "Desktop release version is invalid"
+}
+if (-not (Test-Path -LiteralPath $launcherSourcePath -PathType Leaf) -or
+    -not (Test-Path -LiteralPath $guideSourcePath -PathType Leaf)) {
+    throw "Desktop operator-preview launcher and local test guide are required"
 }
 
 function Invoke-Checked {
@@ -102,6 +112,8 @@ try {
     }
 
     New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
+    Copy-Item -LiteralPath $launcherSourcePath -Destination $launcherPath -Force
+    Copy-Item -LiteralPath $guideSourcePath -Destination $guidePath -Force
     $ldflags = @(
         "-s", "-w", "-H=windowsgui",
         "-X=cyberagent-workbench/internal/buildinfo.Version=$Version",
@@ -139,6 +151,8 @@ try {
     }
 
     $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $binaryPath).Hash.ToLowerInvariant()
+    $launcherHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $launcherPath).Hash.ToLowerInvariant()
+    $guideHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $guidePath).Hash.ToLowerInvariant()
     $metadata = [ordered]@{
         protocol_version = "portable_release_metadata.v1"
         app_version = $Version
@@ -152,6 +166,12 @@ try {
         trimpath = $true
         binary_name = "cyberagent-desktop.exe"
         sha256 = $hash
+        operator_preview_included = $true
+        operator_preview_launcher_name = $launcherName
+        operator_preview_launcher_sha256 = $launcherHash
+        local_test_guide_name = $guideName
+        local_test_guide_sha256 = $guideHash
+        default_ui_language = "zh-CN"
         reproducibility_checked = [bool]$VerifyReproducible
         reproducible = $reproducible
         installer_included = $false
@@ -175,6 +195,8 @@ finally {
 Write-Output "desktop_binary: $binaryPath"
 Write-Output "desktop_sha256: $hash"
 Write-Output "release_metadata: $metadataPath"
+Write-Output "operator_preview_launcher: $launcherPath"
+Write-Output "local_test_guide: $guidePath"
 Write-Output "desktop_reproducible: $reproducible"
 Write-Output "desktop_installer_included: false"
 Write-Output "desktop_registry_writes: false"

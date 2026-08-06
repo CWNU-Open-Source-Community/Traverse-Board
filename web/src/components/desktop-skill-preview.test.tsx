@@ -3,6 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 import { DesktopSkillPreviewDialog } from "./desktop-skill-preview";
 
+vi.mock("../lib/locale", () => ({
+  useLocale: () => ({ locale: "zh-CN", setLocale: () => undefined,
+    t: (chinese: string) => chinese }),
+}));
+
 const bridgeMocks = vi.hoisted(() => ({
   install: vi.fn(),
   select: vi.fn(),

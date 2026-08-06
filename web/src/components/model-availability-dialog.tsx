@@ -4,6 +4,7 @@ import { Activity, Check, Cpu, KeyRound, LoaderCircle, Route, Save, ShieldCheck,
 import type { CyberAgentClient } from "../api/client";
 import type { ModelHarnessQualificationView, ProviderDiagnosticView } from "../api/types";
 import { ErrorState, LoadingState, StatusBadge } from "./common";
+import { useLocale } from "../lib/locale";
 
 export function ModelAvailabilityDialog({ client, open, onClose }: {
   client: CyberAgentClient;
@@ -25,6 +26,7 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
   onClose: () => void;
   presentation: "dialog" | "workspace";
 }) {
+  const { t } = useLocale();
   const queryClient = useQueryClient();
   const [selections, setSelections] = useState<Record<string, string>>({});
   const [diagnostic, setDiagnostic] = useState<ProviderDiagnosticView | null>(null);
@@ -48,7 +50,7 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
     mutationFn: ({ route, reference }: { route: string; reference: string }) => {
       const slash = reference.indexOf("/");
       if (slash <= 0 || slash === reference.length - 1) {
-        throw new Error("Select an available Provider model");
+        throw new Error(t("请选择可用的 Provider 模型", "Select an available Provider model"));
       }
       return client.selectModelRoute(route, {
         version: "model_route_control.v1",
@@ -77,7 +79,7 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
     const input = credentialInputs.current.get(provider);
     const secret = action === "set" ? input?.value ?? "" : "";
     if (action === "set" && secret.length < 8) {
-      setCredentialError("Credential must contain at least 8 non-space characters");
+      setCredentialError(t("凭证必须至少包含 8 个非空白字符", "Credential must contain at least 8 non-space characters"));
       return;
     }
     if (input) input.value = "";
@@ -92,7 +94,7 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
       await Promise.all([credentialQuery.refetch(),
         queryClient.invalidateQueries({ queryKey: ["models", "availability"] })]);
     } catch (caught) {
-      setCredentialError(caught instanceof Error ? caught.message : "Credential change failed");
+      setCredentialError(caught instanceof Error ? caught.message : t("凭证修改失败", "Credential change failed"));
     } finally {
       body.secret = "";
       setCredentialBusy("");
@@ -102,7 +104,7 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
     return null;
   }
   const surface = (
-      <section aria-label={presentation === "dialog" ? "Model availability" : "模型切换"}
+      <section aria-label={presentation === "dialog" ? t("模型可用性", "Model availability") : t("模型切换", "Model selection")}
         aria-modal={presentation === "dialog" ? "true" : undefined}
         className={presentation === "dialog"
           ? "desktop-dialog model-availability-dialog" : "model-control-workspace"}
@@ -110,27 +112,27 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
         <header>
           <div>
             <span className="dialog-icon"><Cpu aria-hidden="true" size={18} /></span>
-            <div><h2>{presentation === "dialog" ? "Models / 模型" : "模型切换"}</h2>
+            <div><h2>{presentation === "dialog" ? t("模型", "Models") : t("模型切换", "Model selection")}</h2>
               <small>model_availability.v2</small></div>
           </div>
-          {presentation === "dialog" && <button aria-label="Close model availability" className="icon-button"
-            onClick={onClose} title="Close" type="button">
+          {presentation === "dialog" && <button aria-label={t("关闭模型面板", "Close model availability")} className="icon-button"
+            onClick={onClose} title={t("关闭", "Close")} type="button">
             <X aria-hidden="true" size={17} />
           </button>}
         </header>
         <div className="desktop-dialog-body model-availability-body">
-          {query.isLoading && <LoadingState label="Loading model availability" />}
+          {query.isLoading && <LoadingState label={t("加载模型可用性", "Loading model availability")} />}
           {query.isError && <ErrorState error={query.error} />}
           {query.data && (
             <>
               <section className="model-availability-section">
-                <h3><Cpu aria-hidden="true" size={14} />Providers</h3>
+                <h3><Cpu aria-hidden="true" size={14} />{t("提供商", "Provider")}</h3>
                 <div className="model-provider-list">
                   {query.data.providers.map((provider) => {
                     const harness = provider.harnesses[0];
                     return <div className="model-provider-row" key={provider.name}>
                       <div><strong>{provider.name}</strong><small>{provider.kind}</small></div>
-                      <span>{provider.models.join(", ") || "No configured model"}</span>
+                      <span>{provider.models.join(", ") || t("未配置模型", "No configured model")}</span>
                       <span>{harness
                         ? `${harness.transport_protocol} · JSON ${harness.json_strategy}`
                         : provider.credential_source}</span>
@@ -139,25 +141,25 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
                       {client.hasModelControl && provider.status === "available" &&
                         provider.models[0] && (
                           <>
-                            <button aria-label={`Diagnose ${provider.name}`} className="icon-button"
+                            <button aria-label={t(`诊断 ${provider.name}`, `Diagnose ${provider.name}`)} className="icon-button"
                               disabled={diagnosticMutation.isPending ||
                                 qualificationMutation.isPending}
                               onClick={() => diagnosticMutation.mutate({ provider: provider.name,
                                 model: provider.models[0]! })}
-                              title="Run one-call connectivity diagnostic" type="button">
+                              title={t("运行单次连接诊断", "Run one-call connectivity diagnostic")} type="button">
                               {diagnosticMutation.isPending &&
                                 diagnosticMutation.variables?.provider === provider.name
                                 ? <LoaderCircle aria-hidden="true" className="spin" size={15} />
                                 : <Activity aria-hidden="true" size={15} />}
                             </button>
-                            <button aria-label={`Qualify ${provider.name} Harness`}
+                            <button aria-label={t(`验证 ${provider.name} Harness`, `Qualify ${provider.name} Harness`)}
                               className="icon-button"
                               disabled={diagnosticMutation.isPending ||
                                 qualificationMutation.isPending || harness?.root_eligible === true}
                               onClick={() => qualificationMutation.mutate({
                                 provider: provider.name, model: provider.models[0]!,
                               })}
-                              title="Run two-call synthetic Harness qualification" type="button">
+                              title={t("运行两次调用的 Harness 合成验证", "Run two-call synthetic Harness qualification")} type="button">
                               {qualificationMutation.isPending &&
                                 qualificationMutation.variables?.provider === provider.name
                                 ? <LoaderCircle aria-hidden="true" className="spin" size={15} />
@@ -176,70 +178,70 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
                 </div>}
                 {diagnosticMutation.isError && <div className="inline-warning" role="alert">
                   {diagnosticMutation.error instanceof Error
-                    ? diagnosticMutation.error.message : "Provider diagnostic failed"}
+                    ? diagnosticMutation.error.message : t("Provider 诊断失败", "Provider diagnostic failed")}
                 </div>}
                 {qualification && <div className="model-diagnostic-result" role="status">
                   <span>{qualification.provider}/{qualification.model}</span>
                   <StatusBadge status={qualification.status} />
                   <span>{qualification.harness.transport_protocol}</span>
-                  <span>{qualification.model_calls} model calls</span>
+                  <span>{qualification.model_calls} {t("次模型调用", "model calls")}</span>
                 </div>}
                 {qualificationMutation.isError && <div className="inline-warning" role="alert">
                   {qualificationMutation.error instanceof Error
-                    ? qualificationMutation.error.message : "Model Harness qualification failed"}
+                    ? qualificationMutation.error.message : t("模型 Harness 验证失败", "Model Harness qualification failed")}
                 </div>}
               </section>
               {client.hasProviderCredentials && <section className="model-availability-section">
-                <h3><KeyRound aria-hidden="true" size={14} />System credentials</h3>
-                {credentialQuery.isLoading && <LoadingState label="Loading credential status" />}
+                <h3><KeyRound aria-hidden="true" size={14} />{t("系统凭证", "System credentials")}</h3>
+                {credentialQuery.isLoading && <LoadingState label={t("加载凭证状态", "Loading credential status")} />}
                 {credentialQuery.isError && <ErrorState error={credentialQuery.error} />}
                 {credentialQuery.data && <div className="provider-credential-list">
                   {credentialQuery.data.items.map((item) => <div className="provider-credential-row"
                     key={item.provider}>
                     <div><strong>{item.provider}</strong><small>{item.store_kind}</small></div>
                     <StatusBadge status={item.configured ? "configured" : "not configured"} />
-                    <input aria-label={`${item.provider} API credential`} autoCapitalize="none"
+                    <input aria-label={t(`${item.provider} API 凭证`, `${item.provider} API credential`)} autoCapitalize="none"
                       autoComplete="off" autoCorrect="off"
                       disabled={!item.store_available || credentialBusy === item.provider}
                       maxLength={2560} ref={(element) => {
                         if (element) credentialInputs.current.set(item.provider, element);
                         else credentialInputs.current.delete(item.provider);
                       }} spellCheck={false} type="password" />
-                    <button aria-label={`Store ${item.provider} credential`} className="icon-button"
+                    <button aria-label={t(`保存 ${item.provider} 凭证`, `Store ${item.provider} credential`)} className="icon-button"
                       disabled={!item.store_available || Boolean(credentialBusy)}
                       onClick={() => void changeCredential(item.provider, "set")}
-                      title="Store in the OS credential manager" type="button">
+                      title={t("保存到操作系统凭证管理器", "Store in the OS credential manager")} type="button">
                       {credentialBusy === item.provider ?
                         <LoaderCircle aria-hidden="true" className="spin" size={15} /> :
                         <Save aria-hidden="true" size={15} />}
                     </button>
-                    <button aria-label={`Delete ${item.provider} credential`} className="icon-button"
+                    <button aria-label={t(`删除 ${item.provider} 凭证`, `Delete ${item.provider} credential`)} className="icon-button"
                       disabled={!item.store_available || !item.configured || Boolean(credentialBusy)}
                       onClick={() => void changeCredential(item.provider, "delete")}
-                      title="Delete OS credential" type="button">
+                      title={t("删除操作系统凭证", "Delete OS credential")} type="button">
                       <Trash2 aria-hidden="true" size={15} />
                     </button>
                   </div>)}
                 </div>}
                 {credentialRestart && <div className="model-diagnostic-result" role="status">
-                  <Check aria-hidden="true" size={14} />Credential status updated
-                  <span>Restart required to load the Provider</span>
+                  <Check aria-hidden="true" size={14} />{t("凭证状态已更新", "Credential status updated")}
+                  <span>{t("需要重启才能加载 Provider", "Restart required to load the Provider")}</span>
                 </div>}
                 {credentialGeneration !== null && <div className="model-diagnostic-result" role="status">
-                  <Check aria-hidden="true" size={14} />Credential status updated
-                  <span>Registry generation {credentialGeneration} active</span>
+                  <Check aria-hidden="true" size={14} />{t("凭证状态已更新", "Credential status updated")}
+                  <span>{t(`注册表代次 ${credentialGeneration} 已生效`, `Registry generation ${credentialGeneration} active`)}</span>
                 </div>}
                 {credentialError && <div className="inline-warning" role="alert">
                   {credentialError}
                 </div>}
               </section>}
               <section className="model-availability-section">
-                <h3><Route aria-hidden="true" size={14} />Routes</h3>
+                <h3><Route aria-hidden="true" size={14} />{t("模型路由", "Routes")}</h3>
                 <div className="model-route-list">
                   {query.data.routes.map((route) => (
                     <div className="model-route-row" key={route.name}>
                       <strong>{route.name}</strong>
-                      {client.hasModelControl ? <select aria-label={`${route.name} model route`}
+                      {client.hasModelControl ? <select aria-label={t(`${route.name} 模型路由`, `${route.name} model route`)}
                         onChange={(event) => setSelections((current) => ({ ...current,
                           [route.name]: event.target.value }))}
                         value={selections[route.name] ?? `${route.provider}/${route.model}`}>
@@ -252,11 +254,11 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
                       </select> : <span>{route.provider}/{route.model}</span>}
                       <StatusBadge status={!route.available ? "unavailable"
                         : route.harness_ready ? "harness ready" : "qualification required"} />
-                      {client.hasModelControl && <button aria-label={`Save ${route.name} route`}
+                      {client.hasModelControl && <button aria-label={t(`保存 ${route.name} 路由`, `Save ${route.name} route`)}
                         className="icon-button" disabled={routeMutation.isPending}
                         onClick={() => routeMutation.mutate({ route: route.name,
                           reference: selections[route.name] ?? `${route.provider}/${route.model}` })}
-                        title="Persist route selection" type="button">
+                        title={t("持久化路由选择", "Persist route selection")} type="button">
                         {routeMutation.isPending && routeMutation.variables?.route === route.name
                           ? <LoaderCircle aria-hidden="true" className="spin" size={15} />
                           : <Check aria-hidden="true" size={15} />}
@@ -267,7 +269,7 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
               </section>
               {routeMutation.isError && <div className="inline-warning" role="alert">
                 {routeMutation.error instanceof Error
-                  ? routeMutation.error.message : "Model route selection failed"}
+                  ? routeMutation.error.message : t("模型路由选择失败", "Model route selection failed")}
               </div>}
             </>
           )}

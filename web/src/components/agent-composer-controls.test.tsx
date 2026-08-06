@@ -4,6 +4,11 @@ import userEvent from "@testing-library/user-event";
 import type { CyberAgentClient } from "../api/client";
 import { AgentComposerControls } from "./agent-composer-controls";
 
+vi.mock("../lib/locale", () => ({
+  useLocale: () => ({ locale: "zh-CN", setLocale: () => undefined,
+    t: (chinese: string) => chinese }),
+}));
+
 function modelClient(overrides: Partial<CyberAgentClient> = {}): CyberAgentClient {
   return {
     hasModelControl: true,
@@ -54,7 +59,7 @@ describe("AgentComposerControls", () => {
 
     expect(client.modelAvailability).not.toHaveBeenCalled();
     expect(screen.getByRole("status", { name: "上下文已用 25%" })).toBeInTheDocument();
-    expect(screen.getByText(/已加载约 8.2k 标记/)).toBeInTheDocument();
+    expect(screen.getByText(/已加载约 8.2k 令牌/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "添加" }));
     await user.click(screen.getByRole("menuitem", { name: /文件和文件夹/ }));

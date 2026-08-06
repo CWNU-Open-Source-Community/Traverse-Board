@@ -10,13 +10,13 @@
 
 项目从 schema v49 起同时使用两项工程指标，避免把“架构已经搭好”误解为“产品已经完整可用”。这些百分比是基于当前任务书和可验证工作流的工程估算，不是性能基准。
 
-- **架构完成度 / Architecture completion：约 99%**。衡量 Go 控制平面、Run/Session、状态恢复、Policy、审批、预算、事件流、Tool Gateway、Agent 协调、Skills、报告、Sandbox 协议及 Go/TypeScript/Rust 边界的覆盖程度；其中 V2 Run-centric Runtime 约 99%。当前 schema v93：v91 提供独立的 `restricted|full_debug` CDP 权限快照，v92 提供可恢复浏览器生命周期账本；v93 再为 Analyzer 增加签名请求/nonce 防重放、generation-fenced 写前意图和只追加恢复收据。P10-K 另选定 Go 内嵌 `wazero` Interpreter + Rust `wasm32-wasip1` 的默认隔离候选，并完成真实模块的零实例化导入/内存评估与生命周期所有权；它仍只编译、不实例化、不执行，没有产品入口。
-- **产品可用度 / Product usability：约 96-98%**。衡量普通用户能否依靠当前 CLI、TUI、Web 和 Windows Desktop 完成真实端到端工作。通用 Coding Agent 工作流约 97%，Cyber 自动化工作流约 20%；四种固定诊断动作已形成 Agent 提案到人工审批的完整链，操作者还可在双重确认和本次进程闸门下从 CLI 执行一次非沙箱宿主命令。任意 `approval` 提案、Debug Agent 输入和受限浏览器内核仍无模型、HTTP 或 React 产品入口。独立浏览器网络隔离、Docker 持久终端、可操作的内置浏览器窗口、安装脚本/钩子、Windows 10 人工发布矩阵和 Cyber 工具链仍未完成。
+- **架构完成度 / Architecture completion：约 99%**。衡量 Go 控制平面、Run/Session、状态恢复、Policy、审批、预算、事件流、Tool Gateway、Agent 协调、Skills、报告、Sandbox 协议及 Go/TypeScript/Rust 边界的覆盖程度；其中 V2 Run-centric Runtime 约 99%。当前 schema v95：v94 为固定内嵌 Analyzer 增加最长五分钟、精确绑定且只保存摘要的一次性 capability 与原子 consume；v95 把脱敏 execution、metadata-only Artifact 和 Run events 原子提交。Rust/WASI 现在可由 Go 在无文件系统、网络、子进程和 native process 权限的固定边界内真实执行，但不能加载任意模块。
+- **产品可用度 / Product usability：约 98%**。衡量普通用户能否依靠当前 CLI、TUI、Web 和 Windows Desktop 完成真实端到端工作。通用 Coding Agent 工作流约 98%，Cyber 自动化工作流约 20%；安全操作者预览已覆盖 Provider 系统凭证、真实 Harness 验证、模型路由、Run/Session 对话、审批、文件提案和固定内嵌分析器。完全 Debug Agent 输入、独立浏览器网络隔离、Docker 持久终端、可操作的内置浏览器窗口、安装脚本/钩子、代码签名/安装包、Windows 10 人工发布矩阵和 Cyber 工具链仍未完成。
 
 Starting with schema v49, the project reports two engineering indicators so architectural maturity is not mistaken for end-user completeness. These percentages are roadmap estimates backed by tested workflows, not performance benchmarks.
 
-- **Architecture completion: about 99%.** Schema v91 adds an independent `restricted|full_debug` browser-CDP policy ceiling, v92 adds recoverable browser lifecycle records, and v93 adds an Analyzer signed-request/nonce ledger plus generation-fenced recovery receipts. P10-K selects an embedded Go `wazero` Interpreter and Rust `wasm32-wasip1` module as the primary isolation candidate, then validates the real module's imports, exports, memory, and per-invocation ownership without instantiating or executing it. No product route or runtime authority is added.
-- **Product usability: about 96-98%.** The generic coding-agent workflow is about 97% usable and Cyber automation about 20%. Fixed diagnostics have an end-to-end Agent-proposal workflow, and an operator can explicitly launch one non-sandboxed host command from the CLI under the current process gates. Arbitrary approval proposals, Debug Agent input, and the restricted browser core still have no model, HTTP, or React product route. Independent browser network containment, Docker terminals, an operational built-in browser window, install hooks, the Windows 10 release matrix, and the Cyber toolchain remain unfinished.
+- **Architecture completion: about 99%.** Schema v94 adds a maximum-five-minute, exact-bound, digest-only, one-shot capability with atomic consumption for the fixed embedded Analyzer. Schema v95 atomically commits its redacted execution, metadata-only Artifact, and Run events. Go now executes the pinned Rust/WASI module inside a filesystem-free, network-free, subprocess-free, native-process-free boundary; callers cannot load arbitrary modules.
+- **Product usability: about 98%.** The generic coding-agent workflow is about 98% usable and Cyber automation about 20%. Safe operator preview covers OS-owned Provider credentials, real Harness qualification, model routing, durable Run/Session chat, approvals, file proposals, and the fixed embedded Analyzer. Maximum Debug Agent input, independent browser network containment, Docker terminals, an operational built-in browser, install hooks, code signing/installers, the manual Windows 10 matrix, and the Cyber toolchain remain unfinished.
 
 ## 项目简介 / Project Overview
 
@@ -39,6 +39,41 @@ Each user objective is stored as a `Mission`, while each resumable execution att
 The current priority is the general-purpose Agent runtime and its controlled multi-agent kernel. CTF capabilities will be added later as Profiles and Skills on the same foundation rather than as a separate execution system.
 
 `Prayu` is the current product and interface name. The `cyberagent` CLI, `cyberagent-workbench` Go module, `.cyberagent-workbench` data directory, `CYBERAGENT_*` environment variables, compatibility HTTP headers, and credential targets remain stable to protect existing scripts, databases, and credentials. They are compatibility identifiers, not a second product or control plane.
+
+## Windows 桌面端本地试用 / Windows Desktop Local Test
+
+构建便携版：
+
+```powershell
+./scripts/build-desktop.ps1 -VerifyReproducible
+```
+
+构建完成后，双击 `build\desktop\Start-Prayu-Operator-Preview.cmd`。请不要把直接双击
+`cyberagent-desktop.exe` 后看到的保守只读界面误认为产品能力缺失：裸 EXE 按设计不携带任何
+进程级控制开关；试用启动器只开启模型、Run/Session、审批、文件提案和固定内嵌 Analyzer 等安全
+操作者能力，不开启完全访问、最大 Debug、完整 CDP、Agent 持久终端或后台 Wake Worker。
+
+首次真实对话按以下顺序操作：
+
+1. 打开“模型切换”或“设置与账户 > 模型与配置”。
+2. 为 `mimo`、`deepseek` 或 `anthropic` 保存 API 凭证；明文由 Windows Credential Manager
+   保管，不写入 SQLite、日志或事件流。
+3. 运行 Provider 连接诊断和两调用 Harness 验证，再把 `code` 路由切到已验证模型。
+4. 选择“新建任务”，绑定工作区并创建 Run，然后在底部输入区发送消息。
+5. Prayu 会持久化用户消息、执行一个有界 Supervisor step，并把真实 Provider 回复写回同一
+   Session。默认界面语言为中文，可在“设置与账户 > 个人 > 常规 > 语言”切换 English。
+
+完整中英说明随包位于 `build\desktop\LOCAL-TEST-GUIDE.txt`。API key、数据库和凭证截图不应
+上传到 GitHub Issue。
+
+Build the portable package with the command above, then double-click
+`build\desktop\Start-Prayu-Operator-Preview.cmd`. The raw EXE intentionally starts in
+the conservative mode. The preview launcher enables only the safe local product-testing
+bundle and does not enable danger-full-access, maximum Debug, Full CDP, an Agent-owned
+persistent terminal, or the background Wake Worker. Use Models and providers to store a
+credential in Windows Credential Manager, run diagnostics and Harness qualification,
+select the `code` route, create a workspace-bound Run, and send a message. The full
+bilingual procedure is included in `build\desktop\LOCAL-TEST-GUIDE.txt`.
 
 ## 桌面权限中心与原生玻璃 / Desktop Permission Center And Native Glass
 
@@ -358,6 +393,8 @@ The table below is the canonical chronological schema history. It includes every
 | v91 | 独立的受限/完整调试 CDP 权限快照 | independent restricted/full-debug CDP permission snapshots |
 | v92 | 可恢复且只追加的浏览器运行时生命周期记录 | recoverable append-only browser runtime lifecycle records |
 | v93 | Analyzer 一次性请求、写前意图与恢复收据 | Analyzer one-shot request, write-ahead intent, and recovery receipts |
+| v94 | 一次性 Analyzer 执行授权与原子消费防重放 | one-shot Analyzer execution capabilities with atomic replay-safe consumption |
+| v95 | Analyzer 结果、Artifact 与审计事件原子提交 | atomic Analyzer result, Artifact, and audit-event commit |
 
 ### v85 之后的近期运行时里程碑 / Recent runtime milestones after v85
 
@@ -2730,6 +2767,37 @@ host module, instantiates no guest, and executes no export. Runtime, module,
 future guest, deadline, close, retry, and recovery ownership are fixed per
 invocation, while seven execution and product-release gates remain open. The
 schema stays at v93 and no user, Agent, Tool, or product route is added.
+
+### P10-L1 至 P10-M3：固定 Analyzer 产品闭环、双语桌面与操作者预览
+
+P10-L1/L2/L3 把 K 阶段候选收敛为一个窄而真实的产品能力：Go 只执行构建时内嵌且摘要固定的
+Rust/WASI 模块，每次创建全新的 wazero Interpreter/WASI/guest，使用有界内存 stdio、空环境、合成
+参数、确定性随机源与 deadline，并且不挂载文件系统、不开放网络、不启动子进程或 native process。
+schema v94 增加最长五分钟、精确绑定且仅持久化摘要的一次性 capability；schema v95 把 capability
+消费、脱敏 execution、只含验证后元数据摘要 JSON 的 Artifact 和 Run events 原子提交。
+
+P10-M1/M2/M3 把固定 Analyzer 接入 CLI、control-token HTTP/OpenAPI、Desktop 能力投影和 React；
+设置 > 个人 > 常规新增默认中文的中英文一键切换，普通导航、状态、按钮和帮助文案均随语言切换，
+Prayu、Run、Session、Provider、Harness、Skill、API、JSON、SHA-256、Code、Cyber 等专用名词保持原样。
+桌面对话链真实经过 Windows Credential Manager、Provider Registry、两调用 Harness 资格验证、模型
+路由、Run/Session、持久用户消息、一个有界 Supervisor step 和 SQLite 助手回复回读。
+
+安全试用包由 `Start-Prayu-Operator-Preview.cmd` 启动，只开启模型、Run/Session、审批、文件提案和
+固定 Analyzer，不开启完全访问、最大 Debug、完整 CDP、Agent 持久终端或后台 Wake Worker。发布前
+累计六切片门已在 M3 后执行：全仓普通/race 分别为 610.6/503.5 秒且零竞态，vet/staticcheck/
+govulncheck/modules、50 文件 182 项 React、TypeScript/OpenAPI/Vite/npm、Rust fmt/7+2 tests/clippy/
+RustSec/WASI release、真实 Anthropic-compatible 对话链连续三次、Windows 可复现构建和隔离 Desktop
+smoke 全绿。审计修复 Store 并发迁移账本竞态及 Analyzer 工作区文件读取 TOCTOU；当前启用路径没有
+已知未解决高/中风险。自动兼容门通过，但代码签名/安装器和 Windows 10/WebView2/缩放人工矩阵仍使
+正式发布状态保持 `release_ready=false`。详见 [ADR 0091](docs/adr/0091-embedded-analyzer-product-route-bilingual-desktop-preview.md)。
+
+P10-L1 through P10-M3 complete the fixed embedded Analyzer product loop, the
+default-Chinese bilingual Desktop, real Anthropic-compatible durable chat, and
+the safe operator-preview package. The post-M3 ordinary/race/static/dependency/
+Web/Rust/Desktop/reproducibility gate is green. External API endpoints were not
+charged during the release gate; the production protocol path used a local
+deterministic SSE server, while the operator can now supply an OS-owned key for
+manual endpoint acceptance.
 
 ### D1-UX4/UX5/UX6：无边框工作台、可调侧栏与 Agent 输入区
 

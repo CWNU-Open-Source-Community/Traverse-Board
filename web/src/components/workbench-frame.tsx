@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import type { CyberAgentClient } from "../api/client";
 import type { RunCreationControlRequestView } from "../api/types";
+import { useLocale } from "../lib/locale";
 import { AgentComposerControls } from "./agent-composer-controls";
 import { WorkbenchDock, type WorkbenchResourceKind } from "./workbench-dock";
 
@@ -24,6 +25,7 @@ export function SidebarResizeHandle({ value, onChange }: {
   value: number;
   onChange: (value: number) => void;
 }) {
+  const { t } = useLocale();
   const drag = useRef<{ pointerID: number; originX: number; originWidth: number } | null>(null);
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
@@ -53,7 +55,7 @@ export function SidebarResizeHandle({ value, onChange }: {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
   };
-  return <div aria-label="调整侧栏宽度" aria-orientation="vertical"
+  return <div aria-label={t("调整侧栏宽度", "Resize sidebar")} aria-orientation="vertical"
     aria-valuemax={maximumSidebarWidth} aria-valuemin={minimumSidebarWidth}
     aria-valuenow={value} className="sidebar-resize-handle"
     onDoubleClick={() => onChange(defaultSidebarWidth)} onKeyDown={onKeyDown}
@@ -88,6 +90,7 @@ export function EmptyConversation({ client, onCreateRun, creationEnabled, onOpen
   creationEnabled: boolean;
   onOpenPlugins?: () => void;
 }) {
+  const { t } = useLocale();
   const [goal, setGoal] = useState("");
   const [planMode, setPlanMode] = useState(false);
   const [targetMode, setTargetMode] = useState(false);
@@ -101,17 +104,17 @@ export function EmptyConversation({ client, onCreateRun, creationEnabled, onOpen
     <div className="prayu-empty-conversation">
       <div className="prayu-empty-heading">
         <MessagesSquare aria-hidden="true" size={24} />
-        <h1>开始一项任务</h1>
+        <h1>{t("开始一项任务", "Start a task")}</h1>
       </div>
       <form className="prayu-starter-composer" onSubmit={submit}>
-        <textarea aria-label="描述任务" disabled={!creationEnabled}
-          onChange={(event) => setGoal(event.target.value)} placeholder="描述你想完成的工作"
+        <textarea aria-label={t("描述任务", "Describe task")} disabled={!creationEnabled}
+          onChange={(event) => setGoal(event.target.value)} placeholder={t("描述你想完成的工作", "Describe the work you want to complete")}
           rows={2} value={goal} />
         <AgentComposerControls client={client} onOpenPlugins={onOpenPlugins}
           onPlanModeChange={setPlanMode} onTargetModeChange={setTargetMode}
           planMode={planMode} route="code" targetMode={targetMode}
-          trailing={<button aria-label="创建任务" className="composer-send-button"
-            disabled={!creationEnabled || !normalized} title="创建任务" type="submit">
+          trailing={<button aria-label={t("创建任务", "Create task")} className="composer-send-button"
+            disabled={!creationEnabled || !normalized} title={t("创建任务", "Create task")} type="submit">
             <ArrowUp aria-hidden="true" size={16} />
           </button>} />
       </form>
@@ -122,29 +125,30 @@ export function EmptyConversation({ client, onCreateRun, creationEnabled, onOpen
 type UtilityKind = "pull-requests" | "schedule" | "plugins";
 
 const utilityViews: Record<UtilityKind, {
-  title: string;
-  empty: string;
+  title: [string, string];
+  empty: [string, string];
   icon: typeof GitPullRequest;
 }> = {
-  "pull-requests": { title: "拉取请求", empty: "暂无拉取请求", icon: GitPullRequest },
-  schedule: { title: "自动定时", empty: "暂无自动任务", icon: CalendarClock },
-  plugins: { title: "插件", empty: "暂无已打开的插件", icon: PackageSearch },
+  "pull-requests": { title: ["拉取请求", "Pull requests"], empty: ["暂无拉取请求", "No pull requests"], icon: GitPullRequest },
+  schedule: { title: ["自动定时", "Scheduled tasks"], empty: ["暂无自动任务", "No scheduled tasks"], icon: CalendarClock },
+  plugins: { title: ["插件", "Plugins"], empty: ["暂无已打开的插件", "No open plugins"], icon: PackageSearch },
 };
 
 export function UtilityWorkspace({ kind, onOpenPlugins }: {
   kind: UtilityKind;
   onOpenPlugins?: () => void;
 }) {
+  const { t } = useLocale();
   const view = utilityViews[kind];
   const Icon = view.icon;
   return (
     <section className="utility-workspace">
-      <header><Icon aria-hidden="true" size={18} /><h1>{view.title}</h1></header>
+      <header><Icon aria-hidden="true" size={18} /><h1>{t(...view.title)}</h1></header>
       <div className="utility-empty-state">
         <Icon aria-hidden="true" size={25} />
-        <strong>{view.empty}</strong>
+        <strong>{t(...view.empty)}</strong>
         {kind === "plugins" && onOpenPlugins &&
-          <button className="command-button" onClick={onOpenPlugins} type="button">打开插件管理</button>}
+          <button className="command-button" onClick={onOpenPlugins} type="button">{t("打开插件管理", "Open plugin manager")}</button>}
       </div>
     </section>
   );

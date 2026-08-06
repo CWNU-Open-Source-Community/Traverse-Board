@@ -4,10 +4,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
 import { initializePrayuAppearance } from "./lib/appearance";
 import { installDesktopNavigationGuard } from "./lib/desktop-navigation";
+import { initializePrayuLocale, LocaleProvider } from "./lib/locale";
 import "./styles.css";
 
 installDesktopNavigationGuard();
 initializePrayuAppearance();
+initializePrayuLocale();
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -22,7 +24,7 @@ const queryClient = new QueryClient({
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <App />
+      <LocaleProvider><App /></LocaleProvider>
     </QueryClientProvider>
   </StrictMode>,
 );

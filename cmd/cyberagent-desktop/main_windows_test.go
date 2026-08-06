@@ -113,6 +113,29 @@ func TestDesktopOptionsDefaultToReadOnlyAndRequireExplicitCapabilities(t *testin
 	}
 }
 
+func TestDesktopOperatorPreviewEnablesTheSafeProductBundleOnly(t *testing.T) {
+	preview, err := parseDesktopOptions([]string{"--operator-preview"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !preview.operatorPreview || !preview.profileControl || !preview.permissionControl ||
+		!preview.browserCDPControl || !preview.runCreation || !preview.sessionMessages ||
+		!preview.sessionSteeringControl || !preview.runLifecycle || !preview.runExecution ||
+		!preview.planDeliveryControl || !preview.approvalControl ||
+		!preview.commandProposalControl || !preview.modelControl ||
+		!preview.providerCredentials || !preview.fileEditReview ||
+		!preview.fileEditProposals || !preview.runWakeControl || !preview.fileEditApply ||
+		!preview.runWakeExecution || !preview.skillInstallation ||
+		!preview.evidenceAttachment || !preview.verificationEvidence ||
+		!preview.embeddedAnalyzer {
+		t.Fatalf("operator preview capability bundle is incomplete: %+v", preview)
+	}
+	if preview.dangerFullAccess || preview.debugMaximumAccess || preview.fullCDPDebug ||
+		preview.runWakeWorker || preview.userTerminal {
+		t.Fatalf("operator preview silently enabled a high-risk capability: %+v", preview)
+	}
+}
+
 func TestDesktopStartupFailureMessageIsBoundedAndPathFree(t *testing.T) {
 	private := apperror.Wrap(apperror.CodeFailedPrecondition, "database validation failed",
 		errors.New(`C:\PRIVATE\cyberagent.db`))

@@ -1748,6 +1748,108 @@
         "x-cyberagent-read-only": false
       }
     },
+    "/api/v1/runs/{run_id}/analyzer-executions": {
+      "post": {
+        "operationId": "executeEmbeddedAnalyzer",
+        "summary": "Execute the fixed embedded analyzer",
+        "description": "Consumes one bounded text value or workspace-relative regular file through the fixed embedded Rust/WASI fixture. The guest receives only bounded stdin/stdout, no filesystem, environment, network, subprocess, arbitrary module, or reusable execution authority.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Resource created or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/EmbeddedAnalyzerExecutionControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbeddedAnalyzerExecutionRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/runs/{run_id}/approvals": {
       "get": {
         "operationId": "listRunApprovals",
@@ -11238,6 +11340,143 @@
         ],
         "type": "object"
       },
+      "EmbeddedAnalyzerExecutionControlView": {
+        "additionalProperties": false,
+        "properties": {
+          "analyzer": {
+            "type": "string"
+          },
+          "artifact_atomic": {
+            "type": "boolean"
+          },
+          "artifact_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "bearer_token_included": {
+            "type": "boolean"
+          },
+          "capability_consumed": {
+            "type": "boolean"
+          },
+          "execution_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "filesystem_mounted": {
+            "type": "boolean"
+          },
+          "host_process_authorized": {
+            "type": "boolean"
+          },
+          "input_bytes": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "line_count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "metadata_only": {
+            "type": "boolean"
+          },
+          "network_enabled": {
+            "type": "boolean"
+          },
+          "raw_request_included": {
+            "type": "boolean"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "subprocess_enabled": {
+            "type": "boolean"
+          },
+          "utf8": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "execution_id",
+          "artifact_id",
+          "run_id",
+          "session_id",
+          "workspace_id",
+          "analyzer",
+          "status",
+          "media_type",
+          "input_bytes",
+          "line_count",
+          "sha256",
+          "utf8",
+          "metadata_only",
+          "capability_consumed",
+          "artifact_atomic",
+          "filesystem_mounted",
+          "network_enabled",
+          "subprocess_enabled",
+          "host_process_authorized",
+          "raw_request_included",
+          "bearer_token_included",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "EmbeddedAnalyzerExecutionRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmation": {
+            "type": "string"
+          },
+          "file": {
+            "type": "string"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "confirmation"
+        ],
+        "type": "object"
+      },
       "ErrorEnvelope": {
         "additionalProperties": false,
         "properties": {
@@ -17716,6 +17955,9 @@
           "docker_execution_enabled": {
             "type": "boolean"
           },
+          "embedded_analyzer_execution_enabled": {
+            "type": "boolean"
+          },
           "evidence_attachment_enabled": {
             "type": "boolean"
           },
@@ -17823,6 +18065,7 @@
           "skill_installation_enabled",
           "evidence_attachment_enabled",
           "verification_evidence_enabled",
+          "embedded_analyzer_execution_enabled",
           "process_execution_enabled",
           "shell_execution_enabled",
           "docker_execution_enabled",

@@ -99,6 +99,8 @@ import type {
   VerificationSnapshotReceiptReviewView,
   VerificationSnapshotReceiptReviewControlView,
   VerificationSnapshotReceiptReviewInventoryView,
+  EmbeddedAnalyzerExecutionRequestView,
+  EmbeddedAnalyzerExecutionControlView,
 } from "./types";
 
 export type QueryValue = boolean | number | string | undefined;
@@ -130,6 +132,7 @@ export interface ClientCapabilities {
   skillInstallationEnabled?: boolean;
   evidenceAttachmentEnabled?: boolean;
   verificationEvidenceEnabled?: boolean;
+  embeddedAnalyzerExecutionEnabled?: boolean;
 }
 
 export class APIRequestError extends Error {
@@ -826,6 +829,7 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
     "execution_permission_control_enabled", "operator_approval_enabled",
     "danger_full_access_enabled", "debug_maximum_access_enabled",
     "evidence_attachment_enabled", "verification_evidence_enabled",
+    "embedded_analyzer_execution_enabled",
     "file_edit_apply_enabled", "file_edit_proposal_enabled",
     "file_edit_review_enabled", "model_control_enabled", "plan_delivery_control_enabled",
     "process_execution_enabled", "provider_credential_enabled", "protocol_version",
@@ -866,6 +870,36 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
   return value as unknown as RuntimeCapabilitiesView;
 }
 
+function parseEmbeddedAnalyzerExecution(value: unknown,
+  runID: string): EmbeddedAnalyzerExecutionControlView {
+  if (!hasExactKeys(value, [
+    "analyzer", "artifact_atomic", "artifact_id", "bearer_token_included",
+    "capability_consumed", "execution_id", "filesystem_mounted",
+    "host_process_authorized", "input_bytes", "line_count", "media_type",
+    "metadata_only", "network_enabled", "raw_request_included", "replayed",
+    "run_id", "session_id", "sha256", "status", "subprocess_enabled", "utf8",
+    "version", "workspace_id",
+  ]) || value.version !== "embedded_analyzer_execution_control.v1" ||
+    value.run_id !== runID || boundedIdentity(value.execution_id) !== value.execution_id ||
+    boundedIdentity(value.artifact_id) !== value.artifact_id ||
+    boundedIdentity(value.session_id) !== value.session_id ||
+    boundedIdentity(value.workspace_id) !== value.workspace_id ||
+    value.analyzer !== "fixture.digest.v1" || value.status !== "succeeded" ||
+    value.media_type !== "text/plain" ||
+    !safeBoundedCount(value.input_bytes, 65_536) || value.input_bytes < 1 ||
+    !safeBoundedCount(value.line_count, 65_536) || !isSHA256(value.sha256) ||
+    value.utf8 !== true || value.metadata_only !== true ||
+    value.capability_consumed !== true || value.artifact_atomic !== true ||
+    value.filesystem_mounted !== false || value.network_enabled !== false ||
+    value.subprocess_enabled !== false || value.host_process_authorized !== false ||
+    value.raw_request_included !== false || value.bearer_token_included !== false ||
+    typeof value.replayed !== "boolean") {
+    throw new APIRequestError("Embedded analyzer response violated its fixed boundary",
+      "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as EmbeddedAnalyzerExecutionControlView;
+}
+
 export function clientCapabilitiesFromRuntime(value: RuntimeCapabilitiesView): ClientCapabilities {
   return {
     runControlEnabled: value.run_control_enabled,
@@ -895,6 +929,7 @@ export function clientCapabilitiesFromRuntime(value: RuntimeCapabilitiesView): C
     skillInstallationEnabled: value.skill_installation_enabled,
     evidenceAttachmentEnabled: value.evidence_attachment_enabled,
     verificationEvidenceEnabled: value.verification_evidence_enabled,
+    embeddedAnalyzerExecutionEnabled: value.embedded_analyzer_execution_enabled,
   };
 }
 
@@ -3029,6 +3064,7 @@ export class CyberAgentClient {
   readonly hasSkillInstallation: boolean;
   readonly hasEvidenceAttachment: boolean;
   readonly hasVerificationEvidence: boolean;
+  readonly hasEmbeddedAnalyzerExecution: boolean;
 
   constructor(
     private readonly token: string,
@@ -3073,6 +3109,8 @@ export class CyberAgentClient {
       (capabilities.evidenceAttachmentEnabled ?? true);
     this.hasVerificationEvidence = controlPresent &&
       (capabilities.verificationEvidenceEnabled ?? false);
+    this.hasEmbeddedAnalyzerExecution = controlPresent &&
+      (capabilities.embeddedAnalyzerExecutionEnabled ?? false);
   }
 
   async health(signal?: AbortSignal): Promise<HealthView> {
@@ -3671,6 +3709,25 @@ export class CyberAgentClient {
     return parseSkillPackageInstall(await this.sendControl<unknown>(
       "/skills/packages/install", body, idempotencyKey, signal,
     ), body);
+  }
+
+  async executeEmbeddedAnalyzer(runID: string,
+    body: EmbeddedAnalyzerExecutionRequestView, signal?: AbortSignal,
+  ): Promise<EmbeddedAnalyzerExecutionControlView> {
+    if (!this.hasEmbeddedAnalyzerExecution) {
+      throw new Error("Embedded analyzer execution capability is required");
+    }
+    const normalizedRunID = boundedIdentity(runID);
+    if (!normalizedRunID || normalizedRunID !== runID ||
+      body.version !== "embedded_analyzer_operator_request.v1" ||
+      body.confirmation !== "RUN-EMBEDDED-ANALYZER" ||
+      ((body.text ?? "") === "") === ((body.file ?? "").trim() === "")) {
+      throw new Error("A normalized Run and one explicitly confirmed analyzer input are required");
+    }
+    const result = await this.sendControlRequest<unknown>(
+      `/runs/${encodeURIComponent(runID)}/analyzer-executions`, body, signal,
+    );
+    return parseEmbeddedAnalyzerExecution(result, runID);
   }
 
   async get<T>(path: string, query: Record<string, QueryValue> = {}, signal?: AbortSignal): Promise<T> {

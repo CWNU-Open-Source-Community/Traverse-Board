@@ -1,5 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { CyberAgentClient } from "../api/client";
+import { LocaleProvider } from "../lib/locale";
 import { SettingsView, type SettingsCapability } from "./settings-view";
 
 const capabilities: SettingsCapability[] = [
@@ -16,6 +18,10 @@ const health = {
 };
 const client = new CyberAgentClient("read-token");
 
+function renderSettings(props: ComponentProps<typeof SettingsView>) {
+  return render(<LocaleProvider><SettingsView {...props} /></LocaleProvider>);
+}
+
 describe("SettingsView", () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -27,27 +33,25 @@ describe("SettingsView", () => {
   });
 
   it("projects real runtime facts and moves the selected state with navigation", () => {
-    render(<SettingsView capabilities={capabilities} client={client} desktop health={health}
-      selectedRunID=""
-      onBack={vi.fn()} onOpenModels={vi.fn()} onOpenSkills={vi.fn()} />);
+    renderSettings({ capabilities, client, desktop: true, health,
+      selectedRunID: "", onBack: vi.fn(), onOpenModels: vi.fn(), onOpenSkills: vi.fn() });
 
-    expect(screen.getByRole("heading", { name: "Prayu" })).toBeInTheDocument();
-    expect(screen.getByText("v84")).toBeInTheDocument();
-    expect(screen.getByText("2/3")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "个人资料" })).toHaveClass("active");
-
-    fireEvent.click(screen.getByRole("button", { name: "常规" }));
     expect(screen.getByRole("button", { name: "常规" })).toHaveClass("active");
     expect(screen.getByRole("button", { name: "个人资料" })).not.toHaveClass("active");
     expect(screen.getByRole("heading", { name: "常规" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "中文" })).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "个人资料" }));
+    expect(screen.getByRole("heading", { name: "Prayu" })).toBeInTheDocument();
+    expect(screen.getByText("v84")).toBeInTheDocument();
+    expect(screen.getByText("2/3")).toBeInTheDocument();
   });
 
   it("keeps display density local and leaves model and Skill actions explicit", () => {
     const onOpenModels = vi.fn();
     const onOpenSkills = vi.fn();
-    render(<SettingsView capabilities={capabilities} client={client} desktop health={health}
-      selectedRunID=""
-      onBack={vi.fn()} onOpenModels={onOpenModels} onOpenSkills={onOpenSkills} />);
+    renderSettings({ capabilities, client, desktop: true, health,
+      selectedRunID: "", onBack: vi.fn(), onOpenModels, onOpenSkills });
 
     fireEvent.click(screen.getByRole("button", { name: "外观" }));
     fireEvent.click(screen.getByRole("button", { name: "透明玻璃" }));
@@ -73,9 +77,8 @@ describe("SettingsView", () => {
       throw new DOMException("storage disabled", "SecurityError");
     });
 
-    expect(() => render(<SettingsView capabilities={capabilities} client={client}
-      desktop health={health} selectedRunID=""
-      onBack={vi.fn()} onOpenModels={vi.fn()} onOpenSkills={vi.fn()} />)).not.toThrow();
+    expect(() => renderSettings({ capabilities, client, desktop: true, health, selectedRunID: "",
+      onBack: vi.fn(), onOpenModels: vi.fn(), onOpenSkills: vi.fn() })).not.toThrow();
     fireEvent.click(screen.getByRole("button", { name: "外观" }));
     expect(screen.getByRole("button", { name: "舒展" })).toHaveAttribute("aria-pressed", "true");
   });

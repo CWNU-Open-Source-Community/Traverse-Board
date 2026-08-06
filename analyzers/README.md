@@ -13,7 +13,8 @@
 - 向 stdout 输出最多 16 KiB 的 metadata-only 结果或稳定错误信封；
 - `fixture.digest.v1` 不返回原始内容，只返回媒体类型、字节数、SHA-256、UTF-8 与逻辑行数；
 - `archive.zip.inventory.v1` 只遍历内存 ZIP 的中央目录，不打开条目正文、不解压、不写文件；
-- 不被 CLI、HTTP、Desktop、Tool Gateway、Runner 或 Artifact 流程调用。
+- 产品入口只允许 Go 调用构建时内嵌且摘要固定的 `fixture.digest.v1`；
+  `archive.zip.inventory.v1` 继续仅用于协议/测试符合性。
 
 Go 的只读 `analyzer_descriptor.v1` Registry 目前固定两项 descriptor，且没有动态注册、
 executable、command、path 或 starter 字段。ZIP inventory 最多接受 32 个条目、单个 128 字节
@@ -21,16 +22,17 @@ executable、command、path 或 starter 字段。ZIP inventory 最多接受 32 �
 阈值，不会触发解压。路径穿越、绝对路径、反斜杠、重名、目录携带数据及尺寸/压缩比异常都以
 排序后的稳定风险码返回。
 
-Go 还提供不启动进程的 `analyzer_invocation.v1` 候选和包内密封 bridge。候选绑定完整 descriptor、
-规范化请求和内联输入摘要，但不保存正文；全部产品调用、进程、文件输入、持久化和 Artifact 权限
-为 false。当前 bridge 只允许 `DisabledTransport` 与确定性 `FakeTransport`，用来固定 deadline、
-stdout 上限、退出码、严格结果和八类失败语义。它不调用本目录中的 Rust 二进制，CLI/HTTP/Desktop/
-Run/Event/SQLite/Artifact 也没有接线。
+Go 的历史 `analyzer_invocation.v1` 与 Disabled/Fake bridge 仍保留为失败语义和兼容测试边界；它们
+不会被产品入口选作执行后端，也不能扩大真实执行权限。
 
-P10-K 另选定 `wasm32-wasip1` 作为未来产品 Analyzer 的默认隔离候选。Go 使用固定的
-`wazero v1.12.0` Interpreter 对 release `.wasm` 做 compile-only 评估：只读取 caller-owned bytes，
-校验精确 import/export、签名和 memory ceiling，不注册 WASI host、不实例化、不调用 `_start`。评估
-结果不保存模块路径或原文。该候选尚无执行 capability，也不改变上面的 Disabled/Fake 产品边界。
+P10-K 历史阶段选定 `wasm32-wasip1` 与 `wazero v1.12.0` Interpreter，并先完成 compile-only
+import/export/签名/memory 评估。P10-L/M 已在该边界上完成固定模块产品闭环：Go 每次创建全新
+Interpreter/WASI/guest，以有界内存 stdio、空环境、合成 argv、确定性随机源和 deadline 执行构建时
+内嵌模块；不挂载文件系统、不开放网络、不启动子进程或 native process，也不接受调用方模块。
+schema v94 的 capability 协议上限五分钟，当前产品服务签发两分钟票据，并且一次性、精确绑定、
+原子消费；schema v95 原子提交脱敏
+execution、只含元数据摘要 JSON 的 Artifact 与 Run events。CLI、control-token HTTP、Desktop/React
+只能调用固定 `fixture.digest.v1`，并要求 Go 定义的显式确认。Rust 仍不拥有 Run、授权或持久化。
 
 Rust 固定使用 `rawzip = 0.5.1` 读取中央目录记录。该 crate 为 MIT 许可、无传递依赖，并在源码
 中 `forbid(unsafe_code)`。Rust 不调用本地文件 API；ZIP 字节仍只来自 Go-owned 请求中的 Base64
@@ -59,31 +61,30 @@ This directory contains deterministic Rust analyzers behind a Go-owned protocol.
 not an Agent and does not own Runs, Sessions, LLM calls, user configuration, API keys,
 approvals, Docker, networking, or persistence.
 
-The current `cyberagent-analyzer-fixture` is a development-only
+The current `cyberagent-analyzer-fixture` implements the pinned
 `analyzer_protocol.v1` reference with `fixture.digest.v1` and
 `archive.zip.inventory.v1`. The latter uses pinned `rawzip 0.5.1` to iterate only an
 in-memory ZIP central directory. It never opens entry content, decompresses, extracts,
 or writes a file. Entry count, name bytes, declared sizes, integer compression ratio,
 and path risks are bounded and deterministic.
 
-Go owns an inert, fixed `analyzer_descriptor.v1` Registry with no dynamic registration,
-executable, command, path, or starter field. All capabilities and product-authority bits
-remain false. Go and Rust independently validate both versioned golden-vector files,
-including five fixed ZIP inputs plus exact output JSON bytes and SHA-256. There is still
-no CLI, HTTP, Desktop, Runner, Run/Event/SQLite, persistence, or Artifact-commit path.
+Go owns a fixed `analyzer_descriptor.v1` Registry with no dynamic registration,
+executable, command, path, or starter field. Go and Rust independently validate both
+versioned golden-vector files, including five fixed ZIP inputs plus exact output JSON
+bytes and SHA-256. The product route admits only the build-embedded, digest-pinned
+`fixture.digest.v1`; ZIP inventory remains a protocol/test conformance function.
 
-Go also owns a non-starting `analyzer_invocation.v1` candidate and a package-sealed bridge.
-The candidate binds the exact descriptor plus canonical request and inline-input digests
-without retaining either body. Only `DisabledTransport` and deterministic `FakeTransport`
-are admitted, fixing deadline, stdout, exit, strict-result, and eight failure semantics.
-Deterministic success or rejection output must also match Go's recomputation for the current canonical
-request, preventing a valid archive result from being replayed across different inputs with
-the same request ID. The bridge does not invoke this Rust binary; a real subprocess adapter and every product or
-persistence surface remain separate future gates.
+The historical non-starting `analyzer_invocation.v1` and package-sealed Disabled/Fake
+bridge remain as compatibility and failure-semantics tests. The product route does not
+select either bridge as its execution backend and they grant no authority.
 
-P10-K also compiles the pinned fixture for `wasm32-wasip1` and lets Go assess
-the release module through wazero Interpreter compile-only validation. The
-assessment bounds and pins imports, exports, signatures, and memory while
-registering no host module, instantiating no guest, and retaining no module
-path or bytes. This candidate has no execution capability or product route;
-the existing Disabled/Fake bridge remains the only product-side boundary.
+P10-K first compiled and assessed the pinned `wasm32-wasip1` module without
+instantiating it. P10-L/M now execute only that build-embedded module in a fresh
+wazero Interpreter/WASI/guest with bounded memory stdio, empty environment,
+synthetic argv, deterministic randomness, deadline/cancellation close, and no
+filesystem, network, subprocess, native process, or caller-supplied module.
+Schema v94 provides an exact-bound, one-shot, atomically consumed capability;
+schema v95 atomically records redacted execution, metadata-summary Artifact,
+and Run events. CLI, control-token HTTP, and Desktop/React expose only the fixed
+digest analyzer under explicit Go confirmation. Rust still owns no Agent,
+authorization, Run lifecycle, credential, or persistence behavior.

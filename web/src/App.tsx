@@ -24,6 +24,7 @@ import { EmptyConversation, SidebarResizeHandle, UtilityWorkspace,
   WorkbenchFrame, clampSidebarWidth, defaultSidebarWidth,
   type NewRunDraft } from "./components/workbench-frame";
 import { desktopBridgeAvailable } from "./lib/desktop-bridge";
+import { useLocale } from "./lib/locale";
 import { closeDesktopWindow, minimiseDesktopWindow,
   toggleDesktopWindowMaximised } from "./lib/desktop-window";
 import { useConnectionStore } from "./state/connection";
@@ -65,6 +66,8 @@ export default function App() {
   const evidenceAttachmentEnabled = useConnectionStore((state) => state.evidenceAttachmentEnabled);
   const verificationEvidenceEnabled = useConnectionStore(
     (state) => state.verificationEvidenceEnabled);
+  const embeddedAnalyzerExecutionEnabled = useConnectionStore(
+    (state) => state.embeddedAnalyzerExecutionEnabled);
   if (!token) {
     return <ConnectionGate />;
   }
@@ -90,7 +93,8 @@ export default function App() {
     runWakeWorkerEnabled={runWakeWorkerEnabled}
     skillInstallationEnabled={skillInstallationEnabled}
     evidenceAttachmentEnabled={evidenceAttachmentEnabled}
-    verificationEvidenceEnabled={verificationEvidenceEnabled} />;
+    verificationEvidenceEnabled={verificationEvidenceEnabled}
+    embeddedAnalyzerExecutionEnabled={embeddedAnalyzerExecutionEnabled} />;
 }
 
 function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreationEnabled,
@@ -102,7 +106,8 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   modelControlEnabled, providerCredentialEnabled, fileEditReviewEnabled,
   fileEditProposalEnabled, fileEditApplyEnabled, runWakeControlEnabled,
   runWakeExecutionEnabled, runWakeWorkerEnabled, skillInstallationEnabled,
-  evidenceAttachmentEnabled, verificationEvidenceEnabled }: {
+  evidenceAttachmentEnabled, verificationEvidenceEnabled,
+  embeddedAnalyzerExecutionEnabled }: {
   token: string;
   controlToken: string;
   runControlEnabled: boolean;
@@ -131,7 +136,9 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   skillInstallationEnabled: boolean;
   evidenceAttachmentEnabled: boolean;
   verificationEvidenceEnabled: boolean;
+  embeddedAnalyzerExecutionEnabled: boolean;
 }) {
+  const { t } = useLocale();
   const [surface, setSurface] = useState<"workspace" | "settings">("workspace");
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [skillPreviewOpen, setSkillPreviewOpen] = useState(false);
@@ -155,6 +162,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     fileEditApplyEnabled, runWakeControlEnabled, runWakeExecutionEnabled,
     runWakeWorkerEnabled, skillInstallationEnabled, evidenceAttachmentEnabled,
     verificationEvidenceEnabled,
+    embeddedAnalyzerExecutionEnabled,
   }), [token, controlToken, runControlEnabled, runCreationEnabled,
     executionPermissionControlEnabled, operatorApprovalEnabled,
     dangerFullAccessEnabled, debugMaximumAccessEnabled,
@@ -165,7 +173,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     providerCredentialEnabled, fileEditReviewEnabled, fileEditProposalEnabled,
     fileEditApplyEnabled, runWakeControlEnabled, runWakeExecutionEnabled,
     runWakeWorkerEnabled, skillInstallationEnabled, evidenceAttachmentEnabled,
-    verificationEvidenceEnabled]);
+    verificationEvidenceEnabled, embeddedAnalyzerExecutionEnabled]);
   const queryClient = useQueryClient();
   const health = useConnectionStore((state) => state.health);
   const setHealth = useConnectionStore((state) => state.setHealth);
@@ -180,31 +188,32 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     refetchInterval: 30_000,
   });
   const settingsCapabilities = useMemo<SettingsCapability[]>(() => [
-    { id: "run-control", label: "执行档位", enabled: runControlEnabled },
-    { id: "permission-control", label: "权限档位", enabled: executionPermissionControlEnabled },
-    { id: "operator-approval", label: "用户审批", enabled: operatorApprovalEnabled },
-    { id: "full-access", label: "完全访问", enabled: dangerFullAccessEnabled },
-    { id: "debug-access", label: "调试权限", enabled: debugMaximumAccessEnabled },
-    { id: "run-creation", label: "创建任务", enabled: runCreationEnabled },
-    { id: "session-message", label: "会话消息", enabled: sessionMessageEnabled },
-    { id: "steering", label: "队列引导", enabled: sessionSteeringControlEnabled },
-    { id: "lifecycle", label: "Run 生命周期", enabled: runLifecycleEnabled },
-    { id: "execution", label: "有界执行", enabled: runExecutionEnabled },
-    { id: "plan-delivery", label: "计划交付", enabled: planDeliveryControlEnabled },
-    { id: "approval", label: "审批", enabled: approvalControlEnabled },
-    { id: "command-proposals", label: "固定命令审批",
+    { id: "run-control", label: t("执行档位", "Execution profile"), enabled: runControlEnabled },
+    { id: "permission-control", label: t("权限档位", "Permission profile"), enabled: executionPermissionControlEnabled },
+    { id: "operator-approval", label: t("用户审批", "Operator approval"), enabled: operatorApprovalEnabled },
+    { id: "full-access", label: t("完全访问", "Full access"), enabled: dangerFullAccessEnabled },
+    { id: "debug-access", label: t("调试权限", "Debug access"), enabled: debugMaximumAccessEnabled },
+    { id: "run-creation", label: t("创建任务", "Create task"), enabled: runCreationEnabled },
+    { id: "session-message", label: t("会话消息", "Session messages"), enabled: sessionMessageEnabled },
+    { id: "steering", label: t("队列引导", "Queue steering"), enabled: sessionSteeringControlEnabled },
+    { id: "lifecycle", label: t("Run 生命周期", "Run lifecycle"), enabled: runLifecycleEnabled },
+    { id: "execution", label: t("有界执行", "Bounded execution"), enabled: runExecutionEnabled },
+    { id: "plan-delivery", label: t("计划交付", "Plan delivery"), enabled: planDeliveryControlEnabled },
+    { id: "approval", label: t("审批", "Approvals"), enabled: approvalControlEnabled },
+    { id: "command-proposals", label: t("固定命令审批", "Fixed command approval"),
       enabled: controlledCommandProposalControlEnabled },
-    { id: "model", label: "模型配置", enabled: modelControlEnabled },
-    { id: "credentials", label: "系统凭证", enabled: providerCredentialEnabled },
-    { id: "edit-review", label: "编辑审阅", enabled: fileEditReviewEnabled },
-    { id: "edit-proposal", label: "编辑提案", enabled: fileEditProposalEnabled },
-    { id: "edit-apply", label: "编辑应用", enabled: fileEditApplyEnabled },
-    { id: "wake", label: "Wake 队列", enabled: runWakeControlEnabled },
-    { id: "wake-execution", label: "Wake 执行", enabled: runWakeExecutionEnabled },
-    { id: "wake-worker", label: "Wake Worker", enabled: runWakeWorkerEnabled },
-    { id: "skill-install", label: "Skill 安装", enabled: skillInstallationEnabled },
-    { id: "evidence", label: "证据挂载", enabled: evidenceAttachmentEnabled },
-    { id: "verification", label: "验证证据", enabled: verificationEvidenceEnabled },
+    { id: "model", label: t("模型配置", "Model configuration"), enabled: modelControlEnabled },
+    { id: "credentials", label: t("系统凭证", "System credentials"), enabled: providerCredentialEnabled },
+    { id: "edit-review", label: t("编辑审阅", "Edit review"), enabled: fileEditReviewEnabled },
+    { id: "edit-proposal", label: t("编辑提案", "Edit proposals"), enabled: fileEditProposalEnabled },
+    { id: "edit-apply", label: t("应用编辑", "Apply edits"), enabled: fileEditApplyEnabled },
+    { id: "wake", label: t("Wake 队列", "Wake queue"), enabled: runWakeControlEnabled },
+    { id: "wake-execution", label: t("Wake 执行", "Wake execution"), enabled: runWakeExecutionEnabled },
+    { id: "wake-worker", label: t("Wake 工作进程", "Wake worker"), enabled: runWakeWorkerEnabled },
+    { id: "skill-install", label: t("Skill 安装", "Skill installation"), enabled: skillInstallationEnabled },
+    { id: "evidence", label: t("证据挂载", "Evidence attachment"), enabled: evidenceAttachmentEnabled },
+    { id: "verification", label: t("验证证据", "Verification evidence"), enabled: verificationEvidenceEnabled },
+    { id: "embedded-analyzer", label: t("内置分析器", "Embedded analyzer"), enabled: embeddedAnalyzerExecutionEnabled },
   ], [approvalControlEnabled, controlledCommandProposalControlEnabled,
     dangerFullAccessEnabled, debugMaximumAccessEnabled,
     evidenceAttachmentEnabled, executionPermissionControlEnabled, fileEditApplyEnabled,
@@ -213,7 +222,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     runCreationEnabled, runExecutionEnabled, runLifecycleEnabled,
     runWakeControlEnabled, runWakeExecutionEnabled, runWakeWorkerEnabled,
     sessionMessageEnabled, sessionSteeringControlEnabled, skillInstallationEnabled,
-    verificationEvidenceEnabled]);
+    verificationEvidenceEnabled, embeddedAnalyzerExecutionEnabled, t]);
 
   useEffect(() => {
     if (healthQuery.data) {
@@ -261,11 +270,11 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   const selectedResourceID = resourceKind === "run" ? selectedRunID : selectedSessionID;
   const panelTitle = workspaceSection === "conversation"
     ? selectedResourceID
-      ? `${resourceKind === "run" ? "任务" : "对话"} / ${selectedResourceID.slice(0, 18)}`
-      : "Prayu 工作台"
-    : workspaceSection === "pull-requests" ? "拉取请求"
-      : workspaceSection === "models" ? "模型切换"
-        : workspaceSection === "schedule" ? "自动定时" : "插件";
+      ? `${resourceKind === "run" ? t("任务", "Task") : t("对话", "Conversation")} / ${selectedResourceID.slice(0, 18)}`
+      : t("Prayu 工作台", "Prayu Workbench")
+    : workspaceSection === "pull-requests" ? t("拉取请求", "Pull requests")
+      : workspaceSection === "models" ? t("模型切换", "Models")
+        : workspaceSection === "schedule" ? t("自动定时", "Scheduled tasks") : t("插件", "Plugins");
 
   const workspaceContent = workspaceSection === "models"
     ? <ModelAvailabilityWorkspace client={client} />
@@ -288,48 +297,48 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
       <div className={`app-shell prayu-shell ${surface === "settings" ? "settings-mode" : "workspace-mode"}`}>
         <header className="topbar prayu-titlebar">
           <div className="titlebar-navigation">
-            <button aria-label="显示或隐藏侧栏" className="titlebar-icon" disabled={surface === "settings"}
-              onClick={() => setSidebarVisible((visible) => !visible)} title="显示或隐藏侧栏" type="button">
+            <button aria-label={t("显示或隐藏侧栏", "Show or hide sidebar")} className="titlebar-icon" disabled={surface === "settings"}
+              onClick={() => setSidebarVisible((visible) => !visible)} title={t("显示或隐藏侧栏", "Show or hide sidebar")} type="button">
               <PanelLeft aria-hidden="true" size={16} />
             </button>
-            <button aria-label="返回工作台" className="titlebar-icon" disabled={surface === "workspace"}
-              onClick={() => setSurface("workspace")} title="返回工作台" type="button">
+            <button aria-label={t("返回工作台", "Back to workbench")} className="titlebar-icon" disabled={surface === "workspace"}
+              onClick={() => setSurface("workspace")} title={t("返回工作台", "Back to workbench")} type="button">
               <ArrowLeft aria-hidden="true" size={16} />
             </button>
-            <button aria-label="前进" className="titlebar-icon" disabled title="前进" type="button">
+            <button aria-label={t("前进", "Forward")} className="titlebar-icon" disabled title={t("前进", "Forward")} type="button">
               <ArrowRight aria-hidden="true" size={16} />
             </button>
-            <nav aria-label="应用菜单" className="titlebar-menu">
+            <nav aria-label={t("应用菜单", "Application menu")} className="titlebar-menu">
               <button disabled={!runCreationEnabled} onClick={() => openRunCreation()}
-                title="新建任务" type="button">文件</button>
-              <button onClick={() => navigateWorkspace("models")} title="模型与 Provider"
-                type="button">编辑</button>
+                title={t("新建任务", "New task")} type="button">{t("文件", "File")}</button>
+              <button onClick={() => navigateWorkspace("models")} title={t("模型与 Provider", "Models and providers")}
+                type="button">{t("编辑", "Edit")}</button>
               <button disabled={surface === "settings"}
-                onClick={() => setSidebarVisible((visible) => !visible)} title="切换侧栏" type="button">视图</button>
-              <button onClick={() => setSurface("settings")} title="设置与关于" type="button">帮助</button>
+                onClick={() => setSidebarVisible((visible) => !visible)} title={t("切换侧栏", "Toggle sidebar")} type="button">{t("视图", "View")}</button>
+              <button onClick={() => setSurface("settings")} title={t("设置与关于", "Settings and about")} type="button">{t("帮助", "Help")}</button>
             </nav>
           </div>
           <div className="topbar-actions">
             <span className={`health-indicator ${healthQuery.isError ? "offline" : "online"}`}>
-              <i />{healthQuery.isError ? "API error" : `api.v1 / schema ${healthQuery.data?.schema_version ?? "-"}`}
+              <i />{healthQuery.isError ? t("API 错误", "API error") : `api.v1 / schema ${healthQuery.data?.schema_version ?? "-"}`}
             </span>
-            <button aria-label="刷新" className="icon-button" disabled={healthQuery.isFetching} onClick={() => void healthQuery.refetch()} title="刷新" type="button">
+            <button aria-label={t("刷新", "Refresh")} className="icon-button" disabled={healthQuery.isFetching} onClick={() => void healthQuery.refetch()} title={t("刷新", "Refresh")} type="button">
               <RefreshCw aria-hidden="true" className={healthQuery.isFetching ? "spin" : ""} size={16} />
             </button>
-            <button aria-label="设置" className="icon-button" onClick={() => setSurface("settings")} title="设置" type="button">
+            <button aria-label={t("设置", "Settings")} className="icon-button" onClick={() => setSurface("settings")} title={t("设置", "Settings")} type="button">
               <Settings aria-hidden="true" size={16} />
             </button>
-            {!desktop && <button aria-label="断开连接" className="icon-button" onClick={leave} title="断开连接" type="button"><LogOut aria-hidden="true" size={16} /></button>}
-            {desktop && <div aria-label="窗口控制" className="desktop-window-controls" role="group">
-              <button aria-label="最小化" onClick={minimiseDesktopWindow} title="最小化" type="button">
+            {!desktop && <button aria-label={t("断开连接", "Disconnect")} className="icon-button" onClick={leave} title={t("断开连接", "Disconnect")} type="button"><LogOut aria-hidden="true" size={16} /></button>}
+            {desktop && <div aria-label={t("窗口控制", "Window controls")} className="desktop-window-controls" role="group">
+              <button aria-label={t("最小化", "Minimize")} onClick={minimiseDesktopWindow} title={t("最小化", "Minimize")} type="button">
                 <Minus aria-hidden="true" size={15} />
               </button>
-              <button aria-label="最大化或还原" onClick={toggleDesktopWindowMaximised}
-                title="最大化或还原" type="button">
+              <button aria-label={t("最大化或还原", "Maximize or restore")} onClick={toggleDesktopWindowMaximised}
+                title={t("最大化或还原", "Maximize or restore")} type="button">
                 <Square aria-hidden="true" size={12} />
               </button>
-              <button aria-label="关闭" className="desktop-window-close" onClick={closeDesktopWindow}
-                title="关闭" type="button">
+              <button aria-label={t("关闭", "Close")} className="desktop-window-close" onClick={closeDesktopWindow}
+                title={t("关闭", "Close")} type="button">
                 <X aria-hidden="true" size={16} />
               </button>
             </div>}

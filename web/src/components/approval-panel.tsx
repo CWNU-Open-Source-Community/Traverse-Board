@@ -9,10 +9,12 @@ import type {
 import { formatDate, shortID } from "../lib/format";
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from "./common";
 import { ControlledCommandProposalPanel } from "./controlled-command-proposal-panel";
+import { useLocale } from "../lib/locale";
 
 type ApprovalAction = ApprovalDecisionControlRequestView["action"];
 
 export function ApprovalPanel({ client, runID }: { client: CyberAgentClient; runID: string }) {
+  const { t } = useLocale();
   const queryClient = useQueryClient();
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const operationKeys = useRef(new Map<string, string>());
@@ -48,7 +50,7 @@ export function ApprovalPanel({ client, runID }: { client: CyberAgentClient; run
     },
   });
   if (query.isLoading) {
-    return <LoadingState label="Loading approvals" />;
+    return <LoadingState label={t("正在加载审批", "Loading approvals")} />;
   }
   if (query.isError || !query.data) {
     return <ErrorState error={query.error} />;
@@ -60,15 +62,15 @@ export function ApprovalPanel({ client, runID }: { client: CyberAgentClient; run
   };
   return (
     <>
-    <section className="approval-queue" aria-label="Pending approvals">
+    <section className="approval-queue" aria-label={t("待处理审批", "Pending approvals")}>
       <header className="approval-queue-header">
-        <div><ShieldCheck aria-hidden="true" size={16} /><strong>Pending approvals</strong></div>
+        <div><ShieldCheck aria-hidden="true" size={16} /><strong>{t("待处理审批", "Pending approvals")}</strong></div>
         <span>{query.data.items.length}{query.data.truncated ? "+" : ""}</span>
       </header>
       <div className="approval-boundary-line">
-        <span>Process execution: off</span><span>Session grant: none</span><span>Capability grant: none</span>
+        <span>{t("进程执行：关闭", "Process execution: off")}</span><span>{t("Session 授权：无", "Session grant: none")}</span><span>{t("能力授权：无", "Capability grant: none")}</span>
       </div>
-      {query.data.items.length === 0 ? <EmptyState>No pending approvals</EmptyState> : (
+      {query.data.items.length === 0 ? <EmptyState>{t("没有待处理审批", "No pending approvals")}</EmptyState> : (
         <div className="approval-list">
           {query.data.items.map((item) => {
             const busy = mutation.isPending && mutation.variables?.item.id === item.id;
@@ -85,22 +87,22 @@ export function ApprovalPanel({ client, runID }: { client: CyberAgentClient; run
                 </div>
                 {(canApprove || canDeny) && (
                   <div className="approval-actions">
-                    {canDeny && <input aria-label={`Denial reason for ${item.tool_name}`}
+                    {canDeny && <input aria-label={t(`${item.tool_name} 的拒绝原因`, `Denial reason for ${item.tool_name}`)}
                       disabled={busy} maxLength={2048}
                       onChange={(event) => setReasons((current) => ({ ...current,
                         [item.id]: event.target.value }))}
-                      placeholder="Denial reason" value={reasons[item.id] ?? ""} />}
+                      placeholder={t("拒绝原因", "Denial reason")} value={reasons[item.id] ?? ""} />}
                     {canDeny && <button className="command-button danger" disabled={busy}
                       onClick={() => decide(item, "deny")} type="button">
                       {busy && mutation.variables?.action === "deny"
                         ? <LoaderCircle aria-hidden="true" className="spin" size={15} />
-                        : <Ban aria-hidden="true" size={15} />}Deny
+                        : <Ban aria-hidden="true" size={15} />}{t("拒绝", "Deny")}
                     </button>}
                     {canApprove && <button className="command-button" disabled={busy}
                       onClick={() => decide(item, "approve_once")} type="button">
                       {busy && mutation.variables?.action === "approve_once"
                         ? <LoaderCircle aria-hidden="true" className="spin" size={15} />
-                        : <Check aria-hidden="true" size={15} />}Approve once
+                        : <Check aria-hidden="true" size={15} />}{t("仅批准一次", "Approve once")}
                     </button>}
                   </div>
                 )}
@@ -110,7 +112,7 @@ export function ApprovalPanel({ client, runID }: { client: CyberAgentClient; run
         </div>
       )}
       {mutation.isError && <div className="inline-warning" role="alert">
-        {mutation.error instanceof Error ? mutation.error.message : "Approval decision failed"}
+        {mutation.error instanceof Error ? mutation.error.message : t("审批操作失败", "Approval decision failed")}
       </div>}
     </section>
     <ControlledCommandProposalPanel client={client} runID={runID} />

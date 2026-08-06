@@ -77,6 +77,7 @@ type ControlPlaneConfig struct {
 	SkillInstallationEnabled                bool
 	EvidenceAttachmentEnabled               bool
 	VerificationEvidenceEnabled             bool
+	EmbeddedAnalyzerExecutionEnabled        bool
 	UserTerminalEnabled                     bool
 	AppVersion                              string
 	UIHandler                               http.Handler
@@ -212,6 +213,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		application.NewControlledCommandProposalReviewService(
 			stateStore, controlledCommandExecutor,
 			config.ExecutionPermissionCapabilities)
+	embeddedAnalyzerExecution := application.NewEmbeddedAnalyzerExecutionService(stateStore)
 	api, err := httpapi.New(stateStore, httpapi.Config{
 		AccessToken: config.ReadToken, ControlToken: config.ControlToken,
 		RunControlEnabled:                       config.RunControlEnabled,
@@ -238,6 +240,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		SkillInstallationEnabled:                config.SkillInstallationEnabled,
 		EvidenceAttachmentEnabled:               config.EvidenceAttachmentEnabled,
 		VerificationEvidenceEnabled:             config.VerificationEvidenceEnabled,
+		EmbeddedAnalyzerExecutionEnabled:        config.EmbeddedAnalyzerExecutionEnabled,
 		RunLifecycleController:                  lifecycleControl,
 		RunExecutionController:                  executionControl,
 		PlanDeliveryController:                  planDeliveryControl,
@@ -252,6 +255,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		RunWakeExecutionController:              runWakeExecution,
 		RunWakeWorkerHealthSource:               workerHealth,
 		SkillInstallationController:             skillInstaller,
+		EmbeddedAnalyzerExecutionController:     embeddedAnalyzerExecution,
 		ModelRegistry:                           models,
 		AppVersion:                              config.AppVersion, UIHandler: config.UIHandler,
 	})

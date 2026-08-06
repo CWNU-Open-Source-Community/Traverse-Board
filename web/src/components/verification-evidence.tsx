@@ -4,12 +4,14 @@ import { ClipboardCheck, Link2, LoaderCircle, RefreshCw } from "lucide-react";
 import type { CyberAgentClient } from "../api/client";
 import type { VerificationEvidenceRequestView } from "../api/types";
 import { formatDate } from "../lib/format";
+import { useLocale } from "../lib/locale";
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from "./common";
 
 export function VerificationEvidence({ client, runID }: {
   client: CyberAgentClient;
   runID: string;
 }) {
+  const { t } = useLocale();
   const queryClient = useQueryClient();
   const operationKey = useRef("");
   const associationKeys = useRef(new Map<string, { intent: string; key: string }>());
@@ -91,28 +93,28 @@ export function VerificationEvidence({ client, runID }: {
   };
   const planOptions = plansQuery.data?.items.flatMap((plan) => plan.items.map((item) => ({
     key: JSON.stringify([plan.id, item.ordinal]), planID: plan.id, ordinal: item.ordinal,
-    label: `${plan.title} / Check ${item.ordinal}: ${item.title}`,
+    label: `${plan.title} / ${t("检查项", "Check")} ${item.ordinal}: ${item.title}`,
   }))) ?? [];
   const associationsByEvidence = new Map(coverageQuery.data?.associations.map((association) =>
     [association.evidence_id, association]) ?? []);
   const planTitles = new Map(plansQuery.data?.items.map((plan) => [plan.id, plan.title]) ?? []);
-  return <section aria-label="Verification evidence" className="verification-evidence">
+  return <section aria-label={t("验证证据", "Verification evidence")} className="verification-evidence">
     <header className="operator-list-header">
-      <div><ClipboardCheck aria-hidden="true" size={16} /><h2>Verification</h2></div>
+      <div><ClipboardCheck aria-hidden="true" size={16} /><h2>{t("验证", "Verification")}</h2></div>
       <div>
         {query.data && <>
           <StatusBadge status={`${query.data.pass_count} pass`} />
           {query.data.fail_count > 0 && <StatusBadge status={`${query.data.fail_count} fail`} />}
           {coverageQuery.data && <StatusBadge status={`${coverageQuery.data.associated_evidence_count} linked`} />}
         </>}
-        <button aria-label="Refresh verification evidence" className="icon-button"
+        <button aria-label={t("刷新验证证据", "Refresh verification evidence")} className="icon-button"
           disabled={query.isFetching || plansQuery.isFetching || coverageQuery.isFetching}
           onClick={() => {
             void query.refetch();
             void plansQuery.refetch();
             void coverageQuery.refetch();
           }}
-          title="Refresh" type="button">
+          title={t("刷新", "Refresh")} type="button">
           <RefreshCw aria-hidden="true"
             className={query.isFetching || plansQuery.isFetching || coverageQuery.isFetching ? "spin" : ""}
             size={15} />
@@ -120,27 +122,27 @@ export function VerificationEvidence({ client, runID }: {
       </div>
     </header>
     {client.hasVerificationEvidence && <form className="verification-form" onSubmit={submit}>
-      <label>Result<select aria-label="Verification result" value={outcome}
+      <label>{t("结果", "Result")}<select aria-label={t("验证结果", "Verification result")} value={outcome}
         onChange={(event) => changeIntent(() =>
           setOutcome(event.target.value as VerificationEvidenceRequestView["outcome"]))}>
-        <option value="pass">Pass</option><option value="fail">Fail</option>
-        <option value="unknown">Unknown</option>
+        <option value="pass">{t("通过", "Pass")}</option><option value="fail">{t("失败", "Fail")}</option>
+        <option value="unknown">{t("未知", "Unknown")}</option>
       </select></label>
-      <label>Title<input maxLength={160} required value={title}
+      <label>{t("标题", "Title")}<input maxLength={160} required value={title}
         onChange={(event) => changeIntent(() => setTitle(event.target.value))} /></label>
-      <label className="verification-summary">Summary<textarea maxLength={2048} required rows={3}
+      <label className="verification-summary">{t("摘要", "Summary")}<textarea maxLength={2048} required rows={3}
         value={summary} onChange={(event) => changeIntent(() => setSummary(event.target.value))} /></label>
       <button className="command-button" disabled={record.isPending || !title.trim() || !summary.trim()}
         type="submit">{record.isPending ? <LoaderCircle aria-hidden="true" className="spin" size={15} /> :
-          <ClipboardCheck aria-hidden="true" size={15} />}Record</button>
+          <ClipboardCheck aria-hidden="true" size={15} />}{t("记录", "Record")}</button>
     </form>}
     {record.error && <ErrorState error={record.error} />}
     {associate.error && <ErrorState error={associate.error} />}
-    {query.isLoading && <LoadingState label="Loading verification evidence" />}
+    {query.isLoading && <LoadingState label={t("正在加载验证证据", "Loading verification evidence")} />}
     {query.isError && <ErrorState error={query.error} />}
     {plansQuery.isError && <ErrorState error={plansQuery.error} />}
     {coverageQuery.isError && <ErrorState error={coverageQuery.error} />}
-    {query.data?.items.length === 0 && <EmptyState>No verification evidence recorded</EmptyState>}
+    {query.data?.items.length === 0 && <EmptyState>{t("尚未记录验证证据", "No verification evidence recorded")}</EmptyState>}
     {query.data && query.data.items.length > 0 && <div className="verification-list">
       {query.data.items.map((item) => {
         const linked = associationsByEvidence.get(item.id);
@@ -155,20 +157,20 @@ export function VerificationEvidence({ client, runID }: {
           <StatusBadge status={`check ${linked.plan_item_ordinal}`} />
         </div> : client.hasVerificationEvidence && planOptions.length > 0 &&
         <div className="verification-association-controls">
-          <select aria-label={`Plan item for ${item.title}`} disabled={associate.isPending} value={selected}
+          <select aria-label={t(`${item.title} 的计划检查项`, `Plan item for ${item.title}`)} disabled={associate.isPending} value={selected}
             onChange={(event) => {
               associationKeys.current.delete(item.id);
               setAssociationTargets((current) => ({ ...current, [item.id]: event.target.value }));
             }}>
-            <option value="">Select plan check</option>
+            <option value="">{t("选择计划检查项", "Select plan check")}</option>
             {planOptions.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
           </select>
-          <button aria-label={`Associate ${item.title}`} className="compact-command"
+          <button aria-label={t(`关联 ${item.title}`, `Associate ${item.title}`)} className="compact-command"
             disabled={!target || associate.isPending} onClick={() => target && associate.mutate({
               evidenceID: item.id, planID: target.planID, ordinal: target.ordinal,
             })} type="button">
             {associate.isPending ? <LoaderCircle aria-hidden="true" className="spin" size={14} /> :
-              <Link2 aria-hidden="true" size={14} />}Associate</button>
+              <Link2 aria-hidden="true" size={14} />}{t("关联", "Associate")}</button>
         </div>}
       </article>;
       })}

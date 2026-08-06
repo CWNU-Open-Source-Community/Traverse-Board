@@ -3,6 +3,11 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import App from "./App";
 import { useConnectionStore } from "./state/connection";
 
+vi.mock("./lib/locale", () => ({
+  useLocale: () => ({ locale: "zh-CN", setLocale: () => undefined,
+    t: (chinese: string) => chinese }),
+}));
+
 vi.mock("./components/resource-sidebar", () => ({ ResourceSidebar: () => null }));
 vi.mock("./components/run-workspace", () => ({
   RunWorkspace: ({ client }: { client: { hasVerificationEvidence: boolean } }) =>
@@ -48,6 +53,6 @@ describe("App capability wiring", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "设置" }));
     expect(document.querySelector(".prayu-shell.settings-mode")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "个人资料" })).toHaveClass("active");
+    expect(screen.getByRole("button", { name: "常规" })).toHaveClass("active");
   });
 });

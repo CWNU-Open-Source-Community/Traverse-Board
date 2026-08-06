@@ -21,6 +21,10 @@ export type FindingReportSummaryView = components["schemas"]["FindingReportSumma
 export type FindingReportView = components["schemas"]["FindingReportView"];
 export type HealthView = components["schemas"]["HealthView"];
 export type RuntimeCapabilitiesView = components["schemas"]["RuntimeCapabilitiesView"];
+export type EmbeddedAnalyzerExecutionRequestView =
+  components["schemas"]["EmbeddedAnalyzerExecutionRequestView"];
+export type EmbeddedAnalyzerExecutionControlView =
+  components["schemas"]["EmbeddedAnalyzerExecutionControlView"];
 export type RunWakeWorkerHealthView = components["schemas"]["RunWakeWorkerHealthView"];
 export type MessageView = components["schemas"]["MessageView"];
 export type ModelAvailabilityView = components["schemas"]["ModelAvailabilityView"];

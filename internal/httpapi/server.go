@@ -237,6 +237,7 @@ type Config struct {
 	SkillInstallationEnabled                bool
 	EvidenceAttachmentEnabled               bool
 	VerificationEvidenceEnabled             bool
+	EmbeddedAnalyzerExecutionEnabled        bool
 	ExecutionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
 	BrowserCDPPermissionCapabilities        domain.BrowserCDPPermissionRuntimeCapabilities
 	RunLifecycleController                  RunLifecycleController
@@ -253,6 +254,7 @@ type Config struct {
 	RunWakeExecutionController              RunWakeExecutionController
 	RunWakeWorkerHealthSource               RunWakeWorkerHealthSource
 	SkillInstallationController             SkillInstallationController
+	EmbeddedAnalyzerExecutionController     EmbeddedAnalyzerExecutionController
 	ModelRegistry                           *modelregistry.Registry
 	AppVersion                              string
 	EventStream                             EventStreamConfig
@@ -285,6 +287,7 @@ type API struct {
 	skillInstallationEnabled                bool
 	evidenceAttachmentEnabled               bool
 	verificationEvidenceEnabled             bool
+	embeddedAnalyzerExecutionEnabled        bool
 	executionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
 	browserCDPPermissionCapabilities        domain.BrowserCDPPermissionRuntimeCapabilities
 	runLifecycleController                  RunLifecycleController
@@ -301,6 +304,7 @@ type API struct {
 	runWakeExecutionController              RunWakeExecutionController
 	runWakeWorkerHealthSource               RunWakeWorkerHealthSource
 	skillInstallationController             SkillInstallationController
+	embeddedAnalyzerExecutionController     EmbeddedAnalyzerExecutionController
 	modelRegistry                           *modelregistry.Registry
 	appVersion                              string
 	openAPI                                 []byte
@@ -344,7 +348,7 @@ func New(store Store, config Config) (*API, error) {
 		config.FileEditApplyEnabled || config.RunWakeExecutionEnabled ||
 		config.RunWakeWorkerEnabled ||
 		config.SkillInstallationEnabled || config.EvidenceAttachmentEnabled ||
-		config.VerificationEvidenceEnabled) &&
+		config.VerificationEvidenceEnabled || config.EmbeddedAnalyzerExecutionEnabled) &&
 		!controlTokenPresent {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API control capabilities require a control token")
@@ -405,6 +409,11 @@ func New(store Store, config Config) (*API, error) {
 	if config.SkillInstallationEnabled && config.SkillInstallationController == nil {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API Skill installation controller is required when enabled")
+	}
+	if config.EmbeddedAnalyzerExecutionEnabled &&
+		config.EmbeddedAnalyzerExecutionController == nil {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"HTTP API embedded analyzer execution controller is required when enabled")
 	}
 	if err := config.ExecutionPermissionCapabilities.Validate(); err != nil {
 		return nil, apperror.Wrap(apperror.CodeInvalidArgument,
@@ -474,6 +483,7 @@ func New(store Store, config Config) (*API, error) {
 		skillInstallationEnabled:            controlTokenPresent && config.SkillInstallationEnabled,
 		evidenceAttachmentEnabled:           controlTokenPresent && config.EvidenceAttachmentEnabled,
 		verificationEvidenceEnabled:         controlTokenPresent && config.VerificationEvidenceEnabled,
+		embeddedAnalyzerExecutionEnabled:    controlTokenPresent && config.EmbeddedAnalyzerExecutionEnabled,
 		executionPermissionCapabilities:     config.ExecutionPermissionCapabilities,
 		browserCDPPermissionCapabilities:    config.BrowserCDPPermissionCapabilities,
 		runLifecycleController:              config.RunLifecycleController,
@@ -490,6 +500,7 @@ func New(store Store, config Config) (*API, error) {
 		runWakeExecutionController:          config.RunWakeExecutionController,
 		runWakeWorkerHealthSource:           config.RunWakeWorkerHealthSource,
 		skillInstallationController:         config.SkillInstallationController,
+		embeddedAnalyzerExecutionController: config.EmbeddedAnalyzerExecutionController,
 		modelRegistry:                       modelRegistry,
 		openAPI:                             document, eventStream: eventStream,
 		eventStreamSlots: make(chan struct{}, eventStream.MaxConnections),
@@ -699,6 +710,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	if runID, matched := matchVerificationSnapshotReceiptReviewPath(request.URL.Path); matched &&
 		request.Method != http.MethodGet {
 		a.serveVerificationSnapshotReceiptReviewControl(tracked, request, requestID, runID)
+		return
+	}
+	if runID, matched := matchEmbeddedAnalyzerExecutionPath(request.URL.Path); matched {
+		a.serveEmbeddedAnalyzerExecutionControl(tracked, request, requestID, runID)
 		return
 	}
 	if runID, matched := matchRunExecutionControlPath(request.URL.Path); matched {

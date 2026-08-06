@@ -130,6 +130,7 @@ describe("CyberAgentClient", () => {
       run_wake_execution_enabled: true, run_wake_worker_enabled: true,
       skill_installation_enabled: true, evidence_attachment_enabled: true,
       verification_evidence_enabled: true,
+      embedded_analyzer_execution_enabled: true,
       process_execution_enabled: false, shell_execution_enabled: false,
       docker_execution_enabled: false,
       wake_worker: { protocol_version: "run_wake_worker_health.v1", enabled: true,
@@ -149,6 +150,7 @@ describe("CyberAgentClient", () => {
       fileEditProposalEnabled: true, providerCredentialEnabled: true,
       runWakeWorkerEnabled: true,
       verificationEvidenceEnabled: true,
+      embeddedAnalyzerExecutionEnabled: true,
     });
   });
 
@@ -2042,6 +2044,36 @@ describe("CyberAgentClient", () => {
       { fileEditProposalEnabled: true });
     await expect(client.recoverFileEditProposal("run-1", "edit-new"))
       .resolves.toEqual(recovery);
+  });
+
+  it("executes the embedded analyzer through the control token and validates its redacted receipt", async () => {
+    const data = {
+      version: "embedded_analyzer_execution_control.v1",
+      execution_id: "execution-1", artifact_id: "artifact-1", run_id: "run-1",
+      session_id: "session-1", workspace_id: "workspace-1",
+      analyzer: "fixture.digest.v1", status: "succeeded", media_type: "text/plain",
+      input_bytes: 12, line_count: 2, sha256: "a".repeat(64), utf8: true,
+      metadata_only: true, capability_consumed: true, artifact_atomic: true,
+      filesystem_mounted: false, network_enabled: false, subprocess_enabled: false,
+      host_process_authorized: false, raw_request_included: false,
+      bearer_token_included: false, replayed: false,
+    };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-analyzer", data,
+    }), { status: 201, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret",
+      { embeddedAnalyzerExecutionEnabled: true });
+
+    await expect(client.executeEmbeddedAnalyzer("run-1", {
+      version: "embedded_analyzer_operator_request.v1", text: "hello\nworld\n",
+      media_type: "text/plain", confirmation: "RUN-EMBEDDED-ANALYZER",
+    })).resolves.toEqual(data);
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/runs/run-1/analyzer-executions");
+    expect(init.headers).toMatchObject({ Authorization: "Bearer control-secret" });
+    expect(url).not.toContain("control-secret");
   });
 });
 

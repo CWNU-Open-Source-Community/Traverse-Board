@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const LatestSchemaVersion = 93
+const LatestSchemaVersion = 95
 
 type migration struct {
 	Version    int
@@ -8661,6 +8661,18 @@ func (s *SQLiteStore) applyMigration(ctx context.Context, item migration) error 
 		return fmt.Errorf("begin migration %d: %w", item.Version, err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	var recorded appliedMigration
+	err = tx.QueryRowContext(ctx, `SELECT name, checksum FROM schema_migrations WHERE version = ?`,
+		item.Version).Scan(&recorded.Name, &recorded.Checksum)
+	if err == nil {
+		if recorded.Name != item.Name || !acceptedMigrationChecksum(item, recorded.Checksum) {
+			return fmt.Errorf("migration %d checksum or name mismatch", item.Version)
+		}
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("recheck migration %d: %w", item.Version, err)
+	}
 	for index, stmt := range item.Statements {
 		if _, err := tx.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("migration %d %q statement %d: %w", item.Version, item.Name, index+1, err)

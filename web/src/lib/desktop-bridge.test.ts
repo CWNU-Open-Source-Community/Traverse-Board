@@ -40,6 +40,7 @@ const bootstrap = {
   skill_installation_enabled: false,
   evidence_attachment_enabled: false,
   verification_evidence_enabled: false,
+  embedded_analyzer_execution_enabled: false,
   user_terminal_enabled: false,
   agent_terminal_input_default: false,
   workspace_open_enabled: false,

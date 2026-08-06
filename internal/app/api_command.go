@@ -160,6 +160,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	controlledCommandProposals :=
 		application.NewControlledCommandProposalReviewService(
 			a.store, controlledCommandExecutor, permissionCapabilities)
+	embeddedAnalyzerExecution := application.NewEmbeddedAnalyzerExecutionService(a.store)
 	api, err := httpapi.New(a.store, httpapi.Config{
 		AccessToken: accessToken, ControlToken: controlToken,
 		RunControlEnabled: controlToken != "", RunCreationEnabled: controlToken != "",
@@ -185,6 +186,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		SkillInstallationEnabled:                controlToken != "",
 		EvidenceAttachmentEnabled:               controlToken != "",
 		VerificationEvidenceEnabled:             controlToken != "",
+		EmbeddedAnalyzerExecutionEnabled:        controlToken != "",
 		RunLifecycleController:                  lifecycleControl,
 		RunExecutionController:                  executionControl,
 		PlanDeliveryController:                  planDeliveryControl,
@@ -199,6 +201,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		RunWakeExecutionController:              runWakeExecution,
 		RunWakeWorkerHealthSource:               workerHealth,
 		SkillInstallationController:             skillInstallation,
+		EmbeddedAnalyzerExecutionController:     embeddedAnalyzerExecution,
 		ModelRegistry:                           a.models,
 		AppVersion:                              Version,
 		UIHandler:                               uiBundle,

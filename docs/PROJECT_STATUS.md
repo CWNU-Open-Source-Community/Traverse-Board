@@ -4,21 +4,47 @@ Last updated: 2026-08-05
 
 ## Resume Context
 
-The current mainline checkpoint is P10-K1/K2/K3 at schema v93. ADR 0090 selects
-an embedded `wazero v1.12.0` Interpreter and the pinned Rust
-`wasm32-wasip1` release module as the primary Analyzer isolation candidate.
-Go compile-validates caller-owned module bytes, independently parses the import
-section, and records only bounded import/export/memory evidence. It registers
-no WASI host, instantiates no guest, and calls no export.
+The current mainline checkpoint is the P10-L1 through P10-M3 six-slice batch at
+schema v95. L1 executes the exact embedded Rust/WASI fixture inside a fresh
+wazero Interpreter with bounded memory stdio, deadline/cancellation close,
+deterministic validation, and no filesystem, network, subprocess, or native
+process. L2/schema v94 adds an exact-bound, five-minute maximum, one-shot
+capability with atomic consumption and replay rejection. L3/schema v95 commits
+the redacted execution, capability consumption, metadata-only Artifact, and
+Run events atomically.
 
-Runtime, compiled module, future guest instance, deadline, close, retry, and
-metadata-recovery ownership are per invocation. There is no native process,
-PID, process tree, cross-Run reuse, background guest, automatic replay, or
-Artifact commit. Seven execution and release gates remain open, so the release
-decision is explicitly non-starting. The prior v93 `disabled|fake` ledger is
-unchanged, and there is still no CLI, HTTP, Desktop, Tool, Skill, model, or real
-Runner route. Architecture remains about 99%, product usability about 96-98%,
-generic Coding Agent about 97%, and Cyber automation about 20%.
+M1 exposes only this fixed Analyzer through CLI, control-token HTTP/OpenAPI,
+Desktop capability projection, and React. M2 adds the default-Chinese bilingual
+UI and a real Anthropic-compatible model-chat integration test spanning system
+credentials, Provider Registry, Harness qualification, route selection,
+Run/Session persistence, one bounded Supervisor step, and assistant-message
+readback. M3 completes the safe operator-preview launcher, bilingual local-test
+guide, isolated-home Desktop smoke, and reproducible portable package. The
+cumulative robustness gate was moved from L3 to after M3 and is now complete.
+
+Do not repeat P10-L1 through P10-M3, their full local release gate, or the
+WFP/C8C path after compaction. At this checkpoint only documentation closeout,
+direct-main commit/push, and hosted CI confirmation remain for this batch.
+
+The post-M3 gate passed full ordinary Go in 610.6 seconds with an explicit
+20-minute package timeout, full race in 503.5 seconds with zero races, vet,
+warning-free staticcheck, zero reachable/imported-package govulncheck findings,
+module verify/tidy, 182 React assertions across 50 files, strict TypeScript,
+OpenAPI determinism, Vite, zero-vulnerability npm audit, Rust fmt/7+2 tests/
+clippy/RustSec/WASI release, reproducible Windows packaging, and an isolated
+operator-preview Desktop smoke. The rebuilt WASI digest matches the embedded
+fixture. The production Anthropic-compatible Provider path passed three
+consecutive end-to-end persistence tests against deterministic local SSE; this
+was not MockProvider and did not use or expose a paid external key.
+
+The combined audit fixed Store concurrent-open migration ledger rechecking and
+closed a workspace-file Analyzer TOCTOU with handle-confined `os.Root` reads and
+post-read identity verification. No unresolved high/medium issue is known on an
+enabled path. The pre-commit reproducibility candidate SHA-256 is
+`1cfcaa58361da969b45e276272f8c97b7bf0c2dff6efb1a37cc2bd4fddf711af`.
+Automated Windows checks pass; `release_ready=false` now reflects only the
+manual Windows 10/WebView2/display-scaling matrix and unsigned portable
+distribution, not a disabled chat path.
 
 Hosted follow-up run `30873766068` passed Web and native Ubuntu H1/H2/H3. It
 found a Windows checkout ACL dependency after administrator membership was
@@ -2734,23 +2760,21 @@ same-executable isolation design should resume that issue. Any future
 operator-only Restricted Safe Web adapter must still exclude model Tools and
 Full Debug CDP.
 
-P10-F1 through P10-K3 are complete at the candidate, test-conformance,
-product-contract, durable-control, and compile-only embedded-isolation layers.
-Do not infer production readiness from Fake lifecycle or WASI compile success.
-The next fixed batch is P10-L1/L2/L3: test-only execution of the real WASI
-fixture to prove bounded stdin/stdout, deadline/cancellation/close behavior,
-and deterministic result validation. It must expose no product route. After L3,
-run the cumulative six-slice full ordinary/race/static/vulnerability/
-dependency/privacy/build gate. Capability issue/consume, production evidence
-acceptance, and product routing remain later independent decisions. Browser
-work must not widen the P12-E host executor or Debug terminal contracts.
+P10-L1 through P10-M3 are complete at schema v95, including fixed embedded-WASI
+execution, one-shot authorization, atomic metadata evidence, the controlled
+Analyzer product route, bilingual Desktop, real Provider chat persistence, and
+the safe operator-preview package. The six-slice release gate ran once after
+M3 as requested. The next mainline batch must start from this checkpoint rather
+than rebuilding P10-L/M or treating their earlier Disabled/Fake predecessors as
+the current product state. Browser work must not widen the P12-E host executor
+or Debug terminal contracts.
 
 Keep the general LocalRunner disabled until a real workspace filesystem and
 network sandbox makes protected host roots unavailable or read-only; never map
 it to unrestricted `os/exec`. Product Docker start/wait/TERM/KILL/orphan behavior still
 requires a later independent release gate; R2-R10 test-binary conformance and post-reap
 metadata are not production evidence. The manual Windows 10 matrix, signed distribution,
-product analyzer execution, Agent-owned xterm input, Full CDP, arbitrary
+Agent-owned xterm input, Full CDP, arbitrary
 end-user process execution, and CTF solving remain deferred.
 
 Real Local/container-process execution remains disabled until every v51 check has independently verified and independently accepted production evidence and Sandbox retained-resource cleanup, resource/network, cancellation, running-orphan, and atomic Artifact-export paths pass separate audits. Schema v52 simulation, v53 metadata observation, v54 compilation/fake writes, v55-v56 non-started daemon rehearsals, v57 sealing, v58 durable capture requirements, v59 never-started handoff evidence, v60 projection plans, v61 never-started volume application, v62 cleanup, v63 design review, v64 profile selection, v65 non-authorizing capture receipts, v66 recoverable capture ownership, v67 read-only daemon metadata, and v68 receipt acceptance do not satisfy that requirement. TypeScript, future Rust analyzers, and model providers remain unable to bypass the Go Tool Gateway or Policy boundary.

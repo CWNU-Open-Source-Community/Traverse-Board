@@ -67,6 +67,7 @@ type ConnectionBootstrap struct {
 	SkillInstallationEnabled                bool   `json:"skill_installation_enabled"`
 	EvidenceAttachmentEnabled               bool   `json:"evidence_attachment_enabled"`
 	VerificationEvidenceEnabled             bool   `json:"verification_evidence_enabled"`
+	EmbeddedAnalyzerExecutionEnabled        bool   `json:"embedded_analyzer_execution_enabled"`
 	UserTerminalEnabled                     bool   `json:"user_terminal_enabled"`
 	AgentTerminalInputDefault               bool   `json:"agent_terminal_input_default"`
 	WorkspaceOpenEnabled                    bool   `json:"workspace_open_enabled"`
@@ -158,6 +159,7 @@ type DesktopBridgeConfig struct {
 	SkillInstallationEnabled                bool
 	EvidenceAttachmentEnabled               bool
 	VerificationEvidenceEnabled             bool
+	EmbeddedAnalyzerExecutionEnabled        bool
 	UserTerminalEnabled                     bool
 	APIVersion                              string
 	AppVersion                              string
@@ -211,6 +213,7 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 		config.RunWakeExecutionEnabled || config.RunWakeWorkerEnabled ||
 		config.SkillInstallationEnabled ||
 		config.EvidenceAttachmentEnabled || config.VerificationEvidenceEnabled ||
+		config.EmbeddedAnalyzerExecutionEnabled ||
 		config.UserTerminalEnabled
 	if controlEnabled && config.ControlToken == "" {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
@@ -314,6 +317,7 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 			SkillInstallationEnabled:                config.SkillInstallationEnabled,
 			EvidenceAttachmentEnabled:               config.EvidenceAttachmentEnabled,
 			VerificationEvidenceEnabled:             config.VerificationEvidenceEnabled,
+			EmbeddedAnalyzerExecutionEnabled:        config.EmbeddedAnalyzerExecutionEnabled,
 			UserTerminalEnabled:                     config.UserTerminalEnabled,
 			AgentTerminalInputDefault:               false,
 			WorkspaceOpenEnabled:                    config.WorkspaceResolver != nil,

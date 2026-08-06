@@ -5,6 +5,7 @@ import {
   Cpu,
   Info,
   Keyboard,
+  Languages,
   Layers3,
   Moon,
   PackageSearch,
@@ -18,6 +19,7 @@ import {
 import type { CyberAgentClient } from "../api/client";
 import type { HealthView } from "../api/types";
 import { applyPrayuTheme, readPrayuTheme, type PrayuTheme } from "../lib/appearance";
+import { useLocale } from "../lib/locale";
 import { PrayuBrand } from "./prayu-brand";
 import { RunPermissionSettings } from "./run-permission-settings";
 import { SidebarResizeHandle, clampSidebarWidth, defaultSidebarWidth } from "./workbench-frame";
@@ -63,19 +65,6 @@ function readSettingsSidebarWidth(): number {
   }
 }
 
-const navigation: Array<{
-  id: SettingsSection;
-  label: string;
-  icon: typeof Settings;
-}> = [
-  { id: "general", label: "常规", icon: Settings },
-  { id: "profile", label: "个人资料", icon: CircleUserRound },
-  { id: "permissions", label: "权限", icon: ShieldCheck },
-  { id: "appearance", label: "外观", icon: Palette },
-  { id: "shortcuts", label: "键盘快捷键", icon: Keyboard },
-  { id: "about", label: "关于", icon: Info },
-];
-
 export function SettingsView({
   capabilities,
   client,
@@ -95,7 +84,16 @@ export function SettingsView({
   onOpenModels: () => void;
   onOpenSkills: () => void;
 }) {
-  const [section, setSection] = useState<SettingsSection>("profile");
+  const { t } = useLocale();
+  const navigation: Array<{ id: SettingsSection; label: string; icon: typeof Settings }> = [
+    { id: "general", label: t("常规", "General"), icon: Settings },
+    { id: "profile", label: t("个人资料", "Profile"), icon: CircleUserRound },
+    { id: "permissions", label: t("权限", "Permissions"), icon: ShieldCheck },
+    { id: "appearance", label: t("外观", "Appearance"), icon: Palette },
+    { id: "shortcuts", label: t("键盘快捷键", "Keyboard shortcuts"), icon: Keyboard },
+    { id: "about", label: t("关于", "About"), icon: Info },
+  ];
+  const [section, setSection] = useState<SettingsSection>("general");
   const [query, setQuery] = useState("");
   const [density, setDensity] = useState<Density>(readDensity);
   const [theme, setTheme] = useState<PrayuTheme>(readPrayuTheme);
@@ -104,7 +102,7 @@ export function SettingsView({
     const normalized = query.trim().toLocaleLowerCase();
     return navigation.filter((item) => !normalized ||
       `${item.label} ${item.id}`.toLocaleLowerCase().includes(normalized));
-  }, [query]);
+  }, [navigation, query]);
 
   useEffect(() => {
     document.documentElement.dataset.prayuDensity = density;
@@ -130,15 +128,15 @@ export function SettingsView({
       style={{ "--prayu-settings-sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
       <aside className="settings-sidebar">
         <button className="settings-back" onClick={onBack} type="button">
-          <ArrowLeft aria-hidden="true" size={17} />返回应用
+          <ArrowLeft aria-hidden="true" size={17} />{t("返回应用", "Back to app")}
         </button>
         <label className="settings-search">
           <Search aria-hidden="true" size={15} />
-          <input aria-label="搜索设置" onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索设置..." type="search" value={query} />
+          <input aria-label={t("搜索设置", "Search settings")} onChange={(event) => setQuery(event.target.value)}
+            placeholder={t("搜索设置...", "Search settings...")} type="search" value={query} />
         </label>
-        <span className="settings-group-label">个人</span>
-        <nav aria-label="Prayu 设置">
+        <span className="settings-group-label">{t("个人", "Personal")}</span>
+        <nav aria-label={t("Prayu 设置", "Prayu settings")}>
           {visibleNavigation.map(({ id, label, icon: Icon }) => (
             <button className={section === id ? "active" : ""} key={id}
               onClick={() => setSection(id)} type="button">
@@ -146,13 +144,13 @@ export function SettingsView({
             </button>
           ))}
         </nav>
-        <span className="settings-group-label">集成</span>
-        <nav aria-label="Prayu 集成">
+        <span className="settings-group-label">{t("集成", "Integrations")}</span>
+        <nav aria-label={t("Prayu 集成", "Prayu integrations")}>
           <button onClick={onOpenModels} type="button">
-            <Cpu aria-hidden="true" size={16} /><span>模型与配置</span>
+            <Cpu aria-hidden="true" size={16} /><span>{t("模型与配置", "Models and providers")}</span>
           </button>
           <button disabled={!desktop} onClick={onOpenSkills} type="button">
-            <PackageSearch aria-hidden="true" size={16} /><span>Skill 包</span>
+            <PackageSearch aria-hidden="true" size={16} /><span>{t("Skill 包", "Skill packages")}</span>
           </button>
         </nav>
       </aside>
@@ -162,7 +160,7 @@ export function SettingsView({
           <strong>{navigation.find((item) => item.id === section)?.label}</strong>
           <div>
             <button className="settings-action" onClick={onOpenModels} type="button">
-              <Cpu aria-hidden="true" size={15} />模型
+              <Cpu aria-hidden="true" size={15} />{t("模型", "Models")}
             </button>
             {desktop && <button className="settings-action" onClick={onOpenSkills} type="button">
               <PackageSearch aria-hidden="true" size={15} />Skill
@@ -191,50 +189,51 @@ function ProfileSettings({ capabilities, desktop, health }: {
   desktop: boolean;
   health: HealthView | null;
 }) {
+  const { t } = useLocale();
   const enabled = capabilities.filter((capability) => capability.enabled);
   return (
     <div className="profile-settings">
       <section className="profile-identity">
         <PrayuBrand className="profile-avatar" variant="icon" />
         <h1>Prayu</h1>
-        <p>@local-operator <span>Local</span></p>
+        <p>@local-operator <span>{t("本地", "Local")}</span></p>
       </section>
       <dl className="profile-metrics">
-        <div><dt>Schema</dt><dd>v{health?.schema_version ?? "-"}</dd></div>
+        <div><dt>{t("数据结构", "Schema")}</dt><dd>v{health?.schema_version ?? "-"}</dd></div>
         <div><dt>API</dt><dd>{health?.api_version ?? "api.v1"}</dd></div>
-        <div><dt>版本</dt><dd>{health?.app_version ?? "dev"}</dd></div>
-        <div><dt>控制能力</dt><dd>{enabled.length}/{capabilities.length}</dd></div>
-        <div><dt>运行界面</dt><dd>{desktop ? "Desktop" : "Web"}</dd></div>
+        <div><dt>{t("版本", "Version")}</dt><dd>{health?.app_version ?? "dev"}</dd></div>
+        <div><dt>{t("控制能力", "Capabilities")}</dt><dd>{enabled.length}/{capabilities.length}</dd></div>
+        <div><dt>{t("运行界面", "Surface")}</dt><dd>{desktop ? t("桌面端", "Desktop") : t("网页端", "Web")}</dd></div>
       </dl>
-      <section className="capability-activity" aria-label="能力状态">
+      <section className="capability-activity" aria-label={t("能力状态", "Capability status")}>
         <header>
-          <div><h2>能力状态</h2><span>{enabled.length} 项已启用</span></div>
-          <span className="capability-legend"><i />启用</span>
+          <div><h2>{t("能力状态", "Capability status")}</h2><span>{t(`${enabled.length} 项已启用`, `${enabled.length} enabled`)}</span></div>
+          <span className="capability-legend"><i />{t("启用", "Enabled")}</span>
         </header>
         <div className="capability-grid">
-          {capabilities.map((capability) => <span aria-label={`${capability.label}: ${capability.enabled ? "启用" : "关闭"}`}
+          {capabilities.map((capability) => <span aria-label={`${capability.label}: ${capability.enabled ? t("启用", "enabled") : t("关闭", "disabled")}`}
             className={capability.enabled ? "enabled" : ""} key={capability.id}
-            role="img" title={`${capability.label}: ${capability.enabled ? "启用" : "关闭"}`} />)}
+            role="img" title={`${capability.label}: ${capability.enabled ? t("启用", "enabled") : t("关闭", "disabled")}`} />)}
         </div>
       </section>
       <div className="profile-detail-columns">
         <section>
-          <h2>运行时</h2>
+          <h2>{t("运行时", "Runtime")}</h2>
           <dl className="settings-values">
-            <div><dt>状态</dt><dd>{health?.status ?? "connecting"}</dd></div>
-            <div><dt>控制平面</dt><dd>Go</dd></div>
-            <div><dt>界面</dt><dd>React / Vite</dd></div>
-            <div><dt>本地存储</dt><dd>SQLite</dd></div>
+            <div><dt>{t("状态", "Status")}</dt><dd>{health?.status === "ok" ? t("正常", "Ready") : t("连接中", "Connecting")}</dd></div>
+            <div><dt>{t("控制平面", "Control plane")}</dt><dd>Go</dd></div>
+            <div><dt>{t("界面", "Interface")}</dt><dd>React / Vite</dd></div>
+            <div><dt>{t("本地存储", "Local store")}</dt><dd>SQLite</dd></div>
           </dl>
         </section>
         <section>
-          <h2>当前能力</h2>
+          <h2>{t("当前能力", "Active capabilities")}</h2>
           <ul className="enabled-capability-list">
             {enabled.slice(0, 5).map((capability) => <li key={capability.id}>
               <ShieldCheck aria-hidden="true" size={15} />
               <span>{capability.label}</span>
             </li>)}
-            {enabled.length === 0 && <li><SlidersHorizontal aria-hidden="true" size={15} />只读模式</li>}
+            {enabled.length === 0 && <li><SlidersHorizontal aria-hidden="true" size={15} />{t("只读模式", "Read-only mode")}</li>}
           </ul>
         </section>
       </div>
@@ -247,13 +246,24 @@ function GeneralSettings({ capabilities, desktop, health }: {
   desktop: boolean;
   health: HealthView | null;
 }) {
+  const { locale, setLocale, t } = useLocale();
   return <section className="settings-page-section">
-    <h1>常规</h1>
+    <h1>{t("常规", "General")}</h1>
+    <div className="appearance-setting-row settings-language-row">
+      <div><strong><Languages aria-hidden="true" size={16} />{t("语言", "Language")}</strong>
+        <span>{t("界面语言", "Interface language")}</span></div>
+      <div className="prayu-segmented" role="group" aria-label={t("界面语言", "Interface language")}>
+        <button aria-pressed={locale === "zh-CN"} onClick={() => setLocale("zh-CN")}
+          type="button">中文</button>
+        <button aria-pressed={locale === "en-US"} onClick={() => setLocale("en-US")}
+          type="button">English</button>
+      </div>
+    </div>
     <dl className="settings-row-list">
-      <div><dt>连接状态</dt><dd><span className="settings-online-dot" />{health?.status ?? "connecting"}</dd></div>
-      <div><dt>运行界面</dt><dd>{desktop ? "Windows Desktop" : "Web console"}</dd></div>
-      <div><dt>控制能力</dt><dd>{capabilities.filter((item) => item.enabled).length} / {capabilities.length}</dd></div>
-      <div><dt>数据边界</dt><dd>Local-first</dd></div>
+      <div><dt>{t("连接状态", "Connection")}</dt><dd><span className="settings-online-dot" />{health?.status === "ok" ? t("正常", "Ready") : t("连接中", "Connecting")}</dd></div>
+      <div><dt>{t("运行界面", "Surface")}</dt><dd>{desktop ? t("Windows 桌面端", "Windows Desktop") : t("网页控制台", "Web console")}</dd></div>
+      <div><dt>{t("控制能力", "Control capabilities")}</dt><dd>{capabilities.filter((item) => item.enabled).length} / {capabilities.length}</dd></div>
+      <div><dt>{t("数据边界", "Data boundary")}</dt><dd>{t("本地优先", "Local-first")}</dd></div>
     </dl>
   </section>;
 }
@@ -264,54 +274,57 @@ function AppearanceSettings({ density, theme, onDensityChange, onThemeChange }: 
   onDensityChange: (density: Density) => void;
   onThemeChange: (theme: PrayuTheme) => void;
 }) {
+  const { t } = useLocale();
   return <section className="settings-page-section">
-    <h1>外观</h1>
+    <h1>{t("外观", "Appearance")}</h1>
     <div className="appearance-setting-row">
-      <div><strong>外观模式</strong><span>Theme</span></div>
-      <div className="prayu-segmented appearance-theme-picker" role="group" aria-label="外观模式">
+      <div><strong>{t("外观模式", "Theme")}</strong><span>{t("颜色与材质", "Color and material")}</span></div>
+      <div className="prayu-segmented appearance-theme-picker" role="group" aria-label={t("外观模式", "Theme")}>
         <button aria-pressed={theme === "light"} onClick={() => onThemeChange("light")}
-          type="button"><Sun aria-hidden="true" size={14} />浅色</button>
+          type="button"><Sun aria-hidden="true" size={14} />{t("浅色", "Light")}</button>
         <button aria-pressed={theme === "dark"} onClick={() => onThemeChange("dark")}
-          type="button"><Moon aria-hidden="true" size={14} />深色</button>
+          type="button"><Moon aria-hidden="true" size={14} />{t("深色", "Dark")}</button>
         <button aria-pressed={theme === "glass"} onClick={() => onThemeChange("glass")}
-          type="button"><Layers3 aria-hidden="true" size={14} />透明玻璃</button>
+          type="button"><Layers3 aria-hidden="true" size={14} />{t("透明玻璃", "Glass")}</button>
       </div>
     </div>
     <div className="appearance-setting-row">
-      <div><strong>界面密度</strong><span>Workspace density</span></div>
-      <div className="prayu-segmented" role="group" aria-label="界面密度">
+      <div><strong>{t("界面密度", "Interface density")}</strong><span>{t("工作台内容间距", "Workspace spacing")}</span></div>
+      <div className="prayu-segmented" role="group" aria-label={t("界面密度", "Interface density")}>
         <button aria-pressed={density === "comfortable"}
-          onClick={() => onDensityChange("comfortable")} type="button">舒展</button>
+          onClick={() => onDensityChange("comfortable")} type="button">{t("舒展", "Comfortable")}</button>
         <button aria-pressed={density === "compact"}
-          onClick={() => onDensityChange("compact")} type="button">紧凑</button>
+          onClick={() => onDensityChange("compact")} type="button">{t("紧凑", "Compact")}</button>
       </div>
     </div>
   </section>;
 }
 
 function ShortcutSettings() {
+  const { t } = useLocale();
   return <section className="settings-page-section">
-    <h1>键盘快捷键</h1>
+    <h1>{t("键盘快捷键", "Keyboard shortcuts")}</h1>
     <dl className="shortcut-list">
-      <div><dt>打开命令面板</dt><dd><kbd>Ctrl</kbd><kbd>K</kbd></dd></div>
-      <div><dt>关闭对话框或预览</dt><dd><kbd>Esc</kbd></dd></div>
-      <div><dt>选择上一项</dt><dd><kbd>↑</kbd></dd></div>
-      <div><dt>选择下一项</dt><dd><kbd>↓</kbd></dd></div>
-      <div><dt>确认当前操作</dt><dd><kbd>Enter</kbd></dd></div>
+      <div><dt>{t("打开命令面板", "Open command palette")}</dt><dd><kbd>Ctrl</kbd><kbd>K</kbd></dd></div>
+      <div><dt>{t("关闭对话框或预览", "Close dialog or preview")}</dt><dd><kbd>Esc</kbd></dd></div>
+      <div><dt>{t("选择上一项", "Select previous item")}</dt><dd><kbd>↑</kbd></dd></div>
+      <div><dt>{t("选择下一项", "Select next item")}</dt><dd><kbd>↓</kbd></dd></div>
+      <div><dt>{t("确认当前操作", "Confirm current action")}</dt><dd><kbd>Enter</kbd></dd></div>
     </dl>
   </section>;
 }
 
 function AboutSettings({ desktop, health }: { desktop: boolean; health: HealthView | null }) {
+  const { t } = useLocale();
   return <section className="settings-page-section about-prayu">
     <PrayuBrand className="about-mark" variant="icon" />
     <h1>Prayu</h1>
-    <p>Local-first AI Agent Workbench</p>
+    <p>{t("本地优先的 AI Agent 工作台", "Local-first AI Agent Workbench")}</p>
     <dl className="settings-row-list">
-      <div><dt>应用版本</dt><dd>{health?.app_version ?? "dev"}</dd></div>
+      <div><dt>{t("应用版本", "Application version")}</dt><dd>{health?.app_version ?? "dev"}</dd></div>
       <div><dt>API 协议</dt><dd>{health?.api_version ?? "api.v1"}</dd></div>
-      <div><dt>数据库</dt><dd>schema v{health?.schema_version ?? "-"}</dd></div>
-      <div><dt>Surface</dt><dd>{desktop ? "Desktop" : "Web"}</dd></div>
+      <div><dt>{t("数据库", "Database")}</dt><dd>schema v{health?.schema_version ?? "-"}</dd></div>
+      <div><dt>{t("运行界面", "Surface")}</dt><dd>{desktop ? t("桌面端", "Desktop") : t("网页端", "Web")}</dd></div>
     </dl>
   </section>;
 }

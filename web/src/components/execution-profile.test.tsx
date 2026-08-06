@@ -5,6 +5,11 @@ import { CyberAgentClient } from "../api/client";
 import type { RunDetailView, RunExecutionProfileView } from "../api/types";
 import { ExecutionProfilePanel } from "./run-permission-settings";
 
+vi.mock("../lib/locale", () => ({
+  useLocale: () => ({ locale: "zh-CN", setLocale: () => undefined,
+    t: (chinese: string) => chinese }),
+}));
+
 function detail(profile: RunExecutionProfileView["profile"] = "preview"): RunDetailView {
   return {
     run: { id: "run-1", mission_id: "mission-1", session_id: "session-1", status: "paused",

@@ -388,6 +388,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/analyzer-executions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Execute the fixed embedded analyzer
+         * @description Consumes one bounded text value or workspace-relative regular file through the fixed embedded Rust/WASI fixture. The guest receives only bounded stdin/stdout, no filesystem, environment, network, subprocess, arbitrary module, or reusable execution authority.
+         */
+        post: operations["executeEmbeddedAnalyzer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/approvals": {
         parameters: {
             query?: never;
@@ -2281,6 +2301,40 @@ export interface components {
             /** Format: int64 */
             work_item_version: number;
         };
+        EmbeddedAnalyzerExecutionControlView: {
+            analyzer: string;
+            artifact_atomic: boolean;
+            artifact_id: string;
+            bearer_token_included: boolean;
+            capability_consumed: boolean;
+            execution_id: string;
+            filesystem_mounted: boolean;
+            host_process_authorized: boolean;
+            /** Format: int32 */
+            input_bytes: number;
+            /** Format: int32 */
+            line_count: number;
+            media_type: string;
+            metadata_only: boolean;
+            network_enabled: boolean;
+            raw_request_included: boolean;
+            replayed: boolean;
+            run_id: string;
+            session_id: string;
+            sha256: string;
+            status: string;
+            subprocess_enabled: boolean;
+            utf8: boolean;
+            version: string;
+            workspace_id: string;
+        };
+        EmbeddedAnalyzerExecutionRequestView: {
+            confirmation: string;
+            file?: string;
+            media_type?: string;
+            text?: string;
+            version: string;
+        };
         ErrorEnvelope: {
             error: components["schemas"]["APIError"];
             request_id: string;
@@ -3924,6 +3978,7 @@ export interface components {
             danger_full_access_enabled: boolean;
             debug_maximum_access_enabled: boolean;
             docker_execution_enabled: boolean;
+            embedded_analyzer_execution_enabled: boolean;
             evidence_attachment_enabled: boolean;
             execution_permission_control_enabled: boolean;
             file_edit_apply_enabled: boolean;
@@ -5600,6 +5655,48 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    executeEmbeddedAnalyzer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmbeddedAnalyzerExecutionRequestView"];
+            };
+        };
+        responses: {
+            /** @description Resource created or idempotently replayed */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["EmbeddedAnalyzerExecutionControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
             412: components["responses"]["FailedPrecondition"];
             413: components["responses"]["RequestEntityTooLarge"];

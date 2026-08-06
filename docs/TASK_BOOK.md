@@ -507,10 +507,12 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 - [x] P10-J 三切片功能门：覆盖签名链到 durable 投影、幂等重放、nonce 冲突、错误 Run/Workspace、并发 generation 胜者、终态封闭、重启恢复、v92→v93 迁移、SQL 未知/扩权字段、UPDATE/DELETE 拒绝和脱敏 Run events；没有新增 CLI/HTTP/Desktop/Tool/Skill/模型路由。
 - [x] P10-K1/K2/K3：选定 Go 内嵌 `wazero v1.12.0` Interpreter + Rust `wasm32-wasip1` 为默认 Analyzer 隔离候选；固定 256 MiB memory/16 MiB module 上限、无继承宿主状态/文件系统/网络/native process，完成真实 release fixture 的 compile-only import/export/memory 评估，以及 per-invocation runtime/module/guest、deadline、close、重试和 metadata-only recovery 所有权，见 ADR 0090。
 - [x] P10-K 三切片功能门：Analyzer 全包、聚焦 race、vet/staticcheck、module verify/tidy、Rust fmt/7+2 tests/clippy、真实 WASI release build/assessment 全绿；审计拆分 import 名称库存与签名校验，并精确限制函数导出。`InstantiateModule`、guest execution、WASI host registration、capability、Artifact 和产品路由均不存在；schema 保持 v93。本批是新六片周期前三片，未重复整仓健壮性门。
-- [ ] P10-L1/L2/L3：仅在测试符合性路径执行真实 WASI fixture，依次证明有界 stdin/stdout、deadline/cancel/close 和确定性结果校验；仍不增加产品路由。完成后累计六片并运行整仓 ordinary/race/vet/staticcheck/govulncheck/依赖/隐私/构建门。
-- [ ] Go 在未来产品桥上验证协议、退出码、超时、结果大小和 Artifact 候选后，才允许进入独立的持久化/证据切片。
+- [x] P10-L1/L2/L3 / schema v94-v95：真实内嵌 WASI fixture 已证明有界内存 stdin/stdout、deadline/cancel/runtime close 和确定性结果校验；随后新增最长五分钟、精确绑定 Run/Workspace/请求/模块、只保存摘要的一次性 capability 与原子 consume 防重放，最后把 consumption、脱敏 execution、metadata-only Artifact 和 Run events 在 schema v95 中原子提交。原定 L3 整仓门按操作者扩批要求移动到 M3 之后，L3 只运行定向功能门。
+- [x] P10-M1/M2：固定 Analyzer 经 control-token HTTP/OpenAPI、Desktop capability 和 React 面板开放，仍不接受模块/命令/argv/env/mount/network/process；桌面新增默认中文、可持久化中英文切换与现存界面文案本地化。真实模型聊天链已通过 Anthropic-compatible SSE 集成测试，覆盖 Windows 系统凭证 Registry、Harness 资格、模型路由、Run/Session、持久用户消息、Supervisor step 和 SQLite 助手消息回读。
+- [x] P10-M3：生成只启用安全操作者能力的便携启动器和中英试用说明，完成干净 `CYBERAGENT_HOME` Desktop 启动/恢复冒烟、Windows 便携包校验与操作者人工试用准备；启动器只传入 `--operator-preview`，不开放完全访问、最大 Debug、完整 CDP、Agent 持久终端或 Wake Worker。
+- [x] P10-L1 至 P10-M3 发布前累计六切片健壮性门：全仓普通 Go（显式 20 分钟包上限）610.6 秒、全仓 race 503.5 秒且零竞态，vet/staticcheck/govulncheck/module、50 文件 182 项 React、TypeScript/OpenAPI/Vite/npm、Rust fmt/7+2 tests/clippy/RustSec/WASI release、真实 Anthropic-compatible 桌面对话链连续三次、Windows 可复现构建和隔离 Desktop smoke 全绿。审计修复 Store 并发迁移账本竞态与 Analyzer 工作区文件读取 TOCTOU；当前没有已知未解决高/中风险。GitHub 托管 CI 在提交推送后独立验收。
 
-阶段验收：当前纯函数/fixture/Disabled/Fake bridge 对畸形、未来、重复、扩权、崩溃、超时、取消、错误 analyzer、未知退出和超大输入/输出均失败关闭；test-only 真实 Rust 门已固定进程树取消、TERM/KILL、孤儿清理、stderr 隐私与原子暂存恢复。最终验收仍要求产品 adapter 解决 TOCTOU-safe immutable identity、签名/来源验证、资源沙箱 enforcement、显式授权、durable recovery 和原子 Artifact 提交语义。
+阶段验收：固定内嵌 Analyzer 的真实执行、显式一次性授权、durable recovery、原子 Artifact/事件提交、产品入口和桌面对话闭环已完成；畸形、未来、重复、扩权、崩溃、超时、取消、错误 analyzer、未知退出、超大输入/输出和工作区逃逸均失败关闭。任意外部模块、宿主进程 Analyzer、挂载、网络、命令、argv 与环境仍没有入口；若未来开放，必须另行解决 TOCTOU-safe immutable identity、签名/来源验证和独立资源沙箱验收，不能继承本批固定模块的接纳结论。
 
 ## P11：CTF 与安全分析能力
 

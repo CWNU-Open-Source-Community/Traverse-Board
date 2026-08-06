@@ -4,9 +4,11 @@ import { ArrowRight, LoaderCircle } from "lucide-react";
 import { CyberAgentClient, clientCapabilitiesFromRuntime } from "../api/client";
 import { desktopBridgeAvailable, desktopErrorMessage, loadDesktopBootstrap } from "../lib/desktop-bridge";
 import { useConnectionStore } from "../state/connection";
+import { useLocale } from "../lib/locale";
 import { PrayuBrand } from "./prayu-brand";
 
 export function ConnectionGate() {
+  const { t } = useLocale();
   const [token, setToken] = useState("");
   const [controlToken, setControlToken] = useState("");
   const [error, setError] = useState("");
@@ -61,6 +63,7 @@ export function ConnectionGate() {
 		skillInstallationEnabled: bootstrap.skill_installation_enabled,
 		evidenceAttachmentEnabled: bootstrap.evidence_attachment_enabled,
 		verificationEvidenceEnabled: bootstrap.verification_evidence_enabled,
+		embeddedAnalyzerExecutionEnabled: bootstrap.embedded_analyzer_execution_enabled,
       });
     }).catch((caught: unknown) => {
       if (active) {
@@ -105,12 +108,12 @@ export function ConnectionGate() {
       <form className="connection-panel" onSubmit={submit}>
         <PrayuBrand className="connection-brand" variant="hero" />
         <div className="connection-heading">
-          <h1>连接本地控制面</h1>
+          <h1>{t("连接本地控制面", "Connect to local control plane")}</h1>
           <p>Prayu · Go API / api.v1</p>
         </div>
         {connecting && desktopBridgeAvailable() &&
-          <div className="desktop-connecting"><LoaderCircle aria-hidden="true" className="spin" size={16} />启动桌面工作台</div>}
-        <label className="field-label" htmlFor="read-token">Read bearer token</label>
+          <div className="desktop-connecting"><LoaderCircle aria-hidden="true" className="spin" size={16} />{t("启动桌面工作台", "Starting desktop workbench")}</div>}
+        <label className="field-label" htmlFor="read-token">{t("只读访问令牌", "Read bearer token")}</label>
         <div className="token-row">
           <input
             autoCapitalize="none"
@@ -129,7 +132,7 @@ export function ConnectionGate() {
           </button>
         </div>
         <label className="field-label optional-token-label" htmlFor="control-token">
-          Control bearer token <span>optional</span>
+          {t("控制访问令牌", "Control bearer token")} <span>{t("可选", "optional")}</span>
         </label>
         <input
           autoCapitalize="none"

@@ -4,6 +4,11 @@ import userEvent from "@testing-library/user-event";
 import { useConnectionStore } from "../state/connection";
 import { ConnectionGate } from "./connection-gate";
 
+vi.mock("../lib/locale", () => ({
+  useLocale: () => ({ locale: "zh-CN", setLocale: () => undefined,
+    t: (chinese: string) => chinese }),
+}));
+
 describe("ConnectionGate", () => {
   beforeEach(() => {
     useConnectionStore.getState().disconnect();
@@ -27,8 +32,8 @@ describe("ConnectionGate", () => {
     const user = userEvent.setup();
     render(<QueryClientProvider client={new QueryClient()}><ConnectionGate /></QueryClientProvider>);
 
-    const input = screen.getByLabelText("Read bearer token");
-    const controlInput = screen.getByLabelText(/Control bearer token/);
+    const input = screen.getByLabelText("只读访问令牌");
+    const controlInput = screen.getByLabelText(/控制访问令牌/);
     expect(input).toHaveAttribute("type", "password");
     expect(controlInput).toHaveAttribute("type", "password");
     await user.type(input, "ephemeral-token");
@@ -82,6 +87,7 @@ describe("ConnectionGate", () => {
       skill_installation_enabled: false,
       evidence_attachment_enabled: false,
       verification_evidence_enabled: false,
+      embedded_analyzer_execution_enabled: false,
       user_terminal_enabled: false,
       agent_terminal_input_default: false,
       workspace_open_enabled: false,
@@ -124,7 +130,7 @@ function runtimeCapabilities() {
     run_wake_control_enabled: true, run_wake_execution_enabled: true,
     run_wake_worker_enabled: false, skill_installation_enabled: true,
     evidence_attachment_enabled: true, process_execution_enabled: false,
-    verification_evidence_enabled: true,
+    verification_evidence_enabled: true, embedded_analyzer_execution_enabled: true,
     shell_execution_enabled: false, docker_execution_enabled: false,
     wake_worker: { protocol_version: "run_wake_worker_health.v1", enabled: false,
       state: "disabled", active: false, poll_interval_ms: 0, concurrency: 1,
