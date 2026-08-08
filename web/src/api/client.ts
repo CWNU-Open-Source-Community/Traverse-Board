@@ -31,6 +31,7 @@ import type {
   ModelRouteControlRequestView,
   ModelCancellationRequestView,
   ModelCancellationView,
+  PublicModelStreamSnapshot,
   SpecialistModelCancellationView,
   NoteView,
   OperationReceiptView,
@@ -376,6 +377,35 @@ function parseModelCancellation(value: unknown, expectedRunID: string,
     throw new APIRequestError("Model cancellation response is invalid", "INVALID_RESPONSE", 502);
   }
   return value as unknown as ModelCancellationView;
+}
+
+function parsePublicModelStream(value: unknown,
+  expectedRunID: string): PublicModelStreamSnapshot {
+  const callKeys = ["attempt_id", "cancel_requested", "max_attempts", "model",
+    "model_attempt", "protocol_repair", "provider", "run_id", "session_id",
+    "started_at", "stream_bytes", "stream_chunks", "tool_round", "transport_attempt"];
+  if (!hasExactKeys(value, ["call", "message_complete", "provisional", "revision",
+    "text", "updated_at", "version"]) ||
+    value.version !== "model_public_stream.v1" || value.provisional !== true ||
+    typeof value.message_complete !== "boolean" || !safePositiveInteger(value.revision) ||
+    typeof value.text !== "string" ||
+    new TextEncoder().encode(value.text).byteLength > 64 * 1024 ||
+    !validDate(value.updated_at) || !hasExactKeys(value.call, callKeys)) {
+    throw new APIRequestError("Public model stream response is invalid", "INVALID_RESPONSE", 502);
+  }
+  const call = value.call;
+  if (call.run_id !== expectedRunID || !boundedIdentity(call.run_id) ||
+    !boundedIdentity(call.session_id) || !boundedIdentity(call.attempt_id) ||
+    !boundedIdentity(call.provider) || !boundedIdentity(call.model) ||
+    !safePositiveInteger(call.model_attempt) || !safePositiveInteger(call.transport_attempt) ||
+    !safePositiveInteger(call.max_attempts) || call.transport_attempt > call.max_attempts ||
+    !safeBoundedCount(call.protocol_repair, 1) || !safeBoundedCount(call.tool_round, 4) ||
+    !safeBoundedCount(call.stream_chunks, 64 * 1024) ||
+    !safeBoundedCount(call.stream_bytes, 64 * 1024) ||
+    typeof call.cancel_requested !== "boolean" || !validDate(call.started_at)) {
+    throw new APIRequestError("Public model stream binding is invalid", "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as PublicModelStreamSnapshot;
 }
 
 function parseSpecialistModelCancellation(value: unknown, expectedRunID: string,
@@ -3832,6 +3862,18 @@ export class CyberAgentClient {
       `/runs/${encodeURIComponent(runID)}/execute`, body, idempotencyKey, signal,
     );
     return parseRunExecutionControl(result, runID, body);
+  }
+
+  async getPublicModelStream(runID: string,
+    signal?: AbortSignal): Promise<PublicModelStreamSnapshot> {
+    const normalizedRunID = boundedIdentity(runID);
+    if (!normalizedRunID || normalizedRunID !== runID) {
+      throw new Error("A normalized Run identity is required");
+    }
+    const result = await this.get<unknown>(
+      `/runs/${encodeURIComponent(runID)}/active-call`, {}, signal,
+    );
+    return parsePublicModelStream(result, runID);
   }
 
   async cancelModelCall(runID: string, body: ModelCancellationRequestView,

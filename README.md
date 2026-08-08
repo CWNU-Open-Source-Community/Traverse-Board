@@ -11,12 +11,12 @@
 项目从 schema v49 起同时使用两项工程指标，避免把“架构已经搭好”误解为“产品已经完整可用”。这些百分比是基于当前任务书和可验证工作流的工程估算，不是性能基准。
 
 - **架构完成度 / Architecture completion：约 99%**。衡量 Go 控制平面、Run/Session、状态恢复、Policy、审批、预算、事件流、Tool Gateway、Agent 协调、Skills、报告、Sandbox 协议及 Go/TypeScript/Rust 边界的覆盖程度；其中 V2 Run-centric Runtime 约 99%。当前 schema v95：v94 为固定内嵌 Analyzer 增加最长五分钟、精确绑定且只保存摘要的一次性 capability 与原子 consume；v95 把脱敏 execution、metadata-only Artifact 和 Run events 原子提交。Rust/WASI 现在可由 Go 在无文件系统、网络、子进程和 native process 权限的固定边界内真实执行，但不能加载任意模块。
-- **产品可用度 / Product usability：约 98%**。衡量普通用户能否依靠当前 CLI、TUI、Web 和 Windows Desktop 完成真实端到端工作。通用 Coding Agent 工作流约 98%，Cyber 自动化工作流约 20%；安全操作者预览已覆盖 Provider 系统凭证、真实 Harness 验证、模型路由、Run/Session 对话、审批、文件提案和固定内嵌分析器。完全 Debug Agent 输入、独立浏览器网络隔离、Docker 持久终端、可操作的内置浏览器窗口、安装脚本/钩子、代码签名/安装包、Windows 10 人工发布矩阵和 Cyber 工具链仍未完成。
+- **产品可用度 / Product usability：约 98%**。衡量普通用户能否依靠当前 CLI、TUI、Web 和 Windows Desktop 完成真实端到端工作。通用 Coding Agent 工作流约 98%，Cyber 自动化工作流约 20%；安全操作者预览已覆盖 Provider 系统凭证、真实 Harness 验证、模型路由、Run/Session 对话、公开助手增量流、精确取消、审批、文件提案和固定内嵌分析器。增量流不是私有思维链：原始 Provider JSON、thinking、Prompt、工具参数和工具输出不会进入公开投影或 SQLite。完全 Debug Agent 输入、独立浏览器网络隔离、Docker 持久终端、可操作的内置浏览器窗口、安装脚本/钩子、代码签名/安装包、Windows 10 人工发布矩阵和 Cyber 工具链仍未完成。
 
 Starting with schema v49, the project reports two engineering indicators so architectural maturity is not mistaken for end-user completeness. These percentages are roadmap estimates backed by tested workflows, not performance benchmarks.
 
 - **Architecture completion: about 99%.** Schema v94 adds a maximum-five-minute, exact-bound, digest-only, one-shot capability with atomic consumption for the fixed embedded Analyzer. Schema v95 atomically commits its redacted execution, metadata-only Artifact, and Run events. Go now executes the pinned Rust/WASI module inside a filesystem-free, network-free, subprocess-free, native-process-free boundary; callers cannot load arbitrary modules.
-- **Product usability: about 98%.** The generic coding-agent workflow is about 98% usable and Cyber automation about 20%. Safe operator preview covers OS-owned Provider credentials, real Harness qualification, model routing, durable Run/Session chat, approvals, file proposals, and the fixed embedded Analyzer. Maximum Debug Agent input, independent browser network containment, Docker terminals, an operational built-in browser, install hooks, code signing/installers, the manual Windows 10 matrix, and the Cyber toolchain remain unfinished.
+- **Product usability: about 98%.** The generic coding-agent workflow is about 98% usable and Cyber automation about 20%. Safe operator preview covers OS-owned Provider credentials, real Harness qualification, model routing, durable Run/Session chat, safe public assistant streaming, exact cancellation, approvals, file proposals, and the fixed embedded Analyzer. The stream is not private chain-of-thought: raw provider JSON, thinking, prompts, tool arguments, and tool output never enter the public projection or SQLite. Maximum Debug Agent input, independent browser network containment, Docker terminals, an operational built-in browser, install hooks, code signing/installers, the manual Windows 10 matrix, and the Cyber toolchain remain unfinished.
 
 ## 项目简介 / Project Overview
 
@@ -436,6 +436,7 @@ The table below is the canonical chronological schema history. It includes every
 | P12-C1-C3 / schema v88 | 四档权限快照、CLI/API/Desktop/React 选择、进程启动闸门及统一执行授权判定 | four permission snapshots, CLI/API/Desktop/React selection, process startup gates, and unified execution authorization |
 | P12-D1-D3 / schema v89 | Agent 固定命令提案、独立人工审批、一次性受控执行与不可信结果回送 | Agent fixed-command proposals, independent operator review, one-shot restricted execution, and untrusted result projection |
 | P13-A1-A3 | 模型公开进度与 Harness 可验证活动时间线，不展示私有思维链 | public model updates and verifiable Harness activity without private chain-of-thought |
+| P13-B1-B3 | 进程内安全助手增量流、桌面重连/取消收敛及真实 DeepSeek 端到端验证 | process-local safe assistant streaming, Desktop reconnect/cancel convergence, and real DeepSeek end-to-end verification |
 | P12-E1 | 与 v89 分离的任意一次性命令提案和独立审阅合同 | separate arbitrary one-shot proposal and independent-review contracts |
 | P12-E2 / schema v90 | 双确认、非沙箱、操作者专用的 Windows 一次性宿主执行器 | dual-confirmed, non-sandboxed, operator-only Windows one-shot host executor |
 | P12-E3 | Go-only Debug 终端 Agent 输入短租约、审计与撤销控制器 | Go-only short-lived Debug terminal Agent-input controller with audit and revocation |

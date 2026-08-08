@@ -2371,6 +2371,42 @@ body { background: transparent; }
 .session-composer-state { min-width: 0; }
 .session-composer-state .byte-count { color: #8c8074; font-size: 9px; }
 
+.public-model-stream {
+  width: min(860px, calc(100% - 64px));
+  margin: 18px auto 0;
+  padding: 12px 14px;
+  border: 1px solid rgb(92 68 44 / 20%);
+  border-radius: 8px;
+  color: #40372f;
+  background: rgb(255 250 240 / 78%);
+  box-shadow: 0 8px 24px rgb(66 46 28 / 8%);
+}
+.public-model-stream header,
+.public-model-stream header > div,
+.public-model-stream footer { display: flex; align-items: center; gap: 8px; }
+.public-model-stream header { justify-content: space-between; }
+.public-model-stream header strong { font-size: 12px; font-weight: 600; }
+.public-model-stream header span,
+.public-model-stream footer { color: #817469; font-size: 10px; }
+.public-model-stream-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: #168f82;
+  box-shadow: 0 0 0 3px rgb(22 143 130 / 12%);
+}
+.public-model-stream p {
+  min-height: 21px;
+  margin: 10px 0 8px;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+.public-model-stream footer { flex-wrap: wrap; justify-content: space-between; }
+.public-model-stream .connection-error { color: #9b2c2c; }
+
 .workspace-attachment-dialog {
   width: min(980px, calc(100vw - 48px));
   height: min(720px, calc(100dvh - 48px));
@@ -2478,6 +2514,7 @@ body { background: transparent; }
   .reasoning-picker { display: none; }
   .composer-model-button { max-width: 132px; }
   .prayu-shell .session-composer { width: calc(100% - 24px); }
+  .public-model-stream { width: calc(100% - 24px); }
   .utility-workspace { padding: 20px 16px; }
   .model-control-workspace > header,
   .model-control-workspace .model-availability-body { padding-right: 16px; padding-left: 16px; }

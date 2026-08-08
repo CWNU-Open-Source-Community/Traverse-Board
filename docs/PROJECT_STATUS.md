@@ -1,8 +1,39 @@
 # Project Status
 
-Last updated: 2026-08-08
+Last updated: 2026-08-09
 
 ## Resume Context
+
+The current mainline checkpoint is P13-B1 through P13-B3 at schema v95. B1
+adds a process-local `model_public_stream.v1` snapshot that exposes only the
+safe public prefix of the top-level `root_lifecycle.v1.message`. It rejects or
+withholds unknown, duplicate, nested, fenced, invalid, Policy-denied, and
+secret-bearing content. Raw Provider JSON, thinking, prompts, and Tool payloads
+are neither projected nor persisted.
+
+B2 adds authenticated exact-Run `GET /api/v1/runs/{run_id}/active-call` and a
+Desktop provisional assistant panel. Full snapshots replace by monotonic
+revision; stale snapshots are ignored; transient failures reconnect; 404
+transitions from waiting to finalizing; cancellation uses the exact active
+attempt binding. The durable Session/activity message remains canonical.
+
+B3 verified the configured real `deepseek/deepseek-v4-flash` route through one
+isolated Run: five streaming events, one strict root repair, 771 tokens, no
+tool round or call, Run completion, and exact Session assistant persistence.
+Focused affected-package tests, vet, 189 React assertions across 51 files,
+strict TypeScript, deterministic 85-path/93-operation/207-schema OpenAPI, Vite
+production build, and Desktop packaging pass. This is the first half of the
+new six-slice cycle, so the full repository/race/WFP gate is intentionally not
+repeated. ADR 0092 defines the privacy and convergence boundary.
+
+The slice review fixed an overly narrow Web `stream_chunks` ceiling, removed
+completed-delay abort-listener retention, and bounded Go cumulative JSON
+preview scans to each 64 bytes while forcing the final sub-threshold tail.
+Focused regression tests cover all three; no second paid Provider call was
+made.
+
+Do not reimplement P13-B1/B2 or repeat its real paid-provider call after
+compaction. The next batch should begin after P13-B3.
 
 The first operator acceptance pass after P10-M found and fixed three concrete
 Desktop blockers. `OpenControlPlane` now registers a Go-owned `default`
@@ -21,7 +52,7 @@ two-call ToolCall/ToolResult/strict-JSON/streaming qualification with
 in the local Windows credential store and was not network-tested. No secret,
 prompt, raw response, or tool payload was projected into public diagnostics.
 
-The current mainline checkpoint is the P10-L1 through P10-M3 six-slice batch at
+The previous release checkpoint is the P10-L1 through P10-M3 six-slice batch at
 schema v95. L1 executes the exact embedded Rust/WASI fixture inside a fresh
 wazero Interpreter with bounded memory stdio, deadline/cancellation close,
 deterministic validation, and no filesystem, network, subprocess, or native
@@ -40,8 +71,7 @@ guide, isolated-home Desktop smoke, and reproducible portable package. The
 cumulative robustness gate was moved from L3 to after M3 and is now complete.
 
 Do not repeat P10-L1 through P10-M3, their full local release gate, or the
-WFP/C8C path after compaction. At this checkpoint only documentation closeout,
-direct-main commit/push, and hosted CI confirmation remain for this batch.
+WFP/C8C path after compaction.
 
 The post-M3 gate passed full ordinary Go in 610.6 seconds with an explicit
 20-minute package timeout, full race in 503.5 seconds with zero races, vet,

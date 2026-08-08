@@ -78,6 +78,19 @@ const modelCancellationData = {
   status: "pending", requested_at: "2026-07-18T00:00:00Z", replayed: false,
 };
 
+const publicModelStreamData = {
+  version: "model_public_stream.v1",
+  call: {
+    run_id: "run-1", session_id: "sess-1", attempt_id: "attempt-1",
+    model_attempt: 1, transport_attempt: 1, max_attempts: 3, protocol_repair: 0,
+    tool_round: 0, provider: "deepseek", model: "deepseek-chat",
+    started_at: "2026-08-08T00:00:00Z", stream_chunks: 2, stream_bytes: 64,
+    cancel_requested: false,
+  },
+  revision: 3, text: "A safe provisional answer", message_complete: false,
+  provisional: true, updated_at: "2026-08-08T00:00:01Z",
+};
+
 const specialistModelCancellationData = {
   id: "cancel-agent-1", run_id: "run-1", agent_id: "agent-1", attempt_id: "attempt-2",
   model_attempt: 2, status: "observed", requested_at: "2026-07-18T00:00:00Z", replayed: false,
@@ -568,6 +581,47 @@ describe("CyberAgentClient", () => {
       attempt_id: "attempt-1", model_attempt: 1, reason: "operator halt",
     }));
     expect(String(init.body)).not.toContain("control-secret");
+  });
+
+  it("reads an exact Run-bound public model stream with the read bearer", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-public-stream", data: publicModelStreamData,
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1");
+
+    await expect(client.getPublicModelStream("run-1")).resolves.toEqual(publicModelStreamData);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/runs/run-1/active-call");
+    expect(init.headers).toMatchObject({ Authorization: "Bearer read-secret" });
+  });
+
+  it("accepts more than 32 provider chunks within the bounded output size", async () => {
+    const data = { ...publicModelStreamData,
+      call: { ...publicModelStreamData.call, stream_chunks: 128, stream_bytes: 128 } };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-public-stream-many-chunks", data,
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    const client = new CyberAgentClient("read-secret", "/api/v1");
+
+    await expect(client.getPublicModelStream("run-1")).resolves.toEqual(data);
+  });
+
+  it("rejects widened or cross-Run public model stream snapshots", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-public-stream-widened",
+        data: { ...publicModelStreamData, raw_output: "private" },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-public-stream-cross-run",
+        data: { ...publicModelStreamData,
+          call: { ...publicModelStreamData.call, run_id: "run-other" } },
+      }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    const client = new CyberAgentClient("read-secret", "/api/v1");
+
+    await expect(client.getPublicModelStream("run-1")).rejects.toThrow("invalid");
+    await expect(client.getPublicModelStream("run-1")).rejects.toThrow("invalid");
   });
 
   it("cancels a Specialist model call on its nested agent path", async () => {

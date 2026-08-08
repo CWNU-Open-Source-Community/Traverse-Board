@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
@@ -16,6 +17,8 @@ import (
 )
 
 const ActiveCallEnvelopeVersion = "v1"
+
+const PublicModelStreamVersion = "model_public_stream.v1"
 
 const activeCallSubscriberBuffer = 32
 
@@ -45,6 +48,31 @@ type ActiveCallInfo struct {
 	StreamChunks     int       `json:"stream_chunks"`
 	StreamBytes      int       `json:"stream_bytes"`
 	CancelRequested  bool      `json:"cancel_requested"`
+}
+
+// PublicModelStreamSnapshot is a process-local, provisional view of the safe
+// root assistant message. It is never written to the event store.
+type PublicModelStreamSnapshot struct {
+	Version         string         `json:"version"`
+	Call            ActiveCallInfo `json:"call"`
+	Revision        int64          `json:"revision"`
+	Text            string         `json:"text"`
+	MessageComplete bool           `json:"message_complete"`
+	Provisional     bool           `json:"provisional"`
+	UpdatedAt       time.Time      `json:"updated_at"`
+}
+
+func (s PublicModelStreamSnapshot) Validate() error {
+	if s.Version != PublicModelStreamVersion || s.Revision <= 0 || s.UpdatedAt.IsZero() || !s.Provisional {
+		return errors.New("public model stream envelope is invalid")
+	}
+	if err := s.Call.Validate(); err != nil {
+		return err
+	}
+	if len(s.Text) > llm.MaxModelOutputBytes || !utf8.ValidString(s.Text) {
+		return errors.New("public model stream text is invalid")
+	}
+	return nil
 }
 
 func (i ActiveCallInfo) Validate() error {
@@ -170,14 +198,18 @@ type activeCallKey struct {
 }
 
 type activeCallEntry struct {
-	key         activeCallKey
-	checkpoint  domain.SupervisorCheckpoint
-	attempt     llm.ModelAttempt
-	info        ActiveCallInfo
-	cancel      context.CancelFunc
-	started     bool
-	sequence    int64
-	subscribers map[uint64]*activeCallSubscriber
+	key             activeCallKey
+	checkpoint      domain.SupervisorCheckpoint
+	attempt         llm.ModelAttempt
+	info            ActiveCallInfo
+	cancel          context.CancelFunc
+	started         bool
+	sequence        int64
+	publicRevision  int64
+	publicText      string
+	publicComplete  bool
+	publicUpdatedAt time.Time
+	subscribers     map[uint64]*activeCallSubscriber
 }
 
 type activeCallSubscriber struct {
@@ -223,6 +255,20 @@ func (r *ActiveCallRegistry) Lookup(runID string) (ActiveCallInfo, bool) {
 		return ActiveCallInfo{}, false
 	}
 	return entry.info, true
+}
+
+func (r *ActiveCallRegistry) LookupPublic(runID string) (PublicModelStreamSnapshot, bool) {
+	if r == nil {
+		return PublicModelStreamSnapshot{}, false
+	}
+	runID = strings.TrimSpace(runID)
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	entry, ok := r.calls[runID]
+	if !ok || !entry.started || entry.publicRevision <= 0 {
+		return PublicModelStreamSnapshot{}, false
+	}
+	return publicModelStreamSnapshot(entry), true
 }
 
 func (r *ActiveCallRegistry) LookupSession(sessionID string) (ActiveCallInfo, bool) {
@@ -358,9 +404,37 @@ func (l *activeCallLease) Activate() error {
 		return nil
 	}
 	entry.started = true
-	entry.info.StartedAt = time.Now().UTC()
+	now := time.Now().UTC()
+	entry.info.StartedAt = now
+	entry.publicRevision = 1
+	entry.publicUpdatedAt = now
 	entry.sequence++
 	r.publishLocked(entry, activeCallEvent(entry, ActiveCallStartedEvent, 0, ""))
+	return nil
+}
+
+func (l *activeCallLease) PublishPublicPreview(text string, complete bool) error {
+	if l == nil || l.registry == nil || l.entry == nil {
+		return apperror.New(apperror.CodeFailedPrecondition, "active call lease is required")
+	}
+	text = redact.String(text)
+	if len(text) > llm.MaxModelOutputBytes || !utf8.ValidString(text) {
+		return apperror.New(apperror.CodeInvalidArgument, "public model preview is invalid")
+	}
+	r := l.registry
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, ok := r.calls[l.key.runID]
+	if !ok || entry != l.entry || entry.key != l.key || !entry.started {
+		return apperror.New(apperror.CodeConflict, "active model call is no longer registered")
+	}
+	if entry.publicText == text && entry.publicComplete == complete {
+		return nil
+	}
+	entry.publicText = text
+	entry.publicComplete = complete
+	entry.publicRevision++
+	entry.publicUpdatedAt = time.Now().UTC()
 	return nil
 }
 
@@ -542,6 +616,15 @@ func activeCallEvent(entry *activeCallEntry, eventType ActiveCallEventType, delt
 	}
 }
 
+func publicModelStreamSnapshot(entry *activeCallEntry) PublicModelStreamSnapshot {
+	return PublicModelStreamSnapshot{
+		Version: PublicModelStreamVersion, Call: entry.info,
+		Revision: entry.publicRevision, Text: entry.publicText,
+		MessageComplete: entry.publicComplete, Provisional: true,
+		UpdatedAt: entry.publicUpdatedAt,
+	}
+}
+
 func sanitizeActiveCallReason(reason string) string {
 	reason = redact.String(strings.TrimSpace(reason))
 	if reason == "" {
@@ -559,6 +642,13 @@ func (s *RunSupervisor) ActiveCall(runID string) (ActiveCallInfo, bool) {
 		return ActiveCallInfo{}, false
 	}
 	return s.activeCalls.Lookup(runID)
+}
+
+func (s *RunSupervisor) PublicModelStream(runID string) (PublicModelStreamSnapshot, bool) {
+	if s == nil || s.activeCalls == nil {
+		return PublicModelStreamSnapshot{}, false
+	}
+	return s.activeCalls.LookupPublic(runID)
 }
 
 func (s *RunSupervisor) ActiveCallForSession(sessionID string) (ActiveCallInfo, bool) {

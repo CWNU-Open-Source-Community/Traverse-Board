@@ -308,6 +308,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/active-call": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect the active safe model preview
+         * @description Returns one process-local, provisional snapshot extracted only from the root lifecycle message field after streaming redaction and Policy checks. The snapshot never persists raw provider output, prompts, tool arguments, hidden reasoning, or partial sensitive tails, and disappears when the active call ends.
+         */
+        get: operations["getPublicModelStream"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/active-call/cancel": {
         parameters: {
             query?: never;
@@ -1723,6 +1743,30 @@ export interface components {
         APIError: {
             code: string;
             message: string;
+        };
+        ActiveCallInfo: {
+            attempt_id: string;
+            cancel_requested: boolean;
+            /** Format: int32 */
+            max_attempts: number;
+            model: string;
+            /** Format: int32 */
+            model_attempt: number;
+            /** Format: int32 */
+            protocol_repair: number;
+            provider: string;
+            run_id: string;
+            session_id: string;
+            /** Format: date-time */
+            started_at: string;
+            /** Format: int32 */
+            stream_bytes: number;
+            /** Format: int32 */
+            stream_chunks: number;
+            /** Format: int32 */
+            tool_round: number;
+            /** Format: int32 */
+            transport_attempt: number;
         };
         AgentCompletionView: {
             attempt_id: string;
@@ -3176,6 +3220,17 @@ export interface components {
             /** @enum {string} */
             status: "reachable" | "unreachable";
             tool_called: boolean;
+        };
+        PublicModelStreamSnapshot: {
+            call: components["schemas"]["ActiveCallInfo"];
+            message_complete: boolean;
+            provisional: boolean;
+            /** Format: int64 */
+            revision: number;
+            text: string;
+            /** Format: date-time */
+            updated_at: string;
+            version: string;
         };
         RepositoryChangeView: {
             path: string;
@@ -5482,6 +5537,41 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["RunDetailView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getPublicModelStream: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PublicModelStreamSnapshot"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";

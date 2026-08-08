@@ -242,6 +242,7 @@ type Config struct {
 	BrowserCDPPermissionCapabilities        domain.BrowserCDPPermissionRuntimeCapabilities
 	RunLifecycleController                  RunLifecycleController
 	RunExecutionController                  RunExecutionController
+	PublicModelStreamSource                 PublicModelStreamSource
 	PlanDeliveryController                  PlanDeliveryController
 	ApprovalController                      ApprovalController
 	ControlledCommandProposalController     ControlledCommandProposalController
@@ -292,6 +293,7 @@ type API struct {
 	browserCDPPermissionCapabilities        domain.BrowserCDPPermissionRuntimeCapabilities
 	runLifecycleController                  RunLifecycleController
 	runExecutionController                  RunExecutionController
+	publicModelStreamSource                 PublicModelStreamSource
 	planDeliveryController                  PlanDeliveryController
 	approvalController                      ApprovalController
 	controlledCommandProposalController     ControlledCommandProposalController
@@ -488,6 +490,7 @@ func New(store Store, config Config) (*API, error) {
 		browserCDPPermissionCapabilities:    config.BrowserCDPPermissionCapabilities,
 		runLifecycleController:              config.RunLifecycleController,
 		runExecutionController:              config.RunExecutionController,
+		publicModelStreamSource:             config.PublicModelStreamSource,
 		planDeliveryController:              config.PlanDeliveryController,
 		approvalController:                  config.ApprovalController,
 		controlledCommandProposalController: config.ControlledCommandProposalController,
@@ -785,6 +788,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 			return
 		}
 		a.serveRunEventPoll(tracked, request, requestID, runID)
+		return
+	}
+	if runID, matched := matchPublicModelStreamPath(request.URL.Path); matched {
+		a.servePublicModelStream(tracked, request, requestID, runID)
 		return
 	}
 	data, page, err := a.route(request)

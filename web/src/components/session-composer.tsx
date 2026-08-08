@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CircleX, LoaderCircle, SendHorizontal } from "lucide-react";
+import { CircleX, LoaderCircle, SendHorizontal, Square } from "lucide-react";
 import type { CyberAgentClient } from "../api/client";
 import type { RunView, SessionMessageControlRequestView,
   SessionMessageControlView, OperatorSteeringQueueView,
@@ -10,6 +10,7 @@ import { AgentComposerControls } from "./agent-composer-controls";
 import { WorkspaceAttachmentDialog } from "./workspace-attachment-dialog";
 import { useLocale } from "../lib/locale";
 import { submitComposerOnEnter } from "../lib/composer-keyboard";
+import { usePublicModelStream } from "../hooks/use-public-model-stream";
 
 const maximumContentBytes = 16 * 1024;
 
@@ -45,7 +46,6 @@ export function SessionSteeringQueue({ client, sessionID, state }: {
       void queryClient.invalidateQueries({ queryKey: ["session", sessionID] });
     },
   });
-
   if (!client.hasSessionSteeringControl || !state) {
     return null;
   }
@@ -141,6 +141,28 @@ export function SessionComposer({ client, sessionID, run, workspaceID = "", cont
       void queryClient.invalidateQueries({ queryKey: ["events"] });
     },
   });
+  const publicStream = usePublicModelStream(client, run?.id ?? "",
+    Boolean(run && mutation.isPending && client.hasRunExecution));
+  const cancelKeys = useRef(new Map<string, string>());
+  const cancelMutation = useMutation({
+    mutationFn: async () => {
+      const snapshot = publicStream.snapshot;
+      if (!snapshot || !run) {
+        throw new Error(t("当前没有可取消的模型调用", "No model call is available to cancel"));
+      }
+      const fingerprint = `${snapshot.call.attempt_id}:${snapshot.call.model_attempt}`;
+      let key = cancelKeys.current.get(fingerprint);
+      if (!key) {
+        key = `web-run-cancel-call-${globalThis.crypto.randomUUID()}`;
+        cancelKeys.current.set(fingerprint, key);
+      }
+      return client.cancelModelCall(run.id, {
+        attempt_id: snapshot.call.attempt_id,
+        model_attempt: snapshot.call.model_attempt,
+        reason: "operator stopped provisional model response",
+      }, key);
+    },
+  });
 
   if (!client.hasSessionMessages || !run) {
     return null;
@@ -183,6 +205,34 @@ export function SessionComposer({ client, sessionID, run, workspaceID = "", cont
   };
 
   return <>
+    {mutation.isPending && <section aria-label={t("临时模型回复", "Provisional model reply")}
+      aria-live="polite" className="public-model-stream">
+      <header>
+        <div><span className="public-model-stream-dot" />
+          <strong>{t("模型公开回复", "Public model reply")}</strong>
+          {publicStream.snapshot && <span>{publicStream.snapshot.call.provider} / {publicStream.snapshot.call.model}</span>}
+        </div>
+        {publicStream.snapshot && client.hasControl &&
+          <button className="compact-command danger" disabled={cancelMutation.isPending ||
+            publicStream.snapshot.call.cancel_requested} onClick={() => cancelMutation.mutate()}
+            type="button">
+            {cancelMutation.isPending ? <LoaderCircle aria-hidden="true" className="spin" size={14} /> :
+              <Square aria-hidden="true" size={13} />}
+            {publicStream.snapshot.call.cancel_requested
+              ? t("正在停止", "Stopping") : t("停止", "Stop")}
+          </button>}
+      </header>
+      <p>{publicStream.snapshot?.text || (publicStream.status === "reconnecting"
+        ? t("连接中断，正在重新连接…", "Connection interrupted, reconnecting…")
+        : t("正在等待模型输出…", "Waiting for model output…"))}</p>
+      <footer>
+        <span>{publicStream.snapshot?.message_complete || publicStream.status === "finalizing"
+          ? t("正在验证并提交回复", "Validating and committing reply")
+          : t("临时内容，完成验证前不会写入历史", "Provisional; not stored before validation")}</span>
+        {publicStream.error && <span className="connection-error">{publicStream.error}</span>}
+        {cancelMutation.isError && <span className="connection-error">{errorMessage(cancelMutation.error)}</span>}
+      </footer>
+    </section>}
     <form className="session-composer" onSubmit={submit}>
       <textarea aria-label={t("Session 消息", "Session message")} autoComplete="off"
         disabled={!mutable || mutation.isPending} onChange={(event) => changeContent(event.target.value)}

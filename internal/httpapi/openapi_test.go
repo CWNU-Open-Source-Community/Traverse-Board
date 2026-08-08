@@ -453,6 +453,19 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	executionController := application.NewRunExecutionHandoffService(
 		fixture.store, llm.NewDefaultRouter(), policy.NewDefaultChecker())
 	fixture.api.runExecutionController = executionController
+	now := time.Now().UTC()
+	fixture.api.publicModelStreamSource = staticPublicModelStreamSource{found: true,
+		snapshot: application.PublicModelStreamSnapshot{
+			Version: application.PublicModelStreamVersion,
+			Call: application.ActiveCallInfo{
+				RunID: fixture.run.ID, SessionID: fixture.run.SessionID,
+				AttemptID: "openapi-public-stream-attempt", ModelAttempt: 1,
+				TransportAttempt: 1, MaxAttempts: 1, Provider: "mock", Model: "mock-code",
+				StartedAt: now,
+			},
+			Revision: 1, Text: "OpenAPI public model stream", Provisional: true,
+			UpdatedAt: now,
+		}}
 	fixture.api.planDeliveryController = application.NewPlanDeliveryControlService(fixture.store)
 	fixture.api.approvalController = application.NewApprovalControlService(fixture.store,
 		gateway, checker)

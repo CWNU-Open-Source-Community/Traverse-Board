@@ -256,6 +256,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		EmbeddedAnalyzerExecutionEnabled:        config.EmbeddedAnalyzerExecutionEnabled,
 		RunLifecycleController:                  lifecycleControl,
 		RunExecutionController:                  executionControl,
+		PublicModelStreamSource:                 executionControl,
 		PlanDeliveryController:                  planDeliveryControl,
 		ApprovalController:                      approvalControl,
 		ControlledCommandProposalController:     controlledCommandProposals,

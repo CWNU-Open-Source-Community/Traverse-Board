@@ -2,6 +2,7 @@ package application
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -26,6 +27,10 @@ func parseRootAction(raw string) (domain.RootAction, error) {
 	if raw == "" {
 		return domain.RootAction{}, apperror.New(apperror.CodeFailedPrecondition, "provider returned an empty root lifecycle action")
 	}
+	if err := rejectDuplicateRootActionFields(raw); err != nil {
+		return domain.RootAction{}, apperror.Wrap(apperror.CodeFailedPrecondition,
+			"provider returned invalid root lifecycle JSON", err)
+	}
 	decoder := json.NewDecoder(strings.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	var action domain.RootAction
@@ -47,6 +52,41 @@ func parseRootAction(raw string) (domain.RootAction, error) {
 		return domain.RootAction{}, apperror.Wrap(apperror.CodeFailedPrecondition, "provider returned an invalid root lifecycle action", err)
 	}
 	return action, nil
+}
+
+func rejectDuplicateRootActionFields(raw string) error {
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	opening, ok := token.(json.Delim)
+	if !ok || opening != '{' {
+		return errors.New("root lifecycle action must be a JSON object")
+	}
+	seen := map[string]struct{}{}
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		key, ok := keyToken.(string)
+		if !ok {
+			return errors.New("root lifecycle field name must be a string")
+		}
+		if _, duplicate := seen[key]; duplicate {
+			return fmt.Errorf("duplicate root lifecycle field %q", key)
+		}
+		seen[key] = struct{}{}
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil {
+			return err
+		}
+	}
+	if _, err := decoder.Token(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func redactRootAction(action domain.RootAction) domain.RootAction {

@@ -1,8 +1,44 @@
 # Prayu Project Memory
 
-Last updated: 2026-08-08
+Last updated: 2026-08-09
 
-## Current Checkpoint: P10-L1 through P10-M3 / Schema v95
+## Current Checkpoint: P13-B1 through P13-B3 / Schema v95
+
+P13-B1 adds `model_public_stream.v1`, a process-local replaceable snapshot of
+only the safe public `root_lifecycle.v1.message` prefix. The Go parser accepts
+top-level string fields only and withholds content until version/action are
+valid. Unknown, duplicate, nested, fenced, invalid UTF-8/escape, Policy-denied,
+or secret-bearing content fails closed. Raw Provider JSON remains in worker
+memory; provisional text never enters SQLite, Run events, or later model
+context. The final validated Session message remains canonical.
+
+P13-B2 exposes that snapshot through authenticated exact-Run
+`GET /api/v1/runs/{run_id}/active-call`. Desktop polls only during an active
+execution, replaces complete snapshots by monotonic revision, ignores stale
+responses, retains the last safe text while the durable result finalizes, and
+uses the returned attempt identifiers for idempotent cancellation. A restart
+does not restore provisional text. This is public assistant prose, not private
+chain-of-thought, provider thinking, hidden Prompt, or Tool payload. ADR 0092
+is authoritative.
+
+P13-B3 exercised the configured real `deepseek/deepseek-v4-flash` route. An
+isolated Run received five streaming events, performed one strict root repair,
+used 771 tokens, invoked no tools, completed, and persisted the final assistant
+message to its exact Session. No credential or raw provider payload was copied
+into documentation. Focused Go application/HTTP tests, vet, 51 Web files with
+189 assertions, strict TypeScript, deterministic OpenAPI (85 paths / 93
+operations / 207 schemas), Vite production build, and Desktop packaging pass.
+This is the first three slices of a new six-slice cycle: do not repeat the full
+repository/race/WFP gate until the next three slices are complete.
+
+The P13-B slice review corrected three implementation details: the Web client
+now treats `stream_chunks` as a bounded provider-chunk count rather than the
+32-event durable delta ceiling, completed polling delays remove their abort
+listeners, and Go reparses cumulative root JSON at a 64-byte cadence with a
+mandatory final scan. The final-scan regression is covered without another
+paid Provider request.
+
+### Previous Checkpoint: P10-L1 through P10-M3 / Schema v95
 
 P10-L1 executes only the build-embedded, provenance-pinned Rust
 `wasm32-wasip1` fixture through a fresh `wazero v1.12.0` Interpreter runtime.
@@ -285,9 +321,9 @@ Read in this order after a long context break:
 - `README.md` carries the canonical bilingual schema timeline in strict `v1 -> v95` order. `internal/store/readme_history_test.go` binds its row count and ordering to `LatestSchemaVersion`, so a future migration cannot silently leave the public history missing or out of sequence.
 - Main languages: Go control plane, TypeScript React/Vite local console, and deterministic Rust 1.97.1 digest/ZIP protocol functions. Rust has no Agent, LLM, config, key, persistence, network, filesystem, subprocess, or product-lifecycle ownership.
 - Analyzer status: P10-A through P10-K define and validate the Go/Rust protocol and embedded-WASI boundary. P10-L/schema v94-v95 adds real fixed-module execution, one-shot exact-bound authorization, atomic consumption, redacted execution, metadata-only Artifact content, and Run events. P10-M exposes only this embedded module through CLI/control-token HTTP/Desktop/React; callers cannot provide WebAssembly, imports, mount, network, command, argv, environment, or native process. See ADR 0062, ADR 0063, ADR 0090, ADR 0091, and `analyzers/README.md`.
-- Model Harness status: non-schema A1/A2/A3 adds `model_harness.v1` exact transport/tool/JSON/streaming profiles, Go preflight for Root/Specialist/read-only Fan-out, and `model_harness_qualification.v1` at-most-two-call synthetic qualification. Mock is trusted offline; Anthropic-compatible models require explicit qualification. Qualification stores only exact binding digest, capability booleans, and seven-day expiry in existing Provider settings; the synthetic Tool is never executed, availability remains no-probe, and qualification grants no Tool/Shell/file/browser/Docker authority. P13-A adds the separate public-activity read projection. P10-M2 proves the production Anthropic-compatible route and durable chat path against deterministic local SSE. Current OpenAPI is 84 paths / 92 operations / 205 schemas. See ADR 0074, ADR 0080, and ADR 0091.
+- Model Harness status: non-schema A1/A2/A3 adds `model_harness.v1` exact transport/tool/JSON/streaming profiles, Go preflight for Root/Specialist/read-only Fan-out, and `model_harness_qualification.v1` at-most-two-call synthetic qualification. Mock is trusted offline; Anthropic-compatible models require explicit qualification. Qualification stores only exact binding digest, capability booleans, and seven-day expiry in existing Provider settings; the synthetic Tool is never executed, availability remains no-probe, and qualification grants no Tool/Shell/file/browser/Docker authority. P13-A adds the durable public-activity read projection; P13-B adds a separate process-local safe public assistant stream with exact cancellation and no raw Provider persistence. P10-M2 proves the production Anthropic-compatible route and durable chat path against deterministic local SSE, while P13-B3 verifies one configured real DeepSeek path. Current OpenAPI is 85 paths / 93 operations / 207 schemas. See ADR 0074, ADR 0080, ADR 0091, and ADR 0092.
 - Browser status: P11-A1 through P11-C3 fix three Profiles, exact target scope, inert plans, fixed-location discovery, disposable-profile recovery plans, sealed Disabled/Fake CDP, same-handle Authenticode acceptance, immutable launch attempts/leases, and independent review. P11-C4A-C4C adds independent `restricted|full_debug` CDP policy ceilings and operator controls. P11-C5-C7 adds a concrete Safe Web Windows process adapter, exact disposable-Profile lifecycle, and closed literal-loopback restricted CDP transport, but keeps them product-inert. There is no CLI/HTTP/Desktop/Tool/Skill/model route or interactive browser, and Full Debug CDP remains unavailable. Verified OS/container network containment blocks activation. See ADR 0069, ADR 0071, ADR 0073, ADR 0082, and ADR 0083.
-- Desktop status: the Wails v2.13.0 shell retains its embedded React/in-process Go API, Run/editor/repository/verification/Handoff/model/credential/wake workflows and composable docks. It now defaults to Chinese with a persistent Chinese/English switch under Settings > Personal > General. The safe `--operator-preview` launcher enables model credentials, Harness qualification, routes, Run/Session chat, approvals, file proposals, and the fixed Analyzer without enabling danger-full-access, maximum Debug, Full CDP, Agent terminal input, or Wake Worker. Windows 10/WebView2/scaling coverage, code signing, and installer remain pending, so `release_ready=false`; the local operator-preview chat path is enabled. See ADR 0091 and `docs/DESKTOP_PLAN.md`.
+- Desktop status: the Wails v2.13.0 shell retains its embedded React/in-process Go API, Run/editor/repository/verification/Handoff/model/credential/wake workflows and composable docks. It now defaults to Chinese with a persistent Chinese/English switch under Settings > Personal > General. The safe `--operator-preview` launcher enables model credentials, Harness qualification, routes, Run/Session chat, safe provisional assistant streaming with exact cancellation, approvals, file proposals, and the fixed Analyzer without enabling danger-full-access, maximum Debug, Full CDP, Agent terminal input, or Wake Worker. Windows 10/WebView2/scaling coverage, code signing, and installer remain pending, so `release_ready=false`; the local operator-preview chat path is enabled. See ADR 0091, ADR 0092, and `docs/DESKTOP_PLAN.md`.
 - Prayu UX status: D1-UX1 through D1-UX11 introduce the Prayu identity, frameless titlebar, bounded resizable workbench and Settings sidebars, Go-backed composer, four-control toolbar, dedicated permission center, native Acrylic, a CSS/React app mark, and three persisted appearance choices. Full-window ink backgrounds, screenshot-based selected overlays, the image wordmark, and orange-brush CSS are no longer used; selected navigation and segmented controls are opaque-white CSS rounded surfaces. Summary/Review/Files/Side Tasks use existing bounded Go surfaces. Browser remains inert; Terminal becomes real only when the Desktop is explicitly started with `--enable-user-terminal`, and remains user-owned. Open Workspace stays operator-confirmed and pathless at the renderer boundary. Stable CyberAgent compatibility identifiers remain unchanged. See ADR 0064, ADR 0070, ADR 0072, ADR 0076, and ADR 0078.
 - Execution status: P12-A through P12-E define interaction intent, controlled Windows commands, user terminal, four host-permission levels, review-gated fixed commands, a dual-confirmed operator host executor, and a Go-only Debug terminal-input controller through schema v90. P11-C4 advances to v91 for CDP policy ceilings while C5-C7 remains a separate product-inert browser core. P10-L advances to v95 only for the fixed embedded Analyzer; it does not widen host execution, general Shell, browser, or terminal authority. See ADR 0075 through ADR 0083 and ADR 0091.
 - P12-E release gate: completed. The uncached serial Go suite passed in 576.3 seconds and the full race suite passed in 717.6 seconds with no races. Vet, zero-warning staticcheck, govulncheck (zero reachable vulnerabilities), module verify/tidy, secure Desktop tags, 48-file/165-test React, strict TypeScript, deterministic OpenAPI, Vite, npm audit, Rust format/7+2 tests/clippy, privacy/authority scans, and reproducible Windows Desktop build all passed. The portable executable is 42,757,120 bytes with SHA-256 `801bda9b5343b72999827beeb3bfecd6fdd907b9795736f540637b77a26cb771`; `release_ready=false` remains correct. A separate opt-in adapter test launched only the current Go test binary by exact path/SHA and passed ordinary plus race execution. No arbitrary user program or product `host-execute` command was run during verification.

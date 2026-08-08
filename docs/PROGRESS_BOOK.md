@@ -1,10 +1,12 @@
-# CyberAgent Workbench 进度书
+# Prayu 进度书
 
-更新时间：2026-08-02
+更新时间：2026-08-09
 
 ## 一、当前阶段
 
 项目正在从可运行的 v0.1 CLI/TUI 骨架迁移到 V2 Run-centric Runtime。CTF 专用求解能力继续后置，当前先完成主流 AI Agent 工具需要的通用运行时。
+
+最新 P13-B1/B2/B3 批次保持 SQLite v95 不变，完成安全公开助手增量流：Go 只解析 `root_lifecycle.v1` 顶层公开 message，raw Provider JSON、thinking、Prompt、Tool 参数和输出均不公开、不持久化；Desktop 按单调 revision 替换全量快照，支持暂态重连、最终持久消息收敛和 exact Attempt 取消。真实 `deepseek/deepseek-v4-flash` 隔离 Run 收到 5 个流事件、执行 1 次严格 Root 修复、使用 771 tokens、零 Tool 调用，并成功持久化助手 Session 消息。切片审查纠正了前端 `stream_chunks` 上限误套 32 个 durable delta 事件、轮询 delay 残留 abort listener、以及 Go 每个小 chunk 重扫累计 JSON 的问题；现在按 64 字节节流并在最终帧强制扫描。受影响 Go/HTTP、vet、51 文件 189 项 React、strict TypeScript、85/93/207 OpenAPI、Vite 和 Desktop 包功能门通过。本批是新六片周期前三片，下一批完成后三片时再运行累计全仓/race 健壮性门；不重复 WFP。边界见 ADR 0092。
 
 最新 P11-C5/C6/C7 批次保持 SQLite v91 不变，完成无产品入口的受限浏览器运行时核心：Safe Web Windows 进程在创建时绑定 Job Object，一次性 Profile 具备 exact ownership/recovery/release/cleanup，literal-loopback CDP 只允许导航、有界 DOM metadata 与 PNG 截图。页面文本、脚本执行、Cookie/正文、改包、重放、任意方法和完整 CDP 均没有路径。CLI、HTTP、Desktop、Tool、Skill 与模型不能调用该核心，测试只用 fake process 和本地 scripted WebSocket，没有启动真实浏览器。CDP 拦截不是 OS 网络沙箱，独立网络隔离证据仍是产品接线阻断项。边界见 ADR 0083。
 
@@ -13,7 +15,7 @@
 从 schema v49 起采用“双指标”，不再使用容易混淆的单一“整体产品愿景”百分比：
 
 - 架构完成度：约 99%；其中 V2 Run-centric 控制平面约 99%。该指标衡量 Go 主控、持久化状态机和模块边界的覆盖程度。
-- 产品可用度：完整 Code + Cyber 产品约 96-98%；其中通用 Coding Agent 工作流约 96-97%，Cyber 自动化工作流约 20%。该指标衡量用户现在能够完成多少真实端到端任务。
+- 产品可用度：完整 Code + Cyber 产品约 98%；其中通用 Coding Agent 工作流约 98%，Cyber 自动化工作流约 20%。该指标衡量用户现在能够完成多少真实端到端任务。
 - 上述数值是依据已测试任务切片给出的工程估算，不是性能基准，也不代表仍被安全关闭的功能已经可用。
 
 V2 的 P0/P1 已完成，P2 已具备稳定的单 Agent 恢复、Provider streaming、主动取消、有界工具循环和跨进程 execution lease。P3-P5 已落地 Work/Note/Context、最多两个核心 child、独立 1/2/4/6 只读 Fan-out、Tool Gateway、审批/Grant、预算、ScriptProcess 与 Artifact。P9/Desktop 已推进到 schema v91：v88 建立 `conservative|approval|full_access|debug` 四档宿主权限，v89 增加四种固定诊断动作的 Agent 提案，v90 增加操作者 CLI 非沙箱一次性宿主执行账本，v91 再增加独立的受限/完整调试 CDP 权限上限。P10 analyzer 仍没有产品进程桥；P11 已有内部受限 process/Profile/CDP 核心，但没有产品 adapter，完整 CDP 也继续关闭。独立网络沙箱、Docker PTY、可操作内置浏览器、安装脚本/钩子和远程 Skill 分发继续关闭。

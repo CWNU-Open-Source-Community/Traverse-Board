@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import type { CyberAgentClient } from "../api/client";
 import type { OperatorSteeringQueueView, RunView, SessionMessageControlView,
   SessionSteeringCancellationView, RunExecutionControlView,
-  RunLifecycleControlView } from "../api/types";
+  RunLifecycleControlView, PublicModelStreamSnapshot } from "../api/types";
 import { SessionComposer, SessionSteeringQueue } from "./session-composer";
 import { LocaleProvider } from "../lib/locale";
 
@@ -120,6 +120,59 @@ describe("SessionComposer", () => {
       submitSessionMessage.mock.invocationCallOrder[0]);
     expect(submitSessionMessage.mock.invocationCallOrder[0]).toBeLessThan(
       executeRun.mock.invocationCallOrder[0]);
+  });
+
+  it("shows a safe provisional reply and cancels its exact active attempt", async () => {
+    let completeExecution: ((value: RunExecutionControlView) => void) | undefined;
+    const execution = new Promise<RunExecutionControlView>((resolve) => {
+      completeExecution = resolve;
+    });
+    const executionResult = {
+      version: "run_execution_handoff.v1", operation_id: "op-1", run_id: "run-1",
+      session_id: "sess-1", max_steps: 1, status: "completed", run_status: "running",
+      steps_completed: 1, stop_reason: "max_steps", selected_count: 1,
+      committed_count: 1, pending_count: 0, prepared_count: 0, cancelled_count: 0,
+      completion_event_sequence: 9, replayed: false, execution_started: true,
+      model_called: true, tool_called: false, capability_grant: false,
+    } as RunExecutionControlView;
+    const snapshot = {
+      version: "model_public_stream.v1",
+      call: {
+        run_id: "run-1", session_id: "sess-1", attempt_id: "attempt-live",
+        model_attempt: 2, transport_attempt: 1, max_attempts: 3, protocol_repair: 0,
+        tool_round: 0, provider: "deepseek", model: "deepseek-chat",
+        started_at: "2026-08-08T00:00:00Z", stream_chunks: 2, stream_bytes: 40,
+        cancel_requested: false,
+      },
+      revision: 2, text: "Visible safe model answer", message_complete: false,
+      provisional: true, updated_at: "2026-08-08T00:00:01Z",
+    } as PublicModelStreamSnapshot;
+    const cancelModelCall = vi.fn().mockResolvedValue({
+      id: "cancel-1", run_id: "run-1", attempt_id: "attempt-live", model_attempt: 2,
+      status: "pending", requested_at: "2026-08-08T00:00:02Z", replayed: false,
+    });
+    const client = {
+      hasSessionMessages: true, hasRunLifecycle: true, hasRunExecution: true,
+      hasControl: true, submitSessionMessage: vi.fn().mockResolvedValue(result),
+      executeRun: vi.fn().mockReturnValue(execution),
+      getPublicModelStream: vi.fn().mockResolvedValue(snapshot), cancelModelCall,
+    } as unknown as CyberAgentClient;
+    const user = userEvent.setup();
+    renderComposer(client, runningRun);
+
+    await user.type(screen.getByLabelText("Session message"), "Inspect this change");
+    await user.click(screen.getByRole("button", { name: "Queue message" }));
+    await screen.findByText("Visible safe model answer");
+    await user.click(screen.getByRole("button", { name: "Stop" }));
+    await waitFor(() => expect(cancelModelCall).toHaveBeenCalledTimes(1));
+    expect(cancelModelCall).toHaveBeenCalledWith("run-1", {
+      attempt_id: "attempt-live", model_attempt: 2,
+      reason: "operator stopped provisional model response",
+    }, expect.stringMatching(/^web-run-cancel-call-/));
+
+    completeExecution?.(executionResult);
+    await screen.findByText("Model reply committed");
+    expect(screen.queryByLabelText("Provisional model reply")).not.toBeInTheDocument();
   });
 
   it("sends with Enter while preserving Shift+Enter and IME composition", async () => {

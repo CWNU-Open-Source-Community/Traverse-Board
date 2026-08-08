@@ -1335,6 +1335,84 @@
         "x-cyberagent-read-only": true
       }
     },
+    "/api/v1/runs/{run_id}/active-call": {
+      "get": {
+        "operationId": "getPublicModelStream",
+        "summary": "Inspect the active safe model preview",
+        "description": "Returns one process-local, provisional snapshot extracted only from the root lifecycle message field after streaming redaction and Policy checks. The snapshot never persists raw provider output, prompts, tool arguments, hidden reasoning, or partial sensitive tails, and disappears when the active call ends.",
+        "tags": [
+          "Runs"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/PublicModelStreamSnapshot"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
     "/api/v1/runs/{run_id}/active-call/cancel": {
       "post": {
         "operationId": "requestModelCancellation",
@@ -9135,6 +9213,84 @@
         ],
         "type": "object"
       },
+      "ActiveCallInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "cancel_requested": {
+            "type": "boolean"
+          },
+          "max_attempts": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "model": {
+            "type": "string"
+          },
+          "model_attempt": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "protocol_repair": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "stream_bytes": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "stream_chunks": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "tool_round": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "transport_attempt": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "run_id",
+          "session_id",
+          "attempt_id",
+          "model_attempt",
+          "transport_attempt",
+          "max_attempts",
+          "protocol_repair",
+          "tool_round",
+          "provider",
+          "model",
+          "started_at",
+          "stream_chunks",
+          "stream_bytes",
+          "cancel_requested"
+        ],
+        "type": "object"
+      },
       "AgentCompletionView": {
         "additionalProperties": false,
         "properties": {
@@ -14805,6 +14961,44 @@
           "tool_called",
           "response_content_returned",
           "duration_ms"
+        ],
+        "type": "object"
+      },
+      "PublicModelStreamSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "call": {
+            "$ref": "#/components/schemas/ActiveCallInfo"
+          },
+          "message_complete": {
+            "type": "boolean"
+          },
+          "provisional": {
+            "type": "boolean"
+          },
+          "revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "text": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "call",
+          "revision",
+          "text",
+          "message_complete",
+          "provisional",
+          "updated_at"
         ],
         "type": "object"
       },

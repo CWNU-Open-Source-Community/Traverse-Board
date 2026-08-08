@@ -44,6 +44,80 @@ func TestRunSupervisorAggregatesSplitUTF8Stream(t *testing.T) {
 	}
 }
 
+func TestRunSupervisorPublishesOnlySafeProvisionalRootMessage(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	message := strings.Repeat("safe-visible-", 12) + "committed"
+	text := rootActionResponse(domain.RootActionContinue, message, "", "")
+	messageStart := strings.Index(text, message)
+	if messageStart < 0 {
+		t.Fatal("test root response omitted its message")
+	}
+	split := messageStart + len(message) - 24
+	provider := &publicPreviewStreamProvider{
+		name: "stream-preview", first: text[:split], second: text[split:],
+		started: make(chan struct{}), release: make(chan struct{}),
+	}
+	run, supervisor := newStreamSupervisor(t, st, provider, domain.Budget{MaxTurns: 2})
+	type stepResult struct {
+		result application.LifecycleResult
+		err    error
+	}
+	done := make(chan stepResult, 1)
+	go func() {
+		result, err := supervisor.Step(context.Background(), run.ID)
+		done <- stepResult{result: result, err: err}
+	}()
+	select {
+	case <-provider.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("preview stream did not start")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	var snapshot application.PublicModelStreamSnapshot
+	for {
+		var found bool
+		snapshot, found = supervisor.PublicModelStream(run.ID)
+		if found && snapshot.Text != "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("safe public preview was not published")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if snapshot.Call.RunID != run.ID || snapshot.Call.Provider != provider.name ||
+		!snapshot.Provisional || snapshot.MessageComplete ||
+		!strings.HasPrefix(message, snapshot.Text) || strings.Contains(snapshot.Text, "summary") {
+		t.Fatalf("public preview widened its safe root-message boundary: %#v", snapshot)
+	}
+	items, err := st.ListRunEvents(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range items {
+		if strings.Contains(item.PayloadJSON, snapshot.Text) {
+			t.Fatalf("provisional text leaked into durable events: %s", item.PayloadJSON)
+		}
+	}
+	close(provider.release)
+	select {
+	case completed := <-done:
+		if completed.err != nil || completed.result.Text != message {
+			t.Fatalf("stream did not commit its final safe message: result=%#v err=%v",
+				completed.result, completed.err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("preview stream did not complete")
+	}
+	if _, found := supervisor.PublicModelStream(run.ID); found {
+		t.Fatal("completed model call retained a process-local preview")
+	}
+}
+
 func TestRunSupervisorBoundsModelDeltaEventsWithoutPersistingText(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
@@ -324,6 +398,60 @@ type cancelThenStreamProvider struct {
 	calls   int
 	started chan struct{}
 }
+
+type publicPreviewStreamProvider struct {
+	name    string
+	first   string
+	second  string
+	started chan struct{}
+	release chan struct{}
+}
+
+func (p *publicPreviewStreamProvider) Name() string { return p.name }
+
+func (p *publicPreviewStreamProvider) ListModels(context.Context) ([]llm.ModelInfo, error) {
+	return []llm.ModelInfo{{ID: "model", Provider: p.name}}, nil
+}
+
+func (p *publicPreviewStreamProvider) Chat(context.Context, llm.ChatRequest) (*llm.ChatResponse, error) {
+	return nil, apperror.New(apperror.CodeInternal,
+		"non-streaming Chat must not be used by RunSupervisor")
+}
+
+func (p *publicPreviewStreamProvider) StreamChat(ctx context.Context,
+	_ llm.ChatRequest,
+) (<-chan llm.ChatChunk, error) {
+	chunks := make(chan llm.ChatChunk)
+	go func() {
+		defer close(chunks)
+		select {
+		case chunks <- llm.ChatChunk{Text: p.first}:
+		case <-ctx.Done():
+			return
+		}
+		close(p.started)
+		select {
+		case <-p.release:
+		case <-ctx.Done():
+			return
+		}
+		select {
+		case chunks <- llm.ChatChunk{Text: p.second}:
+		case <-ctx.Done():
+			return
+		}
+		usage := llm.Usage{InputTokens: 1, OutputTokens: 2, TotalTokens: 3}
+		select {
+		case chunks <- finalStreamChunk(p.name, "model", usage):
+		case <-ctx.Done():
+		}
+	}()
+	return chunks, nil
+}
+
+func (*publicPreviewStreamProvider) SupportsTools(string) bool    { return false }
+func (*publicPreviewStreamProvider) SupportsVision(string) bool   { return false }
+func (*publicPreviewStreamProvider) SupportsJSONMode(string) bool { return true }
 
 func (p *cancelThenStreamProvider) Name() string { return p.name }
 

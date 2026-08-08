@@ -59,6 +59,15 @@ func (s *RunExecutionHandoffService) WithActiveCalls(
 	return s
 }
 
+func (s *RunExecutionHandoffService) PublicModelStream(
+	runID string,
+) (PublicModelStreamSnapshot, bool) {
+	if s == nil || s.supervisor == nil {
+		return PublicModelStreamSnapshot{}, false
+	}
+	return s.supervisor.PublicModelStream(runID)
+}
+
 func (s *RunExecutionHandoffService) Execute(ctx context.Context,
 	request ExecuteRunHandoffRequest,
 ) (ExecuteRunHandoffResult, error) {

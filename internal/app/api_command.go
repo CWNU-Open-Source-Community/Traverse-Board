@@ -189,6 +189,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		EmbeddedAnalyzerExecutionEnabled:        controlToken != "",
 		RunLifecycleController:                  lifecycleControl,
 		RunExecutionController:                  executionControl,
+		PublicModelStreamSource:                 executionControl,
 		PlanDeliveryController:                  planDeliveryControl,
 		ApprovalController:                      approvalControl,
 		ControlledCommandProposalController:     controlledCommandProposals,

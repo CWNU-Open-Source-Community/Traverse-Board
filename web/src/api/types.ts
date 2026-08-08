@@ -95,6 +95,7 @@ export type RunExecutionControlRequestView = components["schemas"]["RunExecution
 export type RunExecutionControlView = components["schemas"]["RunExecutionControlView"];
 export type ModelCancellationRequestView = components["schemas"]["ModelCancellationRequestView"];
 export type ModelCancellationView = components["schemas"]["ModelCancellationView"];
+export type PublicModelStreamSnapshot = components["schemas"]["PublicModelStreamSnapshot"];
 export type SpecialistModelCancellationView = components["schemas"]["SpecialistModelCancellationView"];
 export type SessionMessageControlRequestView = components["schemas"]["SessionMessageControlRequestView"];
 export type SessionMessageControlView = components["schemas"]["SessionMessageControlView"];
