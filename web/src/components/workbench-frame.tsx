@@ -10,6 +10,7 @@ import {
 import type { CyberAgentClient } from "../api/client";
 import type { RunCreationControlRequestView } from "../api/types";
 import { useLocale } from "../lib/locale";
+import { submitComposerOnEnter } from "../lib/composer-keyboard";
 import { AgentComposerControls } from "./agent-composer-controls";
 import { WorkbenchDock, type WorkbenchResourceKind } from "./workbench-dock";
 
@@ -108,7 +109,8 @@ export function EmptyConversation({ client, onCreateRun, creationEnabled, onOpen
       </div>
       <form className="prayu-starter-composer" onSubmit={submit}>
         <textarea aria-label={t("描述任务", "Describe task")} disabled={!creationEnabled}
-          onChange={(event) => setGoal(event.target.value)} placeholder={t("描述你想完成的工作", "Describe the work you want to complete")}
+          onChange={(event) => setGoal(event.target.value)} onKeyDown={submitComposerOnEnter}
+          placeholder={t("描述你想完成的工作", "Describe the work you want to complete")}
           rows={2} value={goal} />
         <AgentComposerControls client={client} onOpenPlugins={onOpenPlugins}
           onPlanModeChange={setPlanMode} onTargetModeChange={setTargetMode}

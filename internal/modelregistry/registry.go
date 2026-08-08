@@ -134,12 +134,13 @@ type Registry struct {
 }
 
 type anthropicEnvironment struct {
-	name           string
-	apiKeyEnv      string
-	baseURLEnv     string
-	modelEnv       string
-	defaultBaseURL string
-	defaultModel   string
+	name            string
+	apiKeyEnv       string
+	baseURLEnv      string
+	modelEnv        string
+	defaultBaseURL  string
+	defaultModel    string
+	disableThinking bool
 }
 
 func NewFromEnvironment() *Registry {
@@ -197,7 +198,7 @@ func buildRegistry(ctx context.Context, lookup EnvironmentLookup,
 			defaultModel: DefaultMimoModel},
 		{name: "deepseek", apiKeyEnv: "DEEPSEEK_API_KEY", baseURLEnv: "DEEPSEEK_BASE_URL",
 			modelEnv: "DEEPSEEK_MODEL", defaultBaseURL: defaultDeepSeekBaseURL,
-			defaultModel: DefaultDeepSeekModel},
+			defaultModel: DefaultDeepSeekModel, disableThinking: true},
 		{name: "anthropic", apiKeyEnv: "CYBERAGENT_ANTHROPIC_API_KEY",
 			baseURLEnv: "CYBERAGENT_ANTHROPIC_BASE_URL", modelEnv: "CYBERAGENT_ANTHROPIC_MODEL",
 			defaultBaseURL: defaultAnthropicURL, defaultModel: DefaultAnthropicModel},
@@ -528,6 +529,7 @@ func (r *Registry) registerAnthropicEnvironment(ctx context.Context, config anth
 		}
 		provider, err := llm.NewAnthropicCompatibleProvider(llm.AnthropicCompatibleConfig{
 			Name: config.name, BaseURL: baseURL, APIKey: key, DefaultModel: model,
+			DisableThinking: config.disableThinking,
 		})
 		if err != nil {
 			status = ProviderInvalidConfiguration

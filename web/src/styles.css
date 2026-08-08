@@ -2176,6 +2176,11 @@ body { background: transparent; }
   font-size: 13px;
   line-height: 1.5;
 }
+.prayu-shell .prayu-starter-composer > textarea:focus,
+.prayu-shell .prayu-starter-composer > textarea:focus-visible {
+  outline: 0 !important;
+  box-shadow: none;
+}
 .prayu-starter-composer > textarea::placeholder { color: #8f8174; }
 .prayu-starter-composer > textarea:disabled { opacity: .55; }
 
@@ -2357,7 +2362,11 @@ body { background: transparent; }
   border-radius: 13px 13px 0 0;
   font-size: 13px;
 }
-.prayu-shell .session-composer textarea:focus-visible { outline: 0; }
+.prayu-shell .session-composer textarea:focus,
+.prayu-shell .session-composer textarea:focus-visible {
+  outline: 0 !important;
+  box-shadow: none;
+}
 .prayu-shell .session-composer .agent-composer-controls { padding: 2px 7px 7px; }
 .session-composer-state { min-width: 0; }
 .session-composer-state .byte-count { color: #8c8074; font-size: 9px; }

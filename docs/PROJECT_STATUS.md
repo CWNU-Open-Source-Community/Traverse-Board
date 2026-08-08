@@ -1,8 +1,25 @@
 # Project Status
 
-Last updated: 2026-08-05
+Last updated: 2026-08-08
 
 ## Resume Context
+
+The first operator acceptance pass after P10-M found and fixed three concrete
+Desktop blockers. `OpenControlPlane` now registers a Go-owned `default`
+Workspace only when the Workspace registry is empty, so first-run Run creation
+has a selectable Workspace. Both composers submit on Enter, preserve
+Shift+Enter, ignore Enter during IME composition, and rely on the existing
+outer focus surface instead of a browser textarea outline. Provider statuses
+now distinguish `not_configured` from an unsuccessful diagnostic.
+
+The real DeepSeek path exposed two Anthropic Messages compatibility defects:
+DeepSeek's default thinking mode had to be disabled for this Harness, and
+`tool_result` blocks must precede text in a mixed user content array. After the
+shared encoder fix, `deepseek-v4-flash` passed a live one-call diagnostic, a
+two-call ToolCall/ToolResult/strict-JSON/streaming qualification with
+`root_eligible=true`, and an isolated real Session chat. MiMo is not configured
+in the local Windows credential store and was not network-tested. No secret,
+prompt, raw response, or tool payload was projected into public diagnostics.
 
 The current mainline checkpoint is the P10-L1 through P10-M3 six-slice batch at
 schema v95. L1 executes the exact embedded Rust/WASI fixture inside a fresh

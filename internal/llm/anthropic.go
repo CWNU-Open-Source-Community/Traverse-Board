@@ -28,19 +28,21 @@ const (
 )
 
 type AnthropicCompatibleConfig struct {
-	Name         string
-	BaseURL      string
-	APIKey       string
-	DefaultModel string
-	HTTPClient   *http.Client
+	Name            string
+	BaseURL         string
+	APIKey          string
+	DefaultModel    string
+	DisableThinking bool
+	HTTPClient      *http.Client
 }
 
 type AnthropicCompatibleProvider struct {
-	name         string
-	baseURL      string
-	apiKey       string
-	defaultModel string
-	client       *http.Client
+	name            string
+	baseURL         string
+	apiKey          string
+	defaultModel    string
+	disableThinking bool
+	client          *http.Client
 }
 
 func NewAnthropicCompatibleProvider(config AnthropicCompatibleConfig) (*AnthropicCompatibleProvider, error) {
@@ -61,11 +63,12 @@ func NewAnthropicCompatibleProvider(config AnthropicCompatibleConfig) (*Anthropi
 		defaultModel = "claude-3-5-sonnet-latest"
 	}
 	return &AnthropicCompatibleProvider{
-		name:         name,
-		baseURL:      baseURL,
-		apiKey:       config.APIKey,
-		defaultModel: defaultModel,
-		client:       client,
+		name:            name,
+		baseURL:         baseURL,
+		apiKey:          config.APIKey,
+		defaultModel:    defaultModel,
+		disableThinking: config.DisableThinking,
+		client:          client,
 	}, nil
 }
 
@@ -425,6 +428,9 @@ func (p *AnthropicCompatibleProvider) toRequest(model string, req ChatRequest) (
 		Messages:  make([]anthropicMessage, 0, len(req.Messages)),
 		Tools:     make([]anthropicTool, 0, len(req.Tools)),
 	}
+	if p.disableThinking {
+		out.Thinking = &anthropicThinking{Type: "disabled"}
+	}
 	if req.Temperature > 0 {
 		out.Temperature = &req.Temperature
 	}
@@ -496,9 +502,14 @@ type anthropicMessageRequest struct {
 	System      string             `json:"system,omitempty"`
 	Messages    []anthropicMessage `json:"messages"`
 	Tools       []anthropicTool    `json:"tools,omitempty"`
+	Thinking    *anthropicThinking `json:"thinking,omitempty"`
 	MaxTokens   int                `json:"max_tokens"`
 	Temperature *float64           `json:"temperature,omitempty"`
 	Stream      bool               `json:"stream,omitempty"`
+}
+
+type anthropicThinking struct {
+	Type string `json:"type"`
 }
 
 type anthropicTool struct {
@@ -530,10 +541,10 @@ func anthropicMessageContent(message Message, assistant bool) (any, error) {
 		return content, nil
 	}
 	blocks := make([]anthropicContentBlock, 0, 1+len(message.ToolCalls)+len(message.ToolResults))
-	if content != "" {
-		blocks = append(blocks, anthropicContentBlock{Type: "text", Text: content})
-	}
 	if assistant {
+		if content != "" {
+			blocks = append(blocks, anthropicContentBlock{Type: "text", Text: content})
+		}
 		calls, err := NormalizeToolCalls(message.ToolCalls)
 		if err != nil {
 			return nil, err
@@ -554,6 +565,11 @@ func anthropicMessageContent(message Message, assistant bool) (any, error) {
 				Type: "tool_result", ToolUseID: normalized.ToolCallID,
 				Content: normalized.Content, IsError: normalized.IsError,
 			})
+		}
+		// Anthropic Messages requires every tool_result block to precede any
+		// accompanying text in the same user message.
+		if content != "" {
+			blocks = append(blocks, anthropicContentBlock{Type: "text", Text: content})
 		}
 	}
 	if len(blocks) == 0 {

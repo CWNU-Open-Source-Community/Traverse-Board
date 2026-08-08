@@ -75,6 +75,28 @@ credential in Windows Credential Manager, run diagnostics and Harness qualificat
 select the `code` route, create a workspace-bound Run, and send a message. The full
 bilingual procedure is included in `build\desktop\LOCAL-TEST-GUIDE.txt`.
 
+### 人工验收修复 / Manual Acceptance Fixes
+
+2026-08-08 的首轮桌面人工验收修复了三个产品阻断问题：空数据库启动时，Go 控制平面会在
+`.cyberagent-workbench/workspaces/default` 注册默认工作区，因此“新建 Run”不再出现空工作区列表；
+首屏与 Session 输入框现在使用 `Enter` 发送、`Shift+Enter` 换行，并在输入法组合期间禁止误发送，
+外层橙色焦点提示保留但浏览器蓝色文本框轮廓已移除；模型页把“未配置”与“连接失败”分开显示。
+
+DeepSeek Anthropic-compatible 适配还修正了两项真实协议兼容问题：`deepseek-v4-flash` 明确关闭默认
+thinking，且工具结果必须排在同一用户消息的说明文本之前。使用 Windows Credential Manager 中的
+现有 DeepSeek 凭证完成了真实验证：单轮连接成功、两调用 Harness 的 ToolCall/ToolResult/严格 JSON/
+流式资格全部通过并取得 `root_eligible=true`，随后在隔离临时数据目录中创建 Workspace、Session、
+选择 `learn` 路由并收到真实中文助手回复。MiMo 在该机器上仍是“未配置”，本轮没有伪称对其进行了
+网络测试，也没有读取或输出任何凭证明文。
+
+The first Desktop acceptance pass fixed empty-workspace Run creation, Enter-to-send with
+Shift+Enter and IME composition safety, the unwanted textarea focus outline, and the UI
+distinction between an unconfigured Provider and a failed diagnostic. DeepSeek now disables
+its default thinking mode and emits Anthropic tool-result blocks before accompanying user
+text. A live credential-backed check passed the one-call diagnostic, the complete two-call
+Harness qualification (`root_eligible=true`), and an isolated Workspace/Session chat. MiMo
+is not configured on this machine and was not represented as a failed network test.
+
 ## 桌面权限中心与原生玻璃 / Desktop Permission Center And Native Glass
 
 Windows Desktop 现在提供独立的“权限”设置页，把当前 Run 的四个正交控制维度集中展示：

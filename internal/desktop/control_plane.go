@@ -23,6 +23,7 @@ import (
 	"cyberagent-workbench/internal/store"
 	terminalruntime "cyberagent-workbench/internal/terminal"
 	"cyberagent-workbench/internal/toolgateway"
+	"cyberagent-workbench/internal/workspace"
 )
 
 // ControlPlane owns the Desktop process' SQLite connection and in-process API.
@@ -94,6 +95,22 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	if err != nil {
 		return nil, err
 	}
+	home := strings.TrimSpace(config.HomePath)
+	if home == "" {
+		home = filepath.Dir(config.DatabasePath)
+	}
+	registeredWorkspaces, err := stateStore.ListWorkspaces(context.Background())
+	if err != nil {
+		_ = stateStore.Close()
+		return nil, err
+	}
+	if len(registeredWorkspaces) == 0 {
+		if _, err := workspace.NewManager(home, stateStore).Ensure(
+			context.Background(), "default"); err != nil {
+			_ = stateStore.Close()
+			return nil, err
+		}
+	}
 	credentialStore := config.CredentialStore
 	if credentialStore == nil {
 		credentialStore = credential.NewSystemStore()
@@ -143,10 +160,6 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	}
 	var skillInstaller *application.SkillPackageRegistryService
 	if config.SkillInstallationEnabled {
-		home := strings.TrimSpace(config.HomePath)
-		if home == "" {
-			home = filepath.Dir(config.DatabasePath)
-		}
 		objects, objectErr := skills.NewLocalPackageObjectStore(home)
 		if objectErr != nil {
 			_ = stateStore.Close()

@@ -9,6 +9,7 @@ import { StatusBadge } from "./common";
 import { AgentComposerControls } from "./agent-composer-controls";
 import { WorkspaceAttachmentDialog } from "./workspace-attachment-dialog";
 import { useLocale } from "../lib/locale";
+import { submitComposerOnEnter } from "../lib/composer-keyboard";
 
 const maximumContentBytes = 16 * 1024;
 
@@ -185,6 +186,7 @@ export function SessionComposer({ client, sessionID, run, workspaceID = "", cont
     <form className="session-composer" onSubmit={submit}>
       <textarea aria-label={t("Session 消息", "Session message")} autoComplete="off"
         disabled={!mutable || mutation.isPending} onChange={(event) => changeContent(event.target.value)}
+        onKeyDown={submitComposerOnEnter}
         placeholder={t("向这个 Run 发送消息", "Message this Run")} rows={3} spellCheck value={content} />
       <AgentComposerControls client={client} contextPartial={contextPartial}
         contextTokens={contextTokens}

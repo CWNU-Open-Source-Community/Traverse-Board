@@ -9,6 +9,8 @@ const chineseStatuses: Record<string, string> = {
   proposed: "待审阅", applied: "已应用", active: "活动", blocked: "受阻",
   waiting: "等待中", "waiting-approval": "等待审批", passed: "通过",
   unknown: "未知", available: "可用", unavailable: "不可用", qualified: "已验证",
+  configured: "已配置", "not-configured": "未配置",
+  "qualification-required": "需要验证", "trusted-builtin": "内置可信",
   incompatible: "不兼容", reachable: "可连接", unreachable: "不可连接",
   "metadata-only": "仅元数据", truncated: "已截断", current: "当前",
   redacted: "已脱敏", "read-only": "只读", added: "新增", modified: "修改",

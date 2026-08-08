@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"sort"
 	"strings"
 	"sync"
@@ -410,6 +412,54 @@ func TestRegistryDiagnosticReturnsOnlyBoundedConnectivityFacts(t *testing.T) {
 	}
 	if _, err := registry.Diagnose(context.Background(), "mimo", DefaultMimoModel); err == nil {
 		t.Fatal("unconfigured Provider diagnostic was accepted")
+	}
+}
+
+func TestDeepSeekDiagnosticDisablesThinkingWithoutChangingOtherProviders(t *testing.T) {
+	var thinking struct {
+		Type string `json:"type"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter,
+		request *http.Request,
+	) {
+		var body struct {
+			Thinking *struct {
+				Type string `json:"type"`
+			} `json:"thinking"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Error(err)
+			writer.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if body.Thinking != nil {
+			thinking.Type = body.Thinking.Type
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{
+			"id":"msg_diagnostic","type":"message","role":"assistant",
+			"model":"deepseek-test","content":[{"type":"text","text":"ok"}],
+			"usage":{"input_tokens":3,"output_tokens":1}
+		}`))
+	}))
+	defer server.Close()
+	values := map[string]string{
+		"DEEPSEEK_API_KEY":  "test-provider-key-0123456789",
+		"DEEPSEEK_BASE_URL": server.URL,
+		"DEEPSEEK_MODEL":    "deepseek-test",
+	}
+	registry := New(func(name string) (string, bool) {
+		value, found := values[name]
+		return value, found
+	})
+	result, err := registry.Diagnose(t.Context(), "deepseek", "deepseek-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if thinking.Type != "disabled" || result.Status != DiagnosticReachable ||
+		result.Outcome != string(llm.OutcomeSuccess) {
+		t.Fatalf("DeepSeek diagnostic compatibility failed: thinking=%#v result=%#v",
+			thinking, result)
 	}
 }
 

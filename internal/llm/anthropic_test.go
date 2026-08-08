@@ -68,11 +68,45 @@ func TestAnthropicCompatibleProviderChat(t *testing.T) {
 	if captured.Body.System != "be concise" {
 		t.Fatalf("system prompt not lifted: %#v", captured.Body)
 	}
+	if captured.Body.Thinking != nil {
+		t.Fatalf("generic Anthropic request unexpectedly changed thinking mode: %#v", captured.Body.Thinking)
+	}
 	if len(captured.Body.Messages) != 1 || captured.Body.Messages[0].Role != "user" || captured.Body.Messages[0].Content != "say hello" {
 		t.Fatalf("unexpected messages: %#v", captured.Body.Messages)
 	}
 	if resp.Text != "hello from provider" || resp.Usage.TotalTokens != 10 {
 		t.Fatalf("unexpected response: %#v", resp)
+	}
+}
+
+func TestAnthropicCompatibleProviderCanDisableThinkingPerProvider(t *testing.T) {
+	var captured anthropicMessageRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id":"msg_no_thinking","type":"message","role":"assistant",
+			"model":"test-model","content":[{"type":"text","text":"ok"}],
+			"usage":{"input_tokens":2,"output_tokens":1}
+		}`))
+	}))
+	defer server.Close()
+	provider, err := NewAnthropicCompatibleProvider(AnthropicCompatibleConfig{
+		Name: "deepseek", BaseURL: server.URL, APIKey: "secret",
+		DefaultModel: "test-model", DisableThinking: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.Chat(t.Context(), ChatRequest{
+		Messages: []Message{{Role: "user", Content: "ping"}}, MaxTokens: 8,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if captured.Thinking == nil || captured.Thinking.Type != "disabled" {
+		t.Fatalf("provider-specific thinking override missing: %#v", captured.Thinking)
 	}
 }
 
@@ -231,7 +265,7 @@ func TestAnthropicCompatibleProviderMapsToolsAndToolResults(t *testing.T) {
 				ID: "toolu_0123456789abcdef01234567", Name: "work_item_create",
 				Arguments: json.RawMessage(`{"title":"Inspect parser"}`),
 			}}},
-			{Role: "user", ToolResults: []ToolResult{{
+			{Role: "user", Content: "Continue after the tool result.", ToolResults: []ToolResult{{
 				ToolCallID: "toolu_0123456789abcdef01234567", Content: `{"status":"completed"}`,
 			}}},
 		},
@@ -247,6 +281,19 @@ func TestAnthropicCompatibleProviderMapsToolsAndToolResults(t *testing.T) {
 	messages, messagesOK := captured["messages"].([]any)
 	if !ok || len(tools) != 1 || !messagesOK || len(messages) != 3 || !provider.SupportsTools("tool-model") {
 		t.Fatalf("Anthropic tool request was not encoded: %#v", captured)
+	}
+	resultMessage, ok := messages[2].(map[string]any)
+	if !ok {
+		t.Fatalf("Anthropic tool result message was not an object: %#v", messages[2])
+	}
+	blocks, ok := resultMessage["content"].([]any)
+	if !ok || len(blocks) != 2 {
+		t.Fatalf("Anthropic tool result content was not encoded: %#v", resultMessage["content"])
+	}
+	firstBlock, firstOK := blocks[0].(map[string]any)
+	secondBlock, secondOK := blocks[1].(map[string]any)
+	if !firstOK || !secondOK || firstBlock["type"] != "tool_result" || secondBlock["type"] != "text" {
+		t.Fatalf("tool_result blocks must precede text: %#v", blocks)
 	}
 	if len(response.ToolCalls) != 1 || response.ToolCalls[0].ID != "provider-tool-2" ||
 		response.ToolCalls[0].Name != "note_create" || !json.Valid(response.ToolCalls[0].Arguments) ||

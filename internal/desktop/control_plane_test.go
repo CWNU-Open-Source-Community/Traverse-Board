@@ -60,6 +60,27 @@ func TestControlPlaneResolvesOnlyRegisteredWorkspaceRoots(t *testing.T) {
 	}
 }
 
+func TestControlPlaneBootstrapsOnlyAnEmptyWorkspaceRegistry(t *testing.T) {
+	home := t.TempDir()
+	plane, err := OpenControlPlane(ControlPlaneConfig{
+		DatabasePath: filepath.Join(home, "prayu.db"), HomePath: home,
+		ReadToken: desktopControlPlaneTestToken, AppVersion: "desktop-test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer plane.Close()
+	records, err := plane.stateStore.ListWorkspaces(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].ID != "ws-default" ||
+		records[0].Name != "default" ||
+		records[0].RootPath != filepath.Join(home, "workspaces", "default") {
+		t.Fatalf("unexpected first-run Workspace: %#v", records)
+	}
+}
+
 func TestControlPlaneKeepsDebugAgentInputInsideGoControlPlane(t *testing.T) {
 	disabled, err := OpenControlPlane(ControlPlaneConfig{
 		DatabasePath: filepath.Join(t.TempDir(), "debug-agent-disabled.db"),

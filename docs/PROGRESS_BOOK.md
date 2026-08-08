@@ -2507,3 +2507,17 @@ vet、零告警 staticcheck、module verify/tidy、Rust fmt/7+2 tests/clippy 与
 实例化并执行真实 WASI fixture，证明有界 stdin/stdout、deadline/cancel/close 和确定性 result validation；
 仍不连接 CLI/HTTP/Desktop/Tool/Skill/模型/Artifact。L3 后执行完整 ordinary/race/vet/staticcheck/
 govulncheck/依赖/隐私/构建健壮性门。WFP/C8C 继续只由 GitHub Issue #1 跟踪。
+
+## 2026-08-08：桌面首轮人工验收修复
+
+人工验收复现了三项产品阻断：空数据库没有可选 Workspace、输入框出现浏览器蓝色焦点轮廓且 Enter
+不能快捷发送、DeepSeek 单轮诊断返回 `invalid_response`。Go Desktop 控制平面现仅在注册表为空时
+创建并注册 `default` Workspace；两个 Composer 统一为 Enter 发送、Shift+Enter 换行、IME 组合时不
+发送，并由外层焦点面提供可见状态。Provider 中文状态明确区分“未配置”和“连接失败”。
+
+DeepSeek 的失败由两项协议不兼容共同造成：该端点默认开启 thinking，而 Prayu 的 Anthropic encoder
+又把说明文本排在 `tool_result` 前，违反 Messages 工具结果顺序。修复后，Windows Credential Manager
+中的真实 DeepSeek 配置通过单轮诊断、两轮 ToolCall/ToolResult/严格 JSON/流式资格，并在隔离临时
+Workspace/Session 中返回真实中文回复。MiMo 本机未配置，因此没有发起或声称成功的 MiMo 网络测试。
+本轮没有 schema、OpenAPI、权限或执行入口变化。全仓 Go、vet、50 文件 184 项 React、TypeScript 和
+Vite 构建通过；发布产物在源码提交后重建。

@@ -173,7 +173,11 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
                 {diagnostic && <div className="model-diagnostic-result" role="status">
                   <span>{diagnostic.provider}/{diagnostic.model}</span>
                   <StatusBadge status={diagnostic.status} />
-                  <span>{diagnostic.outcome}</span>
+                  <span>{diagnostic.outcome === "success"
+                    ? t("成功", "success")
+                    : diagnostic.outcome === "invalid_response"
+                      ? t("响应格式不兼容", "invalid response")
+                      : diagnostic.outcome}</span>
                   <span>{diagnostic.duration_ms} ms</span>
                 </div>}
                 {diagnosticMutation.isError && <div className="inline-warning" role="alert">

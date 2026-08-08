@@ -2508,14 +2508,22 @@ one-shot authorization, atomic evidence, bilingual product route, real-chat
 integration, portable preview package, WFP probe, P10-I contracts, or this
 cumulative six-slice gate after context compaction.
 
-The immediate next action is operator acceptance using
-`build\desktop\Start-Prayu-Operator-Preview.cmd`: enter an OS-owned Provider
-credential, run diagnostics and Harness qualification, select the `code` route,
-create a workspace-bound Run, and send a real message. Record reproducible UI or
-endpoint defects without exposing keys. Future implementation must begin from
-those acceptance results or a newly assigned task; Docker PTY, arbitrary model
-Shell, signed distribution, the Windows 10/WebView2/scaling matrix, and WFP/C8C
-remain separate gates.
+The first operator-acceptance defects are fixed. Do not repeat their diagnosis:
+an empty registry now receives Go-owned Workspace `default`; both Desktop
+composers use Enter to send, Shift+Enter to insert a newline, and suppress send
+during IME composition without a blue textarea outline; Provider status labels
+separate unconfigured from failed. DeepSeek requires thinking disabled and
+Anthropic `tool_result` blocks before any same-message text. A live
+`deepseek-v4-flash` diagnostic, two-call Harness qualification with
+`root_eligible=true`, and isolated real Session chat all passed. MiMo is not
+configured on this machine and has not been network-tested.
+
+The immediate next action is to rebuild and launch
+`build\desktop\Start-Prayu-Operator-Preview.cmd` for continued operator UI
+acceptance. Future implementation must begin from newly reproduced acceptance
+results or a newly assigned task; Docker PTY, arbitrary model Shell, signed
+distribution, the Windows 10/WebView2/scaling matrix, and WFP/C8C remain
+separate gates.
 
 ## Local Machine Note
 

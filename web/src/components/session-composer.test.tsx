@@ -122,6 +122,29 @@ describe("SessionComposer", () => {
       executeRun.mock.invocationCallOrder[0]);
   });
 
+  it("sends with Enter while preserving Shift+Enter and IME composition", async () => {
+    const submitSessionMessage = vi.fn().mockResolvedValue(result);
+    const client = {
+      hasSessionMessages: true,
+      hasRunLifecycle: false,
+      hasRunExecution: false,
+      submitSessionMessage,
+    } as unknown as CyberAgentClient;
+    renderComposer(client, runningRun);
+    const composer = screen.getByLabelText("Session message");
+    fireEvent.change(composer, { target: { value: "Review the current branch" } });
+
+    expect(fireEvent.keyDown(composer, { key: "Enter", shiftKey: true })).toBe(true);
+    expect(fireEvent.keyDown(composer, { key: "Enter", isComposing: true })).toBe(true);
+    expect(submitSessionMessage).not.toHaveBeenCalled();
+
+    expect(fireEvent.keyDown(composer, { key: "Enter" })).toBe(false);
+    await waitFor(() => expect(submitSessionMessage).toHaveBeenCalledTimes(1));
+    expect(submitSessionMessage).toHaveBeenCalledWith("sess-1", {
+      version: "session_message_submission.v1", content: "Review the current branch",
+    }, expect.stringMatching(/^web-session-message-/));
+  });
+
   it("enforces the UTF-8 byte limit before issuing a request", async () => {
     const submitSessionMessage = vi.fn();
     const client = {
