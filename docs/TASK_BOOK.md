@@ -512,6 +512,7 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 - [x] P10-M3：生成只启用安全操作者能力的便携启动器和中英试用说明，完成干净 `CYBERAGENT_HOME` Desktop 启动/恢复冒烟、Windows 便携包校验与操作者人工试用准备；启动器只传入 `--operator-preview`，不开放完全访问、最大 Debug、完整 CDP、Agent 持久终端或 Wake Worker。
 - [x] P10-L1 至 P10-M3 发布前累计六切片健壮性门：全仓普通 Go（显式 20 分钟包上限）610.6 秒、全仓 race 503.5 秒且零竞态，vet/staticcheck/govulncheck/module、50 文件 182 项 React、TypeScript/OpenAPI/Vite/npm、Rust fmt/7+2 tests/clippy/RustSec/WASI release、真实 Anthropic-compatible 桌面对话链连续三次、Windows 可复现构建和隔离 Desktop smoke 全绿。审计修复 Store 并发迁移账本竞态与 Analyzer 工作区文件读取 TOCTOU；当前没有已知未解决高/中风险。GitHub 托管 CI 在提交推送后独立验收。
 - [x] 2026-08-08 桌面人工验收修复：空 Workspace 注册表首次启动自动注册 Go-owned `default`；首屏与 Session 输入框支持 Enter 发送、Shift+Enter 换行和 IME 防误发并移除蓝色文本框轮廓；Provider 状态区分未配置与失败；DeepSeek 关闭默认 thinking，并按 Anthropic 规范把 `tool_result` 置于同消息文本前。真实单轮诊断、两调用 Harness 资格与隔离 Session 对话均通过，MiMo 本机未配置且未伪造网络测试。
+- [x] 2026-08-08 托管 CI 安全公告收口：不关闭 `npm audit` 门，仅将传递依赖 `js-yaml 4.3.0` 与 `nanoid 3.3.16` 精确升级到修复版 `4.3.1` 与 `3.3.17`；184 项 React、TypeScript、OpenAPI、Vite build 与 high-level npm audit 全绿。
 
 阶段验收：固定内嵌 Analyzer 的真实执行、显式一次性授权、durable recovery、原子 Artifact/事件提交、产品入口和桌面对话闭环已完成；畸形、未来、重复、扩权、崩溃、超时、取消、错误 analyzer、未知退出、超大输入/输出和工作区逃逸均失败关闭。任意外部模块、宿主进程 Analyzer、挂载、网络、命令、argv 与环境仍没有入口；若未来开放，必须另行解决 TOCTOU-safe immutable identity、签名/来源验证和独立资源沙箱验收，不能继承本批固定模块的接纳结论。
 

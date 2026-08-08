@@ -1,6 +1,6 @@
 # Prayu Project Memory
 
-Last updated: 2026-08-05
+Last updated: 2026-08-08
 
 ## Current Checkpoint: P10-L1 through P10-M3 / Schema v95
 
@@ -43,6 +43,17 @@ and isolated smoke all passed. Real Anthropic-compatible Provider chat passed
 three consecutive production-path tests against deterministic local SSE. The
 audit fixed a concurrent Store migration-ledger race and workspace-file read
 TOCTOU. Do not repeat L1-M3, P10-J/K, their full gate, or WFP after compaction.
+
+The 2026-08-08 manual Desktop acceptance follow-up is also complete. A clean
+first launch now registers the Go-owned `default` Workspace, both composers use
+Enter to send / Shift+Enter for a newline / IME-safe suppression without a blue
+textarea outline, and Provider status distinguishes unconfigured from failed.
+DeepSeek passed real diagnostic, two-call Harness qualification, and isolated
+Session chat after disabling its default thinking mode and placing Anthropic
+`tool_result` blocks before sibling text. MiMo was not configured locally, so no
+MiMo network result was fabricated. Hosted CI subsequently disclosed new high
+advisories in transitive `js-yaml 4.3.0` and `nanoid 3.3.16`; the lock now uses
+`4.3.1` and `3.3.17`, and `npm audit --audit-level=high` reports zero findings.
 
 ### Earlier Browser Checkpoint: P11-C5/C6/C7 / Schema v91
 
