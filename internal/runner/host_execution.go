@@ -26,25 +26,69 @@ var ErrHostOutputLimit = errors.New("host command output limit exceeded")
 // output, or authority. A stored intent without a receipt is uncertain and
 // must not be retried automatically.
 type HostExecutionIntent struct {
-	ProtocolVersion          string
-	PolicyVersion            string
-	RequestID                string
-	OperationKeyDigest       string
-	RunID                    string
-	MissionID                string
-	SessionID                string
-	WorkspaceID              string
-	InteractionSnapshotID    string
-	InteractionRevision      int64
-	ExecutionProfileRevision int64
-	PermissionSnapshotID     string
-	PermissionRevision       int64
-	PermissionMode           domain.RunExecutionPermissionMode
-	Spec                     HostCommandSpec
-	RequestedBy              string
-	NonSandboxed             bool
-	AutomaticRetryAllowed    bool
-	CreatedAt                time.Time
+	ProtocolVersion                  string
+	PolicyVersion                    string
+	RequestID                        string
+	OperationKeyDigest               string
+	RunID                            string
+	MissionID                        string
+	SessionID                        string
+	WorkspaceID                      string
+	InteractionSnapshotID            string
+	InteractionRevision              int64
+	ExecutionProfileRevision         int64
+	PermissionSnapshotID             string
+	PermissionRevision               int64
+	PermissionMode                   domain.RunExecutionPermissionMode
+	AuthorizationProposalID          string
+	AuthorizationProposalFingerprint string
+	AuthorizationReviewID            string
+	AuthorizationReviewFingerprint   string
+	Spec                             HostCommandSpec
+	RequestedBy                      string
+	NonSandboxed                     bool
+	AutomaticRetryAllowed            bool
+	CreatedAt                        time.Time
+}
+
+func NewApprovedHostExecutionIntent(proposal HostCommandProposal,
+	review HostCommandReview, operationKeyDigest string,
+	createdAt time.Time,
+) (HostExecutionIntent, error) {
+	if proposal.Validate() != nil || review.Validate() != nil ||
+		review.ProposalID != proposal.ID ||
+		review.ProposalFingerprint != proposal.Fingerprint ||
+		review.RunID != proposal.RunID ||
+		review.Decision != HostCommandReviewApprove ||
+		!review.SingleUseExecutionAuthorized {
+		return HostExecutionIntent{}, ErrHostCommandBoundary
+	}
+	intent := HostExecutionIntent{
+		ProtocolVersion:    HostCommandIntentProtocolVersion,
+		PolicyVersion:      HostExecutionPolicyVersion,
+		OperationKeyDigest: strings.ToLower(strings.TrimSpace(operationKeyDigest)),
+		RunID:              proposal.RunID, MissionID: proposal.MissionID,
+		SessionID: proposal.SessionID, WorkspaceID: proposal.WorkspaceID,
+		InteractionSnapshotID:            proposal.InteractionSnapshotID,
+		InteractionRevision:              proposal.InteractionRevision,
+		ExecutionProfileRevision:         proposal.ExecutionProfileRevision,
+		PermissionSnapshotID:             proposal.PermissionSnapshotID,
+		PermissionRevision:               proposal.PermissionRevision,
+		PermissionMode:                   proposal.PermissionMode,
+		AuthorizationProposalID:          proposal.ID,
+		AuthorizationProposalFingerprint: proposal.Fingerprint,
+		AuthorizationReviewID:            review.ID,
+		AuthorizationReviewFingerprint:   review.Fingerprint,
+		Spec:                             proposal.Spec, RequestedBy: review.ReviewedBy,
+		NonSandboxed: true, AutomaticRetryAllowed: false,
+		CreatedAt: createdAt.UTC(),
+	}
+	intent.RequestID = HostExecutionRequestID(intent.RunID,
+		intent.OperationKeyDigest, intent.Spec.Fingerprint)
+	if err := intent.Validate(); err != nil {
+		return HostExecutionIntent{}, err
+	}
+	return intent, nil
 }
 
 type HostExecutionIntentRequest struct {
@@ -143,12 +187,33 @@ func (i HostExecutionIntent) Validate() error {
 		!validSHA256(i.OperationKeyDigest) ||
 		i.InteractionRevision <= 0 || i.ExecutionProfileRevision <= 0 ||
 		i.PermissionRevision <= 0 ||
-		i.PermissionMode != domain.RunExecutionPermissionFullAccess ||
+		(i.PermissionMode != domain.RunExecutionPermissionFullAccess &&
+			i.PermissionMode != domain.RunExecutionPermissionApproval) ||
 		i.Spec.Validate() != nil || !validExecutionOperator(i.RequestedBy) ||
 		!i.NonSandboxed || i.AutomaticRetryAllowed || i.CreatedAt.IsZero() ||
 		i.RequestID != HostExecutionRequestID(
 			i.RunID, i.OperationKeyDigest, i.Spec.Fingerprint) {
 		return ErrHostCommandBoundary
+	}
+	if i.PermissionMode == domain.RunExecutionPermissionFullAccess {
+		if i.AuthorizationProposalID != "" ||
+			i.AuthorizationProposalFingerprint != "" ||
+			i.AuthorizationReviewID != "" ||
+			i.AuthorizationReviewFingerprint != "" {
+			return ErrHostCommandBoundary
+		}
+	} else {
+		for _, value := range []string{
+			i.AuthorizationProposalID, i.AuthorizationReviewID,
+		} {
+			if !validIdentity(value) {
+				return ErrHostCommandBoundary
+			}
+		}
+		if !validSHA256(i.AuthorizationProposalFingerprint) ||
+			!validSHA256(i.AuthorizationReviewFingerprint) {
+			return ErrHostCommandBoundary
+		}
 	}
 	return nil
 }
@@ -173,6 +238,7 @@ type HostExecutionRequest struct {
 	CurrentSurface      domain.ExecutionSurface
 	RequestedBy         string
 	ExplicitlyConfirmed bool
+	Review              *HostCommandReview
 }
 
 type HostStartSpec struct {
@@ -245,43 +311,47 @@ func (r HostStartResult) Validate() error {
 }
 
 type HostExecutionResult struct {
-	ProtocolVersion          string
-	PolicyVersion            string
-	RequestID                string
-	OperationKeyDigest       string
-	RunID                    string
-	MissionID                string
-	SessionID                string
-	WorkspaceID              string
-	InteractionSnapshotID    string
-	InteractionRevision      int64
-	ExecutionProfileRevision int64
-	PermissionSnapshotID     string
-	PermissionRevision       int64
-	PermissionMode           domain.RunExecutionPermissionMode
-	SpecFingerprint          string
-	Backend                  string
-	ExitCode                 int
-	Stdout                   ControlledOutput
-	Stderr                   ControlledOutput
-	StartedAt                time.Time
-	CompletedAt              time.Time
-	TimedOut                 bool
-	Cancelled                bool
-	OutputLimitExceeded      bool
-	TreeReaped               bool
-	NonSandboxed             bool
-	RestrictedToken          bool
-	LowIntegrityToken        bool
-	JobAssignedAtCreation    bool
-	KillOnJobClose           bool
-	ActiveProcessLimit       int
-	JobMemoryLimit           int64
-	StdinClosed              bool
-	EnvironmentInherited     bool
-	NetworkRequested         bool
-	PersistentProcess        bool
-	ProductExecutionEnabled  bool
+	ProtocolVersion                  string
+	PolicyVersion                    string
+	RequestID                        string
+	OperationKeyDigest               string
+	RunID                            string
+	MissionID                        string
+	SessionID                        string
+	WorkspaceID                      string
+	InteractionSnapshotID            string
+	InteractionRevision              int64
+	ExecutionProfileRevision         int64
+	PermissionSnapshotID             string
+	PermissionRevision               int64
+	PermissionMode                   domain.RunExecutionPermissionMode
+	AuthorizationProposalID          string
+	AuthorizationProposalFingerprint string
+	AuthorizationReviewID            string
+	AuthorizationReviewFingerprint   string
+	SpecFingerprint                  string
+	Backend                          string
+	ExitCode                         int
+	Stdout                           ControlledOutput
+	Stderr                           ControlledOutput
+	StartedAt                        time.Time
+	CompletedAt                      time.Time
+	TimedOut                         bool
+	Cancelled                        bool
+	OutputLimitExceeded              bool
+	TreeReaped                       bool
+	NonSandboxed                     bool
+	RestrictedToken                  bool
+	LowIntegrityToken                bool
+	JobAssignedAtCreation            bool
+	KillOnJobClose                   bool
+	ActiveProcessLimit               int
+	JobMemoryLimit                   int64
+	StdinClosed                      bool
+	EnvironmentInherited             bool
+	NetworkRequested                 bool
+	PersistentProcess                bool
+	ProductExecutionEnabled          bool
 }
 
 func (r HostExecutionResult) Validate() error {
@@ -299,7 +369,21 @@ func (r HostExecutionResult) Validate() error {
 		!validSHA256(r.SpecFingerprint) ||
 		r.InteractionRevision <= 0 || r.ExecutionProfileRevision <= 0 ||
 		r.PermissionRevision <= 0 ||
-		r.PermissionMode != domain.RunExecutionPermissionFullAccess {
+		(r.PermissionMode != domain.RunExecutionPermissionFullAccess &&
+			r.PermissionMode != domain.RunExecutionPermissionApproval) {
+		return ErrHostCommandBoundary
+	}
+	if r.PermissionMode == domain.RunExecutionPermissionFullAccess {
+		if r.AuthorizationProposalID != "" ||
+			r.AuthorizationProposalFingerprint != "" ||
+			r.AuthorizationReviewID != "" ||
+			r.AuthorizationReviewFingerprint != "" {
+			return ErrHostCommandBoundary
+		}
+	} else if !validIdentity(r.AuthorizationProposalID) ||
+		!validSHA256(r.AuthorizationProposalFingerprint) ||
+		!validIdentity(r.AuthorizationReviewID) ||
+		!validSHA256(r.AuthorizationReviewFingerprint) {
 		return ErrHostCommandBoundary
 	}
 	return (HostStartResult{
@@ -502,14 +586,18 @@ func (e *HostExecutor) Execute(
 		OperationKeyDigest: intent.OperationKeyDigest,
 		RunID:              intent.RunID, MissionID: intent.MissionID,
 		SessionID: intent.SessionID, WorkspaceID: intent.WorkspaceID,
-		InteractionSnapshotID:    intent.InteractionSnapshotID,
-		InteractionRevision:      intent.InteractionRevision,
-		ExecutionProfileRevision: intent.ExecutionProfileRevision,
-		PermissionSnapshotID:     intent.PermissionSnapshotID,
-		PermissionRevision:       intent.PermissionRevision,
-		PermissionMode:           intent.PermissionMode,
-		SpecFingerprint:          intent.Spec.Fingerprint,
-		Backend:                  e.starter.Name(), ExitCode: started.ExitCode,
+		InteractionSnapshotID:            intent.InteractionSnapshotID,
+		InteractionRevision:              intent.InteractionRevision,
+		ExecutionProfileRevision:         intent.ExecutionProfileRevision,
+		PermissionSnapshotID:             intent.PermissionSnapshotID,
+		PermissionRevision:               intent.PermissionRevision,
+		PermissionMode:                   intent.PermissionMode,
+		AuthorizationProposalID:          intent.AuthorizationProposalID,
+		AuthorizationProposalFingerprint: intent.AuthorizationProposalFingerprint,
+		AuthorizationReviewID:            intent.AuthorizationReviewID,
+		AuthorizationReviewFingerprint:   intent.AuthorizationReviewFingerprint,
+		SpecFingerprint:                  intent.Spec.Fingerprint,
+		Backend:                          e.starter.Name(), ExitCode: started.ExitCode,
 		Stdout: started.Stdout, Stderr: started.Stderr,
 		StartedAt: started.StartedAt, CompletedAt: started.CompletedAt,
 		TimedOut: started.TimedOut, Cancelled: started.Cancelled,
@@ -569,14 +657,33 @@ func validateHostExecutionRequest(request HostExecutionRequest) error {
 		request.Interaction.WorkspaceTrust != domain.WorkspaceTrustTrusted ||
 		request.Interaction.CommandForm != domain.ExecutionCommandStructuredArgv ||
 		request.Interaction.PersistentTerminal ||
-		request.CurrentProfile.Profile != domain.RunExecutionProfileLocal ||
-		request.Permission.Mode != domain.RunExecutionPermissionFullAccess {
+		request.CurrentProfile.Profile != domain.RunExecutionProfileLocal {
+		return ErrHostCommandDenied
+	}
+	operatorApproved := false
+	if request.Permission.Mode == domain.RunExecutionPermissionApproval {
+		if request.Review == nil || request.Review.Validate() != nil ||
+			request.Review.Decision != HostCommandReviewApprove ||
+			!request.Review.SingleUseExecutionAuthorized ||
+			request.Intent.AuthorizationProposalID != request.Review.ProposalID ||
+			request.Intent.AuthorizationProposalFingerprint !=
+				request.Review.ProposalFingerprint ||
+			request.Intent.AuthorizationReviewID != request.Review.ID ||
+			request.Intent.AuthorizationReviewFingerprint !=
+				request.Review.Fingerprint ||
+			request.Review.ReviewedBy != request.RequestedBy {
+			return ErrHostCommandDenied
+		}
+		operatorApproved = true
+	} else if request.Permission.Mode != domain.RunExecutionPermissionFullAccess ||
+		request.Review != nil {
 		return ErrHostCommandDenied
 	}
 	decision, err := executionauth.EvaluateExecutionPermission(
 		request.Permission, request.Runtime, executionauth.PermissionRequest{
 			Kind:           executionauth.PermissionOperationStatelessCommand,
 			HostFilesystem: true, Network: true,
+			OperatorApproved: operatorApproved,
 		})
 	if err != nil {
 		return err

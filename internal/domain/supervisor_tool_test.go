@@ -47,3 +47,27 @@ func TestSupervisorToolResultRejectsUnboundedOrPendingState(t *testing.T) {
 		t.Fatal("pending supervisor tool result was accepted")
 	}
 }
+
+func TestSupervisorToolCallAcceptsEveryDurableToolName(t *testing.T) {
+	now := time.Now().UTC()
+	for _, toolName := range []string{
+		"work_item_create",
+		"note_create",
+		"specialist_delegation_propose",
+		"plan_delivery_propose",
+		"controlled_command_propose",
+		"host_command_propose",
+	} {
+		t.Run(toolName, func(t *testing.T) {
+			call := SupervisorToolCall{
+				RunID: "run-1", Turn: 1, AttemptID: "attempt-1", Round: 1,
+				Position: 1, ModelAttempt: 1, CallID: "toolu_0123456789abcdef01234567",
+				ToolName: toolName, PayloadJSON: `{}`, Status: SupervisorToolPending,
+				CreatedAt: now,
+			}
+			if err := call.Validate(); err != nil {
+				t.Fatalf("durable tool %q was rejected: %v", toolName, err)
+			}
+		})
+	}
+}

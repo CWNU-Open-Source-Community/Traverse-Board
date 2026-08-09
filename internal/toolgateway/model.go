@@ -43,6 +43,7 @@ const (
 	PlanDeliveryProposeTool         ToolName = "plan_delivery_propose"
 	SpecialistDelegationProposeTool ToolName = "specialist_delegation_propose"
 	ControlledCommandProposeTool    ToolName = "controlled_command_propose"
+	HostCommandProposeTool          ToolName = "host_command_propose"
 )
 
 func (n ToolName) Valid() bool {
@@ -50,6 +51,10 @@ func (n ToolName) Valid() bool {
 	case ReadFileTool, ListWorkspaceTool, ShellTool, ReplaceFileTool, ScriptProcessTool,
 		WorkItemCreateTool, NoteCreateTool, PlanDeliveryProposeTool,
 		SpecialistDelegationProposeTool, ControlledCommandProposeTool:
+		// Host commands remain proposals at this layer; execution is owned by
+		// the separate control-token review path.
+		return true
+	case HostCommandProposeTool:
 		return true
 	default:
 		return false
@@ -90,7 +95,7 @@ func ClassForTool(name ToolName) (ActionClass, bool) {
 	case WorkItemCreateTool, NoteCreateTool:
 		return ClassRunMemory, true
 	case PlanDeliveryProposeTool, SpecialistDelegationProposeTool,
-		ControlledCommandProposeTool:
+		ControlledCommandProposeTool, HostCommandProposeTool:
 		return ClassAgentProposal, true
 	default:
 		return "", false

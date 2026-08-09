@@ -109,6 +109,8 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 					item.Post.OperationID == "decideRunApproval") ||
 				(path == ControlledCommandProposalReviewPathTemplate &&
 					item.Post.OperationID == "reviewControlledCommandProposal") ||
+				(path == HostCommandProposalReviewPathTemplate &&
+					item.Post.OperationID == "reviewHostCommandProposal") ||
 				(path == RunExecutionControlPathTemplate &&
 					item.Post.OperationID == "executeRunSelection") ||
 				(path == ModelRouteControlPathTemplate &&
@@ -203,6 +205,7 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 				path == PlanDeliveryControlPathTemplate ||
 				path == ApprovalDecisionControlPathTemplate ||
 				path == ControlledCommandProposalReviewPathTemplate ||
+				path == HostCommandProposalReviewPathTemplate ||
 				path == RunExecutionControlPathTemplate ||
 				path == ModelRouteControlPathTemplate ||
 				path == ProviderDiagnosticPath || path == ModelHarnessQualificationPath ||
@@ -249,6 +252,10 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 		"raw_output"} {
 		assertOpenAPISchemaOmits(t, document.Components.Schemas,
 			"ControlledCommandProposalView", field)
+	}
+	for _, field := range []string{"command", "shell", "environment_values", "raw_output"} {
+		assertOpenAPISchemaOmits(t, document.Components.Schemas,
+			"HostCommandProposalView", field)
 	}
 	assertOpenAPISchemaOmits(t, document.Components.Schemas, "AgentNodeView", "status_reason")
 	assertOpenAPISchemaOmits(t, document.Components.Schemas, "DelegationReviewView", "reason")
@@ -438,6 +445,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	fixture.api.planDeliveryControlEnabled = true
 	fixture.api.approvalControlEnabled = true
 	fixture.api.controlledCommandProposalControlEnabled = true
+	fixture.api.hostCommandProposalControlEnabled = true
 	fixture.api.modelControlEnabled = true
 	fixture.api.providerCredentialEnabled = true
 	fixture.api.fileEditReviewEnabled = true
@@ -490,6 +498,10 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				},
 			},
 		}
+	hostView := testHostCommandProposalView(t, fixture.run.ID, fixture.run.MissionID,
+		fixture.run.SessionID, fixture.workspace.ID)
+	hostView.Proposal.ID = "controlled-command-proposal-openapi"
+	fixture.api.hostCommandProposalController = &hostCommandProposalControllerStub{view: hostView}
 	fixture.api.modelControlController = application.NewModelControlService(
 		fixture.api.modelRegistry, fixture.store)
 	credentialStore := credential.NewMemoryStore()
@@ -678,6 +690,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				} else if spec.Path == ControlledCommandProposalReviewPathTemplate {
 					body = `{"version":"controlled_command_proposal_review.v1",` +
 						`"decision":"deny"}`
+				} else if spec.Path == HostCommandProposalReviewPathTemplate {
+					body = `{"version":"host_command_review.v1","decision":"deny"}`
 				} else if spec.Path == RunExecutionControlPathTemplate {
 					body = `{"version":"run_execution_handoff.v1","max_steps":1}`
 				} else if spec.Path == ModelRouteControlPathTemplate {

@@ -21,6 +21,7 @@ const (
 	HostCommandPolicyVersion           = "host_command_policy.v1"
 	HostCommandProposalProtocolVersion = "host_command_proposal.v1"
 	HostCommandReviewProtocolVersion   = "host_command_review.v1"
+	HostCommandResultProtocolVersion   = "host_command_proposal_result.v1"
 	HostCommandIntentProtocolVersion   = "host_command_execution_intent.v1"
 	HostCommandReceiptProtocolVersion  = "host_command_execution_receipt.v1"
 	HostEnvironmentPolicy              = "sanitized_host_environment.v1"
@@ -186,6 +187,42 @@ func HostCommandSpecFingerprint(spec HostCommandSpec) string {
 	return hex.EncodeToString(digest[:])
 }
 
+// ValidateHostCommandProposalTransport rejects command interpreters and
+// inline-code switches that would turn exact argv review back into shell-text
+// approval. Danger-full-access execution intentionally uses the broader
+// HostCommandSpec contract instead.
+func ValidateHostCommandProposalTransport(spec HostCommandSpec) error {
+	if err := spec.Validate(); err != nil {
+		return err
+	}
+	base := strings.ToLower(filepath.Base(spec.ExecutablePath))
+	switch base {
+	case "cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh", "pwsh.exe",
+		"sh", "sh.exe", "bash", "bash.exe", "dash", "dash.exe", "zsh", "zsh.exe",
+		"wscript", "wscript.exe", "cscript", "cscript.exe", "mshta", "mshta.exe",
+		"rundll32", "rundll32.exe", "regsvr32", "regsvr32.exe", "env", "env.exe":
+		return fmt.Errorf("%w: command interpreters and wrappers are not accepted by approval mode",
+			ErrHostCommandDenied)
+	}
+	inlineSwitches := map[string]map[string]struct{}{
+		"python": {"-c": {}}, "python.exe": {"-c": {}},
+		"python3": {"-c": {}}, "python3.exe": {"-c": {}},
+		"node": {"-e": {}, "--eval": {}}, "node.exe": {"-e": {}, "--eval": {}},
+		"deno": {"eval": {}}, "deno.exe": {"eval": {}},
+		"bun": {"-e": {}, "--eval": {}}, "bun.exe": {"-e": {}, "--eval": {}},
+		"perl": {"-e": {}}, "perl.exe": {"-e": {}},
+		"ruby": {"-e": {}}, "ruby.exe": {"-e": {}},
+	}
+	blocked := inlineSwitches[base]
+	for _, argument := range spec.Argv {
+		if _, found := blocked[strings.ToLower(strings.TrimSpace(argument))]; found {
+			return fmt.Errorf("%w: inline interpreter code is not accepted by approval mode",
+				ErrHostCommandDenied)
+		}
+	}
+	return nil
+}
+
 func HostEnvironmentDigest(environment []string) (string, error) {
 	normalized, _, digest, err := normalizeHostEnvironment(environment)
 	if err != nil {
@@ -319,6 +356,80 @@ func HostCommandProposalFingerprint(proposal HostCommandProposal) string {
 	return hex.EncodeToString(digest[:])
 }
 
+func HostCommandProposalRequestFingerprint(
+	proposal HostCommandProposal,
+) string {
+	semantic := struct {
+		ProtocolVersion          string
+		PolicyVersion            string
+		RunID                    string
+		MissionID                string
+		SessionID                string
+		WorkspaceID              string
+		RootAgentID              string
+		InteractionSnapshotID    string
+		InteractionRevision      int64
+		ExecutionProfileRevision int64
+		PermissionSnapshotID     string
+		PermissionRevision       int64
+		PermissionMode           domain.RunExecutionPermissionMode
+		SpecFingerprint          string
+		RequestedBy              string
+	}{
+		ProtocolVersion: proposal.ProtocolVersion,
+		PolicyVersion:   proposal.PolicyVersion,
+		RunID:           proposal.RunID, MissionID: proposal.MissionID,
+		SessionID: proposal.SessionID, WorkspaceID: proposal.WorkspaceID,
+		RootAgentID:              proposal.RootAgentID,
+		InteractionSnapshotID:    proposal.InteractionSnapshotID,
+		InteractionRevision:      proposal.InteractionRevision,
+		ExecutionProfileRevision: proposal.ExecutionProfileRevision,
+		PermissionSnapshotID:     proposal.PermissionSnapshotID,
+		PermissionRevision:       proposal.PermissionRevision,
+		PermissionMode:           proposal.PermissionMode,
+		SpecFingerprint:          proposal.Spec.Fingerprint,
+		RequestedBy:              proposal.RequestedBy,
+	}
+	encoded, err := json.Marshal(semantic)
+	if err != nil {
+		return ""
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:])
+}
+
+type HostCommandProposalOperation struct {
+	KeyDigest          string
+	RequestFingerprint string
+	InvocationID       string
+	ProposalID         string
+	RunID              string
+	SessionID          string
+	WorkspaceID        string
+	RootAgentID        string
+	LeaseID            string
+	LeaseGeneration    int64
+	RequestedBy        string
+	CreatedAt          time.Time
+}
+
+func (o HostCommandProposalOperation) Validate() error {
+	for _, value := range []string{
+		o.InvocationID, o.ProposalID, o.RunID, o.SessionID, o.WorkspaceID,
+		o.RootAgentID, o.LeaseID, o.RequestedBy,
+	} {
+		if !validIdentity(value) {
+			return ErrHostCommandBoundary
+		}
+	}
+	if !validSHA256(o.KeyDigest) || !validSHA256(o.RequestFingerprint) ||
+		o.LeaseGeneration <= 0 || o.RequestedBy != "run_supervisor" ||
+		o.CreatedAt.IsZero() {
+		return ErrHostCommandBoundary
+	}
+	return nil
+}
+
 type HostCommandReviewDecision string
 
 const (
@@ -344,6 +455,7 @@ type HostCommandReview struct {
 	ReviewedBy                   string
 	Reason                       string
 	OperationKeyDigest           string
+	RequestFingerprint           string
 	SingleUseExecutionAuthorized bool
 	CapabilityGrant              bool
 	Fingerprint                  string
@@ -376,6 +488,7 @@ func NewHostCommandReview(id string, proposal HostCommandProposal,
 		SingleUseExecutionAuthorized: decision == HostCommandReviewApprove,
 		CreatedAt:                    createdAt.UTC(),
 	}
+	review.RequestFingerprint = HostCommandReviewRequestFingerprint(review)
 	review.Fingerprint = HostCommandReviewFingerprint(review)
 	if err := review.Validate(); err != nil {
 		return HostCommandReview{}, err
@@ -397,6 +510,7 @@ func (r HostCommandReview) Validate() error {
 		!validExecutionOperator(r.ReviewedBy) ||
 		!validSHA256(r.ProposalFingerprint) ||
 		!validSHA256(r.OperationKeyDigest) ||
+		!validSHA256(r.RequestFingerprint) ||
 		!validSHA256(r.Fingerprint) ||
 		r.SingleUseExecutionAuthorized !=
 			(r.Decision == HostCommandReviewApprove) ||
@@ -417,9 +531,117 @@ func (r HostCommandReview) Validate() error {
 	return nil
 }
 
+func HostCommandReviewRequestFingerprint(review HostCommandReview) string {
+	semantic := struct {
+		ProtocolVersion     string
+		PolicyVersion       string
+		ProposalID          string
+		ProposalFingerprint string
+		RunID               string
+		Decision            HostCommandReviewDecision
+		ReviewedBy          string
+		Reason              string
+		OperationKeyDigest  string
+	}{
+		ProtocolVersion:     review.ProtocolVersion,
+		PolicyVersion:       review.PolicyVersion,
+		ProposalID:          review.ProposalID,
+		ProposalFingerprint: review.ProposalFingerprint,
+		RunID:               review.RunID, Decision: review.Decision,
+		ReviewedBy: review.ReviewedBy, Reason: review.Reason,
+		OperationKeyDigest: review.OperationKeyDigest,
+	}
+	encoded, err := json.Marshal(semantic)
+	if err != nil {
+		return ""
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:])
+}
+
 func HostCommandReviewFingerprint(review HostCommandReview) string {
 	review.Fingerprint = ""
 	encoded, err := json.Marshal(review)
+	if err != nil {
+		return ""
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:])
+}
+
+type HostCommandProposalResult struct {
+	ID                    string
+	ProtocolVersion       string
+	PolicyVersion         string
+	ProposalID            string
+	ProposalFingerprint   string
+	ReviewID              string
+	ReviewFingerprint     string
+	RequestID             string
+	RunID                 string
+	SessionID             string
+	Status                string
+	SourceKind            string
+	SourceRef             string
+	ContentSHA256         string
+	InstructionAuthorized bool
+	RawOutputPersisted    bool
+	AutomaticRetryAllowed bool
+	Fingerprint           string
+	CreatedAt             time.Time
+}
+
+func NewHostCommandProposalResult(id string, proposal HostCommandProposal,
+	review HostCommandReview, requestID string, status string,
+	sourceKind string, sourceRef string, contentSHA256 string,
+	createdAt time.Time,
+) (HostCommandProposalResult, error) {
+	result := HostCommandProposalResult{
+		ID: strings.TrimSpace(id), ProtocolVersion: HostCommandResultProtocolVersion,
+		PolicyVersion: HostCommandPolicyVersion,
+		ProposalID:    proposal.ID, ProposalFingerprint: proposal.Fingerprint,
+		ReviewID: review.ID, ReviewFingerprint: review.Fingerprint,
+		RequestID: strings.TrimSpace(requestID), RunID: proposal.RunID,
+		SessionID: proposal.SessionID, Status: strings.TrimSpace(status),
+		SourceKind: strings.TrimSpace(sourceKind), SourceRef: strings.TrimSpace(sourceRef),
+		ContentSHA256: strings.ToLower(strings.TrimSpace(contentSHA256)),
+		CreatedAt:     createdAt.UTC(),
+	}
+	result.Fingerprint = HostCommandProposalResultFingerprint(result)
+	if proposal.Validate() != nil || review.Validate() != nil ||
+		review.ProposalID != proposal.ID ||
+		review.Decision != HostCommandReviewApprove || result.Validate() != nil {
+		return HostCommandProposalResult{}, ErrHostCommandBoundary
+	}
+	return result, nil
+}
+
+func (r HostCommandProposalResult) Validate() error {
+	for _, value := range []string{
+		r.ID, r.ProposalID, r.ReviewID, r.RequestID, r.RunID, r.SessionID,
+		r.SourceKind, r.SourceRef,
+	} {
+		if !validIdentity(value) {
+			return ErrHostCommandBoundary
+		}
+	}
+	if r.ProtocolVersion != HostCommandResultProtocolVersion ||
+		r.PolicyVersion != HostCommandPolicyVersion ||
+		!validSHA256(r.ProposalFingerprint) ||
+		!validSHA256(r.ReviewFingerprint) ||
+		!validSHA256(r.ContentSHA256) || !validSHA256(r.Fingerprint) ||
+		(r.Status != "completed" && r.Status != "failed") ||
+		r.InstructionAuthorized || r.RawOutputPersisted ||
+		r.AutomaticRetryAllowed || r.CreatedAt.IsZero() ||
+		HostCommandProposalResultFingerprint(r) != r.Fingerprint {
+		return ErrHostCommandBoundary
+	}
+	return nil
+}
+
+func HostCommandProposalResultFingerprint(result HostCommandProposalResult) string {
+	result.Fingerprint = ""
+	encoded, err := json.Marshal(result)
 	if err != nil {
 		return ""
 	}

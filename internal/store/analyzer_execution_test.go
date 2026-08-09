@@ -116,19 +116,105 @@ func TestSchemaV95UpgradesV94AnalyzerDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer upgraded.Close()
-	if version, err := upgraded.SchemaVersion(t.Context()); err != nil || version != 95 {
+	if version, err := upgraded.SchemaVersion(t.Context()); err != nil || version != 96 {
 		t.Fatalf("schema version=%d err=%v", version, err)
 	}
 }
 
 func removeSchemaV95ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV96ForTestStatements(), []string{
 		`DROP TRIGGER trg_analyzer_execution_delete_immutable`,
 		`DROP TRIGGER trg_analyzer_execution_update_immutable`,
 		`DROP TRIGGER trg_analyzer_execution_insert`,
 		`DROP INDEX idx_analyzer_executions_run_created`,
 		`DROP TABLE analyzer_executions`,
 		`DELETE FROM schema_migrations WHERE version = 95`,
+	}...)
+}
+
+func removeSchemaV96ForTestStatements() []string {
+	return []string{
+		`DROP TRIGGER trg_host_command_result_delete_immutable`,
+		`DROP TRIGGER trg_host_command_result_update_immutable`,
+		`DROP TRIGGER trg_host_command_intent_delete_immutable`,
+		`DROP TRIGGER trg_host_command_intent_update_immutable`,
+		`DROP TRIGGER trg_host_command_review_delete_immutable`,
+		`DROP TRIGGER trg_host_command_review_update_immutable`,
+		`DROP TRIGGER trg_host_command_proposal_operation_delete_immutable`,
+		`DROP TRIGGER trg_host_command_proposal_operation_update_immutable`,
+		`DROP TRIGGER trg_host_command_proposal_delete_immutable`,
+		`DROP TRIGGER trg_host_command_proposal_update_immutable`,
+		`DROP TRIGGER trg_host_command_result_insert_binding`,
+		`DROP TRIGGER trg_host_command_intent_insert_binding`,
+		`DROP TRIGGER trg_host_command_review_insert_binding`,
+		`DROP TRIGGER trg_host_command_proposal_operation_insert_binding`,
+		`DROP TRIGGER trg_host_command_proposal_insert_binding`,
+		`DROP TABLE host_command_proposal_results`,
+		`DROP TABLE host_command_proposal_execution_intents`,
+		`DROP INDEX idx_host_command_reviews_run_created`,
+		`DROP TABLE host_command_proposal_reviews`,
+		`DROP TABLE host_command_proposal_operations`,
+		`DROP INDEX idx_host_command_proposals_run_created`,
+		`DROP TABLE host_command_proposals`,
+		`DROP TRIGGER trg_supervisor_tool_call_model_attempt`,
+		`DROP TRIGGER trg_supervisor_tool_round_completion`,
+		`DROP INDEX idx_run_supervisor_tool_calls_pending`,
+		`ALTER TABLE run_supervisor_tool_calls RENAME TO run_supervisor_tool_calls_v96`,
+		`CREATE TABLE run_supervisor_tool_calls (
+			run_id TEXT NOT NULL,
+			turn INTEGER NOT NULL,
+			attempt_id TEXT NOT NULL,
+			round INTEGER NOT NULL,
+			position INTEGER NOT NULL,
+			model_attempt INTEGER NOT NULL,
+			call_id TEXT NOT NULL,
+			tool_name TEXT NOT NULL,
+			payload_json TEXT NOT NULL,
+			status TEXT NOT NULL,
+			result_json TEXT NOT NULL DEFAULT '',
+			error_code TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL,
+			completed_at TEXT,
+			PRIMARY KEY(run_id, turn, attempt_id, round, position),
+			UNIQUE(run_id, turn, attempt_id, call_id),
+			FOREIGN KEY(run_id, turn, attempt_id, round)
+				REFERENCES run_supervisor_tool_rounds(run_id, turn, attempt_id, round) ON DELETE CASCADE,
+			CHECK(position BETWEEN 1 AND 4),
+			CHECK(model_attempt > 0),
+			CHECK(tool_name IN ('work_item_create', 'note_create',
+				'specialist_delegation_propose', 'plan_delivery_propose')),
+			CHECK(status IN ('pending', 'completed', 'denied', 'failed')),
+			CHECK((status = 'pending' AND result_json = '' AND error_code = '' AND completed_at IS NULL)
+				OR (status = 'completed' AND length(result_json) > 0 AND error_code = '' AND completed_at IS NOT NULL)
+				OR (status IN ('denied', 'failed') AND length(result_json) > 0 AND length(error_code) > 0
+					AND completed_at IS NOT NULL))
+		)`,
+		`INSERT INTO run_supervisor_tool_calls
+			(run_id, turn, attempt_id, round, position, model_attempt, call_id, tool_name,
+			payload_json, status, result_json, error_code, created_at, completed_at)
+			SELECT run_id, turn, attempt_id, round, position, model_attempt, call_id, tool_name,
+			payload_json, status, result_json, error_code, created_at, completed_at
+			FROM run_supervisor_tool_calls_v96`,
+		`DROP TABLE run_supervisor_tool_calls_v96`,
+		`CREATE INDEX idx_run_supervisor_tool_calls_pending
+			ON run_supervisor_tool_calls(run_id, turn, attempt_id, status, round, position)`,
+		`CREATE TRIGGER trg_supervisor_tool_call_model_attempt
+			BEFORE INSERT ON run_supervisor_tool_calls
+			WHEN NOT EXISTS (
+				SELECT 1 FROM run_supervisor_tool_rounds
+				WHERE run_id = NEW.run_id AND turn = NEW.turn AND attempt_id = NEW.attempt_id
+					AND round = NEW.round AND model_attempt = NEW.model_attempt
+			)
+			BEGIN SELECT RAISE(ABORT, 'supervisor tool call model attempt mismatch'); END`,
+		`CREATE TRIGGER trg_supervisor_tool_round_completion
+			BEFORE UPDATE OF completed_at ON run_supervisor_tool_rounds
+			WHEN NEW.completed_at IS NOT NULL AND EXISTS (
+				SELECT 1 FROM run_supervisor_tool_calls
+				WHERE run_id = NEW.run_id AND turn = NEW.turn AND attempt_id = NEW.attempt_id
+					AND round = NEW.round AND status = 'pending'
+			)
+			BEGIN SELECT RAISE(ABORT, 'supervisor tool round still has pending calls'); END`,
+		`DELETE FROM schema_migrations WHERE version = 96`,
 	}
 }
 

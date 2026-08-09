@@ -8,6 +8,8 @@ import type {
   CodeHandoffExportView,
   ControlledCommandProposalReviewRequestView,
   ControlledCommandProposalView,
+  HostCommandProposalReviewRequestView,
+  HostCommandProposalView,
   ErrorEnvelope,
   EvidenceAttachmentRequestView,
   EvidenceAttachmentView,
@@ -122,6 +124,7 @@ export interface ClientCapabilities {
   planDeliveryControlEnabled?: boolean;
   approvalControlEnabled?: boolean;
   controlledCommandProposalControlEnabled?: boolean;
+  hostCommandProposalControlEnabled?: boolean;
   modelControlEnabled?: boolean;
   providerCredentialEnabled?: boolean;
   fileEditReviewEnabled?: boolean;
@@ -763,6 +766,115 @@ function parseControlledCommandProposal(value: unknown, expectedRunID: string,
   return value as unknown as ControlledCommandProposalView;
 }
 
+function parseHostCommandProposalReceipt(value: unknown): boolean {
+  return hasExactKeys(value, ["active_process_limit", "backend", "cancelled", "completed_at",
+    "environment_inherited", "exit_code", "job_assigned_at_creation", "job_memory_limit",
+    "kill_on_job_close", "low_integrity_token", "network_requested", "non_sandboxed",
+    "output_limit_exceeded", "persistent_process", "product_execution_enabled", "request_id",
+    "restricted_token", "started_at", "stderr_captured_bytes", "stderr_observed_bytes",
+    "stderr_prefix_sha256", "stderr_truncated", "stdin_closed", "stdout_captured_bytes",
+    "stdout_observed_bytes", "stdout_prefix_sha256", "stdout_truncated", "timed_out",
+    "tree_reaped"]) &&
+    boundedIdentity(value.request_id) === value.request_id && value.backend === "windows-host-job-v1" &&
+    typeof value.exit_code === "number" && Number.isSafeInteger(value.exit_code) &&
+    safeBoundedCount(value.stdout_observed_bytes, 64 * 1024 * 1024) &&
+    safeBoundedCount(value.stdout_captured_bytes, 64 * 1024) &&
+    safeBoundedCount(value.stderr_observed_bytes, 64 * 1024 * 1024) &&
+    safeBoundedCount(value.stderr_captured_bytes, 64 * 1024) &&
+    value.stdout_captured_bytes <= value.stdout_observed_bytes &&
+    value.stderr_captured_bytes <= value.stderr_observed_bytes &&
+    isSHA256(value.stdout_prefix_sha256) && isSHA256(value.stderr_prefix_sha256) &&
+    typeof value.stdout_truncated === "boolean" && typeof value.stderr_truncated === "boolean" &&
+    validDate(value.started_at) && validDate(value.completed_at) &&
+    Date.parse(value.completed_at) >= Date.parse(value.started_at) &&
+    typeof value.timed_out === "boolean" && typeof value.cancelled === "boolean" &&
+    typeof value.output_limit_exceeded === "boolean" && value.tree_reaped === true &&
+    value.non_sandboxed === true && value.restricted_token === false &&
+    value.low_integrity_token === false && value.job_assigned_at_creation === true &&
+    value.kill_on_job_close === true && value.active_process_limit === 32 &&
+    value.job_memory_limit === 2 * 1024 * 1024 * 1024 && value.stdin_closed === true &&
+    value.environment_inherited === false && value.network_requested === true &&
+    value.persistent_process === false && value.product_execution_enabled === true;
+}
+
+function parseHostCommandProposal(value: unknown, expectedRunID: string,
+  expectedProposalID = ""): HostCommandProposalView {
+  const required = ["argv", "automatic_retry_allowed", "capability_grant", "created_at",
+    "environment_keys", "environment_policy", "environment_sha256",
+    "evidence_instruction_authorized", "executable_path", "executable_sha256",
+    "execution_authorized", "fingerprint", "id", "instruction_authorized", "mission_id",
+    "network_intent", "non_sandboxed", "operator_review_required", "permission_mode",
+    "permission_revision", "policy_version", "protocol_version", "purpose", "run_id",
+    "session_id", "spec_fingerprint", "timeout_milliseconds", "working_directory",
+    "workspace_id"];
+  const optional = ["execution_replayed", "receipt", "result", "review", "review_replayed",
+    "untrusted_evidence"];
+  if (!isRecord(value) || !hasOnlyKeys(value, [...required, ...optional]) ||
+    required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
+    value.protocol_version !== "host_command_proposal.v1" ||
+    value.policy_version !== "host_command_policy.v1" || value.run_id !== expectedRunID ||
+    (expectedProposalID !== "" && value.id !== expectedProposalID) ||
+    boundedIdentity(value.id) !== value.id || boundedIdentity(value.run_id) !== value.run_id ||
+    boundedIdentity(value.mission_id) !== value.mission_id ||
+    boundedIdentity(value.session_id) !== value.session_id ||
+    boundedIdentity(value.workspace_id) !== value.workspace_id ||
+    !boundedText(value.executable_path, 32_768) || !isSHA256(value.executable_sha256) ||
+    !Array.isArray(value.argv) || value.argv.length > 64 ||
+    !value.argv.every((argument) => boundedText(argument, 16 * 1024)) ||
+    !boundedText(value.working_directory, 32_768) ||
+    value.environment_policy !== "sanitized_host_environment.v1" ||
+    !Array.isArray(value.environment_keys) || value.environment_keys.length > 48 ||
+    !value.environment_keys.every((key) => boundedText(key, 256) && !key.includes("=")) ||
+    !isSHA256(value.environment_sha256) || value.network_intent !== "host" ||
+    !safePositiveInteger(value.timeout_milliseconds) || value.timeout_milliseconds > 600_000 ||
+    !boundedText(value.purpose, 4_800) || !isSHA256(value.spec_fingerprint) ||
+    value.permission_mode !== "approval" || !safePositiveInteger(value.permission_revision) ||
+    value.operator_review_required !== true || value.non_sandboxed !== true ||
+    value.automatic_retry_allowed !== false || value.instruction_authorized !== false ||
+    value.execution_authorized !== false || value.capability_grant !== false ||
+    !isSHA256(value.fingerprint) || !validDate(value.created_at) ||
+    value.evidence_instruction_authorized !== false ||
+    (value.review_replayed !== undefined && typeof value.review_replayed !== "boolean") ||
+    (value.execution_replayed !== undefined && typeof value.execution_replayed !== "boolean") ||
+    (value.untrusted_evidence !== undefined &&
+      (typeof value.untrusted_evidence !== "string" || value.untrusted_evidence.length > 16 * 1024 ||
+        !value.untrusted_evidence.startsWith("UNTRUSTED HOST COMMAND RESULT")))) {
+    throw new APIRequestError("Host command proposal response is invalid", "INVALID_RESPONSE", 502);
+  }
+  if (value.review !== undefined) {
+    const review = value.review;
+    if (!hasExactKeys(review, ["capability_grant", "created_at", "decision", "id", "reason",
+      "reviewed_by", "single_use_execution_authorized"]) ||
+      boundedIdentity(review.id) !== review.id || boundedIdentity(review.reviewed_by) !== review.reviewed_by ||
+      !boundedText(review.reason, 4_096) || !validDate(review.created_at) ||
+      (review.decision !== "approve" && review.decision !== "deny") ||
+      review.single_use_execution_authorized !== (review.decision === "approve") ||
+      review.capability_grant !== false) {
+      throw new APIRequestError("Host command review response is invalid", "INVALID_RESPONSE", 502);
+    }
+  }
+  if (value.result !== undefined) {
+    const result = value.result;
+    if (!hasExactKeys(result, ["automatic_retry_allowed", "content_sha256", "created_at", "id",
+      "instruction_authorized", "raw_output_persisted", "source_kind", "source_ref", "status"]) ||
+      boundedIdentity(result.id) !== result.id || boundedIdentity(result.source_ref) !== result.source_ref ||
+      (result.status !== "completed" && result.status !== "failed") ||
+      result.source_kind !== "go_command_result" || !isSHA256(result.content_sha256) ||
+      result.instruction_authorized !== false || result.raw_output_persisted !== false ||
+      result.automatic_retry_allowed !== false || !validDate(result.created_at)) {
+      throw new APIRequestError("Host command result response is invalid", "INVALID_RESPONSE", 502);
+    }
+  }
+  if ((value.result === undefined) !== (value.receipt === undefined) ||
+    (value.receipt !== undefined && !parseHostCommandProposalReceipt(value.receipt)) ||
+    value.result !== undefined && value.review === undefined ||
+    value.untrusted_evidence !== undefined && value.result === undefined) {
+    throw new APIRequestError("Host command proposal response crossed its execution boundary",
+      "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as HostCommandProposalView;
+}
+
 function parseModelRouteControl(value: unknown, route: string,
   request: ModelRouteControlRequestView): ModelAvailabilityView["routes"][number] {
   if (!hasExactKeys(value, ["available", "harness_ready", "model", "name", "provider"]) ||
@@ -856,6 +968,7 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
   const capabilityKeys = ["approval_control_enabled", "docker_execution_enabled",
     "browser_cdp_permission_control_enabled", "full_cdp_debug_enabled",
     "controlled_command_proposal_control_enabled",
+    "host_command_proposal_control_enabled",
     "execution_permission_control_enabled", "operator_approval_enabled",
     "danger_full_access_enabled", "debug_maximum_access_enabled",
     "evidence_attachment_enabled", "verification_evidence_enabled",
@@ -892,6 +1005,7 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
     (!worker.enabled && (worker.state !== "disabled" || worker.active || worker.poll_interval_ms !== 0)) ||
     (value.full_cdp_debug_enabled && (!value.browser_cdp_permission_control_enabled ||
       !value.debug_maximum_access_enabled)) ||
+    (value.host_command_proposal_control_enabled && !value.operator_approval_enabled) ||
     value.process_execution_enabled !== false || value.shell_execution_enabled !== false ||
     value.docker_execution_enabled !== false) {
     throw new APIRequestError("Run wake worker capability response is invalid",
@@ -948,6 +1062,8 @@ export function clientCapabilitiesFromRuntime(value: RuntimeCapabilitiesView): C
     approvalControlEnabled: value.approval_control_enabled,
     controlledCommandProposalControlEnabled:
       value.controlled_command_proposal_control_enabled,
+    hostCommandProposalControlEnabled:
+      value.host_command_proposal_control_enabled,
     modelControlEnabled: value.model_control_enabled,
     providerCredentialEnabled: value.provider_credential_enabled,
     fileEditReviewEnabled: value.file_edit_review_enabled,
@@ -3083,6 +3199,7 @@ export class CyberAgentClient {
   readonly hasPlanDelivery: boolean;
   readonly hasApprovalControl: boolean;
   readonly hasControlledCommandProposalControl: boolean;
+  readonly hasHostCommandProposalControl: boolean;
   readonly hasModelControl: boolean;
   readonly hasProviderCredentials: boolean;
   readonly hasFileEditReview: boolean;
@@ -3124,6 +3241,9 @@ export class CyberAgentClient {
     this.hasApprovalControl = controlPresent && (capabilities.approvalControlEnabled ?? true);
     this.hasControlledCommandProposalControl = controlPresent &&
       (capabilities.controlledCommandProposalControlEnabled ?? false);
+    this.hasHostCommandProposalControl = controlPresent &&
+      (capabilities.hostCommandProposalControlEnabled ?? false) &&
+      (capabilities.operatorApprovalEnabled ?? false);
     this.hasModelControl = controlPresent && (capabilities.modelControlEnabled ?? true);
     this.hasProviderCredentials = controlPresent &&
       (capabilities.providerCredentialEnabled ?? false);
@@ -4001,6 +4121,54 @@ export class CyberAgentClient {
       body, idempotencyKey, signal,
     );
     return parseControlledCommandProposal(result, runID, proposalID);
+  }
+
+  async hostCommandProposals(runID: string,
+    signal?: AbortSignal): Promise<PageResult<HostCommandProposalView>> {
+    if (!this.hasHostCommandProposalControl ||
+      !boundedIdentity(runID) || runID.trim() !== runID) {
+      throw new Error("Host command proposal capability and normalized Run are required");
+    }
+    const page = await this.getPage<unknown>(
+      `/runs/${encodeURIComponent(runID)}/host-command-proposals`, { limit: 100 }, "", signal,
+    );
+    return {
+      ...page,
+      items: page.items.map((item) => parseHostCommandProposal(item, runID)),
+    };
+  }
+
+  async hostCommandProposal(runID: string, proposalID: string,
+    signal?: AbortSignal): Promise<HostCommandProposalView> {
+    if (!this.hasHostCommandProposalControl ||
+      !boundedIdentity(runID) || runID.trim() !== runID ||
+      !boundedIdentity(proposalID) || proposalID.trim() !== proposalID) {
+      throw new Error("Host command proposal capability and normalized identities are required");
+    }
+    return parseHostCommandProposal(await this.get<unknown>(
+      `/runs/${encodeURIComponent(runID)}/host-command-proposals/${encodeURIComponent(proposalID)}`,
+      {}, signal,
+    ), runID, proposalID);
+  }
+
+  async reviewHostCommandProposal(runID: string, proposalID: string,
+    body: HostCommandProposalReviewRequestView, idempotencyKey: string,
+    signal?: AbortSignal): Promise<HostCommandProposalView> {
+    if (!this.hasHostCommandProposalControl ||
+      !boundedIdentity(runID) || runID.trim() !== runID ||
+      !boundedIdentity(proposalID) || proposalID.trim() !== proposalID ||
+      body.version !== "host_command_review.v1" ||
+      (body.decision !== "approve" && body.decision !== "deny") ||
+      body.confirm_execution !== (body.decision === "approve") ||
+      (body.reason !== undefined &&
+        (!boundedText(body.reason, 4_096) || /[\u0000-\u001f\u007f]/u.test(body.reason)))) {
+      throw new Error("An exact host command review request is required");
+    }
+    const result = await this.sendControl<unknown>(
+      `/runs/${encodeURIComponent(runID)}/host-command-proposals/${encodeURIComponent(proposalID)}/review`,
+      body, idempotencyKey, signal,
+    );
+    return parseHostCommandProposal(result, runID, proposalID);
   }
 
   async decideApproval(runID: string, approvalID: string,

@@ -119,6 +119,7 @@ func TestAPIServeCLIStartsAuthenticatedLoopbackServerWithoutPersistingToken(t *t
 			"api", "serve", "--listen", "127.0.0.1:0",
 			"--enable-permission-control", "--enable-danger-full-access",
 			"--enable-debug-maximum-access",
+			"--enable-host-command-proposals",
 			"--enable-browser-cdp-control", "--enable-full-cdp-debug",
 		}, &stdout, &stderr)
 	}()
@@ -138,6 +139,7 @@ func TestAPIServeCLIStartsAuthenticatedLoopbackServerWithoutPersistingToken(t *t
 		!strings.Contains(output, "api_control_token_source: "+apiControlTokenEnvironment) ||
 		!strings.Contains(output, "execution_permission_control_enabled: true") ||
 		!strings.Contains(output, "operator_approval_enabled: true") ||
+		!strings.Contains(output, "host_command_proposal_control_enabled: true") ||
 		!strings.Contains(output, "danger_full_access_enabled: true") ||
 		!strings.Contains(output, "debug_maximum_access_enabled: true") ||
 		!strings.Contains(output, "browser_cdp_permission_control_enabled: true") ||
@@ -176,6 +178,8 @@ func TestAPIServeCLIStartsAuthenticatedLoopbackServerWithoutPersistingToken(t *t
 	if readErr != nil || capabilityResponse.StatusCode != http.StatusOK ||
 		!bytes.Contains(capabilityBody,
 			[]byte(`"execution_permission_control_enabled":true`)) ||
+		!bytes.Contains(capabilityBody,
+			[]byte(`"host_command_proposal_control_enabled":true`)) ||
 		!bytes.Contains(capabilityBody,
 			[]byte(`"debug_maximum_access_enabled":true`)) ||
 		!bytes.Contains(capabilityBody,
@@ -254,6 +258,16 @@ func TestAPIServeCLIRejectsInvalidExecutionPermissionStartupGates(t *testing.T) 
 	if code != 2 || !strings.Contains(stderr.String(),
 		"full CDP debug requires browser CDP control") {
 		t.Fatalf("invalid browser CDP hierarchy stdout=%q stderr=%q code=%d",
+			stdout.String(), stderr.String(), code)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	code = ExecuteContext(context.Background(), []string{
+		"api", "serve", "--enable-host-command-proposals",
+	}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(),
+		"host command proposals require --enable-permission-control") {
+		t.Fatalf("invalid host command hierarchy stdout=%q stderr=%q code=%d",
 			stdout.String(), stderr.String(), code)
 	}
 }

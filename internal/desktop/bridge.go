@@ -52,6 +52,7 @@ type ConnectionBootstrap struct {
 	PlanDeliveryControlEnabled              bool   `json:"plan_delivery_control_enabled"`
 	ApprovalControlEnabled                  bool   `json:"approval_control_enabled"`
 	ControlledCommandProposalControlEnabled bool   `json:"controlled_command_proposal_control_enabled"`
+	HostCommandProposalControlEnabled       bool   `json:"host_command_proposal_control_enabled"`
 	ModelControlEnabled                     bool   `json:"model_control_enabled"`
 	ProviderCredentialEnabled               bool   `json:"provider_credential_enabled"`
 	FileEditReviewEnabled                   bool   `json:"file_edit_review_enabled"`
@@ -148,6 +149,7 @@ type DesktopBridgeConfig struct {
 	PlanDeliveryControlEnabled              bool
 	ApprovalControlEnabled                  bool
 	ControlledCommandProposalControlEnabled bool
+	HostCommandProposalControlEnabled       bool
 	ModelControlEnabled                     bool
 	ProviderCredentialEnabled               bool
 	FileEditReviewEnabled                   bool
@@ -207,6 +209,7 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 		config.RunExecutionEnabled || config.PlanDeliveryControlEnabled ||
 		config.ApprovalControlEnabled || config.ModelControlEnabled ||
 		config.ControlledCommandProposalControlEnabled ||
+		config.HostCommandProposalControlEnabled ||
 		config.ProviderCredentialEnabled || config.FileEditReviewEnabled ||
 		config.FileEditProposalEnabled || config.RunWakeControlEnabled
 	controlEnabled = controlEnabled || config.FileEditApplyEnabled ||
@@ -248,6 +251,10 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 		config.DebugMaximumAccessEnabled) && !config.ExecutionPermissionControlEnabled {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop execution permission capabilities require permission control")
+	}
+	if config.HostCommandProposalControlEnabled && !config.OperatorApprovalEnabled {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"desktop host command proposals require operator approval capability")
 	}
 	browserCDPCapabilities := domain.BrowserCDPPermissionRuntimeCapabilities{
 		ControlEnabled:   config.BrowserCDPPermissionControlEnabled,
@@ -302,6 +309,7 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 			PlanDeliveryControlEnabled:              config.PlanDeliveryControlEnabled,
 			ApprovalControlEnabled:                  config.ApprovalControlEnabled,
 			ControlledCommandProposalControlEnabled: config.ControlledCommandProposalControlEnabled,
+			HostCommandProposalControlEnabled:       config.HostCommandProposalControlEnabled,
 			ModelControlEnabled:                     config.ModelControlEnabled,
 			ProviderCredentialEnabled:               config.ProviderCredentialEnabled,
 			FileEditReviewEnabled:                   config.FileEditReviewEnabled,

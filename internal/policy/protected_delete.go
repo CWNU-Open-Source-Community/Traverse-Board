@@ -125,7 +125,8 @@ func decodeExecutableIntent(payload string) (executableIntent, bool) {
 
 func isExecutableToolName(name string) bool {
 	return strings.Contains(name, "shell") || strings.Contains(name, "sandbox") ||
-		strings.Contains(name, "process") || strings.Contains(name, "script")
+		strings.Contains(name, "process") || strings.Contains(name, "script") ||
+		strings.Contains(name, "host_command")
 }
 
 func mayInterpretDeletion(executable string, arguments []string) bool {

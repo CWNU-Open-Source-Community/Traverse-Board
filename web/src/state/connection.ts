@@ -26,6 +26,7 @@ interface ConnectionState {
   planDeliveryControlEnabled: boolean;
   approvalControlEnabled: boolean;
   controlledCommandProposalControlEnabled: boolean;
+  hostCommandProposalControlEnabled: boolean;
   modelControlEnabled: boolean;
   providerCredentialEnabled: boolean;
   fileEditReviewEnabled: boolean;
@@ -73,6 +74,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   planDeliveryControlEnabled: false,
   approvalControlEnabled: false,
   controlledCommandProposalControlEnabled: false,
+  hostCommandProposalControlEnabled: false,
   modelControlEnabled: false,
   providerCredentialEnabled: false,
   fileEditReviewEnabled: false,
@@ -110,6 +112,9 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
       approvalControlEnabled: present && (capabilities.approvalControlEnabled ?? true),
       controlledCommandProposalControlEnabled: present &&
         (capabilities.controlledCommandProposalControlEnabled ?? false),
+	  hostCommandProposalControlEnabled: present &&
+	    (capabilities.hostCommandProposalControlEnabled ?? false) &&
+	    (capabilities.operatorApprovalEnabled ?? false),
 	  modelControlEnabled: present && (capabilities.modelControlEnabled ?? true),
 	  providerCredentialEnabled: present && (capabilities.providerCredentialEnabled ?? false),
 	  fileEditReviewEnabled: present && (capabilities.fileEditReviewEnabled ?? true),
@@ -135,6 +140,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
     runLifecycleEnabled: false, runExecutionEnabled: false,
 	planDeliveryControlEnabled: false, approvalControlEnabled: false,
 	controlledCommandProposalControlEnabled: false,
+	hostCommandProposalControlEnabled: false,
 	modelControlEnabled: false, providerCredentialEnabled: false,
 	fileEditReviewEnabled: false, fileEditProposalEnabled: false, fileEditApplyEnabled: false,
 	runWakeControlEnabled: false, runWakeExecutionEnabled: false, runWakeWorkerEnabled: false,

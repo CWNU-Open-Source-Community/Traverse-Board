@@ -9,6 +9,7 @@ import type {
 import { formatDate, shortID } from "../lib/format";
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from "./common";
 import { ControlledCommandProposalPanel } from "./controlled-command-proposal-panel";
+import { HostCommandProposalPanel } from "./host-command-proposal-panel";
 import { useLocale } from "../lib/locale";
 
 type ApprovalAction = ApprovalDecisionControlRequestView["action"];
@@ -116,6 +117,7 @@ export function ApprovalPanel({ client, runID }: { client: CyberAgentClient; run
       </div>}
     </section>
     <ControlledCommandProposalPanel client={client} runID={runID} />
+    <HostCommandProposalPanel client={client} runID={runID} />
     </>
   );
 }

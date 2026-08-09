@@ -772,6 +772,19 @@ td code { font-size: 11px; }
 .command-proposal-evidence pre { max-height: 240px; margin: 0; padding: 10px; overflow: auto;
   color: var(--ink); font: 10px/1.55 "Cascadia Code", Consolas, monospace;
   white-space: pre-wrap; word-break: break-word; }
+.host-command-risk { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 10px 12px;
+  border: 1px solid #b83b35; border-radius: 5px; background: #fff0ef; color: #8d211c; font-size: 11px; }
+.host-command-envelope { display: grid; grid-template-columns: 138px minmax(0, 1fr); gap: 7px 12px;
+  margin: 12px 0 0; padding: 12px; border: 1px solid var(--border); background: var(--surface-muted); }
+.host-command-envelope dt { color: var(--muted); font-size: 10px; }
+.host-command-envelope dd { min-width: 0; margin: 0; color: var(--text); font-size: 11px; }
+.host-command-envelope code { display: inline-block; max-width: 100%; overflow-wrap: anywhere;
+  color: var(--ink); font: 10px/1.5 "Cascadia Code", Consolas, monospace; }
+.host-command-envelope ol { display: grid; gap: 3px; margin: 0; padding-left: 24px; }
+.host-command-env-key { margin: 0 6px 4px 0; padding: 1px 4px; border: 1px solid var(--border); }
+.host-command-verification { display: flex; align-items: flex-start; gap: 8px; margin-top: 12px;
+  color: var(--text); font-size: 11px; line-height: 1.45; }
+.host-command-verification input { width: 15px; height: 15px; margin: 0; accent-color: #087f73; }
 .approval-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 .approval-actions input { width: min(300px, 100%); min-width: 120px; height: 34px; padding: 0 9px; border: 1px solid var(--border-strong); border-radius: 5px; }
 .run-creation-dialog { width: min(620px, 100%); }

@@ -28,13 +28,19 @@ type supervisorToolResultEnvelope struct {
 	Message  string            `json:"message,omitempty"`
 }
 
-func supervisorStructuredToolSpecs(phase domain.ExecutionPhase) []llm.ToolSpec {
+func supervisorStructuredToolSpecs(phase domain.ExecutionPhase,
+	permissionMode domain.RunExecutionPermissionMode,
+) []llm.ToolSpec {
 	definitions := toolgateway.SupervisorToolDefinitions()
 	if phase == domain.ExecutionPhasePlan {
 		definitions = toolgateway.PlanPhaseSupervisorToolDefinitions()
 	}
 	out := make([]llm.ToolSpec, 0, len(definitions))
 	for _, definition := range definitions {
+		if definition.Name == toolgateway.HostCommandProposeTool &&
+			permissionMode != domain.RunExecutionPermissionApproval {
+			continue
+		}
 		out = append(out, llm.ToolSpec{
 			Name: string(definition.Name), Description: definition.Description,
 			Parameters: append(json.RawMessage(nil), definition.InputSchema...),
@@ -44,7 +50,7 @@ func supervisorStructuredToolSpecs(phase domain.ExecutionPhase) []llm.ToolSpec {
 }
 
 func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, round int,
-	phase domain.ExecutionPhase,
+	phase domain.ExecutionPhase, permissionMode domain.RunExecutionPermissionMode,
 ) ([]llm.ToolCall, error) {
 	if len(calls) == 0 || len(calls) > domain.MaxSupervisorToolCallsPerRound {
 		return nil, fmt.Errorf("supervisor tool batch must contain 1 to %d calls",
@@ -61,11 +67,16 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 		if name != toolgateway.WorkItemCreateTool && name != toolgateway.NoteCreateTool &&
 			name != toolgateway.SpecialistDelegationProposeTool &&
 			name != toolgateway.PlanDeliveryProposeTool &&
-			name != toolgateway.ControlledCommandProposeTool {
+			name != toolgateway.ControlledCommandProposeTool &&
+			name != toolgateway.HostCommandProposeTool {
 			return nil, fmt.Errorf("provider requested unsupported supervisor tool %q", call.Name)
 		}
 		if name == toolgateway.PlanDeliveryProposeTool && phase != domain.ExecutionPhasePlan {
 			return nil, errors.New("provider requested Plan/Delivery proposal outside Plan phase")
+		}
+		if name == toolgateway.HostCommandProposeTool &&
+			permissionMode != domain.RunExecutionPermissionApproval {
+			return nil, errors.New("provider requested host command proposal outside approval permission")
 		}
 		payload, err := toolgateway.NormalizeSupervisorToolPayload(name, call.Arguments)
 		if err != nil {

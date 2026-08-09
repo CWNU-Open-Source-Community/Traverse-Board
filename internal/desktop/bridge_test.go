@@ -166,6 +166,7 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		!bootstrap.RunLifecycleEnabled || !bootstrap.RunExecutionEnabled ||
 		bootstrap.PlanDeliveryControlEnabled || bootstrap.ApprovalControlEnabled ||
 		bootstrap.ControlledCommandProposalControlEnabled ||
+		bootstrap.HostCommandProposalControlEnabled ||
 		bootstrap.ModelControlEnabled || bootstrap.ProviderCredentialEnabled ||
 		bootstrap.ExecutionPermissionControlEnabled ||
 		bootstrap.BrowserCDPPermissionControlEnabled || bootstrap.FullCDPDebugEnabled ||
@@ -192,6 +193,7 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		"api_base_url", "api_version", "app_version", "approval_control_enabled",
 		"control_enabled", "control_token",
 		"controlled_command_proposal_control_enabled",
+		"host_command_proposal_control_enabled",
 		"execution_permission_control_enabled", "operator_approval_enabled",
 		"browser_cdp_permission_control_enabled", "full_cdp_debug_enabled",
 		"danger_full_access_enabled", "debug_maximum_access_enabled",
@@ -626,6 +628,13 @@ func TestNewDesktopBridgeRejectsInvalidMetadataAndDependencies(t *testing.T) {
 		{name: "approval without token", change: func(c *DesktopBridgeConfig) { c.ApprovalControlEnabled = true }},
 		{name: "command proposal without token", change: func(c *DesktopBridgeConfig) {
 			c.ControlledCommandProposalControlEnabled = true
+		}},
+		{name: "host command proposal without token", change: func(c *DesktopBridgeConfig) {
+			c.HostCommandProposalControlEnabled = true
+		}},
+		{name: "host command proposal without operator gate", change: func(c *DesktopBridgeConfig) {
+			c.ControlToken = testDesktopControlToken
+			c.HostCommandProposalControlEnabled = true
 		}},
 		{name: "evidence without token", change: func(c *DesktopBridgeConfig) { c.EvidenceAttachmentEnabled = true }},
 		{name: "verification without token", change: func(c *DesktopBridgeConfig) { c.VerificationEvidenceEnabled = true }},

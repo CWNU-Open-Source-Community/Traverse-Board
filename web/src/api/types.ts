@@ -9,6 +9,10 @@ export type ControlledCommandProposalReviewRequestView =
   components["schemas"]["ControlledCommandProposalReviewRequestView"];
 export type ControlledCommandProposalView =
   components["schemas"]["ControlledCommandProposalView"];
+export type HostCommandProposalReviewRequestView =
+  components["schemas"]["HostCommandProposalReviewRequestView"];
+export type HostCommandProposalView =
+  components["schemas"]["HostCommandProposalView"];
 export type AgentGraphView = components["schemas"]["AgentGraphView"];
 export type AgentNodeView = components["schemas"]["AgentNodeView"];
 export type ArtifactView = components["schemas"]["ArtifactView"];

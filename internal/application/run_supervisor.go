@@ -100,6 +100,7 @@ type RunSupervisorStore interface {
 	SpecialistDelegationMutationStore
 	PlanDeliveryProposalMutationStore
 	ControlledCommandProposalMutationStore
+	HostCommandProposalMutationStore
 	toolgateway.Store
 }
 
@@ -201,7 +202,9 @@ func NewRunSupervisor(store RunSupervisorStore, router *llm.Router, checker poli
 			WithSpecialistDelegationExecutor(NewSpecialistDelegationToolExecutor(store)).
 			WithPlanDeliveryExecutor(NewPlanDeliveryToolExecutor(store)).
 			WithControlledCommandProposalExecutor(
-				NewControlledCommandProposalToolExecutor(store)),
+				NewControlledCommandProposalToolExecutor(store)).
+			WithHostCommandProposalExecutor(
+				NewHostCommandProposalToolExecutor(store)),
 		skillRegistry: skillRegistry, skillRegistryErr: skillRegistryErr,
 	}
 }
@@ -449,11 +452,16 @@ func (s *RunSupervisor) stepWithLeaseMode(ctx context.Context, lease domain.RunE
 		return result, failure
 	}
 	contextAudit := supervisorModelContextAudit(memory)
+	executionPermission, err := s.store.GetRunExecutionPermission(ctx, turn.Run.ID)
+	if err != nil {
+		failure := s.recordFailure(ctx, &result, err, 0)
+		return result, failure
+	}
 	messages, contextLayout := supervisorMessagesWithLayout(history, input, memory,
 		skillContext, externalSkillContext, turn.Mode)
 	request := llm.ChatRequest{
 		Messages: messages,
-		Tools:    supervisorStructuredToolSpecs(turn.Mode.Phase),
+		Tools:    supervisorStructuredToolSpecs(turn.Mode.Phase, executionPermission.Mode),
 		JSONMode: true,
 		Metadata: map[string]string{
 			"run_id": turn.Run.ID, "mission_id": turn.Mission.ID, "session_id": turn.Run.SessionID,
@@ -488,6 +496,7 @@ func (s *RunSupervisor) stepWithLeaseMode(ctx context.Context, lease domain.RunE
 			"mode_revision":             fmt.Sprint(turn.Mode.Revision),
 			"mode_network":              turn.Mode.Scope.NetworkMode,
 			"mode_target_count":         fmt.Sprint(len(turn.Mode.Scope.AllowedTargets)),
+			"execution_permission_mode": string(executionPermission.Mode),
 		},
 	}
 	baseRequest := request
@@ -615,7 +624,7 @@ func (s *RunSupervisor) stepWithLeaseMode(ctx context.Context, lease domain.RunE
 			default:
 				response.ToolCalls, parseErr = prepareSupervisorToolCalls(response.ToolCalls,
 					turn.Run.ID, turn.Checkpoint.NextTurn, len(toolRounds)+1,
-					turn.Mode.Phase)
+					turn.Mode.Phase, executionPermission.Mode)
 			}
 			if parseErr == nil {
 				modelCall.Attempt.Outcome = llm.OutcomeSuccess

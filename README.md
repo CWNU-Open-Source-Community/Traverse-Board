@@ -10,12 +10,12 @@
 
 项目从 schema v49 起同时使用两项工程指标，避免把“架构已经搭好”误解为“产品已经完整可用”。这些百分比是基于当前任务书和可验证工作流的工程估算，不是性能基准。
 
-- **架构完成度 / Architecture completion：约 99%**。衡量 Go 控制平面、Run/Session、状态恢复、Policy、审批、预算、事件流、Tool Gateway、Agent 协调、Skills、报告、Sandbox 协议及 Go/TypeScript/Rust 边界的覆盖程度；其中 V2 Run-centric Runtime 约 99%。当前 schema v95：v94 为固定内嵌 Analyzer 增加最长五分钟、精确绑定且只保存摘要的一次性 capability 与原子 consume；v95 把脱敏 execution、metadata-only Artifact 和 Run events 原子提交。Rust/WASI 现在可由 Go 在无文件系统、网络、子进程和 native process 权限的固定边界内真实执行，但不能加载任意模块。
+- **架构完成度 / Architecture completion：约 99%**。衡量 Go 控制平面、Run/Session、状态恢复、Policy、审批、预算、事件流、Tool Gateway、Agent 协调、Skills、报告、Sandbox 协议及 Go/TypeScript/Rust 边界的覆盖程度；其中 V2 Run-centric Runtime 约 99%。当前 schema v96：v94-v95 完成固定内嵌 Analyzer 的一次性授权与原子结果提交；v96 为 `approval` 权限增加精确、不可变、人工复核且恰好一次的非 Shell 宿主命令提案链。Rust/WASI 仍只能执行内嵌模块；宿主命令路径默认关闭且不获得持久终端或自动重试能力。
 - **产品可用度 / Product usability：约 98%**。衡量普通用户能否依靠当前 CLI、TUI、Web 和 Windows Desktop 完成真实端到端工作。通用 Coding Agent 工作流约 98%，Cyber 自动化工作流约 20%；安全操作者预览已覆盖 Provider 系统凭证、真实 Harness 验证、模型路由、Run/Session 对话、公开助手增量流、精确取消、审批、文件提案和固定内嵌分析器。增量流不是私有思维链：原始 Provider JSON、thinking、Prompt、工具参数和工具输出不会进入公开投影或 SQLite。完全 Debug Agent 输入、独立浏览器网络隔离、Docker 持久终端、可操作的内置浏览器窗口、安装脚本/钩子、代码签名/安装包、Windows 10 人工发布矩阵和 Cyber 工具链仍未完成。
 
 Starting with schema v49, the project reports two engineering indicators so architectural maturity is not mistaken for end-user completeness. These percentages are roadmap estimates backed by tested workflows, not performance benchmarks.
 
-- **Architecture completion: about 99%.** Schema v94 adds a maximum-five-minute, exact-bound, digest-only, one-shot capability with atomic consumption for the fixed embedded Analyzer. Schema v95 atomically commits its redacted execution, metadata-only Artifact, and Run events. Go now executes the pinned Rust/WASI module inside a filesystem-free, network-free, subprocess-free, native-process-free boundary; callers cannot load arbitrary modules.
+- **Architecture completion: about 99%.** Schemas v94-v95 complete one-shot authorization and atomic result commit for the fixed embedded Analyzer. Schema v96 adds an exact, immutable, independently reviewed, exactly-once non-shell host-command proposal chain for `approval` mode. Rust/WASI remains limited to the embedded module; host-command proposals are default-off and grant neither persistent terminals nor automatic retries.
 - **Product usability: about 98%.** The generic coding-agent workflow is about 98% usable and Cyber automation about 20%. Safe operator preview covers OS-owned Provider credentials, real Harness qualification, model routing, durable Run/Session chat, safe public assistant streaming, exact cancellation, approvals, file proposals, and the fixed embedded Analyzer. The stream is not private chain-of-thought: raw provider JSON, thinking, prompts, tool arguments, and tool output never enter the public projection or SQLite. Maximum Debug Agent input, independent browser network containment, Docker terminals, an operational built-in browser, install hooks, code signing/installers, the manual Windows 10 matrix, and the Cyber toolchain remain unfinished.
 
 ## 项目简介 / Project Overview
@@ -169,7 +169,7 @@ schema v88 的 `run_execution_permission.v1` 再由操作者选择四档权限�
 | 权限档位 | 当前合同 | 当前产品执行状态 |
 | --- | --- | --- |
 | `conservative` 保守 | Go 固定模板、工作区受控、网络关闭 | 操作者直接执行和 Agent 固定提案审批链均已接入 |
-| `approval` 用户审批 | 每条精确的一次性命令都要人工批准 | 独立 `host_command_proposal.v1`/review 合同已完成；持久化、模型 Tool 与产品审批执行流尚未接入 |
+| `approval` 用户审批 | 每条精确的一次性命令都要人工批准 | schema v96 已接入不可变提案、独立审阅、恰好一次执行、不可信结果回送、HTTP 与 Desktop；默认关闭 |
 | `full_access` 完全访问 | 无逐命令审批的一次性宿主文件与网络访问 | Windows CLI 一次性非沙箱执行器已接入；无 HTTP/Desktop/模型入口 |
 | `debug` 调试 | 完全访问、持久终端、后台进程及 Agent 输入 | 用户 ConPTY 加 Go-only 短租约 Agent 输入控制器已接入；renderer、HTTP 和模型均不能签发或调用 |
 
@@ -182,6 +182,14 @@ Agent 对 Debug/Cyber 终端的输入使用独立的进程内短期令牌，精�
 schema v89 新增 Root 专用 `controlled_command_propose`。模型只能提交协议版本、四选一命令种类、用途、仅目录枚举可用的工作区相对路径和 1-120,000 毫秒超时；Schema 拒绝未知字段。提案精确绑定 Run、Mission、Session、Workspace、Root、活动 Tool lease、交互/Profile/权限修订和预编译计划指纹，创建时固定不授权。操作者从 CLI、HTTP 或 Desktop 独立批准/拒绝；批准后 Go 重新加载全部绑定、重新编译同一固定计划、复核当前进程权限闸门，再复用 v87 Runner 执行一次。结果最多 16 KiB，先清洗控制字符和脱敏，再以 `UNTRUSTED GO COMMAND RESULT`、`instruction_authorized=false` 写入 Session；原始输出不落库，写前 intent 没有结果时禁止自动重试。
 
 P12-E1 另建 `host_command.v1` 和 `host_command_proposal.v1`，没有修改 v89 固定协议。它严格冻结绝对 executable、SHA-256、argv、cwd、脱敏环境键/摘要、明确的 `network_intent=host`、超时、用途，以及 Run/Workspace/交互/Profile/权限修订。只有 `approval` 模式的 Root Supervisor 可以构造不授权提案，独立 operator review 才能形成一次性批准事实；本切片只完成领域合同和威胁模型，尚未提供持久化或模型/HTTP/Desktop 执行入口。
+
+schema v96/P13-C1-C3 在不修改 v89 固定命令链的前提下完成这条 `approval` 路径。Root Supervisor 的 `host_command_propose` Tool 只能提交绝对 executable、独立 argv、工作区内 cwd、最长十分钟超时和用途；Go 在创建与审阅时重新计算 executable SHA-256、白名单环境摘要和完整请求指纹，并拒绝 Shell、命令包装器及常见解释器内联代码开关。SQLite 将提案、操作、独立审阅、写前执行意图、结果、元数据回执和不可信 Session 证据全部绑定到精确 Run/Mission/Session/Workspace/Root/权限修订，且拒绝修改和删除。审批要求 control token、单独确认和当前进程 `operator_approval` 能力；一旦写前意图存在但结果缺失，状态被视为不确定并永久禁止自动重试。HTTP/Desktop 只展示分离 argv、环境键/摘要、宿主网络及 `non_sandboxed=true` 警告，不返回环境值或原始输出。
+
+Schema v96/P13-C1-C3 completes that `approval` path without widening the v89 fixed-command chain. The Root Supervisor `host_command_propose` Tool accepts only an absolute executable, separated argv, a Workspace-contained cwd, a maximum ten-minute timeout, and a purpose. Go revalidates the executable SHA-256, sanitized-environment digest, and full request fingerprint at creation and review, and rejects shells, command wrappers, and common interpreter inline-code switches. SQLite immutably binds proposal, operation, independent review, write-ahead execution intent, result, metadata receipt, and untrusted Session evidence to the exact Run/Mission/Session/Workspace/Root/permission revision. A prepared intent without a durable result is uncertain and can never retry automatically. HTTP/Desktop require the control token and process-local operator-approval gate, display argv as separate values plus host-network and `non_sandboxed=true` warnings, and omit environment values and raw output.
+
+P13-C 累计六切片健壮性门已在最终代码上完成：全仓 uncached 普通 Go 与 race 分别用时 505.4 秒和 614 秒，race 为零；vet、零告警 staticcheck、govulncheck 零可达漏洞、module verify/tidy、52 个 Web 文件 192 项测试、strict TypeScript、确定性 OpenAPI/TypeScript、Vite、npm 零漏洞、Rust fmt/7+2 tests/clippy/RustSec/WASI release、secure Desktop tags 和 Windows 可复现构建全部通过。OpenAPI 为 88 path / 96 operation / 212 schema。未签名便携 EXE 为 47,230,464 字节，SHA-256 是 `38029b13fb65d3fea4bc807d17e77736757acb71a2151564d353dca8d5f8c8af`；自动检查通过但 `release_ready=false` 仍然正确。组合安全审计未发现未解决的高/中风险，并确认读取/控制令牌分离、Run/提案精确绑定、不可变事务账本、写前 exactly-once 栅栏、进程内人工审批能力复核，以及 HTTP/renderer 不包含环境值、原始输出、Shell 文本或能力授予。本批未运行 WFP、Docker 或付费 Provider。
+
+The cumulative P13-C six-slice gate is complete on the final code: the uncached ordinary and race Go suites passed in 505.4 and 614 seconds with zero races, together with vet, zero-warning staticcheck, zero reachable govulncheck findings, module verification/tidy, 192 tests across 52 Web files, strict TypeScript, deterministic OpenAPI/TypeScript, Vite, zero-vulnerability npm audit, Rust fmt/7+2 tests/clippy/RustSec/WASI release, secure Desktop tags, and a reproducible Windows build. OpenAPI has 88 paths, 96 operations, and 212 schemas. The unsigned 47,230,464-byte portable EXE has SHA-256 `38029b13fb65d3fea4bc807d17e77736757acb71a2151564d353dca8d5f8c8af`; automated checks pass while `release_ready=false` remains correct. The combined security audit found no unresolved high- or medium-severity issue and confirmed split read/control authentication, exact Run/proposal binding, immutable transactional ledgers, write-ahead exactly-once fencing, process-local operator-capability rechecks, and no environment values, raw output, Shell text, or capability grant in HTTP/renderer contracts. This batch did not run WFP, Docker, or a paid Provider.
 
 schema v90 为 `full_access` 增加操作者 CLI `run host-execute`。它要求 Code/Local/Controlled/trusted Run、持久 `full_access` 快照、本进程 `--enable-permission-control --enable-danger-full-access`，以及 `--confirm-danger-full-access --confirm-non-sandboxed-host-execution` 双确认。Windows 通过精确 `CreateProcess` 而非 Shell 启动已校验的 PE 路径与 argv；可执行文件在启动期间按 SHA-256 和不可删除共享句柄固定，环境由 Go 白名单重建，stdin 关闭，创建时加入最多 32 个进程/2 GiB 的 Job Object，并在超时、取消或输出超限时回收整棵进程树。写前 intent 和 metadata-only receipt 不保存环境值或原始输出；intent 存在而 receipt 缺失时结果视为不确定且禁止自动重试。
 
@@ -316,9 +324,9 @@ The final batch gate passed the repository-wide Go suite once in about 435 secon
 
 ## 开发历程 / Development History
 
-下表是唯一按时间排序的 schema 开发历程，完整保留了早期 `v1`、`v2`、`v3`，并连续列到当前 `v93`。这里的 `vN` 是不可变 SQLite schema/runtime 里程碑，不等同于产品发布版本；后面的架构说明按能力域组织，因此不再承担版本排序职责。
+下表是唯一按时间排序的 schema 开发历程，完整保留了早期 `v1`、`v2`、`v3`，并连续列到当前 `v96`。这里的 `vN` 是不可变 SQLite schema/runtime 里程碑，不等同于产品发布版本；后面的架构说明按能力域组织，因此不再承担版本排序职责。
 
-The table below is the canonical chronological schema history. It includes every immutable SQLite schema/runtime milestone from `v1` through the current `v93`. These schema numbers are not product release versions; the architecture notes that follow are grouped by capability instead of chronology.
+The table below is the canonical chronological schema history. It includes every immutable SQLite schema/runtime milestone from `v1` through the current `v96`. These schema numbers are not product release versions; the architecture notes that follow are grouped by capability instead of chronology.
 
 | Schema | 中文里程碑 | English milestone |
 | --- | --- | --- |
@@ -417,6 +425,7 @@ The table below is the canonical chronological schema history. It includes every
 | v93 | Analyzer 一次性请求、写前意图与恢复收据 | Analyzer one-shot request, write-ahead intent, and recovery receipts |
 | v94 | 一次性 Analyzer 执行授权与原子消费防重放 | one-shot Analyzer execution capabilities with atomic replay-safe consumption |
 | v95 | Analyzer 结果、Artifact 与审计事件原子提交 | atomic Analyzer result, Artifact, and audit-event commit |
+| v96 | 用户审批档的精确宿主命令提案、审阅与恰好一次执行 | exact approval-mode host-command proposals, reviews, and exactly-once execution |
 
 ### v85 之后的近期运行时里程碑 / Recent runtime milestones after v85
 
@@ -437,6 +446,7 @@ The table below is the canonical chronological schema history. It includes every
 | P12-D1-D3 / schema v89 | Agent 固定命令提案、独立人工审批、一次性受控执行与不可信结果回送 | Agent fixed-command proposals, independent operator review, one-shot restricted execution, and untrusted result projection |
 | P13-A1-A3 | 模型公开进度与 Harness 可验证活动时间线，不展示私有思维链 | public model updates and verifiable Harness activity without private chain-of-thought |
 | P13-B1-B3 | 进程内安全助手增量流、桌面重连/取消收敛及真实 DeepSeek 端到端验证 | process-local safe assistant streaming, Desktop reconnect/cancel convergence, and real DeepSeek end-to-end verification |
+| P13-C1-C3 / schema v96 | 精确非 Shell 宿主命令提案、独立人工审阅、恰好一次执行及 Desktop 审批面板 | exact non-shell host-command proposals, independent operator review, exactly-once execution, and Desktop review panel |
 | P12-E1 | 与 v89 分离的任意一次性命令提案和独立审阅合同 | separate arbitrary one-shot proposal and independent-review contracts |
 | P12-E2 / schema v90 | 双确认、非沙箱、操作者专用的 Windows 一次性宿主执行器 | dual-confirmed, non-sandboxed, operator-only Windows one-shot host executor |
 | P12-E3 | Go-only Debug 终端 Agent 输入短租约、审计与撤销控制器 | Go-only short-lived Debug terminal Agent-input controller with audit and revocation |

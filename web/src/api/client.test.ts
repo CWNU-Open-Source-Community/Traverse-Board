@@ -137,6 +137,7 @@ describe("CyberAgentClient", () => {
       run_lifecycle_enabled: true, run_execution_enabled: true,
       plan_delivery_control_enabled: true, approval_control_enabled: true,
       controlled_command_proposal_control_enabled: true,
+      host_command_proposal_control_enabled: false,
       model_control_enabled: true, provider_credential_enabled: true,
       file_edit_review_enabled: true, file_edit_proposal_enabled: true,
       file_edit_apply_enabled: true, run_wake_control_enabled: true,
@@ -954,6 +955,89 @@ describe("CyberAgentClient", () => {
     await expect(client.reviewControlledCommandProposal(
       "run-1", "command-proposal-1", body, "web-command-proposal-operation-0002",
     )).rejects.toThrow("invalid");
+  });
+
+  it("reviews an exact non-shell host command and rejects widened receipts", async () => {
+    const pending = {
+      id: "host-command-proposal-1", protocol_version: "host_command_proposal.v1",
+      policy_version: "host_command_policy.v1", run_id: "run-1",
+      mission_id: "mission-1", session_id: "session-1", workspace_id: "workspace-1",
+      executable_path: "C:\\Program Files\\Go\\bin\\go.exe",
+      executable_sha256: "a".repeat(64), argv: ["test", "./internal/application"],
+      working_directory: "D:\\GitProjects\\Prayu",
+      environment_policy: "sanitized_host_environment.v1",
+      environment_keys: ["PATH", "SYSTEMROOT"], environment_sha256: "b".repeat(64),
+      network_intent: "host", timeout_milliseconds: 120_000,
+      purpose: "Run focused application tests", spec_fingerprint: "c".repeat(64),
+      permission_mode: "approval", permission_revision: 3,
+      operator_review_required: true, non_sandboxed: true,
+      automatic_retry_allowed: false, instruction_authorized: false,
+      execution_authorized: false, capability_grant: false,
+      fingerprint: "d".repeat(64), created_at: "2026-08-09T00:00:00Z",
+      evidence_instruction_authorized: false,
+    };
+    const reviewed = {
+      ...pending,
+      review: { id: "review-1", decision: "approve", reviewed_by: "http_control_operator",
+        reason: "Operator verified the exact host command",
+        single_use_execution_authorized: true, capability_grant: false,
+        created_at: "2026-08-09T00:01:00Z" },
+      result: { id: "result-1", status: "completed", source_kind: "go_command_result",
+        source_ref: "session-message-1", content_sha256: "e".repeat(64),
+        instruction_authorized: false, raw_output_persisted: false,
+        automatic_retry_allowed: false, created_at: "2026-08-09T00:01:01Z" },
+      receipt: {
+        request_id: "host-exec-0001", backend: "windows-host-job-v1", exit_code: 0,
+        stdout_observed_bytes: 2, stdout_captured_bytes: 2,
+        stdout_prefix_sha256: "f".repeat(64), stdout_truncated: false,
+        stderr_observed_bytes: 0, stderr_captured_bytes: 0,
+        stderr_prefix_sha256: "0".repeat(64), stderr_truncated: false,
+        started_at: "2026-08-09T00:01:00Z", completed_at: "2026-08-09T00:01:01Z",
+        timed_out: false, cancelled: false, output_limit_exceeded: false, tree_reaped: true,
+        non_sandboxed: true, restricted_token: false, low_integrity_token: false,
+        job_assigned_at_creation: true, kill_on_job_close: true, active_process_limit: 32,
+        job_memory_limit: 2 * 1024 * 1024 * 1024, stdin_closed: true,
+        environment_inherited: false, network_requested: true, persistent_process: false,
+        product_execution_enabled: true,
+      },
+      review_replayed: false, execution_replayed: false,
+      untrusted_evidence: "UNTRUSTED HOST COMMAND RESULT\nstdout_begin\nok\nstdout_end",
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "request-host-proposals", data: [pending],
+        page: { limit: 100 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "request-host-review", data: reviewed,
+      }), { status: 202, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "request-widened-host-review",
+        data: { ...reviewed, receipt: { ...reviewed.receipt, persistent_process: true } },
+      }), { status: 202, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+      runControlEnabled: false, operatorApprovalEnabled: true,
+      hostCommandProposalControlEnabled: true,
+    });
+
+    await expect(client.hostCommandProposals("run-1"))
+      .resolves.toMatchObject({ items: [pending], requestID: "request-host-proposals" });
+    const body = { version: "host_command_review.v1", decision: "approve",
+      reason: "Operator verified the exact host command", confirm_execution: true };
+    await expect(client.reviewHostCommandProposal(
+      "run-1", "host-command-proposal-1", body, "web-host-command-operation-0001",
+    )).resolves.toEqual(reviewed);
+    expect(fetchMock.mock.calls[0]?.[0])
+      .toBe("/api/v1/runs/run-1/host-command-proposals?limit=100");
+    expect(fetchMock.mock.calls[1]?.[0])
+      .toBe("/api/v1/runs/run-1/host-command-proposals/host-command-proposal-1/review");
+    const reviewInit = fetchMock.mock.calls[1]?.[1] as RequestInit;
+    expect(reviewInit.headers).toMatchObject({ Authorization: "Bearer control-secret" });
+    expect(JSON.parse(String(reviewInit.body))).toEqual(body);
+    await expect(client.reviewHostCommandProposal(
+      "run-1", "host-command-proposal-1", body, "web-host-command-operation-0002",
+    )).rejects.toThrow("boundary");
   });
 
   it("validates content-free model diagnostics and exact persisted routes", async () => {

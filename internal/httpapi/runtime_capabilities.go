@@ -42,6 +42,7 @@ type RuntimeCapabilitiesView struct {
 	PlanDeliveryControlEnabled         bool                    `json:"plan_delivery_control_enabled"`
 	ApprovalControlEnabled             bool                    `json:"approval_control_enabled"`
 	ControlledCommandProposalEnabled   bool                    `json:"controlled_command_proposal_control_enabled"`
+	HostCommandProposalEnabled         bool                    `json:"host_command_proposal_control_enabled"`
 	ModelControlEnabled                bool                    `json:"model_control_enabled"`
 	ProviderCredentialEnabled          bool                    `json:"provider_credential_enabled"`
 	FileEditReviewEnabled              bool                    `json:"file_edit_review_enabled"`
@@ -106,6 +107,7 @@ func (a *API) runtimeCapabilities(request *http.Request) (any, *Page, error) {
 		PlanDeliveryControlEnabled:       a.planDeliveryControlEnabled,
 		ApprovalControlEnabled:           a.approvalControlEnabled,
 		ControlledCommandProposalEnabled: a.controlledCommandProposalControlEnabled,
+		HostCommandProposalEnabled:       a.hostCommandProposalControlEnabled,
 		ModelControlEnabled:              a.modelControlEnabled,
 		ProviderCredentialEnabled:        a.providerCredentialEnabled,
 		FileEditReviewEnabled:            a.fileEditReviewEnabled,

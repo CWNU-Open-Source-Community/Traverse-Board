@@ -54,6 +54,8 @@ export default function App() {
   const approvalControlEnabled = useConnectionStore((state) => state.approvalControlEnabled);
   const controlledCommandProposalControlEnabled = useConnectionStore(
     (state) => state.controlledCommandProposalControlEnabled);
+  const hostCommandProposalControlEnabled = useConnectionStore(
+    (state) => state.hostCommandProposalControlEnabled);
   const modelControlEnabled = useConnectionStore((state) => state.modelControlEnabled);
   const providerCredentialEnabled = useConnectionStore((state) => state.providerCredentialEnabled);
   const fileEditReviewEnabled = useConnectionStore((state) => state.fileEditReviewEnabled);
@@ -85,6 +87,7 @@ export default function App() {
     planDeliveryControlEnabled={planDeliveryControlEnabled}
     approvalControlEnabled={approvalControlEnabled} modelControlEnabled={modelControlEnabled}
     controlledCommandProposalControlEnabled={controlledCommandProposalControlEnabled}
+    hostCommandProposalControlEnabled={hostCommandProposalControlEnabled}
     providerCredentialEnabled={providerCredentialEnabled}
     fileEditReviewEnabled={fileEditReviewEnabled} fileEditApplyEnabled={fileEditApplyEnabled}
     fileEditProposalEnabled={fileEditProposalEnabled}
@@ -103,6 +106,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   sessionMessageEnabled, sessionSteeringControlEnabled, runLifecycleEnabled,
   runExecutionEnabled, planDeliveryControlEnabled, approvalControlEnabled,
   controlledCommandProposalControlEnabled,
+  hostCommandProposalControlEnabled,
   modelControlEnabled, providerCredentialEnabled, fileEditReviewEnabled,
   fileEditProposalEnabled, fileEditApplyEnabled, runWakeControlEnabled,
   runWakeExecutionEnabled, runWakeWorkerEnabled, skillInstallationEnabled,
@@ -125,6 +129,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   planDeliveryControlEnabled: boolean;
   approvalControlEnabled: boolean;
   controlledCommandProposalControlEnabled: boolean;
+  hostCommandProposalControlEnabled: boolean;
   modelControlEnabled: boolean;
   providerCredentialEnabled: boolean;
   fileEditReviewEnabled: boolean;
@@ -158,6 +163,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     runLifecycleEnabled, runExecutionEnabled,
     planDeliveryControlEnabled, approvalControlEnabled, modelControlEnabled,
     controlledCommandProposalControlEnabled,
+    hostCommandProposalControlEnabled,
     providerCredentialEnabled, fileEditReviewEnabled, fileEditProposalEnabled,
     fileEditApplyEnabled, runWakeControlEnabled, runWakeExecutionEnabled,
     runWakeWorkerEnabled, skillInstallationEnabled, evidenceAttachmentEnabled,
@@ -170,6 +176,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     sessionSteeringControlEnabled, runLifecycleEnabled, runExecutionEnabled,
     planDeliveryControlEnabled, approvalControlEnabled, modelControlEnabled,
     controlledCommandProposalControlEnabled,
+    hostCommandProposalControlEnabled,
     providerCredentialEnabled, fileEditReviewEnabled, fileEditProposalEnabled,
     fileEditApplyEnabled, runWakeControlEnabled, runWakeExecutionEnabled,
     runWakeWorkerEnabled, skillInstallationEnabled, evidenceAttachmentEnabled,
@@ -202,6 +209,8 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     { id: "approval", label: t("审批", "Approvals"), enabled: approvalControlEnabled },
     { id: "command-proposals", label: t("固定命令审批", "Fixed command approval"),
       enabled: controlledCommandProposalControlEnabled },
+    { id: "host-command-proposals", label: t("宿主机命令审批", "Host command approval"),
+      enabled: hostCommandProposalControlEnabled },
     { id: "model", label: t("模型配置", "Model configuration"), enabled: modelControlEnabled },
     { id: "credentials", label: t("系统凭证", "System credentials"), enabled: providerCredentialEnabled },
     { id: "edit-review", label: t("编辑审阅", "Edit review"), enabled: fileEditReviewEnabled },
@@ -215,6 +224,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     { id: "verification", label: t("验证证据", "Verification evidence"), enabled: verificationEvidenceEnabled },
     { id: "embedded-analyzer", label: t("内置分析器", "Embedded analyzer"), enabled: embeddedAnalyzerExecutionEnabled },
   ], [approvalControlEnabled, controlledCommandProposalControlEnabled,
+    hostCommandProposalControlEnabled,
     dangerFullAccessEnabled, debugMaximumAccessEnabled,
     evidenceAttachmentEnabled, executionPermissionControlEnabled, fileEditApplyEnabled,
     fileEditProposalEnabled, fileEditReviewEnabled, modelControlEnabled,

@@ -2,7 +2,64 @@
 
 Last updated: 2026-08-09
 
-## Current Checkpoint: P13-B1 through P13-B3 / Schema v95
+## Current Checkpoint: P13-C1 through P13-C3 / Schema v96
+
+P13-C1 makes the previously domain-only `host_command_proposal.v1` contract
+durable for `approval` permission Runs. The Root Supervisor can propose one
+exact absolute executable plus SHA-256, separated argv, Workspace-contained
+cwd, sanitized environment key set and digest, explicit host-network intent,
+timeout, and purpose. It cannot submit Shell text, environment values,
+persistent/background execution, or common interpreter inline-code switches.
+Schema v96 immutably binds the proposal and digest-only operation to the exact
+Run/Mission/Session/Workspace/root Agent, active tool invocation, interaction,
+execution profile, and permission revision. Direct update and deletion fail.
+
+P13-C2 adds an independent operator review and exactly-once execution chain.
+Approval requires a separate operation key, explicit execution confirmation,
+the process-local operator-approval gate, and a current trusted
+Code/Local/Controlled `approval` snapshot. Go reopens and rehashes the
+executable, reconstructs the sanitized environment, and rechecks every durable
+binding before recording a write-ahead execution intent. A prepared intent
+without a durable result is uncertain and can never retry automatically.
+Result bytes are bounded, control-cleaned, redacted, and returned to the exact
+Session as `UNTRUSTED HOST COMMAND RESULT` with no instruction authority; only
+metadata receipts and digests persist.
+
+P13-C3 exposes proposal creation as the Root-only `host_command_propose` Tool
+and review through read-token GET plus control-token POST HTTP routes and the
+Desktop approval center. The UI displays the executable identity, separated
+argv, cwd, environment names/digest, timeout, host-network intent, and a
+prominent `non_sandboxed=true` warning. Approval requires an explicit checkbox
+and typed confirmation action. Environment values, raw output, Shell strings,
+and capability grants are absent from OpenAPI and renderer contracts. Ordinary
+API and Desktop processes require both permission control and the separately
+default-off host-proposal startup flag; operator preview enables this
+approval-only path but does not enable danger-full-access or Debug maximum.
+
+The cumulative six-slice gate is complete on the final code. The uncached
+ordinary Go suite passed in 505.4 seconds and the full race suite passed in 614
+seconds with zero races. Vet, zero-warning staticcheck, govulncheck (zero
+reachable vulnerabilities; two module advisories are not called), module
+verification/tidy, 52 Web files/192 tests, strict TypeScript, deterministic
+OpenAPI/TypeScript generation, Vite, zero-vulnerability npm audit, Rust
+format/7+2 tests/clippy/RustSec/WASI release, secure Desktop tags, and the
+reproducible Windows build all pass. OpenAPI is 88 paths / 96 operations / 212
+schemas. The unsigned portable executable is 47,230,464 bytes with SHA-256
+`38029b13fb65d3fea4bc807d17e77736757acb71a2151564d353dca8d5f8c8af`;
+`windows_automated_checks_passed=true` and `release_ready=false` are correct.
+
+The combined audit found no unresolved high- or medium-severity issue. It
+confirmed separate read/control authentication, exact URL Run/proposal
+binding, immutable transactional review/intent/result records, write-ahead
+exactly-once fencing, process-local operator capability rechecks, and the
+absence of environment values, raw output, Shell text, or renderer-created
+authority. During the gate it fixed missing ordinary-API capability
+observability, a Desktop tagged-test hierarchy assumption, the README v96
+continuity row, and one Go error-string style issue. Do not repeat P13-B,
+P13-C, this full gate, WFP, Docker, or paid Provider probes after context
+compaction.
+
+### Previous Checkpoint: P13-B1 through P13-B3 / Schema v95
 
 P13-B1 adds `model_public_stream.v1`, a process-local replaceable snapshot of
 only the safe public `root_lifecycle.v1.message` prefix. The Go parser accepts
@@ -307,8 +364,10 @@ Read in this order after a long context break:
 94. `docs/adr/0089-analyzer-durable-request-intent-and-recovery-ledger.md`
 95. `docs/adr/0090-embedded-wasi-analyzer-isolation-candidate.md`
 96. `docs/adr/0091-embedded-analyzer-product-route-bilingual-desktop-preview.md`
-97. `docs/DESKTOP_PLAN.md`
-98. `docs/SKILL_PACKAGE_PLAN.md`
+97. `docs/adr/0092-safe-public-model-streaming-and-desktop-convergence.md`
+98. `docs/adr/0093-review-gated-approval-mode-host-command-proposals.md`
+99. `docs/DESKTOP_PLAN.md`
+100. `docs/SKILL_PACKAGE_PLAN.md`
 
 ## Current Baseline
 
@@ -317,15 +376,15 @@ Read in this order after a long context break:
 - Generic coding-agent workflow usability: about 98%.
 - Cyber autonomous-workflow usability: about 20%.
 - These are engineering estimates based on tested roadmap slices, not performance benchmarks. Do not reuse the retired single-axis "overall product vision" percentage.
-- Database schema: v95.
-- `README.md` carries the canonical bilingual schema timeline in strict `v1 -> v95` order. `internal/store/readme_history_test.go` binds its row count and ordering to `LatestSchemaVersion`, so a future migration cannot silently leave the public history missing or out of sequence.
+- Database schema: v96.
+- `README.md` carries the canonical bilingual schema timeline in strict `v1 -> v96` order. `internal/store/readme_history_test.go` binds its row count and ordering to `LatestSchemaVersion`, so a future migration cannot silently leave the public history missing or out of sequence.
 - Main languages: Go control plane, TypeScript React/Vite local console, and deterministic Rust 1.97.1 digest/ZIP protocol functions. Rust has no Agent, LLM, config, key, persistence, network, filesystem, subprocess, or product-lifecycle ownership.
 - Analyzer status: P10-A through P10-K define and validate the Go/Rust protocol and embedded-WASI boundary. P10-L/schema v94-v95 adds real fixed-module execution, one-shot exact-bound authorization, atomic consumption, redacted execution, metadata-only Artifact content, and Run events. P10-M exposes only this embedded module through CLI/control-token HTTP/Desktop/React; callers cannot provide WebAssembly, imports, mount, network, command, argv, environment, or native process. See ADR 0062, ADR 0063, ADR 0090, ADR 0091, and `analyzers/README.md`.
-- Model Harness status: non-schema A1/A2/A3 adds `model_harness.v1` exact transport/tool/JSON/streaming profiles, Go preflight for Root/Specialist/read-only Fan-out, and `model_harness_qualification.v1` at-most-two-call synthetic qualification. Mock is trusted offline; Anthropic-compatible models require explicit qualification. Qualification stores only exact binding digest, capability booleans, and seven-day expiry in existing Provider settings; the synthetic Tool is never executed, availability remains no-probe, and qualification grants no Tool/Shell/file/browser/Docker authority. P13-A adds the durable public-activity read projection; P13-B adds a separate process-local safe public assistant stream with exact cancellation and no raw Provider persistence. P10-M2 proves the production Anthropic-compatible route and durable chat path against deterministic local SSE, while P13-B3 verifies one configured real DeepSeek path. Current OpenAPI is 85 paths / 93 operations / 207 schemas. See ADR 0074, ADR 0080, ADR 0091, and ADR 0092.
+- Model Harness status: non-schema A1/A2/A3 adds `model_harness.v1` exact transport/tool/JSON/streaming profiles, Go preflight for Root/Specialist/read-only Fan-out, and `model_harness_qualification.v1` at-most-two-call synthetic qualification. Mock is trusted offline; Anthropic-compatible models require explicit qualification. Qualification stores only exact binding digest, capability booleans, and seven-day expiry in existing Provider settings; the synthetic Tool is never executed, availability remains no-probe, and qualification grants no Tool/Shell/file/browser/Docker authority. P13-A adds the durable public-activity read projection; P13-B adds a separate process-local safe public assistant stream with exact cancellation and no raw Provider persistence; P13-C adds the Root-only, independently reviewed `approval` host-command proposal Tool without granting the model execution authority. P10-M2 proves the production Anthropic-compatible route and durable chat path against deterministic local SSE, while P13-B3 verifies one configured real DeepSeek path. Current OpenAPI is 88 paths / 96 operations / 212 schemas. See ADR 0074, ADR 0080, ADR 0091, ADR 0092, and ADR 0093.
 - Browser status: P11-A1 through P11-C3 fix three Profiles, exact target scope, inert plans, fixed-location discovery, disposable-profile recovery plans, sealed Disabled/Fake CDP, same-handle Authenticode acceptance, immutable launch attempts/leases, and independent review. P11-C4A-C4C adds independent `restricted|full_debug` CDP policy ceilings and operator controls. P11-C5-C7 adds a concrete Safe Web Windows process adapter, exact disposable-Profile lifecycle, and closed literal-loopback restricted CDP transport, but keeps them product-inert. There is no CLI/HTTP/Desktop/Tool/Skill/model route or interactive browser, and Full Debug CDP remains unavailable. Verified OS/container network containment blocks activation. See ADR 0069, ADR 0071, ADR 0073, ADR 0082, and ADR 0083.
 - Desktop status: the Wails v2.13.0 shell retains its embedded React/in-process Go API, Run/editor/repository/verification/Handoff/model/credential/wake workflows and composable docks. It now defaults to Chinese with a persistent Chinese/English switch under Settings > Personal > General. The safe `--operator-preview` launcher enables model credentials, Harness qualification, routes, Run/Session chat, safe provisional assistant streaming with exact cancellation, approvals, file proposals, and the fixed Analyzer without enabling danger-full-access, maximum Debug, Full CDP, Agent terminal input, or Wake Worker. Windows 10/WebView2/scaling coverage, code signing, and installer remain pending, so `release_ready=false`; the local operator-preview chat path is enabled. See ADR 0091, ADR 0092, and `docs/DESKTOP_PLAN.md`.
 - Prayu UX status: D1-UX1 through D1-UX11 introduce the Prayu identity, frameless titlebar, bounded resizable workbench and Settings sidebars, Go-backed composer, four-control toolbar, dedicated permission center, native Acrylic, a CSS/React app mark, and three persisted appearance choices. Full-window ink backgrounds, screenshot-based selected overlays, the image wordmark, and orange-brush CSS are no longer used; selected navigation and segmented controls are opaque-white CSS rounded surfaces. Summary/Review/Files/Side Tasks use existing bounded Go surfaces. Browser remains inert; Terminal becomes real only when the Desktop is explicitly started with `--enable-user-terminal`, and remains user-owned. Open Workspace stays operator-confirmed and pathless at the renderer boundary. Stable CyberAgent compatibility identifiers remain unchanged. See ADR 0064, ADR 0070, ADR 0072, ADR 0076, and ADR 0078.
-- Execution status: P12-A through P12-E define interaction intent, controlled Windows commands, user terminal, four host-permission levels, review-gated fixed commands, a dual-confirmed operator host executor, and a Go-only Debug terminal-input controller through schema v90. P11-C4 advances to v91 for CDP policy ceilings while C5-C7 remains a separate product-inert browser core. P10-L advances to v95 only for the fixed embedded Analyzer; it does not widen host execution, general Shell, browser, or terminal authority. See ADR 0075 through ADR 0083 and ADR 0091.
+- Execution status: P12-A through P12-E define interaction intent, controlled Windows commands, user terminal, four host-permission levels, review-gated fixed commands, a dual-confirmed operator host executor, and a Go-only Debug terminal-input controller through schema v90. P11-C4 advances to v91 for CDP policy ceilings while C5-C7 remains a separate product-inert browser core. P10-L advances to v95 only for the fixed embedded Analyzer. P13-C/schema v96 adds a distinct Root-proposed, independently approved, exactly-once non-shell host-command path only for `approval`; it remains non-sandboxed, default-off, one-shot, and without automatic retry or persistent terminal authority. See ADR 0075 through ADR 0083, ADR 0091, and ADR 0093.
 - P12-E release gate: completed. The uncached serial Go suite passed in 576.3 seconds and the full race suite passed in 717.6 seconds with no races. Vet, zero-warning staticcheck, govulncheck (zero reachable vulnerabilities), module verify/tidy, secure Desktop tags, 48-file/165-test React, strict TypeScript, deterministic OpenAPI, Vite, npm audit, Rust format/7+2 tests/clippy, privacy/authority scans, and reproducible Windows Desktop build all passed. The portable executable is 42,757,120 bytes with SHA-256 `801bda9b5343b72999827beeb3bfecd6fdd907b9795736f540637b77a26cb771`; `release_ready=false` remains correct. A separate opt-in adapter test launched only the current Go test binary by exact path/SHA and passed ordinary plus race execution. No arbitrary user program or product `host-execute` command was run during verification.
 - Custom Skill status: the five embedded `skill.v1` guides and explicitly selected external packages are Run-loadable through separate protocols. Schema v69 adds persistent content-addressed import/history; schema v70 adds a second explicitly confirmed exact Run selection and redacted user-role root/Specialist context; schema v71 adds bounded read-only provenance across HTTP/TUI/Web. D1-A adds a pathless, one-time-handle preview boundary; D1-B1 adds explicit HTTP/Desktop registration through the same inert Registry. External packages remain untrusted and grant no declared tools. Installation executes no content and still does not select a package for a Run. See ADR 0024, ADR 0031 through ADR 0033, ADR 0041, and `docs/SKILL_PACKAGE_PLAN.md`.
 - Protected-delete status: explicit recursive, absolute/traversing/wildcard, environment-derived, command-substituted, current-home, PowerShell/`cmd`, and common interpreter deletion intents are permanently denied before approval across Shell, ScriptProcess, and Sandbox Policy. This is defense in depth; Local/container process execution remains disabled and a future executor still requires OS/container isolation. See ADR 0025.
@@ -2565,12 +2624,16 @@ Anthropic `tool_result` blocks before any same-message text. A live
 `root_eligible=true`, and isolated real Session chat all passed. MiMo is not
 configured on this machine and has not been network-tested.
 
-The immediate next action is to rebuild and launch
-`build\desktop\Start-Prayu-Operator-Preview.cmd` for continued operator UI
-acceptance. Future implementation must begin from newly reproduced acceptance
-results or a newly assigned task; Docker PTY, arbitrary model Shell, signed
-distribution, the Windows 10/WebView2/scaling matrix, and WFP/C8C remain
-separate gates.
+P13-C1/C2/C3 and their cumulative six-slice gate are complete. The current
+portable operator-preview package has already been rebuilt reproducibly; do
+not rebuild it again solely because context was compacted. The next action is
+operator acceptance of `build\desktop\Start-Prayu-Operator-Preview.cmd`, with
+special attention to the approval center's exact executable/SHA/argv/cwd,
+non-sandboxed host-network warning, deny path, explicit approve confirmation,
+single execution, and untrusted evidence display. Future implementation must
+start from a newly reproduced acceptance result or a newly assigned slice.
+Docker PTY, arbitrary model Shell, signed distribution, the Windows
+10/WebView2/scaling matrix, and WFP/C8C remain separate gates.
 
 ## Local Machine Note
 

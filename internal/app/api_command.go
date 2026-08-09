@@ -47,6 +47,8 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		"enable the bounded single-owner Run wake worker")
 	permissionControl := fs.Bool("enable-permission-control", false,
 		"enable operator-selected Run execution permissions")
+	hostCommandProposals := fs.Bool("enable-host-command-proposals", false,
+		"enable exact non-shell host command proposals with independent operator review")
 	dangerFullAccess := fs.Bool("enable-danger-full-access", false,
 		"enable danger-full-access permission selection")
 	debugMaximumAccess := fs.Bool("enable-debug-maximum-access", false,
@@ -58,7 +60,8 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	if err := fs.Parse(reorderFlags(args, map[string]bool{"listen": true, "ui-dir": true,
 		"enable-file-edit-proposals": false, "enable-provider-credentials": false,
 		"enable-wake-worker": false, "enable-permission-control": false,
-		"enable-danger-full-access": false, "enable-debug-maximum-access": false,
+		"enable-host-command-proposals": false,
+		"enable-danger-full-access":     false, "enable-debug-maximum-access": false,
 		"enable-browser-cdp-control": false, "enable-full-cdp-debug": false})); err != nil {
 		return err
 	}
@@ -88,8 +91,12 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		return apperror.New(apperror.CodeInvalidArgument,
 			"full CDP debug requires maximum Debug execution capability")
 	}
+	if *hostCommandProposals && !permissionCapabilities.OperatorApprovalEnabled {
+		return apperror.New(apperror.CodeInvalidArgument,
+			"host command proposals require --enable-permission-control")
+	}
 	if (*fileEditProposals || *providerCredentials || *wakeWorker ||
-		*permissionControl || *browserCDPControl) && controlToken == "" {
+		*permissionControl || *hostCommandProposals || *browserCDPControl) && controlToken == "" {
 		return apperror.New(apperror.CodeInvalidArgument,
 			"interactive proposals, Provider credentials, the wake worker, and execution permission control require CYBERAGENT_API_CONTROL_TOKEN")
 	}
@@ -160,6 +167,13 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	controlledCommandProposals :=
 		application.NewControlledCommandProposalReviewService(
 			a.store, controlledCommandExecutor, permissionCapabilities)
+	hostCommandExecutor, err := a.hostCommandExecutor()
+	if err != nil {
+		return err
+	}
+	hostCommandProposalControl :=
+		application.NewHostCommandProposalReviewService(
+			a.store, hostCommandExecutor, permissionCapabilities)
 	embeddedAnalyzerExecution := application.NewEmbeddedAnalyzerExecutionService(a.store)
 	api, err := httpapi.New(a.store, httpapi.Config{
 		AccessToken: accessToken, ControlToken: controlToken,
@@ -171,6 +185,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		PlanDeliveryControlEnabled:              controlToken != "",
 		ApprovalControlEnabled:                  controlToken != "",
 		ControlledCommandProposalControlEnabled: controlToken != "",
+		HostCommandProposalControlEnabled:       *hostCommandProposals,
 		ModelControlEnabled:                     controlToken != "",
 		ProviderCredentialEnabled:               *providerCredentials,
 		FileEditReviewEnabled:                   controlToken != "",
@@ -193,6 +208,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		PlanDeliveryController:                  planDeliveryControl,
 		ApprovalController:                      approvalControl,
 		ControlledCommandProposalController:     controlledCommandProposals,
+		HostCommandProposalController:           hostCommandProposalControl,
 		ModelControlController:                  modelControl,
 		ProviderCredentialController:            providerCredentialControl,
 		FileEditReviewController:                fileEditReview,
@@ -255,8 +271,9 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	fmt.Fprintf(a.out, "file_edit_proposals_enabled: %t\nprovider_credentials_enabled: %t\nwake_worker_enabled: %t\nwake_worker_concurrency: %d\nwake_worker_max_steps: %d\n",
 		*fileEditProposals, *providerCredentials, *wakeWorker,
 		application.RunWakeWorkerConcurrency, application.RunWakeWorkerMaxSteps)
-	fmt.Fprintf(a.out, "execution_permission_control_enabled: %t\noperator_approval_enabled: %t\ndanger_full_access_enabled: %t\ndebug_maximum_access_enabled: %t\n",
+	fmt.Fprintf(a.out, "execution_permission_control_enabled: %t\noperator_approval_enabled: %t\nhost_command_proposal_control_enabled: %t\ndanger_full_access_enabled: %t\ndebug_maximum_access_enabled: %t\n",
 		*permissionControl, permissionCapabilities.OperatorApprovalEnabled,
+		*hostCommandProposals,
 		permissionCapabilities.DangerFullAccessEnabled,
 		permissionCapabilities.DebugMaximumAccessEnabled)
 	fmt.Fprintf(a.out, "browser_cdp_permission_control_enabled: %t\nfull_cdp_debug_enabled: %t\n",

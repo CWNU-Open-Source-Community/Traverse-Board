@@ -98,6 +98,20 @@ func TestDesktopOptionsDefaultToReadOnlyAndRequireExplicitCapabilities(t *testin
 	}); err == nil {
 		t.Fatal("full CDP debug without its parent gates was accepted")
 	}
+	if _, err := parseDesktopOptions([]string{
+		"--enable-host-command-proposals",
+	}); err == nil {
+		t.Fatal("host command proposals without permission control were accepted")
+	}
+	hostProposals, err := parseDesktopOptions([]string{
+		"--enable-permission-control", "--enable-host-command-proposals",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hostProposals.permissionControl || !hostProposals.hostCommandProposals {
+		t.Fatalf("host command proposal capability set is incomplete: %+v", hostProposals)
+	}
 	maximum, err := parseDesktopOptions([]string{
 		"--enable-permission-control", "--enable-danger-full-access",
 		"--enable-debug-maximum-access", "--enable-user-terminal",
@@ -122,7 +136,7 @@ func TestDesktopOperatorPreviewEnablesTheSafeProductBundleOnly(t *testing.T) {
 		!preview.browserCDPControl || !preview.runCreation || !preview.sessionMessages ||
 		!preview.sessionSteeringControl || !preview.runLifecycle || !preview.runExecution ||
 		!preview.planDeliveryControl || !preview.approvalControl ||
-		!preview.commandProposalControl || !preview.modelControl ||
+		!preview.commandProposalControl || !preview.hostCommandProposals || !preview.modelControl ||
 		!preview.providerCredentials || !preview.fileEditReview ||
 		!preview.fileEditProposals || !preview.runWakeControl || !preview.fileEditApply ||
 		!preview.runWakeExecution || !preview.skillInstallation ||

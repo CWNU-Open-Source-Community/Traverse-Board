@@ -57,6 +57,7 @@ type Gateway struct {
 	delegationProposals        SpecialistDelegationExecutor
 	planDeliveryProposals      PlanDeliveryExecutor
 	controlledCommandProposals ControlledCommandProposalExecutor
+	hostCommandProposals       HostCommandProposalExecutor
 	waitGraph                  *waitgraph.Graph
 }
 
@@ -128,6 +129,9 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (Outcome, error) {
 		g.controlledCommandProposals == nil {
 		return Outcome{}, errors.New("controlled command proposal executor is required")
 	}
+	if normalized.Name == HostCommandProposeTool && g.hostCommandProposals == nil {
+		return Outcome{}, errors.New("host command proposal executor is required")
+	}
 	fallback := waitgraph.External(normalized.RequestedBy)
 	if normalized.AgentID != "" {
 		fallback = waitgraph.Agent(normalized.AgentID)
@@ -169,6 +173,8 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (Outcome, error) {
 		return g.invokePlanDelivery(ctx, normalized)
 	case ControlledCommandProposeTool:
 		return g.invokeControlledCommandProposal(ctx, normalized)
+	case HostCommandProposeTool:
+		return g.invokeHostCommandProposal(ctx, normalized)
 	default:
 		return Outcome{}, fmt.Errorf("unsupported tool %q", normalized.Name)
 	}
@@ -700,7 +706,8 @@ func validateToolArguments(call ToolCall) error {
 	if call.Name == WorkItemCreateTool || call.Name == NoteCreateTool ||
 		call.Name == SpecialistDelegationProposeTool ||
 		call.Name == PlanDeliveryProposeTool ||
-		call.Name == ControlledCommandProposeTool {
+		call.Name == ControlledCommandProposeTool ||
+		call.Name == HostCommandProposeTool {
 		if len(call.Arguments) != 0 {
 			return fmt.Errorf("tool %s accepts a JSON payload instead of string arguments", call.Name)
 		}
@@ -734,6 +741,12 @@ func validateToolArguments(call ToolCall) error {
 				return errors.New("controlled command proposals require a fenced root Supervisor")
 			}
 			_, _, err := normalizeControlledCommandProposalPayload(call.Payload)
+			return err
+		case HostCommandProposeTool:
+			if call.RequestedBy != "run_supervisor" || call.AgentID == "" || call.LeaseID == "" {
+				return errors.New("host command proposals require a fenced root Supervisor")
+			}
+			_, _, err := normalizeHostCommandProposalPayload(call.Payload)
 			return err
 		}
 	}

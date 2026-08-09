@@ -67,6 +67,7 @@ type ControlPlaneConfig struct {
 	PlanDeliveryControlEnabled              bool
 	ApprovalControlEnabled                  bool
 	ControlledCommandProposalControlEnabled bool
+	HostCommandProposalControlEnabled       bool
 	ModelControlEnabled                     bool
 	ProviderCredentialEnabled               bool
 	FileEditReviewEnabled                   bool
@@ -226,6 +227,16 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		application.NewControlledCommandProposalReviewService(
 			stateStore, controlledCommandExecutor,
 			config.ExecutionPermissionCapabilities)
+	hostCommandExecutor, err := runner.NewPlatformHostExecutor()
+	if err != nil {
+		if terminalManager != nil {
+			_ = terminalManager.Shutdown()
+		}
+		_ = stateStore.Close()
+		return nil, err
+	}
+	hostCommandProposals := application.NewHostCommandProposalReviewService(
+		stateStore, hostCommandExecutor, config.ExecutionPermissionCapabilities)
 	embeddedAnalyzerExecution := application.NewEmbeddedAnalyzerExecutionService(stateStore)
 	api, err := httpapi.New(stateStore, httpapi.Config{
 		AccessToken: config.ReadToken, ControlToken: config.ControlToken,
@@ -242,6 +253,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		PlanDeliveryControlEnabled:              config.PlanDeliveryControlEnabled,
 		ApprovalControlEnabled:                  config.ApprovalControlEnabled,
 		ControlledCommandProposalControlEnabled: config.ControlledCommandProposalControlEnabled,
+		HostCommandProposalControlEnabled:       config.HostCommandProposalControlEnabled,
 		ModelControlEnabled:                     config.ModelControlEnabled,
 		ProviderCredentialEnabled:               config.ProviderCredentialEnabled,
 		FileEditReviewEnabled:                   config.FileEditReviewEnabled,
@@ -260,6 +272,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		PlanDeliveryController:                  planDeliveryControl,
 		ApprovalController:                      approvalControl,
 		ControlledCommandProposalController:     controlledCommandProposals,
+		HostCommandProposalController:           hostCommandProposals,
 		ModelControlController:                  modelControl,
 		ProviderCredentialController:            providerCredentialControl,
 		FileEditReviewController:                fileEditReview,

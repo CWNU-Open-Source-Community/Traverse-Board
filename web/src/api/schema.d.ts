@@ -992,6 +992,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/host-command-proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List exact host command proposals
+         * @description Returns exact non-shell host command proposals for approval-mode Runs. Executable identity, argv, working directory, environment names and digest, host-network intent, and the non-sandboxed boundary are explicit; environment values and raw output are omitted.
+         */
+        get: operations["listHostCommandProposals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/host-command-proposals/{proposal_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect one exact host command proposal
+         * @description Returns the exact immutable command envelope, operator review, result, and metadata-only receipt. The command is non-sandboxed, may use host networking, cannot persist a terminal, and is never automatically retried.
+         */
+        get: operations["getHostCommandProposal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/host-command-proposals/{proposal_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve or deny one exact host command proposal
+         * @description Records an independent operator decision. Approval executes only the reviewed executable SHA, argv, cwd, environment digest, network intent, and timeout once through the host runner. A prepared execution without a durable result is uncertain and cannot be retried automatically.
+         */
+        post: operations["reviewHostCommandProposal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/lifecycle": {
         parameters: {
             query?: never;
@@ -2817,6 +2877,109 @@ export interface components {
             /** @enum {string} */
             status: "ok";
         };
+        HostCommandExecutionReceiptView: {
+            /** Format: int32 */
+            active_process_limit: number;
+            backend: string;
+            cancelled: boolean;
+            completed_at: string;
+            environment_inherited: boolean;
+            /** Format: int32 */
+            exit_code: number;
+            job_assigned_at_creation: boolean;
+            /** Format: int64 */
+            job_memory_limit: number;
+            kill_on_job_close: boolean;
+            low_integrity_token: boolean;
+            network_requested: boolean;
+            non_sandboxed: boolean;
+            output_limit_exceeded: boolean;
+            persistent_process: boolean;
+            product_execution_enabled: boolean;
+            request_id: string;
+            restricted_token: boolean;
+            started_at: string;
+            /** Format: int32 */
+            stderr_captured_bytes: number;
+            /** Format: int64 */
+            stderr_observed_bytes: number;
+            stderr_prefix_sha256: string;
+            stderr_truncated: boolean;
+            stdin_closed: boolean;
+            /** Format: int32 */
+            stdout_captured_bytes: number;
+            /** Format: int64 */
+            stdout_observed_bytes: number;
+            stdout_prefix_sha256: string;
+            stdout_truncated: boolean;
+            timed_out: boolean;
+            tree_reaped: boolean;
+        };
+        HostCommandProposalResultView: {
+            automatic_retry_allowed: boolean;
+            content_sha256: string;
+            created_at: string;
+            id: string;
+            instruction_authorized: boolean;
+            raw_output_persisted: boolean;
+            source_kind: string;
+            source_ref: string;
+            status: string;
+        };
+        HostCommandProposalReviewRequestView: {
+            confirm_execution?: boolean;
+            decision: string;
+            reason?: string;
+            version: string;
+        };
+        HostCommandProposalReviewView: {
+            capability_grant: boolean;
+            created_at: string;
+            decision: string;
+            id: string;
+            reason: string;
+            reviewed_by: string;
+            single_use_execution_authorized: boolean;
+        };
+        HostCommandProposalView: {
+            argv: string[];
+            automatic_retry_allowed: boolean;
+            capability_grant: boolean;
+            created_at: string;
+            environment_keys: string[];
+            environment_policy: string;
+            environment_sha256: string;
+            evidence_instruction_authorized: boolean;
+            executable_path: string;
+            executable_sha256: string;
+            execution_authorized: boolean;
+            execution_replayed?: boolean;
+            fingerprint: string;
+            id: string;
+            instruction_authorized: boolean;
+            mission_id: string;
+            network_intent: string;
+            non_sandboxed: boolean;
+            operator_review_required: boolean;
+            permission_mode: string;
+            /** Format: int64 */
+            permission_revision: number;
+            policy_version: string;
+            protocol_version: string;
+            purpose: string;
+            receipt?: components["schemas"]["HostCommandExecutionReceiptView"];
+            result?: components["schemas"]["HostCommandProposalResultView"];
+            review?: components["schemas"]["HostCommandProposalReviewView"];
+            review_replayed?: boolean;
+            run_id: string;
+            session_id: string;
+            spec_fingerprint: string;
+            /** Format: int64 */
+            timeout_milliseconds: number;
+            untrusted_evidence?: string;
+            working_directory: string;
+            workspace_id: string;
+        };
         IndexView: {
             /** @enum {string} */
             api_version: "api.v1";
@@ -4040,6 +4203,7 @@ export interface components {
             file_edit_proposal_enabled: boolean;
             file_edit_review_enabled: boolean;
             full_cdp_debug_enabled: boolean;
+            host_command_proposal_control_enabled: boolean;
             model_control_enabled: boolean;
             operator_approval_enabled: boolean;
             plan_delivery_control_enabled: boolean;
@@ -6966,6 +7130,129 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["FileEditReviewView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listHostCommandProposals: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of newest proposals */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["HostCommandProposalView"][];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getHostCommandProposal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+                /** @description Controlled command proposal identity */
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["HostCommandProposalView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    reviewHostCommandProposal: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque review key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Run identity */
+                run_id: string;
+                /** @description Controlled command proposal identity */
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HostCommandProposalReviewRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["HostCommandProposalView"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";

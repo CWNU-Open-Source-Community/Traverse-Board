@@ -25,6 +25,7 @@ const bootstrap = {
   plan_delivery_control_enabled: false,
   approval_control_enabled: false,
   controlled_command_proposal_control_enabled: false,
+  host_command_proposal_control_enabled: false,
   model_control_enabled: false,
   provider_credential_enabled: false,
   file_edit_review_enabled: false,

@@ -58,6 +58,7 @@ type desktopOptions struct {
 	planDeliveryControl    bool
 	approvalControl        bool
 	commandProposalControl bool
+	hostCommandProposals   bool
 	modelControl           bool
 	providerCredentials    bool
 	fileEditReview         bool
@@ -239,6 +240,8 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		"enable bounded approve-once and deny decisions for durable approvals")
 	commandProposalControl := fs.Bool("enable-command-proposals", false,
 		"enable review and one-shot execution of Agent-proposed fixed Go commands")
+	hostCommandProposals := fs.Bool("enable-host-command-proposals", false,
+		"enable exact non-shell host command proposals with independent operator review")
 	modelControl := fs.Bool("enable-model-control", false,
 		"enable persisted model route selection and explicit connectivity diagnostics")
 	providerCredentials := fs.Bool("enable-provider-credentials", false,
@@ -284,6 +287,7 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		*planDeliveryControl = true
 		*approvalControl = true
 		*commandProposalControl = true
+		*hostCommandProposals = true
 		*modelControl = true
 		*providerCredentials = true
 		*fileEditReview = true
@@ -308,6 +312,10 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		return desktopOptions{}, errors.New(
 			"debug maximum access requires --enable-user-terminal")
 	}
+	if *hostCommandProposals && !*permissionControl {
+		return desktopOptions{}, errors.New(
+			"host command proposals require --enable-permission-control")
+	}
 	if *fullCDPDebug && (!*browserCDPControl || !*debugMaximumAccess) {
 		return desktopOptions{}, errors.New(
 			"full CDP debug requires --enable-browser-cdp-control and --enable-debug-maximum-access")
@@ -325,6 +333,7 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		planDeliveryControl:    *planDeliveryControl,
 		approvalControl:        *approvalControl,
 		commandProposalControl: *commandProposalControl,
+		hostCommandProposals:   *hostCommandProposals,
 		modelControl:           *modelControl,
 		providerCredentials:    *providerCredentials,
 		fileEditReview:         *fileEditReview,
@@ -363,7 +372,7 @@ func runDesktop(config desktopOptions) error {
 		config.sessionMessages ||
 		config.sessionSteeringControl || config.runLifecycle || config.runExecution ||
 		config.planDeliveryControl || config.approvalControl || config.modelControl ||
-		config.commandProposalControl ||
+		config.commandProposalControl || config.hostCommandProposals ||
 		config.providerCredentials || config.fileEditReview || config.fileEditProposals ||
 		config.runWakeControl || config.fileEditApply || config.runWakeExecution ||
 		config.runWakeWorker || config.skillInstallation || config.evidenceAttachment ||
@@ -398,6 +407,7 @@ func runDesktop(config desktopOptions) error {
 		PlanDeliveryControlEnabled:              config.planDeliveryControl,
 		ApprovalControlEnabled:                  config.approvalControl,
 		ControlledCommandProposalControlEnabled: config.commandProposalControl,
+		HostCommandProposalControlEnabled:       config.hostCommandProposals,
 		ModelControlEnabled:                     config.modelControl,
 		ProviderCredentialEnabled:               config.providerCredentials,
 		FileEditReviewEnabled:                   config.fileEditReview,
@@ -449,6 +459,7 @@ func runDesktop(config desktopOptions) error {
 		PlanDeliveryControlEnabled:              config.planDeliveryControl,
 		ApprovalControlEnabled:                  config.approvalControl,
 		ControlledCommandProposalControlEnabled: config.commandProposalControl,
+		HostCommandProposalControlEnabled:       config.hostCommandProposals,
 		ModelControlEnabled:                     config.modelControl,
 		ProviderCredentialEnabled:               config.providerCredentials,
 		FileEditReviewEnabled:                   config.fileEditReview,

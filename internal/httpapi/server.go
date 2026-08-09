@@ -226,6 +226,7 @@ type Config struct {
 	PlanDeliveryControlEnabled              bool
 	ApprovalControlEnabled                  bool
 	ControlledCommandProposalControlEnabled bool
+	HostCommandProposalControlEnabled       bool
 	ModelControlEnabled                     bool
 	ProviderCredentialEnabled               bool
 	FileEditReviewEnabled                   bool
@@ -246,6 +247,7 @@ type Config struct {
 	PlanDeliveryController                  PlanDeliveryController
 	ApprovalController                      ApprovalController
 	ControlledCommandProposalController     ControlledCommandProposalController
+	HostCommandProposalController           HostCommandProposalController
 	ModelControlController                  ModelControlController
 	ProviderCredentialController            ProviderCredentialController
 	FileEditReviewController                FileEditReviewController
@@ -277,6 +279,7 @@ type API struct {
 	planDeliveryControlEnabled              bool
 	approvalControlEnabled                  bool
 	controlledCommandProposalControlEnabled bool
+	hostCommandProposalControlEnabled       bool
 	modelControlEnabled                     bool
 	providerCredentialEnabled               bool
 	fileEditReviewEnabled                   bool
@@ -297,6 +300,7 @@ type API struct {
 	planDeliveryController                  PlanDeliveryController
 	approvalController                      ApprovalController
 	controlledCommandProposalController     ControlledCommandProposalController
+	hostCommandProposalController           HostCommandProposalController
 	modelControlController                  ModelControlController
 	providerCredentialController            ProviderCredentialController
 	fileEditReviewController                FileEditReviewController
@@ -344,6 +348,7 @@ func New(store Store, config Config) (*API, error) {
 		config.RunExecutionEnabled || config.PlanDeliveryControlEnabled ||
 		config.ApprovalControlEnabled || config.ModelControlEnabled ||
 		config.ControlledCommandProposalControlEnabled ||
+		config.HostCommandProposalControlEnabled ||
 		config.ProviderCredentialEnabled ||
 		config.FileEditReviewEnabled || config.FileEditProposalEnabled ||
 		config.RunWakeControlEnabled ||
@@ -375,6 +380,16 @@ func New(store Store, config Config) (*API, error) {
 		config.ControlledCommandProposalController == nil {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API controlled command proposal controller is required when enabled")
+	}
+	if config.HostCommandProposalControlEnabled &&
+		config.HostCommandProposalController == nil {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"HTTP API host command proposal controller is required when enabled")
+	}
+	if config.HostCommandProposalControlEnabled &&
+		!config.ExecutionPermissionCapabilities.OperatorApprovalEnabled {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"HTTP API host command proposals require operator approval capability")
 	}
 	if config.ModelControlEnabled && config.ModelControlController == nil {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
@@ -474,6 +489,8 @@ func New(store Store, config Config) (*API, error) {
 		approvalControlEnabled:        controlTokenPresent && config.ApprovalControlEnabled,
 		controlledCommandProposalControlEnabled: controlTokenPresent &&
 			config.ControlledCommandProposalControlEnabled,
+		hostCommandProposalControlEnabled: controlTokenPresent &&
+			config.HostCommandProposalControlEnabled,
 		modelControlEnabled:                 controlTokenPresent && config.ModelControlEnabled,
 		providerCredentialEnabled:           controlTokenPresent && config.ProviderCredentialEnabled,
 		fileEditReviewEnabled:               controlTokenPresent && config.FileEditReviewEnabled,
@@ -494,6 +511,7 @@ func New(store Store, config Config) (*API, error) {
 		planDeliveryController:              config.PlanDeliveryController,
 		approvalController:                  config.ApprovalController,
 		controlledCommandProposalController: config.ControlledCommandProposalController,
+		hostCommandProposalController:       config.HostCommandProposalController,
 		modelControlController:              config.ModelControlController,
 		providerCredentialController:        config.ProviderCredentialController,
 		fileEditReviewController:            config.FileEditReviewController,
@@ -650,6 +668,12 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	if runID, proposalID, route, matched :=
 		matchControlledCommandProposalPath(request.URL.Path); matched {
 		a.serveControlledCommandProposal(
+			tracked, request, requestID, runID, proposalID, route)
+		return
+	}
+	if runID, proposalID, route, matched :=
+		matchHostCommandProposalPath(request.URL.Path); matched {
+		a.serveHostCommandProposal(
 			tracked, request, requestID, runID, proposalID, route)
 		return
 	}

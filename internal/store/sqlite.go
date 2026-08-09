@@ -322,6 +322,7 @@ func migrationPlan() []migration {
 		{Version: 93, Name: "durable analyzer start request and fake lifecycle controls", Statements: analyzerStartControlStatements},
 		{Version: 94, Name: "one-shot embedded analyzer execution capabilities", Statements: analyzerExecutionCapabilityStatements},
 		{Version: 95, Name: "atomic embedded analyzer execution artifacts", Statements: analyzerExecutionCommitStatements},
+		{Version: 96, Name: "review-gated exact host command proposals", Statements: hostCommandProposalStatements},
 	}
 }
 
