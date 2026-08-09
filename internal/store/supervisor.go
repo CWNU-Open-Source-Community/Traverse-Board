@@ -141,19 +141,19 @@ func (s *SQLiteStore) beginSupervisorTurn(ctx context.Context, lease domain.RunE
 			fmt.Sprintf("run %s supervisor is finalized as %s", run.ID, checkpoint.Phase))
 	}
 	if checkpoint.Phase == domain.SupervisorTurnStarted {
+		var prepared int
+		query := `SELECT COUNT(*)
+			FROM operator_steering_deliveries WHERE run_id = ? AND attempt_id = ?
+				AND status = 'prepared'`
+		args := []any{run.ID, checkpoint.AttemptID}
+		if requiredSteeringID != "" {
+			query += ` AND message_id = ?`
+			args = append(args, requiredSteeringID)
+		}
+		if err := tx.QueryRowContext(ctx, query, args...).Scan(&prepared); err != nil {
+			return domain.SupervisorTurn{}, err
+		}
 		if requireSteering {
-			var prepared int
-			query := `SELECT COUNT(*)
-				FROM operator_steering_deliveries WHERE run_id = ? AND attempt_id = ?
-					AND status = 'prepared'`
-			args := []any{run.ID, checkpoint.AttemptID}
-			if requiredSteeringID != "" {
-				query += ` AND message_id = ?`
-				args = append(args, requiredSteeringID)
-			}
-			if err := tx.QueryRowContext(ctx, query, args...).Scan(&prepared); err != nil {
-				return domain.SupervisorTurn{}, err
-			}
 			if prepared != 1 {
 				return domain.SupervisorTurn{}, apperror.New(apperror.CodeFailedPrecondition,
 					"active Supervisor turn is not operator steering")
@@ -197,7 +197,7 @@ func (s *SQLiteStore) beginSupervisorTurn(ctx context.Context, lease domain.RunE
 			return domain.SupervisorTurn{}, err
 		}
 		return domain.SupervisorTurn{Run: executionRun, Mission: mission, Mode: mode, Agent: agentNode,
-			Checkpoint: checkpoint, Recovered: true}, nil
+			Checkpoint: checkpoint, OperatorSteering: prepared == 1, Recovered: true}, nil
 	}
 	if checkpoint.NextTurn > executionRun.Budget.MaxTurns {
 		return domain.SupervisorTurn{}, apperror.New(apperror.CodeResourceExhausted,
@@ -302,7 +302,7 @@ func (s *SQLiteStore) beginSupervisorTurn(ctx context.Context, lease domain.RunE
 		return domain.SupervisorTurn{}, err
 	}
 	return domain.SupervisorTurn{Run: executionRun, Mission: mission, Mode: mode,
-		Agent: agentNode, Checkpoint: checkpoint}, nil
+		Agent: agentNode, Checkpoint: checkpoint, OperatorSteering: steeringFound}, nil
 }
 
 func (s *SQLiteStore) BindSupervisorTurnInput(ctx context.Context, checkpoint domain.SupervisorCheckpoint, input string) (domain.SupervisorCheckpoint, error) {
@@ -1221,6 +1221,23 @@ func (s *SQLiteStore) CompleteSupervisorTurn(ctx context.Context, checkpoint dom
 		return domain.Run{}, domain.SupervisorCheckpoint{}, emptyMessages, err
 	}
 	requestedAction := action.Kind
+	var interactiveSteering int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*)
+		FROM operator_steering_deliveries
+		WHERE run_id = ? AND attempt_id = ? AND status = 'prepared'`,
+		run.ID, checkpoint.AttemptID).Scan(&interactiveSteering); err != nil {
+		return domain.Run{}, domain.SupervisorCheckpoint{}, emptyMessages, err
+	}
+	if interactiveSteering > 1 {
+		return domain.Run{}, domain.SupervisorCheckpoint{}, emptyMessages,
+			apperror.New(apperror.CodeConflict, "supervisor attempt has multiple prepared operator messages")
+	}
+	if run.Config.Interactive && interactiveSteering == 1 && action.Kind == domain.RootActionFinish {
+		action.Kind = domain.RootActionContinue
+		action.Summary = ""
+		action.Reason = ""
+		response.Text = action.Message
+	}
 	deferredSteering := 0
 	if action.Kind == domain.RootActionFinish || action.Kind == domain.RootActionWait {
 		deferredSteering, err = pendingOperatorSteeringAfterCurrentTx(ctx, tx, checkpoint)

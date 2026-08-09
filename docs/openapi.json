@@ -5840,6 +5840,123 @@
         "x-cyberagent-read-only": false
       }
     },
+    "/api/v1/runs/{run_id}/plan/enter": {
+      "post": {
+        "operationId": "enterPlanMode",
+        "summary": "Enter Plan mode",
+        "description": "Explicitly transitions a created or paused Run from Deliver to a new Plan revision. It does not resume the Run, start execution, call a model, reuse a prior Plan selection, or grant capability.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque retry key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/PlanModeTransitionControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanModeTransitionControlRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/runs/{run_id}/reports": {
       "get": {
         "operationId": "listRunFindingReports",
@@ -15408,6 +15525,70 @@
           "note_id",
           "replayed",
           "phase_changed",
+          "execution_started",
+          "model_called",
+          "tool_called",
+          "capability_grant"
+        ],
+        "type": "object"
+      },
+      "PlanModeTransitionControlRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "enum": [
+              "plan_delivery_control.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      },
+      "PlanModeTransitionControlView": {
+        "additionalProperties": false,
+        "properties": {
+          "applied_mode": {
+            "$ref": "#/components/schemas/RunModeView"
+          },
+          "capability_grant": {
+            "type": "boolean"
+          },
+          "current_mode": {
+            "$ref": "#/components/schemas/RunModeView"
+          },
+          "execution_started": {
+            "type": "boolean"
+          },
+          "model_called": {
+            "type": "boolean"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "tool_called": {
+            "type": "boolean"
+          },
+          "version": {
+            "enum": [
+              "plan_delivery_control.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "run_id",
+          "applied_mode",
+          "current_mode",
+          "replayed",
           "execution_started",
           "model_called",
           "tool_called",

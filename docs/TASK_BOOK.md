@@ -1,6 +1,6 @@
-# CyberAgent Workbench V2 任务书
+# Prayu V2 任务书
 
-更新时间：2026-08-05
+更新时间：2026-08-10
 
 ## 目标
 
@@ -11,8 +11,8 @@ CTF 专用求解继续排在最后。前置目标是让代码、审查、学习�
 ## 当前基线
 
 - 架构完成度：约 99%；其中 V2 Run-centric 控制平面约 99%。
-- 产品可用度：完整 Code + Cyber 产品约 96-98%。
-- 通用 Coding Agent 工作流可用度：约 96-97%。
+- 产品可用度：完整 Code + Cyber 产品约 98%。
+- 通用 Coding Agent 工作流可用度：约 98%。
 - Cyber 自动化工作流可用度：约 20%。
 - 以上是依据可验证任务切片给出的工程估算，不是性能基准；从 schema v49 起停用单一“完整产品愿景”百分比。
 
@@ -26,7 +26,7 @@ P7 已推进到 schema v71 与非 schema D1-B1，P9/Desktop 产品面已推进�
 
 schema v64 已增加 Go-owned `run_execution_profile.v1`：每个 Run 默认 `preview`，操作者可在 `created` 或无活动 lease 的 `paused` 状态选择 `preview|docker|local`。CLI、HTTP/OpenAPI 与 React 使用同一状态机；所有档位仍固定零进程、零执行授权和零 capability。
 
-schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固定 16 项机器 probe 和摘要协议，CLI 只接受同一操作者的 v63 阻塞审查、稳定操作键和显式确认。schema v66 再增加 collector 调用前持久化的 attempt、摘要化 operation、过期 generation lease、当前代 quiescent reconciliation、类型化 failure 和原子 result。schema v67 只在 Linux 显式 opt-in 后执行五次固定 GET，schema v68 再增加一次不可变操作员接纳/拒绝决定。所有 Docker start/process/export/Artifact authority 继续为 false。schema v69-v93 与 Desktop D1-A 至 P12-E 已完成外部 Skill、桌面恢复、Run 控制、模型/Plan/审批、FileEdit、Provider、wake、Repository、验证/Handoff/记忆、浏览器非启动与恢复账本、执行交互、受控命令审计、用户终端、四档宿主权限、固定命令提案审批、非沙箱宿主执行账本、独立 CDP 权限上限，以及 Analyzer 一次性请求/写前意图/恢复收据。R9/R10 仍只属于内部 Runner 回执兼容边界；P10 analyzer 仍没有产品进程桥。SQLite 当前为 v93。
+schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固定 16 项机器 probe 和摘要协议，CLI 只接受同一操作者的 v63 阻塞审查、稳定操作键和显式确认。schema v66 再增加 collector 调用前持久化的 attempt、摘要化 operation、过期 generation lease、当前代 quiescent reconciliation、类型化 failure 和原子 result。schema v67 只在 Linux 显式 opt-in 后执行五次固定 GET，schema v68 再增加一次不可变操作员接纳/拒绝决定。所有 Docker start/process/export/Artifact authority 继续为 false。schema v69-v96 与 Desktop D1-A 至 P13-D 已完成外部 Skill、桌面恢复、Run 控制、模型/Plan/审批、FileEdit、Provider、wake、Repository、验证/Handoff/记忆、浏览器非启动与恢复账本、执行交互、受控命令审计、用户终端、四档宿主权限、固定命令提案审批、非沙箱宿主执行账本、独立 CDP 权限上限、Analyzer 产品接入、公开模型流、非 Shell 宿主命令提案，以及连续交互 Run/统一计划入口/精简导航。R9/R10 仍只属于内部 Runner 回执兼容边界。SQLite 当前为 v96。
 
 ## 执行原则
 
@@ -593,6 +593,18 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 - [ ] CTF 输出复用 Evidence/Finding/Report，不建立第二套运行时。
 
 验收标准：CTF 只是通用运行时的 Profile；删除 CTF 包不会破坏 Agent 核心。
+
+## P13-D：连续交互、统一计划入口与精简导航
+
+- [x] P13-D1：交互式 Supervisor 精确识别当前操作者消息；有界普通公开文本可安全映射为
+  `continue`，模型 `finish` 不再关闭对话 Run，非交互终止语义与严格协议修复保持不变。
+- [x] P13-D2：输入框“+ > 计划模式”接入 Go `plan_delivery_control.v1`，支持暂停后切换、
+  幂等重试和旧计划修订拒绝；新建 Run 对话框删除重复的计划/交付控件。
+- [x] P13-D3：Run 顶部默认只显示活动、审批、差异、代码仓库和文件；完整诊断导航移至
+  “设置 > 工作台”，偏好仅影响 renderer 可见性，不改变任何 Go 权限。
+- [x] 三切片功能门：聚焦生命周期/恢复/重放与 HTTP/OpenAPI 测试、53 文件 196 项 Web、
+  strict TypeScript、Vite、`go vet ./...` 和 diff 检查通过；`internal/store` 在限制并发后完整
+  通过，未发现断言失败、死锁或未解决高/中风险。本批不重复 WFP、Docker 或付费 Provider。
 
 ## 每轮交付模板
 

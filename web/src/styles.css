@@ -797,6 +797,7 @@ td code { font-size: 11px; }
 .run-creation-form textarea { min-height: 112px; padding: 9px 10px; resize: vertical; line-height: 1.45; }
 .run-creation-form select:focus, .run-creation-form textarea:focus { border-color: #168f82; outline: 1px solid #168f82; }
 .run-creation-choice-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.run-creation-choice-row.single { grid-template-columns: 1fr; }
 .run-creation-choice-row fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
 .run-creation-choice-row legend { margin-bottom: 7px; color: #455463; font-size: 12px; font-weight: 600; }
 .run-creation-segments { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--border-strong); border-radius: 5px; }

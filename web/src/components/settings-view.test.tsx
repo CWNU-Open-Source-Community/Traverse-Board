@@ -69,6 +69,17 @@ describe("SettingsView", () => {
     expect(onOpenSkills).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps advanced Run diagnostics behind an explicit Workbench preference", () => {
+    renderSettings({ capabilities, client, desktop: true, health,
+      selectedRunID: "", onBack: vi.fn(), onOpenModels: vi.fn(), onOpenSkills: vi.fn() });
+
+    fireEvent.click(screen.getByRole("button", { name: "工作台" }));
+    expect(screen.getByRole("button", { name: "精简" }))
+      .toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "完整" }));
+    expect(window.localStorage.getItem("prayu.run-navigation.v1")).toBe("diagnostic");
+  });
+
   it("falls back safely when browser storage is unavailable", () => {
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
       throw new DOMException("storage disabled", "SecurityError");

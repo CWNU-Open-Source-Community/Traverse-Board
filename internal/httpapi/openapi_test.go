@@ -149,6 +149,8 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 					item.Post.OperationID == "recordRunVerificationSnapshotReceiptReview") ||
 				(path == RunExecutionInteractionControlPathTemplate &&
 					item.Post.OperationID == "selectRunExecutionInteraction") ||
+				(path == PlanModeControlPathTemplate &&
+					item.Post.OperationID == "enterPlanMode") ||
 				(path == EmbeddedAnalyzerExecutionPathTemplate &&
 					item.Post.OperationID == "executeEmbeddedAnalyzer")
 			successStatus := controlSuccessStatuses[path]
@@ -202,6 +204,7 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 				path == SessionSteeringCancellationPathTemplate ||
 				path == RunLifecycleControlPathTemplate ||
 				path == PlanDirectionControlPathTemplate ||
+				path == PlanModeControlPathTemplate ||
 				path == PlanDeliveryControlPathTemplate ||
 				path == ApprovalDecisionControlPathTemplate ||
 				path == ControlledCommandProposalReviewPathTemplate ||
@@ -365,6 +368,12 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 			Content:      "OpenAPI execution input",
 			OperationKey: "openapi-execution-queue-0001", RequestedBy: "openapi_test",
 		}); err != nil {
+		t.Fatal(err)
+	}
+	_, planModeRun, err := application.NewRunService(fixture.store).Create(t.Context(),
+		application.CreateRunRequest{Goal: "OpenAPI Plan entry target", Profile: "code",
+			Phase: "deliver", Budget: domain.Budget{MaxTurns: 2}})
+	if err != nil {
 		t.Fatal(err)
 	}
 	planRun, planProposal := prepareOpenAPIPlanControlTarget(t, fixture)
@@ -629,6 +638,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", interactionRun.ID)
 		} else if spec.Path == RunLifecycleControlPathTemplate {
 			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", lifecycleRun.ID)
+		} else if spec.Path == PlanModeControlPathTemplate {
+			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", planModeRun.ID)
 		} else if spec.Path == PlanDirectionControlPathTemplate ||
 			spec.Path == PlanDeliveryControlPathTemplate {
 			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", planRun.ID)
@@ -773,6 +784,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				} else if spec.Path == RunExecutionInteractionControlPathTemplate {
 					body = `{"mode":"controlled","trust":"trusted",` +
 						`"confirm_workspace_trust":true}`
+				} else if spec.Path == PlanModeControlPathTemplate {
+					body = `{"version":"plan_delivery_control.v1"}`
 				} else if spec.Path != RunExecutionProfileControlPathTemplate {
 					attemptID := fixture.checkpoint.AttemptID
 					modelAttempt := 1

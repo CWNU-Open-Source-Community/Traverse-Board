@@ -1,10 +1,19 @@
 # Prayu 进度书
 
-更新时间：2026-08-09
+更新时间：2026-08-10
 
 ## 一、当前阶段
 
 项目正在从可运行的 v0.1 CLI/TUI 骨架迁移到 V2 Run-centric Runtime。CTF 专用求解能力继续后置，当前先完成主流 AI Agent 工具需要的通用运行时。
+
+最新 P13-D1/D2/D3 批次保持 SQLite v96 不变，优先修复交互式 Run 的第二轮协议失败：只有精确
+操作者消息回合中的有界普通公开文本可安全降级为 `continue`，JSON/围栏/协议样内容仍走严格解析与
+修复；交互回复中的 `finish` 只结束本轮，不再关闭整个对话 Run，非交互 Run 语义不变。输入框
+“+ > 计划模式”成为唯一可见 Plan 入口并接入真实 Go 状态机，新建 Run 对话框移除重复阶段选择；
+顶部默认只保留活动、审批、差异、代码仓库和文件，完整诊断入口移至“设置 > 工作台”。聚焦 Go/
+HTTP/OpenAPI、53 个 Web 文件 196 项测试、strict TypeScript、Vite、vet 与 diff 门通过；全量 Store
+包在限制并发后 465.8 秒通过，未发现断言失败、死锁或高/中风险。本批没有重复 WFP、Docker 或付费
+Provider 测试。
 
 最新 P13-B1/B2/B3 批次保持 SQLite v95 不变，完成安全公开助手增量流：Go 只解析 `root_lifecycle.v1` 顶层公开 message，raw Provider JSON、thinking、Prompt、Tool 参数和输出均不公开、不持久化；Desktop 按单调 revision 替换全量快照，支持暂态重连、最终持久消息收敛和 exact Attempt 取消。真实 `deepseek/deepseek-v4-flash` 隔离 Run 收到 5 个流事件、执行 1 次严格 Root 修复、使用 771 tokens、零 Tool 调用，并成功持久化助手 Session 消息。切片审查纠正了前端 `stream_chunks` 上限误套 32 个 durable delta 事件、轮询 delay 残留 abort listener、以及 Go 每个小 chunk 重扫累计 JSON 的问题；现在按 64 字节节流并在最终帧强制扫描。受影响 Go/HTTP、vet、51 文件 189 项 React、strict TypeScript、85/93/207 OpenAPI、Vite 和 Desktop 包功能门通过。本批是新六片周期前三片，下一批完成后三片时再运行累计全仓/race 健壮性门；不重复 WFP。边界见 ADR 0092。
 

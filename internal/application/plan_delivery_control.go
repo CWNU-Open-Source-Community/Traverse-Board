@@ -50,9 +50,48 @@ type ControlPlanDeliveryTransitionResult struct {
 	Replayed    bool
 }
 
+type ControlPlanModeTransitionRequest struct {
+	Version      string
+	RunID        string
+	OperationKey string
+	RequestedBy  string
+}
+
+type ControlPlanModeTransitionResult struct {
+	AppliedMode domain.RunModeSnapshot
+	CurrentMode domain.RunModeSnapshot
+	Replayed    bool
+}
+
 func NewPlanDeliveryControlService(store PlanDeliveryControlStore) *PlanDeliveryControlService {
 	return &PlanDeliveryControlService{store: store,
 		selection: NewPlanDeliveryService(store), runs: NewRunService(store)}
+}
+
+func (s *PlanDeliveryControlService) EnterPlan(ctx context.Context,
+	request ControlPlanModeTransitionRequest,
+) (ControlPlanModeTransitionResult, error) {
+	if s == nil || s.store == nil || s.runs == nil {
+		return ControlPlanModeTransitionResult{}, apperror.New(
+			apperror.CodeFailedPrecondition, "Plan/Delivery control store is required")
+	}
+	if err := validatePlanDeliveryControlIdentity(request.Version, request.RunID); err != nil {
+		return ControlPlanModeTransitionResult{}, err
+	}
+	changed, err := s.runs.ChangePhase(ctx, ChangeRunPhaseRequest{
+		RunID: request.RunID, Phase: string(domain.ExecutionPhasePlan),
+		OperationKey: request.OperationKey, RequestedBy: request.RequestedBy,
+		Reason: "operator enabled Plan mode from the composer",
+	})
+	if err != nil {
+		return ControlPlanModeTransitionResult{}, err
+	}
+	current, err := s.store.GetRunMode(ctx, request.RunID)
+	if err != nil {
+		return ControlPlanModeTransitionResult{}, apperror.Normalize(err)
+	}
+	return ControlPlanModeTransitionResult{AppliedMode: changed.Mode,
+		CurrentMode: current, Replayed: changed.Replayed}, nil
 }
 
 func (s *PlanDeliveryControlService) SelectDirection(ctx context.Context,
@@ -102,6 +141,21 @@ func (s *PlanDeliveryControlService) EnterDelivery(ctx context.Context,
 		return ControlPlanDeliveryTransitionResult{}, apperror.New(
 			apperror.CodeFailedPrecondition,
 			"Plan direction must be selected before entering Deliver")
+	}
+	currentBefore, err := s.store.GetRunMode(ctx, request.RunID)
+	if err != nil {
+		return ControlPlanDeliveryTransitionResult{}, apperror.Normalize(err)
+	}
+	if currentBefore.Phase == domain.ExecutionPhasePlan {
+		proposal, proposalErr := s.selection.GetProposal(ctx, selection.ProposalID)
+		if proposalErr != nil {
+			return ControlPlanDeliveryTransitionResult{}, proposalErr
+		}
+		if proposal.RunID != request.RunID || proposal.ModeRevision != currentBefore.Revision {
+			return ControlPlanDeliveryTransitionResult{}, apperror.New(
+				apperror.CodeFailedPrecondition,
+				"Plan direction must belong to the current Plan revision")
+		}
 	}
 	changed, err := s.runs.ChangePhase(ctx, ChangeRunPhaseRequest{
 		RunID: request.RunID, Phase: string(domain.ExecutionPhaseDeliver),

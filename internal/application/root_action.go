@@ -54,6 +54,31 @@ func parseRootAction(raw string) (domain.RootAction, error) {
 	return action, nil
 }
 
+func publicReplyRootAction(raw string) (domain.RootAction, bool) {
+	if len(raw) > maxRootActionJSONBytes || !utf8.ValidString(raw) {
+		return domain.RootAction{}, false
+	}
+	message := strings.TrimSpace(raw)
+	if message == "" {
+		return domain.RootAction{}, false
+	}
+	lower := strings.ToLower(message)
+	if strings.HasPrefix(message, "{") || strings.HasPrefix(message, "[") ||
+		strings.HasPrefix(message, `"`) || strings.HasPrefix(message, "```") ||
+		strings.Contains(lower, domain.RootLifecycleVersion) {
+		return domain.RootAction{}, false
+	}
+	action := domain.RootAction{
+		Version: domain.RootLifecycleVersion,
+		Kind:    domain.RootActionContinue,
+		Message: message,
+	}
+	if err := action.Validate(); err != nil {
+		return domain.RootAction{}, false
+	}
+	return action, true
+}
+
 func rejectDuplicateRootActionFields(raw string) error {
 	decoder := json.NewDecoder(strings.NewReader(raw))
 	token, err := decoder.Token()

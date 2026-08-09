@@ -1,10 +1,34 @@
 # Project Status
 
-Last updated: 2026-08-09
+Last updated: 2026-08-10
 
 ## Resume Context
 
-The current mainline checkpoint is P13-B1 through P13-B3 at schema v95. B1
+The current mainline checkpoint is P13-D1 through P13-D3 at schema v96. D1
+fixes the Desktop's second-message failure while preserving strict protocol and
+Policy boundaries. A Supervisor turn records exact operator steering; only
+bounded plain public prose in that interactive path may become `continue`.
+Model `finish` completes that reply without finalizing the chat Run, while
+non-interactive Runs keep their original terminal behavior.
+
+D2 removes the duplicate create-Run Plan/Deliver control. The composer item
+`+ > Plan mode` is now the sole visible entry and uses authenticated Go
+`plan_delivery_control.v1` transitions with stable retry keys and stale Plan
+revision rejection. D3 defaults the Run header to five daily views (Activity,
+Approvals, Diffs, Repository, Files); Settings > Workbench can restore the full
+diagnostic set. The navigation preference is UI-only and grants no authority.
+
+Focused Go lifecycle/recovery/replay and HTTP/OpenAPI tests pass. Frontend
+verification passes 53 files / 196 tests, strict TypeScript, and production
+Vite build; `go vet ./...` and diff checks pass. In the ordinary all-package
+run, every completed package passed and `internal/store` alone reached Go's
+default ten-minute timeout under high parallel SQLite contention. The complete
+Store package subsequently passed with `-parallel 4` in 465.8 seconds; the
+isolated migration test passes in 4.3 seconds. No assertion failure, deadlock,
+or unresolved high/medium finding remains. Do not rerun P13-C/D, WFP, Docker,
+or paid Provider probes after compaction.
+
+The previous streaming checkpoint was P13-B1 through P13-B3 at schema v95. B1
 adds a process-local `model_public_stream.v1` snapshot that exposes only the
 safe public prefix of the top-level `root_lifecycle.v1.message`. It rejects or
 withholds unknown, duplicate, nested, fenced, invalid, Policy-denied, and
@@ -33,7 +57,7 @@ Focused regression tests cover all three; no second paid Provider call was
 made.
 
 Do not reimplement P13-B1/B2 or repeat its real paid-provider call after
-compaction. The next batch should begin after P13-B3.
+compaction.
 
 The first operator acceptance pass after P10-M found and fixed three concrete
 Desktop blockers. `OpenControlPlane` now registers a Go-owned `default`

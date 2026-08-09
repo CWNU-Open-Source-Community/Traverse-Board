@@ -20,6 +20,8 @@ import type { CyberAgentClient } from "../api/client";
 import type { HealthView } from "../api/types";
 import { applyPrayuTheme, readPrayuTheme, type PrayuTheme } from "../lib/appearance";
 import { useLocale } from "../lib/locale";
+import { applyRunNavigationMode, readRunNavigationMode,
+  type RunNavigationMode } from "../lib/run-navigation";
 import { PrayuBrand } from "./prayu-brand";
 import { RunPermissionSettings } from "./run-permission-settings";
 import { SidebarResizeHandle, clampSidebarWidth, defaultSidebarWidth } from "./workbench-frame";
@@ -30,7 +32,7 @@ export type SettingsCapability = {
   enabled: boolean;
 };
 
-type SettingsSection = "profile" | "general" | "permissions" | "appearance" | "shortcuts" | "about";
+type SettingsSection = "profile" | "general" | "permissions" | "appearance" | "workspace" | "shortcuts" | "about";
 type Density = "comfortable" | "compact";
 
 const densityStorageKey = "prayu.ui-density";
@@ -90,6 +92,7 @@ export function SettingsView({
     { id: "profile", label: t("个人资料", "Profile"), icon: CircleUserRound },
     { id: "permissions", label: t("权限", "Permissions"), icon: ShieldCheck },
     { id: "appearance", label: t("外观", "Appearance"), icon: Palette },
+    { id: "workspace", label: t("工作台", "Workbench"), icon: SlidersHorizontal },
     { id: "shortcuts", label: t("键盘快捷键", "Keyboard shortcuts"), icon: Keyboard },
     { id: "about", label: t("关于", "About"), icon: Info },
   ];
@@ -97,6 +100,8 @@ export function SettingsView({
   const [query, setQuery] = useState("");
   const [density, setDensity] = useState<Density>(readDensity);
   const [theme, setTheme] = useState<PrayuTheme>(readPrayuTheme);
+  const [runNavigationMode, setRunNavigationMode] =
+    useState<RunNavigationMode>(readRunNavigationMode);
   const [sidebarWidth, setSidebarWidth] = useState(readSettingsSidebarWidth);
   const visibleNavigation = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
@@ -112,6 +117,10 @@ export function SettingsView({
   useEffect(() => {
     applyPrayuTheme(theme);
   }, [theme]);
+
+  useEffect(() => {
+    applyRunNavigationMode(runNavigationMode);
+  }, [runNavigationMode]);
 
   const resizeSidebar = (value: number) => {
     const normalized = clampSidebarWidth(value);
@@ -176,12 +185,37 @@ export function SettingsView({
             runID={selectedRunID} />}
           {section === "appearance" && <AppearanceSettings density={density} theme={theme}
             onDensityChange={setDensity} onThemeChange={setTheme} />}
+          {section === "workspace" && <WorkbenchSettings mode={runNavigationMode}
+            onModeChange={setRunNavigationMode} />}
           {section === "shortcuts" && <ShortcutSettings />}
           {section === "about" && <AboutSettings desktop={desktop} health={health} />}
         </div>
       </main>
     </div>
   );
+}
+
+function WorkbenchSettings({ mode, onModeChange }: {
+  mode: RunNavigationMode;
+  onModeChange: (mode: RunNavigationMode) => void;
+}) {
+  const { t } = useLocale();
+  return <section className="settings-page-section">
+    <h1>{t("工作台", "Workbench")}</h1>
+    <div className="appearance-setting-row">
+      <div><strong>{t("Run 顶部导航", "Run top navigation")}</strong>
+        <span>{t("高级诊断入口", "Advanced diagnostics")}</span></div>
+      <div className="prayu-segmented" role="group"
+        aria-label={t("Run 顶部导航", "Run top navigation")}>
+        <button aria-pressed={mode === "compact"} onClick={() => onModeChange("compact")}
+          type="button">{t("精简", "Compact")}</button>
+        <button aria-pressed={mode === "diagnostic"}
+          onClick={() => onModeChange("diagnostic")} type="button">
+          {t("完整", "Diagnostic")}
+        </button>
+      </div>
+    </div>
+  </section>;
 }
 
 function ProfileSettings({ capabilities, desktop, health }: {

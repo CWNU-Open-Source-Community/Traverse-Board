@@ -271,7 +271,10 @@ func TestSessionSteeringOperationKeyReplaysAcrossRestartAndAfterDelivery(t *test
 		policy.NewDefaultChecker()).Drain(ctx,
 		application.DrainOperatorSteeringRequest{RunID: run.ID, MaxSteps: 2})
 	if err != nil || len(drained.Execution.Steps) != 1 ||
-		drained.Execution.StopReason != "root_finish" || provider.calls != 1 ||
+		drained.Execution.StopReason != "steering_drained" ||
+		drained.Execution.RunStatus != domain.RunRunning ||
+		drained.Execution.Steps[0].Action.Kind != domain.RootActionContinue ||
+		provider.calls != 1 ||
 		drained.After.Committed != 1 {
 		t.Fatalf("queued Session input was not delivered once: result=%#v calls=%d err=%v",
 			drained, provider.calls, err)

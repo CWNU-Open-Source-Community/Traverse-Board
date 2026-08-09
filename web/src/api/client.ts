@@ -41,6 +41,8 @@ import type {
   OperatorActionCenterView,
   Page,
   PageResult,
+  PlanModeTransitionControlRequestView,
+  PlanModeTransitionControlView,
   PlanDeliveryTransitionControlRequestView,
   PlanDeliveryTransitionControlView,
   PlanDirectionControlRequestView,
@@ -577,6 +579,23 @@ function parsePlanDirectionControl(value: unknown, expectedRunID: string,
       "INVALID_RESPONSE", 502);
   }
   return value as unknown as PlanDirectionControlView;
+}
+
+function parsePlanModeTransition(value: unknown,
+  expectedRunID: string): PlanModeTransitionControlView {
+  if (!hasExactKeys(value, ["applied_mode", "capability_grant", "current_mode",
+    "execution_started", "model_called", "replayed", "run_id", "tool_called", "version"]) ||
+    value.version !== "plan_delivery_control.v1" || value.run_id !== expectedRunID ||
+    !boundedIdentity(value.run_id) || !isRecord(value.applied_mode) ||
+    !isRecord(value.current_mode) || value.applied_mode.phase !== "plan" ||
+    value.current_mode.phase !== "plan" || value.applied_mode.capability_grant !== false ||
+    value.current_mode.capability_grant !== false || typeof value.replayed !== "boolean" ||
+    value.execution_started !== false || value.model_called !== false ||
+    value.tool_called !== false || value.capability_grant !== false) {
+    throw new APIRequestError("Plan mode response violated its closed authority contract",
+      "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as PlanModeTransitionControlView;
 }
 
 function parsePlanDeliveryTransition(value: unknown,
@@ -4049,6 +4068,20 @@ export class CyberAgentClient {
       `/runs/${encodeURIComponent(runID)}/plan/direction`, body, idempotencyKey, signal,
     );
     return parsePlanDirectionControl(result, runID, body);
+  }
+
+  async enterPlanMode(runID: string, body: PlanModeTransitionControlRequestView,
+    idempotencyKey: string, signal?: AbortSignal): Promise<PlanModeTransitionControlView> {
+    if (!this.hasPlanDelivery) {
+      throw new Error("Plan/Delivery control capability is required for this operation");
+    }
+    if (!boundedIdentity(runID) || runID.trim() !== runID) {
+      throw new Error("A normalized Run identity is required");
+    }
+    const result = await this.sendControl<unknown>(
+      `/runs/${encodeURIComponent(runID)}/plan/enter`, body, idempotencyKey, signal,
+    );
+    return parsePlanModeTransition(result, runID);
   }
 
   async enterPlanDelivery(runID: string, body: PlanDeliveryTransitionControlRequestView,

@@ -667,6 +667,12 @@ func (s *RunSupervisor) stepWithLeaseMode(ctx context.Context, lease domain.RunE
 			}
 		} else {
 			action, parseErr = parseRootAction(response.Text)
+			if parseErr != nil && turn.OperatorSteering && protocolRepair == 0 {
+				if publicAction, ok := publicReplyRootAction(response.Text); ok {
+					action = publicAction
+					parseErr = nil
+				}
+			}
 			if parseErr == nil {
 				parseErr = validateRootActionAgainstWorkBoard(action, workItems, turn.Mode.Phase)
 			}

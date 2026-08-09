@@ -1,8 +1,42 @@
 # Prayu Project Memory
 
-Last updated: 2026-08-09
+Last updated: 2026-08-10
 
-## Current Checkpoint: P13-C1 through P13-C3 / Schema v96
+## Current Checkpoint: P13-D1 through P13-D3 / Schema v96
+
+P13-D1 fixes interactive second-turn convergence without weakening the Root
+protocol. A Supervisor turn now durably records whether it consumed exactly one
+prepared operator-steering message. On that exact interactive path, bounded
+valid UTF-8 plain prose that is neither JSON-like, fenced, nor protocol-like can
+be projected as a public `continue` action before repair. A requested `finish`
+commits the current reply but is converted to `continue`, so one answer cannot
+silently close the user's chat Run. Non-interactive Runs retain their existing
+finish semantics. Multiple prepared messages, malformed protocol output,
+Policy rejection, and repair exhaustion still fail closed.
+
+P13-D2 makes the composer `+ > Plan mode` item the single user-facing Plan
+entry. It calls authenticated Go `plan_delivery_control.v1` transitions, pauses
+an active Run before changing phase, reuses stable operation keys on retry, and
+rejects delivery from a stale Plan revision. The create-Run dialog no longer
+shows a duplicate Plan/Deliver selector, but a Plan-mode launch can still create
+the Run with the correct initial phase. Phase switching grants no tool, model,
+process, file, network, or approval authority.
+
+P13-D3 defaults Run navigation to Activity, Approvals, Diffs, Repository, and
+Files. The existing diagnostic views remain available through Settings >
+Workbench > Run top navigation. This preference is renderer-local, defaults to
+compact, synchronizes safely across views, and cannot change Go capabilities.
+
+Focused lifecycle, recovery, replay, OpenAPI, and frontend tests pass. The Web
+gate passes 53 files / 196 tests, strict TypeScript, and Vite production build;
+`go vet ./...` and diff checks pass. The ordinary Go run completed every other
+package, while `internal/store` hit Go's default ten-minute package timeout
+under high parallel SQLite contention; that full package then passed with
+bounded parallelism in 465.8 seconds, and the previously suspected migration
+test passes alone in 4.3 seconds. No assertion failure or deadlock remains. Do
+not repeat P13-C, P13-D, WFP, Docker, or paid Provider probes after compaction.
+
+### Previous Checkpoint: P13-C1 through P13-C3 / Schema v96
 
 P13-C1 makes the previously domain-only `host_command_proposal.v1` contract
 durable for `approval` permission Runs. The Root Supervisor can propose one

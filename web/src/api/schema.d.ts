@@ -1152,6 +1152,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/plan/enter": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enter Plan mode
+         * @description Explicitly transitions a created or paused Run from Deliver to a new Plan revision. It does not resume the Run, start execution, call a model, reuse a prior Plan selection, or grant capability.
+         */
+        post: operations["enterPlanMode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/reports": {
         parameters: {
             query?: never;
@@ -3320,6 +3340,22 @@ export interface components {
             version: "plan_delivery_control.v1";
             /** Format: int32 */
             work_item_count: number;
+        };
+        PlanModeTransitionControlRequestView: {
+            /** @enum {string} */
+            version: "plan_delivery_control.v1";
+        };
+        PlanModeTransitionControlView: {
+            applied_mode: components["schemas"]["RunModeView"];
+            capability_grant: boolean;
+            current_mode: components["schemas"]["RunModeView"];
+            execution_started: boolean;
+            model_called: boolean;
+            replayed: boolean;
+            run_id: string;
+            tool_called: boolean;
+            /** @enum {string} */
+            version: "plan_delivery_control.v1";
         };
         ProviderAvailabilityView: {
             configuration_error: boolean;
@@ -7481,6 +7517,52 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["PlanDirectionControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    enterPlanMode: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanModeTransitionControlRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PlanModeTransitionControlView"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";

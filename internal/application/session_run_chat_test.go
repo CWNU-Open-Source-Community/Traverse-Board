@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
@@ -27,7 +26,8 @@ func TestSessionRunChatQueuesConcurrentOperatorInputAtSafeBoundary(t *testing.T)
 	service := application.NewRunService(st)
 	_, run, err := service.Create(ctx, application.CreateRunRequest{
 		Goal: "concurrent operator steering", Profile: "review",
-		ModelRoute: "lifecycle-test/model", Budget: domain.Budget{MaxTurns: 4},
+		ModelRoute: "lifecycle-test/model", Interactive: true,
+		Budget: domain.Budget{MaxTurns: 4},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -94,7 +94,7 @@ func TestSessionRunChatQueuesConcurrentOperatorInputAtSafeBoundary(t *testing.T)
 			first.result, first.err)
 	}
 	step, err := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).Step(ctx, run.ID)
-	if err != nil || step.Action.Kind != domain.RootActionFinish || step.RunStatus != domain.RunCompleted ||
+	if err != nil || step.Action.Kind != domain.RootActionContinue || step.RunStatus != domain.RunRunning ||
 		step.UserMessage.Content != "also verify the queued requirement" {
 		t.Fatalf("queued input was not delivered by the next Supervisor step: result=%#v err=%v",
 			step, err)
@@ -310,45 +310,91 @@ func TestSessionRunChatWaitResumesWithNewInputAcrossRestart(t *testing.T) {
 	}
 }
 
-func TestSessionRunChatRejectsMessagesAfterModelFinish(t *testing.T) {
+func TestSessionRunChatTreatsPlainRepliesAndFinishAsNonTerminal(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "cyberagent.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer st.Close()
 	ctx := context.Background()
-	service := application.NewRunService(st)
-	_, run, err := service.Create(ctx, application.CreateRunRequest{
-		Goal: "terminal session", Profile: "review", ModelRoute: "lifecycle-test/model", Budget: domain.Budget{MaxTurns: 3},
+	runs := application.NewRunService(st)
+	_, created, err := runs.Create(ctx, application.CreateRunRequest{
+		Goal: "terminal session", Profile: "review", ModelRoute: "lifecycle-test/model",
+		Interactive: true, Budget: domain.Budget{MaxTurns: 3},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	run, err := runs.Start(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	provider := &lifecycleProvider{responses: []string{
-		rootActionResponse(domain.RootActionFinish, "Finished.", "session complete", ""),
+		"你好，我是普通公开回复，不是生命周期 JSON。",
+		rootActionResponse(domain.RootActionFinish, "Finished this turn.", "session complete", ""),
 	}}
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
 	router.RegisterProvider(provider)
-	sess, err := st.GetSession(ctx, run.SessionID)
+	handoff := application.NewRunExecutionHandoffService(st, router, policy.NewDefaultChecker())
+	queue := func(content, operationKey string) {
+		t.Helper()
+		if _, queueErr := st.EnqueueOperatorSteering(ctx, domain.EnqueueOperatorSteeringRequest{
+			RunID: run.ID, SessionID: run.SessionID, Content: content,
+			OperationKey: operationKey, RequestedBy: "desktop_operator",
+		}); queueErr != nil {
+			t.Fatal(queueErr)
+		}
+	}
+	execute := func(operationKey string) application.LifecycleResult {
+		t.Helper()
+		result, executeErr := handoff.Execute(ctx, application.ExecuteRunHandoffRequest{
+			Version: domain.RunExecutionHandoffProtocolVersion, RunID: run.ID,
+			MaxSteps: 1, OperationKey: operationKey, RequestedBy: "desktop_operator",
+		})
+		if executeErr != nil {
+			t.Fatal(executeErr)
+		}
+		if len(result.Execution.Steps) != 1 {
+			t.Fatalf("handoff steps = %d, want 1: %#v", len(result.Execution.Steps), result)
+		}
+		return result.Execution.Steps[0]
+	}
+	queue("first message", "plain-reply-steering-0001")
+	first := execute("plain-reply-handoff-0001")
+	if first.Action.Kind != domain.RootActionContinue ||
+		first.RunStatus != domain.RunRunning ||
+		first.ReplyMessage.Content != "你好，我是普通公开回复，不是生命周期 JSON。" {
+		t.Fatalf("plain reply did not remain interactive: %#v", first)
+	}
+	queue("second message", "finish-reply-steering-0002")
+	second := execute("finish-reply-handoff-0002")
+	if second.Action.Kind != domain.RootActionContinue ||
+		second.RunStatus != domain.RunRunning ||
+		second.ReplyMessage.Content != "Finished this turn." {
+		t.Fatalf("interactive finish was not deferred: %#v", second)
+	}
+	messages, err := st.ListSessionMessages(ctx, run.SessionID, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := session.NewManager(st, router, policy.NewDefaultChecker()).WithRunChatExecutor(
-		application.NewSessionRunChatExecutor(st, router, policy.NewDefaultChecker()),
-	)
-	first, err := manager.Send(ctx, sess.ID, "finish this")
+	if len(messages) != 4 {
+		t.Fatalf("multi-turn history len=%d err=%v", len(messages), err)
+	}
+	eventItems, err := st.ListRunEvents(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.RunStatus != string(domain.RunCompleted) {
-		t.Fatalf("run did not finish: %#v", first)
+	foundRequestedFinish := false
+	for _, item := range eventItems {
+		if item.Type == events.AgentTurnCompletedEvent &&
+			strings.Contains(item.PayloadJSON, `"requested_lifecycle_action":"finish"`) &&
+			strings.Contains(item.PayloadJSON, `"lifecycle_action":"continue"`) {
+			foundRequestedFinish = true
+			break
+		}
 	}
-	if _, err := manager.Send(ctx, sess.ID, "one more thing"); apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
-		t.Fatalf("terminal session accepted another message code=%s err=%v", apperror.CodeOf(err), err)
-	}
-	messages, err := st.ListSessionMessages(ctx, sess.ID, true)
-	if err != nil || len(messages) != 2 {
-		t.Fatalf("terminal rejection changed history len=%d err=%v", len(messages), err)
+	if !foundRequestedFinish {
+		t.Fatalf("interactive finish deferral was not audited: %#v", eventItems)
 	}
 }
 

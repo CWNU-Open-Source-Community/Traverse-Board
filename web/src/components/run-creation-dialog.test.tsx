@@ -87,17 +87,22 @@ describe("RunCreationDialog", () => {
   });
 
   it("prefills a task drafted in the workbench composer", async () => {
+    const createRun = vi.fn().mockResolvedValue(created);
     const client = {
       getPage: vi.fn().mockResolvedValue({ items: [{ id: "workspace-1", name: "Project",
         created_at: "2026-07-18T00:00:00Z" }], page: { limit: 100 }, requestID: "req-workspaces" }),
-      createRun: vi.fn(),
+      createRun,
     } as unknown as CyberAgentClient;
+    const user = userEvent.setup();
     render(<QueryClientProvider client={new QueryClient()}>
       <RunCreationDialog client={client} initialGoal="Audit the parser" initialPhase="plan"
         open onClose={vi.fn()} />
     </QueryClientProvider>);
 
     await waitFor(() => expect(screen.getByLabelText("Goal")).toHaveValue("Audit the parser"));
-    expect(screen.getByRole("button", { name: "plan" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByText("Phase")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Create Run" }));
+    await waitFor(() => expect(createRun).toHaveBeenCalledTimes(1));
+    expect(createRun.mock.calls[0]?.[0]).toMatchObject({ phase: "plan" });
   });
 });

@@ -198,6 +198,42 @@ describe("SessionComposer", () => {
     }, expect.stringMatching(/^web-session-message-/));
   });
 
+  it("enters Plan mode from the composer after pausing a running Run", async () => {
+    const controlRunLifecycle = vi.fn().mockResolvedValue({
+      version: "run_lifecycle_control.v1", action: "pause", expected_status: "running",
+      applied_status: "paused", run: { ...runningRun, status: "paused" }, replayed: false,
+      event_sequence_start: 1, event_sequence_end: 1, execution_started: false,
+      model_called: false, tool_called: false, capability_grant: false,
+    });
+    const enterPlanMode = vi.fn().mockResolvedValue({
+      version: "plan_delivery_control.v1", run_id: "run-1",
+      applied_mode: { phase: "plan", capability_grant: false },
+      current_mode: { phase: "plan", capability_grant: false }, replayed: false,
+      execution_started: false, model_called: false, tool_called: false,
+      capability_grant: false,
+    });
+    const client = {
+      hasSessionMessages: true, hasRunLifecycle: true, hasRunExecution: true,
+      hasPlanDelivery: true, controlRunLifecycle, enterPlanMode,
+    } as unknown as CyberAgentClient;
+    const user = userEvent.setup();
+    render(withProvider(<SessionComposer client={client} phase="deliver" run={runningRun}
+      sessionID="sess-1" />));
+
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.click(screen.getByRole("menuitem", { name: /Plan mode/ }));
+    await waitFor(() => expect(enterPlanMode).toHaveBeenCalledTimes(1));
+
+    expect(controlRunLifecycle).toHaveBeenCalledWith("run-1", {
+      version: "run_lifecycle_control.v1", action: "pause",
+    }, expect.stringMatching(/^web-plan-mode-lifecycle-/));
+    expect(enterPlanMode).toHaveBeenCalledWith("run-1", {
+      version: "plan_delivery_control.v1",
+    }, expect.stringMatching(/^web-plan-mode-transition-/));
+    expect(controlRunLifecycle.mock.invocationCallOrder[0]).toBeLessThan(
+      enterPlanMode.mock.invocationCallOrder[0]);
+  });
+
   it("enforces the UTF-8 byte limit before issuing a request", async () => {
     const submitSessionMessage = vi.fn();
     const client = {

@@ -44,12 +44,13 @@ type SupervisorCheckpoint struct {
 }
 
 type SupervisorTurn struct {
-	Run        Run
-	Mission    Mission
-	Mode       RunModeSnapshot
-	Agent      AgentNode
-	Checkpoint SupervisorCheckpoint
-	Recovered  bool
+	Run              Run
+	Mission          Mission
+	Mode             RunModeSnapshot
+	Agent            AgentNode
+	Checkpoint       SupervisorCheckpoint
+	OperatorSteering bool
+	Recovered        bool
 }
 
 func (c SupervisorCheckpoint) Validate() error {

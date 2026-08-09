@@ -657,6 +657,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		a.servePlanDirectionControl(tracked, request, requestID, runID)
 		return
 	}
+	if runID, matched := matchPlanModeControlPath(request.URL.Path); matched {
+		a.servePlanModeControl(tracked, request, requestID, runID)
+		return
+	}
 	if runID, matched := matchPlanDeliveryControlPath(request.URL.Path); matched {
 		a.servePlanDeliveryControl(tracked, request, requestID, runID)
 		return

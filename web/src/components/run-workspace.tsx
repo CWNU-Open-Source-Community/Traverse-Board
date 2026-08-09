@@ -63,6 +63,7 @@ import { usePagedResource } from "../hooks/use-paged-resource";
 import { useRunEventStream } from "../hooks/use-run-event-stream";
 import { formatBytes, formatDate, formatNumber, shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
+import { readRunNavigationMode, subscribeRunNavigationMode } from "../lib/run-navigation";
 import { EmptyState, ErrorState, KeyValue, LoadMoreButton, LoadingState, StatusBadge } from "./common";
 import { ApprovalPanel } from "./approval-panel";
 import { CommandPalette, type CommandPaletteCommand } from "./command-palette";
@@ -114,6 +115,8 @@ const tabs: Array<{ id: RunTab; label: [string, string]; icon: typeof Activity }
   { id: "analyzer", label: ["分析器", "Analyzer"], icon: Bug },
 ];
 
+const compactTabs = new Set<RunTab>(["activity", "approvals", "diffs", "repository", "files"]);
+
 export function RunWorkspace({ client, runID, onOpenPlugins }: {
   client: CyberAgentClient;
   runID: string;
@@ -121,6 +124,7 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
 }) {
   const { t } = useLocale();
   const [tab, setTab] = useState<RunTab>("activity");
+  const [navigationMode, setNavigationMode] = useState(readRunNavigationMode);
   const [fileTarget, setFileTarget] = useState({ runID, path: "." });
   const [receiptReviewTarget, setReceiptReviewTarget] =
     useState<ReceiptReviewNavigationTarget | null>(null);
@@ -162,6 +166,8 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
   useEffect(() => {
     setReceiptReviewTarget(null);
   }, [runID]);
+
+  useEffect(() => subscribeRunNavigationMode(setNavigationMode), []);
 
   useEffect(() => {
     if (tab !== "verify") setReceiptReviewTarget(null);
@@ -207,10 +213,15 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
     .flatMap((page) => page.items) ?? []).filter((message) => !message.compacted)
     .reduce((total, message) => total + message.token_estimate, 0), [contextMessagesQuery.data]);
   const visibleTabs = useMemo(() => tabs.filter(({ id }) => {
+    if (navigationMode === "compact" && !compactTabs.has(id)) return false;
     if (id === "analyzer" && !client.hasEmbeddedAnalyzerExecution) return false;
     return detailQuery.data?.mode.surface !== "cyber" ||
       !["journey", "verify", "handoff"].includes(id);
-  }), [client, detailQuery.data?.mode.surface]);
+  }), [client, detailQuery.data?.mode.surface, navigationMode]);
+
+  useEffect(() => {
+    if (!visibleTabs.some((item) => item.id === tab)) setTab("activity");
+  }, [tab, visibleTabs]);
   const commands = useMemo<CommandPaletteCommand[]>(() => [
     ...visibleTabs.map(({ id, label }) => ({ id: `view-${id}`, label: t(`打开${label[0]}`, `Open ${label[1]}`),
       group: t("导航", "Navigate"), keywords: [id, "run"], run: () => setTab(id) })),
@@ -340,7 +351,7 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
       {detail.run.session_id && <SessionComposer client={client}
         contextPartial={Boolean(contextMessagesQuery.hasNextPage)} contextTokens={contextTokens}
         onOpenPlugins={onOpenPlugins} run={detail.run} sessionID={detail.run.session_id}
-        workspaceID={detail.mission.workspace_id ?? ""} />}
+        phase={detail.mode.phase} workspaceID={detail.mission.workspace_id ?? ""} />}
     </div>
   );
 }

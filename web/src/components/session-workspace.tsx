@@ -29,7 +29,7 @@ export function SessionWorkspace({ client, sessionID, onOpenPlugins }: {
   const runQuery = useQuery({
     queryKey: ["run", boundRunID],
     queryFn: ({ signal }) => client.get<RunDetailView>(`/runs/${encodeURIComponent(boundRunID)}`, {}, signal),
-    enabled: Boolean(boundRunID) && client.hasSessionSteeringControl,
+    enabled: Boolean(boundRunID) && (client.hasSessionSteeringControl || client.hasPlanDelivery),
   });
 
   if (!sessionID) {
@@ -62,7 +62,8 @@ export function SessionWorkspace({ client, sessionID, onOpenPlugins }: {
       </div>
       <SessionComposer client={client} contextPartial={Boolean(messagesQuery.hasNextPage)}
         contextTokens={contextTokens} key={sessionID} onOpenPlugins={onOpenPlugins}
-        run={detail.run ?? null} sessionID={sessionID} workspaceID={detail.session.workspace_id ?? ""} />
+        phase={runQuery.data?.mode.phase} run={detail.run ?? null} sessionID={sessionID}
+        workspaceID={detail.session.workspace_id ?? ""} />
       <SessionSteeringQueue client={client} sessionID={sessionID}
         state={runQuery.data?.operator_steering ?? null} />
       <div className="workspace-content session-content">

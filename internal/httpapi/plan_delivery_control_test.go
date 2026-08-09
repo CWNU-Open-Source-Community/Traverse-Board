@@ -109,6 +109,30 @@ func TestPlanDeliveryHTTPControlsRequireExplicitSeparateOperations(t *testing.T)
 		!bytes.Contains(replay.Body.Bytes(), []byte(`"replayed":true`)) {
 		t.Fatalf("Deliver replay status=%d body=%s", replay.Code, replay.Body.String())
 	}
+	plan := planControlRequest(t, api,
+		"/api/v1/runs/"+run.ID+"/plan/enter",
+		`{"version":"plan_delivery_control.v1"}`, "http-plan-enter-0001")
+	if plan.Code != http.StatusAccepted {
+		t.Fatalf("Plan status=%d body=%s", plan.Code, plan.Body.String())
+	}
+	var planEnvelope struct {
+		Data PlanModeTransitionControlView `json:"data"`
+	}
+	if err := json.Unmarshal(plan.Body.Bytes(), &planEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	if planEnvelope.Data.AppliedMode.Phase != "plan" ||
+		planEnvelope.Data.CurrentMode.Phase != "plan" ||
+		planEnvelope.Data.ExecutionStarted || planEnvelope.Data.ModelCalled ||
+		planEnvelope.Data.ToolCalled || planEnvelope.Data.CapabilityGrant {
+		t.Fatalf("Plan response widened authority: %#v", planEnvelope.Data)
+	}
+	stale := planControlRequest(t, api,
+		"/api/v1/runs/"+run.ID+"/plan/deliver",
+		`{"version":"plan_delivery_control.v1"}`, "http-plan-stale-0001")
+	if stale.Code != http.StatusPreconditionFailed {
+		t.Fatalf("stale selection status=%d body=%s", stale.Code, stale.Body.String())
+	}
 }
 
 func TestPlanDeliveryHTTPControlCapabilityIsIndependent(t *testing.T) {

@@ -97,6 +97,28 @@ text. A live credential-backed check passed the one-call diagnostic, the complet
 Harness qualification (`root_eligible=true`), and an isolated Workspace/Session chat. MiMo
 is not configured on this machine and was not represented as a failed network test.
 
+### 连续对话、计划模式与导航收口 / Conversation, Plan Mode, And Navigation
+
+P13-D1-D3 保持 schema v96 不变，修复了桌面人工验收中暴露的三个产品问题。交互式 Run 的普通
+模型回复不再因为缺少 `root_lifecycle.v1` 包装而直接失败；Go 只在精确的操作者消息回合中，把有界、
+有效 UTF-8、非 JSON/非代码围栏的公开文本降级为 `continue`，协议样内容仍走严格解析与一次修复。
+即使模型请求 `finish`，当前交互消息也只完成本轮而不会关闭整个 Run；非交互 Run 的终止语义保持不变。
+
+计划模式现在只有一个面向用户的入口：输入框左下角“+ > 计划模式”。它调用 Go 的真实
+`plan_delivery_control.v1` 状态机，进入计划、选择方向后进入交付，并拒绝复用旧计划修订；新建 Run
+对话框不再显示重复的“计划/交付”选择。Run 顶部默认只保留活动、审批、差异、代码仓库和文件；完整
+诊断导航移到“设置与账户 > 工作台 > Run 顶部导航”，仅改变界面可见性，不授予任何运行权限。
+
+P13-D1-D3 keeps schema v96 unchanged and closes three Desktop acceptance issues. Plain
+assistant prose in an exact interactive operator turn can safely continue without a
+`root_lifecycle.v1` wrapper, while JSON-like or protocol-like output still uses strict parsing
+and repair. A model `finish` completes the current interactive turn rather than closing the
+whole Run; non-interactive termination semantics are unchanged. Plan mode now has one product
+entry in the composer (`+ > Plan mode`) backed by the Go plan/delivery state machine, and the
+duplicate create-Run phase selector is gone. Run navigation defaults to Activity, Approvals,
+Diffs, Repository, and Files; the full diagnostic set is an inert UI preference under
+Settings > Workbench.
+
 ## 桌面权限中心与原生玻璃 / Desktop Permission Center And Native Glass
 
 Windows Desktop 现在提供独立的“权限”设置页，把当前 Run 的四个正交控制维度集中展示：

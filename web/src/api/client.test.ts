@@ -797,7 +797,13 @@ describe("CyberAgentClient", () => {
     await expect(new CyberAgentClient("read-secret").modelAvailability()).rejects.toThrow("invalid");
   });
 
-  it("keeps Plan direction and Deliver as independently validated controls", async () => {
+  it("keeps Plan entry, direction, and Deliver as independently validated controls", async () => {
+    const plan = {
+      version: "plan_delivery_control.v1", run_id: "run-1",
+      applied_mode: { phase: "plan", capability_grant: false },
+      current_mode: { phase: "plan", capability_grant: false }, replayed: false,
+      execution_started: false, model_called: false, tool_called: false, capability_grant: false,
+    };
     const direction = {
       version: "plan_delivery_control.v1", run_id: "run-1", proposal_id: "proposal-1",
       selection_id: "selection-1", note_id: "note-1", direction: 2, work_item_count: 1,
@@ -811,6 +817,9 @@ describe("CyberAgentClient", () => {
       execution_started: false, model_called: false, tool_called: false, capability_grant: false,
     };
     const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-plan-enter", data: plan,
+      }), { status: 202, headers: { "Content-Type": "application/json" } }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
         version: "api.v1", request_id: "req-plan-direction", data: direction,
       }), { status: 202, headers: { "Content-Type": "application/json" } }))
@@ -826,14 +835,18 @@ describe("CyberAgentClient", () => {
     expect(client.hasControl).toBe(false);
     expect(client.hasPlanDelivery).toBe(true);
     expect(client.hasApprovalControl).toBe(false);
+    await expect(client.enterPlanMode("run-1", {
+      version: "plan_delivery_control.v1",
+    }, "web-plan-enter-operation-0001")).resolves.toEqual(plan);
     await expect(client.selectPlanDirection("run-1", {
       version: "plan_delivery_control.v1", proposal_id: "proposal-1", direction: 2,
     }, "web-plan-direction-operation-0001")).resolves.toEqual(direction);
     await expect(client.enterPlanDelivery("run-1", {
       version: "plan_delivery_control.v1",
     }, "web-plan-deliver-operation-0001")).resolves.toEqual(delivery);
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/runs/run-1/plan/direction");
-    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/v1/runs/run-1/plan/deliver");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/runs/run-1/plan/enter");
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/v1/runs/run-1/plan/direction");
+    expect(fetchMock.mock.calls[2]?.[0]).toBe("/api/v1/runs/run-1/plan/deliver");
   });
 
   it("validates a metadata-only approval queue and closed approve-once response", async () => {

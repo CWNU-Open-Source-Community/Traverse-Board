@@ -61,6 +61,28 @@ func TestPlanDeliveryControlKeepsSelectionAndTransitionSeparate(t *testing.T) {
 	if err != nil || !delayed.Replayed || delayed.AppliedMode.ID != transition.AppliedMode.ID {
 		t.Fatalf("Deliver replay=%#v err=%v", delayed, err)
 	}
+	plan, err := service.EnterPlan(ctx, application.ControlPlanModeTransitionRequest{
+		Version: application.PlanDeliveryControlProtocolVersion, RunID: run.ID,
+		OperationKey: "plan-control-enter-plan-0001", RequestedBy: "desktop_operator",
+	})
+	if err != nil || plan.Replayed || plan.AppliedMode.Phase != domain.ExecutionPhasePlan ||
+		plan.CurrentMode.Revision <= transition.CurrentMode.Revision {
+		t.Fatalf("unexpected Plan transition: %#v err=%v", plan, err)
+	}
+	planReplay, err := service.EnterPlan(ctx, application.ControlPlanModeTransitionRequest{
+		Version: application.PlanDeliveryControlProtocolVersion, RunID: run.ID,
+		OperationKey: "plan-control-enter-plan-0001", RequestedBy: "desktop_operator",
+	})
+	if err != nil || !planReplay.Replayed || planReplay.AppliedMode.ID != plan.AppliedMode.ID {
+		t.Fatalf("Plan replay=%#v err=%v", planReplay, err)
+	}
+	_, err = service.EnterDelivery(ctx, application.ControlPlanDeliveryTransitionRequest{
+		Version: application.PlanDeliveryControlProtocolVersion, RunID: run.ID,
+		OperationKey: "plan-control-stale-selection-0001", RequestedBy: "desktop_operator",
+	})
+	if apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
+		t.Fatalf("stale Plan selection error=%v", err)
+	}
 }
 
 func TestPlanDeliveryControlRejectsCrossRunAndUnselectedTransition(t *testing.T) {

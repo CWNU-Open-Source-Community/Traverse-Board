@@ -21,6 +21,12 @@ interface RetryIntent {
   executionKey: string;
 }
 
+interface PhaseRetryIntent {
+  fingerprint: string;
+  lifecycleKey: string;
+  phaseKey: string;
+}
+
 interface SessionTurnResult {
   submission: SessionMessageControlView;
   execution: RunExecutionControlView | null;
@@ -87,13 +93,14 @@ export function SessionSteeringQueue({ client, sessionID, state }: {
 }
 
 export function SessionComposer({ client, sessionID, run, workspaceID = "", contextTokens = 0,
-  contextPartial = false, onOpenPlugins }: {
+  contextPartial = false, phase, onOpenPlugins }: {
   client: CyberAgentClient;
   sessionID: string;
   run: RunView | null;
   workspaceID?: string;
   contextTokens?: number;
   contextPartial?: boolean;
+  phase?: "plan" | "deliver";
   onOpenPlugins?: () => void;
 }) {
   const { t } = useLocale();
@@ -102,6 +109,7 @@ export function SessionComposer({ client, sessionID, run, workspaceID = "", cont
   const [lastResult, setLastResult] = useState<SessionMessageControlView | null>(null);
   const [lastExecution, setLastExecution] = useState<RunExecutionControlView | null>(null);
   const retryIntent = useRef<RetryIntent | null>(null);
+  const phaseRetryIntent = useRef<PhaseRetryIntent | null>(null);
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: async ({ request, intent }: {
@@ -143,6 +151,33 @@ export function SessionComposer({ client, sessionID, run, workspaceID = "", cont
   });
   const publicStream = usePublicModelStream(client, run?.id ?? "",
     Boolean(run && mutation.isPending && client.hasRunExecution));
+  const phaseMutation = useMutation({
+    mutationFn: async ({ selected, intent }: { selected: boolean; intent: PhaseRetryIntent }) => {
+      if (!run || !client.hasPlanDelivery) {
+        throw new Error(t("当前 Run 不支持计划模式切换", "Plan mode control is unavailable for this Run"));
+      }
+      if (run.status === "running") {
+        await client.controlRunLifecycle(run.id, {
+          version: "run_lifecycle_control.v1", action: "pause",
+        }, intent.lifecycleKey);
+      }
+      if (selected) {
+        return client.enterPlanMode(run.id, { version: "plan_delivery_control.v1" },
+          intent.phaseKey);
+      }
+      return client.enterPlanDelivery(run.id, { version: "plan_delivery_control.v1" },
+        intent.phaseKey);
+    },
+    onSuccess: () => {
+      phaseRetryIntent.current = null;
+    },
+    onSettled: () => {
+      if (run) {
+        void queryClient.invalidateQueries({ queryKey: ["run", run.id] });
+        void queryClient.invalidateQueries({ queryKey: ["run", run.id, "events"] });
+      }
+    },
+  });
   const cancelKeys = useRef(new Map<string, string>());
   const cancelMutation = useMutation({
     mutationFn: async () => {
@@ -174,7 +209,24 @@ export function SessionComposer({ client, sessionID, run, workspaceID = "", cont
   const autoExecute = client.hasRunLifecycle && client.hasRunExecution;
   const mutable = run.status === "running" || run.status === "paused" ||
     (autoExecute && run.status === "created");
-  const ready = mutable && contentBytes > 0 && !contentTooLarge && !mutation.isPending;
+  const busy = mutation.isPending || phaseMutation.isPending;
+  const ready = mutable && contentBytes > 0 && !contentTooLarge && !busy;
+
+  const changePlanMode = (selected: boolean) => {
+    if (!run || !client.hasPlanDelivery || phaseMutation.isPending ||
+      !["created", "running", "paused"].includes(run.status)) {
+      return;
+    }
+    const fingerprint = `${run.id}:${phase ?? "unknown"}:${selected ? "plan" : "deliver"}`;
+    if (phaseRetryIntent.current?.fingerprint !== fingerprint) {
+      phaseRetryIntent.current = {
+        fingerprint,
+        lifecycleKey: `web-plan-mode-lifecycle-${globalThis.crypto.randomUUID()}`,
+        phaseKey: `web-plan-mode-transition-${globalThis.crypto.randomUUID()}`,
+      };
+    }
+    phaseMutation.mutate({ selected, intent: phaseRetryIntent.current });
+  };
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -235,11 +287,13 @@ export function SessionComposer({ client, sessionID, run, workspaceID = "", cont
     </section>}
     <form className="session-composer" onSubmit={submit}>
       <textarea aria-label={t("Session 消息", "Session message")} autoComplete="off"
-        disabled={!mutable || mutation.isPending} onChange={(event) => changeContent(event.target.value)}
+        disabled={!mutable || busy} onChange={(event) => changeContent(event.target.value)}
         onKeyDown={submitComposerOnEnter}
         placeholder={t("向这个 Run 发送消息", "Message this Run")} rows={3} spellCheck value={content} />
       <AgentComposerControls client={client} contextPartial={contextPartial}
         contextTokens={contextTokens}
+        planMode={phase === "plan"}
+        onPlanModeChange={phase && client.hasPlanDelivery ? changePlanMode : undefined}
         onOpenFiles={client.hasEvidenceAttachment && workspaceID
           ? () => setAttachmentsOpen(true) : undefined}
         onOpenPlugins={onOpenPlugins} route={run.config?.model_route ?? "code"}
@@ -247,6 +301,8 @@ export function SessionComposer({ client, sessionID, run, workspaceID = "", cont
           {!mutable && <><StatusBadge status={run.status} /><span>{t("Run 当前不可用", "Run unavailable")}</span></>}
           {contentTooLarge && <span className="connection-error">{t("消息超过 16384 个 UTF-8 字节", "Message exceeds 16384 UTF-8 bytes")}</span>}
           {mutation.isError && <span className="connection-error">{errorMessage(mutation.error)}</span>}
+          {phaseMutation.isPending && <span>{t("正在切换计划模式", "Changing Plan mode")}</span>}
+          {phaseMutation.isError && <span className="connection-error">{errorMessage(phaseMutation.error)}</span>}
           {lastResult && <><StatusBadge status={lastResult.steering.status} />
             <span>{lastExecution?.model_called
               ? t("模型回复已提交", "Model reply committed")

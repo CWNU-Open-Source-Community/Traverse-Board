@@ -12,7 +12,6 @@ import { useLocale } from "../lib/locale";
 
 const profiles: Array<NonNullable<RunCreationControlRequestView["profile"]>> = ["code", "review", "learn", "script"];
 const surfaces: Array<NonNullable<RunCreationControlRequestView["surface"]>> = ["code", "cyber"];
-const phases: Array<NonNullable<RunCreationControlRequestView["phase"]>> = ["plan", "deliver"];
 
 interface RetryIntent {
   fingerprint: string;
@@ -158,14 +157,10 @@ export function RunCreationDialog({ client, open, onClose, initialGoal = "",
               )}</option>)}
             </select>
           </label>
-          <div className="run-creation-choice-row">
+          <div className="run-creation-choice-row single">
             <fieldset><legend>{t("工作模式", "Surface")}</legend><div className="run-creation-segments">
               {surfaces.map((value) => <button aria-pressed={surface === value} className={surface === value ? "selected" : ""}
                 key={value} onClick={() => { setSurface(value); mutation.reset(); }} type="button">{value}</button>)}
-            </div></fieldset>
-            <fieldset><legend>{t("任务阶段", "Phase")}</legend><div className="run-creation-segments">
-              {phases.map((value) => <button aria-pressed={phase === value} className={phase === value ? "selected" : ""}
-                key={value} onClick={() => { setPhase(value); mutation.reset(); }} type="button">{t(value === "plan" ? "计划" : "交付", value)}</button>)}
             </div></fieldset>
           </div>
           {workspaces.isError && <p className="connection-error">{t("工作区列表不可用", "Workspace list unavailable")}</p>}

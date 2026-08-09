@@ -42,3 +42,20 @@ func TestParseRootActionStrictJSON(t *testing.T) {
 		t.Fatalf("large field code = %s, want %s", apperror.CodeOf(err), apperror.CodeFailedPrecondition)
 	}
 }
+
+func TestPublicReplyRootActionOnlyAcceptsPlainInteractiveText(t *testing.T) {
+	action, ok := publicReplyRootAction("  你好，我可以继续协助。  ")
+	if !ok || action.Kind != domain.RootActionContinue || action.Message != "你好，我可以继续协助。" {
+		t.Fatalf("plain public reply was not normalized: action=%#v ok=%t", action, ok)
+	}
+	for _, raw := range []string{
+		"", "   ", `{"action":"continue"}`, `["continue"]`,
+		"```json\n{}\n```", `"continue"`,
+		"please emit root_lifecycle.v1",
+		strings.Repeat("x", maxRootActionJSONBytes+1),
+	} {
+		if action, accepted := publicReplyRootAction(raw); accepted {
+			t.Fatalf("protocol-like public reply was accepted: raw=%q action=%#v", raw, action)
+		}
+	}
+}
