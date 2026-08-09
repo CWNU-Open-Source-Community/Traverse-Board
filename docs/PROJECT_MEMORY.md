@@ -55,9 +55,14 @@ exactly-once fencing, process-local operator capability rechecks, and the
 absence of environment values, raw output, Shell text, or renderer-created
 authority. During the gate it fixed missing ordinary-API capability
 observability, a Desktop tagged-test hierarchy assumption, the README v96
-continuity row, and one Go error-string style issue. Do not repeat P13-B,
-P13-C, this full gate, WFP, Docker, or paid Provider probes after context
-compaction.
+continuity row, and one Go error-string style issue. GitHub CI run
+`31310048813` then showed that Linux `internal/store` was still actively
+migrating when Go's default per-package ten-minute timeout expired; every
+completed package and all TypeScript, Windows Desktop, and Rust jobs were
+green, and no assertion or deadlock failed. CI now uses the same explicit
+20-minute full-suite budget as the local release gate without changing package
+scope, assertions, or fail-fast behavior. Do not repeat P13-B, P13-C, this full
+gate, WFP, Docker, or paid Provider probes after context compaction.
 
 ### Previous Checkpoint: P13-B1 through P13-B3 / Schema v95
 
