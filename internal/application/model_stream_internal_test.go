@@ -26,9 +26,10 @@ func TestModelStreamPublicPreviewForcesFinalScanBelowCadence(t *testing.T) {
 	}
 	registry.calls[key.runID] = entry
 	aggregator := &modelStreamAggregator{
-		ref:     llm.ModelRef{Provider: "provider", Model: "model"},
-		live:    &activeCallLease{registry: registry, key: key, entry: entry},
-		preview: newRootMessagePreviewer(nil),
+		ref:               llm.ModelRef{Provider: "provider", Model: "model"},
+		live:              &activeCallLease{registry: registry, key: key, entry: entry},
+		rootPreview:       newRootMessagePreviewer(nil),
+		commentaryPreview: newPublicCommentaryPreviewer(nil),
 	}
 
 	message := strings.Repeat("safe-", 24)

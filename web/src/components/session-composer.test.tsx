@@ -109,13 +109,13 @@ describe("SessionComposer", () => {
 
     expect(controlRunLifecycle).toHaveBeenCalledWith("run-1", {
       version: "run_lifecycle_control.v1", action: "start",
-    }, expect.stringMatching(/^web-session-turn-lifecycle-/));
+    }, expect.stringMatching(/^web-session-turn-lifecycle-/), expect.any(AbortSignal));
     expect(submitSessionMessage).toHaveBeenCalledWith("sess-1", {
       version: "session_message_submission.v1", content: "Inspect the repository",
-    }, expect.stringMatching(/^web-session-message-/));
+    }, expect.stringMatching(/^web-session-message-/), expect.any(AbortSignal));
     expect(executeRun).toHaveBeenCalledWith("run-1", {
       version: "run_execution_handoff.v1", max_steps: 1,
-    }, expect.stringMatching(/^web-session-turn-execution-/));
+    }, expect.stringMatching(/^web-session-turn-execution-/), expect.any(AbortSignal));
     expect(controlRunLifecycle.mock.invocationCallOrder[0]).toBeLessThan(
       submitSessionMessage.mock.invocationCallOrder[0]);
     expect(submitSessionMessage.mock.invocationCallOrder[0]).toBeLessThan(
@@ -195,7 +195,48 @@ describe("SessionComposer", () => {
     await waitFor(() => expect(submitSessionMessage).toHaveBeenCalledTimes(1));
     expect(submitSessionMessage).toHaveBeenCalledWith("sess-1", {
       version: "session_message_submission.v1", content: "Review the current branch",
-    }, expect.stringMatching(/^web-session-message-/));
+    }, expect.stringMatching(/^web-session-message-/), expect.any(AbortSignal));
+  });
+
+  it("stops a foreground tool phase without losing the durable queued message", async () => {
+    let firstSignal: AbortSignal | undefined;
+    const executeRun = vi.fn()
+      .mockImplementationOnce((_runID, _body, _key, signal?: AbortSignal) => {
+        firstSignal = signal;
+        return new Promise<RunExecutionControlView>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+        });
+      })
+      .mockResolvedValueOnce({
+        version: "run_execution_handoff.v1", operation_id: "op-recovery", run_id: "run-1",
+        session_id: "sess-1", max_steps: 1, status: "completed", run_status: "running",
+        steps_completed: 1, stop_reason: "selection_drained", selected_count: 1,
+        committed_count: 1, pending_count: 0, prepared_count: 0, cancelled_count: 0,
+        completion_event_sequence: 12, replayed: false, execution_started: true,
+        model_called: true, tool_called: true, capability_grant: false,
+      } as RunExecutionControlView);
+    const submitSessionMessage = vi.fn().mockResolvedValue(result);
+    const client = {
+      hasSessionMessages: true, hasRunLifecycle: true, hasRunExecution: true,
+      submitSessionMessage, executeRun,
+      getPublicModelStream: vi.fn().mockRejectedValue(new Error("no active model call")),
+    } as unknown as CyberAgentClient;
+    const user = userEvent.setup();
+    renderComposer(client, runningRun);
+
+    await user.type(screen.getByLabelText("Session message"), "Read the linked review");
+    await user.click(screen.getByRole("button", { name: "Queue message" }));
+    await user.click(await screen.findByRole("button", { name: "Stop" }));
+
+    await screen.findByText(/submitted message remains queued/);
+    expect(firstSignal?.aborted).toBe(true);
+    expect(screen.getByLabelText("Session message")).toHaveValue("Read the linked review");
+
+    await user.click(screen.getByRole("button", { name: "Queue message" }));
+    await screen.findByText("Model reply committed");
+    expect(submitSessionMessage).toHaveBeenCalledTimes(2);
+    expect(submitSessionMessage.mock.calls[0]?.[2]).toBe(submitSessionMessage.mock.calls[1]?.[2]);
+    expect(executeRun.mock.calls[0]?.[2]).not.toBe(executeRun.mock.calls[1]?.[2]);
   });
 
   it("enters Plan mode from the composer after pausing a running Run", async () => {
@@ -332,6 +373,32 @@ describe("SessionSteeringQueue", () => {
         created_at: "2026-07-18T00:00:00Z" }],
     }} />));
     expect(screen.queryByLabelText("Queued Session messages")).not.toBeInTheDocument();
+  });
+
+  it("continues one queued message through a fresh bounded execution handoff", async () => {
+    const executeRun = vi.fn().mockResolvedValue({
+      version: "run_execution_handoff.v1", operation_id: "op-next", run_id: "run-1",
+      session_id: "sess-1", max_steps: 1, status: "completed", run_status: "running",
+      steps_completed: 1, stop_reason: "selection_drained", selected_count: 1,
+      committed_count: 1, pending_count: 0, prepared_count: 0, cancelled_count: 0,
+      completion_event_sequence: 15, replayed: false, execution_started: true,
+      model_called: true, tool_called: false, capability_grant: false,
+    } as RunExecutionControlView);
+    const client = {
+      hasSessionSteeringControl: true, hasRunExecution: true, executeRun,
+    } as unknown as CyberAgentClient;
+    const user = userEvent.setup();
+    render(withProvider(<SessionSteeringQueue client={client} run={runningRun}
+      sessionID="sess-1" state={{
+        pending: 1, prepared: 0, committed: 0, cancelled: 0,
+        messages: [{ id: "steer-pending", sequence: 8, status: "pending", prepared: false,
+          created_at: "2026-08-10T00:00:00Z" }],
+      }} />));
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(executeRun).toHaveBeenCalledWith("run-1", {
+      version: "run_execution_handoff.v1", max_steps: 1,
+    }, expect.stringMatching(/^web-session-queue-execution-/)));
   });
 });
 

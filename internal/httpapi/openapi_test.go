@@ -86,6 +86,8 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 		if item.Post != nil {
 			validControl := (path == ModelCancellationPathTemplate &&
 				item.Post.OperationID == "requestModelCancellation") ||
+				(path == SessionArchiveControlPathTemplate &&
+					item.Post.OperationID == "archiveSession") ||
 				(path == SpecialistModelCancellationPathTemplate &&
 					item.Post.OperationID == "requestSpecialistModelCancellation") ||
 				(path == RunExecutionProfileControlPathTemplate &&
@@ -196,6 +198,7 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 		for method := range item {
 			if method != "get" && !((path == ModelCancellationPathTemplate ||
 				path == SpecialistModelCancellationPathTemplate ||
+				path == SessionArchiveControlPathTemplate ||
 				path == RunExecutionProfileControlPathTemplate ||
 				path == RunExecutionPermissionControlPathTemplate ||
 				path == RunBrowserCDPPermissionControlPathTemplate ||
@@ -686,6 +689,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				} else if spec.Path == SessionMessageControlPathTemplate {
 					body = `{"version":"session_message_submission.v1",` +
 						`"content":"OpenAPI live Session message"}`
+				} else if spec.Path == SessionArchiveControlPathTemplate {
+					body = `{"version":"session_archive.v1","confirm":true}`
 				} else if spec.Path == SessionSteeringCancellationPathTemplate {
 					body = `{"version":"session_steering_cancellation.v1",` +
 						`"reason":"OpenAPI live cancellation"}`

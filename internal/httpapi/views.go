@@ -1001,6 +1001,9 @@ type RunActivityItemView struct {
 	Status                string    `json:"status,omitempty"`
 	Verifiable            bool      `json:"verifiable"`
 	InstructionAuthorized bool      `json:"instruction_authorized"`
+	AttemptID             string    `json:"attempt_id,omitempty"`
+	ModelAttempt          int       `json:"model_attempt,omitempty"`
+	ToolRound             int       `json:"tool_round,omitempty"`
 	CreatedAt             time.Time `json:"created_at"`
 }
 
@@ -1334,7 +1337,9 @@ func runActivityView(value runactivity.Projection) RunActivityView {
 			ID: item.ID, Sequence: item.Sequence, Kind: string(item.Kind),
 			Source: string(item.Source), Title: item.Title, Detail: item.Detail,
 			Status: item.Status, Verifiable: item.Verifiable,
-			InstructionAuthorized: item.InstructionAuthorized, CreatedAt: item.CreatedAt,
+			InstructionAuthorized: item.InstructionAuthorized,
+			AttemptID:             item.AttemptID, ModelAttempt: item.ModelAttempt, ToolRound: item.ToolRound,
+			CreatedAt: item.CreatedAt,
 		}
 	}
 	return RunActivityView{

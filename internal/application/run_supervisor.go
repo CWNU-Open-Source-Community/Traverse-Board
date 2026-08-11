@@ -51,6 +51,7 @@ type SupervisorStore interface {
 	RecordSupervisorModelCancelRequested(ctx context.Context, checkpoint domain.SupervisorCheckpoint, attempt llm.ModelAttempt, reason string) (bool, error)
 	ObserveSupervisorModelCancellation(ctx context.Context, checkpoint domain.SupervisorCheckpoint, attempt llm.ModelAttempt) (domain.ModelCancellation, bool, error)
 	RecordSupervisorModelDelta(ctx context.Context, checkpoint domain.SupervisorCheckpoint, attempt llm.ModelAttempt, delta llm.ModelDelta) (bool, error)
+	RecordSupervisorModelPublicCommentary(ctx context.Context, checkpoint domain.SupervisorCheckpoint, attempt llm.ModelAttempt, commentary domain.ModelPublicCommentary) (bool, error)
 	RecordSupervisorModelCompleted(ctx context.Context, checkpoint domain.SupervisorCheckpoint, attempt llm.ModelAttempt, response llm.ChatResponse) (domain.SupervisorCheckpoint, error)
 	RecordSupervisorModelFailed(ctx context.Context, checkpoint domain.SupervisorCheckpoint, attempt llm.ModelAttempt) (domain.SupervisorCheckpoint, error)
 	RecordSupervisorProtocolFailure(ctx context.Context, checkpoint domain.SupervisorCheckpoint, attempt llm.ModelAttempt, response llm.ChatResponse, reason string, requestRepair bool) (domain.SupervisorCheckpoint, error)
@@ -627,6 +628,17 @@ func (s *RunSupervisor) stepWithLeaseMode(ctx context.Context, lease domain.RunE
 					turn.Mode.Phase, executionPermission.Mode)
 			}
 			if parseErr == nil {
+				if commentary, ok := prepareModelPublicCommentary(s.checker, turn.Checkpoint,
+					modelCall.Attempt, response.Text); ok {
+					eventCtx, eventCancel := supervisorModelEventContext(ctx)
+					_, storeErr := s.store.RecordSupervisorModelPublicCommentary(eventCtx,
+						turn.Checkpoint, modelCall.Attempt, commentary)
+					eventCancel()
+					if storeErr != nil {
+						failure := s.recordFailure(ctx, &result, storeErr, modelCall.Attempt.Elapsed)
+						return result, failure
+					}
+				}
 				modelCall.Attempt.Outcome = llm.OutcomeSuccess
 				eventCtx, eventCancel := supervisorModelEventContext(ctx)
 				updated, storeErr := s.store.RecordSupervisorModelCompleted(eventCtx, turn.Checkpoint,

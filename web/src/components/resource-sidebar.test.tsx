@@ -117,4 +117,35 @@ describe("ResourceSidebar", () => {
     expect(onNavigate).toHaveBeenCalledWith("models");
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
   });
+
+  it("archives a conversation after confirmation while retaining the audit contract", async () => {
+    const getPage = vi.fn().mockImplementation((path: string) => Promise.resolve({
+      items: path === "/sessions" ? [session("session-alpha", "修复登录回归")] : [],
+      page: { limit: 50 },
+      requestID: `req-${path}`,
+    }));
+    const archiveSession = vi.fn().mockResolvedValue({
+      version: "session_archive.v1",
+      session_id: "session-alpha",
+      status: "archived",
+      replayed: false,
+    });
+    const client = { getPage, archiveSession } as unknown as CyberAgentClient;
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(<QueryClientProvider client={queryClient}>
+      <ResourceSidebar activeSection="conversation" client={client} />
+    </QueryClientProvider>);
+
+    await screen.findByText("修复登录回归");
+    fireEvent.click(screen.getByRole("button", { name: "删除对话 修复登录回归" }));
+    expect(screen.getByRole("dialog", { name: "删除对话" })).toHaveTextContent("审计记录仍会保留");
+    fireEvent.click(screen.getByRole("button", { name: "删除" }));
+
+    await waitFor(() => expect(archiveSession).toHaveBeenCalledWith("session-alpha", {
+      version: "session_archive.v1",
+      confirm: true,
+    }));
+    await waitFor(() => expect(screen.queryByText("修复登录回归")).not.toBeInTheDocument());
+  });
 });

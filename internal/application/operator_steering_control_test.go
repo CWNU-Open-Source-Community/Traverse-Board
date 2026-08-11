@@ -223,7 +223,8 @@ func TestSessionSteeringOperationKeyReplaysAcrossRestartAndAfterDelivery(t *test
 	}}
 	_, created, err := runs.Create(ctx, application.CreateRunRequest{
 		Goal: "durable ordinary Session steering", Profile: "review",
-		ModelRoute: provider.Name() + "/model", Budget: domain.Budget{MaxTurns: 4},
+		ModelRoute: provider.Name() + "/model", Interactive: true,
+		Budget: domain.Budget{MaxTurns: 4},
 	})
 	if err != nil {
 		t.Fatal(err)

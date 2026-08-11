@@ -1,6 +1,6 @@
 # Prayu V2 任务书
 
-更新时间：2026-08-10
+更新时间：2026-08-11
 
 ## 目标
 
@@ -26,7 +26,7 @@ P7 已推进到 schema v71 与非 schema D1-B1，P9/Desktop 产品面已推进�
 
 schema v64 已增加 Go-owned `run_execution_profile.v1`：每个 Run 默认 `preview`，操作者可在 `created` 或无活动 lease 的 `paused` 状态选择 `preview|docker|local`。CLI、HTTP/OpenAPI 与 React 使用同一状态机；所有档位仍固定零进程、零执行授权和零 capability。
 
-schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固定 16 项机器 probe 和摘要协议，CLI 只接受同一操作者的 v63 阻塞审查、稳定操作键和显式确认。schema v66 再增加 collector 调用前持久化的 attempt、摘要化 operation、过期 generation lease、当前代 quiescent reconciliation、类型化 failure 和原子 result。schema v67 只在 Linux 显式 opt-in 后执行五次固定 GET，schema v68 再增加一次不可变操作员接纳/拒绝决定。所有 Docker start/process/export/Artifact authority 继续为 false。schema v69-v96 与 Desktop D1-A 至 P13-D 已完成外部 Skill、桌面恢复、Run 控制、模型/Plan/审批、FileEdit、Provider、wake、Repository、验证/Handoff/记忆、浏览器非启动与恢复账本、执行交互、受控命令审计、用户终端、四档宿主权限、固定命令提案审批、非沙箱宿主执行账本、独立 CDP 权限上限、Analyzer 产品接入、公开模型流、非 Shell 宿主命令提案，以及连续交互 Run/统一计划入口/精简导航。R9/R10 仍只属于内部 Runner 回执兼容边界。SQLite 当前为 v96。
+schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固定 16 项机器 probe 和摘要协议，CLI 只接受同一操作者的 v63 阻塞审查、稳定操作键和显式确认。schema v66 再增加 collector 调用前持久化的 attempt、摘要化 operation、过期 generation lease、当前代 quiescent reconciliation、类型化 failure 和原子 result。schema v67 只在 Linux 显式 opt-in 后执行五次固定 GET，schema v68 再增加一次不可变操作员接纳/拒绝决定。所有 Docker start/process/export/Artifact authority 继续为 false。schema v69-v96 与 Desktop D1-A 至 P13-F 已完成外部 Skill、桌面恢复、Run 控制、模型/Plan/审批、FileEdit、Provider、wake、Repository、验证/Handoff/记忆、浏览器非启动与恢复账本、执行交互、受控命令审计、用户终端、四档宿主权限、固定命令提案审批、非沙箱宿主执行账本、独立 CDP 权限上限、Analyzer 产品接入、公开模型流、非 Shell 宿主命令提案、连续交互 Run/统一计划入口/精简导航，以及安全 Markdown、可折叠 Harness 活动、对话归档、Diff 审阅和公开 Live Activity。R9/R10 仍只属于内部 Runner 回执兼容边界。SQLite 当前为 v96。
 
 ## 执行原则
 
@@ -605,6 +605,21 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 - [x] 三切片功能门：聚焦生命周期/恢复/重放与 HTTP/OpenAPI 测试、53 文件 196 项 Web、
   strict TypeScript、Vite、`go vet ./...` 和 diff 检查通过；`internal/store` 在限制并发后完整
   通过，未发现断言失败、死锁或未解决高/中风险。本批不重复 WFP、Docker 或付费 Provider。
+
+## P13-E/F：可读对话、可恢复队列与 Live Activity
+
+- [x] P13-E1：使用安全 GFM 白名单渲染助手消息；禁用原始 HTML、图片和非 HTTP(S) 链接。
+- [x] P13-E2：把连续同类 Harness 事实收进 Codex 风格披露块，模型和操作者消息保持展开。
+- [x] P13-E3：增加明确确认、幂等的 Session 软归档，并让取消、Tool 超时和重试释放输入队列；
+  消息、Run 与审计事实不删除。
+- [x] P13-F1：差异页增加紧凑文件索引及右侧带行号 unified diff 审阅抽屉。
+- [x] P13-F2：新增 display-only `model_public_commentary.v1` 与不可变事件；严禁私有 reasoning、
+  Prompt、raw delta、Tool 参数/输出进入公开投影、Session 或 trusted context。
+- [x] P13-F3：复用现有公开模型流，在 Activity 中按 attempt/model/tool-round 将 provisional 进度
+  精确收敛为 durable commentary，Harness 事实继续独立且可验证。
+- [x] 六切片健壮性门：全仓普通 Go、vet、513.4 秒 race、staticcheck、零可达漏洞 govulncheck、
+  Rust fmt/test/clippy、55 文件 208 项 Web、稳定 OpenAPI、零生产 npm 漏洞与 Vite 构建通过；
+  未发现死锁或未解决高/中风险。本批不重复 WFP、Docker 或付费 Provider。
 
 ## 每轮交付模板
 

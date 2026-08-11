@@ -1,40 +1,41 @@
 # Prayu Project Memory
 
-Last updated: 2026-08-10
+Last updated: 2026-08-11
 
-## Current Checkpoint: P13-D1 through P13-D3 / Schema v96
+## Current Checkpoint: P13-E1 through P13-F3 / Schema v96
 
-P13-D1 fixes interactive second-turn convergence without weakening the Root
-protocol. A Supervisor turn now durably records whether it consumed exactly one
-prepared operator-steering message. On that exact interactive path, bounded
-valid UTF-8 plain prose that is neither JSON-like, fenced, nor protocol-like can
-be projected as a public `continue` action before repair. A requested `finish`
-commits the current reply but is converted to `continue`, so one answer cannot
-silently close the user's chat Run. Non-interactive Runs retain their existing
-finish semantics. Multiple prepared messages, malformed protocol output,
-Policy rejection, and repair exhaustion still fail closed.
+P13-E1 adds allowlisted GFM rendering for public assistant text. Raw HTML,
+images, and non-HTTP(S) links remain inert. P13-E2 groups consecutive Harness
+facts into disclosure blocks without collapsing operator or model messages.
+P13-E3 adds confirmed, idempotent Session archival that hides a conversation
+while retaining messages, its Run, and audit history. Foreground cancellation,
+fresh execution handoff keys, and a bounded structured-Tool timeout prevent a
+failed URL or Tool turn from permanently owning the input queue.
 
-P13-D2 makes the composer `+ > Plan mode` item the single user-facing Plan
-entry. It calls authenticated Go `plan_delivery_control.v1` transitions, pauses
-an active Run before changing phase, reuses stable operation keys on retry, and
-rejects delivery from a stale Plan revision. The create-Run dialog no longer
-shows a duplicate Plan/Deliver selector, but a Plan-mode launch can still create
-the Run with the correct initial phase. Phase switching grants no tool, model,
-process, file, network, or approval authority.
+P13-F1 adds a compact changed-file index and right-side, line-numbered unified
+diff review drawer. P13-F2 adds the display-only
+`model_public_commentary.v1` contract and immutable
+`model.public_commentary` event before Tool execution. Commentary is Policy
+checked, redacted, UTF-8 valid, bounded, non-verifiable, and excluded from
+Session history and trusted context. Provider thinking, prompts, raw deltas,
+Tool arguments, and raw Tool output remain private. P13-F3 moves the existing
+process-local public stream into Activity and converges provisional text into
+the exact durable attempt/model/tool-round item without duplication.
 
-P13-D3 defaults Run navigation to Activity, Approvals, Diffs, Repository, and
-Files. The existing diagnostic views remain available through Settings >
-Workbench > Run top navigation. This preference is renderer-local, defaults to
-compact, synchronizes safely across views, and cannot change Go capabilities.
+The ordinary all-package Go suite and `go vet ./...` pass. The six-slice gate
+passes full `go test -race ./...` in 513.4 seconds (Store 488.3 seconds),
+`staticcheck`, zero reachable `govulncheck` findings, Rust fmt/test/clippy,
+55 frontend files / 208 tests, stable OpenAPI generation, zero production npm
+vulnerabilities, and the Vite production build. No unresolved high/medium
+finding or deadlock remains. Do not repeat P13-C through P13-F, WFP, Docker, or
+paid Provider probes after compaction.
 
-Focused lifecycle, recovery, replay, OpenAPI, and frontend tests pass. The Web
-gate passes 53 files / 196 tests, strict TypeScript, and Vite production build;
-`go vet ./...` and diff checks pass. The ordinary Go run completed every other
-package, while `internal/store` hit Go's default ten-minute package timeout
-under high parallel SQLite contention; that full package then passed with
-bounded parallelism in 465.8 seconds, and the previously suspected migration
-test passes alone in 4.3 seconds. No assertion failure or deadlock remains. Do
-not repeat P13-C, P13-D, WFP, Docker, or paid Provider probes after compaction.
+### Previous Checkpoint: P13-D1 through P13-D3 / Schema v96
+
+P13-D fixed interactive second-turn convergence, made composer Plan mode the
+single product entry, and reduced default Run navigation to Activity,
+Approvals, Diffs, Repository, and Files. Its strict protocol, stale-revision,
+and UI-only authority boundaries remain unchanged.
 
 ### Previous Checkpoint: P13-C1 through P13-C3 / Schema v96
 

@@ -8200,6 +8200,111 @@
         "x-cyberagent-read-only": true
       }
     },
+    "/api/v1/sessions/{session_id}/archive": {
+      "post": {
+        "operationId": "archiveSession",
+        "summary": "Archive a Session",
+        "description": "Removes a Session from active conversation history while retaining its messages and audit records. Replays are idempotent.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "description": "Session identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/SessionArchiveControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionArchiveControlRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/sessions/{session_id}/messages": {
       "get": {
         "operationId": "listSessionMessages",
@@ -17196,6 +17301,11 @@
       "RunActivityItemView": {
         "additionalProperties": false,
         "properties": {
+          "attempt_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
           "created_at": {
             "format": "date-time",
             "type": "string"
@@ -17224,6 +17334,10 @@
             ],
             "type": "string"
           },
+          "model_attempt": {
+            "format": "int32",
+            "type": "integer"
+          },
           "sequence": {
             "format": "int64",
             "type": "integer"
@@ -17241,6 +17355,10 @@
           },
           "title": {
             "type": "string"
+          },
+          "tool_round": {
+            "format": "int32",
+            "type": "integer"
           },
           "verifiable": {
             "type": "boolean"
@@ -19187,6 +19305,48 @@
         },
         "required": [
           "network_mode"
+        ],
+        "type": "object"
+      },
+      "SessionArchiveControlRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "confirm"
+        ],
+        "type": "object"
+      },
+      "SessionArchiveControlView": {
+        "additionalProperties": false,
+        "properties": {
+          "replayed": {
+            "type": "boolean"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "session_id",
+          "status",
+          "replayed"
         ],
         "type": "object"
       },

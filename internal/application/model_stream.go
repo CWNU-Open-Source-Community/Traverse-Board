@@ -25,12 +25,13 @@ type modelStreamResult struct {
 }
 
 type modelStreamAggregator struct {
-	supervisor *RunSupervisor
-	checkpoint domain.SupervisorCheckpoint
-	attempt    llm.ModelAttempt
-	ref        llm.ModelRef
-	live       *activeCallLease
-	preview    *rootMessagePreviewer
+	supervisor        *RunSupervisor
+	checkpoint        domain.SupervisorCheckpoint
+	attempt           llm.ModelAttempt
+	ref               llm.ModelRef
+	live              *activeCallLease
+	rootPreview       *rootMessagePreviewer
+	commentaryPreview *publicCommentaryPreviewer
 
 	output        bytes.Buffer
 	previewBytes  int
@@ -47,7 +48,8 @@ func (s *RunSupervisor) streamModel(ctx context.Context, checkpoint domain.Super
 	}
 	aggregator := &modelStreamAggregator{
 		supervisor: s, checkpoint: checkpoint, attempt: attempt, ref: ref, live: live,
-		preview: newRootMessagePreviewer(s.checker),
+		rootPreview:       newRootMessagePreviewer(s.checker),
+		commentaryPreview: newPublicCommentaryPreviewer(s.checker),
 	}
 	return aggregator.consume(ctx, chunks)
 }
@@ -141,8 +143,8 @@ func (a *modelStreamAggregator) consume(ctx context.Context, chunks <-chan llm.C
 				"final stream chunk returned invalid tool calls", err)
 			return a.result(nil), streamErr
 		}
-		if len(toolCalls) > 0 && a.live != nil {
-			if err := a.live.PublishPublicPreview("", false); err != nil {
+		if len(toolCalls) > 0 {
+			if err := a.publishCommentaryPreview(true); err != nil {
 				return a.result(nil), err
 			}
 		} else if err := a.publishPublicPreview(true); err != nil {
@@ -175,18 +177,34 @@ func (a *modelStreamAggregator) appendText(text string) error {
 }
 
 func (a *modelStreamAggregator) publishPublicPreview(force bool) error {
-	if a.preview == nil || a.live == nil {
+	if a.live == nil {
 		return nil
 	}
 	if !force && a.output.Len()-a.previewBytes < publicPreviewScanIntervalBytes {
 		return nil
 	}
 	a.previewBytes = a.output.Len()
-	preview, complete, changed := a.preview.Update(a.output.String())
+	if a.rootPreview != nil {
+		preview, complete, changed := a.rootPreview.Update(a.output.String())
+		if preview != "" || complete {
+			if !changed {
+				return nil
+			}
+			return a.live.PublishPublicPreview(preview, complete)
+		}
+	}
+	return a.publishCommentaryPreview(force)
+}
+
+func (a *modelStreamAggregator) publishCommentaryPreview(complete bool) error {
+	if a.commentaryPreview == nil || a.live == nil {
+		return nil
+	}
+	preview, ready, changed := a.commentaryPreview.Update(a.output.String(), complete)
 	if !changed {
 		return nil
 	}
-	return a.live.PublishPublicPreview(preview, complete)
+	return a.live.PublishPublicPreview(preview, ready)
 }
 
 func (a *modelStreamAggregator) flush(done bool) error {

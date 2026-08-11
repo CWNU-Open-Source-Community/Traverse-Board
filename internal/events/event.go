@@ -185,6 +185,7 @@ const (
 	ModelCancelRequestedEvent                     = "model.cancel_requested"
 	ModelCancelObservedEvent                      = "model.cancel_observed"
 	ModelDeltaEvent                               = "model.delta"
+	ModelPublicCommentaryEvent                    = "model.public_commentary"
 	ModelCompletedEvent                           = "model.completed"
 	ModelFailedEvent                              = "model.failed"
 	ProtocolRepairRequestedEvent                  = "supervisor.protocol_repair_requested"

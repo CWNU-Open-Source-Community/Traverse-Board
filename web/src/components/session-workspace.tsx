@@ -8,6 +8,7 @@ import { formatDate, formatNumber, shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
 import { EmptyState, ErrorState, KeyValue, LoadMoreButton, LoadingState, StatusBadge } from "./common";
 import { SessionComposer, SessionSteeringQueue } from "./session-composer";
+import { SafeMarkdown } from "./safe-markdown";
 
 export function SessionWorkspace({ client, sessionID, onOpenPlugins }: {
   client: CyberAgentClient;
@@ -60,12 +61,6 @@ export function SessionWorkspace({ client, sessionID, onOpenPlugins }: {
           <KeyValue label={t("更新时间", "Updated")} value={formatDate(detail.session.updated_at)} />
         </dl>
       </div>
-      <SessionComposer client={client} contextPartial={Boolean(messagesQuery.hasNextPage)}
-        contextTokens={contextTokens} key={sessionID} onOpenPlugins={onOpenPlugins}
-        phase={runQuery.data?.mode.phase} run={detail.run ?? null} sessionID={sessionID}
-        workspaceID={detail.session.workspace_id ?? ""} />
-      <SessionSteeringQueue client={client} sessionID={sessionID}
-        state={runQuery.data?.operator_steering ?? null} />
       <div className="workspace-content session-content">
         <div className="section-heading"><h2>{t("消息", "Messages")}</h2><span>{formatNumber(messages.length)}</span></div>
         {messagesQuery.isLoading && <LoadingState />}
@@ -75,12 +70,20 @@ export function SessionWorkspace({ client, sessionID, onOpenPlugins }: {
           {messages.map((message) => (
             <article className={`message-row role-${message.role}`} key={message.id}>
               <header><strong>{message.role}</strong><StatusBadge status={message.source_kind} /><span>{formatNumber(message.token_estimate)} {t("令牌", "tokens")}</span>{message.compacted && <StatusBadge status="compacted" />}<time dateTime={message.created_at}>{formatDate(message.created_at)}</time></header>
-              <p>{message.content}</p>
+              {message.role === "assistant" ?
+                <SafeMarkdown>{message.content}</SafeMarkdown> : <p>{message.content}</p>}
             </article>
           ))}
         </div>
         <LoadMoreButton hasNextPage={Boolean(messagesQuery.hasNextPage)} isFetching={messagesQuery.isFetchingNextPage} onClick={() => void messagesQuery.fetchNextPage()} />
       </div>
+      <SessionSteeringQueue client={client} sessionID={sessionID}
+        run={runQuery.data?.run ?? detail.run ?? null}
+        state={runQuery.data?.operator_steering ?? null} />
+      <SessionComposer client={client} contextPartial={Boolean(messagesQuery.hasNextPage)}
+        contextTokens={contextTokens} key={sessionID} onOpenPlugins={onOpenPlugins}
+        phase={runQuery.data?.mode.phase} run={detail.run ?? null} sessionID={sessionID}
+        workspaceID={detail.session.workspace_id ?? ""} />
     </div>
   );
 }

@@ -149,6 +149,7 @@ type Store interface {
 		offset int, limit int) ([]fileedit.Preview, error)
 
 	GetSession(ctx context.Context, id string) (session.Session, error)
+	SaveSession(ctx context.Context, record session.Session) error
 	GetWorkspaceInfo(ctx context.Context, id string) (session.WorkspaceInfo, error)
 	ListWorkspacesPage(ctx context.Context, offset int, limit int) ([]session.WorkspaceRecord, error)
 	ListSessionsPage(ctx context.Context, offset int, limit int) ([]session.Session, error)
@@ -638,6 +639,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if request.URL.Path == "/api/v1/runs" && request.Method != http.MethodGet {
 		a.serveRunCreationControl(tracked, request, requestID)
+		return
+	}
+	if sessionID, matched := matchSessionArchiveControlPath(request.URL.Path); matched {
+		a.serveSessionArchiveControl(tracked, request, requestID, sessionID)
 		return
 	}
 	if sessionID, matched := matchSessionMessageControlPath(request.URL.Path); matched &&

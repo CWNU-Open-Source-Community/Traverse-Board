@@ -5,6 +5,12 @@ import type { PublicModelStreamSnapshot } from "../api/types";
 export type PublicModelStreamStatus = "waiting" | "live" | "finalizing" |
   "reconnecting" | "stopped";
 
+export interface PublicModelStreamState {
+  error: string;
+  snapshot: PublicModelStreamSnapshot | null;
+  status: PublicModelStreamStatus;
+}
+
 const livePollDelayMs = 150;
 const reconnectDelayMs = 500;
 
@@ -28,7 +34,7 @@ function callIdentity(snapshot: PublicModelStreamSnapshot): string {
 }
 
 export function usePublicModelStream(client: CyberAgentClient, runID: string,
-  enabled: boolean) {
+  enabled: boolean): PublicModelStreamState {
   const [snapshot, setSnapshot] = useState<PublicModelStreamSnapshot | null>(null);
   const [status, setStatus] = useState<PublicModelStreamStatus>("stopped");
   const [error, setError] = useState("");
@@ -63,6 +69,7 @@ export function usePublicModelStream(client: CyberAgentClient, runID: string,
           if (caught instanceof APIRequestError && caught.status === 404) {
             setStatus(current ? "finalizing" : "waiting");
             setError("");
+            wait = reconnectDelayMs;
           } else if (caught instanceof APIRequestError &&
             [400, 401, 403].includes(caught.status)) {
             setStatus("stopped");

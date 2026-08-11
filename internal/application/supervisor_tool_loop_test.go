@@ -28,8 +28,11 @@ func TestRunSupervisorExecutesAllowlistedStructuredToolAndContinuesModel(t *test
 	defer st.Close()
 	ctx := context.Background()
 	run := newStartedRunForProvider(t, st, "tool-loop", domain.Budget{MaxTurns: 3, MaxToolCalls: 5})
+	toolCallResponse := toolResponse("provider-call-1", "work_item_create",
+		`{"title":"Inspect parser","priority":"high"}`)
+	toolCallResponse.Text = "已完成任务分析，下一步创建工作项。"
 	provider := &scriptedToolProvider{responses: []*llm.ChatResponse{
-		toolResponse("provider-call-1", "work_item_create", `{"title":"Inspect parser","priority":"high"}`),
+		toolCallResponse,
 		textResponse(rootActionResponse(domain.RootActionContinue, "work board updated", "", "")),
 	}}
 	result, err := newToolLoopSupervisor(st, provider).Step(ctx, run.ID)
@@ -63,19 +66,47 @@ func TestRunSupervisorExecutesAllowlistedStructuredToolAndContinuesModel(t *test
 	}
 	for eventType, want := range map[string]int{
 		events.ModelCompletedEvent: 2, events.SupervisorToolBatchEvent: 1,
-		events.SupervisorToolResultEvent: 1, events.SupervisorToolCompleteEvent: 1,
+		events.ModelPublicCommentaryEvent: 1,
+		events.SupervisorToolResultEvent:  1, events.SupervisorToolCompleteEvent: 1,
 		events.WorkItemCreatedEvent: 1, events.ToolCompletedEvent: 1,
 	} {
 		if got := countEventType(eventList, eventType); got != want {
 			t.Fatalf("event %s count=%d want=%d events=%#v", eventType, got, want, eventList)
 		}
 	}
+	commentarySequence := int64(0)
+	modelCompletedSequence := int64(0)
+	toolBatchSequence := int64(0)
 	for _, event := range eventList {
+		switch event.Type {
+		case events.ModelPublicCommentaryEvent:
+			commentarySequence = event.Sequence
+		case events.ModelCompletedEvent:
+			if modelCompletedSequence == 0 {
+				modelCompletedSequence = event.Sequence
+			}
+		case events.SupervisorToolBatchEvent:
+			toolBatchSequence = event.Sequence
+		}
 		if strings.Contains(event.PayloadJSON, "provider-call-1") ||
 			(strings.Contains(event.PayloadJSON, "Inspect parser") &&
 				(event.Type == events.SupervisorToolBatchEvent || event.Type == events.SupervisorToolResultEvent ||
 					event.Type == events.SupervisorToolCompleteEvent || strings.HasPrefix(event.Type, "model."))) {
 			t.Fatalf("provider id or tool payload leaked into event %s: %s", event.Type, event.PayloadJSON)
+		}
+	}
+	if commentarySequence == 0 || !(commentarySequence < modelCompletedSequence &&
+		modelCompletedSequence < toolBatchSequence) {
+		t.Fatalf("public commentary was not sequenced before the verified tool batch: commentary=%d model=%d tool=%d",
+			commentarySequence, modelCompletedSequence, toolBatchSequence)
+	}
+	messages, err := st.ListSessionMessages(ctx, run.SessionID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range messages {
+		if strings.Contains(message.Content, "下一步创建工作项") {
+			t.Fatalf("display-only commentary leaked into Session history: %#v", messages)
 		}
 	}
 }

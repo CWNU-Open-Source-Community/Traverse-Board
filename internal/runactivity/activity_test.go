@@ -73,6 +73,25 @@ func TestBuildRedactsAndBoundsPublicMessages(t *testing.T) {
 	}
 }
 
+func TestBuildProjectsPublicCommentaryWithoutTrustingIt(t *testing.T) {
+	secret := "sk-" + strings.Repeat("c", 30)
+	source := []events.Event{event(1, events.ModelPublicCommentaryEvent,
+		`{"version":"model_public_commentary.v1","run_id":"run-1","attempt_id":"attempt-1",`+
+			`"model_attempt":2,"tool_round":1,"phase":"before_tools","text":"准备检查构建 `+secret+`"}`,
+		time.Now().UTC())}
+
+	got, err := Build("run-1", source, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Items) != 1 || got.Items[0].Source != SourceModel ||
+		got.Items[0].Kind != KindModelUpdate || got.Items[0].Verifiable ||
+		got.Items[0].AttemptID != "attempt-1" || got.Items[0].ModelAttempt != 2 ||
+		got.Items[0].ToolRound != 1 || strings.Contains(got.Items[0].Detail, secret) {
+		t.Fatalf("public commentary projection widened trust or leaked data: %#v", got.Items)
+	}
+}
+
 func TestBuildRejectsCrossRunAndDuplicateEvents(t *testing.T) {
 	now := time.Now().UTC()
 	crossRun := event(1, events.ModelStartedEvent, `{}`, now)

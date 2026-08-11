@@ -19,6 +19,8 @@ import (
 
 const supervisorToolResultVersion = "supervisor_tool_result.v1"
 
+const supervisorToolCallTimeout = 30 * time.Second
+
 type supervisorToolResultEnvelope struct {
 	Version  string            `json:"version"`
 	Tool     string            `json:"tool"`
@@ -127,13 +129,23 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 ) (domain.SupervisorToolResult, error) {
 	name := toolgateway.ToolName(call.ToolName)
 	operationKey := supervisorToolOperationKey(call.RunID, call.Turn, name, json.RawMessage(call.PayloadJSON))
-	outcome, err := s.tools.Invoke(ctx, toolgateway.ToolCall{
+	toolCtx, cancelTool := context.WithTimeout(ctx, supervisorToolCallTimeout)
+	outcome, err := s.tools.Invoke(toolCtx, toolgateway.ToolCall{
 		Name: name, Payload: json.RawMessage(call.PayloadJSON), OperationKey: operationKey,
 		RunID: call.RunID, AgentID: turn.Agent.ID, SessionID: turn.Run.SessionID,
 		WorkspaceID: turn.Mission.WorkspaceID,
 		LeaseID:     turn.Checkpoint.LeaseID, LeaseGeneration: turn.Checkpoint.LeaseGeneration,
 		RequestedBy: "run_supervisor",
 	})
+	toolContextErr := toolCtx.Err()
+	cancelTool()
+	if ctx.Err() != nil {
+		return domain.SupervisorToolResult{}, apperror.Normalize(ctx.Err())
+	}
+	if errors.Is(toolContextErr, context.DeadlineExceeded) {
+		err = apperror.New(apperror.CodeDeadlineExceeded,
+			"structured supervisor tool exceeded its 30 second execution limit")
+	}
 	completedAt := time.Now().UTC()
 	if err != nil {
 		code := apperror.CodeOf(apperror.Normalize(err))
@@ -189,7 +201,8 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 
 func recoverableSupervisorToolError(code apperror.Code) bool {
 	switch code {
-	case apperror.CodeInvalidArgument, apperror.CodeConflict, apperror.CodeResourceExhausted:
+	case apperror.CodeInvalidArgument, apperror.CodeConflict, apperror.CodeResourceExhausted,
+		apperror.CodeDeadlineExceeded:
 		return true
 	default:
 		return false

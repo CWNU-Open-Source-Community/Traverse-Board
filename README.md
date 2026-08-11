@@ -119,6 +119,28 @@ duplicate create-Run phase selector is gone. Run navigation defaults to Activity
 Diffs, Repository, and Files; the full diagnostic set is an inert UI preference under
 Settings > Workbench.
 
+### Markdown、活动流与审阅收口 / Markdown, Live Activity, And Review
+
+P13-E1-E3 与 P13-F1-F3 保持 schema v96 不变，收口了六项桌面人工验收问题。助手消息现在通过
+`react-markdown + remark-gfm` 的安全白名单显示 Markdown；原始 HTML、图片和非 HTTP(S) 链接不会
+执行。连续 Harness 事实按类型折叠，用户与助手正文保持展开。历史对话支持明确确认后的软归档：
+它从侧栏消失，但 Session 消息、Run 和审计事实不会删除。工具异常具备有界超时，前台取消会释放
+输入队列，已持久化的用户消息可以用新的执行键重试，不再让后续消息永久停在“排队中”。
+
+差异页现在提供紧凑文件清单与右侧审阅抽屉，点击文件可查看带行号的 unified diff、增删统计、审批
+和恢复状态。Live Activity 复用既有 Event Store、`run-events.v1`、`run_activity.v1` 与
+`model_public_stream.v1`：Tool Call 前的普通公开模型文字经 Policy、脱敏、UTF-8 和长度检查后，先以
+临时进度显示，再由不可变 `model.public_commentary` 事件按 attempt/model/tool-round 精确替换。
+它不是思维链，不进入 Session 历史或可信模型上下文；thinking、Prompt、原始 delta、Tool 参数和原始
+输出仍不会公开，执行成功与否只以 Go Harness 事件为准。
+
+P13-E1-E3 and P13-F1-F3 keep schema v96 unchanged. Safe GFM rendering, collapsible Harness
+facts, auditable Session archival, bounded queue recovery, a line-numbered diff-review drawer,
+and Codex-like Live Activity now share the existing Go event and streaming infrastructure.
+Public commentary is display-only, non-verifiable model text that converges from a provisional
+snapshot to one durable event; it is never private chain-of-thought, Session history, trusted
+context, or a substitute for Harness execution facts.
+
 ## 桌面权限中心与原生玻璃 / Desktop Permission Center And Native Glass
 
 Windows Desktop 现在提供独立的“权限”设置页，把当前 Run 的四个正交控制维度集中展示：

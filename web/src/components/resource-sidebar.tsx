@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Archive,
   CalendarClock,
@@ -12,6 +13,7 @@ import {
   Search,
   Settings,
   SquarePen,
+  Trash2,
   X,
 } from "lucide-react";
 import type { CyberAgentClient } from "../api/client";
@@ -55,6 +57,9 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
   const { t } = useLocale();
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [archiveCandidate, setArchiveCandidate] = useState<SessionView | null>(null);
+  const [hiddenSessionIDs, setHiddenSessionIDs] = useState<Set<string>>(() => new Set());
+  const queryClient = useQueryClient();
   const kind = useConnectionStore((state) => state.resourceKind);
   const selectedRunID = useConnectionStore((state) => state.selectedRunID);
   const selectedSessionID = useConnectionStore((state) => state.selectedSessionID);
@@ -68,28 +73,48 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
     [runsQuery.data]);
   const sessions = useMemo(() => sessionsQuery.data?.pages.flatMap((page) => page.items) ?? [],
     [sessionsQuery.data]);
+  const activeSessions = useMemo(() => sessions.filter((session) =>
+    session.status !== "archived" && !hiddenSessionIDs.has(session.id)), [hiddenSessionIDs, sessions]);
   const normalizedSearch = search.trim().toLowerCase();
   const visibleRuns = runs.filter((run) => !normalizedSearch ||
     `${run.id} ${run.mission_id} ${run.status}`.toLowerCase().includes(normalizedSearch));
-  const visibleSessions = sessions.filter((session) => !normalizedSearch ||
+  const visibleSessions = activeSessions.filter((session) => !normalizedSearch ||
     `${session.id} ${session.title} ${session.route}`.toLowerCase().includes(normalizedSearch));
+
+  const archiveMutation = useMutation({
+    mutationFn: (session: SessionView) => client.archiveSession(session.id, {
+      version: "session_archive.v1",
+      confirm: true,
+    }),
+    onSuccess: (result) => {
+      setHiddenSessionIDs((current) => new Set(current).add(result.session_id));
+      setArchiveCandidate(null);
+      if (kind === "session" && selectedSessionID === result.session_id) {
+        const fallbackSession = activeSessions.find((session) => session.id !== result.session_id);
+        if (fallbackSession) selectSession(fallbackSession.id);
+        else if (runs[0]) selectRun(runs[0].id);
+      }
+      void queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      void queryClient.invalidateQueries({ queryKey: ["session", result.session_id] });
+    },
+  });
 
   useEffect(() => {
     if (kind === "run" && !runsQuery.isLoading && !runsQuery.isFetching &&
       !runs.some((run) => run.id === selectedRunID)) {
       if (runs[0]) selectRun(runs[0].id);
-      else if (sessions[0]) selectSession(sessions[0].id);
+      else if (activeSessions[0]) selectSession(activeSessions[0].id);
     }
   }, [kind, runs, runsQuery.isFetching, runsQuery.isLoading, selectRun, selectedRunID,
-    selectSession, sessions]);
+    selectSession, activeSessions]);
 
   useEffect(() => {
     if (kind === "session" && !sessionsQuery.isLoading && !sessionsQuery.isFetching &&
-      !sessions.some((session) => session.id === selectedSessionID)) {
-      if (sessions[0]) selectSession(sessions[0].id);
+      !activeSessions.some((session) => session.id === selectedSessionID)) {
+      if (activeSessions[0]) selectSession(activeSessions[0].id);
       else if (runs[0]) selectRun(runs[0].id);
     }
-  }, [kind, runs, selectRun, selectSession, selectedSessionID, sessions,
+  }, [activeSessions, kind, runs, selectRun, selectSession, selectedSessionID,
     sessionsQuery.isFetching, sessionsQuery.isLoading]);
 
   const selectConversation = (select: () => void) => {
@@ -143,16 +168,25 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
           {!sessionsQuery.isLoading && !sessionsQuery.isError && visibleSessions.length === 0 &&
             <div className="sidebar-history-empty"><Archive aria-hidden="true" size={15} />{t("暂无对话", "No conversations")}</div>}
           {visibleSessions.map((session) => (
-            <button className={`resource-row sidebar-history-row ${selectedSessionID === session.id &&
-              activeSection === "conversation" ? "selected" : ""}`} key={session.id}
-              onClick={() => selectConversation(() => selectSession(session.id))} type="button">
-              <MessagesSquare aria-hidden="true" size={15} />
-              <span className="sidebar-history-copy">
-                <strong>{session.title}</strong>
-                <small>{session.route} · {formatCompactDate(session.updated_at)}</small>
-              </span>
-              <i aria-label={session.status} className={`history-status status-${session.status}`} />
-            </button>
+            <div className={`sidebar-history-row-shell ${selectedSessionID === session.id &&
+              activeSection === "conversation" ? "selected" : ""}`} key={session.id}>
+              <button className="resource-row sidebar-history-row"
+                onClick={() => selectConversation(() => selectSession(session.id))} type="button">
+                <MessagesSquare aria-hidden="true" size={15} />
+                <span className="sidebar-history-copy">
+                  <strong>{session.title}</strong>
+                  <small>{session.route} · {formatCompactDate(session.updated_at)}</small>
+                </span>
+                <i aria-label={session.status} className={`history-status status-${session.status}`} />
+              </button>
+              <button aria-label={`${t("删除对话", "Delete conversation")} ${session.title}`}
+                className="sidebar-history-delete" onClick={() => {
+                  archiveMutation.reset();
+                  setArchiveCandidate(session);
+                }} title={t("删除对话", "Delete conversation")} type="button">
+                <Trash2 aria-hidden="true" size={13} />
+              </button>
+            </div>
           ))}
           <LoadMoreButton hasNextPage={Boolean(sessionsQuery.hasNextPage)}
             isFetching={sessionsQuery.isFetchingNextPage}
@@ -190,6 +224,37 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
         <span><strong>{t("本地操作者", "Local operator")}</strong><small>{t("设置与账户", "Settings and account")}</small></span>
         <Settings aria-hidden="true" size={15} />
       </button>
+
+      {archiveCandidate && <div className="desktop-dialog-backdrop" role="presentation">
+        <section aria-labelledby="archive-session-title" aria-modal="true"
+          className="desktop-dialog archive-session-dialog" role="dialog">
+          <header>
+            <div><span className="dialog-icon"><Trash2 aria-hidden="true" size={17} /></span>
+              <div><h2 id="archive-session-title">{t("删除对话", "Delete conversation")}</h2>
+                <small>{archiveCandidate.title}</small></div></div>
+            <button aria-label={t("关闭", "Close")} className="icon-button"
+              disabled={archiveMutation.isPending} onClick={() => setArchiveCandidate(null)}
+              type="button"><X aria-hidden="true" size={16} /></button>
+          </header>
+          <div className="desktop-dialog-body archive-session-copy">
+            <p>{t("此对话将从历史列表中移除。Run、消息和审计记录仍会保留。",
+              "This conversation will be removed from history. Its Run, messages, and audit records remain available.")}</p>
+            {archiveMutation.isError && <p className="connection-error">{archiveMutation.error instanceof Error
+              ? archiveMutation.error.message : t("删除对话失败", "Could not delete conversation")}</p>}
+          </div>
+          <footer>
+            <span />
+            <div className="desktop-dialog-actions">
+              <button className="dialog-secondary" disabled={archiveMutation.isPending}
+                onClick={() => setArchiveCandidate(null)} type="button">{t("取消", "Cancel")}</button>
+              <button className="dialog-danger" disabled={archiveMutation.isPending}
+                onClick={() => archiveMutation.mutate(archiveCandidate)} type="button">
+                <Trash2 aria-hidden="true" size={15} />{t("删除", "Delete")}
+              </button>
+            </div>
+          </footer>
+        </section>
+      </div>}
     </aside>
   );
 }

@@ -31,8 +31,10 @@ describe("FileEditPanel", () => {
     } as unknown as CyberAgentClient;
 
     renderPanel(client);
+    await user.click(await screen.findByRole("button", { name: /README\.md/ }));
     expect(await screen.findByText("Apply authority: disabled")).toBeInTheDocument();
-    expect(screen.getByText(/\+new/)).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Review README.md" })).toBeInTheDocument();
+    expect(screen.getByText("new")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Approve intent README.md" }));
     await waitFor(() => expect(reviewFileEdit).toHaveBeenCalledTimes(1));
     expect(reviewFileEdit.mock.calls[0]?.slice(0, 3)).toEqual([
@@ -68,6 +70,7 @@ describe("FileEditPanel", () => {
       reviewFileEdit: vi.fn(), applyFileEdit,
     } as unknown as CyberAgentClient;
     renderPanel(client);
+    await user.click(await screen.findByRole("button", { name: /safe\.txt/ }));
     await user.click(await screen.findByRole("button", { name: "Apply safe.txt" }));
     await waitFor(() => expect(applyFileEdit).toHaveBeenCalledTimes(1));
     expect(applyFileEdit.mock.calls[0]?.slice(0, 3)).toEqual([
@@ -111,6 +114,36 @@ describe("FileEditPanel", () => {
     expect(screen.getByText("applied.txt")).toBeInTheDocument();
     expect(screen.getByText("failed.txt")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /apply all/i })).not.toBeInTheDocument();
+  });
+
+  it("opens and closes a structured review sidebar from the file index", async () => {
+    const user = userEvent.setup();
+    const edit = {
+      id: "edit-review", session_id: "session-1", workspace_id: "workspace-1",
+      path: "src/main.go", status: "proposed",
+      diff: "--- a/src/main.go\n+++ b/src/main.go\n@@ -2 +2 @@\n-old\n+new",
+      original_hash: "a".repeat(64), proposed_hash: "b".repeat(64),
+      secrets_redacted: false, allowed_actions: ["approve_intent", "deny"],
+      apply_enabled: false, created_at: "2026-07-18T00:00:00Z",
+      updated_at: "2026-07-18T00:00:00Z",
+    } as const;
+    const client = {
+      hasFileEditReview: true,
+      fileEditQueue: vi.fn().mockResolvedValue({
+        protocol_version: "file_edit_review.v1", run_id: "run-1", items: [edit],
+        truncated: false, apply_enabled: false,
+      }),
+      fileEditChangeSet: vi.fn().mockResolvedValue(changeSetFor(edit)),
+      reviewFileEdit: vi.fn(),
+    } as unknown as CyberAgentClient;
+
+    renderPanel(client);
+    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: /src\/main\.go/ }));
+    expect(screen.getByRole("complementary", { name: "Review src/main.go" })).toBeInTheDocument();
+    expect(screen.getByText("@@ -2 +2 @@")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close review" }));
+    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
   });
 });
 

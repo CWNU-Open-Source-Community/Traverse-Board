@@ -61,6 +61,7 @@ import type {
 } from "../api/types";
 import { usePagedResource } from "../hooks/use-paged-resource";
 import { useRunEventStream } from "../hooks/use-run-event-stream";
+import { usePublicModelStream } from "../hooks/use-public-model-stream";
 import { formatBytes, formatDate, formatNumber, shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
 import { readRunNavigationMode, subscribeRunNavigationMode } from "../lib/run-navigation";
@@ -150,6 +151,9 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
   const toolsQuery = usePagedResource<SupervisorToolRoundView>(client, ["run", runID, "tools"],
     `/runs/${encodeURIComponent(runID)}/tool-rounds`, { limit: 100 }, Boolean(runID) && tab === "tools");
   const stream = useRunEventStream(client, runID);
+  const publicModelStream = usePublicModelStream(client, runID, Boolean(runID &&
+    client.hasRunExecution && detailQuery.data &&
+    ["created", "running", "paused"].includes(detailQuery.data.run.status)));
   const activityQuery = useQuery({
     queryKey: ["run", runID, "activity"],
     queryFn: ({ signal }) => client.get<RunActivityView>(
@@ -274,7 +278,9 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
           activityQuery.isLoading ? <LoadingState label="加载活动" /> :
             activityQuery.isError || !activityQuery.data ?
               <ErrorState error={activityQuery.error} /> :
-              <RunActivityTimeline activity={activityQuery.data} streamError={stream.error} />
+              <RunActivityTimeline activity={activityQuery.data}
+                liveCommentary={publicModelStream.snapshot}
+                liveStatus={publicModelStream.status} streamError={stream.error || publicModelStream.error} />
         )}
         {tab === "overview" && <RunOverview client={client} detail={detail} />}
         {tab === "journey" && detail.mode.surface === "code" &&
@@ -351,7 +357,8 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
       {detail.run.session_id && <SessionComposer client={client}
         contextPartial={Boolean(contextMessagesQuery.hasNextPage)} contextTokens={contextTokens}
         onOpenPlugins={onOpenPlugins} run={detail.run} sessionID={detail.run.session_id}
-        phase={detail.mode.phase} workspaceID={detail.mission.workspace_id ?? ""} />}
+        phase={detail.mode.phase} publicModelStream={publicModelStream}
+        workspaceID={detail.mission.workspace_id ?? ""} />}
     </div>
   );
 }

@@ -645,6 +645,96 @@ func (s *SQLiteStore) RecordSupervisorModelDelta(ctx context.Context, checkpoint
 	return true, nil
 }
 
+func (s *SQLiteStore) RecordSupervisorModelPublicCommentary(ctx context.Context,
+	checkpoint domain.SupervisorCheckpoint, attempt llm.ModelAttempt,
+	commentary domain.ModelPublicCommentary,
+) (bool, error) {
+	if err := checkpoint.Validate(); err != nil {
+		return false, err
+	}
+	if checkpoint.Phase != domain.SupervisorTurnStarted {
+		return false, apperror.New(apperror.CodeFailedPrecondition,
+			"only a started supervisor turn can record model public commentary")
+	}
+	attempt = sanitizeModelAttempt(attempt)
+	if attempt.Outcome != "" || strings.TrimSpace(attempt.ErrorText) != "" ||
+		attempt.RetryAfter != 0 || attempt.RetryPlanned {
+		return false, apperror.New(apperror.CodeInvalidArgument,
+			"model public commentary requires a non-terminal model attempt")
+	}
+	if err := attempt.ValidateStarted(); err != nil {
+		return false, apperror.Wrap(apperror.CodeInvalidArgument,
+			"invalid model public commentary attempt", err)
+	}
+	if err := commentary.Validate(); err != nil {
+		return false, apperror.Wrap(apperror.CodeInvalidArgument,
+			"invalid model public commentary", err)
+	}
+	if commentary.RunID != checkpoint.RunID || commentary.AttemptID != checkpoint.AttemptID ||
+		commentary.ModelAttempt != attempt.Number || commentary.ToolRound != attempt.ToolRound+1 {
+		return false, apperror.New(apperror.CodeConflict,
+			"model public commentary identity does not match its active attempt")
+	}
+
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	run, _, err := requireActiveSupervisorAttemptTx(ctx, tx, checkpoint)
+	if err != nil {
+		return false, err
+	}
+	modelSubject := supervisorModelSubject(checkpoint, attempt.Number)
+	if err := requireSupervisorModelStartedMatchTx(ctx, tx, run.ID, modelSubject, attempt); err != nil {
+		return false, err
+	}
+	for _, terminalType := range []string{events.ModelCompletedEvent, events.ModelFailedEvent} {
+		exists, existsErr := supervisorModelEventExistsTx(ctx, tx, run.ID, terminalType, modelSubject)
+		if existsErr != nil {
+			return false, existsErr
+		}
+		if exists {
+			return false, apperror.New(apperror.CodeConflict, "model attempt is already terminal")
+		}
+	}
+	subject := supervisorModelPublicCommentarySubject(checkpoint, attempt.Number, commentary.Phase)
+	exists, err := supervisorModelEventExistsTx(ctx, tx, run.ID,
+		events.ModelPublicCommentaryEvent, subject)
+	if err != nil {
+		return false, err
+	}
+	if exists {
+		var payloadJSON string
+		if err := tx.QueryRowContext(ctx, `SELECT payload_json FROM run_events
+			WHERE run_id = ? AND type = ? AND source = ? AND subject_id = ?`, run.ID,
+			events.ModelPublicCommentaryEvent, "model_gateway", subject).Scan(&payloadJSON); err != nil {
+			return false, err
+		}
+		var durable domain.ModelPublicCommentary
+		if err := json.Unmarshal([]byte(payloadJSON), &durable); err != nil {
+			return false, apperror.Wrap(apperror.CodeFailedPrecondition,
+				"invalid durable model public commentary payload", err)
+		}
+		if durable != commentary {
+			return false, apperror.New(apperror.CodeConflict,
+				"model public commentary replay does not match its durable event")
+		}
+		if err := tx.Commit(); err != nil {
+			return false, err
+		}
+		return false, nil
+	}
+	if err := appendSupervisorEventTx(ctx, tx, run, events.ModelPublicCommentaryEvent,
+		"model_gateway", subject, commentary); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (s *SQLiteStore) RecordSupervisorModelCompleted(ctx context.Context, checkpoint domain.SupervisorCheckpoint, attempt llm.ModelAttempt, response llm.ChatResponse) (domain.SupervisorCheckpoint, error) {
 	attempt = sanitizeModelAttempt(attempt)
 	if err := attempt.ValidateCompleted(); err != nil {
@@ -1040,6 +1130,12 @@ func supervisorModelSubject(checkpoint domain.SupervisorCheckpoint, number int) 
 
 func supervisorModelDeltaSubject(checkpoint domain.SupervisorCheckpoint, number int, sequence int) string {
 	return fmt.Sprintf("%s/delta/%d", supervisorModelSubject(checkpoint, number), sequence)
+}
+
+func supervisorModelPublicCommentarySubject(checkpoint domain.SupervisorCheckpoint, number int,
+	phase domain.ModelPublicCommentaryPhase,
+) string {
+	return fmt.Sprintf("%s/public-commentary/%s", supervisorModelSubject(checkpoint, number), phase)
 }
 
 type supervisorModelDeltaPayload struct {

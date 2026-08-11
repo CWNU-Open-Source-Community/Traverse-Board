@@ -55,6 +55,9 @@ type Item struct {
 	Status                string
 	Verifiable            bool
 	InstructionAuthorized bool
+	AttemptID             string
+	ModelAttempt          int
+	ToolRound             int
 	CreatedAt             time.Time
 }
 
@@ -112,6 +115,13 @@ func projectEvent(event events.Event) (Item, bool) {
 	case events.ModelStartedEvent:
 		base.Kind, base.Title, base.Status = KindModelCall, "模型调用开始", "running"
 		base.Detail = modelIdentity(event.PayloadJSON)
+	case events.ModelPublicCommentaryEvent:
+		base.Kind, base.Source, base.Title = KindModelUpdate, SourceModel, "Prayu 进度"
+		base.Detail = stringField(event.PayloadJSON, "text")
+		base.Verifiable = false
+		base.AttemptID = cleanLabel(stringField(event.PayloadJSON, "attempt_id"))
+		base.ModelAttempt = int(intField(event.PayloadJSON, "model_attempt"))
+		base.ToolRound = int(intField(event.PayloadJSON, "tool_round"))
 	case events.ModelCompletedEvent:
 		base.Kind, base.Title, base.Status = KindModelCall, "模型响应完成", "completed"
 		base.Detail = completedModelDetail(event.PayloadJSON)

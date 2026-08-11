@@ -1,10 +1,18 @@
 # Prayu 进度书
 
-更新时间：2026-08-10
+更新时间：2026-08-11
 
 ## 一、当前阶段
 
 项目正在从可运行的 v0.1 CLI/TUI 骨架迁移到 V2 Run-centric Runtime。CTF 专用求解能力继续后置，当前先完成主流 AI Agent 工具需要的通用运行时。
+
+最新 P13-E1-E3/P13-F1-F3 六切片保持 SQLite v96 不变，完成安全 Markdown、Harness 折叠块、
+可审计对话软归档、异常回合队列恢复、右侧 unified diff 审阅，以及 Live Activity 公开进度融合。
+`model.public_commentary` 只保存经过 Policy、脱敏、UTF-8 和长度检查的显示文本，不是私有思维链，
+不进入 Session 或可信上下文；执行事实仍只来自 Harness。全仓普通 Go、vet、513.4 秒 race、
+staticcheck、零可达漏洞 govulncheck、Rust fmt/test/clippy、55 个 Web 文件 208 项测试、稳定 OpenAPI、
+零生产 npm 漏洞及 Vite 构建通过，未发现死锁或未解决高/中风险。删除对话只从历史隐藏，消息、Run
+和审计记录继续保留；本批没有重复 WFP、Docker 或付费 Provider 测试。
 
 最新 P13-D1/D2/D3 批次保持 SQLite v96 不变，优先修复交互式 Run 的第二轮协议失败：只有精确
 操作者消息回合中的有界普通公开文本可安全降级为 `continue`，JSON/围栏/协议样内容仍走严格解析与

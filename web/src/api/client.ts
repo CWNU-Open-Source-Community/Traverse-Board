@@ -78,6 +78,8 @@ import type {
   RunEventStreamView,
   SessionMessageControlRequestView,
   SessionMessageControlView,
+  SessionArchiveControlRequestView,
+  SessionArchiveControlView,
   SessionSteeringCancellationRequestView,
   SessionSteeringCancellationView,
   SuccessEnvelope,
@@ -303,6 +305,17 @@ function parseSessionMessageControl(value: unknown,
       "INVALID_RESPONSE", 502);
   }
   return value as unknown as SessionMessageControlView;
+}
+
+function parseSessionArchiveControl(value: unknown,
+  expectedSessionID: string): SessionArchiveControlView {
+  if (!hasExactKeys(value, ["replayed", "session_id", "status", "version"]) ||
+    value.version !== "session_archive.v1" || value.session_id !== expectedSessionID ||
+    !boundedIdentity(value.session_id) || value.status !== "archived" ||
+    typeof value.replayed !== "boolean") {
+    throw new APIRequestError("Session archive response is invalid", "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as SessionArchiveControlView;
 }
 
 function parseSessionSteeringCancellation(value: unknown,
@@ -3952,6 +3965,17 @@ export class CyberAgentClient {
       `/sessions/${encodeURIComponent(sessionID)}/messages`, body, idempotencyKey, signal,
     );
     return parseSessionMessageControl(result, sessionID);
+  }
+
+  async archiveSession(sessionID: string, body: SessionArchiveControlRequestView,
+    signal?: AbortSignal): Promise<SessionArchiveControlView> {
+    if (!this.hasSessionMessages || !boundedIdentity(sessionID) || sessionID.trim() !== sessionID ||
+      body.version !== "session_archive.v1" || body.confirm !== true) {
+      throw new Error("Confirmed Session archive capability and a normalized Session are required");
+    }
+    return parseSessionArchiveControl(await this.sendControlRequest<unknown>(
+      `/sessions/${encodeURIComponent(sessionID)}/archive`, body, signal,
+    ), sessionID);
   }
 
   async cancelSessionSteering(sessionID: string, messageID: string,
