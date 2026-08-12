@@ -12,6 +12,8 @@ describe("CommandPalette", () => {
       { id: "refresh", label: "Refresh Run data", group: "Data", run: refresh },
     ]} />);
 
+    const opener = screen.getByRole("button", { name: "Open command palette" });
+    opener.focus();
     fireEvent.keyDown(window, { ctrlKey: true, key: "k" });
     expect(await screen.findByRole("dialog", { name: "Command palette" })).toBeInTheDocument();
     const input = screen.getByRole("searchbox", { name: "Find a command" });
@@ -22,5 +24,6 @@ describe("CommandPalette", () => {
     expect(openFiles).toHaveBeenCalledTimes(1);
     expect(refresh).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog", { name: "Command palette" })).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
   });
 });

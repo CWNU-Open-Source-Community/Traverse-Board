@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Command as CommandIcon, Search, X } from "lucide-react";
 import { useLocale } from "../lib/locale";
+import { useModalFocusTrap } from "../hooks/use-modal-focus-trap";
 
 export interface CommandPaletteCommand {
   id: string;
@@ -16,6 +17,7 @@ export function CommandPalette({ commands }: { commands: CommandPaletteCommand[]
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useModalFocusTrap<HTMLElement>(open, () => setOpen(false), false, inputRef);
   const filtered = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     if (!needle) return commands;
@@ -38,7 +40,6 @@ export function CommandPalette({ commands }: { commands: CommandPaletteCommand[]
     if (open) {
       setQuery("");
       setSelected(0);
-      globalThis.requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, [open]);
 
@@ -76,7 +77,7 @@ export function CommandPalette({ commands }: { commands: CommandPaletteCommand[]
       if (event.currentTarget === event.target) setOpen(false);
     }}>
       <section aria-label={t("命令面板", "Command palette")} aria-modal="true" className="command-palette"
-        role="dialog">
+        ref={dialogRef} role="dialog" tabIndex={-1}>
         <header>
           <Search aria-hidden="true" size={17} />
           <input aria-activedescendant={filtered[selected] ? `command-${filtered[selected].id}` : undefined}
