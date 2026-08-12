@@ -344,7 +344,10 @@ func newSandboxManifestTestRuntimeWithBudget(t *testing.T, ctx context.Context,
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := st.SaveWorkspace(ctx, store.WorkspaceRecord{
 		ID: "ws-sandbox", Name: "sandbox", RootPath: root,
 	}); err != nil {

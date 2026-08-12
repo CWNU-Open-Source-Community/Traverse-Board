@@ -171,7 +171,10 @@ func TestReadFileToolRedactsSecrets(t *testing.T) {
 }
 
 func TestWorkspaceFSResolveForWriteScopesExistingAndNewFiles(t *testing.T) {
-	parent := t.TempDir()
+	parent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	root := filepath.Join(parent, "workspace")
 	if err := os.MkdirAll(filepath.Join(root, "scripts"), 0o755); err != nil {
 		t.Fatal(err)

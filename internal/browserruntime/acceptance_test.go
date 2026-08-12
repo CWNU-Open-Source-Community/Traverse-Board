@@ -147,7 +147,7 @@ func browserIdentityFixture(t *testing.T, product BrowserProduct,
 	channel BrowserChannel,
 ) BrowserExecutableIdentity {
 	t.Helper()
-	root := t.TempDir()
+	root := directTestPath(t, t.TempDir())
 	spec := knownSpec(t, DiscoveryRootProgramFiles, product, channel)
 	path := filepath.Join(append([]string{root}, spec.Components...)...)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {

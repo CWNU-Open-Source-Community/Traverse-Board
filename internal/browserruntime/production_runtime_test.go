@@ -42,7 +42,7 @@ func newLoopbackBrowserRuntimeFacts(t *testing.T) browserRuntimeFacts {
 		t.Fatal(err)
 	}
 	ownership, err := BuildProfileOwnershipPlan(session, identity,
-		filepath.Join(t.TempDir(), ProfileRuntimeRootName))
+		filepath.Join(directTestPath(t, t.TempDir()), ProfileRuntimeRootName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestSafeWebAuthorizationRequiresRestrictedLiteralLoopbackAndRuntimeGates(t 
 		t.Fatal(err)
 	}
 	publicOwnership, err := BuildProfileOwnershipPlan(publicSession, facts.identity,
-		filepath.Join(t.TempDir(), ProfileRuntimeRootName))
+		filepath.Join(directTestPath(t, t.TempDir()), ProfileRuntimeRootName))
 	if err != nil {
 		t.Fatal(err)
 	}

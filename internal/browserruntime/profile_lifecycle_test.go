@@ -230,7 +230,7 @@ func profileLifecycleFixture(t *testing.T) (SessionPlan, BrowserExecutableIdenti
 	ProfileOwnershipPlan, string,
 ) {
 	t.Helper()
-	installRoot := t.TempDir()
+	installRoot := directTestPath(t, t.TempDir())
 	spec := knownSpec(t, DiscoveryRootProgramFiles, BrowserProductEdge, BrowserChannelStable)
 	executablePath := filepath.Join(append([]string{installRoot}, spec.Components...)...)
 	if err := os.MkdirAll(filepath.Dir(executablePath), 0o700); err != nil {
@@ -253,7 +253,7 @@ func profileLifecycleFixture(t *testing.T) (SessionPlan, BrowserExecutableIdenti
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtimeRoot := filepath.Join(t.TempDir(), ProfileRuntimeRootName)
+	runtimeRoot := filepath.Join(directTestPath(t, t.TempDir()), ProfileRuntimeRootName)
 	ownership, err := BuildProfileOwnershipPlan(session, identities[0], runtimeRoot)
 	if err != nil {
 		t.Fatal(err)
