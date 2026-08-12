@@ -163,6 +163,112 @@ go run ./cmd/cyberagent tui
 
 完整逐切片原始记录保留在 [`PROGRESS_BOOK.md`](docs/PROGRESS_BOOK.md)，当前检查点与验收证据保留在 [`PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)，恢复上下文见 [`PROJECT_MEMORY.md`](docs/PROJECT_MEMORY.md)。这些账本是历史记录，不应被当作待重新执行的任务列表。
 
+<details>
+<summary><strong>SQLite Schema v1-v96 迁移审计表 / Migration ledger</strong></summary>
+
+此表是 Store 防漏迁移测试使用的审计合同。新增 schema 时必须按顺序追加，不得改写或删除既有行。
+
+| Schema | 中文记录 | English record |
+|---|---|---|
+| v1 | v0.1 基线存储 | v0.1 baseline |
+| v2 | Mission/Run 中心化基础 | run-centric foundation |
+| v3 | Run 与 Session 投影 | run session projection |
+| v4 | 旧 Task 到 Run 的兼容映射 | legacy task run mapping |
+| v5 | Supervisor 检查点 | supervisor checkpoints |
+| v6 | Supervisor 预算账本 | supervisor budget ledger |
+| v7 | Supervisor 待处理输入 | supervisor pending input |
+| v8 | Supervisor 协议修复 | supervisor protocol repair |
+| v9 | Run 工作看板 | run work board |
+| v10 | Run Notes 结构化记忆 | run notes |
+| v11 | 持久化工具审批 | durable tool approvals |
+| v12 | Session Grant 与工具预算 | session grants and tool budgets |
+| v13 | 类型化脚本进程提案 | typed script process proposals |
+| v14 | Run 工具输出 Artifact | run tool output artifacts |
+| v15 | 结构化记忆工具操作 | structured memory tool operations |
+| v16 | Supervisor 结构化工具循环 | supervisor structured tool loop |
+| v17 | Run execution lease | run execution leases |
+| v18 | 跨进程模型取消 | cross-process model cancellation |
+| v19 | 单 root Agent Coordinator | single-root agent coordinator |
+| v20 | 幂等 Agent inbox 协议 | idempotent agent inbox protocol |
+| v21 | 有界 Specialist 准入 | bounded specialist admission |
+| v22 | Agent 归属的工作记忆 | agent-owned work memory |
+| v23 | Specialist 完成报告 | specialist completion reports |
+| v24 | 受 lease 保护的 Specialist Attempt | leased specialist attempts |
+| v25 | root inbox 上下文交付 | root inbox context delivery |
+| v26 | Specialist 模型调用账本 | specialist model call ledger |
+| v27 | Specialist 上下文交付 | specialist context delivery |
+| v28 | Specialist 协议修复 | specialist protocol repair |
+| v29 | Specialist 调度与取消控制 | specialist schedule and cancellation control |
+| v30 | 审阅门禁的 Specialist 委派提案 | review-gated specialist delegation proposals |
+| v31 | 不可变 Specialist 委派审阅 | immutable specialist delegation reviews |
+| v32 | 可恢复 Specialist 委派应用 | recoverable specialist delegation application |
+| v33 | 不可变只读 Fan-out 计划 | immutable read-only fan-out plans |
+| v34 | 有界只读 Fan-out 执行 | bounded read-only fan-out execution |
+| v35 | 确定性 Finding 报告投影 | deterministic finding report projection |
+| v36 | Artifact 支撑的 Finding 验证 | Artifact-backed finding validation |
+| v37 | Finding 接受、修复生命周期 | accepted and fixed finding remediation lifecycle |
+| v38 | 操作者控制的 Specialist 调度 | operator-controlled Specialist scheduling |
+| v39 | 不可变 Run Skill 选择 | immutable Run Skill selection |
+| v40 | root Skill 上下文来源 | root Skill context provenance |
+| v41 | 不可变 Run 执行模式 | immutable Run execution mode |
+| v42 | 审阅门禁的 Plan/Delivery 工作流 | review-gated Plan Delivery workflow |
+| v43 | 不可变 Session 上下文来源 | immutable session context provenance |
+| v44 | 不可变 Delivery 检查点门禁 | immutable Delivery checkpoint gates |
+| v45 | 持久化操作者引导队列 | durable operator steering queue |
+| v46 | 操作者引导队列控制 | operator steering queue controls |
+| v47 | 最小化 Specialist Skill 上下文 | minimal Specialist Skill context |
+| v48 | Go 主控 Sandbox Manifest 准备 | Go-owned Sandbox Manifest preparation |
+| v49 | Sandbox 审批与禁用执行候选 | sandbox approval and disabled execution candidates |
+| v50 | 禁用态 Sandbox 生命周期与 Artifact 绑定 | disabled Sandbox lifecycle and Artifact bindings |
+| v51 | Sandbox 后端与输出禁用态预检 | disabled Sandbox backend and output preflight |
+| v52 | 仅模拟的 Sandbox 后端证据与输出事务 | simulation-only Sandbox backend evidence and output transaction |
+| v53 | 只读 Docker 生产环境观测 | read-only Docker production observation |
+| v54 | 确定性 Docker 容器计划与假写事务 | deterministic Docker container plans and fake write transactions |
+| v55 | 有界 Docker 创建、核验、删除演练 | bounded Docker create-inspect-remove rehearsals |
+| v56 | 可恢复 Docker 演练意图、代际租约与检查矩阵 | recoverable Docker rehearsal intents, generation leases, and control matrix |
+| v57 | 描述符固定与内核密封的宿主输入演练 | descriptor-pinned and kernel-sealed host-input rehearsal |
+| v58 | daemon stage 前持久化宿主输入要求 | durable pre-stage host-input requirement |
+| v59 | daemon 托管、回读核验的不可变宿主输入交接 | daemon-owned, readback-verified immutable host-input handoff |
+| v60 | 确定性 Docker 运行时输入投影计划 | deterministic Docker runtime input projection plan |
+| v61 | 可恢复 Docker 运行时输入卷应用 | recoverable Docker runtime input application |
+| v62 | 保留运行时输入资源检查与精确清理 | retained runtime-input resource inspection and exact cleanup |
+| v63 | 阻塞态 Docker 进程启动门设计审查 | blocked Docker process start-gate design review |
+| v64 | 不可变 Run 执行环境档位选择 | immutable Run execution profile selection |
+| v65 | 非授权 Docker 生产证据捕获账本 | non-authorizing Docker production evidence capture ledger |
+| v66 | 可恢复 Docker 生产证据捕获 Attempt | recoverable Docker production-evidence capture attempts |
+| v67 | Linux 只读 Docker 生产证据探针 | Linux read-only Docker production-evidence harness |
+| v68 | 不可变 Docker 生产证据操作员审阅 | immutable Docker production-evidence operator review |
+| v69 | 内容寻址惰性用户 Skill 安装账本 | content-addressed inert user Skill installation ledger |
+| v70 | 外部 Skill 的 Run 固定选择与最小化上下文 | external-Skill Run selection and minimized context delivery |
+| v71 | 有界外部 Skill 来源与交付只读投影 | bounded read-only external-Skill provenance and delivery projection |
+| v72 | 幂等受控 Mission/Run/Session 创建账本 | idempotent controlled Mission/Run/Session creation ledger |
+| v73 | 幂等 Run 生命周期与有界执行交接 | idempotent Run lifecycle and bounded execution handoff |
+| v74 | 持久化 Run wake 重试意图与单一所有权 | durable Run wake retry intents and single-owner fencing |
+| v75 | 显式前台 wake 消费与可恢复执行交接 | explicit foreground wake consumption and recoverable execution handoff |
+| v76 | 已批准 FileEdit 的幂等独立 apply | idempotent independent apply for approved FileEdits |
+| v77 | 非授权 Session 工作区证据挂载 | non-authorizing Session Workspace evidence attachments |
+| v78 | 不可变操作者验证证据 | immutable operator verification evidence |
+| v79 | 可恢复的 Run 无进展熔断 | recoverable Run livelock progress guard |
+| v80 | 不可变操作者验证计划与检查清单 | immutable operator verification plans and checklists |
+| v81 | 验证计划项与人工证据的不可变显式关联 | immutable explicit verification plan-item/evidence associations |
+| v82 | 不可变累计上下文交接记忆 | immutable cumulative context handoff memory |
+| v83 | 不可变验证快照回执历史 | immutable verification snapshot receipt history |
+| v84 | 不可变且不授权的验证快照回执复核 | immutable non-authorizing verification snapshot receipt reviews |
+| v85 | 可恢复且不启动的浏览器接纳、租约与人工复核门 | durable non-starting browser acceptance, lease, and operator-review gates |
+| v86 | 操作者选择且不授权的执行交互边界 | operator-selected non-authorizing execution interaction boundaries |
+| v87 | 受控命令的写前 intent 与不可变执行回执 | write-ahead intents and immutable receipts for controlled commands |
+| v88 | 操作者选择、运行期重校验的四档执行权限 | operator-selected four-level execution permissions with runtime re-gating |
+| v89 | Agent 固定命令提案、独立审批和不可信结果回送 | review-gated Agent fixed-command proposals with untrusted result projection |
+| v90 | 非沙箱一次性宿主命令执行账本 | non-sandboxed one-shot host-command execution ledger |
+| v91 | 独立的受限/完整调试 CDP 权限快照 | independent restricted/full-debug CDP permission snapshots |
+| v92 | 可恢复且只追加的浏览器运行时生命周期记录 | recoverable append-only browser runtime lifecycle records |
+| v93 | Analyzer 一次性请求、写前意图与恢复收据 | Analyzer one-shot request, write-ahead intent, and recovery receipts |
+| v94 | 一次性 Analyzer 执行授权与原子消费防重放 | one-shot Analyzer execution capabilities with atomic replay-safe consumption |
+| v95 | Analyzer 结果、Artifact 与审计事件原子提交 | atomic Analyzer result, Artifact, and audit-event commit |
+| v96 | 用户审批档的精确宿主命令提案、审阅与恰好一次执行 | exact approval-mode host-command proposals, reviews, and exactly-once execution |
+
+</details>
+
 ## 可选附加能力
 
 CTF、自动化渗透、漏洞利用、横向移动和专项攻防工具链**不属于当前核心开发范围**。现有 `ctf` CLI 仅为早期兼容骨架，不代表已经具备自动解题或真实攻击能力。
