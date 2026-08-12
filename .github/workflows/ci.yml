@@ -82,10 +82,10 @@ jobs:
       - name: Build deterministic Rust fixture
         run: cargo build --locked --bin cyberagent-analyzer-fixture
       - name: Build embedded WASI analyzer fixture
-        run: |
-          rustup target add wasm32-wasip1 --toolchain 1.97.1
-          cargo +1.97.1 build --locked --target wasm32-wasip1 --package cyberagent-analyzer-fixture --release
+        working-directory: .
+        run: ./scripts/build-embedded-wasi.sh
       - name: Verify rebuilt WASI matches the embedded product module
+        id: verify-wasi
         working-directory: .
         env:
           REBUILT_WASI_FIXTURE: ${{ github.workspace }}/analyzers/target/wasm32-wasip1/release/cyberagent-analyzer-fixture.wasm
@@ -94,12 +94,12 @@ jobs:
           if ! cmp --silent "$REBUILT_WASI_FIXTURE" "$EMBEDDED_WASI_FIXTURE"; then
             echo "The Rust fixture and the product-embedded WASI module differ."
             sha256sum "$REBUILT_WASI_FIXTURE" "$EMBEDDED_WASI_FIXTURE"
-            echo "Rebuild with Rust 1.97.1 and replace internal/analyzer/embedded/cyberagent-analyzer-fixture.wasm."
+            echo "Run ./scripts/build-embedded-wasi.sh and replace internal/analyzer/embedded/cyberagent-analyzer-fixture.wasm."
             exit 1
           fi
           sha256sum "$EMBEDDED_WASI_FIXTURE"
       - name: Preserve a mismatched rebuilt WASI module
-        if: failure()
+        if: steps.verify-wasi.outcome == 'failure'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: rebuilt-wasi-fixture
