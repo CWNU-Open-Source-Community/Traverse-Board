@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, fmt::Write};
 
 use cyberagent_analyzer_fixture::{
     ALL_ERROR_CODES, ARCHIVE_ANALYZER_NAME, ARCHIVE_INVENTORY_PROTOCOL_VERSION, ArchiveInventory,
@@ -137,7 +137,7 @@ fn validates_shared_go_owned_golden_vectors() {
         );
         let request = serde_json::to_vec(&vector.request).expect("request must serialize");
         let evaluation = evaluate(&request);
-        let actual_sha = format!("{:x}", Sha256::digest(&evaluation.stdout));
+        let actual_sha = sha256_hex(&evaluation.stdout);
         assert_eq!(
             evaluation.exit_code, vector.expected_exit_code,
             "{}",
@@ -213,7 +213,7 @@ fn validates_shared_archive_inventory_vectors() {
         );
         let request = serde_json::to_vec(&vector.request).expect("archive request must serialize");
         let evaluation = evaluate(&request);
-        let actual_sha = format!("{:x}", Sha256::digest(&evaluation.stdout));
+        let actual_sha = sha256_hex(&evaluation.stdout);
         assert_eq!(evaluation.exit_code, EXIT_SUCCESS, "{}", vector.name);
         assert_eq!(
             evaluation.exit_code, vector.expected_exit_code,
@@ -237,4 +237,13 @@ fn validates_shared_archive_inventory_vectors() {
         assert!(!inventory.entry_contents_read);
         assert!(!inventory.extraction_performed);
     }
+}
+
+fn sha256_hex(input: &[u8]) -> String {
+    Sha256::digest(input)
+        .iter()
+        .fold(String::with_capacity(64), |mut encoded, byte| {
+            write!(&mut encoded, "{byte:02x}").expect("writing to a String cannot fail");
+            encoded
+        })
 }

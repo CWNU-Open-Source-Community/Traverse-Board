@@ -244,7 +244,7 @@ fn evaluate_fixture(request: Request, content: &[u8]) -> Evaluation {
         summary: Summary {
             media_type: request.input.media_type,
             input_bytes: content.len(),
-            sha256: format!("{:x}", Sha256::digest(content)),
+            sha256: hex_lower(&Sha256::digest(content)),
             utf8: text,
             line_count: logical_line_count(content, text),
         },
@@ -264,6 +264,16 @@ fn evaluate_fixture(request: Request, content: &[u8]) -> Evaluation {
         stdout: encoded,
         exit_code: EXIT_SUCCESS,
     }
+}
+
+fn hex_lower(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for &byte in bytes {
+        encoded.push(HEX[(byte >> 4) as usize] as char);
+        encoded.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    encoded
 }
 
 fn evaluate_archive(request: Request, content: &[u8]) -> Evaluation {
