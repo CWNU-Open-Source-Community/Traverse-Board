@@ -18,20 +18,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - name: Set up current Go 1.25 patch
+        uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: '1.25.x'
+          check-latest: true
           cache: true
+      - name: Report Go toolchain
+        run: go version
       - run: go mod verify
       - name: Verify Go analyzer compatibility vectors
         run: go test -count=1 ./internal/analyzer -run 'Test(AnalyzerProtocol|ArchiveInventory)SharedGoldenVectors'
       - run: go test -timeout 20m -count=1 ./...
       - run: go vet ./...
-      - uses: golang/govulncheck-action@v1
-        with:
-          cache: false
-          go-package: ./...
-          repo-checkout: false
+      - name: Install pinned govulncheck
+        env:
+          GOBIN: ${{ runner.temp }}
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+      - name: Scan for reachable Go vulnerabilities
+        env:
+          GOVULNCHECK: ${{ runner.temp }}/govulncheck
+        run: |
+          "$GOVULNCHECK" -version
+          "$GOVULNCHECK" ./...
 
   web:
     name: TypeScript console
@@ -70,10 +79,14 @@ jobs:
         working-directory: analyzers
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - name: Set up current Go 1.25 patch
+        uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: '1.25.x'
+          check-latest: true
           cache: true
+      - name: Report Go toolchain
+        run: go version
       - name: Install pinned Rust toolchain
         run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
       - run: cargo fmt --all -- --check
@@ -101,10 +114,14 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - name: Set up current Go 1.25 patch
+        uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: '1.25.x'
+          check-latest: true
           cache: true
+      - name: Report Go toolchain
+        run: go version
       - uses: actions/setup-node@v6
         with:
           node-version: 24
