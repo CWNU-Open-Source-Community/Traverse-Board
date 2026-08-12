@@ -55,8 +55,10 @@ Set-Location ..
 bash ./scripts/build-embedded-wasi.sh
 ```
 
-构建脚本固定 Rust 1.97.1，并在编译前把 checkout 与 Cargo registry 路径映射为稳定虚拟路径。
-不要用裸 Cargo release 命令替代它，否则 WASI 会嵌入宿主路径，导致不同构建机的二进制摘要漂移。
+构建脚本固定 Linux x86_64 与 Rust 1.97.1，并在编译前把 checkout 与 Cargo registry 路径映射为
+稳定虚拟路径。其他宿主会明确拒绝发布构建；不要用裸 Cargo release 命令替代它，否则 WASI 会
+嵌入宿主路径或宿主相关 crate identity，导致二进制摘要漂移。CI 漂移检查会短期保存 canonical
+重建件，供维护者复核并更新内嵌模块。
 
 ## English
 
@@ -92,7 +94,9 @@ and Run events. CLI, control-token HTTP, and Desktop/React expose only the fixed
 digest analyzer under explicit Go confirmation. Rust still owns no Agent,
 authorization, Run lifecycle, credential, or persistence behavior.
 
-Build the product fixture from the repository root with
+Build the product fixture from the repository root on Linux x86_64 with
 `bash ./scripts/build-embedded-wasi.sh`. The script pins Rust 1.97.1 and remaps
-checkout and Cargo registry paths before compiling; a raw Cargo release build
-can embed host paths and produce a different module digest on another machine.
+checkout and Cargo registry paths before compiling. Other hosts fail closed: a
+raw Cargo release build can embed host paths or host-specific crate identities
+and produce a different module digest. On drift, CI retains the canonical
+rebuilt module briefly so maintainers can review and update the embedded copy.
