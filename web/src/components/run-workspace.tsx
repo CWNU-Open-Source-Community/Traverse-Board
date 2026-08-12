@@ -60,6 +60,7 @@ import type {
   WorkItemView,
 } from "../api/types";
 import { usePagedResource } from "../hooks/use-paged-resource";
+import { useRunDetailEventRefresh } from "../hooks/use-run-detail-event-refresh";
 import { useRunEventStream } from "../hooks/use-run-event-stream";
 import { usePublicModelStream } from "../hooks/use-public-model-stream";
 import { formatBytes, formatDate, formatNumber, shortID } from "../lib/format";
@@ -161,6 +162,7 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
     enabled: Boolean(runID) && tab === "activity",
   });
   const latestStreamFrame = stream.frames.at(-1);
+  useRunDetailEventRefresh(runID, latestStreamFrame);
   const journeyHandoffQuery = useQuery({
     queryKey: ["run", runID, "code-handoff"],
     queryFn: ({ signal }) => client.codeHandoff(runID, signal),
