@@ -30,7 +30,8 @@ export function SessionWorkspace({ client, sessionID, onOpenPlugins }: {
   const runQuery = useQuery({
     queryKey: ["run", boundRunID],
     queryFn: ({ signal }) => client.get<RunDetailView>(`/runs/${encodeURIComponent(boundRunID)}`, {}, signal),
-    enabled: Boolean(boundRunID) && (client.hasSessionSteeringControl || client.hasPlanDelivery),
+    enabled: Boolean(boundRunID) && (client.hasSessionMessages ||
+      client.hasSessionSteeringControl || client.hasPlanDelivery),
   });
 
   if (!sessionID) {
@@ -43,6 +44,7 @@ export function SessionWorkspace({ client, sessionID, onOpenPlugins }: {
     return <ErrorState error={detailQuery.error} />;
   }
   const detail = detailQuery.data;
+  const boundRun = runQuery.data?.run ?? detail.run ?? null;
 
   return (
     <div className="workspace-view">
@@ -78,11 +80,11 @@ export function SessionWorkspace({ client, sessionID, onOpenPlugins }: {
         <LoadMoreButton hasNextPage={Boolean(messagesQuery.hasNextPage)} isFetching={messagesQuery.isFetchingNextPage} onClick={() => void messagesQuery.fetchNextPage()} />
       </div>
       <SessionSteeringQueue client={client} sessionID={sessionID}
-        run={runQuery.data?.run ?? detail.run ?? null}
+        run={boundRun}
         state={runQuery.data?.operator_steering ?? null} />
       <SessionComposer client={client} contextPartial={Boolean(messagesQuery.hasNextPage)}
         contextTokens={contextTokens} key={sessionID} onOpenPlugins={onOpenPlugins}
-        phase={runQuery.data?.mode.phase} run={detail.run ?? null} sessionID={sessionID}
+        phase={runQuery.data?.mode.phase} run={boundRun} sessionID={sessionID}
         workspaceID={detail.session.workspace_id ?? ""} />
     </div>
   );
