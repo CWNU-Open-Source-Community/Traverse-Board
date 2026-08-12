@@ -128,47 +128,51 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
               <section className="model-availability-section">
                 <h3><Cpu aria-hidden="true" size={14} />{t("提供商", "Provider")}</h3>
                 <div className="model-provider-list">
-                  {query.data.providers.map((provider) => {
-                    const harness = provider.harnesses[0];
-                    return <div className="model-provider-row" key={provider.name}>
+                  {query.data.providers.flatMap((provider) =>
+                    (provider.models.length > 0 ? provider.models : [""]).map((model) => {
+                    const harness = provider.harnesses.find((candidate) => candidate.model === model);
+                    const modelReference = `${provider.name}/${model}`;
+                    return <div className="model-provider-row" key={modelReference}>
                       <div><strong>{provider.name}</strong><small>{provider.kind}</small></div>
-                      <span>{provider.models.join(", ") || t("未配置模型", "No configured model")}</span>
+                      <span>{model || t("未配置模型", "No configured model")}</span>
                       <span>{harness
                         ? `${harness.transport_protocol} · JSON ${harness.json_strategy}`
                         : provider.credential_source}</span>
                       <StatusBadge status={provider.status} />
                       {harness && <StatusBadge status={harness.qualification_status} />}
                       {client.hasModelControl && provider.status === "available" &&
-                        provider.models[0] && (
+                        model && (
                           <>
-                            <button aria-label={t(`诊断 ${provider.name}`, `Diagnose ${provider.name}`)} className="icon-button"
+                            <button aria-label={t(`诊断 ${modelReference}`, `Diagnose ${modelReference}`)} className="icon-button"
                               disabled={diagnosticMutation.isPending ||
                                 qualificationMutation.isPending}
                               onClick={() => diagnosticMutation.mutate({ provider: provider.name,
-                                model: provider.models[0]! })}
+                                model })}
                               title={t("运行单次连接诊断", "Run one-call connectivity diagnostic")} type="button">
                               {diagnosticMutation.isPending &&
-                                diagnosticMutation.variables?.provider === provider.name
+                                diagnosticMutation.variables?.provider === provider.name &&
+                                diagnosticMutation.variables.model === model
                                 ? <LoaderCircle aria-hidden="true" className="spin" size={15} />
                                 : <Activity aria-hidden="true" size={15} />}
                             </button>
-                            <button aria-label={t(`验证 ${provider.name} Harness`, `Qualify ${provider.name} Harness`)}
+                            <button aria-label={t(`验证 ${modelReference} Harness`, `Qualify ${modelReference} Harness`)}
                               className="icon-button"
                               disabled={diagnosticMutation.isPending ||
                                 qualificationMutation.isPending || harness?.root_eligible === true}
                               onClick={() => qualificationMutation.mutate({
-                                provider: provider.name, model: provider.models[0]!,
+                                provider: provider.name, model,
                               })}
                               title={t("运行两次调用的 Harness 合成验证", "Run two-call synthetic Harness qualification")} type="button">
                               {qualificationMutation.isPending &&
-                                qualificationMutation.variables?.provider === provider.name
+                                qualificationMutation.variables?.provider === provider.name &&
+                                qualificationMutation.variables.model === model
                                 ? <LoaderCircle aria-hidden="true" className="spin" size={15} />
                                 : <ShieldCheck aria-hidden="true" size={15} />}
                             </button>
                           </>
                         )}
-                    </div>
-                  })}
+                    </div>;
+                  }))}
                 </div>
                 {diagnostic && <div className="model-diagnostic-result" role="status">
                   <span>{diagnostic.provider}/{diagnostic.model}</span>
