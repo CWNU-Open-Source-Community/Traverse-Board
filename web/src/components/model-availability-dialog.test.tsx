@@ -75,9 +75,10 @@ describe("ModelAvailabilityDialog", () => {
     render(<QueryClientProvider client={queryClient}>
       <ModelAvailabilityDialog client={client} open onClose={vi.fn()} />
     </QueryClientProvider>);
-    await user.click(await screen.findByRole("button", { name: "Diagnose mock" }));
+    expect(await screen.findByRole("button", { name: "Diagnose mock/mock-code" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Diagnose mock/mock-fast" }));
     await waitFor(() => expect(diagnoseProvider).toHaveBeenCalledWith({
-      version: "provider_diagnostic.v1", provider: "mock", model: "mock-code",
+      version: "provider_diagnostic.v1", provider: "mock", model: "mock-fast",
       confirm_diagnostic: true,
     }));
     expect(await screen.findByText("reachable")).toBeInTheDocument();
@@ -92,10 +93,10 @@ describe("ModelAvailabilityDialog", () => {
     const user = userEvent.setup();
     const qualifyModelHarness = vi.fn().mockResolvedValue({
       protocol_version: "model_harness_qualification.v1", provider: "mimo",
-      model: "model", status: "qualified", outcome: "success", retryable: false,
+      model: "model-secondary", status: "qualified", outcome: "success", retryable: false,
       network_request_attempted: true, model_calls: 2, synthetic_tool_calls: 1,
       tool_executed: false, response_content_returned: false, duration_ms: 8,
-      harness: { ...mockHarness("model"), transport_protocol: "anthropic_messages",
+      harness: { ...mockHarness("model-secondary"), transport_protocol: "anthropic_messages",
         json_strategy: "prompt", qualification_status: "verified",
         qualified_at: "2026-07-25T00:00:00Z", expires_at: "2026-08-01T00:00:00Z" },
     });
@@ -104,9 +105,10 @@ describe("ModelAvailabilityDialog", () => {
       modelAvailability: vi.fn().mockResolvedValue({
         protocol_version: "model_availability.v2", generation: 1,
         providers: [{ name: "mimo", kind: "anthropic_compatible", status: "available",
-          models: ["model"], credential_source: "system", network_required: true,
-          configuration_error: false, harnesses: [requiredHarness("model")] }],
-        routes: [{ name: "code", provider: "mimo", model: "model", available: true,
+          models: ["model-primary", "model-secondary"], credential_source: "system",
+          network_required: true, configuration_error: false,
+          harnesses: [mockHarness("model-primary"), requiredHarness("model-secondary")] }],
+        routes: [{ name: "code", provider: "mimo", model: "model-secondary", available: true,
           harness_ready: false }],
       }),
     } as unknown as CyberAgentClient;
@@ -116,9 +118,11 @@ describe("ModelAvailabilityDialog", () => {
     render(<QueryClientProvider client={queryClient}>
       <ModelAvailabilityDialog client={client} open onClose={vi.fn()} />
     </QueryClientProvider>);
-    await user.click(await screen.findByRole("button", { name: "Qualify mimo Harness" }));
+    expect(await screen.findByRole("button", { name: "Qualify mimo/model-primary Harness" }))
+      .toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Qualify mimo/model-secondary Harness" }));
     await waitFor(() => expect(qualifyModelHarness).toHaveBeenCalledWith({
-      version: "model_harness_qualification.v1", provider: "mimo", model: "model",
+      version: "model_harness_qualification.v1", provider: "mimo", model: "model-secondary",
       confirm_qualification: true,
     }));
     expect(await screen.findByText("2 model calls")).toBeInTheDocument();
