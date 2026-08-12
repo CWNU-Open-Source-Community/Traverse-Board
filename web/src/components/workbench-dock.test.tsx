@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { CyberAgentClient } from "../api/client";
+import { LocaleProvider } from "../lib/locale";
 import { WorkbenchDock } from "./workbench-dock";
 
 describe("WorkbenchDock", () => {
@@ -33,7 +34,7 @@ describe("WorkbenchDock", () => {
     expect(screen.getByRole("region", { name: "底部面板" })).toBeInTheDocument();
   });
 
-  it("matches the tool shortcuts and add-menu behavior without starting tools", () => {
+  it("groups ready tools and keeps the reserved browser unavailable", () => {
     renderDock();
 
     fireEvent.keyDown(window, { key: "g", ctrlKey: true, shiftKey: true });
@@ -41,13 +42,14 @@ describe("WorkbenchDock", () => {
     expect(screen.getByText("当前任务未绑定 Workspace")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "添加右侧工具" }));
-    fireEvent.click(screen.getByRole("menuitemradio", { name: /浏览器/ }));
-    expect(screen.getByText("浏览器尚未启动")).toBeInTheDocument();
-    expect(screen.getByText("浏览器运行时仍处于安全审查阶段")).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "工作区" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "运行" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "即将推出" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitemradio", { name: /浏览器.*预留/ })).toBeDisabled();
 
     fireEvent.keyDown(window, { key: "p", ctrlKey: true });
-    expect(screen.getByText("文件")).toBeInTheDocument();
-    expect(screen.getByText("No Workspace is bound to this Run")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "文件" })).toBeInTheDocument();
+    expect(screen.getByText("此 Run 未绑定工作区")).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: "j", ctrlKey: true });
     expect(screen.getByRole("region", { name: "底部面板" })).toBeInTheDocument();
@@ -62,16 +64,17 @@ describe("WorkbenchDock", () => {
 });
 
 function renderDock() {
+  window.localStorage.setItem("prayu.locale.v1", "zh-CN");
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   const client = {} as CyberAgentClient;
   return render(
-    <QueryClientProvider client={queryClient}>
-      <WorkbenchDock client={client} desktop={false} resourceKind="run"
-        runID="" sessionID="" title="Prayu 工作台">
-        <div>conversation body</div>
-      </WorkbenchDock>
-    </QueryClientProvider>,
+    <LocaleProvider><QueryClientProvider client={queryClient}>
+        <WorkbenchDock client={client} desktop={false} resourceKind="run"
+          runID="" sessionID="" title="Prayu 工作台">
+          <div>conversation body</div>
+        </WorkbenchDock>
+      </QueryClientProvider></LocaleProvider>,
   );
 }

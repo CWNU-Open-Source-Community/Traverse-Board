@@ -33,6 +33,7 @@ export default defineConfig(({ mode }) => {
       proxy,
     },
     build: {
+      assetsInlineLimit: 0,
       outDir: "dist",
       sourcemap: false,
     },

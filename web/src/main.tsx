@@ -5,6 +5,7 @@ import App from "./App";
 import { initializePrayuAppearance } from "./lib/appearance";
 import { installDesktopNavigationGuard } from "./lib/desktop-navigation";
 import { initializePrayuLocale, LocaleProvider } from "./lib/locale";
+import "@fontsource-variable/jetbrains-mono";
 import "./styles.css";
 
 installDesktopNavigationGuard();

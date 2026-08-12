@@ -1,6 +1,9 @@
 :root {
-  font-family: "SF Pro Text", "Segoe UI Variable Text", -apple-system, BlinkMacSystemFont,
-    "Segoe UI", system-ui, sans-serif;
+  --prayu-font-ui: "JetBrains Mono Variable", "JetBrains Mono", "Microsoft YaHei UI",
+    "PingFang SC", "Segoe UI", monospace;
+  --prayu-font-mono: "JetBrains Mono Variable", "JetBrains Mono", "Cascadia Code",
+    Consolas, monospace;
+  font-family: var(--prayu-font-ui);
   color: #17202a;
   background: transparent;
   font-synthesis: none;
@@ -101,7 +104,7 @@ button, input, select { font: inherit; letter-spacing: 0; }
 textarea { font: inherit; letter-spacing: 0; }
 button { color: inherit; }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid #168f82; outline-offset: 2px; }
-code, pre { font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace; }
+code, pre { font-family: var(--prayu-font-mono); }
 
 .app-shell { height: 100dvh; min-height: 600px; overflow: hidden; background: #eef1f4; }
 .topbar { height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 18px; border-bottom: 1px solid var(--border); background: var(--surface); }
@@ -142,7 +145,7 @@ code, pre { font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
 .workspace-header { min-height: 114px; display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 22px 28px 18px; border-bottom: 1px solid var(--border); }
 .workspace-header h1 { max-width: 950px; margin: 5px 0 9px; overflow-wrap: anywhere; font-size: 22px; line-height: 1.3; letter-spacing: 0; }
 .workspace-header-actions { display: flex; align-items: center; gap: 8px; }
-.workspace-kicker { color: var(--muted); font-family: "Cascadia Code", Consolas, monospace; font-size: 11px; text-transform: uppercase; }
+.workspace-kicker { color: var(--muted); font-family: var(--prayu-font-mono); font-size: 11px; text-transform: uppercase; }
 .header-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; color: var(--muted); font-size: 12px; }
 .stream-indicator { display: inline-flex; align-items: center; gap: 7px; padding-top: 4px; color: var(--muted); font-size: 12px; white-space: nowrap; }
 .stream-live { color: #147d58; }
@@ -294,7 +297,7 @@ code, pre { font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
 .event-row summary { min-height: 43px; display: grid; grid-template-columns: 64px minmax(180px, 1fr) minmax(100px, .5fr) auto; align-items: center; gap: 12px; cursor: pointer; font-size: 12px; }
 .event-row summary::marker { color: var(--muted); }
 .event-row summary > span, .event-row time { min-width: 0; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
-.event-sequence { font-family: "Cascadia Code", Consolas, monospace; }
+.event-sequence { font-family: var(--prayu-font-mono); }
 .event-row pre, .tool-call pre { max-height: 320px; margin: 0 0 12px; padding: 12px; overflow: auto; border: 1px solid #e0e5e9; border-radius: 4px; background: #f6f8f9; font-size: 11px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .table-scroll { width: 100%; overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -322,7 +325,7 @@ td code { font-size: 11px; }
 .tool-call { padding: 0 13px; border-bottom: 1px solid var(--border); }
 .tool-call:last-child { border-bottom: 0; }
 .tool-call summary { min-height: 42px; display: flex; align-items: center; gap: 10px; cursor: pointer; }
-.tool-call summary > span:first-child { color: var(--muted); font-family: monospace; }
+.tool-call summary > span:first-child { color: var(--muted); font-family: var(--prayu-font-mono); }
 .tool-json { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .tool-json label { display: block; margin-bottom: 5px; color: var(--muted); font-size: 10px; text-transform: uppercase; }
 .projection-stack { display: grid; gap: 12px; }
@@ -331,7 +334,7 @@ td code { font-size: 11px; }
 .agent-node header { display: grid; grid-template-columns: 120px minmax(0, 1fr) auto; align-items: center; gap: 12px; }
 .agent-node header strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-depth-1 { margin-left: 34px; border-left: 3px solid #85b9b1; }
-.node-role, .projection-kicker { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-family: "Cascadia Code", Consolas, monospace; font-size: 10px; text-transform: uppercase; }
+.node-role, .projection-kicker { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-family: var(--prayu-font-mono); font-size: 10px; text-transform: uppercase; }
 .projection-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 14px 15px; border-bottom: 1px solid var(--border); }
 .projection-header > div:first-child { min-width: 0; display: grid; gap: 5px; }
 .projection-header strong { overflow-wrap: anywhere; font-size: 13px; }
@@ -351,14 +354,14 @@ td code { font-size: 11px; }
 .external-skill-list li > div { min-width: 0; display: grid; gap: 3px; }
 .external-skill-list strong, .external-skill-list small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .external-skill-list small, .external-skill-list li > span { color: var(--muted); }
-.external-skill-order { font-family: monospace; }
+.external-skill-order { font-family: var(--prayu-font-mono); }
 .completion-summary { display: flex; align-items: flex-start; gap: 9px; padding: 11px 15px; border-top: 1px solid var(--border); background: var(--surface-subtle); font-size: 12px; line-height: 1.5; }
 .agent-cancel-control { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .assignment-list { border-bottom: 1px solid var(--border); }
 .assignment-list section { padding: 12px 15px; border-bottom: 1px solid #e7ebee; }
 .assignment-list section:last-child { border-bottom: 0; }
 .assignment-list header { display: flex; align-items: center; gap: 9px; }
-.assignment-list header > span:first-child { color: var(--muted); font-family: monospace; font-size: 10px; }
+.assignment-list header > span:first-child { color: var(--muted); font-family: var(--prayu-font-mono); font-size: 10px; }
 .assignment-list p, .finding-item > p { margin: 9px 0; overflow-wrap: anywhere; font-size: 12px; line-height: 1.5; }
 .assignment-list footer { display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--muted); font-size: 10px; }
 .projection-placeholder { padding: 18px 15px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
@@ -507,7 +510,7 @@ td code { font-size: 11px; }
 .file-review-meta { min-height: 36px; display: flex; align-items: center; gap: 10px 18px; padding: 5px 12px; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 10px; }
 .file-review-meta > span:first-child { display: inline-flex; gap: 7px; }
 .file-review-meta time { margin-left: auto; }
-.unified-diff { max-height: min(62vh, 720px); overflow: auto; background: var(--surface); font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace; font-size: 11px; line-height: 1.55; scrollbar-gutter: stable; }
+.unified-diff { max-height: min(62vh, 720px); overflow: auto; background: var(--surface); font-family: var(--prayu-font-mono); font-size: 11px; line-height: 1.55; scrollbar-gutter: stable; }
 .unified-diff-line { min-width: max-content; display: grid; grid-template-columns: 44px 44px 22px minmax(420px, 1fr); }
 .unified-diff-line > span, .unified-diff-line > code { min-height: 20px; padding: 1px 7px; white-space: pre; }
 .unified-diff-number { border-right: 1px solid color-mix(in srgb, var(--border) 70%, transparent); color: var(--muted); text-align: right; user-select: none; }
@@ -2643,6 +2646,10 @@ body { background: transparent; }
   --prayu-accent: #58b7ff;
   --prayu-danger: #ff7c72;
   --prayu-success: #58c98b;
+  --prayu-glass-fill: rgb(24 27 33 / 52%);
+  --prayu-glass-fill-strong: rgb(27 30 36 / 72%);
+  --prayu-glass-highlight: rgb(255 255 255 / 24%);
+  --prayu-glass-shadow: rgb(0 0 0 / 34%);
 }
 
 [data-prayu-theme="light"] {
@@ -2664,6 +2671,10 @@ body { background: transparent; }
   --prayu-accent: #0877d1;
   --prayu-danger: #b42318;
   --prayu-success: #18794e;
+  --prayu-glass-fill: rgb(255 255 255 / 52%);
+  --prayu-glass-fill-strong: rgb(255 255 255 / 74%);
+  --prayu-glass-highlight: rgb(255 255 255 / 92%);
+  --prayu-glass-shadow: rgb(33 42 54 / 18%);
 }
 
 [data-prayu-theme="glass"] {
@@ -2685,6 +2696,10 @@ body { background: transparent; }
   --prayu-accent: #72c5ff;
   --prayu-danger: #ff8a80;
   --prayu-success: #68d49a;
+  --prayu-glass-fill: rgb(20 27 36 / 24%);
+  --prayu-glass-fill-strong: rgb(20 27 36 / 44%);
+  --prayu-glass-highlight: rgb(255 255 255 / 30%);
+  --prayu-glass-shadow: rgb(0 0 0 / 30%);
 }
 
 html,
@@ -2969,8 +2984,7 @@ summary:focus-visible {
   align-items: center;
   gap: 12px;
   color: var(--prayu-text);
-  font-family: "SF Pro Display", "Segoe UI Variable Display", -apple-system,
-    BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--prayu-font-ui);
 }
 
 .prayu-brand-icon {
@@ -3546,7 +3560,7 @@ summary:focus-visible {
 
 .run-activity-sequence {
   margin-left: auto;
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: var(--prayu-font-mono);
 }
 
 .run-activity-body h3 {
@@ -3600,7 +3614,7 @@ summary:focus-visible {
   padding: .1em .32em;
   border-radius: 4px;
   background: color-mix(in srgb, var(--prayu-text, var(--ink)) 8%, transparent);
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: var(--prayu-font-mono);
   font-size: .92em;
 }
 .safe-markdown pre {
@@ -3711,8 +3725,288 @@ summary:focus-visible {
   font-size: 11px;
 }
 
+/* P13-H: independently implemented liquid-glass workbench controls. */
+.prayu-shell,
+.settings-shell {
+  font-family: var(--prayu-font-ui);
+}
+
+.prayu-brand,
+.workspace-kicker,
+.event-sequence,
+.run-activity-sequence,
+.safe-markdown code,
+.safe-markdown pre,
+.unified-diff,
+.user-terminal-host {
+  font-family: var(--prayu-font-mono);
+}
+
+.prayu-shell .session-composer,
+.prayu-shell .prayu-starter-composer,
+.prayu-shell .public-model-stream {
+  position: relative;
+  isolation: isolate;
+  overflow: visible;
+  border: 1px solid var(--prayu-border-strong);
+  color: var(--prayu-text);
+  background: var(--prayu-glass-fill);
+  box-shadow:
+    0 18px 46px var(--prayu-glass-shadow),
+    inset 0 1px 0 var(--prayu-glass-highlight),
+    inset 0 -1px 0 color-mix(in srgb, var(--prayu-text) 8%, transparent);
+  -webkit-backdrop-filter: blur(28px) saturate(175%) contrast(104%);
+  backdrop-filter: blur(28px) saturate(175%) contrast(104%);
+}
+
+.prayu-shell .session-composer,
+.prayu-shell .prayu-starter-composer {
+  border-radius: 18px;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
+}
+
+.prayu-shell .session-composer::before,
+.prayu-shell .prayu-starter-composer::before,
+.prayu-shell .public-model-stream::before {
+  position: absolute;
+  z-index: 0;
+  inset: 1px;
+  border: 1px solid color-mix(in srgb, var(--prayu-glass-highlight) 62%, transparent);
+  border-bottom-color: transparent;
+  border-radius: inherit;
+  pointer-events: none;
+  content: "";
+}
+
+.prayu-shell .session-composer > *,
+.prayu-shell .prayu-starter-composer > *,
+.prayu-shell .public-model-stream > * {
+  position: relative;
+  z-index: 1;
+}
+
+.prayu-shell .session-composer:focus-within,
+.prayu-shell .prayu-starter-composer:focus-within {
+  border-color: color-mix(in srgb, var(--prayu-focus) 48%, var(--prayu-border-strong));
+  background: var(--prayu-glass-fill-strong);
+  box-shadow:
+    0 20px 54px var(--prayu-glass-shadow),
+    0 0 0 3px color-mix(in srgb, var(--prayu-focus) 12%, transparent),
+    inset 0 1px 0 var(--prayu-glass-highlight);
+}
+
+.prayu-shell .session-composer textarea,
+.prayu-shell .prayu-starter-composer > textarea {
+  border: 0;
+  outline: 0 !important;
+  color: var(--prayu-text);
+  background: transparent;
+  box-shadow: none !important;
+  caret-color: var(--prayu-accent);
+}
+
+.prayu-shell .session-composer textarea::placeholder,
+.prayu-shell .prayu-starter-composer > textarea::placeholder {
+  color: color-mix(in srgb, var(--prayu-muted) 88%, transparent);
+}
+
+.prayu-shell .session-composer textarea:disabled,
+.prayu-shell .prayu-starter-composer > textarea:disabled {
+  color: var(--prayu-muted);
+  background: transparent;
+}
+
+.prayu-shell .agent-composer-controls {
+  border-top: 1px solid color-mix(in srgb, var(--prayu-glass-highlight) 42%, transparent);
+}
+
+.prayu-shell .composer-icon-button,
+.prayu-shell .composer-model-button,
+.prayu-shell .composer-reasoning-button {
+  color: var(--prayu-muted);
+  background: transparent;
+}
+
+.prayu-shell .composer-icon-button:hover:not(:disabled),
+.prayu-shell .composer-model-button:hover:not(:disabled),
+.prayu-shell .composer-reasoning-button:hover:not(:disabled) {
+  color: var(--prayu-text);
+  background: var(--prayu-control-hover);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--prayu-glass-highlight) 45%, transparent);
+}
+
+.prayu-shell .composer-send-button {
+  border: 1px solid color-mix(in srgb, var(--prayu-selected) 68%, transparent);
+  color: var(--prayu-selected-ink);
+  background: var(--prayu-selected);
+  box-shadow:
+    0 7px 18px color-mix(in srgb, var(--prayu-glass-shadow) 80%, transparent),
+    inset 0 1px 0 rgb(255 255 255 / 82%);
+}
+
+.prayu-shell .composer-send-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--prayu-selected) 90%, var(--prayu-accent));
+  transform: translateY(-1px);
+}
+
+.prayu-shell .composer-send-button:active:not(:disabled) { transform: translateY(0) scale(.96); }
+
+.prayu-shell .composer-popover,
+.prayu-shell .context-meter-popover,
+.prayu-shell .workspace-open-menu,
+.prayu-shell .workbench-sidecar-menu {
+  border-color: var(--prayu-border-strong);
+  color: var(--prayu-text);
+  background: var(--prayu-glass-fill-strong);
+  box-shadow:
+    0 20px 52px var(--prayu-glass-shadow),
+    inset 0 1px 0 var(--prayu-glass-highlight);
+  -webkit-backdrop-filter: blur(34px) saturate(180%);
+  backdrop-filter: blur(34px) saturate(180%);
+}
+
+.prayu-shell .composer-popover-heading,
+.prayu-shell .composer-popover-note,
+.prayu-shell .composer-popover > button small,
+.prayu-shell .context-meter-popover span,
+.prayu-shell .session-composer-state .byte-count {
+  color: var(--prayu-muted);
+}
+
+.prayu-shell .context-meter > i {
+  box-shadow: inset 0 0 0 4px var(--prayu-glass-fill-strong);
+}
+
+.prayu-shell .composer-mode-chip {
+  border-color: var(--prayu-border-strong);
+  color: var(--prayu-accent);
+  background: color-mix(in srgb, var(--prayu-glass-fill-strong) 72%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--prayu-glass-highlight) 50%, transparent);
+}
+
+.prayu-shell .composer-popover > button:hover:not(:disabled),
+.prayu-shell .workspace-open-menu > button:hover,
+.prayu-shell .workbench-sidecar-menu-group > button:hover:not(:disabled) {
+  color: var(--prayu-text);
+  background: var(--prayu-control-hover);
+}
+
+.prayu-shell .public-model-stream {
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--prayu-glass-fill) 82%, transparent);
+}
+
+.prayu-shell .public-model-stream,
+.prayu-shell .public-model-stream p,
+.prayu-shell .public-model-stream header strong {
+  color: var(--prayu-text);
+}
+
+.prayu-shell .public-model-stream header span,
+.prayu-shell .public-model-stream footer {
+  color: var(--prayu-muted);
+}
+
+.workbench-sidecar-menu {
+  gap: 5px;
+  padding: 7px;
+}
+
+.workbench-sidecar-menu-group {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.workbench-sidecar-menu-group + .workbench-sidecar-menu-group {
+  padding-top: 5px;
+  border-top: 1px solid var(--prayu-border);
+}
+
+.workbench-sidecar-menu-heading {
+  padding: 3px 8px 2px;
+  color: var(--prayu-muted);
+  font-size: 9px;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.workbench-sidecar-menu-group > button {
+  width: 100%;
+  min-height: 36px;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 8px;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workbench-sidecar-menu-group > button:disabled {
+  color: var(--prayu-muted);
+  cursor: default;
+  opacity: .62;
+}
+
+.workbench-sidecar-menu-group > button small,
+.workbench-sidecar-menu-group > button kbd {
+  color: var(--prayu-muted);
+  font: inherit;
+  font-size: 9px;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .prayu-shell .session-composer,
+  .prayu-shell .prayu-starter-composer,
+  .prayu-shell .public-model-stream,
+  .prayu-shell .composer-popover,
+  .prayu-shell .context-meter-popover,
+  .prayu-shell .workspace-open-menu,
+  .prayu-shell .workbench-sidecar-menu {
+    background: var(--prayu-panel-strong);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .prayu-shell .session-composer,
+  .prayu-shell .prayu-starter-composer,
+  .prayu-shell .public-model-stream {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    box-shadow: none;
+  }
+}
+
 @media (max-width: 980px) {
   .permission-option-grid-four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+  .workbench-dock-layout.with-sidecar {
+    position: relative;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workbench-dock-layout.with-sidecar > .workbench-sidecar {
+    position: absolute;
+    z-index: 12;
+    inset: 0 0 0 auto;
+    width: min(336px, calc(100% - 24px));
+    border-left: 1px solid var(--prayu-border-strong);
+    background: var(--prayu-glass-fill-strong);
+    box-shadow: -18px 0 48px var(--prayu-glass-shadow);
+    -webkit-backdrop-filter: blur(30px) saturate(170%);
+    backdrop-filter: blur(30px) saturate(170%);
+  }
 }
 
 @media (max-width: 760px) {
@@ -3732,6 +4026,16 @@ summary:focus-visible {
     padding: 12px 0;
   }
   .appearance-theme-picker button { min-width: 0; }
+
+  .workbench-dock-layout.with-sidecar {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .workbench-dock-layout.with-sidecar > .workbench-sidecar {
+    border-top: 0;
+    border-left: 1px solid var(--prayu-border-strong);
+  }
   .prayu-sidebar .sidebar-brand {
     height: 76px;
     padding: 10px 52px 8px 16px;

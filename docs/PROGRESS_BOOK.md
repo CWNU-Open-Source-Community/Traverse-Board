@@ -1,10 +1,22 @@
 # Prayu 进度书
 
-更新时间：2026-08-12
+更新时间：2026-08-13
 
 ## 一、当前阶段
 
 项目正在从可运行的 v0.1 CLI/TUI 骨架迁移到 V2 Run-centric Runtime。CTF 专用求解能力继续后置，当前先完成主流 AI Agent 工具需要的通用运行时。
+
+最新 P13-H1/H2/H3 保持 SQLite v96 和 Go 权限边界不变，完成工作台视觉分区、液态玻璃材质与
+字体/CSP 收口。右侧工具按“工作区、运行、即将推出”分组，浏览器仅为禁用占位，不获得 CDP、网络
+或进程能力。输入区、公开流和弹出层改用独立实现的半透明玻璃材质，并提供减少透明度、强制色彩、
+浅色/深色及窄窗口回退；窄窗口右侧面板改为覆盖层，不再把正文和输入框挤成竖排。JetBrains Mono
+Variable 随产物自托管，字体不再被内联为 CSP 禁止的 data URL。生产 Playwright 检查确认桌面与
+窄窗口均无横向溢出或控制台错误。本轮只借鉴 `agegr/pi-web`、`greyd097/yzrt` 和
+`u7663394/LGGC-liquid-glass` 的信息架构/材质思路，没有复制源代码，也没有重跑 WFP、Docker 或
+付费 Provider。strict TypeScript、21 项定向 React（同时覆盖最新分页、键盘导航与焦点陷阱）、零生产 npm 漏洞、生产 Vite 资产与 Windows
+Desktop 打包均通过；EXE SHA-256 为
+`d4dd4156574835683fdd8882348577832a674efc645499a9870085327596df42`。自动 Windows 兼容检查通过；
+正式发布仍等待代码签名、安装包和人工 Windows 矩阵。
 
 最新 P13-G1/G2/G3 保持 SQLite v96 不变，修复人工验收发现的披露块纵向挤压、回复间距过大、
 普通最终回答重复冒充 Live Activity，以及临时进度必须等下一条消息才收敛的问题。Harness 折叠块

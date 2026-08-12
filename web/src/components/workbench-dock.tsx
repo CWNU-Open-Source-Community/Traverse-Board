@@ -32,6 +32,7 @@ import {
   type DesktopWorkspaceLauncher,
 } from "../lib/desktop-bridge";
 import { formatCompactDate, shortID } from "../lib/format";
+import { useLocale } from "../lib/locale";
 import { usePagedResource } from "../hooks/use-paged-resource";
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from "./common";
 import { RepositoryDiffPanel } from "./repository-diff-panel";
@@ -40,6 +41,7 @@ import { UserTerminalPanel } from "./user-terminal-panel";
 
 export type WorkbenchResourceKind = "run" | "session";
 type SidecarTab = "review" | "terminal" | "browser" | "files" | "tasks";
+type SidecarGroup = "workspace" | "run" | "reserved";
 
 interface WorkbenchContext {
   goal: string;
@@ -52,15 +54,23 @@ interface WorkbenchContext {
 
 const sidecarItems: Array<{
   id: SidecarTab;
-  label: string;
+  label: [string, string];
+  group: SidecarGroup;
   shortcut: string;
   icon: typeof FileDiff;
+  availability: "ready" | "reserved";
 }> = [
-  { id: "review", label: "审阅", shortcut: "Ctrl+Shift+G", icon: FileDiff },
-  { id: "terminal", label: "终端", shortcut: "", icon: SquareTerminal },
-  { id: "browser", label: "浏览器", shortcut: "Ctrl+T", icon: Globe2 },
-  { id: "files", label: "文件", shortcut: "Ctrl+P", icon: Folder },
-  { id: "tasks", label: "侧边任务", shortcut: "Ctrl+Alt+S", icon: Bot },
+  { id: "review", label: ["审阅", "Review"], group: "workspace", shortcut: "Ctrl+Shift+G", icon: FileDiff, availability: "ready" },
+  { id: "files", label: ["文件", "Files"], group: "workspace", shortcut: "Ctrl+P", icon: Folder, availability: "ready" },
+  { id: "terminal", label: ["终端", "Terminal"], group: "run", shortcut: "", icon: SquareTerminal, availability: "ready" },
+  { id: "tasks", label: ["侧边任务", "Side tasks"], group: "run", shortcut: "Ctrl+Alt+S", icon: Bot, availability: "ready" },
+  { id: "browser", label: ["浏览器", "Browser"], group: "reserved", shortcut: "", icon: Globe2, availability: "reserved" },
+];
+
+const sidecarGroups: Array<{ id: SidecarGroup; label: [string, string] }> = [
+  { id: "workspace", label: ["工作区", "Workspace"] },
+  { id: "run", label: ["运行", "Run"] },
+  { id: "reserved", label: ["即将推出", "Coming soon"] },
 ];
 
 export function WorkbenchDock({ children, client, desktop, resourceKind, runID, sessionID,
@@ -73,6 +83,7 @@ export function WorkbenchDock({ children, client, desktop, resourceKind, runID, 
   sessionID: string;
   title: string;
 }) {
+  const { t } = useLocale();
   const [summaryVisible, setSummaryVisible] = useState(false);
   const [bottomVisible, setBottomVisible] = useState(false);
   const [sidecarVisible, setSidecarVisible] = useState(false);
@@ -103,10 +114,6 @@ export function WorkbenchDock({ children, client, desktop, resourceKind, runID, 
         event.preventDefault();
         setSidecarTab("review");
         setSidecarVisible(true);
-      } else if (event.key.toLowerCase() === "t" && !event.altKey && !event.shiftKey) {
-        event.preventDefault();
-        setSidecarTab("browser");
-        setSidecarVisible(true);
       } else if (event.key.toLowerCase() === "p" && !event.altKey && !event.shiftKey) {
         event.preventDefault();
         setSidecarTab("files");
@@ -122,6 +129,7 @@ export function WorkbenchDock({ children, client, desktop, resourceKind, runID, 
   }, []);
 
   const selectSidecar = (tab: SidecarTab) => {
+    if (sidecarItems.find((item) => item.id === tab)?.availability !== "ready") return;
     setSidecarTab(tab);
     setSidecarVisible(true);
     setSidecarMenuOpen(false);
@@ -133,24 +141,24 @@ export function WorkbenchDock({ children, client, desktop, resourceKind, runID, 
         <FolderOpen aria-hidden="true" size={16} />
         <strong>{title}</strong>
       </div>
-      <div aria-label="工作台面板" className="workspace-panel-actions" role="toolbar">
+      <div aria-label={t("工作台面板", "Workbench panels")} className="workspace-panel-actions" role="toolbar">
         <WorkspaceOpenMenu desktop={desktop} workspaceID={context.workspaceID} />
-        <button aria-label="切换摘要" aria-pressed={summaryVisible}
+        <button aria-label={t("切换摘要", "Toggle summary")} aria-pressed={summaryVisible}
           className={`workspace-panel-icon ${summaryVisible ? "active" : ""}`}
           onClick={() => setSummaryVisible((visible) => !visible)}
-          title="切换摘要" type="button">
+          title={t("切换摘要", "Toggle summary")} type="button">
           <ListTree aria-hidden="true" size={16} />
         </button>
-        <button aria-label="切换底部面板显示" aria-pressed={bottomVisible}
+        <button aria-label={t("切换底部面板显示", "Toggle bottom panel")} aria-pressed={bottomVisible}
           className={`workspace-panel-icon ${bottomVisible ? "active" : ""}`}
           onClick={() => setBottomVisible((visible) => !visible)}
-          title="切换底部面板显示 (Ctrl+J)" type="button">
+          title={t("切换底部面板显示 (Ctrl+J)", "Toggle bottom panel (Ctrl+J)")} type="button">
           <PanelBottom aria-hidden="true" size={16} />
         </button>
-        <button aria-label="显示或隐藏右侧栏" aria-pressed={sidecarVisible}
+        <button aria-label={t("显示或隐藏右侧栏", "Show or hide side panel")} aria-pressed={sidecarVisible}
           className={`workspace-panel-icon ${sidecarVisible ? "active" : ""}`}
           onClick={() => setSidecarVisible((visible) => !visible)}
-          title="显示或隐藏右侧栏" type="button">
+          title={t("显示或隐藏右侧栏", "Show or hide side panel")} type="button">
           <PanelRight aria-hidden="true" size={16} />
         </button>
       </div>
@@ -165,27 +173,33 @@ export function WorkbenchDock({ children, client, desktop, resourceKind, runID, 
           sessionID={terminalSessionID} onSession={setTerminalSessionID}
           onClose={() => setBottomVisible(false)} />}
       </div>
-      {sidecarVisible && <aside aria-label="右侧工具栏" className="workbench-sidecar">
+      {sidecarVisible && <aside aria-label={t("右侧工具栏", "Side tools")} className="workbench-sidecar">
         <header className="workbench-sidecar-tabs">
           <button className="workbench-sidecar-tab" type="button">
-            {sidecarTabIcon(sidecarTab)}<span>{sidecarLabel(sidecarTab)}</span>
+            {sidecarTabIcon(sidecarTab)}<span>{sidecarLabel(sidecarTab, t)}</span>
           </button>
           <div className="workbench-sidecar-add" ref={sidecarMenuRef}>
             <button aria-expanded={sidecarMenuOpen} aria-haspopup="menu"
-              aria-label="添加右侧工具" className="workspace-panel-icon"
-              onClick={() => setSidecarMenuOpen((open) => !open)} title="添加右侧工具"
+              aria-label={t("添加右侧工具", "Add side tool")} className="workspace-panel-icon"
+              onClick={() => setSidecarMenuOpen((open) => !open)} title={t("添加右侧工具", "Add side tool")}
               type="button"><Plus aria-hidden="true" size={17} /></button>
-            {sidecarMenuOpen && <div aria-label="右侧工具" className="workbench-sidecar-menu" role="menu">
-              {sidecarItems.map(({ id, label, shortcut, icon: Icon }) =>
-                <button aria-checked={sidecarTab === id} key={id}
-                  onClick={() => selectSidecar(id)} role="menuitemradio" type="button">
-                  <Icon aria-hidden="true" size={16} /><span>{label}</span>
-                  {shortcut && <kbd>{shortcut}</kbd>}
+            {sidecarMenuOpen && <div aria-label={t("右侧工具", "Side tools")} className="workbench-sidecar-menu" role="menu">
+              {sidecarGroups.map((group) => <div aria-label={t(...group.label)}
+                className="workbench-sidecar-menu-group" key={group.id} role="group">
+                <span className="workbench-sidecar-menu-heading">{t(...group.label)}</span>
+                {sidecarItems.filter((item) => item.group === group.id).map(({
+                  id, label, shortcut, icon: Icon, availability,
+                }) => <button aria-checked={sidecarTab === id} disabled={availability === "reserved"}
+                  key={id} onClick={() => selectSidecar(id)} role="menuitemradio" type="button">
+                  <Icon aria-hidden="true" size={16} /><span>{t(...label)}</span>
+                  {availability === "reserved" ?
+                    <small>{t("预留", "Reserved")}</small> : shortcut && <kbd>{shortcut}</kbd>}
                 </button>)}
+              </div>)}
             </div>}
           </div>
-          <button aria-label="关闭右侧栏" className="workspace-panel-icon"
-            onClick={() => setSidecarVisible(false)} title="关闭右侧栏" type="button">
+          <button aria-label={t("关闭右侧栏", "Close side panel")} className="workspace-panel-icon"
+            onClick={() => setSidecarVisible(false)} title={t("关闭右侧栏", "Close side panel")} type="button">
             <X aria-hidden="true" size={16} />
           </button>
         </header>
@@ -422,8 +436,9 @@ function useDismissablePopover(root: RefObject<HTMLElement | null>, open: boolea
   }, [close, open, root]);
 }
 
-function sidecarLabel(tab: SidecarTab): string {
-  return sidecarItems.find((item) => item.id === tab)?.label ?? "工具";
+function sidecarLabel(tab: SidecarTab, t: (chinese: string, english: string) => string): string {
+  const label = sidecarItems.find((item) => item.id === tab)?.label;
+  return label ? t(...label) : t("工具", "Tools");
 }
 
 function sidecarTabIcon(tab: SidecarTab): ReactNode {

@@ -159,6 +159,26 @@ assistant answers are never duplicated as Live Activity; only short, policy-chec
 with a Tool Call may appear as non-verifiable commentary, while execution state remains entirely
 Go-owned Harness evidence.
 
+### 工作台分区与液态玻璃 / Workbench Zoning And Liquid Glass
+
+P13-H1-H3 保持 schema v96 与全部 Go 权限边界不变，完成桌面工作台的视觉收口。右侧工具入口按
+“工作区”“运行”“即将推出”分区：审阅与文件属于工作区，终端与侧边任务属于当前 Run；浏览器只保留
+禁用占位，不会暗示尚未开放的 CDP 或网络能力。该信息架构参考了 `agegr/pi-web` 的多区域工作台思路，
+但继续使用 Prayu 现有组件、路由与 Go 控制面。
+
+输入区、公开流和弹出层改为独立实现的液态玻璃材质，使用半透明表面、背景模糊、内侧高光与克制的
+阴影，并为减少透明度、强制色彩和窄窗口提供回退。设计仅借鉴 `greyd097/yzrt` 与
+`u7663394/LGGC-liquid-glass` 展示的通用材质思路，没有复制其源代码。界面字体统一为随产物自托管的
+JetBrains Mono Variable；Vite 强制把字体输出为同源资源，继续满足严格 `font-src 'self'` CSP。
+窄窗口中的右侧面板现在以玻璃覆盖层出现，不再把对话区和输入框挤成竖排文字。
+
+P13-H1-H3 keep schema v96 and every Go authority boundary unchanged. Existing workspace and Run
+tools are grouped by purpose, while Browser remains a disabled future slot. The composer, public
+stream, and popovers use a new in-repository liquid-glass material with accessible fallbacks and a
+responsive sidecar overlay. JetBrains Mono Variable is bundled as a same-origin font asset so the
+strict CSP remains intact. The implementation takes layout and material cues from the referenced
+projects without copying their source or claiming unfinished runtime capabilities.
+
 ## 桌面权限中心与原生玻璃 / Desktop Permission Center And Native Glass
 
 Windows Desktop 现在提供独立的“权限”设置页，把当前 Run 的四个正交控制维度集中展示：

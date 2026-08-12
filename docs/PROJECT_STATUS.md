@@ -1,34 +1,38 @@
 # Project Status
 
-Last updated: 2026-08-11
+Last updated: 2026-08-13
 
 ## Resume Context
 
-The current mainline checkpoint is P13-E1 through P13-F3 at schema v96. E1-E3
-add safe GFM rendering, grouped Harness disclosures, confirmed Session soft
-archive, and recoverable foreground execution. Archive never deletes messages,
-Runs, or audit facts. A cancelled or bounded failed Tool turn releases the
-queue; a retry uses a fresh execution handoff while the durable user message is
-retained.
+The current mainline checkpoint is P13-H1 through P13-H3 at schema v96. H1
+groups the existing Workbench sidecar tools into Workspace, Run, and Coming
+Soon zones. Browser remains a disabled reserved item: no CDP, network, process,
+or navigation capability was opened. H2 replaces the beige composer, public
+stream, and popovers with an independently implemented liquid-glass material
+and accessible transparency/color fallbacks. H3 self-hosts JetBrains Mono
+Variable as same-origin production assets under the strict CSP and changes the
+right sidecar to a narrow-window overlay so it cannot compress content into
+vertical text.
 
-F1 adds a changed-file index and a right-side, line-numbered unified-diff review
-drawer. F2-F3 fuse public model progress with verified Harness events using the
-existing Event Store, run-events transport, Activity projection, and public
-model stream. `model.public_commentary` is display-only and non-verifiable. It
-cannot enter Session history or trusted context and cannot expose provider
-thinking, prompts, raw deltas, Tool arguments, or raw output. Only Harness
-events establish execution facts.
+Production Playwright QA found zero horizontal overflow and zero console
+errors at desktop and narrow widths. The prior full 55-file/211-test frontend
+gate passed; this visual-only checkpoint passes strict TypeScript, 21 focused
+React tests, a zero-vulnerability production npm audit, production Vite assets,
+and Windows Desktop packaging. The current EXE SHA-256 is
+`d4dd4156574835683fdd8882348577832a674efc645499a9870085327596df42`.
+The focused gate includes the latest upstream pagination, keyboard-navigation,
+and modal focus-trap regressions.
+Automated Windows compatibility checks pass; signing, installer packaging, and
+the manual Windows matrix remain release blockers. Reference projects informed
+zoning/material decisions, but no source was copied and no runtime authority
+changed. Do not rerun P13-C through P13-H, WFP, Docker, or paid Provider probes
+after compaction.
 
-The ordinary all-package Go suite, vet, full 513.4-second race suite,
-staticcheck, zero-reachable-finding govulncheck, Rust fmt/test/clippy, 55 Web
-files / 208 tests, stable OpenAPI generation, zero production npm
-vulnerabilities, and Vite production build pass. No unresolved high/medium
-finding or deadlock remains. Do not rerun P13-C through P13-F, WFP, Docker, or
-paid Provider probes after compaction.
-
-The previous checkpoint P13-D fixed interactive second-turn convergence,
-unified Plan mode in the composer, and compacted default Run navigation without
-changing protocol, state-machine, or authority boundaries.
+The previous checkpoint P13-G fixed disclosure geometry, reading density,
+`root_message` versus `tool_commentary` separation, verified Tool grouping,
+and provisional/durable Live Activity convergence. P13-E/F introduced safe
+GFM, auditable Session archival, queue recovery, diff review, and display-only
+public commentary. Only Harness events establish execution facts.
 
 The previous streaming checkpoint was P13-B1 through P13-B3 at schema v95. B1
 adds a process-local `model_public_stream.v1` snapshot that exposes only the

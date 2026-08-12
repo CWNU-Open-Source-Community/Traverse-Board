@@ -1,8 +1,40 @@
 # Prayu Project Memory
 
-Last updated: 2026-08-12
+Last updated: 2026-08-13
 
-## Current Checkpoint: P13-G1 through P13-G3 / Schema v96
+## Current Checkpoint: P13-H1 through P13-H3 / Schema v96
+
+P13-H1 reorganizes the existing right-side Workbench tools into explicit
+Workspace, Run, and Coming Soon zones. Review and Files remain workspace
+surfaces; Terminal and Side Tasks remain Run surfaces; Browser is a disabled
+reserved item and gains no CDP, network, process, or navigation authority. The
+zoning takes product-structure cues from `agegr/pi-web` while retaining Prayu's
+existing React routes and Go-owned control plane.
+
+P13-H2 replaces the beige composer/public-stream/popover surfaces with an
+independently implemented liquid-glass material: translucent fills,
+backdrop blur, saturation, inset highlights, restrained shadows, and distinct
+light/dark/glass variables. It takes general material cues from
+`greyd097/yzrt` and `u7663394/LGGC-liquid-glass`; no reference source was
+copied. Reduced-transparency and forced-colors fallbacks remain readable.
+
+P13-H3 self-hosts JetBrains Mono Variable, forces Vite font assets to remain
+same-origin under the strict `font-src 'self'` CSP, adds a bundled favicon, and
+makes the right sidecar an overlay at narrow widths so it cannot squeeze the
+composer into vertical text. Production Playwright QA verified a 790x118
+desktop composer and a 381x118 narrow composer with zero horizontal overflow
+or console errors. Strict TypeScript, 17 focused React tests, a zero-vulnerability
+production npm audit, production Vite assets, and the Windows Desktop package
+pass. The current EXE SHA-256 is
+`d4dd4156574835683fdd8882348577832a674efc645499a9870085327596df42`.
+The latest upstream pagination, keyboard-navigation, and focus-trap changes
+also pass the expanded 21-test focused gate. Automated Windows compatibility
+checks pass; release readiness remains false
+only because signing, an installer, and the manual Windows matrix are not part
+of this slice. Schema and authority are unchanged. Do not repeat P13-C through
+P13-H, WFP, Docker, or paid Provider probes after compaction.
+
+### Previous Checkpoint: P13-G1 through P13-G3 / Schema v96
 
 P13-G1 repairs the Desktop disclosure geometry that compressed Harness facts
 into vertical, overlapping columns and tightens assistant Markdown and timeline
@@ -429,8 +461,9 @@ Read in this order after a long context break:
 96. `docs/adr/0091-embedded-analyzer-product-route-bilingual-desktop-preview.md`
 97. `docs/adr/0092-safe-public-model-streaming-and-desktop-convergence.md`
 98. `docs/adr/0093-review-gated-approval-mode-host-command-proposals.md`
-99. `docs/DESKTOP_PLAN.md`
-100. `docs/SKILL_PACKAGE_PLAN.md`
+99. `docs/adr/0094-liquid-glass-workbench-zoning.md`
+100. `docs/DESKTOP_PLAN.md`
+101. `docs/SKILL_PACKAGE_PLAN.md`
 
 ## Current Baseline
 

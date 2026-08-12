@@ -1,6 +1,6 @@
 # Prayu V2 任务书
 
-更新时间：2026-08-11
+更新时间：2026-08-13
 
 ## 目标
 
@@ -632,6 +632,19 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
   最终化后的陈旧快照，并通过精确 Run 查询刷新和投影延迟补刷消除“下一条消息才显示”竞态。
 - [x] 三切片功能门：87 项定向 React、受影响 Go application/runactivity/httpapi、strict TypeScript、
   Vite 和 Desktop 构建通过；真实重建窗口完成视觉复核。本批不重复 WFP、Docker 或付费 Provider。
+
+## P13-H：工作台分区、液态玻璃与字体交付
+
+- [x] P13-H1：按工作区、运行、即将推出重组现有右侧工具；审阅/文件与终端/侧边任务保持原有
+  Go 路由，浏览器只显示禁用预留位，不授予任何未完成能力。
+- [x] P13-H2：以独立 CSS 令牌实现输入区、公开流和弹出层的液态玻璃材质，覆盖浅色、深色、
+  透明玻璃、减少透明度和强制色彩场景；不复制参考项目源码。
+- [x] P13-H3：自托管 JetBrains Mono Variable 并保持严格 CSP；窄窗口将右侧面板改为覆盖层，
+  消除横向溢出和输入框纵向挤压；补齐应用 favicon 与生产视觉 QA。
+- [x] 三切片功能门：strict TypeScript、21 项定向 React（含最新分页、键盘导航、焦点陷阱）、零生产 npm 漏洞、生产 Vite/Windows
+  Desktop 构建和真实桌面/窄窗口视觉检查通过；EXE SHA-256 为
+  `d4dd4156574835683fdd8882348577832a674efc645499a9870085327596df42`。自动 Windows 兼容检查
+  通过，正式发布仍等待签名、安装包和人工 Windows 矩阵；不重复 WFP、Docker 或付费 Provider。
 
 ## 每轮交付模板
 
