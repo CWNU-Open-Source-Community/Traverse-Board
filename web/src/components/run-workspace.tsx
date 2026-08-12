@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
@@ -88,7 +88,7 @@ import { AgentGraphPanel, DelegationsPanel, ExternalSkillsSection, FanoutPanel, 
 import { RunActivityTimeline } from "./run-activity-timeline";
 import { EmbeddedAnalyzerPanel } from "./embedded-analyzer-panel";
 
-type RunTab = "activity" | "overview" | "journey" | "actions" | "approvals" | "diffs" | "repository" | "files" | "evidence" | "verify" | "handoff" |
+export type RunTab = "activity" | "overview" | "journey" | "actions" | "approvals" | "diffs" | "repository" | "files" | "evidence" | "verify" | "handoff" |
   "receipts" | "agents" | "delegations" | "fanout" | "findings" | "events" | "work" |
   "notes" | "artifacts" | "tools" | "analyzer";
 
@@ -118,6 +118,66 @@ const tabs: Array<{ id: RunTab; label: [string, string]; icon: typeof Activity }
 ];
 
 const compactTabs = new Set<RunTab>(["activity", "approvals", "diffs", "repository", "files"]);
+
+export function RunWorkspaceTabs({ activeTab, ariaLabel, children, items, onSelect }: {
+  activeTab: RunTab;
+  ariaLabel: string;
+  children: React.ReactNode;
+  items: Array<{ id: RunTab; label: string; icon: typeof Activity }>;
+  onSelect: (tab: RunTab) => void;
+}) {
+  const tabSetID = useId();
+  const tabRefs = useRef(new Map<RunTab, HTMLButtonElement>());
+  const tabID = (id: RunTab) => `${tabSetID}-tab-${id}`;
+  const panelID = (id: RunTab) => `${tabSetID}-panel-${id}`;
+  const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>, current: RunTab) => {
+    const currentIndex = items.findIndex(({ id }) => id === current);
+    if (currentIndex < 0 || items.length === 0) return;
+    let nextIndex: number;
+    switch (event.key) {
+      case "ArrowRight":
+        nextIndex = (currentIndex + 1) % items.length;
+        break;
+      case "ArrowLeft":
+        nextIndex = (currentIndex - 1 + items.length) % items.length;
+        break;
+      case "Home":
+        nextIndex = 0;
+        break;
+      case "End":
+        nextIndex = items.length - 1;
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    const next = items[nextIndex];
+    onSelect(next.id);
+    tabRefs.current.get(next.id)?.focus();
+  };
+
+  return <>
+    <nav aria-label={ariaLabel} aria-orientation="horizontal" className="workspace-tabs" role="tablist">
+      {items.map(({ id, label, icon: Icon }) => (
+        <button aria-controls={panelID(id)} aria-selected={activeTab === id}
+          className={activeTab === id ? "active" : ""} id={tabID(id)} key={id}
+          onClick={() => onSelect(id)} onKeyDown={(event) => handleKeyDown(event, id)}
+          ref={(node) => {
+            if (node) tabRefs.current.set(id, node);
+            else tabRefs.current.delete(id);
+          }} role="tab" tabIndex={activeTab === id ? 0 : -1} type="button">
+          <Icon aria-hidden="true" size={15} />{label}
+        </button>
+      ))}
+    </nav>
+    {items.map(({ id }) => (
+      <div aria-labelledby={tabID(id)} className="workspace-content" hidden={activeTab !== id}
+        id={panelID(id)} key={id} role="tabpanel" tabIndex={activeTab === id ? 0 : -1}>
+        {activeTab === id ? children : null}
+      </div>
+    ))}
+  </>;
+}
 
 export function RunWorkspace({ client, runID, onOpenPlugins }: {
   client: CyberAgentClient;
@@ -272,14 +332,9 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
           </div>
         </div>
       </header>
-      <nav aria-label="Run 视图" className="workspace-tabs" role="tablist">
-        {visibleTabs.map(({ id, label, icon: Icon }) => (
-          <button aria-selected={tab === id} className={tab === id ? "active" : ""} key={id} onClick={() => setTab(id)} role="tab" type="button">
-            <Icon aria-hidden="true" size={15} />{t(...label)}
-          </button>
-        ))}
-      </nav>
-      <div className="workspace-content">
+      <RunWorkspaceTabs activeTab={tab} ariaLabel={t("Run 视图", "Run views")}
+        items={visibleTabs.map(({ id, label, icon }) => ({ id, label: t(...label), icon }))}
+        onSelect={setTab}>
         {tab === "activity" && (
           activityQuery.isLoading ? <LoadingState label="加载活动" /> :
             activityQuery.isError || !activityQuery.data ?
@@ -359,7 +414,7 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
         )}
         {tab === "analyzer" && client.hasEmbeddedAnalyzerExecution &&
           <EmbeddedAnalyzerPanel client={client} runID={runID} />}
-      </div>
+      </RunWorkspaceTabs>
       {detail.run.session_id && <SessionComposer client={client}
         contextPartial={Boolean(contextMessagesQuery.hasNextPage)} contextTokens={contextTokens}
         onOpenPlugins={onOpenPlugins} run={detail.run} sessionID={detail.run.session_id}
