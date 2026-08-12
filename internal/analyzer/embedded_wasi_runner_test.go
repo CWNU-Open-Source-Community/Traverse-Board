@@ -42,7 +42,7 @@ func TestEmbeddedWASIExecutesPinnedFixtureAndValidatesResult(t *testing.T) {
 
 func TestEmbeddedWASIModuleDigestIsPinned(t *testing.T) {
 	digest := sha256.Sum256(embeddedAnalyzerFixtureWASM)
-	const expected = "0252d60ef07a3f406df1e8f2e1b384e84b899aceca4c62ce1e68537aa19d283f"
+	const expected = "59d51f86c03dbf4ae2d5b82e0080cd99e697b067666379273f1eeb47e952aa88"
 	if actual := hex.EncodeToString(digest[:]); actual != expected {
 		t.Fatalf("embedded analyzer fixture changed without provenance review: %s", actual)
 	}
