@@ -273,7 +273,7 @@ export interface paths {
         };
         /**
          * List Runs
-         * @description Returns a bounded cursor page of durable Runs.
+         * @description Returns a bounded creation-ordered keyset page of durable Runs. Updates and later Runs cannot shift continuation pages.
          */
         get: operations["listRuns"];
         put?: never;
@@ -1501,7 +1501,7 @@ export interface paths {
         };
         /**
          * List Sessions
-         * @description Returns a bounded cursor page of persisted Sessions.
+         * @description Returns a bounded creation-ordered keyset page of persisted Sessions. Updates and later Sessions cannot shift continuation pages.
          */
         get: operations["listSessions"];
         put?: never;

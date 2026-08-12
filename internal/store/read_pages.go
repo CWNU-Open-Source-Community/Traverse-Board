@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"cyberagent-workbench/internal/artifact"
@@ -14,6 +15,46 @@ import (
 )
 
 const maxStoreReadPageLimit = 101
+
+// SQLite's date functions retain only millisecond precision and RFC3339Nano
+// strings have variable-width fractions. These expressions pad UTC fractions
+// to nine digits so text comparison preserves the exact stored time.
+func creationTimestampKeySQL(column string) string {
+	return `(CASE
+	WHEN instr(` + column + `, '.') = 0 THEN
+		substr(` + column + `, 1, length(` + column + `) - 1) || '.000000000Z'
+	ELSE
+		substr(` + column + `, 1, instr(` + column + `, '.')) ||
+		substr(substr(` + column + `, instr(` + column + `, '.') + 1,
+			length(` + column + `) - instr(` + column + `, '.') - 1) || '000000000', 1, 9) || 'Z'
+	END)`
+}
+
+var (
+	runCreationTimestampKeySQL     = creationTimestampKeySQL("runs.created_at")
+	sessionCreationTimestampKeySQL = creationTimestampKeySQL("sessions.created_at")
+)
+
+func creationTimestampKey(value time.Time) string {
+	return value.UTC().Format("2006-01-02T15:04:05.000000000Z")
+}
+
+func validateStoreCreationPage(beforeCreatedAt time.Time, beforeID string, limit int) error {
+	if limit <= 0 || limit > maxStoreReadPageLimit {
+		return fmt.Errorf("creation page limit must be between 1 and %d", maxStoreReadPageLimit)
+	}
+	if beforeCreatedAt.IsZero() {
+		if beforeID != "" {
+			return errors.New("creation page timestamp and identity must be provided together")
+		}
+		return nil
+	}
+	if strings.TrimSpace(beforeID) == "" || strings.TrimSpace(beforeID) != beforeID ||
+		!utf8.ValidString(beforeID) || utf8.RuneCountInString(beforeID) > 256 {
+		return errors.New("creation page identity is invalid")
+	}
+	return nil
+}
 
 func validateStoreReadPage(offset int, limit int) error {
 	if err := validateStoreListOffset(offset); err != nil {
@@ -30,7 +71,39 @@ func (s *SQLiteStore) ListSessionsPage(ctx context.Context, offset int, limit in
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT id, workspace_id, title, route, status, created_at, updated_at
-		FROM sessions ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`, limit, offset)
+		FROM sessions ORDER BY `+sessionCreationTimestampKeySQL+` DESC, id DESC LIMIT ? OFFSET ?`, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]session.Session, 0, limit)
+	for rows.Next() {
+		record, err := scanSession(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, record)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) ListSessionsByCreationPage(ctx context.Context, beforeCreatedAt time.Time,
+	beforeID string, limit int,
+) ([]session.Session, error) {
+	if err := validateStoreCreationPage(beforeCreatedAt, beforeID, limit); err != nil {
+		return nil, err
+	}
+	query := `SELECT id, workspace_id, title, route, status, created_at, updated_at FROM sessions`
+	var args []any
+	if !beforeCreatedAt.IsZero() {
+		query += ` WHERE (` + sessionCreationTimestampKeySQL + ` < ?
+			OR (` + sessionCreationTimestampKeySQL + ` = ? AND id < ?))`
+		anchor := creationTimestampKey(beforeCreatedAt)
+		args = append(args, anchor, anchor, beforeID)
+	}
+	query += ` ORDER BY ` + sessionCreationTimestampKeySQL + ` DESC, id DESC LIMIT ?`
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

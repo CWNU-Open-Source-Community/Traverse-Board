@@ -220,7 +220,7 @@ func (s *SQLiteStore) ListRuns(ctx context.Context, filter domain.RunFilter) ([]
 		query += ` AND status = ?`
 		args = append(args, filter.Status)
 	}
-	query += ` ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`
+	query += ` ORDER BY ` + runCreationTimestampKeySQL + ` DESC, id DESC LIMIT ? OFFSET ?`
 	limit := filter.Limit
 	if limit <= 0 || limit > 1000 {
 		limit = 100
@@ -233,6 +233,53 @@ func (s *SQLiteStore) ListRuns(ctx context.Context, filter domain.RunFilter) ([]
 	}
 	defer rows.Close()
 	var runs []domain.Run
+	for rows.Next() {
+		run, err := scanRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		runs = append(runs, run)
+	}
+	return runs, rows.Err()
+}
+
+func (s *SQLiteStore) ListRunsByCreationPage(ctx context.Context, filter domain.RunFilter,
+	beforeCreatedAt time.Time, beforeID string,
+) ([]domain.Run, error) {
+	if filter.Offset != 0 {
+		return nil, errors.New("creation page does not accept an offset")
+	}
+	if err := validateStoreCreationPage(beforeCreatedAt, beforeID, filter.Limit); err != nil {
+		return nil, err
+	}
+	query := `SELECT id, mission_id, session_id, status, config_json, budget_json,
+		started_at, finished_at, created_at, updated_at FROM runs WHERE 1=1`
+	var args []any
+	if strings.TrimSpace(filter.MissionID) != "" {
+		query += ` AND mission_id = ?`
+		args = append(args, strings.TrimSpace(filter.MissionID))
+	}
+	if filter.Status != "" {
+		if !domain.ValidRunStatus(filter.Status) {
+			return nil, fmt.Errorf("invalid run status %q", filter.Status)
+		}
+		query += ` AND status = ?`
+		args = append(args, filter.Status)
+	}
+	if !beforeCreatedAt.IsZero() {
+		query += ` AND (` + runCreationTimestampKeySQL + ` < ?
+			OR (` + runCreationTimestampKeySQL + ` = ? AND id < ?))`
+		anchor := creationTimestampKey(beforeCreatedAt)
+		args = append(args, anchor, anchor, beforeID)
+	}
+	query += ` ORDER BY ` + runCreationTimestampKeySQL + ` DESC, id DESC LIMIT ?`
+	args = append(args, filter.Limit)
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	runs := make([]domain.Run, 0, filter.Limit)
 	for rows.Next() {
 		run, err := scanRun(rows)
 		if err != nil {
