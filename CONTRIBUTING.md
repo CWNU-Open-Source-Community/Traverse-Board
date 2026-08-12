@@ -17,7 +17,7 @@ Thank you for contributing to Prayu. Resumability, auditability, and fail-closed
 | 工具 | 版本 | 来源与用途 |
 |---|---:|---|
 | Go | 1.25 | [`go.mod`](go.mod)；唯一控制平面、CLI、TUI、HTTP API 与持久化 |
-| Node.js | 24 | [CI](.github/workflows/ci.yml)；`web/` 下的 React/Vite 控制台 |
+| Node.js | 24.15+ | [CI](.github/workflows/ci.yml)；`web/` 下的 React/Vite 控制台（jsdom 30 的最低 Node 24 补丁版本） |
 | Rust | 1.97.1 | [`analyzers/rust-toolchain.toml`](analyzers/rust-toolchain.toml)；确定性 Analyzer 夹具 |
 
 建议另外安装 Git 和 rustup。普通 Go/Web 开发不要求 Docker、真实 Provider 或 API key；[`configs/models.yaml`](configs/models.yaml) 默认使用 Mock Provider。
@@ -40,7 +40,7 @@ rustup target add wasm32-wasip1 --toolchain 1.97.1
 
 ### Windows Desktop
 
-桌面开发和便携构建必须在 Windows 10/11 上进行，并安装 Microsoft Edge WebView2 Evergreen Runtime `94.0.992.31` 或更新版本。还需要上表中的 Go 1.25、Node.js 24 和 PowerShell；Rust 只在修改或完整验证 Analyzer 路径时需要。应用会在打开 SQLite 前检查 WebView2，缺失或过旧时失败关闭，不会自行下载或安装。
+桌面开发和便携构建必须在 Windows 10/11 上进行，并安装 Microsoft Edge WebView2 Evergreen Runtime `94.0.992.31` 或更新版本。还需要上表中的 Go 1.25、Node.js 24.15+ 和 PowerShell；Rust 只在修改或完整验证 Analyzer 路径时需要。应用会在打开 SQLite 前检查 WebView2，缺失或过旧时失败关闭，不会自行下载或安装。
 
 ```powershell
 # 在仓库根目录构建未签名的本地测试包
