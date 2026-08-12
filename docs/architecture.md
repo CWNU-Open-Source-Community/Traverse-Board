@@ -1,6 +1,8 @@
 # Architecture
 
-CyberAgent Workbench is evolving from a CLI-first agent scaffold into a run-centric, resumable AI workbench. The redesign keeps the existing Go implementation and safety boundaries while organizing them around explicit execution ownership.
+Prayu is evolving from a CLI-first agent scaffold into a run-centric, resumable AI workbench. The redesign keeps the existing Go implementation and safety boundaries while organizing them around explicit execution ownership.
+
+> **Current scope:** the active product is the general-purpose Agent Harness and Code workflow. CTF-specific solving and offensive automation are optional add-ons with no active implementation schedule. Only generic Provider, Tool, Skill, Analyzer, Sandbox, and Report extension seams remain in the core. See [Product Scope](PRODUCT_SCOPE.md).
 
 ## Design Goals
 
@@ -11,7 +13,7 @@ CyberAgent Workbench is evolving from a CLI-first agent scaffold into a run-cent
 - Privileged actions always cross policy, approval, scope, and sandbox boundaries.
 - CLI, TUI, browser React/Vite, Windows Desktop React/Vite, and CI use the same Go-owned application and HTTP services.
 - Rust analyzers remain deterministic tools behind Go.
-- CTF-specific behavior remains a late profile, not the runtime foundation.
+- CTF-specific behavior is outside the active core roadmap and may return only as a separately reviewed add-on profile.
 
 ## Control Plane
 

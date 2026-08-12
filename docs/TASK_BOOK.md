@@ -6,14 +6,14 @@
 
 在现有 Go 项目上构建可恢复、可审计、可审批、可扩展的通用 AI Agent Workbench。借鉴成熟 Agent 产品的运行体验与公开架构思想，但保持原创实现、Go 单一控制平面和安全优先策略。
 
-CTF 专用求解继续排在最后。前置目标是让代码、审查、学习、脚本和安全分析任务共享同一套 Run、Coordinator、Tool、Memory、Finding 和 Report 基础设施。
+当前任务书只推进通用 Agent Harness 与 Code 工作流。CTF 专用求解、自动化渗透和攻防工具链已经移出活跃路线图，不再排队开发；仓库仅保留 Run、Provider、Tool、Skill、Analyzer、Sandbox、Finding/Evidence/Report 等通用扩展接口，供未来经过独立 ADR 和安全复核的附加包接入。范围权威见 [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md)。
 
 ## 当前基线
 
 - 架构完成度：约 99%；其中 V2 Run-centric 控制平面约 99%。
-- 产品可用度：完整 Code + Cyber 产品约 98%。
+- 产品可用度：通用 Code Agent 操作者预览约 98%。
 - 通用 Coding Agent 工作流可用度：约 98%。
-- Cyber 自动化工作流可用度：约 20%。
+- Cyber 自动化旧估算约 20%，现已退役为历史指标，不再用于当前计划或完成度计算。
 - 以上是依据可验证任务切片给出的工程估算，不是性能基准；从 schema v49 起停用单一“完整产品愿景”百分比。
 
 V2 的 99% 在 P0/P1 基础上完成了可恢复 Supervisor、预算、严格生命周期、Run-bound Session、Provider typed outcome/retry/SSE、有界 `model.delta`、active-call 查询/取消/订阅、Bubble Tea 实时取消、一次可跨重启恢复的协议修复、schema v16 有界结构化记忆工具循环、schema v17 跨进程 Run execution lease/心跳/fencing，以及 schema v18 独立 capability 的跨进程 root 活动模型取消。P3 已加入 schema v9 Work Board、schema v10 Notes、事务关系/事件、`todo`/`note` CLI、可见性规则、8192-token Context Section 选择和 `model.started` 来源审计。P4 已加入 schema v19 单 root Coordinator、schema v20 摘要幂等 inbox、schema v21 默认关闭的 internal-only Specialist admission、schema v22 same-Run Agent-owned WorkItem/Note、schema v23 attempt-bound CompletionReport、schema v24 lease-fenced Specialist Attempt 调度/usage/崩溃恢复、schema v25 root inbox 两阶段 exactly-once context、schema v26 仅内部显式调用的 no-tool Specialist model turn 与原子模型账本、schema v27 可恢复 parent instruction/child-owned memory context、schema v28 child exactly-once lifecycle repair、schema v29 durable schedule summary/跨进程 child-call cancellation、schema v30 review-gated `specialist_delegation.v1` proposal、schema v31 独立且不授权执行的 operator review fact、schema v32 可恢复 operator application、schema v33 immutable read-only Fan-out plan 与 schema v34 bounded read-only execution，以及最多两个核心 child 的 Go-internal scheduler。核心委派不超过两个 child；Fan-out 可按 1/2/4/6 档运行无工具 JSON worker，共享 root+Specialist+Fan-out 总预算和取消扇出，但不创建 Agent、Attempt、schedule，也不具备写入、Shell、进程、网络或再委派权限。P5 已统一工作区读取、Shell、FileEdit 与 workspace-scoped `script_process.v1` 提案入口，并新增 schema v11 持久化幂等审批账本、schema v12 可撤销 Session Grant 与原子工具预算、schema v13 独立脚本进程提案、schema v14 脱敏且来源绑定的 Run 输出 Artifact、schema v15 create-only 结构化工具与幂等账本、schema v16 可恢复 Provider 工具批次，以及 schema v30 独立 `agent_proposal` 工具类。

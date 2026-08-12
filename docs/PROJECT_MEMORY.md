@@ -1,6 +1,25 @@
 # Prayu Project Memory
 
+> Scope checkpoint (2026-08-13): continue only the general-purpose Agent Harness and Code workflow. CTF-specific solving/offensive automation is an optional add-on with no active slices; retain generic extension seams only. Historical Cyber percentages are not current planning metrics. See [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md).
+
 Last updated: 2026-08-13
+
+## Maintenance Checkpoint: README and Dependency PR Review
+
+The 2026-08-13 maintenance pass reviewed every open GitHub PR. It merged
+`#18`, `#20`, `#21`, `#22`, `#23`, and `#26`; it closed `#17` and `#19`
+because both must be rebased and regenerate the shared Rust/WASI fixture once,
+and closed `#25` because jsdom 30 requires a newer Node baseline and conflicted
+after the grouped Web update. Combined `main` commit `0a6a4d5` passed all four
+GitHub CI jobs: Go, TypeScript, Rust fixtures, and Windows Desktop.
+
+The root README is now a concise Chinese product page with an English mirror in
+`README.en.md`. Legacy percentages and slice phases live under the README's
+historical-development section and in the existing ledgers. `PRODUCT_SCOPE.md`
+is authoritative: CTF-specific solving and offensive automation are optional
+add-ons with no active slices; only generic extension seams remain. Do not
+repeat this PR review or reinterpret historical Cyber percentages as queued
+work after compaction.
 
 ## Current Checkpoint: P13-H1 through P13-H3 / Schema v96
 

@@ -717,7 +717,9 @@ cyberagent script run scripts/<script-name>.py --workspace demo --idempotency-ke
 
 `--idempotency-key` is optional but recommended for retryable clients. Repeating the same key and intent returns the original Mission/Run/Session/Process without a second budget charge or duplicate events. Reusing it with changed path, arguments, backend, scope, budget, or requester returns conflict exit code 4. Only a SHA-256 digest is stored. `--local` records intent for future Sandbox work; it does not execute locally. Use the printed Process ID with `tool show`, `tool approve`, or `tool deny`; approval completes as dry-run only.
 
-## CTF Mode
+## CTF Compatibility Scaffold (Optional Add-on)
+
+> The commands below are retained for compatibility with the original scaffold. They do not provide automated CTF solving, scanning, exploitation, browser attack tooling, or host execution. CTF-specific development is currently deferred; future capabilities must arrive as separately reviewed add-ons through the generic Tool, Skill, Analyzer, Sandbox, and Report interfaces described in [Product Scope](PRODUCT_SCOPE.md).
 
 ```powershell
 cyberagent ctf init baby-web --category web

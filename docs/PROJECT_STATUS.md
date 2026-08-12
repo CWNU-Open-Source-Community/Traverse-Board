@@ -2,7 +2,18 @@
 
 Last updated: 2026-08-13
 
+> **Scope authority:** active mainline work targets the general-purpose Agent Harness and Code workflow. CTF-specific solving and offensive automation are optional add-ons and have no active implementation schedule. Historical references and percentages below remain audit history, not queued work. See [Product Scope](PRODUCT_SCOPE.md).
+
 ## Resume Context
+
+The 2026-08-13 maintenance pass reviewed every open dependency PR. It merged
+`#18`, `#20`, `#21`, `#22`, `#23`, and `#26`; closed `#17` and `#19` pending a
+single current-main regeneration of their shared Rust/WASI fixture; and closed
+`#25` pending an explicit Node baseline upgrade. Combined main commit
+`0a6a4d5` passed the Go, TypeScript, Rust fixture, and Windows Desktop CI jobs.
+The root README is now a concise Chinese/English product introduction with a
+historical-development section. CTF-specific plans are optional add-on scope,
+not active slices. Do not repeat this PR review after context compaction.
 
 The current mainline checkpoint is P13-H1 through P13-H3 at schema v96. H1
 groups the existing Workbench sidecar tools into Workspace, Run, and Coming
@@ -348,7 +359,7 @@ P9 now also includes `headless.v1`: a read-only, sequence-resumable NDJSON proje
 
 The Bubble Tea entry surface is now Run-first. Its picker uses bounded Store pages for the latest 50 Runs and Sessions, validates Run/Mission/Session bindings, and supports exact `tui --run` opens with a reverse projection check. A Run adds an Edits activity view and full-screen read-only detail for at most 20 exact-Session/Workspace FileEdit previews. The dedicated SQL projection excludes original and replacement file bodies; displayed diff lines are terminal-safe and capped at 128 KiB/4096 lines. Approval keys still mutate only the Tools view, and the diff screen has no review or write authority.
 
-Current product priority: migrate the working v0.1 scaffold into the V2 run-centric, resumable agent runtime described in ADR 0002 and `docs/TASK_BOOK.md`. CTF-specific solving logic is intentionally deferred until the generic runtime is stable.
+Current product priority: mature the V2 run-centric, resumable Agent Harness and the general-purpose Code workflow described in ADR 0002 and `docs/TASK_BOOK.md`. CTF-specific solving and offensive automation are outside the active roadmap; only generic extension seams remain for a separately reviewed future add-on.
 
 Canonical remote: `https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench`. Group work into three focused slices, then run an integrated functional gate, review the combined diff, update project memory, commit, push, and verify CI. Every second batch, after six slices, adds the complete race/static/vulnerability/dependency/privacy robustness gate. This repository currently develops directly on `main`; do not create a branch or pull request unless the user explicitly requests one.
 
@@ -737,7 +748,7 @@ Not done yet:
 - Dedicated TUI file-edit diff pane; existing Tool approval/denial remains available from the Tools view.
 - User-visible safe model-text streaming; durable metadata SSE and exact cross-process cancellation are complete.
 - Script generate-run-fix loop with real model calls.
-- CTF-specific solving workflows beyond placeholder commands.
+- Optional CTF-specific solving workflows are not active work; the placeholder commands remain compatibility scaffolding for a separately reviewed future add-on.
 - General Web control mutations and Rust analyzer processes. The generated React/Vite Run/Agent/delegation/Fan-out/Finding read-first console, bounded local read API, durable metadata SSE, narrowly scoped cancellation/profile controls, and same-process production Web asset serving are complete.
 - Provider monetary cost budgets; token/time budgets, child-Agent scheduling/completion, Findings/Evidence/Report, bounded admission, Agent-owned WorkItems/Notes, create-only Provider dispatch, and bounded TUI summary views are complete.
 - Real Local/container-process execution and Sandbox Artifact export from an actual process; current terminal Shell/ScriptProcess completion remains dry-run only, and v55 never starts its rehearsal container.
@@ -782,7 +793,7 @@ The schema v25 root-inbox-context audit found no unresolved high- or medium-seve
 
 The post-v25 whole-project audit found no remaining high- or medium-severity issue after remediation. It removed the package-level Windows advisory inherited through Bubble Tea by upgrading `golang.org/x/sys` from v0.38.0 to v0.44.0. LocalRunner no longer contains a host execution path and always fails closed; Noop redacts display text, and all runners honor pre-cancelled contexts. Anthropic-compatible providers now accept only HTTPS or exact-loopback HTTP base URLs, reject URL credentials/query/fragment and malformed API keys, clone their HTTP client, and refuse every redirect so `x-api-key` cannot cross origins. Newly created Unix runtime directories and SQLite files use `0700`/`0600`; Windows remains ACL-controlled. Production source contains no `exec.Command`/`CommandContext`, while Docker availability uses only `exec.LookPath`.
 
-Residual robustness limits are explicit rather than hidden: Policy and prompt-injection detection remain heuristic rule sets; approved whole-file replacement re-resolves and hashes immediately before writing but cannot eliminate a same-host external process racing the final filesystem operation; monetary model pricing, real container isolation, autonomous child scheduling, Web control mutations, Rust analyzers, and CTF-specific automation remain future work. These limits do not currently create an unapproved host command or network-tool execution path.
+Residual robustness limits are explicit rather than hidden: Policy and prompt-injection detection remain heuristic rule sets; approved whole-file replacement re-resolves and hashes immediately before writing but cannot eliminate a same-host external process racing the final filesystem operation; monetary model pricing, real container isolation, autonomous child scheduling, Web control mutations, and Rust analyzers remain future core work. CTF-specific automation is optional add-on scope rather than queued core work. These limits do not currently create an unapproved host command or network-tool execution path.
 
 The OpenAPI audit found no unresolved high- or medium-severity issue. The contract is generated without opening SQLite or reading credentials. At that checkpoint it published 43 paths: 30 bodyless authenticated `GET` operations and sixteen separately authorized control `POST` operations. Live-route tests exercised each path against real SQLite state. Golden comparison prevented DTO/document drift. Security tests rejected unauthorized and queried contract requests and asserted that Workspace roots, Artifact/Skill/Session/file bodies, model output, tool arguments, approval commands/paths/content, private narratives, operation/lease-owner/fencing identities, digests, API keys, Provider Base URLs, and environment-variable names were absent. The runtime document was precomputed once at API construction and remained under the existing request-size, response-size, loopback, Host, client-address, and bearer-token boundary.
 

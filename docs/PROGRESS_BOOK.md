@@ -1,10 +1,14 @@
 # Prayu 进度书
 
+> 本文件是按时间追加的历史开发账本，不是待办列表。当前产品范围以 [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md) 为准；CTF 专用求解和攻防自动化已移出活跃路线图，本文中的旧 Cyber 百分比仅保留为历史快照。
+
 更新时间：2026-08-13
 
 ## 一、当前阶段
 
-项目正在从可运行的 v0.1 CLI/TUI 骨架迁移到 V2 Run-centric Runtime。CTF 专用求解能力继续后置，当前先完成主流 AI Agent 工具需要的通用运行时。
+项目正在从可运行的 v0.1 CLI/TUI 骨架迁移到 V2 Run-centric Runtime。当前只推进通用 Agent Harness 与 Code 工作流；CTF 专用求解和攻防自动化已经移出活跃路线图，仅保留通用扩展接口供未来独立附加包接入。
+
+2026-08-13 维护批次完成 GitHub 依赖 PR 评阅：合并 `#18`、`#20`、`#21`、`#22`、`#23`、`#26`，关闭需重新生成共享 Rust/WASI fixture 的 `#17`、`#19`，以及要求更高 Node 基线且已冲突的 `#25`。合并后的 `main` 提交 `0a6a4d5` 通过 Go、TypeScript、Rust fixture 与 Windows Desktop 四项 CI。根 README 已改写为中英文产品介绍，并新增“历史开发记录”；产品范围以 `PRODUCT_SCOPE.md` 为准，旧切片和百分比继续保留在本账本中，不应重新排队执行。
 
 最新 P13-H1/H2/H3 保持 SQLite v96 和 Go 权限边界不变，完成工作台视觉分区、液态玻璃材质与
 字体/CSP 收口。右侧工具按“工作区、运行、即将推出”分组，浏览器仅为禁用占位，不获得 CDP、网络
