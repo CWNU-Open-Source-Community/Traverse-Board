@@ -51,9 +51,14 @@ Set-Location analyzers
 cargo fmt --all -- --check
 cargo test --locked
 cargo clippy --locked --all-targets -- -D warnings
-rustup target add wasm32-wasip1 --toolchain 1.97.1
-cargo +1.97.1 build --locked --target wasm32-wasip1 --package cyberagent-analyzer-fixture --release
+Set-Location ..
+bash ./scripts/build-embedded-wasi.sh
 ```
+
+构建脚本固定 Linux x86_64 与 Rust 1.97.1，并在编译前把 checkout 与 Cargo registry 路径映射为
+稳定虚拟路径。其他宿主会明确拒绝发布构建；不要用裸 Cargo release 命令替代它，否则 WASI 会
+嵌入宿主路径或宿主相关 crate identity，导致二进制摘要漂移。CI 漂移检查会短期保存 canonical
+重建件，供维护者复核并更新内嵌模块。
 
 ## English
 
@@ -88,3 +93,10 @@ schema v95 atomically records redacted execution, metadata-summary Artifact,
 and Run events. CLI, control-token HTTP, and Desktop/React expose only the fixed
 digest analyzer under explicit Go confirmation. Rust still owns no Agent,
 authorization, Run lifecycle, credential, or persistence behavior.
+
+Build the product fixture from the repository root on Linux x86_64 with
+`bash ./scripts/build-embedded-wasi.sh`. The script pins Rust 1.97.1 and remaps
+checkout and Cargo registry paths before compiling. Other hosts fail closed: a
+raw Cargo release build can embed host paths or host-specific crate identities
+and produce a different module digest. On drift, CI retains the canonical
+rebuilt module briefly so maintainers can review and update the embedded copy.
