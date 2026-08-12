@@ -531,6 +531,20 @@ describe("CyberAgentClient", () => {
     }, "web-run-execution-operation-0002")).rejects.toThrow("invalid");
   });
 
+  it("rejects a Run execution response with an unknown Run status", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-execute-status-forged",
+      data: { ...runExecutionData, run_status: "arbitrary" },
+    }), { status: 202, headers: { "Content-Type": "application/json" } })));
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+      runExecutionEnabled: true,
+    });
+
+    await expect(client.executeRun("run-1", {
+      version: "run_execution_handoff.v1", max_steps: 2,
+    }, "web-run-execution-status-0001")).rejects.toThrow("invalid");
+  });
+
   it("accepts an exact lifecycle replay after the Run has advanced", async () => {
     const delayedReplay = {
       ...runLifecycleData, replayed: true,

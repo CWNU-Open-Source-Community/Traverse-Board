@@ -470,7 +470,7 @@ function parseRunExecutionControl(value: unknown, expectedRunID: string,
       value.cancelled_count !== value.selected_count ||
     !safePositiveInteger(value.completion_event_sequence) ||
     (value.status !== "completed" && value.status !== "failed") ||
-    typeof value.run_status !== "string" || typeof value.stop_reason !== "string" ||
+    !isRunStatus(value.run_status) || typeof value.stop_reason !== "string" ||
     value.stop_reason.length === 0 || value.stop_reason.length > 64 ||
     typeof value.replayed !== "boolean" || typeof value.execution_started !== "boolean" ||
     typeof value.model_called !== "boolean" || typeof value.tool_called !== "boolean" ||
