@@ -8,8 +8,8 @@ describe("local Monaco boundary", () => {
     if (typeof source !== "string") throw new Error("local Monaco source was not loaded as text");
     expect(source).toContain('from "monaco-editor"');
     expect(source).toContain("loader.config({ monaco })");
-    for (const worker of ["editor.worker?worker", "json.worker?worker", "css.worker?worker",
-      "html.worker?worker", "ts.worker?worker"]) {
+    for (const worker of ["editor.worker.js?worker", "json.worker.js?worker", "css.worker.js?worker",
+      "html.worker.js?worker", "ts.worker.js?worker"]) {
       expect(source).toContain(worker);
     }
     expect(source).not.toContain("https://");
