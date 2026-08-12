@@ -10,6 +10,7 @@ import {
 import { formatBytes, formatNumber } from "../lib/format";
 import { useLocale } from "../lib/locale";
 import { OperationReceipt } from "./operation-receipt";
+import { useModalFocusTrap } from "../hooks/use-modal-focus-trap";
 
 export function DesktopSkillPreviewDialog({ open, onClose, installationEnabled = false }: {
   open: boolean;
@@ -24,6 +25,7 @@ export function DesktopSkillPreviewDialog({ open, onClose, installationEnabled =
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const operationKey = useRef("");
+  const dialogRef = useModalFocusTrap<HTMLElement>(open, onClose, loading);
 
   useEffect(() => {
     if (!open) {
@@ -32,16 +34,8 @@ export function DesktopSkillPreviewDialog({ open, onClose, installationEnabled =
       setConfirmed(false);
       setError("");
       setLoading(false);
-      return;
     }
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !loading) {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [loading, onClose, open]);
+  }, [open]);
 
   if (!open) {
     return null;
@@ -83,7 +77,8 @@ export function DesktopSkillPreviewDialog({ open, onClose, installationEnabled =
 
   return (
     <div className="desktop-dialog-backdrop" role="presentation">
-      <section aria-labelledby="desktop-skill-title" aria-modal="true" className="desktop-dialog" role="dialog">
+      <section aria-labelledby="desktop-skill-title" aria-modal="true" className="desktop-dialog"
+        ref={dialogRef} role="dialog" tabIndex={-1}>
         <header>
           <div>
             <span className="dialog-icon"><FileArchive aria-hidden="true" size={18} /></span>

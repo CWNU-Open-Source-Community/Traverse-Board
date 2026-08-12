@@ -24,6 +24,7 @@ import { useLocale } from "../lib/locale";
 import { useConnectionStore } from "../state/connection";
 import { ErrorState, LoadMoreButton, LoadingState } from "./common";
 import { PrayuBrand } from "./prayu-brand";
+import { useModalFocusTrap } from "../hooks/use-modal-focus-trap";
 
 export type WorkbenchSection =
   | "conversation"
@@ -98,6 +99,8 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
       void queryClient.invalidateQueries({ queryKey: ["session", result.session_id] });
     },
   });
+  const archiveDialogRef = useModalFocusTrap<HTMLElement>(Boolean(archiveCandidate),
+    () => setArchiveCandidate(null), archiveMutation.isPending);
 
   useEffect(() => {
     if (kind === "run" && !runsQuery.isLoading && !runsQuery.isFetching &&
@@ -227,7 +230,8 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
 
       {archiveCandidate && <div className="desktop-dialog-backdrop" role="presentation">
         <section aria-labelledby="archive-session-title" aria-modal="true"
-          className="desktop-dialog archive-session-dialog" role="dialog">
+          className="desktop-dialog archive-session-dialog" ref={archiveDialogRef}
+          role="dialog" tabIndex={-1}>
           <header>
             <div><span className="dialog-icon"><Trash2 aria-hidden="true" size={17} /></span>
               <div><h2 id="archive-session-title">{t("删除对话", "Delete conversation")}</h2>

@@ -1,6 +1,7 @@
 import { FolderOpen, X } from "lucide-react";
 import type { CyberAgentClient } from "../api/client";
 import { WorkspaceExplorer } from "./workspace-explorer";
+import { useModalFocusTrap } from "../hooks/use-modal-focus-trap";
 
 export function WorkspaceAttachmentDialog({ client, open, onClose, runID, workspaceID }: {
   client: CyberAgentClient;
@@ -9,10 +10,12 @@ export function WorkspaceAttachmentDialog({ client, open, onClose, runID, worksp
   runID: string;
   workspaceID: string;
 }) {
+  const dialogRef = useModalFocusTrap<HTMLElement>(open, onClose);
   if (!open) return null;
   return <div className="desktop-dialog-backdrop" role="presentation">
     <section aria-labelledby="workspace-attachment-title" aria-modal="true"
-      className="desktop-dialog workspace-attachment-dialog" role="dialog">
+      className="desktop-dialog workspace-attachment-dialog" ref={dialogRef}
+      role="dialog" tabIndex={-1}>
       <header>
         <div><span className="dialog-icon"><FolderOpen aria-hidden="true" size={17} /></span>
           <div><h2 id="workspace-attachment-title">文件和文件夹</h2>

@@ -9,6 +9,7 @@ import type {
 } from "../api/types";
 import { useConnectionStore } from "../state/connection";
 import { useLocale } from "../lib/locale";
+import { useModalFocusTrap } from "../hooks/use-modal-focus-trap";
 
 const profiles: Array<NonNullable<RunCreationControlRequestView["profile"]>> = ["code", "review", "learn", "script"];
 const surfaces: Array<NonNullable<RunCreationControlRequestView["surface"]>> = ["code", "cyber"];
@@ -71,19 +72,7 @@ export function RunCreationDialog({ client, open, onClose, initialGoal = "",
       setWorkspaceID(workspaces.data.items[0].id);
     }
   }, [workspaceID, workspaces.data]);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !mutation.isPending) {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [mutation.isPending, onClose, open]);
+  const dialogRef = useModalFocusTrap<HTMLFormElement>(open, onClose, mutation.isPending);
 
   if (!open) {
     return null;
@@ -122,7 +111,7 @@ export function RunCreationDialog({ client, open, onClose, initialGoal = "",
   return (
     <div className="desktop-dialog-backdrop" role="presentation">
       <form aria-labelledby="run-creation-title" aria-modal="true" className="desktop-dialog run-creation-dialog"
-        onSubmit={submit} role="dialog">
+        onSubmit={submit} ref={dialogRef} role="dialog" tabIndex={-1}>
         <header>
           <div>
             <span className="dialog-icon"><Plus aria-hidden="true" size={17} /></span>

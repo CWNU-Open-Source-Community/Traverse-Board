@@ -5,6 +5,7 @@ import type { CyberAgentClient } from "../api/client";
 import type { ModelHarnessQualificationView, ProviderDiagnosticView } from "../api/types";
 import { ErrorState, LoadingState, StatusBadge } from "./common";
 import { useLocale } from "../lib/locale";
+import { useModalFocusTrap } from "../hooks/use-modal-focus-trap";
 
 export function ModelAvailabilityDialog({ client, open, onClose }: {
   client: CyberAgentClient;
@@ -36,6 +37,7 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
   const [credentialRestart, setCredentialRestart] = useState(false);
   const [credentialGeneration, setCredentialGeneration] = useState<number | null>(null);
   const credentialInputs = useRef(new Map<string, HTMLInputElement>());
+  const dialogRef = useModalFocusTrap<HTMLElement>(open && presentation === "dialog", onClose);
   const query = useQuery({
     queryKey: ["models", "availability"],
     queryFn: ({ signal }) => client.modelAvailability(signal),
@@ -108,7 +110,8 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
         aria-modal={presentation === "dialog" ? "true" : undefined}
         className={presentation === "dialog"
           ? "desktop-dialog model-availability-dialog" : "model-control-workspace"}
-        role={presentation === "dialog" ? "dialog" : "region"}>
+        ref={dialogRef} role={presentation === "dialog" ? "dialog" : "region"}
+        tabIndex={presentation === "dialog" ? -1 : undefined}>
         <header>
           <div>
             <span className="dialog-icon"><Cpu aria-hidden="true" size={18} /></span>
