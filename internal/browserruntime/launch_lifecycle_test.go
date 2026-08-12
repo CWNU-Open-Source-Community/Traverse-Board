@@ -140,7 +140,7 @@ func browserLaunchFixture(t *testing.T) (SessionPlan, BrowserExecutableIdentity,
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := t.TempDir()
+	root := directTestPath(t, t.TempDir())
 	spec := knownSpec(t, DiscoveryRootProgramFiles, BrowserProductChrome,
 		BrowserChannelStable)
 	path := filepath.Join(append([]string{root}, spec.Components...)...)
@@ -168,7 +168,7 @@ func browserLaunchFixture(t *testing.T) (SessionPlan, BrowserExecutableIdentity,
 	if err != nil {
 		t.Fatal(err)
 	}
-	profileRoot := filepath.Join(t.TempDir(), ProfileRuntimeRootName)
+	profileRoot := filepath.Join(directTestPath(t, t.TempDir()), ProfileRuntimeRootName)
 	ownership, err := BuildProfileOwnershipPlan(session, identity, profileRoot)
 	if err != nil {
 		t.Fatal(err)

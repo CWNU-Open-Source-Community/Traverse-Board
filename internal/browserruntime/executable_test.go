@@ -12,7 +12,7 @@ import (
 )
 
 func TestBrowserExecutableDiscoveryBindsFixedPEBytesWithoutPATHOrLaunch(t *testing.T) {
-	root := t.TempDir()
+	root := directTestPath(t, t.TempDir())
 	relative := filepath.Join("Google", "Chrome", "Application", "chrome.exe")
 	path := filepath.Join(root, relative)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -60,7 +60,7 @@ func TestBrowserExecutableDiscoveryBindsFixedPEBytesWithoutPATHOrLaunch(t *testi
 }
 
 func TestBrowserExecutableDiscoveryRejectsRegistryEscapeAndUnsafeCandidate(t *testing.T) {
-	root := t.TempDir()
+	root := directTestPath(t, t.TempDir())
 	escape := browserExecutableSpec{
 		RootID: DiscoveryRootProgramFiles, Product: BrowserProductChrome,
 		Channel: BrowserChannelStable, Vendor: "Google",
@@ -86,7 +86,7 @@ func TestBrowserExecutableDiscoveryRejectsRegistryEscapeAndUnsafeCandidate(t *te
 }
 
 func TestBrowserExecutableIdentityRejectsTamperingAndByteDrift(t *testing.T) {
-	root := t.TempDir()
+	root := directTestPath(t, t.TempDir())
 	spec := knownSpec(t, DiscoveryRootProgramFiles, BrowserProductEdge,
 		BrowserChannelStable)
 	path := filepath.Join(append([]string{root}, spec.Components...)...)
@@ -131,7 +131,7 @@ func TestBrowserExecutableIdentityRejectsTamperingAndByteDrift(t *testing.T) {
 }
 
 func TestBrowserExecutableDiscoverySkipsMissingCandidatesAndDeduplicatesRoots(t *testing.T) {
-	root := t.TempDir()
+	root := directTestPath(t, t.TempDir())
 	spec := knownSpec(t, DiscoveryRootProgramFiles, BrowserProductChromium,
 		BrowserChannelStable)
 	identities, err := discoverBrowserExecutables([]DiscoveryRoot{
@@ -203,4 +203,13 @@ func minimalPEImage(t *testing.T, arch string) []byte {
 	binary.LittleEndian.PutUint16(raw[0x86:0x88], 1)
 	binary.LittleEndian.PutUint16(raw[0x96:0x98], 0x0002)
 	return raw
+}
+
+func directTestPath(t *testing.T, path string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resolved
 }
