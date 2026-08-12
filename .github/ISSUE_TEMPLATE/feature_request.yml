@@ -60,7 +60,7 @@ body:
     id: authority_impact
     attributes:
       label: Authority and trust-boundary impact
-      description: State whether this changes file reads/writes, process or Shell execution, network access, browser/CDP, Docker, credentials, approvals, delegation, or persistence. Write "No authority change" if none apply.
+      description: State whether this changes files, process or Shell execution, network, browser/CDP, Docker, credentials, approvals, delegation, or persistence. Write "No authority change" if none apply.
       placeholder: "Capabilities affected, who authorizes them, where Go enforces the boundary, and what remains explicitly unavailable."
     validations:
       required: true
