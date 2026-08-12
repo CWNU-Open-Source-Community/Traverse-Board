@@ -1,0 +1,111 @@
+name: Bug report / 缺陷报告
+description: Report a reproducible problem in Prayu / 报告可复现的 Prayu 问题
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Prayu. Please search existing issues before filing a new report.
+
+        **Security and privacy:** do not include credentials, API keys, personal data, private prompts, provider payloads, raw tool arguments or output, or unredacted host paths. If the report contains exploitable details or other sensitive material, stop and use the repository's [Security page](https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench/security) instead of opening a public issue.
+
+  - type: input
+    id: version
+    attributes:
+      label: Prayu version or commit
+      description: Provide a release version, build identifier, or full Git commit SHA.
+      placeholder: "Commit 0123456789abcdef..."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      description: Select every interface where you observed the problem.
+      multiple: true
+      options:
+        - CLI
+        - TUI
+        - Web console
+        - Windows Desktop
+        - HTTP API
+        - Go package or internal service
+        - Build, packaging, or CI
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: Include the OS version and architecture when relevant.
+      placeholder: "Windows 11 24H2 (x86-64), Ubuntu 24.04 (x86-64), or macOS 15 (arm64)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: latest_main
+    attributes:
+      label: Reproduces on the latest main branch
+      description: If it is safe and practical, check whether the problem still occurs on the latest main branch.
+      options:
+        - "Yes"
+        - "No"
+        - Not tested
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Give the smallest deterministic sequence that reproduces the problem. Use mock or non-sensitive data where possible.
+      placeholder: |
+        1. Start Prayu with ...
+        2. Create or open ...
+        3. Select ...
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead? Include any bounded, non-sensitive error message.
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics
+      description: Share only the minimum relevant, redacted logs or screenshots. Do not attach a database, credential store, full environment dump, raw provider exchange, prompt, or tool payload.
+      placeholder: "Paste a short redacted excerpt, or write 'None'."
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add any other non-sensitive detail that helps distinguish this problem from similar reports.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues and did not find an equivalent report.
+          required: true
+        - label: I removed credentials, personal data, private prompts, provider payloads, raw tool arguments/output, and sensitive local paths.
+          required: true
