@@ -40,13 +40,13 @@ const cancellationResult: SessionSteeringCancellationView = {
   execution_started: false, model_called: false, tool_called: false, capability_grant: false,
 };
 
-describe("SessionComposer", () => {
-  beforeEach(() => {
-    localStorage.clear();
-    localStorage.setItem("prayu.locale.v1", "en-US");
-    sessionStorage.clear();
-  });
+beforeEach(() => {
+  localStorage.clear();
+  localStorage.setItem("prayu.locale.v1", "en-US");
+  sessionStorage.clear();
+});
 
+describe("SessionComposer", () => {
   it("reuses an in-memory operation key after uncertain failure and clears on success", async () => {
     const submitSessionMessage = vi.fn()
       .mockRejectedValueOnce(new Error("response unavailable"))
