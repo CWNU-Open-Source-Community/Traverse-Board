@@ -294,9 +294,11 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
         onOpenPlugins={desktop ? () => setSkillPreviewOpen(true) : undefined} />
       : selectedResourceID
         ? resourceKind === "run"
-          ? <RunWorkspace client={client} onOpenPlugins={desktop ? () => setSkillPreviewOpen(true) : undefined}
+          ? <RunWorkspace client={client} key={selectedRunID}
+            onOpenPlugins={desktop ? () => setSkillPreviewOpen(true) : undefined}
             runID={selectedRunID} />
-          : <SessionWorkspace client={client} onOpenPlugins={desktop ? () => setSkillPreviewOpen(true) : undefined}
+          : <SessionWorkspace client={client} key={selectedSessionID}
+            onOpenPlugins={desktop ? () => setSkillPreviewOpen(true) : undefined}
             sessionID={selectedSessionID} />
         : <EmptyConversation client={client} creationEnabled={runCreationEnabled}
           onCreateRun={openRunCreation}
