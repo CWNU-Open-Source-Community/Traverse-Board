@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { CyberAgentClient } from "../api/client";
 import type { RunView, SessionView } from "../api/types";
+import { formatCompactDate } from "../lib/format";
 import { useConnectionStore } from "../state/connection";
 import { ResourceSidebar } from "./resource-sidebar";
 
@@ -107,6 +108,10 @@ describe("ResourceSidebar", () => {
     expect(screen.getByRole("button", { name: "模型切换" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "自动定时" })).toBeInTheDocument();
     expect(screen.getByText("修复登录回归")).toBeInTheDocument();
+    expect(screen.getAllByText(new RegExp(formatCompactDate("2026-07-13T00:00:00Z"))).length)
+      .toBeGreaterThan(0);
+    expect(screen.queryByText(new RegExp(formatCompactDate("2026-07-13T00:01:00Z"))))
+      .not.toBeInTheDocument();
     expect(container.querySelector(".resource-row.selected strong"))
       .toHaveTextContent("任务");
 

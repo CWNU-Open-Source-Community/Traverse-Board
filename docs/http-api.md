@@ -242,7 +242,7 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8765/api/v1/skills/packages/inst
 | `POST` | `/api/v1/models/credentials/{provider}` | Explicitly set/delete one Windows system credential; secret is write-only and a successful atomic generation reload needs no restart |
 | `POST` | `/api/v1/models/diagnostics` | One explicitly confirmed, content-free, tool-disabled Provider diagnostic |
 | `POST` | `/api/v1/models/routes/{profile}` | Persist one validated Provider/model route before updating the in-memory Router |
-| `GET` | `/api/v1/runs` | Runs; `status`, `mission_id`, pagination |
+| `GET` | `/api/v1/runs` | Creation-ordered Runs; `status`, `mission_id`, stable keyset pagination |
 | `POST` | `/api/v1/runs` | Idempotently create one closed Mission/Run/Session in a registered Workspace |
 | `GET` | `/api/v1/runs/{run_id}` | Run, Mission, immutable execution-mode/profile snapshots, read-only Plan/checkpoint/external-Skill metadata, tool usage, token-free execution-lease summary |
 | `GET` | `/api/v1/runs/{run_id}/external-skills` | Bounded external-Skill provenance and root/Specialist delivery counts; no content, paths, digests, or private identities |
@@ -297,7 +297,7 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8765/api/v1/skills/packages/inst
 | `GET` | `/api/v1/runs/{run_id}/notes` | `status`, `category`, `visibility`, legacy `owner`, `owner_agent_id`, `tag`, `pinned`, pagination |
 | `GET` | `/api/v1/runs/{run_id}/artifacts` | Artifact descriptors; `source_id`, `stream`, pagination |
 | `GET` | `/api/v1/runs/{run_id}/tool-rounds` | Historical Supervisor tool rounds and redacted calls; pagination |
-| `GET` | `/api/v1/sessions` | Sessions; pagination |
+| `GET` | `/api/v1/sessions` | Creation-ordered Sessions; stable keyset pagination |
 | `GET` | `/api/v1/sessions/{session_id}` | Session and optional bound Run |
 | `GET` | `/api/v1/sessions/{session_id}/messages` | Messages; `include_compacted`, pagination |
 | `POST` | `/api/v1/sessions/{session_id}/messages` | Idempotently queue one bounded message for the exact Run-bound Session; no execution |
@@ -652,7 +652,7 @@ Collection routes accept `limit` from 1 to 100; the default is 50. `next_cursor`
 
 Clients must not decode, edit, persist indefinitely, or synthesize cursors. Restart pagination from the first page after a filter change or a rejected cursor.
 
-Most pagination is a bounded live SQLite projection, not a multi-request snapshot. Append-only event/message order remains stable, but updates to descending activity lists can move rows between requests. Clients that require a fresh consistent view should restart from the first page. The exact verification-item route is the explicit exception: it freezes an association-event high-water and aggregate counts, then uses a rank-checked keyset cursor for stable pages within its 100,000-row window.
+Most pagination is a bounded live SQLite projection, not a multi-request snapshot. Append-only event/message order remains stable, but updates to descending activity lists can move rows between requests. Top-level Run and Session lists across HTTP, CLI, TUI, and Web use immutable `(created_at, id)` ordering; HTTP continuation pages use that keyset, so ordinary updates and later-created records cannot shift them. Run status-filter membership remains live. The exact verification-item route separately freezes an association-event high-water and aggregate counts, then uses a rank-checked keyset cursor for stable pages within its 100,000-row window. Clients that require a fresh view after a filter-membership change should restart from the first page.
 
 ## 当前限制 / Current Limits
 

@@ -103,6 +103,8 @@ type Store interface {
 	CancelOperatorSteering(ctx context.Context,
 		request domain.CancelOperatorSteeringRequest) (domain.OperatorSteeringCancellationResult, error)
 	ListRuns(ctx context.Context, filter domain.RunFilter) ([]domain.Run, error)
+	ListRunsByCreationPage(ctx context.Context, filter domain.RunFilter,
+		beforeCreatedAt time.Time, beforeID string) ([]domain.Run, error)
 	ListRunEventsPage(ctx context.Context, runID string, offset int, limit int) ([]events.Event, error)
 	ListRunEventsAfterSequence(ctx context.Context, runID string, afterSequence int64, limit int) ([]events.Event, error)
 	LatestRunEventSequence(ctx context.Context, runID string) (int64, error)
@@ -153,6 +155,8 @@ type Store interface {
 	GetWorkspaceInfo(ctx context.Context, id string) (session.WorkspaceInfo, error)
 	ListWorkspacesPage(ctx context.Context, offset int, limit int) ([]session.WorkspaceRecord, error)
 	ListSessionsPage(ctx context.Context, offset int, limit int) ([]session.Session, error)
+	ListSessionsByCreationPage(ctx context.Context, beforeCreatedAt time.Time,
+		beforeID string, limit int) ([]session.Session, error)
 	ListSessionMessagesPage(ctx context.Context, sessionID string, includeCompacted bool,
 		offset int, limit int) ([]session.Message, error)
 	ListTerminalOperationRecords(context.Context, string, int) (

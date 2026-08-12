@@ -598,7 +598,8 @@ func (s *SQLiteStore) GetSession(ctx context.Context, id string) (session.Sessio
 }
 
 func (s *SQLiteStore) ListSessions(ctx context.Context) ([]session.Session, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, workspace_id, title, route, status, created_at, updated_at FROM sessions ORDER BY updated_at DESC, id DESC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, workspace_id, title, route, status, created_at, updated_at
+		FROM sessions ORDER BY `+sessionCreationTimestampKeySQL+` DESC, id DESC`)
 	if err != nil {
 		return nil, err
 	}

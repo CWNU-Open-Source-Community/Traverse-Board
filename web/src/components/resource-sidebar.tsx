@@ -178,7 +178,7 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
                 <MessagesSquare aria-hidden="true" size={15} />
                 <span className="sidebar-history-copy">
                   <strong>{session.title}</strong>
-                  <small>{session.route} · {formatCompactDate(session.updated_at)}</small>
+                  <small>{session.route} · {formatCompactDate(session.created_at)}</small>
                 </span>
                 <i aria-label={session.status} className={`history-status status-${session.status}`} />
               </button>
@@ -211,7 +211,7 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
               <ListTree aria-hidden="true" size={15} />
               <span className="sidebar-history-copy">
                 <strong>{t("任务", "Task")} {shortID(run.mission_id)}</strong>
-                <small>{shortID(run.id)} · {formatCompactDate(run.updated_at)}</small>
+                <small>{shortID(run.id)} · {formatCompactDate(run.created_at)}</small>
               </span>
               <i aria-label={run.status} className={`history-status status-${run.status}`} />
             </button>

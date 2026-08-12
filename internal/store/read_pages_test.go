@@ -41,6 +41,15 @@ func TestSQLiteReadPagesUseStableOffsetsAndBoundedMetadataQueries(t *testing.T) 
 	if err != nil || len(sessionPage) != 1 || sessionPage[0].ID != allSessions[1].ID {
 		t.Fatalf("Session offset page is unstable: %#v err=%v", sessionPage, err)
 	}
+	updatedSession := allSessions[2]
+	updatedSession.UpdatedAt = time.Now().UTC().Add(time.Hour)
+	if err := st.SaveSession(ctx, updatedSession); err != nil {
+		t.Fatal(err)
+	}
+	creationOrderedSessions, err := st.ListSessionsPage(ctx, 0, 3)
+	if err != nil || creationOrderedSessions[2].ID != updatedSession.ID {
+		t.Fatalf("Session update reordered creation history: %#v err=%v", creationOrderedSessions, err)
+	}
 
 	messageSession := allSessions[len(allSessions)-1]
 	for index, compacted := range []bool{false, true, false} {
@@ -119,6 +128,10 @@ func TestSQLiteReadPagesUseStableOffsetsAndBoundedMetadataQueries(t *testing.T) 
 	runPage, err := st.ListRuns(ctx, domain.RunFilter{Limit: 1, Offset: 1})
 	if err != nil || len(runPage) != 1 || runPage[0].ID != allRuns[1].ID {
 		t.Fatalf("Run offset page is unstable: %#v err=%v", runPage, err)
+	}
+	creationOrderedRuns, err := st.ListRuns(ctx, domain.RunFilter{Limit: 100})
+	if err != nil || creationOrderedRuns[1].ID != firstRun.ID {
+		t.Fatalf("Run lifecycle update reordered creation history: %#v err=%v", creationOrderedRuns, err)
 	}
 	eventList, err := st.ListRunEvents(ctx, firstRun.ID)
 	if err != nil || len(eventList) < 4 {
@@ -234,6 +247,24 @@ func TestSQLiteReadPagesRejectOutOfRangeBounds(t *testing.T) {
 	}
 	if _, err := st.ListRuns(ctx, domain.RunFilter{Offset: maxStoreListOffset + 1}); err == nil {
 		t.Fatal("oversized Run list offset was accepted")
+	}
+	anchor := time.Now().UTC()
+	if _, err := st.ListSessionsByCreationPage(ctx, time.Time{}, "session-without-time", 1); err == nil {
+		t.Fatal("Session creation page accepted a partial anchor")
+	}
+	if _, err := st.ListSessionsByCreationPage(ctx, anchor, "", 1); err == nil {
+		t.Fatal("Session creation page accepted a missing anchor identity")
+	}
+	if _, err := st.ListSessionsByCreationPage(ctx, anchor, "session", maxStoreReadPageLimit+1); err == nil {
+		t.Fatal("Session creation page accepted an oversized limit")
+	}
+	if _, err := st.ListRunsByCreationPage(ctx,
+		domain.RunFilter{Limit: 1, Offset: 1}, anchor, "run"); err == nil {
+		t.Fatal("Run creation page accepted an offset")
+	}
+	if _, err := st.ListRunsByCreationPage(ctx,
+		domain.RunFilter{Limit: 1, Status: "unknown"}, time.Time{}, ""); err == nil {
+		t.Fatal("Run creation page accepted an invalid status")
 	}
 	if _, err := st.ListFileEditPreviewsPage(ctx, fileedit.ListFilter{}, 0, 0); err == nil {
 		t.Fatal("zero FileEdit preview page limit was accepted")

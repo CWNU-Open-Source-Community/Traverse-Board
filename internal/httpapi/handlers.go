@@ -714,11 +714,11 @@ func (a *API) runs(request *http.Request) (any, *Page, error) {
 	if err := validateSingleQueryValues(values, "limit", "cursor", "status", "mission_id"); err != nil {
 		return nil, nil, err
 	}
-	pageRequest, err := parsePage(values, request.URL.Path)
+	pageRequest, err := parseStableListPage(values, request.URL.Path)
 	if err != nil {
 		return nil, nil, err
 	}
-	filter := domain.RunFilter{Limit: pageRequest.Limit + 1, Offset: pageRequest.Offset}
+	filter := domain.RunFilter{Limit: stableListStoreLimit(pageRequest)}
 	if raw, ok := singleQueryValue(values, "mission_id"); ok {
 		if err := validateIdentity(raw, "mission id"); err != nil {
 			return nil, nil, err
@@ -732,7 +732,8 @@ func (a *API) runs(request *http.Request) (any, *Page, error) {
 		}
 		filter.Status = status
 	}
-	runs, err := a.store.ListRuns(request.Context(), filter)
+	runs, err := a.store.ListRunsByCreationPage(request.Context(), filter,
+		pageRequest.Anchor.BeforeCreatedAt, pageRequest.Anchor.BeforeID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -740,7 +741,7 @@ func (a *API) runs(request *http.Request) (any, *Page, error) {
 	for index := range runs {
 		views[index] = runView(runs[index])
 	}
-	views, page := trimPage(views, pageRequest)
+	views, page := trimStableListPage(views, pageRequest, runStableListPosition)
 	return views, page, nil
 }
 
@@ -1117,11 +1118,13 @@ func (a *API) sessions(request *http.Request) (any, *Page, error) {
 	if err := validateSingleQueryValues(values, "limit", "cursor"); err != nil {
 		return nil, nil, err
 	}
-	pageRequest, err := parsePage(values, request.URL.Path)
+	pageRequest, err := parseStableListPage(values, request.URL.Path)
 	if err != nil {
 		return nil, nil, err
 	}
-	sessions, err := a.store.ListSessionsPage(request.Context(), pageRequest.Offset, pageRequest.Limit+1)
+	sessions, err := a.store.ListSessionsByCreationPage(request.Context(),
+		pageRequest.Anchor.BeforeCreatedAt, pageRequest.Anchor.BeforeID,
+		stableListStoreLimit(pageRequest))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1129,7 +1132,7 @@ func (a *API) sessions(request *http.Request) (any, *Page, error) {
 	for index := range sessions {
 		views[index] = sessionView(sessions[index])
 	}
-	views, page := trimPage(views, pageRequest)
+	views, page := trimStableListPage(views, pageRequest, sessionStableListPosition)
 	return views, page, nil
 }
 
