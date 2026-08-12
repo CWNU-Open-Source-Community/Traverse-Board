@@ -483,7 +483,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				TransportAttempt: 1, MaxAttempts: 1, Provider: "mock", Model: "mock-code",
 				StartedAt: now,
 			},
-			Revision: 1, Text: "OpenAPI public model stream", Provisional: true,
+			Revision: 1, ContentKind: application.PublicModelStreamRootMessage,
+			Text: "OpenAPI public model stream", Provisional: true,
 			UpdatedAt: now,
 		}}
 	fixture.api.planDeliveryController = application.NewPlanDeliveryControlService(fixture.store)

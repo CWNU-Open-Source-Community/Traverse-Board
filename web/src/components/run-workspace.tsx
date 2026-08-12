@@ -183,7 +183,11 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
       latestStreamFrame.sequence <= (activityQuery.data?.through_sequence ?? 0)) {
       return;
     }
-    void queryClient.invalidateQueries({ queryKey: ["run", runID, "activity"] });
+    const delays = [0, 250, 800];
+    const timers = delays.map((delay) => window.setTimeout(() => {
+      void queryClient.invalidateQueries({ queryKey: ["run", runID, "activity"] });
+    }, delay));
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, [
     activityQuery.data?.through_sequence,
     latestStreamFrame,

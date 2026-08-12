@@ -32,7 +32,8 @@ func TestPublicModelStreamReturnsOnlyBoundProvisionalSnapshot(t *testing.T) {
 			MaxAttempts: 3, Provider: "provider", Model: "model", StartedAt: now,
 			StreamChunks: 2, StreamBytes: 128,
 		},
-		Revision: 2, Text: "safe public preview", Provisional: true, UpdatedAt: now,
+		Revision: 2, ContentKind: application.PublicModelStreamToolCommentary,
+		Text: "safe public preview", Provisional: true, UpdatedAt: now,
 	}
 	api, err := New(fixture.store, Config{AccessToken: testAccessToken,
 		PublicModelStreamSource: staticPublicModelStreamSource{snapshot: snapshot, found: true}})
@@ -53,7 +54,8 @@ func TestPublicModelStreamReturnsOnlyBoundProvisionalSnapshot(t *testing.T) {
 	if err := json.Unmarshal(envelope.Data, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Text != snapshot.Text || got.Call.RunID != fixture.run.ID || !got.Provisional {
+	if got.Text != snapshot.Text || got.ContentKind != snapshot.ContentKind ||
+		got.Call.RunID != fixture.run.ID || !got.Provisional {
 		t.Fatalf("unexpected public stream snapshot: %#v", got)
 	}
 
@@ -78,7 +80,8 @@ func TestPublicModelStreamFailsClosedWhenInactiveOrMismatched(t *testing.T) {
 					ModelAttempt: 1, TransportAttempt: 1, MaxAttempts: 1,
 					Provider: "provider", Model: "model", StartedAt: time.Now().UTC(),
 				},
-				Revision: 1, Provisional: true, UpdatedAt: time.Now().UTC(),
+				Revision: 1, ContentKind: application.PublicModelStreamRootMessage,
+				Provisional: true, UpdatedAt: time.Now().UTC(),
 			}},
 	} {
 		t.Run(name, func(t *testing.T) {

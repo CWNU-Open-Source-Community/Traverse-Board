@@ -15967,6 +15967,9 @@
           "call": {
             "$ref": "#/components/schemas/ActiveCallInfo"
           },
+          "content_kind": {
+            "type": "string"
+          },
           "message_complete": {
             "type": "boolean"
           },
@@ -15992,6 +15995,7 @@
           "version",
           "call",
           "revision",
+          "content_kind",
           "text",
           "message_complete",
           "provisional",

@@ -116,7 +116,7 @@ func projectEvent(event events.Event) (Item, bool) {
 		base.Kind, base.Title, base.Status = KindModelCall, "模型调用开始", "running"
 		base.Detail = modelIdentity(event.PayloadJSON)
 	case events.ModelPublicCommentaryEvent:
-		base.Kind, base.Source, base.Title = KindModelUpdate, SourceModel, "Prayu 进度"
+		base.Kind, base.Source, base.Title = KindModelUpdate, SourceModel, "Prayu"
 		base.Detail = stringField(event.PayloadJSON, "text")
 		base.Verifiable = false
 		base.AttemptID = cleanLabel(stringField(event.PayloadJSON, "attempt_id"))

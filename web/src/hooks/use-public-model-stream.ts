@@ -13,6 +13,7 @@ export interface PublicModelStreamState {
 
 const livePollDelayMs = 150;
 const reconnectDelayMs = 500;
+const finalizingMissLimit = 2;
 
 function delay(milliseconds: number, signal: AbortSignal): Promise<void> {
   if (signal.aborted) {
@@ -49,6 +50,7 @@ export function usePublicModelStream(client: CyberAgentClient, runID: string,
     }
 
     let current: PublicModelStreamSnapshot | null = null;
+    let finalizingMisses = 0;
     const poll = async () => {
       setStatus("waiting");
       while (!controller.signal.aborted) {
@@ -62,12 +64,24 @@ export function usePublicModelStream(client: CyberAgentClient, runID: string,
             current = next;
             setSnapshot(next);
           }
+          finalizingMisses = 0;
           setStatus("live");
           setError("");
         } catch (caught) {
           if (controller.signal.aborted) return;
           if (caught instanceof APIRequestError && caught.status === 404) {
-            setStatus(current ? "finalizing" : "waiting");
+            if (current) {
+              finalizingMisses++;
+              if (finalizingMisses >= finalizingMissLimit) {
+                current = null;
+                setSnapshot(null);
+                setStatus("waiting");
+              } else {
+                setStatus("finalizing");
+              }
+            } else {
+              setStatus("waiting");
+            }
             setError("");
             wait = reconnectDelayMs;
           } else if (caught instanceof APIRequestError &&

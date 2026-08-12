@@ -198,8 +198,12 @@ export function SessionComposer({ client, sessionID, run, workspaceID = "", cont
       void queryClient.invalidateQueries({ queryKey: ["run", result.submission.run_id] });
       void queryClient.invalidateQueries({ queryKey: ["runs"] });
       void queryClient.invalidateQueries({ queryKey: ["session", sessionID] });
-      void queryClient.invalidateQueries({ queryKey: ["activity"] });
-      void queryClient.invalidateQueries({ queryKey: ["events"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["run", result.submission.run_id, "activity"],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["run", result.submission.run_id, "events"],
+      });
     },
     onSettled: (_result, _error, variables) => {
       if (turnAbort.current === variables.controller) turnAbort.current = null;

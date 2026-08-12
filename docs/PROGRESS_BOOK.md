@@ -1,10 +1,21 @@
 # Prayu 进度书
 
-更新时间：2026-08-11
+更新时间：2026-08-12
 
 ## 一、当前阶段
 
 项目正在从可运行的 v0.1 CLI/TUI 骨架迁移到 V2 Run-centric Runtime。CTF 专用求解能力继续后置，当前先完成主流 AI Agent 工具需要的通用运行时。
+
+最新 P13-G1/G2/G3 保持 SQLite v96 不变，修复人工验收发现的披露块纵向挤压、回复间距过大、
+普通最终回答重复冒充 Live Activity，以及临时进度必须等下一条消息才收敛的问题。Harness 折叠块
+恢复完整横向布局；`model_public_stream.v2` 显式区分 `root_message` 与 `tool_commentary`，仅允许
+Tool Call 回合中的两句以内、最多 320 字符、非 Markdown 公开短进度进入 Commentary。真实工具
+生命周期按操作名折叠为“运行了 N 个操作”，其完成/失败状态只来自 Go Harness。临时项由精确
+attempt/model/tool-round 身份替换，最终化 404 有界清除；Run Activity/Event 使用精确查询键并在
+投影延迟窗口内补刷。87 项定向 React、受影响 Go application/runactivity/httpapi、strict TypeScript、
+Vite 与 Desktop 构建通过；已对真实重建窗口完成视觉复核。EXE SHA-256 为
+`e556e38dc47cf21feb61fcce1a6f14ed2f248be029430ae3101f3dce0f386312`。本批没有重跑 WFP、Docker
+或付费 Provider。
 
 最新 P13-E1-E3/P13-F1-F3 六切片保持 SQLite v96 不变，完成安全 Markdown、Harness 折叠块、
 可审计对话软归档、异常回合队列恢复、右侧 unified diff 审阅，以及 Live Activity 公开进度融合。

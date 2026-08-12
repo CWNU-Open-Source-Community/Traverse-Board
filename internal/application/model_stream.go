@@ -190,10 +190,10 @@ func (a *modelStreamAggregator) publishPublicPreview(force bool) error {
 			if !changed {
 				return nil
 			}
-			return a.live.PublishPublicPreview(preview, complete)
+			return a.live.PublishPublicPreview(PublicModelStreamRootMessage, preview, complete)
 		}
 	}
-	return a.publishCommentaryPreview(force)
+	return nil
 }
 
 func (a *modelStreamAggregator) publishCommentaryPreview(complete bool) error {
@@ -204,7 +204,7 @@ func (a *modelStreamAggregator) publishCommentaryPreview(complete bool) error {
 	if !changed {
 		return nil
 	}
-	return a.live.PublishPublicPreview(preview, ready)
+	return a.live.PublishPublicPreview(PublicModelStreamToolCommentary, preview, ready)
 }
 
 func (a *modelStreamAggregator) flush(done bool) error {

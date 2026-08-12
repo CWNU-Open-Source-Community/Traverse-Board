@@ -136,7 +136,7 @@ describe("SessionComposer", () => {
       model_called: true, tool_called: false, capability_grant: false,
     } as RunExecutionControlView;
     const snapshot = {
-      version: "model_public_stream.v1",
+      version: "model_public_stream.v2",
       call: {
         run_id: "run-1", session_id: "sess-1", attempt_id: "attempt-live",
         model_attempt: 2, transport_attempt: 1, max_attempts: 3, protocol_repair: 0,
@@ -144,7 +144,7 @@ describe("SessionComposer", () => {
         started_at: "2026-08-08T00:00:00Z", stream_chunks: 2, stream_bytes: 40,
         cancel_requested: false,
       },
-      revision: 2, text: "Visible safe model answer", message_complete: false,
+      revision: 2, content_kind: "root_message", text: "Visible safe model answer", message_complete: false,
       provisional: true, updated_at: "2026-08-08T00:00:01Z",
     } as PublicModelStreamSnapshot;
     const cancelModelCall = vi.fn().mockResolvedValue({

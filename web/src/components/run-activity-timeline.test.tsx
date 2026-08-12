@@ -21,9 +21,10 @@ describe("RunActivityTimeline", () => {
       toolItem(14, "工具操作完成", "completed"));
     render(<RunActivityTimeline activity={value} />);
 
-    expect(screen.getByText("运行了 2 个工具操作")).toBeInTheDocument();
-    expect(screen.getByText("工具操作开始")).toBeInTheDocument();
-    expect(screen.getByText("工具操作完成")).toBeInTheDocument();
+    expect(screen.getByText("运行了 2 个操作")).toBeInTheDocument();
+    expect(screen.getAllByText("git diff --check")).toHaveLength(2);
+    expect(screen.queryByText("工具操作开始")).not.toBeInTheDocument();
+    expect(screen.queryByText("工具操作完成")).not.toBeInTheDocument();
   });
 
   it("keeps truncation and stream failure visible without inventing activity", () => {
@@ -50,7 +51,7 @@ describe("RunActivityTimeline", () => {
     const value = activity();
     render(<RunActivityTimeline activity={value} liveCommentary={publicSnapshot()} liveStatus="live" />);
 
-    expect(screen.getByText("Prayu 正在工作")).toBeInTheDocument();
+    expect(screen.getByText("Prayu")).toBeInTheDocument();
     expect(screen.getByText("正在检查差异，下一步运行测试。")).toBeInTheDocument();
     expect(screen.getByText("临时")).toBeInTheDocument();
     expect(screen.getByText(/不会写入对话历史/u)).toBeInTheDocument();
@@ -77,6 +78,31 @@ describe("RunActivityTimeline", () => {
     expect(screen.getByText("持久化后的公开进度。")).toBeInTheDocument();
     expect(screen.queryByText("正在检查差异，下一步运行测试。")).not.toBeInTheDocument();
     expect(screen.queryByText("临时")).not.toBeInTheDocument();
+  });
+
+  it("does not project a provisional root reply as Live Activity", () => {
+    const snapshot = publicSnapshot();
+    snapshot.content_kind = "root_message";
+    render(<RunActivityTimeline activity={activity()} liveCommentary={snapshot} liveStatus="live" />);
+
+    expect(screen.queryByText("正在检查差异，下一步运行测试。")).not.toBeInTheDocument();
+    expect(screen.queryByText("临时")).not.toBeInTheDocument();
+  });
+
+  it("condenses a completed tool lifecycle into actual operation rows", () => {
+    const value = activity();
+    value.items.push(
+      toolLifecycleItem(13, "工具调用已请求", "浏览工作区、读取文件", "running"),
+      toolLifecycleItem(14, "工具结果已记录", "浏览工作区", "completed"),
+      toolLifecycleItem(15, "工具结果已记录", "读取文件", "completed"),
+      toolLifecycleItem(16, "工具批次完成", "", "completed"),
+    );
+    render(<RunActivityTimeline activity={value} />);
+
+    expect(screen.getByText("运行了 2 个操作")).toBeInTheDocument();
+    expect(screen.getByText("浏览工作区")).toBeInTheDocument();
+    expect(screen.getByText("读取文件")).toBeInTheDocument();
+    expect(screen.queryByText("工具批次完成")).not.toBeInTheDocument();
   });
 });
 
@@ -117,8 +143,9 @@ function activity(): RunActivityView {
 
 function publicSnapshot() {
   return {
-    version: "model_public_stream.v1",
+    version: "model_public_stream.v2",
     revision: 3,
+    content_kind: "tool_commentary",
     provisional: true,
     text: "正在检查差异，下一步运行测试。",
     message_complete: false,
@@ -154,5 +181,13 @@ function toolItem(sequence: number, title: string, status: "running" | "complete
     verifiable: true,
     instruction_authorized: false,
     created_at: `2026-07-30T01:00:${String(sequence).padStart(2, "0")}Z`,
+  };
+}
+
+function toolLifecycleItem(sequence: number, title: string, detail: string,
+  status: "running" | "completed") {
+  return {
+    ...toolItem(sequence, title, status),
+    detail,
   };
 }

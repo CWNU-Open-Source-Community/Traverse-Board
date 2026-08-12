@@ -71,7 +71,8 @@ export function RunActivityTimeline({ activity, liveCommentary = null,
       </section>
     );
   }
-  const provisional = liveCommentary?.text.trim() &&
+  const provisional = liveCommentary?.content_kind === "tool_commentary" &&
+    liveCommentary.text.trim() &&
     !hasDurablePublicUpdate(activity.items, liveCommentary)
     ? provisionalActivityItem(activity, liveCommentary, liveStatus) : null;
   return (
@@ -181,8 +182,9 @@ function provisionalActivityItem(activity: RunActivityView, snapshot: PublicMode
     sequence: activity.through_sequence + 1,
     kind: "model_update",
     source: "model",
-    title: snapshot.message_complete || status === "finalizing" ? "Prayu 正在提交" : "Prayu 正在工作",
+    title: "Prayu",
     detail: snapshot.text.trim(),
+    status: status === "finalizing" ? "completed" : "running",
     verifiable: false,
     instruction_authorized: false,
     created_at: snapshot.updated_at,
@@ -197,6 +199,7 @@ function HarnessDisclosure({ items }: { items: RunActivityItemView[] }) {
   const first = items[0];
   const last = items[items.length - 1];
   if (!first || !last) return null;
+  const rows = disclosureRows(items);
   const defaultOpen = ["blocked", "failed", "pending", "waiting"].includes(status);
   return (
     <li className="run-activity-item source-harness harness-disclosure-item">
@@ -204,20 +207,20 @@ function HarnessDisclosure({ items }: { items: RunActivityItemView[] }) {
         <summary>
           <ChevronRight aria-hidden="true" className="disclosure-chevron" size={15} />
           <ActivityIcon kind={first.kind} source="harness" />
-          <strong>{disclosureTitle(first.kind, items.length)}</strong>
+          <strong>{disclosureTitle(first.kind, rows.length)}</strong>
           {status && <span className={`run-activity-status status-${status}`}>
             {statusLabels[status] ?? status}
           </span>}
           <time dateTime={last.created_at}>{formatDate(last.created_at)}</time>
         </summary>
         <ol className="run-activity-disclosure-list">
-          {items.map((item) => <li key={item.id}>
-            <span className={`disclosure-state status-${item.status ?? ""}`} aria-hidden="true" />
+          {rows.map((row) => <li key={row.id}>
+            <span className={`disclosure-state status-${row.status}`} aria-hidden="true" />
             <div>
-              <strong>{item.title}</strong>
-              {item.detail && <p>{item.detail}</p>}
+              <strong>{row.title}</strong>
+              {row.detail && <p>{row.detail}</p>}
             </div>
-            <span className="run-activity-sequence">#{item.sequence}</span>
+            <span className="run-activity-sequence">#{row.sequence}</span>
           </li>)}
         </ol>
       </details>
@@ -228,7 +231,7 @@ function HarnessDisclosure({ items }: { items: RunActivityItemView[] }) {
 function disclosureTitle(kind: RunActivityItemView["kind"], count: number): string {
   const suffix = count > 1 ? `${count} 项` : "";
   switch (kind) {
-  case "tool_call": return count > 1 ? `运行了 ${count} 个工具操作` : "工具操作";
+  case "tool_call": return `运行了 ${Math.max(1, count)} 个操作`;
   case "model_call": return count > 1 ? `模型调用 ${count} 次` : "模型调用";
   case "approval": return `审批记录${suffix ? ` · ${suffix}` : ""}`;
   case "file_change": return `文件更改${suffix ? ` · ${suffix}` : ""}`;
@@ -238,8 +241,51 @@ function disclosureTitle(kind: RunActivityItemView["kind"], count: number): stri
 }
 
 function disclosureStatus(items: RunActivityItemView[]): string {
-  for (const status of ["failed", "blocked", "denied", "pending", "waiting", "running", "completed"]) {
+  for (const status of ["failed", "blocked", "denied"]) {
+    if (items.some((item) => item.status === status)) return status;
+  }
+  if (items.some((item) => item.title === "工具批次完成" && item.status === "completed")) {
+    return "completed";
+  }
+  for (const status of ["pending", "waiting", "running", "completed"]) {
     if (items.some((item) => item.status === status)) return status;
   }
   return items.at(-1)?.status ?? "";
+}
+
+interface DisclosureRow {
+  id: string;
+  title: string;
+  detail: string;
+  status: string;
+  sequence: number;
+}
+
+function disclosureRows(items: RunActivityItemView[]): DisclosureRow[] {
+  if (items[0]?.kind !== "tool_call") {
+    return items.map((item) => ({
+      id: item.id, title: item.title, detail: item.detail ?? "",
+      status: item.status ?? "", sequence: item.sequence,
+    }));
+  }
+  const results = items.filter((item) => item.title === "工具结果已记录");
+  if (results.length > 0) {
+    return results.map((item) => ({
+      id: item.id, title: item.detail || "工具操作", detail: "",
+      status: item.status ?? "", sequence: item.sequence,
+    }));
+  }
+  const batch = items.find((item) => item.title === "工具调用已请求");
+  const tools = batch?.detail?.split("、").map((name) => name.trim()).filter(Boolean) ?? [];
+  if (batch && tools.length > 0) {
+    const status = disclosureStatus(items);
+    return tools.map((title, index) => ({
+      id: `${batch.id}-operation-${index}`, title, detail: "", status,
+      sequence: batch.sequence,
+    }));
+  }
+  return items.filter((item) => item.title !== "工具批次完成").map((item) => ({
+    id: item.id, title: item.detail || item.title, detail: "",
+    status: item.status ?? "", sequence: item.sequence,
+  }));
 }

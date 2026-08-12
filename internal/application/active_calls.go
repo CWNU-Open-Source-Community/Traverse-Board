@@ -18,7 +18,14 @@ import (
 
 const ActiveCallEnvelopeVersion = "v1"
 
-const PublicModelStreamVersion = "model_public_stream.v1"
+const PublicModelStreamVersion = "model_public_stream.v2"
+
+type PublicModelStreamContentKind string
+
+const (
+	PublicModelStreamRootMessage    PublicModelStreamContentKind = "root_message"
+	PublicModelStreamToolCommentary PublicModelStreamContentKind = "tool_commentary"
+)
 
 const activeCallSubscriberBuffer = 32
 
@@ -50,21 +57,25 @@ type ActiveCallInfo struct {
 	CancelRequested  bool      `json:"cancel_requested"`
 }
 
-// PublicModelStreamSnapshot is a process-local, provisional view of the safe
-// root assistant message. It is never written to the event store.
+// PublicModelStreamSnapshot is a process-local, provisional view of safe
+// user-facing model text. It is never written to the event store.
 type PublicModelStreamSnapshot struct {
-	Version         string         `json:"version"`
-	Call            ActiveCallInfo `json:"call"`
-	Revision        int64          `json:"revision"`
-	Text            string         `json:"text"`
-	MessageComplete bool           `json:"message_complete"`
-	Provisional     bool           `json:"provisional"`
-	UpdatedAt       time.Time      `json:"updated_at"`
+	Version         string                       `json:"version"`
+	Call            ActiveCallInfo               `json:"call"`
+	Revision        int64                        `json:"revision"`
+	ContentKind     PublicModelStreamContentKind `json:"content_kind"`
+	Text            string                       `json:"text"`
+	MessageComplete bool                         `json:"message_complete"`
+	Provisional     bool                         `json:"provisional"`
+	UpdatedAt       time.Time                    `json:"updated_at"`
 }
 
 func (s PublicModelStreamSnapshot) Validate() error {
 	if s.Version != PublicModelStreamVersion || s.Revision <= 0 || s.UpdatedAt.IsZero() || !s.Provisional {
 		return errors.New("public model stream envelope is invalid")
+	}
+	if s.ContentKind != PublicModelStreamRootMessage && s.ContentKind != PublicModelStreamToolCommentary {
+		return errors.New("public model stream content kind is invalid")
 	}
 	if err := s.Call.Validate(); err != nil {
 		return err
@@ -206,6 +217,7 @@ type activeCallEntry struct {
 	started         bool
 	sequence        int64
 	publicRevision  int64
+	publicKind      PublicModelStreamContentKind
 	publicText      string
 	publicComplete  bool
 	publicUpdatedAt time.Time
@@ -407,17 +419,23 @@ func (l *activeCallLease) Activate() error {
 	now := time.Now().UTC()
 	entry.info.StartedAt = now
 	entry.publicRevision = 1
+	entry.publicKind = PublicModelStreamRootMessage
 	entry.publicUpdatedAt = now
 	entry.sequence++
 	r.publishLocked(entry, activeCallEvent(entry, ActiveCallStartedEvent, 0, ""))
 	return nil
 }
 
-func (l *activeCallLease) PublishPublicPreview(text string, complete bool) error {
+func (l *activeCallLease) PublishPublicPreview(kind PublicModelStreamContentKind,
+	text string, complete bool,
+) error {
 	if l == nil || l.registry == nil || l.entry == nil {
 		return apperror.New(apperror.CodeFailedPrecondition, "active call lease is required")
 	}
 	text = redact.String(text)
+	if kind != PublicModelStreamRootMessage && kind != PublicModelStreamToolCommentary {
+		return apperror.New(apperror.CodeInvalidArgument, "public model preview kind is invalid")
+	}
 	if len(text) > llm.MaxModelOutputBytes || !utf8.ValidString(text) {
 		return apperror.New(apperror.CodeInvalidArgument, "public model preview is invalid")
 	}
@@ -428,9 +446,10 @@ func (l *activeCallLease) PublishPublicPreview(text string, complete bool) error
 	if !ok || entry != l.entry || entry.key != l.key || !entry.started {
 		return apperror.New(apperror.CodeConflict, "active model call is no longer registered")
 	}
-	if entry.publicText == text && entry.publicComplete == complete {
+	if entry.publicKind == kind && entry.publicText == text && entry.publicComplete == complete {
 		return nil
 	}
+	entry.publicKind = kind
 	entry.publicText = text
 	entry.publicComplete = complete
 	entry.publicRevision++
@@ -619,7 +638,7 @@ func activeCallEvent(entry *activeCallEntry, eventType ActiveCallEventType, delt
 func publicModelStreamSnapshot(entry *activeCallEntry) PublicModelStreamSnapshot {
 	return PublicModelStreamSnapshot{
 		Version: PublicModelStreamVersion, Call: entry.info,
-		Revision: entry.publicRevision, Text: entry.publicText,
+		Revision: entry.publicRevision, ContentKind: entry.publicKind, Text: entry.publicText,
 		MessageComplete: entry.publicComplete, Provisional: true,
 		UpdatedAt: entry.publicUpdatedAt,
 	}

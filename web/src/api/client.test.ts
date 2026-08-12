@@ -79,7 +79,7 @@ const modelCancellationData = {
 };
 
 const publicModelStreamData = {
-  version: "model_public_stream.v1",
+  version: "model_public_stream.v2",
   call: {
     run_id: "run-1", session_id: "sess-1", attempt_id: "attempt-1",
     model_attempt: 1, transport_attempt: 1, max_attempts: 3, protocol_repair: 0,
@@ -87,7 +87,7 @@ const publicModelStreamData = {
     started_at: "2026-08-08T00:00:00Z", stream_chunks: 2, stream_bytes: 64,
     cancel_requested: false,
   },
-  revision: 3, text: "A safe provisional answer", message_complete: false,
+  revision: 3, content_kind: "root_message", text: "A safe provisional answer", message_complete: false,
   provisional: true, updated_at: "2026-08-08T00:00:01Z",
 };
 

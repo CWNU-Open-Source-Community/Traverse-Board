@@ -1,8 +1,31 @@
 # Prayu Project Memory
 
-Last updated: 2026-08-11
+Last updated: 2026-08-12
 
-## Current Checkpoint: P13-E1 through P13-F3 / Schema v96
+## Current Checkpoint: P13-G1 through P13-G3 / Schema v96
+
+P13-G1 repairs the Desktop disclosure geometry that compressed Harness facts
+into vertical, overlapping columns and tightens assistant Markdown and timeline
+spacing. P13-G2 upgrades the process-local stream to
+`model_public_stream.v2` with explicit `root_message` and `tool_commentary`
+content kinds. Ordinary final answers can no longer fall back into Live
+Activity; only bounded, plain-text, Policy-checked text accompanying Tool Calls
+can become provisional or durable commentary. Verified Tool lifecycle facts
+are grouped as `Ran N operations` using the actual operation names and terminal
+status, never model claims.
+
+P13-G3 removes stale provisional rows after bounded finalization misses and
+refreshes exact Run activity/event queries immediately and after short
+projection delays. A durable commentary item replaces its provisional identity
+without duplication, and completed Tool facts override stale running requests.
+Targeted React tests pass 87/87, affected Go application/runactivity/httpapi
+packages pass, strict TypeScript and Vite production build pass, and the rebuilt
+Windows Desktop was visually checked against the reported overlap. The current
+artifact is `build/desktop/cyberagent-desktop.exe`, SHA-256
+`e556e38dc47cf21feb61fcce1a6f14ed2f248be029430ae3101f3dce0f386312`.
+No WFP, Docker, or paid Provider probe was repeated.
+
+### Previous Checkpoint: P13-E1 through P13-F3 / Schema v96
 
 P13-E1 adds allowlisted GFM rendering for public assistant text. Raw HTML,
 images, and non-HTTP(S) links remain inert. P13-E2 groups consecutive Harness
@@ -27,7 +50,7 @@ passes full `go test -race ./...` in 513.4 seconds (Store 488.3 seconds),
 `staticcheck`, zero reachable `govulncheck` findings, Rust fmt/test/clippy,
 55 frontend files / 208 tests, stable OpenAPI generation, zero production npm
 vulnerabilities, and the Vite production build. No unresolved high/medium
-finding or deadlock remains. Do not repeat P13-C through P13-F, WFP, Docker, or
+finding or deadlock remains. Do not repeat P13-C through P13-G, WFP, Docker, or
 paid Provider probes after compaction.
 
 ### Previous Checkpoint: P13-D1 through P13-D3 / Schema v96

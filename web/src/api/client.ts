@@ -402,9 +402,10 @@ function parsePublicModelStream(value: unknown,
   const callKeys = ["attempt_id", "cancel_requested", "max_attempts", "model",
     "model_attempt", "protocol_repair", "provider", "run_id", "session_id",
     "started_at", "stream_bytes", "stream_chunks", "tool_round", "transport_attempt"];
-  if (!hasExactKeys(value, ["call", "message_complete", "provisional", "revision",
+  if (!hasExactKeys(value, ["call", "content_kind", "message_complete", "provisional", "revision",
     "text", "updated_at", "version"]) ||
-    value.version !== "model_public_stream.v1" || value.provisional !== true ||
+    value.version !== "model_public_stream.v2" || value.provisional !== true ||
+    !["root_message", "tool_commentary"].includes(String(value.content_kind)) ||
     typeof value.message_complete !== "boolean" || !safePositiveInteger(value.revision) ||
     typeof value.text !== "string" ||
     new TextEncoder().encode(value.text).byteLength > 64 * 1024 ||

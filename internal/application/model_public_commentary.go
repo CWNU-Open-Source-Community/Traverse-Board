@@ -2,6 +2,7 @@ package application
 
 import (
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"cyberagent-workbench/internal/domain"
@@ -9,6 +10,8 @@ import (
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/redact"
 )
+
+const maxPublicCommentaryRunes = 320
 
 type publicCommentaryPreviewer struct {
 	checker  policy.Checker
@@ -73,14 +76,43 @@ func safePublicCommentaryText(checker policy.Checker, raw string, provisional bo
 		}
 	}
 	value = strings.TrimSpace(redact.String(value))
-	if value == "" {
+	if value == "" || !concisePublicCommentary(value) {
 		return "", false
 	}
-	runes := []rune(value)
-	if len(runes) > domain.MaxPublicCommentaryTextRunes {
-		value = strings.TrimSpace(string(runes[:domain.MaxPublicCommentaryTextRunes-1])) + "…"
-	}
 	return value, value != ""
+}
+
+func concisePublicCommentary(value string) bool {
+	if len([]rune(value)) > maxPublicCommentaryRunes {
+		return false
+	}
+	nonEmptyLines := 0
+	for _, rawLine := range strings.Split(value, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			continue
+		}
+		nonEmptyLines++
+		if nonEmptyLines > 2 || markdownBlockLine(line) {
+			return false
+		}
+	}
+	return nonEmptyLines > 0
+}
+
+func markdownBlockLine(line string) bool {
+	if strings.HasPrefix(line, "#") || strings.HasPrefix(line, ">") ||
+		strings.HasPrefix(line, "|") || strings.HasPrefix(line, "- ") ||
+		strings.HasPrefix(line, "+ ") || strings.HasPrefix(line, "* ") {
+		return true
+	}
+	runes := []rune(line)
+	index := 0
+	for index < len(runes) && unicode.IsDigit(runes[index]) {
+		index++
+	}
+	return index > 0 && index+1 < len(runes) &&
+		(runes[index] == '.' || runes[index] == ')') && unicode.IsSpace(runes[index+1])
 }
 
 func unsafePublicCommentaryShape(value string) bool {

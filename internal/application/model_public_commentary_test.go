@@ -44,10 +44,14 @@ func TestSafePublicCommentaryRedactsSecretsAndBoundsText(t *testing.T) {
 		t.Fatalf("commentary secret was not redacted: %q ok=%v", text, ok)
 	}
 
-	long := strings.Repeat("进", domain.MaxPublicCommentaryTextRunes+100)
+	long := strings.Repeat("进", maxPublicCommentaryRunes+1)
 	text, ok = safePublicCommentaryText(checker, long, false)
-	if !ok || len([]rune(text)) > domain.MaxPublicCommentaryTextRunes || !strings.HasSuffix(text, "…") {
-		t.Fatalf("commentary was not rune-bounded: runes=%d ok=%v", len([]rune(text)), ok)
+	if ok || text != "" {
+		t.Fatalf("oversized commentary was not rejected: runes=%d ok=%v", len([]rune(text)), ok)
+	}
+	essay := "## 研究方向\n- 第一条\n- 第二条\n这是完整最终答复，不是工具前公开进度。"
+	if text, ok = safePublicCommentaryText(checker, essay, false); ok || text != "" {
+		t.Fatalf("block Markdown answer was accepted as commentary: %q", text)
 	}
 }
 

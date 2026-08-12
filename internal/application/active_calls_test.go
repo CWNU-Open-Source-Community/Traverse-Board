@@ -56,11 +56,13 @@ func TestActiveCallRegistryLifecycleAndIdempotentCancellation(t *testing.T) {
 		t.Fatalf("invalid initial public stream snapshot: %v", err)
 	}
 	secretShapedPreview := "safe preview sk-" + strings.Repeat("1", 30)
-	if err := lease.PublishPublicPreview(secretShapedPreview, true); err != nil {
+	if err := lease.PublishPublicPreview(PublicModelStreamRootMessage,
+		secretShapedPreview, true); err != nil {
 		t.Fatal(err)
 	}
 	public, ok = registry.LookupPublic(checkpoint.RunID)
-	if !ok || public.Revision != 2 || !public.MessageComplete ||
+	if !ok || public.Revision != 2 || public.ContentKind != PublicModelStreamRootMessage ||
+		!public.MessageComplete ||
 		strings.Contains(public.Text, "123456") || !strings.Contains(public.Text, "[REDACTED:api-key]") {
 		t.Fatalf("unexpected redacted public stream snapshot: %#v ok=%t", public, ok)
 	}

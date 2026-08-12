@@ -62,3 +62,43 @@ func TestModelStreamPublicPreviewForcesFinalScanBelowCadence(t *testing.T) {
 		t.Fatalf("forced final scan did not publish the complete safe message: %#v", final)
 	}
 }
+
+func TestModelStreamOrdinaryProseDoesNotBecomeToolCommentary(t *testing.T) {
+	registry := newActiveCallRegistry(1)
+	key := activeCallKey{runID: "run-plain", attemptID: "attempt-plain", modelAttempt: 1}
+	now := time.Now().UTC()
+	entry := &activeCallEntry{
+		key: key, started: true,
+		info: ActiveCallInfo{
+			RunID: key.runID, SessionID: "session-plain", AttemptID: key.attemptID,
+			ModelAttempt: 1, TransportAttempt: 1, MaxAttempts: 1,
+			Provider: "provider", Model: "model", StartedAt: now,
+		},
+		publicRevision: 1, publicKind: PublicModelStreamRootMessage,
+		publicUpdatedAt: now, subscribers: map[uint64]*activeCallSubscriber{},
+	}
+	registry.calls[key.runID] = entry
+	aggregator := &modelStreamAggregator{
+		ref:               llm.ModelRef{Provider: "provider", Model: "model"},
+		live:              &activeCallLease{registry: registry, key: key, entry: entry},
+		rootPreview:       newRootMessagePreviewer(nil),
+		commentaryPreview: newPublicCommentaryPreviewer(nil),
+	}
+	aggregator.output.WriteString("这是一段普通最终回复，不是工具调用前的公开进度。")
+	if err := aggregator.publishPublicPreview(true); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, found := registry.LookupPublic(key.runID)
+	if !found || snapshot.Revision != 1 || snapshot.Text != "" ||
+		snapshot.ContentKind != PublicModelStreamRootMessage {
+		t.Fatalf("ordinary prose leaked into Live Activity: %#v found=%v", snapshot, found)
+	}
+	if err := aggregator.publishCommentaryPreview(true); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, found = registry.LookupPublic(key.runID)
+	if !found || snapshot.ContentKind != PublicModelStreamToolCommentary ||
+		snapshot.Text == "" || !snapshot.MessageComplete {
+		t.Fatalf("explicit tool commentary was not published: %#v found=%v", snapshot, found)
+	}
+}

@@ -141,6 +141,22 @@ Public commentary is display-only, non-verifiable model text that converges from
 snapshot to one durable event; it is never private chain-of-thought, Session history, trusted
 context, or a substitute for Harness execution facts.
 
+P13-G1-G3 在不迁移 SQLite 的前提下修复首轮人工验收暴露的三个问题。Harness 披露块现在占据
+完整横向空间，标题、状态、数量和时间不会被挤成竖列；助手 Markdown 与连续回复的垂直间距也已
+收紧。`model_public_stream.v2` 为 `root_message` 与 `tool_commentary` 增加显式类型：普通最终回答
+不会再复制为 Live Activity，只有 Tool Call 回合中通过严格短文本校验的公开进度才会成为临时或
+持久 Commentary。连续工具事实按真实操作名折叠成“运行了 N 个操作”，完成事件会覆盖早先的
+进行中状态。临时进度在 durable 事件到达时精确替换，并在最终化 404 后有界清除；Run 事件刷新
+使用同一 Run 的精确查询键并吸收投影延迟，避免内容要等下一条用户消息才出现。
+
+P13-G1-G3 keep schema v96 unchanged. They correct disclosure geometry and reading density,
+introduce explicit `root_message` versus `tool_commentary` semantics in
+`model_public_stream.v2`, group verified Tool facts by their real operation names, and make
+provisional commentary converge or retire without waiting for another user message. Ordinary
+assistant answers are never duplicated as Live Activity; only short, policy-checked text emitted
+with a Tool Call may appear as non-verifiable commentary, while execution state remains entirely
+Go-owned Harness evidence.
+
 ## 桌面权限中心与原生玻璃 / Desktop Permission Center And Native Glass
 
 Windows Desktop 现在提供独立的“权限”设置页，把当前 Run 的四个正交控制维度集中展示：

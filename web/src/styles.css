@@ -3421,7 +3421,7 @@ summary:focus-visible {
 .run-activity-list {
   position: relative;
   margin: 0;
-  padding: 10px 0 0;
+  padding: 6px 0 0;
   list-style: none;
 }
 
@@ -3440,7 +3440,7 @@ summary:focus-visible {
   display: grid;
   grid-template-columns: 31px minmax(0, 1fr);
   gap: 12px;
-  padding: 10px 0 0;
+  padding: 6px 0 0;
 }
 
 .run-activity-marker {
@@ -3492,7 +3492,7 @@ summary:focus-visible {
 
 .run-activity-body {
   min-width: 0;
-  padding: 1px 0 17px;
+  padding: 1px 0 11px;
   border-bottom: 1px solid var(--prayu-border);
 }
 
@@ -3503,7 +3503,7 @@ summary:focus-visible {
   display: flex;
   align-items: center;
   gap: 7px;
-  margin-bottom: 5px;
+  margin-bottom: 4px;
   color: var(--prayu-muted);
   font-size: 9px;
 }
@@ -3556,17 +3556,17 @@ summary:focus-visible {
 }
 
 .run-activity-detail {
-  margin-top: 7px;
+  margin-top: 5px;
   color: var(--prayu-text);
   font-size: 12px;
-  line-height: 1.65;
+  line-height: 1.52;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 
 .run-activity-item.source-model .run-activity-detail {
   font-size: 13px;
-  line-height: 1.72;
+  line-height: 1.58;
 }
 
 .safe-markdown { min-width: 0; overflow-wrap: anywhere; }
@@ -3578,7 +3578,7 @@ summary:focus-visible {
 .safe-markdown h4,
 .safe-markdown h5,
 .safe-markdown h6 {
-  margin: 1.15em 0 .5em;
+  margin: .8em 0 .35em;
   color: var(--prayu-text, var(--ink));
   font-size: 1em;
   line-height: 1.35;
@@ -3586,10 +3586,10 @@ summary:focus-visible {
 }
 .safe-markdown h1 { font-size: 1.3em; }
 .safe-markdown h2 { font-size: 1.18em; }
-.safe-markdown p { margin: .55em 0; white-space: normal; }
+.safe-markdown p { margin: .36em 0; white-space: normal; }
 .safe-markdown ul,
-.safe-markdown ol { margin: .55em 0; padding-left: 1.55em; }
-.safe-markdown li + li { margin-top: .22em; }
+.safe-markdown ol { margin: .38em 0; padding-left: 1.55em; }
+.safe-markdown li + li { margin-top: .12em; }
 .safe-markdown blockquote {
   margin: .7em 0;
   padding-left: .9em;
@@ -3621,15 +3621,19 @@ summary:focus-visible {
 
 .run-activity-body small {
   display: block;
-  margin-top: 7px;
+  margin-top: 5px;
 }
 
-.harness-disclosure-item { padding: 4px 0 4px 28px; }
-.harness-disclosure-item::before { left: 8px; }
-.run-activity-disclosure { min-width: 0; }
+.harness-disclosure-item {
+  display: block;
+  min-width: 0;
+  padding: 3px 0 5px 43px;
+}
+.run-activity-disclosure { width: 100%; min-width: 0; }
 .run-activity-disclosure > summary {
   min-height: 34px;
-  display: flex;
+  display: grid;
+  grid-template-columns: 15px 16px minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
   padding: 4px 6px;
@@ -3646,8 +3650,15 @@ summary:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--prayu-accent) 55%, transparent);
   outline-offset: 1px;
 }
-.run-activity-disclosure > summary strong { color: var(--prayu-text); font-size: 12px; }
-.run-activity-disclosure > summary time { margin-left: auto; white-space: nowrap; }
+.run-activity-disclosure > summary strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--prayu-text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.run-activity-disclosure > summary time { white-space: nowrap; }
 .run-activity-disclosure .disclosure-chevron { transition: transform 160ms ease; }
 .run-activity-disclosure[open] .disclosure-chevron { transform: rotate(90deg); }
 .run-activity-disclosure-list {
@@ -3679,6 +3690,15 @@ summary:focus-visible {
 .disclosure-state.status-running,
 .disclosure-state.status-pending,
 .disclosure-state.status-waiting { border-color: var(--prayu-accent); }
+
+@media (max-width: 680px) {
+  .harness-disclosure-item { padding-left: 36px; }
+  .run-activity-disclosure > summary {
+    grid-template-columns: 15px 16px minmax(0, 1fr) auto;
+  }
+  .run-activity-disclosure > summary time { display: none; }
+  .run-activity-disclosure-list { margin-left: 15px; }
+}
 
 .run-activity-empty {
   min-height: 240px;

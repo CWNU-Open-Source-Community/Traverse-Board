@@ -3442,6 +3442,7 @@ export interface components {
         };
         PublicModelStreamSnapshot: {
             call: components["schemas"]["ActiveCallInfo"];
+            content_kind: string;
             message_complete: boolean;
             provisional: boolean;
             /** Format: int64 */
