@@ -6,6 +6,8 @@
 > **仓库命名 / Repository naming**：当前产品名与界面品牌统一为 **Prayu**。为避免既有活动记录、收藏、外部链接和协作入口受到影响，GitHub 仓库名称与地址暂时保留为 [`Qiyuanqiii/CTF-CyberAgent-Workbench`](https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench)。这个历史 slug 只是稳定定位符，不是第二个产品名；本阶段不会重命名仓库、Go module、CLI 或数据目录。<br>
 > **Prayu** is the product and interface name. The GitHub repository slug and URL remain unchanged for link and activity continuity. The legacy slug is a stable locator, not a second product identity; this phase does not rename the repository, Go module, CLI, or data directory.
 
+参与开发前请阅读 [贡献指南](CONTRIBUTING.md)。Before contributing, please read the [contribution guide](CONTRIBUTING.md).
+
 ## 完成度口径 / Progress Metrics
 
 项目从 schema v49 起同时使用两项工程指标，避免把“架构已经搭好”误解为“产品已经完整可用”。这些百分比是基于当前任务书和可验证工作流的工程估算，不是性能基准。
