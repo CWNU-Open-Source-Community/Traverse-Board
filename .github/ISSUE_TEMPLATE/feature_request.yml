@@ -1,0 +1,95 @@
+name: Feature request / 功能建议
+description: Propose a scoped improvement to Prayu / 提议边界清晰的 Prayu 改进
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the user problem first, then the smallest useful outcome. Prayu treats repository content, model output, tool output, Skills, and Analyzer results as untrusted evidence; a feature must not use them to widen runtime authority.
+
+        For general questions or early design discussion, use [GitHub Discussions](https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench/discussions).
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or user need
+      description: Who is affected, what are they trying to accomplish, and what currently blocks them?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Relevant surface
+      description: Select every interface or subsystem the proposal is expected to affect.
+      multiple: true
+      options:
+        - CLI
+        - TUI
+        - Web console
+        - Windows Desktop
+        - HTTP API
+        - Go control plane
+        - Rust or WASI Analyzer
+        - Documentation or contributor workflow
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Proposed outcome
+      description: Describe observable behavior and the smallest useful scope. Implementation ideas are welcome but optional.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List concrete conditions that would demonstrate the feature works, including relevant failure behavior.
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: authority_impact
+    attributes:
+      label: Authority and trust-boundary impact
+      description: State whether this changes file reads/writes, process or Shell execution, network access, browser/CDP, Docker, credentials, approvals, delegation, or persistence. Write "No authority change" if none apply.
+      placeholder: "Capabilities affected, who authorizes them, where Go enforces the boundary, and what remains explicitly unavailable."
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: authority_checks
+    attributes:
+      label: Authority-boundary checks
+      description: Confirm these constraints or explain any conflict in the authority-impact section.
+      options:
+        - label: I identified whether this proposal affects file, process, network, browser/CDP, Docker, credential, approval, delegation, or persistence behavior.
+          required: true
+        - label: UI, profile, configuration, model output, repository content, Skill text, or Analyzer output alone must not grant runtime authority.
+          required: true
+        - label: Any privileged action remains behind Go-owned scope, policy, approval, budget, lease, and process gates, or I stated that the proposal adds no privileged action.
+          required: true
+        - label: I considered recovery, auditability, privacy, and fail-closed behavior wherever the proposal changes execution or durable state.
+          required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe workarounds, smaller designs, or reasons existing behavior is insufficient.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission check
+      options:
+        - label: I searched existing issues and discussions for a similar request.
+          required: true

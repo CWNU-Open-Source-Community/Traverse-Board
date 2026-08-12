@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and design discussion / 问答与设计讨论
+    url: https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench/discussions
+    about: Ask for help or discuss an early idea before opening an actionable issue.
+  - name: Security-sensitive report / 安全敏感报告
+    url: https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench/security
+    about: Do not disclose credentials, personal data, or exploitable details in a public issue; review the repository Security page first.
