@@ -4,7 +4,39 @@
 
 Last updated: 2026-08-13
 
-## Current Single-Slice Checkpoint: P13-G1 Workspace Import / Schema v96
+## Current Single-Slice Checkpoint: Real Docker Lifecycle Foundation / Schema v96 Unchanged
+
+On 2026-08-13 the Sandbox mainline added a package-private,
+non-authorizing real Docker lifecycle probe. It reuses the strict stopped
+container Stage contract, then performs exact `start -> wait ->
+timeout/cancel -> SIGTERM -> grace -> optional SIGKILL -> final inspect ->
+delete -> absence confirmation` on a fixed local endpoint. Unix uses the fixed
+local socket; Windows uses Docker Desktop's Linux-engine NPipe through
+`go-winio`. Neither path reads `DOCKER_HOST`, uses Docker CLI, accepts TCP or a
+proxy, or follows redirects.
+
+The lifecycle HTTP allowlist contains only exact inspect, start, wait,
+SIGTERM/SIGKILL, and non-forced delete. Pull, build, exec, attach, stdin, logs,
+export, arbitrary signals, network changes, and generic requests remain
+unavailable. The constructor is unexported, the public Windows Docker writer
+still returns unsupported, and no Run/Agent/Tool/CLI/HTTP/Desktop path can
+reach the probe. Request/result contracts keep product entry, product
+execution, output export, and Artifact commit authority false.
+
+Focused unit tests cover natural exit, timeout, cancellation, escalation,
+start failure, exact cleanup, tampering, strict HTTP/JSON, and blocked response
+body cancellation. A real Windows Docker Desktop NPipe acceptance completed in
+1.39 seconds and observed SIGTERM followed by SIGKILL, exit code 137, removal,
+and confirmed absence. It used one exact fixture container and did not inspect
+or alter unrelated containers. See ADR 0095.
+
+This does not satisfy schema v63's product gate. Durable SQLite write-ahead
+start intent, generation lease/fencing, restart reconciliation, orphan
+ownership, bounded logs, output export, and Artifact commit are still missing.
+The next Docker slice is durable lifecycle ownership/recovery. Do not rerun the
+real probe after compaction unless the lifecycle implementation changes.
+
+### Previous Single-Slice Checkpoint: P13-G1 Workspace Import / Schema v96
 
 On 2026-08-13 the user assigned the `P13-G1` label to a new single-slice
 Workspace-import delivery. This label is intentionally separate from the

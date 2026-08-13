@@ -62,7 +62,7 @@ CLI / TUI / React / Windows Desktop / CI
 | 工具与权限 | Tool Gateway、JSON Schema 校验、Policy、Scope、人工审批、四档宿主权限、受控固定命令提案 |
 | 代码工作流 | 系统目录选择与 Workspace 导入、工作区浏览、仓库状态、提交历史、Diff 审阅、文件编辑提案、验证计划、Code Journey 与 Handoff |
 | 可观测性 | 追加式 Run 事件、Live Activity、公开模型进度、Harness 事实、Artifact、Finding/Evidence/Report、SARIF |
-| 扩展 | 惰性 Skill 包、Provider 接口、Tool 接口、Go/Rust JSON 协议、内嵌 WASI Analyzer、Sandbox 合同 |
+| 扩展 | 惰性 Skill 包、Provider 接口、Tool 接口、Go/Rust JSON 协议、内嵌 WASI Analyzer、Sandbox 合同与非授权 Docker 生命周期探针 |
 | 客户端 | `cyberagent` CLI、Bubble Tea TUI、认证 HTTP/OpenAPI、React/Vite、Windows Desktop 便携预览 |
 
 ### 安全边界
@@ -70,6 +70,7 @@ CLI / TUI / React / Windows Desktop / CI
 - 不公开 Provider 私有 thinking、原始 Prompt、raw delta、工具参数、工具原始输出或 API key。
 - 文件编辑、宿主命令、浏览器 CDP、终端输入和 Sandbox 是彼此独立的授权面。
 - 受控命令默认使用 Go 固定模板；通用宿主执行与 Debug 能力不会因模型、Skill 或仓库文档而自动开启。
+- Docker 已验证固定本机端点上的 `start -> wait -> timeout/cancel -> SIGTERM/SIGKILL -> cleanup` 机制，但它仍是包内非授权工程探针；Run、Agent、CLI、API 和 Desktop 均不能调用，产品 Sandbox 入口继续关闭。
 - 内置浏览器仍没有产品入口：受限运行时核心存在，但独立 OS/容器网络隔离证据尚未完成。
 - Windows Desktop 当前是未签名的开发者/操作者便携预览，不是正式安装包。
 
@@ -82,6 +83,7 @@ CLI / TUI / React / Windows Desktop / CI
 - Node.js 24（构建 Web/Desktop 时）
 - Windows Desktop 需要 Windows 10/11 与 Edge WebView2 Evergreen Runtime
 - Rust 1.97.1 仅在修改 Analyzer 时需要
+- Docker Desktop 或 Linux Docker Engine 仅在开发 Sandbox 时需要；普通 Code 工作流不依赖 Docker
 
 ### 从源码运行
 
@@ -156,7 +158,7 @@ go run ./cmd/cyberagent tui
 |---|---|
 | v0.1 / P0-P2 | CLI 骨架、Workspace、SQLite、Provider、Session，以及 Run-centric 可恢复 Supervisor |
 | P3-P5 | Work/Note、Coordinator、受控 child/Fan-out、Tool Gateway、审批、Artifact 与结构化记忆 |
-| P6-P8 | Sandbox 证据合同、Skill Registry、Finding/Evidence/Report、SARIF 与 CI 投影 |
+| P6-P8 | Sandbox 证据合同、非授权 Docker 生命周期探针、Skill Registry、Finding/Evidence/Report、SARIF 与 CI 投影 |
 | P9 / Desktop D0-D1 | HTTP/OpenAPI、React/TUI/Desktop、仓库/Diff/编辑/验证/Handoff 与液态玻璃工作台 |
 | P10-A 至 P10-M | Go/Rust Analyzer 协议、共享向量、内嵌 WASI 执行、一次性能力与产品接入 |
 | P11-A 至 P11-C | 浏览器权限、Profile、CDP 与 WFP 证据链；产品入口仍关闭 |

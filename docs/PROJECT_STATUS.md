@@ -6,7 +6,25 @@ Last updated: 2026-08-13
 
 ## Resume Context
 
-The current single-slice checkpoint is `P13-G1 Workspace Import` at unchanged
+The current single-slice checkpoint is the non-authorizing real Docker
+lifecycle foundation at unchanged schema v96. A private fixed-endpoint
+transport now validates exact Stage/create, start, wait, natural exit,
+timeout/cancellation fan-out, SIGTERM/SIGKILL escalation, final inspection,
+non-forced delete, and target absence. Windows uses Docker Desktop's fixed
+Linux-engine NPipe; Unix uses the fixed local socket. It does not read
+`DOCKER_HOST`, use Docker CLI, accept TCP/proxies/redirects, or expose pull,
+exec, attach, logs, stdin, export, arbitrary signals, or generic requests.
+
+Focused lifecycle tests pass, and a real Docker Desktop acceptance observed
+the timeout path through exit code 137 and exact cleanup in 1.39 seconds. The
+probe constructor is package-private and all product-entry, execution, output,
+and Artifact authority remains false. It does not replace schema v63's missing
+durable start intent, generation lease/fencing, restart/orphan reconciliation,
+bounded logs, output transaction, or product admission. See ADR 0095. The next
+Sandbox slice is durable lifecycle ownership and recovery; do not repeat this
+real-daemon acceptance after compaction unless the implementation changes.
+
+The previous single-slice checkpoint was `P13-G1 Workspace Import` at unchanged
 schema v96. The label was reassigned by the user on 2026-08-13 and is distinct
 from the archived P13-G Live Activity batch. Windows Desktop New Task now opens
 the native folder picker and completes `select directory -> register Workspace

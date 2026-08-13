@@ -62,7 +62,7 @@ The allowed direction is always `TypeScript -> Go -> LLM/Rust/Docker`. TypeScrip
 | Tools and permissions | Tool Gateway, JSON Schema validation, Policy, Scope, human approval, four host-permission tiers, and fixed-command proposals |
 | Code workflows | Native folder selection and Workspace import, workspace browsing, repository state/history, diff review, file-edit proposals, verification plans, Code Journey, and Handoff |
 | Observability | Append-only Run events, Live Activity, public model commentary, Harness facts, Artifacts, Findings/Evidence/Reports, and SARIF |
-| Extension seams | Inert Skill packages, Provider and Tool interfaces, Go/Rust JSON protocol, embedded WASI Analyzer, and Sandbox contracts |
+| Extension seams | Inert Skill packages, Provider and Tool interfaces, Go/Rust JSON protocol, embedded WASI Analyzer, Sandbox contracts, and a non-authorizing Docker lifecycle probe |
 | Clients | `cyberagent` CLI, Bubble Tea TUI, authenticated HTTP/OpenAPI, React/Vite, and Windows Desktop portable preview |
 
 ### Security boundaries
@@ -70,6 +70,7 @@ The allowed direction is always `TypeScript -> Go -> LLM/Rust/Docker`. TypeScrip
 - Provider-private thinking, raw prompts, raw deltas, tool arguments, raw tool output, and API keys are never exposed as public activity.
 - File edits, host commands, browser CDP, terminal input, and Sandbox execution are independent authorization surfaces.
 - Conservative commands use Go-owned fixed templates. General host execution and Debug authority cannot be enabled by a model, Skill, or repository document.
+- Docker now validates `start -> wait -> timeout/cancel -> SIGTERM/SIGKILL -> cleanup` on fixed local endpoints, but only as a package-private, non-authorizing engineering probe. Runs, Agents, CLI, API, and Desktop cannot invoke it, and the product Sandbox entry remains closed.
 - The built-in browser has no product entry point yet. A restricted runtime core exists, but independent OS/container network-containment evidence is incomplete.
 - Windows Desktop is currently an unsigned developer/operator portable preview, not a released installer.
 
@@ -82,6 +83,7 @@ The allowed direction is always `TypeScript -> Go -> LLM/Rust/Docker`. TypeScrip
 - Node.js 24 for Web/Desktop builds
 - Windows 10/11 and Edge WebView2 Evergreen Runtime for Windows Desktop
 - Rust 1.97.1 only when changing the Analyzer
+- Docker Desktop or a Linux Docker Engine only when developing the Sandbox; ordinary Code workflows do not require Docker
 
 ### Run from source
 

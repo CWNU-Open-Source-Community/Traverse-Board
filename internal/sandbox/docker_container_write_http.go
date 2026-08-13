@@ -66,10 +66,16 @@ func newDockerEngineContainerWriteTransport(doer dockerContainerWriteHTTPDoer,
 	if doer == nil {
 		return dockerEngineContainerWriteTransport{}, errors.New("docker write HTTP client is required")
 	}
-	if err := endpoint.Validate(); err != nil || endpoint.Class != DockerObservationEndpointLocalUnix {
-		return dockerEngineContainerWriteTransport{}, errors.New("docker write transport requires the fixed local Unix endpoint")
+	if !validDockerContainerLocalEndpoint(endpoint) {
+		return dockerEngineContainerWriteTransport{}, errors.New("docker write transport requires a fixed local endpoint")
 	}
 	return dockerEngineContainerWriteTransport{doer: doer, endpoint: endpoint}, nil
+}
+
+func validDockerContainerLocalEndpoint(endpoint DockerObservationEndpoint) bool {
+	return endpoint.Validate() == nil &&
+		(endpoint.Class == DockerObservationEndpointLocalUnix ||
+			endpoint.Class == DockerObservationEndpointLocalNPipe)
 }
 
 func (transport dockerEngineContainerWriteTransport) Endpoint() DockerObservationEndpoint {
@@ -156,7 +162,7 @@ func (transport dockerEngineContainerWriteTransport) Stage(ctx context.Context,
 	if err := request.Validate(); err != nil {
 		return DockerContainerStageResult{}, err
 	}
-	if transport.doer == nil || transport.endpoint.Class != DockerObservationEndpointLocalUnix {
+	if transport.doer == nil || !validDockerContainerLocalEndpoint(transport.endpoint) {
 		return DockerContainerStageResult{}, newDockerContainerWriteError(
 			DockerContainerWriteFailureUnsupported)
 	}
@@ -494,6 +500,9 @@ type dockerContainerInspection struct {
 		OOMKilled  bool   `json:"OOMKilled"`
 		Dead       bool   `json:"Dead"`
 		Pid        int    `json:"Pid"`
+		ExitCode   int    `json:"ExitCode"`
+		StartedAt  string `json:"StartedAt"`
+		FinishedAt string `json:"FinishedAt"`
 	} `json:"State"`
 	HostConfig struct {
 		ReadonlyRootfs  bool                `json:"ReadonlyRootfs"`
@@ -532,6 +541,18 @@ type dockerContainerInspection struct {
 func verifyDockerContainerInspection(inspection dockerContainerInspection,
 	request DockerContainerWriteRequest,
 ) error {
+	if verifyDockerContainerConfiguration(inspection, request) != nil ||
+		inspection.State.Status != "created" || inspection.State.Running ||
+		inspection.State.Paused || inspection.State.Restarting ||
+		inspection.State.OOMKilled || inspection.State.Dead || inspection.State.Pid != 0 {
+		return newDockerContainerWriteError(DockerContainerWriteFailureConfigMismatch)
+	}
+	return nil
+}
+
+func verifyDockerContainerConfiguration(inspection dockerContainerInspection,
+	request DockerContainerWriteRequest,
+) error {
 	spec := request.Spec
 	if !validDockerContainerID(inspection.ID) || inspection.Name != "/"+spec.ContainerName ||
 		inspection.Config.Image != spec.ImageDigest || inspection.Config.User != spec.User ||
@@ -544,9 +565,7 @@ func verifyDockerContainerInspection(inspection dockerContainerInspection,
 		!equalStrings(inspection.Config.Entrypoint, []string{spec.Executable}) ||
 		!equalStrings(inspection.Config.Cmd, spec.Arguments) ||
 		!equalDockerLabels(inspection.Config.Labels, spec.Labels) ||
-		inspection.State.Status != "created" || inspection.State.Running || inspection.State.Paused ||
-		inspection.State.Restarting || inspection.State.OOMKilled || inspection.State.Dead ||
-		inspection.State.Pid != 0 || !inspection.HostConfig.ReadonlyRootfs ||
+		!inspection.HostConfig.ReadonlyRootfs ||
 		inspection.HostConfig.Privileged || inspection.HostConfig.AutoRemove ||
 		inspection.HostConfig.Init == nil || !*inspection.HostConfig.Init ||
 		inspection.HostConfig.NetworkMode != DockerNetworkDriverNone ||

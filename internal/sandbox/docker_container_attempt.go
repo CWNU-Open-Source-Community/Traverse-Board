@@ -303,7 +303,7 @@ type DockerContainerStageResult struct {
 func NewDockerContainerStageResult(endpoint DockerObservationEndpoint,
 	request DockerContainerWriteRequest, containerID string, adopted bool,
 ) (DockerContainerStageResult, error) {
-	if endpoint.Validate() != nil || endpoint.Class != DockerObservationEndpointLocalUnix ||
+	if !validDockerContainerLocalEndpoint(endpoint) ||
 		request.Validate() != nil || !validDockerContainerID(containerID) {
 		return DockerContainerStageResult{}, errors.New("docker container stage result input is invalid")
 	}
@@ -335,7 +335,8 @@ func (result DockerContainerStageResult) Validate() error {
 	endpoint, err := NewDockerObservationEndpoint(result.EndpointClass)
 	if err != nil || result.ProtocolVersion != DockerContainerStageProtocolVersion ||
 		result.Status != DockerContainerStageStatusVerified ||
-		result.EndpointClass != DockerObservationEndpointLocalUnix ||
+		(result.EndpointClass != DockerObservationEndpointLocalUnix &&
+			result.EndpointClass != DockerObservationEndpointLocalNPipe) ||
 		result.EndpointFingerprint != endpoint.Fingerprint ||
 		!validDigest(result.RequestFingerprint) || !validDigest(result.SpecFingerprint) ||
 		!validDigest(result.ContainerIDFingerprint) || !validDigest(result.InspectionFingerprint) ||
