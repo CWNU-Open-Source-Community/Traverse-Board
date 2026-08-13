@@ -88,9 +88,22 @@ func TestControlPlaneRegistersAnExistingWorkspaceDirectoryWithoutModifyingIt(t *
 	if err != nil {
 		t.Fatal(err)
 	}
+	expectedRoot, err := filepath.EvalSymlinks(selected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedRoot, err = filepath.Abs(expectedRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootMatches := filepath.Clean(target.RootPath) == filepath.Clean(expectedRoot)
+	if runtime.GOOS == "windows" {
+		rootMatches = strings.EqualFold(filepath.Clean(target.RootPath), filepath.Clean(expectedRoot))
+	}
 	if registered.Name != "selected-project" || target.Name != registered.Name ||
-		target.RootPath != selected {
-		t.Fatalf("unexpected imported Workspace: summary=%#v target=%#v", registered, target)
+		!rootMatches {
+		t.Fatalf("unexpected imported Workspace: summary=%#v target=%#v selected=%q canonical=%q",
+			registered, target, selected, expectedRoot)
 	}
 	entries, err := os.ReadDir(selected)
 	if err != nil {
