@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LoaderCircle, Plus, X } from "lucide-react";
+import { FolderPlus, LoaderCircle, Plus, X } from "lucide-react";
 import type { CyberAgentClient } from "../api/client";
 import type {
   RunCreationControlRequestView,
@@ -9,6 +9,10 @@ import type {
 } from "../api/types";
 import { useConnectionStore } from "../state/connection";
 import { useLocale } from "../lib/locale";
+import {
+  desktopWorkspaceImportEnabled,
+  importDesktopWorkspace,
+} from "../lib/desktop-bridge";
 import { useModalFocusTrap } from "../hooks/use-modal-focus-trap";
 
 const profiles: Array<NonNullable<RunCreationControlRequestView["profile"]>> = ["code", "review", "learn", "script"];
@@ -30,6 +34,7 @@ export function RunCreationDialog({ client, open, onClose, initialGoal = "",
   const { t } = useLocale();
   const [goal, setGoal] = useState("");
   const [workspaceID, setWorkspaceID] = useState("");
+  const [workspaceName, setWorkspaceName] = useState("");
   const [profile, setProfile] = useState<NonNullable<RunCreationControlRequestView["profile"]>>("code");
   const [surface, setSurface] = useState<NonNullable<RunCreationControlRequestView["surface"]>>("code");
   const [phase, setPhase] = useState<NonNullable<RunCreationControlRequestView["phase"]>>("deliver");
@@ -37,11 +42,23 @@ export function RunCreationDialog({ client, open, onClose, initialGoal = "",
   const wasOpen = useRef(false);
   const queryClient = useQueryClient();
   const selectRun = useConnectionStore((state) => state.selectRun);
+  const nativeWorkspaceImport = desktopWorkspaceImportEnabled();
   const workspaces = useQuery({
     queryKey: ["workspaces"],
     queryFn: ({ signal }) => client.getPage<WorkspaceView>("/workspaces", { limit: 100 }, "", signal),
-    enabled: open,
+    enabled: open && !nativeWorkspaceImport,
     staleTime: 30_000,
+  });
+  const workspaceImport = useMutation({
+    mutationFn: importDesktopWorkspace,
+    onSuccess: (workspace) => {
+      if (workspace) {
+        setWorkspaceID(workspace.id);
+        setWorkspaceName(workspace.name);
+        mutation.reset();
+        void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      }
+    },
   });
   const mutation = useMutation({
     mutationFn: ({ request, key }: { request: RunCreationControlRequestView; key: string }) =>
@@ -56,6 +73,8 @@ export function RunCreationDialog({ client, open, onClose, initialGoal = "",
     },
   });
   const resetMutation = mutation.reset;
+  const resetWorkspaceImport = workspaceImport.reset;
+  const startWorkspaceImport = workspaceImport.mutate;
 
   useEffect(() => {
     if (open && !wasOpen.current) {
@@ -63,16 +82,24 @@ export function RunCreationDialog({ client, open, onClose, initialGoal = "",
       setPhase(initialPhase);
       retryIntent.current = null;
       resetMutation();
+      resetWorkspaceImport();
+      if (nativeWorkspaceImport) {
+        setWorkspaceID("");
+        setWorkspaceName("");
+        startWorkspaceImport();
+      }
     }
     wasOpen.current = open;
-  }, [initialGoal, initialPhase, open, resetMutation]);
+  }, [initialGoal, initialPhase, nativeWorkspaceImport, open, resetMutation,
+    resetWorkspaceImport, startWorkspaceImport]);
 
   useEffect(() => {
-    if (!workspaceID && workspaces.data?.items[0]) {
+    if (!nativeWorkspaceImport && !workspaceID && workspaces.data?.items[0]) {
       setWorkspaceID(workspaces.data.items[0].id);
     }
-  }, [workspaceID, workspaces.data]);
-  const dialogRef = useModalFocusTrap<HTMLFormElement>(open, onClose, mutation.isPending);
+  }, [nativeWorkspaceImport, workspaceID, workspaces.data]);
+  const busy = mutation.isPending || workspaceImport.isPending;
+  const dialogRef = useModalFocusTrap<HTMLFormElement>(open, onClose, busy);
 
   if (!open) {
     return null;
@@ -99,14 +126,14 @@ export function RunCreationDialog({ client, open, onClose, initialGoal = "",
   };
 
   const close = () => {
-    if (!mutation.isPending) {
+    if (!busy) {
       onClose();
     }
   };
   const options = workspaces.data?.items ?? [];
   const goalBytes = new TextEncoder().encode(goal.trim()).byteLength;
   const goalTooLarge = goalBytes > 4096;
-  const ready = goalBytes > 0 && !goalTooLarge && workspaceID !== "" && !mutation.isPending;
+  const ready = goalBytes > 0 && !goalTooLarge && workspaceID !== "" && !busy;
 
   return (
     <div className="desktop-dialog-backdrop" role="presentation">
@@ -117,18 +144,33 @@ export function RunCreationDialog({ client, open, onClose, initialGoal = "",
             <span className="dialog-icon"><Plus aria-hidden="true" size={17} /></span>
             <div><h2 id="run-creation-title">{t("新建 Run", "New Run")}</h2><small>Prayu</small></div>
           </div>
-          <button aria-label={t("关闭", "Close")} className="icon-button" disabled={mutation.isPending}
+          <button aria-label={t("关闭", "Close")} className="icon-button" disabled={busy}
             onClick={close} title={t("关闭", "Close")} type="button"><X aria-hidden="true" size={16} /></button>
         </header>
         <div className="desktop-dialog-body run-creation-form">
-          <label><span>{t("工作区", "Workspace")}</span>
+          {nativeWorkspaceImport ? <div className="workspace-import-field">
+            <span>{t("工作区", "Workspace")}</span>
+            <button aria-label={t("选择工作文件夹", "Select working folder")}
+              className={workspaceID ? "workspace-import-control selected" : "workspace-import-control"}
+              disabled={busy} onClick={() => {
+                workspaceImport.reset();
+                mutation.reset();
+                workspaceImport.mutate();
+              }} type="button">
+              {workspaceImport.isPending ? <LoaderCircle aria-hidden="true" className="spin" size={18} /> :
+                <FolderPlus aria-hidden="true" size={18} />}
+              <span><strong>{workspaceName || t("选择目录", "Choose folder")}</strong>
+                <small>{workspaceID ? t("已注册为本次 Run 的工作区", "Registered for this Run") :
+                  t("选择 Prayu 可读取和编辑的目录", "Choose a directory Prayu may read and edit")}</small></span>
+            </button>
+          </div> : <label><span>{t("工作区", "Workspace")}</span>
             <select disabled={workspaces.isLoading || options.length === 0} onChange={(event) => {
               setWorkspaceID(event.target.value);
               mutation.reset();
             }} value={workspaceID}>
               {options.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
             </select>
-          </label>
+          </label>}
           <label><span>{t("目标", "Goal")}</span>
             <textarea autoFocus maxLength={4096} onChange={(event) => {
               setGoal(event.target.value);
@@ -152,13 +194,14 @@ export function RunCreationDialog({ client, open, onClose, initialGoal = "",
                 key={value} onClick={() => { setSurface(value); mutation.reset(); }} type="button">{value}</button>)}
             </div></fieldset>
           </div>
-          {workspaces.isError && <p className="connection-error">{t("工作区列表不可用", "Workspace list unavailable")}</p>}
-          {!workspaces.isLoading && options.length === 0 && <p className="connection-error">{t("尚未注册工作区", "No Workspace registered")}</p>}
+          {!nativeWorkspaceImport && workspaces.isError && <p className="connection-error">{t("工作区列表不可用", "Workspace list unavailable")}</p>}
+          {!nativeWorkspaceImport && !workspaces.isLoading && options.length === 0 && <p className="connection-error">{t("尚未注册工作区", "No Workspace registered")}</p>}
+          {workspaceImport.isError && <p className="connection-error">{errorMessage(workspaceImport.error)}</p>}
           {goalTooLarge && <p className="connection-error">{t("目标超过 4096 个 UTF-8 字节", "Goal exceeds 4096 UTF-8 bytes")}</p>}
           {mutation.isError && <p className="connection-error">{errorMessage(mutation.error)}</p>}
         </div>
         <footer className="run-creation-actions">
-          <button className="dialog-secondary" disabled={mutation.isPending} onClick={close} type="button">{t("取消", "Cancel")}</button>
+          <button className="dialog-secondary" disabled={busy} onClick={close} type="button">{t("取消", "Cancel")}</button>
           <button className="dialog-primary" disabled={!ready} type="submit">
             {mutation.isPending ? <LoaderCircle aria-hidden="true" className="spin" size={16} /> : <Plus aria-hidden="true" size={16} />}
             {t("创建 Run", "Create Run")}

@@ -60,7 +60,7 @@ The allowed direction is always `TypeScript -> Go -> LLM/Rust/Docker`. TypeScrip
 | Models and context | Mock and Anthropic-compatible providers, routing, qualification, streaming, context compaction, and structured memory |
 | Planning and collaboration | Plan/Delivery, work items, notes, up to two core children, 1/2/4/6 read-only fan-out tiers, shared budgets and cancellation |
 | Tools and permissions | Tool Gateway, JSON Schema validation, Policy, Scope, human approval, four host-permission tiers, and fixed-command proposals |
-| Code workflows | Workspace browsing, repository state/history, diff review, file-edit proposals, verification plans, Code Journey, and Handoff |
+| Code workflows | Native folder selection and Workspace import, workspace browsing, repository state/history, diff review, file-edit proposals, verification plans, Code Journey, and Handoff |
 | Observability | Append-only Run events, Live Activity, public model commentary, Harness facts, Artifacts, Findings/Evidence/Reports, and SARIF |
 | Extension seams | Inert Skill packages, Provider and Tool interfaces, Go/Rust JSON protocol, embedded WASI Analyzer, and Sandbox contracts |
 | Clients | `cyberagent` CLI, Bubble Tea TUI, authenticated HTTP/OpenAPI, React/Vite, and Windows Desktop portable preview |
@@ -106,6 +106,8 @@ The default configuration uses the deterministic Mock Provider and requires no A
 ```
 
 Use the operator-preview launcher. Opening the bare `cyberagent-desktop.exe` intentionally starts with the most conservative permissions. See [`packaging/windows/LOCAL-TEST-GUIDE.txt`](packaging/windows/LOCAL-TEST-GUIDE.txt) for the full manual test flow.
+
+In Windows Desktop, **New Task** opens the native folder picker and completes `select directory -> register Workspace -> create Run`; no CLI or settings-page pre-registration is required. Cancelling creates neither a Workspace nor a Run, and the selected absolute path is never returned to React.
 
 See the [Usage Guide](docs/usage.md) for more commands and boundaries.
 

@@ -8,6 +8,17 @@
 
 项目正在从可运行的 v0.1 CLI/TUI 骨架迁移到 V2 Run-centric Runtime。当前只推进通用 Agent Harness 与 Code 工作流；CTF 专用求解和攻防自动化已经移出活跃路线图，仅保留通用扩展接口供未来独立附加包接入。
 
+2026-08-13 单切片 `P13-G1（工作区导入，复用标签）` 保持 SQLite v96 与权限边界不变，完成
+Windows Desktop 的“选择目录 -> 注册 Workspace -> 创建 Run”。新建任务会调用系统目录选择器，
+所选绝对路径只在 Wails/Go 内流转；React 只接收 Workspace ID、显示名称和时间戳，再复用现有幂等
+Run 创建接口。重复选择同一目录会复用 Workspace，同名不同目录获得稳定区分名，取消选择不创建
+记录，导入过程不写 `.prayu` 或修改目录内容；普通 Web UI 保留旧下拉框兼容路径。Workspace/Desktop
+Go 定向测试、真实 SQLite 持久化验收、24 项 React、strict TypeScript、Vite、Desktop/WebUI 测试和
+Windows Desktop 打包均通过；EXE SHA-256 为
+`42e3019559dbeafef83a0868ab6700a424718da5c207f720a836c3505b0811be`。本轮没有重跑 WFP、Docker、
+付费 Provider 或全仓重型门，也没有开始 P13-G2。该标签与下方历史 Live Activity P13-G1/G2/G3
+不是同一批任务，下次上下文压缩后不得重复。
+
 2026-08-13 维护批次完成 GitHub 依赖 PR 评阅：合并 `#18`、`#20`、`#21`、`#22`、`#23`、`#26`，关闭需重新生成共享 Rust/WASI fixture 的 `#17`、`#19`，以及要求更高 Node 基线且已冲突的 `#25`。合并后的 `main` 提交 `0a6a4d5` 通过 Go、TypeScript、Rust fixture 与 Windows Desktop 四项 CI。根 README 已改写为中英文产品介绍，并新增“历史开发记录”；产品范围以 `PRODUCT_SCOPE.md` 为准，旧切片和百分比继续保留在本账本中，不应重新排队执行。
 
 最新 P13-H1/H2/H3 保持 SQLite v96 和 Go 权限边界不变，完成工作台视觉分区、液态玻璃材质与

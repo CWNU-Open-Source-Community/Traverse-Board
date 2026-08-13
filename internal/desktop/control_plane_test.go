@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -57,6 +58,50 @@ func TestControlPlaneResolvesOnlyRegisteredWorkspaceRoots(t *testing.T) {
 	}
 	if _, err := plane.ResolveWorkspace(t.Context(), "bad workspace"); apperror.CodeOf(err) != apperror.CodeInvalidArgument {
 		t.Fatalf("invalid Workspace error = %v, code = %s", err, apperror.CodeOf(err))
+	}
+}
+
+func TestControlPlaneRegistersAnExistingWorkspaceDirectoryWithoutModifyingIt(t *testing.T) {
+	home := t.TempDir()
+	selected := filepath.Join(t.TempDir(), "selected-project")
+	if err := os.Mkdir(selected, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(selected, "existing.txt")
+	if err := os.WriteFile(marker, []byte("unchanged"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plane, err := OpenControlPlane(ControlPlaneConfig{
+		DatabasePath: filepath.Join(home, "workspace-import.db"), HomePath: home,
+		ReadToken: desktopControlPlaneTestToken, AppVersion: "desktop-test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer plane.Close()
+
+	registered, err := plane.RegisterWorkspaceDirectory(t.Context(), selected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := plane.ResolveWorkspace(t.Context(), registered.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if registered.Name != "selected-project" || target.Name != registered.Name ||
+		target.RootPath != selected {
+		t.Fatalf("unexpected imported Workspace: summary=%#v target=%#v", registered, target)
+	}
+	entries, err := os.ReadDir(selected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "existing.txt" {
+		t.Fatalf("workspace import modified selected directory: %#v", entries)
+	}
+	content, err := os.ReadFile(marker)
+	if err != nil || string(content) != "unchanged" {
+		t.Fatalf("workspace content changed: %q, err=%v", content, err)
 	}
 }
 

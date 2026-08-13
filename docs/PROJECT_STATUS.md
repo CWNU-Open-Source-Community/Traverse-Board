@@ -6,6 +6,23 @@ Last updated: 2026-08-13
 
 ## Resume Context
 
+The current single-slice checkpoint is `P13-G1 Workspace Import` at unchanged
+schema v96. The label was reassigned by the user on 2026-08-13 and is distinct
+from the archived P13-G Live Activity batch. Windows Desktop New Task now opens
+the native folder picker and completes `select directory -> register Workspace
+-> create Run`; users no longer have to pre-register a Workspace. Absolute
+paths never cross into React or the Run request, cancellation creates no
+records, repeated selection reuses the existing Workspace, and import does not
+modify the selected directory. The browser-hosted Web UI keeps its existing
+Workspace selector as a compatibility fallback.
+
+Focused Workspace/Desktop Go tests including real SQLite persistence, 24
+focused React tests, strict TypeScript, Vite production build, Desktop/WebUI
+package tests, and Windows packaging pass. The current EXE SHA-256 is
+`42e3019559dbeafef83a0868ab6700a424718da5c207f720a836c3505b0811be`.
+No schema or execution authority changed. Do not repeat this slice after
+compaction and do not infer P13-G2 from the reused label.
+
 The 2026-08-13 maintenance pass reviewed every open dependency PR. It merged
 `#18`, `#20`, `#21`, `#22`, `#23`, and `#26`; closed `#17` and `#19` pending a
 single current-main regeneration of their shared Rust/WASI fixture; and closed

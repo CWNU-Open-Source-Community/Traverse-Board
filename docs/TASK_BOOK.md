@@ -646,6 +646,20 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
   `d4dd4156574835683fdd8882348577832a674efc645499a9870085327596df42`。自动 Windows 兼容检查
   通过，正式发布仍等待签名、安装包和人工 Windows 矩阵；不重复 WFP、Docker 或付费 Provider。
 
+## P13-G1（2026-08-13 复用标签）：工作区导入
+
+> 本节是用户指定的单切片交付，与上方已经归档的 P13-G Live Activity 批次同号但不同义；两者均已完成，不得因上下文压缩重新执行。
+
+- [x] Windows Desktop 新建任务调用系统目录选择器，不再要求预先注册 Workspace。
+- [x] Go 将现有目录规范化并幂等注册；重复目录复用，同名不同目录稳定区分，且不修改目录内容。
+- [x] 本机绝对路径不返回 React、不进入 Run 请求；取消选择不创建 Workspace 或 Run。
+- [x] React 使用导入结果复用既有幂等 Run 创建接口；普通 Web UI 保留工作区下拉框兼容路径。
+- [x] 单切片功能门：Workspace/Desktop Go、真实 SQLite 导入、24 项定向 React、strict TypeScript、
+  Vite、Desktop/WebUI 与 Windows Desktop 打包通过；schema v96 与全部执行 authority 不变。
+- [x] 产物：`build/desktop/cyberagent-desktop.exe`，SHA-256
+  `42e3019559dbeafef83a0868ab6700a424718da5c207f720a836c3505b0811be`。
+- [x] 按单切片边界停止，不推断或启动 P13-G2。
+
 ## 每轮交付模板
 
 每个三切片批次结束必须记录：

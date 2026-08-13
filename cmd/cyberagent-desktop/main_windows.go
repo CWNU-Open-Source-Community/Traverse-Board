@@ -77,6 +77,8 @@ type desktopOptions struct {
 
 type nativeSkillPackagePicker struct{}
 
+type nativeWorkspaceDirectoryPicker struct{}
+
 type wailsWindowRestorer struct{}
 
 func (wailsWindowRestorer) Unminimise(ctx context.Context) { runtime.WindowUnminimise(ctx) }
@@ -100,6 +102,18 @@ func (nativeSkillPackagePicker) OpenSkillPackage(ctx context.Context) (string, e
 		ShowHiddenFiles:      false,
 		CanCreateDirectories: false,
 		ResolvesAliases:      false,
+	})
+}
+
+func (nativeWorkspaceDirectoryPicker) OpenWorkspaceDirectory(ctx context.Context) (string, error) {
+	if ctx == nil {
+		return "", errors.New("desktop lifecycle is unavailable")
+	}
+	return runtime.OpenDirectoryDialog(ctx, runtime.OpenDialogOptions{
+		Title:                "Select Prayu workspace folder",
+		ShowHiddenFiles:      true,
+		CanCreateDirectories: false,
+		ResolvesAliases:      true,
 	})
 }
 
@@ -476,7 +490,9 @@ func runDesktop(config desktopOptions) error {
 		AppVersion:                              app.Version, UIDigest: bundle.Digest(), Selector: selector,
 		PreviewBridge: preview, SkillInstaller: controlPlane.SkillInstaller(),
 		WorkspaceResolver: controlPlane, WorkspaceLauncher: newNativeWorkspaceLauncher(),
-		UserTerminalController: controlPlane.UserTerminalController(),
+		WorkspaceDirectoryPicker: nativeWorkspaceDirectoryPicker{},
+		WorkspaceRegistrar:       controlPlane,
+		UserTerminalController:   controlPlane.UserTerminalController(),
 	})
 	if err != nil {
 		return err

@@ -30,23 +30,25 @@ import (
 // It does not listen on a socket and it adds no renderer authority beyond the
 // tokens explicitly supplied in ControlPlaneConfig.
 type ControlPlane struct {
-	stateStore       *store.SQLiteStore
-	handler          http.Handler
-	closeOnce        sync.Once
-	closeErr         error
-	skillInstaller   *application.SkillPackageRegistryService
-	userTerminal     *desktopUserTerminalService
-	debugAgentInput  application.DebugTerminalAgentInputController
-	terminalManager  *terminalruntime.Manager
-	boundaryMonitor  *terminalruntime.HostBoundaryMonitor
-	terminalWorkerMu sync.Mutex
-	terminalCancel   context.CancelFunc
-	terminalDone     chan struct{}
-	wakeWorker       *application.RunWakeWorker
-	workerMu         sync.Mutex
-	workerCancel     context.CancelFunc
-	workerDone       chan struct{}
-	closed           bool
+	stateStore        *store.SQLiteStore
+	workspaceManager  *workspace.Manager
+	workspaceImportMu sync.Mutex
+	handler           http.Handler
+	closeOnce         sync.Once
+	closeErr          error
+	skillInstaller    *application.SkillPackageRegistryService
+	userTerminal      *desktopUserTerminalService
+	debugAgentInput   application.DebugTerminalAgentInputController
+	terminalManager   *terminalruntime.Manager
+	boundaryMonitor   *terminalruntime.HostBoundaryMonitor
+	terminalWorkerMu  sync.Mutex
+	terminalCancel    context.CancelFunc
+	terminalDone      chan struct{}
+	wakeWorker        *application.RunWakeWorker
+	workerMu          sync.Mutex
+	workerCancel      context.CancelFunc
+	workerDone        chan struct{}
+	closed            bool
 }
 
 type ControlPlaneConfig struct {
@@ -100,13 +102,14 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	if home == "" {
 		home = filepath.Dir(config.DatabasePath)
 	}
+	workspaceManager := workspace.NewManager(home, stateStore)
 	registeredWorkspaces, err := stateStore.ListWorkspaces(context.Background())
 	if err != nil {
 		_ = stateStore.Close()
 		return nil, err
 	}
 	if len(registeredWorkspaces) == 0 {
-		if _, err := workspace.NewManager(home, stateStore).Ensure(
+		if _, err := workspaceManager.Ensure(
 			context.Background(), "default"); err != nil {
 			_ = stateStore.Close()
 			return nil, err
@@ -293,11 +296,35 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		_ = stateStore.Close()
 		return nil, err
 	}
-	return &ControlPlane{stateStore: stateStore, handler: api.Handler(),
+	return &ControlPlane{stateStore: stateStore, workspaceManager: workspaceManager,
+		handler:        api.Handler(),
 		skillInstaller: skillInstaller, userTerminal: userTerminal,
 		debugAgentInput: debugAgentInput,
 		terminalManager: terminalManager, boundaryMonitor: boundaryMonitor,
 		wakeWorker: wakeWorker}, nil
+}
+
+// RegisterWorkspaceDirectory keeps the selected host path entirely within Go
+// and returns only a bounded metadata projection to the native bridge.
+func (c *ControlPlane) RegisterWorkspaceDirectory(ctx context.Context,
+	selectedPath string) (WorkspaceImportSummary, error) {
+	if c == nil || c.workspaceManager == nil {
+		return WorkspaceImportSummary{}, apperror.New(apperror.CodeFailedPrecondition,
+			"desktop workspace registrar is unavailable")
+	}
+	c.workspaceImportMu.Lock()
+	defer c.workspaceImportMu.Unlock()
+	record, err := c.workspaceManager.Import(ctx, selectedPath)
+	if errors.Is(err, workspace.ErrInvalidImportDirectory) {
+		return WorkspaceImportSummary{}, apperror.New(apperror.CodeInvalidArgument,
+			"selected workspace directory is invalid")
+	}
+	if err != nil {
+		return WorkspaceImportSummary{}, apperror.New(apperror.CodeUnavailable,
+			"workspace directory registration failed")
+	}
+	return WorkspaceImportSummary{ID: record.ID, Name: record.Name,
+		CreatedAt: record.CreatedAt}, nil
 }
 
 func (c *ControlPlane) Handler() http.Handler {

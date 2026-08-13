@@ -5,6 +5,7 @@ export const desktopSkillPreviewProtocol = "desktop_skill_package_preview.v1";
 export const desktopSkillInstallProtocol = "desktop_skill_package_install.v1";
 export const desktopWorkspaceLauncherProtocol = "desktop_workspace_launcher_list.v1";
 export const desktopWorkspaceOpenProtocol = "desktop_workspace_open.v1";
+export const desktopWorkspaceImportProtocol = "desktop_workspace_import.v1";
 export const desktopUserTerminalProtocol = "desktop_user_terminal.v1";
 
 export interface DesktopOperationReceipt {
@@ -62,6 +63,7 @@ export interface DesktopConnectionBootstrap {
   user_terminal_enabled: boolean;
   agent_terminal_input_default: false;
   workspace_open_enabled: boolean;
+  workspace_import_enabled: boolean;
   renderer_path_input_supported: false;
 }
 
@@ -137,6 +139,22 @@ export interface DesktopWorkspaceOpenResult {
   agent_authority_granted: false;
 }
 
+export interface DesktopImportedWorkspace {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
+export interface DesktopWorkspaceImportResult {
+  protocol_version: typeof desktopWorkspaceImportProtocol;
+  status: "cancelled" | "registered";
+  workspace: DesktopImportedWorkspace | null;
+  root_path_exposed: false;
+  renderer_path_input_supported: false;
+  directory_content_modified: false;
+  agent_authority_granted: false;
+}
+
 export interface DesktopSkillSelection {
   protocol_version: typeof desktopSkillSelectionProtocol;
   handle: string;
@@ -208,6 +226,7 @@ export interface DesktopSkillInstallResult {
 
 interface NativeDesktopBridge {
   Bootstrap: () => Promise<unknown>;
+  ImportWorkspace?: () => Promise<unknown>;
   InstallSkillPackage: (request: DesktopSkillInstallRequest) => Promise<unknown>;
   OpenWorkspace?: (request: DesktopWorkspaceOpenRequest) => Promise<unknown>;
   PreviewSkillPackage: (handle: string) => Promise<unknown>;
@@ -250,6 +269,8 @@ interface NativeDesktopBridge {
 
 type NativeWorkspaceBridge = NativeDesktopBridge & Required<Pick<NativeDesktopBridge,
   "OpenWorkspace" | "WorkspaceLaunchers">>;
+type NativeWorkspaceImportBridge = NativeDesktopBridge & Required<Pick<NativeDesktopBridge,
+  "ImportWorkspace">>;
 type NativeTerminalBridge = NativeDesktopBridge & Required<Pick<NativeDesktopBridge,
   "StartUserTerminal" | "GetUserTerminal" | "ReadUserTerminal" |
   "WriteUserTerminal" | "ResizeUserTerminal" | "CloseUserTerminal">>;
@@ -273,6 +294,10 @@ export function desktopBridgeAvailable(): boolean {
 
 export function desktopRuntimeActive(): boolean {
   return activeBootstrap !== null;
+}
+
+export function desktopWorkspaceImportEnabled(): boolean {
+  return activeBootstrap?.workspace_import_enabled === true && getWorkspaceImportBridge() !== null;
 }
 
 export async function loadDesktopBootstrap(): Promise<DesktopConnectionBootstrap | null> {
@@ -320,6 +345,18 @@ export async function selectDesktopSkillPreview(): Promise<DesktopSkillPreview |
     throw new Error("Desktop Skill preview was rejected");
   }
   return previewValue;
+}
+
+export async function importDesktopWorkspace(): Promise<DesktopImportedWorkspace | null> {
+  const bridge = getWorkspaceImportBridge();
+  if (!bridge || !activeBootstrap?.workspace_import_enabled) {
+    throw new Error("Desktop Workspace import is disabled");
+  }
+  const value = await bridge.ImportWorkspace();
+  if (!validWorkspaceImportResult(value)) {
+    throw new Error("Desktop Workspace import result was rejected");
+  }
+  return value.status === "cancelled" ? null : value.workspace;
 }
 
 export async function installDesktopSkillPackage(preview: DesktopSkillPreview,
@@ -521,6 +558,14 @@ function getWorkspaceBridge(): NativeWorkspaceBridge | null {
   return bridge as NativeWorkspaceBridge;
 }
 
+function getWorkspaceImportBridge(): NativeWorkspaceImportBridge | null {
+  const bridge = getBridge();
+  if (!bridge || typeof bridge.ImportWorkspace !== "function") {
+    return null;
+  }
+  return bridge as NativeWorkspaceImportBridge;
+}
+
 function getTerminalBridge(): NativeTerminalBridge | null {
   const bridge = getBridge();
   if (!bridge || typeof bridge.StartUserTerminal !== "function" ||
@@ -555,6 +600,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     "run_wake_execution_enabled", "run_wake_worker_enabled",
     "session_message_enabled", "skill_installation_enabled", "ui_digest",
     "session_steering_control_enabled",
+    "workspace_import_enabled",
     "workspace_open_enabled",
   ])) {
     return false;
@@ -592,6 +638,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     typeof value.embedded_analyzer_execution_enabled === "boolean" &&
     typeof value.user_terminal_enabled === "boolean" &&
     value.agent_terminal_input_default === false &&
+    typeof value.workspace_import_enabled === "boolean" &&
     typeof value.workspace_open_enabled === "boolean" &&
     (value.control_token !== "") === (value.control_enabled || value.run_creation_enabled ||
       value.execution_permission_control_enabled ||
@@ -741,6 +788,24 @@ function validWorkspaceOpenResult(value: unknown,
   }
   return value.status === "cancelled" && value.operator_confirmed === false &&
     value.external_process_started === false;
+}
+
+function validWorkspaceImportResult(value: unknown): value is DesktopWorkspaceImportResult {
+  if (!hasExactKeys(value, ["agent_authority_granted", "directory_content_modified",
+    "protocol_version", "renderer_path_input_supported", "root_path_exposed", "status",
+    "workspace"]) || value.protocol_version !== desktopWorkspaceImportProtocol ||
+    value.root_path_exposed !== false || value.renderer_path_input_supported !== false ||
+    value.directory_content_modified !== false || value.agent_authority_granted !== false) {
+    return false;
+  }
+  if (value.status === "cancelled") {
+    return value.workspace === null;
+  }
+  return value.status === "registered" && hasExactKeys(value.workspace,
+    ["created_at", "id", "name"]) && validWorkspaceID(value.workspace.id) &&
+    boundedText(value.workspace.name, 1, 128) &&
+    typeof value.workspace.created_at === "string" &&
+    Number.isFinite(Date.parse(value.workspace.created_at));
 }
 
 function validDialogResult(value: unknown): value is DesktopSkillDialogResult {

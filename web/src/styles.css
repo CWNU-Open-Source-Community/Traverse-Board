@@ -818,6 +818,13 @@ td code { font-size: 11px; }
 .run-creation-dialog { width: min(620px, 100%); }
 .run-creation-form { min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .run-creation-form > label { min-width: 0; display: grid; gap: 7px; color: #455463; font-size: 12px; font-weight: 600; }
+.workspace-import-field { min-width: 0; display: grid; grid-column: 1 / -1; gap: 7px; color: #455463; font-size: 12px; font-weight: 600; }
+.workspace-import-control { min-height: 74px; display: flex; align-items: center; gap: 12px; padding: 13px 15px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface); color: var(--ink); cursor: pointer; text-align: left; }
+.workspace-import-control:hover:not(:disabled) { border-color: #168f82; background: #f3f8f7; }
+.workspace-import-control.selected { border-color: #168f82; background: var(--accent-soft); }
+.workspace-import-control > span { min-width: 0; display: grid; gap: 4px; }
+.workspace-import-control strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-import-control small { color: var(--muted); font-size: 11px; font-weight: 400; }
 .run-creation-form > label:nth-child(2), .run-creation-choice-row,
 .run-creation-form > .connection-error { grid-column: 1 / -1; }
 .run-creation-form select, .run-creation-form textarea { width: 100%; min-width: 0; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--surface); color: var(--ink); }

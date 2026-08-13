@@ -45,6 +45,7 @@ const bootstrap = {
   user_terminal_enabled: false,
   agent_terminal_input_default: false,
   workspace_open_enabled: false,
+  workspace_import_enabled: false,
   renderer_path_input_supported: false,
 };
 
@@ -361,6 +362,60 @@ describe("desktop native bridge", () => {
     });
   });
 
+  it("imports a selected directory through a strict pathless native contract", async () => {
+    const enabled = {
+      ...bootstrap,
+      control_token: "control-token-0123456789abcdefghijkl",
+      run_creation_enabled: true,
+      workspace_import_enabled: true,
+      read_only_default: false,
+    };
+    const imported = {
+      protocol_version: "desktop_workspace_import.v1",
+      status: "registered",
+      workspace: { id: "ws-import-0123456789abcdef", name: "project",
+        created_at: "2026-08-13T01:02:03Z" },
+      root_path_exposed: false,
+      renderer_path_input_supported: false,
+      directory_content_modified: false,
+      agent_authority_granted: false,
+    };
+    const importWorkspace = vi.fn().mockResolvedValue(imported);
+    installBridge({ Bootstrap: vi.fn().mockResolvedValue(enabled),
+      ImportWorkspace: importWorkspace });
+    const module = await import("./desktop-bridge");
+    await module.loadDesktopBootstrap();
+    await expect(module.importDesktopWorkspace()).resolves.toEqual(imported.workspace);
+    expect(module.desktopWorkspaceImportEnabled()).toBe(true);
+    expect(importWorkspace).toHaveBeenCalledWith();
+
+    importWorkspace.mockResolvedValue({ ...imported, root_path: "C:\\PRIVATE" });
+    await expect(module.importDesktopWorkspace()).rejects.toThrow("rejected");
+  });
+
+  it("treats a cancelled Workspace directory picker as a non-mutating result", async () => {
+    const enabled = {
+      ...bootstrap,
+      control_token: "control-token-0123456789abcdefghijkl",
+      run_creation_enabled: true,
+      workspace_import_enabled: true,
+      read_only_default: false,
+    };
+    installBridge({ Bootstrap: vi.fn().mockResolvedValue(enabled),
+      ImportWorkspace: vi.fn().mockResolvedValue({
+        protocol_version: "desktop_workspace_import.v1",
+        status: "cancelled",
+        workspace: null,
+        root_path_exposed: false,
+        renderer_path_input_supported: false,
+        directory_content_modified: false,
+        agent_authority_granted: false,
+      }) });
+    const module = await import("./desktop-bridge");
+    await module.loadDesktopBootstrap();
+    await expect(module.importDesktopWorkspace()).resolves.toBeNull();
+  });
+
   it("rejects path disclosure, arbitrary arguments, and inconsistent open receipts", async () => {
     const enabled = { ...bootstrap, workspace_open_enabled: true };
     installBridge({
@@ -503,6 +558,7 @@ describe("desktop native bridge", () => {
 
 function installBridge(overrides: Partial<{
   Bootstrap: () => Promise<unknown>;
+  ImportWorkspace: () => Promise<unknown>;
   InstallSkillPackage: (request: unknown) => Promise<unknown>;
   PreviewSkillPackage: (handle: string) => Promise<unknown>;
   SelectSkillPackage: () => Promise<unknown>;
@@ -520,6 +576,7 @@ function installBridge(overrides: Partial<{
       DesktopBridge: {
         Bootstrap: vi.fn().mockResolvedValue(bootstrap),
         InstallSkillPackage: vi.fn().mockRejectedValue(new Error("disabled")),
+        ImportWorkspace: vi.fn().mockRejectedValue(new Error("disabled")),
         PreviewSkillPackage: vi.fn().mockResolvedValue(preview),
         OpenWorkspace: vi.fn().mockRejectedValue(new Error("disabled")),
         SelectSkillPackage: vi.fn().mockResolvedValue({

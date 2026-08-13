@@ -60,7 +60,7 @@ CLI / TUI / React / Windows Desktop / CI
 | 模型与上下文 | Mock 与 Anthropic-compatible Provider、模型路由、资格校验、流式响应、上下文压缩、结构化记忆 |
 | 计划与协作 | Plan/Delivery、工作项、备注、最多两个核心 child、1/2/4/6 档只读 Fan-out、共享预算与取消扇出 |
 | 工具与权限 | Tool Gateway、JSON Schema 校验、Policy、Scope、人工审批、四档宿主权限、受控固定命令提案 |
-| 代码工作流 | 工作区浏览、仓库状态、提交历史、Diff 审阅、文件编辑提案、验证计划、Code Journey 与 Handoff |
+| 代码工作流 | 系统目录选择与 Workspace 导入、工作区浏览、仓库状态、提交历史、Diff 审阅、文件编辑提案、验证计划、Code Journey 与 Handoff |
 | 可观测性 | 追加式 Run 事件、Live Activity、公开模型进度、Harness 事实、Artifact、Finding/Evidence/Report、SARIF |
 | 扩展 | 惰性 Skill 包、Provider 接口、Tool 接口、Go/Rust JSON 协议、内嵌 WASI Analyzer、Sandbox 合同 |
 | 客户端 | `cyberagent` CLI、Bubble Tea TUI、认证 HTTP/OpenAPI、React/Vite、Windows Desktop 便携预览 |
@@ -106,6 +106,8 @@ go run ./cmd/cyberagent tui
 ```
 
 请使用操作者预览启动器。直接双击裸 `cyberagent-desktop.exe` 会按设计以最保守权限启动。完整人工测试步骤见 [`packaging/windows/LOCAL-TEST-GUIDE.txt`](packaging/windows/LOCAL-TEST-GUIDE.txt)。
+
+在 Windows Desktop 中点击“新建任务”会直接打开系统文件夹选择器，并按“选择目录 -> 注册 Workspace -> 创建 Run”完成创建；无需先通过 CLI 或设置页注册工作区。取消选择不会创建 Workspace 或 Run，所选绝对路径不会返回 React。
 
 更多命令与边界见[使用手册](docs/usage.md)。
 

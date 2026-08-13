@@ -4,6 +4,31 @@
 
 Last updated: 2026-08-13
 
+## Current Single-Slice Checkpoint: P13-G1 Workspace Import / Schema v96
+
+On 2026-08-13 the user assigned the `P13-G1` label to a new single-slice
+Workspace-import delivery. This label is intentionally separate from the
+archived P13-G1/G2/G3 Live Activity batch below; do not repeat either body of
+work after compaction.
+
+The Windows Desktop New Task flow now performs `select directory -> register
+Workspace -> create Run`. Wails opens the native directory picker; the selected
+absolute path remains inside Go, where an existing directory is normalized and
+registered idempotently. React receives only the Workspace ID, display name,
+and timestamp, then uses the existing idempotent Run-create endpoint. Selecting
+the same directory reuses its Workspace, same-name directories receive stable
+distinct names, cancellation creates nothing, and import does not write a
+`.prayu` file or otherwise modify the selected directory. The ordinary Web UI
+retains the registered-Workspace selector as a compatibility fallback.
+
+Focused Go Workspace/Desktop tests, a real SQLite control-plane import test,
+24 focused React tests, strict TypeScript, Vite production assets, Desktop/WebUI
+package tests, and Windows Desktop packaging pass. The current EXE is
+`build/desktop/cyberagent-desktop.exe`, SHA-256
+`42e3019559dbeafef83a0868ab6700a424718da5c207f720a836c3505b0811be`.
+No schema, model, WFP, Docker, paid Provider, Agent authority, or file-access
+policy changed. This turn is complete at P13-G1; do not infer or start P13-G2.
+
 ## Maintenance Checkpoint: README and Dependency PR Review
 
 The 2026-08-13 maintenance pass reviewed every open GitHub PR. It merged

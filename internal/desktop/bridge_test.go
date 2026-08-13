@@ -122,14 +122,14 @@ func (p *testSkillPackagePicker) OpenSkillPackage(ctx context.Context) (string, 
 	return path, err
 }
 
-func TestDesktopBridgeBindsOnlyTwelveBoundedMethods(t *testing.T) {
+func TestDesktopBridgeBindsOnlyThirteenBoundedMethods(t *testing.T) {
 	typ := reflect.TypeFor[*DesktopBridge]()
-	if typ.NumMethod() != 12 {
-		t.Fatalf("exported method count = %d, want 12", typ.NumMethod())
+	if typ.NumMethod() != 13 {
+		t.Fatalf("exported method count = %d, want 13", typ.NumMethod())
 	}
 	want := []string{
 		"Bootstrap", "CloseUserTerminal", "GetUserTerminal",
-		"InstallSkillPackage", "OpenWorkspace", "PreviewSkillPackage",
+		"ImportWorkspace", "InstallSkillPackage", "OpenWorkspace", "PreviewSkillPackage",
 		"ReadUserTerminal", "ResizeUserTerminal", "SelectSkillPackage",
 		"StartUserTerminal", "WorkspaceLaunchers", "WriteUserTerminal",
 	}
@@ -182,6 +182,7 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		bootstrap.UserTerminalEnabled ||
 		bootstrap.AgentTerminalInputDefault ||
 		bootstrap.WorkspaceOpenEnabled ||
+		bootstrap.WorkspaceImportEnabled ||
 		bootstrap.RendererPathInputSupported {
 		t.Fatalf("unexpected bootstrap: %#v", bootstrap)
 	}
@@ -210,6 +211,7 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		"verification_evidence_enabled", "embedded_analyzer_execution_enabled",
 		"user_terminal_enabled",
 		"agent_terminal_input_default", "ui_digest",
+		"workspace_import_enabled",
 		"workspace_open_enabled",
 	})
 }

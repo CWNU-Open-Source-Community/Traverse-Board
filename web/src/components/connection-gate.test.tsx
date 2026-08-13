@@ -92,6 +92,7 @@ describe("ConnectionGate", () => {
       user_terminal_enabled: false,
       agent_terminal_input_default: false,
       workspace_open_enabled: false,
+      workspace_import_enabled: false,
       renderer_path_input_supported: false,
     });
     window.go = { desktop: { DesktopBridge: {

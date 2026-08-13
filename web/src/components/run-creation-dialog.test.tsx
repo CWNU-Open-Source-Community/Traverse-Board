@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import type { CyberAgentClient } from "../api/client";
 import type { RunCreationControlView } from "../api/types";
 import { useConnectionStore } from "../state/connection";
+import * as desktopBridge from "../lib/desktop-bridge";
 import { RunCreationDialog } from "./run-creation-dialog";
 
 const created = {
@@ -32,7 +33,33 @@ describe("RunCreationDialog", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("imports a native folder before creating a desktop Run", async () => {
+    vi.spyOn(desktopBridge, "desktopWorkspaceImportEnabled").mockReturnValue(true);
+    const importWorkspace = vi.spyOn(desktopBridge, "importDesktopWorkspace")
+      .mockResolvedValue({ id: "ws-import-selected", name: "selected-project",
+        created_at: "2026-08-13T01:02:03Z" });
+    const createRun = vi.fn().mockResolvedValue(created);
+    const getPage = vi.fn();
+    const client = { getPage, createRun } as unknown as CyberAgentClient;
+    const user = userEvent.setup();
+    render(<QueryClientProvider client={new QueryClient()}>
+      <RunCreationDialog client={client} open onClose={vi.fn()} />
+    </QueryClientProvider>);
+
+    await waitFor(() => expect(importWorkspace).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("selected-project")).toBeInTheDocument();
+    expect(getPage).not.toHaveBeenCalled();
+    await user.type(screen.getByLabelText("Goal"), "Create parser");
+    await user.click(screen.getByRole("button", { name: "Create Run" }));
+    await waitFor(() => expect(createRun).toHaveBeenCalledTimes(1));
+    expect(createRun.mock.calls[0]?.[0]).toMatchObject({
+      workspace_id: "ws-import-selected",
+      goal: "Create parser",
+    });
   });
 
   it("reuses one in-memory idempotency key for an identical retry", async () => {

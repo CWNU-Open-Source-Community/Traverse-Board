@@ -72,6 +72,7 @@ type ConnectionBootstrap struct {
 	UserTerminalEnabled                     bool   `json:"user_terminal_enabled"`
 	AgentTerminalInputDefault               bool   `json:"agent_terminal_input_default"`
 	WorkspaceOpenEnabled                    bool   `json:"workspace_open_enabled"`
+	WorkspaceImportEnabled                  bool   `json:"workspace_import_enabled"`
 	RendererPathInputSupported              bool   `json:"renderer_path_input_supported"`
 }
 
@@ -171,23 +172,27 @@ type DesktopBridgeConfig struct {
 	SkillInstaller                          SkillPackageInstaller
 	WorkspaceResolver                       WorkspaceResolver
 	WorkspaceLauncher                       NativeWorkspaceLauncher
+	WorkspaceDirectoryPicker                WorkspaceDirectoryPicker
+	WorkspaceRegistrar                      WorkspaceDirectoryRegistrar
 	UserTerminalController                  UserTerminalController
 }
 
 // DesktopBridge is the complete renderer binding surface for D0-A. Keep this
 // type deliberately small: Wails binds every exported method.
 type DesktopBridge struct {
-	contextProvider     func() context.Context
-	filePicker          SkillPackageFilePicker
-	selector            NativeSkillPackageSelector
-	previewBridge       *SkillPackagePreviewBridge
-	skillInstaller      SkillPackageInstaller
-	workspaceResolver   WorkspaceResolver
-	workspaceLauncher   NativeWorkspaceLauncher
-	userTerminal        UserTerminalController
-	bootstrap           ConnectionBootstrap
-	dialogActive        atomic.Bool
-	workspaceOpenActive atomic.Bool
+	contextProvider          func() context.Context
+	filePicker               SkillPackageFilePicker
+	selector                 NativeSkillPackageSelector
+	previewBridge            *SkillPackagePreviewBridge
+	skillInstaller           SkillPackageInstaller
+	workspaceResolver        WorkspaceResolver
+	workspaceLauncher        NativeWorkspaceLauncher
+	workspaceDirectoryPicker WorkspaceDirectoryPicker
+	workspaceRegistrar       WorkspaceDirectoryRegistrar
+	userTerminal             UserTerminalController
+	bootstrap                ConnectionBootstrap
+	dialogActive             atomic.Bool
+	workspaceOpenActive      atomic.Bool
 }
 
 func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
@@ -233,6 +238,10 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 	if (config.WorkspaceResolver == nil) != (config.WorkspaceLauncher == nil) {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop workspace opening requires paired resolver and launcher dependencies")
+	}
+	if (config.WorkspaceDirectoryPicker == nil) != (config.WorkspaceRegistrar == nil) {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"desktop workspace import requires paired picker and registrar dependencies")
 	}
 	if config.UserTerminalEnabled && config.UserTerminalController == nil {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
@@ -282,14 +291,16 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 			"desktop bridge version and UI digest metadata are invalid")
 	}
 	return &DesktopBridge{
-		contextProvider:   config.ContextProvider,
-		filePicker:        config.FilePicker,
-		selector:          config.Selector,
-		previewBridge:     config.PreviewBridge,
-		skillInstaller:    config.SkillInstaller,
-		workspaceResolver: config.WorkspaceResolver,
-		workspaceLauncher: config.WorkspaceLauncher,
-		userTerminal:      config.UserTerminalController,
+		contextProvider:          config.ContextProvider,
+		filePicker:               config.FilePicker,
+		selector:                 config.Selector,
+		previewBridge:            config.PreviewBridge,
+		skillInstaller:           config.SkillInstaller,
+		workspaceResolver:        config.WorkspaceResolver,
+		workspaceLauncher:        config.WorkspaceLauncher,
+		workspaceDirectoryPicker: config.WorkspaceDirectoryPicker,
+		workspaceRegistrar:       config.WorkspaceRegistrar,
+		userTerminal:             config.UserTerminalController,
 		bootstrap: ConnectionBootstrap{
 			ProtocolVersion: ConnectionBootstrapProtocolVersion,
 			APIBaseURL:      DesktopAPIBasePath, APIVersion: apiVersion, AppVersion: appVersion,
@@ -329,6 +340,7 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 			UserTerminalEnabled:                     config.UserTerminalEnabled,
 			AgentTerminalInputDefault:               false,
 			WorkspaceOpenEnabled:                    config.WorkspaceResolver != nil,
+			WorkspaceImportEnabled:                  config.RunCreationEnabled && config.WorkspaceRegistrar != nil,
 			RendererPathInputSupported:              false,
 		},
 	}, nil
