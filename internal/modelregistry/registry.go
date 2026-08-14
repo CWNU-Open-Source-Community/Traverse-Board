@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"sort"
 	"strings"
@@ -24,6 +25,7 @@ const (
 	DiagnosticProtocolVersion   = "provider_diagnostic.v1"
 	RouteControlProtocolVersion = "model_route_control.v1"
 	DiagnosticTimeout           = 15 * time.Second
+	diagnosticMaxTokens         = 128
 )
 
 const (
@@ -35,6 +37,7 @@ const (
 const (
 	ProviderKindLocal               = "local"
 	ProviderKindAnthropicCompatible = "anthropic_compatible"
+	ProviderKindOpenAICompatible    = "openai_compatible"
 )
 
 const (
@@ -49,6 +52,9 @@ const (
 	DefaultDeepSeekModel   = "deepseek-v4-flash"
 	defaultAnthropicURL    = "https://api.anthropic.com"
 	DefaultAnthropicModel  = "claude-3-5-sonnet-latest"
+	defaultOpenAIBaseURL   = "https://api.openai.com"
+	DefaultOpenAIModel     = "gpt-4.1-mini"
+	DefaultOpenAITimeout   = 60 * time.Second
 )
 
 var routeNames = []string{"code", "ctf", "learn", "review", "script"}
@@ -99,6 +105,7 @@ type DiagnosticResult struct {
 	Model                   string
 	Status                  string
 	Outcome                 string
+	FailureReason           llm.ProviderFailureReason
 	Retryable               bool
 	NetworkRequestAttempted bool
 	ModelCalled             bool
@@ -141,6 +148,15 @@ type anthropicEnvironment struct {
 	defaultBaseURL  string
 	defaultModel    string
 	disableThinking bool
+}
+
+type openAIEnvironment struct {
+	name           string
+	apiKeyEnv      string
+	baseURLEnv     string
+	modelEnv       string
+	defaultBaseURL string
+	defaultModel   string
 }
 
 func NewFromEnvironment() *Registry {
@@ -208,6 +224,13 @@ func buildRegistry(ctx context.Context, lookup EnvironmentLookup,
 			credentials, strictCredentialReads); err != nil {
 			return nil, err
 		}
+	}
+	if err := registry.registerOpenAIEnvironment(ctx, openAIEnvironment{
+		name: "openai", apiKeyEnv: "CYBERAGENT_OPENAI_API_KEY",
+		baseURLEnv: "CYBERAGENT_OPENAI_BASE_URL", modelEnv: "CYBERAGENT_OPENAI_MODEL",
+		defaultBaseURL: defaultOpenAIBaseURL, defaultModel: DefaultOpenAIModel,
+	}, lookup, credentials, strictCredentialReads); err != nil {
+		return nil, err
 	}
 	sort.Slice(registry.providers, func(i, j int) bool {
 		return registry.providers[i].Name < registry.providers[j].Name
@@ -356,8 +379,22 @@ func (r *Registry) Diagnose(ctx context.Context, provider string,
 	provider = strings.TrimSpace(provider)
 	model = strings.TrimSpace(model)
 	if !validAvailabilityIdentifier(provider, maxPublicProviderNameBytes) ||
-		!validAvailabilityIdentifier(model, maxPublicModelNameBytes) ||
-		!r.providerModelAvailable(provider, model) {
+		!validAvailabilityIdentifier(model, maxPublicModelNameBytes) {
+		return DiagnosticResult{}, errors.New("diagnostic Provider model is unavailable")
+	}
+	providerStatus, _, known := r.providerModelStatus(provider, model)
+	if !known {
+		return DiagnosticResult{}, errors.New("diagnostic Provider model is unavailable")
+	}
+	if providerStatus == ProviderNotConfigured {
+		return DiagnosticResult{
+			ProtocolVersion: DiagnosticProtocolVersion,
+			Provider:        provider, Model: model, Status: DiagnosticUnreachable,
+			Outcome:       string(llm.OutcomePermanent),
+			FailureReason: llm.ProviderFailureNotConfigured,
+		}, nil
+	}
+	if providerStatus != ProviderAvailable {
 		return DiagnosticResult{}, errors.New("diagnostic Provider model is unavailable")
 	}
 	networkRequired := r.providerNetworkRequired(provider)
@@ -367,6 +404,7 @@ func (r *Registry) Diagnose(ctx context.Context, provider string,
 	result := DiagnosticResult{
 		ProtocolVersion: DiagnosticProtocolVersion,
 		Provider:        provider, Model: model, Status: DiagnosticUnreachable,
+		FailureReason:           llm.ProviderFailureNone,
 		NetworkRequestAttempted: networkRequired, ModelCalled: true,
 		ToolCalled: false, ResponseContentReturned: false,
 	}
@@ -375,7 +413,7 @@ func (r *Registry) Diagnose(ctx context.Context, provider string,
 			Model: model,
 			Messages: []llm.Message{{Role: "user",
 				Content: "Reply with one short acknowledgement for a connectivity diagnostic."}},
-			Temperature: 0, MaxTokens: 8,
+			Temperature: 0, MaxTokens: diagnosticMaxTokens,
 			Metadata: map[string]string{"purpose": "connectivity_diagnostic"},
 		})
 	result.DurationMillis = time.Since(started).Milliseconds()
@@ -383,20 +421,24 @@ func (r *Registry) Diagnose(ctx context.Context, provider string,
 		result.DurationMillis = 0
 	}
 	if err != nil {
-		outcome := llm.ProviderErrorKind(llm.NormalizeProviderError(provider, err))
+		providerErr := llm.NormalizeProviderError(provider, err)
+		outcome := llm.ProviderErrorKind(providerErr)
 		if !outcome.Valid() || outcome == llm.OutcomeSuccess {
 			outcome = llm.OutcomePermanent
 		}
 		result.Outcome = string(outcome)
+		result.FailureReason = providerErr.Reason
 		result.Retryable = outcome.Retryable()
 		return result, nil
 	}
 	if response == nil || strings.TrimSpace(response.Provider) != provider {
 		result.Outcome = string(llm.OutcomeInvalidResponse)
+		result.FailureReason = llm.ProviderFailureProtocolIncompatible
 		return result, nil
 	}
 	result.Status = DiagnosticReachable
 	result.Outcome = string(llm.OutcomeSuccess)
+	result.FailureReason = llm.ProviderFailureNone
 	return result, nil
 }
 
@@ -411,6 +453,7 @@ func (r *Registry) Snapshot() Snapshot {
 	for index, provider := range r.providers {
 		providers[index] = provider
 		providers[index].Models = make([]string, len(provider.Models))
+		configuredHarnesses := append([]HarnessAvailability(nil), provider.Harnesses...)
 		providers[index].Harnesses = make([]HarnessAvailability, 0, len(provider.Models))
 		for modelIndex, model := range provider.Models {
 			providers[index].Models[modelIndex] = availabilityIdentifier(model,
@@ -420,6 +463,8 @@ func (r *Registry) Snapshot() Snapshot {
 			}); err == nil {
 				providers[index].Harnesses = append(providers[index].Harnesses,
 					harnessAvailability(model, profile))
+			} else if fallback, found := harnessForModel(configuredHarnesses, model); found {
+				providers[index].Harnesses = append(providers[index].Harnesses, fallback)
 			}
 		}
 	}
@@ -475,6 +520,25 @@ func (r *Registry) providerNetworkRequired(provider string) bool {
 	return false
 }
 
+func (r *Registry) providerModelStatus(provider string, model string) (
+	string, HarnessAvailability, bool,
+) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, current := range r.providers {
+		if current.Name != provider {
+			continue
+		}
+		for _, candidate := range current.Models {
+			if candidate == model {
+				harness, _ := harnessForModel(current.Harnesses, model)
+				return current.Status, harness, true
+			}
+		}
+	}
+	return "", HarnessAvailability{}, false
+}
+
 func containsRoute(route string) bool {
 	for _, current := range routeNames {
 		if current == route {
@@ -512,17 +576,25 @@ func (r *Registry) registerAnthropicEnvironment(ctx context.Context, config anth
 		}
 	}
 	status := ProviderNotConfigured
+	model := environmentValue(lookup, config.modelEnv, config.defaultModel)
 	models := []string{}
+	harnesses := []HarnessAvailability{}
+	if validAvailabilityIdentifier(model, maxPublicModelNameBytes) {
+		model = strings.TrimSpace(model)
+		models = []string{model}
+		harnesses = []HarnessAvailability{unqualifiedHarnessAvailability(model,
+			llm.HarnessTransportAnthropicMessages, llm.HarnessJSONStrategyPrompt)}
+	}
 	configurationError := false
 	if present && key != "" {
 		baseURL := environmentValue(lookup, config.baseURLEnv, config.defaultBaseURL)
-		model := environmentValue(lookup, config.modelEnv, config.defaultModel)
-		if !validAvailabilityIdentifier(model, maxPublicModelNameBytes) {
+		if len(models) == 0 {
 			status = ProviderInvalidConfiguration
 			configurationError = true
 			r.providers = append(r.providers, ProviderAvailability{
 				Name: config.name, Kind: ProviderKindAnthropicCompatible, Status: status,
-				Models: models, CredentialSource: credentialSource, NetworkRequired: true,
+				Models: models, Harnesses: harnesses,
+				CredentialSource: credentialSource, NetworkRequired: true,
 				ConfigurationError: configurationError,
 			})
 			return nil
@@ -536,7 +608,6 @@ func (r *Registry) registerAnthropicEnvironment(ctx context.Context, config anth
 			configurationError = true
 		} else {
 			status = ProviderAvailable
-			models = []string{strings.TrimSpace(model)}
 			r.router.RegisterProvider(provider)
 			r.available[config.name] = struct{}{}
 		}
@@ -546,10 +617,101 @@ func (r *Registry) registerAnthropicEnvironment(ctx context.Context, config anth
 	}
 	r.providers = append(r.providers, ProviderAvailability{
 		Name: config.name, Kind: ProviderKindAnthropicCompatible, Status: status,
-		Models: models, CredentialSource: credentialSource, NetworkRequired: true,
+		Models: models, Harnesses: harnesses,
+		CredentialSource: credentialSource, NetworkRequired: true,
 		ConfigurationError: configurationError,
 	})
 	return nil
+}
+
+func (r *Registry) registerOpenAIEnvironment(ctx context.Context, config openAIEnvironment,
+	lookup EnvironmentLookup, credentials credentialLookup, strictCredentialReads bool,
+) error {
+	key, present := lookup(config.apiKeyEnv)
+	credentialSource := "none"
+	if present {
+		credentialSource = "environment"
+	}
+	if !present && credentials != nil {
+		var err error
+		key, present, err = credentials(ctx, config.name)
+		if err != nil {
+			if strictCredentialReads {
+				return fmt.Errorf("read system credential for %s: %w", config.name, err)
+			}
+			r.providers = append(r.providers, ProviderAvailability{
+				Name: config.name, Kind: ProviderKindOpenAICompatible,
+				Status: ProviderInvalidConfiguration, Models: []string{}, Harnesses: []HarnessAvailability{},
+				CredentialSource: "system", NetworkRequired: true, ConfigurationError: true,
+			})
+			return nil
+		}
+		if present {
+			credentialSource = "system"
+		}
+	}
+	model := environmentValue(lookup, config.modelEnv, config.defaultModel)
+	models := []string{}
+	harnesses := []HarnessAvailability{}
+	if validAvailabilityIdentifier(model, maxPublicModelNameBytes) {
+		model = strings.TrimSpace(model)
+		models = []string{model}
+		harnesses = []HarnessAvailability{unqualifiedHarnessAvailability(model,
+			llm.HarnessTransportOpenAIChatCompletions, llm.HarnessJSONStrategyNative)}
+	}
+	status := ProviderNotConfigured
+	configurationError := false
+	if present && key != "" {
+		if len(models) == 0 {
+			status = ProviderInvalidConfiguration
+			configurationError = true
+		} else {
+			provider, err := llm.NewOpenAICompatibleProvider(llm.OpenAICompatibleConfig{
+				Name:    config.name,
+				BaseURL: environmentValue(lookup, config.baseURLEnv, config.defaultBaseURL),
+				APIKey:  key, DefaultModel: model,
+				HTTPClient: &http.Client{Timeout: DefaultOpenAITimeout},
+			})
+			if err != nil {
+				status = ProviderInvalidConfiguration
+				configurationError = true
+			} else {
+				status = ProviderAvailable
+				r.router.RegisterProvider(provider)
+				r.available[config.name] = struct{}{}
+			}
+		}
+	} else if present && key != strings.TrimSpace(key) {
+		status = ProviderInvalidConfiguration
+		configurationError = true
+	}
+	r.providers = append(r.providers, ProviderAvailability{
+		Name: config.name, Kind: ProviderKindOpenAICompatible, Status: status,
+		Models: models, Harnesses: harnesses,
+		CredentialSource: credentialSource, NetworkRequired: true,
+		ConfigurationError: configurationError,
+	})
+	return nil
+}
+
+func unqualifiedHarnessAvailability(model string, transport string,
+	jsonStrategy string,
+) HarnessAvailability {
+	return HarnessAvailability{
+		ProtocolVersion: llm.ModelHarnessProtocolVersion,
+		Model:           model, TransportProtocol: transport,
+		ToolStrategy: llm.HarnessToolStrategyNative, JSONStrategy: jsonStrategy,
+		QualificationStatus: llm.HarnessQualificationRequired,
+	}
+}
+
+func harnessForModel(harnesses []HarnessAvailability, model string) (HarnessAvailability, bool) {
+	for _, harness := range harnesses {
+		if harness.Model == model {
+			return harness, true
+		}
+	}
+	return HarnessAvailability{}, false
 }
 
 func environmentValue(lookup EnvironmentLookup, name string, fallback string) string {

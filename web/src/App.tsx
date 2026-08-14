@@ -23,7 +23,7 @@ import { SettingsView, type SettingsCapability } from "./components/settings-vie
 import { EmptyConversation, SidebarResizeHandle, UtilityWorkspace,
   WorkbenchFrame, clampSidebarWidth, defaultSidebarWidth,
   type NewRunDraft } from "./components/workbench-frame";
-import { desktopBridgeAvailable } from "./lib/desktop-bridge";
+import { desktopBridgeAvailable, desktopIsMacPlatform } from "./lib/desktop-bridge";
 import { useLocale } from "./lib/locale";
 import { closeDesktopWindow, minimiseDesktopWindow,
   toggleDesktopWindowMaximised } from "./lib/desktop-window";
@@ -154,6 +154,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   const [workspaceSection, setWorkspaceSection] = useState<Exclude<WorkbenchSection, "new-task">>(
     "conversation");
   const desktop = desktopBridgeAvailable();
+  const macTitlebar = desktopIsMacPlatform();
   const client = useMemo(() => new CyberAgentClient(token, undefined, controlToken, {
     runControlEnabled, runCreationEnabled, sessionMessageEnabled,
     executionPermissionControlEnabled, operatorApprovalEnabled,
@@ -307,7 +308,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   return (
     <>
       <div className={`app-shell prayu-shell ${surface === "settings" ? "settings-mode" : "workspace-mode"}`}>
-        <header className="topbar prayu-titlebar">
+        <header className={`topbar prayu-titlebar${macTitlebar ? " mac-titlebar" : ""}`}>
           <div className="titlebar-navigation">
             <button aria-label={t("显示或隐藏侧栏", "Show or hide sidebar")} className="titlebar-icon" disabled={surface === "settings"}
               onClick={() => setSidebarVisible((visible) => !visible)} title={t("显示或隐藏侧栏", "Show or hide sidebar")} type="button">

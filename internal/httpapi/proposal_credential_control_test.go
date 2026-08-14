@@ -154,7 +154,7 @@ func TestProviderCredentialHTTPNeverReturnsPlaintext(t *testing.T) {
 	}
 	var statuses ProviderCredentialListView
 	decodeDataStatus(t, list, http.StatusOK, &statuses)
-	if len(statuses.Items) != 3 {
-		t.Fatalf("credential status count=%d want=3", len(statuses.Items))
+	if len(statuses.Items) != 4 {
+		t.Fatalf("credential status count=%d want=4", len(statuses.Items))
 	}
 }

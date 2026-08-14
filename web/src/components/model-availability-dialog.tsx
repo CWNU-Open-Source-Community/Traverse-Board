@@ -28,6 +28,19 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
   presentation: "dialog" | "workspace";
 }) {
   const { t } = useLocale();
+  const failureReasonLabel = (reason: string) => {
+    const labels: Record<string, [string, string]> = {
+      not_configured: ["未配置", "not configured"],
+      authentication: ["身份验证失败", "authentication failed"],
+      network: ["网络不可达", "network unreachable"],
+      rate_limit: ["达到速率限制", "rate limited"],
+      capacity: ["Provider 容量不足", "Provider capacity unavailable"],
+      model_not_found: ["模型不存在", "model not found"],
+      protocol_incompatible: ["协议不兼容", "protocol incompatible"],
+    };
+    const label = labels[reason];
+    return label ? t(label[0], label[1]) : reason;
+  };
   const queryClient = useQueryClient();
   const [selections, setSelections] = useState<Record<string, string>>({});
   const [diagnostic, setDiagnostic] = useState<ProviderDiagnosticView | null>(null);
@@ -143,7 +156,9 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
                         : provider.credential_source}</span>
                       <StatusBadge status={provider.status} />
                       {harness && <StatusBadge status={harness.qualification_status} />}
-                      {client.hasModelControl && provider.status === "available" &&
+                      {client.hasModelControl &&
+                        (provider.status === "available" ||
+                          provider.status === "not_configured") &&
                         model && (
                           <>
                             <button aria-label={t(`诊断 ${modelReference}`, `Diagnose ${modelReference}`)} className="icon-button"
@@ -180,7 +195,9 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
                 {diagnostic && <div className="model-diagnostic-result" role="status">
                   <span>{diagnostic.provider}/{diagnostic.model}</span>
                   <StatusBadge status={diagnostic.status} />
-                  <span>{diagnostic.outcome === "success"
+                  <span>{diagnostic.failure_reason !== "none"
+                    ? failureReasonLabel(diagnostic.failure_reason)
+                    : diagnostic.outcome === "success"
                     ? t("成功", "success")
                     : diagnostic.outcome === "invalid_response"
                       ? t("响应格式不兼容", "invalid response")
@@ -195,6 +212,8 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
                   <span>{qualification.provider}/{qualification.model}</span>
                   <StatusBadge status={qualification.status} />
                   <span>{qualification.harness.transport_protocol}</span>
+                  {qualification.failure_reason !== "none" &&
+                    <span>{failureReasonLabel(qualification.failure_reason)}</span>}
                   <span>{qualification.model_calls} {t("次模型调用", "model calls")}</span>
                 </div>}
                 {qualificationMutation.isError && <div className="inline-warning" role="alert">

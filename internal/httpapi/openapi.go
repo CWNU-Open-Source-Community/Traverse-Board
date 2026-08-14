@@ -242,6 +242,7 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			"maxLength": 40, "pattern": `^[0-9a-f]{40}$`}}
 	routeName := pathIdentityParameter("route", "Model route name")
 	providerName := pathIdentityParameter("provider", "Provider name")
+	providerName.Schema["enum"] = []string{"anthropic", "deepseek", "mimo", "openai"}
 	return []openAPIOperationSpec{
 		{Path: "/api/v1", OperationID: "getAPIIndex", Summary: "Inspect API resources",
 			Description: "Returns API and application versions plus top-level resources.", Tag: "System",
@@ -1419,7 +1420,8 @@ func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[str
 		schema["maxItems"] = application.MaxCodeHandoffReportReferences
 	}
 	if typeName == "ProviderCredentialListView" && fieldName == "items" {
-		schema["maxItems"] = 3
+		schema["minItems"] = 4
+		schema["maxItems"] = 4
 	}
 	if typeName == "ProviderCredentialRequestView" && fieldName == "secret" {
 		schema["writeOnly"] = true
@@ -1487,19 +1489,22 @@ var openAPIFieldEnums = map[string][]string{
 	"ProviderDiagnosticRequestView.version":                   {modelregistry.DiagnosticProtocolVersion},
 	"ModelHarnessQualificationRequestView.version":            {modelregistry.HarnessQualificationProtocolVersion},
 	"ModelHarnessAvailabilityView.protocol_version":           {llm.ModelHarnessProtocolVersion},
-	"ModelHarnessAvailabilityView.transport_protocol":         {llm.HarnessTransportMock, llm.HarnessTransportAnthropicMessages, llm.HarnessTransportProviderContract},
+	"ModelHarnessAvailabilityView.transport_protocol":         {llm.HarnessTransportMock, llm.HarnessTransportAnthropicMessages, llm.HarnessTransportOpenAIChatCompletions, llm.HarnessTransportProviderContract},
 	"ModelHarnessAvailabilityView.tool_strategy":              {llm.HarnessToolStrategyNative, llm.HarnessToolStrategyNone},
 	"ModelHarnessAvailabilityView.json_strategy":              {llm.HarnessJSONStrategyNative, llm.HarnessJSONStrategyPrompt, llm.HarnessJSONStrategyNone},
 	"ModelHarnessAvailabilityView.qualification_status":       {llm.HarnessQualificationTrusted, llm.HarnessQualificationRequired, llm.HarnessQualificationVerified},
 	"ModelHarnessQualificationView.protocol_version":          {modelregistry.HarnessQualificationProtocolVersion},
 	"ModelHarnessQualificationView.status":                    {modelregistry.HarnessDiagnosticQualified, modelregistry.HarnessDiagnosticIncompatible, modelregistry.HarnessDiagnosticUnreachable},
 	"ModelHarnessQualificationView.outcome":                   {string(llm.OutcomeSuccess), string(llm.OutcomeRetryable), string(llm.OutcomeRateLimited), string(llm.OutcomeInvalidResponse), string(llm.OutcomeCancelled), string(llm.OutcomePermanent)},
+	"ModelHarnessQualificationView.failure_reason":            {string(llm.ProviderFailureNone), string(llm.ProviderFailureNotConfigured), string(llm.ProviderFailureAuthentication), string(llm.ProviderFailureNetwork), string(llm.ProviderFailureRateLimit), string(llm.ProviderFailureCapacity), string(llm.ProviderFailureModelNotFound), string(llm.ProviderFailureProtocolIncompatible)},
 	"ProviderDiagnosticView.protocol_version":                 {modelregistry.DiagnosticProtocolVersion},
 	"ProviderDiagnosticView.status":                           {modelregistry.DiagnosticReachable, modelregistry.DiagnosticUnreachable},
 	"ProviderDiagnosticView.outcome":                          {string(llm.OutcomeSuccess), string(llm.OutcomeRetryable), string(llm.OutcomeRateLimited), string(llm.OutcomeInvalidResponse), string(llm.OutcomeCancelled), string(llm.OutcomePermanent)},
+	"ProviderDiagnosticView.failure_reason":                   {string(llm.ProviderFailureNone), string(llm.ProviderFailureNotConfigured), string(llm.ProviderFailureAuthentication), string(llm.ProviderFailureNetwork), string(llm.ProviderFailureRateLimit), string(llm.ProviderFailureCapacity), string(llm.ProviderFailureModelNotFound), string(llm.ProviderFailureProtocolIncompatible)},
 	"ModelRouteControlRequestView.version":                    {modelregistry.RouteControlProtocolVersion},
 	"ProviderCredentialListView.protocol_version":             {credential.ProtocolVersion},
 	"ProviderCredentialStatusView.protocol_version":           {credential.ProtocolVersion},
+	"ProviderCredentialStatusView.provider":                   {"anthropic", "deepseek", "mimo", "openai"},
 	"ProviderCredentialRequestView.version":                   {credential.ProtocolVersion},
 	"ProviderCredentialRequestView.action":                    {string(application.ProviderCredentialSet), string(application.ProviderCredentialDelete)},
 	"FileEditProposalSourceView.protocol_version":             {application.FileEditProposalProtocolVersion},
@@ -1601,7 +1606,7 @@ var openAPIFieldEnums = map[string][]string{
 	"OperatorActionItemView.kind":                             {string(operatoraction.KindSteeringPending), string(operatoraction.KindApprovalPending), string(operatoraction.KindFileEditReview), string(operatoraction.KindFileEditApply), string(operatoraction.KindWakeDue)},
 	"OperatorActionItemView.state":                            {"pending", "proposed", "approved", "queued"},
 	"OperatorActionItemView.destination":                      {string(operatoraction.DestinationQueue), string(operatoraction.DestinationApprovals), string(operatoraction.DestinationDiffs), string(operatoraction.DestinationWake)},
-	"ProviderAvailabilityView.kind":                           {modelregistry.ProviderKindLocal, modelregistry.ProviderKindAnthropicCompatible},
+	"ProviderAvailabilityView.kind":                           {modelregistry.ProviderKindLocal, modelregistry.ProviderKindAnthropicCompatible, modelregistry.ProviderKindOpenAICompatible},
 	"ProviderAvailabilityView.status":                         {modelregistry.ProviderAvailable, modelregistry.ProviderNotConfigured, modelregistry.ProviderInvalidConfiguration},
 	"ProviderAvailabilityView.credential_source":              {"none", "environment", "system"},
 	"ScopeView.network_mode":                                  {"disabled", "allowlist"},

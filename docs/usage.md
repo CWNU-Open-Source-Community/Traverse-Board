@@ -734,19 +734,25 @@ cyberagent provider list
 cyberagent provider test
 cyberagent provider test mimo/mimo-v2.5-pro
 cyberagent provider test deepseek/deepseek-v4-flash
+cyberagent provider test openai/gpt-4.1-mini
 cyberagent provider qualify script
 cyberagent provider qualify mimo/mimo-v2.5-pro
+cyberagent provider qualify openai/gpt-4.1-mini
 cyberagent model list
 cyberagent model set script mock/mock-code
 ```
 
-`provider test` accepts either a route name, such as `learn`, or a direct `provider/model` reference. It is an explicit online connectivity diagnostic: each invocation may send one small, content-free, tool-disabled model request with a 15-second deadline and may incur Provider charges. Passing it does not qualify streamed ToolCall, ToolResult, or strict-JSON behavior.
+`provider test` accepts either a route name, such as `learn`, or a direct `provider/model` reference. It is an explicit online connectivity diagnostic: each invocation may send one small, content-free, tool-disabled model request with a 15-second deadline and may incur Provider charges. Passing it does not qualify streamed ToolCall, ToolResult, or strict-JSON behavior. Its safe `failure_reason` distinguishes `not_configured`, `authentication`, `network`, `rate_limit`, `capacity`, `model_not_found`, and `protocol_incompatible` without returning raw Provider errors.
 
 `provider qualify` accepts the same route or direct reference and performs the separate `model_harness_qualification.v1` contract. Built-in Mock returns immediately with zero model calls. An external model may receive at most two bounded requests under a 30-second deadline: one exact synthetic nonce ToolCall, then one exact strict-JSON acknowledgement after a synthetic ToolResult. Prayu never dispatches the synthetic Tool. Successful qualification is bound to the exact Provider/model/base-URL/strategy for seven days; a configuration change or expiry fails closed. The command prints status, counts, protocol strategy, and readiness only. It never prints prompts, response content, Tool arguments, API keys, endpoints, environment-variable names, or raw errors.
 
 `model set` validates and persists the route before changing the in-memory Router, so a failed SQLite write cannot create a process-only route. Route selection does not automatically qualify the model. Root, Specialist, and read-only Fan-out use one Go-owned Harness preflight immediately before every Provider call; external models that have not passed the exact qualification are rejected before normal Agent execution.
 
-The optional `mimo`, `deepseek`, and `anthropic` Providers load credentials from the process environment first and may then use the Go-owned system credential store. Windows stores exact supported keys in Credential Manager; non-Windows has no plaintext-file fallback. Credential status and mutation never return plaintext and a change currently requires process restart. Base URLs must be absolute HTTPS URLs unless they target an exact loopback host over HTTP; embedded credentials, query strings, fragments, and redirects are rejected. API keys are bounded normalized UTF-8 without whitespace or control characters.
+The optional `mimo`, `deepseek`, `anthropic`, and `openai` Providers load credentials from the process environment first and may then use the Go-owned system credential store. OpenAI-compatible configuration uses only `CYBERAGENT_OPENAI_API_KEY`, `CYBERAGENT_OPENAI_BASE_URL`, and `CYBERAGENT_OPENAI_MODEL`; the base URL and model default to `https://api.openai.com` and `gpt-4.1-mini`. Its strict Chat Completions profile uses a 60-second production HTTP deadline, clamps internal injected clients to that maximum, follows no redirects, sends only `Authorization`, `Content-Type`, and `Accept`, and accepts no caller- or repository-supplied custom headers or compatibility fields. The OS credential name is `openai`. Do not use generic `OPENAI_*` variables for this adapter.
+
+Windows stores exact supported keys in Credential Manager; non-Windows has no plaintext-file fallback. Credential status and mutation never return plaintext. Desktop and API control planes atomically reload a new Registry generation after a successful change; a host without the reload dependency reports `restart_required: true`. Base URLs must be absolute HTTPS URLs unless they target an exact loopback host over HTTP; embedded credentials, query strings, fragments, and redirects are rejected. API keys are bounded normalized UTF-8 without whitespace or control characters. [`../configs/models.yaml`](../configs/models.yaml) is a documentation-only, non-secret example and is not loaded at runtime; repository or Workspace content cannot configure a Provider endpoint, header, or key.
+
+For an opt-in live smoke, set the three `CYBERAGENT_OPENAI_*` variables in the current process, then use the exact configured model reference. With the default model, run `cyberagent provider test openai/gpt-4.1-mini` followed by `cyberagent provider qualify openai/gpt-4.1-mini`; if `CYBERAGENT_OPENAI_MODEL` has another value, replace `gpt-4.1-mini` in both commands with that exact value. These commands make real, potentially billable network calls and are never part of the default test suite. Use a local mock endpoint for automated smoke tests. Neither command prints the API key, configured endpoint, prompts, response text, Tool arguments, raw deltas, or raw errors; unset the key after the manual check.
 
 ## Durable Run Wake Intent
 

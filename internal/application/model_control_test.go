@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/modelregistry"
 )
 
@@ -55,6 +56,36 @@ func TestModelControlRequiresExplicitDiagnosticConfirmation(t *testing.T) {
 	if result.Status != modelregistry.DiagnosticReachable ||
 		result.ResponseContentReturned || result.ToolCalled {
 		t.Fatalf("unexpected diagnostic result: %#v", result)
+	}
+}
+
+func TestModelControlReturnsUnconfiguredProviderFacts(t *testing.T) {
+	service := NewModelControlService(modelregistry.New(nil), modelRouteSettings{})
+	diagnostic, err := service.Diagnose(context.Background(), DiagnoseProviderRequest{
+		Version:  modelregistry.DiagnosticProtocolVersion,
+		Provider: "openai", Model: modelregistry.DefaultOpenAIModel,
+		ConfirmDiagnostic: true,
+	})
+	if err != nil || diagnostic.FailureReason != llm.ProviderFailureNotConfigured ||
+		diagnostic.ModelCalled || diagnostic.NetworkRequestAttempted {
+		t.Fatalf("unexpected unconfigured diagnostic: %#v err=%v", diagnostic, err)
+	}
+	qualification, err := service.QualifyHarness(context.Background(),
+		QualifyModelHarnessRequest{
+			Version:  modelregistry.HarnessQualificationProtocolVersion,
+			Provider: "openai", Model: modelregistry.DefaultOpenAIModel,
+			ConfirmQualification: true,
+		})
+	if err != nil || qualification.FailureReason != llm.ProviderFailureNotConfigured ||
+		qualification.ModelCalls != 0 || qualification.NetworkRequestAttempted {
+		t.Fatalf("unexpected unconfigured qualification: %#v err=%v", qualification, err)
+	}
+	if _, err := service.Diagnose(context.Background(), DiagnoseProviderRequest{
+		Version:  modelregistry.DiagnosticProtocolVersion,
+		Provider: "unknown", Model: modelregistry.DefaultOpenAIModel,
+		ConfirmDiagnostic: true,
+	}); err == nil {
+		t.Fatal("unknown Provider diagnostic was accepted")
 	}
 }
 

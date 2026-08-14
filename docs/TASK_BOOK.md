@@ -10,6 +10,8 @@
 
 ## 当前基线
 
+D0-Mac 已把 Desktop 构建扩展到 macOS（ADR 0097）：darwin 构建标签复用同一 Go 控制平面与 WKWebView，产出未签名/未公证的本地 Prayu.app；Windows 专属的凭证库、ConPTY 终端、Safe Web/WFP 与受控宿主执行在 macOS 失败关闭。macOS 签名、公证与人工矩阵仍未排入当前切片。
+
 - 架构完成度：约 99%；其中 V2 Run-centric 控制平面约 99%。
 - 产品可用度：通用 Code Agent 操作者预览约 98%。
 - 通用 Coding Agent 工作流可用度：约 98%。

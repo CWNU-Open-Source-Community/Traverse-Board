@@ -18,7 +18,7 @@ const (
 )
 
 var managedCredentialProviders = map[string]struct{}{
-	"anthropic": {}, "deepseek": {}, "mimo": {},
+	"anthropic": {}, "deepseek": {}, "mimo": {}, "openai": {},
 }
 
 type ProviderCredentialStatus struct {

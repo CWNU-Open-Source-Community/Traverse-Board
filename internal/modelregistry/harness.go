@@ -33,6 +33,7 @@ const (
 	maxHarnessProbeChunks = 256
 	maxHarnessProbeBytes  = 8 * 1024
 	maxHarnessRecordBytes = 4 * 1024
+	harnessProbeMaxTokens = 256
 )
 
 type HarnessAvailability struct {
@@ -58,6 +59,7 @@ type HarnessQualificationResult struct {
 	Model                   string
 	Status                  string
 	Outcome                 string
+	FailureReason           llm.ProviderFailureReason
 	Retryable               bool
 	NetworkRequestAttempted bool
 	ModelCalls              int
@@ -100,8 +102,25 @@ func (r *Registry) QualifyHarness(ctx context.Context, writer RouteSettingWriter
 	provider = strings.TrimSpace(provider)
 	model = strings.TrimSpace(model)
 	if !validAvailabilityIdentifier(provider, maxPublicProviderNameBytes) ||
-		!validAvailabilityIdentifier(model, maxPublicModelNameBytes) ||
-		!r.providerModelAvailable(provider, model) {
+		!validAvailabilityIdentifier(model, maxPublicModelNameBytes) {
+		return HarnessQualificationResult{},
+			errors.New("model Harness qualification Provider model is unavailable")
+	}
+	providerStatus, fallbackHarness, known := r.providerModelStatus(provider, model)
+	if !known {
+		return HarnessQualificationResult{},
+			errors.New("model Harness qualification Provider model is unavailable")
+	}
+	if providerStatus == ProviderNotConfigured {
+		return HarnessQualificationResult{
+			ProtocolVersion: HarnessQualificationProtocolVersion,
+			Provider:        provider, Model: model, Status: HarnessDiagnosticUnreachable,
+			Outcome:       string(llm.OutcomePermanent),
+			FailureReason: llm.ProviderFailureNotConfigured,
+			Harness:       fallbackHarness,
+		}, nil
+	}
+	if providerStatus != ProviderAvailable {
 		return HarnessQualificationResult{},
 			errors.New("model Harness qualification Provider model is unavailable")
 	}
@@ -116,6 +135,7 @@ func (r *Registry) QualifyHarness(ctx context.Context, writer RouteSettingWriter
 		ProtocolVersion: HarnessQualificationProtocolVersion,
 		Provider:        provider, Model: model,
 		Status:                  HarnessDiagnosticIncompatible,
+		FailureReason:           llm.ProviderFailureNone,
 		NetworkRequestAttempted: r.providerNetworkRequired(provider),
 		ToolExecuted:            false, ResponseContentReturned: false,
 		Harness: harnessAvailability(model, base),
@@ -123,11 +143,13 @@ func (r *Registry) QualifyHarness(ctx context.Context, writer RouteSettingWriter
 	if rootHarnessReady(base) {
 		result.Status = HarnessDiagnosticQualified
 		result.Outcome = string(llm.OutcomeSuccess)
+		result.FailureReason = llm.ProviderFailureNone
 		return result, nil
 	}
 	if base.ToolStrategy != llm.HarnessToolStrategyNative ||
 		base.JSONStrategy == llm.HarnessJSONStrategyNone {
 		result.Outcome = string(llm.OutcomeInvalidResponse)
+		result.FailureReason = llm.ProviderFailureProtocolIncompatible
 		return result, nil
 	}
 	qualificationCtx, cancel := context.WithTimeout(ctx, HarnessQualificationTimeout)
@@ -144,6 +166,7 @@ func (r *Registry) QualifyHarness(ctx context.Context, writer RouteSettingWriter
 	if probeErr != nil {
 		providerErr := llm.NormalizeProviderError(provider, probeErr)
 		result.Outcome = string(providerErr.Kind)
+		result.FailureReason = providerErr.Reason
 		result.Retryable = providerErr.Kind.Retryable()
 		if providerErr.Kind != llm.OutcomeInvalidResponse {
 			result.Status = HarnessDiagnosticUnreachable
@@ -183,6 +206,7 @@ func (r *Registry) QualifyHarness(ctx context.Context, writer RouteSettingWriter
 	}
 	result.Status = HarnessDiagnosticQualified
 	result.Outcome = string(llm.OutcomeSuccess)
+	result.FailureReason = llm.ProviderFailureNone
 	result.Retryable = false
 	result.Harness = harnessAvailability(model, verified)
 	return result, nil
@@ -205,7 +229,7 @@ func (r *Registry) probeHarness(ctx context.Context, ref llm.ModelRef,
 			{Role: "system", Content: "Prayu model Harness qualification. Use only the supplied synthetic tool. Do not answer with text."},
 			{Role: "user", Content: "Call prayu_harness_echo exactly once with nonce " + nonce + "."},
 		},
-		Tools: []llm.ToolSpec{tool}, MaxTokens: 96,
+		Tools: []llm.ToolSpec{tool}, MaxTokens: harnessProbeMaxTokens,
 		Metadata: map[string]string{
 			"purpose": "model_harness_qualification",
 			"phase":   "tool_call",
@@ -244,7 +268,7 @@ func (r *Registry) probeHarness(ctx context.Context, ref llm.ModelRef,
 				ToolResults: []llm.ToolResult{{
 					ToolCallID: firstResponse.ToolCalls[0].ID, Content: string(resultJSON),
 				}}}),
-		Tools: []llm.ToolSpec{tool}, MaxTokens: 96,
+		Tools: []llm.ToolSpec{tool}, MaxTokens: harnessProbeMaxTokens,
 		JSONMode: base.JSONStrategy == llm.HarnessJSONStrategyNative,
 		Metadata: map[string]string{
 			"purpose": "model_harness_qualification",
@@ -292,6 +316,9 @@ func collectHarnessProbeStream(ctx context.Context, router *llm.Router, ref llm.
 			return nil, ctx.Err()
 		case chunk, ok := <-chunks:
 			if !ok {
+				if ctx.Err() != nil {
+					return nil, ctx.Err()
+				}
 				return nil, llm.NewProviderError(llm.OutcomeInvalidResponse,
 					ref.Provider, "model Harness probe stream ended without a final chunk", nil)
 			}

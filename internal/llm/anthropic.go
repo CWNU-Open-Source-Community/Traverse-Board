@@ -16,8 +16,6 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
-
-	"cyberagent-workbench/internal/redact"
 )
 
 const AnthropicVersion = "2023-06-01"
@@ -25,6 +23,7 @@ const AnthropicVersion = "2023-06-01"
 const (
 	maxProviderBaseURLBytes = 2048
 	maxProviderAPIKeyBytes  = 16 * 1024
+	defaultProviderTimeout  = 60 * time.Second
 )
 
 type AnthropicCompatibleConfig struct {
@@ -73,12 +72,12 @@ func NewAnthropicCompatibleProvider(config AnthropicCompatibleConfig) (*Anthropi
 }
 
 func providerHTTPClient(source *http.Client) *http.Client {
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := &http.Client{Timeout: defaultProviderTimeout}
 	if source != nil {
 		copy := *source
 		client = &copy
-		if client.Timeout <= 0 {
-			client.Timeout = 60 * time.Second
+		if client.Timeout <= 0 || client.Timeout > defaultProviderTimeout {
+			client.Timeout = defaultProviderTimeout
 		}
 	}
 	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
@@ -229,9 +228,12 @@ func (p *AnthropicCompatibleProvider) Chat(ctx context.Context, req ChatRequest)
 	return &ChatResponse{
 		Text:      text,
 		ToolCalls: toolCalls,
-		Raw:       raw,
-		Model:     parsed.ModelOrDefault(model),
-		Provider:  p.name,
+		// Keep the upstream response inside the adapter. Raw model payloads are
+		// not part of the Supervisor contract and must not cross persistence or
+		// activity boundaries.
+		Raw:      nil,
+		Model:    parsed.ModelOrDefault(model),
+		Provider: p.name,
 		Usage: Usage{
 			InputTokens:  parsed.Usage.InputTokens,
 			OutputTokens: parsed.Usage.OutputTokens,
@@ -241,21 +243,36 @@ func (p *AnthropicCompatibleProvider) Chat(ctx context.Context, req ChatRequest)
 }
 
 func anthropicHTTPError(provider string, statusCode int, retryAfterHeader string, raw []byte) *ProviderError {
+	// The response body is deliberately ignored. Provider error text may be
+	// persisted by the Supervisor, and a remote endpoint can echo prompts,
+	// tool arguments, credentials, or arbitrary private content in that body.
+	_ = raw
 	kind := OutcomePermanent
+	reason := ProviderFailureProtocolIncompatible
 	switch statusCode {
+	case http.StatusUnauthorized, http.StatusForbidden:
+		reason = ProviderFailureAuthentication
+	case http.StatusNotFound:
+		// A bare 404 can also mean that the configured Anthropic-compatible
+		// endpoint does not implement /v1/messages. Without an exact safe wire
+		// code, keep the conservative protocol classification.
+		reason = ProviderFailureProtocolIncompatible
 	case http.StatusTooManyRequests:
 		kind = OutcomeRateLimited
-	case http.StatusRequestTimeout, http.StatusTooEarly, http.StatusInternalServerError,
-		http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout, 529:
+		reason = ProviderFailureRateLimit
+	case http.StatusServiceUnavailable, 529:
 		kind = OutcomeRetryable
+		reason = ProviderFailureCapacity
+	case http.StatusRequestTimeout, http.StatusTooEarly, http.StatusInternalServerError,
+		http.StatusBadGateway, http.StatusGatewayTimeout:
+		kind = OutcomeRetryable
+		reason = ProviderFailureNetwork
 	}
 	message := fmt.Sprintf("returned HTTP %d", statusCode)
-	if detail := trimForError(redact.String(string(raw)), 700); detail != "" {
-		message += ": " + detail
-	}
 	err := NewProviderError(kind, provider, message, nil)
 	err.StatusCode = statusCode
 	err.RetryAfter = parseRetryAfter(retryAfterHeader, time.Now())
+	err.Reason = reason
 	return err
 }
 
@@ -795,12 +812,4 @@ func fallbackModelInfo(provider string, model string) []ModelInfo {
 		Provider:     provider,
 		Capabilities: []string{"chat", "tools"},
 	}}
-}
-
-func trimForError(value string, limit int) string {
-	value = strings.TrimSpace(value)
-	if len(value) <= limit {
-		return value
-	}
-	return value[:limit] + "..."
 }

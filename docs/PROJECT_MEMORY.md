@@ -4,7 +4,32 @@
 
 Last updated: 2026-08-14
 
-## Current Single-Slice Checkpoint: Durable Docker Lifecycle Ownership / Schema v97
+## Current Single-Slice Checkpoint: macOS Desktop Portable Build / Schema v97 Unchanged
+
+On 2026-08-14 a new single-slice delivery added a macOS portable Desktop build
+without changing SQLite schema or any authority boundary. cmd/cyberagent-desktop
+is now split by build tag: shared shell code under "desktop", Windows-only
+WebView2/Acrylic/registry-launcher code under "windows && desktop &&
+wv2runtime.error", and a new "darwin && desktop" port. macOS uses bundled
+WKWebView (no runtime prerequisite probe), reports startup failures through a
+bounded, strictly escaped best-effort osascript dialog, and discovers workspace
+launchers from a fixed .app set launched only through /usr/bin/open; Finder
+opens the registered directory itself. Windows-only seams (Credential Manager,
+ConPTY terminal, Safe Web/WFP, controlled host execution) keep failing closed
+on macOS. The in-process renderer origin gate pins the platform authority
+(wails.localhost on Windows, the custom wails:// scheme host on macOS) and the
+build pins the cgo compile/link deployment target to the Go 11.0 minimum.
+scripts/build-desktop-darwin.sh produces an ad-hoc-signed, un-notarized
+build/desktop/Prayu.app with the same consecutive-build SHA-256 reproducibility
+check, plus scripts/check-macos-compat.sh Mach-O/codesign/deployment-target
+checks; the CI gains a desktop-macos job and the frontend checks fail fast on
+a non-Node-24 baseline. Desktop-tagged Go tests pass on macOS, App/
+desktop-bridge React tests pass, and release_ready stays false until signing,
+notarization, and the manual macOS matrix. See ADR 0097 and
+docs/DESKTOP_PLAN.md. Do not repeat this port or the Windows-file review after
+compaction.
+
+### Previous Checkpoint: Durable Docker Lifecycle Ownership / Schema v97
 
 On 2026-08-14 schema v97 added a separate, package-private, non-authorizing
 Docker lifecycle aggregate. It atomically persists the immutable launch intent
@@ -539,6 +564,7 @@ Read in this order after a long context break:
 101. `docs/adr/0096-durable-docker-lifecycle-ownership-and-recovery.md`
 102. `docs/DESKTOP_PLAN.md`
 103. `docs/SKILL_PACKAGE_PLAN.md`
+104. `docs/adr/0097-macos-desktop-portable-build.md`
 
 ## Current Baseline
 
@@ -553,7 +579,7 @@ Read in this order after a long context break:
 - Analyzer status: P10-A through P10-K define and validate the Go/Rust protocol and embedded-WASI boundary. P10-L/schema v94-v95 adds real fixed-module execution, one-shot exact-bound authorization, atomic consumption, redacted execution, metadata-only Artifact content, and Run events. P10-M exposes only this embedded module through CLI/control-token HTTP/Desktop/React; callers cannot provide WebAssembly, imports, mount, network, command, argv, environment, or native process. See ADR 0062, ADR 0063, ADR 0090, ADR 0091, and `analyzers/README.md`.
 - Model Harness status: non-schema A1/A2/A3 adds `model_harness.v1` exact transport/tool/JSON/streaming profiles, Go preflight for Root/Specialist/read-only Fan-out, and `model_harness_qualification.v1` at-most-two-call synthetic qualification. Mock is trusted offline; Anthropic-compatible models require explicit qualification. Qualification stores only exact binding digest, capability booleans, and seven-day expiry in existing Provider settings; the synthetic Tool is never executed, availability remains no-probe, and qualification grants no Tool/Shell/file/browser/Docker authority. P13-A adds the durable public-activity read projection; P13-B adds a separate process-local safe public assistant stream with exact cancellation and no raw Provider persistence; P13-C adds the Root-only, independently reviewed `approval` host-command proposal Tool without granting the model execution authority. P10-M2 proves the production Anthropic-compatible route and durable chat path against deterministic local SSE, while P13-B3 verifies one configured real DeepSeek path. Current OpenAPI is 88 paths / 96 operations / 212 schemas. See ADR 0074, ADR 0080, ADR 0091, ADR 0092, and ADR 0093.
 - Browser status: P11-A1 through P11-C3 fix three Profiles, exact target scope, inert plans, fixed-location discovery, disposable-profile recovery plans, sealed Disabled/Fake CDP, same-handle Authenticode acceptance, immutable launch attempts/leases, and independent review. P11-C4A-C4C adds independent `restricted|full_debug` CDP policy ceilings and operator controls. P11-C5-C7 adds a concrete Safe Web Windows process adapter, exact disposable-Profile lifecycle, and closed literal-loopback restricted CDP transport, but keeps them product-inert. There is no CLI/HTTP/Desktop/Tool/Skill/model route or interactive browser, and Full Debug CDP remains unavailable. Verified OS/container network containment blocks activation. See ADR 0069, ADR 0071, ADR 0073, ADR 0082, and ADR 0083.
-- Desktop status: the Wails v2.13.0 shell retains its embedded React/in-process Go API, Run/editor/repository/verification/Handoff/model/credential/wake workflows and composable docks. It now defaults to Chinese with a persistent Chinese/English switch under Settings > Personal > General. The safe `--operator-preview` launcher enables model credentials, Harness qualification, routes, Run/Session chat, safe provisional assistant streaming with exact cancellation, approvals, file proposals, and the fixed Analyzer without enabling danger-full-access, maximum Debug, Full CDP, Agent terminal input, or Wake Worker. Windows 10/WebView2/scaling coverage, code signing, and installer remain pending, so `release_ready=false`; the local operator-preview chat path is enabled. See ADR 0091, ADR 0092, and `docs/DESKTOP_PLAN.md`.
+- Desktop status: the Wails v2.13.0 shell retains its embedded React/in-process Go API, Run/editor/repository/verification/Handoff/model/credential/wake workflows and composable docks. It now defaults to Chinese with a persistent Chinese/English switch under Settings > Personal > General. The safe `--operator-preview` launcher enables model credentials, Harness qualification, routes, Run/Session chat, safe provisional assistant streaming with exact cancellation, approvals, file proposals, and the fixed Analyzer without enabling danger-full-access, maximum Debug, Full CDP, Agent terminal input, or Wake Worker. D0-Mac adds a macOS portable build: the darwin desktop tag compiles the same control plane over bundled WKWebView, workspace launchers run only through fixed /usr/bin/open, and build-desktop-darwin.sh emits an ad-hoc-signed un-notarized Prayu.app with reproducible metadata; Windows-only credential/terminal/browser seams fail closed on macOS. Windows 10/WebView2/scaling coverage, code signing, and installer remain pending, so `release_ready=false`; the local operator-preview chat path is enabled. See ADR 0091, ADR 0092, ADR 0097, and `docs/DESKTOP_PLAN.md`.
 - Prayu UX status: D1-UX1 through D1-UX11 introduce the Prayu identity, frameless titlebar, bounded resizable workbench and Settings sidebars, Go-backed composer, four-control toolbar, dedicated permission center, native Acrylic, a CSS/React app mark, and three persisted appearance choices. Full-window ink backgrounds, screenshot-based selected overlays, the image wordmark, and orange-brush CSS are no longer used; selected navigation and segmented controls are opaque-white CSS rounded surfaces. Summary/Review/Files/Side Tasks use existing bounded Go surfaces. Browser remains inert; Terminal becomes real only when the Desktop is explicitly started with `--enable-user-terminal`, and remains user-owned. Open Workspace stays operator-confirmed and pathless at the renderer boundary. Stable CyberAgent compatibility identifiers remain unchanged. See ADR 0064, ADR 0070, ADR 0072, ADR 0076, and ADR 0078.
 - Execution status: P12-A through P12-E define interaction intent, controlled Windows commands, user terminal, four host-permission levels, review-gated fixed commands, a dual-confirmed operator host executor, and a Go-only Debug terminal-input controller through schema v90. P11-C4 advances to v91 for CDP policy ceilings while C5-C7 remains a separate product-inert browser core. P10-L advances to v95 only for the fixed embedded Analyzer. P13-C/schema v96 adds a distinct Root-proposed, independently approved, exactly-once non-shell host-command path only for `approval`; it remains non-sandboxed, default-off, one-shot, and without automatic retry or persistent terminal authority. See ADR 0075 through ADR 0083, ADR 0091, and ADR 0093.
 - P12-E release gate: completed. The uncached serial Go suite passed in 576.3 seconds and the full race suite passed in 717.6 seconds with no races. Vet, zero-warning staticcheck, govulncheck (zero reachable vulnerabilities), module verify/tidy, secure Desktop tags, 48-file/165-test React, strict TypeScript, deterministic OpenAPI, Vite, npm audit, Rust format/7+2 tests/clippy, privacy/authority scans, and reproducible Windows Desktop build all passed. The portable executable is 42,757,120 bytes with SHA-256 `801bda9b5343b72999827beeb3bfecd6fdd907b9795736f540637b77a26cb771`; `release_ready=false` remains correct. A separate opt-in adapter test launched only the current Go test binary by exact path/SHA and passed ordinary plus race execution. No arbitrary user program or product `host-execute` command was run during verification.
