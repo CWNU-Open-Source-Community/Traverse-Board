@@ -15,9 +15,17 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
 )
 
+// trustedDesktopRendererHost pins the exact WKWebView authority: on macOS the
+// renderer loads from the custom wails:// scheme whose host is "wails". The
+// Wails AssetServer middleware has already enforced that host before the
+// request reaches the in-process handler.
+func trustedDesktopRendererHost() string {
+	return "wails"
+}
+
 // checkDesktopPrerequisites returns nil on macOS: WKWebView ships with every
-// supported macOS release (Wails v2 requires macOS 10.15 Catalina or newer), so
-// the Desktop never probes, downloads, or installs a web runtime.
+// supported macOS release (the Go 1.25 toolchain requires macOS 11 Big Sur or
+// newer), so the Desktop never probes, downloads, or installs a web runtime.
 func checkDesktopPrerequisites() error {
 	return nil
 }

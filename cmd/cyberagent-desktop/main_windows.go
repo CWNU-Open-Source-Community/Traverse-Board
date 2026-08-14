@@ -26,6 +26,12 @@ type webView2RuntimeProbe struct {
 	compare func(string, string) (int, error)
 }
 
+// trustedDesktopRendererHost pins the exact WebView2 authority: the Windows
+// WebView2 AssetServer serves the renderer from http://wails.localhost.
+func trustedDesktopRendererHost() string {
+	return "wails.localhost"
+}
+
 func checkDesktopPrerequisites() error {
 	return requireWebView2Runtime(webView2RuntimeProbe{
 		detect:  webviewloader.GetAvailableCoreWebView2BrowserVersionString,

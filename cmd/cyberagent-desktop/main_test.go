@@ -25,7 +25,7 @@ func (r *testWindowRestorer) Show(context.Context)       { r.shown++ }
 
 func newWailsRendererRequest(method, target string, body io.Reader) *http.Request {
 	request := httptest.NewRequest(method, target, body)
-	request.Host = "wails.localhost"
+	request.Host = trustedDesktopRendererHost()
 	request.Header.Set("User-Agent", "PrayuDesktopTest/1.0 wails.io")
 	request.URL.Scheme = ""
 	request.URL.Host = ""
@@ -190,7 +190,7 @@ func TestInProcessAPIHandlerPinsLoopbackBoundaryWithoutMutatingRequest(t *testin
 		t.Fatalf("unexpected in-process projection: status=%d host=%q remote=%q path=%q",
 			response.Code, receivedHost, receivedRemote, receivedPath)
 	}
-	if request.Host != "wails.localhost" || request.RemoteAddr != "203.0.113.10:443" ||
+	if request.Host != trustedDesktopRendererHost() || request.RemoteAddr != "203.0.113.10:443" ||
 		request.URL.Scheme != "" || request.URL.Host != "" {
 		t.Fatalf("original request was mutated: host=%q remote=%q", request.Host, request.RemoteAddr)
 	}

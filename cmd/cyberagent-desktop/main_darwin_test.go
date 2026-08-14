@@ -4,6 +4,8 @@ package main
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -11,6 +13,28 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/options"
 )
+
+func TestTrustedDesktopRendererHostPinsDarwinSchemeAuthority(t *testing.T) {
+	if trustedDesktopRendererHost() != "wails" {
+		t.Fatalf("unexpected macOS renderer host: %q", trustedDesktopRendererHost())
+	}
+	request := httptest.NewRequest(http.MethodGet, "http://wails.localhost/api/v1/health", nil)
+	request.Host = "wails.localhost"
+	request.Header.Set("User-Agent", "PrayuDesktopTest/1.0 wails.io")
+	request.URL.Scheme = ""
+	request.URL.Host = ""
+	request.RequestURI = request.URL.RequestURI()
+	called := false
+	handler := inProcessAPIHandler{next: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		called = true
+	})}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden || called {
+		t.Fatalf("Windows authority reached API on macOS: status=%d called=%t",
+			response.Code, called)
+	}
+}
 
 func TestDesktopStartupFailureMessageIsBoundedAndPathFree(t *testing.T) {
 	private := apperror.Wrap(apperror.CodeFailedPrecondition, "database validation failed",

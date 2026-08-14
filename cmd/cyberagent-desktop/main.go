@@ -142,7 +142,11 @@ func trustedDesktopRendererOrigin(request *http.Request) bool {
 		request.URL.RawFragment != "" || request.URL.Opaque != "" {
 		return false
 	}
-	if !strings.EqualFold(request.Host, "wails.localhost") ||
+	// The Wails AssetServer enforces the platform webview host itself before
+	// the request reaches this handler; trustedDesktopRendererHost pins the
+	// exact per-platform authority (wails.localhost on Windows, wails on
+	// macOS where the custom wails:// scheme owns the renderer).
+	if !strings.EqualFold(request.Host, trustedDesktopRendererHost()) ||
 		!containsUserAgentToken(request.UserAgent(), wailsassetserver.WailsUserAgentValue) {
 		return false
 	}
