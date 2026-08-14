@@ -116,7 +116,7 @@ func TestSchemaV95UpgradesV94AnalyzerDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer upgraded.Close()
-	if version, err := upgraded.SchemaVersion(t.Context()); err != nil || version != 96 {
+	if version, err := upgraded.SchemaVersion(t.Context()); err != nil || version != LatestSchemaVersion {
 		t.Fatalf("schema version=%d err=%v", version, err)
 	}
 }
@@ -133,7 +133,7 @@ func removeSchemaV95ForTestStatements() []string {
 }
 
 func removeSchemaV96ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV97ForTestStatements(), []string{
 		`DROP TRIGGER trg_host_command_result_delete_immutable`,
 		`DROP TRIGGER trg_host_command_result_update_immutable`,
 		`DROP TRIGGER trg_host_command_intent_delete_immutable`,
@@ -215,6 +215,36 @@ func removeSchemaV96ForTestStatements() []string {
 			)
 			BEGIN SELECT RAISE(ABORT, 'supervisor tool round still has pending calls'); END`,
 		`DELETE FROM schema_migrations WHERE version = 96`,
+	}...)
+}
+
+func removeSchemaV97ForTestStatements() []string {
+	return []string{
+		`DROP TRIGGER trg_sandbox_docker_lifecycle_cleanup_receipt_delete_immutable`,
+		`DROP TRIGGER trg_sandbox_docker_lifecycle_cleanup_receipt_update_immutable`,
+		`DROP TRIGGER trg_sandbox_docker_lifecycle_transition_delete_immutable`,
+		`DROP TRIGGER trg_sandbox_docker_lifecycle_transition_update_immutable`,
+		`DROP TRIGGER trg_sandbox_docker_lifecycle_action_delete_immutable`,
+		`DROP TRIGGER trg_sandbox_docker_lifecycle_action_update_immutable`,
+		`DROP TRIGGER trg_sandbox_docker_lifecycle_lease_delete_immutable`,
+		`DROP TRIGGER trg_sandbox_docker_lifecycle_intent_delete_immutable`,
+		`DROP TRIGGER trg_sandbox_docker_lifecycle_intent_update_immutable`,
+		`DROP TRIGGER trg_sandbox_docker_lifecycle_cleanup_receipt_insert`,
+		`DROP TRIGGER trg_sandbox_docker_lifecycle_transition_insert`,
+		`DROP TRIGGER trg_sandbox_docker_lifecycle_action_insert`,
+		`DROP TRIGGER trg_sandbox_docker_lifecycle_lease_update`,
+		`DROP TRIGGER trg_sandbox_docker_lifecycle_lease_insert`,
+		`DROP TRIGGER trg_sandbox_docker_lifecycle_intent_insert`,
+		`DROP TABLE sandbox_docker_lifecycle_cleanup_receipts`,
+		`DROP INDEX idx_sandbox_docker_lifecycle_transitions_single_checkpoint`,
+		`DROP INDEX idx_sandbox_docker_lifecycle_transitions_latest`,
+		`DROP TABLE sandbox_docker_lifecycle_transitions`,
+		`DROP TABLE sandbox_docker_lifecycle_actions`,
+		`DROP INDEX idx_sandbox_docker_lifecycle_leases_status_expiry`,
+		`DROP TABLE sandbox_docker_lifecycle_leases`,
+		`DROP INDEX idx_sandbox_docker_lifecycle_intents_run_created`,
+		`DROP TABLE sandbox_docker_lifecycle_intents`,
+		`DELETE FROM schema_migrations WHERE version = 97`,
 	}
 }
 

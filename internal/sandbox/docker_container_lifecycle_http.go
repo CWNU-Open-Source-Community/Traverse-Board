@@ -51,9 +51,317 @@ func (transport dockerEngineContainerLifecycleTransport) Stage(ctx context.Conte
 	return transport.write.Stage(ctx, request)
 }
 
+func (transport dockerEngineContainerLifecycleTransport) StageOwned(ctx context.Context,
+	request DockerContainerWriteRequest, ownership DockerContainerLifecycleOwnership,
+	fence DockerContainerLifecycleFence,
+) (DockerContainerStageResult, error) {
+	if err := ctx.Err(); err != nil {
+		return DockerContainerStageResult{}, err
+	}
+	if request.Validate() != nil || ownership.Validate() != nil || fence == nil ||
+		ownership.BaseLabelPlanFingerprint != request.Spec.LabelPlanFingerprint ||
+		transport.doer == nil || !validDockerContainerLocalEndpoint(transport.endpoint) {
+		return DockerContainerStageResult{}, newDockerContainerLifecycleError(
+			DockerContainerLifecycleFailureConfigMismatch)
+	}
+	expectedLabels, err := dockerContainerLifecycleOwnedLabels(request.Spec.Labels, ownership)
+	if err != nil {
+		return DockerContainerStageResult{}, newDockerContainerLifecycleError(
+			DockerContainerLifecycleFailureConfigMismatch)
+	}
+	if err := transport.write.verifyImageProfile(ctx, request.Spec.ImageDigest); err != nil {
+		return DockerContainerStageResult{}, err
+	}
+	inspection, found, err := transport.write.inspect(ctx, request.Spec.ContainerName)
+	if err != nil {
+		return DockerContainerStageResult{}, err
+	}
+	containerID, adopted := "", found
+	if found {
+		if verifyDockerContainerInspectionWithLabels(inspection, request, expectedLabels) != nil {
+			return DockerContainerStageResult{}, newDockerContainerLifecycleError(
+				DockerContainerLifecycleFailureUnsafeExisting)
+		}
+		containerID = inspection.ID
+	} else {
+		containerID, err = transport.write.createWithLabels(ctx, request, expectedLabels, fence)
+		if err != nil {
+			return DockerContainerStageResult{}, err
+		}
+	}
+	inspection, found, err = transport.write.inspect(ctx, containerID)
+	if err != nil {
+		return DockerContainerStageResult{}, err
+	}
+	if !found || inspection.ID != containerID ||
+		verifyDockerContainerInspectionWithLabels(inspection, request, expectedLabels) != nil {
+		return DockerContainerStageResult{}, newDockerContainerLifecycleError(
+			DockerContainerLifecycleFailureConfigMismatch)
+	}
+	return NewDockerContainerStageResult(transport.endpoint, request, containerID, adopted)
+}
+
 type dockerLifecycleCounters struct {
 	reads  int
 	writes int
+}
+
+func (transport dockerEngineContainerLifecycleTransport) validateOwnedRequest(
+	request DockerContainerLifecycleRequest,
+) ([]DockerContainerLabel, error) {
+	if request.Validate() != nil || request.Ownership.isZero() ||
+		request.Ownership.Validate() != nil ||
+		request.Ownership.BaseLabelPlanFingerprint != request.WriteRequest.Spec.LabelPlanFingerprint ||
+		transport.doer == nil || !validDockerContainerLocalEndpoint(transport.endpoint) ||
+		(request.Stage.ProtocolVersion != "" &&
+			request.Stage.EndpointFingerprint != transport.endpoint.Fingerprint) {
+		return nil, newDockerContainerLifecycleError(
+			DockerContainerLifecycleFailureConfigMismatch)
+	}
+	labels, err := dockerContainerLifecycleOwnedLabels(request.WriteRequest.Spec.Labels,
+		request.Ownership)
+	if err != nil {
+		return nil, newDockerContainerLifecycleError(
+			DockerContainerLifecycleFailureConfigMismatch)
+	}
+	return labels, nil
+}
+
+func (transport dockerEngineContainerLifecycleTransport) observeOwned(ctx context.Context,
+	request DockerContainerLifecycleRequest, counters *dockerLifecycleCounters,
+) (DockerContainerLifecycleObservation, string, error) {
+	labels, err := transport.validateOwnedRequest(request)
+	if err != nil {
+		return DockerContainerLifecycleObservation{}, "", err
+	}
+	inspection, found, err := transport.inspect(ctx, request.WriteRequest.Spec.ContainerName,
+		counters)
+	if err != nil {
+		return DockerContainerLifecycleObservation{}, "", err
+	}
+	observation := DockerContainerLifecycleObservation{
+		ProtocolVersion: DockerContainerLifecycleObservationProtocolVersion,
+		State:           DockerContainerLifecycleStateAbsent,
+		EndpointClass:   transport.endpoint.Class, EndpointFingerprint: transport.endpoint.Fingerprint,
+		RequestFingerprint:        request.RequestFingerprint,
+		OwnershipLabelFingerprint: request.Ownership.OwnershipLabelFingerprint,
+		DaemonReadCount:           counters.reads,
+	}
+	if !found {
+		observation.ObservationFingerprint =
+			dockerContainerLifecycleObservationFingerprint(observation)
+		if observation.Validate() != nil {
+			return DockerContainerLifecycleObservation{}, "",
+				newDockerContainerLifecycleError(DockerContainerLifecycleFailureInvalidResponse)
+		}
+		return observation, "", nil
+	}
+	idFingerprint := fingerprint("sandbox_docker_container_id.v1", inspection.ID)
+	if inspection.Name != "/"+request.WriteRequest.Spec.ContainerName ||
+		!equalDockerLabels(inspection.Config.Labels, labels) ||
+		(request.ResourceIDFingerprint != "" &&
+			idFingerprint != request.ResourceIDFingerprint) {
+		return DockerContainerLifecycleObservation{}, "",
+			newDockerContainerLifecycleError(DockerContainerLifecycleFailureUnsafeExisting)
+	}
+	if verifyDockerContainerConfigurationWithLabels(inspection, request.WriteRequest, labels) != nil ||
+		inspection.State.Paused || inspection.State.Restarting || inspection.State.Dead ||
+		inspection.State.OOMKilled || inspection.State.ExitCode < 0 ||
+		inspection.State.ExitCode > 255 {
+		return DockerContainerLifecycleObservation{}, "",
+			newDockerContainerLifecycleError(DockerContainerLifecycleFailureConfigMismatch)
+	}
+	switch {
+	case inspection.State.Status == "created" && !inspection.State.Running &&
+		inspection.State.Pid == 0 && inspection.State.ExitCode == 0:
+		observation.State = DockerContainerLifecycleStateCreated
+	case inspection.State.Status == "running" && inspection.State.Running &&
+		inspection.State.Pid > 0 && inspection.State.ExitCode == 0:
+		observation.State, observation.Running = DockerContainerLifecycleStateRunning, true
+	case inspection.State.Status == "exited" && !inspection.State.Running &&
+		inspection.State.Pid == 0:
+		observation.State, observation.ExitCode = DockerContainerLifecycleStateExited,
+			inspection.State.ExitCode
+	default:
+		return DockerContainerLifecycleObservation{}, "",
+			newDockerContainerLifecycleError(DockerContainerLifecycleFailureConfigMismatch)
+	}
+	observation.ContainerPresent, observation.ConfigurationMatched = true, true
+	observation.ContainerIDFingerprint = idFingerprint
+	observation.ObservationFingerprint = dockerContainerLifecycleObservationFingerprint(observation)
+	if observation.Validate() != nil {
+		return DockerContainerLifecycleObservation{}, "",
+			newDockerContainerLifecycleError(DockerContainerLifecycleFailureInvalidResponse)
+	}
+	return observation, inspection.ID, nil
+}
+
+func (transport dockerEngineContainerLifecycleTransport) Observe(ctx context.Context,
+	request DockerContainerLifecycleRequest,
+) (DockerContainerLifecycleObservation, error) {
+	if err := ctx.Err(); err != nil {
+		return DockerContainerLifecycleObservation{}, err
+	}
+	observation, _, err := transport.observeOwned(ctx, request, &dockerLifecycleCounters{})
+	return observation, err
+}
+
+func (transport dockerEngineContainerLifecycleTransport) Start(ctx context.Context,
+	request DockerContainerLifecycleRequest, fence DockerContainerLifecycleFence,
+) (DockerContainerLifecycleObservation, bool, error) {
+	counters := &dockerLifecycleCounters{}
+	observation, containerID, err := transport.observeOwned(ctx, request, counters)
+	if err != nil {
+		return DockerContainerLifecycleObservation{}, false, err
+	}
+	if observation.State == DockerContainerLifecycleStateRunning ||
+		observation.State == DockerContainerLifecycleStateExited {
+		return observation, false, nil
+	}
+	if observation.State != DockerContainerLifecycleStateCreated {
+		return DockerContainerLifecycleObservation{}, false,
+			newDockerContainerLifecycleError(DockerContainerLifecycleFailureUnsafeExisting)
+	}
+	if fence == nil {
+		return DockerContainerLifecycleObservation{}, false,
+			newDockerContainerLifecycleError(DockerContainerLifecycleFailureConfigMismatch)
+	}
+	if err := transport.start(ctx, containerID, counters, fence); err != nil {
+		return DockerContainerLifecycleObservation{}, false, err
+	}
+	return observation, true, nil
+}
+
+func (transport dockerEngineContainerLifecycleTransport) Wait(ctx context.Context,
+	request DockerContainerLifecycleRequest, fence DockerContainerLifecycleFence,
+) (DockerContainerLifecycleObservation, error) {
+	counters := &dockerLifecycleCounters{}
+	observation, containerID, err := transport.observeOwned(ctx, request, counters)
+	if err != nil {
+		return DockerContainerLifecycleObservation{}, err
+	}
+	if observation.State == DockerContainerLifecycleStateExited {
+		return observation, nil
+	}
+	if observation.State != DockerContainerLifecycleStateRunning {
+		return DockerContainerLifecycleObservation{}, newDockerContainerLifecycleError(
+			DockerContainerLifecycleFailureConfigMismatch)
+	}
+	if fence == nil {
+		return DockerContainerLifecycleObservation{}, newDockerContainerLifecycleError(
+			DockerContainerLifecycleFailureConfigMismatch)
+	}
+	exitCode, err := transport.wait(ctx, containerID, counters, fence)
+	if err != nil {
+		return DockerContainerLifecycleObservation{}, err
+	}
+	observation.State, observation.Running, observation.ExitCode =
+		DockerContainerLifecycleStateExited, false, exitCode
+	observation.DaemonReadCount = counters.reads
+	observation.ObservationFingerprint = dockerContainerLifecycleObservationFingerprint(observation)
+	if observation.Validate() != nil {
+		return DockerContainerLifecycleObservation{}, newDockerContainerLifecycleError(
+			DockerContainerLifecycleFailureInvalidResponse)
+	}
+	return observation, nil
+}
+
+func (transport dockerEngineContainerLifecycleTransport) Terminate(ctx context.Context,
+	request DockerContainerLifecycleRequest, fence DockerContainerLifecycleFence,
+) (DockerContainerLifecycleTerminationResult, error) {
+	counters := &dockerLifecycleCounters{}
+	observation, containerID, err := transport.observeOwned(ctx, request, counters)
+	if err != nil {
+		return DockerContainerLifecycleTerminationResult{}, err
+	}
+	result := DockerContainerLifecycleTerminationResult{Observation: observation,
+		DaemonReadCount: counters.reads}
+	if observation.State == DockerContainerLifecycleStateExited {
+		result.ExitCode, result.AlreadyStopped = observation.ExitCode, true
+		return result, nil
+	}
+	if observation.State != DockerContainerLifecycleStateRunning {
+		return DockerContainerLifecycleTerminationResult{}, newDockerContainerLifecycleError(
+			DockerContainerLifecycleFailureConfigMismatch)
+	}
+	if fence == nil {
+		return DockerContainerLifecycleTerminationResult{}, newDockerContainerLifecycleError(
+			DockerContainerLifecycleFailureConfigMismatch)
+	}
+	if err := transport.kill(ctx, containerID, DockerTerminationSignalGraceful, counters,
+		fence); err != nil {
+		return DockerContainerLifecycleTerminationResult{}, err
+	}
+	result.GracefulSignalSent = true
+	grace := time.Duration(request.WriteRequest.Spec.Termination.GracePeriodMillis) * time.Millisecond
+	if transport.graceOverride > 0 {
+		grace = transport.graceOverride
+	}
+	if grace <= 0 {
+		grace = time.Millisecond
+	}
+	graceCtx, cancel := context.WithTimeout(ctx, grace)
+	exitCode, waitErr := transport.wait(graceCtx, containerID, counters, fence)
+	cancel()
+	if waitErr != nil {
+		if !errors.Is(waitErr, context.DeadlineExceeded) && !errors.Is(waitErr, context.Canceled) {
+			return DockerContainerLifecycleTerminationResult{}, waitErr
+		}
+		if err := transport.kill(ctx, containerID, DockerTerminationSignalForced, counters,
+			fence); err != nil {
+			return DockerContainerLifecycleTerminationResult{}, err
+		}
+		result.ForcedSignalSent = true
+		forceCtx, forceCancel := context.WithTimeout(ctx, dockerContainerLifecycleForcedWait)
+		exitCode, waitErr = transport.wait(forceCtx, containerID, counters, fence)
+		forceCancel()
+		if waitErr != nil {
+			return DockerContainerLifecycleTerminationResult{}, waitErr
+		}
+	}
+	result.ExitCode, result.DaemonReadCount, result.DaemonWriteCount = exitCode,
+		counters.reads, counters.writes
+	return result, nil
+}
+
+func (transport dockerEngineContainerLifecycleTransport) Cleanup(ctx context.Context,
+	request DockerContainerLifecycleRequest, fence DockerContainerLifecycleFence,
+) (DockerContainerLifecycleCleanupResult, error) {
+	counters := &dockerLifecycleCounters{}
+	observation, containerID, err := transport.observeOwned(ctx, request, counters)
+	if err != nil {
+		return DockerContainerLifecycleCleanupResult{}, err
+	}
+	result := DockerContainerLifecycleCleanupResult{Observation: observation,
+		DaemonReadCount: counters.reads}
+	if observation.State == DockerContainerLifecycleStateAbsent {
+		result.AlreadyAbsent, result.AbsenceConfirmed = true, true
+		return result, nil
+	}
+	if observation.State == DockerContainerLifecycleStateRunning {
+		return DockerContainerLifecycleCleanupResult{}, newDockerContainerLifecycleError(
+			DockerContainerLifecycleFailureConfigMismatch)
+	}
+	if fence == nil {
+		return DockerContainerLifecycleCleanupResult{}, newDockerContainerLifecycleError(
+			DockerContainerLifecycleFailureConfigMismatch)
+	}
+	if err := transport.remove(ctx, containerID, counters, fence); err != nil {
+		return DockerContainerLifecycleCleanupResult{}, err
+	}
+	remaining, found, err := transport.inspect(ctx, request.WriteRequest.Spec.ContainerName,
+		counters)
+	if err != nil {
+		return DockerContainerLifecycleCleanupResult{}, err
+	}
+	if found {
+		_ = remaining
+		return DockerContainerLifecycleCleanupResult{}, newDockerContainerLifecycleError(
+			DockerContainerLifecycleFailureCleanup)
+	}
+	result.DaemonReadCount, result.DaemonWriteCount = counters.reads, counters.writes
+	result.ContainerRemoved, result.AbsenceConfirmed = true, true
+	return result, nil
 }
 
 func (transport dockerEngineContainerLifecycleTransport) Run(ctx context.Context,
@@ -68,6 +376,10 @@ func (transport dockerEngineContainerLifecycleTransport) Run(ctx context.Context
 		return DockerContainerLifecycleResult{},
 			newDockerContainerLifecycleError(DockerContainerLifecycleFailureConfigMismatch)
 	}
+	if !request.Ownership.isZero() {
+		return DockerContainerLifecycleResult{}, newDockerContainerLifecycleError(
+			DockerContainerLifecycleFailureConfigMismatch)
+	}
 	counters := &dockerLifecycleCounters{}
 	inspection, found, err := transport.inspect(ctx, request.WriteRequest.Spec.ContainerName, counters)
 	if err != nil {
@@ -81,7 +393,7 @@ func (transport dockerEngineContainerLifecycleTransport) Run(ctx context.Context
 	}
 	containerID := inspection.ID
 	startedAt := time.Now().UTC()
-	if err := transport.start(ctx, containerID, counters); err != nil {
+	if err := transport.start(ctx, containerID, counters, nil); err != nil {
 		cleanupErr := transport.reconcileAfterFailure(request, containerID, counters)
 		if cleanupErr != nil {
 			return DockerContainerLifecycleResult{}, errors.Join(err, cleanupErr)
@@ -94,7 +406,7 @@ func (transport dockerEngineContainerLifecycleTransport) Run(ctx context.Context
 		timeout = transport.timeoutOverride
 	}
 	waitCtx, waitCancel := context.WithTimeout(ctx, timeout)
-	exitCode, waitErr := transport.wait(waitCtx, containerID, counters)
+	exitCode, waitErr := transport.wait(waitCtx, containerID, counters, nil)
 	waitCancel()
 	if waitErr == nil {
 		completedAt, cleanupErr := transport.verifyRemoveAndConfirm(
@@ -165,7 +477,7 @@ func (transport dockerEngineContainerLifecycleTransport) terminateRemoveAndConfi
 	}
 	if inspection.State.Running || inspection.State.Paused || inspection.State.Restarting {
 		if err := transport.kill(cleanupCtx, containerID, DockerTerminationSignalGraceful,
-			counters); err != nil {
+			counters, nil); err != nil {
 			return 0, false, false, time.Time{}, err
 		}
 		graceful = true
@@ -177,27 +489,27 @@ func (transport dockerEngineContainerLifecycleTransport) terminateRemoveAndConfi
 			grace = time.Millisecond
 		}
 		graceCtx, graceCancel := context.WithTimeout(cleanupCtx, grace)
-		exitCode, err = transport.wait(graceCtx, containerID, counters)
+		exitCode, err = transport.wait(graceCtx, containerID, counters, nil)
 		graceCancel()
 		if err != nil {
 			if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
 				return 0, graceful, false, time.Time{}, err
 			}
 			if err := transport.kill(cleanupCtx, containerID, DockerTerminationSignalForced,
-				counters); err != nil {
+				counters, nil); err != nil {
 				return 0, graceful, false, time.Time{}, err
 			}
 			forced = true
 			forceCtx, forceCancel := context.WithTimeout(cleanupCtx,
 				dockerContainerLifecycleForcedWait)
-			exitCode, err = transport.wait(forceCtx, containerID, counters)
+			exitCode, err = transport.wait(forceCtx, containerID, counters, nil)
 			forceCancel()
 			if err != nil {
 				return 0, graceful, forced, time.Time{}, err
 			}
 		}
 	} else if inspection.State.Status == "created" && inspection.State.Pid == 0 {
-		if err := transport.remove(cleanupCtx, containerID, counters); err != nil {
+		if err := transport.remove(cleanupCtx, containerID, counters, nil); err != nil {
 			return 0, false, false, time.Time{}, err
 		}
 		_, found, err := transport.inspect(cleanupCtx,
@@ -239,7 +551,7 @@ func (transport dockerEngineContainerLifecycleTransport) verifyRemoveAndConfirm(
 		return time.Time{},
 			newDockerContainerLifecycleError(DockerContainerLifecycleFailureConfigMismatch)
 	}
-	if err := transport.remove(cleanupCtx, containerID, counters); err != nil {
+	if err := transport.remove(cleanupCtx, containerID, counters, nil); err != nil {
 		return time.Time{}, err
 	}
 	remaining, found, err := transport.inspect(cleanupCtx,
@@ -296,10 +608,15 @@ func (transport dockerEngineContainerLifecycleTransport) inspect(ctx context.Con
 }
 
 func (transport dockerEngineContainerLifecycleTransport) start(ctx context.Context,
-	containerID string, counters *dockerLifecycleCounters,
+	containerID string, counters *dockerLifecycleCounters, fence DockerContainerLifecycleFence,
 ) error {
 	path := "/v" + DockerContainerWriteAPIVersion + "/containers/" +
 		url.PathEscape(containerID) + "/start"
+	if fence != nil {
+		if err := fence(ctx, DockerContainerLifecycleActionStart); err != nil {
+			return err
+		}
+	}
 	if _, err := transport.do(ctx, http.MethodPost, path, "", nil, false); err != nil {
 		return errors.Join(newDockerContainerLifecycleError(
 			DockerContainerLifecycleFailureStart), err)
@@ -309,10 +626,15 @@ func (transport dockerEngineContainerLifecycleTransport) start(ctx context.Conte
 }
 
 func (transport dockerEngineContainerLifecycleTransport) wait(ctx context.Context,
-	containerID string, counters *dockerLifecycleCounters,
+	containerID string, counters *dockerLifecycleCounters, fence DockerContainerLifecycleFence,
 ) (int, error) {
 	path := "/v" + DockerContainerWriteAPIVersion + "/containers/" +
 		url.PathEscape(containerID) + "/wait"
+	if fence != nil {
+		if err := fence(ctx, DockerContainerLifecycleActionWait); err != nil {
+			return 0, err
+		}
+	}
 	response, err := transport.do(ctx, http.MethodPost, path, "condition=not-running", nil, true)
 	if err != nil {
 		return 0, err
@@ -330,9 +652,19 @@ func (transport dockerEngineContainerLifecycleTransport) wait(ctx context.Contex
 
 func (transport dockerEngineContainerLifecycleTransport) kill(ctx context.Context,
 	containerID, signal string, counters *dockerLifecycleCounters,
+	fence DockerContainerLifecycleFence,
 ) error {
 	path := "/v" + DockerContainerWriteAPIVersion + "/containers/" +
 		url.PathEscape(containerID) + "/kill"
+	action := DockerContainerLifecycleActionKind(DockerContainerLifecycleActionTERM)
+	if signal == DockerTerminationSignalForced {
+		action = DockerContainerLifecycleActionKind(DockerContainerLifecycleActionKILL)
+	}
+	if fence != nil {
+		if err := fence(ctx, action); err != nil {
+			return err
+		}
+	}
 	if _, err := transport.do(ctx, http.MethodPost, path,
 		"signal="+url.QueryEscape(signal), nil, false); err != nil {
 		return errors.Join(newDockerContainerLifecycleError(
@@ -343,10 +675,15 @@ func (transport dockerEngineContainerLifecycleTransport) kill(ctx context.Contex
 }
 
 func (transport dockerEngineContainerLifecycleTransport) remove(ctx context.Context,
-	containerID string, counters *dockerLifecycleCounters,
+	containerID string, counters *dockerLifecycleCounters, fence DockerContainerLifecycleFence,
 ) error {
 	path := "/v" + DockerContainerWriteAPIVersion + "/containers/" +
 		url.PathEscape(containerID)
+	if fence != nil {
+		if err := fence(ctx, DockerContainerLifecycleActionDelete); err != nil {
+			return err
+		}
+	}
 	if _, err := transport.do(ctx, http.MethodDelete, path, "v=1", nil, false); err != nil {
 		return errors.Join(newDockerContainerLifecycleError(
 			DockerContainerLifecycleFailureCleanup), err)

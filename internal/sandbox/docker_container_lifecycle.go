@@ -50,16 +50,18 @@ func DockerContainerLifecycleErrorCode(err error) string {
 }
 
 type DockerContainerLifecycleRequest struct {
-	ProtocolVersion     string
-	AttemptID           string
-	LeaseGeneration     int64
-	WriteRequest        DockerContainerWriteRequest
-	Stage               DockerContainerStageResult
-	ProbeAuthorized     bool
-	ProductEntryEnabled bool
-	ExecutionAuthorized bool
-	ArtifactAuthorized  bool
-	RequestFingerprint  string
+	ProtocolVersion       string
+	AttemptID             string
+	LeaseGeneration       int64
+	WriteRequest          DockerContainerWriteRequest
+	Stage                 DockerContainerStageResult
+	Ownership             DockerContainerLifecycleOwnership
+	ResourceIDFingerprint string
+	ProbeAuthorized       bool
+	ProductEntryEnabled   bool
+	ExecutionAuthorized   bool
+	ArtifactAuthorized    bool
+	RequestFingerprint    string
 }
 
 func NewDockerContainerLifecycleRequest(attemptID string, generation int64,
@@ -70,6 +72,7 @@ func NewDockerContainerLifecycleRequest(attemptID string, generation int64,
 		ProtocolVersion: DockerContainerLifecycleRequestProtocolVersion,
 		AttemptID:       attemptID, LeaseGeneration: generation, WriteRequest: writeRequest,
 		Stage: stage, ProbeAuthorized: confirmation == DockerContainerLifecycleConfirmation,
+		ResourceIDFingerprint: stage.ContainerIDFingerprint,
 	}
 	request.RequestFingerprint = dockerContainerLifecycleRequestFingerprint(request)
 	if request.Validate() != nil {
@@ -79,16 +82,23 @@ func NewDockerContainerLifecycleRequest(attemptID string, generation int64,
 }
 
 func (request DockerContainerLifecycleRequest) Validate() error {
+	owned := !request.Ownership.isZero()
+	stagePresent := request.Stage.ProtocolVersion != ""
 	if request.ProtocolVersion != DockerContainerLifecycleRequestProtocolVersion ||
 		validateStoredIdentity("Docker lifecycle attempt id", request.AttemptID) != nil ||
-		request.LeaseGeneration < 1 || request.WriteRequest.Validate() != nil ||
-		request.Stage.Validate() != nil || !request.ProbeAuthorized ||
+		request.LeaseGeneration < 1 || request.WriteRequest.Validate() != nil || !request.ProbeAuthorized ||
 		request.ProductEntryEnabled || request.ExecutionAuthorized ||
 		request.ArtifactAuthorized ||
-		request.Stage.RequestFingerprint != request.WriteRequest.RequestFingerprint ||
-		request.Stage.SpecFingerprint != request.WriteRequest.Spec.SpecFingerprint ||
-		request.Stage.ContainerStarted || request.Stage.ProcessExecuted ||
-		request.Stage.ExecutionAuthorized || request.Stage.ArtifactCommitAuthorized ||
+		(owned && (request.Ownership.Validate() != nil ||
+			request.Ownership.AttemptID != request.AttemptID)) ||
+		(!owned && !stagePresent) ||
+		(stagePresent && (request.Stage.Validate() != nil ||
+			request.Stage.RequestFingerprint != request.WriteRequest.RequestFingerprint ||
+			request.Stage.SpecFingerprint != request.WriteRequest.Spec.SpecFingerprint ||
+			request.Stage.ContainerStarted || request.Stage.ProcessExecuted ||
+			request.Stage.ExecutionAuthorized || request.Stage.ArtifactCommitAuthorized ||
+			request.ResourceIDFingerprint != request.Stage.ContainerIDFingerprint)) ||
+		(request.ResourceIDFingerprint != "" && !validDigest(request.ResourceIDFingerprint)) ||
 		request.RequestFingerprint != dockerContainerLifecycleRequestFingerprint(request) {
 		return errors.New("docker container lifecycle request violates the probe boundary")
 	}
@@ -96,12 +106,21 @@ func (request DockerContainerLifecycleRequest) Validate() error {
 }
 
 func dockerContainerLifecycleRequestFingerprint(request DockerContainerLifecycleRequest) string {
-	return fingerprint(DockerContainerLifecycleRequestProtocolVersion, request.AttemptID,
+	stageFingerprint := ""
+	if request.Stage.ProtocolVersion != "" {
+		stageFingerprint = request.Stage.StageFingerprint
+	}
+	parts := []string{DockerContainerLifecycleRequestProtocolVersion, request.AttemptID,
 		strconv.FormatInt(request.LeaseGeneration, 10), request.WriteRequest.RequestFingerprint,
-		request.Stage.StageFingerprint, strconv.FormatBool(request.ProbeAuthorized),
+		stageFingerprint, request.ResourceIDFingerprint, strconv.FormatBool(request.ProbeAuthorized),
 		strconv.FormatBool(request.ProductEntryEnabled),
 		strconv.FormatBool(request.ExecutionAuthorized),
-		strconv.FormatBool(request.ArtifactAuthorized))
+		strconv.FormatBool(request.ArtifactAuthorized)}
+	if !request.Ownership.isZero() {
+		parts = append(parts, request.Ownership.ProtocolVersion,
+			request.Ownership.OwnershipLabelFingerprint)
+	}
+	return fingerprint(parts...)
 }
 
 type DockerContainerLifecycleResult struct {
@@ -232,6 +251,13 @@ func dockerContainerLifecycleResultFingerprint(result DockerContainerLifecycleRe
 type DockerContainerLifecycleTransport interface {
 	Endpoint() DockerObservationEndpoint
 	Stage(context.Context, DockerContainerWriteRequest) (DockerContainerStageResult, error)
+	StageOwned(context.Context, DockerContainerWriteRequest, DockerContainerLifecycleOwnership,
+		DockerContainerLifecycleFence) (DockerContainerStageResult, error)
+	Observe(context.Context, DockerContainerLifecycleRequest) (DockerContainerLifecycleObservation, error)
+	Start(context.Context, DockerContainerLifecycleRequest, DockerContainerLifecycleFence) (DockerContainerLifecycleObservation, bool, error)
+	Wait(context.Context, DockerContainerLifecycleRequest, DockerContainerLifecycleFence) (DockerContainerLifecycleObservation, error)
+	Terminate(context.Context, DockerContainerLifecycleRequest, DockerContainerLifecycleFence) (DockerContainerLifecycleTerminationResult, error)
+	Cleanup(context.Context, DockerContainerLifecycleRequest, DockerContainerLifecycleFence) (DockerContainerLifecycleCleanupResult, error)
 	Run(context.Context, DockerContainerLifecycleRequest) (DockerContainerLifecycleResult, error)
 }
 
@@ -263,6 +289,54 @@ func (transport UnavailableDockerContainerLifecycleTransport) Stage(ctx context.
 		code = DockerContainerLifecycleFailureUnsupported
 	}
 	return DockerContainerStageResult{}, newDockerContainerLifecycleError(code)
+}
+
+func (transport UnavailableDockerContainerLifecycleTransport) unavailable(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	code := DockerContainerLifecycleFailureDisabled
+	if transport.reason == DockerContainerLifecycleFailureUnsupported {
+		code = DockerContainerLifecycleFailureUnsupported
+	}
+	return newDockerContainerLifecycleError(code)
+}
+
+func (transport UnavailableDockerContainerLifecycleTransport) StageOwned(ctx context.Context,
+	_ DockerContainerWriteRequest, _ DockerContainerLifecycleOwnership,
+	_ DockerContainerLifecycleFence,
+) (DockerContainerStageResult, error) {
+	return DockerContainerStageResult{}, transport.unavailable(ctx)
+}
+
+func (transport UnavailableDockerContainerLifecycleTransport) Observe(ctx context.Context,
+	_ DockerContainerLifecycleRequest,
+) (DockerContainerLifecycleObservation, error) {
+	return DockerContainerLifecycleObservation{}, transport.unavailable(ctx)
+}
+
+func (transport UnavailableDockerContainerLifecycleTransport) Start(ctx context.Context,
+	_ DockerContainerLifecycleRequest, _ DockerContainerLifecycleFence,
+) (DockerContainerLifecycleObservation, bool, error) {
+	return DockerContainerLifecycleObservation{}, false, transport.unavailable(ctx)
+}
+
+func (transport UnavailableDockerContainerLifecycleTransport) Wait(ctx context.Context,
+	_ DockerContainerLifecycleRequest, _ DockerContainerLifecycleFence,
+) (DockerContainerLifecycleObservation, error) {
+	return DockerContainerLifecycleObservation{}, transport.unavailable(ctx)
+}
+
+func (transport UnavailableDockerContainerLifecycleTransport) Terminate(ctx context.Context,
+	_ DockerContainerLifecycleRequest, _ DockerContainerLifecycleFence,
+) (DockerContainerLifecycleTerminationResult, error) {
+	return DockerContainerLifecycleTerminationResult{}, transport.unavailable(ctx)
+}
+
+func (transport UnavailableDockerContainerLifecycleTransport) Cleanup(ctx context.Context,
+	_ DockerContainerLifecycleRequest, _ DockerContainerLifecycleFence,
+) (DockerContainerLifecycleCleanupResult, error) {
+	return DockerContainerLifecycleCleanupResult{}, transport.unavailable(ctx)
 }
 
 func (transport UnavailableDockerContainerLifecycleTransport) Run(ctx context.Context,

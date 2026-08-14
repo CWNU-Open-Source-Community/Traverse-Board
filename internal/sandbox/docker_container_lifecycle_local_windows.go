@@ -27,6 +27,43 @@ func (transport localDockerContainerLifecycleTransport) Stage(ctx context.Contex
 	return transport.inner.Stage(ctx, request)
 }
 
+func (transport localDockerContainerLifecycleTransport) StageOwned(ctx context.Context,
+	request DockerContainerWriteRequest, ownership DockerContainerLifecycleOwnership,
+	fence DockerContainerLifecycleFence,
+) (DockerContainerStageResult, error) {
+	return transport.inner.StageOwned(ctx, request, ownership, fence)
+}
+
+func (transport localDockerContainerLifecycleTransport) Observe(ctx context.Context,
+	request DockerContainerLifecycleRequest,
+) (DockerContainerLifecycleObservation, error) {
+	return transport.inner.Observe(ctx, request)
+}
+
+func (transport localDockerContainerLifecycleTransport) Start(ctx context.Context,
+	request DockerContainerLifecycleRequest, fence DockerContainerLifecycleFence,
+) (DockerContainerLifecycleObservation, bool, error) {
+	return transport.inner.Start(ctx, request, fence)
+}
+
+func (transport localDockerContainerLifecycleTransport) Wait(ctx context.Context,
+	request DockerContainerLifecycleRequest, fence DockerContainerLifecycleFence,
+) (DockerContainerLifecycleObservation, error) {
+	return transport.inner.Wait(ctx, request, fence)
+}
+
+func (transport localDockerContainerLifecycleTransport) Terminate(ctx context.Context,
+	request DockerContainerLifecycleRequest, fence DockerContainerLifecycleFence,
+) (DockerContainerLifecycleTerminationResult, error) {
+	return transport.inner.Terminate(ctx, request, fence)
+}
+
+func (transport localDockerContainerLifecycleTransport) Cleanup(ctx context.Context,
+	request DockerContainerLifecycleRequest, fence DockerContainerLifecycleFence,
+) (DockerContainerLifecycleCleanupResult, error) {
+	return transport.inner.Cleanup(ctx, request, fence)
+}
+
 func (transport localDockerContainerLifecycleTransport) Run(ctx context.Context,
 	request DockerContainerLifecycleRequest,
 ) (DockerContainerLifecycleResult, error) {

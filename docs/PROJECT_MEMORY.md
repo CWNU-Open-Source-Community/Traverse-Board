@@ -2,39 +2,36 @@
 
 > Scope checkpoint (2026-08-13): continue only the general-purpose Agent Harness and Code workflow. CTF-specific solving/offensive automation is an optional add-on with no active slices; retain generic extension seams only. Historical Cyber percentages are not current planning metrics. See [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md).
 
-Last updated: 2026-08-13
+Last updated: 2026-08-14
 
-## Current Single-Slice Checkpoint: Real Docker Lifecycle Foundation / Schema v96 Unchanged
+## Current Single-Slice Checkpoint: Durable Docker Lifecycle Ownership / Schema v97
 
-On 2026-08-13 the Sandbox mainline added a package-private,
-non-authorizing real Docker lifecycle probe. It reuses the strict stopped
-container Stage contract, then performs exact `start -> wait ->
-timeout/cancel -> SIGTERM -> grace -> optional SIGKILL -> final inspect ->
-delete -> absence confirmation` on a fixed local endpoint. Unix uses the fixed
-local socket; Windows uses Docker Desktop's Linux-engine NPipe through
-`go-winio`. Neither path reads `DOCKER_HOST`, uses Docker CLI, accepts TCP or a
-proxy, or follows redirects.
+On 2026-08-14 schema v97 added a separate, package-private, non-authorizing
+Docker lifecycle aggregate. It atomically persists the immutable launch intent
+and initial lease before create, records an immutable prepared action before
+each Docker mutation, appends hash-chained lifecycle transitions, and permits
+one immutable cleanup receipt. The lifecycle Attempt is distinct from the v56
+never-started rehearsal Attempt and binds its exact v54 plan, Run, Mission,
+Workspace, request/spec/authority/name/endpoint fingerprints, immutable
+resource generation, and versioned ownership-label fingerprint.
 
-The lifecycle HTTP allowlist contains only exact inspect, start, wait,
-SIGTERM/SIGKILL, and non-forced delete. Pull, build, exec, attach, stdin, logs,
-export, arbitrary signals, network changes, and generic requests remain
-unavailable. The constructor is unexported, the public Windows Docker writer
-still returns unsupported, and no Run/Agent/Tool/CLI/HTTP/Desktop path can
-reach the probe. Request/result contracts keep product entry, product
-execution, output export, and Artifact commit authority false.
+Every action, transition, cleanup receipt, and daemon mutation is fenced by
+the complete active lease identity: lease id, owner id, lease generation,
+resource generation, and expiry. Renewal retains the identity; only release or
+expiry permits generation-plus-one takeover. Recovery is database-led and
+inspects only the deterministic name. The complete nine-label ownership set
+and exact container configuration must match before mutation; partial, legacy,
+foreign, or inconsistent containers fail closed and remain untouched.
 
-Focused unit tests cover natural exit, timeout, cancellation, escalation,
-start failure, exact cleanup, tampering, strict HTTP/JSON, and blocked response
-body cancellation. A real Windows Docker Desktop NPipe acceptance completed in
-1.39 seconds and observed SIGTERM followed by SIGKILL, exit code 137, removal,
-and confirmed absence. It used one exact fixture container and did not inspect
-or alter unrelated containers. See ADR 0095.
-
-This does not satisfy schema v63's product gate. Durable SQLite write-ahead
-start intent, generation lease/fencing, restart reconciliation, orphan
-ownership, bounded logs, output export, and Artifact commit are still missing.
-The next Docker slice is durable lifecycle ownership/recovery. Do not rerun the
-real probe after compaction unless the lifecycle implementation changes.
+The Supervisor reconciles pre-create, created, started, exited,
+timeout/cancellation, cleaning, cleaned, and failed states without duplicate
+daemon effects or cleanup receipts. Focused Sandbox, Store, and Application
+tests cover write-ahead order, stale fencing, takeover, replay, ambiguous
+responses, exact recovery, foreign-container safety, and private event payloads.
+See ADR 0096. Product entry, execution authority, output/log capture, Artifact
+commit, and production admission remain false. ADR 0095 retains the real Docker
+Desktop transport acceptance; do not rerun it after compaction unless the
+transport changes.
 
 ### Previous Single-Slice Checkpoint: P13-G1 Workspace Import / Schema v96
 
@@ -78,7 +75,7 @@ add-ons with no active slices; only generic extension seams remain. Do not
 repeat this PR review or reinterpret historical Cyber percentages as queued
 work after compaction.
 
-## Current Checkpoint: P13-H1 through P13-H3 / Schema v96
+## Previous UI Checkpoint: P13-H1 through P13-H3 / Schema v96
 
 P13-H1 reorganizes the existing right-side Workbench tools into explicit
 Workspace, Run, and Coming Soon zones. Review and Files remain workspace
@@ -538,8 +535,10 @@ Read in this order after a long context break:
 97. `docs/adr/0092-safe-public-model-streaming-and-desktop-convergence.md`
 98. `docs/adr/0093-review-gated-approval-mode-host-command-proposals.md`
 99. `docs/adr/0094-liquid-glass-workbench-zoning.md`
-100. `docs/DESKTOP_PLAN.md`
-101. `docs/SKILL_PACKAGE_PLAN.md`
+100. `docs/adr/0095-non-authorizing-real-docker-lifecycle-probe.md`
+101. `docs/adr/0096-durable-docker-lifecycle-ownership-and-recovery.md`
+102. `docs/DESKTOP_PLAN.md`
+103. `docs/SKILL_PACKAGE_PLAN.md`
 
 ## Current Baseline
 
@@ -548,8 +547,8 @@ Read in this order after a long context break:
 - Generic coding-agent workflow usability: about 98%.
 - Cyber autonomous-workflow usability: about 20%.
 - These are engineering estimates based on tested roadmap slices, not performance benchmarks. Do not reuse the retired single-axis "overall product vision" percentage.
-- Database schema: v96.
-- `README.md` carries the canonical bilingual schema timeline in strict `v1 -> v96` order. `internal/store/readme_history_test.go` binds its row count and ordering to `LatestSchemaVersion`, so a future migration cannot silently leave the public history missing or out of sequence.
+- Database schema: v97.
+- `README.md` carries the canonical bilingual schema timeline in strict `v1 -> v97` order. `internal/store/readme_history_test.go` binds its row count and ordering to `LatestSchemaVersion`, so a future migration cannot silently leave the public history missing or out of sequence.
 - Main languages: Go control plane, TypeScript React/Vite local console, and deterministic Rust 1.97.1 digest/ZIP protocol functions. Rust has no Agent, LLM, config, key, persistence, network, filesystem, subprocess, or product-lifecycle ownership.
 - Analyzer status: P10-A through P10-K define and validate the Go/Rust protocol and embedded-WASI boundary. P10-L/schema v94-v95 adds real fixed-module execution, one-shot exact-bound authorization, atomic consumption, redacted execution, metadata-only Artifact content, and Run events. P10-M exposes only this embedded module through CLI/control-token HTTP/Desktop/React; callers cannot provide WebAssembly, imports, mount, network, command, argv, environment, or native process. See ADR 0062, ADR 0063, ADR 0090, ADR 0091, and `analyzers/README.md`.
 - Model Harness status: non-schema A1/A2/A3 adds `model_harness.v1` exact transport/tool/JSON/streaming profiles, Go preflight for Root/Specialist/read-only Fan-out, and `model_harness_qualification.v1` at-most-two-call synthetic qualification. Mock is trusted offline; Anthropic-compatible models require explicit qualification. Qualification stores only exact binding digest, capability booleans, and seven-day expiry in existing Provider settings; the synthetic Tool is never executed, availability remains no-probe, and qualification grants no Tool/Shell/file/browser/Docker authority. P13-A adds the durable public-activity read projection; P13-B adds a separate process-local safe public assistant stream with exact cancellation and no raw Provider persistence; P13-C adds the Root-only, independently reviewed `approval` host-command proposal Tool without granting the model execution authority. P10-M2 proves the production Anthropic-compatible route and durable chat path against deterministic local SSE, while P13-B3 verifies one configured real DeepSeek path. Current OpenAPI is 88 paths / 96 operations / 212 schemas. See ADR 0074, ADR 0080, ADR 0091, ADR 0092, and ADR 0093.
