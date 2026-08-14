@@ -245,6 +245,52 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 		"ProviderCredentialStatusView", "secret")
 	assertOpenAPIPropertyFlag(t, document.Components.Schemas,
 		"ProviderCredentialRequestView", "secret", "writeOnly", true)
+	assertOpenAPIPropertyFlag(t, document.Components.Schemas,
+		"ProviderCredentialListView", "items", "minItems", float64(4))
+	assertOpenAPIPropertyFlag(t, document.Components.Schemas,
+		"ProviderCredentialListView", "items", "maxItems", float64(4))
+	assertOpenAPIEnum(t, document.Components.Schemas, "ProviderCredentialStatusView", "provider",
+		[]string{"anthropic", "deepseek", "mimo", "openai"})
+	credentialProviders := []string{"anthropic", "deepseek", "mimo", "openai"}
+	credentialPath, credentialPathFound := document.Paths[ProviderCredentialPathTemplate]
+	if !credentialPathFound || credentialPath.Post == nil {
+		t.Fatal("Provider credential control path is missing")
+	}
+	providerParameterFound := false
+	for _, parameter := range credentialPath.Post.Parameters {
+		if parameter.Name != "provider" {
+			continue
+		}
+		providerParameterFound = true
+		raw, ok := parameter.Schema["enum"].([]any)
+		if !ok {
+			t.Fatal("Provider credential path parameter has no enum")
+		}
+		actual := make([]string, len(raw))
+		for index, value := range raw {
+			actual[index], ok = value.(string)
+			if !ok {
+				t.Fatal("Provider credential path parameter enum is not a string list")
+			}
+		}
+		if !reflect.DeepEqual(actual, credentialProviders) {
+			t.Fatalf("Provider credential path enum=%v want=%v", actual, credentialProviders)
+		}
+	}
+	if !providerParameterFound {
+		t.Fatal("Provider credential path parameter is missing")
+	}
+	assertOpenAPIEnum(t, document.Components.Schemas, "ProviderAvailabilityView", "kind",
+		[]string{"local", "anthropic_compatible", "openai_compatible"})
+	assertOpenAPIEnum(t, document.Components.Schemas, "ModelHarnessAvailabilityView",
+		"transport_protocol", []string{"mock", "anthropic_messages",
+			"openai_chat_completions", "provider_contract"})
+	failureReasons := []string{"none", "not_configured", "authentication", "network",
+		"rate_limit", "capacity", "model_not_found", "protocol_incompatible"}
+	assertOpenAPIEnum(t, document.Components.Schemas, "ProviderDiagnosticView",
+		"failure_reason", failureReasons)
+	assertOpenAPIEnum(t, document.Components.Schemas, "ModelHarnessQualificationView",
+		"failure_reason", failureReasons)
 	for _, field := range []string{"path", "content", "command", "hook"} {
 		assertOpenAPISchemaOmits(t, document.Components.Schemas,
 			"SkillPackageInstallRequestView", field)
@@ -1036,5 +1082,38 @@ func assertOpenAPIPropertyFlag(t *testing.T, schemas map[string]map[string]any,
 	if !ok || !reflect.DeepEqual(value[flag], expected) {
 		t.Fatalf("OpenAPI component %s property %s flag %s=%v want=%v",
 			name, property, flag, value[flag], expected)
+	}
+}
+
+func assertOpenAPIEnum(t *testing.T, schemas map[string]map[string]any,
+	name string, property string, expected []string,
+) {
+	t.Helper()
+	schema, ok := schemas[name]
+	if !ok {
+		t.Fatalf("OpenAPI component %s is missing", name)
+	}
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("OpenAPI component %s has no properties", name)
+	}
+	value, ok := properties[property].(map[string]any)
+	if !ok {
+		t.Fatalf("OpenAPI component %s property %s is missing", name, property)
+	}
+	raw, ok := value["enum"].([]any)
+	if !ok {
+		t.Fatalf("OpenAPI component %s property %s has no enum", name, property)
+	}
+	actual := make([]string, len(raw))
+	for index, current := range raw {
+		actual[index], ok = current.(string)
+		if !ok {
+			t.Fatalf("OpenAPI component %s property %s has a non-string enum", name, property)
+		}
+	}
+	if !reflect.DeepEqual(actual, expected) {
+		t.Fatalf("OpenAPI component %s property %s enum=%v want=%v",
+			name, property, actual, expected)
 	}
 }

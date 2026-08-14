@@ -87,7 +87,7 @@ func TestRegistryBuildsRedactedEnvironmentAvailabilityAndRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := registry.Snapshot()
-	if snapshot.ProtocolVersion != ProtocolVersion || len(snapshot.Providers) != 4 ||
+	if snapshot.ProtocolVersion != ProtocolVersion || len(snapshot.Providers) != 5 ||
 		len(snapshot.Routes) != len(routeNames) {
 		t.Fatalf("unexpected registry snapshot: %#v", snapshot)
 	}
@@ -405,13 +405,88 @@ func TestRegistryDiagnosticReturnsOnlyBoundedConnectivityFacts(t *testing.T) {
 	}
 	if result.ProtocolVersion != DiagnosticProtocolVersion ||
 		result.Status != DiagnosticReachable || result.Outcome != string(llm.OutcomeSuccess) ||
+		result.FailureReason != llm.ProviderFailureNone ||
 		result.Provider != "mock" || result.Model != "mock-fast" ||
 		result.NetworkRequestAttempted || !result.ModelCalled || result.ToolCalled ||
 		result.ResponseContentReturned || result.DurationMillis < 0 {
 		t.Fatalf("unexpected diagnostic projection: %#v", result)
 	}
-	if _, err := registry.Diagnose(context.Background(), "mimo", DefaultMimoModel); err == nil {
-		t.Fatal("unconfigured Provider diagnostic was accepted")
+	unconfigured, err := registry.Diagnose(context.Background(), "openai", DefaultOpenAIModel)
+	if err != nil || unconfigured.Status != DiagnosticUnreachable ||
+		unconfigured.Outcome != string(llm.OutcomePermanent) ||
+		unconfigured.FailureReason != llm.ProviderFailureNotConfigured ||
+		unconfigured.NetworkRequestAttempted || unconfigured.ModelCalled ||
+		unconfigured.ToolCalled || unconfigured.ResponseContentReturned {
+		t.Fatalf("unexpected unconfigured Provider diagnostic: %#v err=%v", unconfigured, err)
+	}
+	if _, err := registry.Diagnose(context.Background(), "unknown", DefaultOpenAIModel); err == nil {
+		t.Fatal("unknown Provider diagnostic was accepted")
+	}
+}
+
+func TestRegistryRegistersOpenAIEnvironmentAndSystemCredential(t *testing.T) {
+	values := map[string]string{
+		"CYBERAGENT_OPENAI_API_KEY": "test-openai-key-0123456789",
+		"CYBERAGENT_OPENAI_MODEL":   "openai-test-model",
+	}
+	registry := New(func(name string) (string, bool) {
+		value, found := values[name]
+		return value, found
+	})
+	snapshot := registry.Snapshot()
+	var openai ProviderAvailability
+	for _, provider := range snapshot.Providers {
+		if provider.Name == "openai" {
+			openai = provider
+		}
+	}
+	if openai.Kind != ProviderKindOpenAICompatible || openai.Status != ProviderAvailable ||
+		openai.CredentialSource != "environment" || len(openai.Models) != 1 ||
+		openai.Models[0] != "openai-test-model" || len(openai.Harnesses) != 1 ||
+		openai.Harnesses[0].TransportProtocol != llm.HarnessTransportOpenAIChatCompletions ||
+		!contains(registry.Router().ProviderNames(), "openai") ||
+		strings.Contains(snapshotText(snapshot), values["CYBERAGENT_OPENAI_API_KEY"]) {
+		t.Fatalf("unexpected OpenAI registry projection: %#v", openai)
+	}
+
+	registry, err := newRegistry(func(string) (string, bool) { return "", false },
+		func(_ context.Context, provider string) (string, bool, error) {
+			if provider == "openai" {
+				return "system-openai-key-0123456789", true, nil
+			}
+			return "", false, nil
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundSystemOpenAI := false
+	for _, provider := range registry.Snapshot().Providers {
+		if provider.Name == "openai" {
+			foundSystemOpenAI = true
+			if provider.Status != ProviderAvailable || provider.CredentialSource != "system" ||
+				!contains(registry.Router().ProviderNames(), "openai") {
+				t.Fatalf("system OpenAI credential did not register: %#v", provider)
+			}
+		}
+	}
+	if !foundSystemOpenAI {
+		t.Fatal("system OpenAI Provider was not projected")
+	}
+}
+
+func TestUnconfiguredHarnessQualificationIsContentFree(t *testing.T) {
+	registry := New(nil)
+	result, err := registry.QualifyHarness(context.Background(), routeSettings{},
+		"openai", DefaultOpenAIModel)
+	if err != nil || result.Status != HarnessDiagnosticUnreachable ||
+		result.Outcome != string(llm.OutcomePermanent) ||
+		result.FailureReason != llm.ProviderFailureNotConfigured ||
+		result.NetworkRequestAttempted || result.ModelCalls != 0 ||
+		result.SyntheticToolCalls != 0 || result.ToolExecuted ||
+		result.ResponseContentReturned ||
+		result.Harness.TransportProtocol != llm.HarnessTransportOpenAIChatCompletions ||
+		result.Harness.Model != DefaultOpenAIModel {
+		t.Fatalf("unexpected unconfigured Harness qualification: %#v err=%v", result, err)
 	}
 }
 
@@ -419,11 +494,13 @@ func TestDeepSeekDiagnosticDisablesThinkingWithoutChangingOtherProviders(t *test
 	var thinking struct {
 		Type string `json:"type"`
 	}
+	maxTokens := 0
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter,
 		request *http.Request,
 	) {
 		var body struct {
-			Thinking *struct {
+			MaxTokens int `json:"max_tokens"`
+			Thinking  *struct {
 				Type string `json:"type"`
 			} `json:"thinking"`
 		}
@@ -435,6 +512,7 @@ func TestDeepSeekDiagnosticDisablesThinkingWithoutChangingOtherProviders(t *test
 		if body.Thinking != nil {
 			thinking.Type = body.Thinking.Type
 		}
+		maxTokens = body.MaxTokens
 		writer.Header().Set("Content-Type", "application/json")
 		_, _ = writer.Write([]byte(`{
 			"id":"msg_diagnostic","type":"message","role":"assistant",
@@ -456,10 +534,11 @@ func TestDeepSeekDiagnosticDisablesThinkingWithoutChangingOtherProviders(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if thinking.Type != "disabled" || result.Status != DiagnosticReachable ||
+	if thinking.Type != "disabled" || maxTokens != diagnosticMaxTokens ||
+		result.Status != DiagnosticReachable ||
 		result.Outcome != string(llm.OutcomeSuccess) {
-		t.Fatalf("DeepSeek diagnostic compatibility failed: thinking=%#v result=%#v",
-			thinking, result)
+		t.Fatalf("DeepSeek diagnostic compatibility failed: thinking=%#v max_tokens=%d result=%#v",
+			thinking, maxTokens, result)
 	}
 }
 
@@ -480,6 +559,7 @@ func TestHarnessQualificationIsSyntheticExactAndDurable(t *testing.T) {
 	if result.ProtocolVersion != HarnessQualificationProtocolVersion ||
 		result.Status != HarnessDiagnosticQualified ||
 		result.Outcome != string(llm.OutcomeSuccess) ||
+		result.FailureReason != llm.ProviderFailureNone ||
 		result.ModelCalls != 2 || result.SyntheticToolCalls != 1 ||
 		result.ToolExecuted || result.ResponseContentReturned ||
 		!result.Harness.RootEligible ||
@@ -529,12 +609,53 @@ func TestHarnessQualificationRejectsResponseModelDrift(t *testing.T) {
 	}
 	if result.Status != HarnessDiagnosticIncompatible ||
 		result.Outcome != string(llm.OutcomeInvalidResponse) ||
+		result.FailureReason != llm.ProviderFailureProtocolIncompatible ||
 		result.ModelCalls != 1 || result.Harness.RootEligible ||
 		len(settings) != 0 {
 		t.Fatalf("response identity drift was accepted: result=%#v settings=%#v",
 			result, settings)
 	}
 }
+
+func TestCollectHarnessProbeStreamPreservesExpiredContextWhenStreamCloses(t *testing.T) {
+	router := llm.NewDefaultRouter()
+	provider := &closedProbeProvider{}
+	router.RegisterProvider(provider)
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	for attempt := 0; attempt < 32; attempt++ {
+		_, err := collectHarnessProbeStream(ctx, router, llm.ModelRef{
+			Provider: provider.Name(), Model: "model",
+		}, llm.ChatRequest{})
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("closed stream attempt %d returned %#v", attempt, err)
+		}
+	}
+}
+
+type closedProbeProvider struct{}
+
+func (*closedProbeProvider) Name() string { return "closed-probe" }
+
+func (*closedProbeProvider) ListModels(context.Context) ([]llm.ModelInfo, error) {
+	return []llm.ModelInfo{{ID: "model", Provider: "closed-probe"}}, nil
+}
+
+func (*closedProbeProvider) Chat(context.Context, llm.ChatRequest) (*llm.ChatResponse, error) {
+	return nil, errors.New("closed probe does not support non-streaming chat")
+}
+
+func (*closedProbeProvider) StreamChat(context.Context,
+	llm.ChatRequest,
+) (<-chan llm.ChatChunk, error) {
+	chunks := make(chan llm.ChatChunk)
+	close(chunks)
+	return chunks, nil
+}
+
+func (*closedProbeProvider) SupportsTools(string) bool    { return false }
+func (*closedProbeProvider) SupportsVision(string) bool   { return false }
+func (*closedProbeProvider) SupportsJSONMode(string) bool { return false }
 
 type qualificationProvider struct {
 	binding       string
@@ -568,6 +689,9 @@ func (p *qualificationProvider) Chat(ctx context.Context,
 func (p *qualificationProvider) StreamChat(_ context.Context,
 	request llm.ChatRequest,
 ) (<-chan llm.ChatChunk, error) {
+	if request.MaxTokens != harnessProbeMaxTokens {
+		return nil, errors.New("unexpected qualification token budget")
+	}
 	response := &llm.ChatResponse{
 		Provider: p.Name(), Model: p.responseModel,
 		Usage: llm.Usage{InputTokens: 1, OutputTokens: 1, TotalTokens: 2},

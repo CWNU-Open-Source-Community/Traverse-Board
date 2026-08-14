@@ -1072,13 +1072,14 @@ describe("CyberAgentClient", () => {
       harness_ready: true };
     const diagnostic = {
       protocol_version: "provider_diagnostic.v1", provider: "mock", model: "mock-code",
-      status: "reachable", outcome: "success", retryable: false,
+      status: "reachable", outcome: "success", failure_reason: "none", retryable: false,
       network_request_attempted: false, model_called: true, tool_called: false,
       response_content_returned: false, duration_ms: 2,
     };
     const qualification = {
       protocol_version: "model_harness_qualification.v1", provider: "mock",
-      model: "mock-code", status: "qualified", outcome: "success", retryable: false,
+      model: "mock-code", status: "qualified", outcome: "success", failure_reason: "none",
+      retryable: false,
       network_request_attempted: false, model_calls: 0, synthetic_tool_calls: 0,
       tool_executed: false, response_content_returned: false, duration_ms: 0,
       harness: {
@@ -2108,7 +2109,7 @@ describe("CyberAgentClient", () => {
   });
 
   it("keeps Provider credentials write-only and returns status metadata", async () => {
-    const items = ["anthropic", "deepseek", "mimo"].map((provider) => ({
+    const items = ["anthropic", "deepseek", "mimo", "openai"].map((provider) => ({
       protocol_version: "provider_credential.v1", provider, configured: false,
       store_kind: "windows_credential_manager", store_available: true,
       plaintext_returned: false, restart_required: false,
@@ -2139,6 +2140,123 @@ describe("CyberAgentClient", () => {
     expect(init.headers).toMatchObject({ Authorization: "Bearer control-secret" });
     expect(JSON.parse(String(init.body))).toEqual({ version: "provider_credential.v1",
       action: "set", secret, confirm: true });
+  });
+
+  it("accepts OpenAI-compatible availability and rejects unknown qualification reasons", async () => {
+    const harness = {
+      protocol_version: "model_harness.v1", model: "gpt-4.1-mini",
+      transport_protocol: "openai_chat_completions", tool_strategy: "native",
+      json_strategy: "native", qualification_status: "qualification_required",
+      tool_calls_qualified: false, tool_results_qualified: false,
+      strict_json_qualified: false, streaming_qualified: false, root_eligible: false,
+      structured_json_eligible: false, qualified_at: "", expires_at: "",
+    };
+    const availability = {
+      protocol_version: "model_availability.v2", generation: 2,
+      providers: [{ name: "openai", kind: "openai_compatible", status: "available",
+        models: ["gpt-4.1-mini"], harnesses: [harness], credential_source: "environment",
+        network_required: true, configuration_error: false }],
+      routes: [{ name: "code", provider: "openai", model: "gpt-4.1-mini",
+        available: true, harness_ready: false }],
+    };
+    const diagnostic = {
+      protocol_version: "provider_diagnostic.v1", provider: "openai",
+      model: "gpt-4.1-mini", status: "unreachable", outcome: "permanent",
+      failure_reason: "authentication", retryable: false, network_request_attempted: true,
+      model_called: true, tool_called: false, response_content_returned: false,
+      duration_ms: 4,
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-openai-models", data: availability }), { status: 200,
+        headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-openai-diagnostic", data: diagnostic }), { status: 202,
+        headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-openai-forged", data: { ...diagnostic, failure_reason: "raw_error" } }),
+      { status: 202, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+      modelControlEnabled: true,
+    });
+    await expect(client.modelAvailability()).resolves.toEqual(availability);
+    const request = { version: "provider_diagnostic.v1" as const, provider: "openai",
+      model: "gpt-4.1-mini", confirm_diagnostic: true };
+    await expect(client.diagnoseProvider(request)).resolves.toEqual(diagnostic);
+    await expect(client.diagnoseProvider(request)).rejects.toThrow("content-free");
+  });
+
+  it("rejects contradictory provider diagnostic semantics", async () => {
+    const forged = {
+      protocol_version: "provider_diagnostic.v1", provider: "openai",
+      model: "gpt-4.1-mini", status: "unreachable", outcome: "success",
+      failure_reason: "authentication", retryable: false, network_request_attempted: true,
+      model_called: true, tool_called: false, response_content_returned: false,
+      duration_ms: 4,
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-openai-forged-semantics", data: forged,
+    }), { status: 202, headers: { "Content-Type": "application/json" } })));
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+      modelControlEnabled: true,
+    });
+    await expect(client.diagnoseProvider({ version: "provider_diagnostic.v1", provider: "openai",
+      model: "gpt-4.1-mini", confirm_diagnostic: true })).rejects.toThrow("content-free");
+  });
+
+  it("rejects unknown or non-string diagnostic and qualification enums", async () => {
+    const diagnostic = {
+      protocol_version: "provider_diagnostic.v1", provider: "openai",
+      model: "gpt-4.1-mini", status: "unreachable", outcome: "vendor_error",
+      failure_reason: "authentication", retryable: false, network_request_attempted: true,
+      model_called: true, tool_called: false, response_content_returned: false,
+      duration_ms: 4,
+    };
+    const qualification = {
+      protocol_version: "model_harness_qualification.v1", provider: "openai",
+      model: "gpt-4.1-mini", status: "unreachable", outcome: "vendor_error",
+      failure_reason: "authentication", retryable: false, network_request_attempted: true,
+      model_calls: 1, synthetic_tool_calls: 0, tool_executed: false,
+      response_content_returned: false, duration_ms: 4,
+      harness: {
+        protocol_version: "model_harness.v1", model: "gpt-4.1-mini",
+        transport_protocol: "openai_chat_completions", tool_strategy: "native",
+        json_strategy: "native", qualification_status: "qualification_required",
+        tool_calls_qualified: false, tool_results_qualified: false,
+        strict_json_qualified: false, streaming_qualified: false, root_eligible: false,
+        structured_json_eligible: false, qualified_at: "", expires_at: "",
+      },
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-unknown-diagnostic-outcome", data: diagnostic }), { status: 202,
+        headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-unknown-qualification-outcome", data: qualification }), { status: 202,
+        headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-array-diagnostic-outcome",
+        data: { ...diagnostic, outcome: ["permanent"] } }), { status: 202,
+        headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-array-qualification-reason",
+        data: { ...qualification, outcome: "permanent", failure_reason: ["authentication"] } }),
+      { status: 202, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+      modelControlEnabled: true,
+    });
+    await expect(client.diagnoseProvider({ version: "provider_diagnostic.v1", provider: "openai",
+      model: "gpt-4.1-mini", confirm_diagnostic: true })).rejects.toThrow("content-free");
+    await expect(client.qualifyModelHarness({ version: "model_harness_qualification.v1",
+      provider: "openai", model: "gpt-4.1-mini", confirm_qualification: true }))
+      .rejects.toThrow("qualification response is invalid");
+    await expect(client.diagnoseProvider({ version: "provider_diagnostic.v1", provider: "openai",
+      model: "gpt-4.1-mini", confirm_diagnostic: true })).rejects.toThrow("content-free");
+    await expect(client.qualifyModelHarness({ version: "model_harness_qualification.v1",
+      provider: "openai", model: "gpt-4.1-mini", confirm_qualification: true }))
+      .rejects.toThrow("qualification response is invalid");
   });
 
   it("creates only a pending FileEdit from an opaque Go-issued source", async () => {

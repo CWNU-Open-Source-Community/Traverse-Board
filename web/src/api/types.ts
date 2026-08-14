@@ -34,6 +34,8 @@ export type MessageView = components["schemas"]["MessageView"];
 export type ModelAvailabilityView = components["schemas"]["ModelAvailabilityView"];
 export type ModelHarnessAvailabilityView = components["schemas"]["ModelHarnessAvailabilityView"];
 export type ModelHarnessQualificationRequestView = components["schemas"]["ModelHarnessQualificationRequestView"];
+export type ProviderFailureReason =
+  components["schemas"]["ProviderDiagnosticView"]["failure_reason"];
 export type ModelHarnessQualificationView = components["schemas"]["ModelHarnessQualificationView"];
 export type ModelRouteControlRequestView = components["schemas"]["ModelRouteControlRequestView"];
 export type OperationReceiptView = components["schemas"]["OperationReceiptView"];

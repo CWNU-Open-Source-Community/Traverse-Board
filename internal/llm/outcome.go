@@ -37,8 +37,37 @@ func (o Outcome) Retryable() bool {
 	return o == OutcomeRetryable || o == OutcomeRateLimited
 }
 
+// ProviderFailureReason is a stable, content-free classification for operator
+// diagnostics. It is deliberately separate from Outcome: Outcome controls
+// retry behavior, while the reason describes the safe failure category.
+type ProviderFailureReason string
+
+const (
+	ProviderFailureNone                 ProviderFailureReason = "none"
+	ProviderFailureNotConfigured        ProviderFailureReason = "not_configured"
+	ProviderFailureAuthentication       ProviderFailureReason = "authentication"
+	ProviderFailureNetwork              ProviderFailureReason = "network"
+	ProviderFailureRateLimit            ProviderFailureReason = "rate_limit"
+	ProviderFailureCapacity             ProviderFailureReason = "capacity"
+	ProviderFailureModelNotFound        ProviderFailureReason = "model_not_found"
+	ProviderFailureProtocolIncompatible ProviderFailureReason = "protocol_incompatible"
+)
+
+func (r ProviderFailureReason) Valid() bool {
+	switch r {
+	case ProviderFailureNone, ProviderFailureNotConfigured,
+		ProviderFailureAuthentication, ProviderFailureNetwork,
+		ProviderFailureRateLimit, ProviderFailureCapacity,
+		ProviderFailureModelNotFound, ProviderFailureProtocolIncompatible:
+		return true
+	default:
+		return false
+	}
+}
+
 type ProviderError struct {
 	Kind       Outcome
+	Reason     ProviderFailureReason
 	Provider   string
 	StatusCode int
 	RetryAfter time.Duration
@@ -51,7 +80,9 @@ func NewProviderError(kind Outcome, provider string, message string, cause error
 		kind = OutcomePermanent
 	}
 	return &ProviderError{
-		Kind: kind, Provider: strings.TrimSpace(provider), Message: redact.String(strings.TrimSpace(message)), Cause: cause,
+		Kind: kind, Reason: ProviderFailureNone,
+		Provider: strings.TrimSpace(provider),
+		Message:  redact.String(strings.TrimSpace(message)), Cause: cause,
 	}
 }
 
@@ -60,9 +91,6 @@ func (e *ProviderError) Error() string {
 		return ""
 	}
 	message := strings.TrimSpace(e.Message)
-	if message == "" && e.Cause != nil {
-		message = redact.String(strings.TrimSpace(e.Cause.Error()))
-	}
 	if message == "" {
 		message = string(e.Kind)
 	}
@@ -92,6 +120,13 @@ func NormalizeProviderError(provider string, err error) *ProviderError {
 		if strings.TrimSpace(copy.Provider) == "" {
 			copy.Provider = strings.TrimSpace(provider)
 		}
+		if !copy.Reason.Valid() || copy.Reason == ProviderFailureNone {
+			copy.Reason = defaultProviderFailureReason(copy.Kind, copy.StatusCode)
+			if copy.Reason == ProviderFailureNone &&
+				errors.Is(copy.Cause, context.DeadlineExceeded) {
+				copy.Reason = ProviderFailureNetwork
+			}
+		}
 		copy.Message = redact.String(strings.TrimSpace(copy.Message))
 		if copy.RetryAfter < 0 {
 			copy.RetryAfter = 0
@@ -113,7 +148,17 @@ func NormalizeProviderError(provider string, err error) *ProviderError {
 			kind = OutcomeRetryable
 		}
 	}
-	return NewProviderError(kind, provider, err.Error(), err)
+	message := "provider request failed"
+	if kind == OutcomeCancelled {
+		message = "provider request was cancelled"
+	}
+	providerError := NewProviderError(kind, provider, message, err)
+	providerError.Reason = defaultProviderFailureReason(kind, 0)
+	if providerError.Reason == ProviderFailureNone &&
+		errors.Is(err, context.DeadlineExceeded) {
+		providerError.Reason = ProviderFailureNetwork
+	}
+	return providerError
 }
 
 func ProviderErrorKind(err error) Outcome {
@@ -122,6 +167,43 @@ func ProviderErrorKind(err error) Outcome {
 		return typed.Kind
 	}
 	return ""
+}
+
+func ProviderErrorReason(err error) ProviderFailureReason {
+	var typed *ProviderError
+	if errors.As(err, &typed) && typed != nil {
+		if typed.Reason.Valid() && typed.Reason != ProviderFailureNone {
+			return typed.Reason
+		}
+		return defaultProviderFailureReason(typed.Kind, typed.StatusCode)
+	}
+	return ProviderFailureNone
+}
+
+func defaultProviderFailureReason(kind Outcome, statusCode int) ProviderFailureReason {
+	switch statusCode {
+	case 401, 403:
+		return ProviderFailureAuthentication
+	case 404:
+		// A status alone cannot distinguish a missing model from a bad or
+		// unsupported endpoint path. Protocol adapters may upgrade this only
+		// after recognizing an exact, content-free upstream code or type.
+		return ProviderFailureProtocolIncompatible
+	case 429:
+		return ProviderFailureRateLimit
+	case 503, 529:
+		return ProviderFailureCapacity
+	}
+	switch kind {
+	case OutcomeRetryable:
+		return ProviderFailureNetwork
+	case OutcomeRateLimited:
+		return ProviderFailureRateLimit
+	case OutcomeInvalidResponse:
+		return ProviderFailureProtocolIncompatible
+	default:
+		return ProviderFailureNone
+	}
 }
 
 type ModelAttempt struct {

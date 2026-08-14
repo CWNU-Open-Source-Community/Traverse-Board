@@ -429,7 +429,26 @@ The initial product remains conservative: real public-network attack automation 
 
 The LLM router remains independent from orchestration. Run snapshots record the selected provider/model route without persisting API keys. Providers normalize HTTP, network, protocol, and cancellation errors into typed outcomes; only RunSupervisor decides whether a side-effect-free model request may be retried. Legacy unbound Session chat receives typed errors through Router but does not gain an implicit retry loop.
 
-Environment adapters currently expose `mimo` and `deepseek` as separate names over the shared Anthropic-compatible transport. Each adapter reads only its own API-key/base-URL/model namespace, and the Provider object remains inside the Go control plane; credentials never enter Run configuration or event payloads.
+Environment adapters expose `mimo`, `deepseek`, and `anthropic` over the shared
+Anthropic-compatible transport, plus the canonical `openai` adapter over OpenAI Chat
+Completions. Each adapter reads only its dedicated API-key/base-URL/model namespace.
+For `openai`, that namespace is `CYBERAGENT_OPENAI_API_KEY`,
+`CYBERAGENT_OPENAI_BASE_URL`, and `CYBERAGENT_OPENAI_MODEL`; its defaults are
+`https://api.openai.com` and `gpt-4.1-mini`. The Provider object and secrets remain
+inside the Go control plane and never enter Run configuration or event payloads.
+The production Registry supplies a 60-second client timeout, and internal injected
+clients are clamped to that maximum. The adapter disables redirects and emits only the
+bearer authorization plus content negotiation headers required by Chat Completions;
+custom headers and repository-selected compatibility modes are deliberately absent.
+Repository files, including `configs/models.yaml`, are documentation rather than a
+runtime Provider configuration source, so workspace content cannot inject endpoints,
+headers, or credential references.
+
+Connectivity diagnostics and Harness qualification publish a closed, content-free
+failure reason (`none`, `not_configured`, `authentication`, `network`, `rate_limit`,
+`capacity`, `model_not_found`, or `protocol_incompatible`) separately from the retry
+outcome. HTTP/OpenAPI, CLI, Web, and Desktop project that safe category without
+returning endpoint URLs, response bodies, raw errors, prompts, tool arguments, or keys.
 
 Context is assembled from:
 

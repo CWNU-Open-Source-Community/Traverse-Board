@@ -77,6 +77,7 @@ type ProviderDiagnosticView struct {
 	Model                   string `json:"model"`
 	Status                  string `json:"status"`
 	Outcome                 string `json:"outcome"`
+	FailureReason           string `json:"failure_reason"`
 	Retryable               bool   `json:"retryable"`
 	NetworkRequestAttempted bool   `json:"network_request_attempted"`
 	ModelCalled             bool   `json:"model_called"`
@@ -91,6 +92,7 @@ type ModelHarnessQualificationView struct {
 	Model                   string                       `json:"model"`
 	Status                  string                       `json:"status"`
 	Outcome                 string                       `json:"outcome"`
+	FailureReason           string                       `json:"failure_reason"`
 	Retryable               bool                         `json:"retryable"`
 	NetworkRequestAttempted bool                         `json:"network_request_attempted"`
 	ModelCalls              int                          `json:"model_calls"`

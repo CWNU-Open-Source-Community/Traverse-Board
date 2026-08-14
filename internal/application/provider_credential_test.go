@@ -73,6 +73,32 @@ func TestProviderCredentialServiceReturnsStatusOnly(t *testing.T) {
 	}
 }
 
+func TestProviderCredentialServiceManagesOpenAI(t *testing.T) {
+	store := credential.NewMemoryStore()
+	service := NewProviderCredentialService(store)
+	secret := "temporary-openai-provider-key"
+	status, err := service.Change(t.Context(), ChangeProviderCredentialRequest{
+		Version: credential.ProtocolVersion, Provider: "openai",
+		Action: ProviderCredentialSet, Secret: secret, Confirm: true,
+	})
+	if err != nil || !status.Configured || status.PlaintextReturned {
+		t.Fatalf("OpenAI credential was not managed safely: %#v err=%v", status, err)
+	}
+	statuses, err := service.List(t.Context())
+	if err != nil || len(statuses) != 4 {
+		t.Fatalf("managed credential list=%#v err=%v", statuses, err)
+	}
+	found := false
+	for _, current := range statuses {
+		if current.Provider == "openai" {
+			found = current.Configured && !current.PlaintextReturned
+		}
+	}
+	if !found {
+		t.Fatalf("OpenAI credential status missing: %#v", statuses)
+	}
+}
+
 func TestProviderCredentialServiceReloadsRegistryWithoutRestart(t *testing.T) {
 	store := credential.NewMemoryStore()
 	reloader := &providerCredentialReloadFake{generation: 1}

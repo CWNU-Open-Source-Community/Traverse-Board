@@ -60,15 +60,26 @@ func TestModelAvailabilityIsRedactedAndDoesNotProbeProviders(t *testing.T) {
 		t.Fatal(err)
 	}
 	if envelope.Data.ProtocolVersion != modelregistry.ProtocolVersion ||
-		len(envelope.Data.Providers) != 4 || len(envelope.Data.Routes) != 5 {
+		len(envelope.Data.Providers) != 5 || len(envelope.Data.Routes) != 5 {
 		t.Fatalf("unexpected model availability: %#v", envelope.Data)
 	}
-	var foundMimo, foundCode bool
+	var foundMimo, foundOpenAI, foundCode bool
 	for _, provider := range envelope.Data.Providers {
 		if provider.Name == "mimo" {
 			foundMimo = provider.Status == modelregistry.ProviderAvailable &&
 				len(provider.Models) == 1 && provider.Models[0] == "mimo-http-test" &&
 				len(provider.Harnesses) == 1 &&
+				provider.Harnesses[0].QualificationStatus ==
+					llm.HarnessQualificationRequired &&
+				!provider.Harnesses[0].RootEligible
+		}
+		if provider.Name == "openai" {
+			foundOpenAI = provider.Kind == modelregistry.ProviderKindOpenAICompatible &&
+				provider.Status == modelregistry.ProviderNotConfigured &&
+				len(provider.Models) == 1 && provider.Models[0] == modelregistry.DefaultOpenAIModel &&
+				len(provider.Harnesses) == 1 &&
+				provider.Harnesses[0].TransportProtocol ==
+					llm.HarnessTransportOpenAIChatCompletions &&
 				provider.Harnesses[0].QualificationStatus ==
 					llm.HarnessQualificationRequired &&
 				!provider.Harnesses[0].RootEligible
@@ -80,7 +91,7 @@ func TestModelAvailabilityIsRedactedAndDoesNotProbeProviders(t *testing.T) {
 				route.Model == "mimo-http-test" && !route.HarnessReady
 		}
 	}
-	if !foundMimo || !foundCode {
+	if !foundMimo || !foundOpenAI || !foundCode {
 		t.Fatalf("configured provider or route missing: %#v", envelope.Data)
 	}
 }

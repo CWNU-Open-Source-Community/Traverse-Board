@@ -466,6 +466,12 @@
             "description": "Provider name",
             "required": true,
             "schema": {
+              "enum": [
+                "anthropic",
+                "deepseek",
+                "mimo",
+                "openai"
+              ],
               "maxLength": 256,
               "minLength": 1,
               "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
@@ -14589,6 +14595,7 @@
             "enum": [
               "mock",
               "anthropic_messages",
+              "openai_chat_completions",
               "provider_contract"
             ],
             "type": "string"
@@ -14647,6 +14654,19 @@
             "maximum": 60000,
             "minimum": 0,
             "type": "integer"
+          },
+          "failure_reason": {
+            "enum": [
+              "none",
+              "not_configured",
+              "authentication",
+              "network",
+              "rate_limit",
+              "capacity",
+              "model_not_found",
+              "protocol_incompatible"
+            ],
+            "type": "string"
           },
           "harness": {
             "$ref": "#/components/schemas/ModelHarnessAvailabilityView"
@@ -14713,6 +14733,7 @@
           "model",
           "status",
           "outcome",
+          "failure_reason",
           "retryable",
           "network_request_attempted",
           "model_calls",
@@ -15724,7 +15745,8 @@
           "kind": {
             "enum": [
               "local",
-              "anthropic_compatible"
+              "anthropic_compatible",
+              "openai_compatible"
             ],
             "type": "string"
           },
@@ -15768,7 +15790,8 @@
             "items": {
               "$ref": "#/components/schemas/ProviderCredentialStatusView"
             },
-            "maxItems": 3,
+            "maxItems": 4,
+            "minItems": 4,
             "type": "array"
           },
           "protocol_version": {
@@ -15833,6 +15856,12 @@
             "type": "string"
           },
           "provider": {
+            "enum": [
+              "anthropic",
+              "deepseek",
+              "mimo",
+              "openai"
+            ],
             "type": "string"
           },
           "registry_generation": {
@@ -15900,6 +15929,19 @@
             "minimum": 0,
             "type": "integer"
           },
+          "failure_reason": {
+            "enum": [
+              "none",
+              "not_configured",
+              "authentication",
+              "network",
+              "rate_limit",
+              "capacity",
+              "model_not_found",
+              "protocol_incompatible"
+            ],
+            "type": "string"
+          },
           "model": {
             "type": "string"
           },
@@ -15952,6 +15994,7 @@
           "model",
           "status",
           "outcome",
+          "failure_reason",
           "retryable",
           "network_request_attempted",
           "model_called",

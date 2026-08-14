@@ -93,7 +93,7 @@ func (s *ModelControlService) Diagnose(ctx context.Context,
 		return modelregistry.DiagnosticResult{}, apperror.New(
 			apperror.CodeInvalidArgument, "Provider diagnostic request is invalid")
 	}
-	if !snapshotContainsProviderModel(s.registry.Snapshot(), request.Provider, request.Model) {
+	if !snapshotContainsKnownProviderModel(s.registry.Snapshot(), request.Provider, request.Model) {
 		return modelregistry.DiagnosticResult{}, apperror.New(
 			apperror.CodeFailedPrecondition, "diagnostic Provider model is unavailable")
 	}
@@ -118,7 +118,7 @@ func (s *ModelControlService) QualifyHarness(ctx context.Context,
 		return modelregistry.HarnessQualificationResult{}, apperror.New(
 			apperror.CodeInvalidArgument, "model Harness qualification request is invalid")
 	}
-	if !snapshotContainsProviderModel(s.registry.Snapshot(), request.Provider, request.Model) {
+	if !snapshotContainsKnownProviderModel(s.registry.Snapshot(), request.Provider, request.Model) {
 		return modelregistry.HarnessQualificationResult{}, apperror.New(
 			apperror.CodeFailedPrecondition,
 			"model Harness qualification Provider model is unavailable")
@@ -158,6 +158,23 @@ func snapshotContainsProviderModel(snapshot modelregistry.Snapshot,
 ) bool {
 	for _, current := range snapshot.Providers {
 		if current.Name != provider || current.Status != modelregistry.ProviderAvailable {
+			continue
+		}
+		for _, candidate := range current.Models {
+			if candidate == model {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func snapshotContainsKnownProviderModel(snapshot modelregistry.Snapshot,
+	provider string, model string,
+) bool {
+	for _, current := range snapshot.Providers {
+		if current.Name != provider || (current.Status != modelregistry.ProviderAvailable &&
+			current.Status != modelregistry.ProviderNotConfigured) {
 			continue
 		}
 		for _, candidate := range current.Models {
