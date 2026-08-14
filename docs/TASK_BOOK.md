@@ -10,6 +10,8 @@
 
 ## 当前基线
 
+Docker 容器 I/O 合同（Issue #39）已随 schema v98 落地（ADR 0098）：只读输入投影、有界日志回执、严格输出暂存与原子 Artifact 提交全部就位，但仍无产品入口；产品准入（Policy/Approval/Budget/Network 与 CLI/HTTP/Desktop 接线）是下一个 Docker 切片。
+
 D0-Mac 已把 Desktop 构建扩展到 macOS（ADR 0097）：darwin 构建标签复用同一 Go 控制平面与 WKWebView，产出未签名/未公证的本地 Prayu.app；Windows 专属的凭证库、ConPTY 终端、Safe Web/WFP 与受控宿主执行在 macOS 失败关闭。macOS 签名、公证与人工矩阵仍未排入当前切片。
 
 - 架构完成度：约 99%；其中 V2 Run-centric 控制平面约 99%。

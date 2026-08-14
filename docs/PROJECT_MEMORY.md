@@ -4,7 +4,41 @@
 
 Last updated: 2026-08-14
 
-## Current Single-Slice Checkpoint: macOS Desktop Portable Build / Schema v97 Unchanged
+## Current Single-Slice Checkpoint: Bounded Docker Container I/O Contract / Schema v98
+
+On 2026-08-14 schema v98 added the bounded Docker container I/O contract for
+issue #39, still without any product entry or authority grant. A sealed
+read-only input projection (sandbox_docker_input_projection.v1) binds
+canonical relative paths, SHA-256, size, and media type to the lifecycle
+attempt/generation, plan, observation, Run, Mission, Workspace, and spec; the
+input mount stays fixed at /run/cyberagent/inputs read-only and a mount
+isolation verifier checks real inspection mounts (exactly one writable mount,
+owned by the dedicated output target; input and workspace trees read-only).
+Log capture (sandbox_docker_log_capture.v1) goes only through POST
+containers/{id}/attach with logs=1&stderr=1&stdout=1&stream=0; a demuxer
+bounds bytes (256 KiB) and lines (4096) per stream, enforces a deadline,
+rejects malformed/oversized frames, counts and replaces invalid UTF-8,
+redacts secrets, and persists only digest-only receipts. Output staging
+(sandbox_docker_output_staging.v1) exports only GET containers/{id}/archive
+of the dedicated output mount and walks the tar under one Windows/Linux path
+rule set: no absolute/traversal/backslash/drive-letter paths, no
+symlink/hardlink/device entries, no duplicates, caps of 64 files / 4 MiB per
+file / 16 MiB total, media-type detection, and text redaction into a
+process-local staging directory; rejected archives carry no trusted manifest.
+Atomic output commit (sandbox_docker_output_commit.v1) requires an accepted
+manifest that exactly matches completed staging entries, re-reads and
+re-hashes the staged files, and inserts the receipt plus every entry in one
+replay-safe SQLite transaction; a failure leaves no partial rows. The HTTP
+transport allowlist admits exactly the two endpoints, the application service
+stays unwired from CLI/HTTP/Desktop, and 15 new event kinds record the
+prepared/acquired/taken-over/failed/completed transitions. Focused domain,
+golden-vector, adversarial-path, transport, store, and application tests pass
+on macOS; Windows/Linux CI will exercise the same path matrix. See ADR 0098
+and issue #39. Do not repeat this slice or the v97 lifecycle review after
+compaction; product admission (Policy/Approval/Budget/Network and
+CLI/HTTP/Desktop wiring) remains the next Docker slice.
+
+### Previous Checkpoint: macOS Desktop Portable Build / Schema v97 Unchanged
 
 On 2026-08-14 a new single-slice delivery added a macOS portable Desktop build
 without changing SQLite schema or any authority boundary. cmd/cyberagent-desktop
@@ -565,6 +599,7 @@ Read in this order after a long context break:
 102. `docs/DESKTOP_PLAN.md`
 103. `docs/SKILL_PACKAGE_PLAN.md`
 104. `docs/adr/0097-macos-desktop-portable-build.md`
+105. `docs/adr/0098-bounded-docker-container-io-contract.md`
 
 ## Current Baseline
 
@@ -573,8 +608,8 @@ Read in this order after a long context break:
 - Generic coding-agent workflow usability: about 98%.
 - Cyber autonomous-workflow usability: about 20%.
 - These are engineering estimates based on tested roadmap slices, not performance benchmarks. Do not reuse the retired single-axis "overall product vision" percentage.
-- Database schema: v97.
-- `README.md` carries the canonical bilingual schema timeline in strict `v1 -> v97` order. `internal/store/readme_history_test.go` binds its row count and ordering to `LatestSchemaVersion`, so a future migration cannot silently leave the public history missing or out of sequence.
+- Database schema: v98.
+- `README.md` carries the canonical bilingual schema timeline in strict `v1 -> v98` order. `internal/store/readme_history_test.go` binds its row count and ordering to `LatestSchemaVersion`, so a future migration cannot silently leave the public history missing or out of sequence.
 - Main languages: Go control plane, TypeScript React/Vite local console, and deterministic Rust 1.97.1 digest/ZIP protocol functions. Rust has no Agent, LLM, config, key, persistence, network, filesystem, subprocess, or product-lifecycle ownership.
 - Analyzer status: P10-A through P10-K define and validate the Go/Rust protocol and embedded-WASI boundary. P10-L/schema v94-v95 adds real fixed-module execution, one-shot exact-bound authorization, atomic consumption, redacted execution, metadata-only Artifact content, and Run events. P10-M exposes only this embedded module through CLI/control-token HTTP/Desktop/React; callers cannot provide WebAssembly, imports, mount, network, command, argv, environment, or native process. See ADR 0062, ADR 0063, ADR 0090, ADR 0091, and `analyzers/README.md`.
 - Model Harness status: non-schema A1/A2/A3 adds `model_harness.v1` exact transport/tool/JSON/streaming profiles, Go preflight for Root/Specialist/read-only Fan-out, and `model_harness_qualification.v1` at-most-two-call synthetic qualification. Mock is trusted offline; Anthropic-compatible models require explicit qualification. Qualification stores only exact binding digest, capability booleans, and seven-day expiry in existing Provider settings; the synthetic Tool is never executed, availability remains no-probe, and qualification grants no Tool/Shell/file/browser/Docker authority. P13-A adds the durable public-activity read projection; P13-B adds a separate process-local safe public assistant stream with exact cancellation and no raw Provider persistence; P13-C adds the Root-only, independently reviewed `approval` host-command proposal Tool without granting the model execution authority. P10-M2 proves the production Anthropic-compatible route and durable chat path against deterministic local SSE, while P13-B3 verifies one configured real DeepSeek path. Current OpenAPI is 88 paths / 96 operations / 212 schemas. See ADR 0074, ADR 0080, ADR 0091, ADR 0092, and ADR 0093.

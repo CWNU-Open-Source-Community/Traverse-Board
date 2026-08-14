@@ -6,7 +6,21 @@ Last updated: 2026-08-14
 
 ## Resume Context
 
-The current single-slice checkpoint is the macOS Desktop portable build at
+The current single-slice checkpoint is the bounded Docker container I/O
+contract at schema v98 for issue #39, still without product entry or
+authority. A sealed read-only input projection binds canonical paths,
+digests, sizes, and media types to the lifecycle attempt/generation and plan
+identity, and a mount isolation verifier checks real inspection mounts. Log
+capture is limited to the fixed stream=0 attach surface with byte/line/
+deadline caps, UTF-8 normalization, and secret redaction, persisting only
+digest receipts. Output staging exports only the dedicated output mount and
+rejects traversal, links, duplicates, and size violations under one
+Windows/Linux path rule set; atomic commit requires an exact manifest match,
+re-hashes staged files, and writes receipt plus entries in one replay-safe
+transaction. The HTTP allowlist admits exactly two daemon endpoints and the
+service is unwired from CLI/HTTP/Desktop. See ADR 0098.
+
+The previous single-slice checkpoint was the macOS Desktop portable build at
 unchanged schema v97. cmd/cyberagent-desktop is now split by build tag:
 shared shell code under "desktop", Windows-only WebView2/Acrylic/registry
 launcher code under "windows && desktop && wv2runtime.error", and a new
