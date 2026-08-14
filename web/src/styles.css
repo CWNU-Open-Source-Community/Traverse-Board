@@ -1031,6 +1031,17 @@ body { background: transparent; }
   --wails-draggable: drag;
 }
 
+/* macOS keeps native traffic lights over the hidden inset titlebar: reserve
+   their left space and let them own minimize/zoom/close instead of drawing
+   duplicate custom window controls. */
+.prayu-titlebar.mac-titlebar {
+  padding-left: 84px;
+}
+
+.prayu-titlebar.mac-titlebar .desktop-window-controls {
+  display: none;
+}
+
 .titlebar-navigation,
 .titlebar-menu,
 .titlebar-product {

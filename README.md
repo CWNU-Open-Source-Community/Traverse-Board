@@ -10,6 +10,7 @@
     <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/Qiyuanqiii/CTF-CyberAgent-Workbench?style=flat-square"></a>
     <img alt="Go" src="https://img.shields.io/badge/control%20plane-Go-00ADD8?style=flat-square">
     <img alt="Desktop" src="https://img.shields.io/badge/desktop-Windows-0078D4?style=flat-square">
+    <img alt="Desktop macOS" src="https://img.shields.io/badge/desktop-macOS-555555?style=flat-square">
   </p>
 </div>
 
@@ -17,7 +18,7 @@
 
 ## Prayu 是什么
 
-Prayu 是一个由 Go 主控的本地 AI Agent 工作台。它把模型路由、长任务恢复、工作区、工具调用、审批、预算、记忆和审计事件统一到一个 Run-centric 运行时中，并通过 CLI、TUI、HTTP API、React 控制台和 Windows Desktop 提供同一套能力。
+Prayu 是一个由 Go 主控的本地 AI Agent 工作台。它把模型路由、长任务恢复、工作区、工具调用、审批、预算、记忆和审计事件统一到一个 Run-centric 运行时中，并通过 CLI、TUI、HTTP API、React 控制台和 Windows/macOS Desktop 提供同一套能力。
 
 用户的长期目标是 `Mission`，一次可恢复的执行尝试是 `Run`。模型可以规划和提出动作，但 Go 始终拥有状态机、凭证、权限、持久化与执行边界。仓库文件、网页、模型文字和工具输出都只是不可信证据，不能自行升级为指令或权限。
 
@@ -63,7 +64,7 @@ CLI / TUI / React / Windows Desktop / CI
 | 代码工作流 | 系统目录选择与 Workspace 导入、工作区浏览、仓库状态、提交历史、Diff 审阅、文件编辑提案、验证计划、Code Journey 与 Handoff |
 | 可观测性 | 追加式 Run 事件、Live Activity、公开模型进度、Harness 事实、Artifact、Finding/Evidence/Report、SARIF |
 | 扩展 | 惰性 Skill 包、Provider 接口、Tool 接口、Go/Rust JSON 协议、内嵌 WASI Analyzer、Sandbox 合同与非授权 Docker 生命周期探针 |
-| 客户端 | `cyberagent` CLI、Bubble Tea TUI、认证 HTTP/OpenAPI、React/Vite、Windows Desktop 便携预览 |
+| 客户端 | `cyberagent` CLI、Bubble Tea TUI、认证 HTTP/OpenAPI、React/Vite、Windows/macOS Desktop 便携预览 |
 
 ### 安全边界
 
@@ -72,7 +73,7 @@ CLI / TUI / React / Windows Desktop / CI
 - 受控命令默认使用 Go 固定模板；通用宿主执行与 Debug 能力不会因模型、Skill 或仓库文档而自动开启。
 - Docker 已验证固定本机端点上的 `start -> wait -> timeout/cancel -> SIGTERM/SIGKILL -> cleanup` 机制，但它仍是包内非授权工程探针；Run、Agent、CLI、API 和 Desktop 均不能调用，产品 Sandbox 入口继续关闭。
 - 内置浏览器仍没有产品入口：受限运行时核心存在，但独立 OS/容器网络隔离证据尚未完成。
-- Windows Desktop 当前是未签名的开发者/操作者便携预览，不是正式安装包。
+- Windows/macOS Desktop 当前都是未签名的开发者/操作者便携预览，不是正式安装包；macOS 产物只有 ad-hoc 签名且未公证。
 
 ## 快速开始
 
@@ -82,6 +83,7 @@ CLI / TUI / React / Windows Desktop / CI
 - Git 2.41+
 - Node.js 24（构建 Web/Desktop 时）
 - Windows Desktop 需要 Windows 10/11 与 Edge WebView2 Evergreen Runtime
+- macOS Desktop 需要 macOS 11+（自带 WKWebView）与 Xcode 命令行工具
 - Rust 1.97.1 仅在修改 Analyzer 时需要
 - Docker Desktop 或 Linux Docker Engine 仅在开发 Sandbox 时需要；普通 Code 工作流不依赖 Docker
 
@@ -111,6 +113,15 @@ go run ./cmd/cyberagent tui
 
 在 Windows Desktop 中点击“新建任务”会直接打开系统文件夹选择器，并按“选择目录 -> 注册 Workspace -> 创建 Run”完成创建；无需先通过 CLI 或设置页注册工作区。取消选择不会创建 Workspace 或 Run，所选绝对路径不会返回 React。
 
+### macOS Desktop 预览
+
+```bash
+./scripts/build-desktop-darwin.sh
+open build/desktop/Prayu.app
+```
+
+请使用操作者预览启动器 `build/desktop/Start-Prayu-Operator-Preview.command`，或直接打开 `Prayu.app`（默认只读）。产物只有 ad-hoc 签名、未公证；从其他机器拷贝后首次打开可能需要在 Finder 中右键选择“打开”。系统凭证库尚未接入 macOS，请使用 `MIMO_API_KEY`、`DEEPSEEK_API_KEY`、`CYBERAGENT_ANTHROPIC_API_KEY` 等环境变量；ConPTY 用户终端、受限浏览器与完整 CDP 在 macOS 保持关闭。完整步骤见 [`packaging/macos/LOCAL-TEST-GUIDE.txt`](packaging/macos/LOCAL-TEST-GUIDE.txt)，边界见 [ADR 0097](docs/adr/0097-macos-desktop-portable-build.md)。
+
 更多命令与边界见[使用手册](docs/usage.md)。
 
 ## 项目结构
@@ -118,7 +129,7 @@ go run ./cmd/cyberagent tui
 | 路径 | 说明 |
 |---|---|
 | `cmd/cyberagent` | CLI/TUI/API 入口 |
-| `cmd/cyberagent-desktop` | Windows Desktop 壳 |
+| `cmd/cyberagent-desktop` | Windows/macOS Desktop 壳 |
 | `internal/` | Go 领域、应用、Policy、Store、Tool、Sandbox 与 HTTP 控制平面 |
 | `web/` | React/Vite 操作界面；不拥有权限、密钥或执行器 |
 | `analyzers/` | Rust 确定性 Analyzer 与共享向量 |

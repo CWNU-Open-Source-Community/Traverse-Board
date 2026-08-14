@@ -292,6 +292,18 @@ export function desktopBridgeAvailable(): boolean {
   return getBridge() !== null;
 }
 
+// desktopIsMacPlatform reports whether the Desktop shell runs inside the
+// macOS WebKit renderer. The shell keeps native traffic lights, so the
+// renderer reserves their left titlebar space instead of drawing overlapping
+// navigation or duplicating the window controls.
+export function desktopIsMacPlatform(): boolean {
+  if (!desktopBridgeAvailable()) {
+    return false;
+  }
+  const platform = typeof navigator === "undefined" ? "" : (navigator.platform ?? "");
+  return typeof platform === "string" && platform.toLowerCase().includes("mac");
+}
+
 export function desktopRuntimeActive(): boolean {
   return activeBootstrap !== null;
 }

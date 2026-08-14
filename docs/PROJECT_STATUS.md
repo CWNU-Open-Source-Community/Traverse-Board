@@ -6,7 +6,24 @@ Last updated: 2026-08-14
 
 ## Resume Context
 
-The current single-slice checkpoint is non-authorizing durable Docker
+The current single-slice checkpoint is the macOS Desktop portable build at
+unchanged schema v97. cmd/cyberagent-desktop is now split by build tag:
+shared shell code under "desktop", Windows-only WebView2/Acrylic/registry
+launcher code under "windows && desktop && wv2runtime.error", and a new
+"darwin && desktop" port. macOS uses bundled WKWebView (no runtime
+prerequisite probe), reports startup failures through a bounded, strictly
+escaped best-effort osascript dialog, and launches workspace launchers only
+through the fixed /usr/bin/open with a validated .app set. Windows-only
+seams (Credential Manager, ConPTY terminal, Safe Web/WFP, controlled host
+execution) fail closed on macOS. scripts/build-desktop-darwin.sh emits an
+ad-hoc-signed, un-notarized build/desktop/Prayu.app with reproducible
+metadata and a compat check script; CI gains a desktop-macos job; the
+renderer reserves the native traffic-light titlebar space; and the cgo
+compile/link deployment target is pinned to the Go 11.0 minimum.
+Desktop-tagged Go tests pass on macOS and release_ready stays false until
+signing, notarization, and the manual macOS matrix. See ADR 0097.
+
+The previous single-slice checkpoint was non-authorizing durable Docker
 lifecycle ownership and recovery at schema v97. A separate lifecycle aggregate
 commits an immutable launch intent and generation-one lease before create,
 records every daemon mutation as an append-only prepared action, appends

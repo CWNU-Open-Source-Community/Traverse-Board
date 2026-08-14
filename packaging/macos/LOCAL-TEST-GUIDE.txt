@@ -1,0 +1,144 @@
+Prayu macOS 本地试用说明
+==========================
+
+推荐入口
+--------
+双击 Start-Prayu-Operator-Preview.command，或运行：
+
+    open build/desktop/Prayu.app
+
+这个入口只启用本地产品试用所需的安全操作者能力，不启用完全访问、Debug
+最大权限、完整 CDP、后台唤醒 Worker 或 Agent 持久终端。直接双击
+Prayu.app 会按设计进入更保守的默认模式。启动器与指南位于 build/desktop/
+目录，仅用于本地产品测试，不是正式发行包。
+
+从源码构建
+----------
+构建前请把 Node.js 切换到与 CI 一致的 24 基线（例如 nvm use 24），再运行：
+
+    ./scripts/build-desktop-darwin.sh
+
+Node 版本不符时脚本会在前端检查前明确报错；如果 web/dist 已经构建好，
+也可以用 -SkipFrontend 跳过前端步骤。构建还需要 Xcode 命令行工具
+（codesign）和 Go 1.25。
+
+首次接入真实模型
+----------------
+1. 打开左侧"模型切换"，或进入"设置与账户 > 模型与配置"。
+2. macOS 系统凭证库尚未接入（没有明文回退）。请改用环境变量：在启动前为
+   mimo、deepseek 或 anthropic 设置对应变量（例如 DEEPSEEK_API_KEY、
+   DEEPSEEK_BASE_URL、MIMO_API_KEY、MIMO_BASE_URL、
+   CYBERAGENT_ANTHROPIC_API_KEY），然后重新启动 Prayu。环境变量始终优先，
+   不会写入 SQLite、日志或事件流。终端内可这样启动：
+
+       DEEPSEEK_API_KEY=sk-... ./build/desktop/Prayu.app/Contents/MacOS/cyberagent-desktop --operator-preview
+
+3. 依次点击 Provider 的"连接诊断"和"Harness 验证"。Harness 验证会发起最多
+   两次真实、受限的模型请求，但不会执行 Shell、文件、浏览器或工具动作。
+4. 在"模型路由"中为 code（或所需路由）选择已验证的 Provider/模型并保存。
+
+真实对话
+--------
+1. 点击"新建任务"，选择工作区并创建 Run。
+2. 在底部输入区输入消息并发送。
+3. Prayu 会创建或复用该 Run 的 Session，持久化用户消息，执行一个有界
+   Supervisor step，并把真实 Provider 回复写回会话。刷新或重启后可继续读取。
+
+打开工作区
+----------
+"打开工作区"只使用固定 /usr/bin/open 启动已确认的外部应用（Finder、
+Terminal、Antigravity、PyCharm、WebStorm、Visual Studio Code），只传递已
+登记的目录，不执行任意命令。
+
+语言
+----
+默认语言为中文。进入"设置与账户 > 个人 > 常规 > 语言"可一键切换中文和
+English；选择保存在本机界面存储中。
+
+当前限制
+--------
+- 系统凭证库、ConPTY 用户终端、受限浏览器与完整 CDP 仍是 Windows 专属，
+  相关开关在 macOS 上保持关闭或失败关闭。
+- 本机产物只有 ad-hoc 签名，未公证，release_ready=false；从其他机器拷贝
+  打开时可能需要在 Finder 中右键选择"打开"。
+- 数据目录：~/.cyberagent-workbench。不要把 API key、cyberagent.db 或凭证
+  截图提交到 Issue。若启动失败，请保留本地数据并记录稳定错误代码。
+
+Prayu macOS Local Test Guide
+============================
+
+Recommended entry point
+-----------------------
+Double-click Start-Prayu-Operator-Preview.command, or run:
+
+    open build/desktop/Prayu.app
+
+This launcher enables only the safe operator capabilities needed for local
+product testing. It does not enable danger-full-access, maximum Debug access,
+Full CDP, the background wake worker, or an Agent-controlled persistent
+terminal. Double-clicking Prayu.app itself intentionally starts in the more
+conservative default mode. The launcher and this guide live under build/desktop/
+and exist only for local product testing; they are not a distribution package.
+
+Building from source
+--------------------
+Switch Node.js to the CI-pinned 24 baseline first (for example nvm use 24),
+then run:
+
+    ./scripts/build-desktop-darwin.sh
+
+A mismatched Node version fails fast before the frontend checks; use
+-SkipFrontend when web/dist is already built. Building also requires the
+Xcode command line tools (codesign) and Go 1.25.
+
+Connect a real model
+--------------------
+1. Open Model selection, or Settings and account > Models and providers.
+2. The macOS system credential store is not wired yet and there is no
+   plaintext fallback. Use environment variables instead: set the matching
+   variable for mimo, deepseek, or anthropic before launching (for example
+   DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, MIMO_API_KEY, MIMO_BASE_URL,
+   CYBERAGENT_ANTHROPIC_API_KEY), then restart Prayu. Environment variables
+   always take priority and never reach SQLite, logs, or events. From a
+   terminal you can start it with:
+
+       DEEPSEEK_API_KEY=sk-... ./build/desktop/Prayu.app/Contents/MacOS/cyberagent-desktop --operator-preview
+
+3. Run Provider diagnostics, then Harness qualification. Qualification
+   performs at most two bounded real model calls and executes no shell, file,
+   browser, or tool action.
+4. Select the qualified Provider/model for the code route (or another required
+   route).
+
+Real chat
+---------
+1. Choose New task, select a workspace, and create a Run.
+2. Send a message from the composer.
+3. Prayu creates or reuses the Run Session, persists the user message, runs one
+   bounded Supervisor step, and stores the real Provider response. Refresh and
+   restart recovery use the same durable conversation.
+
+Open Workspace
+--------------
+Open Workspace launches only operator-confirmed external applications through
+the fixed /usr/bin/open (Finder, Terminal, Antigravity, PyCharm, WebStorm,
+Visual Studio Code) and passes only the registered directory; it never runs a
+command.
+
+Language
+--------
+Chinese is the default. Use Settings and account > Personal > General >
+Language to switch between Chinese and English. The choice is stored locally
+for the interface.
+
+Current limits
+--------------
+- The system credential store, the ConPTY user terminal, the restricted
+  browser, and Full CDP remain Windows-only; their switches stay off or fail
+  closed on macOS.
+- The local artifact is only ad-hoc signed and not notarized;
+  release_ready=false. When opened after being copied from another machine,
+  you may need to right-click and choose Open in Finder.
+- Data directory: ~/.cyberagent-workbench. Never attach API keys,
+  cyberagent.db, or credential screenshots to an issue. For startup failures,
+  preserve local data and record the stable error code.

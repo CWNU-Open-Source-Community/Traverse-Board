@@ -1,0 +1,498 @@
+//go:build desktop
+
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"cyberagent-workbench/internal/app"
+	"cyberagent-workbench/internal/apperror"
+	"cyberagent-workbench/internal/desktop"
+	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/httpapi"
+	"cyberagent-workbench/internal/webui"
+	webassets "cyberagent-workbench/web"
+
+	"github.com/wailsapp/wails/v2"
+	wailsassetserver "github.com/wailsapp/wails/v2/pkg/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options"
+	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
+)
+
+const desktopSingleInstanceID = "e3305a58-3d1e-4e2f-b4ca-d1032a737b96"
+
+type desktopOptions struct {
+	operatorPreview        bool
+	profileControl         bool
+	permissionControl      bool
+	dangerFullAccess       bool
+	debugMaximumAccess     bool
+	browserCDPControl      bool
+	fullCDPDebug           bool
+	runCreation            bool
+	sessionMessages        bool
+	sessionSteeringControl bool
+	runLifecycle           bool
+	runExecution           bool
+	planDeliveryControl    bool
+	approvalControl        bool
+	commandProposalControl bool
+	hostCommandProposals   bool
+	modelControl           bool
+	providerCredentials    bool
+	fileEditReview         bool
+	fileEditProposals      bool
+	runWakeControl         bool
+	fileEditApply          bool
+	runWakeExecution       bool
+	runWakeWorker          bool
+	skillInstallation      bool
+	evidenceAttachment     bool
+	verificationEvidence   bool
+	embeddedAnalyzer       bool
+	userTerminal           bool
+	version                bool
+}
+
+type nativeSkillPackagePicker struct{}
+
+type nativeWorkspaceDirectoryPicker struct{}
+
+type wailsWindowRestorer struct{}
+
+func (wailsWindowRestorer) Unminimise(ctx context.Context) { runtime.WindowUnminimise(ctx) }
+func (wailsWindowRestorer) Show(ctx context.Context)       { runtime.WindowShow(ctx) }
+
+func secondInstanceHandler(lifecycle *desktop.Lifecycle) func(options.SecondInstanceData) {
+	return func(_ options.SecondInstanceData) {
+		lifecycle.RequestRestore()
+	}
+}
+
+func (nativeSkillPackagePicker) OpenSkillPackage(ctx context.Context) (string, error) {
+	if ctx == nil {
+		return "", errors.New("desktop lifecycle is unavailable")
+	}
+	return runtime.OpenFileDialog(ctx, runtime.OpenDialogOptions{
+		Title: "Select Prayu Skill package",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Prayu Skill package (*.zip)", Pattern: "*.zip"},
+		},
+		ShowHiddenFiles:      false,
+		CanCreateDirectories: false,
+		ResolvesAliases:      false,
+	})
+}
+
+func (nativeWorkspaceDirectoryPicker) OpenWorkspaceDirectory(ctx context.Context) (string, error) {
+	if ctx == nil {
+		return "", errors.New("desktop lifecycle is unavailable")
+	}
+	return runtime.OpenDirectoryDialog(ctx, runtime.OpenDialogOptions{
+		Title:                "Select Prayu workspace folder",
+		ShowHiddenFiles:      true,
+		CanCreateDirectories: false,
+		ResolvesAliases:      true,
+	})
+}
+
+type inProcessAPIHandler struct {
+	next http.Handler
+}
+
+func (h inProcessAPIHandler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	if h.next == nil || request == nil || request.URL == nil {
+		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	if !trustedDesktopRendererOrigin(request) {
+		http.Error(writer, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		return
+	}
+	trusted := request.Clone(request.Context())
+	trusted.Host = "127.0.0.1"
+	trusted.RemoteAddr = "127.0.0.1:0"
+	trusted.URL.Scheme = ""
+	trusted.URL.Host = ""
+	if trusted.URL != nil && trusted.URL.Path == "" {
+		trusted.URL.Path = "/"
+	}
+	trusted.RequestURI = trusted.URL.RequestURI()
+	if trusted.RequestURI == "" {
+		trusted.RequestURI = "/"
+	}
+	if (trusted.Method == http.MethodGet || trusted.Method == http.MethodHead) &&
+		trusted.ContentLength == -1 && len(trusted.TransferEncoding) == 0 && trusted.Body == http.NoBody &&
+		trusted.Header.Get("Content-Length") == "" {
+		trusted.ContentLength = 0
+	}
+	h.next.ServeHTTP(writer, trusted)
+}
+
+func trustedDesktopRendererOrigin(request *http.Request) bool {
+	if request == nil || request.URL == nil || request.URL.User != nil || request.URL.Fragment != "" ||
+		request.URL.RawFragment != "" || request.URL.Opaque != "" {
+		return false
+	}
+	// The Wails AssetServer enforces the platform webview host itself before
+	// the request reaches this handler; trustedDesktopRendererHost pins the
+	// exact per-platform authority (wails.localhost on Windows, wails on
+	// macOS where the custom wails:// scheme owns the renderer).
+	if !strings.EqualFold(request.Host, trustedDesktopRendererHost()) ||
+		!containsUserAgentToken(request.UserAgent(), wailsassetserver.WailsUserAgentValue) {
+		return false
+	}
+	if request.URL.Scheme == "" || request.URL.Host == "" {
+		// Wails converts the intercepted WebView request into server form before
+		// invoking the custom AssetServer handler, leaving authority in Request.Host.
+		return request.URL.Scheme == "" && request.URL.Host == ""
+	}
+	return strings.EqualFold(request.URL.Scheme, "http") &&
+		strings.EqualFold(request.URL.Hostname(), "wails.localhost") && request.URL.Port() == ""
+}
+
+func containsUserAgentToken(value, expected string) bool {
+	for _, token := range strings.Fields(value) {
+		if strings.EqualFold(token, expected) {
+			return true
+		}
+	}
+	return false
+}
+
+type desktopBindingError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+func main() {
+	config, err := parseDesktopOptions(os.Args[1:])
+	if err != nil {
+		reportDesktopStartupFailure(err)
+		os.Exit(2)
+	}
+	if config.version {
+		fmt.Fprintf(os.Stdout, "%s desktop %s\n", app.Name, app.Version)
+		return
+	}
+	if err := runDesktop(config); err != nil {
+		reportDesktopStartupFailure(err)
+		os.Exit(1)
+	}
+}
+
+func parseDesktopOptions(args []string) (desktopOptions, error) {
+	fs := flag.NewFlagSet("cyberagent-desktop", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	operatorPreview := fs.Bool("operator-preview", false,
+		"enable the safe operator Desktop capability bundle for local product testing")
+	profileControl := fs.Bool("enable-profile-control", false,
+		"enable only the non-authorizing Run execution-profile control")
+	permissionControl := fs.Bool("enable-permission-control", false,
+		"enable operator selection of execution permission modes")
+	dangerFullAccess := fs.Bool("enable-danger-full-access", false,
+		"enable unsandboxed one-shot host execution permission selection")
+	debugMaximumAccess := fs.Bool("enable-debug-maximum-access", false,
+		"enable persistent maximum-access debug permission selection")
+	browserCDPControl := fs.Bool("enable-browser-cdp-control", false,
+		"enable browser CDP permission selection")
+	fullCDPDebug := fs.Bool("enable-full-cdp-debug", false,
+		"enable highly sensitive complete CDP debugging selection")
+	runCreation := fs.Bool("enable-run-creation", false,
+		"enable idempotent workspace-bound Run creation")
+	sessionMessages := fs.Bool("enable-session-messages", false,
+		"enable idempotent Run-bound Session message submission")
+	sessionSteeringControl := fs.Bool("enable-session-steering-control", false,
+		"enable pending-only Run-bound Session steering cancellation")
+	runLifecycle := fs.Bool("enable-run-lifecycle", false,
+		"enable idempotent Run start, pause, and resume control")
+	runExecution := fs.Bool("enable-run-execution", false,
+		"enable bounded queued Run execution through the Go Supervisor")
+	planDeliveryControl := fs.Bool("enable-plan-delivery", false,
+		"enable operator Plan direction selection and explicit Deliver transition")
+	approvalControl := fs.Bool("enable-approvals", false,
+		"enable bounded approve-once and deny decisions for durable approvals")
+	commandProposalControl := fs.Bool("enable-command-proposals", false,
+		"enable review and one-shot execution of Agent-proposed fixed Go commands")
+	hostCommandProposals := fs.Bool("enable-host-command-proposals", false,
+		"enable exact non-shell host command proposals with independent operator review")
+	modelControl := fs.Bool("enable-model-control", false,
+		"enable persisted model route selection and explicit connectivity diagnostics")
+	providerCredentials := fs.Bool("enable-provider-credentials", false,
+		"enable OS-owned Provider credential changes")
+	fileEditReview := fs.Bool("enable-file-edit-review", false,
+		"enable review-only file edit approval or denial without applying files")
+	fileEditProposals := fs.Bool("enable-file-edit-proposals", false,
+		"enable Go-issued interactive FileEdit proposal sources")
+	runWakeControl := fs.Bool("enable-run-wake", false,
+		"enable durable bounded Run wake intent scheduling and cancellation")
+	fileEditApply := fs.Bool("enable-file-edit-apply", false,
+		"enable independently authorized approved FileEdit application")
+	runWakeExecution := fs.Bool("enable-run-wake-execution", false,
+		"enable explicitly launched foreground wake execution")
+	runWakeWorker := fs.Bool("enable-wake-worker", false,
+		"enable the bounded single-owner Run wake worker")
+	skillInstallation := fs.Bool("enable-skill-installation", false,
+		"enable confirmed inert Skill package installation")
+	evidenceAttachment := fs.Bool("enable-evidence-attachments", false,
+		"enable idempotent non-authorizing Workspace evidence attachment")
+	verificationEvidence := fs.Bool("enable-verification-evidence", false,
+		"enable immutable operator verification evidence recording")
+	embeddedAnalyzer := fs.Bool("enable-embedded-analyzer", false,
+		"enable the fixed bounded embedded Rust/WASI analyzer")
+	userTerminal := fs.Bool("enable-user-terminal", false,
+		"enable the user-owned Debug ConPTY terminal")
+	version := fs.Bool("version", false, "print version and exit")
+	if err := fs.Parse(args); err != nil {
+		return desktopOptions{}, err
+	}
+	if fs.NArg() != 0 {
+		return desktopOptions{}, errors.New("cyberagent-desktop accepts no positional arguments")
+	}
+	if *operatorPreview {
+		*profileControl = true
+		*permissionControl = true
+		*browserCDPControl = true
+		*runCreation = true
+		*sessionMessages = true
+		*sessionSteeringControl = true
+		*runLifecycle = true
+		*runExecution = true
+		*planDeliveryControl = true
+		*approvalControl = true
+		*commandProposalControl = true
+		*hostCommandProposals = true
+		*modelControl = true
+		*providerCredentials = true
+		*fileEditReview = true
+		*fileEditProposals = true
+		*runWakeControl = true
+		*fileEditApply = true
+		*runWakeExecution = true
+		*skillInstallation = true
+		*evidenceAttachment = true
+		*verificationEvidence = true
+		*embeddedAnalyzer = true
+	}
+	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled:   *permissionControl,
+		DangerFullAccessEnabled:   *dangerFullAccess,
+		DebugMaximumAccessEnabled: *debugMaximumAccess,
+	}
+	if err := capabilities.Validate(); err != nil {
+		return desktopOptions{}, err
+	}
+	if *debugMaximumAccess && !*userTerminal {
+		return desktopOptions{}, errors.New(
+			"debug maximum access requires --enable-user-terminal")
+	}
+	if *hostCommandProposals && !*permissionControl {
+		return desktopOptions{}, errors.New(
+			"host command proposals require --enable-permission-control")
+	}
+	if *fullCDPDebug && (!*browserCDPControl || !*debugMaximumAccess) {
+		return desktopOptions{}, errors.New(
+			"full CDP debug requires --enable-browser-cdp-control and --enable-debug-maximum-access")
+	}
+	return desktopOptions{operatorPreview: *operatorPreview,
+		profileControl: *profileControl, runCreation: *runCreation,
+		permissionControl: *permissionControl, dangerFullAccess: *dangerFullAccess,
+		debugMaximumAccess:     *debugMaximumAccess,
+		browserCDPControl:      *browserCDPControl,
+		fullCDPDebug:           *fullCDPDebug,
+		sessionMessages:        *sessionMessages,
+		sessionSteeringControl: *sessionSteeringControl,
+		runLifecycle:           *runLifecycle,
+		runExecution:           *runExecution,
+		planDeliveryControl:    *planDeliveryControl,
+		approvalControl:        *approvalControl,
+		commandProposalControl: *commandProposalControl,
+		hostCommandProposals:   *hostCommandProposals,
+		modelControl:           *modelControl,
+		providerCredentials:    *providerCredentials,
+		fileEditReview:         *fileEditReview,
+		fileEditProposals:      *fileEditProposals,
+		runWakeControl:         *runWakeControl,
+		fileEditApply:          *fileEditApply,
+		runWakeExecution:       *runWakeExecution,
+		runWakeWorker:          *runWakeWorker,
+		skillInstallation:      *skillInstallation,
+		evidenceAttachment:     *evidenceAttachment,
+		verificationEvidence:   *verificationEvidence,
+		embeddedAnalyzer:       *embeddedAnalyzer,
+		userTerminal:           *userTerminal,
+		version:                *version}, nil
+}
+
+func runDesktop(config desktopOptions) error {
+	if err := checkDesktopPrerequisites(); err != nil {
+		return err
+	}
+	bundle, err := webui.LoadEmbeddedFS(webassets.Files, "dist")
+	if err != nil {
+		return apperror.Wrap(apperror.CodeFailedPrecondition,
+			"embedded Desktop UI validation failed", err)
+	}
+	readToken, err := httpapi.GenerateAccessToken()
+	if err != nil {
+		return err
+	}
+	controlToken := ""
+	if config.profileControl || config.permissionControl || config.browserCDPControl ||
+		config.runCreation ||
+		config.sessionMessages ||
+		config.sessionSteeringControl || config.runLifecycle || config.runExecution ||
+		config.planDeliveryControl || config.approvalControl || config.modelControl ||
+		config.commandProposalControl || config.hostCommandProposals ||
+		config.providerCredentials || config.fileEditReview || config.fileEditProposals ||
+		config.runWakeControl || config.fileEditApply || config.runWakeExecution ||
+		config.runWakeWorker || config.skillInstallation || config.evidenceAttachment ||
+		config.verificationEvidence || config.embeddedAnalyzer || config.userTerminal {
+		controlToken, err = httpapi.GenerateAccessToken()
+		if err != nil {
+			return err
+		}
+	}
+
+	homePath := app.DefaultHome()
+	databasePath := filepath.Join(homePath, "cyberagent.db")
+	controlPlane, err := desktop.OpenControlPlane(desktop.ControlPlaneConfig{
+		DatabasePath: databasePath, HomePath: homePath, ReadToken: readToken,
+		ControlToken:      controlToken,
+		RunControlEnabled: config.profileControl, RunCreationEnabled: config.runCreation,
+		ExecutionPermissionControlEnabled: config.permissionControl,
+		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
+			OperatorApprovalEnabled:   config.permissionControl,
+			DangerFullAccessEnabled:   config.dangerFullAccess,
+			DebugMaximumAccessEnabled: config.debugMaximumAccess,
+		},
+		BrowserCDPPermissionControlEnabled: config.browserCDPControl,
+		BrowserCDPPermissionCapabilities: domain.BrowserCDPPermissionRuntimeCapabilities{
+			ControlEnabled:   config.browserCDPControl,
+			FullDebugEnabled: config.fullCDPDebug,
+		},
+		SessionMessageEnabled:                   config.sessionMessages,
+		SessionSteeringControlEnabled:           config.sessionSteeringControl,
+		RunLifecycleEnabled:                     config.runLifecycle,
+		RunExecutionEnabled:                     config.runExecution,
+		PlanDeliveryControlEnabled:              config.planDeliveryControl,
+		ApprovalControlEnabled:                  config.approvalControl,
+		ControlledCommandProposalControlEnabled: config.commandProposalControl,
+		HostCommandProposalControlEnabled:       config.hostCommandProposals,
+		ModelControlEnabled:                     config.modelControl,
+		ProviderCredentialEnabled:               config.providerCredentials,
+		FileEditReviewEnabled:                   config.fileEditReview,
+		FileEditProposalEnabled:                 config.fileEditProposals,
+		RunWakeControlEnabled:                   config.runWakeControl,
+		FileEditApplyEnabled:                    config.fileEditApply,
+		RunWakeExecutionEnabled:                 config.runWakeExecution,
+		RunWakeWorkerEnabled:                    config.runWakeWorker,
+		SkillInstallationEnabled:                config.skillInstallation,
+		EvidenceAttachmentEnabled:               config.evidenceAttachment,
+		VerificationEvidenceEnabled:             config.verificationEvidence,
+		EmbeddedAnalyzerExecutionEnabled:        config.embeddedAnalyzer,
+		UserTerminalEnabled:                     config.userTerminal,
+		AppVersion:                              app.Version, UIHandler: bundle,
+		OnWakeWorkerError: func(runErr error) {
+			fmt.Fprintln(os.Stderr, "wake-worker:", runErr)
+		},
+	})
+	if err != nil {
+		return apperror.Wrap(apperror.CodeFailedPrecondition,
+			"desktop data store validation failed", err)
+	}
+	defer controlPlane.Close()
+	if err := controlPlane.StartWakeWorker(context.Background()); err != nil {
+		return apperror.Wrap(apperror.CodeFailedPrecondition,
+			"desktop wake worker could not start", err)
+	}
+	if err := controlPlane.StartTerminalBoundaryMonitor(context.Background()); err != nil {
+		return apperror.Wrap(apperror.CodeFailedPrecondition,
+			"desktop terminal boundary monitor could not start", err)
+	}
+
+	lifecycle := desktop.NewLifecycle(wailsWindowRestorer{})
+	selector, preview := desktop.NewSkillPackagePreviewBoundary()
+	bridge, err := desktop.NewDesktopBridge(desktop.DesktopBridgeConfig{
+		ContextProvider: lifecycle.Context, FilePicker: nativeSkillPackagePicker{},
+		ReadToken: readToken, ControlToken: controlToken, APIVersion: httpapi.Version,
+		RunControlEnabled: config.profileControl, RunCreationEnabled: config.runCreation,
+		ExecutionPermissionControlEnabled:       config.permissionControl,
+		BrowserCDPPermissionControlEnabled:      config.browserCDPControl,
+		FullCDPDebugEnabled:                     config.fullCDPDebug,
+		OperatorApprovalEnabled:                 config.permissionControl,
+		DangerFullAccessEnabled:                 config.dangerFullAccess,
+		DebugMaximumAccessEnabled:               config.debugMaximumAccess,
+		SessionMessageEnabled:                   config.sessionMessages,
+		SessionSteeringControlEnabled:           config.sessionSteeringControl,
+		RunLifecycleEnabled:                     config.runLifecycle,
+		RunExecutionEnabled:                     config.runExecution,
+		PlanDeliveryControlEnabled:              config.planDeliveryControl,
+		ApprovalControlEnabled:                  config.approvalControl,
+		ControlledCommandProposalControlEnabled: config.commandProposalControl,
+		HostCommandProposalControlEnabled:       config.hostCommandProposals,
+		ModelControlEnabled:                     config.modelControl,
+		ProviderCredentialEnabled:               config.providerCredentials,
+		FileEditReviewEnabled:                   config.fileEditReview,
+		FileEditProposalEnabled:                 config.fileEditProposals,
+		RunWakeControlEnabled:                   config.runWakeControl,
+		FileEditApplyEnabled:                    config.fileEditApply,
+		RunWakeExecutionEnabled:                 config.runWakeExecution,
+		RunWakeWorkerEnabled:                    config.runWakeWorker,
+		SkillInstallationEnabled:                config.skillInstallation,
+		EvidenceAttachmentEnabled:               config.evidenceAttachment,
+		VerificationEvidenceEnabled:             config.verificationEvidence,
+		EmbeddedAnalyzerExecutionEnabled:        config.embeddedAnalyzer,
+		UserTerminalEnabled:                     config.userTerminal,
+		AppVersion:                              app.Version, UIDigest: bundle.Digest(), Selector: selector,
+		PreviewBridge: preview, SkillInstaller: controlPlane.SkillInstaller(),
+		WorkspaceResolver: controlPlane, WorkspaceLauncher: newNativeWorkspaceLauncher(),
+		WorkspaceDirectoryPicker: nativeWorkspaceDirectoryPicker{},
+		WorkspaceRegistrar:       controlPlane,
+		UserTerminalController:   controlPlane.UserTerminalController(),
+	})
+	if err != nil {
+		return err
+	}
+
+	appOptions := &options.App{
+		Title: app.Name, Width: 1440, Height: 900, MinWidth: 1024, MinHeight: 680,
+		Frameless:        true,
+		WindowStartState: options.Normal,
+		BackgroundColour: options.NewRGBA(0, 0, 0, 0),
+		AssetServer: &assetserver.Options{
+			Handler: inProcessAPIHandler{next: controlPlane.Handler()},
+		},
+		OnStartup: lifecycle.Start,
+		OnShutdown: func(context.Context) {
+			lifecycle.Stop()
+		},
+		Bind:                     []interface{}{bridge},
+		EnableDefaultContextMenu: false,
+		// Keep OS anti-phishing cloud submission disabled for a local-first app.
+		EnableFraudulentWebsiteDetection: false,
+		BindingsAllowedOrigins:           "",
+		DragAndDrop: &options.DragAndDrop{
+			EnableFileDrop: false, DisableWebViewDrop: true,
+		},
+		SingleInstanceLock: &options.SingleInstanceLock{
+			UniqueId:               desktopSingleInstanceID,
+			OnSecondInstanceLaunch: secondInstanceHandler(lifecycle),
+		},
+		Debug: options.Debug{OpenInspectorOnStartup: false},
+		ErrorFormatter: func(err error) any {
+			normalized := apperror.Normalize(err)
+			return desktopBindingError{Code: string(apperror.CodeOf(normalized)), Message: normalized.Error()}
+		},
+	}
+	applyDesktopPlatformOptions(appOptions)
+	return wails.Run(appOptions)
+}
