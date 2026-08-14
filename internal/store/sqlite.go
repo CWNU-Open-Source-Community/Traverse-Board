@@ -324,6 +324,7 @@ func migrationPlan() []migration {
 		{Version: 95, Name: "atomic embedded analyzer execution artifacts", Statements: analyzerExecutionCommitStatements},
 		{Version: 96, Name: "review-gated exact host command proposals", Statements: hostCommandProposalStatements},
 		{Version: 97, Name: "durable Docker lifecycle ownership and recovery", Statements: sandboxDockerLifecycleStatements},
+		{Version: 98, Name: "bounded Docker container I/O contract and atomic output commit", Statements: sandboxDockerContainerIOStatements},
 	}
 }
 

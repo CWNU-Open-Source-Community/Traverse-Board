@@ -219,7 +219,7 @@ func removeSchemaV96ForTestStatements() []string {
 }
 
 func removeSchemaV97ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV98ForTestStatements(), []string{
 		`DROP TRIGGER trg_sandbox_docker_lifecycle_cleanup_receipt_delete_immutable`,
 		`DROP TRIGGER trg_sandbox_docker_lifecycle_cleanup_receipt_update_immutable`,
 		`DROP TRIGGER trg_sandbox_docker_lifecycle_transition_delete_immutable`,
@@ -245,7 +245,7 @@ func removeSchemaV97ForTestStatements() []string {
 		`DROP INDEX idx_sandbox_docker_lifecycle_intents_run_created`,
 		`DROP TABLE sandbox_docker_lifecycle_intents`,
 		`DELETE FROM schema_migrations WHERE version = 97`,
-	}
+	}...)
 }
 
 func analyzerExecutionRequestFixture(t *testing.T, requestID string) ([]byte, analyzer.InvocationCandidate) {
