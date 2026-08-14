@@ -23,3 +23,23 @@ providers:
   mock:
     type: mock
     secrets: none
+
+# Documentation-only example. This repository file is not loaded as runtime
+# Provider configuration and must never contain credentials or private headers.
+# Configure the trusted process environment instead:
+#   CYBERAGENT_OPENAI_API_KEY=<secret>
+#   CYBERAGENT_OPENAI_BASE_URL=https://api.openai.com
+#   CYBERAGENT_OPENAI_MODEL=gpt-4.1-mini
+# The API key may alternatively be stored under the `openai` entry in the
+# Go-owned operating-system credential store.
+openai_compatible_example:
+  provider_name: openai
+  type: openai_compatible
+  transport: openai_chat_completions
+  default_base_url: https://api.openai.com
+  default_model: gpt-4.1-mini
+  timeout_seconds: 60
+  request_headers: [Authorization, Content-Type, Accept]
+  compatibility_profile: strict_chat_completions
+  runtime_loaded: false
+  secrets: environment_or_system_store_only

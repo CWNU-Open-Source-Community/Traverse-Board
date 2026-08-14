@@ -11,19 +11,25 @@ import (
 
 func TestNormalizeProviderErrorClassifiesFailures(t *testing.T) {
 	tests := []struct {
-		name string
-		err  error
-		want Outcome
+		name       string
+		err        error
+		want       Outcome
+		wantReason ProviderFailureReason
 	}{
-		{name: "cancelled", err: context.Canceled, want: OutcomeCancelled},
-		{name: "deadline", err: context.DeadlineExceeded, want: OutcomeCancelled},
-		{name: "network", err: &url.Error{Op: "Post", URL: "https://provider.invalid", Err: errors.New("connection reset")}, want: OutcomeRetryable},
-		{name: "permanent", err: errors.New("invalid provider configuration"), want: OutcomePermanent},
+		{name: "cancelled", err: context.Canceled, want: OutcomeCancelled,
+			wantReason: ProviderFailureNone},
+		{name: "deadline", err: context.DeadlineExceeded, want: OutcomeCancelled,
+			wantReason: ProviderFailureNetwork},
+		{name: "network", err: &url.Error{Op: "Post", URL: "https://provider.invalid", Err: errors.New("connection reset")}, want: OutcomeRetryable,
+			wantReason: ProviderFailureNetwork},
+		{name: "permanent", err: errors.New("invalid provider configuration"), want: OutcomePermanent,
+			wantReason: ProviderFailureNone},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			got := NormalizeProviderError("test", test.err)
-			if got.Kind != test.want || got.Provider != "test" || !errors.Is(got, test.err) {
+			if got.Kind != test.want || got.Reason != test.wantReason ||
+				got.Provider != "test" || !errors.Is(got, test.err) {
 				t.Fatalf("unexpected normalized error: %#v", got)
 			}
 		})
@@ -36,11 +42,65 @@ func TestProviderErrorPreservesTypedMetadataAndRedactsMessage(t *testing.T) {
 	original.StatusCode = 429
 	original.RetryAfter = 3 * time.Second
 	normalized := NormalizeProviderError("mimo", original)
-	if normalized.Kind != OutcomeRateLimited || normalized.Provider != "mimo" || normalized.StatusCode != 429 || normalized.RetryAfter != 3*time.Second {
+	if normalized.Kind != OutcomeRateLimited || normalized.Reason != ProviderFailureRateLimit ||
+		normalized.Provider != "mimo" || normalized.StatusCode != 429 ||
+		normalized.RetryAfter != 3*time.Second {
 		t.Fatalf("typed metadata changed: %#v", normalized)
 	}
 	if strings.Contains(normalized.Error(), token[:12]) || !strings.Contains(normalized.Error(), "[REDACTED:") {
 		t.Fatalf("provider error was not redacted: %q", normalized.Error())
+	}
+}
+
+func TestProviderErrorDoesNotProjectCauseText(t *testing.T) {
+	marker := "remote-body-marker-that-must-remain-private"
+	providerErr := NewProviderError(OutcomeRetryable, "test", "", errors.New(marker))
+	if strings.Contains(providerErr.Error(), marker) || !errors.Is(providerErr, providerErr.Cause) {
+		t.Fatalf("Provider error projected private cause text: %q", providerErr.Error())
+	}
+	normalized := NormalizeProviderError("test", &url.Error{
+		Op: "Post", URL: "https://provider.invalid", Err: errors.New(marker),
+	})
+	if strings.Contains(normalized.Error(), marker) || normalized.Reason != ProviderFailureNetwork {
+		t.Fatalf("normalized Provider error projected private cause text: %#v", normalized)
+	}
+}
+
+func TestProviderFailureReasonValidationAndNormalization(t *testing.T) {
+	for _, reason := range []ProviderFailureReason{
+		ProviderFailureNone, ProviderFailureNotConfigured,
+		ProviderFailureAuthentication, ProviderFailureNetwork,
+		ProviderFailureRateLimit, ProviderFailureCapacity,
+		ProviderFailureModelNotFound, ProviderFailureProtocolIncompatible,
+	} {
+		if !reason.Valid() {
+			t.Fatalf("valid Provider failure reason rejected: %q", reason)
+		}
+	}
+	if ProviderFailureReason("unknown").Valid() {
+		t.Fatal("unknown Provider failure reason was accepted")
+	}
+	tests := []struct {
+		name   string
+		error  *ProviderError
+		reason ProviderFailureReason
+	}{
+		{name: "authentication", error: &ProviderError{Kind: OutcomePermanent, StatusCode: 401}, reason: ProviderFailureAuthentication},
+		{name: "ambiguous not found", error: &ProviderError{Kind: OutcomePermanent, StatusCode: 404}, reason: ProviderFailureProtocolIncompatible},
+		{name: "explicit model not found", error: &ProviderError{Kind: OutcomePermanent,
+			StatusCode: 404, Reason: ProviderFailureModelNotFound}, reason: ProviderFailureModelNotFound},
+		{name: "capacity", error: &ProviderError{Kind: OutcomeRetryable, StatusCode: 503}, reason: ProviderFailureCapacity},
+		{name: "network", error: &ProviderError{Kind: OutcomeRetryable}, reason: ProviderFailureNetwork},
+		{name: "protocol", error: &ProviderError{Kind: OutcomeInvalidResponse}, reason: ProviderFailureProtocolIncompatible},
+		{name: "explicit", error: &ProviderError{Kind: OutcomeRetryable, StatusCode: 503, Reason: ProviderFailureNetwork}, reason: ProviderFailureNetwork},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			normalized := NormalizeProviderError("test", test.error)
+			if normalized.Reason != test.reason || ProviderErrorReason(normalized) != test.reason {
+				t.Fatalf("reason=%q want %q", normalized.Reason, test.reason)
+			}
+		})
 	}
 }
 
@@ -50,6 +110,13 @@ func TestNormalizeProviderErrorDowngradesInvalidTypedKind(t *testing.T) {
 		if normalized.Kind != OutcomePermanent {
 			t.Fatalf("kind %q normalized to %q", kind, normalized.Kind)
 		}
+	}
+}
+
+func TestNewProviderErrorLeavesPermanentReasonUnclassified(t *testing.T) {
+	providerErr := NewProviderError(OutcomePermanent, "test", "local validation failed", nil)
+	if providerErr.Reason != ProviderFailureNone {
+		t.Fatalf("generic permanent error was overclassified: %#v", providerErr)
 	}
 }
 

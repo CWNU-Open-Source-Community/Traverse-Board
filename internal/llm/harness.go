@@ -12,9 +12,10 @@ import (
 const ModelHarnessProtocolVersion = "model_harness.v1"
 
 const (
-	HarnessTransportMock              = "mock"
-	HarnessTransportAnthropicMessages = "anthropic_messages"
-	HarnessTransportProviderContract  = "provider_contract"
+	HarnessTransportMock                  = "mock"
+	HarnessTransportAnthropicMessages     = "anthropic_messages"
+	HarnessTransportOpenAIChatCompletions = "openai_chat_completions"
+	HarnessTransportProviderContract      = "provider_contract"
 )
 
 const (
@@ -83,6 +84,7 @@ func (h ModelHarness) Validate() error {
 	}
 	switch h.TransportProtocol {
 	case HarnessTransportMock, HarnessTransportAnthropicMessages,
+		HarnessTransportOpenAIChatCompletions,
 		HarnessTransportProviderContract:
 	default:
 		return errors.New("model Harness transport protocol is invalid")

@@ -497,7 +497,8 @@ function parseModelAvailability(value: unknown): ModelAvailabilityView {
   for (const provider of value.providers) {
     if (!hasExactKeys(provider, ["configuration_error", "credential_source", "kind", "models",
       "harnesses", "name", "network_required", "status"]) || !boundedText(provider.name, 128) ||
-      (provider.kind !== "local" && provider.kind !== "anthropic_compatible") ||
+      !["local", "anthropic_compatible", "openai_compatible"].includes(
+        String(provider.kind)) ||
       (provider.status !== "available" && provider.status !== "not_configured" &&
         provider.status !== "invalid_configuration") ||
       (provider.credential_source !== "none" && provider.credential_source !== "environment" &&
@@ -547,7 +548,7 @@ function parseModelHarnessAvailability(value: unknown): ModelHarnessAvailability
     "strict_json_qualified", "structured_json_eligible", "tool_calls_qualified",
     "tool_results_qualified", "tool_strategy", "transport_protocol"]) ||
     value.protocol_version !== "model_harness.v1" || !boundedText(value.model, 256) ||
-    !["mock", "anthropic_messages", "provider_contract"].includes(
+    !["mock", "anthropic_messages", "openai_chat_completions", "provider_contract"].includes(
       String(value.transport_protocol)) ||
     !["native", "none"].includes(String(value.tool_strategy)) ||
     !["native", "prompt", "none"].includes(String(value.json_strategy)) ||
@@ -921,19 +922,22 @@ function parseModelRouteControl(value: unknown, route: string,
 
 function parseModelHarnessQualification(value: unknown,
   request: ModelHarnessQualificationRequestView): ModelHarnessQualificationView {
-  if (!hasExactKeys(value, ["duration_ms", "harness", "model", "model_calls",
+  if (!hasExactKeys(value, ["duration_ms", "failure_reason", "harness", "model", "model_calls",
     "network_request_attempted", "outcome", "protocol_version", "provider",
     "response_content_returned", "retryable", "status", "synthetic_tool_calls",
     "tool_executed"]) ||
     value.protocol_version !== "model_harness_qualification.v1" ||
     value.provider !== request.provider || value.model !== request.model ||
     !["qualified", "incompatible", "unreachable"].includes(String(value.status)) ||
-    !boundedText(value.outcome, 64) || typeof value.retryable !== "boolean" ||
+    !providerFailureReasonValid(value.failure_reason) ||
+    !providerOutcomeValid(value.outcome) || typeof value.retryable !== "boolean" ||
     typeof value.network_request_attempted !== "boolean" ||
     !safeBoundedCount(value.model_calls, 2) ||
     !safeBoundedCount(value.synthetic_tool_calls, 16) ||
     value.tool_executed !== false || value.response_content_returned !== false ||
-    !safeBoundedCount(value.duration_ms, 60_000)) {
+    !safeBoundedCount(value.duration_ms, 60_000) ||
+    !qualificationResultSemanticsValid(value.status, value.outcome, value.failure_reason,
+      value.retryable, value.network_request_attempted, value.model_calls)) {
     throw new APIRequestError("Model Harness qualification response is invalid",
       "INVALID_RESPONSE", 502);
   }
@@ -947,19 +951,70 @@ function parseModelHarnessQualification(value: unknown,
 }
 
 function parseProviderDiagnostic(value: unknown, request: ProviderDiagnosticRequestView): ProviderDiagnosticView {
-  if (!hasExactKeys(value, ["duration_ms", "model", "model_called",
+  if (!hasExactKeys(value, ["duration_ms", "failure_reason", "model", "model_called",
     "network_request_attempted", "outcome", "protocol_version", "provider",
     "response_content_returned", "retryable", "status", "tool_called"]) ||
     value.protocol_version !== "provider_diagnostic.v1" || value.provider !== request.provider ||
     value.model !== request.model || (value.status !== "reachable" && value.status !== "unreachable") ||
-    !boundedText(value.outcome, 64) || typeof value.retryable !== "boolean" ||
-    typeof value.network_request_attempted !== "boolean" || value.model_called !== true ||
+    !providerFailureReasonValid(value.failure_reason) ||
+    !providerOutcomeValid(value.outcome) || typeof value.retryable !== "boolean" ||
+    typeof value.network_request_attempted !== "boolean" || typeof value.model_called !== "boolean" ||
     value.tool_called !== false || value.response_content_returned !== false ||
-    !safeBoundedCount(value.duration_ms, 60_000)) {
+    !safeBoundedCount(value.duration_ms, 60_000) ||
+    !diagnosticResultSemanticsValid(value.status, value.outcome, value.failure_reason,
+      value.retryable, value.network_request_attempted, value.model_called ? 1 : 0)) {
     throw new APIRequestError("Provider diagnostic response violated its content-free contract",
       "INVALID_RESPONSE", 502);
   }
   return value as unknown as ProviderDiagnosticView;
+}
+
+function providerFailureReasonValid(value: unknown): boolean {
+  return typeof value === "string" &&
+    ["none", "not_configured", "authentication", "network", "rate_limit", "capacity",
+      "model_not_found", "protocol_incompatible"].includes(value);
+}
+
+function providerOutcomeValid(value: unknown): boolean {
+  return typeof value === "string" &&
+    ["success", "retryable", "rate_limited", "invalid_response", "cancelled",
+      "permanent"].includes(value);
+}
+
+function qualificationResultSemanticsValid(status: unknown, outcome: unknown, reason: unknown,
+  retryable: unknown, networkAttempted: unknown, modelCalls: unknown): boolean {
+  if (status === "qualified") {
+    return outcome === "success" && reason === "none" && retryable === false &&
+      (modelCalls === 0 || modelCalls === 2);
+  }
+  if (reason === "not_configured") {
+    return status === "unreachable" && outcome === "permanent" && retryable === false &&
+      networkAttempted === false && modelCalls === 0;
+  }
+  if (status === "incompatible") {
+    return outcome === "invalid_response" && reason === "protocol_incompatible" &&
+      retryable === false;
+  }
+  if (status !== "unreachable" || reason === "none" || outcome === "success" ||
+    outcome === "invalid_response") {
+    return false;
+  }
+  return retryable === (outcome === "retryable" || outcome === "rate_limited");
+}
+
+function diagnosticResultSemanticsValid(status: unknown, outcome: unknown, reason: unknown,
+  retryable: unknown, networkAttempted: unknown, modelCalls: unknown): boolean {
+  if (status === "reachable") {
+    return outcome === "success" && reason === "none" && retryable === false && modelCalls === 1;
+  }
+  if (reason === "not_configured") {
+    return outcome === "permanent" && retryable === false && networkAttempted === false &&
+      modelCalls === 0;
+  }
+  if (reason === "none" || outcome === "success" || modelCalls !== 1) {
+    return false;
+  }
+  return retryable === (outcome === "retryable" || outcome === "rate_limited");
 }
 
 function parseProviderCredentialStatus(value: unknown,
@@ -968,7 +1023,7 @@ function parseProviderCredentialStatus(value: unknown,
     "provider", "registry_generation", "registry_reloaded", "restart_required",
     "store_available", "store_kind"]) ||
     value.protocol_version !== "provider_credential.v1" ||
-    !["anthropic", "deepseek", "mimo"].includes(String(value.provider)) ||
+    !["anthropic", "deepseek", "mimo", "openai"].includes(String(value.provider)) ||
     (expectedProvider !== "" && value.provider !== expectedProvider) ||
     typeof value.configured !== "boolean" || typeof value.store_available !== "boolean" ||
     !boundedText(value.store_kind, 128) || value.plaintext_returned !== false ||
@@ -984,7 +1039,7 @@ function parseProviderCredentialStatus(value: unknown,
 function parseProviderCredentialList(value: unknown): ProviderCredentialListView {
   if (!hasExactKeys(value, ["items", "protocol_version"]) ||
     value.protocol_version !== "provider_credential.v1" || !Array.isArray(value.items) ||
-    value.items.length !== 3) {
+    value.items.length !== 4) {
     throw new APIRequestError("Provider credential list is invalid", "INVALID_RESPONSE", 502);
   }
   const items = value.items.map((item) => parseProviderCredentialStatus(item));
@@ -3734,7 +3789,8 @@ export class CyberAgentClient {
 
   async changeProviderCredential(provider: string, body: ProviderCredentialRequestView,
     signal?: AbortSignal): Promise<ProviderCredentialStatusView> {
-    if (!this.hasProviderCredentials || !["anthropic", "deepseek", "mimo"].includes(provider) ||
+    if (!this.hasProviderCredentials ||
+      !["anthropic", "deepseek", "mimo", "openai"].includes(provider) ||
       body.version !== "provider_credential.v1" || body.confirm !== true ||
       (body.action === "set" ? typeof body.secret !== "string" || body.secret.length < 8 :
         body.action !== "delete" || body.secret !== "")) {

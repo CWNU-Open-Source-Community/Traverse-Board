@@ -3103,7 +3103,7 @@ export interface components {
             /** @enum {string} */
             tool_strategy: "native" | "none";
             /** @enum {string} */
-            transport_protocol: "mock" | "anthropic_messages" | "provider_contract";
+            transport_protocol: "mock" | "anthropic_messages" | "openai_chat_completions" | "provider_contract";
         };
         ModelHarnessQualificationRequestView: {
             confirm_qualification: boolean;
@@ -3115,6 +3115,8 @@ export interface components {
         ModelHarnessQualificationView: {
             /** Format: int64 */
             duration_ms: number;
+            /** @enum {string} */
+            failure_reason: "none" | "not_configured" | "authentication" | "network" | "rate_limit" | "capacity" | "model_not_found" | "protocol_incompatible";
             harness: components["schemas"]["ModelHarnessAvailabilityView"];
             model: string;
             /** Format: int32 */
@@ -3383,7 +3385,7 @@ export interface components {
             credential_source: "none" | "environment" | "system";
             harnesses: components["schemas"]["ModelHarnessAvailabilityView"][];
             /** @enum {string} */
-            kind: "local" | "anthropic_compatible";
+            kind: "local" | "anthropic_compatible" | "openai_compatible";
             models: string[];
             name: string;
             network_required: boolean;
@@ -3408,7 +3410,8 @@ export interface components {
             plaintext_returned: boolean;
             /** @enum {string} */
             protocol_version: "provider_credential.v1";
-            provider: string;
+            /** @enum {string} */
+            provider: "anthropic" | "deepseek" | "mimo" | "openai";
             /** Format: int64 */
             registry_generation: number;
             registry_reloaded: boolean;
@@ -3426,6 +3429,8 @@ export interface components {
         ProviderDiagnosticView: {
             /** Format: int64 */
             duration_ms: number;
+            /** @enum {string} */
+            failure_reason: "none" | "not_configured" | "authentication" | "network" | "rate_limit" | "capacity" | "model_not_found" | "protocol_incompatible";
             model: string;
             model_called: boolean;
             network_request_attempted: boolean;
@@ -5415,7 +5420,7 @@ export interface operations {
             header?: never;
             path: {
                 /** @description Provider name */
-                provider: string;
+                provider: "anthropic" | "deepseek" | "mimo" | "openai";
             };
             cookie?: never;
         };

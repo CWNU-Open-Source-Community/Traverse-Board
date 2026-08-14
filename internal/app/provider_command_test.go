@@ -50,6 +50,7 @@ func TestDeepSeekProviderRegistersFromEnvironmentAndUsesDefaults(t *testing.T) {
 	if code != 0 || stderr != "" || !strings.Contains(output, "provider: deepseek") ||
 		!strings.Contains(output, "model: deepseek-v4-flash") ||
 		!strings.Contains(output, "status: reachable") ||
+		!strings.Contains(output, "failure_reason: none") ||
 		!strings.Contains(output, "response_content_returned: false") {
 		t.Fatalf("unexpected DeepSeek test output=%q stderr=%q code=%d", output, stderr, code)
 	}
@@ -66,15 +67,14 @@ func TestDeepSeekProviderRegistersFromEnvironmentAndUsesDefaults(t *testing.T) {
 	}
 }
 
-func TestDeepSeekProviderRequiresEnvironmentKey(t *testing.T) {
+func TestProviderListProjectsUnconfiguredProvidersWithoutRegisteringThem(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "")
 	listed, stderr, code := executeTestCommand(t, "provider", "list")
 	if code != 0 || stderr != "" {
 		t.Fatalf("provider list failed: output=%q stderr=%q code=%d", listed, stderr, code)
 	}
-	for _, name := range strings.Fields(listed) {
-		if name == "deepseek" {
-			t.Fatal("DeepSeek provider was registered without an API key")
-		}
+	if !strings.Contains(listed, "deepseek\tanthropic_compatible\tnot_configured") ||
+		!strings.Contains(listed, "openai\topenai_compatible\tnot_configured") {
+		t.Fatalf("unconfigured Provider status was not projected: %q", listed)
 	}
 }

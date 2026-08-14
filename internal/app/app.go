@@ -676,8 +676,12 @@ func (a *App) providerCommand(ctx context.Context, args []string) error {
 	}
 	switch args[0] {
 	case "list":
-		for _, name := range a.router.ProviderNames() {
-			fmt.Fprintln(a.out, name)
+		if a.models == nil {
+			return errors.New("model registry is unavailable")
+		}
+		for _, provider := range a.models.Snapshot().Providers {
+			fmt.Fprintf(a.out, "%s\t%s\t%s\n", provider.Name, provider.Kind,
+				provider.Status)
 		}
 		return nil
 	case "test":
@@ -700,9 +704,10 @@ func (a *App) providerCommand(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(a.out, "protocol: %s\nprovider: %s\nmodel: %s\nstatus: %s\noutcome: %s\nretryable: %t\nnetwork_request_attempted: %t\nmodel_called: %t\ntool_called: %t\nresponse_content_returned: %t\nduration_ms: %d\n",
+		fmt.Fprintf(a.out, "protocol: %s\nprovider: %s\nmodel: %s\nstatus: %s\noutcome: %s\nfailure_reason: %s\nretryable: %t\nnetwork_request_attempted: %t\nmodel_called: %t\ntool_called: %t\nresponse_content_returned: %t\nduration_ms: %d\n",
 			result.ProtocolVersion, result.Provider, result.Model, result.Status,
-			result.Outcome, result.Retryable, result.NetworkRequestAttempted,
+			result.Outcome, result.FailureReason, result.Retryable,
+			result.NetworkRequestAttempted,
 			result.ModelCalled, result.ToolCalled, result.ResponseContentReturned,
 			result.DurationMillis)
 		return nil
@@ -725,9 +730,10 @@ func (a *App) providerCommand(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(a.out, "protocol: %s\nprovider: %s\nmodel: %s\nstatus: %s\noutcome: %s\nretryable: %t\nnetwork_request_attempted: %t\nmodel_calls: %d\nsynthetic_tool_calls: %d\ntool_executed: %t\nresponse_content_returned: %t\ntransport_protocol: %s\ntool_strategy: %s\njson_strategy: %s\nqualification_status: %s\nroot_eligible: %t\nduration_ms: %d\n",
+		fmt.Fprintf(a.out, "protocol: %s\nprovider: %s\nmodel: %s\nstatus: %s\noutcome: %s\nfailure_reason: %s\nretryable: %t\nnetwork_request_attempted: %t\nmodel_calls: %d\nsynthetic_tool_calls: %d\ntool_executed: %t\nresponse_content_returned: %t\ntransport_protocol: %s\ntool_strategy: %s\njson_strategy: %s\nqualification_status: %s\nroot_eligible: %t\nduration_ms: %d\n",
 			result.ProtocolVersion, result.Provider, result.Model, result.Status,
-			result.Outcome, result.Retryable, result.NetworkRequestAttempted,
+			result.Outcome, result.FailureReason, result.Retryable,
+			result.NetworkRequestAttempted,
 			result.ModelCalls, result.SyntheticToolCalls, result.ToolExecuted,
 			result.ResponseContentReturned, result.Harness.TransportProtocol,
 			result.Harness.ToolStrategy, result.Harness.JSONStrategy,

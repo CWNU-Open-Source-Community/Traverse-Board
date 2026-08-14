@@ -83,6 +83,7 @@ func TestModelDiffAndWakeHTTPControlsRemainCapabilitySeparated(t *testing.T) {
 		ProviderDiagnosticPath, testControlToken, "", "application/json",
 		strings.NewReader(`{"version":"provider_diagnostic.v1","provider":"mock","model":"mock-code","confirm_diagnostic":true}`))
 	if diagnostic.Code != http.StatusAccepted ||
+		!strings.Contains(diagnostic.Body.String(), `"failure_reason":"none"`) ||
 		!strings.Contains(diagnostic.Body.String(), `"response_content_returned":false`) ||
 		strings.Contains(diagnostic.Body.String(), `"response"`) ||
 		strings.Contains(diagnostic.Body.String(), `"text"`) {
@@ -93,6 +94,7 @@ func TestModelDiffAndWakeHTTPControlsRemainCapabilitySeparated(t *testing.T) {
 		strings.NewReader(`{"version":"model_harness_qualification.v1","provider":"mock","model":"mock-code","confirm_qualification":true}`))
 	if qualification.Code != http.StatusAccepted ||
 		!strings.Contains(qualification.Body.String(), `"status":"qualified"`) ||
+		!strings.Contains(qualification.Body.String(), `"failure_reason":"none"`) ||
 		!strings.Contains(qualification.Body.String(), `"model_calls":0`) ||
 		!strings.Contains(qualification.Body.String(), `"tool_executed":false`) ||
 		!strings.Contains(qualification.Body.String(), `"response_content_returned":false`) ||

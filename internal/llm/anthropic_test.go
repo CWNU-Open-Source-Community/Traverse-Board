@@ -374,11 +374,18 @@ func TestAnthropicCompatibleProviderClassifiesHTTPFailures(t *testing.T) {
 		statusCode int
 		retryAfter string
 		want       Outcome
+		wantReason ProviderFailureReason
 	}{
-		{name: "rate limit", statusCode: http.StatusTooManyRequests, retryAfter: "7", want: OutcomeRateLimited},
-		{name: "unavailable", statusCode: http.StatusServiceUnavailable, want: OutcomeRetryable},
-		{name: "overloaded", statusCode: 529, want: OutcomeRetryable},
-		{name: "auth", statusCode: http.StatusUnauthorized, want: OutcomePermanent},
+		{name: "rate limit", statusCode: http.StatusTooManyRequests, retryAfter: "7",
+			want: OutcomeRateLimited, wantReason: ProviderFailureRateLimit},
+		{name: "unavailable", statusCode: http.StatusServiceUnavailable,
+			want: OutcomeRetryable, wantReason: ProviderFailureCapacity},
+		{name: "overloaded", statusCode: 529,
+			want: OutcomeRetryable, wantReason: ProviderFailureCapacity},
+		{name: "auth", statusCode: http.StatusUnauthorized,
+			want: OutcomePermanent, wantReason: ProviderFailureAuthentication},
+		{name: "ambiguous not found", statusCode: http.StatusNotFound,
+			want: OutcomePermanent, wantReason: ProviderFailureProtocolIncompatible},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -398,13 +405,31 @@ func TestAnthropicCompatibleProviderClassifiesHTTPFailures(t *testing.T) {
 			}
 			_, err = provider.Chat(context.Background(), ChatRequest{Messages: []Message{{Role: "user", Content: "hello"}}})
 			var providerErr *ProviderError
-			if !errors.As(err, &providerErr) || providerErr.Kind != test.want || providerErr.StatusCode != test.statusCode {
+			if !errors.As(err, &providerErr) || providerErr.Kind != test.want ||
+				providerErr.Reason != test.wantReason || providerErr.StatusCode != test.statusCode {
 				t.Fatalf("unexpected provider error: %#v err=%v", providerErr, err)
 			}
 			if test.retryAfter != "" && providerErr.RetryAfter != 7*time.Second {
 				t.Fatalf("retry after = %s, want 7s", providerErr.RetryAfter)
 			}
 		})
+	}
+}
+
+func TestProviderHTTPClientBoundsTimeoutAndDisablesRedirects(t *testing.T) {
+	source := &http.Client{Timeout: 2 * time.Minute}
+	client := providerHTTPClient(source)
+	if client == source || client.Timeout != defaultProviderTimeout || source.Timeout != 2*time.Minute {
+		t.Fatalf("HTTP client timeout was not safely copied and bounded: source=%s client=%s",
+			source.Timeout, client.Timeout)
+	}
+	request := httptest.NewRequest(http.MethodGet, "https://provider.invalid/next", nil)
+	if err := client.CheckRedirect(request, nil); !errors.Is(err, http.ErrUseLastResponse) {
+		t.Fatalf("redirect policy error = %v", err)
+	}
+	short := providerHTTPClient(&http.Client{Timeout: 5 * time.Second})
+	if short.Timeout != 5*time.Second {
+		t.Fatalf("short caller timeout was widened: %s", short.Timeout)
 	}
 }
 
@@ -428,10 +453,13 @@ func TestAnthropicCompatibleProviderRejectsMalformedAndEmptyResponses(t *testing
 	}
 }
 
-func TestAnthropicHTTPErrorRedactsResponseBody(t *testing.T) {
+func TestAnthropicHTTPErrorDoesNotProjectResponseBody(t *testing.T) {
 	token := "t" + "p-" + strings.Repeat("b", 40)
-	err := anthropicHTTPError("mimo", http.StatusTooManyRequests, "", []byte("MIMO_API_KEY="+token))
-	if strings.Contains(err.Error(), token[:12]) || !strings.Contains(err.Error(), "[REDACTED:") {
+	marker := "remote-marker-that-is-not-secret-shaped"
+	err := anthropicHTTPError("mimo", http.StatusTooManyRequests, "",
+		[]byte("MIMO_API_KEY="+token+" prompt="+marker))
+	if strings.Contains(err.Error(), token[:12]) || strings.Contains(err.Error(), marker) ||
+		err.Reason != ProviderFailureRateLimit {
 		t.Fatalf("HTTP error leaked response secret: %q", err.Error())
 	}
 }

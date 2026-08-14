@@ -474,7 +474,8 @@ func readStrictControlBody(request *http.Request, label string) ([]byte, error) 
 func providerDiagnosticView(result modelregistry.DiagnosticResult) ProviderDiagnosticView {
 	return ProviderDiagnosticView{ProtocolVersion: result.ProtocolVersion,
 		Provider: result.Provider, Model: result.Model, Status: result.Status,
-		Outcome: result.Outcome, Retryable: result.Retryable,
+		Outcome: result.Outcome, FailureReason: string(result.FailureReason),
+		Retryable:               result.Retryable,
 		NetworkRequestAttempted: result.NetworkRequestAttempted,
 		ModelCalled:             result.ModelCalled, ToolCalled: result.ToolCalled,
 		ResponseContentReturned: result.ResponseContentReturned,
@@ -504,6 +505,7 @@ func modelHarnessQualificationView(
 	return ModelHarnessQualificationView{
 		ProtocolVersion: result.ProtocolVersion, Provider: result.Provider,
 		Model: result.Model, Status: result.Status, Outcome: result.Outcome,
+		FailureReason:           string(result.FailureReason),
 		Retryable:               result.Retryable,
 		NetworkRequestAttempted: result.NetworkRequestAttempted,
 		ModelCalls:              result.ModelCalls, SyntheticToolCalls: result.SyntheticToolCalls,
