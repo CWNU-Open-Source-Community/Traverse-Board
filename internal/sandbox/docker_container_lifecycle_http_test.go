@@ -3,8 +3,10 @@ package sandbox
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -157,6 +159,41 @@ func newDockerLifecycleTestTransport(t *testing.T, mode string,
 	return daemon, transport, request
 }
 
+func newOwnedDockerLifecycleTestTransport(t *testing.T, mode string,
+	fence DockerContainerLifecycleFence,
+) (*dockerLifecycleTestDaemon, dockerEngineContainerLifecycleTransport,
+	DockerContainerLifecycleRequest) {
+	t.Helper()
+	writeRequest := newDockerContainerWriteTestRequest(t)
+	endpoint, _ := NewDockerObservationEndpoint(DockerObservationEndpointLocalUnix)
+	daemon := &dockerLifecycleTestDaemon{mode: mode}
+	transport, err := newDockerEngineContainerLifecycleTransport(daemon, endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownership, err := NewDockerContainerLifecycleOwnership(
+		"docker-lifecycle-owned-test-attempt", 1,
+		fingerprint("docker-lifecycle-owned-test-intent"),
+		writeRequest.Spec.LabelPlanFingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage, err := transport.StageOwned(context.Background(), writeRequest, ownership, fence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := NewOwnedDockerContainerLifecycleRequest(ownership.AttemptID, 1,
+		writeRequest, stage, ownership, DockerContainerLifecycleConfirmation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return daemon, transport, request
+}
+
+func allowDockerLifecycleFence(context.Context, DockerContainerLifecycleActionKind) error {
+	return nil
+}
+
 func TestDockerContainerLifecycleNaturalExitRemovesExactContainer(t *testing.T) {
 	daemon, transport, request := newDockerLifecycleTestTransport(t, dockerLifecycleExitNatural)
 	result, err := transport.Run(context.Background(), request)
@@ -268,6 +305,446 @@ func TestDockerContainerLifecycleStartFailureRemovesUnstartedContainer(t *testin
 	}
 }
 
+func TestDockerContainerLifecycleStageOwnedRequiresCreateFence(t *testing.T) {
+	writeRequest := newDockerContainerWriteTestRequest(t)
+	endpoint := mustDockerLifecycleEndpoint(t)
+	daemon := &dockerLifecycleTestDaemon{}
+	transport, err := newDockerEngineContainerLifecycleTransport(daemon, endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownership, err := NewDockerContainerLifecycleOwnership("stale-create-attempt", 1,
+		fingerprint("stale-create-intent"), writeRequest.Spec.LabelPlanFingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := errors.New("stale lifecycle lease")
+	fence := func(_ context.Context, action DockerContainerLifecycleActionKind) error {
+		if action != DockerContainerLifecycleActionCreate {
+			t.Fatalf("unexpected action before create: %q", action)
+		}
+		return stale
+	}
+	_, err = transport.StageOwned(context.Background(), writeRequest, ownership, fence)
+	if !errors.Is(err, stale) || daemon.base.creates != 0 || daemon.base.containerID != "" {
+		t.Fatalf("stale create fence allowed mutation: creates=%d id=%q err=%v",
+			daemon.base.creates, daemon.base.containerID, err)
+	}
+}
+
+func TestDockerContainerLifecycleStageOwnedAdoptsUncertainCreateWithoutRefencing(t *testing.T) {
+	writeRequest := newDockerContainerWriteTestRequest(t)
+	endpoint := mustDockerLifecycleEndpoint(t)
+	daemon := &dockerLifecycleTestDaemon{}
+	transport, err := newDockerEngineContainerLifecycleTransport(daemon, endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownership, err := NewDockerContainerLifecycleOwnership("uncertain-create-attempt", 1,
+		fingerprint("uncertain-create-intent"), writeRequest.Spec.LabelPlanFingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actions := []DockerContainerLifecycleActionKind{}
+	fence := func(_ context.Context, action DockerContainerLifecycleActionKind) error {
+		actions = append(actions, action)
+		return nil
+	}
+	first, err := transport.StageOwned(context.Background(), writeRequest, ownership, fence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := transport.StageOwned(context.Background(), writeRequest, ownership,
+		func(context.Context, DockerContainerLifecycleActionKind) error {
+			t.Fatal("exact post-create recovery attempted another create fence")
+			return nil
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(actions) != 1 || actions[0] != DockerContainerLifecycleActionCreate ||
+		daemon.base.creates != 1 || first.ContainerIDFingerprint != second.ContainerIDFingerprint ||
+		!second.ExistingContainerAdopted || second.ContainerCreatedNow {
+		t.Fatalf("uncertain create did not converge exactly: actions=%v creates=%d first=%#v second=%#v",
+			actions, daemon.base.creates, first, second)
+	}
+}
+
+func TestDockerContainerLifecycleOwnedRecoveryDoesNotRestartRunningOrExited(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		state    string
+		running  bool
+		pid      int
+		exitCode int
+		expected string
+	}{
+		{name: "running", state: "running", running: true, pid: 42,
+			expected: DockerContainerLifecycleStateRunning},
+		{name: "exited", state: "exited", exitCode: 19,
+			expected: DockerContainerLifecycleStateExited},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			daemon, transport, request := newOwnedDockerLifecycleTestTransport(t,
+				dockerLifecycleExitNatural, allowDockerLifecycleFence)
+			daemon.mu.Lock()
+			daemon.state, daemon.running, daemon.pid, daemon.exitCode =
+				test.state, test.running, test.pid, test.exitCode
+			daemon.mu.Unlock()
+			observation, err := transport.Observe(context.Background(), request)
+			if err != nil || observation.Validate() != nil || observation.State != test.expected {
+				t.Fatalf("recovery observation is invalid: %#v err=%v", observation, err)
+			}
+			beforeStarts := daemon.starts
+			_, started, err := transport.Start(context.Background(), request,
+				func(context.Context, DockerContainerLifecycleActionKind) error {
+					t.Fatal("idempotent recovery attempted to fence a duplicate start")
+					return nil
+				})
+			if err != nil || started || daemon.starts != beforeStarts {
+				t.Fatalf("recovery restarted %s container: started=%v starts=%d err=%v",
+					test.name, started, daemon.starts, err)
+			}
+		})
+	}
+}
+
+func TestDockerContainerLifecycleRecoveredRequestRequiresDurableResourceIdentity(t *testing.T) {
+	_, _, staged := newOwnedDockerLifecycleTestTransport(t,
+		dockerLifecycleExitNatural, allowDockerLifecycleFence)
+	if _, err := NewRecoveredDockerContainerLifecycleRequest(staged.AttemptID,
+		staged.LeaseGeneration, staged.WriteRequest, "", staged.Ownership,
+		DockerContainerLifecycleConfirmation); err == nil {
+		t.Fatal("recovery request accepted an unbound container identity")
+	}
+	recovered, err := NewRecoveredDockerContainerLifecycleRequest(staged.AttemptID,
+		staged.LeaseGeneration, staged.WriteRequest, staged.ResourceIDFingerprint,
+		staged.Ownership, DockerContainerLifecycleConfirmation)
+	if err != nil || recovered.ResourceIDFingerprint != staged.ResourceIDFingerprint ||
+		recovered.Stage.ProtocolVersion != "" || recovered.Validate() != nil {
+		t.Fatalf("durably-bound recovery request is invalid: %#v err=%v", recovered, err)
+	}
+}
+
+func TestDockerContainerLifecycleOwnedAbsentAndExitedOperationsAreIdempotent(t *testing.T) {
+	t.Run("absent observe and cleanup", func(t *testing.T) {
+		daemon, transport, request := newOwnedDockerLifecycleTestTransport(t,
+			dockerLifecycleExitNatural, allowDockerLifecycleFence)
+		daemon.base.mu.Lock()
+		daemon.base.containerID = ""
+		daemon.base.mu.Unlock()
+		observation, err := transport.Observe(context.Background(), request)
+		if err != nil || observation.Validate() != nil ||
+			observation.State != DockerContainerLifecycleStateAbsent {
+			t.Fatalf("absent container was not safely observed: %#v err=%v", observation, err)
+		}
+		result, err := transport.Cleanup(context.Background(), request,
+			func(context.Context, DockerContainerLifecycleActionKind) error {
+				t.Fatal("idempotent absent cleanup attempted a DELETE")
+				return nil
+			})
+		if err != nil || !result.AlreadyAbsent || !result.AbsenceConfirmed ||
+			result.ContainerRemoved || result.DaemonWriteCount != 0 {
+			t.Fatalf("absent cleanup is not idempotent: %#v err=%v", result, err)
+		}
+	})
+	t.Run("exited terminate", func(t *testing.T) {
+		daemon, transport, request := newOwnedDockerLifecycleTestTransport(t,
+			dockerLifecycleExitNatural, allowDockerLifecycleFence)
+		daemon.mu.Lock()
+		daemon.state, daemon.exitCode = "exited", 23
+		daemon.mu.Unlock()
+		result, err := transport.Terminate(context.Background(), request,
+			func(context.Context, DockerContainerLifecycleActionKind) error {
+				t.Fatal("idempotent exited termination attempted a signal or wait")
+				return nil
+			})
+		if err != nil || !result.AlreadyStopped || result.ExitCode != 23 ||
+			result.GracefulSignalSent || result.ForcedSignalSent ||
+			daemon.terms != 0 || daemon.kills != 0 || daemon.waits != 0 {
+			t.Fatalf("exited termination is not idempotent: %#v daemon=%#v err=%v",
+				result, daemon, err)
+		}
+	})
+}
+
+func TestDockerContainerLifecycleOwnedObserveRejectsLegacyLabels(t *testing.T) {
+	daemon, transport, legacy := newDockerLifecycleTestTransport(t, dockerLifecycleExitNatural)
+	ownership, err := NewDockerContainerLifecycleOwnership(legacy.AttemptID, 1,
+		fingerprint("owned-intent"), legacy.WriteRequest.Spec.LabelPlanFingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := NewOwnedDockerContainerLifecycleRequest(legacy.AttemptID, 1,
+		legacy.WriteRequest, legacy.Stage, ownership, DockerContainerLifecycleConfirmation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = transport.Observe(context.Background(), request)
+	if DockerContainerLifecycleErrorCode(err) != DockerContainerLifecycleFailureUnsafeExisting ||
+		daemon.starts != 0 || daemon.base.deletes != 0 {
+		t.Fatalf("owned recovery accepted legacy six-label container: daemon=%#v err=%v",
+			daemon, err)
+	}
+}
+
+func TestDockerContainerLifecycleOwnedObserveRejectsPartialAndExtraLabelsWithoutMutation(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(map[string]string)
+	}{
+		{name: "missing attempt", mutate: func(labels map[string]string) {
+			delete(labels, DockerContainerLifecycleLabelAttempt)
+		}},
+		{name: "missing generation", mutate: func(labels map[string]string) {
+			delete(labels, DockerContainerLifecycleLabelResourceGeneration)
+		}},
+		{name: "missing intent", mutate: func(labels map[string]string) {
+			delete(labels, DockerContainerLifecycleLabelIntent)
+		}},
+		{name: "extra label", mutate: func(labels map[string]string) {
+			labels["io.cyberagent.lifecycle.extra"] = "unexpected"
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			daemon, transport, request := newOwnedDockerLifecycleTestTransport(t,
+				dockerLifecycleExitNatural, allowDockerLifecycleFence)
+			daemon.base.mu.Lock()
+			test.mutate(daemon.base.payload.Labels)
+			daemon.base.mu.Unlock()
+			_, err := transport.Observe(context.Background(), request)
+			if DockerContainerLifecycleErrorCode(err) != DockerContainerLifecycleFailureUnsafeExisting ||
+				daemon.starts != 0 || daemon.terms != 0 || daemon.kills != 0 ||
+				daemon.base.deletes != 0 || daemon.base.containerID == "" {
+				t.Fatalf("changed ownership labels reached mutation: daemon=%#v err=%v", daemon, err)
+			}
+		})
+	}
+}
+
+func dockerContainerLifecycleFailClosedOperations() []struct {
+	name    string
+	prepare func(*dockerLifecycleTestDaemon)
+	run     func(dockerEngineContainerLifecycleTransport, DockerContainerLifecycleRequest) error
+} {
+	return []struct {
+		name    string
+		prepare func(*dockerLifecycleTestDaemon)
+		run     func(dockerEngineContainerLifecycleTransport, DockerContainerLifecycleRequest) error
+	}{
+		{name: "start", run: func(transport dockerEngineContainerLifecycleTransport,
+			request DockerContainerLifecycleRequest,
+		) error {
+			_, _, err := transport.Start(context.Background(), request,
+				allowDockerLifecycleFence)
+			return err
+		}},
+		{name: "terminate", prepare: func(daemon *dockerLifecycleTestDaemon) {
+			daemon.mu.Lock()
+			defer daemon.mu.Unlock()
+			daemon.state, daemon.running, daemon.pid = "running", true, 42
+		}, run: func(transport dockerEngineContainerLifecycleTransport,
+			request DockerContainerLifecycleRequest,
+		) error {
+			transport.graceOverride = time.Millisecond
+			_, err := transport.Terminate(context.Background(), request,
+				allowDockerLifecycleFence)
+			return err
+		}},
+		{name: "cleanup", prepare: func(daemon *dockerLifecycleTestDaemon) {
+			daemon.mu.Lock()
+			defer daemon.mu.Unlock()
+			daemon.state, daemon.running, daemon.pid, daemon.exitCode = "exited", false, 0, 0
+		}, run: func(transport dockerEngineContainerLifecycleTransport,
+			request DockerContainerLifecycleRequest,
+		) error {
+			_, err := transport.Cleanup(context.Background(), request,
+				allowDockerLifecycleFence)
+			return err
+		}},
+	}
+}
+
+func assertDockerContainerLifecycleDidNotMutate(t *testing.T,
+	daemon *dockerLifecycleTestDaemon,
+) {
+	t.Helper()
+	daemon.mu.Lock()
+	starts, terms, kills := daemon.starts, daemon.terms, daemon.kills
+	daemon.mu.Unlock()
+	daemon.base.mu.Lock()
+	deletes, containerID := daemon.base.deletes, daemon.base.containerID
+	daemon.base.mu.Unlock()
+	if starts != 0 || terms != 0 || kills != 0 || deletes != 0 || containerID == "" {
+		t.Fatalf("failed-closed inspection reached a Docker mutation: starts=%d terms=%d kills=%d deletes=%d id=%q",
+			starts, terms, kills, deletes, containerID)
+	}
+}
+
+func TestDockerContainerLifecycleDaemonConnectionFailureIsFailClosed(t *testing.T) {
+	for _, operation := range dockerContainerLifecycleFailClosedOperations() {
+		t.Run(operation.name, func(t *testing.T) {
+			daemon, transport, request := newOwnedDockerLifecycleTestTransport(t,
+				dockerLifecycleExitKill, allowDockerLifecycleFence)
+			if operation.prepare != nil {
+				operation.prepare(daemon)
+			}
+			var requests []string
+			unreachable := dockerLifecycleHTTPDoerFunc(func(request *http.Request) (*http.Response, error) {
+				requests = append(requests, request.Method+" "+request.URL.RequestURI())
+				return nil, errors.New("Docker daemon unreachable")
+			})
+			transport.doer, transport.write.doer = unreachable, unreachable
+
+			err := operation.run(transport, request)
+			if DockerContainerLifecycleErrorCode(err) != DockerContainerLifecycleFailureConnection {
+				t.Fatalf("daemon connection failure code=%q err=%v",
+					DockerContainerLifecycleErrorCode(err), err)
+			}
+			if len(requests) != 1 || !strings.HasPrefix(requests[0], http.MethodGet+" ") ||
+				!strings.HasSuffix(requests[0], "/json") {
+				t.Fatalf("daemon connection failure issued requests after inspect: %v", requests)
+			}
+			assertDockerContainerLifecycleDidNotMutate(t, daemon)
+		})
+	}
+}
+
+func TestDockerContainerLifecycleConfigurationMismatchIsFailClosed(t *testing.T) {
+	for _, operation := range dockerContainerLifecycleFailClosedOperations() {
+		t.Run(operation.name, func(t *testing.T) {
+			daemon, transport, request := newOwnedDockerLifecycleTestTransport(t,
+				dockerLifecycleExitKill, allowDockerLifecycleFence)
+			if operation.prepare != nil {
+				operation.prepare(daemon)
+			}
+			daemon.base.mu.Lock()
+			daemon.base.payload.WorkingDir = "/tampered-workdir"
+			daemon.base.mu.Unlock()
+			daemon.mu.Lock()
+			requestCount := len(daemon.requests)
+			daemon.mu.Unlock()
+
+			err := operation.run(transport, request)
+			if DockerContainerLifecycleErrorCode(err) != DockerContainerLifecycleFailureConfigMismatch {
+				t.Fatalf("configuration mismatch code=%q err=%v",
+					DockerContainerLifecycleErrorCode(err), err)
+			}
+			daemon.mu.Lock()
+			requests := append([]string(nil), daemon.requests[requestCount:]...)
+			daemon.mu.Unlock()
+			if len(requests) != 1 || !strings.HasPrefix(requests[0], http.MethodGet+" ") ||
+				!strings.HasSuffix(requests[0], "/json") {
+				t.Fatalf("configuration mismatch issued requests after inspect: %v", requests)
+			}
+			assertDockerContainerLifecycleDidNotMutate(t, daemon)
+		})
+	}
+}
+
+func TestDockerContainerLifecycleStaleFencePreventsEachPostAndDelete(t *testing.T) {
+	stale := errors.New("stale lifecycle lease")
+	deny := func(expected DockerContainerLifecycleActionKind) DockerContainerLifecycleFence {
+		return func(_ context.Context, actual DockerContainerLifecycleActionKind) error {
+			if actual != expected {
+				t.Fatalf("fenced action=%q, want %q", actual, expected)
+			}
+			return stale
+		}
+	}
+	t.Run("start", func(t *testing.T) {
+		daemon, transport, request := newOwnedDockerLifecycleTestTransport(t,
+			dockerLifecycleExitNatural, allowDockerLifecycleFence)
+		_, _, err := transport.Start(context.Background(), request,
+			deny(DockerContainerLifecycleActionStart))
+		if !errors.Is(err, stale) || daemon.starts != 0 {
+			t.Fatalf("stale start fence allowed mutation: starts=%d err=%v", daemon.starts, err)
+		}
+	})
+	t.Run("wait", func(t *testing.T) {
+		daemon, transport, request := newOwnedDockerLifecycleTestTransport(t,
+			dockerLifecycleExitKill, allowDockerLifecycleFence)
+		if _, started, err := transport.Start(context.Background(), request,
+			allowDockerLifecycleFence); err != nil || !started {
+			t.Fatal(err)
+		}
+		_, err := transport.Wait(context.Background(), request,
+			deny(DockerContainerLifecycleActionWait))
+		if !errors.Is(err, stale) || daemon.waits != 0 {
+			t.Fatalf("stale wait fence allowed POST: waits=%d err=%v", daemon.waits, err)
+		}
+	})
+	t.Run("term", func(t *testing.T) {
+		daemon, transport, request := newOwnedDockerLifecycleTestTransport(t,
+			dockerLifecycleExitKill, allowDockerLifecycleFence)
+		_, _, _ = transport.Start(context.Background(), request, allowDockerLifecycleFence)
+		_, err := transport.Terminate(context.Background(), request,
+			deny(DockerContainerLifecycleActionTERM))
+		if !errors.Is(err, stale) || daemon.terms != 0 || daemon.kills != 0 {
+			t.Fatalf("stale TERM fence allowed signal: terms=%d kills=%d err=%v",
+				daemon.terms, daemon.kills, err)
+		}
+	})
+	t.Run("kill", func(t *testing.T) {
+		daemon, transport, request := newOwnedDockerLifecycleTestTransport(t,
+			dockerLifecycleExitKill, allowDockerLifecycleFence)
+		transport.graceOverride = 5 * time.Millisecond
+		_, _, _ = transport.Start(context.Background(), request, allowDockerLifecycleFence)
+		fence := func(_ context.Context, action DockerContainerLifecycleActionKind) error {
+			if action == DockerContainerLifecycleActionKILL {
+				return stale
+			}
+			return nil
+		}
+		_, err := transport.Terminate(context.Background(), request, fence)
+		if !errors.Is(err, stale) || daemon.terms != 1 || daemon.kills != 0 {
+			t.Fatalf("stale KILL fence allowed signal: terms=%d kills=%d err=%v",
+				daemon.terms, daemon.kills, err)
+		}
+	})
+	t.Run("delete", func(t *testing.T) {
+		daemon, transport, request := newOwnedDockerLifecycleTestTransport(t,
+			dockerLifecycleExitNatural, allowDockerLifecycleFence)
+		_, err := transport.Cleanup(context.Background(), request,
+			deny(DockerContainerLifecycleActionDelete))
+		if !errors.Is(err, stale) || daemon.base.deletes != 0 || daemon.base.containerID == "" {
+			t.Fatalf("stale delete fence allowed mutation: deletes=%d id=%q err=%v",
+				daemon.base.deletes, daemon.base.containerID, err)
+		}
+	})
+}
+
+func TestDockerContainerLifecycleTerminationFenceSequenceMatchesDaemonRequests(t *testing.T) {
+	daemon, transport, request := newOwnedDockerLifecycleTestTransport(t,
+		dockerLifecycleExitKill, allowDockerLifecycleFence)
+	transport.graceOverride = 5 * time.Millisecond
+	if _, started, err := transport.Start(context.Background(), request,
+		allowDockerLifecycleFence); err != nil || !started {
+		t.Fatalf("start failed: started=%v err=%v", started, err)
+	}
+	var actions []DockerContainerLifecycleActionKind
+	fence := func(_ context.Context, action DockerContainerLifecycleActionKind) error {
+		actions = append(actions, action)
+		return nil
+	}
+	result, err := transport.Terminate(context.Background(), request, fence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []DockerContainerLifecycleActionKind{
+		DockerContainerLifecycleActionTERM,
+		DockerContainerLifecycleActionWait,
+		DockerContainerLifecycleActionKILL,
+		DockerContainerLifecycleActionWait,
+	}
+	if !slices.Equal(actions, want) || !result.GracefulSignalSent ||
+		!result.ForcedSignalSent || result.ExitCode != 137 || daemon.terms != 1 ||
+		daemon.kills != 1 || daemon.waits != 2 {
+		t.Fatalf("termination fence order differs from side effects: actions=%v want=%v result=%#v daemon=%#v",
+			actions, want, result, daemon)
+	}
+}
+
 func TestDockerContainerLifecycleHTTPAllowlistIsClosed(t *testing.T) {
 	id := strings.Repeat("b", 64)
 	name := "cyberagent-" + strings.Repeat("a", 24)
@@ -316,7 +793,7 @@ func TestDockerContainerLifecycleRejectsRedirectedOrDuplicateJSON(t *testing.T) 
 		dockerLifecycleHTTPDoerFunc(func(*http.Request) (*http.Response, error) {
 			return response, nil
 		}), mustDockerLifecycleEndpoint(t))
-	if _, err := transport.wait(context.Background(), id, &dockerLifecycleCounters{}); err == nil {
+	if _, err := transport.wait(context.Background(), id, &dockerLifecycleCounters{}, nil); err == nil {
 		t.Fatal("Docker lifecycle accepted a redirected duplicate response")
 	}
 }
@@ -352,7 +829,7 @@ func TestDockerContainerLifecycleRecognizesCancellationWhileReadingWaitBody(t *t
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
 	defer cancel()
-	if _, err := transport.wait(ctx, id, &dockerLifecycleCounters{}); err != context.DeadlineExceeded {
+	if _, err := transport.wait(ctx, id, &dockerLifecycleCounters{}, nil); err != context.DeadlineExceeded {
 		t.Fatalf("wait body cancellation was not preserved: %v", err)
 	}
 }

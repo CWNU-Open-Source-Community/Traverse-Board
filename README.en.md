@@ -120,7 +120,7 @@ In Windows Desktop, **New Task** opens the native folder picker and completes `s
 open build/desktop/Prayu.app
 ```
 
-Use the operator-preview launcher `build/desktop/Start-Prayu-Operator-Preview.command`, or open `Prayu.app` directly (read-only default). The artifact is only ad-hoc signed and not notarized; after copying it from another machine you may need to right-click and choose Open in Finder on first launch. The macOS system credential store is not wired yet, so use environment variables such as `MIMO_API_KEY`, `DEEPSEEK_API_KEY`, and `CYBERAGENT_ANTHROPIC_API_KEY`; the ConPTY user terminal, restricted browser, and Full CDP stay off on macOS. See [`packaging/macos/LOCAL-TEST-GUIDE.txt`](packaging/macos/LOCAL-TEST-GUIDE.txt) for the full manual test flow and [ADR 0096](docs/adr/0096-macos-desktop-portable-build.md) for the boundaries.
+Use the operator-preview launcher `build/desktop/Start-Prayu-Operator-Preview.command`, or open `Prayu.app` directly (read-only default). The artifact is only ad-hoc signed and not notarized; after copying it from another machine you may need to right-click and choose Open in Finder on first launch. The macOS system credential store is not wired yet, so use environment variables such as `MIMO_API_KEY`, `DEEPSEEK_API_KEY`, and `CYBERAGENT_ANTHROPIC_API_KEY`; the ConPTY user terminal, restricted browser, and Full CDP stay off on macOS. See [`packaging/macos/LOCAL-TEST-GUIDE.txt`](packaging/macos/LOCAL-TEST-GUIDE.txt) for the full manual test flow and [ADR 0097](docs/adr/0097-macos-desktop-portable-build.md) for the boundaries.
 
 See the [Usage Guide](docs/usage.md) for more commands and boundaries.
 

@@ -10,7 +10,7 @@
 
 ## 当前基线
 
-D0-Mac 已把 Desktop 构建扩展到 macOS（ADR 0096）：darwin 构建标签复用同一 Go 控制平面与 WKWebView，产出未签名/未公证的本地 Prayu.app；Windows 专属的凭证库、ConPTY 终端、Safe Web/WFP 与受控宿主执行在 macOS 失败关闭。macOS 签名、公证与人工矩阵仍未排入当前切片。
+D0-Mac 已把 Desktop 构建扩展到 macOS（ADR 0097）：darwin 构建标签复用同一 Go 控制平面与 WKWebView，产出未签名/未公证的本地 Prayu.app；Windows 专属的凭证库、ConPTY 终端、Safe Web/WFP 与受控宿主执行在 macOS 失败关闭。macOS 签名、公证与人工矩阵仍未排入当前切片。
 
 - 架构完成度：约 99%；其中 V2 Run-centric 控制平面约 99%。
 - 产品可用度：通用 Code Agent 操作者预览约 98%。
@@ -28,7 +28,7 @@ P7 已推进到 schema v71 与非 schema D1-B1，P9/Desktop 产品面已推进�
 
 schema v64 已增加 Go-owned `run_execution_profile.v1`：每个 Run 默认 `preview`，操作者可在 `created` 或无活动 lease 的 `paused` 状态选择 `preview|docker|local`。CLI、HTTP/OpenAPI 与 React 使用同一状态机；所有档位仍固定零进程、零执行授权和零 capability。
 
-schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固定 16 项机器 probe 和摘要协议，CLI 只接受同一操作者的 v63 阻塞审查、稳定操作键和显式确认。schema v66 再增加 collector 调用前持久化的 attempt、摘要化 operation、过期 generation lease、当前代 quiescent reconciliation、类型化 failure 和原子 result。schema v67 只在 Linux 显式 opt-in 后执行五次固定 GET，schema v68 再增加一次不可变操作员接纳/拒绝决定。所有 Docker start/process/export/Artifact authority 继续为 false。schema v69-v96 与 Desktop D1-A 至 P13-G 已完成外部 Skill、桌面恢复、Run 控制、模型/Plan/审批、FileEdit、Provider、wake、Repository、验证/Handoff/记忆、浏览器非启动与恢复账本、执行交互、受控命令审计、用户终端、四档宿主权限、固定命令提案审批、非沙箱宿主执行账本、独立 CDP 权限上限、Analyzer 产品接入、公开模型流、非 Shell 宿主命令提案、连续交互 Run/统一计划入口/精简导航，以及安全 Markdown、可折叠 Harness 活动、对话归档、Diff 审阅和公开 Live Activity。R9/R10 仍只属于内部 Runner 回执兼容边界。SQLite 当前为 v96。
+schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固定 16 项机器 probe 和摘要协议，CLI 只接受同一操作者的 v63 阻塞审查、稳定操作键和显式确认。schema v66 再增加 collector 调用前持久化的 attempt、摘要化 operation、过期 generation lease、当前代 quiescent reconciliation、类型化 failure 和原子 result。schema v67 只在 Linux 显式 opt-in 后执行五次固定 GET，schema v68 再增加一次不可变操作员接纳/拒绝决定。所有 Docker start/process/export/Artifact authority 继续为 false。schema v69-v96 与 Desktop D1-A 至 P13-G 已完成外部 Skill、桌面恢复、Run 控制、模型/Plan/审批、FileEdit、Provider、wake、Repository、验证/Handoff/记忆、浏览器非启动与恢复账本、执行交互、受控命令审计、用户终端、四档宿主权限、固定命令提案审批、非沙箱宿主执行账本、独立 CDP 权限上限、Analyzer 产品接入、公开模型流、非 Shell 宿主命令提案、连续交互 Run/统一计划入口/精简导航，以及安全 Markdown、可折叠 Harness 活动、对话归档、Diff 审阅和公开 Live Activity。schema v97 再增加非授权的 Docker 生命周期写前意图、完整身份租约 fencing、动作/转换账本、精确重启恢复与唯一清理回执。R9/R10 仍只属于内部 Runner 回执兼容边界。SQLite 当前为 v97。
 
 ## 执行原则
 
@@ -254,10 +254,11 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 - [x] v68 即使 `accepted` 也固定零生产验证、零 sufficient、16 个 blocker，以及 false start/container/process/output/Artifact authority；请求、表、事件和 CLI 不含自由文本、daemon payload、socket、路径、资源身份、raw key 或私有 lease。决策见 ADR 0030。
 - [x] v68 最终门禁通过全仓普通/race（247.9 秒/276.3 秒）、vet/staticcheck/module/govulncheck、21 项前端测试、OpenAPI/build/npm audit、57 份 Markdown/74 条相对链接、仓库隐私/编码/禁止执行入口/diff 扫描、Linux 交叉编译、隔离真实 CLI smoke 与四层高频回归。审计修复 request-fingerprint 双层绑定、SQL 负向矩阵、双 Store 收敛和 rejected 全链覆盖，未发现未解决高/中风险。GitHub Actions run `29552080990` 已通过实现提交 `41583ac`（Go/Linux 2 分 57 秒，TypeScript 24 秒）。
 - [x] 非 schema 的真实 Docker 生命周期基础：包内私有 transport 只连接固定 Unix socket 或 Docker Desktop Linux-engine NPipe，复用严格 Stage 后仅允许精确 inspect/start/wait/SIGTERM/SIGKILL/non-forced delete；自然退出、超时、取消、升级终止、最终状态、删除与不存在均有定向测试。Windows Docker Desktop 真实验收观察到 SIGTERM -> SIGKILL、exit 137 和完整清理；不读取 `DOCKER_HOST`，不 pull/exec/attach/log/export，不枚举或触碰无关容器，所有产品/执行/Artifact authority 仍为 false。决策见 ADR 0095。
+- [x] schema v97 增加独立 Docker 生命周期 aggregate：create 前原子持久化 launch intent 与首代 lease，每次 daemon mutation 前追加 prepared action，并以完整 lease/owner/generation/expiry fence 提交 hash-chained transition 和唯一 cleanup receipt。恢复只检查确定性名称，要求完整九标签与精确配置匹配；过期接管、旧 worker、pre-create/post-create/post-start 崩溃、重复 timeout/cancel/cleanup、foreign/legacy 容器拒绝和隐私事件均有定向覆盖。所有产品/执行/output/Artifact authority 继续为 false，决策见 ADR 0096。
 - [ ] 本地代码默认只读挂载，输出目录独立可写。
 - [ ] 网络默认关闭，后续仅允许显式 allowlist。
-- [ ] 支持产品级真实执行、stdin、日志和原子 Output Artifact 导出；非授权工程探针已证明 start/wait/timeout/cancel/TERM/KILL/cleanup 机制，但尚未接入 SQLite 写前意图、租约/fencing、重启恢复、日志/output 或 Run authority。v51 只固定要求，v52 只验证输出假事务，v53 只读取元数据，v54 只编译并假写，v55-v56 只操作未启动容器，v57-v58 只固定本地输入，v59 只完成 never-started daemon handoff，v60 只编译 projection，v61 只应用只读卷并保留未启动 target，v62 只检查/清理资源，均未开放生产 Artifact。
-- [ ] 将 v50 幂等清理扩展为真实运行中容器 orphan 检测/回收，并用独立生产证据逐项验证 v51 检查；v52 的 `simulated_pass`、v53 的 `production_observed`、v54/v60 的 `compiled_not_applied`、v55-v56 的非启动 inspect/recovery、v57-v58 的本地捕获事实、v59 的 handoff、v61 的 never-started target 与 v62 的资源清理都不计入进程隔离验证。
+- [ ] 支持产品级真实执行、stdin、日志和原子 Output Artifact 导出；v97 已接入非授权 SQLite 写前意图、租约/fencing 与精确重启恢复，但日志/output、Run authority 和生产 admission 仍未实现。v51 只固定要求，v52 只验证输出假事务，v53 只读取元数据，v54 只编译并假写，v55-v56 只操作未启动容器，v57-v58 只固定本地输入，v59 只完成 never-started daemon handoff，v60 只编译 projection，v61 只应用只读卷并保留未启动 target，v62 只检查/清理资源，均未开放生产 Artifact。
+- [ ] 将 v97 对确定性名称与完整标签的精确恢复扩展为生产级 orphan 范围，并用独立生产证据逐项验证 v51 检查；v97 不枚举或接管未知 daemon 资源。v52 的 `simulated_pass`、v53 的 `production_observed`、v54/v60 的 `compiled_not_applied`、v55-v56 的非启动 inspect/recovery、v57-v58 的本地捕获事实、v59 的 handoff、v61 的 never-started target 与 v62 的资源清理都不计入进程隔离验证。
 - [x] 保留 Noop/Local 作为测试与开发接口；Local 当前明确禁用，不能作为旁路执行后端。
 
 验收标准：容器内不能越界读取宿主目录；取消能终止进程；重启后能识别并处理残留 Sandbox。

@@ -7,7 +7,7 @@ Last updated: 2026-08-14
 ## Resume Context
 
 The current single-slice checkpoint is the macOS Desktop portable build at
-unchanged schema v96. cmd/cyberagent-desktop is now split by build tag:
+unchanged schema v97. cmd/cyberagent-desktop is now split by build tag:
 shared shell code under "desktop", Windows-only WebView2/Acrylic/registry
 launcher code under "windows && desktop && wv2runtime.error", and a new
 "darwin && desktop" port. macOS uses bundled WKWebView (no runtime
@@ -18,27 +18,32 @@ seams (Credential Manager, ConPTY terminal, Safe Web/WFP, controlled host
 execution) fail closed on macOS. scripts/build-desktop-darwin.sh emits an
 ad-hoc-signed, un-notarized build/desktop/Prayu.app with reproducible
 metadata and a compat check script; CI gains a desktop-macos job; the
-renderer reserves the native traffic-light titlebar space. Desktop-tagged
-Go tests pass on macOS and release_ready stays false until signing,
-notarization, and the manual macOS matrix. See ADR 0096.
+renderer reserves the native traffic-light titlebar space; and the cgo
+compile/link deployment target is pinned to the Go 11.0 minimum.
+Desktop-tagged Go tests pass on macOS and release_ready stays false until
+signing, notarization, and the manual macOS matrix. See ADR 0097.
 
-The previous single-slice checkpoint was the non-authorizing real Docker
-lifecycle foundation at unchanged schema v96. A private fixed-endpoint
-transport now validates exact Stage/create, start, wait, natural exit,
-timeout/cancellation fan-out, SIGTERM/SIGKILL escalation, final inspection,
-non-forced delete, and target absence. Windows uses Docker Desktop's fixed
-Linux-engine NPipe; Unix uses the fixed local socket. It does not read
-`DOCKER_HOST`, use Docker CLI, accept TCP/proxies/redirects, or expose pull,
-exec, attach, logs, stdin, export, arbitrary signals, or generic requests.
+The previous single-slice checkpoint was non-authorizing durable Docker
+lifecycle ownership and recovery at schema v97. A separate lifecycle aggregate
+commits an immutable launch intent and generation-one lease before create,
+records every daemon mutation as an append-only prepared action, appends
+fenced state transitions, and admits exactly one immutable cleanup receipt.
+Full lease id, owner id, lease generation, and expiry fence every durable
+action, transition, receipt, and daemon mutation; an expired owner cannot
+commit after a generation-plus-one takeover.
 
-Focused lifecycle tests pass, and a real Docker Desktop acceptance observed
-the timeout path through exit code 137 and exact cleanup in 1.39 seconds. The
-probe constructor is package-private and all product-entry, execution, output,
-and Artifact authority remains false. It does not replace schema v63's missing
-durable start intent, generation lease/fencing, restart/orphan reconciliation,
-bounded logs, output transaction, or product admission. See ADR 0095. The next
-Sandbox slice is durable lifecycle ownership and recovery; do not repeat this
-real-daemon acceptance after compaction unless the implementation changes.
+Recovery is database-led and inspects only the deterministic container name.
+It requires the exact lifecycle attempt, resource-generation, and intent
+labels in addition to the original ownership/configuration contract. Unknown,
+partial, legacy, or mismatched containers fail closed and remain untouched.
+The fixed Unix/NPipe transport converges pre-create, created, started, exited,
+timeout/cancel, cleaning, cleaned, and failure cases without repeating an
+already-observed effect. Focused Sandbox, Store, and Application lifecycle
+tests pass; see ADR 0096. Product entry, execution authorization, output/log
+capture, Artifact commit, and production admission remain false. The prior
+real-daemon acceptance remains evidence for the transport mechanics in ADR
+0095 and should not be repeated after compaction unless that implementation
+changes.
 
 The previous single-slice checkpoint was `P13-G1 Workspace Import` at unchanged
 schema v96. The label was reassigned by the user on 2026-08-13 and is distinct
@@ -66,7 +71,7 @@ The root README is now a concise Chinese/English product introduction with a
 historical-development section. CTF-specific plans are optional add-on scope,
 not active slices. Do not repeat this PR review after context compaction.
 
-The current mainline checkpoint is P13-H1 through P13-H3 at schema v96. H1
+The previous UI checkpoint is P13-H1 through P13-H3 at schema v96. H1
 groups the existing Workbench sidecar tools into Workspace, Run, and Coming
 Soon zones. Browser remains a disabled reserved item: no CDP, network, process,
 or navigation capability was opened. H2 replaces the beige composer, public

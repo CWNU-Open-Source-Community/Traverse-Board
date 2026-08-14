@@ -120,7 +120,7 @@ go run ./cmd/cyberagent tui
 open build/desktop/Prayu.app
 ```
 
-请使用操作者预览启动器 `build/desktop/Start-Prayu-Operator-Preview.command`，或直接打开 `Prayu.app`（默认只读）。产物只有 ad-hoc 签名、未公证；从其他机器拷贝后首次打开可能需要在 Finder 中右键选择“打开”。系统凭证库尚未接入 macOS，请使用 `MIMO_API_KEY`、`DEEPSEEK_API_KEY`、`CYBERAGENT_ANTHROPIC_API_KEY` 等环境变量；ConPTY 用户终端、受限浏览器与完整 CDP 在 macOS 保持关闭。完整步骤见 [`packaging/macos/LOCAL-TEST-GUIDE.txt`](packaging/macos/LOCAL-TEST-GUIDE.txt)，边界见 [ADR 0096](docs/adr/0096-macos-desktop-portable-build.md)。
+请使用操作者预览启动器 `build/desktop/Start-Prayu-Operator-Preview.command`，或直接打开 `Prayu.app`（默认只读）。产物只有 ad-hoc 签名、未公证；从其他机器拷贝后首次打开可能需要在 Finder 中右键选择“打开”。系统凭证库尚未接入 macOS，请使用 `MIMO_API_KEY`、`DEEPSEEK_API_KEY`、`CYBERAGENT_ANTHROPIC_API_KEY` 等环境变量；ConPTY 用户终端、受限浏览器与完整 CDP 在 macOS 保持关闭。完整步骤见 [`packaging/macos/LOCAL-TEST-GUIDE.txt`](packaging/macos/LOCAL-TEST-GUIDE.txt)，边界见 [ADR 0097](docs/adr/0097-macos-desktop-portable-build.md)。
 
 更多命令与边界见[使用手册](docs/usage.md)。
 
@@ -179,7 +179,7 @@ open build/desktop/Prayu.app
 完整逐切片原始记录保留在 [`PROGRESS_BOOK.md`](docs/PROGRESS_BOOK.md)，当前检查点与验收证据保留在 [`PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)，恢复上下文见 [`PROJECT_MEMORY.md`](docs/PROJECT_MEMORY.md)。这些账本是历史记录，不应被当作待重新执行的任务列表。
 
 <details>
-<summary><strong>SQLite Schema v1-v96 迁移审计表 / Migration ledger</strong></summary>
+<summary><strong>SQLite Schema v1-v97 迁移审计表 / Migration ledger</strong></summary>
 
 此表是 Store 防漏迁移测试使用的审计合同。新增 schema 时必须按顺序追加，不得改写或删除既有行。
 
@@ -281,6 +281,7 @@ open build/desktop/Prayu.app
 | v94 | 一次性 Analyzer 执行授权与原子消费防重放 | one-shot Analyzer execution capabilities with atomic replay-safe consumption |
 | v95 | Analyzer 结果、Artifact 与审计事件原子提交 | atomic Analyzer result, Artifact, and audit-event commit |
 | v96 | 用户审批档的精确宿主命令提案、审阅与恰好一次执行 | exact approval-mode host-command proposals, reviews, and exactly-once execution |
+| v97 | 持久 Docker 生命周期所有权、代际租约与崩溃恢复 | durable Docker lifecycle ownership, generation leases, and crash recovery |
 
 </details>
 

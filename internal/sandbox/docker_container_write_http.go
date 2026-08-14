@@ -402,9 +402,15 @@ type dockerContainerWriteImageInspection struct {
 }
 
 func dockerCreatePayload(request DockerContainerWriteRequest) dockerCreateContainerPayload {
+	return dockerCreatePayloadWithLabels(request, request.Spec.Labels)
+}
+
+func dockerCreatePayloadWithLabels(request DockerContainerWriteRequest,
+	expectedLabels []DockerContainerLabel,
+) dockerCreateContainerPayload {
 	spec := request.Spec
-	labels := make(map[string]string, len(spec.Labels))
-	for _, label := range spec.Labels {
+	labels := make(map[string]string, len(expectedLabels))
+	for _, label := range expectedLabels {
 		labels[label.Name] = label.Value
 	}
 	mounts := make([]dockerCreateMount, len(request.HostMounts))
@@ -541,7 +547,13 @@ type dockerContainerInspection struct {
 func verifyDockerContainerInspection(inspection dockerContainerInspection,
 	request DockerContainerWriteRequest,
 ) error {
-	if verifyDockerContainerConfiguration(inspection, request) != nil ||
+	return verifyDockerContainerInspectionWithLabels(inspection, request, request.Spec.Labels)
+}
+
+func verifyDockerContainerInspectionWithLabels(inspection dockerContainerInspection,
+	request DockerContainerWriteRequest, expectedLabels []DockerContainerLabel,
+) error {
+	if verifyDockerContainerConfigurationWithLabels(inspection, request, expectedLabels) != nil ||
 		inspection.State.Status != "created" || inspection.State.Running ||
 		inspection.State.Paused || inspection.State.Restarting ||
 		inspection.State.OOMKilled || inspection.State.Dead || inspection.State.Pid != 0 {
@@ -552,6 +564,12 @@ func verifyDockerContainerInspection(inspection dockerContainerInspection,
 
 func verifyDockerContainerConfiguration(inspection dockerContainerInspection,
 	request DockerContainerWriteRequest,
+) error {
+	return verifyDockerContainerConfigurationWithLabels(inspection, request, request.Spec.Labels)
+}
+
+func verifyDockerContainerConfigurationWithLabels(inspection dockerContainerInspection,
+	request DockerContainerWriteRequest, expectedLabels []DockerContainerLabel,
 ) error {
 	spec := request.Spec
 	if !validDockerContainerID(inspection.ID) || inspection.Name != "/"+spec.ContainerName ||
@@ -564,7 +582,7 @@ func verifyDockerContainerConfiguration(inspection dockerContainerInspection,
 		len(inspection.Config.Env) != 0 ||
 		!equalStrings(inspection.Config.Entrypoint, []string{spec.Executable}) ||
 		!equalStrings(inspection.Config.Cmd, spec.Arguments) ||
-		!equalDockerLabels(inspection.Config.Labels, spec.Labels) ||
+		!equalDockerLabels(inspection.Config.Labels, expectedLabels) ||
 		!inspection.HostConfig.ReadonlyRootfs ||
 		inspection.HostConfig.Privileged || inspection.HostConfig.AutoRemove ||
 		inspection.HostConfig.Init == nil || !*inspection.HostConfig.Init ||
@@ -627,12 +645,24 @@ func (transport dockerEngineContainerWriteTransport) inspect(ctx context.Context
 func (transport dockerEngineContainerWriteTransport) create(ctx context.Context,
 	request DockerContainerWriteRequest,
 ) (string, error) {
-	body, err := json.Marshal(dockerCreatePayload(request))
+	return transport.createWithLabels(ctx, request, request.Spec.Labels, nil)
+}
+
+func (transport dockerEngineContainerWriteTransport) createWithLabels(ctx context.Context,
+	request DockerContainerWriteRequest, expectedLabels []DockerContainerLabel,
+	fence DockerContainerLifecycleFence,
+) (string, error) {
+	body, err := json.Marshal(dockerCreatePayloadWithLabels(request, expectedLabels))
 	if err != nil || len(body) == 0 || len(body) > maxDockerContainerWriteRequestBytes {
 		return "", newDockerContainerWriteError(DockerContainerWriteFailureInvalidResponse)
 	}
 	query := "name=" + url.QueryEscape(request.Spec.ContainerName)
 	path := "/v" + DockerContainerWriteAPIVersion + "/containers/create"
+	if fence != nil {
+		if err := fence(ctx, DockerContainerLifecycleActionCreate); err != nil {
+			return "", err
+		}
+	}
 	response, err := transport.do(ctx, http.MethodPost, path, query, body, true)
 	if err != nil {
 		return "", err

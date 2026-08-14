@@ -1,4 +1,4 @@
-# ADR 0096: macOS Desktop Portable Build
+# ADR 0097: macOS Desktop Portable Build
 
 Date: 2026-08-14
 

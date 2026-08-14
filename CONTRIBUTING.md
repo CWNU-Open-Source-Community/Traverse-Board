@@ -66,7 +66,7 @@ macOS 便携构建需要 macOS 11+（Big Sur）与 Xcode 命令行工具（codes
 open build/desktop/Prayu.app
 ```
 
-产物位于忽略的 `build/desktop/`。它不是已签名/已公证发行版；系统凭证库、ConPTY 用户终端、受限浏览器与完整 CDP 在 macOS 保持关闭或失败关闭，凭证使用环境变量。更多边界见 [ADR 0096](docs/adr/0096-macos-desktop-portable-build.md) 和包内使用的 [本地测试说明](packaging/macos/LOCAL-TEST-GUIDE.txt)。
+产物位于忽略的 `build/desktop/`。它不是已签名/已公证发行版；系统凭证库、ConPTY 用户终端、受限浏览器与完整 CDP 在 macOS 保持关闭或失败关闭，凭证使用环境变量。更多边界见 [ADR 0097](docs/adr/0097-macos-desktop-portable-build.md) 和包内使用的 [本地测试说明](packaging/macos/LOCAL-TEST-GUIDE.txt)。
 
 ## 设计与实现原则 / Design and implementation principles
 
