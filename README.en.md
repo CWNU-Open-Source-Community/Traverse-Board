@@ -10,6 +10,7 @@
     <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/Qiyuanqiii/CTF-CyberAgent-Workbench?style=flat-square"></a>
     <img alt="Go" src="https://img.shields.io/badge/control%20plane-Go-00ADD8?style=flat-square">
     <img alt="Desktop" src="https://img.shields.io/badge/desktop-Windows-0078D4?style=flat-square">
+    <img alt="Desktop macOS" src="https://img.shields.io/badge/desktop-macOS-555555?style=flat-square">
   </p>
 </div>
 
@@ -17,7 +18,7 @@
 
 ## What is Prayu?
 
-Prayu is a local AI agent workbench controlled by Go. It unifies model routing, resumable long-running tasks, workspaces, tool calls, approvals, budgets, memory, and audit events in a run-centric runtime shared by the CLI, TUI, HTTP API, React console, and Windows Desktop.
+Prayu is a local AI agent workbench controlled by Go. It unifies model routing, resumable long-running tasks, workspaces, tool calls, approvals, budgets, memory, and audit events in a run-centric runtime shared by the CLI, TUI, HTTP API, React console, and Windows/macOS Desktop.
 
 A durable user objective is a `Mission`; one resumable execution attempt is a `Run`. Models may plan and propose actions, but Go owns the state machine, credentials, permissions, persistence, and execution boundaries. Repository files, web pages, model text, and tool output are untrusted evidence rather than instructions or authority.
 
@@ -38,7 +39,7 @@ The hard part of a useful agent is not merely allowing a model to call tools. Lo
 ### One control plane
 
 ```text
-CLI / TUI / React / Windows Desktop / CI
+CLI / TUI / React / Windows + macOS Desktop / CI
                     |
               Go control plane
        +------------+-------------+
@@ -63,7 +64,7 @@ The allowed direction is always `TypeScript -> Go -> LLM/Rust/Docker`. TypeScrip
 | Code workflows | Native folder selection and Workspace import, workspace browsing, repository state/history, diff review, file-edit proposals, verification plans, Code Journey, and Handoff |
 | Observability | Append-only Run events, Live Activity, public model commentary, Harness facts, Artifacts, Findings/Evidence/Reports, and SARIF |
 | Extension seams | Inert Skill packages, Provider and Tool interfaces, Go/Rust JSON protocol, embedded WASI Analyzer, Sandbox contracts, and a non-authorizing Docker lifecycle probe |
-| Clients | `cyberagent` CLI, Bubble Tea TUI, authenticated HTTP/OpenAPI, React/Vite, and Windows Desktop portable preview |
+| Clients | `cyberagent` CLI, Bubble Tea TUI, authenticated HTTP/OpenAPI, React/Vite, and Windows/macOS Desktop portable preview |
 
 ### Security boundaries
 
@@ -72,7 +73,7 @@ The allowed direction is always `TypeScript -> Go -> LLM/Rust/Docker`. TypeScrip
 - Conservative commands use Go-owned fixed templates. General host execution and Debug authority cannot be enabled by a model, Skill, or repository document.
 - Docker now validates `start -> wait -> timeout/cancel -> SIGTERM/SIGKILL -> cleanup` on fixed local endpoints, but only as a package-private, non-authorizing engineering probe. Runs, Agents, CLI, API, and Desktop cannot invoke it, and the product Sandbox entry remains closed.
 - The built-in browser has no product entry point yet. A restricted runtime core exists, but independent OS/container network-containment evidence is incomplete.
-- Windows Desktop is currently an unsigned developer/operator portable preview, not a released installer.
+- Windows/macOS Desktop are currently unsigned developer/operator portable previews, not released installers; the macOS artifact is only ad-hoc signed and not notarized.
 
 ## Quick start
 
@@ -82,6 +83,7 @@ The allowed direction is always `TypeScript -> Go -> LLM/Rust/Docker`. TypeScrip
 - Git 2.41+
 - Node.js 24 for Web/Desktop builds
 - Windows 10/11 and Edge WebView2 Evergreen Runtime for Windows Desktop
+- macOS 10.15+ (bundled WKWebView) and the Xcode command line tools for macOS Desktop
 - Rust 1.97.1 only when changing the Analyzer
 - Docker Desktop or a Linux Docker Engine only when developing the Sandbox; ordinary Code workflows do not require Docker
 
@@ -111,6 +113,15 @@ Use the operator-preview launcher. Opening the bare `cyberagent-desktop.exe` int
 
 In Windows Desktop, **New Task** opens the native folder picker and completes `select directory -> register Workspace -> create Run`; no CLI or settings-page pre-registration is required. Cancelling creates neither a Workspace nor a Run, and the selected absolute path is never returned to React.
 
+### macOS Desktop preview
+
+```bash
+./scripts/build-desktop-darwin.sh
+open build/desktop/Prayu.app
+```
+
+Use the operator-preview launcher `build/desktop/Start-Prayu-Operator-Preview.command`, or open `Prayu.app` directly (read-only default). The artifact is only ad-hoc signed and not notarized; after copying it from another machine you may need to right-click and choose Open in Finder on first launch. The macOS system credential store is not wired yet, so use environment variables such as `MIMO_API_KEY`, `DEEPSEEK_API_KEY`, and `CYBERAGENT_ANTHROPIC_API_KEY`; the ConPTY user terminal, restricted browser, and Full CDP stay off on macOS. See [`packaging/macos/LOCAL-TEST-GUIDE.txt`](packaging/macos/LOCAL-TEST-GUIDE.txt) for the full manual test flow and [ADR 0096](docs/adr/0096-macos-desktop-portable-build.md) for the boundaries.
+
 See the [Usage Guide](docs/usage.md) for more commands and boundaries.
 
 ## Repository layout
@@ -118,7 +129,7 @@ See the [Usage Guide](docs/usage.md) for more commands and boundaries.
 | Path | Purpose |
 |---|---|
 | `cmd/cyberagent` | CLI, TUI, and API entry point |
-| `cmd/cyberagent-desktop` | Windows Desktop shell |
+| `cmd/cyberagent-desktop` | Windows/macOS Desktop shell |
 | `internal/` | Go domain, application, Policy, Store, Tool, Sandbox, and HTTP control plane |
 | `web/` | React/Vite operator UI; owns no authority, secrets, or executor |
 | `analyzers/` | Deterministic Rust Analyzer and shared vectors |

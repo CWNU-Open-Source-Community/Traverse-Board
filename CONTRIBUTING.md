@@ -52,6 +52,22 @@ rustup target add wasm32-wasip1 --toolchain 1.97.1
 
 产物位于忽略的 `build/desktop/`。它不是已签名发行版；自动检查通过也不能替代待完成的 Windows 10/WebView2/显示缩放人工矩阵。更多边界见 [Desktop Plan](docs/DESKTOP_PLAN.md) 和包内使用的 [本地测试说明](packaging/windows/LOCAL-TEST-GUIDE.txt)。
 
+### macOS Desktop
+
+macOS 便携构建需要 macOS 10.15+ 与 Xcode 命令行工具（codesign），以及上表中的 Go 1.25、Node.js 24；WKWebView 随系统提供，不需要 WebView2 式预检。
+
+```bash
+# 在仓库根目录构建未签名、ad-hoc 签名的本地测试包
+./scripts/build-desktop-darwin.sh
+
+# 发布候选验证会连续构建并比较 SHA-256
+./scripts/build-desktop-darwin.sh -VerifyReproducible
+
+open build/desktop/Prayu.app
+```
+
+产物位于忽略的 `build/desktop/`。它不是已签名/已公证发行版；系统凭证库、ConPTY 用户终端、受限浏览器与完整 CDP 在 macOS 保持关闭或失败关闭，凭证使用环境变量。更多边界见 [ADR 0096](docs/adr/0096-macos-desktop-portable-build.md) 和包内使用的 [本地测试说明](packaging/macos/LOCAL-TEST-GUIDE.txt)。
+
 ## 设计与实现原则 / Design and implementation principles
 
 ### 提交一个纵向切片
@@ -117,7 +133,13 @@ cargo clippy --locked --all-targets -- -D warnings
 如改动影响并发、恢复、状态机或跨进程边界，应对受影响 Go 包增加 `go test -race -count=1 ...`。如改动影响 Desktop，至少运行 CI 使用的安全 tag 边界：
 
 ```powershell
+# Windows
 go test -tags "desktop,wv2runtime.error" -count=1 ./cmd/cyberagent-desktop ./internal/desktop ./internal/webui
+```
+
+```bash
+# macOS
+go test -tags "desktop" -count=1 ./cmd/cyberagent-desktop ./internal/desktop ./internal/webui
 ```
 
 ### 提交前检查

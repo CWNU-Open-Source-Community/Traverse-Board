@@ -1,6 +1,6 @@
 # Prayu V2 任务书
 
-更新时间：2026-08-13
+更新时间：2026-08-14
 
 ## 目标
 
@@ -9,6 +9,8 @@
 当前任务书只推进通用 Agent Harness 与 Code 工作流。CTF 专用求解、自动化渗透和攻防工具链已经移出活跃路线图，不再排队开发；仓库仅保留 Run、Provider、Tool、Skill、Analyzer、Sandbox、Finding/Evidence/Report 等通用扩展接口，供未来经过独立 ADR 和安全复核的附加包接入。范围权威见 [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md)。
 
 ## 当前基线
+
+D0-Mac 已把 Desktop 构建扩展到 macOS（ADR 0096）：darwin 构建标签复用同一 Go 控制平面与 WKWebView，产出未签名/未公证的本地 Prayu.app；Windows 专属的凭证库、ConPTY 终端、Safe Web/WFP 与受控宿主执行在 macOS 失败关闭。macOS 签名、公证与人工矩阵仍未排入当前切片。
 
 - 架构完成度：约 99%；其中 V2 Run-centric 控制平面约 99%。
 - 产品可用度：通用 Code Agent 操作者预览约 98%。

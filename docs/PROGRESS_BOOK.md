@@ -2,9 +2,11 @@
 
 > 本文件是按时间追加的历史开发账本，不是待办列表。当前产品范围以 [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md) 为准；CTF 专用求解和攻防自动化已移出活跃路线图，本文中的旧 Cyber 百分比仅保留为历史快照。
 
-更新时间：2026-08-13
+更新时间：2026-08-14
 
 ## 一、当前阶段
+
+2026-08-14 单切片 `D0-Mac（macOS Desktop 便携构建，新增标签）` 保持 SQLite v96 与全部权限边界不变，为 Desktop 增加 macOS 构建：`cmd/cyberagent-desktop` 按构建标签拆分为共享 `desktop`、Windows `windows && desktop && wv2runtime.error` 与新增 darwin 实现；macOS 使用系统自带 WKWebView 且无运行时预检，启动失败只写 stderr 并显示有界严格转义的 osascript 对话框，工作区启动器只通过固定 `/usr/bin/open` 打开已验证 .app（Finder、Terminal、Antigravity、PyCharm、WebStorm、Visual Studio Code）。Windows 专属的 Credential Manager、ConPTY 用户终端、Safe Web/WFP 与受控宿主执行在 macOS 保持失败关闭。`scripts/build-desktop-darwin.sh` 产出 ad-hoc 签名、未公证的 `build/desktop/Prayu.app`，复用连续双构建 SHA-256 校验并写入 `portable_release_metadata.v1`；`scripts/check-macos-compat.sh` 检查 Mach-O/架构/codesign/元数据与 operator-preview 包边界；CI 新增 `desktop-macos` 任务；React 标题栏为原生红绿灯预留空间。desktop-tag Go 测试在 macOS 通过，App/desktop-bridge React 测试通过；签名、公证与人工 macOS 矩阵未做，`release_ready` 保持 false。边界见 ADR 0096 与 `docs/DESKTOP_PLAN.md`；本轮没有重跑 WFP、Docker、付费 Provider 或全仓重型门，下次上下文压缩后不得重复。
 
 项目正在从可运行的 v0.1 CLI/TUI 骨架迁移到 V2 Run-centric Runtime。当前只推进通用 Agent Harness 与 Code 工作流；CTF 专用求解和攻防自动化已经移出活跃路线图，仅保留通用扩展接口供未来独立附加包接入。
 

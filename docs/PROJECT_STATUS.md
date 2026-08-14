@@ -1,12 +1,28 @@
 # Project Status
 
-Last updated: 2026-08-13
+Last updated: 2026-08-14
 
 > **Scope authority:** active mainline work targets the general-purpose Agent Harness and Code workflow. CTF-specific solving and offensive automation are optional add-ons and have no active implementation schedule. Historical references and percentages below remain audit history, not queued work. See [Product Scope](PRODUCT_SCOPE.md).
 
 ## Resume Context
 
-The current single-slice checkpoint is the non-authorizing real Docker
+The current single-slice checkpoint is the macOS Desktop portable build at
+unchanged schema v96. cmd/cyberagent-desktop is now split by build tag:
+shared shell code under "desktop", Windows-only WebView2/Acrylic/registry
+launcher code under "windows && desktop && wv2runtime.error", and a new
+"darwin && desktop" port. macOS uses bundled WKWebView (no runtime
+prerequisite probe), reports startup failures through a bounded, strictly
+escaped best-effort osascript dialog, and launches workspace launchers only
+through the fixed /usr/bin/open with a validated .app set. Windows-only
+seams (Credential Manager, ConPTY terminal, Safe Web/WFP, controlled host
+execution) fail closed on macOS. scripts/build-desktop-darwin.sh emits an
+ad-hoc-signed, un-notarized build/desktop/Prayu.app with reproducible
+metadata and a compat check script; CI gains a desktop-macos job; the
+renderer reserves the native traffic-light titlebar space. Desktop-tagged
+Go tests pass on macOS and release_ready stays false until signing,
+notarization, and the manual macOS matrix. See ADR 0096.
+
+The previous single-slice checkpoint was the non-authorizing real Docker
 lifecycle foundation at unchanged schema v96. A private fixed-endpoint
 transport now validates exact Stage/create, start, wait, natural exit,
 timeout/cancellation fan-out, SIGTERM/SIGKILL escalation, final inspection,
