@@ -12,6 +12,16 @@ Prayu macOS 本地试用说明
 Prayu.app 会按设计进入更保守的默认模式。启动器与指南位于 build/desktop/
 目录，仅用于本地产品测试，不是正式发行包。
 
+从源码构建
+----------
+构建前请把 Node.js 切换到与 CI 一致的 24 基线（例如 nvm use 24），再运行：
+
+    ./scripts/build-desktop-darwin.sh
+
+Node 版本不符时脚本会在前端检查前明确报错；如果 web/dist 已经构建好，
+也可以用 -SkipFrontend 跳过前端步骤。构建还需要 Xcode 命令行工具
+（codesign）和 Go 1.25。
+
 首次接入真实模型
 ----------------
 1. 打开左侧"模型切换"，或进入"设置与账户 > 模型与配置"。
@@ -69,6 +79,17 @@ Full CDP, the background wake worker, or an Agent-controlled persistent
 terminal. Double-clicking Prayu.app itself intentionally starts in the more
 conservative default mode. The launcher and this guide live under build/desktop/
 and exist only for local product testing; they are not a distribution package.
+
+Building from source
+--------------------
+Switch Node.js to the CI-pinned 24 baseline first (for example nvm use 24),
+then run:
+
+    ./scripts/build-desktop-darwin.sh
+
+A mismatched Node version fails fast before the frontend checks; use
+-SkipFrontend when web/dist is already built. Building also requires the
+Xcode command line tools (codesign) and Go 1.25.
 
 Connect a real model
 --------------------

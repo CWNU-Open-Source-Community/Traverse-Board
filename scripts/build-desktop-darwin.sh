@@ -77,6 +77,15 @@ if ! command -v codesign >/dev/null 2>&1; then
 fi
 
 if [ "$SkipFrontend" != true ]; then
+    # The frontend test environment is pinned to the Node.js 24 baseline used
+    # by CI and documented in the README. Newer local Node versions (for
+    # example v26) currently break the jsdom test environment, so fail fast
+    # with an actionable message instead of dumping unrelated test failures.
+    nodeVersion="$(node -v 2>/dev/null || true)"
+    nodeMajor="$(printf '%s' "$nodeVersion" | sed -E 's/^v([0-9]+).*/\1/')"
+    if [ "$nodeMajor" != "24" ]; then
+        die "Desktop frontend checks require the pinned Node.js 24 baseline (detected: ${nodeVersion:-none}). Switch with nvm (nvm use 24), or pass -SkipFrontend when web/dist is already built."
+    fi
     (
         cd web
         npm ci
@@ -147,10 +156,10 @@ if [ "$VerifyReproducible" = true ]; then
     go build -tags "desktop,production" -trimpath -ldflags "$ldflags"         -o "$reproBinaryPath" ./cmd/cyberagent-desktop
     firstHash="$(shasum -a 256 "$binaryPath" | awk '{print $1}')"
     secondHash="$(shasum -a 256 "$reproBinaryPath" | awk '{print $1}')"
-    rm -f "$reproBinaryPath"
     if [ "$firstHash" != "$secondHash" ]; then
-        die "Desktop reproducibility check failed: consecutive binary hashes differ"
+        die "Desktop reproducibility check failed: consecutive binary hashes differ (first=$firstHash second=$secondHash). Keeping $reproBinaryPath next to $binaryPath for diagnosis."
     fi
+    rm -f "$reproBinaryPath"
     reproducible="true"
 fi
 
