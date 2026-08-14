@@ -81,7 +81,7 @@ macOS 本地构建（D0-Mac）：
 open build/desktop/Prayu.app
 ```
 
-输出为 `build/desktop/Prayu.app` 与同目录启动器/指南，默认不开放 control token；需要 Xcode 命令行工具（codesign）与 `CGO_ENABLED=1`。产物只有 ad-hoc 签名、未公证，是开发/便携测试包，不是正式发行包。macOS 10.15+ 自带 WKWebView，构建不做 WebView2 式运行时预检；启动失败只写入 stderr 并显示有界 osascript 对话框。工作区启动器只通过固定 `/usr/bin/open` 打开已验证的 .app（Finder、Terminal、Antigravity、PyCharm、WebStorm、Visual Studio Code）。系统凭证库、ConPTY 用户终端、受限浏览器与完整 CDP 在 macOS 上保持关闭或失败关闭，凭证请使用环境变量。自动检查通过后 `release_ready` 仍为 false，直到签名、公证与人工 macOS 矩阵完成。
+输出为 `build/desktop/Prayu.app` 与同目录启动器/指南，默认不开放 control token；需要 Xcode 命令行工具（codesign）与 `CGO_ENABLED=1`。产物只有 ad-hoc 签名、未公证，是开发/便携测试包，不是正式发行包。macOS 11+（Big Sur）自带 WKWebView，构建不做 WebView2 式运行时预检；启动失败只写入 stderr 并显示有界 osascript 对话框。工作区启动器只通过固定 `/usr/bin/open` 打开已验证的 .app（Finder、Terminal、Antigravity、PyCharm、WebStorm、Visual Studio Code）。系统凭证库、ConPTY 用户终端、受限浏览器与完整 CDP 在 macOS 上保持关闭或失败关闭，凭证请使用环境变量。自动检查通过后 `release_ready` 仍为 false，直到签名、公证与人工 macOS 矩阵完成。
 
 显式启用受控 Run 创建：
 
@@ -337,7 +337,7 @@ transport、runtime authority 和 capability grant 为 false。
 ## 发布门禁
 
 - Windows 自动化覆盖启动前置条件、关闭/恢复、同库续传和 renderer 边界；Windows 11 x64 已实机验证，Windows 10 x64 仍是正式发行前必过矩阵。
-- macOS 自动化覆盖 desktop-tag 测试、Mach-O/codesign 兼容检查和双构建可复现性；签名、公证与 macOS 10.15+/Retina 实机矩阵是正式发行前必过项，`release_ready` 保持 false。
+- macOS 自动化覆盖 desktop-tag 测试、Mach-O/codesign 兼容检查和双构建可复现性；签名、公证与 macOS 11+/Retina 实机矩阵是正式发行前必过项，`release_ready` 保持 false。
 - 渲染进程无法绕过 Go API 访问 Shell、Docker、密钥或工作区外文件。
 - CLI 与 Desktop 同时运行时，SQLite 不损坏、operation 重放不分叉、Run lease 不被窗口生命周期或 Run 创建偷取。
 - 安装、升级和卸载不会静默删除 Workspace、数据库、凭证或用户创建文件。

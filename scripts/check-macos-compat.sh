@@ -75,6 +75,14 @@ if go version -m "$binary" 2>/dev/null | grep -q "cyberagent-workbench" &&
     GO_BUILD_METADATA_OK="true"
 fi
 
+# The deployment target must match the Go 1.25 darwin minimum (macOS 11). The
+# build script aligns both the cgo compile flags and the bundle plist to 11.0.
+DEPLOYMENT_TARGET="unknown"
+minimumOS="$(otool -l "$binary" | awk '/LC_BUILD_VERSION/{seen=1; next} seen && /minos/{print $2; exit}')"
+if [ -n "$minimumOS" ]; then
+    DEPLOYMENT_TARGET="$minimumOS"
+fi
+
 export MACOS_COMPAT_BINARY="$binary"
 export MACOS_COMPAT_BUNDLE="$bundleDir"
 export MACOS_COMPAT_METADATA="$metadataFile"
@@ -83,6 +91,7 @@ export MACOS_COMPAT_MAGIC_OK="$MAGIC_OK"
 export MACOS_COMPAT_MACHINE="$MACHINE"
 export MACOS_COMPAT_CODESIGN_OK="$CODESIGN_OK"
 export MACOS_COMPAT_GO_BUILD_METADATA_OK="$GO_BUILD_METADATA_OK"
+export MACOS_COMPAT_DEPLOYMENT_TARGET="$DEPLOYMENT_TARGET"
 
 python3 - <<'PYEOF'
 import hashlib
@@ -124,6 +133,11 @@ add_check(
     "macho_arch",
     "pass" if machine in ("amd64", "arm64") and machine == metadata["target_arch"] else "fail",
     "Mach-O CPU type matches the release target",
+)
+add_check(
+    "macho_deployment_target",
+    "pass" if os.environ["MACOS_COMPAT_DEPLOYMENT_TARGET"] == "11.0" else "fail",
+    "Mach-O deployment target matches the Go 1.25 macOS 11 minimum",
 )
 add_check(
     "sha256_binding",

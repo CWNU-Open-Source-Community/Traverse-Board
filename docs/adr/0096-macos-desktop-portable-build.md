@@ -36,9 +36,17 @@ weaker replacements.
    - "darwin && desktop" adds the macOS counterparts. The wv2runtime.error tag
      stays Windows-only; macOS pins the stable WebView2 failure semantics
      without needing it.
+   - The in-process renderer origin gate pins the exact platform authority:
+     request.Host must be wails.localhost on Windows and wails (the custom
+     wails:// scheme host) on macOS, in addition to the wails.io User-Agent
+     token and the empty server-form URL authority.
 2. On macOS, checkDesktopPrerequisites returns nil: WKWebView is bundled with
-   every supported macOS release (Wails v2 requires macOS 10.15 Catalina or
-   newer). No download, installer, or URL is ever triggered.
+   every supported macOS release (the Go 1.25 toolchain requires macOS 11 Big
+   Sur or newer). No download, installer, or URL is ever triggered. The build
+   script pins the cgo compile and link deployment target to 11.0 and the
+   bundle declares LSMinimumSystemVersion 11.0.0, so the clang objects and the
+   final Mach-O carry one consistent deployment target instead of flooding the
+   link with SDK-mismatch warnings.
 3. macOS startup failures print the normalized error to stderr and then show a
    best-effort "display dialog" through the fixed /usr/bin/osascript. The
    message is bounded, path-free, and strictly escaped into a single

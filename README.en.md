@@ -83,7 +83,7 @@ The allowed direction is always `TypeScript -> Go -> LLM/Rust/Docker`. TypeScrip
 - Git 2.41+
 - Node.js 24 for Web/Desktop builds
 - Windows 10/11 and Edge WebView2 Evergreen Runtime for Windows Desktop
-- macOS 10.15+ (bundled WKWebView) and the Xcode command line tools for macOS Desktop
+- macOS 11+ (bundled WKWebView) and the Xcode command line tools for macOS Desktop
 - Rust 1.97.1 only when changing the Analyzer
 - Docker Desktop or a Linux Docker Engine only when developing the Sandbox; ordinary Code workflows do not require Docker
 

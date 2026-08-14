@@ -54,7 +54,7 @@ rustup target add wasm32-wasip1 --toolchain 1.97.1
 
 ### macOS Desktop
 
-macOS 便携构建需要 macOS 10.15+ 与 Xcode 命令行工具（codesign），以及上表中的 Go 1.25、Node.js 24；WKWebView 随系统提供，不需要 WebView2 式预检。前端测试环境固定在 Node.js 24 基线：本地 Node 版本不符时脚本会在前端检查前明确报错（可用 `nvm use 24` 切换，或 `-SkipFrontend` 跳过已构建好的 web/dist）。
+macOS 便携构建需要 macOS 11+（Big Sur）与 Xcode 命令行工具（codesign），以及上表中的 Go 1.25、Node.js 24；WKWebView 随系统提供，不需要 WebView2 式预检。前端测试环境固定在 Node.js 24 基线：本地 Node 版本不符时脚本会在前端检查前明确报错（可用 `nvm use 24` 切换，或 `-SkipFrontend` 跳过已构建好的 web/dist）。
 
 ```bash
 # 在仓库根目录构建未签名、ad-hoc 签名的本地测试包

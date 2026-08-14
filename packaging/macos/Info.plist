@@ -21,7 +21,7 @@
 	<key>CFBundleVersion</key>
 	<string>@VERSION@</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>10.15.0</string>
+	<string>11.0.0</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.developer-tools</string>
 	<key>NSHighResolutionCapable</key>

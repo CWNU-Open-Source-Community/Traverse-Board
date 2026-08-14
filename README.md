@@ -83,7 +83,7 @@ CLI / TUI / React / Windows Desktop / CI
 - Git 2.41+
 - Node.js 24（构建 Web/Desktop 时）
 - Windows Desktop 需要 Windows 10/11 与 Edge WebView2 Evergreen Runtime
-- macOS Desktop 需要 macOS 10.15+（自带 WKWebView）与 Xcode 命令行工具
+- macOS Desktop 需要 macOS 11+（自带 WKWebView）与 Xcode 命令行工具
 - Rust 1.97.1 仅在修改 Analyzer 时需要
 - Docker Desktop 或 Linux Docker Engine 仅在开发 Sandbox 时需要；普通 Code 工作流不依赖 Docker
 
