@@ -238,6 +238,20 @@ const (
 	SandboxDockerProductionEvidenceHarnessReconciledEvent  = "sandbox.docker_production_evidence_harness_reconciled"
 	SandboxDockerProductionEvidenceHarnessCompletedEvent   = "sandbox.docker_production_evidence_harness_completed"
 	SandboxDockerProductionEvidenceReviewedEvent           = "sandbox.docker_production_evidence_reviewed"
+	SandboxDockerInputProjectionPreparedEvent              = "sandbox.docker_input_projection_prepared"
+	SandboxDockerLogCapturePreparedEvent                   = "sandbox.docker_log_capture_prepared"
+	SandboxDockerLogCaptureAcquiredEvent                   = "sandbox.docker_log_capture_acquired"
+	SandboxDockerLogCaptureTakenOverEvent                  = "sandbox.docker_log_capture_taken_over"
+	SandboxDockerLogCaptureFailedEvent                     = "sandbox.docker_log_capture_failed"
+	SandboxDockerLogCaptureCompletedEvent                  = "sandbox.docker_log_capture_completed"
+	SandboxDockerOutputStagingPreparedEvent                = "sandbox.docker_output_staging_prepared"
+	SandboxDockerOutputStagingAcquiredEvent                = "sandbox.docker_output_staging_acquired"
+	SandboxDockerOutputStagingTakenOverEvent               = "sandbox.docker_output_staging_taken_over"
+	SandboxDockerOutputStagingFailedEvent                  = "sandbox.docker_output_staging_failed"
+	SandboxDockerOutputStagingCompletedEvent               = "sandbox.docker_output_staging_completed"
+	SandboxDockerOutputCommitPreparedEvent                 = "sandbox.docker_output_commit_prepared"
+	SandboxDockerOutputCommitFailedEvent                   = "sandbox.docker_output_commit_failed"
+	SandboxDockerOutputCommitCompletedEvent                = "sandbox.docker_output_commit_completed"
 )
 
 type Event struct {
