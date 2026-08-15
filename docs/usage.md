@@ -1070,3 +1070,47 @@ cyberagent context show --task task-demo
 `context compact` is the manual v0.1 version of a Codex-style compaction step. It stores a summary in SQLite and reports how many recent messages remain outside the summary.
 
 Run-scoped WorkItems and Notes are independent from Session compaction, so compacting or replacing conversation history does not remove structured plan or memory records. The Supervisor's token-aware memory selector combines the latest summary with those durable sources before each Run model call.
+
+## MCP Server
+
+`cyberagent mcp serve` runs a Model Context Protocol server over stdio
+(newline-delimited JSON-RPC 2.0, one object per line). It never opens a socket:
+transport is local stdio only.
+
+```powershell
+cyberagent mcp serve --run run-001 --workspace demo
+cyberagent mcp serve --run run-001 --workspace demo --max-concurrent 8 --call-timeout 30s --session-ttl 24h
+```
+
+Each process instance is bound to one Run + Workspace scope. The server accepts
+protocol version `2025-06-18` during the initialize handshake and declares only
+the capabilities it actually implements:
+
+- Tools: `read_file`, `list_workspace` — forwarded through the Unified Tool
+  Gateway, so Policy/Approval/Budget/redaction stay authoritative; results return
+  only redacted metadata, never raw output or private reasoning.
+- Resources: `cyberagent://run/summary`, `cyberagent://run/activity` —
+  display-only projections of public run state.
+
+Bounds: 4 MiB per message, UTF-8 only, strict JSON decoding (unknown fields are
+rejected, so a client cannot smuggle executable/path/credential/permission-tier
+fields), request ids must be unique per session (replays are rejected), at most
+8 concurrent calls (default), 30s per-call timeout (default), session capability
+TTL 24h (default). `notifications/cancelled` cancels an in-flight call. Every
+request is audited as run events with source `mcp_server` (closed event types
+`mcp.initialized`/`mcp.resource_read`/`mcp.tool_denied`/`mcp.tool_completed`).
+
+Client wiring (example launcher config, see `configs/mcp-client.example.json`):
+
+```json
+{
+  "command": "cyberagent",
+  "args": ["mcp", "serve", "--run", "run-001", "--workspace", "demo"],
+  "transport": "stdio",
+  "protocolVersion": "2025-06-18"
+}
+```
+
+Unsupported tools are never published and never callable (method-not-found);
+Shell, Docker sockets, SQLite and remote listen are out of scope for v1.
+
