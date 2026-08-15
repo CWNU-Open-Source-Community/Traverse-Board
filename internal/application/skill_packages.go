@@ -103,7 +103,7 @@ func (s *SkillPackageRegistryService) Import(ctx context.Context,
 	if err != nil {
 		return ImportSkillPackageResult{}, err
 	}
-	parsed, err := skills.ParsePackage(request.Raw)
+	parsed, err := skills.ParsePackageAny(request.Raw)
 	if err != nil {
 		return ImportSkillPackageResult{}, apperror.Wrap(
 			apperror.CodeInvalidArgument, "Skill package failed strict validation", err)
@@ -115,8 +115,8 @@ func (s *SkillPackageRegistryService) Import(ctx context.Context,
 	}
 	keyDigest := runmutation.Fingerprint("skill_package_install_operation.v1", operationKey)
 	now := time.Now().UTC()
-	candidate, err := skills.NewPackageInstallation(idgen.New("skill-install"), parsed,
-		surface, keyDigest, installedBy, now)
+	candidate, err := skills.NewPackageInstallation(idgen.New("skill-install"),
+		parsed.Package(), surface, keyDigest, installedBy, now)
 	if err != nil {
 		return ImportSkillPackageResult{}, apperror.Wrap(
 			apperror.CodeInvalidArgument, "Skill package installation intent is invalid", err)

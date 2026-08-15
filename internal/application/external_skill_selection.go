@@ -24,6 +24,8 @@ type ExternalSkillSelectionStore interface {
 	GetRunMode(context.Context, string) (domain.RunModeSnapshot, error)
 	GetInstalledPackageByRef(context.Context, string, string) (
 		skills.InstalledPackage, bool, error)
+	ActiveSkillCatalogPin(context.Context, string, domain.ExecutionSurface) (
+		skills.CatalogPin, bool, error)
 	GetExternalSkillSelection(context.Context, string) (skills.ExternalSelection, error)
 	GetExternalSkillSelectionByRun(context.Context, string) (
 		skills.ExternalSelection, bool, error)
@@ -128,6 +130,21 @@ func (s *ExternalSkillSelectionService) Select(ctx context.Context,
 		if !found {
 			return SelectExternalSkillsResult{}, apperror.New(apperror.CodeNotFound,
 				"installed external Skill package was not found: "+ref)
+		}
+		// A catalog pin, when present, is the enable/disable and active-version
+		// decision: a disabled or non-pinned version cannot be selected. Skills
+		// without any pin keep the existing operator-confirmed flow.
+		if pin, pinned, err := s.store.ActiveSkillCatalogPin(ctx, name, mode.Surface); err != nil {
+			return SelectExternalSkillsResult{}, apperror.Normalize(err)
+		} else if pinned {
+			if !pin.Enabled {
+				return SelectExternalSkillsResult{}, apperror.New(apperror.CodePolicyDenied,
+					"external Skill is disabled by its catalog pin: "+ref)
+			}
+			if pin.Version != version {
+				return SelectExternalSkillsResult{}, apperror.New(apperror.CodePolicyDenied,
+					"external Skill version is not the catalog-pinned version: "+ref)
+			}
 		}
 		packages = append(packages, installed)
 	}

@@ -168,6 +168,12 @@ func NewPackageInstallation(id string, parsed *SkillPackage, surface domain.Exec
 		InstalledBy:            strings.TrimSpace(installedBy), CreatedAt: createdAt.UTC(),
 		OperatorConfirmed: true,
 	}
+	// A valid signature is evidence of provenance, not trust: signed packages
+	// install under the same untrusted class. The signature identity is kept
+	// by the catalog import ledger, which owns the trust decision.
+	if value.TrustClass == PackageTrustSignedUntrusted {
+		value.TrustClass = PackageTrustOperatorInstalledUntrusted
+	}
 	value.RequestFingerprint = PackageInstallationIntentFingerprint(value)
 	value.InstallationFingerprint = PackageInstallationFingerprint(value)
 	if err := value.Validate(); err != nil {
@@ -193,8 +199,9 @@ func (i PackageInstallation) Validate() error {
 	}
 	if !validSHA256(i.ArchiveSHA256) || !validSHA256(i.PackageFingerprint) ||
 		i.ArchiveBytes <= 0 || i.ArchiveBytes > MaxPackageArchiveBytes ||
-		i.UncompressedBytes <= 0 || i.UncompressedBytes > MaxPackageUncompressedBytes ||
-		i.EntryCount != PackageEntryCount || i.TrustClass != PackageTrustOperatorInstalledUntrusted {
+		i.UncompressedBytes <= 0 || i.UncompressedBytes > SignedPackageUncompressedBytes ||
+		(i.EntryCount != PackageEntryCount && i.EntryCount != SignedPackageEntryCount) ||
+		i.TrustClass != PackageTrustOperatorInstalledUntrusted {
 		return errors.New("skill package installation archive metadata is invalid")
 	}
 	wantRisks := []PackageRiskCode{

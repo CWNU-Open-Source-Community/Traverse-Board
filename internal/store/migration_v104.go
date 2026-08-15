@@ -1,0 +1,67 @@
+package store
+
+var skillCatalogStatements = []string{
+	`CREATE TABLE skill_catalog_publishers (
+		fingerprint TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		team TEXT NOT NULL DEFAULT '',
+		public_key TEXT NOT NULL,
+		trust_class TEXT NOT NULL,
+		trusted_by TEXT NOT NULL DEFAULT '',
+		trusted_at TEXT,
+		revoked_by TEXT NOT NULL DEFAULT '',
+		revoked_at TEXT,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL,
+		CHECK(length(fingerprint) = 64 AND fingerprint = lower(fingerprint)),
+		CHECK(length(name) BETWEEN 1 AND 96 AND instr(name, char(0)) = 0),
+		CHECK(length(team) <= 128 AND instr(team, char(0)) = 0),
+		CHECK(length(public_key) BETWEEN 1 AND 128 AND instr(public_key, char(0)) = 0),
+		CHECK(trust_class IN ('trusted', 'revoked')),
+		CHECK((trust_class = 'trusted') = (trusted_at IS NOT NULL AND revoked_at IS NULL)),
+		CHECK(julianday(created_at) IS NOT NULL AND julianday(updated_at) IS NOT NULL)
+	);`,
+	`CREATE TABLE skill_catalog_pins (
+		skill_name TEXT NOT NULL,
+		surface TEXT NOT NULL,
+		version TEXT NOT NULL,
+		enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0, 1)),
+		pinned_by TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL,
+		PRIMARY KEY(skill_name, surface),
+		CHECK(surface IN ('code', 'cyber')),
+		CHECK(length(skill_name) BETWEEN 1 AND 64 AND instr(skill_name, char(0)) = 0),
+		CHECK(length(version) BETWEEN 1 AND 64 AND instr(version, char(0)) = 0),
+		CHECK(julianday(created_at) IS NOT NULL AND julianday(updated_at) IS NOT NULL)
+	) WITHOUT ROWID;`,
+	`CREATE TABLE skill_catalog_imports (
+		id TEXT PRIMARY KEY,
+		source_kind TEXT NOT NULL,
+		source TEXT NOT NULL,
+		pin TEXT NOT NULL,
+		archive_sha256 TEXT NOT NULL,
+		package_fingerprint TEXT NOT NULL,
+		publisher_fingerprint TEXT NOT NULL DEFAULT '',
+		imported_by TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		CHECK(source_kind IN ('url', 'git', 'local')),
+		CHECK(length(source) <= 4096 AND instr(source, char(0)) = 0),
+		CHECK(length(pin) BETWEEN 1 AND 128 AND instr(pin, char(0)) = 0),
+		CHECK(length(archive_sha256) = 64 AND length(package_fingerprint) = 64),
+		CHECK(length(id) BETWEEN 1 AND 256 AND instr(id, char(0)) = 0),
+		CHECK(julianday(created_at) IS NOT NULL)
+	);`,
+	`CREATE TABLE skill_catalog_audit (
+		sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+		event_type TEXT NOT NULL,
+		subject TEXT NOT NULL,
+		payload_json TEXT NOT NULL DEFAULT '{}',
+		actor TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		CHECK(event_type IN ('catalog.trusted', 'catalog.revoked', 'catalog.pinned', 'catalog.enabled', 'catalog.disabled', 'import.completed')),
+		CHECK(json_valid(payload_json)),
+		CHECK(length(subject) <= 256 AND instr(subject, char(0)) = 0),
+		CHECK(julianday(created_at) IS NOT NULL)
+	);`,
+}
