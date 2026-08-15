@@ -685,7 +685,9 @@ func TestHarnessQualificationIsSyntheticExactAndDurable(t *testing.T) {
 		result.Harness.QualificationStatus != llm.HarnessQualificationVerified {
 		t.Fatalf("unexpected Harness qualification result: %#v", result)
 	}
-	if len(settings) != 1 {
+	if len(settings) != 2 {
+		// One persisted Harness qualification plus one qualification-status
+		// projection.
 		t.Fatalf("qualification persistence count=%d", len(settings))
 	}
 
@@ -729,8 +731,9 @@ func TestHarnessQualificationRejectsResponseModelDrift(t *testing.T) {
 	if result.Status != HarnessDiagnosticIncompatible ||
 		result.Outcome != string(llm.OutcomeInvalidResponse) ||
 		result.FailureReason != llm.ProviderFailureProtocolIncompatible ||
+		result.QualificationStatus != QualificationStatusProtocolMismatch ||
 		result.ModelCalls != 1 || result.Harness.RootEligible ||
-		len(settings) != 0 {
+		len(settings) != 1 {
 		t.Fatalf("response identity drift was accepted: result=%#v settings=%#v",
 			result, settings)
 	}

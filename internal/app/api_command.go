@@ -230,6 +230,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		ControlledCommandProposalController:     controlledCommandProposals,
 		HostCommandProposalController:           hostCommandProposalControl,
 		ModelControlController:                  modelControl,
+		PriceSnapshotController:                 a.store,
 		ProviderCredentialController:            providerCredentialControl,
 		FileEditReviewController:                fileEditReview,
 		FileEditProposalController:              fileEditProposal,

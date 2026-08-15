@@ -114,6 +114,7 @@ type DiagnosticResult struct {
 	ModelCalled             bool
 	ToolCalled              bool
 	ResponseContentReturned bool
+	QualificationStatus     string
 	DurationMillis          int64
 }
 
@@ -142,6 +143,7 @@ type Registry struct {
 	credentials     credentialLookup
 	generation      uint64
 	ollama          *llm.OllamaProvider
+	qualificationStatuses map[string]persistedQualificationStatus
 }
 
 type anthropicEnvironment struct {
@@ -218,6 +220,7 @@ func buildRegistry(ctx context.Context, lookup EnvironmentLookup,
 		}},
 		available: map[string]struct{}{"mock": {}}, lookup: lookup,
 		credentials: credentials, generation: 1,
+		qualificationStatuses: make(map[string]persistedQualificationStatus),
 	}
 	configs := []anthropicEnvironment{
 		{name: "mimo", apiKeyEnv: "MIMO_API_KEY", baseURLEnv: "MIMO_BASE_URL",
@@ -346,7 +349,14 @@ func (r *Registry) LoadRouteSettings(ctx context.Context, reader RouteSettingRea
 		}
 		r.router.SetRoute(route, ref)
 	}
-	return r.loadHarnessQualifications(ctx, reader)
+	if err := r.loadHarnessQualifications(ctx, reader); err != nil {
+		return err
+	}
+	statuses := r.loadQualificationStatuses(ctx, reader)
+	r.mu.Lock()
+	r.qualificationStatuses = statuses
+	r.mu.Unlock()
+	return nil
 }
 
 func (r *Registry) SelectRoute(ctx context.Context, writer RouteSettingWriter,
@@ -409,8 +419,9 @@ func (r *Registry) Diagnose(ctx context.Context, provider string,
 		return DiagnosticResult{
 			ProtocolVersion: DiagnosticProtocolVersion,
 			Provider:        provider, Model: model, Status: DiagnosticUnreachable,
-			Outcome:       string(llm.OutcomePermanent),
-			FailureReason: llm.ProviderFailureNotConfigured,
+			Outcome:            string(llm.OutcomePermanent),
+			FailureReason:      llm.ProviderFailureNotConfigured,
+			QualificationStatus: QualificationStatusNotConfigured,
 		}, nil
 	}
 	if providerStatus != ProviderAvailable {
@@ -448,16 +459,19 @@ func (r *Registry) Diagnose(ctx context.Context, provider string,
 		result.Outcome = string(outcome)
 		result.FailureReason = providerErr.Reason
 		result.Retryable = outcome.Retryable()
+		result.QualificationStatus = QualificationStatusFor(outcome, providerErr.Reason)
 		return result, nil
 	}
 	if response == nil || strings.TrimSpace(response.Provider) != provider {
 		result.Outcome = string(llm.OutcomeInvalidResponse)
 		result.FailureReason = llm.ProviderFailureProtocolIncompatible
+		result.QualificationStatus = QualificationStatusProtocolMismatch
 		return result, nil
 	}
 	result.Status = DiagnosticReachable
 	result.Outcome = string(llm.OutcomeSuccess)
 	result.FailureReason = llm.ProviderFailureNone
+	result.QualificationStatus = QualificationStatusAvailable
 	return result, nil
 }
 
@@ -484,6 +498,20 @@ func (r *Registry) Snapshot() Snapshot {
 					harnessAvailability(model, profile))
 			} else if fallback, found := harnessForModel(configuredHarnesses, model); found {
 				providers[index].Harnesses = append(providers[index].Harnesses, fallback)
+			}
+		}
+		for harnessIndex := range providers[index].Harnesses {
+			key := provider.Name + "." + providers[index].Harnesses[harnessIndex].Model
+			if status, ok := r.qualificationStatuses[key]; ok {
+				providers[index].Harnesses[harnessIndex].LatestQualificationStatus = status.Status
+				providers[index].Harnesses[harnessIndex].QualificationCheckedAt = status.CheckedAt
+				providers[index].Harnesses[harnessIndex].QualificationSource =
+					normalizeQualificationStatusSource(status.Source)
+			} else if provider.Status == ProviderNotConfigured {
+				providers[index].Harnesses[harnessIndex].LatestQualificationStatus =
+					QualificationStatusNotConfigured
+				providers[index].Harnesses[harnessIndex].QualificationSource =
+					qualificationStatusSourceAvailability
 			}
 		}
 	}

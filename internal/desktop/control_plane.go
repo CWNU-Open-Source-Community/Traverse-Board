@@ -301,6 +301,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		ControlledCommandProposalController:     controlledCommandProposals,
 		HostCommandProposalController:           hostCommandProposals,
 		ModelControlController:                  modelControl,
+		PriceSnapshotController:                 stateStore,
 		ProviderCredentialController:            providerCredentialControl,
 		FileEditReviewController:                fileEditReview,
 		FileEditProposalController:              fileEditProposal,

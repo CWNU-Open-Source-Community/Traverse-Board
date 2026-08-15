@@ -47,10 +47,13 @@ type HarnessAvailability struct {
 	ToolResultsQualified   bool
 	StrictJSONQualified    bool
 	StreamingQualified     bool
-	RootEligible           bool
-	StructuredJSONEligible bool
-	QualifiedAt            string
-	ExpiresAt              string
+	RootEligible              bool
+	StructuredJSONEligible    bool
+	LatestQualificationStatus string
+	QualificationCheckedAt    string
+	QualificationSource       string
+	QualifiedAt               string
+	ExpiresAt                 string
 }
 
 type HarnessQualificationResult struct {
@@ -66,6 +69,7 @@ type HarnessQualificationResult struct {
 	SyntheticToolCalls      int
 	ToolExecuted            bool
 	ResponseContentReturned bool
+	QualificationStatus     string
 	DurationMillis          int64
 	Harness                 HarnessAvailability
 }
@@ -115,9 +119,10 @@ func (r *Registry) QualifyHarness(ctx context.Context, writer RouteSettingWriter
 		return HarnessQualificationResult{
 			ProtocolVersion: HarnessQualificationProtocolVersion,
 			Provider:        provider, Model: model, Status: HarnessDiagnosticUnreachable,
-			Outcome:       string(llm.OutcomePermanent),
-			FailureReason: llm.ProviderFailureNotConfigured,
-			Harness:       fallbackHarness,
+			Outcome:            string(llm.OutcomePermanent),
+			FailureReason:      llm.ProviderFailureNotConfigured,
+			QualificationStatus: QualificationStatusNotConfigured,
+			Harness:            fallbackHarness,
 		}, nil
 	}
 	if providerStatus != ProviderAvailable {
@@ -145,12 +150,18 @@ func (r *Registry) QualifyHarness(ctx context.Context, writer RouteSettingWriter
 		result.Status = HarnessDiagnosticQualified
 		result.Outcome = string(llm.OutcomeSuccess)
 		result.FailureReason = llm.ProviderFailureNone
+		result.QualificationStatus = QualificationStatusAvailable
+		r.persistQualificationStatus(ctx, writer, provider, model,
+			QualificationStatusAvailable, qualificationStatusSourceHarness)
 		return result, nil
 	}
 	if base.ToolStrategy != llm.HarnessToolStrategyNative ||
 		base.JSONStrategy == llm.HarnessJSONStrategyNone {
 		result.Outcome = string(llm.OutcomeInvalidResponse)
 		result.FailureReason = llm.ProviderFailureProtocolIncompatible
+		result.QualificationStatus = QualificationStatusProtocolMismatch
+		r.persistQualificationStatus(ctx, writer, provider, model,
+			QualificationStatusProtocolMismatch, qualificationStatusSourceHarness)
 		return result, nil
 	}
 	qualificationCtx, cancel := context.WithTimeout(ctx, HarnessQualificationTimeout)
@@ -169,9 +180,13 @@ func (r *Registry) QualifyHarness(ctx context.Context, writer RouteSettingWriter
 		result.Outcome = string(providerErr.Kind)
 		result.FailureReason = providerErr.Reason
 		result.Retryable = providerErr.Kind.Retryable()
+		result.QualificationStatus = QualificationStatusFor(providerErr.Kind,
+			providerErr.Reason)
 		if providerErr.Kind != llm.OutcomeInvalidResponse {
 			result.Status = HarnessDiagnosticUnreachable
 		}
+		r.persistQualificationStatus(ctx, writer, provider, model,
+			result.QualificationStatus, qualificationStatusSourceHarness)
 		return result, nil
 	}
 
@@ -209,7 +224,10 @@ func (r *Registry) QualifyHarness(ctx context.Context, writer RouteSettingWriter
 	result.Outcome = string(llm.OutcomeSuccess)
 	result.FailureReason = llm.ProviderFailureNone
 	result.Retryable = false
+	result.QualificationStatus = QualificationStatusAvailable
 	result.Harness = harnessAvailability(model, verified)
+	r.persistQualificationStatus(ctx, writer, provider, model,
+		QualificationStatusAvailable, qualificationStatusSourceHarness)
 	return result, nil
 }
 

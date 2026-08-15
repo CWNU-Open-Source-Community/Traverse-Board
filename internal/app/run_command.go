@@ -21,6 +21,7 @@ import (
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/executionauth"
 	"cyberagent-workbench/internal/idgen"
+	"cyberagent-workbench/internal/pricing"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/runner"
@@ -802,7 +803,8 @@ func (a *App) runFanoutExecute(ctx context.Context, args []string) error {
 		return errors.New("usage: cyberagent run fanout execute <plan-id> --operation-key <key> [--operator <id>] [--max-output-tokens <128..4096>]")
 	}
 	result, err := application.NewReadOnlyFanoutExecutionService(a.store, a.router,
-		a.checker).Execute(ctx, application.ExecuteReadOnlyFanoutRequest{
+		a.checker).WithMonetaryBudget(application.NewMonetaryBudgetService(a.store)).
+		Execute(ctx, application.ExecuteReadOnlyFanoutRequest{
 		PlanID: fs.Arg(0), OperationKey: *operationKey, RequestedBy: *operator,
 		MaxOutputTokensPerShard: *maxOutputTokens,
 	})
@@ -1230,6 +1232,25 @@ func (a *App) runUsage(ctx context.Context, service *application.RunService, arg
 		fmt.Fprintf(a.out, "turns_completed: %d\ninput_tokens: %d\noutput_tokens: %d\ntotal_tokens: %d\nexecution_millis: %d\n",
 			checkpoint.NextTurn-1, checkpoint.InputTokens, checkpoint.OutputTokens,
 			checkpoint.TotalTokens, checkpoint.ExecutionMillis)
+	}
+	monetary, err := a.store.GetMonetaryUsage(ctx, run.ID)
+	if err != nil {
+		return err
+	}
+	if monetary.Tracked {
+		fmt.Fprintf(a.out, "monetary_cap_usd: %s\nmonetary_reserved_usd: %s\nmonetary_settled_usd: %s\nmonetary_released_usd: %s\nmonetary_remaining_usd: %s\nmonetary_estimate_source: %s\n",
+			pricing.MicrosToUSD(monetary.CapMicros),
+			pricing.MicrosToUSD(monetary.ReservedMicros),
+			pricing.MicrosToUSD(monetary.SettledMicros),
+			pricing.MicrosToUSD(monetary.ReleasedMicros),
+			pricing.MicrosToUSD(monetary.RemainingMicros),
+			monetary.EstimateSource)
+		if monetary.ExhaustedAt != nil {
+			fmt.Fprintf(a.out, "monetary_budget_exhausted_at: %s\n",
+				monetary.ExhaustedAt.Format(time.RFC3339))
+		}
+	} else {
+		fmt.Fprintln(a.out, "monetary_tracked: false")
 	}
 	return nil
 }

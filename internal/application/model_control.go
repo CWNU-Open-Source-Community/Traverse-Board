@@ -101,6 +101,10 @@ func (s *ModelControlService) Diagnose(ctx context.Context,
 	if err != nil {
 		return modelregistry.DiagnosticResult{}, apperror.Normalize(err)
 	}
+	if s.settings != nil && result.QualificationStatus != "" {
+		modelregistry.PersistQualificationStatus(ctx, s.settings, request.Provider,
+			request.Model, result.QualificationStatus, "diagnostic")
+	}
 	return result, nil
 }
 

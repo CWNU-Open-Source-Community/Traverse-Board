@@ -479,6 +479,7 @@ func providerDiagnosticView(result modelregistry.DiagnosticResult) ProviderDiagn
 		NetworkRequestAttempted: result.NetworkRequestAttempted,
 		ModelCalled:             result.ModelCalled, ToolCalled: result.ToolCalled,
 		ResponseContentReturned: result.ResponseContentReturned,
+		QualificationStatus:     result.QualificationStatus,
 		DurationMillis:          result.DurationMillis}
 }
 
@@ -493,9 +494,12 @@ func modelHarnessAvailabilityView(
 		ToolResultsQualified:   value.ToolResultsQualified,
 		StrictJSONQualified:    value.StrictJSONQualified,
 		StreamingQualified:     value.StreamingQualified,
-		RootEligible:           value.RootEligible,
-		StructuredJSONEligible: value.StructuredJSONEligible,
-		QualifiedAt:            value.QualifiedAt, ExpiresAt: value.ExpiresAt,
+		RootEligible:              value.RootEligible,
+		StructuredJSONEligible:    value.StructuredJSONEligible,
+		LatestQualificationStatus: value.LatestQualificationStatus,
+		QualificationCheckedAt:    value.QualificationCheckedAt,
+		QualificationSource:       value.QualificationSource,
+		QualifiedAt:               value.QualifiedAt, ExpiresAt: value.ExpiresAt,
 	}
 }
 
@@ -511,6 +515,7 @@ func modelHarnessQualificationView(
 		ModelCalls:              result.ModelCalls, SyntheticToolCalls: result.SyntheticToolCalls,
 		ToolExecuted:            result.ToolExecuted,
 		ResponseContentReturned: result.ResponseContentReturned,
+		QualificationStatus:     result.QualificationStatus,
 		DurationMillis:          result.DurationMillis,
 		Harness:                 modelHarnessAvailabilityView(result.Harness),
 	}

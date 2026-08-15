@@ -184,6 +184,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/models/prices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List operator price snapshots
+         * @description Returns the bounded imported price table history with entry-level micro-USD prices. Prices are operator configuration, never Provider output.
+         */
+        get: operations["listPriceSnapshots"];
+        put?: never;
+        /**
+         * Import an operator price snapshot
+         * @description Atomically replaces the active operator price table from one bounded document. Same-content imports replay idempotently; a Provider, README, Skill, or repository file can never reach this operation.
+         */
+        post: operations["importPriceSnapshot"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/models/routes/{route}": {
         parameters: {
             query?: never;
@@ -3306,9 +3330,13 @@ export interface components {
             expires_at: string;
             /** @enum {string} */
             json_strategy: "native" | "prompt" | "none";
+            /** @enum {string} */
+            latest_qualification_status: "" | "not_configured" | "available" | "protocol_mismatch" | "auth_failed" | "network_failed" | "rate_limit" | "capacity" | "model_unsupported";
             model: string;
             /** @enum {string} */
             protocol_version: "model_harness.v1";
+            qualification_checked_at: string;
+            qualification_source: string;
             /** @enum {string} */
             qualification_status: "trusted_builtin" | "qualification_required" | "verified";
             qualified_at: string;
@@ -3345,6 +3373,8 @@ export interface components {
             /** @enum {string} */
             protocol_version: "model_harness_qualification.v1";
             provider: string;
+            /** @enum {string} */
+            qualification_status: "not_configured" | "available" | "protocol_mismatch" | "auth_failed" | "network_failed" | "rate_limit" | "capacity" | "model_unsupported";
             response_content_returned: boolean;
             retryable: boolean;
             /** @enum {string} */
@@ -3611,6 +3641,52 @@ export interface components {
             /** @enum {string} */
             version: "plan_delivery_control.v1";
         };
+        PriceEntryView: {
+            /** Format: int64 */
+            cache_read_per_million_micros: number;
+            /** Format: int64 */
+            input_per_million_micros: number;
+            model: string;
+            /** Format: int64 */
+            output_per_million_micros: number;
+            provider: string;
+            /** Format: int64 */
+            tool_call_micros: number;
+        };
+        PriceSnapshotImportRequestView: {
+            document: string;
+            version: string;
+        };
+        PriceSnapshotImportView: {
+            currency: string;
+            /** Format: int32 */
+            entry_count: number;
+            fingerprint: string;
+            id: string;
+            protocol_version: string;
+            replayed: boolean;
+            source: string;
+        };
+        PriceSnapshotItemView: {
+            currency: string;
+            entries: components["schemas"]["PriceEntryView"][];
+            /** Format: int32 */
+            entry_count: number;
+            fingerprint: string;
+            id: string;
+            /** Format: date-time */
+            imported_at: string;
+            imported_by: string;
+            source: string;
+            /** Format: date-time */
+            valid_from: string;
+            /** Format: date-time */
+            valid_until: string;
+        };
+        PriceSnapshotListView: {
+            items: components["schemas"]["PriceSnapshotItemView"][];
+            protocol_version: string;
+        };
         ProviderAvailabilityView: {
             configuration_error: boolean;
             /** @enum {string} */
@@ -3671,6 +3747,8 @@ export interface components {
             /** @enum {string} */
             protocol_version: "provider_diagnostic.v1";
             provider: string;
+            /** @enum {string} */
+            qualification_status: "not_configured" | "available" | "protocol_mismatch" | "auth_failed" | "network_failed" | "rate_limit" | "capacity" | "model_unsupported";
             response_content_returned: boolean;
             retryable: boolean;
             /** @enum {string} */
@@ -5758,6 +5836,76 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["ModelHarnessQualificationView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listPriceSnapshots: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PriceSnapshotListView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    importPriceSnapshot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PriceSnapshotImportRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PriceSnapshotImportView"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";
