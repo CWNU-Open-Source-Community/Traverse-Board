@@ -646,6 +646,131 @@ The resulting sixteen items are all `observed_failed` with `production_verified_
 
 An accepted v68 decision classifies only the bounded metadata receipt. It still reports `production_verified_count=0`, `sufficient_check_count=0`, and `blocker_count=16`, with start, process, output, and Artifact authority all false. Review performs no Docker request and migration creates no decision for legacy or incomplete receipts. List/show output omits raw operation keys, daemon payloads, resources, paths, sockets, and free-form narratives.
 
+## Docker Sandbox 产品执行 / Docker Sandbox Product Execution
+
+Schema v99 不改写上面的历史链：v97 lifecycle 与 v98 I/O 仍是非授权事实，只有新的
+`DockerSandboxService` 能在**当前进程**同时满足所有门禁后创建产品 admission。默认
+capability 为关闭，SQLite 中只保存 runtime epoch 的摘要，重启或修改数据库都不能恢复
+start authority。CLI、HTTP、Desktop 和模型提案复用同一服务；模型工具
+`sandbox_docker_run_propose` 只能提交严格 `{version,plan_id,manifest}` 并调用 Admit，
+不能启动容器或提交 endpoint、Docker flag、host bind、环境变量、代理、镜像覆盖与网络
+放宽。
+
+### 前置条件 / Prerequisites
+
+1. 使用 v48-v54 流程得到当前、精确、已经 per-call 批准的 Docker plan；Manifest 必须与
+   plan 完全一致。
+2. Run 的当前 execution profile 必须为 `docker`，当前 permission 必须是
+   `approval|full_access|debug`；持久快照不等于 runtime capability。
+3. Manifest 必须 environment-free、secret-free、`network.mode=disabled` 且零 target。
+   allowlist 当前固定失败为 `managed_egress_unavailable`，因为 exact
+   host/port/protocol 的 Go-owned egress guard 尚未实现。
+4. 本机固定 Docker endpoint 必须可达，使用 Linux containers，支持兼容 API 与 PIDs
+   limit，并已存在 plan 绑定的精确 OCI digest 镜像。产品不会 pull，也不会回退到宿主。
+5. CPU、memory、PIDs、disk/output、wall-clock、log 和剩余 Tool-call budget 必须同时
+   可用。范围为 CPU `1..8000 ms`、memory `16 MiB..8 GiB`、PIDs `1..512`、输出总量
+   `1 byte..16 MiB`、wall clock `1..3600s`；日志每个流最多 256 KiB/4096 行，输出最多
+   64 个文件且单文件最多 4 MiB。
+
+Profile 与 permission 可分别这样选择；操作者、Run 状态与 operation key 必须满足原有
+命令约束：
+
+```powershell
+cyberagent run execution-profile set <run-id> docker `
+  --operation-key profile-docker-0001
+
+cyberagent run execution-permission set <run-id> approval `
+  --operation-key permission-approval-0001 `
+  --enable-permission-control --confirm-user-approval
+```
+
+若当前 permission 是 `full_access`，执行进程还必须带
+`--enable-danger-full-access`；`debug` 还必须带
+`--enable-debug-maximum-access`。更高档位不会替代 exact `sandbox.manifest`
+per-call approval。
+
+### CLI
+
+Product commands intentionally use only `--manifest-file`; inline Manifest、`--manifest`、
+Docker endpoint/flag/mount overrides are rejected.
+
+```powershell
+# Disabled/default process: stable disabled readiness, no Docker write.
+cyberagent run sandbox docker-readiness <plan-id> `
+  --manifest-file <manifest.json>
+
+# Enabled readiness and exact admission.
+cyberagent run sandbox docker-readiness <plan-id> `
+  --manifest-file <manifest.json> `
+  --enable-docker-execution --enable-permission-control
+
+cyberagent run sandbox docker-admit <plan-id> `
+  --manifest-file <manifest.json> `
+  --operation-key docker-admit-0001 --operator cli_operator `
+  --enable-docker-execution --enable-permission-control
+
+# docker-start performs a fresh Admit + Start in the same process. Admission
+# and Start have independent replay keys and each key must remain stable.
+cyberagent run sandbox docker-start <plan-id> `
+  --manifest-file <manifest.json> `
+  --admission-operation-key docker-admit-for-start-0001 `
+  --operation-key docker-start-0001 --operator cli_operator `
+  --enable-docker-execution --enable-permission-control
+
+cyberagent run sandbox docker-status <admission-id>
+cyberagent run sandbox docker-cancel <admission-id> `
+  --operation-key docker-cancel-0001 --operator cli_operator
+```
+
+`docker-start` is synchronous. Another client may issue cancellation while it is active; a
+terminal attempt rejects a new cancellation unless it is the exact replay of the already
+committed cancelled result. Status progresses through `admitted|launched|terminal` and terminal
+outcomes are `succeeded|timed_out|cancelled|failed`.
+
+Readiness uses `sandbox.readiness.v1`, a fresh 30-second result with
+`ready|disabled|unavailable`, a stable reason/remediation, endpoint fingerprint, capacity facts,
+and no mutation. Admission and the final pre-start fence both repeat current authority and
+readiness checks. See the complete reason/remediation tables in
+[HTTP API](http-api.md).
+
+### HTTP 与 Desktop / HTTP and Desktop
+
+Start the HTTP process only with a distinct control token and explicit capabilities:
+
+```powershell
+$env:CYBERAGENT_API_TOKEN = "<read-token-at-least-32-bytes>"
+$env:CYBERAGENT_API_CONTROL_TOKEN = "<different-control-token-at-least-32-bytes>"
+cyberagent api serve --listen 127.0.0.1:8765 `
+  --enable-permission-control --enable-docker-execution
+```
+
+The routes are `POST /api/v1/sandbox/docker/readiness`, `POST .../admissions`,
+`POST .../starts`, `POST .../cancellations`, and
+`GET .../status?admission_id=...`. Readiness and status use the read bearer;
+the other POSTs use the control bearer plus independent `Idempotency-Key`
+headers. Exact JSON examples are in [Local HTTP API](http-api.md).
+
+Desktop likewise requires `--enable-permission-control --enable-docker-execution` at process
+startup. The renderer receives only the projected capability/readiness/status and calls the
+in-process HTTP handler; it cannot set the process flag, runtime epoch, Policy decision,
+permission, approval, daemon endpoint, Manifest extension, or Docker configuration.
+
+### 退出、输出与恢复 / Exit, Output, and Recovery
+
+After the exact exited checkpoint, Go captures bounded stdout/stderr before cleanup. Only natural
+exit `0` plus a fresh current Artifact-authority check can export the dedicated output mount,
+strictly validate/stage files, re-read/re-hash them, and atomically commit output records. Timeout,
+cancellation, non-zero exit, I/O failure, and authority change never commit outputs. Cleanup still
+runs and every product terminal receipt requires `cleanup_complete=true`.
+
+Cancellation is sticky: it is persisted before the active context is signalled or an expired
+lease is taken over. Startup recovery considers only records that already have a durable launch
+binding. It may reconcile, stop, and clean the exact nine-label/configuration match without a new
+start capability; an admission-only record is not auto-started, and a restarted process cannot
+use the old runtime epoch to start a created container. Unknown, partial, legacy, foreign, or
+mismatched containers are untouched. See
+[ADR 0099](adr/0099-docker-sandbox-product-admission-and-recovery.md).
+
 The full v67 five-GET harness has a default-skipped Linux integration test. It requires an exact image already present in the local daemon and never pulls, creates, starts, or deletes anything:
 
 ```powershell

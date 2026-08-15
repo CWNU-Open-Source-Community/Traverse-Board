@@ -63,7 +63,7 @@ The allowed direction is always `TypeScript -> Go -> LLM/Rust/Docker`. TypeScrip
 | Tools and permissions | Tool Gateway, JSON Schema validation, Policy, Scope, human approval, four host-permission tiers, and fixed-command proposals |
 | Code workflows | Native folder selection and Workspace import, workspace browsing, repository state/history, diff review, file-edit proposals, verification plans, Code Journey, and Handoff |
 | Observability | Append-only Run events, Live Activity, public model commentary, Harness facts, Artifacts, Findings/Evidence/Reports, and SARIF |
-| Extension seams | Inert Skill packages, Provider and Tool interfaces, Go/Rust JSON protocol, embedded WASI Analyzer, Sandbox contracts, and a non-authorizing Docker lifecycle probe |
+| Extension seams | Inert Skill packages, Provider and Tool interfaces, Go/Rust JSON protocol, embedded WASI Analyzer, Sandbox contracts, and a network-none Docker product execution that is disabled by default |
 | Clients | `cyberagent` CLI, Bubble Tea TUI, authenticated HTTP/OpenAPI, React/Vite, and Windows/macOS Desktop portable preview |
 
 ### Security boundaries
@@ -71,9 +71,34 @@ The allowed direction is always `TypeScript -> Go -> LLM/Rust/Docker`. TypeScrip
 - Provider-private thinking, raw prompts, raw deltas, tool arguments, raw tool output, and API keys are never exposed as public activity.
 - File edits, host commands, browser CDP, terminal input, and Sandbox execution are independent authorization surfaces.
 - Conservative commands use Go-owned fixed templates. General host execution and Debug authority cannot be enabled by a model, Skill, or repository document.
-- Docker now validates `start -> wait -> timeout/cancel -> SIGTERM/SIGKILL -> cleanup` on fixed local endpoints, but only as a package-private, non-authorizing engineering probe. Runs, Agents, CLI, API, and Desktop cannot invoke it, and the product Sandbox entry remains closed.
+- The Docker Sandbox product entry is disabled by default. An explicit process capability, the current `docker` Profile, a matching permission tier, an exact per-call approval, Policy, budgets, and a 30-second readiness check must all hold at once; database records can never restore start authority after a restart.
+- Product execution currently accepts only environment-free, secret-free `network=disabled` Manifests and pins `network none` on both the Docker create and inspect sides. Allowlist/scoped egress still lacks a Go-owned host/port/protocol guard, so it always fails closed with `managed_egress_unavailable`; there is no host fallback when Docker is unavailable.
 - The built-in browser has no product entry point yet. A restricted runtime core exists, but independent OS/container network-containment evidence is incomplete.
 - Windows/macOS Desktop are currently unsigned developer/operator portable previews, not released installers; the macOS artifact is only ad-hoc signed and not notarized.
+
+### Docker Sandbox product entry (disabled by default)
+
+Schema v99 composes the v97 recoverable lifecycle with the v98 bounded I/O contract
+behind one Go `DockerSandboxService`. The CLI, HTTP/OpenAPI, Desktop, and the model
+proposal all reuse that service; the model tool `sandbox_docker_run_propose` can only
+request admission — it cannot start a container or submit Docker flags, a daemon
+endpoint, host binds, environment variables, or network relaxation.
+
+```powershell
+# Without the capability this returns the stable disabled readiness and never
+# touches Docker write endpoints.
+cyberagent run sandbox docker-readiness <plan-id> --manifest-file <manifest.json>
+
+# Real admission/start requires Docker and permission capabilities enabled
+# explicitly in the same process.
+cyberagent run sandbox docker-admit <plan-id> --manifest-file <manifest.json> `
+  --operation-key <stable-key> --enable-docker-execution --enable-permission-control
+```
+
+Full CLI, HTTP, cancellation/recovery, reason/remediation, and budget documentation:
+[usage manual](docs/usage.md), [HTTP API](docs/http-api.md), and
+[ADR 0099](docs/adr/0099-docker-sandbox-product-admission-and-recovery.md).
+Ordinary Code workflows still do not require Docker.
 
 ## Quick start
 

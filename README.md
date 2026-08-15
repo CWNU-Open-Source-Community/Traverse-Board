@@ -63,7 +63,7 @@ CLI / TUI / React / Windows Desktop / CI
 | 工具与权限 | Tool Gateway、JSON Schema 校验、Policy、Scope、人工审批、四档宿主权限、受控固定命令提案 |
 | 代码工作流 | 系统目录选择与 Workspace 导入、工作区浏览、仓库状态、提交历史、Diff 审阅、文件编辑提案、验证计划、Code Journey 与 Handoff |
 | 可观测性 | 追加式 Run 事件、Live Activity、公开模型进度、Harness 事实、Artifact、Finding/Evidence/Report、SARIF |
-| 扩展 | 惰性 Skill 包、Provider 接口、Tool 接口、Go/Rust JSON 协议、内嵌 WASI Analyzer、Sandbox 合同与非授权 Docker 生命周期探针 |
+| 扩展 | 惰性 Skill 包、Provider 接口、Tool 接口、Go/Rust JSON 协议、内嵌 WASI Analyzer、Sandbox 合同与默认关闭的 network-none Docker 产品执行 |
 | 客户端 | `cyberagent` CLI、Bubble Tea TUI、认证 HTTP/OpenAPI、React/Vite、Windows/macOS Desktop 便携预览 |
 
 ### 安全边界
@@ -71,9 +71,32 @@ CLI / TUI / React / Windows Desktop / CI
 - 不公开 Provider 私有 thinking、原始 Prompt、raw delta、工具参数、工具原始输出或 API key。
 - 文件编辑、宿主命令、浏览器 CDP、终端输入和 Sandbox 是彼此独立的授权面。
 - 受控命令默认使用 Go 固定模板；通用宿主执行与 Debug 能力不会因模型、Skill 或仓库文档而自动开启。
-- Docker 已验证固定本机端点上的 `start -> wait -> timeout/cancel -> SIGTERM/SIGKILL -> cleanup` 机制，但它仍是包内非授权工程探针；Run、Agent、CLI、API 和 Desktop 均不能调用，产品 Sandbox 入口继续关闭。
+- Docker Sandbox 产品入口默认关闭。显式进程 capability、当前 `docker` Profile、匹配权限档、精确 per-call 审批、Policy、预算与 30 秒 readiness 必须同时成立；数据库记录不能在重启后恢复 start authority。
+- 当前产品执行只接受 environment-free、secret-free 的 `network=disabled` Manifest，并在 Docker create/inspect 两侧固定 `network none`。allowlist/scoped egress 仍缺少 Go-owned host/port/protocol guard，因此一律以 `managed_egress_unavailable` 失败关闭；Docker 不可用时没有宿主 fallback。
 - 内置浏览器仍没有产品入口：受限运行时核心存在，但独立 OS/容器网络隔离证据尚未完成。
 - Windows/macOS Desktop 当前都是未签名的开发者/操作者便携预览，不是正式安装包；macOS 产物只有 ad-hoc 签名且未公证。
+
+### Docker Sandbox 产品入口（默认关闭）
+
+Schema v99 把 v97 的可恢复生命周期与 v98 的有界 I/O 组合到同一个 Go
+`DockerSandboxService`。CLI、HTTP/OpenAPI、Desktop 和模型提案都复用该服务；模型工具
+`sandbox_docker_run_propose` 只能请求准入，不能启动容器，也不能提交 Docker flags、
+daemon endpoint、宿主 bind、环境变量或网络放宽。
+
+```powershell
+# 未带 capability 时只返回稳定的 disabled readiness，不接触 Docker 写接口。
+cyberagent run sandbox docker-readiness <plan-id> --manifest-file <manifest.json>
+
+# 真正准入/启动必须在同一进程显式开启 Docker 与权限 capability。
+cyberagent run sandbox docker-admit <plan-id> --manifest-file <manifest.json> `
+  --operation-key <stable-key> --enable-docker-execution --enable-permission-control
+```
+
+完整 CLI、HTTP、取消/恢复、reason/remediation 与预算说明见
+[使用手册](docs/usage.md)、
+[HTTP API](docs/http-api.md) 和
+[ADR 0099](docs/adr/0099-docker-sandbox-product-admission-and-recovery.md)。普通 Code 工作流
+仍不依赖 Docker。
 
 ## 快速开始
 
@@ -184,7 +207,7 @@ open build/desktop/Prayu.app
 完整逐切片原始记录保留在 [`PROGRESS_BOOK.md`](docs/PROGRESS_BOOK.md)，当前检查点与验收证据保留在 [`PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)，恢复上下文见 [`PROJECT_MEMORY.md`](docs/PROJECT_MEMORY.md)。这些账本是历史记录，不应被当作待重新执行的任务列表。
 
 <details>
-<summary><strong>SQLite Schema v1-v97 迁移审计表 / Migration ledger</strong></summary>
+<summary><strong>SQLite Schema v1-v99 迁移审计表 / Migration ledger</strong></summary>
 
 此表是 Store 防漏迁移测试使用的审计合同。新增 schema 时必须按顺序追加，不得改写或删除既有行。
 
@@ -288,6 +311,7 @@ open build/desktop/Prayu.app
 | v96 | 用户审批档的精确宿主命令提案、审阅与恰好一次执行 | exact approval-mode host-command proposals, reviews, and exactly-once execution |
 | v97 | 持久 Docker 生命周期所有权、代际租约与崩溃恢复 | durable Docker lifecycle ownership, generation leases, and crash recovery |
 | v98 | 有界 Docker 容器 I/O 合同：只读输入投影、日志限额与原子输出提交 | bounded Docker container I/O contract: read-only input projection, log capture limits, and atomic output commit |
+| v99 | 不可变 Docker Sandbox 产品准入、启动绑定、取消与终态回执 | immutable Docker Sandbox product admission, launch binding, cancellation, and terminal receipts |
 
 </details>
 
