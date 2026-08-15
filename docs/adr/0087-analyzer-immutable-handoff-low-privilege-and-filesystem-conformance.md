@@ -128,6 +128,18 @@ child-process or production evidence. Local Windows still executes the real
 restricted child and passes all three H tests for ten repetitions. Product
 authority remains closed.
 
+A local Windows host whose security software or system policy rejects the
+verified Low Integrity token before helper initialization can acknowledge
+that exact host limitation explicitly: setting
+`CYBERAGENT_ANALYZER_ISOLATION_CONFORMANCE_ACCEPT_HOST_LIMITATION=1` converts
+the otherwise-fatal conformance failure into a documented skip with the
+STATUS_DLL_INIT_FAILED reason. The variable is read only from `_test.go`
+files, accepts exactly the value `1`, never widens the skip past the exact
+`0xc0000142` empty-output condition that follows the parent-side token
+verification, and leaves product authority closed. Every other startup error
+remains a failure, and the acknowledgment is not child-process or production
+evidence.
+
 The focused tests fail closed on path replacement, child-handle drift,
 elevation, integrity or privilege drift, input mutation, outside writes,
 staging privacy, replacement handoff, cleanup residue, and any nonzero product

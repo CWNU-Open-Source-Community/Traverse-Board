@@ -423,16 +423,48 @@ func assertWindowsAnalyzerLowToken(t *testing.T, token windows.Token) {
 	}
 }
 
+// analyzerIsolationHostLimitationEnv is the explicit opt-in acknowledgment
+// for a local Windows host whose security software or system policy rejects
+// the verified low-integrity token before the helper process can initialize
+// (STATUS_DLL_INIT_FAILED). Setting it to exactly "1" converts the
+// otherwise-fatal conformance failure into a documented skip; the product
+// analyzer authority stays closed either way. It is test-only and never
+// read by production code.
+const analyzerIsolationHostLimitationEnv = "CYBERAGENT_ANALYZER_ISOLATION_CONFORMANCE_ACCEPT_HOST_LIMITATION"
+
+// analyzerIsolationHostLimitationSkip decides whether an empty-output helper
+// exit of 0xc0000142 is an acknowledged host initialization limitation. It
+// returns the skip reason, or "" when the failure must stay loud.
+func analyzerIsolationHostLimitationSkip(exitCode uint32, output []byte,
+	getenv func(string) string,
+) string {
+	if exitCode != 0xc0000142 || len(output) != 0 {
+		return ""
+	}
+	if strings.EqualFold(getenv("GITHUB_ACTIONS"), "true") &&
+		strings.EqualFold(getenv("RUNNER_OS"), "Windows") {
+		return "GitHub Windows service session rejected the verified low-integrity token " +
+			"before helper initialization (STATUS_DLL_INIT_FAILED); product authority remains closed"
+	}
+	if getenv(analyzerIsolationHostLimitationEnv) == "1" {
+		return "this host rejected the verified low-integrity token before helper " +
+			"initialization (STATUS_DLL_INIT_FAILED); the limitation was explicitly " +
+			"acknowledged via " + analyzerIsolationHostLimitationEnv + "; product " +
+			"authority remains closed"
+	}
+	return ""
+}
+
 func skipHostedWindowsServiceInitialization(t *testing.T, err error, output []byte) {
 	t.Helper()
 	var exitErr *exec.ExitError
-	if !errors.As(err, &exitErr) || uint32(exitErr.ExitCode()) != 0xc0000142 ||
-		len(output) != 0 || !strings.EqualFold(os.Getenv("GITHUB_ACTIONS"), "true") ||
-		!strings.EqualFold(os.Getenv("RUNNER_OS"), "Windows") {
-		return
+	var exitCode uint32
+	if errors.As(err, &exitErr) {
+		exitCode = uint32(exitErr.ExitCode())
 	}
-	t.Skip("GitHub Windows service session rejected the verified low-integrity token " +
-		"before helper initialization (STATUS_DLL_INIT_FAILED); product authority remains closed")
+	if reason := analyzerIsolationHostLimitationSkip(exitCode, output, os.Getenv); reason != "" {
+		t.Skip(reason)
+	}
 }
 
 func windowsTokenIntegrityRID(token windows.Token) (uint32, error) {
