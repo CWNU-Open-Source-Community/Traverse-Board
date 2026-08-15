@@ -4,6 +4,7 @@ import {
   ChevronRight,
   CircleDot,
   FilePenLine,
+  Globe,
   ListChecks,
   MessageSquareText,
   Network,
@@ -55,6 +56,8 @@ function ActivityIcon({ kind, source }: Pick<RunActivityItemView, "kind" | "sour
     return <MessageSquareText aria-hidden="true" size={16} />;
   case "dependency":
     return <Network aria-hidden="true" size={16} />;
+  case "browser":
+    return <Globe aria-hidden="true" size={16} />;
   default:
     return <CircleDot aria-hidden="true" size={15} />;
   }

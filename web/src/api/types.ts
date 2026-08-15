@@ -16,6 +16,7 @@ export type HostCommandProposalView =
 export type AgentGraphView = components["schemas"]["AgentGraphView"];
 export type AgentNodeView = components["schemas"]["AgentNodeView"];
 export type ArtifactView = components["schemas"]["ArtifactView"];
+export type BrowserSafeWebReadiness = components["schemas"]["BrowserSafeWebReadiness"];
 export type DelegationView = components["schemas"]["DelegationView"];
 export type EventView = components["schemas"]["EventView"];
 export type ExternalSkillProjectionItemView = components["schemas"]["ExternalSkillProjectionItemView"];

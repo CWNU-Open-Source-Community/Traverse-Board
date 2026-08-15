@@ -125,6 +125,8 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 		return a.health(request)
 	case "/api/v1/capabilities":
 		return a.runtimeCapabilities(request)
+	case "/api/v1/browser/safe-web-readiness":
+		return a.browserSafeWebReadiness(request)
 	case "/api/v1/operation-receipts":
 		return a.operationReceiptHistory(request)
 	}

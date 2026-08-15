@@ -706,11 +706,11 @@ func removeSchemaV101ForTestStatements() []string {
 }
 
 func removeSchemaV102ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV103ForTestStatements(), []string{
 		`DROP TABLE child_task_review_operations`,
 		`DROP TABLE child_task_assignments`,
 		`DROP TABLE child_task_proposal_operations`,
 		`DROP TABLE child_task_proposals`,
 		`DELETE FROM schema_migrations WHERE version = 102`,
-	}
+	}...)
 }

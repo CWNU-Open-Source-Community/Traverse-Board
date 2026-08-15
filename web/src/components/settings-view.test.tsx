@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ComponentProps } from "react";
 import { CyberAgentClient } from "../api/client";
 import { LocaleProvider } from "../lib/locale";
@@ -19,7 +20,10 @@ const health = {
 const client = new CyberAgentClient("read-token");
 
 function renderSettings(props: ComponentProps<typeof SettingsView>) {
-  return render(<LocaleProvider><SettingsView {...props} /></LocaleProvider>);
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={queryClient}>
+    <LocaleProvider><SettingsView {...props} /></LocaleProvider>
+  </QueryClientProvider>);
 }
 
 describe("SettingsView", () => {

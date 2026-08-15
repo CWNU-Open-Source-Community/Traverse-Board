@@ -22,6 +22,7 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/artifact"
+	"cyberagent-workbench/internal/browserruntime"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/fileedit"
@@ -215,6 +216,11 @@ type Store interface {
 
 	GetRunArtifactDescriptor(ctx context.Context, id string) (artifact.Descriptor, error)
 	ListRunArtifacts(ctx context.Context, filter artifact.ListFilter) ([]artifact.Descriptor, error)
+
+	LoadLatestBrowserNetworkEvidence(ctx context.Context,
+		executableIdentityFingerprint string) (browserruntime.BrowserNetworkContainmentEvidence, error)
+	LoadBrowserNetworkReview(ctx context.Context,
+		evidenceFingerprint string) (browserruntime.BrowserNetworkContainmentReview, error)
 }
 
 type Config struct {

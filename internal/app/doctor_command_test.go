@@ -58,3 +58,13 @@ func TestDoctorBrowserNetworkProbeFailsBeforeDiscoveryWithoutExactConfirmation(t
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 }
+
+func TestDoctorBrowserReadinessRejectsUnknownProduct(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Execute([]string{"doctor", "browser-readiness", "--product", "firefox"},
+		&stdout, &stderr)
+	if code == 0 || stdout.Len() != 0 ||
+		!strings.Contains(stderr.String(), "edge, chrome, or chromium") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}

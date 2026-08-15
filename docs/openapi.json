@@ -211,6 +211,82 @@
         "x-cyberagent-read-only": true
       }
     },
+    "/api/v1/browser/safe-web-readiness": {
+      "get": {
+        "operationId": "getBrowserSafeWebReadiness",
+        "summary": "Inspect Safe Web readiness",
+        "description": "Returns a fail-closed readiness receipt over the latest production containment evidence and operator review for one accepted browser. It never starts a browser and never grants authority.",
+        "tags": [
+          "Browser"
+        ],
+        "parameters": [
+          {
+            "name": "product",
+            "in": "query",
+            "description": "Accepted browser product",
+            "schema": {
+              "enum": [
+                "chrome",
+                "edge",
+                "chromium"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/BrowserSafeWebReadiness"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
     "/api/v1/capabilities": {
       "get": {
         "operationId": "getRuntimeCapabilities",
@@ -11495,6 +11571,102 @@
         ],
         "type": "object"
       },
+      "BrowserSafeWebReadiness": {
+        "additionalProperties": false,
+        "properties": {
+          "acceptance_fingerprint": {
+            "type": "string"
+          },
+          "adapter": {
+            "enum": [
+              "windows_wfp_dynamic.v1"
+            ],
+            "type": "string"
+          },
+          "architecture": {
+            "type": "string"
+          },
+          "blocking_reason": {
+            "enum": [
+              "evidence_missing",
+              "evidence_version_mismatch",
+              "executable_identity_mismatch",
+              "acceptance_mismatch",
+              "policy_version_mismatch",
+              "adapter_mismatch",
+              "platform_mismatch",
+              "evidence_not_passed",
+              "review_missing",
+              "review_binding_mismatch",
+              "review_not_accepted",
+              "evidence_expired"
+            ],
+            "type": "string"
+          },
+          "collector_identity": {
+            "type": "string"
+          },
+          "evidence_fingerprint": {
+            "type": "string"
+          },
+          "executable_identity_fingerprint": {
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "issued_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "operating_system": {
+            "type": "string"
+          },
+          "policy_version": {
+            "enum": [
+              "browser_network_containment_policy.v2"
+            ],
+            "type": "string"
+          },
+          "protocol_version": {
+            "enum": [
+              "browser_safe_web_readiness.v1"
+            ],
+            "type": "string"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "review_fingerprint": {
+            "type": "string"
+          },
+          "reviewer_identity": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "evidence_fingerprint",
+          "review_fingerprint",
+          "executable_identity_fingerprint",
+          "acceptance_fingerprint",
+          "adapter",
+          "policy_version",
+          "operating_system",
+          "architecture",
+          "collector_identity",
+          "reviewer_identity",
+          "ready",
+          "issued_at",
+          "expires_at",
+          "fingerprint"
+        ],
+        "type": "object"
+      },
       "BudgetView": {
         "additionalProperties": false,
         "properties": {
@@ -19553,7 +19725,8 @@
               "approval",
               "file_change",
               "plan",
-              "dependency"
+              "dependency",
+              "browser"
             ],
             "type": "string"
           },

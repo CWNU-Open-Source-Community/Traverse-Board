@@ -52,66 +52,66 @@ func TestBrowserLaunchPreparationAndReviewAreDurableImmutableAndNonAuthorizing(t
 	t.Cleanup(func() { _ = state.Close() })
 	sessionPlan, identity, acceptance, ownership := browserLaunchStoreFixture(t, state)
 
-	prepared, err := state.PrepareBrowserLaunch(ctx, sessionPlan, identity, acceptance,
-		ownership, "browser-launch-preparation-operation-001", "browser-worker-001")
+	attempt, lease, preparedReplayed, err := state.PrepareBrowserLaunch(ctx, sessionPlan,
+		identity, acceptance, ownership, "browser-launch-preparation-operation-001",
+		"browser-worker-001")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if prepared.Replayed || prepared.Attempt.ProcessStartAuthorized ||
-		prepared.Lease.ProcessExecutionAuthorized || !prepared.Attempt.StartBlocked ||
-		!prepared.Lease.StartBlocked {
-		t.Fatalf("durable browser launch preparation widened authority: %#v", prepared)
+	if preparedReplayed || attempt.ProcessStartAuthorized ||
+		lease.ProcessExecutionAuthorized || !attempt.StartBlocked ||
+		!lease.StartBlocked {
+		t.Fatalf("durable browser launch preparation widened authority: attempt=%#v lease=%#v",
+			attempt, lease)
 	}
-	replayed, err := state.PrepareBrowserLaunch(ctx, sessionPlan, identity, acceptance,
-		ownership, "browser-launch-preparation-operation-001", "browser-worker-001")
-	if err != nil || !replayed.Replayed ||
-		replayed.Attempt.ID != prepared.Attempt.ID || replayed.Lease.ID != prepared.Lease.ID {
-		t.Fatalf("browser launch preparation replay diverged: %#v err=%v", replayed, err)
+	replayAttempt, replayLease, replayReplayed, err := state.PrepareBrowserLaunch(ctx,
+		sessionPlan, identity, acceptance, ownership,
+		"browser-launch-preparation-operation-001", "browser-worker-001")
+	if err != nil || !replayReplayed ||
+		replayAttempt.ID != attempt.ID || replayLease.ID != lease.ID {
+		t.Fatalf("browser launch preparation replay diverged: %#v err=%v", replayAttempt, err)
 	}
-	if _, err := state.PrepareBrowserLaunch(ctx, sessionPlan, identity, acceptance,
+	if _, _, _, err := state.PrepareBrowserLaunch(ctx, sessionPlan, identity, acceptance,
 		ownership, "browser-launch-preparation-operation-001", "another-worker"); err == nil {
 		t.Fatal("browser launch preparation key accepted changed ownership")
 	}
 
-	reviewed, err := state.RecordBrowserLaunchReview(ctx, sessionPlan, identity, acceptance,
-		ownership, prepared.Attempt, prepared.Lease,
+	review, reviewedReplayed, err := state.RecordBrowserLaunchReview(ctx, sessionPlan,
+		identity, acceptance, ownership, attempt, lease,
 		browserruntime.BrowserLaunchReviewAcceptCandidate,
 		"browser-launch-review-operation-001", "independent-operator")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reviewed.Replayed || reviewed.EventSequence <= 0 ||
-		!reviewed.Review.AcceptedForFutureAdapter || reviewed.Review.StartAuthorized ||
-		reviewed.Review.ProcessExecutionAuthorized || reviewed.Review.NetworkAuthorized ||
-		reviewed.Review.ProcessTerminationAuthorized ||
-		reviewed.Review.FilesystemCleanupAuthorized ||
-		reviewed.Review.ArtifactCommitAuthorized {
-		t.Fatalf("durable browser launch review widened authority: %#v", reviewed)
+	if reviewedReplayed || !review.AcceptedForFutureAdapter || review.StartAuthorized ||
+		review.ProcessExecutionAuthorized || review.NetworkAuthorized ||
+		review.ProcessTerminationAuthorized || review.FilesystemCleanupAuthorized ||
+		review.ArtifactCommitAuthorized {
+		t.Fatalf("durable browser launch review widened authority: %#v", review)
 	}
-	reviewReplay, err := state.RecordBrowserLaunchReview(ctx, sessionPlan, identity, acceptance,
-		ownership, prepared.Attempt, prepared.Lease,
+	reviewReplayReview, reviewReplayReplayed, err := state.RecordBrowserLaunchReview(ctx,
+		sessionPlan, identity, acceptance, ownership, attempt, lease,
 		browserruntime.BrowserLaunchReviewAcceptCandidate,
 		"browser-launch-review-operation-001", "independent-operator")
-	if err != nil || !reviewReplay.Replayed ||
-		reviewReplay.Review.ID != reviewed.Review.ID {
-		t.Fatalf("browser launch review replay diverged: %#v err=%v", reviewReplay, err)
+	if err != nil || !reviewReplayReplayed ||
+		reviewReplayReview.ID != review.ID {
+		t.Fatalf("browser launch review replay diverged: %#v err=%v", reviewReplayReview, err)
 	}
-	if _, err := state.RecordBrowserLaunchReview(ctx, sessionPlan, identity, acceptance,
-		ownership, prepared.Attempt, prepared.Lease,
-		browserruntime.BrowserLaunchReviewRejectCandidate,
+	if _, _, err := state.RecordBrowserLaunchReview(ctx, sessionPlan, identity, acceptance,
+		ownership, attempt, lease, browserruntime.BrowserLaunchReviewRejectCandidate,
 		"browser-launch-review-operation-001", "independent-operator"); err == nil {
 		t.Fatal("browser launch review key accepted a changed decision")
 	}
 	if _, err := state.db.ExecContext(ctx, `UPDATE browser_launch_attempts
-		SET generation = 2 WHERE id = ?`, prepared.Attempt.ID); err == nil {
+		SET generation = 2 WHERE id = ?`, attempt.ID); err == nil {
 		t.Fatal("browser launch attempt update unexpectedly passed")
 	}
 	if _, err := state.db.ExecContext(ctx, `DELETE FROM browser_launch_leases
-		WHERE id = ?`, prepared.Lease.ID); err == nil {
+		WHERE id = ?`, lease.ID); err == nil {
 		t.Fatal("browser launch lease delete unexpectedly passed")
 	}
 	if _, err := state.db.ExecContext(ctx, `UPDATE browser_launch_reviews
-		SET decision = 'reject_candidate' WHERE id = ?`, reviewed.Review.ID); err == nil {
+		SET decision = 'reject_candidate' WHERE id = ?`, review.ID); err == nil {
 		t.Fatal("browser launch review update unexpectedly passed")
 	}
 
@@ -152,22 +152,20 @@ func TestBrowserLaunchReviewRequiresIndependentLiveLease(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = state.Close() })
 	sessionPlan, identity, acceptance, ownership := browserLaunchStoreFixture(t, state)
-	prepared, err := state.PrepareBrowserLaunch(ctx, sessionPlan, identity, acceptance,
-		ownership, "browser-launch-preparation-operation-002", "same-operator")
+	attempt, lease, _, err := state.PrepareBrowserLaunch(ctx, sessionPlan, identity,
+		acceptance, ownership, "browser-launch-preparation-operation-002", "same-operator")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := state.RecordBrowserLaunchReview(ctx, sessionPlan, identity, acceptance,
-		ownership, prepared.Attempt, prepared.Lease,
-		browserruntime.BrowserLaunchReviewAcceptCandidate,
+	if _, _, err := state.RecordBrowserLaunchReview(ctx, sessionPlan, identity, acceptance,
+		ownership, attempt, lease, browserruntime.BrowserLaunchReviewAcceptCandidate,
 		"browser-launch-review-operation-002", "same-operator"); err == nil {
 		t.Fatal("browser worker unexpectedly reviewed its own attempt")
 	}
-	tampered := prepared.Lease
+	tampered := lease
 	tampered.ProcessExecutionAuthorized = true
-	if _, err := state.RecordBrowserLaunchReview(ctx, sessionPlan, identity, acceptance,
-		ownership, prepared.Attempt, tampered,
-		browserruntime.BrowserLaunchReviewAcceptCandidate,
+	if _, _, err := state.RecordBrowserLaunchReview(ctx, sessionPlan, identity, acceptance,
+		ownership, attempt, tampered, browserruntime.BrowserLaunchReviewAcceptCandidate,
 		"browser-launch-review-operation-003", "independent-operator"); err == nil {
 		t.Fatal("authorizing browser launch lease unexpectedly reached review")
 	}

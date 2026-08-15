@@ -227,6 +227,82 @@ describe("CyberAgentClient", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("parses a ready Safe Web readiness receipt", async () => {
+    const data = {
+      protocol_version: "browser_safe_web_readiness.v1",
+      evidence_fingerprint: "a".repeat(64),
+      review_fingerprint: "b".repeat(64),
+      executable_identity_fingerprint: "c".repeat(64),
+      acceptance_fingerprint: "d".repeat(64),
+      adapter: "windows_wfp_dynamic.v1",
+      policy_version: "browser_network_containment_policy.v2",
+      operating_system: "windows",
+      architecture: "amd64",
+      collector_identity: "probe-operator",
+      reviewer_identity: "reviewer",
+      ready: true,
+      issued_at: "2026-08-16T00:00:00Z",
+      expires_at: "2026-08-16T00:15:00Z",
+      fingerprint: "e".repeat(64),
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-readiness", data,
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    const view = await new CyberAgentClient("read-secret").safeWebReadiness("chrome");
+    expect(view).toEqual(data);
+  });
+
+  it("rejects a ready receipt that also carries a blocking reason", async () => {
+    const data = {
+      protocol_version: "browser_safe_web_readiness.v1",
+      evidence_fingerprint: "",
+      review_fingerprint: "",
+      executable_identity_fingerprint: "c".repeat(64),
+      acceptance_fingerprint: "d".repeat(64),
+      adapter: "windows_wfp_dynamic.v1",
+      policy_version: "browser_network_containment_policy.v2",
+      operating_system: "windows",
+      architecture: "amd64",
+      collector_identity: "probe-operator",
+      reviewer_identity: "reviewer",
+      ready: true,
+      blocking_reason: "evidence_missing",
+      issued_at: "2026-08-16T00:00:00Z",
+      expires_at: "2026-08-16T00:15:00Z",
+      fingerprint: "e".repeat(64),
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-readiness", data,
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    await expect(new CyberAgentClient("read-secret").safeWebReadiness("chrome"))
+      .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+  });
+
+  it("rejects a not-ready receipt without a blocking reason", async () => {
+    const data = {
+      protocol_version: "browser_safe_web_readiness.v1",
+      evidence_fingerprint: "",
+      review_fingerprint: "",
+      executable_identity_fingerprint: "c".repeat(64),
+      acceptance_fingerprint: "d".repeat(64),
+      adapter: "windows_wfp_dynamic.v1",
+      policy_version: "browser_network_containment_policy.v2",
+      operating_system: "windows",
+      architecture: "amd64",
+      collector_identity: "probe-operator",
+      reviewer_identity: "reviewer",
+      ready: false,
+      issued_at: "2026-08-16T00:00:00Z",
+      expires_at: "2026-08-16T00:15:00Z",
+      fingerprint: "e".repeat(64),
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-readiness", data,
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    await expect(new CyberAgentClient("read-secret").safeWebReadiness("chrome"))
+      .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+  });
+
   it("returns typed API errors without exposing request headers", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       version: "api.v1",

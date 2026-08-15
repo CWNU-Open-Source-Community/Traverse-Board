@@ -965,7 +965,15 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 			} else {
 				response = fixture.get(t, requestPath)
 			}
-			if response.Code != expectedStatus {
+			if spec.OperationID == "getBrowserSafeWebReadiness" {
+				// Browser availability is environment-dependent: a machine with an
+				// accepted browser returns 200 with a fail-closed readiness receipt,
+				// otherwise the route is live with 404 (no accepted browser).
+				if response.Code != http.StatusOK && response.Code != http.StatusNotFound {
+					t.Fatalf("documented route is not live: path=%s status=%d body=%s",
+						requestPath, response.Code, response.Body.String())
+				}
+			} else if response.Code != expectedStatus {
 				t.Fatalf("documented route is not live: path=%s status=%d body=%s",
 					requestPath, response.Code, response.Body.String())
 			}

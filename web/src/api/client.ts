@@ -20,6 +20,7 @@ import type {
   ApprovalDecisionControlView,
   ApprovalQueueView,
   ArtifactView,
+  BrowserSafeWebReadiness,
   CodeHandoffView,
   CodeHandoffExportView,
   ControlledCommandProposalReviewRequestView,
@@ -1141,6 +1142,36 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
       "INVALID_RESPONSE", 502);
   }
   return value as unknown as RuntimeCapabilitiesView;
+}
+
+const safeWebReadinessBlockingReasons = [
+  "evidence_missing", "evidence_version_mismatch", "executable_identity_mismatch",
+  "acceptance_mismatch", "policy_version_mismatch", "adapter_mismatch",
+  "platform_mismatch", "evidence_not_passed", "review_missing",
+  "review_binding_mismatch", "review_not_accepted", "evidence_expired",
+];
+
+function parseSafeWebReadiness(value: unknown): BrowserSafeWebReadiness {
+  if (!isRecord(value)) {
+    throw new APIRequestError("Safe Web readiness response is invalid", "INVALID_RESPONSE", 502);
+  }
+  if (value.protocol_version !== "browser_safe_web_readiness.v1" ||
+    typeof value.ready !== "boolean" ||
+    !isSHA256(value.executable_identity_fingerprint) ||
+    !isSHA256(value.acceptance_fingerprint) || !isSHA256(value.fingerprint)) {
+    throw new APIRequestError("Safe Web readiness response is invalid", "INVALID_RESPONSE", 502);
+  }
+  const blockingReason = typeof value.blocking_reason === "string" &&
+    value.blocking_reason !== "" ? value.blocking_reason : null;
+  if (value.ready === (blockingReason !== null)) {
+    throw new APIRequestError("Safe Web readiness blocking reason disagrees with ready",
+      "INVALID_RESPONSE", 502);
+  }
+  if (blockingReason !== null && !safeWebReadinessBlockingReasons.includes(blockingReason)) {
+    throw new APIRequestError("Safe Web readiness blocking reason is unrecognized",
+      "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as BrowserSafeWebReadiness;
 }
 
 function parseEmbeddedAnalyzerExecution(value: unknown,
@@ -3399,6 +3430,11 @@ export class CyberAgentClient {
 
   async runtimeCapabilities(signal?: AbortSignal): Promise<RuntimeCapabilitiesView> {
     return parseRuntimeCapabilities(await this.get<unknown>("/capabilities", {}, signal));
+  }
+
+  async safeWebReadiness(product: string, signal?: AbortSignal): Promise<BrowserSafeWebReadiness> {
+    return parseSafeWebReadiness(await this.get<unknown>("/browser/safe-web-readiness",
+      { product }, signal));
   }
 
   async modelAvailability(signal?: AbortSignal): Promise<ModelAvailabilityView> {
