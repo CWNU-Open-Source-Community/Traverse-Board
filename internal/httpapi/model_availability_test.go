@@ -60,10 +60,10 @@ func TestModelAvailabilityIsRedactedAndDoesNotProbeProviders(t *testing.T) {
 		t.Fatal(err)
 	}
 	if envelope.Data.ProtocolVersion != modelregistry.ProtocolVersion ||
-		len(envelope.Data.Providers) != 5 || len(envelope.Data.Routes) != 5 {
+		len(envelope.Data.Providers) != 6 || len(envelope.Data.Routes) != 5 {
 		t.Fatalf("unexpected model availability: %#v", envelope.Data)
 	}
-	var foundMimo, foundOpenAI, foundCode bool
+	var foundMimo, foundOpenAI, foundOllama, foundCode bool
 	for _, provider := range envelope.Data.Providers {
 		if provider.Name == "mimo" {
 			foundMimo = provider.Status == modelregistry.ProviderAvailable &&
@@ -84,6 +84,14 @@ func TestModelAvailabilityIsRedactedAndDoesNotProbeProviders(t *testing.T) {
 					llm.HarnessQualificationRequired &&
 				!provider.Harnesses[0].RootEligible
 		}
+		if provider.Name == "ollama" {
+			// The keyless loopback provider stays off without an explicit
+			// CYBERAGENT_OLLAMA_BASE_URL + CYBERAGENT_OLLAMA_MODEL.
+			foundOllama = provider.Kind == modelregistry.ProviderKindOllama &&
+				provider.Status == modelregistry.ProviderNotConfigured &&
+				provider.CredentialSource == "none" &&
+				len(provider.Models) == 0
+		}
 	}
 	for _, route := range envelope.Data.Routes {
 		if route.Name == "code" {
@@ -91,7 +99,7 @@ func TestModelAvailabilityIsRedactedAndDoesNotProbeProviders(t *testing.T) {
 				route.Model == "mimo-http-test" && !route.HarnessReady
 		}
 	}
-	if !foundMimo || !foundOpenAI || !foundCode {
+	if !foundMimo || !foundOpenAI || !foundOllama || !foundCode {
 		t.Fatalf("configured provider or route missing: %#v", envelope.Data)
 	}
 }

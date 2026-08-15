@@ -244,7 +244,11 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			"maxLength": 40, "pattern": `^[0-9a-f]{40}$`}}
 	routeName := pathIdentityParameter("route", "Model route name")
 	providerName := pathIdentityParameter("provider", "Provider name")
-	providerName.Schema["enum"] = []string{"anthropic", "deepseek", "mimo", "openai"}
+	providerName.Schema["enum"] = []string{"anthropic", "deepseek", "mimo", "ollama", "openai"}
+	// The keyless local Provider has no credential surface, so the credential
+	// path keeps its own closed enum without ollama.
+	credentialProviderName := pathIdentityParameter("provider", "Credential provider name")
+	credentialProviderName.Schema["enum"] = []string{"anthropic", "deepseek", "mimo", "openai"}
 	dockerSandboxIdempotencyKey := openAPIParameter{Name: "Idempotency-Key", In: "header",
 		Description: "Opaque retry key; only a domain-separated digest is persisted",
 		Required:    true, Schema: map[string]any{"type": "string",
@@ -330,7 +334,7 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			Description: "Accepts one transient secret for direct storage in the OS credential manager, or deletes one exact Provider credential, then atomically reloads a Go-owned Provider Registry generation. Active calls retain their captured Provider and plaintext is never returned, persisted in SQLite, logged, or placed in an event.",
 			DataType:    reflect.TypeOf(ProviderCredentialStatusView{}),
 			RequestType: reflect.TypeOf(ProviderCredentialRequestView{}), Control: true,
-			Parameters: []openAPIParameter{providerName}},
+			Parameters: []openAPIParameter{credentialProviderName}},
 		{Path: OpenAPIPath, OperationID: "getOpenAPI", Summary: "Read the OpenAPI contract",
 			Description: "Returns the raw deterministic OpenAPI 3.1 JSON document under the same authentication boundary.",
 			Tag:         "System", RawDocument: true},
@@ -1549,7 +1553,7 @@ var openAPIFieldEnums = map[string][]string{
 	"ProviderDiagnosticRequestView.version":                   {modelregistry.DiagnosticProtocolVersion},
 	"ModelHarnessQualificationRequestView.version":            {modelregistry.HarnessQualificationProtocolVersion},
 	"ModelHarnessAvailabilityView.protocol_version":           {llm.ModelHarnessProtocolVersion},
-	"ModelHarnessAvailabilityView.transport_protocol":         {llm.HarnessTransportMock, llm.HarnessTransportAnthropicMessages, llm.HarnessTransportOpenAIChatCompletions, llm.HarnessTransportProviderContract},
+	"ModelHarnessAvailabilityView.transport_protocol":         {llm.HarnessTransportMock, llm.HarnessTransportAnthropicMessages, llm.HarnessTransportOpenAIChatCompletions, llm.HarnessTransportOllamaChat, llm.HarnessTransportProviderContract},
 	"ModelHarnessAvailabilityView.tool_strategy":              {llm.HarnessToolStrategyNative, llm.HarnessToolStrategyNone},
 	"ModelHarnessAvailabilityView.json_strategy":              {llm.HarnessJSONStrategyNative, llm.HarnessJSONStrategyPrompt, llm.HarnessJSONStrategyNone},
 	"ModelHarnessAvailabilityView.qualification_status":       {llm.HarnessQualificationTrusted, llm.HarnessQualificationRequired, llm.HarnessQualificationVerified},
@@ -1666,7 +1670,7 @@ var openAPIFieldEnums = map[string][]string{
 	"OperatorActionItemView.kind":                             {string(operatoraction.KindSteeringPending), string(operatoraction.KindApprovalPending), string(operatoraction.KindFileEditReview), string(operatoraction.KindFileEditApply), string(operatoraction.KindWakeDue)},
 	"OperatorActionItemView.state":                            {"pending", "proposed", "approved", "queued"},
 	"OperatorActionItemView.destination":                      {string(operatoraction.DestinationQueue), string(operatoraction.DestinationApprovals), string(operatoraction.DestinationDiffs), string(operatoraction.DestinationWake)},
-	"ProviderAvailabilityView.kind":                           {modelregistry.ProviderKindLocal, modelregistry.ProviderKindAnthropicCompatible, modelregistry.ProviderKindOpenAICompatible},
+	"ProviderAvailabilityView.kind":                           {modelregistry.ProviderKindLocal, modelregistry.ProviderKindAnthropicCompatible, modelregistry.ProviderKindOpenAICompatible, modelregistry.ProviderKindOllama},
 	"ProviderAvailabilityView.status":                         {modelregistry.ProviderAvailable, modelregistry.ProviderNotConfigured, modelregistry.ProviderInvalidConfiguration},
 	"ProviderAvailabilityView.credential_source":              {"none", "environment", "system"},
 	"ScopeView.network_mode":                                  {"disabled", "allowlist"},

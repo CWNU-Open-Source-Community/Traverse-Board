@@ -43,3 +43,22 @@ openai_compatible_example:
   compatibility_profile: strict_chat_completions
   runtime_loaded: false
   secrets: environment_or_system_store_only
+
+# Documentation-only example for the keyless local provider. The registry
+# enables Ollama only when the endpoint and model are configured explicitly
+# in the trusted process environment:
+#   CYBERAGENT_OLLAMA_BASE_URL=http://127.0.0.1:11434
+#   CYBERAGENT_OLLAMA_MODEL=llama3.2:3b
+# Only loopback hosts are accepted; the provider never scans the LAN, never
+# follows a redirect or proxy, and never installs or pulls models.
+ollama_example:
+  provider_name: ollama
+  type: ollama
+  transport: ollama_chat
+  default_base_url: http://127.0.0.1:11434
+  timeout_seconds: 60
+  request_headers: [Content-Type, Accept]
+  capability_probe: /api/show
+  compatibility_profile: strict_ollama_chat
+  runtime_loaded: false
+  secrets: none

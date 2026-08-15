@@ -860,9 +860,11 @@ cyberagent provider test
 cyberagent provider test mimo/mimo-v2.5-pro
 cyberagent provider test deepseek/deepseek-v4-flash
 cyberagent provider test openai/gpt-4.1-mini
+cyberagent provider test ollama/llama3.2:3b
 cyberagent provider qualify script
 cyberagent provider qualify mimo/mimo-v2.5-pro
 cyberagent provider qualify openai/gpt-4.1-mini
+cyberagent provider qualify ollama/llama3.2:3b
 cyberagent model list
 cyberagent model set script mock/mock-code
 ```
@@ -878,6 +880,10 @@ The optional `mimo`, `deepseek`, `anthropic`, and `openai` Providers load creden
 Windows stores exact supported keys in Credential Manager; non-Windows has no plaintext-file fallback. Credential status and mutation never return plaintext. Desktop and API control planes atomically reload a new Registry generation after a successful change; a host without the reload dependency reports `restart_required: true`. Base URLs must be absolute HTTPS URLs unless they target an exact loopback host over HTTP; embedded credentials, query strings, fragments, and redirects are rejected. API keys are bounded normalized UTF-8 without whitespace or control characters. [`../configs/models.yaml`](../configs/models.yaml) is a documentation-only, non-secret example and is not loaded at runtime; repository or Workspace content cannot configure a Provider endpoint, header, or key.
 
 For an opt-in live smoke, set the three `CYBERAGENT_OPENAI_*` variables in the current process, then use the exact configured model reference. With the default model, run `cyberagent provider test openai/gpt-4.1-mini` followed by `cyberagent provider qualify openai/gpt-4.1-mini`; if `CYBERAGENT_OPENAI_MODEL` has another value, replace `gpt-4.1-mini` in both commands with that exact value. These commands make real, potentially billable network calls and are never part of the default test suite. Use a local mock endpoint for automated smoke tests. Neither command prints the API key, configured endpoint, prompts, response text, Tool arguments, raw deltas, or raw errors; unset the key after the manual check.
+
+The optional keyless `ollama` Provider connects only to an explicitly configured loopback endpoint. Configuration is `CYBERAGENT_OLLAMA_BASE_URL` (loopback `http` only; the default is `http://127.0.0.1:11434`) plus `CYBERAGENT_OLLAMA_MODEL`, the exact model used for route selection; neither variable has an implicit enablement, so the provider stays `not_configured` and `not_configured` without both. Non-loopback hosts, HTTPS, URL credentials, queries, fragments, path prefixes, redirects, and proxy-bearing transports are rejected. The provider uses the native `/api/tags` model list, `/api/chat` (including NDJSON streaming), and `/api/show` capability probe; tools, vision, JSON, and context-window capabilities stay unknown — and therefore unsupported — until the daemon reports them, and a no-tool model never receives tool schemas. Prompt/response usage falls back to a conservative character-based estimate when the daemon omits token counts. Prayu never installs Ollama, pulls a model, scans the LAN, or modifies a system service; an unreachable daemon surfaces the stable `network` diagnostic with the explainable "service is unreachable" message.
+
+For an opt-in local smoke: start Ollama, `ollama pull llama3.2:3b`, set `CYBERAGENT_OLLAMA_BASE_URL=http://127.0.0.1:11434` and `CYBERAGENT_OLLAMA_MODEL=llama3.2:3b`, then run `cyberagent model set code ollama/llama3.2:3b`, `cyberagent provider test ollama/llama3.2:3b`, and `cyberagent provider qualify ollama/llama3.2:3b`. The capability probe runs automatically before route selection, qualification, and diagnostics. A local model is a deployment location, not a trust grant: output still passes through Policy, redaction, budgets, and the Tool Gateway.
 
 ## Durable Run Wake Intent
 

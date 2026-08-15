@@ -38,6 +38,7 @@ const (
 	ProviderKindLocal               = "local"
 	ProviderKindAnthropicCompatible = "anthropic_compatible"
 	ProviderKindOpenAICompatible    = "openai_compatible"
+	ProviderKindOllama              = "ollama"
 )
 
 const (
@@ -55,6 +56,8 @@ const (
 	defaultOpenAIBaseURL   = "https://api.openai.com"
 	DefaultOpenAIModel     = "gpt-4.1-mini"
 	DefaultOpenAITimeout   = 60 * time.Second
+	defaultOllamaBaseURL   = llm.OllamaDefaultBaseURL
+	ollamaProbeTimeout     = 5 * time.Second
 )
 
 var routeNames = []string{"code", "ctf", "learn", "review", "script"}
@@ -138,6 +141,7 @@ type Registry struct {
 	lookup          EnvironmentLookup
 	credentials     credentialLookup
 	generation      uint64
+	ollama          *llm.OllamaProvider
 }
 
 type anthropicEnvironment struct {
@@ -157,6 +161,13 @@ type openAIEnvironment struct {
 	modelEnv       string
 	defaultBaseURL string
 	defaultModel   string
+}
+
+type ollamaEnvironment struct {
+	name           string
+	baseURLEnv     string
+	modelEnv       string
+	defaultBaseURL string
 }
 
 func NewFromEnvironment() *Registry {
@@ -230,6 +241,12 @@ func buildRegistry(ctx context.Context, lookup EnvironmentLookup,
 		baseURLEnv: "CYBERAGENT_OPENAI_BASE_URL", modelEnv: "CYBERAGENT_OPENAI_MODEL",
 		defaultBaseURL: defaultOpenAIBaseURL, defaultModel: DefaultOpenAIModel,
 	}, lookup, credentials, strictCredentialReads); err != nil {
+		return nil, err
+	}
+	if err := registry.registerOllamaEnvironment(ctx, ollamaEnvironment{
+		name: "ollama", baseURLEnv: "CYBERAGENT_OLLAMA_BASE_URL",
+		modelEnv: "CYBERAGENT_OLLAMA_MODEL", defaultBaseURL: defaultOllamaBaseURL,
+	}, lookup); err != nil {
 		return nil, err
 	}
 	sort.Slice(registry.providers, func(i, j int) bool {
@@ -357,6 +374,7 @@ func (r *Registry) SelectRoute(ctx context.Context, writer RouteSettingWriter,
 	if err := ctx.Err(); err != nil {
 		return RouteAvailability{}, err
 	}
+	r.probeOllamaCapabilities(ctx, provider, model)
 	value := provider + "/" + model
 	if err := writer.SetProviderSetting(ctx, "route."+route, value); err != nil {
 		return RouteAvailability{}, fmt.Errorf("persist model route: %w", err)
@@ -382,6 +400,7 @@ func (r *Registry) Diagnose(ctx context.Context, provider string,
 		!validAvailabilityIdentifier(model, maxPublicModelNameBytes) {
 		return DiagnosticResult{}, errors.New("diagnostic Provider model is unavailable")
 	}
+	r.probeOllamaCapabilities(ctx, provider, model)
 	providerStatus, _, known := r.providerModelStatus(provider, model)
 	if !known {
 		return DiagnosticResult{}, errors.New("diagnostic Provider model is unavailable")
@@ -692,6 +711,82 @@ func (r *Registry) registerOpenAIEnvironment(ctx context.Context, config openAIE
 		ConfigurationError: configurationError,
 	})
 	return nil
+}
+
+// registerOllamaEnvironment enables the keyless loopback provider only when
+// the operator explicitly configures CYBERAGENT_OLLAMA_BASE_URL and a default
+// model. Without the explicit endpoint the provider stays not_configured; the
+// registry never scans the LAN or probes a default endpoint on its own.
+func (r *Registry) registerOllamaEnvironment(ctx context.Context, config ollamaEnvironment,
+	lookup EnvironmentLookup,
+) error {
+	_ = ctx
+	baseURL, endpointSet := lookup(config.baseURLEnv)
+	baseURL = strings.TrimSpace(baseURL)
+	model := environmentValue(lookup, config.modelEnv, "")
+	models := []string{}
+	if validAvailabilityIdentifier(model, maxPublicModelNameBytes) {
+		models = []string{strings.TrimSpace(model)}
+	}
+	status := ProviderNotConfigured
+	configurationError := false
+	if endpointSet && baseURL != "" {
+		provider, err := llm.NewOllamaProvider(llm.OllamaConfig{
+			Name: config.name, BaseURL: baseURL,
+			HTTPClient: &http.Client{Timeout: DefaultOpenAITimeout},
+		})
+		if err != nil || len(models) == 0 {
+			status = ProviderInvalidConfiguration
+			configurationError = true
+		} else {
+			status = ProviderAvailable
+			r.router.RegisterProvider(provider)
+			r.available[config.name] = struct{}{}
+			r.mu.Lock()
+			r.ollama = provider
+			r.mu.Unlock()
+		}
+	}
+	harnesses := make([]HarnessAvailability, 0, len(models))
+	for _, current := range models {
+		harnesses = append(harnesses, unqualifiedHarnessAvailability(current,
+			llm.HarnessTransportOllamaChat, llm.HarnessJSONStrategyNative))
+	}
+	r.providers = append(r.providers, ProviderAvailability{
+		Name: config.name, Kind: ProviderKindOllama, Status: status,
+		Models: models, Harnesses: harnesses,
+		CredentialSource: "none", NetworkRequired: true,
+		ConfigurationError: configurationError,
+	})
+	return nil
+}
+
+// probeOllamaCapabilities performs a bounded best-effort /api/show probe so
+// tools/vision/JSON strategies and the context window reflect real daemon
+// metadata. Probe failures never block route selection, qualification, or
+// diagnostics: the capability cache simply stays unknown and every
+// capability fails closed until a later probe succeeds.
+func (r *Registry) probeOllamaCapabilities(ctx context.Context, provider string, model string) {
+	if r == nil || r.router == nil || provider != ProviderKindOllama {
+		return
+	}
+	r.mu.RLock()
+	ollama := r.ollama
+	r.mu.RUnlock()
+	if ollama == nil || !validAvailabilityIdentifier(model, maxPublicModelNameBytes) {
+		return
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, ollamaProbeTimeout)
+	defer cancel()
+	probe, err := ollama.ProbeModel(probeCtx, model)
+	if err != nil || !probe.Known || probe.ContextLength < 4096 ||
+		probe.ContextLength > llm.MaxContextWindowTokens {
+		return
+	}
+	window := llm.DefaultContextWindow()
+	window.WindowTokens = probe.ContextLength
+	window.Source = "ollama_probe"
+	_ = r.router.SetContextWindow(llm.ModelRef{Provider: provider, Model: model}, window)
 }
 
 func unqualifiedHarnessAvailability(model string, transport string,

@@ -467,7 +467,7 @@
           {
             "name": "provider",
             "in": "path",
-            "description": "Provider name",
+            "description": "Credential provider name",
             "required": true,
             "schema": {
               "enum": [
@@ -15521,6 +15521,7 @@
               "mock",
               "anthropic_messages",
               "openai_chat_completions",
+              "ollama_chat",
               "provider_contract"
             ],
             "type": "string"
@@ -16731,7 +16732,8 @@
             "enum": [
               "local",
               "anthropic_compatible",
-              "openai_compatible"
+              "openai_compatible",
+              "ollama"
             ],
             "type": "string"
           },

@@ -74,7 +74,8 @@ func TestProviderListProjectsUnconfiguredProvidersWithoutRegisteringThem(t *test
 		t.Fatalf("provider list failed: output=%q stderr=%q code=%d", listed, stderr, code)
 	}
 	if !strings.Contains(listed, "deepseek\tanthropic_compatible\tnot_configured") ||
-		!strings.Contains(listed, "openai\topenai_compatible\tnot_configured") {
+		!strings.Contains(listed, "openai\topenai_compatible\tnot_configured") ||
+		!strings.Contains(listed, "ollama\tollama\tnot_configured") {
 		t.Fatalf("unconfigured Provider status was not projected: %q", listed)
 	}
 }

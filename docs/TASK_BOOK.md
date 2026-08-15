@@ -10,6 +10,8 @@
 
 ## 当前基线
 
+Ollama 本地 Provider（Issue #48）已落地（ADR 0100）：无凭证 loopback-only 适配器只连接显式配置的 `http://127.0.0.1:11434` 类端点，拒绝非 loopback/HTTPS/redirect/代理绕过；`/api/tags` 模型列表、`/api/chat` 同步与 NDJSON 流式、usage 估算与稳定错误映射齐全；`/api/show` 能力探测把 tools/vision/JSON/context 按“未知即不支持”失败关闭，no-tool 模型绝不收到 Tool schema；能力探测在路由选择、qualification 与 diagnostic 前 best-effort 执行，探测到的 context window 进入真实预算规划。Registry kind `ollama` 与 transport `ollama_chat` 已接入 CLI/HTTP/OpenAPI/Desktop/Web；credential 枚举保持四位（Ollama 无凭证）。本机未安装 Ollama，真实 smoke 为 usage 文档化的可选人工步骤；fake-server 离线测试覆盖 list/chat/stream/取消/不可达/redirect/代理/no-tool 与探测语义。
+
 Docker Sandbox 产品准入（Issue #40）已随 schema v99 落地（ADR 0099）：同一个 Go Application 服务把 CLI、HTTP/OpenAPI、Desktop 与模型 admission proposal 接到 v97 生命周期和 v98 有界 I/O；真实 start 默认关闭，必须重新通过当前 Profile/权限/精确 per-call 审批/Policy/预算/30 秒 readiness 与进程内 capability。当前只开放 environment-free、secret-free 的 network-none 精确计划；managed allowlist 因缺少 Go-owned host/port/protocol guard 继续失败关闭。Issue #40 集成收口已完成：全仓 ordinary Go、vet、Web strict TypeScript/235 项测试/Vite build 与 OpenAPI 再生全绿；真实 Docker Desktop 29.6.2 上 lifecycle、readiness 与容器内主动探测 IPv4/IPv6/DNS/gateway/代理变量的断网验收全部通过（environment-free 夹具由 testdata/docker-lifecycle-fixture/build-fixture.ps1 可复现构建），并把 daemon /info 的 x86_64/aarch64 架构名规范化到 OCI amd64/arm64。
 
 前一检查点是 schema v98 的 Docker 容器 I/O 合同（Issue #39，ADR 0098）：只读输入投影、有界日志回执、严格输出暂存与原子 Artifact 提交已作为非授权内部边界完成；schema v99 不改写其历史 authority，而是以独立产品账本组合其 exact subset。
