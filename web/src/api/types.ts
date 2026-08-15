@@ -22,6 +22,10 @@ export type ExternalSkillProjectionItemView = components["schemas"]["ExternalSki
 export type ExternalSkillProjectionView = components["schemas"]["ExternalSkillProjectionView"];
 export type FanoutPlanView = components["schemas"]["FanoutPlanView"];
 export type FanoutExecutionsListView = components["schemas"]["FanoutExecutionsListView"];
+export type ChildTaskProposalsListView = components["schemas"]["ChildTaskProposalsListView"];
+export type ChildTaskProposalView = components["schemas"]["ChildTaskProposalView"];
+export type ChildTaskReviewRequestView = components["schemas"]["ChildTaskReviewRequestView"];
+export type ChildTaskAdmitRequestView = components["schemas"]["ChildTaskAdmitRequestView"];
 export type FanoutExecutionView = components["schemas"]["FanoutExecutionView"];
 export type FanoutExecutionCancelRequestView =
   components["schemas"]["FanoutExecutionCancelRequestView"];

@@ -441,6 +441,8 @@ func (a *API) routeRuns(request *http.Request, segments []string) (any, *Page, e
 			return a.runFanoutPlans(request, segments[1])
 		case "fanout-executions":
 			return a.listFanoutExecutions(request, segments[1])
+		case "child-task-proposals":
+			return a.listChildTaskProposals(request, segments[1])
 		case "reports":
 			return a.runFindingReports(request, segments[1])
 		case "events":

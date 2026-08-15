@@ -532,6 +532,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/child-task-proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List model-proposed child task proposals
+         * @description Returns bounded child task proposals with their redacted tasks, resolved surface, and admission assignments for operator review.
+         */
+        get: operations["listRunChildTaskProposals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/child-task-proposals/{proposal_id}/admit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Admit one approved child task proposal
+         * @description Admits an operator-approved proposal: core tasks go through the fenced Specialist admission and bind declared dependencies onto the schema v101 wait ledger; read-only tasks record their binding intent.
+         */
+        post: operations["admitRunChildTaskProposal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/child-task-proposals/{proposal_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve or deny one child task proposal
+         * @description Records one operator decision; approve may pin the read-only fan-out tier to an explicit 1/2/4/6 ceiling. The model can never raise it.
+         */
+        post: operations["reviewRunChildTaskProposal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/code-handoff": {
         parameters: {
             query?: never;
@@ -2179,6 +2239,65 @@ export interface components {
         CancellationSpec: {
             /** Format: int32 */
             grace_period_millis: number;
+        };
+        ChildTaskAdmitRequestView: {
+            confirm_admit: boolean;
+            version: string;
+        };
+        ChildTaskAssignmentView: {
+            admitted_agent_id?: string;
+            fanout_plan_id?: string;
+            fanout_tier: string;
+            /** Format: int32 */
+            ordinal: number;
+            status: string;
+            surface: string;
+            /** Format: int64 */
+            timeout_millis: number;
+            /** Format: int64 */
+            token_limit: number;
+            /** Format: int64 */
+            turn_limit: number;
+        };
+        ChildTaskProposalView: {
+            assignments: components["schemas"]["ChildTaskAssignmentView"][];
+            /** Format: date-time */
+            created_at: string;
+            fanout_tier: string;
+            id: string;
+            requested_by: string;
+            root_agent_id: string;
+            run_id: string;
+            status: string;
+            surface: string;
+            tasks: components["schemas"]["ChildTaskTaskView"][];
+        };
+        ChildTaskProposalsListView: {
+            items: components["schemas"]["ChildTaskProposalView"][];
+            protocol_version: string;
+        };
+        ChildTaskReviewRequestView: {
+            action: string;
+            confirm_review: boolean;
+            fanout_tier: string;
+            reviewer: string;
+            version: string;
+        };
+        ChildTaskTaskView: {
+            dependency_ordinals: number[];
+            goal: string;
+            input_refs: string[];
+            /** Format: int32 */
+            ordinal: number;
+            skills: string[];
+            surface_hint: string;
+            /** Format: int64 */
+            timeout_millis: number;
+            title: string;
+            /** Format: int64 */
+            token_limit: number;
+            /** Format: int64 */
+            turn_limit: number;
         };
         CodeHandoffActionReferenceView: {
             /** Format: date-time */
@@ -6631,6 +6750,131 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["RunBrowserCDPPermissionControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listRunChildTaskProposals: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ChildTaskProposalsListView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    admitRunChildTaskProposal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+                /** @description Child task proposal identity */
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChildTaskAdmitRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ChildTaskProposalView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    reviewRunChildTaskProposal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+                /** @description Child task proposal identity */
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChildTaskReviewRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ChildTaskProposalView"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";
