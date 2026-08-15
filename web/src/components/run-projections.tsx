@@ -215,6 +215,8 @@ export function DelegationsPanel({ client, runID }: ProjectionProps) {
           <dl className="projection-metrics">
             <Metric label={t("审阅", "Review")} value={item.review ? `${item.review.decision} · ${item.review.reviewed_by}` : t("待处理", "pending")} />
             <Metric label={t("应用", "Application")} value={item.application?.status ?? "-"} />
+            {item.application && <Metric label={t("准入上限", "Admission caps")} value={`${item.application.max_children} child · ${formatNumber(item.application.max_turns_per_child)} 回合 · ${formatNumber(item.application.max_tokens_per_child)} Tokens`} />}
+            {item.application?.stop_code && <Metric label={t("停止原因", "Stop code")} value={item.application.stop_code} />}
             <Metric label={t("调度", "Schedule")} value={item.latest_schedule?.status ?? (item.latest_schedule ? t("已请求", "requested") : "-")} />
             <Metric label={t("创建时间", "Created")} value={formatDate(item.created_at)} />
           </dl>
@@ -243,6 +245,10 @@ export function FanoutPanel({ client, runID }: ProjectionProps) {
           </header>
           <dl className="projection-metrics">
             <Metric label={t("档位", "Tier")} value={`${plan.requested_tier} → ${plan.effective_parallelism}`} />
+            <Metric label={t("范围", "Scope")} value={plan.scope_path} />
+            <Metric label={t("分片数", "Shards")} value={formatNumber(plan.shard_count)} />
+            {plan.latest_execution && <Metric label={t("单分片输出上限", "Max output/shard")} value={formatNumber(plan.latest_execution.max_output_tokens_per_shard)} />}
+            {plan.latest_execution?.stop_code && <Metric label={t("停止原因", "Stop code")} value={plan.latest_execution.stop_code} />}
             <Metric label={t("文件", "Files")} value={formatNumber(plan.file_count)} />
             <Metric label={t("输入", "Input")} value={formatBytes(plan.total_bytes)} />
             <Metric label={t("已排除", "Excluded")} value={formatNumber(plan.excluded_count)} />
@@ -401,8 +407,8 @@ export function ChildTasksPanel({ client, runID }: ProjectionProps) {
 function ShardTable({ execution }: { execution: NonNullable<FanoutPlanView["latest_execution"]> }) {
   const { t } = useLocale();
   return (
-    <div className="table-scroll shard-table"><table><thead><tr><th>{t("分片", "Shard")}</th><th>{t("状态", "Status")}</th><th>{t("模型", "Model")}</th><th>{t("令牌", "Tokens")}</th><th>{t("发现", "Findings")}</th><th>{t("耗时", "Duration")}</th></tr></thead><tbody>
-      {execution.shards.map((shard) => <tr key={shard.ordinal}><td>#{shard.ordinal}</td><td><StatusBadge status={shard.status} /></td><td>{shard.provider && shard.model ? `${shard.provider}/${shard.model}` : "-"}</td><td>{formatNumber(shard.total_tokens)}</td><td>{formatNumber(shard.finding_count)}</td><td>{formatNumber(shard.elapsed_millis)} ms</td></tr>)}
+    <div className="table-scroll shard-table"><table><thead><tr><th>{t("分片", "Shard")}</th><th>{t("状态", "Status")}</th><th>{t("模型", "Model")}</th><th>{t("尝试", "Attempt")}</th><th>{t("输入", "In")}</th><th>{t("输出", "Out")}</th><th>{t("发现", "Findings")}</th><th>{t("耗时", "Duration")}</th><th>{t("错误", "Error")}</th></tr></thead><tbody>
+      {execution.shards.map((shard) => <tr key={shard.ordinal}><td>#{shard.ordinal}</td><td><StatusBadge status={shard.status} /></td><td>{shard.provider && shard.model ? `${shard.provider}/${shard.model}` : "-"}</td><td>{formatNumber(shard.current_attempt)}/{formatNumber(shard.attempt_count)}</td><td>{formatNumber(shard.input_tokens)}</td><td>{formatNumber(shard.output_tokens)}</td><td>{formatNumber(shard.finding_count)}</td><td>{formatNumber(shard.elapsed_millis)} ms</td><td>{shard.error_code || "-"}</td></tr>)}
     </tbody></table></div>
   );
 }

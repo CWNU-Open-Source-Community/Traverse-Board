@@ -35,7 +35,7 @@ export function EvidenceInventory({ client, runID, onOpenSource }: {
     {query.data && query.data.items.length > 0 && <div className="evidence-inventory-list">
       {query.data.items.map((item) => <div key={item.attachment_id}>
         <ShieldCheck aria-hidden="true" size={16} />
-        <span><strong>{item.source_ref}</strong><code>{item.content_sha256}</code></span>
+        <span><strong>{item.source_ref}</strong><code>{item.content_sha256}</code>{item.instruction_authorized && <small>{t("含授权指令", "instruction authorized")}</small>}</span>
         <time dateTime={item.attached_at}>{formatDate(item.attached_at)}</time>
         <button aria-label={t(`打开 ${item.source_ref}`, `Open ${item.source_ref}`)} className="icon-button"
           onClick={() => onOpenSource(item.source_ref)} title={t("打开来源", "Open source")} type="button">
