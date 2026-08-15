@@ -18930,7 +18930,8 @@
               "approval",
               "file_change",
               "plan",
-              "dependency"
+              "dependency",
+              "browser"
             ],
             "type": "string"
           },

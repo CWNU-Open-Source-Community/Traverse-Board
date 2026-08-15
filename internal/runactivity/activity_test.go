@@ -404,3 +404,41 @@ func TestBuildProjectsDependencyWaitsWithoutRawOutput(t *testing.T) {
 		t.Fatalf("livelock item is wrong: %#v", got.Items[3])
 	}
 }
+
+func TestBuildProjectsBrowserLifecycleAsGoObservedFacts(t *testing.T) {
+	now := time.Now().UTC()
+	source := []events.Event{
+		event(1, events.BrowserLaunchAttemptPreparedEvent, `{}`, now),
+		event(2, events.BrowserLaunchLeaseRecordedEvent, `{}`, now),
+		event(3, events.BrowserLaunchReviewedEvent, `{}`, now),
+		event(4, events.BrowserRuntimeCheckpointRecordedEvent, `{}`, now),
+		event(5, events.BrowserRuntimeReceiptRecordedEvent, `{}`, now),
+	}
+	got, err := Build("run-1", source, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Items) != 5 {
+		t.Fatalf("unexpected projection: %#v", got.Items)
+	}
+	for _, item := range got.Items {
+		if item.Kind != KindBrowser || !item.Verifiable {
+			t.Fatalf("browser activity has wrong provenance: %#v", item)
+		}
+	}
+	if got.Items[0].Status != "pending" || got.Items[0].Title != "浏览器启动已准备" {
+		t.Fatalf("prepared item is wrong: %#v", got.Items[0])
+	}
+	if got.Items[1].Status != "pending" || got.Items[1].Title != "浏览器启动租约已记录" {
+		t.Fatalf("lease item is wrong: %#v", got.Items[1])
+	}
+	if got.Items[2].Status != "completed" || got.Items[2].Title != "浏览器启动已复核" {
+		t.Fatalf("reviewed item is wrong: %#v", got.Items[2])
+	}
+	if got.Items[3].Status != "running" || got.Items[3].Title != "浏览器运行时检查点已记录" {
+		t.Fatalf("checkpoint item is wrong: %#v", got.Items[3])
+	}
+	if got.Items[4].Status != "completed" || got.Items[4].Title != "浏览器运行时收据已记录" {
+		t.Fatalf("receipt item is wrong: %#v", got.Items[4])
+	}
+}

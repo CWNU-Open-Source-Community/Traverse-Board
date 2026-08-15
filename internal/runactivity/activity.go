@@ -44,6 +44,7 @@ const (
 	KindFileChange    Kind = "file_change"
 	KindPlan          Kind = "plan"
 	KindDependency    Kind = "dependency"
+	KindBrowser       Kind = "browser"
 )
 
 type Item struct {
@@ -256,6 +257,16 @@ func projectEvent(event events.Event) (Item, bool) {
 	case events.DependencyLivelockDetectedEvent:
 		base.Kind, base.Title, base.Status = KindDependency, "检测到依赖轮询循环", "blocked"
 		base.Detail = dependencyStallDetail(event.PayloadJSON)
+	case events.BrowserLaunchAttemptPreparedEvent:
+		base.Kind, base.Title, base.Status = KindBrowser, "浏览器启动已准备", "pending"
+	case events.BrowserLaunchLeaseRecordedEvent:
+		base.Kind, base.Title, base.Status = KindBrowser, "浏览器启动租约已记录", "pending"
+	case events.BrowserLaunchReviewedEvent:
+		base.Kind, base.Title, base.Status = KindBrowser, "浏览器启动已复核", "completed"
+	case events.BrowserRuntimeCheckpointRecordedEvent:
+		base.Kind, base.Title, base.Status = KindBrowser, "浏览器运行时检查点已记录", "running"
+	case events.BrowserRuntimeReceiptRecordedEvent:
+		base.Kind, base.Title, base.Status = KindBrowser, "浏览器运行时收据已记录", "completed"
 	default:
 		return Item{}, false
 	}
