@@ -58,6 +58,7 @@ type Gateway struct {
 	planDeliveryProposals      PlanDeliveryExecutor
 	controlledCommandProposals ControlledCommandProposalExecutor
 	hostCommandProposals       HostCommandProposalExecutor
+	dockerSandboxProposals     DockerSandboxProposalExecutor
 	waitGraph                  *waitgraph.Graph
 }
 
@@ -132,6 +133,10 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (Outcome, error) {
 	if normalized.Name == HostCommandProposeTool && g.hostCommandProposals == nil {
 		return Outcome{}, errors.New("host command proposal executor is required")
 	}
+	if normalized.Name == DockerSandboxRunProposeTool &&
+		g.dockerSandboxProposals == nil {
+		return Outcome{}, errors.New("Docker Sandbox proposal executor is required")
+	}
 	fallback := waitgraph.External(normalized.RequestedBy)
 	if normalized.AgentID != "" {
 		fallback = waitgraph.Agent(normalized.AgentID)
@@ -175,6 +180,8 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (Outcome, error) {
 		return g.invokeControlledCommandProposal(ctx, normalized)
 	case HostCommandProposeTool:
 		return g.invokeHostCommandProposal(ctx, normalized)
+	case DockerSandboxRunProposeTool:
+		return g.invokeDockerSandboxProposal(ctx, normalized)
 	default:
 		return Outcome{}, fmt.Errorf("unsupported tool %q", normalized.Name)
 	}
@@ -707,7 +714,8 @@ func validateToolArguments(call ToolCall) error {
 		call.Name == SpecialistDelegationProposeTool ||
 		call.Name == PlanDeliveryProposeTool ||
 		call.Name == ControlledCommandProposeTool ||
-		call.Name == HostCommandProposeTool {
+		call.Name == HostCommandProposeTool ||
+		call.Name == DockerSandboxRunProposeTool {
 		if len(call.Arguments) != 0 {
 			return fmt.Errorf("tool %s accepts a JSON payload instead of string arguments", call.Name)
 		}
@@ -747,6 +755,13 @@ func validateToolArguments(call ToolCall) error {
 				return errors.New("host command proposals require a fenced root Supervisor")
 			}
 			_, _, err := normalizeHostCommandProposalPayload(call.Payload)
+			return err
+		case DockerSandboxRunProposeTool:
+			if call.RequestedBy != "run_supervisor" || call.AgentID == "" ||
+				call.WorkspaceID == "" || call.LeaseID == "" {
+				return errors.New("Docker Sandbox proposals require a fenced root Supervisor")
+			}
+			_, _, err := normalizeDockerSandboxProposalPayload(call.Payload)
 			return err
 		}
 	}

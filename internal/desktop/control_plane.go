@@ -37,6 +37,7 @@ type ControlPlane struct {
 	closeOnce         sync.Once
 	closeErr          error
 	skillInstaller    *application.SkillPackageRegistryService
+	dockerSandbox     *application.DockerSandboxService
 	userTerminal      *desktopUserTerminalService
 	debugAgentInput   application.DebugTerminalAgentInputController
 	terminalManager   *terminalruntime.Manager
@@ -83,6 +84,7 @@ type ControlPlaneConfig struct {
 	VerificationEvidenceEnabled             bool
 	EmbeddedAnalyzerExecutionEnabled        bool
 	UserTerminalEnabled                     bool
+	DockerExecutionEnabled                  bool
 	AppVersion                              string
 	UIHandler                               http.Handler
 	CredentialStore                         credential.Store
@@ -93,6 +95,12 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	if strings.TrimSpace(config.DatabasePath) == "" {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop database path is required")
+	}
+	if config.DockerExecutionEnabled &&
+		(!config.ExecutionPermissionControlEnabled ||
+			!config.ExecutionPermissionCapabilities.OperatorApprovalEnabled) {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"desktop Docker execution requires operator approval permission control")
 	}
 	stateStore, err := store.Open(config.DatabasePath)
 	if err != nil {
@@ -132,13 +140,29 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		return nil, err
 	}
 	checker := policy.NewDefaultChecker()
+	dockerSandbox, err := newDesktopDockerSandboxService(context.Background(),
+		stateStore, home, config.DockerExecutionEnabled,
+		config.ExecutionPermissionCapabilities)
+	if err != nil {
+		_ = stateStore.Close()
+		return nil, apperror.Wrap(apperror.CodeFailedPrecondition,
+			"desktop Docker Sandbox startup recovery failed", err)
+	}
 	lifecycleControl := application.NewRunLifecycleControlService(stateStore)
 	executionControl := application.NewRunExecutionHandoffService(stateStore,
 		models.Router(), checker).WithActiveCalls(
 		application.NewActiveCallRegistry())
+	dockerProposalExecutor, err := application.NewDockerSandboxProposalExecutor(
+		dockerSandbox)
+	if err != nil {
+		_ = stateStore.Close()
+		return nil, err
+	}
+	executionControl.WithDockerSandboxProposalExecutor(dockerProposalExecutor)
 	planDeliveryControl := application.NewPlanDeliveryControlService(stateStore)
 	approvalControl := application.NewApprovalControlService(stateStore,
-		toolgateway.New(stateStore, checker), checker)
+		toolgateway.New(stateStore, checker).
+			WithDockerSandboxProposalExecutor(dockerProposalExecutor), checker)
 	modelControl := application.NewModelControlService(models, stateStore)
 	providerCredentialControl := application.NewProviderCredentialService(credentialStore).
 		WithRegistryReload(models, stateStore)
@@ -286,6 +310,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		RunWakeWorkerHealthSource:               workerHealth,
 		SkillInstallationController:             skillInstaller,
 		EmbeddedAnalyzerExecutionController:     embeddedAnalyzerExecution,
+		DockerSandboxController:                 dockerSandbox,
 		ModelRegistry:                           models,
 		AppVersion:                              config.AppVersion, UIHandler: config.UIHandler,
 	})
@@ -298,7 +323,8 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	}
 	return &ControlPlane{stateStore: stateStore, workspaceManager: workspaceManager,
 		handler:        api.Handler(),
-		skillInstaller: skillInstaller, userTerminal: userTerminal,
+		skillInstaller: skillInstaller, dockerSandbox: dockerSandbox,
+		userTerminal:    userTerminal,
 		debugAgentInput: debugAgentInput,
 		terminalManager: terminalManager, boundaryMonitor: boundaryMonitor,
 		wakeWorker: wakeWorker}, nil

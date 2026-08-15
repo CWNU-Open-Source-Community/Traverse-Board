@@ -308,6 +308,7 @@ func verifyDockerHostInputContainer(inspection dockerContainerInspection,
 		inspection.Config.AttachStdin || inspection.Config.AttachStdout ||
 		inspection.Config.AttachStderr || inspection.Config.OpenStdin || inspection.Config.StdinOnce ||
 		inspection.Config.Tty || len(inspection.Config.Env) != 0 ||
+		len(inspection.Config.ExposedPorts) != 0 ||
 		!equalStrings(inspection.Config.Entrypoint, []string{spec.Executable}) ||
 		!equalStrings(inspection.Config.Cmd, spec.Arguments) ||
 		!equalStringMap(inspection.Config.Labels, dockerHostInputLabels(request, role)) ||
@@ -323,8 +324,10 @@ func verifyDockerHostInputContainer(inspection dockerContainerInspection,
 		inspection.HostConfig.PidsLimit != int64(spec.Resources.PIDs) ||
 		inspection.HostConfig.RestartPolicy.Name != "no" ||
 		inspection.HostConfig.RestartPolicy.MaximumRetryCount != 0 ||
-		inspection.HostConfig.LogConfig.Type != "none" ||
-		len(inspection.HostConfig.LogConfig.Config) != 0 ||
+		inspection.HostConfig.LogConfig.Type != "local" ||
+		!equalStringMap(inspection.HostConfig.LogConfig.Config, map[string]string{
+			"max-size": "256k", "max-file": "1", "compress": "false",
+		}) ||
 		len(inspection.HostConfig.SecurityOpt) != 1 ||
 		!containsFold(inspection.HostConfig.SecurityOpt, "no-new-privileges") ||
 		len(inspection.HostConfig.CapAdd) != 0 || len(inspection.HostConfig.CapDrop) != 1 ||
@@ -332,6 +335,10 @@ func verifyDockerHostInputContainer(inspection dockerContainerInspection,
 		len(inspection.HostConfig.Binds) != 0 || len(inspection.HostConfig.Devices) != 0 ||
 		len(inspection.HostConfig.DeviceRequests) != 0 ||
 		len(inspection.HostConfig.PortBindings) != 0 || inspection.HostConfig.PublishAllPorts ||
+		len(inspection.HostConfig.DNS) != 0 || len(inspection.HostConfig.DNSOptions) != 0 ||
+		len(inspection.HostConfig.DNSSearch) != 0 || len(inspection.HostConfig.ExtraHosts) != 0 ||
+		len(inspection.HostConfig.Links) != 0 || len(inspection.NetworkSettings.Ports) != 0 ||
+		!dockerNetworkSettingsAreNone(inspection.NetworkSettings.Networks) ||
 		len(inspection.Mounts) != bindCount+1 {
 		return newDockerHostInputHandoffError(DockerHostInputHandoffErrorUnsafeCollision)
 	}

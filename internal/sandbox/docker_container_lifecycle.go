@@ -261,6 +261,13 @@ type DockerContainerLifecycleTransport interface {
 	Run(context.Context, DockerContainerLifecycleRequest) (DockerContainerLifecycleResult, error)
 }
 
+// NewLocalDockerContainerLifecycleTransport returns the fixed local Docker
+// Engine transport for the current platform. Callers cannot supply a socket,
+// named pipe, TCP endpoint, proxy, or redirect policy.
+func NewLocalDockerContainerLifecycleTransport() DockerContainerLifecycleTransport {
+	return newLocalDockerContainerLifecycleTransport()
+}
+
 type UnavailableDockerContainerLifecycleTransport struct {
 	endpoint DockerObservationEndpoint
 	reason   string

@@ -7,6 +7,34 @@ const healthEnvelope = {
   data: { status: "ok", api_version: "api.v1", app_version: "test", schema_version: 37 },
 };
 
+function runtimeCapabilitiesData(overrides: Record<string, unknown> = {}) {
+  return {
+    protocol_version: "runtime_capabilities.v1",
+    execution_permission_control_enabled: true, operator_approval_enabled: true,
+    danger_full_access_enabled: true, debug_maximum_access_enabled: true,
+    browser_cdp_permission_control_enabled: true, full_cdp_debug_enabled: true,
+    run_control_enabled: true, run_creation_enabled: true,
+    session_message_enabled: true, session_steering_control_enabled: true,
+    run_lifecycle_enabled: true, run_execution_enabled: true,
+    plan_delivery_control_enabled: true, approval_control_enabled: true,
+    controlled_command_proposal_control_enabled: true,
+    host_command_proposal_control_enabled: false,
+    model_control_enabled: true, provider_credential_enabled: true,
+    file_edit_review_enabled: true, file_edit_proposal_enabled: true,
+    file_edit_apply_enabled: true, run_wake_control_enabled: true,
+    run_wake_execution_enabled: true, run_wake_worker_enabled: true,
+    skill_installation_enabled: true, evidence_attachment_enabled: true,
+    verification_evidence_enabled: true,
+    embedded_analyzer_execution_enabled: true,
+    process_execution_enabled: false, shell_execution_enabled: false,
+    docker_execution_enabled: false,
+    wake_worker: { protocol_version: "run_wake_worker_health.v1", enabled: true,
+      state: "running", active: true, poll_interval_ms: 2000, concurrency: 1,
+      max_steps: 1, runtime_enable_supported: false, persistent_service: false },
+    ...overrides,
+  };
+}
+
 const runCreationData = {
   mission: {
     id: "mission-created", goal: "Create parser", workspace_id: "workspace-1", profile: "code",
@@ -166,6 +194,28 @@ describe("CyberAgentClient", () => {
       verificationEvidenceEnabled: true,
       embeddedAnalyzerExecutionEnabled: true,
     });
+  });
+
+  it("accepts Docker execution capability only with permission control", async () => {
+    const data = runtimeCapabilitiesData({ docker_execution_enabled: true });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-docker-capabilities", data,
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    const view = await new CyberAgentClient("read-secret").runtimeCapabilities();
+    expect(view).toEqual(data);
+    expect(clientCapabilitiesFromRuntime(view)).toMatchObject({
+      dockerExecutionEnabled: true,
+    });
+  });
+
+  it("rejects Docker execution capability without permission control", async () => {
+    const data = runtimeCapabilitiesData({ docker_execution_enabled: true,
+      execution_permission_control_enabled: false });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-docker-capabilities", data,
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    await expect(new CyberAgentClient("read-secret").runtimeCapabilities())
+      .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
   it("rejects paths that escape the API base", async () => {

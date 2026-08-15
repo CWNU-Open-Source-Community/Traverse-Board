@@ -121,7 +121,7 @@ func (a *API) runtimeCapabilities(request *http.Request) (any, *Page, error) {
 		VerificationEvidenceEnabled:      a.verificationEvidenceEnabled,
 		EmbeddedAnalyzerExecutionEnabled: a.embeddedAnalyzerExecutionEnabled,
 		ProcessExecutionEnabled:          false, ShellExecutionEnabled: false,
-		DockerExecutionEnabled: false, WakeWorker: worker,
+		DockerExecutionEnabled: a.dockerExecutionEnabled, WakeWorker: worker,
 	}, nil, nil
 }
 

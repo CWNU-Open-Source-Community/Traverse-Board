@@ -340,25 +340,33 @@ type dockerCreateContainerPayload struct {
 	Tty              bool                         `json:"Tty"`
 	StopSignal       string                       `json:"StopSignal"`
 	Labels           map[string]string            `json:"Labels"`
+	ExposedPorts     map[string]json.RawMessage   `json:"ExposedPorts"`
 	HostConfig       dockerCreateHostConfig       `json:"HostConfig"`
 	NetworkingConfig dockerCreateNetworkingConfig `json:"NetworkingConfig"`
 }
 
 type dockerCreateHostConfig struct {
-	ReadonlyRootfs bool                `json:"ReadonlyRootfs"`
-	SecurityOpt    []string            `json:"SecurityOpt"`
-	CapDrop        []string            `json:"CapDrop"`
-	Init           *bool               `json:"Init"`
-	NetworkMode    string              `json:"NetworkMode"`
-	NanoCPUs       int64               `json:"NanoCpus"`
-	Memory         int64               `json:"Memory"`
-	MemorySwap     int64               `json:"MemorySwap"`
-	PidsLimit      int64               `json:"PidsLimit"`
-	Privileged     bool                `json:"Privileged"`
-	AutoRemove     bool                `json:"AutoRemove"`
-	RestartPolicy  dockerRestartPolicy `json:"RestartPolicy"`
-	LogConfig      dockerLogConfig     `json:"LogConfig"`
-	Mounts         []dockerCreateMount `json:"Mounts"`
+	ReadonlyRootfs  bool                `json:"ReadonlyRootfs"`
+	SecurityOpt     []string            `json:"SecurityOpt"`
+	CapDrop         []string            `json:"CapDrop"`
+	Init            *bool               `json:"Init"`
+	NetworkMode     string              `json:"NetworkMode"`
+	NanoCPUs        int64               `json:"NanoCpus"`
+	Memory          int64               `json:"Memory"`
+	MemorySwap      int64               `json:"MemorySwap"`
+	PidsLimit       int64               `json:"PidsLimit"`
+	Privileged      bool                `json:"Privileged"`
+	AutoRemove      bool                `json:"AutoRemove"`
+	RestartPolicy   dockerRestartPolicy `json:"RestartPolicy"`
+	LogConfig       dockerLogConfig     `json:"LogConfig"`
+	Mounts          []dockerCreateMount `json:"Mounts"`
+	DNS             []string            `json:"Dns"`
+	DNSOptions      []string            `json:"DnsOptions"`
+	DNSSearch       []string            `json:"DnsSearch"`
+	ExtraHosts      []string            `json:"ExtraHosts"`
+	Links           []string            `json:"Links"`
+	PortBindings    map[string]any      `json:"PortBindings"`
+	PublishAllPorts bool                `json:"PublishAllPorts"`
 }
 
 type dockerRestartPolicy struct {
@@ -425,14 +433,18 @@ func dockerCreatePayloadWithLabels(request DockerContainerWriteRequest,
 		Cmd: append([]string(nil), spec.Arguments...), Env: []string{},
 		WorkingDir: spec.WorkingDirectory,
 		User:       spec.User, NetworkDisabled: true, StopSignal: DockerTerminationSignalGraceful,
-		Labels: labels,
+		Labels: labels, ExposedPorts: map[string]json.RawMessage{},
 		HostConfig: dockerCreateHostConfig{
 			ReadonlyRootfs: true, SecurityOpt: []string{"no-new-privileges"},
 			CapDrop: []string{"ALL"}, Init: &initEnabled, NetworkMode: DockerNetworkDriverNone,
 			NanoCPUs: spec.Resources.NanoCPUs, Memory: spec.Resources.MemoryBytes,
 			MemorySwap: spec.Resources.MemoryBytes, PidsLimit: int64(spec.Resources.PIDs),
 			RestartPolicy: dockerRestartPolicy{Name: "no"},
-			LogConfig:     dockerLogConfig{Type: "none", Config: map[string]string{}}, Mounts: mounts,
+			LogConfig: dockerLogConfig{Type: "local", Config: map[string]string{
+				"max-size": "256k", "max-file": "1", "compress": "false",
+			}},
+			Mounts: mounts, DNS: []string{}, DNSOptions: []string{}, DNSSearch: []string{},
+			ExtraHosts: []string{}, Links: []string{}, PortBindings: map[string]any{},
 		},
 		NetworkingConfig: dockerCreateNetworkingConfig{
 			EndpointsConfig: map[string]json.RawMessage{},
@@ -496,6 +508,7 @@ type dockerContainerInspection struct {
 		StdinOnce       bool              `json:"StdinOnce"`
 		Tty             bool              `json:"Tty"`
 		Labels          map[string]string `json:"Labels"`
+		ExposedPorts    map[string]any    `json:"ExposedPorts"`
 		StopSignal      string            `json:"StopSignal"`
 	} `json:"Config"`
 	State struct {
@@ -520,6 +533,11 @@ type dockerContainerInspection struct {
 		DeviceRequests  []json.RawMessage   `json:"DeviceRequests"`
 		PortBindings    map[string]any      `json:"PortBindings"`
 		PublishAllPorts bool                `json:"PublishAllPorts"`
+		DNS             []string            `json:"Dns"`
+		DNSOptions      []string            `json:"DnsOptions"`
+		DNSSearch       []string            `json:"DnsSearch"`
+		ExtraHosts      []string            `json:"ExtraHosts"`
+		Links           []string            `json:"Links"`
 		Init            *bool               `json:"Init"`
 		NetworkMode     string              `json:"NetworkMode"`
 		NanoCPUs        int64               `json:"NanoCpus"`
@@ -542,6 +560,19 @@ type dockerContainerInspection struct {
 		RW          bool   `json:"RW"`
 		Propagation string `json:"Propagation"`
 	} `json:"Mounts"`
+	NetworkSettings struct {
+		Ports    map[string]any `json:"Ports"`
+		Networks map[string]struct {
+			IPAddress         string   `json:"IPAddress"`
+			GlobalIPv6Address string   `json:"GlobalIPv6Address"`
+			Gateway           string   `json:"Gateway"`
+			IPv6Gateway       string   `json:"IPv6Gateway"`
+			MacAddress        string   `json:"MacAddress"`
+			Aliases           []string `json:"Aliases"`
+			DNSNames          []string `json:"DNSNames"`
+			Links             []string `json:"Links"`
+		} `json:"Networks"`
+	} `json:"NetworkSettings"`
 }
 
 func verifyDockerContainerInspection(inspection dockerContainerInspection,
@@ -579,7 +610,7 @@ func verifyDockerContainerConfigurationWithLabels(inspection dockerContainerInsp
 		inspection.Config.AttachStdin || inspection.Config.AttachStdout ||
 		inspection.Config.AttachStderr || inspection.Config.OpenStdin ||
 		inspection.Config.StdinOnce || inspection.Config.Tty ||
-		len(inspection.Config.Env) != 0 ||
+		len(inspection.Config.Env) != 0 || len(inspection.Config.ExposedPorts) != 0 ||
 		!equalStrings(inspection.Config.Entrypoint, []string{spec.Executable}) ||
 		!equalStrings(inspection.Config.Cmd, spec.Arguments) ||
 		!equalDockerLabels(inspection.Config.Labels, expectedLabels) ||
@@ -593,8 +624,10 @@ func verifyDockerContainerConfigurationWithLabels(inspection dockerContainerInsp
 		inspection.HostConfig.PidsLimit != int64(spec.Resources.PIDs) ||
 		inspection.HostConfig.RestartPolicy.Name != "no" ||
 		inspection.HostConfig.RestartPolicy.MaximumRetryCount != 0 ||
-		inspection.HostConfig.LogConfig.Type != "none" ||
-		len(inspection.HostConfig.LogConfig.Config) != 0 ||
+		inspection.HostConfig.LogConfig.Type != "local" ||
+		!equalStringMap(inspection.HostConfig.LogConfig.Config, map[string]string{
+			"max-size": "256k", "max-file": "1", "compress": "false",
+		}) ||
 		len(inspection.HostConfig.SecurityOpt) != 1 ||
 		!containsFold(inspection.HostConfig.SecurityOpt, "no-new-privileges") ||
 		len(inspection.HostConfig.CapAdd) != 0 || len(inspection.HostConfig.CapDrop) != 1 ||
@@ -602,6 +635,10 @@ func verifyDockerContainerConfigurationWithLabels(inspection dockerContainerInsp
 		len(inspection.HostConfig.Binds) != 0 || len(inspection.HostConfig.Devices) != 0 ||
 		len(inspection.HostConfig.DeviceRequests) != 0 ||
 		len(inspection.HostConfig.PortBindings) != 0 || inspection.HostConfig.PublishAllPorts ||
+		len(inspection.HostConfig.DNS) != 0 || len(inspection.HostConfig.DNSOptions) != 0 ||
+		len(inspection.HostConfig.DNSSearch) != 0 || len(inspection.HostConfig.ExtraHosts) != 0 ||
+		len(inspection.HostConfig.Links) != 0 || len(inspection.NetworkSettings.Ports) != 0 ||
+		!dockerNetworkSettingsAreNone(inspection.NetworkSettings.Networks) ||
 		len(inspection.Mounts) != len(request.HostMounts) {
 		return newDockerContainerWriteError(DockerContainerWriteFailureConfigMismatch)
 	}
@@ -621,6 +658,31 @@ func verifyDockerContainerConfigurationWithLabels(inspection dockerContainerInsp
 		return newDockerContainerWriteError(DockerContainerWriteFailureConfigMismatch)
 	}
 	return nil
+}
+
+func dockerNetworkSettingsAreNone(networks map[string]struct {
+	IPAddress         string   `json:"IPAddress"`
+	GlobalIPv6Address string   `json:"GlobalIPv6Address"`
+	Gateway           string   `json:"Gateway"`
+	IPv6Gateway       string   `json:"IPv6Gateway"`
+	MacAddress        string   `json:"MacAddress"`
+	Aliases           []string `json:"Aliases"`
+	DNSNames          []string `json:"DNSNames"`
+	Links             []string `json:"Links"`
+}) bool {
+	if len(networks) > 1 {
+		return false
+	}
+	for name, network := range networks {
+		if name != DockerNetworkDriverNone || network.IPAddress != "" ||
+			network.GlobalIPv6Address != "" || network.Gateway != "" ||
+			network.IPv6Gateway != "" || network.MacAddress != "" ||
+			len(network.Aliases) != 0 || len(network.DNSNames) != 0 ||
+			len(network.Links) != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func (transport dockerEngineContainerWriteTransport) inspect(ctx context.Context,

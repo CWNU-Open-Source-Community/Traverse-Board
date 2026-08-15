@@ -141,6 +141,7 @@ export interface ClientCapabilities {
   evidenceAttachmentEnabled?: boolean;
   verificationEvidenceEnabled?: boolean;
   embeddedAnalyzerExecutionEnabled?: boolean;
+  dockerExecutionEnabled?: boolean;
 }
 
 export class APIRequestError extends Error {
@@ -1095,7 +1096,7 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
       !value.debug_maximum_access_enabled)) ||
     (value.host_command_proposal_control_enabled && !value.operator_approval_enabled) ||
     value.process_execution_enabled !== false || value.shell_execution_enabled !== false ||
-    value.docker_execution_enabled !== false) {
+    (value.docker_execution_enabled && !value.execution_permission_control_enabled)) {
     throw new APIRequestError("Run wake worker capability response is invalid",
       "INVALID_RESPONSE", 502);
   }
@@ -1164,6 +1165,7 @@ export function clientCapabilitiesFromRuntime(value: RuntimeCapabilitiesView): C
     evidenceAttachmentEnabled: value.evidence_attachment_enabled,
     verificationEvidenceEnabled: value.verification_evidence_enabled,
     embeddedAnalyzerExecutionEnabled: value.embedded_analyzer_execution_enabled,
+    dockerExecutionEnabled: value.docker_execution_enabled,
   };
 }
 

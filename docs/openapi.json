@@ -63,6 +63,10 @@
       "description": "Content-free Artifact descriptors."
     },
     {
+      "name": "Sandbox",
+      "description": "Docker Sandbox readiness, admission, bounded execution, cancellation, and status."
+    },
+    {
       "name": "Control",
       "description": "Separately authorized, audit-first control operations."
     }
@@ -8037,6 +8041,460 @@
         "x-cyberagent-read-only": true
       }
     },
+    "/api/v1/sandbox/docker/admissions": {
+      "post": {
+        "operationId": "admitDockerSandbox",
+        "summary": "Admit an exact Docker Sandbox request",
+        "description": "Recomputes every current Go-owned gate and records an idempotent process-bound admission. Idempotency-Key is required.",
+        "tags": [
+          "Sandbox"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque retry key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/DockerSandboxAdmissionView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DockerSandboxAdmissionRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/sandbox/docker/cancellations": {
+      "post": {
+        "operationId": "cancelDockerSandbox",
+        "summary": "Cancel a Docker Sandbox attempt",
+        "description": "Persists sticky cancellation and converges bounded cleanup without restoring start authority. Idempotency-Key is required.",
+        "tags": [
+          "Sandbox"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque retry key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/DockerSandboxCancellationView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DockerSandboxCancelRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/sandbox/docker/readiness": {
+      "post": {
+        "operationId": "evaluateDockerSandboxReadiness",
+        "summary": "Evaluate Docker Sandbox readiness",
+        "description": "Performs a non-mutating, no-cache readiness evaluation for one exact Go-validated plan and Manifest. It cannot accept a daemon endpoint, host path, image override, mount override, or Docker flag.",
+        "tags": [
+          "Sandbox"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/DockerSandboxReadinessView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DockerSandboxReadinessRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/sandbox/docker/starts": {
+      "post": {
+        "operationId": "startDockerSandbox",
+        "summary": "Start an admitted Docker Sandbox",
+        "description": "Synchronously executes the exact admitted plan through the Go-owned lifecycle; client disconnect cancels and cleans up. Idempotency-Key is required.",
+        "tags": [
+          "Sandbox"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque retry key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/DockerSandboxStatusView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DockerSandboxStartRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/sandbox/docker/status": {
+      "get": {
+        "operationId": "getDockerSandboxStatus",
+        "summary": "Inspect Docker Sandbox status",
+        "description": "Returns the content-free admission, launch, terminal outcome, cleanup, and artifact-count projection.",
+        "tags": [
+          "Sandbox"
+        ],
+        "parameters": [
+          {
+            "name": "admission_id",
+            "in": "query",
+            "description": "Opaque Docker Sandbox admission identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/DockerSandboxStatusView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
     "/api/v1/sessions": {
       "get": {
         "operationId": "listSessions",
@@ -10406,6 +10864,19 @@
         ],
         "type": "object"
       },
+      "CancellationSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "grace_period_millis": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "grace_period_millis"
+        ],
+        "type": "object"
+      },
       "CodeHandoffActionReferenceView": {
         "additionalProperties": false,
         "properties": {
@@ -11365,6 +11836,28 @@
         ],
         "type": "object"
       },
+      "CommandSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "arguments": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "executable": {
+            "type": "string"
+          },
+          "working_directory": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "executable",
+          "working_directory"
+        ],
+        "type": "object"
+      },
       "ControlledCommandExecutionReceiptView": {
         "additionalProperties": false,
         "properties": {
@@ -12035,6 +12528,358 @@
         ],
         "type": "object"
       },
+      "DockerSandboxAdmissionRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "manifest": {
+            "$ref": "#/components/schemas/Manifest"
+          },
+          "plan_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "requested_by": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan_id",
+          "manifest",
+          "requested_by"
+        ],
+        "type": "object"
+      },
+      "DockerSandboxAdmissionView": {
+        "additionalProperties": false,
+        "properties": {
+          "admission_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "allowed": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "decision": {
+            "enum": [
+              "authorized",
+              "denied"
+            ],
+            "type": "string"
+          },
+          "permission_mode": {
+            "enum": [
+              "approval",
+              "full_access",
+              "debug"
+            ],
+            "type": "string"
+          },
+          "plan_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "readiness": {
+            "$ref": "#/components/schemas/DockerSandboxReadinessView"
+          },
+          "reason_code": {
+            "type": "string"
+          },
+          "remediation_code": {
+            "type": "string"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "readiness",
+          "allowed",
+          "reason_code",
+          "remediation_code",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "DockerSandboxCancelRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "admission_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "requested_by": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "admission_id",
+          "requested_by"
+        ],
+        "type": "object"
+      },
+      "DockerSandboxCancellationView": {
+        "additionalProperties": false,
+        "properties": {
+          "admission_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "cancellation_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "reason_code": {
+            "enum": [
+              "cancelled"
+            ],
+            "type": "string"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DockerSandboxStatusView"
+          }
+        },
+        "required": [
+          "cancellation_id",
+          "admission_id",
+          "reason_code",
+          "requested_at",
+          "status",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "DockerSandboxReadinessRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "manifest": {
+            "$ref": "#/components/schemas/Manifest"
+          },
+          "plan_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan_id",
+          "manifest"
+        ],
+        "type": "object"
+      },
+      "DockerSandboxReadinessView": {
+        "additionalProperties": false,
+        "properties": {
+          "checked_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "daemon_reachable": {
+            "type": "boolean"
+          },
+          "endpoint_class": {
+            "type": "string"
+          },
+          "endpoint_fingerprint": {
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "feature_enabled": {
+            "type": "boolean"
+          },
+          "image_inspected": {
+            "type": "boolean"
+          },
+          "image_profile_safe": {
+            "type": "boolean"
+          },
+          "network_mode": {
+            "enum": [
+              "disabled"
+            ],
+            "type": "string"
+          },
+          "protocol_version": {
+            "enum": [
+              "sandbox.readiness.v1"
+            ],
+            "type": "string"
+          },
+          "readiness_fingerprint": {
+            "type": "string"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "reason_code": {
+            "type": "string"
+          },
+          "remediation_code": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ready",
+              "disabled",
+              "unavailable"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "status",
+          "ready",
+          "feature_enabled",
+          "reason_code",
+          "remediation_code",
+          "checked_at",
+          "expires_at",
+          "endpoint_class",
+          "endpoint_fingerprint",
+          "daemon_reachable",
+          "image_inspected",
+          "image_profile_safe",
+          "readiness_fingerprint"
+        ],
+        "type": "object"
+      },
+      "DockerSandboxStartRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "admission_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "requested_by": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "admission_id",
+          "requested_by"
+        ],
+        "type": "object"
+      },
+      "DockerSandboxStatusView": {
+        "additionalProperties": false,
+        "properties": {
+          "admission_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "artifact_count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "attempt_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "cleanup_complete": {
+            "type": "boolean"
+          },
+          "completed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "decision": {
+            "type": "string"
+          },
+          "exit_code": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "outcome": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "timed_out",
+              "cancelled"
+            ],
+            "type": "string"
+          },
+          "plan_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "reason_code": {
+            "type": "string"
+          },
+          "receipt_reason_code": {
+            "type": "string"
+          },
+          "remediation_code": {
+            "type": "string"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "admitted",
+              "launched",
+              "terminal"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "admission_id",
+          "run_id",
+          "plan_id",
+          "state",
+          "decision",
+          "reason_code",
+          "remediation_code",
+          "cleanup_complete",
+          "artifact_count",
+          "created_at",
+          "replayed"
+        ],
+        "type": "object"
+      },
       "EmbeddedAnalyzerExecutionControlView": {
         "additionalProperties": false,
         "properties": {
@@ -12169,6 +13014,26 @@
         "required": [
           "version",
           "confirmation"
+        ],
+        "type": "object"
+      },
+      "EnvironmentBinding": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "source",
+          "value"
         ],
         "type": "object"
       },
@@ -14290,6 +15155,66 @@
         ],
         "type": "object"
       },
+      "Manifest": {
+        "additionalProperties": false,
+        "properties": {
+          "backend": {
+            "type": "string"
+          },
+          "cancellation": {
+            "$ref": "#/components/schemas/CancellationSpec"
+          },
+          "command": {
+            "$ref": "#/components/schemas/CommandSpec"
+          },
+          "environment": {
+            "items": {
+              "$ref": "#/components/schemas/EnvironmentBinding"
+            },
+            "type": "array"
+          },
+          "input_artifact_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "mounts": {
+            "items": {
+              "$ref": "#/components/schemas/Mount"
+            },
+            "type": "array"
+          },
+          "network": {
+            "$ref": "#/components/schemas/NetworkScope"
+          },
+          "output": {
+            "$ref": "#/components/schemas/OutputSpec"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "resources": {
+            "$ref": "#/components/schemas/ResourceLimits"
+          },
+          "timeout_seconds": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "backend",
+          "command",
+          "mounts",
+          "network",
+          "resources",
+          "output",
+          "timeout_seconds",
+          "cancellation"
+        ],
+        "type": "object"
+      },
       "MessageView": {
         "additionalProperties": false,
         "properties": {
@@ -14796,6 +15721,44 @@
         ],
         "type": "object"
       },
+      "Mount": {
+        "additionalProperties": false,
+        "properties": {
+          "access": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "target",
+          "access"
+        ],
+        "type": "object"
+      },
+      "NetworkScope": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_targets": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "mode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "type": "object"
+      },
       "NoteView": {
         "additionalProperties": false,
         "properties": {
@@ -15213,6 +16176,28 @@
           "committed",
           "cancelled",
           "messages"
+        ],
+        "type": "object"
+      },
+      "OutputSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "capture_stderr": {
+            "type": "boolean"
+          },
+          "capture_stdout": {
+            "type": "boolean"
+          },
+          "paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "capture_stdout",
+          "capture_stderr"
         ],
         "type": "object"
       },
@@ -17342,6 +18327,34 @@
           "process_started",
           "network_used",
           "hooks_executed"
+        ],
+        "type": "object"
+      },
+      "ResourceLimits": {
+        "additionalProperties": false,
+        "properties": {
+          "cpu_quota_millis": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "max_output_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "memory_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "pids": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cpu_quota_millis",
+          "memory_bytes",
+          "pids",
+          "max_output_bytes"
         ],
         "type": "object"
       },

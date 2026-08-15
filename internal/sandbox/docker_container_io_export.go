@@ -354,14 +354,37 @@ func normalizeDockerArchiveName(name string) (string, error) {
 }
 
 func writeDockerStagedFile(stagingRoot, relative string, content []byte) error {
-	full := filepath.Join(stagingRoot, filepath.FromSlash(relative))
-	if !workspacePathWithin(full, stagingRoot) || filepath.Clean(full) != full {
-		return errors.New("docker staged output path escaped the staging root")
+	full, err := dockerStagingHostPath(stagingRoot, relative)
+	if err != nil {
+		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
 		return err
 	}
 	return os.WriteFile(full, content, 0o600)
+}
+
+// dockerStagingHostPath converts the already validated container-relative
+// slash path into the current host's path form before applying a lexical
+// containment check. filepath.Rel keeps the same boundary on Unix and Windows
+// without comparing a Windows backslash path to a container slash path.
+func dockerStagingHostPath(stagingRoot, relative string) (string, error) {
+	if validateContainerRelativePath("docker staged output path", relative) != nil {
+		return "", errors.New("docker staged output path escaped the staging root")
+	}
+	hostRelative := filepath.Clean(filepath.FromSlash(relative))
+	if hostRelative == "." || filepath.IsAbs(hostRelative) ||
+		filepath.VolumeName(hostRelative) != "" {
+		return "", errors.New("docker staged output path escaped the staging root")
+	}
+	cleanRoot := filepath.Clean(stagingRoot)
+	full := filepath.Clean(filepath.Join(cleanRoot, hostRelative))
+	within, err := filepath.Rel(cleanRoot, full)
+	if err != nil || within == ".." || filepath.IsAbs(within) ||
+		strings.HasPrefix(within, ".."+string(filepath.Separator)) {
+		return "", errors.New("docker staged output path escaped the staging root")
+	}
+	return full, nil
 }
 
 func dockerOutputMediaType(relative string, content []byte) string {
@@ -597,8 +620,8 @@ func VerifyDockerOutputCommit(stagingRoot string,
 	}
 	entries := make([]DockerOutputCommitEntry, 0, len(request.AcceptedEntries))
 	for _, entry := range request.AcceptedEntries {
-		full := filepath.Join(stagingRoot, filepath.FromSlash(entry.Path))
-		if !workspacePathWithin(full, stagingRoot) || filepath.Clean(full) != full {
+		full, pathErr := dockerStagingHostPath(stagingRoot, entry.Path)
+		if pathErr != nil {
 			return nil, errors.New("docker output commit path escaped the staging root")
 		}
 		content, err := os.ReadFile(full)

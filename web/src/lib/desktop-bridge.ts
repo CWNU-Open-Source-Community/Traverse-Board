@@ -55,7 +55,7 @@ export interface DesktopConnectionBootstrap {
   read_only_default: boolean;
   process_execution_enabled: boolean;
   shell_execution_enabled: boolean;
-  docker_execution_enabled: false;
+  docker_execution_enabled: boolean;
   skill_installation_enabled: boolean;
   evidence_attachment_enabled: boolean;
   verification_evidence_enabled: boolean;
@@ -648,6 +648,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     typeof value.evidence_attachment_enabled === "boolean" &&
     typeof value.verification_evidence_enabled === "boolean" &&
     typeof value.embedded_analyzer_execution_enabled === "boolean" &&
+    typeof value.docker_execution_enabled === "boolean" &&
     typeof value.user_terminal_enabled === "boolean" &&
     value.agent_terminal_input_default === false &&
     typeof value.workspace_import_enabled === "boolean" &&
@@ -666,7 +667,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
       value.run_wake_execution_enabled || value.run_wake_worker_enabled ||
       value.skill_installation_enabled ||
       value.evidence_attachment_enabled || value.verification_evidence_enabled ||
-      value.embedded_analyzer_execution_enabled ||
+      value.embedded_analyzer_execution_enabled || value.docker_execution_enabled ||
       value.user_terminal_enabled) &&
     (value.control_token === "" || validToken(value.control_token)) &&
     value.control_token !== value.read_token &&
@@ -693,11 +694,12 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
       value.run_wake_execution_enabled || value.run_wake_worker_enabled ||
       value.skill_installation_enabled ||
       value.evidence_attachment_enabled || value.verification_evidence_enabled ||
-      value.embedded_analyzer_execution_enabled ||
+      value.embedded_analyzer_execution_enabled || value.docker_execution_enabled ||
       value.user_terminal_enabled) &&
     value.process_execution_enabled === value.user_terminal_enabled &&
     value.shell_execution_enabled === value.user_terminal_enabled &&
-    value.docker_execution_enabled === false &&
+    (!value.docker_execution_enabled || (value.execution_permission_control_enabled &&
+      value.operator_approval_enabled)) &&
     value.renderer_path_input_supported === false;
 }
 

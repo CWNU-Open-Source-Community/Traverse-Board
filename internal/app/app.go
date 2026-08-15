@@ -50,6 +50,10 @@ type App struct {
 	calls                *application.ActiveCallRegistry
 	dockerObserver       sandbox.DockerProductionObserver
 	dockerWriteTransport sandbox.DockerContainerWriteTransport
+	dockerReadinessProbe sandbox.ReadinessProbe
+	dockerLifecycle      sandbox.DockerContainerLifecycleTransport
+	dockerIO             sandbox.DockerContainerOwnedIOTransport
+	dockerSandbox        *application.DockerSandboxService
 	hostInputStager      sandbox.DockerHostInputStager
 	hostInputHandoff     sandbox.DockerHostInputHandoffTransport
 	runtimeInputApply    sandbox.DockerRuntimeInputApplicationTransport
@@ -109,11 +113,16 @@ func executeContextWithConfig(ctx context.Context, args []string, out io.Writer,
 }
 
 func (a *App) newRunSupervisor() *application.RunSupervisor {
-	return application.NewRunSupervisor(a.store, a.router, a.checker).WithActiveCalls(a.calls)
+	supervisor := application.NewRunSupervisor(a.store, a.router, a.checker).
+		WithActiveCalls(a.calls)
+	if executor := a.newDockerSandboxProposalExecutor(); executor != nil {
+		supervisor.WithDockerSandboxProposalExecutor(executor)
+	}
+	return supervisor
 }
 
 func (a *App) newToolGateway() *toolgateway.Gateway {
-	return toolgateway.New(a.store, a.checker).
+	gateway := toolgateway.New(a.store, a.checker).
 		WithStructuredMemoryExecutor(application.NewStructuredMemoryToolExecutor(a.store)).
 		WithSpecialistDelegationExecutor(application.NewSpecialistDelegationToolExecutor(a.store)).
 		WithPlanDeliveryExecutor(application.NewPlanDeliveryToolExecutor(a.store)).
@@ -125,6 +134,21 @@ func (a *App) newToolGateway() *toolgateway.Gateway {
 			rec, err := a.store.GetWorkspaceByID(ctx, workspaceID)
 			return rec.RootPath, err
 		})
+	if executor := a.newDockerSandboxProposalExecutor(); executor != nil {
+		gateway.WithDockerSandboxProposalExecutor(executor)
+	}
+	return gateway
+}
+
+func (a *App) newDockerSandboxProposalExecutor() *application.DockerSandboxProposalExecutor {
+	if a == nil || a.dockerSandbox == nil {
+		return nil
+	}
+	executor, err := application.NewDockerSandboxProposalExecutor(a.dockerSandbox)
+	if err != nil {
+		return nil
+	}
+	return executor
 }
 
 func DefaultHome() string {
@@ -234,6 +258,7 @@ func (a *App) printHelp() {
 	fmt.Fprintln(a.out, "  cyberagent headless events")
 	fmt.Fprintln(a.out, "  cyberagent run create|adapt-task|list|show|mode|phase|execution-profile|execution-interaction|execution-permission|command-plan|command-execute|host-execute|events|usage|start|step|execute|checkpoint|graph|lease|finish|fail|pause|resume|cancel|delegations|delegation|plans|plan|delivery|steer|fanouts|fanout|sandbox|wake")
 	fmt.Fprintln(a.out, "  cyberagent run plan show|choose|selection")
+	fmt.Fprintln(a.out, "  cyberagent run sandbox docker-readiness|docker-admit|docker-start|docker-cancel|docker-status")
 	fmt.Fprintln(a.out, "  cyberagent run delivery checkpoint|list|show")
 	fmt.Fprintln(a.out, "  cyberagent run fanout plan|execute|show|execution|report")
 	fmt.Fprintln(a.out, "  cyberagent todo create|list|show|update|start|block|reopen|complete|cancel")

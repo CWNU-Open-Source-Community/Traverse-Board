@@ -59,6 +59,7 @@ type desktopOptions struct {
 	verificationEvidence   bool
 	embeddedAnalyzer       bool
 	userTerminal           bool
+	dockerExecution        bool
 	version                bool
 }
 
@@ -250,6 +251,8 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		"enable the fixed bounded embedded Rust/WASI analyzer")
 	userTerminal := fs.Bool("enable-user-terminal", false,
 		"enable the user-owned Debug ConPTY terminal")
+	dockerExecution := fs.Bool("enable-docker-execution", false,
+		"enable product Docker Sandbox admission and execution on the fixed local daemon")
 	version := fs.Bool("version", false, "print version and exit")
 	if err := fs.Parse(args); err != nil {
 		return desktopOptions{}, err
@@ -298,6 +301,10 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		return desktopOptions{}, errors.New(
 			"host command proposals require --enable-permission-control")
 	}
+	if *dockerExecution && !*permissionControl {
+		return desktopOptions{}, errors.New(
+			"Docker execution requires --enable-permission-control")
+	}
 	if *fullCDPDebug && (!*browserCDPControl || !*debugMaximumAccess) {
 		return desktopOptions{}, errors.New(
 			"full CDP debug requires --enable-browser-cdp-control and --enable-debug-maximum-access")
@@ -329,6 +336,7 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		verificationEvidence:   *verificationEvidence,
 		embeddedAnalyzer:       *embeddedAnalyzer,
 		userTerminal:           *userTerminal,
+		dockerExecution:        *dockerExecution,
 		version:                *version}, nil
 }
 
@@ -346,16 +354,18 @@ func runDesktop(config desktopOptions) error {
 		return err
 	}
 	controlToken := ""
+	// Docker product control uses the same short-lived Desktop control token;
+	// it never receives an independent renderer authority channel.
 	if config.profileControl || config.permissionControl || config.browserCDPControl ||
-		config.runCreation ||
-		config.sessionMessages ||
-		config.sessionSteeringControl || config.runLifecycle || config.runExecution ||
-		config.planDeliveryControl || config.approvalControl || config.modelControl ||
-		config.commandProposalControl || config.hostCommandProposals ||
-		config.providerCredentials || config.fileEditReview || config.fileEditProposals ||
-		config.runWakeControl || config.fileEditApply || config.runWakeExecution ||
-		config.runWakeWorker || config.skillInstallation || config.evidenceAttachment ||
-		config.verificationEvidence || config.embeddedAnalyzer || config.userTerminal {
+		config.runCreation || config.sessionMessages || config.sessionSteeringControl ||
+		config.runLifecycle || config.runExecution || config.planDeliveryControl ||
+		config.approvalControl || config.modelControl || config.commandProposalControl ||
+		config.hostCommandProposals || config.providerCredentials ||
+		config.fileEditReview || config.fileEditProposals || config.runWakeControl ||
+		config.fileEditApply || config.runWakeExecution || config.runWakeWorker ||
+		config.skillInstallation || config.evidenceAttachment ||
+		config.verificationEvidence || config.embeddedAnalyzer || config.userTerminal ||
+		config.dockerExecution {
 		controlToken, err = httpapi.GenerateAccessToken()
 		if err != nil {
 			return err
@@ -400,6 +410,7 @@ func runDesktop(config desktopOptions) error {
 		VerificationEvidenceEnabled:             config.verificationEvidence,
 		EmbeddedAnalyzerExecutionEnabled:        config.embeddedAnalyzer,
 		UserTerminalEnabled:                     config.userTerminal,
+		DockerExecutionEnabled:                  config.dockerExecution,
 		AppVersion:                              app.Version, UIHandler: bundle,
 		OnWakeWorkerError: func(runErr error) {
 			fmt.Fprintln(os.Stderr, "wake-worker:", runErr)
@@ -410,6 +421,11 @@ func runDesktop(config desktopOptions) error {
 			"desktop data store validation failed", err)
 	}
 	defer controlPlane.Close()
+	dockerExecutionEnabled, err := controlPlane.DockerExecutionEnabled()
+	if err != nil {
+		return apperror.Wrap(apperror.CodeFailedPrecondition,
+			"desktop Docker capability projection failed", err)
+	}
 	if err := controlPlane.StartWakeWorker(context.Background()); err != nil {
 		return apperror.Wrap(apperror.CodeFailedPrecondition,
 			"desktop wake worker could not start", err)
@@ -452,6 +468,7 @@ func runDesktop(config desktopOptions) error {
 		VerificationEvidenceEnabled:             config.verificationEvidence,
 		EmbeddedAnalyzerExecutionEnabled:        config.embeddedAnalyzer,
 		UserTerminalEnabled:                     config.userTerminal,
+		DockerExecutionEnabled:                  dockerExecutionEnabled,
 		AppVersion:                              app.Version, UIDigest: bundle.Digest(), Selector: selector,
 		PreviewBridge: preview, SkillInstaller: controlPlane.SkillInstaller(),
 		WorkspaceResolver: controlPlane, WorkspaceLauncher: newNativeWorkspaceLauncher(),

@@ -142,8 +142,34 @@ func TestDesktopOperatorPreviewEnablesTheSafeProductBundleOnly(t *testing.T) {
 		t.Fatalf("operator preview capability bundle is incomplete: %+v", preview)
 	}
 	if preview.dangerFullAccess || preview.debugMaximumAccess || preview.fullCDPDebug ||
-		preview.runWakeWorker || preview.userTerminal {
+		preview.runWakeWorker || preview.userTerminal || preview.dockerExecution {
 		t.Fatalf("operator preview silently enabled a high-risk capability: %+v", preview)
+	}
+}
+
+func TestDesktopDockerExecutionRequiresAnExplicitPermissionGate(t *testing.T) {
+	if _, err := parseDesktopOptions([]string{"--enable-docker-execution"}); err == nil ||
+		!strings.Contains(err.Error(), "--enable-permission-control") {
+		t.Fatalf("Docker execution without permission control was accepted: %v", err)
+	}
+	options, err := parseDesktopOptions([]string{
+		"--enable-permission-control", "--enable-docker-execution",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !options.permissionControl || !options.dockerExecution ||
+		options.dangerFullAccess || options.debugMaximumAccess || options.userTerminal {
+		t.Fatalf("Docker execution widened an unrelated capability: %+v", options)
+	}
+	preview, err := parseDesktopOptions([]string{
+		"--operator-preview", "--enable-docker-execution",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !preview.operatorPreview || !preview.permissionControl || !preview.dockerExecution {
+		t.Fatalf("explicit Docker opt-in was not retained with preview: %+v", preview)
 	}
 }
 

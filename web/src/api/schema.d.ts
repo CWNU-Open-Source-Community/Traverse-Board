@@ -1492,6 +1492,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sandbox/docker/admissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Admit an exact Docker Sandbox request
+         * @description Recomputes every current Go-owned gate and records an idempotent process-bound admission. Idempotency-Key is required.
+         */
+        post: operations["admitDockerSandbox"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sandbox/docker/cancellations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel a Docker Sandbox attempt
+         * @description Persists sticky cancellation and converges bounded cleanup without restoring start authority. Idempotency-Key is required.
+         */
+        post: operations["cancelDockerSandbox"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sandbox/docker/readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Evaluate Docker Sandbox readiness
+         * @description Performs a non-mutating, no-cache readiness evaluation for one exact Go-validated plan and Manifest. It cannot accept a daemon endpoint, host path, image override, mount override, or Docker flag.
+         */
+        post: operations["evaluateDockerSandboxReadiness"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sandbox/docker/starts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start an admitted Docker Sandbox
+         * @description Synchronously executes the exact admitted plan through the Go-owned lifecycle; client disconnect cancels and cleans up. Idempotency-Key is required.
+         */
+        post: operations["startDockerSandbox"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sandbox/docker/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect Docker Sandbox status
+         * @description Returns the content-free admission, launch, terminal outcome, cleanup, and artifact-count projection.
+         */
+        get: operations["getDockerSandboxStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions": {
         parameters: {
             query?: never;
@@ -2012,6 +2112,10 @@ export interface components {
             /** Format: int64 */
             timeout_seconds?: number;
         };
+        CancellationSpec: {
+            /** Format: int32 */
+            grace_period_millis: number;
+        };
         CodeHandoffActionReferenceView: {
             /** Format: date-time */
             available_at: string;
@@ -2258,6 +2362,11 @@ export interface components {
             verification_snapshot_receipt_reviews: components["schemas"]["CodeHandoffSnapshotReceiptReviewsView"];
             workspace_id: string;
         };
+        CommandSpec: {
+            arguments?: string[];
+            executable: string;
+            working_directory: string;
+        };
         ControlledCommandExecutionReceiptView: {
             /** Format: int32 */
             active_process_limit: number;
@@ -2445,6 +2554,96 @@ export interface components {
             /** Format: int64 */
             work_item_version: number;
         };
+        DockerSandboxAdmissionRequestView: {
+            manifest: components["schemas"]["Manifest"];
+            plan_id: string;
+            requested_by: string;
+        };
+        DockerSandboxAdmissionView: {
+            admission_id?: string;
+            allowed: boolean;
+            /** Format: date-time */
+            created_at?: string;
+            /** @enum {string} */
+            decision?: "authorized" | "denied";
+            /** @enum {string} */
+            permission_mode?: "approval" | "full_access" | "debug";
+            plan_id?: string;
+            readiness: components["schemas"]["DockerSandboxReadinessView"];
+            reason_code: string;
+            remediation_code: string;
+            replayed: boolean;
+            run_id?: string;
+        };
+        DockerSandboxCancelRequestView: {
+            admission_id: string;
+            requested_by: string;
+        };
+        DockerSandboxCancellationView: {
+            admission_id: string;
+            cancellation_id: string;
+            /** @enum {string} */
+            reason_code: "cancelled";
+            replayed: boolean;
+            /** Format: date-time */
+            requested_at: string;
+            status: components["schemas"]["DockerSandboxStatusView"];
+        };
+        DockerSandboxReadinessRequestView: {
+            manifest: components["schemas"]["Manifest"];
+            plan_id: string;
+        };
+        DockerSandboxReadinessView: {
+            /** Format: date-time */
+            checked_at: string;
+            daemon_reachable: boolean;
+            endpoint_class: string;
+            endpoint_fingerprint: string;
+            /** Format: date-time */
+            expires_at: string;
+            feature_enabled: boolean;
+            image_inspected: boolean;
+            image_profile_safe: boolean;
+            /** @enum {string} */
+            network_mode?: "disabled";
+            /** @enum {string} */
+            protocol_version: "sandbox.readiness.v1";
+            readiness_fingerprint: string;
+            ready: boolean;
+            reason_code: string;
+            remediation_code: string;
+            /** @enum {string} */
+            status: "ready" | "disabled" | "unavailable";
+        };
+        DockerSandboxStartRequestView: {
+            admission_id: string;
+            requested_by: string;
+        };
+        DockerSandboxStatusView: {
+            admission_id: string;
+            /** Format: int32 */
+            artifact_count: number;
+            attempt_id?: string;
+            cleanup_complete: boolean;
+            /** Format: date-time */
+            completed_at?: string;
+            /** Format: date-time */
+            created_at: string;
+            decision: string;
+            /** Format: int32 */
+            exit_code?: number;
+            /** @enum {string} */
+            outcome?: "succeeded" | "failed" | "timed_out" | "cancelled";
+            plan_id: string;
+            protocol_version: string;
+            reason_code: string;
+            receipt_reason_code?: string;
+            remediation_code: string;
+            replayed: boolean;
+            run_id: string;
+            /** @enum {string} */
+            state: "admitted" | "launched" | "terminal";
+        };
         EmbeddedAnalyzerExecutionControlView: {
             analyzer: string;
             artifact_atomic: boolean;
@@ -2478,6 +2677,11 @@ export interface components {
             media_type?: string;
             text?: string;
             version: string;
+        };
+        EnvironmentBinding: {
+            name: string;
+            source: string;
+            value: string;
         };
         ErrorEnvelope: {
             error: components["schemas"]["APIError"];
@@ -3026,6 +3230,20 @@ export interface components {
             app_version: string;
             resources: string[];
         };
+        Manifest: {
+            backend: string;
+            cancellation: components["schemas"]["CancellationSpec"];
+            command: components["schemas"]["CommandSpec"];
+            environment?: components["schemas"]["EnvironmentBinding"][];
+            input_artifact_ids?: string[];
+            mounts: components["schemas"]["Mount"][];
+            network: components["schemas"]["NetworkScope"];
+            output: components["schemas"]["OutputSpec"];
+            protocol_version: string;
+            resources: components["schemas"]["ResourceLimits"];
+            /** Format: int32 */
+            timeout_seconds: number;
+        };
         MessageView: {
             compacted: boolean;
             content: string;
@@ -3148,6 +3366,15 @@ export interface components {
             /** @enum {string} */
             version: "model_route_control.v1";
         };
+        Mount: {
+            access: string;
+            source: string;
+            target: string;
+        };
+        NetworkScope: {
+            allowed_targets?: string[];
+            mode: string;
+        };
         NoteView: {
             /** Format: date-time */
             archived_at?: string;
@@ -3252,6 +3479,11 @@ export interface components {
             pending: number;
             /** Format: int32 */
             prepared: number;
+        };
+        OutputSpec: {
+            capture_stderr: boolean;
+            capture_stdout: boolean;
+            paths?: string[];
         };
         Page: {
             /** Format: int32 */
@@ -3774,6 +4006,16 @@ export interface components {
             workspace_id: string;
             /** Format: int32 */
             worktree_count: number;
+        };
+        ResourceLimits: {
+            /** Format: int32 */
+            cpu_quota_millis: number;
+            /** Format: int64 */
+            max_output_bytes: number;
+            /** Format: int64 */
+            memory_bytes: number;
+            /** Format: int32 */
+            pids: number;
         };
         RunActivityItemView: {
             attempt_id?: string;
@@ -8436,6 +8678,202 @@ export interface operations {
                     "application/json": {
                         data: components["schemas"]["WorkItemView"][];
                         page: components["schemas"]["Page"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    admitDockerSandbox: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DockerSandboxAdmissionRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DockerSandboxAdmissionView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    cancelDockerSandbox: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DockerSandboxCancelRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DockerSandboxCancellationView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    evaluateDockerSandboxReadiness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DockerSandboxReadinessRequestView"];
+            };
+        };
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DockerSandboxReadinessView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    startDockerSandbox: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DockerSandboxStartRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DockerSandboxStatusView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getDockerSandboxStatus: {
+        parameters: {
+            query: {
+                /** @description Opaque Docker Sandbox admission identity */
+                admission_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DockerSandboxStatusView"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";

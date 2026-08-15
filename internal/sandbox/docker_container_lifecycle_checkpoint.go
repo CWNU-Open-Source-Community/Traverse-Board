@@ -186,6 +186,39 @@ type DockerContainerLifecycleObservation struct {
 	OOMKilled                 bool
 }
 
+// NewDockerContainerLifecycleObservation builds a validated, content-free
+// observation for checkpointing transports and deterministic test doubles.
+// Raw daemon container IDs are never accepted; callers provide only the
+// already-derived identity fingerprint.
+func NewDockerContainerLifecycleObservation(endpoint DockerObservationEndpoint,
+	request DockerContainerLifecycleRequest, state, containerIDFingerprint string,
+	exitCode, daemonReadCount int,
+) (DockerContainerLifecycleObservation, error) {
+	if endpoint.Validate() != nil || request.Validate() != nil {
+		return DockerContainerLifecycleObservation{},
+			errors.New("Docker lifecycle observation authority is invalid")
+	}
+	present := state != DockerContainerLifecycleStateAbsent
+	observation := DockerContainerLifecycleObservation{
+		ProtocolVersion: DockerContainerLifecycleObservationProtocolVersion,
+		State:           state, EndpointClass: endpoint.Class,
+		EndpointFingerprint:       endpoint.Fingerprint,
+		RequestFingerprint:        request.RequestFingerprint,
+		OwnershipLabelFingerprint: request.Ownership.OwnershipLabelFingerprint,
+		ContainerIDFingerprint:    containerIDFingerprint, ExitCode: exitCode,
+		DaemonReadCount: daemonReadCount, ContainerPresent: present,
+		ConfigurationMatched: present,
+		Running:              state == DockerContainerLifecycleStateRunning,
+	}
+	observation.ObservationFingerprint =
+		dockerContainerLifecycleObservationFingerprint(observation)
+	if observation.Validate() != nil {
+		return DockerContainerLifecycleObservation{},
+			errors.New("Docker lifecycle observation is invalid")
+	}
+	return observation, nil
+}
+
 func (observation DockerContainerLifecycleObservation) Validate() error {
 	endpoint, endpointErr := NewDockerObservationEndpoint(observation.EndpointClass)
 	present := observation.State != DockerContainerLifecycleStateAbsent

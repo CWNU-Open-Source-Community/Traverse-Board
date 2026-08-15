@@ -164,6 +164,7 @@ type DesktopBridgeConfig struct {
 	VerificationEvidenceEnabled             bool
 	EmbeddedAnalyzerExecutionEnabled        bool
 	UserTerminalEnabled                     bool
+	DockerExecutionEnabled                  bool
 	APIVersion                              string
 	AppVersion                              string
 	UIDigest                                string
@@ -222,7 +223,7 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 		config.SkillInstallationEnabled ||
 		config.EvidenceAttachmentEnabled || config.VerificationEvidenceEnabled ||
 		config.EmbeddedAnalyzerExecutionEnabled ||
-		config.UserTerminalEnabled
+		config.UserTerminalEnabled || config.DockerExecutionEnabled
 	if controlEnabled && config.ControlToken == "" {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop control capabilities require a control token")
@@ -264,6 +265,11 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 	if config.HostCommandProposalControlEnabled && !config.OperatorApprovalEnabled {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop host command proposals require operator approval capability")
+	}
+	if config.DockerExecutionEnabled &&
+		(!config.ExecutionPermissionControlEnabled || !config.OperatorApprovalEnabled) {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"desktop Docker execution requires operator approval permission control")
 	}
 	browserCDPCapabilities := domain.BrowserCDPPermissionRuntimeCapabilities{
 		ControlEnabled:   config.BrowserCDPPermissionControlEnabled,
@@ -332,7 +338,7 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 			ReadOnlyDefault:                         !controlEnabled,
 			ProcessExecutionEnabled:                 config.UserTerminalEnabled,
 			ShellExecutionEnabled:                   config.UserTerminalEnabled,
-			DockerExecutionEnabled:                  false,
+			DockerExecutionEnabled:                  config.DockerExecutionEnabled,
 			SkillInstallationEnabled:                config.SkillInstallationEnabled,
 			EvidenceAttachmentEnabled:               config.EvidenceAttachmentEnabled,
 			VerificationEvidenceEnabled:             config.VerificationEvidenceEnabled,

@@ -488,6 +488,33 @@ func TestDockerContainerIOPathBoundaryMatrix(t *testing.T) {
 	}
 }
 
+func TestDockerStagingHostPathCrossPlatformContainment(t *testing.T) {
+	root := t.TempDir()
+	full, err := dockerStagingHostPath(root, "report/nested/result.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	relative, err := filepath.Rel(root, full)
+	if err != nil || filepath.ToSlash(relative) != "report/nested/result.json" {
+		t.Fatalf("host staging path = %q, relative = %q, error = %v", full, relative, err)
+	}
+
+	for name, value := range map[string]string{
+		"absolute":          "/escape",
+		"parent traversal":  "../escape",
+		"nested traversal":  "nested/../../escape",
+		"windows separator": `nested\escape`,
+		"drive letter":      "C:/escape",
+		"empty component":   "nested//escape",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := dockerStagingHostPath(root, value); err == nil {
+				t.Fatalf("host staging path %q escaped containment", value)
+			}
+		})
+	}
+}
+
 func TestDockerContainerIOErrors(t *testing.T) {
 	if code := DockerContainerIOErrorCode(errors.New("other")); code != "" {
 		t.Fatalf("unexpected code %q", code)

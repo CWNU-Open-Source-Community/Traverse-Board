@@ -271,6 +271,7 @@ type dockerLifecycleSupervisorTestTransport struct {
 	recorder   *dockerLifecycleTestRecorder
 	state      string
 	resourceID string
+	waitErr    error
 	stageCalls int
 	startCalls int
 	waitCalls  int
@@ -351,6 +352,9 @@ func (transport *dockerLifecycleSupervisorTestTransport) Wait(ctx context.Contex
 	if err := fence(ctx, sandbox.DockerContainerLifecycleActionWait); err != nil {
 		return sandbox.DockerContainerLifecycleObservation{}, err
 	}
+	if transport.waitErr != nil {
+		return sandbox.DockerContainerLifecycleObservation{}, transport.waitErr
+	}
 	transport.state = sandbox.DockerContainerLifecycleStateExited
 	return transport.observation(request, transport.state), nil
 }
@@ -405,16 +409,9 @@ func (transport *dockerLifecycleSupervisorTestTransport) observation(
 ) sandbox.DockerContainerLifecycleObservation {
 	present := state != sandbox.DockerContainerLifecycleStateAbsent
 	exitCode := 0
-	return sandbox.DockerContainerLifecycleObservation{
-		State:                     state,
-		RequestFingerprint:        request.RequestFingerprint,
-		OwnershipLabelFingerprint: request.Ownership.OwnershipLabelFingerprint,
-		ContainerIDFingerprint:    map[bool]string{true: transport.resourceID}[present],
-		ExitCode:                  exitCode,
-		ContainerPresent:          present,
-		ConfigurationMatched:      present,
-		Running:                   state == sandbox.DockerContainerLifecycleStateRunning,
-	}
+	observation, _ := sandbox.NewDockerContainerLifecycleObservation(transport.endpoint,
+		request, state, map[bool]string{true: transport.resourceID}[present], exitCode, 1)
+	return observation
 }
 
 func TestDockerContainerLifecycleSupervisorWritesIntentAndActionFenceBeforeCreate(t *testing.T) {
@@ -465,6 +462,164 @@ func TestDockerContainerLifecycleSupervisorBeginReplayIsMetadataOnly(t *testing.
 			first, second, store.beginCalls, writes,
 			transport.creates+transport.starts+transport.deletes)
 	}
+}
+
+func TestDockerContainerLifecycleSupervisorStartAuthorityRunsBeforeCreateAndStart(t *testing.T) {
+	plan, request := newDockerLifecycleSupervisorPlan(t, "start-authority-order")
+	recorder := &dockerLifecycleTestRecorder{}
+	now := time.Now().UTC()
+	store := &dockerLifecycleSupervisorTestStore{now: now, recorder: recorder}
+	transport := newDockerLifecycleSupervisorTransport(t, recorder,
+		sandbox.DockerContainerLifecycleStateAbsent, "")
+	actions := make([]sandbox.DockerContainerLifecycleActionKind, 0, 2)
+	supervisor := newDockerLifecycleSupervisorForTest(t, store, transport, plan, request, now).
+		WithDockerContainerLifecycleStartAuthority(DockerContainerLifecycleStartAuthorityFunc(
+			func(_ context.Context, authority DockerContainerLifecycleStartAuthorityRequest) error {
+				if err := authority.Validate(); err != nil {
+					t.Fatal(err)
+				}
+				actions = append(actions, authority.Action)
+				recorder.add("start-authority:" + authority.Action.String())
+				return nil
+			}))
+
+	result, err := supervisor.BeginAndRun(context.Background(), plan, request,
+		plan.RequestedBy, "start-authority-order")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Receipt == nil || len(actions) != 2 ||
+		actions[0] != sandbox.DockerContainerLifecycleActionCreate ||
+		actions[1] != sandbox.DockerContainerLifecycleActionStart ||
+		transport.creates != 1 || transport.starts != 1 {
+		t.Fatalf("start authority did not guard create/start exactly once: record=%#v actions=%v creates=%d starts=%d",
+			result, actions, transport.creates, transport.starts)
+	}
+	assertDockerLifecycleEventOrder(t, recorder.snapshot(), "prepare:create",
+		"start-authority:create", "mutate:create", "prepare:start",
+		"start-authority:start", "mutate:start")
+}
+
+func TestDockerContainerLifecycleSupervisorPreCreateStartAuthorityDeniedHasZeroDaemonWrites(
+	t *testing.T,
+) {
+	plan, request := newDockerLifecycleSupervisorPlan(t, "start-authority-pre-create-denied")
+	recorder := &dockerLifecycleTestRecorder{}
+	now := time.Now().UTC()
+	store := &dockerLifecycleSupervisorTestStore{now: now, recorder: recorder}
+	transport := newDockerLifecycleSupervisorTransport(t, recorder,
+		sandbox.DockerContainerLifecycleStateAbsent, "")
+	authorityCalls := 0
+	supervisor := newDockerLifecycleSupervisorForTest(t, store, transport, plan, request, now).
+		WithDockerContainerLifecycleStartAuthority(DockerContainerLifecycleStartAuthorityFunc(
+			func(_ context.Context, authority DockerContainerLifecycleStartAuthorityRequest) error {
+				authorityCalls++
+				if authority.Action != sandbox.DockerContainerLifecycleActionCreate {
+					t.Fatalf("pre-create denial received unexpected action: %s", authority.Action)
+				}
+				recorder.add("start-authority:create")
+				return errors.New("process capability is no longer active")
+			}))
+
+	result, err := supervisor.BeginAndRun(context.Background(), plan, request,
+		plan.RequestedBy, "start-authority-pre-create-denied")
+	if apperror.CodeOf(err) != apperror.CodePolicyDenied ||
+		!strings.Contains(err.Error(), DockerContainerLifecycleStartAuthorityDeniedReason) {
+		t.Fatalf("pre-create denial did not return the stable policy boundary: %v", err)
+	}
+	if result.Receipt == nil ||
+		result.Receipt.Outcome != sandbox.DockerContainerLifecycleOutcomeFailed ||
+		!result.Receipt.ContainerAlreadyAbsent || authorityCalls != 1 ||
+		transport.creates != 0 || transport.starts != 0 || transport.terms != 0 ||
+		transport.deletes != 0 {
+		t.Fatalf("pre-create denial issued a daemon write or missed its cleanup receipt: record=%#v calls=%d writes=create:%d start:%d term:%d delete:%d",
+			result, authorityCalls, transport.creates, transport.starts,
+			transport.terms, transport.deletes)
+	}
+	assertDockerLifecycleEventOrder(t, recorder.snapshot(), "start-authority:create",
+		"transition:cleaning", "transition:cleaned", "receipt")
+}
+
+func TestDockerContainerLifecycleSupervisorPostExitRunsAfterCheckpointBeforeDelete(t *testing.T) {
+	plan, request := newDockerLifecycleSupervisorPlan(t, "post-exit-order")
+	recorder := &dockerLifecycleTestRecorder{}
+	now := time.Now().UTC()
+	store := &dockerLifecycleSupervisorTestStore{now: now, recorder: recorder}
+	transport := newDockerLifecycleSupervisorTransport(t, recorder,
+		sandbox.DockerContainerLifecycleStateAbsent, "")
+	hookCalls := 0
+	supervisor := newDockerLifecycleSupervisorForTest(t, store, transport, plan, request, now).
+		WithDockerContainerLifecyclePostExit(DockerContainerLifecyclePostExitFunc(
+			func(_ context.Context, postExit DockerContainerLifecyclePostExitRequest) error {
+				hookCalls++
+				if err := postExit.Validate(); err != nil {
+					t.Fatal(err)
+				}
+				if latestLifecycleTransition(postExit.Record,
+					sandbox.DockerContainerLifecycleTransitionExited) == nil ||
+					latestLifecycleTransition(postExit.Record,
+						sandbox.DockerContainerLifecycleTransitionCleaning) != nil {
+					t.Fatalf("post-exit hook did not receive the exact pre-cleaning checkpoint: %#v",
+						postExit.Record.Transitions)
+				}
+				recorder.add("post-exit")
+				return nil
+			}))
+
+	result, err := supervisor.BeginAndRun(context.Background(), plan, request,
+		plan.RequestedBy, "post-exit-order")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Receipt == nil || hookCalls != 1 || transport.deletes != 1 {
+		t.Fatalf("post-exit hook or cleanup did not complete once: record=%#v hooks=%d deletes=%d",
+			result, hookCalls, transport.deletes)
+	}
+	assertDockerLifecycleEventOrder(t, recorder.snapshot(), "transition:exited",
+		"post-exit", "prepare:delete", "mutate:delete")
+}
+
+func TestDockerContainerLifecycleSupervisorPostExitFailureStillDeletesAndReplaysMetadataOnly(
+	t *testing.T,
+) {
+	plan, request := newDockerLifecycleSupervisorPlan(t, "post-exit-failure")
+	recorder := &dockerLifecycleTestRecorder{}
+	now := time.Now().UTC()
+	store := &dockerLifecycleSupervisorTestStore{now: now, recorder: recorder}
+	transport := newDockerLifecycleSupervisorTransport(t, recorder,
+		sandbox.DockerContainerLifecycleStateAbsent, "")
+	hookCalls := 0
+	supervisor := newDockerLifecycleSupervisorForTest(t, store, transport, plan, request, now).
+		WithDockerContainerLifecyclePostExit(DockerContainerLifecyclePostExitFunc(
+			func(_ context.Context, _ DockerContainerLifecyclePostExitRequest) error {
+				hookCalls++
+				recorder.add("post-exit")
+				return errors.New("private callback failure detail")
+			}))
+
+	first, err := supervisor.BeginAndRun(context.Background(), plan, request,
+		plan.RequestedBy, "post-exit-failure")
+	if apperror.CodeOf(err) != apperror.CodeFailedPrecondition ||
+		!strings.Contains(err.Error(), DockerContainerLifecyclePostExitFailureReason) ||
+		strings.Contains(err.Error(), "private callback failure detail") {
+		t.Fatalf("post-exit failure was not normalized to the stable boundary: %v", err)
+	}
+	if first.Receipt == nil || hookCalls != 1 || transport.deletes != 1 ||
+		transport.state != sandbox.DockerContainerLifecycleStateAbsent {
+		t.Fatalf("post-exit failure leaked the container: record=%#v hooks=%d deletes=%d state=%q",
+			first, hookCalls, transport.deletes, transport.state)
+	}
+	second, err := supervisor.BeginAndRun(context.Background(), plan, request,
+		plan.RequestedBy, "post-exit-failure")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Receipt == nil || !second.Replayed || hookCalls != 1 || transport.deletes != 1 {
+		t.Fatalf("completed metadata replay repeated post-exit work: record=%#v hooks=%d deletes=%d",
+			second, hookCalls, transport.deletes)
+	}
+	assertDockerLifecycleEventOrder(t, recorder.snapshot(), "transition:exited",
+		"post-exit", "mutate:delete", "receipt")
 }
 
 func TestDockerContainerLifecycleSupervisorConcurrentBeginHasOneDaemonOwner(t *testing.T) {
@@ -555,6 +710,57 @@ func TestDockerContainerLifecycleSupervisorStaleFencePreventsCreateSideEffect(t 
 	}
 }
 
+func TestDockerContainerLifecycleSupervisorStartAuthorityStaleAndCancelledFailClosed(
+	t *testing.T,
+) {
+	for _, test := range []struct {
+		name      string
+		cancel    bool
+		fenceErr  error
+		wantCalls int
+	}{
+		{name: "stale-lease", fenceErr: apperror.New(apperror.CodeConflict,
+			"stale lifecycle start owner"), wantCalls: 0},
+		{name: "cancelled-context", cancel: true, wantCalls: 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			plan, request := newDockerLifecycleSupervisorPlan(t,
+				"start-authority-"+test.name)
+			recorder := &dockerLifecycleTestRecorder{}
+			now := time.Now().UTC()
+			store := &dockerLifecycleSupervisorTestStore{now: now, recorder: recorder,
+				fenceErr: test.fenceErr}
+			transport := newDockerLifecycleSupervisorTransport(t, recorder,
+				sandbox.DockerContainerLifecycleStateAbsent, "")
+			authorityCalls := 0
+			supervisor := newDockerLifecycleSupervisorForTest(t, store, transport,
+				plan, request, now).WithDockerContainerLifecycleStartAuthority(
+				DockerContainerLifecycleStartAuthorityFunc(func(_ context.Context,
+					_ DockerContainerLifecycleStartAuthorityRequest,
+				) error {
+					authorityCalls++
+					return nil
+				}))
+			ctx := context.Background()
+			if test.cancel {
+				cancelled, cancel := context.WithCancel(ctx)
+				cancel()
+				ctx = cancelled
+			}
+			result, err := supervisor.BeginAndRun(ctx, plan, request,
+				plan.RequestedBy, "start-authority-"+test.name)
+			if apperror.CodeOf(err) != apperror.CodePolicyDenied || result.Receipt == nil ||
+				result.Receipt.Outcome != sandbox.DockerContainerLifecycleOutcomeFailed ||
+				authorityCalls != test.wantCalls || transport.creates != 0 ||
+				transport.starts != 0 || transport.deletes != 0 {
+				t.Fatalf("%s start authority did not fail closed: record=%#v err=%v calls=%d creates=%d starts=%d deletes=%d",
+					test.name, result, err, authorityCalls, transport.creates,
+					transport.starts, transport.deletes)
+			}
+		})
+	}
+}
+
 func TestDockerContainerLifecycleSupervisorRecoveryDoesNotRestartRunningContainer(t *testing.T) {
 	plan, request := newDockerLifecycleSupervisorPlan(t, "running-recovery")
 	recorder := &dockerLifecycleTestRecorder{}
@@ -583,6 +789,273 @@ func TestDockerContainerLifecycleSupervisorRecoveryDoesNotRestartRunningContaine
 		t.Fatalf("running recovery duplicated or skipped work: record=%#v acquire=%d startCalls=%d starts=%d waits=%d deletes=%d",
 			result, store.acquireCalls, transport.startCalls, transport.starts,
 			transport.waitCalls, transport.deletes)
+	}
+}
+
+func TestDockerContainerLifecycleSupervisorCreatedRecoveryDeniedDeletesWithoutStart(t *testing.T) {
+	plan, request := newDockerLifecycleSupervisorPlan(t, "start-authority-created-denied")
+	recorder := &dockerLifecycleTestRecorder{}
+	now := time.Now().UTC()
+	intent, lease, resourceID := newDockerLifecycleRecoveryIntent(t, plan, request, now)
+	created := newDockerLifecycleTransition(t, intent.ID, 1, lease,
+		sandbox.DockerContainerLifecycleTransitionCreated,
+		sandbox.DockerContainerLifecycleReasonCreated, nil, resourceID, "",
+		now.Add(-80*time.Second))
+	store := &dockerLifecycleSupervisorTestStore{now: now, recorder: recorder, found: true,
+		record: sandbox.DockerContainerLifecycleRecord{Intent: intent, Lease: lease,
+			Transitions: []sandbox.DockerContainerLifecycleTransition{created}}}
+	transport := newDockerLifecycleSupervisorTransport(t, recorder,
+		sandbox.DockerContainerLifecycleStateCreated, resourceID)
+	authorityCalls := 0
+	supervisor := newDockerLifecycleSupervisorForTest(t, store, transport, plan, request, now).
+		WithDockerContainerLifecycleStartAuthority(DockerContainerLifecycleStartAuthorityFunc(
+			func(_ context.Context, authority DockerContainerLifecycleStartAuthorityRequest) error {
+				authorityCalls++
+				recorder.add("start-authority:" + authority.Action.String())
+				return errors.New("start capability was revoked")
+			}))
+
+	result, err := supervisor.RecoverOne(context.Background(), intent.ID)
+	if apperror.CodeOf(err) != apperror.CodePolicyDenied {
+		t.Fatalf("created recovery denial returned an unstable error: %v", err)
+	}
+	if result.Receipt == nil ||
+		result.Receipt.Outcome != sandbox.DockerContainerLifecycleOutcomeFailed ||
+		authorityCalls != 1 || transport.startCalls != 1 || transport.starts != 0 ||
+		transport.waitCalls != 0 || transport.terminate != 0 || transport.deletes != 1 {
+		t.Fatalf("created recovery started or failed to delete: record=%#v calls=%d startCalls=%d starts=%d waits=%d terminate=%d deletes=%d",
+			result, authorityCalls, transport.startCalls, transport.starts,
+			transport.waitCalls, transport.terminate, transport.deletes)
+	}
+	assertDockerLifecycleEventOrder(t, recorder.snapshot(), "start-authority:start",
+		"transition:cleaning", "prepare:delete", "mutate:delete", "receipt")
+}
+
+func TestDockerContainerLifecycleSupervisorCreatedCleaningRecoveryNeverRechecksStart(t *testing.T) {
+	plan, request := newDockerLifecycleSupervisorPlan(t, "start-authority-created-cleaning")
+	recorder := &dockerLifecycleTestRecorder{}
+	now := time.Now().UTC()
+	intent, lease, resourceID := newDockerLifecycleRecoveryIntent(t, plan, request, now)
+	created := newDockerLifecycleTransition(t, intent.ID, 1, lease,
+		sandbox.DockerContainerLifecycleTransitionCreated,
+		sandbox.DockerContainerLifecycleReasonCreated, nil, resourceID, "",
+		now.Add(-80*time.Second))
+	cleaning := newDockerLifecycleTransition(t, intent.ID, 2, lease,
+		sandbox.DockerContainerLifecycleTransitionCleaning,
+		sandbox.DockerContainerLifecycleReasonCleanupStarted, nil, "",
+		created.TransitionFingerprint, now.Add(-70*time.Second))
+	store := &dockerLifecycleSupervisorTestStore{now: now, recorder: recorder, found: true,
+		record: sandbox.DockerContainerLifecycleRecord{Intent: intent, Lease: lease,
+			Transitions: []sandbox.DockerContainerLifecycleTransition{created, cleaning}}}
+	transport := newDockerLifecycleSupervisorTransport(t, recorder,
+		sandbox.DockerContainerLifecycleStateCreated, resourceID)
+	authorityCalls := 0
+	supervisor := newDockerLifecycleSupervisorForTest(t, store, transport, plan, request, now).
+		WithDockerContainerLifecycleStartAuthority(DockerContainerLifecycleStartAuthorityFunc(
+			func(_ context.Context, _ DockerContainerLifecycleStartAuthorityRequest) error {
+				authorityCalls++
+				return nil
+			}))
+
+	result, err := supervisor.RecoverOne(context.Background(), intent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Receipt == nil ||
+		result.Receipt.Outcome != sandbox.DockerContainerLifecycleOutcomeFailed ||
+		authorityCalls != 0 || transport.startCalls != 0 || transport.starts != 0 ||
+		transport.deletes != 1 {
+		t.Fatalf("created cleaning recovery crossed back into start authority: record=%#v calls=%d startCalls=%d starts=%d deletes=%d",
+			result, authorityCalls, transport.startCalls, transport.starts, transport.deletes)
+	}
+	assertDockerLifecycleEventOrder(t, recorder.snapshot(), "acquire", "prepare:delete",
+		"mutate:delete", "transition:cleaned", "receipt")
+}
+
+func TestDockerContainerLifecycleSupervisorRunningRecoveryDeniedTerminatesWithoutWait(t *testing.T) {
+	plan, request := newDockerLifecycleSupervisorPlan(t, "start-authority-running-denied")
+	recorder := &dockerLifecycleTestRecorder{}
+	now := time.Now().UTC()
+	intent, lease, resourceID := newDockerLifecycleRecoveryIntent(t, plan, request, now)
+	created := newDockerLifecycleTransition(t, intent.ID, 1, lease,
+		sandbox.DockerContainerLifecycleTransitionCreated,
+		sandbox.DockerContainerLifecycleReasonCreated, nil, resourceID, "",
+		now.Add(-80*time.Second))
+	started := newDockerLifecycleTransition(t, intent.ID, 2, lease,
+		sandbox.DockerContainerLifecycleTransitionStarted,
+		sandbox.DockerContainerLifecycleReasonStarted, nil, resourceID,
+		created.TransitionFingerprint, now.Add(-70*time.Second))
+	store := &dockerLifecycleSupervisorTestStore{now: now, recorder: recorder, found: true,
+		record: sandbox.DockerContainerLifecycleRecord{Intent: intent, Lease: lease,
+			Transitions: []sandbox.DockerContainerLifecycleTransition{created, started}}}
+	transport := newDockerLifecycleSupervisorTransport(t, recorder,
+		sandbox.DockerContainerLifecycleStateRunning, resourceID)
+	authorityCalls := 0
+	supervisor := newDockerLifecycleSupervisorForTest(t, store, transport, plan, request, now).
+		WithDockerContainerLifecycleStartAuthority(DockerContainerLifecycleStartAuthorityFunc(
+			func(_ context.Context, authority DockerContainerLifecycleStartAuthorityRequest) error {
+				authorityCalls++
+				recorder.add("start-authority:" + authority.Action.String())
+				return errors.New("permission snapshot no longer permits start")
+			}))
+
+	result, err := supervisor.RecoverOne(context.Background(), intent.ID)
+	if apperror.CodeOf(err) != apperror.CodePolicyDenied {
+		t.Fatalf("running recovery denial returned an unstable error: %v", err)
+	}
+	if result.Receipt == nil ||
+		result.Receipt.Outcome != sandbox.DockerContainerLifecycleOutcomeFailed ||
+		authorityCalls != 1 || transport.startCalls != 0 || transport.starts != 0 ||
+		transport.waitCalls != 0 || transport.terminate != 1 || transport.terms != 1 ||
+		transport.deletes != 1 {
+		t.Fatalf("running recovery waited/restarted or skipped cleanup: record=%#v calls=%d startCalls=%d starts=%d waits=%d terminate=%d terms=%d deletes=%d",
+			result, authorityCalls, transport.startCalls, transport.starts,
+			transport.waitCalls, transport.terminate, transport.terms, transport.deletes)
+	}
+	assertDockerLifecycleEventOrder(t, recorder.snapshot(), "start-authority:start",
+		"transition:cleaning", "mutate:term", "transition:exited",
+		"mutate:delete", "receipt")
+}
+
+func TestDockerContainerLifecycleSupervisorAbsentRecoveryDeniedWritesFailedCleanupReceipt(
+	t *testing.T,
+) {
+	plan, request := newDockerLifecycleSupervisorPlan(t, "start-authority-absent-denied")
+	recorder := &dockerLifecycleTestRecorder{}
+	now := time.Now().UTC()
+	intent, lease, resourceID := newDockerLifecycleRecoveryIntent(t, plan, request, now)
+	created := newDockerLifecycleTransition(t, intent.ID, 1, lease,
+		sandbox.DockerContainerLifecycleTransitionCreated,
+		sandbox.DockerContainerLifecycleReasonCreated, nil, resourceID, "",
+		now.Add(-80*time.Second))
+	store := &dockerLifecycleSupervisorTestStore{now: now, recorder: recorder, found: true,
+		record: sandbox.DockerContainerLifecycleRecord{Intent: intent, Lease: lease,
+			Transitions: []sandbox.DockerContainerLifecycleTransition{created}}}
+	transport := newDockerLifecycleSupervisorTransport(t, recorder,
+		sandbox.DockerContainerLifecycleStateAbsent, resourceID)
+	authorityCalls := 0
+	supervisor := newDockerLifecycleSupervisorForTest(t, store, transport, plan, request, now).
+		WithDockerContainerLifecycleStartAuthority(DockerContainerLifecycleStartAuthorityFunc(
+			func(_ context.Context, _ DockerContainerLifecycleStartAuthorityRequest) error {
+				authorityCalls++
+				recorder.add("start-authority:start")
+				return errors.New("capability expired")
+			}))
+
+	result, err := supervisor.RecoverOne(context.Background(), intent.ID)
+	if apperror.CodeOf(err) != apperror.CodePolicyDenied {
+		t.Fatalf("absent recovery denial returned an unstable error: %v", err)
+	}
+	if result.Receipt == nil ||
+		result.Receipt.Outcome != sandbox.DockerContainerLifecycleOutcomeFailed ||
+		!result.Receipt.ContainerAlreadyAbsent || authorityCalls != 1 ||
+		transport.creates != 0 || transport.starts != 0 || transport.terms != 0 ||
+		transport.deletes != 0 {
+		t.Fatalf("absent recovery wrote to Docker or missed failed cleanup receipt: record=%#v calls=%d writes=create:%d start:%d term:%d delete:%d",
+			result, authorityCalls, transport.creates, transport.starts,
+			transport.terms, transport.deletes)
+	}
+	assertDockerLifecycleEventOrder(t, recorder.snapshot(), "start-authority:start",
+		"transition:cleaning", "transition:cleaned", "receipt")
+}
+
+func TestDockerContainerLifecycleSupervisorPostExitRecoveryIsIdempotent(t *testing.T) {
+	plan, request := newDockerLifecycleSupervisorPlan(t, "post-exit-recovery")
+	recorder := &dockerLifecycleTestRecorder{}
+	now := time.Now().UTC()
+	intent, lease, resourceID := newDockerLifecycleRecoveryIntent(t, plan, request, now)
+	created := newDockerLifecycleTransition(t, intent.ID, 1, lease,
+		sandbox.DockerContainerLifecycleTransitionCreated,
+		sandbox.DockerContainerLifecycleReasonCreated, nil, resourceID, "",
+		now.Add(-80*time.Second))
+	started := newDockerLifecycleTransition(t, intent.ID, 2, lease,
+		sandbox.DockerContainerLifecycleTransitionStarted,
+		sandbox.DockerContainerLifecycleReasonStarted, nil, resourceID,
+		created.TransitionFingerprint, now.Add(-70*time.Second))
+	store := &dockerLifecycleSupervisorTestStore{now: now, recorder: recorder, found: true,
+		record: sandbox.DockerContainerLifecycleRecord{Intent: intent, Lease: lease,
+			Transitions: []sandbox.DockerContainerLifecycleTransition{created, started}}}
+	transport := newDockerLifecycleSupervisorTransport(t, recorder,
+		sandbox.DockerContainerLifecycleStateExited, resourceID)
+	hookCalls := 0
+	invocationKey := ""
+	supervisor := newDockerLifecycleSupervisorForTest(t, store, transport, plan, request, now).
+		WithDockerContainerLifecyclePostExit(DockerContainerLifecyclePostExitFunc(
+			func(_ context.Context, postExit DockerContainerLifecyclePostExitRequest) error {
+				hookCalls++
+				invocationKey = postExit.InvocationKeyDigest
+				recorder.add("post-exit")
+				return nil
+			}))
+
+	first, err := supervisor.RecoverOne(context.Background(), intent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := supervisor.RecoverOne(context.Background(), intent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Receipt == nil || second.Receipt == nil || !second.Replayed ||
+		hookCalls != 1 || invocationKey == "" || transport.deletes != 1 ||
+		store.acquireCalls != 1 || store.completeCalls != 1 {
+		t.Fatalf("restart recovery repeated post-exit work: first=%#v second=%#v hooks=%d key=%q deletes=%d acquires=%d completes=%d",
+			first, second, hookCalls, invocationKey, transport.deletes,
+			store.acquireCalls, store.completeCalls)
+	}
+	assertDockerLifecycleEventOrder(t, recorder.snapshot(), "acquire", "transition:exited",
+		"post-exit", "mutate:delete", "receipt")
+}
+
+func TestDockerContainerLifecycleSupervisorPostExitRunsOnceForTimeoutAndCancellation(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		waitErr error
+		cancel  bool
+		outcome string
+	}{
+		{name: "timeout", waitErr: context.DeadlineExceeded,
+			outcome: sandbox.DockerContainerLifecycleOutcomeTimedOut},
+		{name: "cancelled", waitErr: context.Canceled, cancel: true,
+			outcome: sandbox.DockerContainerLifecycleOutcomeCancelled},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			plan, request := newDockerLifecycleSupervisorPlan(t, "post-exit-"+test.name)
+			recorder := &dockerLifecycleTestRecorder{}
+			now := time.Now().UTC()
+			store := &dockerLifecycleSupervisorTestStore{now: now, recorder: recorder}
+			transport := newDockerLifecycleSupervisorTransport(t, recorder,
+				sandbox.DockerContainerLifecycleStateAbsent, "")
+			transport.waitErr = test.waitErr
+			hookCalls := 0
+			supervisor := newDockerLifecycleSupervisorForTest(t, store, transport,
+				plan, request, now).WithDockerContainerLifecyclePostExit(
+				DockerContainerLifecyclePostExitFunc(func(_ context.Context,
+					_ DockerContainerLifecyclePostExitRequest,
+				) error {
+					hookCalls++
+					recorder.add("post-exit")
+					return nil
+				}))
+			ctx := context.Background()
+			if test.cancel {
+				cancelled, cancel := context.WithCancel(ctx)
+				cancel()
+				ctx = cancelled
+			}
+			result, err := supervisor.BeginAndRun(ctx, plan, request,
+				plan.RequestedBy, "post-exit-"+test.name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Receipt == nil || result.Receipt.Outcome != test.outcome ||
+				hookCalls != 1 || transport.terms != 1 || transport.deletes != 1 {
+				t.Fatalf("%s lifecycle skipped or repeated post-exit: record=%#v hooks=%d terms=%d deletes=%d",
+					test.name, result, hookCalls, transport.terms, transport.deletes)
+			}
+			assertDockerLifecycleEventOrder(t, recorder.snapshot(), "transition:exited",
+				"post-exit", "mutate:delete")
+		})
 	}
 }
 
@@ -876,6 +1349,223 @@ func TestDockerContainerLifecycleSupervisorCleaningRecoveryTerminatesWithStickyO
 					store.acquireCalls, store.completeCalls)
 			}
 		})
+	}
+}
+
+func TestDockerContainerLifecycleSupervisorCancelOneConvergesAbsentCreatedAndRunning(
+	t *testing.T,
+) {
+	for _, test := range []struct {
+		state          string
+		wantDeletes    int
+		wantTerminates int
+		wantAbsent     bool
+	}{
+		{state: sandbox.DockerContainerLifecycleStateAbsent, wantAbsent: true},
+		{state: sandbox.DockerContainerLifecycleStateCreated, wantDeletes: 1},
+		{state: sandbox.DockerContainerLifecycleStateRunning, wantDeletes: 1,
+			wantTerminates: 1},
+	} {
+		t.Run(test.state, func(t *testing.T) {
+			plan, request := newDockerLifecycleSupervisorPlan(t, "cancel-one-"+test.state)
+			recorder := &dockerLifecycleTestRecorder{}
+			now := time.Now().UTC()
+			intent, lease, resourceID := newDockerLifecycleRecoveryIntent(t, plan, request, now)
+			transitions := make([]sandbox.DockerContainerLifecycleTransition, 0, 2)
+			if test.state != sandbox.DockerContainerLifecycleStateAbsent {
+				created := newDockerLifecycleTransition(t, intent.ID, 1, lease,
+					sandbox.DockerContainerLifecycleTransitionCreated,
+					sandbox.DockerContainerLifecycleReasonCreated, nil, resourceID, "",
+					now.Add(-80*time.Second))
+				transitions = append(transitions, created)
+				if test.state == sandbox.DockerContainerLifecycleStateRunning {
+					started := newDockerLifecycleTransition(t, intent.ID, 2, lease,
+						sandbox.DockerContainerLifecycleTransitionStarted,
+						sandbox.DockerContainerLifecycleReasonStarted, nil, resourceID,
+						created.TransitionFingerprint, now.Add(-70*time.Second))
+					transitions = append(transitions, started)
+				}
+			}
+			record := sandbox.DockerContainerLifecycleRecord{Intent: intent, Lease: lease,
+				Transitions: transitions}
+			if err := record.Validate(); err != nil {
+				t.Fatal(err)
+			}
+			store := &dockerLifecycleSupervisorTestStore{now: now, recorder: recorder,
+				found: true, record: record}
+			transportResourceID := resourceID
+			if test.state == sandbox.DockerContainerLifecycleStateAbsent {
+				transportResourceID = ""
+			}
+			transport := newDockerLifecycleSupervisorTransport(t, recorder,
+				test.state, transportResourceID)
+			startAuthorityCalls := 0
+			supervisor := newDockerLifecycleSupervisorForTest(t, store, transport,
+				plan, request, now).WithDockerContainerLifecycleStartAuthority(
+				DockerContainerLifecycleStartAuthorityFunc(func(_ context.Context,
+					_ DockerContainerLifecycleStartAuthorityRequest,
+				) error {
+					startAuthorityCalls++
+					return errors.New("cancel convergence must not request start authority")
+				}))
+
+			result, err := supervisor.CancelOne(context.Background(), intent.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cleaning := latestLifecycleTransition(result,
+				sandbox.DockerContainerLifecycleTransitionCleaning)
+			if result.Receipt == nil ||
+				result.Receipt.Outcome != sandbox.DockerContainerLifecycleOutcomeCancelled ||
+				result.Receipt.ContainerAlreadyAbsent != test.wantAbsent || cleaning == nil ||
+				cleaning.ReasonCode != sandbox.DockerContainerLifecycleReasonCancelled ||
+				startAuthorityCalls != 0 || transport.stageCalls != 0 ||
+				transport.creates != 0 || transport.startCalls != 0 || transport.starts != 0 ||
+				transport.waitCalls != 0 || transport.terminate != test.wantTerminates ||
+				transport.deletes != test.wantDeletes {
+				t.Fatalf("%s cancellation did not converge without start: record=%#v cleaning=%#v auth=%d stage=%d create=%d startCalls=%d starts=%d waits=%d terminates=%d deletes=%d",
+					test.state, result, cleaning, startAuthorityCalls, transport.stageCalls,
+					transport.creates, transport.startCalls, transport.starts,
+					transport.waitCalls, transport.terminate, transport.deletes)
+			}
+			assertDockerLifecycleEventOrder(t, recorder.snapshot(), "acquire",
+				"transition:cleaning", "transition:cleaned", "receipt")
+		})
+	}
+}
+
+func TestDockerContainerLifecycleSupervisorCancelOneExitedRunsPostExitOnceAndReplays(
+	t *testing.T,
+) {
+	plan, request := newDockerLifecycleSupervisorPlan(t, "cancel-one-exited")
+	recorder := &dockerLifecycleTestRecorder{}
+	now := time.Now().UTC()
+	intent, lease, resourceID := newDockerLifecycleRecoveryIntent(t, plan, request, now)
+	exitCode := 0
+	created := newDockerLifecycleTransition(t, intent.ID, 1, lease,
+		sandbox.DockerContainerLifecycleTransitionCreated,
+		sandbox.DockerContainerLifecycleReasonCreated, nil, resourceID, "",
+		now.Add(-90*time.Second))
+	started := newDockerLifecycleTransition(t, intent.ID, 2, lease,
+		sandbox.DockerContainerLifecycleTransitionStarted,
+		sandbox.DockerContainerLifecycleReasonStarted, nil, resourceID,
+		created.TransitionFingerprint, now.Add(-80*time.Second))
+	exited := newDockerLifecycleTransition(t, intent.ID, 3, lease,
+		sandbox.DockerContainerLifecycleTransitionExited,
+		sandbox.DockerContainerLifecycleReasonNaturalExit, &exitCode, resourceID,
+		started.TransitionFingerprint, now.Add(-70*time.Second))
+	store := &dockerLifecycleSupervisorTestStore{now: now, recorder: recorder, found: true,
+		record: sandbox.DockerContainerLifecycleRecord{Intent: intent, Lease: lease,
+			Transitions: []sandbox.DockerContainerLifecycleTransition{created, started, exited}}}
+	transport := newDockerLifecycleSupervisorTransport(t, recorder,
+		sandbox.DockerContainerLifecycleStateExited, resourceID)
+	postExitCalls, startAuthorityCalls := 0, 0
+	supervisor := newDockerLifecycleSupervisorForTest(t, store, transport, plan, request, now).
+		WithDockerContainerLifecycleStartAuthority(DockerContainerLifecycleStartAuthorityFunc(
+			func(_ context.Context, _ DockerContainerLifecycleStartAuthorityRequest) error {
+				startAuthorityCalls++
+				return nil
+			})).
+		WithDockerContainerLifecyclePostExit(DockerContainerLifecyclePostExitFunc(
+			func(_ context.Context, postExit DockerContainerLifecyclePostExitRequest) error {
+				postExitCalls++
+				if err := postExit.Validate(); err != nil {
+					t.Fatal(err)
+				}
+				recorder.add("post-exit")
+				return nil
+			}))
+
+	first, err := supervisor.CancelOne(context.Background(), intent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := supervisor.CancelOne(context.Background(), intent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Receipt == nil ||
+		first.Receipt.Outcome != sandbox.DockerContainerLifecycleOutcomeCancelled ||
+		second.Receipt == nil || !second.Replayed || postExitCalls != 1 ||
+		startAuthorityCalls != 0 || transport.startCalls != 0 || transport.waitCalls != 0 ||
+		transport.terminate != 0 || transport.deletes != 1 || store.acquireCalls != 1 {
+		t.Fatalf("exited cancellation was not idempotent: first=%#v second=%#v postExit=%d startAuth=%d start=%d wait=%d terminate=%d delete=%d acquire=%d",
+			first, second, postExitCalls, startAuthorityCalls, transport.startCalls,
+			transport.waitCalls, transport.terminate, transport.deletes, store.acquireCalls)
+	}
+	assertDockerLifecycleEventOrder(t, recorder.snapshot(), "transition:cleaning",
+		"post-exit", "mutate:delete", "receipt")
+}
+
+func TestDockerContainerLifecycleSupervisorRecoversDurableCancellationWithoutStart(t *testing.T) {
+	plan, request := newDockerLifecycleSupervisorPlan(t, "cancel-one-crash-recovery")
+	recorder := &dockerLifecycleTestRecorder{}
+	now := time.Now().UTC()
+	intent, lease, resourceID := newDockerLifecycleRecoveryIntent(t, plan, request, now)
+	created := newDockerLifecycleTransition(t, intent.ID, 1, lease,
+		sandbox.DockerContainerLifecycleTransitionCreated,
+		sandbox.DockerContainerLifecycleReasonCreated, nil, resourceID, "",
+		now.Add(-90*time.Second))
+	started := newDockerLifecycleTransition(t, intent.ID, 2, lease,
+		sandbox.DockerContainerLifecycleTransitionStarted,
+		sandbox.DockerContainerLifecycleReasonStarted, nil, resourceID,
+		created.TransitionFingerprint, now.Add(-80*time.Second))
+	cleaning := newDockerLifecycleTransition(t, intent.ID, 3, lease,
+		sandbox.DockerContainerLifecycleTransitionCleaning,
+		sandbox.DockerContainerLifecycleReasonCancelled, nil, "",
+		started.TransitionFingerprint, now.Add(-70*time.Second))
+	store := &dockerLifecycleSupervisorTestStore{now: now, recorder: recorder, found: true,
+		record: sandbox.DockerContainerLifecycleRecord{Intent: intent, Lease: lease,
+			Transitions: []sandbox.DockerContainerLifecycleTransition{created, started, cleaning}}}
+	transport := newDockerLifecycleSupervisorTransport(t, recorder,
+		sandbox.DockerContainerLifecycleStateRunning, resourceID)
+	startAuthorityCalls := 0
+	supervisor := newDockerLifecycleSupervisorForTest(t, store, transport, plan, request, now).
+		WithDockerContainerLifecycleStartAuthority(DockerContainerLifecycleStartAuthorityFunc(
+			func(_ context.Context, _ DockerContainerLifecycleStartAuthorityRequest) error {
+				startAuthorityCalls++
+				return nil
+			}))
+
+	result, err := supervisor.RecoverOne(context.Background(), intent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Receipt == nil ||
+		result.Receipt.Outcome != sandbox.DockerContainerLifecycleOutcomeCancelled ||
+		startAuthorityCalls != 0 || transport.startCalls != 0 || transport.waitCalls != 0 ||
+		transport.terminate != 1 || transport.deletes != 1 {
+		t.Fatalf("durable cancellation recovery restarted or waited: record=%#v auth=%d start=%d wait=%d terminate=%d delete=%d",
+			result, startAuthorityCalls, transport.startCalls, transport.waitCalls,
+			transport.terminate, transport.deletes)
+	}
+}
+
+func TestDockerContainerLifecycleSupervisorCancelOneConflictsWithActiveOwner(t *testing.T) {
+	plan, request := newDockerLifecycleSupervisorPlan(t, "cancel-one-active-owner")
+	recorder := &dockerLifecycleTestRecorder{}
+	now := time.Now().UTC()
+	intent, _, _ := newDockerLifecycleRecoveryIntent(t, plan, request, now)
+	activeLease, err := sandbox.NewDockerContainerLifecycleLease(intent,
+		"docker-lifecycle-active-cancel-lease", "active-lifecycle-owner", 1,
+		now, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &dockerLifecycleSupervisorTestStore{now: now, recorder: recorder, found: true,
+		record: sandbox.DockerContainerLifecycleRecord{Intent: intent, Lease: activeLease}}
+	transport := newDockerLifecycleSupervisorTransport(t, recorder,
+		sandbox.DockerContainerLifecycleStateAbsent, "")
+	supervisor := newDockerLifecycleSupervisorForTest(t, store, transport, plan, request, now)
+
+	_, err = supervisor.CancelOne(context.Background(), intent.ID)
+	if apperror.CodeOf(err) != apperror.CodeConflict || store.acquireCalls != 1 ||
+		len(store.record.Transitions) != 0 || transport.stageCalls != 0 ||
+		transport.creates != 0 || transport.starts != 0 || transport.terms != 0 ||
+		transport.deletes != 0 {
+		t.Fatalf("active owner cancellation did not conflict before mutation: err=%v acquire=%d transitions=%v stage=%d create=%d start=%d term=%d delete=%d",
+			err, store.acquireCalls, store.record.Transitions, transport.stageCalls,
+			transport.creates, transport.starts, transport.terms, transport.deletes)
 	}
 }
 

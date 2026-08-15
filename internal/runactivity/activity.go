@@ -203,6 +203,31 @@ func projectEvent(event events.Event) (Item, bool) {
 	case events.RunStatusChangedEvent:
 		base.Title = "Run 状态已更新"
 		base.Status = cleanStatus(stringField(event.PayloadJSON, "status"))
+	case events.SandboxDockerLifecyclePreparedEvent,
+		events.SandboxDockerLifecycleAcquiredEvent,
+		events.SandboxDockerLifecycleTakenOverEvent,
+		events.SandboxDockerLifecycleActionPreparedEvent,
+		events.SandboxDockerLifecycleTransitionEvent,
+		events.SandboxDockerLifecycleCompletedEvent,
+		events.SandboxDockerLogCapturePreparedEvent,
+		events.SandboxDockerLogCaptureAcquiredEvent,
+		events.SandboxDockerLogCaptureTakenOverEvent,
+		events.SandboxDockerLogCaptureFailedEvent,
+		events.SandboxDockerLogCaptureCompletedEvent,
+		events.SandboxDockerOutputStagingPreparedEvent,
+		events.SandboxDockerOutputStagingAcquiredEvent,
+		events.SandboxDockerOutputStagingTakenOverEvent,
+		events.SandboxDockerOutputStagingFailedEvent,
+		events.SandboxDockerOutputStagingCompletedEvent,
+		events.SandboxDockerOutputCommitPreparedEvent,
+		events.SandboxDockerOutputCommitFailedEvent,
+		events.SandboxDockerOutputCommitCompletedEvent,
+		events.SandboxDockerProductAdmittedEvent,
+		events.SandboxDockerProductAdmissionDeniedEvent,
+		events.SandboxDockerProductLaunchBoundEvent,
+		events.SandboxDockerProductCancelRequestedEvent,
+		events.SandboxDockerProductCompletedEvent:
+		return projectDockerEvent(event, base)
 	case events.AgentInboxContextPreparedEvent:
 		base.Title, base.Status = "上下文交付已准备", "pending"
 	case events.AgentInboxContextCommittedEvent:
@@ -216,6 +241,401 @@ func projectEvent(event events.Event) (Item, bool) {
 	base.Detail = cleanDetail(base.Detail)
 	base.Status = cleanStatus(base.Status)
 	return base, base.Title != ""
+}
+
+// projectDockerEvent deliberately treats the event type and a small set of
+// closed-enum/count fields as the whole public contract. In particular, it
+// never projects container identities, host paths, commands, log bodies, or
+// operation/request/lease/owner fingerprints even if such fields are injected
+// into an otherwise recognised event payload.
+func projectDockerEvent(event events.Event, base Item) (Item, bool) {
+	switch event.Type {
+	case events.SandboxDockerLifecyclePreparedEvent:
+		base.Title, base.Status = "Docker 容器准备中", "preparing"
+	case events.SandboxDockerLifecycleAcquiredEvent:
+		base.Title, base.Status = "Docker 容器执行权已获取", "preparing"
+	case events.SandboxDockerLifecycleTakenOverEvent:
+		base.Title, base.Status = "Docker 容器恢复处理中", "preparing"
+	case events.SandboxDockerLifecycleActionPreparedEvent:
+		switch stringField(event.PayloadJSON, "verb") {
+		case "create":
+			base.Title, base.Status = "正在创建 Docker 容器", "starting"
+		case "start":
+			base.Title, base.Status = "正在启动 Docker 容器", "starting"
+		case "term", "kill":
+			base.Title, base.Status = "正在停止 Docker 容器", "cancelling"
+		case "delete":
+			base.Title, base.Status = "正在清理 Docker 容器", "cleaning"
+		default:
+			return Item{}, false
+		}
+	case events.SandboxDockerLifecycleTransitionEvent:
+		var ok bool
+		base.Title, base.Status, ok = dockerLifecycleTransitionPresentation(
+			stringField(event.PayloadJSON, "state"),
+			stringField(event.PayloadJSON, "reason_code"))
+		if !ok {
+			return Item{}, false
+		}
+		base.Detail = dockerLifecycleReasonDetail(stringField(event.PayloadJSON, "reason_code"))
+	case events.SandboxDockerLifecycleCompletedEvent:
+		var ok bool
+		base.Title, base.Status, ok = dockerLifecycleOutcomePresentation(
+			stringField(event.PayloadJSON, "outcome"))
+		if !ok {
+			return Item{}, false
+		}
+
+	case events.SandboxDockerLogCapturePreparedEvent:
+		base.Title, base.Status = "准备收集 Docker 日志", "preparing"
+	case events.SandboxDockerLogCaptureAcquiredEvent:
+		base.Title, base.Status = "正在收集 Docker 日志", "running"
+	case events.SandboxDockerLogCaptureTakenOverEvent:
+		base.Title, base.Status = "正在恢复 Docker 日志收集", "running"
+	case events.SandboxDockerLogCaptureFailedEvent:
+		base.Title, base.Status = "Docker 日志收集失败", "failed"
+	case events.SandboxDockerLogCaptureCompletedEvent:
+		status := stringField(event.PayloadJSON, "status")
+		switch status {
+		case "completed":
+			base.Title, base.Status = "Docker 日志已收集", "completed"
+		case "truncated_bytes", "truncated_lines", "truncated_deadline":
+			base.Title, base.Status = "Docker 日志已按上限收集", "completed"
+		case "invalid_stream":
+			base.Title, base.Status = "Docker 日志收集失败", "failed"
+		default:
+			return Item{}, false
+		}
+		base.Detail = dockerLogCountDetail(event.PayloadJSON)
+
+	case events.SandboxDockerOutputStagingPreparedEvent:
+		base.Title, base.Status = "准备暂存 Docker 输出", "preparing"
+	case events.SandboxDockerOutputStagingAcquiredEvent:
+		base.Title, base.Status = "正在暂存 Docker 输出", "running"
+	case events.SandboxDockerOutputStagingTakenOverEvent:
+		base.Title, base.Status = "正在恢复 Docker 输出暂存", "running"
+	case events.SandboxDockerOutputStagingFailedEvent:
+		base.Title, base.Status = "Docker 输出暂存失败", "failed"
+	case events.SandboxDockerOutputStagingCompletedEvent:
+		switch stringField(event.PayloadJSON, "status") {
+		case "completed":
+			base.Title, base.Status = "Docker 输出已暂存", "completed"
+		case "truncated_bytes":
+			base.Title, base.Status = "Docker 输出已按上限暂存", "completed"
+		case "invalid_archive", "rejected_path", "rejected_link", "rejected_duplicate":
+			base.Title, base.Status = "Docker 输出暂存失败", "failed"
+		default:
+			return Item{}, false
+		}
+		base.Detail = dockerOutputCountDetail(event.PayloadJSON)
+
+	case events.SandboxDockerOutputCommitPreparedEvent:
+		base.Title, base.Status = "准备提交 Docker 产物", "preparing"
+	case events.SandboxDockerOutputCommitFailedEvent:
+		base.Title, base.Status = "Docker 产物提交失败", "failed"
+	case events.SandboxDockerOutputCommitCompletedEvent:
+		if stringField(event.PayloadJSON, "status") != "committed" {
+			return Item{}, false
+		}
+		base.Title, base.Status = "Docker 产物已提交", "completed"
+		base.Detail = dockerArtifactCountDetail(event.PayloadJSON)
+
+	case events.SandboxDockerProductAdmittedEvent:
+		if stringField(event.PayloadJSON, "decision") != "authorized" ||
+			stringField(event.PayloadJSON, "reason_code") != "ready" ||
+			stringField(event.PayloadJSON, "remediation_code") != "none" ||
+			stringField(event.PayloadJSON, "network_mode") != "disabled" ||
+			!boolFieldIs(event.PayloadJSON, "product_entry_enabled", true) ||
+			!boolFieldIs(event.PayloadJSON, "execution_authorized", true) ||
+			!boolFieldIs(event.PayloadJSON, "artifact_commit_authorized", true) {
+			return Item{}, false
+		}
+		base.Title, base.Status = "Docker 沙箱准入已通过", "preparing"
+		base.Detail = "网络已关闭，资源预算已锁定"
+	case events.SandboxDockerProductAdmissionDeniedEvent:
+		if stringField(event.PayloadJSON, "decision") != "denied" ||
+			stringField(event.PayloadJSON, "network_mode") != "disabled" ||
+			!boolFieldIs(event.PayloadJSON, "product_entry_enabled", false) ||
+			!boolFieldIs(event.PayloadJSON, "execution_authorized", false) ||
+			!boolFieldIs(event.PayloadJSON, "artifact_commit_authorized", false) {
+			return Item{}, false
+		}
+		reason := stringField(event.PayloadJSON, "reason_code")
+		remediation := stringField(event.PayloadJSON, "remediation_code")
+		if !dockerProductDenialReason(reason) || remediation == "" || remediation == "none" {
+			return Item{}, false
+		}
+		base.Title, base.Status = "Docker 沙箱准入已拒绝", "blocked"
+		base.Detail = dockerProductDenialDetail(reason)
+	case events.SandboxDockerProductLaunchBoundEvent:
+		if stringField(event.PayloadJSON, "status") != "bound" {
+			return Item{}, false
+		}
+		base.Title, base.Status = "Docker 沙箱启动已绑定", "starting"
+	case events.SandboxDockerProductCancelRequestedEvent:
+		if stringField(event.PayloadJSON, "status") != "requested" ||
+			stringField(event.PayloadJSON, "reason_code") != "cancelled" {
+			return Item{}, false
+		}
+		base.Title, base.Status = "Docker 沙箱取消已请求", "cancelling"
+	case events.SandboxDockerProductCompletedEvent:
+		cleanupComplete, ok := boolField(event.PayloadJSON, "cleanup_complete")
+		if !ok || !boolFieldIs(event.PayloadJSON, "artifact_commit_authorized", true) {
+			return Item{}, false
+		}
+		var presentationOK bool
+		base.Title, base.Status, presentationOK = dockerProductOutcomePresentation(
+			stringField(event.PayloadJSON, "outcome"), cleanupComplete)
+		if !presentationOK {
+			return Item{}, false
+		}
+		base.Detail = dockerProductArtifactDetail(event.PayloadJSON)
+	default:
+		return Item{}, false
+	}
+	base.Title = cleanLabel(base.Title)
+	base.Detail = cleanDetail(base.Detail)
+	base.Status = cleanStatus(base.Status)
+	return base, base.Title != "" && base.Status != ""
+}
+
+func dockerLifecycleTransitionPresentation(state, reason string) (string, string, bool) {
+	switch state {
+	case "created":
+		if reason != "created" && reason != "restart_recovery" {
+			return "", "", false
+		}
+		return "Docker 容器已创建", "starting", true
+	case "started":
+		if reason != "started" && reason != "restart_recovery" {
+			return "", "", false
+		}
+		return "Docker 容器运行中", "running", true
+	case "exited":
+		switch reason {
+		case "timeout":
+			return "Docker 容器运行超时", "failed", true
+		case "cancelled":
+			return "Docker 容器已停止", "cancelling", true
+		case "natural_exit", "restart_recovery":
+			return "Docker 进程已退出", "cleaning", true
+		default:
+			return "", "", false
+		}
+	case "cleaning":
+		switch reason {
+		case "natural_exit", "timeout", "cancelled", "restart_recovery", "cleanup_started":
+		default:
+			return "", "", false
+		}
+		return "Docker 容器清理中", "cleaning", true
+	case "cleaned":
+		if reason != "cleanup_completed" && reason != "restart_recovery" {
+			return "", "", false
+		}
+		return "Docker 容器已清理", "cleaned", true
+	case "failed":
+		switch reason {
+		case "create_failed", "start_failed", "wait_failed", "terminate_failed",
+			"cleanup_failed", "transport_disabled", "transport_unsupported",
+			"connection_failed", "invalid_response", "configuration_mismatch",
+			"unsafe_existing_container":
+		default:
+			return "", "", false
+		}
+		return "Docker 容器操作失败", "failed", true
+	default:
+		return "", "", false
+	}
+}
+
+func dockerLifecycleOutcomePresentation(outcome string) (string, string, bool) {
+	switch outcome {
+	case "natural_exit":
+		return "Docker 容器生命周期已完成", "cleaned", true
+	case "timed_out":
+		return "Docker 容器超时后已清理", "cleaned", true
+	case "cancelled":
+		return "Docker 容器取消后已清理", "cleaned", true
+	case "failed":
+		return "Docker 容器失败后已清理", "failed", true
+	default:
+		return "", "", false
+	}
+}
+
+func dockerProductOutcomePresentation(outcome string, cleanupComplete bool) (string, string, bool) {
+	if !cleanupComplete {
+		return "", "", false
+	}
+	switch outcome {
+	case "succeeded":
+		return "Docker 沙箱运行已完成并清理", "cleaned", true
+	case "timed_out":
+		return "Docker 沙箱运行超时并已清理", "cleaned", true
+	case "cancelled":
+		return "Docker 沙箱已取消并清理", "cleaned", true
+	case "failed":
+		return "Docker 沙箱运行失败并已清理", "failed", true
+	default:
+		return "", "", false
+	}
+}
+
+func dockerLifecycleReasonDetail(reason string) string {
+	switch reason {
+	case "natural_exit":
+		return "进程自然退出"
+	case "timeout":
+		return "已达到运行时限"
+	case "cancelled":
+		return "已响应取消请求"
+	case "restart_recovery":
+		return "重启后恢复清理"
+	case "cleanup_started":
+		return "已开始清理"
+	case "cleanup_completed":
+		return "清理已确认"
+	case "create_failed":
+		return "容器创建失败"
+	case "start_failed":
+		return "容器启动失败"
+	case "wait_failed":
+		return "容器状态等待失败"
+	case "terminate_failed":
+		return "容器停止失败"
+	case "cleanup_failed":
+		return "容器清理失败"
+	case "transport_disabled":
+		return "Docker 传输未启用"
+	case "transport_unsupported":
+		return "Docker 传输不受支持"
+	case "connection_failed":
+		return "Docker 连接失败"
+	case "invalid_response":
+		return "Docker 返回无效响应"
+	case "configuration_mismatch":
+		return "容器配置校验失败"
+	case "unsafe_existing_container":
+		return "发现不属于本次运行的容器"
+	default:
+		return ""
+	}
+}
+
+func dockerProductDenialReason(reason string) bool {
+	switch reason {
+	case "feature_disabled", "daemon_unreachable", "api_unsupported",
+		"platform_unsupported", "resource_unavailable",
+		"managed_egress_unavailable", "policy_denied", "approval_required",
+		"permission_denied", "budget_exhausted", "authority_changed":
+		return true
+	default:
+		return false
+	}
+}
+
+func dockerProductDenialDetail(reason string) string {
+	switch reason {
+	case "feature_disabled":
+		return "当前进程未启用 Docker 执行能力"
+	case "daemon_unreachable":
+		return "本机 Docker daemon 不可达"
+	case "api_unsupported":
+		return "Docker API 版本不受支持"
+	case "platform_unsupported":
+		return "需要本机 Linux 容器运行时"
+	case "resource_unavailable":
+		return "Docker 资源容量不足"
+	case "managed_egress_unavailable":
+		return "托管网络出口尚不可用，请使用 network=none"
+	case "policy_denied":
+		return "当前策略拒绝该请求"
+	case "approval_required":
+		return "需要针对该请求的一次性审批"
+	case "permission_denied":
+		return "当前 Run 权限不允许 Docker 执行"
+	case "budget_exhausted":
+		return "Run 预算不足"
+	case "authority_changed":
+		return "准入依据已变化，请重新评估"
+	default:
+		return ""
+	}
+}
+
+func dockerLogCountDetail(payloadJSON string) string {
+	streams, streamsOK := boundedIntField(payloadJSON, "stream_count", 0, 2)
+	bytes, bytesOK := boundedIntField(payloadJSON, "total_bytes", 0, 2*256*1024)
+	lines, linesOK := boundedIntField(payloadJSON, "total_lines", 0, 2*4096)
+	if !streamsOK || !bytesOK || !linesOK {
+		return ""
+	}
+	return fmt.Sprintf("%d 个日志流 · %d bytes · %d 行", streams, bytes, lines)
+}
+
+func dockerOutputCountDetail(payloadJSON string) string {
+	files, filesOK := boundedIntField(payloadJSON, "file_count", 0, 64)
+	bytes, bytesOK := boundedIntField(payloadJSON, "total_bytes", 0, 16*1024*1024)
+	redacted, redactedOK := boundedIntField(payloadJSON, "redacted_count", 0, 64)
+	if !filesOK || !bytesOK || !redactedOK || redacted > files {
+		return ""
+	}
+	detail := fmt.Sprintf("%d 个文件 · %d bytes", files, bytes)
+	if redacted > 0 {
+		detail += fmt.Sprintf(" · %d 个文件已脱敏", redacted)
+	}
+	return detail
+}
+
+func dockerArtifactCountDetail(payloadJSON string) string {
+	count, countOK := boundedIntField(payloadJSON, "committed_count", 1, 64)
+	bytes, bytesOK := boundedIntField(payloadJSON, "total_bytes", 1, 16*1024*1024)
+	if !countOK || !bytesOK {
+		return ""
+	}
+	return fmt.Sprintf("%d 个产物 · %d bytes", count, bytes)
+}
+
+func dockerProductArtifactDetail(payloadJSON string) string {
+	count, countOK := boundedIntField(payloadJSON, "artifact_count", 0, 64)
+	authorized, authorizedOK := boolField(payloadJSON, "artifact_commit_authorized")
+	if !countOK || !authorizedOK || count > 0 && !authorized {
+		return ""
+	}
+	if count == 0 {
+		return "未提交产物"
+	}
+	return fmt.Sprintf("已提交 %d 个产物", count)
+}
+
+func boundedIntField(payloadJSON, key string, minimum, maximum int64) (int64, bool) {
+	raw := rawField(payloadJSON, key)
+	if len(raw) == 0 {
+		return 0, false
+	}
+	var value int64
+	if json.Unmarshal(raw, &value) != nil || value < minimum || value > maximum {
+		return 0, false
+	}
+	return value, true
+}
+
+func boolField(payloadJSON, key string) (bool, bool) {
+	raw := rawField(payloadJSON, key)
+	if len(raw) == 0 {
+		return false, false
+	}
+	var value bool
+	if json.Unmarshal(raw, &value) != nil {
+		return false, false
+	}
+	return value, true
+}
+
+func boolFieldIs(payloadJSON, key string, expected bool) bool {
+	value, ok := boolField(payloadJSON, key)
+	return ok && value == expected
 }
 
 func projectMessage(event events.Event, base Item) (Item, bool) {
@@ -393,7 +813,8 @@ func cleanStatus(value string) string {
 	value = cleanLabel(value)
 	switch value {
 	case "approved", "blocked", "cancelled", "cancelling", "completed", "denied",
-		"failed", "pending", "running", "selected", "superseded", "waiting":
+		"failed", "pending", "preparing", "running", "selected", "starting",
+		"superseded", "waiting", "cleaning", "cleaned":
 		return value
 	default:
 		return ""
