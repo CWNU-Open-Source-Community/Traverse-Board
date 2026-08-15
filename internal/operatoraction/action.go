@@ -22,12 +22,13 @@ const (
 	KindFileEditReview  Kind = "file_edit_review"
 	KindFileEditApply   Kind = "file_edit_apply"
 	KindWakeDue         Kind = "wake_due"
+	KindChildTaskReview Kind = "child_task_review"
 )
 
 func (k Kind) Valid() bool {
 	switch k {
 	case KindSteeringPending, KindApprovalPending, KindFileEditReview,
-		KindFileEditApply, KindWakeDue:
+		KindFileEditApply, KindWakeDue, KindChildTaskReview:
 		return true
 	default:
 		return false
@@ -41,6 +42,7 @@ const (
 	DestinationApprovals Destination = "approvals"
 	DestinationDiffs     Destination = "diffs"
 	DestinationWake      Destination = "wake"
+	DestinationChildTasks Destination = "child-tasks"
 )
 
 func DestinationFor(kind Kind) (Destination, bool) {
@@ -53,6 +55,8 @@ func DestinationFor(kind Kind) (Destination, bool) {
 		return DestinationDiffs, true
 	case KindWakeDue:
 		return DestinationWake, true
+	case KindChildTaskReview:
+		return DestinationChildTasks, true
 	default:
 		return "", false
 	}

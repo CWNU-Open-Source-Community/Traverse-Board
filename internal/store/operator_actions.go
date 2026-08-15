@@ -56,13 +56,20 @@ func (s *SQLiteStore) ListOperatorActionRecords(ctx context.Context, runID strin
 			FROM run_wake_intents
 			WHERE run_id = ? AND status = 'queued'
 				AND julianday(next_wake_at) <= julianday(?)
+			UNION ALL
+			SELECT id AS source_id, 'child_task_review' AS kind, status AS state,
+				run_id, session_id, workspace_id, created_at AS available_at,
+				NULL AS due_at
+			FROM child_task_proposals
+			WHERE run_id = ? AND status = 'proposed'
 		) actions
 		ORDER BY CASE kind
 			WHEN 'wake_due' THEN 0 WHEN 'approval_pending' THEN 1
-			WHEN 'file_edit_review' THEN 2 WHEN 'file_edit_apply' THEN 3 ELSE 4 END,
+			WHEN 'file_edit_review' THEN 2 WHEN 'file_edit_apply' THEN 3
+			WHEN 'child_task_review' THEN 4 ELSE 5 END,
 			available_at DESC, kind, source_id
 		LIMIT ?`, runID, runID, runID, sessionID, workspaceID, sessionID, workspaceID,
-		runID, ts(now.UTC()), limit)
+		runID, ts(now.UTC()), runID, limit)
 	if err != nil {
 		return nil, err
 	}

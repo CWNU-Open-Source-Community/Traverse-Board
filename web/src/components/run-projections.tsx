@@ -215,6 +215,8 @@ export function DelegationsPanel({ client, runID }: ProjectionProps) {
           <dl className="projection-metrics">
             <Metric label={t("审阅", "Review")} value={item.review ? `${item.review.decision} · ${item.review.reviewed_by}` : t("待处理", "pending")} />
             <Metric label={t("应用", "Application")} value={item.application?.status ?? "-"} />
+            {item.application && <Metric label={t("准入上限", "Admission caps")} value={`${item.application.max_children} child · ${formatNumber(item.application.max_turns_per_child)} 回合 · ${formatNumber(item.application.max_tokens_per_child)} Tokens`} />}
+            {item.application?.stop_code && <Metric label={t("停止原因", "Stop code")} value={item.application.stop_code} />}
             <Metric label={t("调度", "Schedule")} value={item.latest_schedule?.status ?? (item.latest_schedule ? t("已请求", "requested") : "-")} />
             <Metric label={t("创建时间", "Created")} value={formatDate(item.created_at)} />
           </dl>
@@ -243,6 +245,10 @@ export function FanoutPanel({ client, runID }: ProjectionProps) {
           </header>
           <dl className="projection-metrics">
             <Metric label={t("档位", "Tier")} value={`${plan.requested_tier} → ${plan.effective_parallelism}`} />
+            <Metric label={t("范围", "Scope")} value={plan.scope_path} />
+            <Metric label={t("分片数", "Shards")} value={formatNumber(plan.shard_count)} />
+            {plan.latest_execution && <Metric label={t("单分片输出上限", "Max output/shard")} value={formatNumber(plan.latest_execution.max_output_tokens_per_shard)} />}
+            {plan.latest_execution?.stop_code && <Metric label={t("停止原因", "Stop code")} value={plan.latest_execution.stop_code} />}
             <Metric label={t("文件", "Files")} value={formatNumber(plan.file_count)} />
             <Metric label={t("输入", "Input")} value={formatBytes(plan.total_bytes)} />
             <Metric label={t("已排除", "Excluded")} value={formatNumber(plan.excluded_count)} />
@@ -304,11 +310,105 @@ function FanoutExecutions({ client, runID, planID }: { client: CyberAgentClient;
   );
 }
 
+export function ChildTasksPanel({ client, runID }: ProjectionProps) {
+  const { t } = useLocale();
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    queryKey: ["run", runID, "child-tasks"],
+    queryFn: ({ signal }) => client.getRunChildTaskProposals(runID, signal),
+  });
+  const [tier, setTier] = useState("2");
+  const [busy, setBusy] = useState("");
+  const review = useMutation({
+    mutationFn: ({ proposalID, action }: { proposalID: string; action: "approve" | "deny" }) =>
+      client.reviewRunChildTaskProposal(runID, proposalID, {
+        version: "child_task_review.v1", action, reviewer: "web_operator",
+        fanout_tier: tier, confirm_review: true,
+      }, `web-child-task-review-${globalThis.crypto.randomUUID()}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["run", runID, "child-tasks"] });
+      void queryClient.invalidateQueries({ queryKey: ["run", runID, "agent-graph"] });
+    },
+  });
+  const admit = useMutation({
+    mutationFn: (proposalID: string) => client.admitRunChildTaskProposal(runID, proposalID, {
+      version: "child_task_admit.v1", confirm_admit: true,
+    }, `web-child-task-admit-${globalThis.crypto.randomUUID()}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["run", runID, "child-tasks"] });
+      void queryClient.invalidateQueries({ queryKey: ["run", runID, "agent-graph"] });
+      void queryClient.invalidateQueries({ queryKey: ["run", runID, "fanout"] });
+    },
+  });
+  if (query.isLoading) return <LoadingState label="加载子任务提案" />;
+  if (query.isError || !query.data) return <ErrorState error={query.error} />;
+  if (query.data.items.length === 0) return <EmptyState>暂无子任务提案</EmptyState>;
+  return (
+    <div className="projection-stack">
+      {query.data.items.map((item) => (
+        <article className="delegation-item" key={item.id}>
+          <header className="projection-header">
+            <div><span className="projection-kicker"><Network aria-hidden="true" size={14} />{shortID(item.id)}</span><strong>{item.tasks.map((task) => task.title).join(" / ")}</strong></div>
+            <div className="status-line"><StatusBadge status={item.status} /><span>{item.surface}{item.fanout_tier ? ` · 档位 ${item.fanout_tier}` : ""}</span></div>
+          </header>
+          <div className="assignment-list">
+            {item.tasks.map((task) => (
+              <section key={task.ordinal}>
+                <header><span>#{task.ordinal}</span><strong>{task.title}</strong></header>
+                <p>{task.goal}</p>
+                <footer><span>{task.skills.join(" · ")}</span><span>{t(`${formatNumber(task.turn_limit)} 回合 / ${formatNumber(task.token_limit)} Tokens / ${formatNumber(task.timeout_millis)} ms`, `${formatNumber(task.turn_limit)} turns / ${formatNumber(task.token_limit)} tokens / ${formatNumber(task.timeout_millis)} ms`)}</span>{task.dependency_ordinals.length > 0 && <code>{`依赖 #${task.dependency_ordinals.join(", #")}`}</code>}</footer>
+              </section>
+            ))}
+          </div>
+          {item.assignments.length > 0 && (
+            <dl className="projection-metrics">
+              {item.assignments.map((assignment) => (
+                <Metric key={assignment.ordinal} label={`#${assignment.ordinal}`} value={assignment.status + (assignment.admitted_agent_id ? ` · ${shortID(assignment.admitted_agent_id)}` : "")} />
+              ))}
+            </dl>
+          )}
+          {client.hasControl && item.status === "proposed" && (
+            <div className="run-execution-control">
+              <label htmlFor={`child-task-tier-${item.id}`}>{t("fan-out 档位上限", "Fan-out tier ceiling")}</label>
+              <select id={`child-task-tier-${item.id}`} onChange={(event) => setTier(event.target.value)} value={tier}>
+                {["1", "2", "4", "6"].map((value) => <option key={value} value={value}>{value}</option>)}
+              </select>
+              <button className="command-button" disabled={review.isPending || admit.isPending}
+                onClick={() => { setBusy(item.id); review.mutate({ proposalID: item.id, action: "approve" }); }} type="button">
+                {t("批准", "Approve")}
+              </button>
+              <button className="command-button danger" disabled={review.isPending || admit.isPending}
+                onClick={() => { setBusy(item.id); review.mutate({ proposalID: item.id, action: "deny" }); }} type="button">
+                {t("拒绝", "Deny")}
+              </button>
+            </div>
+          )}
+          {client.hasControl && item.status === "approved" && (
+            <div className="run-execution-control">
+              <button className="command-button" disabled={admit.isPending}
+                onClick={() => admit.mutate(item.id)} type="button">
+                {admit.isPending ? <LoaderCircle aria-hidden="true" className="spin" size={15} /> : <Network aria-hidden="true" size={15} />}
+                {t("准入子任务", "Admit tasks")}
+              </button>
+            </div>
+          )}
+          {(review.isError || admit.isError) && <div className="inline-warning" role="alert">
+            {(review.isError ? review.error : admit.error) instanceof Error
+              ? String((review.isError ? review.error : admit.error))
+              : t("子任务审阅失败", "Child task review failed")}
+          </div>}
+          {busy === item.id && (review.isPending || admit.isPending) && <span className="projection-placeholder">{t("处理中", "Processing")}</span>}
+        </article>
+      ))}
+    </div>
+  );
+}
+
 function ShardTable({ execution }: { execution: NonNullable<FanoutPlanView["latest_execution"]> }) {
   const { t } = useLocale();
   return (
-    <div className="table-scroll shard-table"><table><thead><tr><th>{t("分片", "Shard")}</th><th>{t("状态", "Status")}</th><th>{t("模型", "Model")}</th><th>{t("令牌", "Tokens")}</th><th>{t("发现", "Findings")}</th><th>{t("耗时", "Duration")}</th></tr></thead><tbody>
-      {execution.shards.map((shard) => <tr key={shard.ordinal}><td>#{shard.ordinal}</td><td><StatusBadge status={shard.status} /></td><td>{shard.provider && shard.model ? `${shard.provider}/${shard.model}` : "-"}</td><td>{formatNumber(shard.total_tokens)}</td><td>{formatNumber(shard.finding_count)}</td><td>{formatNumber(shard.elapsed_millis)} ms</td></tr>)}
+    <div className="table-scroll shard-table"><table><thead><tr><th>{t("分片", "Shard")}</th><th>{t("状态", "Status")}</th><th>{t("模型", "Model")}</th><th>{t("尝试", "Attempt")}</th><th>{t("输入", "In")}</th><th>{t("输出", "Out")}</th><th>{t("发现", "Findings")}</th><th>{t("耗时", "Duration")}</th><th>{t("错误", "Error")}</th></tr></thead><tbody>
+      {execution.shards.map((shard) => <tr key={shard.ordinal}><td>#{shard.ordinal}</td><td><StatusBadge status={shard.status} /></td><td>{shard.provider && shard.model ? `${shard.provider}/${shard.model}` : "-"}</td><td>{formatNumber(shard.current_attempt)}/{formatNumber(shard.attempt_count)}</td><td>{formatNumber(shard.input_tokens)}</td><td>{formatNumber(shard.output_tokens)}</td><td>{formatNumber(shard.finding_count)}</td><td>{formatNumber(shard.elapsed_millis)} ms</td><td>{shard.error_code || "-"}</td></tr>)}
     </tbody></table></div>
   );
 }

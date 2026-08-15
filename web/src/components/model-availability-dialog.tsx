@@ -6,6 +6,7 @@ import type { ModelHarnessQualificationView, ProviderDiagnosticView } from "../a
 import { ErrorState, LoadingState, StatusBadge } from "./common";
 import { useLocale } from "../lib/locale";
 import { useModalFocusTrap } from "../hooks/use-modal-focus-trap";
+import { PriceSnapshotsSection } from "./price-snapshots-panel";
 
 export function ModelAvailabilityDialog({ client, open, onClose }: {
   client: CyberAgentClient;
@@ -291,6 +292,7 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
                   {credentialError}
                 </div>}
               </section>}
+              <PriceSnapshotsSection client={client} />
               <section className="model-availability-section">
                 <h3><Route aria-hidden="true" size={14} />{t("模型路由", "Routes")}</h3>
                 <div className="model-route-list">
