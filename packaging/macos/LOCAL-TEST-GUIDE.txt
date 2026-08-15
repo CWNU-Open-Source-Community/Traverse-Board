@@ -31,6 +31,10 @@ Node 版本不符时脚本会在前端检查前明确报错；如果 web/dist �
    CYBERAGENT_ANTHROPIC_API_KEY），然后重新启动 Prayu。环境变量始终优先，
    不会写入 SQLite、日志或事件流。终端内可这样启动：
 
+   本地 Ollama 无凭证，只需显式设置 CYBERAGENT_OLLAMA_BASE_URL（仅 loopback
+   http，默认 http://127.0.0.1:11434）与 CYBERAGENT_OLLAMA_MODEL；请先自行
+   安装 Ollama 并 pull 模型，Prayu 不会自动安装或下载。
+
        DEEPSEEK_API_KEY=sk-... ./build/desktop/Prayu.app/Contents/MacOS/cyberagent-desktop --operator-preview
 
 3. 依次点击 Provider 的"连接诊断"和"Harness 验证"。Harness 验证会发起最多
@@ -101,6 +105,11 @@ Connect a real model
    CYBERAGENT_ANTHROPIC_API_KEY), then restart Prayu. Environment variables
    always take priority and never reach SQLite, logs, or events. From a
    terminal you can start it with:
+
+   Local Ollama is keyless: set CYBERAGENT_OLLAMA_BASE_URL (loopback http
+   only, default http://127.0.0.1:11434) and CYBERAGENT_OLLAMA_MODEL
+   explicitly. Install Ollama and pull the model yourself first; Prayu never
+   installs or downloads.
 
        DEEPSEEK_API_KEY=sk-... ./build/desktop/Prayu.app/Contents/MacOS/cyberagent-desktop --operator-preview
 

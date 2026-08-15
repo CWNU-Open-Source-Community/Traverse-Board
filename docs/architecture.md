@@ -482,10 +482,14 @@ The LLM router remains independent from orchestration. Run snapshots record the 
 
 Environment adapters expose `mimo`, `deepseek`, and `anthropic` over the shared
 Anthropic-compatible transport, plus the canonical `openai` adapter over OpenAI Chat
-Completions. Each adapter reads only its dedicated API-key/base-URL/model namespace.
+Completions, and the keyless `ollama` adapter over the native local daemon protocol.
+Each adapter reads only its dedicated API-key/base-URL/model namespace.
 For `openai`, that namespace is `CYBERAGENT_OPENAI_API_KEY`,
 `CYBERAGENT_OPENAI_BASE_URL`, and `CYBERAGENT_OPENAI_MODEL`; its defaults are
-`https://api.openai.com` and `gpt-4.1-mini`. The Provider object and secrets remain
+`https://api.openai.com` and `gpt-4.1-mini`. For `ollama`, the namespace is the
+loopback-only `CYBERAGENT_OLLAMA_BASE_URL` plus `CYBERAGENT_OLLAMA_MODEL`; there is
+no credential, and the endpoint stays off unless both variables are set explicitly.
+The Provider object and secrets remain
 inside the Go control plane and never enter Run configuration or event payloads.
 The production Registry supplies a 60-second client timeout, and internal injected
 clients are clamped to that maximum. The adapter disables redirects and emits only the
