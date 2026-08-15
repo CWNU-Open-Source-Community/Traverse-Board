@@ -97,7 +97,7 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 - [x] 统一 Provider transport/rate-limit/invalid/cancelled/permanent outcome，增加有界退避和 `model.started/completed/failed` 持久化事件。
 - [x] 复用 Anthropic-compatible transport 注册独立的 Mimo/DeepSeek 环境 Provider；Key 不进入配置、SQLite 或事件。
 - [x] 对无效 `root_lifecycle.v1` 增加恰好一次的有界自动修复；修复阶段、原因、token 用量和四类修复事件可跨重启恢复，且与 transport retry 分开计数。
-- [ ] 增加结构化依赖等待；schema v23 已完成 child `agent.finish` 的持久化、幂等和父 inbox 回传。
+- [x] 增加结构化依赖等待（schema v101 / ADR 0102）：版本化 wait edge（source/target/reason/deadline/generation/failure_policy）、写前自环/祖先环/多节点环/跨 Run/最大深度校验、wait|satisfied|failed|cancelled|expired 五态持久化与唯一唤醒收据、崩溃幂等恢复、父取消扇出与按声明策略的失败传播、无进展 deadline 与轮询活锁的稳定 deadlock/livelock 诊断、Activity 折叠展示；模型只能提出意图，Go 验证图/预算/Scope/owner。schema v23 已完成 child `agent.finish` 的持久化、幂等和父 inbox 回传。模型驱动 child 调度（#51）消费本合同的 open 边与唤醒收据。
 - [x] 增加金额预算（schema v100 / ADR 0101）：整数 micro-USD 账本、算子导入价格快照、reserve→call→settle-or-release、终态事件对账与 fail-closed 闸门；turn、token、模型执行时间与 P5 Run 工具调用预算已落地。Mission 级上限与 vendor 价格订阅留待后续。
 - [x] schema v18 增加跨进程主动取消控制：独立 read/control token、精确 Run/Supervisor/model attempt 前置条件、原始幂等键不落库、worker lease-fenced 观察、Provider context 取消、终态解析与 stale attempt `superseded`。
 - [x] 增加真实 Provider stream 聚合与 `model.delta`；执行 UTF-8、64 KiB、final usage、取消校验，每次模型调用最多持久化 32 条无文本进度事件。

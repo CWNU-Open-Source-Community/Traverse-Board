@@ -18757,7 +18757,8 @@
               "tool_call",
               "approval",
               "file_change",
-              "plan"
+              "plan",
+              "dependency"
             ],
             "type": "string"
           },

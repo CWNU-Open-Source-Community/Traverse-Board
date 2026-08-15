@@ -363,3 +363,44 @@ func quoted(value string) string {
 	builder.WriteByte('"')
 	return builder.String()
 }
+
+func TestBuildProjectsDependencyWaitsWithoutRawOutput(t *testing.T) {
+	now := time.Now().UTC()
+	source := []events.Event{
+		event(1, events.DependencyWaitRecordedEvent,
+			`{"source_kind":"agent","source_id":"agent-root","target_kind":"agent","target_id":"agent-child","reason":"await child report","generation":1,"failure_policy":"fail"}`, now),
+		event(2, events.DependencySatisfiedEvent,
+			`{"source_kind":"agent","source_id":"agent-root","target_kind":"agent","target_id":"agent-child","reason":"target completed","generation":1,"failure_policy":"fail","private":"child raw output"}`, now),
+		event(3, events.DependencyDeadlockDetectedEvent, `{"edge_ids":["edge-a"],"edge_count":1}`, now),
+		event(4, events.DependencyLivelockDetectedEvent,
+			`{"source_kind":"agent","source_id":"agent-root","wake_count":65}`, now),
+	}
+	got, err := Build("run-1", source, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Items) != 4 {
+		t.Fatalf("unexpected projection: %#v", got.Items)
+	}
+	for _, item := range got.Items {
+		if item.Kind != KindDependency || !item.Verifiable {
+			t.Fatalf("dependency activity has wrong provenance: %#v", item)
+		}
+	}
+	if got.Items[0].Status != "waiting" || got.Items[0].Title != "Agent 依赖等待已记录" ||
+		got.Items[0].Detail != "agent-root → agent-child · await child report" {
+		t.Fatalf("wait item is wrong: %#v", got.Items[0])
+	}
+	if got.Items[1].Status != "satisfied" || !strings.Contains(got.Items[1].Detail, "target completed") {
+		t.Fatalf("satisfied item is wrong: %#v", got.Items[1])
+	}
+	if strings.Contains(got.Items[1].Detail, "child raw output") {
+		t.Fatal("raw child output leaked into dependency activity")
+	}
+	if got.Items[2].Status != "blocked" || got.Items[2].Detail != "1 个等待未能取得进展" {
+		t.Fatalf("deadlock item is wrong: %#v", got.Items[2])
+	}
+	if got.Items[3].Status != "blocked" || got.Items[3].Detail != "同一依赖已被唤醒 65 次" {
+		t.Fatalf("livelock item is wrong: %#v", got.Items[3])
+	}
+}

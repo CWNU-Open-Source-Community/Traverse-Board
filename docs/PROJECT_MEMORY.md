@@ -4,7 +4,22 @@
 
 Last updated: 2026-08-15
 
-## Current Single-Slice Checkpoint: Monetary Budget, Price Snapshots, Qualification / Issue #49
+## Current Single-Slice Checkpoint: Structured Dependency Waiting / Issue #50
+
+2026-08-15 的 issue #50 落地结构化依赖等待（ADR 0102，schema v101）。`agent_dependency_edges`
+持久化版本化 wait edge（source/target/reason/deadline/generation/failure_policy，
+五态 wait|satisfied|failed|cancelled|expired）；写入事务内用 `waitgraph.DAG` 在持久化 open
+边上拒绝自环/两节点环/多节点环/下层运行时→Agent 反向等待/跨 Run 端点/超 64 深度链。
+`agent_dependency_wakes` 每条边至多一张唯一唤醒收据：结算、父取消扇出、deadline 过期与
+崩溃恢复共用同一 settle 事务，回放/并发绝不二次唤醒；等待中的 agent 源按既有 wake 语义转
+ready，fail 策略下转 failed。RunService 终态钩子自动扇出取消。无进展 deadline 发出
+`dependency.deadlock_detected`；同一源 wake→rewait 超 64 次拒绝为稳定 `LIVELOCK` 错误并发
+`dependency.livelock_detected`（新 apperror 码 DEADLOCK/LIVELOCK）。Run Activity 新增
+`dependency` kind 折叠项（七种事件，只显示 source→target 与 reason，不透传 raw child
+output）。模型只能提出意图；#51（模型驱动 child 调度）消费本合同的 open 边、唤醒收据与
+诊断投影。
+
+## Previous Single-Slice Checkpoint: Monetary Budget, Price Snapshots, Qualification / Issue #49
 
 2026-08-15 的 issue #49 落地金额预算、价格快照与 Provider 资格诊断（ADR 0101，
 schema v100）。账本全整数 micro-USD：`pricing` 包提供 `price_snapshot.v1` wire 格式（

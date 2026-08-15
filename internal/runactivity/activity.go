@@ -43,6 +43,7 @@ const (
 	KindApproval      Kind = "approval"
 	KindFileChange    Kind = "file_change"
 	KindPlan          Kind = "plan"
+	KindDependency    Kind = "dependency"
 )
 
 type Item struct {
@@ -234,6 +235,27 @@ func projectEvent(event events.Event) (Item, bool) {
 		base.Title, base.Status = "上下文交付已提交", "completed"
 	case events.AgentInboxContextSupersededEvent:
 		base.Title, base.Status = "陈旧上下文已替换", "superseded"
+	case events.DependencyWaitRecordedEvent:
+		base.Kind, base.Title, base.Status = KindDependency, "Agent 依赖等待已记录", "waiting"
+		base.Detail = dependencyDetail(event.PayloadJSON)
+	case events.DependencySatisfiedEvent:
+		base.Kind, base.Title, base.Status = KindDependency, "Agent 依赖已满足", "satisfied"
+		base.Detail = dependencyDetail(event.PayloadJSON)
+	case events.DependencyFailedEvent:
+		base.Kind, base.Title, base.Status = KindDependency, "Agent 依赖已失败", "failed"
+		base.Detail = dependencyDetail(event.PayloadJSON)
+	case events.DependencyCancelledEvent:
+		base.Kind, base.Title, base.Status = KindDependency, "Agent 依赖已取消", "cancelled"
+		base.Detail = dependencyDetail(event.PayloadJSON)
+	case events.DependencyExpiredEvent:
+		base.Kind, base.Title, base.Status = KindDependency, "Agent 依赖已超时", "expired"
+		base.Detail = dependencyDetail(event.PayloadJSON)
+	case events.DependencyDeadlockDetectedEvent:
+		base.Kind, base.Title, base.Status = KindDependency, "检测到依赖死锁", "blocked"
+		base.Detail = dependencyStallDetail(event.PayloadJSON)
+	case events.DependencyLivelockDetectedEvent:
+		base.Kind, base.Title, base.Status = KindDependency, "检测到依赖轮询循环", "blocked"
+		base.Detail = dependencyStallDetail(event.PayloadJSON)
 	default:
 		return Item{}, false
 	}
@@ -770,6 +792,34 @@ func rawField(payloadJSON string, key string) json.RawMessage {
 	return payload[key]
 }
 
+// dependencyDetail renders a bounded source→target identity and reason
+// only; raw child output never enters the dependency projection.
+func dependencyDetail(payloadJSON string) string {
+	source := cleanLabel(stringField(payloadJSON, "source_id"))
+	target := cleanLabel(stringField(payloadJSON, "target_id"))
+	reason := cleanLabel(stringField(payloadJSON, "reason"))
+	parts := make([]string, 0, 3)
+	if source != "" && target != "" {
+		parts = append(parts, source+" → "+target)
+	}
+	if reason != "" {
+		parts = append(parts, reason)
+	}
+	return strings.Join(parts, " · ")
+}
+
+// dependencyStallDetail bounds the deadlock/livelock diagnosis to the
+// affected edge count or polling wake count.
+func dependencyStallDetail(payloadJSON string) string {
+	if count, ok := boundedIntField(payloadJSON, "edge_count", 1, 1024); ok {
+		return fmt.Sprintf("%d 个等待未能取得进展", count)
+	}
+	if count, ok := boundedIntField(payloadJSON, "wake_count", 1, 4096); ok {
+		return fmt.Sprintf("同一依赖已被唤醒 %d 次", count)
+	}
+	return ""
+}
+
 func cleanLabel(value string) string {
 	value = strings.TrimSpace(redact.String(value))
 	if value == "" || !utf8.ValidString(value) {
@@ -813,8 +863,8 @@ func cleanStatus(value string) string {
 	value = cleanLabel(value)
 	switch value {
 	case "approved", "blocked", "cancelled", "cancelling", "completed", "denied",
-		"failed", "pending", "preparing", "running", "selected", "starting",
-		"superseded", "waiting", "cleaning", "cleaned":
+		"expired", "failed", "pending", "preparing", "running", "satisfied", "selected",
+		"starting", "superseded", "waiting", "cleaning", "cleaned":
 		return value
 	default:
 		return ""

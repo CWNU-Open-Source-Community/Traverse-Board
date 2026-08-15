@@ -77,9 +77,11 @@ const (
 type AgentDependencyState string
 
 const (
+	AgentDependencyWait      AgentDependencyState = "wait"
 	AgentDependencySatisfied AgentDependencyState = "satisfied"
 	AgentDependencyFailed    AgentDependencyState = "failed"
 	AgentDependencyCancelled AgentDependencyState = "cancelled"
+	AgentDependencyExpired   AgentDependencyState = "expired"
 )
 
 type AgentWakePayload struct {
@@ -466,7 +468,8 @@ func DecodeAgentDependencyPayload(payloadJSON string) (AgentDependencyPayload, e
 		return AgentDependencyPayload{}, errors.New("dependency id is invalid")
 	}
 	switch payload.State {
-	case AgentDependencySatisfied, AgentDependencyFailed, AgentDependencyCancelled:
+	case AgentDependencyWait, AgentDependencySatisfied, AgentDependencyFailed,
+		AgentDependencyCancelled, AgentDependencyExpired:
 	default:
 		return AgentDependencyPayload{}, errors.New("dependency state is invalid")
 	}
