@@ -2,9 +2,23 @@
 
 > Scope checkpoint (2026-08-13): continue only the general-purpose Agent Harness and Code workflow. CTF-specific solving/offensive automation is an optional add-on with no active slices; retain generic extension seams only. Historical Cyber percentages are not current planning metrics. See [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md).
 
-Last updated: 2026-08-14
+Last updated: 2026-08-15
 
-## Current Single-Slice Checkpoint: Docker Sandbox Product Admission / Schema v99
+## Current Single-Slice Checkpoint: Ollama Loopback Provider / Issue #48
+
+2026-08-15 的 issue #48 新增无凭证 loopback-only Ollama Provider（ADR 0100）。启用
+条件只有显式 `CYBERAGENT_OLLAMA_BASE_URL`（仅 loopback `http`）+ `CYBERAGENT_OLLAMA_MODEL`；
+非 loopback、HTTPS、URL 凭证/query/fragment、路径前缀、redirect 与代理 transport 拒绝。
+原生 `/api/tags` 模型列表、`/api/chat`（同步 + NDJSON 流式，含取消/截断/trailing-event
+拒绝）、`/api/show` 能力探测（tools/vision/JSON/context，未知即不支持）、usage 估算与
+稳定错误映射（model_not_found/capacity/rate_limit/network + 服务未启动可解释诊断）。
+no-tool 模型在 Harness（ToolStrategy=none）与 Provider（拒绝透传 Tool schema）两层都走
+安全路径。Registry kind `ollama`/transport `ollama_chat` 接入 CLI/HTTP/Desktop/Web；
+credential 枚举保持四位。不自动安装/pull/扫描局域网；本地模型仍过 Policy/redaction/
+budget/Tool Gateway。本机无 Ollama，真实 smoke 为文档化可选步骤；fake-server 离线测试
+覆盖全部路径。
+
+## Previous Single-Slice Checkpoint: Docker Sandbox Product Admission / Schema v99
 
 2026-08-14 的 issue #40 将 network-none Docker Sandbox 接入产品。新的
 `DockerSandboxService` 是 readiness、admission、status、start、cancellation 和 startup

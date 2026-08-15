@@ -58,7 +58,7 @@ CLI / TUI / React / Windows Desktop / CI
 | 领域 | 当前能力 |
 |---|---|
 | Agent 运行时 | Mission/Run、可恢复 Supervisor、严格生命周期、检查点、取消、重试、预算和执行租约 |
-| 模型与上下文 | Mock、Anthropic-compatible 与 OpenAI-compatible Provider、模型路由、资格校验、流式响应、上下文压缩、结构化记忆 |
+| 模型与上下文 | Mock、Anthropic-compatible、OpenAI-compatible 与 loopback-only Ollama Provider、模型路由、资格校验、能力探测、流式响应、上下文压缩、结构化记忆 |
 | 计划与协作 | Plan/Delivery、工作项、备注、最多两个核心 child、1/2/4/6 档只读 Fan-out、共享预算与取消扇出 |
 | 工具与权限 | Tool Gateway、JSON Schema 校验、Policy、Scope、人工审批、四档宿主权限、受控固定命令提案 |
 | 代码工作流 | 系统目录选择与 Workspace 导入、工作区浏览、仓库状态、提交历史、Diff 审阅、文件编辑提案、验证计划、Code Journey 与 Handoff |
@@ -129,6 +129,11 @@ OpenAI-compatible 连接使用独立的 `CYBERAGENT_OPENAI_API_KEY`、
 `CYBERAGENT_OPENAI_BASE_URL` 与 `CYBERAGENT_OPENAI_MODEL` 环境变量；后两项默认分别为
 `https://api.openai.com` 和 `gpt-4.1-mini`。仓库内的 `configs/models.yaml`
 只是无秘密示例，不会作为运行时配置源。
+
+本地 Ollama 是唯一无凭证 Provider，只在显式设置 `CYBERAGENT_OLLAMA_BASE_URL`（仅
+loopback `http`，默认 `http://127.0.0.1:11434`）与 `CYBERAGENT_OLLAMA_MODEL` 时启用；
+非 loopback、HTTPS、redirect 与代理绕过一律拒绝。tools/vision/JSON/context 能力按
+`/api/show` 探测结果失败关闭，不自动安装 Ollama、不 pull 模型、不扫描局域网。
 
 ### Windows Desktop 预览
 

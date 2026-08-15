@@ -58,7 +58,7 @@ The allowed direction is always `TypeScript -> Go -> LLM/Rust/Docker`. TypeScrip
 | Area | Current capability |
 |---|---|
 | Agent runtime | Mission/Run, resumable Supervisor, strict lifecycle, checkpoints, cancellation, retry, budgets, and execution leases |
-| Models and context | Mock and Anthropic-compatible providers, routing, qualification, streaming, context compaction, and structured memory |
+| Models and context | Mock, Anthropic-compatible, OpenAI-compatible, and loopback-only Ollama providers, routing, qualification, capability probing, streaming, context compaction, and structured memory |
 | Planning and collaboration | Plan/Delivery, work items, notes, up to two core children, 1/2/4/6 read-only fan-out tiers, shared budgets and cancellation |
 | Tools and permissions | Tool Gateway, JSON Schema validation, Policy, Scope, human approval, four host-permission tiers, and fixed-command proposals |
 | Code workflows | Native folder selection and Workspace import, workspace browsing, repository state/history, diff review, file-edit proposals, verification plans, Code Journey, and Handoff |

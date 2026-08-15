@@ -6,7 +6,20 @@ Last updated: 2026-08-15
 
 ## Resume Context
 
-当前单切片检查点是 issue #40 的 schema v99 Docker Sandbox 产品准入、执行与恢复。
+当前单切片检查点是 issue #48 的 Ollama 本地 Provider 与能力探测（ADR 0100）。
+新增无凭证的 loopback-only `ollama` Provider：只接受显式配置的 `http` loopback
+endpoint（`CYBERAGENT_OLLAMA_BASE_URL` + `CYBERAGENT_OLLAMA_MODEL`），拒绝非
+loopback、HTTPS、URL 凭证/query/fragment、路径前缀、redirect 与代理 transport；
+使用原生 `/api/tags`、`/api/chat`（含 NDJSON 流式）与 `/api/show` 能力探测，
+tools/vision/JSON/context 能力未知一律按不支持处理，no-tool 模型绝不收到 Tool
+schema；usage 优先 daemon 计数、缺失时按字符/4 保守估算；稳定错误映射覆盖
+model_not_found/capacity/rate_limit/network 与服务未启动的可解释诊断。Registry
+kind `ollama`、transport `ollama_chat` 已接入 CLI/HTTP/OpenAPI/Desktop/Web 与
+credential 枚举保持四位（Ollama 无凭证）。本机未安装 Ollama，真实 smoke 为
+文档化的可选人工步骤；fake-server 离线测试覆盖 list/chat/stream/取消/不可达/
+redirect/代理绕过/no-tool 安全路径与能力探测。
+
+前一检查点是 issue #40 的 schema v99 Docker Sandbox 产品准入、执行与恢复。
 新的 `DockerSandboxService` 将 v97 的 exact-owned 生命周期与 v98 的有界 I/O 组合到
 CLI、认证 HTTP/OpenAPI、Desktop 与模型提案入口；模型
 `sandbox_docker_run_propose` 只能请求 Admit，不能 Start 或构造 Docker 请求。全部入口
