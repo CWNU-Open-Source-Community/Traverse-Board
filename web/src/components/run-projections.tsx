@@ -73,10 +73,36 @@ export function AgentGraphPanel({ client, runID }: ProjectionProps) {
   if (query.isLoading) return <LoadingState label="加载 Agent 图" />;
   if (query.isError || !query.data) return <ErrorState error={query.error} />;
   if (query.data.nodes.length === 0) return <EmptyState>暂无 Agent</EmptyState>;
+  const nodes = query.data.nodes;
+  // Render the child tree: the root first, its direct children indented
+  // beneath it (depth is bounded at 1 by the admission contract).
+  const ordered = [...nodes].sort((left, right) => {
+    if (left.id === query.data.root_agent_id) return -1;
+    if (right.id === query.data.root_agent_id) return 1;
+    return (left.parent_id ?? "").localeCompare(right.parent_id ?? "") || left.id.localeCompare(right.id);
+  });
+  const root = ordered.find((node) => node.id === query.data.root_agent_id);
   return (
     <div className="projection-stack agent-graph" aria-label={t("Agent 图", "Agent graph")}>
-      {query.data.nodes.map((node) => (
-        <article className={`agent-node agent-depth-${node.depth}`} key={node.id}>
+      {root && (
+        <article className={`agent-node agent-depth-${root.depth}`} key={root.id}>
+          <header>
+            <span className="node-role"><GitBranch aria-hidden="true" size={15} />{root.role}</span>
+            <strong>{shortID(root.id)}</strong>
+            <StatusBadge status={root.status} />
+          </header>
+          <dl className="projection-metrics">
+            <Metric label="Session" value={shortID(root.session_id)} />
+            <Metric label={t("配置档", "Profile")} value={root.profile} />
+            <Metric label={t("回合", "Turns")} value={`${formatNumber(root.turns_used)} / ${formatNumber(root.turn_limit)}`} />
+            <Metric label="Tokens" value={`${formatNumber(root.tokens_used)} / ${formatNumber(root.token_limit)}`} />
+            <Metric label={t("子槽位", "Child slots")} value={t(`${formatNumber(root.child_limit)} 个`, `${formatNumber(root.child_limit)}`)} />
+          </dl>
+          <div className="tag-line">{root.skills.map((skill) => <code key={skill}>{skill}</code>)}</div>
+        </article>
+      )}
+      {ordered.filter((node) => node.id !== query.data.root_agent_id).map((node) => (
+        <article className={`agent-node agent-depth-${node.depth} agent-child`} key={node.id}>
           <header>
             <span className="node-role"><GitBranch aria-hidden="true" size={15} />{node.role}</span>
             <strong>{shortID(node.id)}</strong>
@@ -87,6 +113,8 @@ export function AgentGraphPanel({ client, runID }: ProjectionProps) {
             <Metric label={t("配置档", "Profile")} value={node.profile} />
             <Metric label={t("回合", "Turns")} value={`${formatNumber(node.turns_used)} / ${formatNumber(node.turn_limit)}`} />
             <Metric label="Tokens" value={`${formatNumber(node.tokens_used)} / ${formatNumber(node.token_limit)}`} />
+            <Metric label={t("剩余回合", "Turns left")} value={formatNumber(Math.max(0, node.turn_limit - node.turns_used))} />
+            <Metric label={t("剩余Tokens", "Tokens left")} value={formatNumber(Math.max(0, node.token_limit - node.tokens_used))} />
           </dl>
           <div className="tag-line">{node.skills.map((skill) => <code key={skill}>{skill}</code>)}</div>
           {node.completion && (
@@ -219,10 +247,59 @@ export function FanoutPanel({ client, runID }: ProjectionProps) {
             <Metric label={t("输入", "Input")} value={formatBytes(plan.total_bytes)} />
             <Metric label={t("已排除", "Excluded")} value={formatNumber(plan.excluded_count)} />
           </dl>
-          {plan.latest_execution ? <ShardTable execution={plan.latest_execution} /> : <div className="projection-placeholder">尚未执行</div>}
+          <FanoutExecutions client={client} runID={runID} planID={plan.id} />
         </article>
       ))}
       <LoadMoreButton hasNextPage={Boolean(query.hasNextPage)} isFetching={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()} />
+    </div>
+  );
+}
+
+function FanoutExecutions({ client, runID, planID }: { client: CyberAgentClient; runID: string; planID: string }) {
+  const { t } = useLocale();
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    queryKey: ["run", runID, "fanout-executions", planID],
+    queryFn: ({ signal }) => client.getRunFanoutExecutions(runID, planID, signal),
+  });
+  const cancel = useMutation({
+    mutationFn: (executionID: string) => client.cancelRunFanoutExecution(runID, executionID, {
+      version: "readonly_fanout_cancel.v1", confirm_cancel: true,
+    }, `web-fanout-cancel-${globalThis.crypto.randomUUID()}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["run", runID, "fanout"] });
+      void queryClient.invalidateQueries({ queryKey: ["run", runID, "fanout-executions", planID] });
+    },
+  });
+  if (query.isLoading) return <LoadingState label="加载执行历史" />;
+  if (query.isError || !query.data) return <ErrorState error={query.error} />;
+  if (query.data.items.length === 0) return <div className="projection-placeholder">尚未执行</div>;
+  return (
+    <div className="fanout-executions">
+      <h4>{t("执行历史", "Execution history")}</h4>
+      {query.data.items.map((execution) => (
+        <section className="fanout-execution-item" key={execution.id}>
+          <header>
+            <span className="projection-kicker">{shortID(execution.id)}</span>
+            <StatusBadge status={execution.status} />
+            <span>{formatDate(execution.started_at)}</span>
+            {client.hasControl && execution.status === "running" && (
+              <button className="command-button danger" disabled={cancel.isPending}
+                onClick={() => cancel.mutate(execution.id)} type="button">
+                {cancel.isPending
+                  ? <LoaderCircle aria-hidden="true" className="spin" size={15} />
+                  : <Ban aria-hidden="true" size={15} />}
+                {t("取消执行", "Cancel execution")}
+              </button>
+            )}
+          </header>
+          <ShardTable execution={execution} />
+          {execution.stop_code && <div className="projection-placeholder">{execution.stop_code}</div>}
+        </section>
+      ))}
+      {cancel.error && <div className="inline-warning" role="alert">
+        {cancel.error instanceof Error ? cancel.error.message : t("取消 Fan-out 执行失败", "Fan-out execution cancellation failed")}
+      </div>}
     </div>
   );
 }

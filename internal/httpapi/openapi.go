@@ -221,6 +221,7 @@ func GenerateOpenAPI() ([]byte, error) {
 
 func openAPIOperationSpecs() []openAPIOperationSpec {
 	runID := pathIdentityParameter("run_id", "Run identity")
+	executionID := pathIdentityParameter("execution_id", "Read-only Fan-out execution identity")
 	verificationPlanID := pathIdentityParameter("plan_id", "Verification plan identity")
 	verificationPlanItemOrdinal := openAPIParameter{Name: "ordinal", In: "path",
 		Description: "Verification plan item ordinal", Required: true,
@@ -632,6 +633,11 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			Description: "Returns bounded plan metadata and the latest shard execution summary without file manifests or model report JSON.",
 			DataType:    reflect.TypeOf(FanoutPlanView{}), Collection: true, Paginated: true,
 			NotFound: true, Parameters: append([]openAPIParameter{runID}, paginationParameters()...)},
+		{Path: FanoutExecutionsPathTemplate, OperationID: "listRunFanoutExecutions",
+			Summary: "List one Fan-out plan's execution history", Tag: "Analysis",
+			Description: "Returns the bounded shard execution history of one read-only Fan-out plan; shard rows carry only status, bounded counts, and model identity.",
+			DataType: reflect.TypeOf(FanoutExecutionsListView{}), NotFound: true,
+			Parameters: []openAPIParameter{runID, identityQueryParameter("plan_id", "Exact Fan-out plan identity")}},
 		{Path: "/api/v1/runs/{run_id}/reports", OperationID: "listRunFindingReports",
 			Summary: "List Finding Report summaries", Tag: "Reports",
 			Description: "Returns bounded report counts and severity summaries without Finding narratives.",
@@ -677,6 +683,14 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 					Required: true, Schema: map[string]any{"type": "string", "minLength": domain.MinModelCancellationKeyBytes,
 						"maxLength": domain.MaxModelCancellationKeyBytes, "pattern": `^\S+$`}},
 			}},
+		{Path: FanoutExecutionCancelPathTemplate, Method: http.MethodPost,
+			OperationID: "cancelRunFanoutExecution",
+			Summary:     "Cancel one read-only Fan-out execution", Tag: "Control",
+			Description: "Cancels one non-terminal read-only Fan-out execution under a fresh Run execution lease fence; terminal executions return their stored state unchanged.",
+			DataType:    reflect.TypeOf(FanoutExecutionView{}),
+			RequestType: reflect.TypeOf(FanoutExecutionCancelRequestView{}),
+			Control:     true, NotFound: true,
+			SuccessStatus: http.StatusOK, Parameters: []openAPIParameter{runID, executionID}},
 		{Path: SpecialistModelCancellationPathTemplate, Method: http.MethodPost,
 			OperationID: "requestSpecialistModelCancellation",
 			Summary:     "Cancel an active Specialist model call", Tag: "Control",

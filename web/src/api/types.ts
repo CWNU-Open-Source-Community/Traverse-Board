@@ -21,6 +21,10 @@ export type EventView = components["schemas"]["EventView"];
 export type ExternalSkillProjectionItemView = components["schemas"]["ExternalSkillProjectionItemView"];
 export type ExternalSkillProjectionView = components["schemas"]["ExternalSkillProjectionView"];
 export type FanoutPlanView = components["schemas"]["FanoutPlanView"];
+export type FanoutExecutionsListView = components["schemas"]["FanoutExecutionsListView"];
+export type FanoutExecutionView = components["schemas"]["FanoutExecutionView"];
+export type FanoutExecutionCancelRequestView =
+  components["schemas"]["FanoutExecutionCancelRequestView"];
 export type FindingReportSummaryView = components["schemas"]["FindingReportSummaryView"];
 export type FindingReportView = components["schemas"]["FindingReportView"];
 export type HealthView = components["schemas"]["HealthView"];
