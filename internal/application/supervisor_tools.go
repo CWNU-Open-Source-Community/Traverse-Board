@@ -68,6 +68,7 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 		name := toolgateway.ToolName(call.Name)
 		if name != toolgateway.WorkItemCreateTool && name != toolgateway.NoteCreateTool &&
 			name != toolgateway.SpecialistDelegationProposeTool &&
+			name != toolgateway.ChildTaskProposeTool &&
 			name != toolgateway.PlanDeliveryProposeTool &&
 			name != toolgateway.ControlledCommandProposeTool &&
 			name != toolgateway.HostCommandProposeTool {

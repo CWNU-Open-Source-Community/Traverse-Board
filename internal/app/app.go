@@ -127,6 +127,7 @@ func (a *App) newToolGateway() *toolgateway.Gateway {
 	gateway := toolgateway.New(a.store, a.checker).
 		WithStructuredMemoryExecutor(application.NewStructuredMemoryToolExecutor(a.store)).
 		WithSpecialistDelegationExecutor(application.NewSpecialistDelegationToolExecutor(a.store)).
+		WithChildTaskProposalExecutor(application.NewChildTaskToolExecutor(a.store)).
 		WithPlanDeliveryExecutor(application.NewPlanDeliveryToolExecutor(a.store)).
 		WithControlledCommandProposalExecutor(
 			application.NewControlledCommandProposalToolExecutor(a.store)).
@@ -218,6 +219,8 @@ func (a *App) dispatch(ctx context.Context, args []string) error {
 		return a.reportCommand(ctx, args[1:])
 	case "api":
 		return a.apiCommand(ctx, args[1:])
+	case "mcp":
+		return a.mcpCommand(ctx, args[1:])
 	case "headless":
 		return a.headlessCommand(ctx, args[1:])
 	case "run":

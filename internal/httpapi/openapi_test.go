@@ -139,6 +139,12 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 						item.Post.OperationID == "qualifyModelHarness") ||
 					(path == PriceSnapshotsPath &&
 						item.Post.OperationID == "importPriceSnapshot") ||
+					(path == FanoutExecutionCancelPathTemplate &&
+						item.Post.OperationID == "cancelRunFanoutExecution") ||
+					(path == ChildTaskProposalReviewPathTemplate &&
+						item.Post.OperationID == "reviewRunChildTaskProposal") ||
+					(path == ChildTaskProposalAdmitPathTemplate &&
+						item.Post.OperationID == "admitRunChildTaskProposal") ||
 					(path == ProviderCredentialPathTemplate &&
 						item.Post.OperationID == "changeProviderCredential") ||
 					(path == FileEditProposalPathTemplate &&
@@ -239,6 +245,9 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 				path == ModelRouteControlPathTemplate ||
 				path == ProviderDiagnosticPath || path == ModelHarnessQualificationPath ||
 				path == PriceSnapshotsPath ||
+				path == FanoutExecutionCancelPathTemplate ||
+				path == ChildTaskProposalReviewPathTemplate ||
+				path == ChildTaskProposalAdmitPathTemplate ||
 				path == ProviderCredentialPathTemplate ||
 				path == FileEditProposalPathTemplate || path == FileEditReviewPathTemplate ||
 				path == FileEditApplyPathTemplate ||
@@ -598,6 +607,9 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	fixture.api.modelControlController = application.NewModelControlService(
 		fixture.api.modelRegistry, fixture.store)
 	fixture.api.priceSnapshotController = fixture.store
+	fixture.api.fanoutExecutionController = application.NewReadOnlyFanoutExecutionService(
+		fixture.store, llm.NewDefaultRouter(), policy.NewDefaultChecker())
+	fixture.api.childTaskControlController = application.NewChildTaskControlService(fixture.store)
 	credentialStore := credential.NewMemoryStore()
 	fixture.api.providerCredentialController = application.NewProviderCredentialService(
 		credentialStore)
@@ -696,6 +708,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		"{note_id}":      fixture.notes[0].ID,
 		"{artifact_id}":  fixture.artifactID,
 		"{report_id}":    "report-openapi-missing-0001",
+		"{execution_id}":  "fanout-execution-openapi-missing-0001",
 		"{approval_id}":  approvalRecord.ID,
 		"{proposal_id}":  "controlled-command-proposal-openapi",
 		"{edit_id}":      fileEditRecord.ID,
@@ -756,11 +769,17 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 			requestPath += "?format=json"
 		} else if spec.OperationID == "getDockerSandboxStatus" {
 			requestPath += "?admission_id=docker-sandbox-admission-openapi"
+		} else if spec.OperationID == "listRunFanoutExecutions" {
+			requestPath += "?plan_id=plan-openapi-fanout"
 		}
 		t.Run(spec.OperationID, func(t *testing.T) {
 			var response *httptest.ResponseRecorder
 			expectedStatus := http.StatusOK
 			if spec.OperationID == "getRunFindingReport" {
+				expectedStatus = http.StatusNotFound
+			} else if spec.OperationID == "cancelRunFanoutExecution" ||
+				spec.OperationID == "reviewRunChildTaskProposal" ||
+				spec.OperationID == "admitRunChildTaskProposal" {
 				expectedStatus = http.StatusNotFound
 			} else if spec.OperationID == "getWorkspaceRepositoryCommitFilePreview" {
 				expectedStatus = http.StatusPreconditionFailed
@@ -828,6 +847,12 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 					body = `{"version":"provider_diagnostic.v1","provider":"mock","model":"mock-code","confirm_diagnostic":true}`
 				} else if spec.Path == ModelHarnessQualificationPath {
 					body = `{"version":"model_harness_qualification.v1","provider":"mock","model":"mock-code","confirm_qualification":true}`
+				} else if spec.Path == FanoutExecutionCancelPathTemplate {
+					body = `{"version":"readonly_fanout_cancel.v1","confirm_cancel":true}`
+				} else if spec.Path == ChildTaskProposalReviewPathTemplate {
+					body = `{"version":"child_task_review.v1","action":"deny","reviewer":"openapi_test","fanout_tier":"2","confirm_review":true}`
+				} else if spec.Path == ChildTaskProposalAdmitPathTemplate {
+					body = `{"version":"child_task_admit.v1","confirm_admit":true}`
 				} else if spec.Path == PriceSnapshotsPath {
 					encoded, marshalErr := json.Marshal(PriceSnapshotImportRequestView{
 						Version: pricing.ProtocolVersion,
@@ -929,9 +954,13 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				if statusErr != nil {
 					t.Fatal(statusErr)
 				}
-				expectedStatus, statusErr = strconv.Atoi(status)
-				if statusErr != nil {
-					t.Fatal(statusErr)
+				if spec.OperationID != "cancelRunFanoutExecution" &&
+					spec.OperationID != "reviewRunChildTaskProposal" &&
+					spec.OperationID != "admitRunChildTaskProposal" {
+					expectedStatus, statusErr = strconv.Atoi(status)
+					if statusErr != nil {
+						t.Fatal(statusErr)
+					}
 				}
 			} else {
 				response = fixture.get(t, requestPath)

@@ -231,6 +231,9 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		HostCommandProposalController:           hostCommandProposalControl,
 		ModelControlController:                  modelControl,
 		PriceSnapshotController:                 a.store,
+		FanoutExecutionController: application.NewReadOnlyFanoutExecutionService(
+			a.store, a.router, a.checker),
+		ChildTaskControlController:              application.NewChildTaskControlService(a.store),
 		ProviderCredentialController:            providerCredentialControl,
 		FileEditReviewController:                fileEditReview,
 		FileEditProposalController:              fileEditProposal,

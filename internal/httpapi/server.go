@@ -261,6 +261,8 @@ type Config struct {
 	HostCommandProposalController           HostCommandProposalController
 	ModelControlController                  ModelControlController
 	PriceSnapshotController                 PriceSnapshotController
+	FanoutExecutionController               FanoutExecutionController
+	ChildTaskControlController              ChildTaskControlController
 	ProviderCredentialController            ProviderCredentialController
 	FileEditReviewController                FileEditReviewController
 	FileEditProposalController              FileEditProposalController
@@ -318,6 +320,8 @@ type API struct {
 	hostCommandProposalController           HostCommandProposalController
 	modelControlController                  ModelControlController
 	priceSnapshotController                 PriceSnapshotController
+	fanoutExecutionController               FanoutExecutionController
+	childTaskControlController              ChildTaskControlController
 	providerCredentialController            ProviderCredentialController
 	fileEditReviewController                FileEditReviewController
 	fileEditProposalController              FileEditProposalController
@@ -552,7 +556,9 @@ func New(store Store, config Config) (*API, error) {
 		controlledCommandProposalController: config.ControlledCommandProposalController,
 		hostCommandProposalController:       config.HostCommandProposalController,
 		modelControlController:              config.ModelControlController,
-	priceSnapshotController:             config.PriceSnapshotController,
+		priceSnapshotController:             config.PriceSnapshotController,
+		fanoutExecutionController:           config.FanoutExecutionController,
+		childTaskControlController:          config.ChildTaskControlController,
 		providerCredentialController:        config.ProviderCredentialController,
 		fileEditReviewController:            config.FileEditReviewController,
 		fileEditProposalController:          config.FileEditProposalController,
@@ -826,6 +832,18 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if runID, matched := matchModelCancellationPath(request.URL.Path); matched {
 		a.serveModelCancellation(tracked, request, requestID, runID)
+		return
+	}
+	if runID, executionID, matched := matchFanoutExecutionCancelPath(request.URL.Path); matched {
+		a.serveFanoutExecutionCancel(tracked, request, requestID, runID, executionID)
+		return
+	}
+	if runID, proposalID, matched := matchChildTaskProposalReviewPath(request.URL.Path); matched {
+		a.serveChildTaskProposalReview(tracked, request, requestID, runID, proposalID)
+		return
+	}
+	if runID, proposalID, matched := matchChildTaskProposalAdmitPath(request.URL.Path); matched {
+		a.serveChildTaskProposalAdmit(tracked, request, requestID, runID, proposalID)
 		return
 	}
 	if !a.authorized(request, a.tokenHash) {

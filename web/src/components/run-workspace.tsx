@@ -26,6 +26,7 @@ import {
   Play,
   Radio,
   ScanSearch,
+  Server,
   ShieldAlert,
   ShieldCheck,
   ShieldOff,
@@ -84,13 +85,14 @@ import { VerificationPlan } from "./verification-plan";
 import type { ReceiptReviewNavigationTarget } from "./receipt-review-navigation";
 import { WorkspaceExplorer } from "./workspace-explorer";
 import { SessionComposer } from "./session-composer";
-import { AgentGraphPanel, DelegationsPanel, ExternalSkillsSection, FanoutPanel, FindingsPanel } from "./run-projections";
+import { AgentGraphPanel, ChildTasksPanel, DelegationsPanel, ExternalSkillsSection, FanoutPanel, FindingsPanel } from "./run-projections";
 import { RunActivityTimeline } from "./run-activity-timeline";
 import { EmbeddedAnalyzerPanel } from "./embedded-analyzer-panel";
+import { DockerSandboxPanel } from "./docker-sandbox-panel";
 
 export type RunTab = "activity" | "overview" | "journey" | "actions" | "approvals" | "diffs" | "repository" | "files" | "evidence" | "verify" | "handoff" |
   "receipts" | "agents" | "delegations" | "fanout" | "findings" | "events" | "work" |
-  "notes" | "artifacts" | "tools" | "analyzer";
+  "notes" | "artifacts" | "tools" | "analyzer" | "child-tasks" | "sandbox";
 
 const tabs: Array<{ id: RunTab; label: [string, string]; icon: typeof Activity }> = [
   { id: "activity", label: ["活动", "Activity"], icon: MessageSquareText },
@@ -108,6 +110,7 @@ const tabs: Array<{ id: RunTab; label: [string, string]; icon: typeof Activity }
   { id: "agents", label: ["子智能体", "Agents"], icon: GitBranch },
   { id: "delegations", label: ["委派", "Delegations"], icon: Network },
   { id: "fanout", label: ["并发派发", "Fan-out"], icon: ScanSearch },
+  { id: "child-tasks", label: ["子任务提案", "Child tasks"], icon: Network },
   { id: "findings", label: ["发现", "Findings"], icon: ShieldAlert },
   { id: "events", label: ["事件", "Events"], icon: Activity },
   { id: "work", label: ["任务", "Work"], icon: ClipboardList },
@@ -115,6 +118,7 @@ const tabs: Array<{ id: RunTab; label: [string, string]; icon: typeof Activity }
   { id: "artifacts", label: ["产物", "Artifacts"], icon: FileArchive },
   { id: "tools", label: ["工具", "Tools"], icon: Wrench },
   { id: "analyzer", label: ["分析器", "Analyzer"], icon: Bug },
+  { id: "sandbox", label: ["沙箱", "Sandbox"], icon: Server },
 ];
 
 const compactTabs = new Set<RunTab>(["activity", "approvals", "diffs", "repository", "files"]);
@@ -380,6 +384,8 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
         {tab === "agents" && <AgentGraphPanel client={client} runID={runID} />}
         {tab === "delegations" && <DelegationsPanel client={client} runID={runID} />}
         {tab === "fanout" && <FanoutPanel client={client} runID={runID} />}
+        {tab === "child-tasks" && <ChildTasksPanel client={client} runID={runID} />}
+        {tab === "sandbox" && <DockerSandboxPanel client={client} />}
         {tab === "findings" && <FindingsPanel client={client} runID={runID} />}
         {tab === "events" && (
           <CollectionState query={eventsQuery} empty="暂无事件">

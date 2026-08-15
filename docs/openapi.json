@@ -2615,6 +2615,318 @@
         "x-cyberagent-read-only": false
       }
     },
+    "/api/v1/runs/{run_id}/child-task-proposals": {
+      "get": {
+        "operationId": "listRunChildTaskProposals",
+        "summary": "List model-proposed child task proposals",
+        "description": "Returns bounded child task proposals with their redacted tasks, resolved surface, and admission assignments for operator review.",
+        "tags": [
+          "Analysis"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ChildTaskProposalsListView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/runs/{run_id}/child-task-proposals/{proposal_id}/admit": {
+      "post": {
+        "operationId": "admitRunChildTaskProposal",
+        "summary": "Admit one approved child task proposal",
+        "description": "Admits an operator-approved proposal: core tasks go through the fenced Specialist admission and bind declared dependencies onto the schema v101 wait ledger; read-only tasks record their binding intent.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "proposal_id",
+            "in": "path",
+            "description": "Child task proposal identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ChildTaskProposalView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChildTaskAdmitRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/child-task-proposals/{proposal_id}/review": {
+      "post": {
+        "operationId": "reviewRunChildTaskProposal",
+        "summary": "Approve or deny one child task proposal",
+        "description": "Records one operator decision; approve may pin the read-only fan-out tier to an explicit 1/2/4/6 ceiling. The model can never raise it.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "proposal_id",
+            "in": "path",
+            "description": "Child task proposal identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ChildTaskProposalView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChildTaskReviewRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/runs/{run_id}/code-handoff": {
       "get": {
         "operationId": "getCodeHandoff",
@@ -4222,6 +4534,212 @@
           }
         },
         "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/runs/{run_id}/fanout-executions": {
+      "get": {
+        "operationId": "listRunFanoutExecutions",
+        "summary": "List one Fan-out plan's execution history",
+        "description": "Returns the bounded shard execution history of one read-only Fan-out plan; shard rows carry only status, bounded counts, and model identity.",
+        "tags": [
+          "Analysis"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "plan_id",
+            "in": "query",
+            "description": "Exact Fan-out plan identity",
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/FanoutExecutionsListView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/runs/{run_id}/fanout-executions/{execution_id}/cancel": {
+      "post": {
+        "operationId": "cancelRunFanoutExecution",
+        "summary": "Cancel one read-only Fan-out execution",
+        "description": "Cancels one non-terminal read-only Fan-out execution under a fresh Run execution lease fence; terminal executions return their stored state unchanged.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "execution_id",
+            "in": "path",
+            "description": "Read-only Fan-out execution identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/FanoutExecutionView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FanoutExecutionCancelRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
       }
     },
     "/api/v1/runs/{run_id}/fanout-plans": {
@@ -11196,6 +11714,242 @@
         ],
         "type": "object"
       },
+      "ChildTaskAdmitRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm_admit": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "confirm_admit"
+        ],
+        "type": "object"
+      },
+      "ChildTaskAssignmentView": {
+        "additionalProperties": false,
+        "properties": {
+          "admitted_agent_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "fanout_plan_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "fanout_tier": {
+            "type": "string"
+          },
+          "ordinal": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string"
+          },
+          "timeout_millis": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "token_limit": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "turn_limit": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ordinal",
+          "surface",
+          "fanout_tier",
+          "status",
+          "turn_limit",
+          "token_limit",
+          "timeout_millis"
+        ],
+        "type": "object"
+      },
+      "ChildTaskProposalView": {
+        "additionalProperties": false,
+        "properties": {
+          "assignments": {
+            "items": {
+              "$ref": "#/components/schemas/ChildTaskAssignmentView"
+            },
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "fanout_tier": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "requested_by": {
+            "type": "string"
+          },
+          "root_agent_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/ChildTaskTaskView"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "run_id",
+          "root_agent_id",
+          "status",
+          "surface",
+          "fanout_tier",
+          "requested_by",
+          "created_at",
+          "tasks",
+          "assignments"
+        ],
+        "type": "object"
+      },
+      "ChildTaskProposalsListView": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ChildTaskProposalView"
+            },
+            "type": "array"
+          },
+          "protocol_version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "items"
+        ],
+        "type": "object"
+      },
+      "ChildTaskReviewRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "confirm_review": {
+            "type": "boolean"
+          },
+          "fanout_tier": {
+            "type": "string"
+          },
+          "reviewer": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "action",
+          "reviewer",
+          "fanout_tier",
+          "confirm_review"
+        ],
+        "type": "object"
+      },
+      "ChildTaskTaskView": {
+        "additionalProperties": false,
+        "properties": {
+          "dependency_ordinals": {
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "goal": {
+            "type": "string"
+          },
+          "input_refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ordinal": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "skills": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "surface_hint": {
+            "type": "string"
+          },
+          "timeout_millis": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "token_limit": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "turn_limit": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ordinal",
+          "title",
+          "goal",
+          "skills",
+          "input_refs",
+          "dependency_ordinals",
+          "surface_hint",
+          "turn_limit",
+          "token_limit",
+          "timeout_millis"
+        ],
+        "type": "object"
+      },
       "CodeHandoffActionReferenceView": {
         "additionalProperties": false,
         "properties": {
@@ -13831,6 +14585,22 @@
         ],
         "type": "object"
       },
+      "FanoutExecutionCancelRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm_cancel": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "confirm_cancel"
+        ],
+        "type": "object"
+      },
       "FanoutExecutionShardView": {
         "additionalProperties": false,
         "properties": {
@@ -13959,6 +14729,31 @@
           "started_at",
           "updated_at",
           "shards"
+        ],
+        "type": "object"
+      },
+      "FanoutExecutionsListView": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FanoutExecutionView"
+            },
+            "type": "array"
+          },
+          "plan_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "plan_id",
+          "items"
         ],
         "type": "object"
       },

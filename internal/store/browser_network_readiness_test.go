@@ -139,7 +139,7 @@ func TestBrowserNetworkReviewRequiresStoredEvidence(t *testing.T) {
 	}
 }
 
-func TestSchemaV102BrowserNetworkReadinessReapplies(t *testing.T) {
+func TestSchemaV103BrowserNetworkReadinessReapplies(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "schema-v102-browser-network-readiness.db")
 	state, err := Open(path)
 	if err != nil {
@@ -161,9 +161,9 @@ func TestSchemaV102BrowserNetworkReadinessReapplies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV102ForTestStatements() {
+	for _, statement := range removeSchemaV103ForTestStatements() {
 		if _, err := state.db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("downgrade v102 fixture with %q: %v", statement, err)
+			t.Fatalf("downgrade v103 fixture with %q: %v", statement, err)
 		}
 	}
 	if err := state.Close(); err != nil {
@@ -186,12 +186,12 @@ func TestSchemaV102BrowserNetworkReadinessReapplies(t *testing.T) {
 	}
 }
 
-func removeSchemaV102ForTestStatements() []string {
+func removeSchemaV103ForTestStatements() []string {
 	return []string{
 		`DROP TABLE browser_network_review_operations`,
 		`DROP TABLE browser_network_reviews`,
 		`DROP TABLE browser_network_evidence_operations`,
 		`DROP TABLE browser_network_evidences`,
-		`DELETE FROM schema_migrations WHERE version = 102`,
+		`DELETE FROM schema_migrations WHERE version = 103`,
 	}
 }

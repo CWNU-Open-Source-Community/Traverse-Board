@@ -267,6 +267,16 @@ func projectEvent(event events.Event) (Item, bool) {
 		base.Kind, base.Title, base.Status = KindBrowser, "浏览器运行时检查点已记录", "running"
 	case events.BrowserRuntimeReceiptRecordedEvent:
 		base.Kind, base.Title, base.Status = KindBrowser, "浏览器运行时收据已记录", "completed"
+	case events.ChildTaskProposedEvent:
+		base.Kind, base.Title, base.Status = KindPlan, "子任务提案已记录", "pending"
+		base.Detail = childTaskDetail(event.PayloadJSON)
+	case events.ChildTaskReviewedEvent:
+		base.Kind, base.Title = KindPlan, "子任务提案已审阅"
+		base.Status = cleanStatus(stringField(event.PayloadJSON, "status"))
+		base.Detail = childTaskDetail(event.PayloadJSON)
+	case events.ChildTaskAdmittedEvent:
+		base.Kind, base.Title, base.Status = KindPlan, "子任务已准入", "completed"
+		base.Detail = childTaskDetail(event.PayloadJSON)
 	default:
 		return Item{}, false
 	}
@@ -815,6 +825,25 @@ func dependencyDetail(payloadJSON string) string {
 	}
 	if reason != "" {
 		parts = append(parts, reason)
+	}
+	return strings.Join(parts, " · ")
+}
+
+// childTaskDetail bounds the child task projection to surface, tier, and
+// task count. Titles, goals, and artifact hints never enter Activity.
+func childTaskDetail(payloadJSON string) string {
+	surface := cleanLabel(stringField(payloadJSON, "surface"))
+	tier := cleanLabel(stringField(payloadJSON, "fanout_tier"))
+	count, ok := boundedIntField(payloadJSON, "task_count", 1, 6)
+	parts := make([]string, 0, 3)
+	if surface != "" {
+		parts = append(parts, surface)
+	}
+	if tier != "" {
+		parts = append(parts, "档位 "+tier)
+	}
+	if ok {
+		parts = append(parts, fmt.Sprintf("%d 个子任务", count))
 	}
 	return strings.Join(parts, " · ")
 }

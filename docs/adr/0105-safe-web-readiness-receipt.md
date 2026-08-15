@@ -1,4 +1,4 @@
-# ADR 0104: Safe Web Readiness Receipt
+# ADR 0105: Safe Web Readiness Receipt
 
 Status: accepted
 

@@ -319,7 +319,8 @@ open build/desktop/Prayu.app
 | v99 | 不可变 Docker Sandbox 产品准入、启动绑定、取消与终态回执 | immutable Docker Sandbox product admission, launch binding, cancellation, and terminal receipts |
 | v100 | 算子价格快照与 Run 金额预算账本（预留/结算/释放） | operator price snapshots and the run monetary budget ledger (reserve/settle/release) |
 | v101 | 结构化 Agent 依赖等待与唯一唤醒收据 | structured agent dependency waiting and unique wake receipts |
-| v102 | 持久浏览器网络隔离证据与操作者 review | durable browser network containment evidence and operator review |
+| v102 | 模型提议的有界 child 任务调度（core/readonly fan-out 分面、去重与准入） | model-proposed bounded child task scheduling (core/read-only fan-out surfaces, dedup, and admission) |
+| v103 | 持久浏览器网络隔离证据与操作者 review | durable browser network containment evidence and operator review |
 
 </details>
 

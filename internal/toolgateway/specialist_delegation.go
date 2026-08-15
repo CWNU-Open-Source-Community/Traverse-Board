@@ -90,6 +90,9 @@ func SupervisorToolDefinitions() []ToolDefinition {
 	definition := specialistDelegationDefinition
 	definition.InputSchema = append(json.RawMessage(nil), definition.InputSchema...)
 	definitions = append(definitions, definition)
+	childTask := childTaskProposeDefinition
+	childTask.InputSchema = append(json.RawMessage(nil), childTask.InputSchema...)
+	definitions = append(definitions, childTask)
 	controlled := controlledCommandProposalDefinition
 	controlled.InputSchema = append(json.RawMessage(nil), controlled.InputSchema...)
 	definitions = append(definitions, controlled)
@@ -127,6 +130,11 @@ func SupervisorToolDefinition(name ToolName) (ToolDefinition, bool) {
 			definition.InputSchema...)
 		return definition, true
 	}
+	if name == ChildTaskProposeTool {
+		definition := childTaskProposeDefinition
+		definition.InputSchema = append(json.RawMessage(nil), definition.InputSchema...)
+		return definition, true
+	}
 	if name != SpecialistDelegationProposeTool {
 		return ToolDefinition{}, false
 	}
@@ -142,6 +150,10 @@ func NormalizeSupervisorToolPayload(name ToolName, payload json.RawMessage) (jso
 	}
 	if name == SpecialistDelegationProposeTool {
 		_, canonical, err := normalizeSpecialistDelegationPayload(payload)
+		return canonical, err
+	}
+	if name == ChildTaskProposeTool {
+		_, canonical, err := normalizeChildTaskProposalPayload(payload)
 		return canonical, err
 	}
 	if name == ControlledCommandProposeTool {
