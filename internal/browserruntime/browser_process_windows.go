@@ -344,8 +344,13 @@ func acquireWindowsInteractiveShellPrimaryToken(parent windows.Token) (windows.T
 		return 0, err
 	}
 	var primary windows.Token
-	desiredAccess := uint32(windows.TOKEN_QUERY | windows.TOKEN_DUPLICATE |
-		windows.TOKEN_ASSIGN_PRIMARY)
+	// The duplicated primary token needs full access, not just the documented
+	// TOKEN_QUERY|TOKEN_DUPLICATE|TOKEN_ASSIGN_PRIMARY minimum: CreateProcessWithTokenW
+	// (the SeAssignPrimaryToken-free fallback used to de-elevate the browser)
+	// rejects a restricted-access token with ERROR_ACCESS_DENIED. The token is
+	// still validated to be the trusted interactive shell's same-user, same-session,
+	// non-elevated, medium-integrity primary token before it is used anywhere.
+	desiredAccess := uint32(windows.TOKEN_ALL_ACCESS)
 	if err := windows.DuplicateTokenEx(shellToken, desiredAccess, nil,
 		windows.SecurityImpersonation, windows.TokenPrimary, &primary); err != nil {
 		return 0, err
