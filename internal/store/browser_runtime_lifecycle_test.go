@@ -23,13 +23,13 @@ func TestBrowserRuntimeLifecycleRecordsAreAppendOnlyRecoverableAndAudited(t *tes
 	}
 	t.Cleanup(func() { _ = state.Close() })
 	session, identity, acceptance, ownership := browserLaunchStoreFixture(t, state)
-	prepared, err := state.PrepareBrowserLaunch(ctx, session, identity, acceptance,
+	attempt, _, _, err := state.PrepareBrowserLaunch(ctx, session, identity, acceptance,
 		ownership, "browser-runtime-lifecycle-operation", "browser-runtime-worker")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	checkpoints := successfulBrowserRuntimeCheckpointFixture(t, prepared.Attempt,
+	checkpoints := successfulBrowserRuntimeCheckpointFixture(t, attempt,
 		ownership, "browser-runtime-durable", time.Now().UTC().Round(time.Millisecond))
 	for _, checkpoint := range checkpoints {
 		if err := state.RecordBrowserRuntimeCheckpoint(ctx, checkpoint); err != nil {
@@ -64,7 +64,7 @@ func TestBrowserRuntimeLifecycleRecordsAreAppendOnlyRecoverableAndAudited(t *tes
 		t.Fatal("browser runtime receipt delete unexpectedly passed")
 	}
 
-	recoveryInitial := initialBrowserRuntimeCheckpointFixture(t, prepared.Attempt,
+	recoveryInitial := initialBrowserRuntimeCheckpointFixture(t, attempt,
 		ownership, "browser-runtime-recovery", latest.RecordedAt.Add(time.Second))
 	if err := state.RecordBrowserRuntimeCheckpoint(ctx, recoveryInitial); err != nil {
 		t.Fatal(err)
@@ -135,12 +135,12 @@ func TestBrowserRuntimeLifecycleRejectsBrokenAncestryAndV92Migrates(t *testing.T
 		t.Fatal(err)
 	}
 	session, identity, acceptance, ownership := browserLaunchStoreFixture(t, state)
-	prepared, err := state.PrepareBrowserLaunch(ctx, session, identity, acceptance,
+	attempt, _, _, err := state.PrepareBrowserLaunch(ctx, session, identity, acceptance,
 		ownership, "browser-runtime-v92-operation", "browser-runtime-worker")
 	if err != nil {
 		t.Fatal(err)
 	}
-	initial := initialBrowserRuntimeCheckpointFixture(t, prepared.Attempt, ownership,
+	initial := initialBrowserRuntimeCheckpointFixture(t, attempt, ownership,
 		"browser-runtime-ancestry", time.Now().UTC().Round(time.Millisecond))
 	broken := initial
 	broken.ID = broken.RuntimeID + "-checkpoint-2"

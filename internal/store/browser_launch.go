@@ -39,24 +39,26 @@ func (s *SQLiteStore) PrepareBrowserLaunch(ctx context.Context,
 	acceptance browserruntime.BrowserAcceptanceCandidate,
 	ownership browserruntime.ProfileOwnershipPlan, operationKey string,
 	leaseOwnerIdentity string,
-) (BrowserLaunchPreparationRecord, error) {
+) (browserruntime.BrowserLaunchAttempt, browserruntime.BrowserLaunchLease, bool, error) {
 	if s == nil || s.db == nil {
-		return BrowserLaunchPreparationRecord{}, errors.New("sqlite store is not open")
+		return browserruntime.BrowserLaunchAttempt{}, browserruntime.BrowserLaunchLease{},
+			false, errors.New("sqlite store is not open")
 	}
 	if err := session.Validate(); err != nil {
-		return BrowserLaunchPreparationRecord{}, err
+		return browserruntime.BrowserLaunchAttempt{}, browserruntime.BrowserLaunchLease{}, false, err
 	}
 	if err := browserruntime.ValidateProfileOwnershipPlan(ownership, session, identity); err != nil {
-		return BrowserLaunchPreparationRecord{}, err
+		return browserruntime.BrowserLaunchAttempt{}, browserruntime.BrowserLaunchLease{}, false, err
 	}
 	if err := browserruntime.ValidateBrowserAcceptanceCandidate(acceptance, identity); err != nil {
-		return BrowserLaunchPreparationRecord{}, err
+		return browserruntime.BrowserLaunchAttempt{}, browserruntime.BrowserLaunchLease{}, false, err
 	}
 	operationKey = strings.TrimSpace(operationKey)
 	leaseOwnerIdentity = strings.TrimSpace(leaseOwnerIdentity)
 	if !validBrowserLaunchStoreIdentity(operationKey) ||
 		!validBrowserLaunchStoreIdentity(leaseOwnerIdentity) {
-		return BrowserLaunchPreparationRecord{}, errors.New("browser launch preparation identity is invalid")
+		return browserruntime.BrowserLaunchAttempt{}, browserruntime.BrowserLaunchLease{},
+			false, errors.New("browser launch preparation identity is invalid")
 	}
 	keyDigest := browserLaunchStoreDigest("browser-launch-preparation-operation.v1", operationKey)
 	ownerDigest := browserLaunchStoreDigest("browser-launch-lease-owner-request.v1",
@@ -67,77 +69,80 @@ func (s *SQLiteStore) PrepareBrowserLaunch(ctx context.Context,
 
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
-		return BrowserLaunchPreparationRecord{}, err
+		return browserruntime.BrowserLaunchAttempt{}, browserruntime.BrowserLaunchLease{}, false, err
 	}
 	defer func() { _ = tx.Rollback() }()
 	if record, found, loadErr := loadBrowserLaunchPreparationOperationTx(ctx, tx, keyDigest); loadErr != nil {
-		return BrowserLaunchPreparationRecord{}, loadErr
+		return browserruntime.BrowserLaunchAttempt{}, browserruntime.BrowserLaunchLease{}, false, loadErr
 	} else if found {
 		if record.requestFingerprint != requestFingerprint {
-			return BrowserLaunchPreparationRecord{}, errors.New("browser launch preparation operation key was reused with another request")
+			return browserruntime.BrowserLaunchAttempt{}, browserruntime.BrowserLaunchLease{},
+				false, errors.New("browser launch preparation operation key was reused with another request")
 		}
 		replayed, loadErr := loadBrowserLaunchPreparationTx(ctx, tx,
 			record.attemptID, record.leaseID)
 		if loadErr != nil {
-			return BrowserLaunchPreparationRecord{}, loadErr
+			return browserruntime.BrowserLaunchAttempt{}, browserruntime.BrowserLaunchLease{}, false, loadErr
 		}
 		if err := browserruntime.ValidateBrowserLaunchAttempt(replayed.Attempt, session,
 			identity, acceptance, ownership); err != nil {
-			return BrowserLaunchPreparationRecord{}, err
+			return browserruntime.BrowserLaunchAttempt{}, browserruntime.BrowserLaunchLease{}, false, err
 		}
-		replayed.Replayed = true
-		return replayed, nil
+		return replayed.Attempt, replayed.Lease, true, nil
 	}
 	missionID, err := validateBrowserLaunchRunBindingTx(ctx, tx, session)
 	if err != nil {
-		return BrowserLaunchPreparationRecord{}, err
+		return browserruntime.BrowserLaunchAttempt{}, browserruntime.BrowserLaunchLease{}, false, err
 	}
 	now := time.Now().UTC()
 	attempt, err := browserruntime.BuildBrowserLaunchAttempt(session, identity, acceptance,
 		ownership, idgen.New("browser_attempt"), now)
 	if err != nil {
-		return BrowserLaunchPreparationRecord{}, err
+		return browserruntime.BrowserLaunchAttempt{}, browserruntime.BrowserLaunchLease{}, false, err
 	}
 	lease, err := browserruntime.BuildBrowserLaunchLease(attempt,
 		idgen.New("browser_lease"), leaseOwnerIdentity, now, 30*time.Second)
 	if err != nil {
-		return BrowserLaunchPreparationRecord{}, err
+		return browserruntime.BrowserLaunchAttempt{}, browserruntime.BrowserLaunchLease{}, false, err
 	}
 	attemptJSON, err := json.Marshal(attempt)
 	if err != nil {
-		return BrowserLaunchPreparationRecord{}, err
+		return browserruntime.BrowserLaunchAttempt{}, browserruntime.BrowserLaunchLease{}, false, err
 	}
 	leaseJSON, err := json.Marshal(lease)
 	if err != nil {
-		return BrowserLaunchPreparationRecord{}, err
+		return browserruntime.BrowserLaunchAttempt{}, browserruntime.BrowserLaunchLease{}, false, err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO browser_launch_attempts
 		(id, run_id, mission_id, workspace_id, session_id, fingerprint, generation,
 			payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		attempt.ID, attempt.RunID, missionID, attempt.WorkspaceID, attempt.SessionID,
 		attempt.Fingerprint, attempt.Generation, string(attemptJSON), ts(attempt.CreatedAt)); err != nil {
-		return BrowserLaunchPreparationRecord{}, fmt.Errorf("insert browser launch attempt: %w", err)
+		return browserruntime.BrowserLaunchAttempt{}, browserruntime.BrowserLaunchLease{},
+			false, fmt.Errorf("insert browser launch attempt: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO browser_launch_leases
 		(id, attempt_id, fingerprint, generation, status, payload_json, acquired_at, expires_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, lease.ID, lease.AttemptID, lease.Fingerprint,
 		lease.Generation, lease.Status, string(leaseJSON), ts(lease.AcquiredAt),
 		ts(lease.ExpiresAt)); err != nil {
-		return BrowserLaunchPreparationRecord{}, fmt.Errorf("insert browser launch lease: %w", err)
+		return browserruntime.BrowserLaunchAttempt{}, browserruntime.BrowserLaunchLease{},
+			false, fmt.Errorf("insert browser launch lease: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO browser_launch_preparation_operations
 		(key_digest, request_fingerprint, attempt_id, lease_id, created_at)
 		VALUES (?, ?, ?, ?, ?)`, keyDigest, requestFingerprint, attempt.ID, lease.ID,
 		ts(attempt.CreatedAt)); err != nil {
-		return BrowserLaunchPreparationRecord{}, fmt.Errorf("insert browser launch preparation operation: %w", err)
+		return browserruntime.BrowserLaunchAttempt{}, browserruntime.BrowserLaunchLease{},
+			false, fmt.Errorf("insert browser launch preparation operation: %w", err)
 	}
 	if err := appendBrowserLaunchPreparedEventsTx(ctx, tx, missionID, attempt, lease); err != nil {
-		return BrowserLaunchPreparationRecord{}, err
+		return browserruntime.BrowserLaunchAttempt{}, browserruntime.BrowserLaunchLease{}, false, err
 	}
 	if err := tx.Commit(); err != nil {
-		return BrowserLaunchPreparationRecord{}, err
+		return browserruntime.BrowserLaunchAttempt{}, browserruntime.BrowserLaunchLease{}, false, err
 	}
-	return BrowserLaunchPreparationRecord{Attempt: attempt, Lease: lease, MissionID: missionID}, nil
+	return attempt, lease, false, nil
 }
 
 func (s *SQLiteStore) RecordBrowserLaunchReview(ctx context.Context,
@@ -147,22 +152,22 @@ func (s *SQLiteStore) RecordBrowserLaunchReview(ctx context.Context,
 	attempt browserruntime.BrowserLaunchAttempt, lease browserruntime.BrowserLaunchLease,
 	decision browserruntime.BrowserLaunchReviewDecision, operationKey string,
 	reviewerIdentity string,
-) (BrowserLaunchReviewRecord, error) {
+) (browserruntime.BrowserLaunchReview, bool, error) {
 	if s == nil || s.db == nil {
-		return BrowserLaunchReviewRecord{}, errors.New("sqlite store is not open")
+		return browserruntime.BrowserLaunchReview{}, false, errors.New("sqlite store is not open")
 	}
 	if err := browserruntime.ValidateBrowserLaunchAttempt(attempt, session, identity,
 		acceptance, ownership); err != nil {
-		return BrowserLaunchReviewRecord{}, err
+		return browserruntime.BrowserLaunchReview{}, false, err
 	}
 	if err := browserruntime.ValidateBrowserLaunchLease(lease, attempt); err != nil {
-		return BrowserLaunchReviewRecord{}, err
+		return browserruntime.BrowserLaunchReview{}, false, err
 	}
 	operationKey = strings.TrimSpace(operationKey)
 	reviewerIdentity = strings.TrimSpace(reviewerIdentity)
 	if !validBrowserLaunchStoreIdentity(operationKey) ||
 		!validBrowserLaunchStoreIdentity(reviewerIdentity) {
-		return BrowserLaunchReviewRecord{}, errors.New("browser launch review identity is invalid")
+		return browserruntime.BrowserLaunchReview{}, false, errors.New("browser launch review identity is invalid")
 	}
 	keyDigest := browserLaunchStoreDigest("browser-launch-review-operation.v1", operationKey)
 	reviewerDigest := browserLaunchStoreDigest("browser-launch-reviewer-request.v1",
@@ -172,71 +177,71 @@ func (s *SQLiteStore) RecordBrowserLaunchReview(ctx context.Context,
 
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
-		return BrowserLaunchReviewRecord{}, err
+		return browserruntime.BrowserLaunchReview{}, false, err
 	}
 	defer func() { _ = tx.Rollback() }()
 	if record, found, loadErr := loadBrowserLaunchReviewOperationTx(ctx, tx, keyDigest); loadErr != nil {
-		return BrowserLaunchReviewRecord{}, loadErr
+		return browserruntime.BrowserLaunchReview{}, false, loadErr
 	} else if found {
 		if record.requestFingerprint != requestFingerprint {
-			return BrowserLaunchReviewRecord{}, errors.New("browser launch review operation key was reused with another request")
+			return browserruntime.BrowserLaunchReview{}, false, errors.New("browser launch review operation key was reused with another request")
 		}
 		replayed, loadErr := loadBrowserLaunchReviewTx(ctx, tx, record.reviewID)
 		if loadErr != nil {
-			return BrowserLaunchReviewRecord{}, loadErr
+			return browserruntime.BrowserLaunchReview{}, false, loadErr
 		}
 		if err := browserruntime.ValidateBrowserLaunchReview(replayed.Review, session, identity,
 			acceptance, ownership, attempt, lease); err != nil {
-			return BrowserLaunchReviewRecord{}, err
+			return browserruntime.BrowserLaunchReview{}, false, err
 		}
-		replayed.Replayed = true
-		return replayed, nil
+
+		return replayed.Review, true, nil
 	}
 	missionID, err := validateBrowserLaunchRunBindingTx(ctx, tx, session)
 	if err != nil {
-		return BrowserLaunchReviewRecord{}, err
+		return browserruntime.BrowserLaunchReview{}, false, err
 	}
 	stored, err := loadBrowserLaunchPreparationTx(ctx, tx, attempt.ID, lease.ID)
 	if err != nil {
-		return BrowserLaunchReviewRecord{}, err
+		return browserruntime.BrowserLaunchReview{}, false, err
 	}
 	if stored.Attempt.Fingerprint != attempt.Fingerprint ||
 		stored.Lease.Fingerprint != lease.Fingerprint || stored.MissionID != missionID {
-		return BrowserLaunchReviewRecord{}, errors.New("browser launch review preparation binding changed")
+		return browserruntime.BrowserLaunchReview{}, false, errors.New("browser launch review preparation binding changed")
 	}
 	var existing int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM browser_launch_reviews
 		WHERE attempt_id = ?`, attempt.ID).Scan(&existing); err != nil {
-		return BrowserLaunchReviewRecord{}, err
+		return browserruntime.BrowserLaunchReview{}, false, err
 	}
 	if existing != 0 {
-		return BrowserLaunchReviewRecord{}, errors.New("browser launch attempt already has an immutable review")
+		return browserruntime.BrowserLaunchReview{}, false, errors.New("browser launch attempt already has an immutable review")
 	}
 	var auditParent string
 	err = tx.QueryRowContext(ctx, `SELECT fingerprint FROM browser_launch_reviews
 		WHERE run_id = ? ORDER BY event_sequence DESC LIMIT 1`, session.RunID).Scan(&auditParent)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return BrowserLaunchReviewRecord{}, err
+		return browserruntime.BrowserLaunchReview{}, false, err
 	}
 	now := time.Now().UTC()
 	review, err := browserruntime.BuildBrowserLaunchReview(session, identity, acceptance,
 		ownership, attempt, lease, idgen.New("browser_review"), decision, reviewerIdentity,
 		operationKey, auditParent, now)
 	if err != nil {
-		return BrowserLaunchReviewRecord{}, err
+		return browserruntime.BrowserLaunchReview{}, false, err
 	}
 	event, err := newBrowserLaunchReviewEvent(session.RunID, missionID, review)
 	if err != nil {
-		return BrowserLaunchReviewRecord{}, err
+		return browserruntime.BrowserLaunchReview{}, false, err
 	}
 	event.CreatedAt = review.CreatedAt
 	event, err = insertRunEventTx(ctx, tx, event)
 	if err != nil {
-		return BrowserLaunchReviewRecord{}, err
+		return browserruntime.BrowserLaunchReview{}, false, err
 	}
 	reviewJSON, err := json.Marshal(review)
 	if err != nil {
-		return BrowserLaunchReviewRecord{}, err
+		return browserruntime.BrowserLaunchReview{}, false, err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO browser_launch_reviews
 		(id, attempt_id, lease_id, run_id, mission_id, workspace_id, decision,
@@ -245,19 +250,17 @@ func (s *SQLiteStore) RecordBrowserLaunchReview(ctx context.Context,
 		review.ID, attempt.ID, lease.ID, session.RunID, missionID, session.WorkspaceID,
 		review.Decision, review.Fingerprint, review.AuditParentFingerprint,
 		review.ReviewerSHA256, event.Sequence, string(reviewJSON), ts(review.CreatedAt)); err != nil {
-		return BrowserLaunchReviewRecord{}, fmt.Errorf("insert browser launch review: %w", err)
+		return browserruntime.BrowserLaunchReview{}, false, fmt.Errorf("insert browser launch review: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO browser_launch_review_operations
 		(key_digest, request_fingerprint, review_id, created_at) VALUES (?, ?, ?, ?)`,
 		keyDigest, requestFingerprint, review.ID, ts(review.CreatedAt)); err != nil {
-		return BrowserLaunchReviewRecord{}, fmt.Errorf("insert browser launch review operation: %w", err)
+		return browserruntime.BrowserLaunchReview{}, false, fmt.Errorf("insert browser launch review operation: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
-		return BrowserLaunchReviewRecord{}, err
+		return browserruntime.BrowserLaunchReview{}, false, err
 	}
-	return BrowserLaunchReviewRecord{
-		Review: review, MissionID: missionID, EventSequence: event.Sequence,
-	}, nil
+	return review, false, nil
 }
 
 func validateBrowserLaunchRunBindingTx(ctx context.Context, tx *sql.Tx,
