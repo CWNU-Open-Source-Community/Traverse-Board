@@ -1,6 +1,9 @@
 import { consumeSSE } from "./sse";
 import type {
   ApprovalDecisionControlRequestView,
+  FanoutExecutionCancelRequestView,
+  FanoutExecutionsListView,
+  FanoutExecutionView,
   ApprovalDecisionControlView,
   ApprovalQueueView,
   ArtifactView,
@@ -4162,6 +4165,34 @@ export class CyberAgentClient {
     return parseSpecialistModelCancellation(result, runID, agentID, body);
   }
 
+  async getRunFanoutExecutions(runID: string, planID: string,
+    signal?: AbortSignal): Promise<FanoutExecutionsListView> {
+    if (!boundedIdentity(runID) || !boundedIdentity(planID)) {
+      throw new Error("Normalized Run and Fan-out plan identities are required");
+    }
+    const result = await this.get<unknown>(
+      `/runs/${encodeURIComponent(runID)}/fanout-executions?plan_id=${encodeURIComponent(planID)}`,
+      {}, signal,
+    );
+    return parseFanoutExecutions(result, runID, planID);
+  }
+
+  async cancelRunFanoutExecution(runID: string, executionID: string,
+    body: FanoutExecutionCancelRequestView, idempotencyKey: string,
+    signal?: AbortSignal): Promise<FanoutExecutionView> {
+    if (!this.hasControl) {
+      throw new Error("A control bearer token is required for this operation");
+    }
+    if (!boundedIdentity(runID) || !boundedIdentity(executionID) ||
+      body.version !== "readonly_fanout_cancel.v1" || body.confirm_cancel !== true) {
+      throw new Error("Normalized Run/execution identities and explicit confirmation are required");
+    }
+    const result = await this.sendControl<unknown>(
+      `/runs/${encodeURIComponent(runID)}/fanout-executions/${encodeURIComponent(executionID)}/cancel`,
+      body, idempotencyKey, signal,
+    );
+    return parseFanoutExecution(result);
+  }
   async selectPlanDirection(runID: string, body: PlanDirectionControlRequestView,
     idempotencyKey: string, signal?: AbortSignal): Promise<PlanDirectionControlView> {
     if (!this.hasPlanDelivery) {
@@ -4494,4 +4525,41 @@ export class CyberAgentClient {
     }
     return `${url.pathname}${url.search}`;
   }
+}
+function parseFanoutExecutions(value: unknown, runID: string,
+  planID: string): FanoutExecutionsListView {
+  if (!isRecord(value) ||
+    value.protocol_version !== "readonly_fanout_executions.v1" ||
+    value.plan_id !== planID || !Array.isArray(value.items) || value.items.length > 100) {
+    throw new APIRequestError("Fan-out execution list is invalid", "INVALID_RESPONSE", 502);
+  }
+  return { protocol_version: value.protocol_version, plan_id: value.plan_id,
+    items: value.items.map(parseFanoutExecution) } as FanoutExecutionsListView;
+}
+
+function parseFanoutExecution(value: unknown): FanoutExecutionView {
+  if (!isRecord(value) || !boundedIdentity(String(value.id)) ||
+    !["running", "completed", "failed", "cancelled"].includes(String(value.status)) ||
+    !safeBoundedCount(value.parallelism, 6) || !safeBoundedCount(value.max_output_tokens_per_shard, 4096) ||
+    !boundedIdentity(String(value.requested_by)) || !validDate(value.started_at) ||
+    !validDate(value.updated_at) || !Array.isArray(value.shards) || value.shards.length > 6) {
+    throw new APIRequestError("Fan-out execution is invalid", "INVALID_RESPONSE", 502);
+  }
+  if (value.finished_at !== undefined && !validDate(value.finished_at)) {
+    throw new APIRequestError("Fan-out execution finished_at is invalid", "INVALID_RESPONSE", 502);
+  }
+  const shards = value.shards.map((shard) => {
+    if (!isRecord(shard) || !safeBoundedCount(shard.ordinal, 6) ||
+      !["pending", "running", "completed", "failed", "cancelled"].includes(String(shard.status)) ||
+      !safeBoundedCount(shard.attempt_count, 64) || !safeBoundedCount(shard.current_attempt, 64) ||
+      !safeBoundedCount(shard.input_tokens, 1_000_000_000) ||
+      !safeBoundedCount(shard.output_tokens, 1_000_000_000) ||
+      !safeBoundedCount(shard.total_tokens, 1_000_000_000) ||
+      !safeBoundedCount(shard.elapsed_millis, 1_000_000_000) ||
+      !safeBoundedCount(shard.finding_count, 4096)) {
+      throw new APIRequestError("Fan-out execution shard is invalid", "INVALID_RESPONSE", 502);
+    }
+    return shard;
+  });
+  return { ...value, shards } as FanoutExecutionView;
 }

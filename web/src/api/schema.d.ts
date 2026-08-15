@@ -836,6 +836,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/fanout-executions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List one Fan-out plan's execution history
+         * @description Returns the bounded shard execution history of one read-only Fan-out plan; shard rows carry only status, bounded counts, and model identity.
+         */
+        get: operations["listRunFanoutExecutions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/fanout-executions/{execution_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel one read-only Fan-out execution
+         * @description Cancels one non-terminal read-only Fan-out execution under a fresh Run execution lease fence; terminal executions return their stored state unchanged.
+         */
+        post: operations["cancelRunFanoutExecution"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/fanout-plans": {
         parameters: {
             query?: never;
@@ -2824,6 +2864,10 @@ export interface components {
             token_upper_bound: number;
             tool_capability_grant: boolean;
         };
+        FanoutExecutionCancelRequestView: {
+            confirm_cancel: boolean;
+            version: string;
+        };
         FanoutExecutionShardView: {
             /** Format: int32 */
             attempt_count: number;
@@ -2867,6 +2911,11 @@ export interface components {
             stop_code?: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        FanoutExecutionsListView: {
+            items: components["schemas"]["FanoutExecutionView"][];
+            plan_id: string;
+            protocol_version: string;
         };
         FanoutPlanView: {
             /** Format: date-time */
@@ -7251,6 +7300,89 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listRunFanoutExecutions: {
+        parameters: {
+            query?: {
+                /** @description Exact Fan-out plan identity */
+                plan_id?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["FanoutExecutionsListView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    cancelRunFanoutExecution: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+                /** @description Read-only Fan-out execution identity */
+                execution_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FanoutExecutionCancelRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["FanoutExecutionView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
         };

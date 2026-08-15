@@ -255,6 +255,7 @@ type Config struct {
 	HostCommandProposalController           HostCommandProposalController
 	ModelControlController                  ModelControlController
 	PriceSnapshotController                 PriceSnapshotController
+	FanoutExecutionController               FanoutExecutionController
 	ProviderCredentialController            ProviderCredentialController
 	FileEditReviewController                FileEditReviewController
 	FileEditProposalController              FileEditProposalController
@@ -312,6 +313,7 @@ type API struct {
 	hostCommandProposalController           HostCommandProposalController
 	modelControlController                  ModelControlController
 	priceSnapshotController                 PriceSnapshotController
+	fanoutExecutionController               FanoutExecutionController
 	providerCredentialController            ProviderCredentialController
 	fileEditReviewController                FileEditReviewController
 	fileEditProposalController              FileEditProposalController
@@ -546,7 +548,8 @@ func New(store Store, config Config) (*API, error) {
 		controlledCommandProposalController: config.ControlledCommandProposalController,
 		hostCommandProposalController:       config.HostCommandProposalController,
 		modelControlController:              config.ModelControlController,
-	priceSnapshotController:             config.PriceSnapshotController,
+		priceSnapshotController:             config.PriceSnapshotController,
+		fanoutExecutionController:           config.FanoutExecutionController,
 		providerCredentialController:        config.ProviderCredentialController,
 		fileEditReviewController:            config.FileEditReviewController,
 		fileEditProposalController:          config.FileEditProposalController,
@@ -820,6 +823,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if runID, matched := matchModelCancellationPath(request.URL.Path); matched {
 		a.serveModelCancellation(tracked, request, requestID, runID)
+		return
+	}
+	if runID, executionID, matched := matchFanoutExecutionCancelPath(request.URL.Path); matched {
+		a.serveFanoutExecutionCancel(tracked, request, requestID, runID, executionID)
 		return
 	}
 	if !a.authorized(request, a.tokenHash) {

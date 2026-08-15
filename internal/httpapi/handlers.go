@@ -439,6 +439,8 @@ func (a *API) routeRuns(request *http.Request, segments []string) (any, *Page, e
 			return a.runDelegations(request, segments[1])
 		case "fanout-plans":
 			return a.runFanoutPlans(request, segments[1])
+		case "fanout-executions":
+			return a.listFanoutExecutions(request, segments[1])
 		case "reports":
 			return a.runFindingReports(request, segments[1])
 		case "events":

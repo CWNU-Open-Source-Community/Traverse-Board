@@ -39,6 +39,8 @@ type ReadOnlyFanoutExecutionStore interface {
 		keyDigest string) (domain.ReadOnlyFanoutExecutionOperation, bool, error)
 	GetReadOnlyFanoutExecution(ctx context.Context,
 		id string) (domain.ReadOnlyFanoutExecution, error)
+	ListReadOnlyFanoutExecutions(ctx context.Context,
+		planID string, limit int) ([]domain.ReadOnlyFanoutExecution, error)
 	CreateReadOnlyFanoutExecution(ctx context.Context, lease domain.RunExecutionLease,
 		execution domain.ReadOnlyFanoutExecution,
 		operation domain.ReadOnlyFanoutExecutionOperation,
@@ -885,4 +887,77 @@ func normalizeReadOnlyFanoutExecutionDecision(decision policy.Decision) policy.D
 		decision.Reason = "Policy returned no decision reason"
 	}
 	return decision
+}
+// ListReadOnlyFanoutExecutions projects one plan's execution history.
+func (s *ReadOnlyFanoutExecutionService) ListReadOnlyFanoutExecutions(ctx context.Context,
+	planID string, limit int,
+) ([]domain.ReadOnlyFanoutExecution, error) {
+	if s == nil || s.store == nil {
+		return nil, apperror.New(apperror.CodeFailedPrecondition,
+			"read-only fan-out execution dependencies are required")
+	}
+	executions, err := s.store.ListReadOnlyFanoutExecutions(ctx, planID, limit)
+	return executions, apperror.Normalize(err)
+}
+
+// CancelReadOnlyFanoutExecution cancels one non-terminal fan-out execution
+// under a fresh lease fence: the remainder of pending shards is cancelled and
+// the execution finalizes cancelled. Terminal executions return their stored
+// state unchanged, so the control endpoint stays idempotent.
+func (s *ReadOnlyFanoutExecutionService) CancelReadOnlyFanoutExecution(ctx context.Context,
+	executionID, requestedBy, operationKey string,
+) (domain.ReadOnlyFanoutExecution, error) {
+	if s == nil || s.store == nil {
+		return domain.ReadOnlyFanoutExecution{}, apperror.New(
+			apperror.CodeFailedPrecondition,
+			"read-only fan-out execution dependencies are required")
+	}
+	executionID = strings.TrimSpace(executionID)
+	if !domain.ValidAgentID(executionID) || strings.TrimSpace(operationKey) == "" ||
+		strings.TrimSpace(requestedBy) == "" {
+		return domain.ReadOnlyFanoutExecution{}, apperror.New(
+			apperror.CodeInvalidArgument,
+			"read-only fan-out cancellation request is invalid")
+	}
+	execution, err := s.store.GetReadOnlyFanoutExecution(ctx, executionID)
+	if err != nil {
+		return domain.ReadOnlyFanoutExecution{}, apperror.Normalize(err)
+	}
+	if execution.Status.Terminal() {
+		return execution, nil
+	}
+	plan, err := s.store.GetReadOnlyFanoutPlan(ctx, execution.PlanID)
+	if err != nil {
+		return domain.ReadOnlyFanoutExecution{}, apperror.Normalize(err)
+	}
+	run, _, linkedSession, workspace, err := s.loadExecutionBinding(ctx, plan)
+	if err != nil {
+		return domain.ReadOnlyFanoutExecution{}, err
+	}
+	result := execution
+	err = withRunExecutionLease(ctx, s.store, run.ID, s.leaseOwner, s.leasePolicy,
+		func(leaseCtx context.Context, lease domain.RunExecutionLease) error {
+			currentRun, _, currentSession, currentWorkspace, err :=
+				s.loadExecutionBinding(leaseCtx, plan)
+			if err != nil {
+				return err
+			}
+			if currentSession.ID != linkedSession.ID || currentWorkspace.ID != workspace.ID ||
+				currentRun.Config.ModelRoute != run.Config.ModelRoute {
+				return apperror.New(apperror.CodeConflict,
+					"read-only fan-out Run binding changed before cancellation")
+			}
+			if _, err := s.store.CancelReadOnlyFanoutExecutionRemainder(leaseCtx, lease,
+				executionID, "cancelled", "operator_cancelled"); err != nil {
+				return err
+			}
+			final, _, err := s.store.FinalizeReadOnlyFanoutExecution(leaseCtx, lease,
+				executionID, domain.ReadOnlyFanoutExecutionCancelled, "operator_cancelled")
+			if err != nil {
+				return err
+			}
+			result = final
+			return nil
+		})
+	return result, apperror.Normalize(err)
 }

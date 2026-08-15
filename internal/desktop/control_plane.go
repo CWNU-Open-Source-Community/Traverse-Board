@@ -302,6 +302,8 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		HostCommandProposalController:           hostCommandProposals,
 		ModelControlController:                  modelControl,
 		PriceSnapshotController:                 stateStore,
+		FanoutExecutionController:               application.NewReadOnlyFanoutExecutionService(
+			stateStore, models.Router(), checker),
 		ProviderCredentialController:            providerCredentialControl,
 		FileEditReviewController:                fileEditReview,
 		FileEditProposalController:              fileEditProposal,
