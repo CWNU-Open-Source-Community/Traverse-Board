@@ -2,13 +2,16 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/idgen"
+	"cyberagent-workbench/internal/projectconfig"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/session"
 )
@@ -45,6 +48,10 @@ type CreateRunRequest struct {
 	Interactive bool
 	Budget      domain.Budget
 	RequestedBy string
+	// ProjectConfig is the validated, narrowed .prayu snapshot. It can only
+	// reduce the requested budget and profiles; any widening was already
+	// rejected by the caller, and the Run pins this exact view at creation.
+	ProjectConfig *projectconfig.Effective
 }
 
 func NewRunService(store RunStore) *RunService {
@@ -58,6 +65,49 @@ type preparedRun struct {
 	Session       session.Session
 	CreateSession bool
 	InitialEvents []events.Event
+}
+
+// applyProjectNarrowing enforces the fail-closed project rules inside the Run
+// service: the project snapshot may only reduce the requested budget and
+// restrict profiles, and a read-only project forbids write-capable profiles.
+// It returns the canonical snapshot bytes pinned into the Run config.
+func applyProjectNarrowing(project *projectconfig.Effective, profile domain.Profile, budget *domain.Budget) ([]byte, error) {
+	if project == nil {
+		return nil, nil
+	}
+	if len(project.AllowedProfiles) > 0 {
+		allowed := false
+		for _, value := range project.AllowedProfiles {
+			if value == string(profile) {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return nil, fmt.Errorf("project config allowed_profiles does not include the requested profile %q", profile)
+		}
+	}
+	if project.ReadOnly && profile != domain.ProfileReview && profile != domain.ProfileLearn {
+		return nil, fmt.Errorf("project config read_only forbids write-capable profile %q", profile)
+	}
+	if project.MaxTurns > 0 && project.MaxTurns < budget.MaxTurns {
+		budget.MaxTurns = project.MaxTurns
+	}
+	if project.MaxToolCalls > 0 && int64(project.MaxToolCalls) < budget.MaxToolCalls {
+		budget.MaxToolCalls = int64(project.MaxToolCalls)
+	}
+	raw, err := json.Marshal(project)
+	if err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
+func projectFingerprintOf(project *projectconfig.Effective) string {
+	if project == nil {
+		return ""
+	}
+	return project.Fingerprint()
 }
 
 func (s *RunService) Create(ctx context.Context, req CreateRunRequest) (domain.Mission, domain.Run, error) {
@@ -154,6 +204,10 @@ func prepareRun(ctx context.Context, req CreateRunRequest,
 	if err := budget.Validate(); err != nil {
 		return preparedRun{}, err
 	}
+	projectSnapshot, err := applyProjectNarrowing(req.ProjectConfig, profile, &budget)
+	if err != nil {
+		return preparedRun{}, err
+	}
 	now := time.Now().UTC()
 	if createSession {
 		linkedSession = session.New(workspaceID, goal, route)
@@ -181,8 +235,10 @@ func prepareRun(ctx context.Context, req CreateRunRequest,
 		SessionID: linkedSession.ID,
 		Status:    domain.RunCreated,
 		Config: domain.RunConfig{
-			ModelRoute:  route,
-			Interactive: req.Interactive,
+			ModelRoute:               route,
+			Interactive:              req.Interactive,
+			ProjectConfig:            projectSnapshot,
+			ProjectConfigFingerprint: projectFingerprintOf(req.ProjectConfig),
 		},
 		Budget:    budget,
 		CreatedAt: now,

@@ -22,10 +22,12 @@ import (
 	"cyberagent-workbench/internal/executionauth"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/pricing"
+	"cyberagent-workbench/internal/projectconfig"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/store"
+	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/workspace"
 )
 
@@ -805,9 +807,9 @@ func (a *App) runFanoutExecute(ctx context.Context, args []string) error {
 	result, err := application.NewReadOnlyFanoutExecutionService(a.store, a.router,
 		a.checker).WithMonetaryBudget(application.NewMonetaryBudgetService(a.store)).
 		Execute(ctx, application.ExecuteReadOnlyFanoutRequest{
-		PlanID: fs.Arg(0), OperationKey: *operationKey, RequestedBy: *operator,
-		MaxOutputTokensPerShard: *maxOutputTokens,
-	})
+			PlanID: fs.Arg(0), OperationKey: *operationKey, RequestedBy: *operator,
+			MaxOutputTokensPerShard: *maxOutputTokens,
+		})
 	if result.Execution.ID != "" {
 		a.printReadOnlyFanoutExecution(result.Execution, result.Replayed,
 			result.Recovered, &result.UsageAfter)
@@ -1433,19 +1435,22 @@ func (a *App) runCreate(ctx context.Context, service *application.RunService, ar
 	maxToolCalls := fs.Int64("max-tool-calls", domain.DefaultBudget().MaxToolCalls, "maximum tool calls; zero means unlimited")
 	maxCostUSD := fs.Float64("max-cost-usd", 0, "maximum model cost in USD; zero means unset")
 	timeout := fs.Duration("timeout", 0, "run timeout; zero means unset")
+	ignoreProjectConfig := fs.Bool("ignore-project-config", false,
+		"skip the .prayu/config.yaml narrowing snapshot for this Run")
 	if err := fs.Parse(reorderFlags(args, map[string]bool{
-		"workspace":      true,
-		"profile":        true,
-		"surface":        true,
-		"phase":          true,
-		"route":          true,
-		"session":        true,
-		"interactive":    false,
-		"max-turns":      true,
-		"max-tokens":     true,
-		"max-tool-calls": true,
-		"max-cost-usd":   true,
-		"timeout":        true,
+		"workspace":             true,
+		"profile":               true,
+		"surface":               true,
+		"phase":                 true,
+		"route":                 true,
+		"session":               true,
+		"interactive":           false,
+		"max-turns":             true,
+		"max-tokens":            true,
+		"max-tool-calls":        true,
+		"max-cost-usd":          true,
+		"timeout":               true,
+		"ignore-project-config": false,
 	})); err != nil {
 		return err
 	}
@@ -1453,12 +1458,37 @@ func (a *App) runCreate(ctx context.Context, service *application.RunService, ar
 		return errors.New(`usage: cyberagent run create "goal" [--workspace <name>] [--profile code|review|learn|script] [--surface code|cyber] [--phase plan|deliver]`)
 	}
 	workspaceID := ""
+	var workspaceRecord *store.WorkspaceRecord
 	if strings.TrimSpace(*workspaceName) != "" {
 		rec, err := a.store.GetWorkspaceByName(ctx, workspace.Slug(*workspaceName))
 		if err != nil {
 			return err
 		}
+		workspaceRecord = &rec
 		workspaceID = rec.ID
+	}
+	var projectConfig *projectconfig.Effective
+	if workspaceRecord != nil && !*ignoreProjectConfig {
+		config, found, err := projectconfig.LoadWorkspace(ctx, workspaceRecord.RootPath)
+		if err != nil {
+			return fmt.Errorf("project config fail-closed: %w", err)
+		}
+		if found {
+			effective, rejections, err := config.Narrow(projectconfig.Ceiling{
+				AllowedProfiles:    []string{*profile},
+				MaxTurns:           *maxTurns,
+				MaxToolCalls:       int(*maxToolCalls),
+				RegisteredCommands: toolgateway.TypedActionIDs(),
+			})
+			if err != nil {
+				return fmt.Errorf("project config fail-closed: %w", err)
+			}
+			if len(rejections) > 0 {
+				return fmt.Errorf("project config rejection: field=%s reason=%s",
+					rejections[0].Field, rejections[0].Reason)
+			}
+			projectConfig = &effective
+		}
 	}
 	if strings.TrimSpace(*sessionID) != "" {
 		sess, err := a.store.GetSession(ctx, strings.TrimSpace(*sessionID))
@@ -1488,6 +1518,7 @@ func (a *App) runCreate(ctx context.Context, service *application.RunService, ar
 			MaxCostUSD:     *maxCostUSD,
 			TimeoutSeconds: int64(timeout.Seconds()),
 		},
+		ProjectConfig: projectConfig,
 	})
 	if err != nil {
 		return err

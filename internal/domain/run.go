@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -49,6 +50,10 @@ func (s Scope) Validate() error {
 type RunConfig struct {
 	ModelRoute  string `json:"model_route"`
 	Interactive bool   `json:"interactive"`
+	// ProjectConfig is the immutable narrowing-only .prayu snapshot pinned at
+	// Run creation. Editing the project file later never changes this Run.
+	ProjectConfig            json.RawMessage `json:"project_config,omitempty"`
+	ProjectConfigFingerprint string          `json:"project_config_fingerprint,omitempty"`
 }
 
 func (c RunConfig) Validate() error {
