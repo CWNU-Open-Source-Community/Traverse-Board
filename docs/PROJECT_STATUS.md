@@ -862,6 +862,7 @@ Not done yet:
 
 - Define the Go-owned Sandbox Manifest and immutable execution-intent envelope while keeping Local/Docker process execution disabled. Schema v47 Specialist Skill minimization, schema v46 steering controls, schema v44 Delivery gates, and schema v43 context provenance are complete.
 - OpenAI-compatible/Ollama providers.
+- Structured dependency waiting: schema v101 persists versioned wait edges with pre-write cycle/depth/reverse-layer checks, exactly-once wake receipts, crash recovery, parent-cancel fan-down, failure-policy propagation, and stable deadlock/livelock diagnostics (ADR 0102); model-driven child scheduling (#51) consumes this contract.
 - Dedicated TUI file-edit diff pane; existing Tool approval/denial remains available from the Tools view.
 - User-visible safe model-text streaming; durable metadata SSE and exact cross-process cancellation are complete.
 - Script generate-run-fix loop with real model calls.

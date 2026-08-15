@@ -244,6 +244,33 @@ Schema v29 wraps that invocation in `specialist_schedules` and ordered `speciali
 
 Schema v30 does not call that scheduler. It stores `specialist_delegation_proposals`, ordered assignments, and a one-to-one operation ledger only after every assignment is a normalized parent-Skill subset and the suggested aggregate leaves capacity for the active root turn plus one future root turn. The delegation capability itself is non-delegable. Replays under a fresh Provider call ID converge through the redacted semantic fingerprint, including across independent SQLite connections. The operation ledger stores digests and non-secret scope only, not `lease_id` or fencing generation; CLI commands expose redacted proposal state, while events also omit titles/goals, lease identity, and operation keys. Schema v31 may append one immutable review. Schema v32 then revalidates current Policy, review-operation backing, capacity, Skills, Sessions, idle execution, and budgets before an approved proposal can reach existing admission and instruction paths; it never calls the scheduler.
 
+## Structured Dependency Waiting
+
+Schema v101 gives "task A waits for task B" a durable, Go-adjudicated contract
+(`agent_dependency.v1`). An edge carries source/target identity (Agent-only in
+this slice), a bounded reason, a no-progress deadline, a generation, and a
+closed failure policy (`fail|notify`); its state is the five-value set
+`wait|satisfied|failed|cancelled|expired`. Before any insert, the store
+reloads the Run's open edges into a `waitgraph.DAG` and rejects self-loops,
+ancestor and multi-node cycles, reverse runtime→Agent waits, cross-Run
+endpoints, and chains deeper than 64 inside the write transaction.
+
+Settlement, parent-cancel fan-down, deadline expiry, and crash recovery all
+share one settle transaction: a unique wake receipt (`agent_dependency_wakes`,
+one per edge) is inserted first, so replays and concurrent settles can never
+wake a source twice; the edge then CAS-transitions and the source receives a
+dependency notification (and a wake control, or a `dependency_failed` node
+transition under the fail policy). `ReconcileDependencyEdges` settles open
+edges whose target, deadline, or Run already reached a terminal state, and the
+RunService terminal hook fans a run-level cancellation down automatically.
+No-progress deadlines emit `dependency.deadlock_detected`; a source that
+wakes and re-waits beyond the polling bound is rejected with a stable
+`LIVELOCK` error and `dependency.livelock_detected`. Models can only propose
+intent: the Go control plane validates graph, budget, scope, and ownership.
+Run Activity projects the seven dependency events as a collapsed `dependency`
+kind showing source→target and release reason only, never raw child output.
+Model-driven child scheduling (Issue #51) consumes this contract.
+
 ## Work Board and Notes
 
 Conversation history is not enough for long-running work. Each run therefore has two structured memory surfaces:
