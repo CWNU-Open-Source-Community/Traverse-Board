@@ -187,11 +187,11 @@ func TestSchemaV103BrowserNetworkReadinessReapplies(t *testing.T) {
 }
 
 func removeSchemaV103ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV104ForTestStatements(), []string{
 		`DROP TABLE browser_network_review_operations`,
 		`DROP TABLE browser_network_reviews`,
 		`DROP TABLE browser_network_evidence_operations`,
 		`DROP TABLE browser_network_evidences`,
 		`DELETE FROM schema_migrations WHERE version = 103`,
-	}
+	}...)
 }

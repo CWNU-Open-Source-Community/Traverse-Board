@@ -14,13 +14,13 @@ import (
 	"cyberagent-workbench/internal/toolgateway"
 )
 
-func removeSchemaV103ForTestStatements() []string {
+func removeSchemaV104ForTestStatements() []string {
 	return []string{
 		`DROP TABLE skill_catalog_audit`,
 		`DROP TABLE skill_catalog_imports`,
 		`DROP TABLE skill_catalog_pins`,
 		`DROP TABLE skill_catalog_publishers`,
-		`DELETE FROM schema_migrations WHERE version = 103`,
+		`DELETE FROM schema_migrations WHERE version = 104`,
 	}
 }
 
@@ -35,14 +35,14 @@ func TestSkillCatalogMigrationAndRemovalChain(t *testing.T) {
 	if err != nil || version != LatestSchemaVersion {
 		t.Fatalf("version=%d want=%d err=%v", version, LatestSchemaVersion, err)
 	}
-	for _, statement := range removeSchemaV103ForTestStatements() {
+	for _, statement := range removeSchemaV104ForTestStatements() {
 		if _, err := st.db.ExecContext(ctx, statement); err != nil {
 			t.Fatalf("remove v103 %q: %v", statement, err)
 		}
 	}
 	version, err = st.SchemaVersion(ctx)
-	if err != nil || version != 102 {
-		t.Fatalf("version after v103 removal=%d want=102 err=%v", version, err)
+	if err != nil || version != 103 {
+		t.Fatalf("version after v104 removal=%d want=103 err=%v", version, err)
 	}
 }
 
