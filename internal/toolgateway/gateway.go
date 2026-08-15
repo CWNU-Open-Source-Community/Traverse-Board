@@ -55,6 +55,7 @@ type Gateway struct {
 	artifacts                  *artifact.Manager
 	structuredMemory           StructuredMemoryExecutor
 	delegationProposals        SpecialistDelegationExecutor
+	childTaskProposals          ChildTaskProposalExecutor
 	planDeliveryProposals      PlanDeliveryExecutor
 	controlledCommandProposals ControlledCommandProposalExecutor
 	hostCommandProposals       HostCommandProposalExecutor
@@ -123,6 +124,9 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (Outcome, error) {
 	if normalized.Name == SpecialistDelegationProposeTool && g.delegationProposals == nil {
 		return Outcome{}, errors.New("specialist delegation proposal executor is required")
 	}
+	if normalized.Name == ChildTaskProposeTool && g.childTaskProposals == nil {
+		return Outcome{}, errors.New("child task proposal executor is required")
+	}
 	if normalized.Name == PlanDeliveryProposeTool && g.planDeliveryProposals == nil {
 		return Outcome{}, errors.New("Plan/Delivery proposal executor is required")
 	}
@@ -174,6 +178,8 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (Outcome, error) {
 		return g.invokeStructuredMemory(ctx, normalized)
 	case SpecialistDelegationProposeTool:
 		return g.invokeSpecialistDelegation(ctx, normalized)
+	case ChildTaskProposeTool:
+		return g.invokeChildTaskProposal(ctx, normalized)
 	case PlanDeliveryProposeTool:
 		return g.invokePlanDelivery(ctx, normalized)
 	case ControlledCommandProposeTool:
@@ -712,6 +718,7 @@ func gatewayDecision(source policy.Decision, mode ApprovalMode, fallbackRisk str
 func validateToolArguments(call ToolCall) error {
 	if call.Name == WorkItemCreateTool || call.Name == NoteCreateTool ||
 		call.Name == SpecialistDelegationProposeTool ||
+		call.Name == ChildTaskProposeTool ||
 		call.Name == PlanDeliveryProposeTool ||
 		call.Name == ControlledCommandProposeTool ||
 		call.Name == HostCommandProposeTool ||
@@ -737,6 +744,12 @@ func validateToolArguments(call ToolCall) error {
 				return errors.New("specialist delegation proposals require a fenced root Supervisor")
 			}
 			_, _, err := normalizeSpecialistDelegationPayload(call.Payload)
+			return err
+		case ChildTaskProposeTool:
+			if call.RequestedBy != "run_supervisor" || call.AgentID == "" || call.LeaseID == "" {
+				return errors.New("child task proposals require a fenced root Supervisor")
+			}
+			_, _, err := normalizeChildTaskProposalPayload(call.Payload)
 			return err
 		case PlanDeliveryProposeTool:
 			if call.RequestedBy != "run_supervisor" || call.AgentID == "" || call.LeaseID == "" {

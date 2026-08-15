@@ -34,6 +34,16 @@ func TestSupervisorHostCommandToolIsExposedOnlyInApprovalPermission(t *testing.T
 	}
 }
 
+func TestSupervisorAcceptsChildTaskProposalInDeliverPhase(t *testing.T) {
+	payload := json.RawMessage(`{"version":"child_task_proposal.v1","tasks":[{"title":"Inspect","goal":"Inspect the parser","skills":["model.chat","read_file"],"turn_limit":2,"token_limit":128,"timeout_millis":60000}]}`)
+	calls := []llm.ToolCall{{ID: "provider-call-1", Name: string(toolgateway.ChildTaskProposeTool), Arguments: payload}}
+	prepared, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
+		domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionConservative)
+	if err != nil || len(prepared) != 1 || prepared[0].Name != string(toolgateway.ChildTaskProposeTool) {
+		t.Fatalf("child task proposal was rejected: %#v err=%v", prepared, err)
+	}
+}
+
 func TestSupervisorRejectsForgedHostCommandToolOutsideApprovalPermission(t *testing.T) {
 	payload := json.RawMessage(`{"version":"host_command_proposal.v1","executable_path":"/workspace/tool","argv":["version"],"working_directory":"/workspace","timeout_milliseconds":1000,"purpose":"inspect the exact tool version"}`)
 	calls := []llm.ToolCall{{ID: "provider-call-1", Name: string(toolgateway.HostCommandProposeTool), Arguments: payload}}

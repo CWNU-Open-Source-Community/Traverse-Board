@@ -194,14 +194,18 @@ type RunSupervisor struct {
 
 func NewRunSupervisor(store RunSupervisorStore, router *llm.Router, checker policy.Checker) *RunSupervisor {
 	skillRegistry, skillRegistryErr := skills.BuiltinRegistry()
+	gateway := toolgateway.New(store, checker).
+		WithStructuredMemoryExecutor(NewStructuredMemoryToolExecutor(store)).
+		WithSpecialistDelegationExecutor(NewSpecialistDelegationToolExecutor(store))
+	if childTaskStore, ok := store.(ChildTaskMutationStore); ok {
+		gateway.WithChildTaskProposalExecutor(NewChildTaskToolExecutor(childTaskStore))
+	}
 	return &RunSupervisor{
 		store: store, router: router, checker: checker, retryPolicy: DefaultModelRetryPolicy(),
 		activeCalls: NewActiveCallRegistry(), waitGraph: waitgraph.Default(),
 		leaseOwner: idgen.New("worker"), leasePolicy: DefaultRunExecutionLeasePolicy(),
 		cancellationPollInterval: 100 * time.Millisecond,
-		tools: toolgateway.New(store, checker).
-			WithStructuredMemoryExecutor(NewStructuredMemoryToolExecutor(store)).
-			WithSpecialistDelegationExecutor(NewSpecialistDelegationToolExecutor(store)).
+		tools: gateway.
 			WithPlanDeliveryExecutor(NewPlanDeliveryToolExecutor(store)).
 			WithControlledCommandProposalExecutor(
 				NewControlledCommandProposalToolExecutor(store)).
