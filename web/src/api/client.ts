@@ -1,6 +1,10 @@
 import { consumeSSE } from "./sse";
 import type {
   ApprovalDecisionControlRequestView,
+  ChildTaskAdmitRequestView,
+  ChildTaskProposalsListView,
+  ChildTaskProposalView,
+  ChildTaskReviewRequestView,
   FanoutExecutionCancelRequestView,
   FanoutExecutionsListView,
   FanoutExecutionView,
@@ -4193,6 +4197,51 @@ export class CyberAgentClient {
     );
     return parseFanoutExecution(result);
   }
+  async getRunChildTaskProposals(runID: string,
+    signal?: AbortSignal): Promise<ChildTaskProposalsListView> {
+    if (!boundedIdentity(runID)) {
+      throw new Error("A normalized Run identity is required");
+    }
+    const result = await this.get<unknown>(
+      `/runs/${encodeURIComponent(runID)}/child-task-proposals`, {}, signal,
+    );
+    return parseChildTaskProposals(result, runID);
+  }
+
+  async reviewRunChildTaskProposal(runID: string, proposalID: string,
+    body: ChildTaskReviewRequestView, idempotencyKey: string,
+    signal?: AbortSignal): Promise<ChildTaskProposalView> {
+    if (!this.hasControl) {
+      throw new Error("A control bearer token is required for this operation");
+    }
+    if (!boundedIdentity(runID) || !boundedIdentity(proposalID) ||
+      body.version !== "child_task_review.v1" || body.confirm_review !== true ||
+      (body.action !== "approve" && body.action !== "deny")) {
+      throw new Error("A normalized proposal and explicit confirmed review are required");
+    }
+    const result = await this.sendControl<unknown>(
+      `/runs/${encodeURIComponent(runID)}/child-task-proposals/${encodeURIComponent(proposalID)}/review`,
+      body, idempotencyKey, signal,
+    );
+    return parseChildTaskProposal(result, runID);
+  }
+
+  async admitRunChildTaskProposal(runID: string, proposalID: string,
+    body: ChildTaskAdmitRequestView, idempotencyKey: string,
+    signal?: AbortSignal): Promise<ChildTaskProposalView> {
+    if (!this.hasControl) {
+      throw new Error("A control bearer token is required for this operation");
+    }
+    if (!boundedIdentity(runID) || !boundedIdentity(proposalID) ||
+      body.version !== "child_task_admit.v1" || body.confirm_admit !== true) {
+      throw new Error("A normalized proposal and explicit confirmed admission are required");
+    }
+    const result = await this.sendControl<unknown>(
+      `/runs/${encodeURIComponent(runID)}/child-task-proposals/${encodeURIComponent(proposalID)}/admit`,
+      body, idempotencyKey, signal,
+    );
+    return parseChildTaskProposal(result, runID);
+  }
   async selectPlanDirection(runID: string, body: PlanDirectionControlRequestView,
     idempotencyKey: string, signal?: AbortSignal): Promise<PlanDirectionControlView> {
     if (!this.hasPlanDelivery) {
@@ -4562,4 +4611,31 @@ function parseFanoutExecution(value: unknown): FanoutExecutionView {
     return shard;
   });
   return { ...value, shards } as FanoutExecutionView;
+}
+function parseChildTaskProposals(value: unknown, runID: string): ChildTaskProposalsListView {
+  if (!isRecord(value) || value.protocol_version !== "child_task_proposals.v1" ||
+    !Array.isArray(value.items) || value.items.length > 50) {
+    throw new APIRequestError("Child task proposal list is invalid", "INVALID_RESPONSE", 502);
+  }
+  return { protocol_version: value.protocol_version,
+    items: value.items.map((item) => parseChildTaskProposal(item, runID)),
+  } as ChildTaskProposalsListView;
+}
+
+function parseChildTaskProposal(value: unknown, runID: string): ChildTaskProposalView {
+  if (!isRecord(value) || !boundedIdentity(String(value.id)) || value.run_id !== runID ||
+    !["proposed", "approved", "denied"].includes(String(value.status)) ||
+    !["core", "readonly_fanout"].includes(String(value.surface)) ||
+    !boundedIdentity(String(value.root_agent_id)) || !validDate(value.created_at) ||
+    !Array.isArray(value.tasks) || value.tasks.length < 1 || value.tasks.length > 6) {
+    throw new APIRequestError("Child task proposal is invalid", "INVALID_RESPONSE", 502);
+  }
+  for (const task of value.tasks) {
+    if (!isRecord(task) || !safeBoundedCount(task.ordinal, 6) || !boundedText(task.title, 256) ||
+      !boundedText(task.goal, 4096) || !safePositiveInteger(task.turn_limit) ||
+      !safePositiveInteger(task.token_limit) || !safeBoundedCount(task.timeout_millis, 1_800_000)) {
+      throw new APIRequestError("Child task proposal task is invalid", "INVALID_RESPONSE", 502);
+    }
+  }
+  return value as unknown as ChildTaskProposalView;
 }

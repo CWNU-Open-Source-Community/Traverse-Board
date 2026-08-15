@@ -222,6 +222,7 @@ func GenerateOpenAPI() ([]byte, error) {
 func openAPIOperationSpecs() []openAPIOperationSpec {
 	runID := pathIdentityParameter("run_id", "Run identity")
 	executionID := pathIdentityParameter("execution_id", "Read-only Fan-out execution identity")
+	childTaskProposalID := pathIdentityParameter("proposal_id", "Child task proposal identity")
 	verificationPlanID := pathIdentityParameter("plan_id", "Verification plan identity")
 	verificationPlanItemOrdinal := openAPIParameter{Name: "ordinal", In: "path",
 		Description: "Verification plan item ordinal", Required: true,
@@ -633,6 +634,27 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			Description: "Returns bounded plan metadata and the latest shard execution summary without file manifests or model report JSON.",
 			DataType:    reflect.TypeOf(FanoutPlanView{}), Collection: true, Paginated: true,
 			NotFound: true, Parameters: append([]openAPIParameter{runID}, paginationParameters()...)},
+		{Path: ChildTaskProposalsPathTemplate, OperationID: "listRunChildTaskProposals",
+			Summary: "List model-proposed child task proposals", Tag: "Analysis",
+			Description: "Returns bounded child task proposals with their redacted tasks, resolved surface, and admission assignments for operator review.",
+			DataType: reflect.TypeOf(ChildTaskProposalsListView{}), NotFound: true,
+			Parameters: []openAPIParameter{runID}},
+		{Path: ChildTaskProposalReviewPathTemplate, Method: http.MethodPost,
+			OperationID: "reviewRunChildTaskProposal",
+			Summary:     "Approve or deny one child task proposal", Tag: "Control",
+			Description: "Records one operator decision; approve may pin the read-only fan-out tier to an explicit 1/2/4/6 ceiling. The model can never raise it.",
+			DataType:    reflect.TypeOf(ChildTaskProposalView{}),
+			RequestType: reflect.TypeOf(ChildTaskReviewRequestView{}),
+			Control:     true, NotFound: true,
+			SuccessStatus: http.StatusOK, Parameters: []openAPIParameter{runID, childTaskProposalID}},
+		{Path: ChildTaskProposalAdmitPathTemplate, Method: http.MethodPost,
+			OperationID: "admitRunChildTaskProposal",
+			Summary:     "Admit one approved child task proposal", Tag: "Control",
+			Description: "Admits an operator-approved proposal: core tasks go through the fenced Specialist admission and bind declared dependencies onto the schema v101 wait ledger; read-only tasks record their binding intent.",
+			DataType:    reflect.TypeOf(ChildTaskProposalView{}),
+			RequestType: reflect.TypeOf(ChildTaskAdmitRequestView{}),
+			Control:     true, NotFound: true,
+			SuccessStatus: http.StatusOK, Parameters: []openAPIParameter{runID, childTaskProposalID}},
 		{Path: FanoutExecutionsPathTemplate, OperationID: "listRunFanoutExecutions",
 			Summary: "List one Fan-out plan's execution history", Tag: "Analysis",
 			Description: "Returns the bounded shard execution history of one read-only Fan-out plan; shard rows carry only status, bounded counts, and model identity.",
