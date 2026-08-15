@@ -4,7 +4,22 @@
 
 Last updated: 2026-08-15
 
-## Current Single-Slice Checkpoint: Ollama Loopback Provider / Issue #48
+## Current Single-Slice Checkpoint: Monetary Budget, Price Snapshots, Qualification / Issue #49
+
+2026-08-15 的 issue #49 落地金额预算、价格快照与 Provider 资格诊断（ADR 0101，
+schema v100）。账本全整数 micro-USD：`pricing` 包提供 `price_snapshot.v1` wire 格式（
+64 KiB/512 entries/指纹重算/未知字段拒绝/有效期覆盖导入时刻且≤1年）与天花板除法估算；
+`run_monetary_usage`/`run_monetary_reservations` 按 reserve→call→settle-or-release 记账，
+CAS 推进、open=reserved−settled−released、remaining=cap−open，跨 root/specialist/
+readonly fanout 共享 run 聚合；终态 `model.*` 事件在下次 reserve/usage 前对账自愈，run
+终态强制释放 open 预留。价格只由 Go 控制面导入（HTTP `POST /api/v1/models/prices`、
+`provider price-import`），模型/README/Skill/仓库文件无法触达；同内容导入幂等回放，新导入
+原子轮换 active。`MaxCostUSD>0` 才启用闸门，缺价格条目 fail-closed，结算缺条目按整笔
+预留保守计费。资格状态 8 值 taxonomy 持久化于 `qualification_status.<provider>.<model>`，
+诊断/qualification/可用性视图均返回，未诊断留空。Mission 级金额上限与 vendor 价格订阅
+留待后续。
+
+## Previous Single-Slice Checkpoint: Ollama Loopback Provider / Issue #48
 
 2026-08-15 的 issue #48 新增无凭证 loopback-only Ollama Provider（ADR 0100）。启用
 条件只有显式 `CYBERAGENT_OLLAMA_BASE_URL`（仅 loopback `http`）+ `CYBERAGENT_OLLAMA_MODEL`；

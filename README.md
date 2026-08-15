@@ -317,6 +317,7 @@ open build/desktop/Prayu.app
 | v97 | 持久 Docker 生命周期所有权、代际租约与崩溃恢复 | durable Docker lifecycle ownership, generation leases, and crash recovery |
 | v98 | 有界 Docker 容器 I/O 合同：只读输入投影、日志限额与原子输出提交 | bounded Docker container I/O contract: read-only input projection, log capture limits, and atomic output commit |
 | v99 | 不可变 Docker Sandbox 产品准入、启动绑定、取消与终态回执 | immutable Docker Sandbox product admission, launch binding, cancellation, and terminal receipts |
+| v100 | 算子价格快照与 Run 金额预算账本（预留/结算/释放） | operator price snapshots and the run monetary budget ledger (reserve/settle/release) |
 
 </details>
 
