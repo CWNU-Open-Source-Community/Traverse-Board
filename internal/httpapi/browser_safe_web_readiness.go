@@ -32,7 +32,7 @@ func (a *API) browserSafeWebReadiness(request *http.Request) (any, *Page, error)
 	}
 	identity, acceptance, err := discoverAcceptedBrowser(product)
 	if err != nil {
-		return nil, nil, apperror.Normalize(err)
+		return nil, nil, apperror.New(apperror.CodeNotFound, err.Error())
 	}
 	service := application.NewBrowserSafeWebRuntimeService(a.store)
 	readiness, err := service.Readiness(request.Context(), identity, acceptance)
