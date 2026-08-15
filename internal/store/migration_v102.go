@@ -45,6 +45,7 @@ var childTaskStatements = []string{
 		request_fingerprint TEXT NOT NULL,
 		proposal_id TEXT NOT NULL UNIQUE,
 		created_at TEXT NOT NULL,
+		UNIQUE(proposal_id),
 		FOREIGN KEY(proposal_id) REFERENCES child_task_proposals(id) ON DELETE RESTRICT,
 		CHECK(length(operation_key_digest) = 64 AND length(request_fingerprint) = 64),
 		CHECK(julianday(created_at) IS NOT NULL)

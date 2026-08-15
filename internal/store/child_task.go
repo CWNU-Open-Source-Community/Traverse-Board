@@ -50,6 +50,12 @@ func (s *SQLiteStore) CreateChildTaskProposal(ctx context.Context,
 		return domain.ChildTaskProposal{}, false, apperror.New(apperror.CodeFailedPrecondition,
 			"terminal runs cannot receive child task proposals")
 	}
+	// Pin the run row to serialize concurrent child task mutations under
+	// the single-writer SQLite pool (same touch pattern as agent messages).
+	if _, err := tx.ExecContext(ctx, `UPDATE runs SET updated_at = updated_at WHERE id = ?`,
+		proposal.RunID); err != nil {
+		return domain.ChildTaskProposal{}, false, err
+	}
 	var storedFingerprint, storedProposalID string
 	err = tx.QueryRowContext(ctx, `SELECT request_fingerprint, proposal_id
 		FROM child_task_proposal_operations WHERE operation_key_digest = ?`, operation.KeyDigest).
@@ -106,6 +112,22 @@ func (s *SQLiteStore) CreateChildTaskProposal(ctx context.Context,
 		proposal.WorkspaceID, proposal.Status, string(specJSON), string(proposal.Surface),
 		string(proposal.FanoutTier), dedupFingerprint, proposal.RequestedBy, proposal.Version,
 		ts(proposal.CreatedAt)); err != nil {
+		// Concurrent duplicate: recover as a replay of the already persisted
+		// equal proposal instead of surfacing a raw constraint error.
+		if isUniqueViolation(err) {
+			var concurrentID string
+			if scanErr := tx.QueryRowContext(ctx, `SELECT id FROM child_task_proposals
+				WHERE dedup_fingerprint = ?`, dedupFingerprint).Scan(&concurrentID); scanErr == nil {
+				existing, found, scanErr := s.getChildTaskProposalTx(ctx, tx, concurrentID)
+				if scanErr != nil || !found {
+					return domain.ChildTaskProposal{}, false, scanErr
+				}
+				if err := tx.Commit(); err != nil {
+					return domain.ChildTaskProposal{}, false, err
+				}
+				return existing, true, nil
+			}
+		}
 		return domain.ChildTaskProposal{}, false, err
 	}
 	for _, task := range proposal.Spec.Tasks {
@@ -293,10 +315,15 @@ func (s *SQLiteStore) ReviewChildTaskProposal(ctx context.Context,
 	if review.Action == "approve" && proposal.Surface == domain.ChildTaskSurfaceReadOnlyFanout {
 		tier = review.FanoutTier
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE child_task_proposals SET status = ?, fanout_tier = ?,
+	result, err := tx.ExecContext(ctx, `UPDATE child_task_proposals SET status = ?, fanout_tier = ?,
 		reviewed_at = ?, reviewer = ? WHERE id = ? AND status = 'proposed'`,
-		newStatus, string(tier), ts(review.ReviewedAt), review.Reviewer, proposal.ID); err != nil {
+		newStatus, string(tier), ts(review.ReviewedAt), review.Reviewer, proposal.ID)
+	if err != nil {
 		return domain.ChildTaskProposal{}, false, err
+	}
+	if affected, err := result.RowsAffected(); err != nil || affected != 1 {
+		return domain.ChildTaskProposal{}, false, apperror.New(apperror.CodeConflict,
+			"child task proposal was reviewed concurrently")
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE child_task_assignments SET fanout_tier = ?,
 		updated_at = ? WHERE proposal_id = ?`, string(tier), ts(review.ReviewedAt),
