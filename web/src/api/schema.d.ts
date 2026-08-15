@@ -44,6 +44,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/browser/safe-web-readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect Safe Web readiness
+         * @description Returns a fail-closed readiness receipt over the latest production containment evidence and operator review for one accepted browser. It never starts a browser and never grants authority.
+         */
+        get: operations["getBrowserSafeWebReadiness"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/capabilities": {
         parameters: {
             query?: never;
@@ -2123,6 +2143,30 @@ export interface components {
             control_enabled: boolean;
             execution_debug_selected: boolean;
             full_debug_enabled: boolean;
+        };
+        BrowserSafeWebReadiness: {
+            acceptance_fingerprint: string;
+            /** @enum {string} */
+            adapter: "windows_wfp_dynamic.v1";
+            architecture: string;
+            /** @enum {string} */
+            blocking_reason?: "evidence_missing" | "evidence_version_mismatch" | "executable_identity_mismatch" | "acceptance_mismatch" | "policy_version_mismatch" | "adapter_mismatch" | "platform_mismatch" | "evidence_not_passed" | "review_missing" | "review_binding_mismatch" | "review_not_accepted" | "evidence_expired";
+            collector_identity: string;
+            evidence_fingerprint: string;
+            executable_identity_fingerprint: string;
+            /** Format: date-time */
+            expires_at: string;
+            fingerprint: string;
+            /** Format: date-time */
+            issued_at: string;
+            operating_system: string;
+            /** @enum {string} */
+            policy_version: "browser_network_containment_policy.v2";
+            /** @enum {string} */
+            protocol_version: "browser_safe_web_readiness.v1";
+            ready: boolean;
+            review_fingerprint: string;
+            reviewer_identity: string;
         };
         BudgetView: {
             /** Format: double */
@@ -5605,6 +5649,40 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getBrowserSafeWebReadiness: {
+        parameters: {
+            query?: {
+                /** @description Accepted browser product */
+                product?: "chrome" | "edge" | "chromium";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["BrowserSafeWebReadiness"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];

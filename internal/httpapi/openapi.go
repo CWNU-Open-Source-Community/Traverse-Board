@@ -13,6 +13,7 @@ import (
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/artifact"
+	"cyberagent-workbench/internal/browserruntime"
 	"cyberagent-workbench/internal/credential"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
@@ -300,6 +301,14 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			Summary: "Inspect process-local runtime capabilities", Tag: "System",
 			Description: "Returns bounded enablement metadata and Run wake worker health without bearer tokens, owner or lease identities, private errors, runtime enable controls, or persistent-service authority.",
 			DataType:    reflect.TypeOf(RuntimeCapabilitiesView{})},
+		{Path: "/api/v1/browser/safe-web-readiness", OperationID: "getBrowserSafeWebReadiness",
+			Summary: "Inspect Safe Web readiness", Tag: "Browser",
+			Description: "Returns a fail-closed readiness receipt over the latest production containment evidence and operator review for one accepted browser. It never starts a browser and never grants authority.",
+			Parameters: []openAPIParameter{{Name: "product", In: "query",
+				Description: "Accepted browser product", Required: false,
+				Schema: map[string]any{"type": "string",
+					"enum": []string{"chrome", "edge", "chromium"}}}},
+			DataType: reflect.TypeOf(browserruntime.BrowserSafeWebReadiness{})},
 		{Path: "/api/v1/models", OperationID: "getModelAvailability",
 			Summary: "Inspect redacted model availability", Tag: "Models",
 			Description: "Returns deterministic Provider registration and route metadata without API keys, base URLs, environment variable names, network probes, or model calls.",
@@ -1720,6 +1729,10 @@ var openAPIFieldEnums = map[string][]string{
 	"RunBrowserCDPPermissionView.required_gate":               {string(domain.BrowserCDPPermissionGateRestricted), string(domain.BrowserCDPPermissionGateFullDebug)},
 	"RunBrowserCDPPermissionView.policy_version":              {domain.RunBrowserCDPPermissionPolicyVersion},
 	"RunBrowserCDPPermissionControlRequestView.mode":          {string(domain.RunBrowserCDPPermissionRestricted), string(domain.RunBrowserCDPPermissionFullDebug)},
+	"BrowserSafeWebReadiness.protocol_version":               {browserruntime.BrowserSafeWebReadinessProtocolVersion},
+	"BrowserSafeWebReadiness.blocking_reason":                {browserruntime.BrowserSafeWebBlockedEvidenceMissing, browserruntime.BrowserSafeWebBlockedEvidenceVersionMismatch, browserruntime.BrowserSafeWebBlockedExecutableMismatch, browserruntime.BrowserSafeWebBlockedAcceptanceMismatch, browserruntime.BrowserSafeWebBlockedPolicyVersionMismatch, browserruntime.BrowserSafeWebBlockedAdapterMismatch, browserruntime.BrowserSafeWebBlockedPlatformMismatch, browserruntime.BrowserSafeWebBlockedEvidenceNotPassed, browserruntime.BrowserSafeWebBlockedReviewMissing, browserruntime.BrowserSafeWebBlockedReviewBindingMismatch, browserruntime.BrowserSafeWebBlockedReviewNotAccepted, browserruntime.BrowserSafeWebBlockedEvidenceExpired},
+	"BrowserSafeWebReadiness.adapter":                        {browserruntime.WindowsWFPBrowserContainmentAdapterName},
+	"BrowserSafeWebReadiness.policy_version":                 {browserruntime.BrowserNetworkContainmentPolicyVersion},
 	"RunExecutionInteractionView.protocol_version":            {domain.RunExecutionInteractionProtocolVersion},
 	"RunExecutionInteractionView.mode":                        {string(domain.RunExecutionInteractionPreview), string(domain.RunExecutionInteractionControlled), string(domain.RunExecutionInteractionDebug), string(domain.RunExecutionInteractionCyber)},
 	"RunExecutionInteractionView.surface":                     {string(domain.ExecutionSurfaceCode), string(domain.ExecutionSurfaceCyber)},
