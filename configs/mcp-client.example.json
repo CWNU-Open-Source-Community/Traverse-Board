@@ -1,0 +1,36 @@
+{
+  "_comment": "Example launcher configuration for an MCP client (e.g. Claude Desktop / Editor MCP client). The server is stdio-only: the client starts this command and speaks newline-delimited JSON-RPC 2.0 (protocol 2025-06-18) over its stdin/stdout. Each instance is bound to one Run + Workspace scope.",
+  "command": "cyberagent",
+  "args": [
+    "mcp",
+    "serve",
+    "--run",
+    "run-001",
+    "--workspace",
+    "demo",
+    "--max-concurrent",
+    "8",
+    "--call-timeout",
+    "30s",
+    "--session-ttl",
+    "24h"
+  ],
+  "transport": "stdio",
+  "protocolVersion": "2025-06-18",
+  "capabilities": {
+    "tools": [
+      "read_file",
+      "list_workspace"
+    ],
+    "resources": [
+      "cyberagent://run/summary",
+      "cyberagent://run/activity"
+    ]
+  },
+  "bounds": {
+    "max_message_bytes": 4194304,
+    "max_concurrent_calls": 8,
+    "call_timeout": "30s",
+    "session_ttl": "24h"
+  }
+}

@@ -219,6 +219,8 @@ func (a *App) dispatch(ctx context.Context, args []string) error {
 		return a.reportCommand(ctx, args[1:])
 	case "api":
 		return a.apiCommand(ctx, args[1:])
+	case "mcp":
+		return a.mcpCommand(ctx, args[1:])
 	case "headless":
 		return a.headlessCommand(ctx, args[1:])
 	case "run":
