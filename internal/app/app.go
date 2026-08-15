@@ -23,6 +23,7 @@ import (
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/modelregistry"
 	"cyberagent-workbench/internal/policy"
+	"cyberagent-workbench/internal/pricing"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/sandbox"
 	"cyberagent-workbench/internal/store"
@@ -114,7 +115,8 @@ func executeContextWithConfig(ctx context.Context, args []string, out io.Writer,
 
 func (a *App) newRunSupervisor() *application.RunSupervisor {
 	supervisor := application.NewRunSupervisor(a.store, a.router, a.checker).
-		WithActiveCalls(a.calls)
+		WithActiveCalls(a.calls).
+		WithMonetaryBudget(application.NewMonetaryBudgetService(a.store))
 	if executor := a.newDockerSandboxProposalExecutor(); executor != nil {
 		supervisor.WithDockerSandboxProposalExecutor(executor)
 	}
@@ -729,9 +731,9 @@ func (a *App) providerCommand(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(a.out, "protocol: %s\nprovider: %s\nmodel: %s\nstatus: %s\noutcome: %s\nfailure_reason: %s\nretryable: %t\nnetwork_request_attempted: %t\nmodel_called: %t\ntool_called: %t\nresponse_content_returned: %t\nduration_ms: %d\n",
+		fmt.Fprintf(a.out, "protocol: %s\nprovider: %s\nmodel: %s\nstatus: %s\noutcome: %s\nfailure_reason: %s\nqualification_status: %s\nretryable: %t\nnetwork_request_attempted: %t\nmodel_called: %t\ntool_called: %t\nresponse_content_returned: %t\nduration_ms: %d\n",
 			result.ProtocolVersion, result.Provider, result.Model, result.Status,
-			result.Outcome, result.FailureReason, result.Retryable,
+			result.Outcome, result.FailureReason, result.QualificationStatus, result.Retryable,
 			result.NetworkRequestAttempted,
 			result.ModelCalled, result.ToolCalled, result.ResponseContentReturned,
 			result.DurationMillis)
@@ -755,15 +757,55 @@ func (a *App) providerCommand(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(a.out, "protocol: %s\nprovider: %s\nmodel: %s\nstatus: %s\noutcome: %s\nfailure_reason: %s\nretryable: %t\nnetwork_request_attempted: %t\nmodel_calls: %d\nsynthetic_tool_calls: %d\ntool_executed: %t\nresponse_content_returned: %t\ntransport_protocol: %s\ntool_strategy: %s\njson_strategy: %s\nqualification_status: %s\nroot_eligible: %t\nduration_ms: %d\n",
+		fmt.Fprintf(a.out, "protocol: %s\nprovider: %s\nmodel: %s\nstatus: %s\noutcome: %s\nfailure_reason: %s\nqualification_status: %s\nretryable: %t\nnetwork_request_attempted: %t\nmodel_calls: %d\nsynthetic_tool_calls: %d\ntool_executed: %t\nresponse_content_returned: %t\ntransport_protocol: %s\ntool_strategy: %s\njson_strategy: %s\nharness_qualification_status: %s\nroot_eligible: %t\nduration_ms: %d\n",
 			result.ProtocolVersion, result.Provider, result.Model, result.Status,
-			result.Outcome, result.FailureReason, result.Retryable,
+			result.Outcome, result.FailureReason, result.QualificationStatus, result.Retryable,
 			result.NetworkRequestAttempted,
 			result.ModelCalls, result.SyntheticToolCalls, result.ToolExecuted,
 			result.ResponseContentReturned, result.Harness.TransportProtocol,
 			result.Harness.ToolStrategy, result.Harness.JSONStrategy,
 			result.Harness.QualificationStatus, result.Harness.RootEligible,
 			result.DurationMillis)
+		return nil
+	case "price-import":
+		if err := a.ensureStore(); err != nil {
+			return err
+		}
+		fs := newFlagSet("provider price-import", a.errOut)
+		file := fs.String("file", "", "path to the operator price table document")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if fs.NArg() != 0 || strings.TrimSpace(*file) == "" {
+			return errors.New("usage: cyberagent provider price-import --file <path>")
+		}
+		raw, err := os.ReadFile(strings.TrimSpace(*file))
+		if err != nil {
+			return err
+		}
+		snapshot, err := pricing.ParseWire(raw, time.Now().UTC())
+		if err != nil {
+			return err
+		}
+		stored, replayed, err := a.store.ImportPriceSnapshot(ctx, snapshot)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(a.out, "imported: %t\nid: %s\ncurrency: %s\nentries: %d\nfingerprint: %s\n",
+			!replayed, stored.ID, stored.Currency, len(stored.Entries), stored.Fingerprint)
+		return nil
+	case "price-list":
+		if err := a.ensureStore(); err != nil {
+			return err
+		}
+		list, err := a.store.ListPriceSnapshots(ctx, 32)
+		if err != nil {
+			return err
+		}
+		for _, snapshot := range list {
+			fmt.Fprintf(a.out, "%s\t%s\t%s\t%d\t%s\n", snapshot.ID, snapshot.Source,
+				snapshot.ValidFrom.Format(time.RFC3339), len(snapshot.Entries), snapshot.Fingerprint)
+		}
 		return nil
 	default:
 		return fmt.Errorf("unknown provider subcommand %q", args[0])

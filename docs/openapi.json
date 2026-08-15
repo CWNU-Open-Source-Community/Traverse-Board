@@ -739,6 +739,153 @@
         "x-cyberagent-read-only": false
       }
     },
+    "/api/v1/models/prices": {
+      "get": {
+        "operationId": "listPriceSnapshots",
+        "summary": "List operator price snapshots",
+        "description": "Returns the bounded imported price table history with entry-level micro-USD prices. Prices are operator configuration, never Provider output.",
+        "tags": [
+          "Models"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/PriceSnapshotListView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      },
+      "post": {
+        "operationId": "importPriceSnapshot",
+        "summary": "Import an operator price snapshot",
+        "description": "Atomically replaces the active operator price table from one bounded document. Same-content imports replay idempotently; a Provider, README, Skill, or repository file can never reach this operation.",
+        "tags": [
+          "Control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/PriceSnapshotImportView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PriceSnapshotImportRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/models/routes/{route}": {
       "post": {
         "operationId": "selectModelRoute",
@@ -15471,6 +15618,20 @@
             ],
             "type": "string"
           },
+          "latest_qualification_status": {
+            "enum": [
+              "",
+              "not_configured",
+              "available",
+              "protocol_mismatch",
+              "auth_failed",
+              "network_failed",
+              "rate_limit",
+              "capacity",
+              "model_unsupported"
+            ],
+            "type": "string"
+          },
           "model": {
             "type": "string"
           },
@@ -15478,6 +15639,12 @@
             "enum": [
               "model_harness.v1"
             ],
+            "type": "string"
+          },
+          "qualification_checked_at": {
+            "type": "string"
+          },
+          "qualification_source": {
             "type": "string"
           },
           "qualification_status": {
@@ -15540,6 +15707,9 @@
           "streaming_qualified",
           "root_eligible",
           "structured_json_eligible",
+          "latest_qualification_status",
+          "qualification_checked_at",
+          "qualification_source",
           "qualified_at",
           "expires_at"
         ],
@@ -15629,6 +15799,19 @@
           "provider": {
             "type": "string"
           },
+          "qualification_status": {
+            "enum": [
+              "not_configured",
+              "available",
+              "protocol_mismatch",
+              "auth_failed",
+              "network_failed",
+              "rate_limit",
+              "capacity",
+              "model_unsupported"
+            ],
+            "type": "string"
+          },
           "response_content_returned": {
             "type": "boolean"
           },
@@ -15666,6 +15849,7 @@
           "synthetic_tool_calls",
           "tool_executed",
           "response_content_returned",
+          "qualification_status",
           "duration_ms",
           "harness"
         ],
@@ -16708,6 +16892,173 @@
         ],
         "type": "object"
       },
+      "PriceEntryView": {
+        "additionalProperties": false,
+        "properties": {
+          "cache_read_per_million_micros": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "input_per_million_micros": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "model": {
+            "type": "string"
+          },
+          "output_per_million_micros": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "tool_call_micros": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "provider",
+          "model",
+          "input_per_million_micros",
+          "output_per_million_micros",
+          "cache_read_per_million_micros",
+          "tool_call_micros"
+        ],
+        "type": "object"
+      },
+      "PriceSnapshotImportRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "document": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "document"
+        ],
+        "type": "object"
+      },
+      "PriceSnapshotImportView": {
+        "additionalProperties": false,
+        "properties": {
+          "currency": {
+            "type": "string"
+          },
+          "entry_count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "id",
+          "currency",
+          "source",
+          "entry_count",
+          "fingerprint",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "PriceSnapshotItemView": {
+        "additionalProperties": false,
+        "properties": {
+          "currency": {
+            "type": "string"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/PriceEntryView"
+            },
+            "type": "array"
+          },
+          "entry_count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "imported_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "imported_by": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "valid_from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "valid_until": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source",
+          "currency",
+          "imported_by",
+          "imported_at",
+          "valid_from",
+          "valid_until",
+          "fingerprint",
+          "entry_count",
+          "entries"
+        ],
+        "type": "object"
+      },
+      "PriceSnapshotListView": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PriceSnapshotItemView"
+            },
+            "type": "array"
+          },
+          "protocol_version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "items"
+        ],
+        "type": "object"
+      },
       "ProviderAvailabilityView": {
         "additionalProperties": false,
         "properties": {
@@ -16958,6 +17309,19 @@
           "provider": {
             "type": "string"
           },
+          "qualification_status": {
+            "enum": [
+              "not_configured",
+              "available",
+              "protocol_mismatch",
+              "auth_failed",
+              "network_failed",
+              "rate_limit",
+              "capacity",
+              "model_unsupported"
+            ],
+            "type": "string"
+          },
           "response_content_returned": {
             "type": "boolean"
           },
@@ -16987,6 +17351,7 @@
           "model_called",
           "tool_called",
           "response_content_returned",
+          "qualification_status",
           "duration_ms"
         ],
         "type": "object"

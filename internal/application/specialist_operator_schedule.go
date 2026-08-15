@@ -52,6 +52,9 @@ func NewSpecialistOperatorScheduleService(store SpecialistOperatorScheduleStore,
 	router *llm.Router, checker policy.Checker,
 ) *SpecialistOperatorScheduleService {
 	runner := NewSpecialistRunner(store, router, checker)
+	if monetaryStore, ok := store.(MonetaryBudgetStore); ok {
+		runner.WithMonetaryBudget(NewMonetaryBudgetService(monetaryStore))
+	}
 	return &SpecialistOperatorScheduleService{
 		store: store, checker: checker, scheduler: NewSpecialistScheduler(runner),
 		pollInterval: defaultSpecialistOperatorSchedulePollInterval,

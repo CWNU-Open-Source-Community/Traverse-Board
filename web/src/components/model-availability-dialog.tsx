@@ -28,6 +28,20 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
   presentation: "dialog" | "workspace";
 }) {
   const { t } = useLocale();
+  const qualificationStatusLabel = (status: string) => {
+    const labels: Record<string, [string, string]> = {
+      not_configured: ["未配置", "not configured"],
+      available: ["可用", "available"],
+      protocol_mismatch: ["协议不兼容", "protocol mismatch"],
+      auth_failed: ["身份验证失败", "authentication failed"],
+      network_failed: ["网络不可达", "network unreachable"],
+      rate_limit: ["达到速率限制", "rate limited"],
+      capacity: ["容量不足", "capacity unavailable"],
+      model_unsupported: ["模型不支持", "model unsupported"],
+    };
+    const label = labels[status];
+    return label ? t(label[0], label[1]) : status;
+  };
   const failureReasonLabel = (reason: string) => {
     const labels: Record<string, [string, string]> = {
       not_configured: ["未配置", "not configured"],
@@ -156,6 +170,10 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
                         : provider.credential_source}</span>
                       <StatusBadge status={provider.status} />
                       {harness && <StatusBadge status={harness.qualification_status} />}
+                      {harness?.latest_qualification_status &&
+                        <span title={t("最近一次诊断状态", "Latest diagnostic qualification")}>
+                          {qualificationStatusLabel(harness.latest_qualification_status)}
+                        </span>}
                       {client.hasModelControl &&
                         (provider.status === "available" ||
                           provider.status === "not_configured") &&
@@ -195,6 +213,10 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
                 {diagnostic && <div className="model-diagnostic-result" role="status">
                   <span>{diagnostic.provider}/{diagnostic.model}</span>
                   <StatusBadge status={diagnostic.status} />
+                  {diagnostic.qualification_status &&
+                    <span title={t("端点资格状态", "Endpoint qualification status")}>
+                      {qualificationStatusLabel(diagnostic.qualification_status)}
+                    </span>}
                   <span>{diagnostic.failure_reason !== "none"
                     ? failureReasonLabel(diagnostic.failure_reason)
                     : diagnostic.outcome === "success"
@@ -212,6 +234,10 @@ function ModelAvailabilitySurface({ client, open, onClose, presentation }: {
                   <span>{qualification.provider}/{qualification.model}</span>
                   <StatusBadge status={qualification.status} />
                   <span>{qualification.harness.transport_protocol}</span>
+                  {qualification.qualification_status &&
+                    <span title={t("端点资格状态", "Endpoint qualification status")}>
+                      {qualificationStatusLabel(qualification.qualification_status)}
+                    </span>}
                   {qualification.failure_reason !== "none" &&
                     <span>{failureReasonLabel(qualification.failure_reason)}</span>}
                   <span>{qualification.model_calls} {t("次模型调用", "model calls")}</span>

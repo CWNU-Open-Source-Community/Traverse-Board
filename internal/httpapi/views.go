@@ -58,10 +58,13 @@ type ModelHarnessAvailabilityView struct {
 	ToolResultsQualified   bool   `json:"tool_results_qualified"`
 	StrictJSONQualified    bool   `json:"strict_json_qualified"`
 	StreamingQualified     bool   `json:"streaming_qualified"`
-	RootEligible           bool   `json:"root_eligible"`
-	StructuredJSONEligible bool   `json:"structured_json_eligible"`
-	QualifiedAt            string `json:"qualified_at"`
-	ExpiresAt              string `json:"expires_at"`
+	RootEligible              bool   `json:"root_eligible"`
+	StructuredJSONEligible    bool   `json:"structured_json_eligible"`
+	LatestQualificationStatus string `json:"latest_qualification_status"`
+	QualificationCheckedAt    string `json:"qualification_checked_at"`
+	QualificationSource       string `json:"qualification_source"`
+	QualifiedAt               string `json:"qualified_at"`
+	ExpiresAt                 string `json:"expires_at"`
 }
 
 type ModelAvailabilityView struct {
@@ -83,6 +86,7 @@ type ProviderDiagnosticView struct {
 	ModelCalled             bool   `json:"model_called"`
 	ToolCalled              bool   `json:"tool_called"`
 	ResponseContentReturned bool   `json:"response_content_returned"`
+	QualificationStatus     string `json:"qualification_status"`
 	DurationMillis          int64  `json:"duration_ms"`
 }
 
@@ -99,6 +103,7 @@ type ModelHarnessQualificationView struct {
 	SyntheticToolCalls      int                          `json:"synthetic_tool_calls"`
 	ToolExecuted            bool                         `json:"tool_executed"`
 	ResponseContentReturned bool                         `json:"response_content_returned"`
+	QualificationStatus     string                       `json:"qualification_status"`
 	DurationMillis          int64                        `json:"duration_ms"`
 	Harness                 ModelHarnessAvailabilityView `json:"harness"`
 }

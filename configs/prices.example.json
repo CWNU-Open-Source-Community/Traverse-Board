@@ -1,0 +1,27 @@
+{
+  "protocol_version": "price_snapshot.v1",
+  "id": "prices-2026-08-15-example",
+  "source": "operator_import",
+  "currency": "USD",
+  "imported_by": "operator",
+  "valid_from": "2026-08-15T00:00:00Z",
+  "valid_until": "2027-08-15T00:00:00Z",
+  "entries": [
+    {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-20250514",
+      "input_per_million_micros": 3000000,
+      "output_per_million_micros": 15000000,
+      "cache_read_per_million_micros": 300000,
+      "tool_call_micros": 0
+    },
+    {
+      "provider": "openai",
+      "model": "gpt-4.1-mini",
+      "input_per_million_micros": 400000,
+      "output_per_million_micros": 1600000,
+      "cache_read_per_million_micros": 100000,
+      "tool_call_micros": 0
+    }
+  ]
+}

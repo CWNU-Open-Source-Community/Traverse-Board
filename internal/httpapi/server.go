@@ -254,6 +254,7 @@ type Config struct {
 	ControlledCommandProposalController     ControlledCommandProposalController
 	HostCommandProposalController           HostCommandProposalController
 	ModelControlController                  ModelControlController
+	PriceSnapshotController                 PriceSnapshotController
 	ProviderCredentialController            ProviderCredentialController
 	FileEditReviewController                FileEditReviewController
 	FileEditProposalController              FileEditProposalController
@@ -310,6 +311,7 @@ type API struct {
 	controlledCommandProposalController     ControlledCommandProposalController
 	hostCommandProposalController           HostCommandProposalController
 	modelControlController                  ModelControlController
+	priceSnapshotController                 PriceSnapshotController
 	providerCredentialController            ProviderCredentialController
 	fileEditReviewController                FileEditReviewController
 	fileEditProposalController              FileEditProposalController
@@ -544,6 +546,7 @@ func New(store Store, config Config) (*API, error) {
 		controlledCommandProposalController: config.ControlledCommandProposalController,
 		hostCommandProposalController:       config.HostCommandProposalController,
 		modelControlController:              config.ModelControlController,
+	priceSnapshotController:             config.PriceSnapshotController,
 		providerCredentialController:        config.ProviderCredentialController,
 		fileEditReviewController:            config.FileEditReviewController,
 		fileEditProposalController:          config.FileEditProposalController,
@@ -723,6 +726,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if route, kind, matched := matchModelControlPath(request.URL.Path); matched {
 		a.serveModelControl(tracked, request, requestID, route, kind)
+		return
+	}
+	if request.URL.Path == PriceSnapshotsPath {
+		a.servePriceSnapshots(tracked, request, requestID)
 		return
 	}
 	if provider, matched := matchProviderCredentialControlPath(request.URL.Path); matched {

@@ -526,6 +526,41 @@ ADR 0024 defines external `skill_package.v1` as strict untrusted input. Schema v
 
 Schema v41 separates product behavior from permission through immutable Run modes: one fixed `code|cyber` surface and an operator-controlled `plan|deliver` phase. Schema v42 then adds strict `plan_delivery.v1` under that boundary. A fenced root Plan turn can persist exactly three bounded directions through the `agent_proposal` tool class, but cannot select or execute one. After the Run pauses and releases its lease, the operator-only selection service atomically projects one direction into existing WorkItems, backward dependency edges, a pinned decision Note, an immutable selection, and metadata-only events. Selection remains in Plan and grants no capability; phase transition is a separate schema v41 operation. HTTP, TUI, and React read the same bounded projection and have no selection route. The embedded cross-Profile `plan-delivery` Skill is subordinate guidance rather than workflow authority.
 
+## Monetary Budget, Price Snapshots, and Qualification Status
+
+Monetary accounting is integer micro-USD end to end. `internal/pricing` owns the
+`price_snapshot.v1` wire format: operator-authored tables bounded to 64 KiB and
+512 unique provider/model entries with re-computed content fingerprints, RFC3339
+validity windows that must cover the import time and last at most one year, and
+unknown-field rejection. Only the Go control plane can import a snapshot
+(`POST /api/v1/models/prices`, `provider price-import`); a Provider response,
+README, Skill, or repository file can never reach that surface. A same-content
+import replays idempotently, and a new import atomically rotates the single active
+table.
+
+Schema v100 stores the run monetary aggregate (`run_monetary_usage`) and per-attempt
+reservations (`run_monetary_reservations`). Every tracked model call follows
+reserve-before-call, settle-or-release-after-call: the reserve is a conservative
+upper bound from the serialized request bytes and `MaxTokens`, the settle uses
+actual usage with the unused reserve released in the same CAS transaction, and
+failures or terminal runs release the whole reservation. Root, Specialist, and
+read-only Fan-out share one run aggregate, so `open = reserved - settled - released`
+can never oversell the cap. Open reservations self-heal against terminal
+`model.completed`/`model.failed` events on the next reserve or usage read and are
+force-released when the run becomes terminal. The gate activates only when
+`MaxCostUSD > 0`; a tracked run then requires an exact price entry (fail closed),
+and a settle without a current entry conservatively charges the full reservation.
+
+Qualification status is a durable, per-provider/model classification persisted in
+`provider_setting` under `qualification_status.<provider>.<model>`: eight closed
+values from `not_configured` through `available` to `protocol_mismatch`,
+`auth_failed`, `network_failed`, `rate_limit`, `capacity`, and
+`model_unsupported`. Diagnostics and Harness qualifications persist the latest
+observation; the model availability view, diagnostics, and qualification responses
+all project it, and a never-diagnosed model omits the field. Mission-level monetary
+caps and vendor price feeds are future work; the run aggregate covers the current
+"Mission total" budget.
+
 ## Findings and Reports
 
 A finding is not accepted because a model stated it. Schema v35 therefore projects every Fan-out result as `draft` and labels its provenance `model_assertion`. Schema v36 lets an operator attach frozen, same-Run Artifact Evidence and make one immutable `validated` or `rejected` decision. Schema v37 keeps validation distinct from acceptance: an operator explicitly appends `accepted`, attaches fresh post-acceptance remediation Evidence, and only then appends `fixed`. No lifecycle overlay rewrites the model assertion or earlier decisions. Generic finding categories include code defect, security weakness, failed test, policy violation, and improvement opportunity.

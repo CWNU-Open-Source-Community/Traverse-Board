@@ -834,7 +834,9 @@ describe("CyberAgentClient", () => {
           qualification_status: "trusted_builtin", tool_calls_qualified: true,
           tool_results_qualified: true, strict_json_qualified: true,
           streaming_qualified: true, root_eligible: true,
-          structured_json_eligible: true, qualified_at: "", expires_at: "" }],
+          structured_json_eligible: true, latest_qualification_status: "",
+          qualification_checked_at: "", qualification_source: "",
+          qualified_at: "", expires_at: "" }],
         credential_source: "none", network_required: false, configuration_error: false }],
       routes: [{ name: "code", provider: "mock", model: "mock-code", available: true,
         harness_ready: true }],
@@ -857,7 +859,9 @@ describe("CyberAgentClient", () => {
           qualification_status: "qualification_required", tool_calls_qualified: false,
           tool_results_qualified: false, strict_json_qualified: false,
           streaming_qualified: false, root_eligible: false,
-          structured_json_eligible: false, qualified_at: "", expires_at: "" }],
+          structured_json_eligible: false, latest_qualification_status: "not_configured",
+          qualification_checked_at: "", qualification_source: "availability",
+          qualified_at: "", expires_at: "" }],
         credential_source: "none", network_required: true, configuration_error: false }] },
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     await expect(new CyberAgentClient("read-secret").modelAvailability()).resolves.toEqual(
@@ -1151,21 +1155,26 @@ describe("CyberAgentClient", () => {
       protocol_version: "provider_diagnostic.v1", provider: "mock", model: "mock-code",
       status: "reachable", outcome: "success", failure_reason: "none", retryable: false,
       network_request_attempted: false, model_called: true, tool_called: false,
-      response_content_returned: false, duration_ms: 2,
+      response_content_returned: false, qualification_status: "available",
+      duration_ms: 2,
     };
     const qualification = {
       protocol_version: "model_harness_qualification.v1", provider: "mock",
       model: "mock-code", status: "qualified", outcome: "success", failure_reason: "none",
       retryable: false,
       network_request_attempted: false, model_calls: 0, synthetic_tool_calls: 0,
-      tool_executed: false, response_content_returned: false, duration_ms: 0,
+      tool_executed: false, response_content_returned: false,
+      qualification_status: "available", duration_ms: 0,
       harness: {
         protocol_version: "model_harness.v1", model: "mock-code",
         transport_protocol: "mock", tool_strategy: "native", json_strategy: "native",
         qualification_status: "trusted_builtin", tool_calls_qualified: true,
         tool_results_qualified: true, strict_json_qualified: true,
         streaming_qualified: true, root_eligible: true,
-        structured_json_eligible: true, qualified_at: "", expires_at: "",
+        structured_json_eligible: true, latest_qualification_status: "available",
+        qualification_checked_at: "2026-07-18T00:00:00Z",
+        qualification_source: "harness_qualification",
+        qualified_at: "", expires_at: "",
       },
     };
     const fetchMock = vi.fn()
@@ -2226,7 +2235,9 @@ describe("CyberAgentClient", () => {
       json_strategy: "native", qualification_status: "qualification_required",
       tool_calls_qualified: false, tool_results_qualified: false,
       strict_json_qualified: false, streaming_qualified: false, root_eligible: false,
-      structured_json_eligible: false, qualified_at: "", expires_at: "",
+      structured_json_eligible: false, latest_qualification_status: "",
+      qualification_checked_at: "", qualification_source: "", qualified_at: "",
+      expires_at: "",
     };
     const availability = {
       protocol_version: "model_availability.v2", generation: 2,
@@ -2241,6 +2252,7 @@ describe("CyberAgentClient", () => {
       model: "gpt-4.1-mini", status: "unreachable", outcome: "permanent",
       failure_reason: "authentication", retryable: false, network_request_attempted: true,
       model_called: true, tool_called: false, response_content_returned: false,
+      qualification_status: "auth_failed",
       duration_ms: 4,
     };
     const fetchMock = vi.fn()
@@ -2270,6 +2282,7 @@ describe("CyberAgentClient", () => {
       model: "gpt-4.1-mini", status: "unreachable", outcome: "success",
       failure_reason: "authentication", retryable: false, network_request_attempted: true,
       model_called: true, tool_called: false, response_content_returned: false,
+      qualification_status: "network_failed",
       duration_ms: 4,
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
@@ -2288,6 +2301,7 @@ describe("CyberAgentClient", () => {
       model: "gpt-4.1-mini", status: "unreachable", outcome: "vendor_error",
       failure_reason: "authentication", retryable: false, network_request_attempted: true,
       model_called: true, tool_called: false, response_content_returned: false,
+      qualification_status: "capacity",
       duration_ms: 4,
     };
     const qualification = {
@@ -2295,14 +2309,17 @@ describe("CyberAgentClient", () => {
       model: "gpt-4.1-mini", status: "unreachable", outcome: "vendor_error",
       failure_reason: "authentication", retryable: false, network_request_attempted: true,
       model_calls: 1, synthetic_tool_calls: 0, tool_executed: false,
-      response_content_returned: false, duration_ms: 4,
+      response_content_returned: false, qualification_status: "rate_limit",
+      duration_ms: 4,
       harness: {
         protocol_version: "model_harness.v1", model: "gpt-4.1-mini",
         transport_protocol: "openai_chat_completions", tool_strategy: "native",
         json_strategy: "native", qualification_status: "qualification_required",
         tool_calls_qualified: false, tool_results_qualified: false,
         strict_json_qualified: false, streaming_qualified: false, root_eligible: false,
-        structured_json_eligible: false, qualified_at: "", expires_at: "",
+        structured_json_eligible: false, latest_qualification_status: "",
+        qualification_checked_at: "", qualification_source: "",
+        qualified_at: "", expires_at: "",
       },
     };
     const fetchMock = vi.fn()

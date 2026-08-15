@@ -26,6 +26,7 @@ import (
 	"cyberagent-workbench/internal/fileedit"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/policy"
+	"cyberagent-workbench/internal/pricing"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/skills"
 	"cyberagent-workbench/internal/toolgateway"
@@ -136,6 +137,8 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 						item.Post.OperationID == "diagnoseProvider") ||
 					(path == ModelHarnessQualificationPath &&
 						item.Post.OperationID == "qualifyModelHarness") ||
+					(path == PriceSnapshotsPath &&
+						item.Post.OperationID == "importPriceSnapshot") ||
 					(path == ProviderCredentialPathTemplate &&
 						item.Post.OperationID == "changeProviderCredential") ||
 					(path == FileEditProposalPathTemplate &&
@@ -185,7 +188,8 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 			path == RunWakeIntentPathTemplate || path == EvidenceAttachmentPathTemplate ||
 			path == VerificationEvidencePathTemplate || path == VerificationPlanPathTemplate ||
 			path == VerificationSnapshotReceiptPathTemplate ||
-			path == VerificationSnapshotReceiptReviewPathTemplate {
+			path == VerificationSnapshotReceiptReviewPathTemplate ||
+			path == PriceSnapshotsPath {
 			expectedOperations = 2
 		}
 		if len(operations) != expectedOperations {
@@ -234,6 +238,7 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 				path == RunExecutionControlPathTemplate ||
 				path == ModelRouteControlPathTemplate ||
 				path == ProviderDiagnosticPath || path == ModelHarnessQualificationPath ||
+				path == PriceSnapshotsPath ||
 				path == ProviderCredentialPathTemplate ||
 				path == FileEditProposalPathTemplate || path == FileEditReviewPathTemplate ||
 				path == FileEditApplyPathTemplate ||
@@ -310,6 +315,14 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 		"failure_reason", failureReasons)
 	assertOpenAPIEnum(t, document.Components.Schemas, "ModelHarnessQualificationView",
 		"failure_reason", failureReasons)
+	qualificationStatuses := []string{"not_configured", "available", "protocol_mismatch",
+		"auth_failed", "network_failed", "rate_limit", "capacity", "model_unsupported"}
+	assertOpenAPIEnum(t, document.Components.Schemas, "ProviderDiagnosticView",
+		"qualification_status", qualificationStatuses)
+	assertOpenAPIEnum(t, document.Components.Schemas, "ModelHarnessQualificationView",
+		"qualification_status", qualificationStatuses)
+	assertOpenAPIEnum(t, document.Components.Schemas, "ModelHarnessAvailabilityView",
+		"latest_qualification_status", append([]string{""}, qualificationStatuses...))
 	for _, field := range []string{"path", "content", "command", "hook"} {
 		assertOpenAPISchemaOmits(t, document.Components.Schemas,
 			"SkillPackageInstallRequestView", field)
@@ -584,6 +597,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	fixture.api.hostCommandProposalController = &hostCommandProposalControllerStub{view: hostView}
 	fixture.api.modelControlController = application.NewModelControlService(
 		fixture.api.modelRegistry, fixture.store)
+	fixture.api.priceSnapshotController = fixture.store
 	credentialStore := credential.NewMemoryStore()
 	fixture.api.providerCredentialController = application.NewProviderCredentialService(
 		credentialStore)
@@ -814,6 +828,15 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 					body = `{"version":"provider_diagnostic.v1","provider":"mock","model":"mock-code","confirm_diagnostic":true}`
 				} else if spec.Path == ModelHarnessQualificationPath {
 					body = `{"version":"model_harness_qualification.v1","provider":"mock","model":"mock-code","confirm_qualification":true}`
+				} else if spec.Path == PriceSnapshotsPath {
+					encoded, marshalErr := json.Marshal(PriceSnapshotImportRequestView{
+						Version: pricing.ProtocolVersion,
+						Document: openAPIPriceSnapshotDocument(t),
+					})
+					if marshalErr != nil {
+						t.Fatal(marshalErr)
+					}
+					body = string(encoded)
 				} else if spec.Path == EmbeddedAnalyzerExecutionPathTemplate {
 					body = `{"version":"` + application.EmbeddedAnalyzerExecutionProtocolVersion +
 						`","text":"OpenAPI embedded analyzer fixture\\n","media_type":"text/plain",` +
@@ -1084,6 +1107,35 @@ func prepareOpenAPISpecialistCancellationTarget(t *testing.T,
 		t.Fatalf("OpenAPI Specialist model start inserted=%t err=%v", inserted, err)
 	}
 	return run, admitted.Agent, attempt, modelAttempt
+}
+
+// openAPIPriceSnapshotDocument builds one minimal valid operator price
+// snapshot wire document whose validity window includes the current time.
+func openAPIPriceSnapshotDocument(t *testing.T) string {
+	t.Helper()
+	now := time.Now().UTC()
+	wire := pricing.Wire{
+		ProtocolVersion: pricing.ProtocolVersion, ID: "openapi-live-price-table",
+		Source: pricing.SourceOperatorImport, Currency: pricing.CurrencyUSD,
+		ImportedBy: "openapi_test",
+		ValidFrom: now.Add(-time.Minute).Format(time.RFC3339),
+		ValidUntil: now.Add(time.Hour).Format(time.RFC3339),
+		Entries: []struct {
+			Provider                  string `json:"provider"`
+			Model                     string `json:"model"`
+			InputPerMillionMicros     int64  `json:"input_per_million_micros"`
+			OutputPerMillionMicros    int64  `json:"output_per_million_micros"`
+			CacheReadPerMillionMicros int64  `json:"cache_read_per_million_micros"`
+			ToolCallMicros            int64  `json:"tool_call_micros"`
+		}{{Provider: "mock", Model: "mock-code", InputPerMillionMicros: 1000000,
+			OutputPerMillionMicros: 2000000, CacheReadPerMillionMicros: 250000,
+			ToolCallMicros: 50000}},
+	}
+	raw, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
 }
 
 func assertOpenAPISchemaOmits(t *testing.T, schemas map[string]map[string]any, name string, property string) {

@@ -673,7 +673,7 @@ func removeSchemaV98ForTestStatements() []string {
 }
 
 func removeSchemaV99ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV100ForTestStatements(), []string{
 		`DROP TABLE sandbox_docker_product_receipts`,
 		`DROP TABLE sandbox_docker_product_launches`,
 		`DROP TABLE sandbox_docker_product_start_requests`,
@@ -684,5 +684,14 @@ func removeSchemaV99ForTestStatements() []string {
 		`DROP INDEX idx_sandbox_docker_output_staging_receipts_attempt_v99`,
 		`DROP INDEX idx_sandbox_docker_log_capture_receipts_attempt_v99`,
 		`DELETE FROM schema_migrations WHERE version = 99`,
+	}...)
+}
+
+func removeSchemaV100ForTestStatements() []string {
+	return []string{
+		`DROP TABLE run_monetary_reservations`,
+		`DROP TABLE run_monetary_usage`,
+		`DROP TABLE provider_price_snapshots`,
+		`DELETE FROM schema_migrations WHERE version = 100`,
 	}
 }

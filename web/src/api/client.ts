@@ -544,7 +544,8 @@ function parseModelAvailability(value: unknown): ModelAvailabilityView {
 }
 
 function parseModelHarnessAvailability(value: unknown): ModelHarnessAvailabilityView {
-  if (!hasExactKeys(value, ["expires_at", "json_strategy", "model", "protocol_version",
+  if (!hasExactKeys(value, ["expires_at", "json_strategy", "latest_qualification_status",
+    "model", "protocol_version", "qualification_checked_at", "qualification_source",
     "qualification_status", "qualified_at", "root_eligible", "streaming_qualified",
     "strict_json_qualified", "structured_json_eligible", "tool_calls_qualified",
     "tool_results_qualified", "tool_strategy", "transport_protocol"]) ||
@@ -556,6 +557,15 @@ function parseModelHarnessAvailability(value: unknown): ModelHarnessAvailability
     !["native", "prompt", "none"].includes(String(value.json_strategy)) ||
     !["trusted_builtin", "qualification_required", "verified"].includes(
       String(value.qualification_status)) ||
+    !qualificationStatusValid(value.latest_qualification_status) ||
+    typeof value.qualification_checked_at !== "string" ||
+    typeof value.qualification_source !== "string" ||
+    (value.latest_qualification_status === ""
+      ? (value.qualification_checked_at !== "" || value.qualification_source !== "")
+      : (value.qualification_checked_at !== "" &&
+        !validDate(value.qualification_checked_at)) ||
+        !["diagnostic", "harness_qualification", "availability"].includes(
+          String(value.qualification_source))) ||
     typeof value.tool_calls_qualified !== "boolean" ||
     typeof value.tool_results_qualified !== "boolean" ||
     typeof value.strict_json_qualified !== "boolean" ||
@@ -926,11 +936,12 @@ function parseModelHarnessQualification(value: unknown,
   request: ModelHarnessQualificationRequestView): ModelHarnessQualificationView {
   if (!hasExactKeys(value, ["duration_ms", "failure_reason", "harness", "model", "model_calls",
     "network_request_attempted", "outcome", "protocol_version", "provider",
-    "response_content_returned", "retryable", "status", "synthetic_tool_calls",
-    "tool_executed"]) ||
+    "qualification_status", "response_content_returned", "retryable", "status",
+    "synthetic_tool_calls", "tool_executed"]) ||
     value.protocol_version !== "model_harness_qualification.v1" ||
     value.provider !== request.provider || value.model !== request.model ||
     !["qualified", "incompatible", "unreachable"].includes(String(value.status)) ||
+    !qualificationStatusValid(value.qualification_status) ||
     !providerFailureReasonValid(value.failure_reason) ||
     !providerOutcomeValid(value.outcome) || typeof value.retryable !== "boolean" ||
     typeof value.network_request_attempted !== "boolean" ||
@@ -955,9 +966,11 @@ function parseModelHarnessQualification(value: unknown,
 function parseProviderDiagnostic(value: unknown, request: ProviderDiagnosticRequestView): ProviderDiagnosticView {
   if (!hasExactKeys(value, ["duration_ms", "failure_reason", "model", "model_called",
     "network_request_attempted", "outcome", "protocol_version", "provider",
-    "response_content_returned", "retryable", "status", "tool_called"]) ||
+    "qualification_status", "response_content_returned", "retryable", "status",
+    "tool_called"]) ||
     value.protocol_version !== "provider_diagnostic.v1" || value.provider !== request.provider ||
     value.model !== request.model || (value.status !== "reachable" && value.status !== "unreachable") ||
+    !qualificationStatusValid(value.qualification_status) ||
     !providerFailureReasonValid(value.failure_reason) ||
     !providerOutcomeValid(value.outcome) || typeof value.retryable !== "boolean" ||
     typeof value.network_request_attempted !== "boolean" || typeof value.model_called !== "boolean" ||
@@ -975,6 +988,16 @@ function providerFailureReasonValid(value: unknown): boolean {
   return typeof value === "string" &&
     ["none", "not_configured", "authentication", "network", "rate_limit", "capacity",
       "model_not_found", "protocol_incompatible"].includes(value);
+}
+
+// qualificationStatusValid accepts the closed per-endpoint qualification
+// taxonomy. The empty string means the model was never diagnosed: the field
+// is omitted server-side until a diagnostic or Harness qualification observes
+// the endpoint.
+function qualificationStatusValid(value: unknown): boolean {
+  return typeof value === "string" &&
+    ["", "not_configured", "available", "protocol_mismatch", "auth_failed",
+      "network_failed", "rate_limit", "capacity", "model_unsupported"].includes(value);
 }
 
 function providerOutcomeValid(value: unknown): boolean {

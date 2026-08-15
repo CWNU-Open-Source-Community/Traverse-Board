@@ -130,6 +130,7 @@ type specialistTurnLimits struct {
 type SpecialistRunner struct {
 	store                    SpecialistRunnerStore
 	router                   *llm.Router
+	monetary                 *MonetaryBudgetService
 	checker                  policy.Checker
 	retryPolicy              ModelRetryPolicy
 	leaseOwner               string
@@ -160,6 +161,15 @@ func (r *SpecialistRunner) WithSkillRegistry(registry *skills.Registry) *Special
 		if registry == nil {
 			r.skillRegistryErr = errors.New("skill registry is required")
 		}
+	}
+	return r
+}
+
+// WithMonetaryBudget installs the monetary reserve/settle gate for
+// Specialist model calls; a nil service disables enforcement.
+func (r *SpecialistRunner) WithMonetaryBudget(service *MonetaryBudgetService) *SpecialistRunner {
+	if r != nil && service != nil {
+		r.monetary = service
 	}
 	return r
 }
@@ -488,6 +498,16 @@ func (r *SpecialistRunner) stepReadyWithLease(ctx context.Context,
 		if storeErr != nil {
 			return r.failAttempt(ctx, result, ref, storeErr)
 		}
+		if r.monetary != nil {
+			if _, settleErr := r.monetary.SettleModelCall(ctx, ref.RunID,
+				domain.MonetaryScopeSpecialist, modelCall.Attempt, llm.Usage{
+					InputTokens: int(charged.Usage.InputTokens),
+					OutputTokens: int(charged.Usage.OutputTokens),
+					TotalTokens: int(charged.Usage.TotalTokens),
+				}, len(response.ToolCalls)); settleErr != nil {
+				return r.failAttempt(ctx, result, ref, settleErr)
+			}
+		}
 		result.Usage = charged.Usage
 		result.ModelOutcome = llm.OutcomeSuccess
 		result.Action = normalized
@@ -707,6 +727,12 @@ func (r *SpecialistRunner) callModelWithRetry(ctx context.Context, run domain.Ru
 			return result, apperror.New(apperror.CodeConflict,
 				"Specialist model attempt is already active")
 		}
+		if r.monetary != nil {
+			if _, reserveErr := r.monetary.ReserveModelCall(ctx, run,
+				domain.MonetaryScopeSpecialist, attempt, request); reserveErr != nil {
+				return result, apperror.Normalize(reserveErr)
+			}
+		}
 		startedAt := time.Now()
 		streamed, callErr := func() (specialistStreamResult, error) {
 			budgetCtx, cancelBudget := specialistModelContext(ctx, run.Budget, consumedMillis,
@@ -746,6 +772,10 @@ func (r *SpecialistRunner) callModelWithRetry(ctx context.Context, run domain.Ru
 		cancelEvent()
 		if storeErr != nil {
 			return result, errors.Join(providerApplicationError(providerErr), storeErr)
+		}
+		if r.monetary != nil {
+			_, _ = r.monetary.ReleaseModelCall(ctx, ref.RunID,
+				domain.MonetaryScopeSpecialist, attempt)
 		}
 		if !attempt.RetryPlanned {
 			return result, providerApplicationError(providerErr)
@@ -1053,6 +1083,10 @@ func (r *SpecialistRunner) recordUnusableModelResponse(ctx context.Context,
 	eventCtx, cancelEvent := specialistEventContext(ctx)
 	charged, storeErr := r.store.RecordSpecialistModelFailed(eventCtx, ref, attempt, nil)
 	cancelEvent()
+	if r.monetary != nil {
+		_, _ = r.monetary.ReleaseModelCall(ctx, ref.RunID,
+			domain.MonetaryScopeSpecialist, attempt)
+	}
 	if charged.ID != "" {
 		result.Usage = charged.Usage
 	}

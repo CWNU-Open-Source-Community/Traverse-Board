@@ -333,5 +333,15 @@ func (s *RunService) transition(ctx context.Context, run domain.Run, target doma
 	if err := s.store.TransitionRun(ctx, run, expected, event); err != nil {
 		return domain.Run{}, err
 	}
+	if target == domain.RunCancelled || target == domain.RunCompleted ||
+		target == domain.RunFailed {
+		// Best-effort: terminal runs release every open monetary
+		// reservation so the aggregate can never leak capacity.
+		if releaser, ok := s.store.(interface {
+			ReleaseOpenMonetaryReservations(context.Context, string) (int, error)
+		}); ok {
+			_, _ = releaser.ReleaseOpenMonetaryReservations(ctx, run.ID)
+		}
+	}
 	return run, nil
 }

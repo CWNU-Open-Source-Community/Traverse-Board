@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -70,6 +72,7 @@ type ReadOnlyFanoutExecutionService struct {
 	checker     policy.Checker
 	leaseOwner  string
 	leasePolicy RunExecutionLeasePolicy
+	monetary    *MonetaryBudgetService
 }
 
 func NewReadOnlyFanoutExecutionService(store ReadOnlyFanoutExecutionStore,
@@ -80,6 +83,17 @@ func NewReadOnlyFanoutExecutionService(store ReadOnlyFanoutExecutionStore,
 		leaseOwner:  idgen.New("fanout-worker"),
 		leasePolicy: DefaultRunExecutionLeasePolicy(),
 	}
+}
+
+// WithMonetaryBudget installs the monetary reserve/settle gate for
+// read-only fan-out model calls; a nil service disables enforcement.
+func (s *ReadOnlyFanoutExecutionService) WithMonetaryBudget(
+	service *MonetaryBudgetService,
+) *ReadOnlyFanoutExecutionService {
+	if s != nil && service != nil {
+		s.monetary = service
+	}
+	return s
 }
 
 func (s *ReadOnlyFanoutExecutionService) WithRunExecutionLeaseOwner(owner string,
@@ -648,6 +662,19 @@ func (s *ReadOnlyFanoutExecutionService) runOneReadOnlyFanoutShard(
 	if err != nil {
 		return apperror.Normalize(err)
 	}
+	fanoutAttempt := llm.ModelAttempt{
+		Number: readOnlyFanoutMonetaryAttemptNumber(execution.ID, shard.Ordinal),
+		Provider: modelRef.Provider, Model: modelRef.Model,
+	}
+	if s.monetary != nil {
+		if _, reserveErr := s.monetary.ReserveModelCall(ctx, run,
+			domain.MonetaryScopeReadOnlyFanout, fanoutAttempt, request.Request); reserveErr != nil {
+			persistErr := s.failReadOnlyFanoutShard(ctx, lease, execution.ID, started,
+				modelRef, nil, 0, domain.ReadOnlyFanoutExecutionShardFailed,
+				"monetary_reserve_failed", reserveErr.Error())
+			return errors.Join(apperror.Normalize(reserveErr), persistErr)
+		}
+	}
 	callCtx := ctx
 	cancelCall := func() {}
 	if request.ReservedMillis > 0 {
@@ -752,6 +779,10 @@ func (s *ReadOnlyFanoutExecutionService) runOneReadOnlyFanoutShard(
 			completeErr.Error())
 		return errors.Join(completeErr, persistErr)
 	}
+	if s.monetary != nil {
+		_, _ = s.monetary.SettleModelCall(ctx, run.ID,
+			domain.MonetaryScopeReadOnlyFanout, fanoutAttempt, response.Usage, 0)
+	}
 	return nil
 }
 
@@ -786,6 +817,17 @@ func (s *ReadOnlyFanoutExecutionService) failRecoveredExecution(ctx context.Cont
 		result.Execution = finalized
 	}
 	return errors.Join(apperror.New(apperror.CodeFailedPrecondition, reason), finalizeErr)
+}
+
+// readOnlyFanoutMonetaryAttemptNumber derives a stable positive attempt
+// identity for one shard. Retries of the same shard replay the same
+// monetary reservation instead of creating a second one.
+func readOnlyFanoutMonetaryAttemptNumber(executionID string, ordinal int) int {
+	hash := fnv.New64a()
+	_, _ = hash.Write([]byte(executionID))
+	_, _ = hash.Write([]byte{0})
+	_, _ = hash.Write([]byte(strconv.Itoa(ordinal)))
+	return int(hash.Sum64()&0x7FFFFFFF) + 1
 }
 
 func readOnlyFanoutFinalStatus(execution domain.ReadOnlyFanoutExecution,

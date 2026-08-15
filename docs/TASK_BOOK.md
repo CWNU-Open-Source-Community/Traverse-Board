@@ -98,7 +98,7 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 - [x] 复用 Anthropic-compatible transport 注册独立的 Mimo/DeepSeek 环境 Provider；Key 不进入配置、SQLite 或事件。
 - [x] 对无效 `root_lifecycle.v1` 增加恰好一次的有界自动修复；修复阶段、原因、token 用量和四类修复事件可跨重启恢复，且与 transport retry 分开计数。
 - [ ] 增加结构化依赖等待；schema v23 已完成 child `agent.finish` 的持久化、幂等和父 inbox 回传。
-- [ ] 增加金额预算；turn、token、模型执行时间与 P5 Run 工具调用预算已落地。
+- [x] 增加金额预算（schema v100 / ADR 0101）：整数 micro-USD 账本、算子导入价格快照、reserve→call→settle-or-release、终态事件对账与 fail-closed 闸门；turn、token、模型执行时间与 P5 Run 工具调用预算已落地。Mission 级上限与 vendor 价格订阅留待后续。
 - [x] schema v18 增加跨进程主动取消控制：独立 read/control token、精确 Run/Supervisor/model attempt 前置条件、原始幂等键不落库、worker lease-fenced 观察、Provider context 取消、终态解析与 stale attempt `superseded`。
 - [x] 增加真实 Provider stream 聚合与 `model.delta`；执行 UTF-8、64 KiB、final usage、取消校验，每次模型调用最多持久化 32 条无文本进度事件。
 - [x] Bubble Tea 消费进程内 active-call 元数据，展示调用进度/断线/终态，并通过 `Ctrl+X` 调用审计取消；UI 不持有 Provider context。

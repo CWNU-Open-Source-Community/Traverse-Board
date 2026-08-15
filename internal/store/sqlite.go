@@ -326,6 +326,7 @@ func migrationPlan() []migration {
 		{Version: 97, Name: "durable Docker lifecycle ownership and recovery", Statements: sandboxDockerLifecycleStatements},
 		{Version: 98, Name: "bounded Docker container I/O contract and atomic output commit", Statements: sandboxDockerContainerIOStatements},
 		{Version: 99, Name: "immutable Docker Sandbox product admission and completion", Statements: sandboxDockerProductAdmissionStatements},
+		{Version: 100, Name: "operator price snapshots and the run monetary budget ledger", Statements: monetaryBudgetStatements},
 	}
 }
 

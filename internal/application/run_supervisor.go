@@ -182,6 +182,7 @@ type RunSupervisor struct {
 	checker                  policy.Checker
 	retryPolicy              ModelRetryPolicy
 	activeCalls              *ActiveCallRegistry
+	monetary                 *MonetaryBudgetService
 	tools                    *toolgateway.Gateway
 	leaseOwner               string
 	leasePolicy              RunExecutionLeasePolicy
@@ -285,6 +286,16 @@ func (s *RunSupervisor) WithModelRetryPolicy(policy ModelRetryPolicy) *RunSuperv
 func (s *RunSupervisor) WithActiveCalls(registry *ActiveCallRegistry) *RunSupervisor {
 	if s != nil && registry != nil {
 		s.activeCalls = registry
+	}
+	return s
+}
+
+// WithMonetaryBudget installs the monetary reserve/settle gate. It is
+// optional so embedded and test harnesses keep working; a nil service
+// disables monetary enforcement.
+func (s *RunSupervisor) WithMonetaryBudget(service *MonetaryBudgetService) *RunSupervisor {
+	if s != nil && service != nil {
+		s.monetary = service
 	}
 	return s
 }
@@ -660,6 +671,14 @@ func (s *RunSupervisor) stepWithLeaseMode(ctx context.Context, lease domain.RunE
 					failure := s.recordFailure(ctx, &result, storeErr, modelCall.Attempt.Elapsed)
 					return result, failure
 				}
+				if s.monetary != nil {
+					if _, settleErr := s.monetary.SettleModelCall(ctx, turn.Checkpoint.RunID,
+						domain.MonetaryScopeRoot, modelCall.Attempt, response.Usage,
+						len(response.ToolCalls)); settleErr != nil {
+						failure := s.recordFailure(ctx, &result, settleErr, 0)
+						return result, failure
+					}
+				}
 				turn.Checkpoint = updated
 				result.Checkpoint = updated
 				result.ModelOutcome = llm.OutcomeSuccess
@@ -723,6 +742,10 @@ func (s *RunSupervisor) stepWithLeaseMode(ctx context.Context, lease domain.RunE
 				failure := s.recordFailure(ctx, &result, errors.Join(providerApplicationError(providerErr), storeErr), failureElapsed)
 				return result, failure
 			}
+			if s.monetary != nil {
+				_, _ = s.monetary.ReleaseModelCall(ctx, turn.Checkpoint.RunID,
+					domain.MonetaryScopeRoot, modelCall.Attempt)
+			}
 			if requestRepair {
 				protocolRepair = 1
 				repairReason = reason
@@ -739,6 +762,14 @@ func (s *RunSupervisor) stepWithLeaseMode(ctx context.Context, lease domain.RunE
 		if err != nil {
 			failure := s.recordFailure(ctx, &result, err, modelCall.Attempt.Elapsed)
 			return result, failure
+		}
+		if s.monetary != nil {
+			if _, settleErr := s.monetary.SettleModelCall(ctx, turn.Checkpoint.RunID,
+				domain.MonetaryScopeRoot, modelCall.Attempt, response.Usage,
+				len(response.ToolCalls)); settleErr != nil {
+				failure := s.recordFailure(ctx, &result, settleErr, 0)
+				return result, failure
+			}
 		}
 		turn.Checkpoint = updated
 		result.Checkpoint = updated
@@ -1166,6 +1197,13 @@ func (s *RunSupervisor) callModelWithRetry(ctx context.Context, turn domain.Supe
 		if err != nil {
 			return result, apperror.Normalize(err)
 		}
+		if s.monetary != nil {
+			if _, reserveErr := s.monetary.ReserveModelCall(ctx, turn.Run,
+				domain.MonetaryScopeRoot, attempt, request); reserveErr != nil {
+				lease.Abort()
+				return result, apperror.Normalize(reserveErr)
+			}
+		}
 		inserted, err := s.store.RecordSupervisorModelStarted(ctx, result.Checkpoint, attempt)
 		if err != nil {
 			lease.Abort()
@@ -1211,6 +1249,10 @@ func (s *RunSupervisor) callModelWithRetry(ctx context.Context, turn domain.Supe
 		eventCtx, eventCancel := supervisorModelEventContext(ctx)
 		updated, eventErr := s.store.RecordSupervisorModelFailed(eventCtx, result.Checkpoint, attempt)
 		eventCancel()
+		if s.monetary != nil {
+			_, _ = s.monetary.ReleaseModelCall(ctx, result.Checkpoint.RunID,
+				domain.MonetaryScopeRoot, attempt)
+		}
 		if eventErr != nil {
 			return result, errors.Join(providerApplicationError(providerErr), eventErr)
 		}
@@ -1241,6 +1283,10 @@ func (s *RunSupervisor) recordInvalidModelAttempt(ctx context.Context, checkpoin
 	eventCancel()
 	if err != nil {
 		return domain.SupervisorCheckpoint{}, errors.Join(appErr, err)
+	}
+	if s.monetary != nil {
+		_, _ = s.monetary.ReleaseModelCall(ctx, checkpoint.RunID, domain.MonetaryScopeRoot,
+			*attempt)
 	}
 	return updated, appErr
 }
