@@ -184,6 +184,30 @@ Schema v40 loads the complete selected set for root Supervisor turns. Before eve
 
 Schema v47 derives `specialist_skill_context.v1` for each active child Attempt. Go reloads the child after Attempt start, binds the current immutable Run mode and parent selection, requires delegated `model.chat`, and selects at most one already-pinned guide. Code uses the guide matching its Profile. Cyber receives no broad Code/Review/Learn guide and receives `script` only for the Script Profile. `plan-delivery` is root-only. The default child budget is 1,024 conservative tokens with a 2,048 hard maximum. Preparation is idempotent across concurrent Store callers and commits atomically with the first Specialist model start; a selected Run cannot start that call without preparation. Child assignment text, model output, HTTP, Tool Gateway, and external directories cannot select Skills. The body remains in the current Go Provider request only, while SQLite and events store aggregate metadata and fingerprints.
 
+## Signed Skill Packages and Team Catalog
+
+```powershell
+cyberagent skill catalog list
+cyberagent skill catalog trust <publisher> <base64-ed25519-public-key> [--team label] [--operator admin]
+cyberagent skill catalog revoke <publisher-fingerprint> [--operator admin]
+cyberagent skill catalog pin <name>@<version> --surface code|cyber [--operator admin]
+cyberagent skill catalog enable <name> --surface code|cyber [--operator admin]
+cyberagent skill catalog disable <name> --surface code|cyber [--operator admin]
+cyberagent skill catalog audit
+cyberagent skill import-url <https-url> --sha256 <hex> --surface code --operation-key <stable-key> --confirm-untrusted-skill
+cyberagent skill import-git <https-repo-url> --commit <40-hex-sha> --surface code --operation-key <stable-key> --confirm-untrusted-skill
+cyberagent skill import-dir <directory> --surface code --operation-key <stable-key> --confirm-untrusted-skill
+```
+
+Signed packages use `skill_package.v2`: the deterministic ZIP holds `manifest.json` (with a `publisher` field), `SKILL.md`, and `SIGNATURE.json`. The Ed25519 signature covers `sha256(manifest.json) || sha256(SKILL.md)`; a package with an invalid or stale signature is rejected outright. A publisher identity is the SHA-256 fingerprint of its public key. A valid signature proves provenance only — it never grants trust or capability. Signed packages install under the same `operator_installed_untrusted` class as v1 packages after the signature envelope is verified and stripped; the signed archive digest and publisher fingerprint are kept in the import ledger.
+
+`skill catalog trust` is the explicit operator/admin trust decision. A signed package can only be pinned once its publisher is trusted and not revoked; `revoke` blocks new pins without touching already-installed packages. `skill catalog pin` pins the active version for a skill + surface; re-pinning is upgrade or rollback. When a pin exists, `skill select-external` only accepts the pinned version and only while enabled; skills without a pin keep the existing operator-confirmed flow.
+
+URL imports require an absolute HTTPS URL without credentials plus the expected SHA-256 pin: the response body must match the pin byte-for-byte, redirects must stay HTTPS on the original host, and the body is capped at 1 MiB, so redirects or upstream drift cannot change reviewed content. Git imports require an HTTPS repository URL plus a full lowercase 40-character commit SHA: the staging clone (`--no-checkout`, `core.autocrlf=false`) checks out the exact commit and re-verifies `HEAD`; no hooks, scripts, submodules, or build tools from the repository ever run. Directory/staging packaging accepts only `manifest.json` + `SKILL.md` (+ optional `SIGNATURE.json`) at the root and rejects symlinks, junctions, subdirectories, special files, and oversized or non-UTF-8 content.
+
+Every catalog mutation appends a bounded audit row (`catalog.trusted`, `catalog.revoked`, `catalog.pinned`, `catalog.enabled`, `catalog.disabled`, `import.completed`) to the append-only `skill_catalog_audit` table (schema v104). Audits never contain Skill bodies, secrets, or raw outputs. Skills remain declarative prompt-only resources; declared tool dependencies still grant nothing and all tools flow through the Go Tool Gateway.
+
+
 ## Windows Desktop D0-A Through D1-G13/V12
 
 Build the unsigned development/portable-test shell from the repository root:
