@@ -860,9 +860,11 @@ cyberagent provider test
 cyberagent provider test mimo/mimo-v2.5-pro
 cyberagent provider test deepseek/deepseek-v4-flash
 cyberagent provider test openai/gpt-4.1-mini
+cyberagent provider test ollama/llama3.2:3b
 cyberagent provider qualify script
 cyberagent provider qualify mimo/mimo-v2.5-pro
 cyberagent provider qualify openai/gpt-4.1-mini
+cyberagent provider qualify ollama/llama3.2:3b
 cyberagent model list
 cyberagent model set script mock/mock-code
 ```
