@@ -1551,7 +1551,7 @@ var openAPIFieldEnums = map[string][]string{
 	"DockerSandboxCancellationView.reason_code":               {domain.DockerSandboxReasonCancelled},
 	"EventView.version":                                       {events.EnvelopeVersion},
 	"RunActivityView.version":                                 {runactivity.ProtocolVersion},
-	"RunActivityItemView.kind":                                {string(runactivity.KindHarnessStatus), string(runactivity.KindModelUpdate), string(runactivity.KindOperatorInput), string(runactivity.KindModelCall), string(runactivity.KindToolCall), string(runactivity.KindApproval), string(runactivity.KindFileChange), string(runactivity.KindPlan)},
+	"RunActivityItemView.kind":                                {string(runactivity.KindHarnessStatus), string(runactivity.KindModelUpdate), string(runactivity.KindOperatorInput), string(runactivity.KindModelCall), string(runactivity.KindToolCall), string(runactivity.KindApproval), string(runactivity.KindFileChange), string(runactivity.KindPlan), string(runactivity.KindDependency)},
 	"RunActivityItemView.source":                              {string(runactivity.SourceHarness), string(runactivity.SourceModel), string(runactivity.SourceOperator)},
 	"IndexView.api_version":                                   {Version},
 	"HealthView.status":                                       {"ok"},

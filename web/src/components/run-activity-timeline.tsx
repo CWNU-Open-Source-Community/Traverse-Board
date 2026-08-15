@@ -6,6 +6,7 @@ import {
   FilePenLine,
   ListChecks,
   MessageSquareText,
+  Network,
   ShieldCheck,
   UserRound,
   Wrench,
@@ -28,9 +29,11 @@ const statusLabels: Record<string, string> = {
   cancelling: "取消中",
   completed: "已完成",
   denied: "已拒绝",
+  expired: "已超时",
   failed: "失败",
   pending: "待处理",
   running: "进行中",
+  satisfied: "已满足",
   selected: "已选择",
   superseded: "已替换",
   waiting: "等待中",
@@ -50,6 +53,8 @@ function ActivityIcon({ kind, source }: Pick<RunActivityItemView, "kind" | "sour
     return <Wrench aria-hidden="true" size={16} />;
   case "model_call":
     return <MessageSquareText aria-hidden="true" size={16} />;
+  case "dependency":
+    return <Network aria-hidden="true" size={16} />;
   default:
     return <CircleDot aria-hidden="true" size={15} />;
   }

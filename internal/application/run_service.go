@@ -342,6 +342,13 @@ func (s *RunService) transition(ctx context.Context, run domain.Run, target doma
 		}); ok {
 			_, _ = releaser.ReleaseOpenMonetaryReservations(ctx, run.ID)
 		}
+		// Best-effort: a terminal run cancels every open dependency wait
+		// (parent-cancel fan-down) with exactly-once wake receipts.
+		if reconciler, ok := s.store.(interface {
+			ReconcileDependencyEdges(context.Context, string) ([]domain.DependencyWake, error)
+		}); ok {
+			_, _ = reconciler.ReconcileDependencyEdges(ctx, run.ID)
+		}
 	}
 	return run, nil
 }

@@ -21,6 +21,8 @@ const (
 	CodeUnavailable        Code = "UNAVAILABLE"
 	CodeCancelled          Code = "CANCELLED"
 	CodeDeadlineExceeded   Code = "DEADLINE_EXCEEDED"
+	CodeDeadlock           Code = "DEADLOCK"
+	CodeLivelock           Code = "LIVELOCK"
 	CodeInternal           Code = "INTERNAL"
 )
 
@@ -128,6 +130,10 @@ func ExitCode(err error) int {
 		return 8
 	case CodeDeadlineExceeded:
 		return 9
+	case CodeDeadlock:
+		return 10
+	case CodeLivelock:
+		return 11
 	default:
 		return 1
 	}
@@ -153,6 +159,8 @@ func HTTPStatus(err error) int {
 		return 499
 	case CodeDeadlineExceeded:
 		return http.StatusGatewayTimeout
+	case CodeDeadlock, CodeLivelock:
+		return http.StatusConflict
 	default:
 		return http.StatusInternalServerError
 	}
