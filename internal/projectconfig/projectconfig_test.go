@@ -77,7 +77,7 @@ func TestLoadFailsClosedOnHostileInputs(t *testing.T) {
 
 		{name: "path escape", content: "protocol: project_config.v1\nexclude_paths: [../etc]\n"},
 
-		{name: "absolute path", content: "protocol: project_config.v1\nexclude_paths: [C:/windows]\n"},
+		{name: "absolute path", content: "protocol: project_config.v1\nexclude_paths: [" + filepath.Join("/", "etc", "passwd") + "]\n"},
 
 		{name: "bad skill ref", content: "protocol: project_config.v1\nskill_suggestions: [shell]\n"},
 

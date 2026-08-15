@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Prayu project config (project_config.v1)",
+  "description": "Narrowing-only project file at <workspace>/.prayu/config.yaml. Every field can only reduce operator/process/policy limits; widening attempts are rejected fail-closed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol"
+  ],
+  "properties": {
+    "protocol": {
+      "const": "project_config.v1"
+    },
+    "read_only": {
+      "type": "boolean"
+    },
+    "allowed_profiles": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "code",
+          "review",
+          "learn",
+          "script"
+        ]
+      },
+      "uniqueItems": true,
+      "maxItems": 4
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_turns": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_tool_calls": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "exclude_paths": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 1024
+      },
+      "maxItems": 64
+    },
+    "skill_suggestions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9.-]+@[0-9.]+$"
+      },
+      "maxItems": 16
+    },
+    "test_command_id": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^\\S+$"
+    },
+    "format_command_id": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^\\S+$"
+    }
+  }
+}
