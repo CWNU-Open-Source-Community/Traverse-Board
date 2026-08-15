@@ -23,6 +23,7 @@ import (
 	"cyberagent-workbench/internal/operatoraction"
 	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/runactivity"
+	"cyberagent-workbench/internal/sandbox"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/skills"
 	"cyberagent-workbench/internal/verification"
@@ -195,6 +196,7 @@ func GenerateOpenAPI() ([]byte, error) {
 			{Name: "Workspaces", Description: "Registered Workspace identities without local root paths."},
 			{Name: "Memory", Description: "Structured WorkItems and Notes."},
 			{Name: "Artifacts", Description: "Content-free Artifact descriptors."},
+			{Name: "Sandbox", Description: "Docker Sandbox readiness, admission, bounded execution, cancellation, and status."},
 			{Name: "Control", Description: "Separately authorized, audit-first control operations."},
 		},
 		Paths: paths,
@@ -243,7 +245,47 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 	routeName := pathIdentityParameter("route", "Model route name")
 	providerName := pathIdentityParameter("provider", "Provider name")
 	providerName.Schema["enum"] = []string{"anthropic", "deepseek", "mimo", "openai"}
+	dockerSandboxIdempotencyKey := openAPIParameter{Name: "Idempotency-Key", In: "header",
+		Description: "Opaque retry key; only a domain-separated digest is persisted",
+		Required:    true, Schema: map[string]any{"type": "string",
+			"minLength": domain.MinAgentOperationKeyBytes,
+			"maxLength": domain.MaxAgentOperationKeyBytes, "pattern": `^\S+$`}}
 	return []openAPIOperationSpec{
+		{Path: DockerSandboxReadinessPath, Method: http.MethodPost,
+			OperationID: "evaluateDockerSandboxReadiness",
+			Summary:     "Evaluate Docker Sandbox readiness", Tag: "Sandbox",
+			Description:   "Performs a non-mutating, no-cache readiness evaluation for one exact Go-validated plan and Manifest. It cannot accept a daemon endpoint, host path, image override, mount override, or Docker flag.",
+			DataType:      reflect.TypeOf(DockerSandboxReadinessView{}),
+			RequestType:   reflect.TypeOf(DockerSandboxReadinessRequestView{}),
+			SuccessStatus: http.StatusOK},
+		{Path: DockerSandboxAdmissionPath, Method: http.MethodPost,
+			OperationID: "admitDockerSandbox", Summary: "Admit an exact Docker Sandbox request",
+			Tag: "Sandbox", Description: "Recomputes every current Go-owned gate and records an idempotent process-bound admission. Idempotency-Key is required.",
+			DataType:    reflect.TypeOf(DockerSandboxAdmissionView{}),
+			RequestType: reflect.TypeOf(DockerSandboxAdmissionRequestView{}),
+			Control:     true, SuccessStatus: http.StatusOK,
+			Parameters: []openAPIParameter{dockerSandboxIdempotencyKey}},
+		{Path: DockerSandboxStartPath, Method: http.MethodPost,
+			OperationID: "startDockerSandbox", Summary: "Start an admitted Docker Sandbox",
+			Tag: "Sandbox", Description: "Synchronously executes the exact admitted plan through the Go-owned lifecycle; client disconnect cancels and cleans up. Idempotency-Key is required.",
+			DataType:    reflect.TypeOf(DockerSandboxStatusView{}),
+			RequestType: reflect.TypeOf(DockerSandboxStartRequestView{}),
+			Control:     true, SuccessStatus: http.StatusOK,
+			Parameters: []openAPIParameter{dockerSandboxIdempotencyKey}},
+		{Path: DockerSandboxCancelPath, Method: http.MethodPost,
+			OperationID: "cancelDockerSandbox", Summary: "Cancel a Docker Sandbox attempt",
+			Tag: "Sandbox", Description: "Persists sticky cancellation and converges bounded cleanup without restoring start authority. Idempotency-Key is required.",
+			DataType:    reflect.TypeOf(DockerSandboxCancellationView{}),
+			RequestType: reflect.TypeOf(DockerSandboxCancelRequestView{}),
+			Control:     true, SuccessStatus: http.StatusOK,
+			Parameters: []openAPIParameter{dockerSandboxIdempotencyKey}},
+		{Path: DockerSandboxStatusPath, OperationID: "getDockerSandboxStatus",
+			Summary: "Inspect Docker Sandbox status", Tag: "Sandbox",
+			Description: "Returns the content-free admission, launch, terminal outcome, cleanup, and artifact-count projection.",
+			DataType:    reflect.TypeOf(DockerSandboxStatusView{}), NotFound: true,
+			Parameters: []openAPIParameter{{Name: "admission_id", In: "query",
+				Description: "Opaque Docker Sandbox admission identity", Required: true,
+				Schema: map[string]any{"type": "string", "minLength": 1, "maxLength": 256}}}},
 		{Path: "/api/v1", OperationID: "getAPIIndex", Summary: "Inspect API resources",
 			Description: "Returns API and application versions plus top-level resources.", Tag: "System",
 			DataType: reflect.TypeOf(IndexView{})},
@@ -1060,11 +1102,13 @@ func buildOpenAPIOperation(spec openAPIOperationSpec, registry *openAPISchemaReg
 	operation := openAPIOperation{OperationID: spec.OperationID, Summary: spec.Summary,
 		Description: spec.Description, Tags: []string{spec.Tag}, Parameters: spec.Parameters,
 		Responses: responses, ReadOnly: !spec.Control, Streaming: spec.Streaming}
-	if spec.Control {
-		if spec.RequestType == nil {
-			return openAPIOperation{}, fmt.Errorf("OpenAPI control path %q has no request DTO", spec.Path)
+	if spec.Control && spec.RequestType == nil {
+		return openAPIOperation{}, fmt.Errorf("OpenAPI control path %q has no request DTO", spec.Path)
+	}
+	if spec.RequestType != nil {
+		if spec.Control {
+			operation.Security = []map[string][]string{{"ControlBearerAuth": {}}}
 		}
-		operation.Security = []map[string][]string{{"ControlBearerAuth": {}}}
 		operation.RequestBody = &openAPIRequestBody{Required: true, Content: map[string]openAPIMediaType{
 			"application/json": {Schema: registry.ref(spec.RequestType)},
 		}}
@@ -1475,6 +1519,22 @@ func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[str
 }
 
 var openAPIFieldEnums = map[string][]string{
+	"DockerSandboxReadinessView.protocol_version": {sandbox.DockerReadinessProtocolVersion},
+	"DockerSandboxReadinessView.status": {sandbox.DockerReadinessStatusReady,
+		sandbox.DockerReadinessStatusDisabled, sandbox.DockerReadinessStatusUnavailable},
+	"DockerSandboxReadinessView.network_mode": {"disabled"},
+	"DockerSandboxAdmissionView.decision": {domain.DockerSandboxAdmissionAuthorized,
+		domain.DockerSandboxAdmissionDenied},
+	"DockerSandboxAdmissionView.permission_mode": {
+		string(domain.RunExecutionPermissionApproval),
+		string(domain.RunExecutionPermissionFullAccess),
+		string(domain.RunExecutionPermissionDebug),
+	},
+	"DockerSandboxStatusView.state": {"admitted", "launched", "terminal"},
+	"DockerSandboxStatusView.outcome": {domain.DockerSandboxOutcomeSucceeded,
+		domain.DockerSandboxOutcomeFailed, domain.DockerSandboxOutcomeTimedOut,
+		domain.DockerSandboxOutcomeCancelled},
+	"DockerSandboxCancellationView.reason_code":               {domain.DockerSandboxReasonCancelled},
 	"EventView.version":                                       {events.EnvelopeVersion},
 	"RunActivityView.version":                                 {runactivity.ProtocolVersion},
 	"RunActivityItemView.kind":                                {string(runactivity.KindHarnessStatus), string(runactivity.KindModelUpdate), string(runactivity.KindOperatorInput), string(runactivity.KindModelCall), string(runactivity.KindToolCall), string(runactivity.KindApproval), string(runactivity.KindFileChange), string(runactivity.KindPlan)},

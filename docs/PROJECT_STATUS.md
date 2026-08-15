@@ -1,12 +1,46 @@
 # Project Status
 
-Last updated: 2026-08-14
+Last updated: 2026-08-15
 
 > **Scope authority:** active mainline work targets the general-purpose Agent Harness and Code workflow. CTF-specific solving and offensive automation are optional add-ons and have no active implementation schedule. Historical references and percentages below remain audit history, not queued work. See [Product Scope](PRODUCT_SCOPE.md).
 
 ## Resume Context
 
-The current single-slice checkpoint is the bounded Docker container I/O
+当前单切片检查点是 issue #40 的 schema v99 Docker Sandbox 产品准入、执行与恢复。
+新的 `DockerSandboxService` 将 v97 的 exact-owned 生命周期与 v98 的有界 I/O 组合到
+CLI、认证 HTTP/OpenAPI、Desktop 与模型提案入口；模型
+`sandbox_docker_run_propose` 只能请求 Admit，不能 Start 或构造 Docker 请求。全部入口
+复用当前 Run/Profile/permission、精确 per-call approval、Policy、wall/tool budget、
+30 秒 `sandbox.readiness.v1` 与 process-local random runtime epoch 的同一门禁。
+
+产品默认关闭，只接受 environment-free、secret-free、零 target 的
+`network.mode=disabled`。Create/inspect 固定 Docker network none 并拒绝 port、DNS、
+host/link/endpoint/proxy/alias 状态；managed allowlist 仍缺少 Go-owned exact
+host/port/protocol egress guard，因此固定
+`managed_egress_unavailable/use_network_disabled`，不得宣称 scoped egress 已实现。
+Docker 不可用时没有宿主 fallback。
+
+Schema v99 adds immutable admission, independent Start WAL/launch binding,
+append-only cancellation, and one terminal receipt without backfilling or
+widening v97/v98 authority. A fresh process epoch means SQLite cannot restore
+start authority. Post-exit handling captures bounded logs first; only natural
+exit zero plus fresh Artifact authority may stage, re-hash, and atomically
+commit outputs, followed by exact cleanup. Timeout, cancellation, non-zero
+exit, I/O failure, and authority change commit no output. Sticky cancellation
+persists before context signalling; startup recovery only reconciles already-
+launched exact-owned resources and never auto-starts an admission-only record.
+Issue #40 integration is complete: the full ordinary Go suite is green, the
+Web surface accepts the Docker capability only together with permission
+control (settings chip, Desktop bootstrap, regenerated OpenAPI schema), and
+all three opt-in real-daemon gates pass on Docker Desktop 29.6.2 Linux engine,
+including the in-container network probe that actively attempts IPv4, IPv6,
+DNS, host.docker.internal, the bridge gateway, and proxy variables and fails
+the test on any bypass. Daemon /info arch names (x86_64 vs amd64) are
+canonicalized so the same engine never looks like two platforms; the
+environment-free scratch fixture is reproducible via
+`testdata/docker-lifecycle-fixture/build-fixture.ps1`. See ADR 0099.
+
+The previous single-slice checkpoint was the bounded Docker container I/O
 contract at schema v98 for issue #39, still without product entry or
 authority. A sealed read-only input projection binds canonical paths,
 digests, sizes, and media types to the lifecycle attempt/generation and plan
@@ -17,8 +51,8 @@ digest receipts. Output staging exports only the dedicated output mount and
 rejects traversal, links, duplicates, and size violations under one
 Windows/Linux path rule set; atomic commit requires an exact manifest match,
 re-hashes staged files, and writes receipt plus entries in one replay-safe
-transaction. The HTTP allowlist admits exactly two daemon endpoints and the
-service is unwired from CLI/HTTP/Desktop. See ADR 0098.
+transaction. The fixed transport admits only attach and exact output archive;
+the v98 service itself remained unwired from CLI/HTTP/Desktop. See ADR 0098.
 
 The previous single-slice checkpoint was the macOS Desktop portable build at
 unchanged schema v97. cmd/cyberagent-desktop is now split by build tag:
@@ -2929,10 +2963,18 @@ or Debug terminal contracts.
 
 Keep the general LocalRunner disabled until a real workspace filesystem and
 network sandbox makes protected host roots unavailable or read-only; never map
-it to unrestricted `os/exec`. Product Docker start/wait/TERM/KILL/orphan behavior still
-requires a later independent release gate; R2-R10 test-binary conformance and post-reap
-metadata are not production evidence. The manual Windows 10 matrix, signed distribution,
-Agent-owned xterm input, Full CDP, arbitrary
-end-user process execution, and CTF solving remain deferred.
+it to unrestricted `os/exec`. Schema v99 now supplies product
+start/wait/TERM/KILL, exact-owned recovery, bounded logs/output, cancellation,
+and terminal cleanup only for the explicitly enabled, exact-plan,
+network-none Docker profile. It does not convert R2-R10 conformance or the
+older v52-v98 facts into general production authority.
 
-Real Local/container-process execution remains disabled until every v51 check has independently verified and independently accepted production evidence and Sandbox retained-resource cleanup, resource/network, cancellation, running-orphan, and atomic Artifact-export paths pass separate audits. Schema v52 simulation, v53 metadata observation, v54 compilation/fake writes, v55-v56 non-started daemon rehearsals, v57 sealing, v58 durable capture requirements, v59 never-started handoff evidence, v60 projection plans, v61 never-started volume application, v62 cleanup, v63 design review, v64 profile selection, v65 non-authorizing capture receipts, v66 recoverable capture ownership, v67 read-only daemon metadata, and v68 receipt acceptance do not satisfy that requirement. TypeScript, future Rust analyzers, and model providers remain unable to bypass the Go Tool Gateway or Policy boundary.
+Managed egress, daemon-wide unknown-orphan adoption, stdin/TTY, arbitrary
+Docker flags/mounts/endpoints, image pull/build, general Local/container
+execution, the manual Windows 10 matrix, signed distribution, Agent-owned
+xterm input, Full CDP, arbitrary end-user process execution, and CTF solving
+remain deferred. Exact allowlisting must not open until a Go-owned
+host/port/protocol guard has its own lifecycle, recovery, bypass, and real
+platform evidence. TypeScript, Rust analyzers, and model providers remain
+unable to bypass the Go Tool Gateway, Application service, Policy, approval,
+permission, readiness, or budget boundaries.

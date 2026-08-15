@@ -69,7 +69,23 @@ func (transport dockerEngineReadOnlyTransport) Version(ctx context.Context) (Doc
 	}
 	return DockerDaemonVersion{APIVersion: payload.APIVersion,
 		MinAPIVersion: payload.MinAPIVersion, EngineVersion: payload.Version,
-		GitCommit: payload.GitCommit, OSType: payload.OS, Architecture: payload.Arch}, nil
+		GitCommit: payload.GitCommit, OSType: payload.OS,
+		Architecture: canonicalDockerArchitecture(payload.Arch)}, nil
+}
+
+// canonicalDockerArchitecture folds the GOARCH spellings that /info may emit
+// (x86_64, aarch64) into the OCI names used by /version and image configs
+// (amd64, arm64). Different endpoints of the same daemon must never look like
+// two different platforms.
+func canonicalDockerArchitecture(architecture string) string {
+	switch architecture {
+	case "x86_64":
+		return "amd64"
+	case "aarch64":
+		return "arm64"
+	default:
+		return architecture
+	}
 }
 
 func (transport dockerEngineReadOnlyTransport) Info(ctx context.Context) (DockerDaemonInfo, error) {
@@ -100,7 +116,8 @@ func (transport dockerEngineReadOnlyTransport) Info(ctx context.Context) (Docker
 	return DockerDaemonInfo{
 		ID: payload.ID, Name: payload.Name, DockerRootDir: payload.DockerRootDir,
 		ServerVersion: payload.ServerVersion, OperatingSystem: payload.OperatingSystem,
-		OSType: payload.OSType, Architecture: payload.Architecture, Driver: payload.Driver,
+		OSType: payload.OSType,
+		Architecture: canonicalDockerArchitecture(payload.Architecture), Driver: payload.Driver,
 		CgroupDriver: payload.CgroupDriver, CgroupVersion: payload.CgroupVersion,
 		DefaultRuntime: payload.DefaultRuntime, NCPU: payload.NCPU,
 		MemoryBytes: payload.MemTotal, PidsLimit: payload.PidsLimit,
@@ -125,7 +142,9 @@ func (transport dockerEngineReadOnlyTransport) InspectImage(ctx context.Context,
 		Architecture string   `json:"Architecture"`
 		Size         int64    `json:"Size"`
 		Config       struct {
-			User string `json:"User"`
+			User    string                     `json:"User"`
+			Env     []string                   `json:"Env"`
+			Volumes map[string]json.RawMessage `json:"Volumes"`
 		} `json:"Config"`
 		RootFS struct {
 			Type string `json:"Type"`
@@ -139,9 +158,10 @@ func (transport dockerEngineReadOnlyTransport) InspectImage(ctx context.Context,
 	}
 	return DockerImageInspection{
 		ID: payload.ID, RepoDigests: payload.RepoDigests, OSType: payload.OS,
-		Architecture: payload.Architecture, SizeBytes: payload.Size,
+		Architecture: canonicalDockerArchitecture(payload.Architecture), SizeBytes: payload.Size,
 		User: payload.Config.User, RootFSType: payload.RootFS.Type,
-		GraphDriver: payload.GraphDriver.Name,
+		GraphDriver:      payload.GraphDriver.Name,
+		EnvironmentCount: len(payload.Config.Env), VolumeCount: len(payload.Config.Volumes),
 	}, nil
 }
 

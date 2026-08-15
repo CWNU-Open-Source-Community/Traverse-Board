@@ -13,7 +13,25 @@ import (
 	"cyberagent-workbench/internal/sandbox"
 )
 
-const DockerContainerLifecycleRecoveryLimit = 64
+const (
+	DockerContainerLifecycleRecoveryLimit = 64
+
+	// DockerContainerLifecyclePostExitProtocolVersion binds one logical post-exit
+	// invocation to the durable intent, exact exit checkpoint, current authority,
+	// and current lifecycle request. Implementations must use InvocationKeyDigest
+	// as their idempotency key when they persist side effects.
+	DockerContainerLifecyclePostExitProtocolVersion = "application_docker_container_lifecycle_post_exit.v1"
+	DockerContainerLifecyclePostExitFailureReason   = "post_exit_processing_failed"
+
+	DockerContainerLifecycleStartAuthorityProtocolVersion = "application_docker_container_lifecycle_start_authority.v1"
+	DockerContainerLifecycleStartAuthorityDeniedReason    = "start_authority_denied"
+)
+
+var errDockerContainerLifecycleStartAuthorityDenied = errors.New(
+	"Docker lifecycle start authority denied")
+
+var errDockerContainerLifecycleStartAuthorityCancelled = errors.New(
+	"Docker lifecycle start authority cancelled")
 
 // DockerContainerLifecycleStore is deliberately separate from the product
 // SandboxManifestStore. This slice does not add a CLI, HTTP, Desktop, model, or
@@ -53,10 +71,149 @@ type DockerContainerLifecycleAuthority interface {
 		sandbox.DockerContainerWriteRequest, error)
 }
 
+// DockerContainerLifecycleStartAuthority rechecks process-local capability and
+// permission immediately before a create or start write. It deliberately does
+// not authorize wait, termination, delete, or post-exit cleanup: losing start
+// authority must never prevent the Supervisor from removing an owned resource.
+type DockerContainerLifecycleStartAuthority interface {
+	AuthorizeDockerContainerLifecycleStart(context.Context,
+		DockerContainerLifecycleStartAuthorityRequest) error
+}
+
+// DockerContainerLifecycleStartAuthorityFunc adapts a function to
+// DockerContainerLifecycleStartAuthority.
+type DockerContainerLifecycleStartAuthorityFunc func(context.Context,
+	DockerContainerLifecycleStartAuthorityRequest) error
+
+func (fn DockerContainerLifecycleStartAuthorityFunc) AuthorizeDockerContainerLifecycleStart(
+	ctx context.Context, request DockerContainerLifecycleStartAuthorityRequest,
+) error {
+	if fn == nil {
+		return errors.New("Docker lifecycle start authority callback is nil")
+	}
+	return fn(ctx, request)
+}
+
+// DockerContainerLifecycleStartAuthorityRequest is a current, non-persistable
+// authorization view bound to one exact create or start action and active lease.
+type DockerContainerLifecycleStartAuthorityRequest struct {
+	ProtocolVersion string
+	Action          sandbox.DockerContainerLifecycleActionKind
+	Record          sandbox.DockerContainerLifecycleRecord
+	Plan            sandbox.DockerContainerPlan
+	WriteRequest    sandbox.DockerContainerWriteRequest
+	Lease           sandbox.DockerContainerLifecycleLease
+}
+
+func (request DockerContainerLifecycleStartAuthorityRequest) Validate() error {
+	if request.ProtocolVersion != DockerContainerLifecycleStartAuthorityProtocolVersion ||
+		(request.Action != sandbox.DockerContainerLifecycleActionCreate &&
+			request.Action != sandbox.DockerContainerLifecycleActionStart) ||
+		request.Record.Validate() != nil || request.Record.Receipt != nil ||
+		request.Plan.Validate() != nil || request.WriteRequest.Validate() != nil ||
+		request.Lease.Validate() != nil ||
+		request.Lease.Status != sandbox.DockerContainerLifecycleLeaseActive ||
+		request.Lease.IntentID != request.Record.Intent.ID ||
+		request.Lease.LeaseID != request.Record.Lease.LeaseID ||
+		request.Lease.OwnerID != request.Record.Lease.OwnerID ||
+		request.Lease.Generation != request.Record.Lease.Generation ||
+		request.Record.Intent.PlanID != request.Plan.ID ||
+		request.Record.Intent.RequestFingerprint != request.WriteRequest.RequestFingerprint {
+		return errors.New("Docker lifecycle start authority request is invalid")
+	}
+	return nil
+}
+
+// DockerContainerLifecyclePostExit is the only lifecycle extension point that
+// runs while the owned container still exists after its exact exit state has
+// been durably checkpointed. The Supervisor revalidates current authority and
+// fences the active lease immediately before invoking it. Implementations must
+// be idempotent for InvocationKeyDigest because a process crash between the
+// callback and the durable cleaning checkpoint can replay the same logical
+// invocation during recovery.
+type DockerContainerLifecyclePostExit interface {
+	HandleDockerContainerLifecyclePostExit(context.Context,
+		DockerContainerLifecyclePostExitRequest) error
+}
+
+// DockerContainerLifecyclePostExitFunc adapts a function to
+// DockerContainerLifecyclePostExit.
+type DockerContainerLifecyclePostExitFunc func(context.Context,
+	DockerContainerLifecyclePostExitRequest) error
+
+func (fn DockerContainerLifecyclePostExitFunc) HandleDockerContainerLifecyclePostExit(
+	ctx context.Context, request DockerContainerLifecyclePostExitRequest,
+) error {
+	if fn == nil {
+		return errors.New("Docker lifecycle post-exit callback is nil")
+	}
+	return fn(ctx, request)
+}
+
+// DockerContainerLifecyclePostExitRequest is a non-authorizing snapshot. Its
+// lease and authority are current only for the callback context supplied by the
+// Supervisor; callers must not retain or reuse them after the callback returns.
+type DockerContainerLifecyclePostExitRequest struct {
+	ProtocolVersion     string
+	InvocationKeyDigest string
+	Record              sandbox.DockerContainerLifecycleRecord
+	Plan                sandbox.DockerContainerPlan
+	WriteRequest        sandbox.DockerContainerWriteRequest
+	LifecycleRequest    sandbox.DockerContainerLifecycleRequest
+	ExitObservation     sandbox.DockerContainerLifecycleObservation
+	Lease               sandbox.DockerContainerLifecycleLease
+}
+
+func (request DockerContainerLifecyclePostExitRequest) Validate() error {
+	exited := latestLifecycleTransition(request.Record,
+		sandbox.DockerContainerLifecycleTransitionExited)
+	if request.ProtocolVersion != DockerContainerLifecyclePostExitProtocolVersion ||
+		request.Record.Validate() != nil || request.Record.Receipt != nil ||
+		request.Plan.Validate() != nil || request.WriteRequest.Validate() != nil ||
+		request.LifecycleRequest.Validate() != nil || request.Lease.Validate() != nil ||
+		request.Lease.Status != sandbox.DockerContainerLifecycleLeaseActive ||
+		request.Lease.IntentID != request.Record.Intent.ID ||
+		request.Lease.LeaseID != request.Record.Lease.LeaseID ||
+		request.Lease.OwnerID != request.Record.Lease.OwnerID ||
+		request.Lease.Generation != request.Record.Lease.Generation ||
+		request.LifecycleRequest.LeaseGeneration != request.Lease.Generation ||
+		request.LifecycleRequest.WriteRequest.RequestFingerprint !=
+			request.WriteRequest.RequestFingerprint ||
+		request.LifecycleRequest.RequestFingerprint !=
+			request.ExitObservation.RequestFingerprint ||
+		request.Record.Intent.PlanID != request.Plan.ID ||
+		request.Record.Intent.RequestFingerprint != request.WriteRequest.RequestFingerprint ||
+		request.ExitObservation.State != sandbox.DockerContainerLifecycleStateExited ||
+		request.ExitObservation.Running || !request.ExitObservation.ContainerPresent ||
+		exited == nil || exited.ExitCode == nil ||
+		*exited.ExitCode != request.ExitObservation.ExitCode ||
+		exited.ContainerIDFingerprint != request.ExitObservation.ContainerIDFingerprint ||
+		request.InvocationKeyDigest != dockerContainerLifecyclePostExitInvocationKey(request) {
+		return errors.New("Docker lifecycle post-exit request is invalid")
+	}
+	return nil
+}
+
+func dockerContainerLifecyclePostExitInvocationKey(
+	request DockerContainerLifecyclePostExitRequest,
+) string {
+	exited := latestLifecycleTransition(request.Record,
+		sandbox.DockerContainerLifecycleTransitionExited)
+	exitedFingerprint := ""
+	if exited != nil {
+		exitedFingerprint = exited.TransitionFingerprint
+	}
+	return runmutation.Fingerprint(DockerContainerLifecyclePostExitProtocolVersion,
+		request.Record.Intent.IntentFingerprint, exitedFingerprint,
+		request.Plan.AuthorityFingerprint, request.LifecycleRequest.RequestFingerprint)
+}
+
 type DockerContainerLifecycleSupervisor struct {
 	store     DockerContainerLifecycleStore
 	transport sandbox.DockerContainerLifecycleTransport
 	authority DockerContainerLifecycleAuthority
+	startAuth DockerContainerLifecycleStartAuthority
+	postExit  DockerContainerLifecyclePostExit
 	ownerID   string
 	leaseTTL  time.Duration
 	now       func() time.Time
@@ -79,6 +236,28 @@ func NewDockerContainerLifecycleSupervisor(store DockerContainerLifecycleStore,
 	return &DockerContainerLifecycleSupervisor{store: store, transport: transport,
 		authority: authority, ownerID: ownerID, leaseTTL: leaseTTL,
 		now: func() time.Time { return time.Now().UTC() }}, nil
+}
+
+// WithDockerContainerLifecyclePostExit installs the optional exit hook before
+// the Supervisor is used. A nil hook leaves the existing lifecycle unchanged.
+func (s *DockerContainerLifecycleSupervisor) WithDockerContainerLifecyclePostExit(
+	postExit DockerContainerLifecyclePostExit,
+) *DockerContainerLifecycleSupervisor {
+	if s != nil && postExit != nil {
+		s.postExit = postExit
+	}
+	return s
+}
+
+// WithDockerContainerLifecycleStartAuthority installs the optional process-local
+// create/start gate before the Supervisor is used. Cleanup remains independent.
+func (s *DockerContainerLifecycleSupervisor) WithDockerContainerLifecycleStartAuthority(
+	startAuthority DockerContainerLifecycleStartAuthority,
+) *DockerContainerLifecycleSupervisor {
+	if s != nil && startAuthority != nil {
+		s.startAuth = startAuthority
+	}
+	return s
 }
 
 // BeginAndRun commits launch intent before StageOwned is allowed to issue a
@@ -177,6 +356,60 @@ func (s *DockerContainerLifecycleSupervisor) RecoverOne(ctx context.Context,
 	return s.run(ctx, record, plan, request)
 }
 
+// CancelOne acquires an unowned/expired lifecycle generation, persists the
+// cancelled cleaning checkpoint, and then converges exact daemon state without
+// granting create/start authority. A live owner remains authoritative and makes
+// Acquire return conflict; the product layer must durably request cancellation
+// before cancelling that owner's process context.
+func (s *DockerContainerLifecycleSupervisor) CancelOne(ctx context.Context,
+	intentID string,
+) (sandbox.DockerContainerLifecycleRecord, error) {
+	if ctx == nil || strings.TrimSpace(intentID) == "" {
+		return sandbox.DockerContainerLifecycleRecord{}, apperror.New(
+			apperror.CodeInvalidArgument, "Docker lifecycle cancellation request is invalid")
+	}
+	entryCtx, entryCancel := context.WithTimeout(ctx, s.leaseTTL)
+	defer entryCancel()
+	stored, err := s.store.GetDockerContainerLifecycle(entryCtx, strings.TrimSpace(intentID))
+	if err != nil {
+		return sandbox.DockerContainerLifecycleRecord{}, apperror.Normalize(err)
+	}
+	if stored.Receipt != nil {
+		stored.Replayed = true
+		return stored, nil
+	}
+	// Revalidation is used only to reconstruct the exact sealed write request
+	// needed for Observe/Terminate/Cleanup. It does not grant start authority.
+	plan, request, err := s.authority.RevalidateDockerContainerLifecycle(entryCtx, stored.Intent)
+	if err != nil {
+		return sandbox.DockerContainerLifecycleRecord{}, apperror.Wrap(
+			apperror.CodeFailedPrecondition,
+			"Docker lifecycle cancellation reconstruction failed", err)
+	}
+	if err := validateDockerLifecycleAuthority(stored.Intent, plan, request,
+		s.transport.Endpoint()); err != nil {
+		return sandbox.DockerContainerLifecycleRecord{}, err
+	}
+	record, err := s.store.AcquireDockerContainerLifecycle(entryCtx, stored.Intent.ID,
+		stored.Intent.RequestedBy, s.ownerID, s.leaseTTL)
+	if err != nil {
+		return sandbox.DockerContainerLifecycleRecord{}, apperror.Normalize(err)
+	}
+	if record.Receipt != nil {
+		record.Replayed = true
+		return record, nil
+	}
+	s.setLease(record.Lease)
+	cancelCtx, cancel := s.leaseBoundContext(context.WithoutCancel(ctx))
+	defer cancel()
+	record, err = s.ensureCleaning(cancelCtx, record,
+		sandbox.DockerContainerLifecycleReasonCancelled)
+	if err != nil {
+		return sandbox.DockerContainerLifecycleRecord{}, err
+	}
+	return s.run(cancelCtx, record, plan, request)
+}
+
 func (s *DockerContainerLifecycleSupervisor) RecoverStartup(ctx context.Context) ([]sandbox.DockerContainerLifecycleRecord, error) {
 	values, err := s.store.ListRecoverableDockerContainerLifecycles(ctx,
 		DockerContainerLifecycleRecoveryLimit)
@@ -211,6 +444,10 @@ func (s *DockerContainerLifecycleSupervisor) run(ctx context.Context,
 	}
 
 	resourceID := lifecycleContainerIDFingerprint(record)
+	if resourceID == "" && latestLifecycleTransition(record,
+		sandbox.DockerContainerLifecycleTransitionCleaning) != nil {
+		return s.finishAbsentRecovery(context.WithoutCancel(ctx), record)
+	}
 	if resourceID != "" {
 		recovered, recoverErr := sandbox.NewRecoveredDockerContainerLifecycleRequest(
 			record.Intent.AttemptID, record.Lease.Generation, writeRequest, resourceID,
@@ -225,10 +462,35 @@ func (s *DockerContainerLifecycleSupervisor) run(ctx context.Context,
 		if observation.State == sandbox.DockerContainerLifecycleStateAbsent {
 			if latestLifecycleTransition(record,
 				sandbox.DockerContainerLifecycleTransitionCleaning) == nil {
+				if denied := s.authorizeStart(ctx, record.Intent.ID,
+					sandbox.DockerContainerLifecycleActionStart); denied != nil &&
+					isDockerContainerLifecycleStartAuthorityDenied(denied) {
+					return s.finishStartDeniedAbsent(context.WithoutCancel(ctx), record, denied)
+				}
 				return s.fail(ctx, record,
 					sandbox.DockerContainerLifecycleFailureConfigMismatch)
 			}
 			return s.finishAbsentRecovery(context.WithoutCancel(ctx), record)
+		}
+		if observation.State == sandbox.DockerContainerLifecycleStateRunning &&
+			latestLifecycleTransition(record,
+				sandbox.DockerContainerLifecycleTransitionCleaning) == nil {
+			if denied := s.authorizeStart(ctx, record.Intent.ID,
+				sandbox.DockerContainerLifecycleActionStart); denied != nil {
+				if !isDockerContainerLifecycleStartAuthorityDenied(denied) {
+					return sandbox.DockerContainerLifecycleRecord{}, denied
+				}
+				record, err = s.ensureCleaning(context.WithoutCancel(ctx), record,
+					sandbox.DockerContainerLifecycleReasonRestartRecovery)
+				if err != nil {
+					return sandbox.DockerContainerLifecycleRecord{}, err
+				}
+				cleaned, cleanupErr := s.runObserved(ctx, record, recovered, observation)
+				if cleanupErr != nil {
+					return cleaned, cleanupErr
+				}
+				return cleaned, denied
+			}
 		}
 		return s.runObserved(ctx, record, recovered, observation)
 	}
@@ -237,6 +499,9 @@ func (s *DockerContainerLifecycleSupervisor) run(ctx context.Context,
 	// Its create fence prepares and commits the action before the HTTP request.
 	stage, err := s.stageOwned(ctx, record, writeRequest, ownership)
 	if err != nil {
+		if isDockerContainerLifecycleStartAuthorityDenied(err) {
+			return s.finishStartDeniedAbsent(context.WithoutCancel(ctx), record, err)
+		}
 		return s.fail(ctx, record, lifecycleFailureReason(err))
 	}
 	request, err := sandbox.NewOwnedDockerContainerLifecycleRequest(record.Intent.AttemptID,
@@ -299,12 +564,25 @@ func (s *DockerContainerLifecycleSupervisor) runObserved(ctx context.Context,
 	observation sandbox.DockerContainerLifecycleObservation,
 ) (sandbox.DockerContainerLifecycleRecord, error) {
 	writeRequest := request.WriteRequest
+	exitCheckpointedBeforeRun := latestLifecycleTransition(record,
+		sandbox.DockerContainerLifecycleTransitionExited) != nil
+	cleaningCheckpointedBeforeRun := latestLifecycleTransition(record,
+		sandbox.DockerContainerLifecycleTransitionCleaning) != nil
 	var err error
 	if observation.State == sandbox.DockerContainerLifecycleStateCreated {
+		createdObservation := observation
+		if cleaningCheckpointedBeforeRun {
+			return s.finishCreatedCleanup(context.WithoutCancel(ctx), record, request,
+				createdObservation)
+		}
 		startCtx, startCancel := s.leaseBoundContext(ctx)
 		observation, _, err = s.transport.Start(startCtx, request, s.fence(record.Intent.ID))
 		startCancel()
 		if err != nil {
+			if isDockerContainerLifecycleStartAuthorityDenied(err) {
+				return s.finishStartDeniedCreated(context.WithoutCancel(ctx), record,
+					request, createdObservation, err)
+			}
 			return s.fail(ctx, record, lifecycleFailureReason(err))
 		}
 		// Start returns the pre-start observation. Exact observe resolves the
@@ -378,8 +656,29 @@ func (s *DockerContainerLifecycleSupervisor) runObserved(ctx context.Context,
 		return s.fail(context.WithoutCancel(ctx), record,
 			sandbox.DockerContainerLifecycleReasonWaitFailed)
 	}
+	// An exited daemon observation discovered during restart recovery must be
+	// checkpointed before the callback sees it. The ordinary wait/terminate
+	// paths already checkpoint above, so this is idempotent.
+	record, err = s.checkpointObservation(context.WithoutCancel(ctx), record, observation)
+	if err != nil {
+		return sandbox.DockerContainerLifecycleRecord{}, err
+	}
+	var postExitErr error
+	// Exited+cleaning on entry normally means a previous owner crossed the
+	// post-exit boundary before attempting delete. Cancellation is the exception:
+	// CancelOne may append its sticky marker after an already-checkpointed exit,
+	// so it invokes the same deterministic logical key and relies on callback
+	// idempotency across the unavoidable callback/cleaning crash window.
+	cleaning := latestLifecycleTransition(record,
+		sandbox.DockerContainerLifecycleTransitionCleaning)
+	if !exitCheckpointedBeforeRun || !cleaningCheckpointedBeforeRun ||
+		(cleaning != nil &&
+			cleaning.ReasonCode == sandbox.DockerContainerLifecycleReasonCancelled) {
+		postExitErr = s.handlePostExit(context.WithoutCancel(ctx), record, request,
+			observation)
+	}
 	reason := sandbox.DockerContainerLifecycleReasonNaturalExit
-	if cleaning := latestLifecycleTransition(record, sandbox.DockerContainerLifecycleTransitionCleaning); cleaning != nil {
+	if cleaning != nil {
 		reason = cleaning.ReasonCode
 	}
 	record, err = s.ensureCleaning(context.WithoutCancel(ctx), record, reason)
@@ -392,7 +691,119 @@ func (s *DockerContainerLifecycleSupervisor) runObserved(ctx context.Context,
 	if err != nil {
 		return s.fail(context.WithoutCancel(ctx), record, lifecycleFailureReason(err))
 	}
-	return s.finish(context.WithoutCancel(ctx), record, observation, cleanup, reason)
+	finished, finishErr := s.finish(context.WithoutCancel(ctx), record, observation, cleanup, reason)
+	if finishErr != nil {
+		return sandbox.DockerContainerLifecycleRecord{}, finishErr
+	}
+	if postExitErr != nil {
+		return finished, postExitErr
+	}
+	return finished, nil
+}
+
+func (s *DockerContainerLifecycleSupervisor) finishStartDeniedAbsent(ctx context.Context,
+	record sandbox.DockerContainerLifecycleRecord, denied error,
+) (sandbox.DockerContainerLifecycleRecord, error) {
+	reason := sandbox.DockerContainerLifecycleReasonCleanupStarted
+	if isDockerContainerLifecycleStartAuthorityCancelled(denied) {
+		reason = sandbox.DockerContainerLifecycleReasonCancelled
+	}
+	record, err := s.ensureCleaning(ctx, record, reason)
+	if err != nil {
+		return sandbox.DockerContainerLifecycleRecord{}, err
+	}
+	finished, err := s.finishAbsentRecovery(ctx, record)
+	if err != nil {
+		return sandbox.DockerContainerLifecycleRecord{}, err
+	}
+	return finished, denied
+}
+
+func (s *DockerContainerLifecycleSupervisor) finishStartDeniedCreated(ctx context.Context,
+	record sandbox.DockerContainerLifecycleRecord,
+	request sandbox.DockerContainerLifecycleRequest,
+	observation sandbox.DockerContainerLifecycleObservation, denied error,
+) (sandbox.DockerContainerLifecycleRecord, error) {
+	reason := sandbox.DockerContainerLifecycleReasonCleanupStarted
+	if isDockerContainerLifecycleStartAuthorityCancelled(denied) {
+		reason = sandbox.DockerContainerLifecycleReasonCancelled
+	}
+	record, err := s.ensureCleaning(ctx, record, reason)
+	if err != nil {
+		return sandbox.DockerContainerLifecycleRecord{}, err
+	}
+	finished, err := s.finishCreatedCleanup(ctx, record, request, observation)
+	if err != nil {
+		return sandbox.DockerContainerLifecycleRecord{}, err
+	}
+	return finished, denied
+}
+
+func (s *DockerContainerLifecycleSupervisor) finishCreatedCleanup(ctx context.Context,
+	record sandbox.DockerContainerLifecycleRecord,
+	request sandbox.DockerContainerLifecycleRequest,
+	observation sandbox.DockerContainerLifecycleObservation,
+) (sandbox.DockerContainerLifecycleRecord, error) {
+	cleanupCtx, cleanupCancel := s.cleanupContext(ctx)
+	cleanup, err := s.transport.Cleanup(cleanupCtx, request, s.fence(record.Intent.ID))
+	cleanupCancel()
+	if err != nil {
+		return s.fail(ctx, record, lifecycleFailureReason(err))
+	}
+	finished, err := s.finishCleanupWithoutExit(ctx, record,
+		observation.ContainerIDFingerprint, cleanup)
+	if err != nil {
+		return sandbox.DockerContainerLifecycleRecord{}, err
+	}
+	return finished, nil
+}
+
+func (s *DockerContainerLifecycleSupervisor) handlePostExit(ctx context.Context,
+	record sandbox.DockerContainerLifecycleRecord,
+	lifecycleRequest sandbox.DockerContainerLifecycleRequest,
+	exitObservation sandbox.DockerContainerLifecycleObservation,
+) error {
+	if s.postExit == nil {
+		return nil
+	}
+	hookCtx, cancel := s.leaseBoundContext(ctx)
+	defer cancel()
+	plan, writeRequest, err := s.authority.RevalidateDockerContainerLifecycle(hookCtx,
+		record.Intent)
+	if err != nil || validateDockerLifecycleAuthority(record.Intent, plan, writeRequest,
+		s.transport.Endpoint()) != nil ||
+		writeRequest.RequestFingerprint != lifecycleRequest.WriteRequest.RequestFingerprint {
+		return dockerContainerLifecyclePostExitError()
+	}
+	lease := s.currentLease()
+	if err := s.store.FenceDockerContainerLifecycle(hookCtx, lease); err != nil {
+		return dockerContainerLifecyclePostExitError()
+	}
+	// The Store may have renewed the lease since the last transition snapshot.
+	// Project that exact current lease into the callback's non-authorizing view.
+	record.Lease = lease
+	request := DockerContainerLifecyclePostExitRequest{
+		ProtocolVersion:  DockerContainerLifecyclePostExitProtocolVersion,
+		Record:           record,
+		Plan:             plan,
+		WriteRequest:     writeRequest,
+		LifecycleRequest: lifecycleRequest,
+		ExitObservation:  exitObservation,
+		Lease:            lease,
+	}
+	request.InvocationKeyDigest = dockerContainerLifecyclePostExitInvocationKey(request)
+	if request.Validate() != nil {
+		return dockerContainerLifecyclePostExitError()
+	}
+	if err := s.postExit.HandleDockerContainerLifecyclePostExit(hookCtx, request); err != nil {
+		return dockerContainerLifecyclePostExitError()
+	}
+	return nil
+}
+
+func dockerContainerLifecyclePostExitError() error {
+	return apperror.New(apperror.CodeFailedPrecondition,
+		"Docker lifecycle failed closed: "+DockerContainerLifecyclePostExitFailureReason)
 }
 
 func (s *DockerContainerLifecycleSupervisor) stageOwned(ctx context.Context,
@@ -424,24 +835,107 @@ func (s *DockerContainerLifecycleSupervisor) fence(intentID string) sandbox.Dock
 			if err != nil {
 				return err
 			}
+			prepared := false
 			for _, existing := range record.Actions {
 				if existing.LeaseGeneration == lease.Generation &&
 					existing.Verb == string(action) {
-					return s.store.FenceDockerContainerLifecycle(ctx, lease)
+					prepared = true
+					break
 				}
 			}
-			actionIntent, err := sandbox.NewDockerContainerLifecyclePreparedAction(intentID,
-				len(record.Actions)+1, lease, string(action), s.now())
-			if err != nil {
-				return err
+			if !prepared {
+				actionIntent, err := sandbox.NewDockerContainerLifecyclePreparedAction(intentID,
+					len(record.Actions)+1, lease, string(action), s.now())
+				if err != nil {
+					return err
+				}
+				if _, _, err := s.store.PrepareDockerContainerLifecycleAction(ctx,
+					actionIntent, lease); err != nil {
+					return err
+				}
 			}
-			if _, _, err := s.store.PrepareDockerContainerLifecycleAction(ctx,
-				actionIntent, lease); err != nil {
-				return err
+			// WAL intent is durable before the process-local gate. The gate is then
+			// the final authority check before the lease fence and daemon mutation.
+			if action == sandbox.DockerContainerLifecycleActionCreate ||
+				action == sandbox.DockerContainerLifecycleActionStart {
+				if err := s.authorizeStart(ctx, intentID, action); err != nil {
+					return err
+				}
 			}
 		}
 		return s.store.FenceDockerContainerLifecycle(ctx, lease)
 	}
+}
+
+func (s *DockerContainerLifecycleSupervisor) authorizeStart(ctx context.Context,
+	intentID string, action sandbox.DockerContainerLifecycleActionKind,
+) error {
+	if s.startAuth == nil {
+		return nil
+	}
+	authorityCtx, cancel := s.leaseBoundContext(ctx)
+	defer cancel()
+	if authorityCtx.Err() != nil {
+		return dockerContainerLifecycleStartAuthorityError()
+	}
+	record, err := s.store.GetDockerContainerLifecycle(authorityCtx, intentID)
+	if err != nil || record.Receipt != nil {
+		return dockerContainerLifecycleStartAuthorityError()
+	}
+	plan, writeRequest, err := s.authority.RevalidateDockerContainerLifecycle(authorityCtx,
+		record.Intent)
+	if err != nil || validateDockerLifecycleAuthority(record.Intent, plan, writeRequest,
+		s.transport.Endpoint()) != nil {
+		return dockerContainerLifecycleStartAuthorityError()
+	}
+	lease := s.currentLease()
+	if err := s.store.FenceDockerContainerLifecycle(authorityCtx, lease); err != nil {
+		return dockerContainerLifecycleStartAuthorityError()
+	}
+	record.Lease = lease
+	request := DockerContainerLifecycleStartAuthorityRequest{
+		ProtocolVersion: DockerContainerLifecycleStartAuthorityProtocolVersion,
+		Action:          action,
+		Record:          record,
+		Plan:            plan,
+		WriteRequest:    writeRequest,
+		Lease:           lease,
+	}
+	if request.Validate() != nil || authorityCtx.Err() != nil {
+		return dockerContainerLifecycleStartAuthorityError()
+	}
+	if authErr := s.startAuth.AuthorizeDockerContainerLifecycleStart(authorityCtx,
+		request); authErr != nil {
+		if isDockerContainerLifecycleStartAuthorityCancelled(authErr) {
+			return dockerContainerLifecycleStartAuthorityCancelledError()
+		}
+		return dockerContainerLifecycleStartAuthorityError()
+	}
+	if authorityCtx.Err() != nil {
+		return dockerContainerLifecycleStartAuthorityError()
+	}
+	return nil
+}
+
+func dockerContainerLifecycleStartAuthorityError() error {
+	return apperror.Wrap(apperror.CodePolicyDenied,
+		"Docker lifecycle failed closed: "+DockerContainerLifecycleStartAuthorityDeniedReason,
+		errDockerContainerLifecycleStartAuthorityDenied)
+}
+
+func isDockerContainerLifecycleStartAuthorityDenied(err error) bool {
+	return errors.Is(err, errDockerContainerLifecycleStartAuthorityDenied) ||
+		isDockerContainerLifecycleStartAuthorityCancelled(err)
+}
+
+func dockerContainerLifecycleStartAuthorityCancelledError() error {
+	return apperror.Wrap(apperror.CodePolicyDenied,
+		"Docker lifecycle failed closed: "+DockerContainerLifecycleStartAuthorityDeniedReason,
+		errDockerContainerLifecycleStartAuthorityCancelled)
+}
+
+func isDockerContainerLifecycleStartAuthorityCancelled(err error) bool {
+	return errors.Is(err, errDockerContainerLifecycleStartAuthorityCancelled)
 }
 
 func (s *DockerContainerLifecycleSupervisor) checkpointObservation(ctx context.Context,
@@ -558,6 +1052,9 @@ func (s *DockerContainerLifecycleSupervisor) finish(ctx context.Context,
 		outcome = sandbox.DockerContainerLifecycleOutcomeTimedOut
 	case sandbox.DockerContainerLifecycleReasonCancelled:
 		outcome = sandbox.DockerContainerLifecycleOutcomeCancelled
+	case sandbox.DockerContainerLifecycleReasonCleanupStarted,
+		sandbox.DockerContainerLifecycleReasonRestartRecovery:
+		outcome = sandbox.DockerContainerLifecycleOutcomeFailed
 	}
 	exitCode := exit.ExitCode
 	final := cleaned.Transitions[len(cleaned.Transitions)-1]
@@ -578,6 +1075,49 @@ func (s *DockerContainerLifecycleSupervisor) finish(ctx context.Context,
 	} else {
 		return sandbox.DockerContainerLifecycleRecord{}, apperror.Normalize(releaseErr)
 	}
+	return stored, nil
+}
+
+func (s *DockerContainerLifecycleSupervisor) finishCleanupWithoutExit(ctx context.Context,
+	record sandbox.DockerContainerLifecycleRecord, containerIDFingerprint string,
+	cleanup sandbox.DockerContainerLifecycleCleanupResult,
+) (sandbox.DockerContainerLifecycleRecord, error) {
+	cleaned, err := s.appendTransition(ctx, record,
+		sandbox.DockerContainerLifecycleTransitionCleaned,
+		sandbox.DockerContainerLifecycleReasonCleanupCompleted, nil, "")
+	if err != nil {
+		return sandbox.DockerContainerLifecycleRecord{}, err
+	}
+	outcome := sandbox.DockerContainerLifecycleOutcomeFailed
+	if cleaning := latestLifecycleTransition(cleaned,
+		sandbox.DockerContainerLifecycleTransitionCleaning); cleaning != nil {
+		switch cleaning.ReasonCode {
+		case sandbox.DockerContainerLifecycleReasonNaturalExit:
+			outcome = sandbox.DockerContainerLifecycleOutcomeNaturalExit
+		case sandbox.DockerContainerLifecycleReasonTimeout:
+			outcome = sandbox.DockerContainerLifecycleOutcomeTimedOut
+		case sandbox.DockerContainerLifecycleReasonCancelled:
+			outcome = sandbox.DockerContainerLifecycleOutcomeCancelled
+		}
+	}
+	final := cleaned.Transitions[len(cleaned.Transitions)-1]
+	receipt, err := sandbox.NewDockerContainerLifecycleReceipt(cleaned.Intent.ID,
+		s.currentLease(), final, containerIDFingerprint,
+		outcome, nil,
+		cleanup.ContainerRemoved, cleanup.AlreadyAbsent, s.now())
+	if err != nil {
+		return sandbox.DockerContainerLifecycleRecord{}, err
+	}
+	stored, _, err := s.store.CompleteDockerContainerLifecycle(ctx, receipt, s.currentLease())
+	if err != nil {
+		return sandbox.DockerContainerLifecycleRecord{}, apperror.Normalize(err)
+	}
+	released, _, err := s.store.ReleaseDockerContainerLifecycleLease(ctx, s.currentLease())
+	if err != nil {
+		return sandbox.DockerContainerLifecycleRecord{}, apperror.Normalize(err)
+	}
+	s.setLease(released)
+	stored.Lease = released
 	return stored, nil
 }
 

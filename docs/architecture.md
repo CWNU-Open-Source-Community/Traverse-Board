@@ -47,7 +47,7 @@ CLI / Bubble Tea TUI / Headless CI / Browser UI / Windows Desktop UI
                   SQLite Event and State Store
 ```
 
-Desktop D0-A/D0-B is a presentation adapter, not another control plane. Wails v2.13.0 embeds the production React bundle and routes requests to the existing Go HTTP Handler in process without a listening socket. Its native binding surface is limited to memory-only bootstrap and pathless Skill-package selection/preview. It grants no process, Shell, Docker, installation, Scope, Policy, or path-input authority. Ordinary Web retains SSE while Windows Desktop uses `run-event-poll.v1` with the same durable Run-bound high-water cursor and real event frames. Go owns same-database reopen, serialized window lifecycle, WebView2 prerequisite failure, and exact renderer-origin handling; renderer memory and navigation guards add no authority. See ADR 0034 and ADR 0035.
+Desktop D0-A/D0-B is a presentation adapter, not another control plane. Wails v2.13.0 embeds the production React bundle and routes requests to the existing Go HTTP Handler in process without a listening socket. Its native binding surface is limited to memory-only bootstrap and pathless Skill-package selection/preview. The default Desktop grants no process, Shell, Docker, installation, Scope, Policy, or path-input authority. Schema v99 adds an explicit startup-only `--enable-docker-execution` option, which requires the independent permission capability and composes the same `DockerSandboxService` used by CLI/HTTP; the renderer still cannot manufacture the capability or submit Docker options. Ordinary Web retains SSE while Windows Desktop uses `run-event-poll.v1` with the same durable Run-bound high-water cursor and real event frames. Go owns same-database reopen, serialized window lifecycle, WebView2 prerequisite failure, and exact renderer-origin handling; renderer memory and navigation guards add no authority. See ADR 0034, ADR 0035, and ADR 0099.
 
 Allowed external directions remain:
 
@@ -402,6 +402,57 @@ Schema v68 adds one immutable operator acceptance/rejection decision over an exa
 
 Schema v97 adds a separate non-authorizing lifecycle aggregate for the fixed-endpoint Docker transport. An immutable launch intent and generation-one lease commit before create; each daemon mutation has an append-only prepared action, and exact observations form a hash-chained `created -> started -> exited/cleaning -> cleaned` ledger with explicit failure facts and one immutable cleanup receipt. Every action, transition, receipt, and daemon mutation is fenced by the complete active lease identity and expiry. Recovery is database-led, never enumerates the daemon, and mutates only the deterministic name after the complete nine-label ownership set and exact configuration match. Partial, legacy, foreign, or inconsistent containers remain untouched. This supplies crash-safe engineering mechanics for start/wait/TERM/KILL/delete, but still grants no Run, Agent, Tool, CLI, HTTP, Desktop, production execution, output, or Artifact authority. See [ADR 0096](adr/0096-durable-docker-lifecycle-ownership-and-recovery.md).
 
+Schema v98 adds the bounded I/O contract without changing that authority boundary. Read-only input projection, fixed non-streaming attach, per-stream byte/line/deadline limits, strict output-archive walking, process-local staging, re-hashing, and atomic output commit are all bound to the exact lifecycle attempt/generation. Raw logs do not persist and the Workspace is never a writable container mount. See [ADR 0098](adr/0098-bounded-docker-container-io-contract.md).
+
+Schema v99 is the distinct product-composition layer. One Go-owned
+`DockerSandboxService` supplies readiness, admission, status, start,
+cancellation, and startup recovery. CLI invokes it directly; authenticated
+HTTP/OpenAPI and the in-process Desktop handler project it; the fenced model
+tool `sandbox_docker_run_propose` may call only admission. No adapter can
+construct a Docker request or replace the service's current Run/Profile/
+permission/per-call approval/Policy/budget checks.
+
+```text
+CLI ----+
+HTTP ---+                         +--> fixed local Docker lifecycle
+Desktop +--> DockerSandboxService +--> bounded logs/output commit
+Model --+    (Admit only)         +--> schema v99 immutable receipts
+```
+
+The runtime capability and its random epoch are process-local. SQLite stores
+only a fingerprint, so reopening or editing the database cannot restore start
+authority. `sandbox.readiness.v1` is a fresh, 30-second, read-only proof over
+the fixed local endpoint, API/Linux/PIDs/resource support, and exact existing
+image. Admission and the final start fence both repeat current authority and
+readiness checks. Before any lifecycle or daemon write, an independent Start
+WAL and metadata-only event commit atomically. Admission, Start, and
+Cancellation have separate idempotency domains; same-endpoint exact replay
+converges, while a second different Start key for one admission conflicts. The
+WAL binds the current epoch but cannot restore start authority after restart.
+A missing daemon produces stable unavailable evidence and never falls back to
+`LocalRunner` or an unrestricted host process.
+
+The v99 product profile accepts only environment-free, secret-free
+`network.mode=disabled`. Docker create explicitly selects network `none`,
+omits ports/DNS/extra-hosts/links/endpoints/proxy environment, and inspection
+requires the complete absence of address, gateway, alias, and DNS-name state.
+Although the generic Manifest and v54 compiler can describe an allowlist,
+scoped egress is not implemented: exact host/port/protocol enforcement still
+needs a Go-owned egress guard with its own lifecycle and recovery proof.
+Allowlist requests therefore return
+`managed_egress_unavailable/use_network_disabled`.
+
+After an exact exited checkpoint, v99 captures bounded logs before cleanup.
+Only natural exit zero plus a fresh Artifact-authority check may stage,
+re-read, re-hash, and atomically commit outputs; timeout, cancellation,
+non-zero exit, I/O failure, or authority change never commits an output.
+Cleanup follows regardless of outcome. Sticky cancellation persists before
+the active context is signalled. Startup recovery acts only on an admission
+that already has a launch binding, and may reconcile/terminate/clean the exact
+owned resource without restoring start capability; an admission-only record
+is never auto-started after restart. See
+[ADR 0099](adr/0099-docker-sandbox-product-admission-and-recovery.md).
+
 - local sources are copied or mounted read-only by explicit manifest entries;
 - writable outputs use dedicated run directories;
 - network access starts disabled or scope-limited;
@@ -409,7 +460,7 @@ Schema v97 adds a separate non-authorizing lifecycle aggregate for the fixed-end
 - teardown is idempotent and records cleanup failures;
 - the Docker client is introduced only with the real backend.
 
-`LocalSandbox` remains development-only and must use the same approval/event pipeline. It is never treated as an isolation boundary. None of the target-model bullets are execution claims for schemas v48-v68; v51 names required evidence, v52 exercises its shape against fakes, v53 observes only daemon/image metadata, v54 compiles and fake-stages a plan in memory, v55-v56 operate only on never-started containers, v57-v61 capture and apply read-only input material to a retained never-started target, v62 inspects and removes exact-owned retained resources, v63 records a blocked design, v64 records non-authorizing profile intent, v65-v67 collect still-insufficient metadata, and v68 only records an operator decision over that receipt. Schema v97 proves only the private fixed-endpoint lifecycle and exact-owned recovery mechanics described above. None verifies process isolation or a production execution control. Product admission, daemon-wide orphan discovery, secret materialization, bounded logs, output Artifact export, and broader network enforcement remain separately gated work. See [ADR 0008](adr/0008-sandbox-manifest-boundary.md) through [ADR 0030](adr/0030-immutable-docker-production-evidence-review.md) and [ADR 0096](adr/0096-durable-docker-lifecycle-ownership-and-recovery.md).
+`LocalSandbox` remains development-only and must use the same approval/event pipeline. It is never treated as an isolation boundary. None of the target-model bullets are execution claims for schemas v48-v68; v51 names required evidence, v52 exercises its shape against fakes, v53 observes only daemon/image metadata, v54 compiles and fake-stages a plan in memory, v55-v56 operate only on never-started containers, v57-v61 capture and apply read-only input material to a retained never-started target, v62 inspects and removes exact-owned retained resources, v63 records a blocked design, v64 records non-authorizing profile intent, v65-v67 collect still-insufficient metadata, and v68 only records an operator decision over that receipt. Schema v97 and v98 remain non-authorizing internal lifecycle/I/O facts; schema v99 alone composes their exact network-none subset behind fresh product admission. It does not implement daemon-wide orphan discovery, secret materialization, stdin/TTY, image pull/build, managed egress, or general Docker/Local execution. See [ADR 0008](adr/0008-sandbox-manifest-boundary.md) through [ADR 0030](adr/0030-immutable-docker-production-evidence-review.md), [ADR 0096](adr/0096-durable-docker-lifecycle-ownership-and-recovery.md), [ADR 0098](adr/0098-bounded-docker-container-io-contract.md), and [ADR 0099](adr/0099-docker-sandbox-product-admission-and-recovery.md).
 
 ## Scope and Safety
 

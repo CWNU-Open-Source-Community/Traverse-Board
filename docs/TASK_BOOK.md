@@ -1,6 +1,6 @@
 # Prayu V2 任务书
 
-更新时间：2026-08-14
+更新时间：2026-08-15
 
 ## 目标
 
@@ -10,7 +10,9 @@
 
 ## 当前基线
 
-Docker 容器 I/O 合同（Issue #39）已随 schema v98 落地（ADR 0098）：只读输入投影、有界日志回执、严格输出暂存与原子 Artifact 提交全部就位，但仍无产品入口；产品准入（Policy/Approval/Budget/Network 与 CLI/HTTP/Desktop 接线）是下一个 Docker 切片。
+Docker Sandbox 产品准入（Issue #40）已随 schema v99 落地（ADR 0099）：同一个 Go Application 服务把 CLI、HTTP/OpenAPI、Desktop 与模型 admission proposal 接到 v97 生命周期和 v98 有界 I/O；真实 start 默认关闭，必须重新通过当前 Profile/权限/精确 per-call 审批/Policy/预算/30 秒 readiness 与进程内 capability。当前只开放 environment-free、secret-free 的 network-none 精确计划；managed allowlist 因缺少 Go-owned host/port/protocol guard 继续失败关闭。Issue #40 集成收口已完成：全仓 ordinary Go、vet、Web strict TypeScript/235 项测试/Vite build 与 OpenAPI 再生全绿；真实 Docker Desktop 29.6.2 上 lifecycle、readiness 与容器内主动探测 IPv4/IPv6/DNS/gateway/代理变量的断网验收全部通过（environment-free 夹具由 testdata/docker-lifecycle-fixture/build-fixture.ps1 可复现构建），并把 daemon /info 的 x86_64/aarch64 架构名规范化到 OCI amd64/arm64。
+
+前一检查点是 schema v98 的 Docker 容器 I/O 合同（Issue #39，ADR 0098）：只读输入投影、有界日志回执、严格输出暂存与原子 Artifact 提交已作为非授权内部边界完成；schema v99 不改写其历史 authority，而是以独立产品账本组合其 exact subset。
 
 D0-Mac 已把 Desktop 构建扩展到 macOS（ADR 0097）：darwin 构建标签复用同一 Go 控制平面与 WKWebView，产出未签名/未公证的本地 Prayu.app；Windows 专属的凭证库、ConPTY 终端、Safe Web/WFP 与受控宿主执行在 macOS 失败关闭。macOS 签名、公证与人工矩阵仍未排入当前切片。
 
@@ -24,13 +26,13 @@ V2 的 99% 在 P0/P1 基础上完成了可恢复 Supervisor、预算、严格生
 
 P8 已推进到 schema v37：v35 将完成的 Fan-out execution 确定性投影为通用 `draft` Finding、不可变 `model_assertion` Evidence 和 `finding_report.v1` Report；v36 增加同 Run 冻结 Artifact Evidence、一次性 operator `validated/rejected` 决定和复核命令；v37 再以独立事实完成 `validated -> accepted -> fixed`，要求接受后新建且不可复用的 remediation Artifact Evidence。SARIF 只输出 `validated/accepted` 未解决项，默认 validated/high CI 门禁同样阻断二者，fixed/rejected 不再阻断。验证、接受和修复始终是三个不同阶段。
 
-金额预算、HTTP 或模型自主 child 调度和产品级真实 Sandbox 进程执行尚未实现；schema v48 的严格 Sandbox Manifest、schema v49 的精确审批/重新提交/禁用候选、schema v50 的禁用态 Artifact 绑定、独立 fencing、取消与清理恢复、schema v51 的禁用态后端/输出预检、schema v52 的仅模拟后端证据与内存输出事务、schema v53 的固定本机端点只读 Docker 观测、schema v54 的确定性容器计划与假写事务、schema v55 默认关闭的 Docker 创建/核验/删除演练、schema v56 的可恢复预写意图、代际租约和 stage/cleanup 检查点、schema v57 的 descriptor-pinned、kernel-sealed 宿主输入捕获证据、schema v58 的 daemon stage 前持久化捕获要求、schema v59 的 daemon-owned/readback-verified/fully-cleaned 输入交接、schema v60 的严格 runtime-input projection plan、schema v61 的可恢复只读卷应用与 never-started target，以及 schema v62 的保留资源检查与可恢复精确清理已经落地。v55-v62 仍不启动容器进程；非 schema 的工程探针现已在固定本机端点真实验证 start/wait/timeout/cancel/TERM/KILL/cleanup，但无产品入口或 authority。operator-only 显式 child schedule/continue、no-tool child turn、最多两个 child 的有界并发、一次 child repair、Coordinator、Run 工具预算、跨进程执行互斥，以及 root/child 精确跨进程主动取消均已落地。
+金额预算与 HTTP/模型自主 child 调度尚未实现；一般 LocalRunner、任意 Docker 参数和 managed egress 也继续关闭。schema v48 的严格 Sandbox Manifest、schema v49 的精确审批/重新提交/禁用候选、schema v50 的禁用态 Artifact 绑定、独立 fencing、取消与清理恢复、schema v51 的禁用态后端/输出预检、schema v52 的仅模拟后端证据与内存输出事务、schema v53 的固定本机端点只读 Docker 观测、schema v54 的确定性容器计划与假写事务、schema v55 默认关闭的 Docker 创建/核验/删除演练、schema v56 的可恢复预写意图、代际租约和 stage/cleanup 检查点、schema v57 的 descriptor-pinned、kernel-sealed 宿主输入捕获证据、schema v58 的 daemon stage 前持久化捕获要求、schema v59 的 daemon-owned/readback-verified/fully-cleaned 输入交接、schema v60 的严格 runtime-input projection plan、schema v61 的可恢复只读卷应用与 never-started target，以及 schema v62 的保留资源检查与可恢复精确清理已经落地。v55-v62 仍是历史上的 never-started 边界；v97 增加精确可恢复生命周期，v98 增加 bounded I/O，v99 才在独立、显式启用的 network-none 产品准入后授权其 exact subset。operator-only 显式 child schedule/continue、no-tool child turn、最多两个 child 的有界并发、一次 child repair、Coordinator、Run 工具预算、跨进程执行互斥，以及 root/child 精确跨进程主动取消均已落地。
 
 P7 已推进到 schema v71 与非 schema D1-B1，P9/Desktop 产品面已推进到 schema v91 与 D1-G13/V12，通用运行时安全面已推进到 H1-H3/R10/C1-C3/P12-E3/P11-C7。P12-A1-A3 建立不授权的执行交互意图、进程内短期 Agent 输入租约和固定模板计划；P12-B1-B3 接入四种 Windows 一次性受控执行、用户所有的 ConPTY/xterm Debug 终端，以及只消费精确短租约的内部 Agent 输入桥；P12-C1-C3 再增加 `conservative|approval|full_access|debug` 四档宿主权限快照；P11-C4A-C4C 独立增加 `restricted|full_debug` CDP 权限上限和操作者控制，P11-C5-C7 再完成无产品入口的 Safe Web 进程、一次性 Profile 与受限 loopback CDP 核心。所有持久快照继续不携带真正运行 authority。
 
 schema v64 已增加 Go-owned `run_execution_profile.v1`：每个 Run 默认 `preview`，操作者可在 `created` 或无活动 lease 的 `paused` 状态选择 `preview|docker|local`。CLI、HTTP/OpenAPI 与 React 使用同一状态机；所有档位仍固定零进程、零执行授权和零 capability。
 
-schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固定 16 项机器 probe 和摘要协议，CLI 只接受同一操作者的 v63 阻塞审查、稳定操作键和显式确认。schema v66 再增加 collector 调用前持久化的 attempt、摘要化 operation、过期 generation lease、当前代 quiescent reconciliation、类型化 failure 和原子 result。schema v67 只在 Linux 显式 opt-in 后执行五次固定 GET，schema v68 再增加一次不可变操作员接纳/拒绝决定。所有 Docker start/process/export/Artifact authority 继续为 false。schema v69-v96 与 Desktop D1-A 至 P13-G 已完成外部 Skill、桌面恢复、Run 控制、模型/Plan/审批、FileEdit、Provider、wake、Repository、验证/Handoff/记忆、浏览器非启动与恢复账本、执行交互、受控命令审计、用户终端、四档宿主权限、固定命令提案审批、非沙箱宿主执行账本、独立 CDP 权限上限、Analyzer 产品接入、公开模型流、非 Shell 宿主命令提案、连续交互 Run/统一计划入口/精简导航，以及安全 Markdown、可折叠 Harness 活动、对话归档、Diff 审阅和公开 Live Activity。schema v97 再增加非授权的 Docker 生命周期写前意图、完整身份租约 fencing、动作/转换账本、精确重启恢复与唯一清理回执。R9/R10 仍只属于内部 Runner 回执兼容边界。SQLite 当前为 v97。
+schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固定 16 项机器 probe 和摘要协议，CLI 只接受同一操作者的 v63 阻塞审查、稳定操作键和显式确认。schema v66 再增加 collector 调用前持久化的 attempt、摘要化 operation、过期 generation lease、当前代 quiescent reconciliation、类型化 failure 和原子 result。schema v67 只在 Linux 显式 opt-in 后执行五次固定 GET，schema v68 再增加一次不可变操作员接纳/拒绝决定；这些历史记录自身的 Docker start/process/export/Artifact authority 继续为 false。schema v69-v96 与 Desktop D1-A 至 P13-G 已完成外部 Skill、桌面恢复、Run 控制、模型/Plan/审批、FileEdit、Provider、wake、Repository、验证/Handoff/记忆、浏览器非启动与恢复账本、执行交互、受控命令审计、用户终端、四档宿主权限、固定命令提案审批、非沙箱宿主执行账本、独立 CDP 权限上限、Analyzer 产品接入、公开模型流、非 Shell 宿主命令提案、连续交互 Run/统一计划入口/精简导航，以及安全 Markdown、可折叠 Harness 活动、对话归档、Diff 审阅和公开 Live Activity。schema v97 增加非授权 Docker 生命周期写前意图、完整身份租约 fencing、动作/转换账本、精确重启恢复与唯一清理回执；v98 增加非授权 bounded I/O；v99 以独立 immutable admission/Start WAL/launch/cancellation/terminal receipt 在 process-local capability 下开放 exact network-none 产品执行。R9/R10 仍只属于内部 Runner 回执兼容边界。SQLite 当前为 v99。
 
 ## 执行原则
 
@@ -188,7 +190,7 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 
 ## P6：真实 Sandbox
 
-状态：进行中；schema v48-v63 已完成从 Manifest 到阻塞态 Docker start-gate 设计审查，schema v64 只增加非授权 backend 档位选择，schema v65 增加非授权生产证据账本，schema v66 增加 collector 前写入和可恢复 ownership，schema v67 增加显式 opt-in、固定五次 GET 的 Linux 只读 daemon harness，schema v68 增加不授权执行的 receipt 接纳/拒绝账本；非 schema 的私有工程探针已真实验证容器生命周期机制，但 Run/Agent 产品入口与持久执行 authority 仍未开放
+状态：network-none 产品纵向切片已完成，受限扩展继续进行中；schema v48-v68 保留从 Manifest 到非授权生产证据的历史链，schema v97 增加 exact-owned 可恢复生命周期，schema v98 增加 bounded I/O，schema v99 新增默认关闭、process-local capability 约束的产品 admission/start/cancel/recovery，并将 CLI、HTTP/OpenAPI、Desktop 与 model Admit proposal 接到同一 Application 服务。Managed egress、一般 LocalRunner、任意 Docker API、stdin/TTY 与 daemon-wide unknown-orphan adoption 仍未开放
 
 - [x] 定义严格 `sandbox_manifest.v1`、Mount、NetworkScope、ResourceLimit、环境、输入/输出、超时与取消宽限，并提供 Noop 校验和 CLI 检查。
 - [x] schema v48 持久化 metadata-only preparation/validation/operation，精确绑定 Run/Mission/Workspace/Scope/Policy/可选审批；摘要幂等重放与跨 Store 并发收敛。
@@ -257,13 +259,17 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 - [x] v68 最终门禁通过全仓普通/race（247.9 秒/276.3 秒）、vet/staticcheck/module/govulncheck、21 项前端测试、OpenAPI/build/npm audit、57 份 Markdown/74 条相对链接、仓库隐私/编码/禁止执行入口/diff 扫描、Linux 交叉编译、隔离真实 CLI smoke 与四层高频回归。审计修复 request-fingerprint 双层绑定、SQL 负向矩阵、双 Store 收敛和 rejected 全链覆盖，未发现未解决高/中风险。GitHub Actions run `29552080990` 已通过实现提交 `41583ac`（Go/Linux 2 分 57 秒，TypeScript 24 秒）。
 - [x] 非 schema 的真实 Docker 生命周期基础：包内私有 transport 只连接固定 Unix socket 或 Docker Desktop Linux-engine NPipe，复用严格 Stage 后仅允许精确 inspect/start/wait/SIGTERM/SIGKILL/non-forced delete；自然退出、超时、取消、升级终止、最终状态、删除与不存在均有定向测试。Windows Docker Desktop 真实验收观察到 SIGTERM -> SIGKILL、exit 137 和完整清理；不读取 `DOCKER_HOST`，不 pull/exec/attach/log/export，不枚举或触碰无关容器，所有产品/执行/Artifact authority 仍为 false。决策见 ADR 0095。
 - [x] schema v97 增加独立 Docker 生命周期 aggregate：create 前原子持久化 launch intent 与首代 lease，每次 daemon mutation 前追加 prepared action，并以完整 lease/owner/generation/expiry fence 提交 hash-chained transition 和唯一 cleanup receipt。恢复只检查确定性名称，要求完整九标签与精确配置匹配；过期接管、旧 worker、pre-create/post-create/post-start 崩溃、重复 timeout/cancel/cleanup、foreign/legacy 容器拒绝和隐私事件均有定向覆盖。所有产品/执行/output/Artifact authority 继续为 false，决策见 ADR 0096。
-- [ ] 本地代码默认只读挂载，输出目录独立可写。
-- [ ] 网络默认关闭，后续仅允许显式 allowlist。
-- [ ] 支持产品级真实执行、stdin、日志和原子 Output Artifact 导出；v97 已接入非授权 SQLite 写前意图、租约/fencing 与精确重启恢复，但日志/output、Run authority 和生产 admission 仍未实现。v51 只固定要求，v52 只验证输出假事务，v53 只读取元数据，v54 只编译并假写，v55-v56 只操作未启动容器，v57-v58 只固定本地输入，v59 只完成 never-started daemon handoff，v60 只编译 projection，v61 只应用只读卷并保留未启动 target，v62 只检查/清理资源，均未开放生产 Artifact。
-- [ ] 将 v97 对确定性名称与完整标签的精确恢复扩展为生产级 orphan 范围，并用独立生产证据逐项验证 v51 检查；v97 不枚举或接管未知 daemon 资源。v52 的 `simulated_pass`、v53 的 `production_observed`、v54/v60 的 `compiled_not_applied`、v55-v56 的非启动 inspect/recovery、v57-v58 的本地捕获事实、v59 的 handoff、v61 的 never-started target 与 v62 的资源清理都不计入进程隔离验证。
+- [x] schema v98 固定只读输入投影、唯一可写 dedicated output、mount isolation、每流 256 KiB/4096 行日志、严格 64 文件/4 MiB 单文件/16 MiB 总量输出暂存、重读重哈希与原子 commit；v98 自身仍不授权产品执行，决策见 ADR 0098。
+- [x] schema v99 增加 30 秒 `sandbox.readiness.v1`、process-local random epoch、当前 Profile/permission/per-call approval/Policy/budget 再校验、immutable admission、独立 Start WAL/launch、append-only cancellation 与 terminal receipt；SQLite 不能恢复 start authority，迁移不回填 v97/v98 权限。
+- [x] schema v99 只开放 environment-free、secret-free、零 target 的 network none；create/inspect 双侧拒绝 port、DNS、extra host、link、endpoint、proxy、address/gateway/alias/DNS name，Docker 不可用时无宿主 fallback。
+- [x] schema v99 在 exact exited checkpoint 后、cleanup 前捕获 bounded logs；仅 natural exit 0 且 fresh Artifact authority 匹配时 stage/re-read/re-hash/atomically commit output，timeout/cancel/non-zero/I/O failure/authority change 不提交输出，所有终态必须清理完成。
+- [x] CLI `docker-readiness|docker-admit|docker-start|docker-cancel|docker-status`、HTTP 五 route、Desktop process flag 与 model `sandbox_docker_run_propose` 复用同一 Application 服务；模型只可 Admit，不能 Start 或提交 Docker 配置。Run Activity 只投影白名单阶段/reason/remediation/计数。
+- [ ] 为 managed allowlist 实现并独立验收 Go-owned exact host/port/protocol egress guard、生命周期、恢复与绕过测试；当前必须保持 `managed_egress_unavailable`，不得把 v54 编译事实写成 scoped-egress 产品能力。
+- [ ] 若需要比确定性名称更广的 orphan 范围，必须设计 daemon-wide product ownership inventory；schema v99 仍不枚举、接管或删除未知/partial/legacy/foreign 容器。
+- [ ] stdin/TTY、image pull/build、任意 Docker flags/endpoints/mount overrides 与一般 Local/container runner 另行评审，不能复用 v99 network-none 接纳结论。
 - [x] 保留 Noop/Local 作为测试与开发接口；Local 当前明确禁用，不能作为旁路执行后端。
 
-验收标准：容器内不能越界读取宿主目录；取消能终止进程；重启后能识别并处理残留 Sandbox。
+验收标准：exact network-none 产品切片中，容器不能越界读取或写入原 Workspace；取消能先落 sticky fact 再终止/清理；重启只恢复已 launch 的 exact-owned cleanup 而不恢复 start authority；超时、失败和非零退出不提交输出；managed egress 与无 Docker 情况稳定失败关闭。
 
 ## P7：Skills 与 Profiles
 

@@ -84,83 +84,99 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 			operations = append(operations, item.Get)
 		}
 		if item.Post != nil {
-			validControl := (path == ModelCancellationPathTemplate &&
-				item.Post.OperationID == "requestModelCancellation") ||
-				(path == SessionArchiveControlPathTemplate &&
-					item.Post.OperationID == "archiveSession") ||
-				(path == SpecialistModelCancellationPathTemplate &&
-					item.Post.OperationID == "requestSpecialistModelCancellation") ||
-				(path == RunExecutionProfileControlPathTemplate &&
-					item.Post.OperationID == "selectRunExecutionProfile") ||
-				(path == RunExecutionPermissionControlPathTemplate &&
-					item.Post.OperationID == "selectRunExecutionPermission") ||
-				(path == RunBrowserCDPPermissionControlPathTemplate &&
-					item.Post.OperationID == "selectRunBrowserCDPPermission") ||
-				(path == RunCreationControlPath && item.Post.OperationID == "createRun") ||
-				(path == SessionMessageControlPathTemplate &&
-					item.Post.OperationID == "submitSessionMessage") ||
-				(path == SessionSteeringCancellationPathTemplate &&
-					item.Post.OperationID == "cancelSessionSteering") ||
-				(path == RunLifecycleControlPathTemplate &&
-					item.Post.OperationID == "controlRunLifecycle") ||
-				(path == PlanDirectionControlPathTemplate &&
-					item.Post.OperationID == "selectPlanDirection") ||
-				(path == PlanDeliveryControlPathTemplate &&
-					item.Post.OperationID == "enterPlanDelivery") ||
-				(path == ApprovalDecisionControlPathTemplate &&
-					item.Post.OperationID == "decideRunApproval") ||
-				(path == ControlledCommandProposalReviewPathTemplate &&
-					item.Post.OperationID == "reviewControlledCommandProposal") ||
-				(path == HostCommandProposalReviewPathTemplate &&
-					item.Post.OperationID == "reviewHostCommandProposal") ||
-				(path == RunExecutionControlPathTemplate &&
-					item.Post.OperationID == "executeRunSelection") ||
-				(path == ModelRouteControlPathTemplate &&
-					item.Post.OperationID == "selectModelRoute") ||
-				(path == ProviderDiagnosticPath &&
-					item.Post.OperationID == "diagnoseProvider") ||
-				(path == ModelHarnessQualificationPath &&
-					item.Post.OperationID == "qualifyModelHarness") ||
-				(path == ProviderCredentialPathTemplate &&
-					item.Post.OperationID == "changeProviderCredential") ||
-				(path == FileEditProposalPathTemplate &&
-					item.Post.OperationID == "createFileEditProposal") ||
-				(path == FileEditReviewPathTemplate &&
-					item.Post.OperationID == "reviewRunFileEdit") ||
-				(path == FileEditApplyPathTemplate &&
-					item.Post.OperationID == "applyRunFileEdit") ||
-				(path == RunWakeIntentPathTemplate &&
-					item.Post.OperationID == "scheduleRunWake") ||
-				(path == RunWakeCancellationPathTemplate &&
-					item.Post.OperationID == "cancelRunWake") ||
-				(path == RunWakeExecutionPathTemplate &&
-					item.Post.OperationID == "consumeRunWake") ||
-				(path == SkillPackageInstallPath &&
-					item.Post.OperationID == "installSkillPackage") ||
-				(path == EvidenceAttachmentPathTemplate &&
-					item.Post.OperationID == "attachRunEvidence") ||
-				(path == VerificationEvidencePathTemplate &&
-					item.Post.OperationID == "recordRunVerificationEvidence") ||
-				(path == VerificationPlanPathTemplate &&
-					item.Post.OperationID == "recordRunVerificationPlan") ||
-				(path == VerificationAssociationPathTemplate &&
-					item.Post.OperationID == "associateRunVerificationEvidence") ||
-				(path == VerificationSnapshotReceiptPathTemplate &&
-					item.Post.OperationID == "recordRunVerificationSnapshotReceipt") ||
-				(path == VerificationSnapshotReceiptReviewPathTemplate &&
-					item.Post.OperationID == "recordRunVerificationSnapshotReceiptReview") ||
-				(path == RunExecutionInteractionControlPathTemplate &&
-					item.Post.OperationID == "selectRunExecutionInteraction") ||
-				(path == PlanModeControlPathTemplate &&
-					item.Post.OperationID == "enterPlanMode") ||
-				(path == EmbeddedAnalyzerExecutionPathTemplate &&
-					item.Post.OperationID == "executeEmbeddedAnalyzer")
-			successStatus := controlSuccessStatuses[path]
-			if !validControl ||
-				item.Post.ReadOnly || successStatus == "" || item.Post.Responses[successStatus] == nil ||
-				item.Post.RequestBody == nil ||
-				len(item.Post.Security) != 1 || item.Post.Security[0]["ControlBearerAuth"] == nil {
-				t.Fatalf("path %s has an incomplete control operation: %#v", path, item.Post)
+			if path == DockerSandboxReadinessPath {
+				if !item.Post.ReadOnly || item.Post.OperationID !=
+					"evaluateDockerSandboxReadiness" ||
+					item.Post.Responses["200"] == nil || item.Post.RequestBody == nil ||
+					len(item.Post.Security) != 0 {
+					t.Fatalf("path %s has an incomplete read-token readiness operation: %#v",
+						path, item.Post)
+				}
+			} else {
+				validControl := (path == DockerSandboxAdmissionPath &&
+					item.Post.OperationID == "admitDockerSandbox") ||
+					(path == DockerSandboxStartPath &&
+						item.Post.OperationID == "startDockerSandbox") ||
+					(path == DockerSandboxCancelPath &&
+						item.Post.OperationID == "cancelDockerSandbox") ||
+					(path == ModelCancellationPathTemplate &&
+						item.Post.OperationID == "requestModelCancellation") ||
+					(path == SessionArchiveControlPathTemplate &&
+						item.Post.OperationID == "archiveSession") ||
+					(path == SpecialistModelCancellationPathTemplate &&
+						item.Post.OperationID == "requestSpecialistModelCancellation") ||
+					(path == RunExecutionProfileControlPathTemplate &&
+						item.Post.OperationID == "selectRunExecutionProfile") ||
+					(path == RunExecutionPermissionControlPathTemplate &&
+						item.Post.OperationID == "selectRunExecutionPermission") ||
+					(path == RunBrowserCDPPermissionControlPathTemplate &&
+						item.Post.OperationID == "selectRunBrowserCDPPermission") ||
+					(path == RunCreationControlPath && item.Post.OperationID == "createRun") ||
+					(path == SessionMessageControlPathTemplate &&
+						item.Post.OperationID == "submitSessionMessage") ||
+					(path == SessionSteeringCancellationPathTemplate &&
+						item.Post.OperationID == "cancelSessionSteering") ||
+					(path == RunLifecycleControlPathTemplate &&
+						item.Post.OperationID == "controlRunLifecycle") ||
+					(path == PlanDirectionControlPathTemplate &&
+						item.Post.OperationID == "selectPlanDirection") ||
+					(path == PlanDeliveryControlPathTemplate &&
+						item.Post.OperationID == "enterPlanDelivery") ||
+					(path == ApprovalDecisionControlPathTemplate &&
+						item.Post.OperationID == "decideRunApproval") ||
+					(path == ControlledCommandProposalReviewPathTemplate &&
+						item.Post.OperationID == "reviewControlledCommandProposal") ||
+					(path == HostCommandProposalReviewPathTemplate &&
+						item.Post.OperationID == "reviewHostCommandProposal") ||
+					(path == RunExecutionControlPathTemplate &&
+						item.Post.OperationID == "executeRunSelection") ||
+					(path == ModelRouteControlPathTemplate &&
+						item.Post.OperationID == "selectModelRoute") ||
+					(path == ProviderDiagnosticPath &&
+						item.Post.OperationID == "diagnoseProvider") ||
+					(path == ModelHarnessQualificationPath &&
+						item.Post.OperationID == "qualifyModelHarness") ||
+					(path == ProviderCredentialPathTemplate &&
+						item.Post.OperationID == "changeProviderCredential") ||
+					(path == FileEditProposalPathTemplate &&
+						item.Post.OperationID == "createFileEditProposal") ||
+					(path == FileEditReviewPathTemplate &&
+						item.Post.OperationID == "reviewRunFileEdit") ||
+					(path == FileEditApplyPathTemplate &&
+						item.Post.OperationID == "applyRunFileEdit") ||
+					(path == RunWakeIntentPathTemplate &&
+						item.Post.OperationID == "scheduleRunWake") ||
+					(path == RunWakeCancellationPathTemplate &&
+						item.Post.OperationID == "cancelRunWake") ||
+					(path == RunWakeExecutionPathTemplate &&
+						item.Post.OperationID == "consumeRunWake") ||
+					(path == SkillPackageInstallPath &&
+						item.Post.OperationID == "installSkillPackage") ||
+					(path == EvidenceAttachmentPathTemplate &&
+						item.Post.OperationID == "attachRunEvidence") ||
+					(path == VerificationEvidencePathTemplate &&
+						item.Post.OperationID == "recordRunVerificationEvidence") ||
+					(path == VerificationPlanPathTemplate &&
+						item.Post.OperationID == "recordRunVerificationPlan") ||
+					(path == VerificationAssociationPathTemplate &&
+						item.Post.OperationID == "associateRunVerificationEvidence") ||
+					(path == VerificationSnapshotReceiptPathTemplate &&
+						item.Post.OperationID == "recordRunVerificationSnapshotReceipt") ||
+					(path == VerificationSnapshotReceiptReviewPathTemplate &&
+						item.Post.OperationID == "recordRunVerificationSnapshotReceiptReview") ||
+					(path == RunExecutionInteractionControlPathTemplate &&
+						item.Post.OperationID == "selectRunExecutionInteraction") ||
+					(path == PlanModeControlPathTemplate &&
+						item.Post.OperationID == "enterPlanMode") ||
+					(path == EmbeddedAnalyzerExecutionPathTemplate &&
+						item.Post.OperationID == "executeEmbeddedAnalyzer")
+				successStatus := controlSuccessStatuses[path]
+				if !validControl ||
+					item.Post.ReadOnly || successStatus == "" || item.Post.Responses[successStatus] == nil ||
+					item.Post.RequestBody == nil ||
+					len(item.Post.Security) != 1 || item.Post.Security[0]["ControlBearerAuth"] == nil {
+					t.Fatalf("path %s has an incomplete control operation: %#v", path, item.Post)
+				}
 			}
 			operations = append(operations, item.Post)
 		}
@@ -197,6 +213,9 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 	for path, item := range raw.Paths {
 		for method := range item {
 			if method != "get" && !((path == ModelCancellationPathTemplate ||
+				path == DockerSandboxReadinessPath ||
+				path == DockerSandboxAdmissionPath ||
+				path == DockerSandboxStartPath || path == DockerSandboxCancelPath ||
 				path == SpecialistModelCancellationPathTemplate ||
 				path == SessionArchiveControlPathTemplate ||
 				path == RunExecutionProfileControlPathTemplate ||
@@ -515,6 +534,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	fixture.api.evidenceAttachmentEnabled = true
 	fixture.api.verificationEvidenceEnabled = true
 	fixture.api.embeddedAnalyzerExecutionEnabled = true
+	fixture.api.dockerSandboxControlEnabled = true
+	fixture.api.dockerSandboxController = &dockerSandboxControllerStub{}
 	fixture.api.runLifecycleController = application.NewRunLifecycleControlService(fixture.store)
 	executionController := application.NewRunExecutionHandoffService(
 		fixture.store, llm.NewDefaultRouter(), policy.NewDefaultChecker())
@@ -719,6 +740,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 			requestPath += "?format=markdown"
 		} else if spec.OperationID == "exportRunVerificationPlanItemSnapshot" {
 			requestPath += "?format=json"
+		} else if spec.OperationID == "getDockerSandboxStatus" {
+			requestPath += "?admission_id=docker-sandbox-admission-openapi"
 		}
 		t.Run(spec.OperationID, func(t *testing.T) {
 			var response *httptest.ResponseRecorder
@@ -728,9 +751,37 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 			} else if spec.OperationID == "getWorkspaceRepositoryCommitFilePreview" {
 				expectedStatus = http.StatusPreconditionFailed
 			}
-			if spec.Control {
+			if spec.Path == DockerSandboxReadinessPath {
+				body, marshalErr := json.Marshal(DockerSandboxReadinessRequestView{
+					PlanID: "sandbox-docker-plan-openapi", Manifest: dockerSandboxHTTPTestManifest(),
+				})
+				if marshalErr != nil {
+					t.Fatal(marshalErr)
+				}
+				request := httptest.NewRequest(http.MethodPost,
+					"http://127.0.0.1"+requestPath, bytes.NewReader(body))
+				request.Host = "127.0.0.1:8765"
+				request.RemoteAddr = "127.0.0.1:45000"
+				request.Header.Set("Authorization", "Bearer "+testAccessToken)
+				request.Header.Set("Content-Type", "application/json")
+				response = httptest.NewRecorder()
+				fixture.api.ServeHTTP(response, request)
+			} else if spec.Control {
 				body := `{"profile":"docker"}`
-				if spec.Path == RunCreationControlPath {
+				if spec.Path == DockerSandboxAdmissionPath {
+					encoded, marshalErr := json.Marshal(DockerSandboxAdmissionRequestView{
+						PlanID: "sandbox-docker-plan-openapi", Manifest: dockerSandboxHTTPTestManifest(),
+						RequestedBy: "openapi_test",
+					})
+					if marshalErr != nil {
+						t.Fatal(marshalErr)
+					}
+					body = string(encoded)
+				} else if spec.Path == DockerSandboxStartPath ||
+					spec.Path == DockerSandboxCancelPath {
+					body = `{"admission_id":"docker-sandbox-admission-openapi",` +
+						`"requested_by":"openapi_test"}`
+				} else if spec.Path == RunCreationControlPath {
 					body = `{"version":"run_creation.v1","goal":"OpenAPI live Run",` +
 						`"workspace_id":"` + fixture.workspace.ID + `"}`
 				} else if spec.Path == SessionMessageControlPathTemplate {

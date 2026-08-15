@@ -139,6 +139,58 @@ func TestControlPlaneBootstrapsOnlyAnEmptyWorkspaceRegistry(t *testing.T) {
 	}
 }
 
+func TestControlPlaneDockerCapabilityIsProcessLocalAcrossRestart(t *testing.T) {
+	home := t.TempDir()
+	databasePath := filepath.Join(home, "docker-capability.db")
+	if _, err := OpenControlPlane(ControlPlaneConfig{
+		DatabasePath: databasePath, HomePath: home,
+		ReadToken: desktopControlPlaneTestToken, ControlToken: desktopControlPlaneControlToken,
+		DockerExecutionEnabled: true, AppVersion: "desktop-test",
+	}); apperror.CodeOf(err) != apperror.CodeInvalidArgument {
+		t.Fatalf("Docker execution without permission gate error=%v code=%s",
+			err, apperror.CodeOf(err))
+	}
+
+	enabled, err := OpenControlPlane(ControlPlaneConfig{
+		DatabasePath: databasePath, HomePath: home,
+		ReadToken: desktopControlPlaneTestToken, ControlToken: desktopControlPlaneControlToken,
+		ExecutionPermissionControlEnabled: true,
+		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
+			OperatorApprovalEnabled: true,
+		},
+		DockerExecutionEnabled: true, AppVersion: "desktop-test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = enabled.Close() })
+	capability, err := enabled.DockerExecutionEnabled()
+	if err != nil || !capability {
+		t.Fatalf("enabled process capability=%t err=%v", capability, err)
+	}
+	assertDesktopDockerCapability(t, enabled.Handler(), true)
+	if err := enabled.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(filepath.Join(home, desktopDockerSandboxStagingDirectory)); err != nil || !info.IsDir() {
+		t.Fatalf("trusted Desktop staging root was not created: info=%v err=%v", info, err)
+	}
+
+	disabled, err := OpenControlPlane(ControlPlaneConfig{
+		DatabasePath: databasePath, HomePath: home,
+		ReadToken: desktopControlPlaneTestToken, AppVersion: "desktop-test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer disabled.Close()
+	capability, err = disabled.DockerExecutionEnabled()
+	if err != nil || capability {
+		t.Fatalf("SQLite restored Docker start capability=%t err=%v", capability, err)
+	}
+	assertDesktopDockerCapability(t, disabled.Handler(), false)
+}
+
 func TestControlPlaneKeepsDebugAgentInputInsideGoControlPlane(t *testing.T) {
 	disabled, err := OpenControlPlane(ControlPlaneConfig{
 		DatabasePath: filepath.Join(t.TempDir(), "debug-agent-disabled.db"),
@@ -471,4 +523,24 @@ func desktopAPIRequest(handler http.Handler, path string) *httptest.ResponseReco
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	return response
+}
+
+func assertDesktopDockerCapability(t *testing.T, handler http.Handler, want bool) {
+	t.Helper()
+	response := desktopAPIRequest(handler, "/api/v1/capabilities")
+	if response.Code != http.StatusOK {
+		t.Fatalf("runtime capability status=%d body=%s", response.Code, response.Body.String())
+	}
+	var envelope desktopAPIEnvelope
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	var capabilities httpapi.RuntimeCapabilitiesView
+	if err := json.Unmarshal(envelope.Data, &capabilities); err != nil {
+		t.Fatal(err)
+	}
+	if capabilities.DockerExecutionEnabled != want ||
+		capabilities.ProcessExecutionEnabled || capabilities.ShellExecutionEnabled {
+		t.Fatalf("unexpected Desktop runtime capability projection: %#v", capabilities)
+	}
 }

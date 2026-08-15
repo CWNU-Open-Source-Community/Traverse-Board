@@ -57,12 +57,15 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		"enable operator-selected browser CDP permissions")
 	fullCDPDebug := fs.Bool("enable-full-cdp-debug", false,
 		"enable highly sensitive complete CDP debugging selection")
+	dockerExecution := fs.Bool("enable-docker-execution", false,
+		"enable the process-local Docker Sandbox execution capability")
 	if err := fs.Parse(reorderFlags(args, map[string]bool{"listen": true, "ui-dir": true,
 		"enable-file-edit-proposals": false, "enable-provider-credentials": false,
 		"enable-wake-worker": false, "enable-permission-control": false,
 		"enable-host-command-proposals": false,
 		"enable-danger-full-access":     false, "enable-debug-maximum-access": false,
-		"enable-browser-cdp-control": false, "enable-full-cdp-debug": false})); err != nil {
+		"enable-browser-cdp-control": false, "enable-full-cdp-debug": false,
+		"enable-docker-execution": false})); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 {
@@ -95,8 +98,13 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		return apperror.New(apperror.CodeInvalidArgument,
 			"host command proposals require --enable-permission-control")
 	}
+	if *dockerExecution && !permissionCapabilities.OperatorApprovalEnabled {
+		return apperror.New(apperror.CodeInvalidArgument,
+			"--enable-docker-execution requires --enable-permission-control")
+	}
 	if (*fileEditProposals || *providerCredentials || *wakeWorker ||
-		*permissionControl || *hostCommandProposals || *browserCDPControl) && controlToken == "" {
+		*permissionControl || *hostCommandProposals || *browserCDPControl ||
+		*dockerExecution) && controlToken == "" {
 		return apperror.New(apperror.CodeInvalidArgument,
 			"interactive proposals, Provider credentials, the wake worker, and execution permission control require CYBERAGENT_API_CONTROL_TOKEN")
 	}
@@ -119,9 +127,21 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	if err := a.ensureStore(); err != nil {
 		return err
 	}
+	dockerSandbox, err := a.newDockerSandboxService(*dockerExecution,
+		permissionCapabilities)
+	if err != nil {
+		return err
+	}
+	if _, err := dockerSandbox.RecoverStartup(ctx); err != nil {
+		return apperror.Wrap(apperror.CodeUnavailable,
+			"Docker Sandbox startup recovery failed", err)
+	}
 	lifecycleControl := application.NewRunLifecycleControlService(a.store)
 	executionControl := application.NewRunExecutionHandoffService(a.store, a.router,
 		a.checker).WithActiveCalls(a.calls)
+	if executor := a.newDockerSandboxProposalExecutor(); executor != nil {
+		executionControl.WithDockerSandboxProposalExecutor(executor)
+	}
 	planDeliveryControl := application.NewPlanDeliveryControlService(a.store)
 	approvalControl := application.NewApprovalControlService(a.store,
 		a.newToolGateway(), a.checker)
@@ -219,6 +239,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		RunWakeWorkerHealthSource:               workerHealth,
 		SkillInstallationController:             skillInstallation,
 		EmbeddedAnalyzerExecutionController:     embeddedAnalyzerExecution,
+		DockerSandboxController:                 dockerSandbox,
 		ModelRegistry:                           a.models,
 		AppVersion:                              Version,
 		UIHandler:                               uiBundle,
@@ -278,6 +299,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		permissionCapabilities.DebugMaximumAccessEnabled)
 	fmt.Fprintf(a.out, "browser_cdp_permission_control_enabled: %t\nfull_cdp_debug_enabled: %t\n",
 		*browserCDPControl, browserCDPCapabilities.FullDebugEnabled)
+	fmt.Fprintf(a.out, "docker_execution_enabled: %t\n", *dockerExecution)
 	fmt.Fprintln(a.out, "note: the API is loopback-only; control is separately authorized and tokens are not persisted")
 	return server.Serve(ctx, listener)
 }

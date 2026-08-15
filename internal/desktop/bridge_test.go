@@ -216,6 +216,34 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 	})
 }
 
+func TestDesktopBridgeProjectsOnlyTheProcessLocalDockerCapability(t *testing.T) {
+	selector, preview := NewSkillPackagePreviewBoundary()
+	bridge, err := NewDesktopBridge(DesktopBridgeConfig{
+		ContextProvider:                   func() context.Context { return context.Background() },
+		FilePicker:                        &testSkillPackagePicker{},
+		ReadToken:                         testDesktopReadToken,
+		ControlToken:                      testDesktopControlToken,
+		ExecutionPermissionControlEnabled: true,
+		OperatorApprovalEnabled:           true,
+		DockerExecutionEnabled:            true,
+		APIVersion:                        "api.v1", AppVersion: "test", UIDigest: testDesktopUIDigest,
+		Selector: selector, PreviewBridge: preview,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap, err := bridge.Bootstrap()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bootstrap.DockerExecutionEnabled || bootstrap.ReadOnlyDefault ||
+		bootstrap.ProcessExecutionEnabled || bootstrap.ShellExecutionEnabled ||
+		bootstrap.DangerFullAccessEnabled || bootstrap.DebugMaximumAccessEnabled ||
+		bootstrap.UserTerminalEnabled || bootstrap.AgentTerminalInputDefault {
+		t.Fatalf("Docker bootstrap widened unrelated process authority: %#v", bootstrap)
+	}
+}
+
 func TestDesktopBridgeUserTerminalIsExplicitAndUserOnly(t *testing.T) {
 	selector, preview := NewSkillPackagePreviewBoundary()
 	controller := &testUserTerminalController{}
@@ -627,6 +655,16 @@ func TestNewDesktopBridgeRejectsInvalidMetadataAndDependencies(t *testing.T) {
 		{name: "short token", change: func(c *DesktopBridgeConfig) { c.ReadToken = "short" }},
 		{name: "same control token", change: func(c *DesktopBridgeConfig) { c.ControlToken = c.ReadToken }},
 		{name: "capability without token", change: func(c *DesktopBridgeConfig) { c.RunCreationEnabled = true }},
+		{name: "Docker capability without token", change: func(c *DesktopBridgeConfig) {
+			c.ExecutionPermissionControlEnabled = true
+			c.OperatorApprovalEnabled = true
+			c.DockerExecutionEnabled = true
+		}},
+		{name: "Docker capability without permission control", change: func(c *DesktopBridgeConfig) {
+			c.ControlToken = testDesktopControlToken
+			c.OperatorApprovalEnabled = true
+			c.DockerExecutionEnabled = true
+		}},
 		{name: "approval without token", change: func(c *DesktopBridgeConfig) { c.ApprovalControlEnabled = true }},
 		{name: "command proposal without token", change: func(c *DesktopBridgeConfig) {
 			c.ControlledCommandProposalControlEnabled = true

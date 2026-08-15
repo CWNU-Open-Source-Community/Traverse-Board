@@ -1,6 +1,7 @@
 package runactivity
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -102,6 +103,236 @@ func TestBuildRejectsCrossRunAndDuplicateEvents(t *testing.T) {
 	duplicate := event(1, events.ModelStartedEvent, `{}`, now)
 	if _, err := Build("run-1", []events.Event{duplicate, duplicate}, false); err == nil {
 		t.Fatal("duplicate event sequence was accepted")
+	}
+}
+
+func TestBuildProjectsDockerProductLifecycleAndArtifactsInSequence(t *testing.T) {
+	now := time.Now().UTC()
+	ordered := []events.Event{
+		event(1, events.SandboxDockerProductAdmittedEvent,
+			`{"decision":"authorized","reason_code":"ready","remediation_code":"none",`+
+				`"network_mode":"disabled","product_entry_enabled":true,`+
+				`"execution_authorized":true,"artifact_commit_authorized":true}`, now),
+		event(2, events.SandboxDockerProductLaunchBoundEvent,
+			`{"status":"bound","lifecycle_intent_id":"intent-1","attempt_id":"attempt-1"}`, now),
+		event(3, events.SandboxDockerLifecyclePreparedEvent,
+			`{"resource_generation":1,"lease_generation":1}`, now),
+		event(4, events.SandboxDockerLifecycleActionPreparedEvent,
+			`{"ordinal":1,"verb":"start"}`, now),
+		event(5, events.SandboxDockerLifecycleTransitionEvent,
+			`{"ordinal":1,"state":"started","reason_code":"started"}`, now),
+		event(6, events.SandboxDockerProductCancelRequestedEvent,
+			`{"reason_code":"cancelled","status":"requested"}`, now),
+		event(7, events.SandboxDockerLifecycleActionPreparedEvent,
+			`{"ordinal":2,"verb":"term"}`, now),
+		event(8, events.SandboxDockerLifecycleTransitionEvent,
+			`{"ordinal":2,"state":"exited","reason_code":"cancelled"}`, now),
+		event(9, events.SandboxDockerLifecycleTransitionEvent,
+			`{"ordinal":3,"state":"cleaning","reason_code":"cancelled"}`, now),
+		event(10, events.SandboxDockerLogCaptureCompletedEvent,
+			`{"status":"completed","stream_count":2,"total_bytes":120,"total_lines":4,`+
+				`"truncated":false,"utf8_violation_count":0,"redacted_segment_count":1}`, now),
+		event(11, events.SandboxDockerOutputStagingCompletedEvent,
+			`{"status":"completed","file_count":2,"total_bytes":240,"redacted_count":1,`+
+				`"truncated":false}`, now),
+		event(12, events.SandboxDockerOutputCommitCompletedEvent,
+			`{"status":"committed","committed_count":2,"total_bytes":240}`, now),
+		event(13, events.SandboxDockerLifecycleTransitionEvent,
+			`{"ordinal":4,"state":"cleaned","reason_code":"cleanup_completed"}`, now),
+		event(14, events.SandboxDockerLifecycleCompletedEvent,
+			`{"outcome":"cancelled","container_removed_now":true}`, now),
+		event(15, events.SandboxDockerProductCompletedEvent,
+			`{"outcome":"cancelled","reason_code":"cancelled","cleanup_complete":true,`+
+				`"artifact_count":2,"artifact_commit_authorized":true}`, now),
+	}
+	source := make([]events.Event, len(ordered))
+	for index := range ordered {
+		source[len(ordered)-1-index] = ordered[index]
+	}
+
+	got, err := Build("run-1", source, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []struct {
+		sequence int64
+		title    string
+		status   string
+	}{
+		{1, "Docker 沙箱准入已通过", "preparing"},
+		{2, "Docker 沙箱启动已绑定", "starting"},
+		{3, "Docker 容器准备中", "preparing"},
+		{4, "正在启动 Docker 容器", "starting"},
+		{5, "Docker 容器运行中", "running"},
+		{6, "Docker 沙箱取消已请求", "cancelling"},
+		{7, "正在停止 Docker 容器", "cancelling"},
+		{8, "Docker 容器已停止", "cancelling"},
+		{9, "Docker 容器清理中", "cleaning"},
+		{10, "Docker 日志已收集", "completed"},
+		{11, "Docker 输出已暂存", "completed"},
+		{12, "Docker 产物已提交", "completed"},
+		{13, "Docker 容器已清理", "cleaned"},
+		{14, "Docker 容器取消后已清理", "cleaned"},
+		{15, "Docker 沙箱已取消并清理", "cleaned"},
+	}
+	if len(got.Items) != len(want) || got.ThroughSequence != 15 {
+		t.Fatalf("unexpected Docker activity projection: %#v", got)
+	}
+	for index, expected := range want {
+		item := got.Items[index]
+		if item.Sequence != expected.sequence || item.Title != expected.title ||
+			item.Status != expected.status || item.Source != SourceHarness ||
+			item.Kind != KindHarnessStatus || !item.Verifiable {
+			t.Fatalf("Docker activity %d = %#v, want sequence=%d title=%q status=%q",
+				index, item, expected.sequence, expected.title, expected.status)
+		}
+	}
+	if got.Items[9].Detail != "2 个日志流 · 120 bytes · 4 行" ||
+		got.Items[10].Detail != "2 个文件 · 240 bytes · 1 个文件已脱敏" ||
+		got.Items[11].Detail != "2 个产物 · 240 bytes" ||
+		got.Items[14].Detail != "已提交 2 个产物" {
+		t.Fatalf("Docker bounded summaries are unstable: %#v", got.Items)
+	}
+}
+
+func TestBuildProjectsDockerAdmissionDenialWithoutPrivateMetadata(t *testing.T) {
+	now := time.Now().UTC()
+	value := event(1, events.SandboxDockerProductAdmissionDeniedEvent,
+		`{"decision":"denied","reason_code":"budget_exhausted",`+
+			`"remediation_code":"increase_or_free_budget","network_mode":"disabled",`+
+			`"product_entry_enabled":false,"execution_authorized":false,`+
+			`"artifact_commit_authorized":false,"operation_key_digest":"secret"}`, now)
+	got, err := Build("run-1", []events.Event{value}, false)
+	if err != nil || len(got.Items) != 1 || got.Items[0].Status != "blocked" ||
+		got.Items[0].Title != "Docker 沙箱准入已拒绝" ||
+		strings.Contains(got.Items[0].Detail, "secret") {
+		t.Fatalf("denial projection = %#v err=%v", got.Items, err)
+	}
+}
+
+func TestBuildDockerActivityNeverProjectsSensitivePayloadFields(t *testing.T) {
+	now := time.Now().UTC()
+	common := `,"container_id":"secret-container-id","container_name":"secret-container-name",` +
+		`"host_path":"C:\\\\secret-host-path","command":"secret-command --token",` +
+		`"stdout":"secret-stdout-body","stderr":"secret-stderr-body",` +
+		`"operation_key_digest":"secret-operation-fingerprint",` +
+		`"request_fingerprint":"secret-request-fingerprint",` +
+		`"lease_id":"secret-lease-fingerprint","owner_id":"secret-owner-fingerprint"}`
+	source := []events.Event{
+		event(1, events.SandboxDockerLifecycleTransitionEvent,
+			`{"state":"started","reason_code":"started"`+common, now),
+		event(2, events.SandboxDockerLogCaptureCompletedEvent,
+			`{"status":"completed","stream_count":2,"total_bytes":12,"total_lines":2`+common, now),
+		event(3, events.SandboxDockerOutputStagingCompletedEvent,
+			`{"status":"completed","file_count":1,"total_bytes":12,"redacted_count":0,`+
+				`"entries":[{"path":"secret-output-path"}]`+common, now),
+		event(4, events.SandboxDockerOutputCommitCompletedEvent,
+			`{"status":"committed","committed_count":1,"total_bytes":12,`+
+				`"entries":[{"path":"secret-artifact-path"}]`+common, now),
+		event(5, events.SandboxDockerProductLaunchBoundEvent,
+			`{"status":"bound","lifecycle_intent_id":"secret-intent-id",`+
+				`"attempt_id":"secret-attempt-id"`+common, now),
+	}
+
+	got, err := Build("run-1", source, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{
+		"secret-container-id", "secret-container-name", "secret-host-path",
+		"secret-command", "secret-stdout-body", "secret-stderr-body",
+		"secret-operation-fingerprint", "secret-request-fingerprint",
+		"secret-lease-fingerprint", "secret-owner-fingerprint",
+		"secret-output-path", "secret-artifact-path", "secret-intent-id",
+		"secret-attempt-id",
+	} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("Docker private payload field leaked into activity: %s", forbidden)
+		}
+	}
+	if len(got.Items) != len(source) {
+		t.Fatalf("recognised Docker events were lost: %#v", got.Items)
+	}
+}
+
+func TestBuildProjectsDockerFailureActivities(t *testing.T) {
+	now := time.Now().UTC()
+	source := []events.Event{
+		event(1, events.SandboxDockerLifecycleTransitionEvent,
+			`{"state":"failed","reason_code":"cleanup_failed"}`, now),
+		event(2, events.SandboxDockerLifecycleCompletedEvent,
+			`{"outcome":"failed"}`, now),
+		event(3, events.SandboxDockerLogCaptureFailedEvent, `{}`, now),
+		event(4, events.SandboxDockerOutputStagingFailedEvent, `{}`, now),
+		event(5, events.SandboxDockerOutputCommitFailedEvent, `{}`, now),
+		event(6, events.SandboxDockerProductCompletedEvent,
+			`{"outcome":"failed","reason_code":"io_failed","cleanup_complete":true,`+
+				`"artifact_count":0,"artifact_commit_authorized":true}`, now),
+	}
+
+	got, err := Build("run-1", source, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Items) != len(source) {
+		t.Fatalf("Docker failures were not completely projected: %#v", got.Items)
+	}
+	wantTitles := []string{
+		"Docker 容器操作失败", "Docker 容器失败后已清理", "Docker 日志收集失败",
+		"Docker 输出暂存失败", "Docker 产物提交失败", "Docker 沙箱运行失败并已清理",
+	}
+	for index, item := range got.Items {
+		if item.Title != wantTitles[index] || item.Status != "failed" {
+			t.Fatalf("Docker failure %d = %#v", index, item)
+		}
+	}
+	if got.Items[0].Detail != "容器清理失败" || got.Items[5].Detail != "未提交产物" {
+		t.Fatalf("Docker failure summaries are unstable: %#v", got.Items)
+	}
+}
+
+func TestBuildDockerActivityIgnoresUnknownContractsAndUnboundedCounts(t *testing.T) {
+	now := time.Now().UTC()
+	source := []events.Event{
+		event(1, "sandbox.docker_future_event", `{"payload":"must-not-project"}`, now),
+		event(2, events.SandboxDockerLifecycleActionPreparedEvent,
+			`{"verb":"exec-secret-command"}`, now),
+		event(3, events.SandboxDockerLifecycleTransitionEvent,
+			`{"state":"paused-secret-state","reason_code":"future"}`, now),
+		event(4, events.SandboxDockerLogCaptureCompletedEvent,
+			`{"status":"future-status","stream_count":2,"total_bytes":1,"total_lines":1}`, now),
+		event(5, events.SandboxDockerOutputStagingCompletedEvent,
+			`{"status":"future-status","file_count":1,"total_bytes":1,"redacted_count":0}`, now),
+		event(6, events.SandboxDockerOutputCommitCompletedEvent,
+			`{"status":"future-status","committed_count":1,"total_bytes":1}`, now),
+		event(7, events.SandboxDockerProductAdmittedEvent,
+			`{"decision":"authorized","network_mode":"host","product_entry_enabled":true,`+
+				`"execution_authorized":true,"artifact_commit_authorized":true}`, now),
+		event(8, events.SandboxDockerProductLaunchBoundEvent, `{"status":"future"}`, now),
+		event(9, events.SandboxDockerProductCancelRequestedEvent,
+			`{"status":"requested","reason_code":"future"}`, now),
+		event(10, events.SandboxDockerProductCompletedEvent,
+			`{"outcome":"future","cleanup_complete":true,"artifact_count":0,`+
+				`"artifact_commit_authorized":true}`, now),
+		event(11, events.SandboxDockerLogCaptureCompletedEvent,
+			`{"status":"completed","stream_count":2,"total_bytes":999999999,`+
+				`"total_lines":999999999}`, now),
+	}
+
+	got, err := Build("run-1", source, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ThroughSequence != 11 || len(got.Items) != 1 {
+		t.Fatalf("unknown Docker contracts were projected: %#v", got)
+	}
+	if got.Items[0].Sequence != 11 || got.Items[0].Title != "Docker 日志已收集" ||
+		got.Items[0].Detail != "" {
+		t.Fatalf("unbounded Docker metadata was forwarded: %#v", got.Items[0])
 	}
 }
 

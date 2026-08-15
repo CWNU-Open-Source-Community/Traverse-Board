@@ -4,7 +4,48 @@
 
 Last updated: 2026-08-14
 
-## Current Single-Slice Checkpoint: Bounded Docker Container I/O Contract / Schema v98
+## Current Single-Slice Checkpoint: Docker Sandbox Product Admission / Schema v99
+
+2026-08-14 的 issue #40 将 network-none Docker Sandbox 接入产品。新的
+`DockerSandboxService` 是 readiness、admission、status、start、cancellation 和 startup
+recovery 的唯一业务服务；CLI 直接调用，HTTP/OpenAPI 与 Desktop 只做投影，模型
+`sandbox_docker_run_propose` 经 fenced Tool Gateway adapter 只能调用 Admit。模型不能
+提交 daemon endpoint、Docker flag、host bind、environment/proxy、image override、
+network relaxation，也不能调用 Start/Cancel/transport。
+
+真实执行默认关闭。每次 service construction 生成 fresh random runtime epoch，只把摘要
+写入 admission；SQLite、旧 capability snapshot 或重启都不能恢复 start authority。准入和
+start final fence 都重新校验当前 Run/Mission/Workspace、v54 exact plan/Manifest、当前
+`docker` Profile、最新 `approval|full_access|debug` permission、精确 approved per-call
+`sandbox.manifest` approval、Policy、剩余 wall/tool budget 与 30 秒
+`sandbox.readiness.v1`。Full Access 不替代精确审批。Docker 不可用时稳定失败关闭，不回退
+LocalRunner/host process。
+
+产品 Manifest 目前必须 environment-free、secret-free、
+`network.mode=disabled`、零 target。Create 使用 Docker network none，并在 inspect 时
+拒绝 port/DNS/extra-host/link/endpoint/proxy/address/gateway/alias/DNS-name 状态。Generic
+Manifest/v54 中的 allowlist 不代表 enforcement；exact host/port/protocol 仍需独立
+Go-owned egress guard。因此 `ManagedEgressEnabled` 与 allowlist 均返回
+`managed_egress_unavailable`，remediation 是使用 network disabled/none。不要在后续压缩
+上下文中把 scoped egress 记成已完成。
+
+Schema v99 新增 immutable product admission、独立 Start WAL/launch binding、append-only
+cancellation、terminal receipt，并持久化 v98 output-staging entries 与每 attempt 唯一约束。
+Migration 不回填或扩权 v97/v98。CPU/memory/PIDs/disk/wall/log/tool budgets 都被 admission
+冻结并在 Go/SQLite/Docker/I/O 边界复核。Post-exit 在 exact exited checkpoint 与
+lease/identity fence 后先捕获 bounded logs；只有 natural exit 0 且当前 Artifact authority
+仍匹配才 stage/re-read/re-hash/atomically commit outputs，之后 cleanup。Timeout/cancel/
+non-zero/I/O failure/authority change 不提交输出，cleanup 仍必须完成。
+
+Cancellation 先持久化 sticky fact，再 signal active context 或 takeover released/expired
+exact lifecycle。Startup recovery 只处理已有 launch binding 的 records：可以 reconcile/
+terminate/clean exact owned resource，但不得用旧 epoch start；admission-only 不会自动启动。
+Run Activity 只投影 metadata whitelist 与
+`preparing|starting|running|cancelling|cleaning|cleaned`/bounded terminal state。Focused
+domain/Sandbox/Store/Application/race tests 已通过；最终仍需完成 cross-surface、OpenAPI/
+Web/docs 与 optional real-daemon integration gate，再由 root 记录最终结果。见 ADR 0099。
+
+### Previous Single-Slice Checkpoint: Bounded Docker Container I/O Contract / Schema v98
 
 On 2026-08-14 schema v98 added the bounded Docker container I/O contract for
 issue #39, still without any product entry or authority grant. A sealed
@@ -35,8 +76,8 @@ prepared/acquired/taken-over/failed/completed transitions. Focused domain,
 golden-vector, adversarial-path, transport, store, and application tests pass
 on macOS; Windows/Linux CI will exercise the same path matrix. See ADR 0098
 and issue #39. Do not repeat this slice or the v97 lifecycle review after
-compaction; product admission (Policy/Approval/Budget/Network and
-CLI/HTTP/Desktop wiring) remains the next Docker slice.
+compaction. At that historical checkpoint product admission was the next
+Docker slice; schema v99 above has now delivered its exact network-none subset.
 
 ### Previous Checkpoint: macOS Desktop Portable Build / Schema v97 Unchanged
 

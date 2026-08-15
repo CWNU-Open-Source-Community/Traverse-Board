@@ -203,6 +203,105 @@ func TestDockerContainerWriteTransportRejectsUnsafeExistingContainer(t *testing.
 	}
 }
 
+func TestDockerContainerConfigurationRejectsNetworkAndProxyBypasses(t *testing.T) {
+	request := newDockerContainerWriteTestRequest(t)
+	daemon := &dockerWriteTestDaemon{containerID: dockerWriteTestContainerID,
+		name: request.Spec.ContainerName, payload: dockerCreatePayload(request)}
+	baseline := daemon.inspectPayload()
+	var exact dockerContainerInspection
+	if err := json.Unmarshal(baseline, &exact); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyDockerContainerConfiguration(exact, request); err != nil {
+		t.Fatalf("baseline exact network-none configuration failed: %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{"proxy environment", func(value map[string]any) {
+			value["Config"].(map[string]any)["Env"] = []string{"HTTPS_PROXY=http://host.invalid"}
+		}},
+		{"exposed port", func(value map[string]any) {
+			value["Config"].(map[string]any)["ExposedPorts"] = map[string]any{"443/tcp": map[string]any{}}
+		}},
+		{"bridge mode", func(value map[string]any) {
+			value["HostConfig"].(map[string]any)["NetworkMode"] = "bridge"
+		}},
+		{"custom DNS", func(value map[string]any) {
+			value["HostConfig"].(map[string]any)["Dns"] = []string{"8.8.8.8"}
+		}},
+		{"DNS search", func(value map[string]any) {
+			value["HostConfig"].(map[string]any)["DnsSearch"] = []string{"internal.invalid"}
+		}},
+		{"DNS option", func(value map[string]any) {
+			value["HostConfig"].(map[string]any)["DnsOptions"] = []string{"use-vc"}
+		}},
+		{"host gateway", func(value map[string]any) {
+			value["HostConfig"].(map[string]any)["ExtraHosts"] =
+				[]string{"host.docker.internal:host-gateway"}
+		}},
+		{"port binding", func(value map[string]any) {
+			value["HostConfig"].(map[string]any)["PortBindings"] =
+				map[string]any{"443/tcp": []map[string]string{{"HostPort": "8443"}}}
+		}},
+		{"IPv4 endpoint", func(value map[string]any) {
+			value["NetworkSettings"] = map[string]any{"Networks": map[string]any{
+				"none": map[string]any{"IPAddress": "172.17.0.2"},
+			}}
+		}},
+		{"IPv6 endpoint", func(value map[string]any) {
+			value["NetworkSettings"] = map[string]any{"Networks": map[string]any{
+				"none": map[string]any{"GlobalIPv6Address": "2001:db8::2"},
+			}}
+		}},
+		{"foreign endpoint", func(value map[string]any) {
+			value["NetworkSettings"] = map[string]any{"Networks": map[string]any{
+				"bridge": map[string]any{},
+			}}
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var value map[string]any
+			if err := json.Unmarshal(baseline, &value); err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(value)
+			encoded, err := json.Marshal(value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var inspection dockerContainerInspection
+			if err := json.Unmarshal(encoded, &inspection); err != nil {
+				t.Fatal(err)
+			}
+			if DockerContainerWriteErrorCode(
+				verifyDockerContainerConfiguration(inspection, request),
+			) != DockerContainerWriteFailureConfigMismatch {
+				t.Fatal("network/proxy bypass retained exact Docker ownership")
+			}
+		})
+	}
+}
+
+func TestDockerCreatePayloadPinsNetworkNoneAndBoundedLocalLogs(t *testing.T) {
+	payload := dockerCreatePayload(newDockerContainerWriteTestRequest(t))
+	if !payload.NetworkDisabled || payload.HostConfig.NetworkMode != DockerNetworkDriverNone ||
+		len(payload.Env) != 0 || len(payload.ExposedPorts) != 0 ||
+		len(payload.NetworkingConfig.EndpointsConfig) != 0 ||
+		len(payload.HostConfig.DNS) != 0 || len(payload.HostConfig.DNSOptions) != 0 ||
+		len(payload.HostConfig.DNSSearch) != 0 || len(payload.HostConfig.ExtraHosts) != 0 ||
+		len(payload.HostConfig.Links) != 0 || len(payload.HostConfig.PortBindings) != 0 ||
+		payload.HostConfig.PublishAllPorts || payload.HostConfig.LogConfig.Type != "local" ||
+		!equalStringMap(payload.HostConfig.LogConfig.Config, map[string]string{
+			"max-size": "256k", "max-file": "1", "compress": "false",
+		}) {
+		t.Fatalf("Docker create payload can escape network/log bounds: %#v", payload)
+	}
+}
+
 func TestDockerContainerWriteTransportRejectsImageDeclaredVolumesBeforeCreate(t *testing.T) {
 	request := newDockerContainerWriteTestRequest(t)
 	endpoint, _ := NewDockerObservationEndpoint(DockerObservationEndpointLocalUnix)

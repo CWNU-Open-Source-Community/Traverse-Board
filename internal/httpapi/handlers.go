@@ -54,6 +54,13 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 			"repository-state", "repository-diff", "repository-history", "repository-file-history", "repository-commit-detail", "repository-commit-comparison", "repository-commit-file-preview", "verification-evidence", "verification-plan", "verification-plan-coverage", "verification-snapshot-export", "verification-snapshot-receipts", "code-handoff", "code-handoff-export",
 			"operation-receipts", "operator-actions", "evidence-inventory",
 			"run-activity", "event-stream", "event-poll", "capabilities", "openapi"}
+		if a.dockerSandboxController != nil {
+			resources = append(resources, "docker-sandbox-readiness", "docker-sandbox-status")
+		}
+		if a.dockerSandboxControlEnabled {
+			resources = append(resources, "docker-sandbox-admission-control",
+				"docker-sandbox-start-control", "docker-sandbox-cancel-control")
+		}
 		if a.controlEnabled {
 			resources = append(resources, "model-cancellation-control",
 				"specialist-model-cancellation-control", "execution-profile-control")

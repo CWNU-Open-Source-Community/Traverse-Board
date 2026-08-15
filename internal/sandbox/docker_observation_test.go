@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -312,6 +313,51 @@ func TestDockerObservationTransportRejectsUntrustedHTTPResponses(t *testing.T) {
 		t.Fatalf("non-allowlisted path reached HTTP doer: calls=%d err=%v", calls, err)
 	}
 }
+
+func TestDockerObservationCanonicalizesDaemonArchitectureNames(t *testing.T) {
+	endpoint, _ := NewDockerObservationEndpoint(DockerObservationEndpointLocalUnix)
+	transport, err := newDockerEngineReadOnlyTransport(dockerObservationDoerFunc(
+		func(request *http.Request) (*http.Response, error) {
+			var payload map[string]any
+			switch request.URL.Path {
+			case "/version":
+				payload = map[string]any{"ApiVersion": "1.44",
+					"MinAPIVersion": "1.24", "Version": "25.0.0",
+					"Os": "linux", "Arch": "amd64"}
+			case "/info":
+				payload = map[string]any{"ID": "info-1", "Name": "docker-desktop",
+					"ServerVersion": "25.0.0", "OSType": "linux",
+					"Architecture": "x86_64", "NCPU": 8, "MemTotal": int64(8 << 30),
+					"PidsLimit": true}
+			case "/images/" + strings.Repeat("f", 64) + "/json":
+				t.Fatalf("canonicalization probe must not inspect an image")
+			default:
+				t.Fatalf("unexpected read-only path %q", request.URL.Path)
+			}
+			body, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return dockerObservationHTTPResponse(request, http.StatusOK,
+				"application/json", string(body)), nil
+		}), endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, err := transport.Version(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := transport.Info(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version.Architecture != "amd64" || info.Architecture != "amd64" {
+		t.Fatalf("daemon architecture was not canonicalized: version=%q info=%q",
+			version.Architecture, info.Architecture)
+	}
+}
+
 
 func TestDockerObservationTransportUsesExactEvidenceResourceFilter(t *testing.T) {
 	endpoint, _ := NewDockerObservationEndpoint(DockerObservationEndpointLocalUnix)

@@ -11,6 +11,7 @@ import (
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/runmutation"
+	"cyberagent-workbench/internal/toolgateway"
 )
 
 type RunExecutionHandoffStore interface {
@@ -55,6 +56,15 @@ func (s *RunExecutionHandoffService) WithActiveCalls(
 ) *RunExecutionHandoffService {
 	if s != nil && s.supervisor != nil {
 		s.supervisor.WithActiveCalls(registry)
+	}
+	return s
+}
+
+func (s *RunExecutionHandoffService) WithDockerSandboxProposalExecutor(
+	executor toolgateway.DockerSandboxProposalExecutor,
+) *RunExecutionHandoffService {
+	if s != nil && s.supervisor != nil {
+		s.supervisor.WithDockerSandboxProposalExecutor(executor)
 	}
 	return s
 }

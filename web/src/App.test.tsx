@@ -97,6 +97,21 @@ describe("App capability wiring", () => {
     expect(screen.getByRole("button", { name: "常规" })).toHaveClass("active");
   });
 
+  it("projects Docker execution into the settings capability surface", () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
+    useConnectionStore.getState().connect("read-token", {
+      status: "ok",
+      api_version: "api.v1",
+      app_version: "test",
+      schema_version: 78,
+    }, "control-token", { dockerExecutionEnabled: true });
+    render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
+
+    fireEvent.click(screen.getByRole("button", { name: "设置" }));
+    fireEvent.click(screen.getByRole("button", { name: "个人资料" }));
+    expect(screen.getByRole("img", { name: "Docker 沙箱: 启用" })).toBeInTheDocument();
+  });
+
   it("remounts Run-scoped drafts and operation state when the selected Run changes", () => {
     vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
     render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);

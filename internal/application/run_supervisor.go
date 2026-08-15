@@ -220,6 +220,18 @@ func (s *RunSupervisor) WithWaitGraph(graph *waitgraph.Graph) *RunSupervisor {
 	return s
 }
 
+// WithDockerSandboxProposalExecutor installs the model-facing adapter for the
+// process-owned Docker Sandbox service. The executor can create an admission,
+// but it cannot start or cancel a container.
+func (s *RunSupervisor) WithDockerSandboxProposalExecutor(
+	executor toolgateway.DockerSandboxProposalExecutor,
+) *RunSupervisor {
+	if s != nil && s.tools != nil && executor != nil {
+		s.tools.WithDockerSandboxProposalExecutor(executor)
+	}
+	return s
+}
+
 type RunExecutionLeasePolicy struct {
 	TTL           time.Duration
 	RenewInterval time.Duration

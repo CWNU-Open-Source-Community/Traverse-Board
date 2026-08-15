@@ -95,7 +95,11 @@ func SupervisorToolDefinitions() []ToolDefinition {
 	definitions = append(definitions, controlled)
 	host := hostCommandProposalDefinition
 	host.InputSchema = append(json.RawMessage(nil), host.InputSchema...)
-	return append(definitions, host)
+	definitions = append(definitions, host)
+	dockerSandbox := dockerSandboxProposalDefinition
+	dockerSandbox.InputSchema = append(json.RawMessage(nil),
+		dockerSandbox.InputSchema...)
+	return append(definitions, dockerSandbox)
 }
 
 func SupervisorToolDefinition(name ToolName) (ToolDefinition, bool) {
@@ -115,6 +119,12 @@ func SupervisorToolDefinition(name ToolName) (ToolDefinition, bool) {
 	if name == HostCommandProposeTool {
 		definition := hostCommandProposalDefinition
 		definition.InputSchema = append(json.RawMessage(nil), definition.InputSchema...)
+		return definition, true
+	}
+	if name == DockerSandboxRunProposeTool {
+		definition := dockerSandboxProposalDefinition
+		definition.InputSchema = append(json.RawMessage(nil),
+			definition.InputSchema...)
 		return definition, true
 	}
 	if name != SpecialistDelegationProposeTool {
@@ -140,6 +150,10 @@ func NormalizeSupervisorToolPayload(name ToolName, payload json.RawMessage) (jso
 	}
 	if name == HostCommandProposeTool {
 		_, canonical, err := normalizeHostCommandProposalPayload(payload)
+		return canonical, err
+	}
+	if name == DockerSandboxRunProposeTool {
+		_, canonical, err := normalizeDockerSandboxProposalPayload(payload)
 		return canonical, err
 	}
 	return NormalizeStructuredMemoryPayload(name, payload)

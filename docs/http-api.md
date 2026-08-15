@@ -1,8 +1,8 @@
 # 本地 HTTP API / Local HTTP API
 
-CyberAgent Workbench 提供由 Go 控制的本地 `api.v1`，用于检查 SQLite 持久状态并投影可恢复 Run events。独立 capability 允许受控 Run/Session/Plan/审批、固定命令提案审阅、Provider 诊断/路由/系统凭证、FileEdit 提案/只读恢复/审阅/apply、wake 意图/前台消费、不可变操作者验证、metadata-only 快照回执及其不授权复核，以及惰性 Skill 安装。只读面还提供 capability/worker health、exact-root Repository 状态与脱敏 Diff、非原子的多文件 FileEdit 汇总、逐验证项确定性快照下载/回执历史和带有界复核元数据的可重建 Code Handoff。API 不编辑/重排消息、不接受快照或验证结果、不执行验证或 Skill、不启动任意 Git/通用宿主/容器进程，也不替代 Policy、Tool Gateway 或 Sandbox 门禁。
+CyberAgent Workbench 提供由 Go 控制的本地 `api.v1`，用于检查 SQLite 持久状态并投影可恢复 Run events。独立 capability 允许受控 Run/Session/Plan/审批、固定命令提案审阅、Provider 诊断/路由/系统凭证、FileEdit 提案/只读恢复/审阅/apply、wake 意图/前台消费、不可变操作者验证、metadata-only 快照回执及其不授权复核、惰性 Skill 安装，以及 schema v99 默认关闭的精确 Docker Sandbox 产品执行。只读面还提供 capability/worker health、exact-root Repository 状态与脱敏 Diff、非原子的多文件 FileEdit 汇总、逐验证项确定性快照下载/回执历史和带有界复核元数据的可重建 Code Handoff。API 不编辑/重排消息、不接受快照或验证结果、不执行验证或 Skill、不启动任意 Git/通用宿主进程，也不替代 Policy、Tool Gateway 或 Sandbox 门禁；Docker 路由只能调用同一 Go Application 服务的 network-none、精确计划边界。
 
-CyberAgent Workbench exposes a Go-controlled local `api.v1` for durable SQLite state and resumable Run-event projections. Independent capabilities permit controlled Run/Session/Plan/approval operations, fixed-command proposal review, Provider diagnostics/routes/system credentials, FileEdit propose/read-only recovery/review/apply, wake intent/foreground consumption, immutable operator verification, metadata-only snapshot receipts and their non-authorizing review, and inert Skill installation. Read-only surfaces also expose capabilities/worker health, exact-root Repository state and redacted Diffs, non-atomic multi-file FileEdit summaries, deterministic per-check verification snapshot downloads/receipt history, and a regenerable Code handoff with bounded review metadata. The API cannot edit/reorder messages, accept a snapshot or verification result, execute verification or a Skill, start arbitrary Git or a general host/container process, or replace Policy, the Tool Gateway, or Sandbox gates.
+CyberAgent Workbench exposes a Go-controlled local `api.v1` for durable SQLite state and resumable Run-event projections. Independent capabilities permit controlled Run/Session/Plan/approval operations, fixed-command proposal review, Provider diagnostics/routes/system credentials, FileEdit propose/read-only recovery/review/apply, wake intent/foreground consumption, immutable operator verification, metadata-only snapshot receipts and their non-authorizing review, inert Skill installation, and schema-v99 exact Docker Sandbox execution that is disabled by default. Read-only surfaces also expose capabilities/worker health, exact-root Repository state and redacted Diffs, non-atomic multi-file FileEdit summaries, deterministic per-check verification snapshot downloads/receipt history, and a regenerable Code handoff with bounded review metadata. The API cannot edit/reorder messages, accept a snapshot or verification result, execute verification or a Skill, start arbitrary Git or a general host process, or replace Policy, the Tool Gateway, or Sandbox gates. Docker routes can invoke only the same Go Application service's exact network-none plan boundary.
 
 ## 启动 / Start
 
@@ -28,6 +28,11 @@ go run ./cmd/cyberagent api serve --listen 127.0.0.1:8765 --ui-dir web/dist `
   --enable-permission-control --enable-danger-full-access `
   --enable-debug-maximum-access --enable-browser-cdp-control `
   --enable-full-cdp-debug
+
+# Docker Sandbox product admission/start. This still requires an exact per-call
+# Sandbox approval and a matching current Run permission/profile.
+go run ./cmd/cyberagent api serve --listen 127.0.0.1:8765 --ui-dir web/dist `
+  --enable-permission-control --enable-docker-execution
 ```
 
 权限开关只让 API 选择和评估对应策略，不会自动创建任意命令执行器或 CDP
@@ -187,36 +192,142 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8765/api/v1/skills/packages/inst
 ## 安全边界 / Security Boundary
 
 - Listener、HTTP `Host` 与客户端地址都必须是 loopback；`0.0.0.0`、空 host 和公网客户端会被拒绝。
-- 每个 `/api` 请求必须有且只有一个正确的 `Authorization: Bearer <token>`。GET 使用 read token；二十七个控制 POST 只接受不同的 control token，两种凭据不能互换。Web 静态请求匿名可读，并明确拒绝 Authorization header，避免 bearer 被意外发送到资源路径。
-- 所有读取只接受无 body 的 `GET`。二十七个 POST 只接受契约列出的精确控制；没有 CORS 响应头或浏览器跨源授权。
+- 每个 `/api` 请求必须有且只有一个正确的 `Authorization: Bearer <token>`。GET 与 Docker readiness POST 使用 read token；所有控制 POST 只接受不同的 control token，两种凭据不能互换。Web 静态请求匿名可读，并明确拒绝 Authorization header，避免 bearer 被意外发送到资源路径。
+- 普通读取只接受无 body 的 `GET`；Docker readiness 是唯一带严格 `{plan_id,manifest}` body 的 read-bearer POST。其他 POST 只接受契约列出的精确控制；没有 CORS 响应头或浏览器跨源授权。
 - 启用 UI 时，只在非 `/api` 命名空间接受无 query、无 body 的 `GET`/`HEAD`。HTML 使用 `no-store`；仅允许类型且文件名带哈希的资源使用一年 immutable cache。bundle 的根目录、`assets/`、软链接、文件类型、数量、单文件/总大小与 SPA fallback 深度均受限。
 - UI 与 API 共享 loopback、Host、客户端地址、request-target 和规范路径校验。UI 响应使用无 `unsafe-inline`/`unsafe-eval` 的 CSP、同源 opener/resource policy、`nosniff`、`DENY` frame policy 和禁用敏感浏览器能力的 Permissions Policy。
 - request target 最大 8 KiB，query 最大 4 KiB，response 最大 8 MiB，header 上限为 32 KiB。
 - HTTP handler 构造后只保留两个 token 的 SHA-256 摘要；明文仍可能存在于启动环境或短期进程内存，但不会写入配置、SQLite 或 Run events。
 - Artifact API 只返回 descriptor，不读取或返回正文；Run detail 不返回 checkpoint pending input 或 execution fencing token。租约摘要仅包含 owner、generation、状态与时间。
-- read token 可以读取该进程暴露的全部只读资源；control token 只能调用二十七条窄 mutation，不能读取资源。两者都应视为本地管理员凭据。
+- read token 可以读取该进程暴露的全部只读资源并评估 Docker readiness；control token 只能调用生成契约中的窄 mutation，不能读取资源。两者都应视为本地管理员凭据。
 - 取消请求必须精确绑定 Run/Supervisor/model attempt，或 Run/Specialist Agent/AgentAttempt/model attempt，并携带 16 到 256 字节的 `Idempotency-Key`。客户端不能提交 `lease_id`、generation 或 fencing token；请求 body 上限为 4 KiB，未知字段和尾随 JSON 会被拒绝。
 - Session message 请求必须把 path Session 精确绑定到 running/paused Run，使用 `session_message_submission.v1`、1-16384 UTF-8 字节正文和 16-256 字节幂等键。编码 JSON body 上限为 128 KiB，以容纳合法转义；重复/未知字段、尾随数据、非法 UTF-8、query 和重复 header 均被拒绝。响应不返回正文或私有身份。
 - Session 取消必须精确绑定 path Session/消息及其 Run，且仅在消息仍为 pending、未 prepared 时接受。生命周期只接受 `start|pause|resume`；有界执行只接受 `max_steps=1..8`，冻结选择后使用私有 lease。两者的响应都不返回正文、模型输出、工具参数或 lease 身份。
-- Plan direction 必须绑定 path Run、已持久化 proposal 和 `direction=1..3`；Deliver 必须已有选择。Provider credential 只接受 exact provider、显式确认、2,560-byte 上限并固定不回传明文；候选 Registry/route/credential 全部成功后才原子推进 generation，失败保留旧 generation。FileEdit source 只发给 exact running Run/active Session 的完整安全 UTF-8，五分钟 handle 只创建 pending proposal；带 `expected_sha256` 的换发必须匹配当前文件，recovery 只返回不可编辑 pending Diff。Verification evidence 只记录脱敏操作者观察，不运行命令，也不构成模型断言、审批或授权。二十七条控制响应都不能携带或设置通用进程、Shell、Docker、Session Grant 或 capability authority；只有独立 FileEdit apply 能写一个已审批且重新复核的精确目标。
+- Plan direction 必须绑定 path Run、已持久化 proposal 和 `direction=1..3`；Deliver 必须已有选择。Provider credential 只接受 exact provider、显式确认、2,560-byte 上限并固定不回传明文；候选 Registry/route/credential 全部成功后才原子推进 generation，失败保留旧 generation。FileEdit source 只发给 exact running Run/active Session 的完整安全 UTF-8，五分钟 handle 只创建 pending proposal；带 `expected_sha256` 的换发必须匹配当前文件，recovery 只返回不可编辑 pending Diff。Verification evidence 只记录脱敏操作者观察，不运行命令，也不构成模型断言、审批或授权。控制响应不能携带或设置通用进程、Shell、Session Grant 或 capability authority；Docker 控制只能消费服务端已经精确准入的 v99 admission，FileEdit apply 只能写一个已审批且重新复核的精确目标。
 - SSE 使用同一 Authorization header，token 不进入 URL、cursor 或事件数据。默认最多同时 16 条 stream；每条连接最多 32-event 批量、2 MiB 单帧、10,000 events、5 分钟寿命，并对每次写入设置 2 秒 deadline。
 - Event poll 只接受 query `cursor` 与 1-100 的 `limit`，拒绝 `Last-Event-ID`、跨 Run cursor、gap 和未知参数；空批次仍返回可继续使用的高水位 cursor，读取本身不写事件。
 
 - The listener, HTTP `Host`, and client address must all be loopback. `0.0.0.0`, an empty host, and public clients are rejected.
-- Every `/api` request must contain exactly one valid `Authorization: Bearer <token>` header. GET uses the read token; the twenty-seven control POST routes accept only the distinct control token. The credentials are not interchangeable. Static Web requests are anonymous and explicitly reject authorization headers so a bearer is not accidentally sent to an asset path.
-- All reads accept only bodyless `GET`. The twenty-seven POST routes accept only their exact generated contracts. There are no CORS response headers or browser cross-origin grants.
+- Every `/api` request must contain exactly one valid `Authorization: Bearer <token>` header. GET and the Docker readiness POST use the read token; all control POST routes accept only the distinct control token. The credentials are not interchangeable. Static Web requests are anonymous and explicitly reject authorization headers so a bearer is not accidentally sent to an asset path.
+- Ordinary reads accept only bodyless `GET`; Docker readiness is the sole read-bearer POST and accepts only strict `{plan_id,manifest}` JSON. Other POST routes accept only their exact generated control contracts. There are no CORS response headers or browser cross-origin grants.
 - When the UI is enabled, only queryless, bodyless GET/HEAD requests outside the reserved `/api` namespace reach it. HTML is `no-store`; only allowlisted, hash-named assets receive a one-year immutable cache. Bundle roots, `assets/`, symlinks, types, counts, per-file/aggregate size, and SPA-fallback depth are bounded.
 - UI and API requests share the loopback, Host, client-address, request-target, and canonical-path boundary. UI responses add a CSP without `unsafe-inline` or `unsafe-eval`, same-origin opener/resource policies, `nosniff`, frame denial, and a Permissions Policy disabling sensitive browser features.
 - Request targets are capped at 8 KiB, queries at 4 KiB, responses at 8 MiB, and headers at 32 KiB.
 - After construction, the HTTP handler retains only SHA-256 digests of both tokens. Plaintext may still exist in the launch environment or short-lived process memory, but is never written to configuration, SQLite, or Run events.
 - Artifact routes return descriptors only and never load content. Run detail omits checkpoint pending input and the execution fencing token; its lease summary contains only owner, generation, status, and timestamps.
-- The read token can inspect every exposed read resource; the control token can invoke only the twenty-seven narrow mutations and cannot read resources. Treat both as local administrator credentials.
+- The read token can inspect every exposed read resource and evaluate Docker readiness; the control token can invoke only generated narrow mutations and cannot read resources. Treat both as local administrator credentials.
 - Cancellation must bind either the exact Run/Supervisor/model attempt or the exact Run/Specialist Agent/AgentAttempt/model attempt and carry a 16-to-256-byte `Idempotency-Key`. Clients cannot submit a lease id, generation, or fencing token. The JSON body is capped at 4 KiB; unknown fields and trailing JSON are rejected.
 - Session-message requests must bind the path Session to an exact running or paused Run and use `session_message_submission.v1`, 1-16384 UTF-8 content bytes, and a 16-to-256-byte idempotency key. The encoded JSON body is capped at 128 KiB to permit valid escaping; duplicate/unknown fields, trailing data, invalid UTF-8, query fields, and duplicate headers are rejected. The response returns neither content nor private identities.
 - Session cancellation binds the exact path Session/message and Run and is accepted only while the message is pending and unprepared. Lifecycle accepts only `start|pause|resume`; bounded execution accepts only `max_steps=1..8` and uses a private lease after freezing its selection. Neither response exposes content, model output, tool arguments, or lease identity.
 - Plan direction binds the path Run, persisted proposal, and `direction=1..3`; Deliver requires an existing selection. Provider credential control accepts an exact provider, explicit confirmation, and at most 2,560 secret bytes and never returns plaintext; a generation advances atomically only after candidate Registry, routes, and credential reads all succeed, otherwise the old generation remains active. FileEdit source is restricted to complete safe UTF-8 for an exact running Run/active Session; its five-minute handle can create only a pending proposal. Reissue with `expected_sha256` must match the current file, and recovery returns only a non-editable pending Diff. Verification evidence records only a redacted operator observation and neither runs a command nor becomes a model assertion, approval, or grant. Verification association exact-binds one earlier plan item and one later observation but does not infer an aggregate outcome. Control responses grant no general filesystem, process, Shell, Docker, Session-Grant, tool, or capability authority; only the separate apply route may write one exact approved and freshly rechecked file.
 - SSE uses the same Authorization header; the token never enters the URL, cursor, or event data. Defaults allow at most 16 concurrent streams, 32 events per batch, 2 MiB per frame, 10,000 events per connection, a five-minute lifetime, and a two-second deadline on each write.
 - Event polling accepts only query `cursor` and a 1-100 `limit`; it rejects `Last-Event-ID`, cross-Run cursors, sequence gaps, and unknown parameters. An empty batch still returns a reusable high-water cursor, and polling itself writes no event.
+
+## Docker Sandbox 产品接口 / Docker Sandbox Product API
+
+这五条 route 都是同一个 `DockerSandboxService` 的投影，不是第二套 Docker
+控制面：
+
+| Method | Path | Token | Meaning |
+|---|---|---|---|
+| `POST` | `/api/v1/sandbox/docker/readiness` | read | 对 exact plan/Manifest 做无变更、无缓存的 `sandbox.readiness.v1` 检查 |
+| `POST` | `/api/v1/sandbox/docker/admissions` | control | 重新验证当前 Profile、权限、精确审批、Policy、预算、readiness 与进程 epoch |
+| `POST` | `/api/v1/sandbox/docker/starts` | control | 同步消费一个 exact admission，执行、收集 I/O、提交允许的输出并清理 |
+| `POST` | `/api/v1/sandbox/docker/cancellations` | control | 先持久化 sticky cancellation，再取消/接管并收敛清理 |
+| `GET` | `/api/v1/sandbox/docker/status?admission_id=...` | read | 返回 `admitted|launched|terminal` 与有界终态投影 |
+
+Readiness 只接受 strict JSON `{plan_id,manifest}`，不能含 `requested_by`、query、
+Docker endpoint、flag、host path 或 image override。三个 control POST 都要求
+exactly one control bearer、`Content-Type: application/json` 和独立的
+`Idempotency-Key`。Admission、Start、Cancellation 各自在自己的 operation domain
+内 exact replay；同一 admission 不能用第二个不同 Start key 重新绑定。Status 只接受
+一个 `admission_id` query 且无 body。所有响应与 readiness 都使用 `no-store`。
+
+```powershell
+$readHeaders = @{ Authorization = "Bearer $env:CYBERAGENT_API_TOKEN" }
+$controlHeaders = @{ Authorization = "Bearer $env:CYBERAGENT_API_CONTROL_TOKEN" }
+$manifest = Get-Content -Raw "<manifest.json>" | ConvertFrom-Json
+$plan = "<docker-plan-id>"
+$operator = "cli_operator"
+
+$readinessBody = @{ plan_id = $plan; manifest = $manifest } |
+  ConvertTo-Json -Depth 20
+Invoke-RestMethod -Method Post `
+  http://127.0.0.1:8765/api/v1/sandbox/docker/readiness `
+  -Headers $readHeaders -ContentType application/json -Body $readinessBody
+
+$controlHeaders["Idempotency-Key"] = "docker-admit-<stable-id>"
+$admissionBody = @{
+  plan_id = $plan; manifest = $manifest; requested_by = $operator
+} | ConvertTo-Json -Depth 20
+$admission = Invoke-RestMethod -Method Post `
+  http://127.0.0.1:8765/api/v1/sandbox/docker/admissions `
+  -Headers $controlHeaders -ContentType application/json -Body $admissionBody
+$admissionID = $admission.data.admission_id
+
+$controlHeaders["Idempotency-Key"] = "docker-start-<stable-id>"
+$identityBody = @{
+  admission_id = $admissionID; requested_by = $operator
+} | ConvertTo-Json
+Invoke-RestMethod -Method Post `
+  http://127.0.0.1:8765/api/v1/sandbox/docker/starts `
+  -Headers $controlHeaders -ContentType application/json -Body $identityBody
+
+$controlHeaders["Idempotency-Key"] = "docker-cancel-<stable-id>"
+# Cancellation is an alternative control from another client while Start is
+# active; do not send it after the synchronous Start response is terminal.
+Invoke-RestMethod -Method Post `
+  http://127.0.0.1:8765/api/v1/sandbox/docker/cancellations `
+  -Headers $controlHeaders -ContentType application/json -Body $identityBody
+
+Invoke-RestMethod `
+  "http://127.0.0.1:8765/api/v1/sandbox/docker/status?admission_id=$admissionID" `
+  -Headers $readHeaders
+```
+
+`sandbox.readiness.v1` 固定 30 秒 TTL，状态只有
+`ready|disabled|unavailable`。其稳定 reason/remediation 为：
+
+| Readiness reason | Remediation |
+|---|---|
+| `none` | `none` |
+| `feature_disabled` | `enable_docker_sandbox` |
+| `invalid_request` | `correct_sandbox_request` |
+| `daemon_unreachable` | `start_docker_engine` |
+| `api_unsupported` | `upgrade_docker_engine` |
+| `platform_unsupported` | `use_linux_containers` |
+| `pids_limit_unavailable` | `enable_pids_limit` |
+| `resource_capacity_insufficient` | `reduce_resource_limits` |
+| `image_unavailable` | `provide_compatible_image` |
+| `managed_egress_unavailable` | `use_network_disabled` |
+
+Admission 使用更高层、同样稳定的产品 reason/remediation：
+
+| Product reason | Remediation |
+|---|---|
+| `ready` | `none` |
+| `feature_disabled` | `enable_docker_execution` |
+| `daemon_unreachable` | `start_local_docker` |
+| `api_unsupported` | `update_local_docker` |
+| `platform_unsupported` | `use_linux_containers` |
+| `resource_unavailable` | `enable_pids_limit`、`reduce_resource_limits` 或 `provide_compatible_image` |
+| `managed_egress_unavailable` | `use_network_none` |
+| `policy_denied` | `review_policy` 或 `correct_sandbox_request` |
+| `approval_required` | `approve_exact_request` |
+| `permission_denied` | `select_docker_profile` 或 `retry_with_fresh_request` |
+| `budget_exhausted` | `increase_or_free_budget` |
+| `authority_changed` | `retry_with_fresh_request` |
+
+产品终态为 `succeeded|timed_out|cancelled|failed`，并分别使用
+`completed|timed_out|cancelled` 或有界 failure reason。只有 natural exit 0 且当前
+Artifact authority 仍匹配时才可能返回非零 `artifact_count`；所有终态必须
+`cleanup_complete=true`。API 不返回容器 ID/name、host path、命令、日志正文、
+operation key、lease/owner、请求 fingerprint 或 daemon payload。
+
+当前只支持 environment-free、secret-free、零 target 的 `network=disabled`。
+allowlist/scoped egress 需要尚未实现的 Go-owned host/port/protocol guard，故固定返回
+`managed_egress_unavailable`；无 Docker 时不会退回宿主执行。见
+[ADR 0099](adr/0099-docker-sandbox-product-admission-and-recovery.md)。
 
 ## Endpoints
 
@@ -226,6 +337,11 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8765/api/v1/skills/packages/inst
 | `GET` | `/api/v1/health` | Health and SQLite schema version |
 | `GET` | `/api/v1/capabilities` | Exact Go capability flags plus metadata-only bounded worker health; no runtime enablement/token/owner/lease/private error |
 | `GET` | `/api/v1/openapi.json` | Raw deterministic OpenAPI 3.1 JSON document |
+| `POST` | `/api/v1/sandbox/docker/readiness` | Read-bearer, strict exact-plan readiness; no mutation or long-lived authority |
+| `POST` | `/api/v1/sandbox/docker/admissions` | Control-bearer, idempotent exact Docker Sandbox product admission |
+| `POST` | `/api/v1/sandbox/docker/starts` | Control-bearer, synchronous exact admitted execution and cleanup |
+| `POST` | `/api/v1/sandbox/docker/cancellations` | Control-bearer, sticky cancellation and exact cleanup convergence |
+| `GET` | `/api/v1/sandbox/docker/status?admission_id={admission_id}` | Metadata-only admission/launch/terminal projection |
 | `GET` | `/api/v1/workspaces` | Bounded Workspace ID/name/creation metadata; no host root path |
 | `GET` | `/api/v1/workspaces/{workspace_id}/explore` | One bounded directory level or redacted UTF-8 file evidence; canonical relative path only, no host root |
 | `GET` | `/api/v1/workspaces/{workspace_id}/search` | One bounded deterministic filename/redacted-text search; canonical evidence references only, no indexer |
@@ -656,9 +772,9 @@ Most pagination is a bounded live SQLite projection, not a multi-request snapsho
 
 ## 当前限制 / Current Limits
 
-- No general filesystem mutation, install-time Skill execution, runtime worker enable endpoint, or user-visible model-text stream. One exact approved FileEdit can be applied through its dedicated Go capability; one package can be registered inertly; Windows may store/delete one exact Provider credential without readback; an explicitly started worker may consume one due intent/one step at a time. Steering edit/reorder and host/container process execution remain absent.
+- No general filesystem mutation, install-time Skill execution, runtime worker enable endpoint, or user-visible model-text stream. One exact approved FileEdit can be applied through its dedicated Go capability; one package can be registered inertly; Windows may store/delete one exact Provider credential without readback; an explicitly started worker may consume one due intent/one step at a time. Steering edit/reorder and general host/container execution remain absent; schema v99 exposes only the exact, explicitly enabled network-none Docker product profile above.
 - Execution-lease rows coordinate workers, but the API exposes neither `lease_id` nor any operation that accepts a fencing token.
 - No Artifact content route. Use the authenticated local CLI `artifact read` when content is explicitly required.
-- No real Shell, LocalSandbox, or Docker process execution. Schema v64 profile selection records intent only; HTTP exposes no runner start, Sandbox execution, approval, output-export, or Artifact-commit route. Existing approvals still resolve to audited dry-run results.
+- No real general Shell or LocalSandbox execution. Docker execution is limited to schema v99 admissions over an already-compiled exact plan, fresh process-local capability, exact per-call approval, current Policy/permission/budget/readiness, and network none. There is no arbitrary Docker request, scoped egress, pull/build/exec/TTY, daemon endpoint, mount override, host fallback, or renderer-issued capability.
 - No per-resource authorization below the process token. Future remote or multi-user use requires a separate identity and authorization design.
 - Repository history, exact-file history, exact commit detail, and redacted commit-file preview have no checkout/fetch/push/ref-update or raw-blob endpoint. Verification plans, associations, exact-item drilldown, and Handoff coverage do not run checks or imply aggregate outcomes. Handoff exports have no import/resume endpoint.

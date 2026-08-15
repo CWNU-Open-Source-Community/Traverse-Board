@@ -201,6 +201,32 @@ describe("desktop native bridge", () => {
     await expect(module.loadDesktopBootstrap()).resolves.toEqual(commandProposalOnly);
   });
 
+  it("accepts Docker execution with permission control and operator approval", async () => {
+    const dockerEnabled = {
+      ...bootstrap,
+      control_token: "control-token-0123456789abcdefghijkl",
+      control_enabled: true,
+      execution_permission_control_enabled: true,
+      operator_approval_enabled: true,
+      docker_execution_enabled: true,
+      read_only_default: false,
+    };
+    installBridge({ Bootstrap: vi.fn().mockResolvedValue(dockerEnabled) });
+    const module = await import("./desktop-bridge");
+    await expect(module.loadDesktopBootstrap()).resolves.toEqual(dockerEnabled);
+  });
+
+  it("rejects Docker execution authority without permission control", async () => {
+    installBridge({ Bootstrap: vi.fn().mockResolvedValue({
+      ...bootstrap,
+      control_token: "control-token-0123456789abcdefghijkl",
+      docker_execution_enabled: true,
+      read_only_default: false,
+    }) });
+    const module = await import("./desktop-bridge");
+    await expect(module.loadDesktopBootstrap()).rejects.toThrow("rejected");
+  });
+
   it("rejects authority widening and extra local-file fields", async () => {
     installBridge({ Bootstrap: vi.fn().mockResolvedValue({ ...bootstrap, process_execution_enabled: true }) });
     let module = await import("./desktop-bridge");

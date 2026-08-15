@@ -263,6 +263,7 @@ type Config struct {
 	RunWakeWorkerHealthSource               RunWakeWorkerHealthSource
 	SkillInstallationController             SkillInstallationController
 	EmbeddedAnalyzerExecutionController     EmbeddedAnalyzerExecutionController
+	DockerSandboxController                 DockerSandboxController
 	ModelRegistry                           *modelregistry.Registry
 	AppVersion                              string
 	EventStream                             EventStreamConfig
@@ -297,6 +298,8 @@ type API struct {
 	evidenceAttachmentEnabled               bool
 	verificationEvidenceEnabled             bool
 	embeddedAnalyzerExecutionEnabled        bool
+	dockerSandboxControlEnabled             bool
+	dockerExecutionEnabled                  bool
 	executionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
 	browserCDPPermissionCapabilities        domain.BrowserCDPPermissionRuntimeCapabilities
 	runLifecycleController                  RunLifecycleController
@@ -316,6 +319,7 @@ type API struct {
 	runWakeWorkerHealthSource               RunWakeWorkerHealthSource
 	skillInstallationController             SkillInstallationController
 	embeddedAnalyzerExecutionController     EmbeddedAnalyzerExecutionController
+	dockerSandboxController                 DockerSandboxController
 	modelRegistry                           *modelregistry.Registry
 	appVersion                              string
 	openAPI                                 []byte
@@ -437,6 +441,25 @@ func New(store Store, config Config) (*API, error) {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API embedded analyzer execution controller is required when enabled")
 	}
+	dockerExecutionEnabled := false
+	if config.DockerSandboxController != nil {
+		capabilities, epochFingerprint, err :=
+			config.DockerSandboxController.RuntimeCapabilities()
+		if err != nil {
+			return nil, apperror.Wrap(apperror.CodeInvalidArgument,
+				"HTTP API Docker Sandbox controller capabilities are invalid", err)
+		}
+		if capabilities.Validate() != nil || strings.TrimSpace(epochFingerprint) == "" {
+			return nil, apperror.New(apperror.CodeInvalidArgument,
+				"HTTP API Docker Sandbox controller capabilities are invalid")
+		}
+		dockerExecutionEnabled = capabilities.Enabled
+		if dockerExecutionEnabled && (!controlTokenPresent ||
+			!config.ExecutionPermissionControlEnabled) {
+			return nil, apperror.New(apperror.CodeInvalidArgument,
+				"HTTP API Docker execution requires permission control and a control token")
+		}
+	}
 	if err := config.ExecutionPermissionCapabilities.Validate(); err != nil {
 		return nil, apperror.Wrap(apperror.CodeInvalidArgument,
 			"HTTP API execution permission capabilities are invalid", err)
@@ -496,18 +519,21 @@ func New(store Store, config Config) (*API, error) {
 			config.ControlledCommandProposalControlEnabled,
 		hostCommandProposalControlEnabled: controlTokenPresent &&
 			config.HostCommandProposalControlEnabled,
-		modelControlEnabled:                 controlTokenPresent && config.ModelControlEnabled,
-		providerCredentialEnabled:           controlTokenPresent && config.ProviderCredentialEnabled,
-		fileEditReviewEnabled:               controlTokenPresent && config.FileEditReviewEnabled,
-		fileEditProposalEnabled:             controlTokenPresent && config.FileEditProposalEnabled,
-		runWakeControlEnabled:               controlTokenPresent && config.RunWakeControlEnabled,
-		fileEditApplyEnabled:                controlTokenPresent && config.FileEditApplyEnabled,
-		runWakeExecutionEnabled:             controlTokenPresent && config.RunWakeExecutionEnabled,
-		runWakeWorkerEnabled:                controlTokenPresent && config.RunWakeWorkerEnabled,
-		skillInstallationEnabled:            controlTokenPresent && config.SkillInstallationEnabled,
-		evidenceAttachmentEnabled:           controlTokenPresent && config.EvidenceAttachmentEnabled,
-		verificationEvidenceEnabled:         controlTokenPresent && config.VerificationEvidenceEnabled,
-		embeddedAnalyzerExecutionEnabled:    controlTokenPresent && config.EmbeddedAnalyzerExecutionEnabled,
+		modelControlEnabled:              controlTokenPresent && config.ModelControlEnabled,
+		providerCredentialEnabled:        controlTokenPresent && config.ProviderCredentialEnabled,
+		fileEditReviewEnabled:            controlTokenPresent && config.FileEditReviewEnabled,
+		fileEditProposalEnabled:          controlTokenPresent && config.FileEditProposalEnabled,
+		runWakeControlEnabled:            controlTokenPresent && config.RunWakeControlEnabled,
+		fileEditApplyEnabled:             controlTokenPresent && config.FileEditApplyEnabled,
+		runWakeExecutionEnabled:          controlTokenPresent && config.RunWakeExecutionEnabled,
+		runWakeWorkerEnabled:             controlTokenPresent && config.RunWakeWorkerEnabled,
+		skillInstallationEnabled:         controlTokenPresent && config.SkillInstallationEnabled,
+		evidenceAttachmentEnabled:        controlTokenPresent && config.EvidenceAttachmentEnabled,
+		verificationEvidenceEnabled:      controlTokenPresent && config.VerificationEvidenceEnabled,
+		embeddedAnalyzerExecutionEnabled: controlTokenPresent && config.EmbeddedAnalyzerExecutionEnabled,
+		dockerSandboxControlEnabled: config.DockerSandboxController != nil &&
+			controlTokenPresent && config.ExecutionPermissionControlEnabled,
+		dockerExecutionEnabled:              dockerExecutionEnabled,
 		executionPermissionCapabilities:     config.ExecutionPermissionCapabilities,
 		browserCDPPermissionCapabilities:    config.BrowserCDPPermissionCapabilities,
 		runLifecycleController:              config.RunLifecycleController,
@@ -527,6 +553,7 @@ func New(store Store, config Config) (*API, error) {
 		runWakeWorkerHealthSource:           config.RunWakeWorkerHealthSource,
 		skillInstallationController:         config.SkillInstallationController,
 		embeddedAnalyzerExecutionController: config.EmbeddedAnalyzerExecutionController,
+		dockerSandboxController:             config.DockerSandboxController,
 		modelRegistry:                       modelRegistry,
 		openAPI:                             document, eventStream: eventStream,
 		eventStreamSlots: make(chan struct{}, eventStream.MaxConnections),
@@ -639,6 +666,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if uiRequest {
 		a.serveUI(tracked, request)
+		return
+	}
+	if isDockerSandboxPath(request.URL.Path) {
+		a.serveDockerSandbox(tracked, request, requestID)
 		return
 	}
 	if request.URL.Path == "/api/v1/runs" && request.Method != http.MethodGet {

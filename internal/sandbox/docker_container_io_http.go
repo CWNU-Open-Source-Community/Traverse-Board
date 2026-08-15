@@ -14,6 +14,7 @@ const (
 	DockerContainerIOFailureInvalidResponse = "invalid_response"
 	DockerContainerIOFailureConnection      = "connection_failed"
 	DockerContainerIOFailureUnavailable     = "unavailable"
+	DockerContainerIOFailureConfigMismatch  = "configuration_mismatch"
 )
 
 // DockerContainerIOTransport is the closed daemon surface for the container
@@ -26,9 +27,23 @@ type DockerContainerIOTransport interface {
 	ExportOutputs(ctx context.Context, plan DockerOutputExportPlan) (io.ReadCloser, error)
 }
 
+// DockerContainerOwnedIOTransport is the product-safe I/O surface. Unlike the
+// compatibility methods above, it never treats a persisted container-ID
+// fingerprint as a Docker reference. The exact lifecycle request is inspected
+// by its deterministic name and rebound to the daemon's raw container ID before
+// either stream is opened.
+type DockerContainerOwnedIOTransport interface {
+	DockerContainerIOTransport
+	AttachOwnedLogs(ctx context.Context, request DockerContainerLifecycleRequest,
+		plan DockerLogCapturePlan) (io.ReadCloser, error)
+	ExportOwnedOutputs(ctx context.Context, request DockerContainerLifecycleRequest,
+		plan DockerOutputExportPlan) (io.ReadCloser, error)
+}
+
 type dockerEngineContainerIOTransport struct {
 	doer     dockerContainerWriteHTTPDoer
 	endpoint DockerObservationEndpoint
+	write    dockerEngineContainerWriteTransport
 }
 
 func newDockerEngineContainerIOTransport(doer dockerContainerWriteHTTPDoer,
@@ -40,7 +55,11 @@ func newDockerEngineContainerIOTransport(doer dockerContainerWriteHTTPDoer,
 	if !validDockerContainerLocalEndpoint(endpoint) {
 		return dockerEngineContainerIOTransport{}, errors.New("docker I/O transport requires a fixed local endpoint")
 	}
-	return dockerEngineContainerIOTransport{doer: doer, endpoint: endpoint}, nil
+	write, err := newDockerEngineContainerWriteTransport(doer, endpoint)
+	if err != nil {
+		return dockerEngineContainerIOTransport{}, err
+	}
+	return dockerEngineContainerIOTransport{doer: doer, endpoint: endpoint, write: write}, nil
 }
 
 func (transport dockerEngineContainerIOTransport) Endpoint() DockerObservationEndpoint {
@@ -55,10 +74,7 @@ func (transport dockerEngineContainerIOTransport) AttachLogs(ctx context.Context
 	if err := plan.Validate(); err != nil {
 		return nil, err
 	}
-	path := "/v" + DockerContainerWriteAPIVersion + "/containers/" +
-		url.PathEscape(plan.ContainerIDFingerprint) + "/attach"
-	return transport.doStream(ctx, http.MethodPost, path,
-		"logs=1&stderr=1&stdout=1&stream=0")
+	return transport.attachLogs(ctx, plan.ContainerIDFingerprint)
 }
 
 // ExportOutputs opens the tar archive of the dedicated output mount.
@@ -68,10 +84,120 @@ func (transport dockerEngineContainerIOTransport) ExportOutputs(ctx context.Cont
 	if err := plan.Validate(); err != nil {
 		return nil, err
 	}
+	return transport.exportOutputs(ctx, plan.ContainerIDFingerprint, plan.OutputMountTarget)
+}
+
+// AttachOwnedLogs verifies the exact durable lifecycle ownership before using
+// the daemon-returned raw container ID for the bounded historical attach.
+func (transport dockerEngineContainerIOTransport) AttachOwnedLogs(ctx context.Context,
+	request DockerContainerLifecycleRequest, plan DockerLogCapturePlan,
+) (io.ReadCloser, error) {
+	if err := plan.Validate(); err != nil {
+		return nil, err
+	}
+	containerID, err := transport.resolveOwnedContainer(ctx, request, plan.AttemptID,
+		plan.Generation, plan.RunID, plan.ContainerIDFingerprint)
+	if err != nil {
+		return nil, err
+	}
+	return transport.attachLogs(ctx, containerID)
+}
+
+// ExportOwnedOutputs verifies the exact durable lifecycle ownership before
+// using the daemon-returned raw container ID for the dedicated output archive.
+func (transport dockerEngineContainerIOTransport) ExportOwnedOutputs(ctx context.Context,
+	request DockerContainerLifecycleRequest, plan DockerOutputExportPlan,
+) (io.ReadCloser, error) {
+	if err := plan.Validate(); err != nil {
+		return nil, err
+	}
+	outputTargetMatched := false
+	for _, mount := range request.WriteRequest.Spec.Mounts {
+		if mount.DedicatedOutput && mount.Target == plan.OutputMountTarget {
+			outputTargetMatched = true
+			break
+		}
+	}
+	if !outputTargetMatched {
+		return nil, newDockerContainerIOError(DockerContainerIOFailureConfigMismatch)
+	}
+	containerID, err := transport.resolveOwnedContainer(ctx, request, plan.AttemptID,
+		plan.Generation, plan.RunID, plan.ContainerIDFingerprint)
+	if err != nil {
+		return nil, err
+	}
+	return transport.exportOutputs(ctx, containerID, plan.OutputMountTarget)
+}
+
+func (transport dockerEngineContainerIOTransport) resolveOwnedContainer(ctx context.Context,
+	request DockerContainerLifecycleRequest, attemptID string, generation int64, runID,
+	containerIDFingerprint string,
+) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if request.Validate() != nil || request.Ownership.isZero() ||
+		request.Ownership.Validate() != nil || request.AttemptID != attemptID ||
+		request.WriteRequest.Spec.RunID != runID ||
+		request.Ownership.ResourceGeneration != generation ||
+		request.Ownership.BaseLabelPlanFingerprint != request.WriteRequest.Spec.LabelPlanFingerprint ||
+		request.ResourceIDFingerprint == "" ||
+		request.ResourceIDFingerprint != containerIDFingerprint ||
+		(request.Stage.ProtocolVersion != "" &&
+			request.Stage.EndpointFingerprint != transport.endpoint.Fingerprint) {
+		return "", newDockerContainerIOError(DockerContainerIOFailureConfigMismatch)
+	}
+	expectedLabels, err := dockerContainerLifecycleOwnedLabels(
+		request.WriteRequest.Spec.Labels, request.Ownership)
+	if err != nil || len(expectedLabels) != 9 {
+		return "", newDockerContainerIOError(DockerContainerIOFailureConfigMismatch)
+	}
+	inspection, found, err := transport.write.inspect(ctx,
+		request.WriteRequest.Spec.ContainerName)
+	if err != nil {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		return "", mapDockerContainerWriteIOError(err)
+	}
+	if !found {
+		return "", newDockerContainerIOError(DockerContainerIOFailureUnavailable)
+	}
+	if verifyDockerContainerConfigurationWithLabels(inspection, request.WriteRequest,
+		expectedLabels) != nil ||
+		fingerprint("sandbox_docker_container_id.v1", inspection.ID) !=
+			request.ResourceIDFingerprint {
+		return "", newDockerContainerIOError(DockerContainerIOFailureConfigMismatch)
+	}
+	return inspection.ID, nil
+}
+
+func mapDockerContainerWriteIOError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if DockerContainerWriteErrorCode(err) == DockerContainerWriteFailureConnection {
+		return newDockerContainerIOError(DockerContainerIOFailureConnection)
+	}
+	return newDockerContainerIOError(DockerContainerIOFailureInvalidResponse)
+}
+
+func (transport dockerEngineContainerIOTransport) attachLogs(ctx context.Context,
+	containerID string,
+) (io.ReadCloser, error) {
 	path := "/v" + DockerContainerWriteAPIVersion + "/containers/" +
-		url.PathEscape(plan.ContainerIDFingerprint) + "/archive"
+		url.PathEscape(containerID) + "/attach"
+	return transport.doStream(ctx, http.MethodPost, path,
+		"logs=1&stderr=1&stdout=1&stream=0")
+}
+
+func (transport dockerEngineContainerIOTransport) exportOutputs(ctx context.Context,
+	containerID, outputMountTarget string,
+) (io.ReadCloser, error) {
+	path := "/v" + DockerContainerWriteAPIVersion + "/containers/" +
+		url.PathEscape(containerID) + "/archive"
 	return transport.doStream(ctx, http.MethodGet, path,
-		"path="+url.QueryEscape(plan.OutputMountTarget))
+		"path="+url.QueryEscape(outputMountTarget))
 }
 
 func (transport dockerEngineContainerIOTransport) doStream(ctx context.Context,
@@ -210,6 +336,18 @@ func (transport unavailableDockerContainerIOTransport) ExportOutputs(ctx context
 		return nil, err
 	}
 	return nil, newDockerContainerIOError(DockerContainerIOFailureUnavailable)
+}
+
+func (transport unavailableDockerContainerIOTransport) AttachOwnedLogs(ctx context.Context,
+	request DockerContainerLifecycleRequest, plan DockerLogCapturePlan,
+) (io.ReadCloser, error) {
+	return transport.AttachLogs(ctx, plan)
+}
+
+func (transport unavailableDockerContainerIOTransport) ExportOwnedOutputs(ctx context.Context,
+	request DockerContainerLifecycleRequest, plan DockerOutputExportPlan,
+) (io.ReadCloser, error) {
+	return transport.ExportOutputs(ctx, plan)
 }
 
 type DockerContainerIOError struct {
