@@ -3321,7 +3321,7 @@ export interface components {
             /** @enum {string} */
             tool_strategy: "native" | "none";
             /** @enum {string} */
-            transport_protocol: "mock" | "anthropic_messages" | "openai_chat_completions" | "provider_contract";
+            transport_protocol: "mock" | "anthropic_messages" | "openai_chat_completions" | "ollama_chat" | "provider_contract";
         };
         ModelHarnessQualificationRequestView: {
             confirm_qualification: boolean;
@@ -3617,7 +3617,7 @@ export interface components {
             credential_source: "none" | "environment" | "system";
             harnesses: components["schemas"]["ModelHarnessAvailabilityView"][];
             /** @enum {string} */
-            kind: "local" | "anthropic_compatible" | "openai_compatible";
+            kind: "local" | "anthropic_compatible" | "openai_compatible" | "ollama";
             models: string[];
             name: string;
             network_required: boolean;
@@ -5661,7 +5661,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Provider name */
+                /** @description Credential provider name */
                 provider: "anthropic" | "deepseek" | "mimo" | "openai";
             };
             cookie?: never;

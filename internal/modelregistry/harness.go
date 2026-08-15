@@ -126,6 +126,7 @@ func (r *Registry) QualifyHarness(ctx context.Context, writer RouteSettingWriter
 	}
 	r.qualificationMu.Lock()
 	defer r.qualificationMu.Unlock()
+	r.probeOllamaCapabilities(ctx, provider, model)
 	ref := llm.ModelRef{Provider: provider, Model: model}
 	base, err := r.router.HarnessProfile(ref)
 	if err != nil {

@@ -849,6 +849,33 @@ describe("CyberAgentClient", () => {
     expect(init.method).toBe("GET");
 
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-models-ollama",
+      data: { ...data, providers: [...data.providers, { name: "ollama", kind: "ollama",
+        status: "not_configured", models: ["llama3.2:3b"],
+        harnesses: [{ protocol_version: "model_harness.v1", model: "llama3.2:3b",
+          transport_protocol: "ollama_chat", tool_strategy: "none", json_strategy: "none",
+          qualification_status: "qualification_required", tool_calls_qualified: false,
+          tool_results_qualified: false, strict_json_qualified: false,
+          streaming_qualified: false, root_eligible: false,
+          structured_json_eligible: false, qualified_at: "", expires_at: "" }],
+        credential_source: "none", network_required: true, configuration_error: false }] },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    await expect(new CyberAgentClient("read-secret").modelAvailability()).resolves.toEqual(
+      expect.objectContaining({
+        providers: expect.arrayContaining([
+          expect.objectContaining({ name: "ollama", kind: "ollama",
+            status: "not_configured" }),
+        ]),
+      }));
+
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-models-bad-kind",
+      data: { ...data, providers: [{ ...data.providers[0], kind: "lan_scan" }] },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    await expect(new CyberAgentClient("read-secret").modelAvailability())
+      .rejects.toThrow("invalid");
+
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-models-forged",
       data: { ...data, providers: [{ ...data.providers[0], base_url: "https://private.invalid" }] },
     }), { status: 200, headers: { "Content-Type": "application/json" } }));

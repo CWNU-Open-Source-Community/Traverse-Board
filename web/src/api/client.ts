@@ -498,7 +498,7 @@ function parseModelAvailability(value: unknown): ModelAvailabilityView {
   for (const provider of value.providers) {
     if (!hasExactKeys(provider, ["configuration_error", "credential_source", "kind", "models",
       "harnesses", "name", "network_required", "status"]) || !boundedText(provider.name, 128) ||
-      !["local", "anthropic_compatible", "openai_compatible"].includes(
+      !["local", "anthropic_compatible", "openai_compatible", "ollama"].includes(
         String(provider.kind)) ||
       (provider.status !== "available" && provider.status !== "not_configured" &&
         provider.status !== "invalid_configuration") ||
@@ -549,7 +549,8 @@ function parseModelHarnessAvailability(value: unknown): ModelHarnessAvailability
     "strict_json_qualified", "structured_json_eligible", "tool_calls_qualified",
     "tool_results_qualified", "tool_strategy", "transport_protocol"]) ||
     value.protocol_version !== "model_harness.v1" || !boundedText(value.model, 256) ||
-    !["mock", "anthropic_messages", "openai_chat_completions", "provider_contract"].includes(
+    !["mock", "anthropic_messages", "openai_chat_completions", "ollama_chat",
+      "provider_contract"].includes(
       String(value.transport_protocol)) ||
     !["native", "none"].includes(String(value.tool_strategy)) ||
     !["native", "prompt", "none"].includes(String(value.json_strategy)) ||

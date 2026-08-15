@@ -87,7 +87,7 @@ func TestRegistryBuildsRedactedEnvironmentAvailabilityAndRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := registry.Snapshot()
-	if snapshot.ProtocolVersion != ProtocolVersion || len(snapshot.Providers) != 5 ||
+	if snapshot.ProtocolVersion != ProtocolVersion || len(snapshot.Providers) != 6 ||
 		len(snapshot.Routes) != len(routeNames) {
 		t.Fatalf("unexpected registry snapshot: %#v", snapshot)
 	}
@@ -101,6 +101,18 @@ func TestRegistryBuildsRedactedEnvironmentAvailabilityAndRoutes(t *testing.T) {
 		len(mimo.Models) != 1 || mimo.Models[0] != "mimo-test-model" {
 		t.Fatalf("unexpected Mimo availability: %#v", mimo)
 	}
+	var ollama ProviderAvailability
+	for _, provider := range snapshot.Providers {
+		if provider.Name == "ollama" {
+			ollama = provider
+		}
+	}
+	// Without an explicit loopback endpoint the keyless provider stays off;
+	// the registry must never default-enable a local daemon.
+	if ollama.Status != ProviderNotConfigured || ollama.Kind != ProviderKindOllama ||
+		len(ollama.Models) != 0 || ollama.CredentialSource != "none" {
+		t.Fatalf("unexpected Ollama availability: %#v", ollama)
+	}
 	for _, route := range snapshot.Routes {
 		if route.Name == "code" && (!route.Available || route.Provider != "mimo" ||
 			route.Model != "mimo-test-model") {
@@ -111,6 +123,113 @@ func TestRegistryBuildsRedactedEnvironmentAvailabilityAndRoutes(t *testing.T) {
 		t.Fatal("provider snapshot exposed an API key")
 	}
 }
+
+func TestRegistryOllamaEnvironmentIsExplicitAndLoopbackOnly(t *testing.T) {
+	newOllamaRegistry := func(values map[string]string) *Registry {
+		return New(func(name string) (string, bool) {
+			value, found := values[name]
+			return value, found
+		})
+	}
+	ollamaFrom := func(registry *Registry) ProviderAvailability {
+		for _, provider := range registry.Snapshot().Providers {
+			if provider.Name == "ollama" {
+				return provider
+			}
+		}
+		return ProviderAvailability{}
+	}
+	t.Run("explicit loopback endpoint enables the keyless provider", func(t *testing.T) {
+		registry := newOllamaRegistry(map[string]string{
+			"CYBERAGENT_OLLAMA_BASE_URL": "http://127.0.0.1:11434",
+			"CYBERAGENT_OLLAMA_MODEL":    "llama3.2:3b",
+		})
+		ollama := ollamaFrom(registry)
+		if ollama.Status != ProviderAvailable || ollama.Kind != ProviderKindOllama ||
+			len(ollama.Models) != 1 || ollama.Models[0] != "llama3.2:3b" ||
+			ollama.CredentialSource != "none" || !ollama.NetworkRequired ||
+			len(ollama.Harnesses) != 1 ||
+			ollama.Harnesses[0].TransportProtocol != llm.HarnessTransportOllamaChat {
+			t.Fatalf("unexpected Ollama availability: %#v", ollama)
+		}
+	})
+	t.Run("non-loopback endpoint is invalid configuration", func(t *testing.T) {
+		registry := newOllamaRegistry(map[string]string{
+			"CYBERAGENT_OLLAMA_BASE_URL": "http://192.168.1.20:11434",
+			"CYBERAGENT_OLLAMA_MODEL":    "llama3.2:3b",
+		})
+		ollama := ollamaFrom(registry)
+		if ollama.Status != ProviderInvalidConfiguration || !ollama.ConfigurationError {
+			t.Fatalf("non-loopback endpoint was not rejected: %#v", ollama)
+		}
+	})
+	t.Run("endpoint without model is invalid configuration", func(t *testing.T) {
+		registry := newOllamaRegistry(map[string]string{
+			"CYBERAGENT_OLLAMA_BASE_URL": "http://127.0.0.1:11434",
+		})
+		ollama := ollamaFrom(registry)
+		if ollama.Status != ProviderInvalidConfiguration {
+			t.Fatalf("endpoint without model was not rejected: %#v", ollama)
+		}
+	})
+}
+
+func TestRegistryOllamaRouteSelectionProbesCapabilities(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/tags":
+			_ = json.NewEncoder(writer).Encode(map[string]any{
+				"models": []map[string]any{{"name": "tooler:7b", "model": "tooler:7b",
+					"capabilities": []string{"completion"}}},
+			})
+		case "/api/show":
+			_ = json.NewEncoder(writer).Encode(map[string]any{
+				"capabilities": []string{"completion", "tools"},
+				"model_info": map[string]any{
+					"llama.context_length": 8192.0,
+				},
+			})
+		default:
+			t.Errorf("unexpected path %s", request.URL.Path)
+		}
+	}))
+	defer server.Close()
+	registry := New(func(name string) (string, bool) {
+		switch name {
+		case "CYBERAGENT_OLLAMA_BASE_URL":
+			return server.URL, true
+		case "CYBERAGENT_OLLAMA_MODEL":
+			return "tooler:7b", true
+		default:
+			return "", false
+		}
+	})
+	selected, err := registry.SelectRoute(context.Background(), routeSettings{},
+		"code", "ollama", "tooler:7b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !selected.Available || selected.HarnessReady {
+		// HarnessReady stays false until the full qualification flow runs;
+		// the capability probe only establishes the native tool strategy.
+		t.Fatalf("unexpected route selection: %#v", selected)
+	}
+	ref := llm.ModelRef{Provider: "ollama", Model: "tooler:7b"}
+	profile, err := registry.Router().HarnessProfile(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.ToolStrategy != llm.HarnessToolStrategyNative ||
+		profile.JSONStrategy != llm.HarnessJSONStrategyNative ||
+		profile.TransportProtocol != llm.HarnessTransportOllamaChat {
+		t.Fatalf("probed harness profile is wrong: %#v", profile)
+	}
+	window := registry.Router().ContextWindow(ref)
+	if window.WindowTokens != 8192 || window.Source != "ollama_probe" {
+		t.Fatalf("probed context window was not registered: %#v", window)
+	}
+}
+
 
 func TestRegistryBootstrapsSystemCredentialWithoutProjectingIt(t *testing.T) {
 	secret := "system-provider-key-0123456789"

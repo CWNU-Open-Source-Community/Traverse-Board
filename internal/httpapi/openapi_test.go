@@ -300,10 +300,10 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 		t.Fatal("Provider credential path parameter is missing")
 	}
 	assertOpenAPIEnum(t, document.Components.Schemas, "ProviderAvailabilityView", "kind",
-		[]string{"local", "anthropic_compatible", "openai_compatible"})
+		[]string{"local", "anthropic_compatible", "openai_compatible", "ollama"})
 	assertOpenAPIEnum(t, document.Components.Schemas, "ModelHarnessAvailabilityView",
 		"transport_protocol", []string{"mock", "anthropic_messages",
-			"openai_chat_completions", "provider_contract"})
+			"openai_chat_completions", "ollama_chat", "provider_contract"})
 	failureReasons := []string{"none", "not_configured", "authentication", "network",
 		"rate_limit", "capacity", "model_not_found", "protocol_incompatible"}
 	assertOpenAPIEnum(t, document.Components.Schemas, "ProviderDiagnosticView",
