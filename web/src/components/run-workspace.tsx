@@ -26,6 +26,7 @@ import {
   Play,
   Radio,
   ScanSearch,
+  Server,
   ShieldAlert,
   ShieldCheck,
   ShieldOff,
@@ -87,10 +88,11 @@ import { SessionComposer } from "./session-composer";
 import { AgentGraphPanel, ChildTasksPanel, DelegationsPanel, ExternalSkillsSection, FanoutPanel, FindingsPanel } from "./run-projections";
 import { RunActivityTimeline } from "./run-activity-timeline";
 import { EmbeddedAnalyzerPanel } from "./embedded-analyzer-panel";
+import { DockerSandboxPanel } from "./docker-sandbox-panel";
 
 export type RunTab = "activity" | "overview" | "journey" | "actions" | "approvals" | "diffs" | "repository" | "files" | "evidence" | "verify" | "handoff" |
   "receipts" | "agents" | "delegations" | "fanout" | "findings" | "events" | "work" |
-  "notes" | "artifacts" | "tools" | "analyzer" | "child-tasks";
+  "notes" | "artifacts" | "tools" | "analyzer" | "child-tasks" | "sandbox";
 
 const tabs: Array<{ id: RunTab; label: [string, string]; icon: typeof Activity }> = [
   { id: "activity", label: ["活动", "Activity"], icon: MessageSquareText },
@@ -116,6 +118,7 @@ const tabs: Array<{ id: RunTab; label: [string, string]; icon: typeof Activity }
   { id: "artifacts", label: ["产物", "Artifacts"], icon: FileArchive },
   { id: "tools", label: ["工具", "Tools"], icon: Wrench },
   { id: "analyzer", label: ["分析器", "Analyzer"], icon: Bug },
+  { id: "sandbox", label: ["沙箱", "Sandbox"], icon: Server },
 ];
 
 const compactTabs = new Set<RunTab>(["activity", "approvals", "diffs", "repository", "files"]);
@@ -382,6 +385,7 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
         {tab === "delegations" && <DelegationsPanel client={client} runID={runID} />}
         {tab === "fanout" && <FanoutPanel client={client} runID={runID} />}
         {tab === "child-tasks" && <ChildTasksPanel client={client} runID={runID} />}
+        {tab === "sandbox" && <DockerSandboxPanel client={client} />}
         {tab === "findings" && <FindingsPanel client={client} runID={runID} />}
         {tab === "events" && (
           <CollectionState query={eventsQuery} empty="暂无事件">

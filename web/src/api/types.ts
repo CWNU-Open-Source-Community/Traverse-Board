@@ -26,6 +26,15 @@ export type ChildTaskProposalsListView = components["schemas"]["ChildTaskProposa
 export type ChildTaskProposalView = components["schemas"]["ChildTaskProposalView"];
 export type ChildTaskReviewRequestView = components["schemas"]["ChildTaskReviewRequestView"];
 export type ChildTaskAdmitRequestView = components["schemas"]["ChildTaskAdmitRequestView"];
+export type PriceSnapshotListView = components["schemas"]["PriceSnapshotListView"];
+export type PriceSnapshotImportRequestView = components["schemas"]["PriceSnapshotImportRequestView"];
+export type PriceSnapshotImportView = components["schemas"]["PriceSnapshotImportView"];
+export type DockerSandboxStatusView = components["schemas"]["DockerSandboxStatusView"];
+export type DockerSandboxAdmissionRequestView = components["schemas"]["DockerSandboxAdmissionRequestView"];
+export type DockerSandboxAdmissionView = components["schemas"]["DockerSandboxAdmissionView"];
+export type DockerSandboxStartRequestView = components["schemas"]["DockerSandboxStartRequestView"];
+export type DockerSandboxCancelRequestView = components["schemas"]["DockerSandboxCancelRequestView"];
+export type DockerSandboxCancellationView = components["schemas"]["DockerSandboxCancellationView"];
 export type FanoutExecutionView = components["schemas"]["FanoutExecutionView"];
 export type FanoutExecutionCancelRequestView =
   components["schemas"]["FanoutExecutionCancelRequestView"];

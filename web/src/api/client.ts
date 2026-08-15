@@ -2,6 +2,15 @@ import { consumeSSE } from "./sse";
 import type {
   ApprovalDecisionControlRequestView,
   ChildTaskAdmitRequestView,
+  DockerSandboxAdmissionRequestView,
+  DockerSandboxAdmissionView,
+  DockerSandboxCancelRequestView,
+  DockerSandboxCancellationView,
+  DockerSandboxStartRequestView,
+  DockerSandboxStatusView,
+  PriceSnapshotImportRequestView,
+  PriceSnapshotImportView,
+  PriceSnapshotListView,
   ChildTaskProposalsListView,
   ChildTaskProposalView,
   ChildTaskReviewRequestView,
@@ -4242,6 +4251,72 @@ export class CyberAgentClient {
     );
     return parseChildTaskProposal(result, runID);
   }
+  async listPriceSnapshots(signal?: AbortSignal): Promise<PriceSnapshotListView> {
+    const result = await this.get<unknown>("/models/prices", {}, signal);
+    return parsePriceSnapshots(result);
+  }
+
+  async importPriceSnapshot(body: PriceSnapshotImportRequestView, idempotencyKey: string,
+    signal?: AbortSignal): Promise<PriceSnapshotImportView> {
+    if (!this.hasControl) {
+      throw new Error("A control bearer token is required for this operation");
+    }
+    if (body.version !== "price_snapshot.v1" || !body.document ||
+      body.document.length > 64 * 1024) {
+      throw new Error("A bounded price_snapshot.v1 document is required");
+    }
+    const result = await this.sendControl<unknown>("/models/prices", body, idempotencyKey, signal);
+    return parsePriceSnapshotImport(result);
+  }
+
+  async getDockerSandboxStatus(admissionID: string,
+    signal?: AbortSignal): Promise<DockerSandboxStatusView> {
+    const result = await this.get<unknown>("/sandbox/docker/status", { admission_id: admissionID }, signal);
+    if (!isRecord(result) || !boundedIdentity(String(result.admission_id))) {
+      throw new APIRequestError("Docker sandbox status is invalid", "INVALID_RESPONSE", 502);
+    }
+    return result as unknown as DockerSandboxStatusView;
+  }
+
+  async admitDockerSandbox(body: DockerSandboxAdmissionRequestView, idempotencyKey: string,
+    signal?: AbortSignal): Promise<DockerSandboxAdmissionView> {
+    if (!this.hasControl) {
+      throw new Error("A control bearer token is required for this operation");
+    }
+    if (!boundedIdentity(body.plan_id) || !boundedIdentity(body.requested_by) ||
+      !isRecord(body.manifest)) {
+      throw new Error("A plan identity, requester, and manifest object are required");
+    }
+    const result = await this.sendControl<unknown>("/sandbox/docker/admissions", body, idempotencyKey, signal);
+    if (!isRecord(result) || typeof result.allowed !== "boolean") {
+      throw new APIRequestError("Docker sandbox admission is invalid", "INVALID_RESPONSE", 502);
+    }
+    return result as unknown as DockerSandboxAdmissionView;
+  }
+
+  async startDockerSandbox(body: DockerSandboxStartRequestView, idempotencyKey: string,
+    signal?: AbortSignal): Promise<DockerSandboxStatusView> {
+    if (!this.hasControl) {
+      throw new Error("A control bearer token is required for this operation");
+    }
+    if (!boundedIdentity(body.admission_id) || !boundedIdentity(body.requested_by)) {
+      throw new Error("An admission identity and requester are required");
+    }
+    const result = await this.sendControl<unknown>("/sandbox/docker/starts", body, idempotencyKey, signal);
+    return result as unknown as DockerSandboxStatusView;
+  }
+
+  async cancelDockerSandbox(body: DockerSandboxCancelRequestView, idempotencyKey: string,
+    signal?: AbortSignal): Promise<DockerSandboxCancellationView> {
+    if (!this.hasControl) {
+      throw new Error("A control bearer token is required for this operation");
+    }
+    if (!boundedIdentity(body.admission_id) || !boundedIdentity(body.requested_by)) {
+      throw new Error("An admission identity and requester are required");
+    }
+    const result = await this.sendControl<unknown>("/sandbox/docker/cancellations", body, idempotencyKey, signal);
+    return result as unknown as DockerSandboxCancellationView;
+  }
   async selectPlanDirection(runID: string, body: PlanDirectionControlRequestView,
     idempotencyKey: string, signal?: AbortSignal): Promise<PlanDirectionControlView> {
     if (!this.hasPlanDelivery) {
@@ -4638,4 +4713,26 @@ function parseChildTaskProposal(value: unknown, runID: string): ChildTaskProposa
     }
   }
   return value as unknown as ChildTaskProposalView;
+}
+function parsePriceSnapshots(value: unknown): PriceSnapshotListView {
+  if (!isRecord(value) || value.protocol_version !== "price_snapshot_list.v1" ||
+    !Array.isArray(value.items) || value.items.length > 32) {
+    throw new APIRequestError("Price snapshot list is invalid", "INVALID_RESPONSE", 502);
+  }
+  for (const item of value.items) {
+    if (!isRecord(item) || !boundedIdentity(String(item.id)) || !validDate(item.imported_at) ||
+      !Array.isArray(item.entries) || item.entries.length > 512) {
+      throw new APIRequestError("Price snapshot item is invalid", "INVALID_RESPONSE", 502);
+    }
+  }
+  return value as unknown as PriceSnapshotListView;
+}
+
+function parsePriceSnapshotImport(value: unknown): PriceSnapshotImportView {
+  if (!isRecord(value) || value.protocol_version !== "price_snapshot.v1" ||
+    !boundedIdentity(String(value.id)) || !boundedIdentity(String(value.fingerprint)) ||
+    !safeBoundedCount(value.entry_count, 512) || typeof value.replayed !== "boolean") {
+    throw new APIRequestError("Price snapshot import is invalid", "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as PriceSnapshotImportView;
 }

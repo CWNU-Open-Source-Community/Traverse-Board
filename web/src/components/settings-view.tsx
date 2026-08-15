@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useMutation } from "@tanstack/react-query";
 import {
   ArrowLeft,
   CircleUserRound,
   Cpu,
   Info,
+  LoaderCircle,
   Keyboard,
   Languages,
   Layers3,
@@ -65,6 +67,42 @@ function readSettingsSidebarWidth(): number {
   } catch {
     return defaultSidebarWidth;
   }
+}
+
+function WebSkillInstall({ client }: { client: CyberAgentClient }) {
+  const { t } = useLocale();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [message, setMessage] = useState("");
+  const install = useMutation({
+    mutationFn: (file: File) => file.arrayBuffer().then((buffer) => {
+      let binary = "";
+      const bytes = new Uint8Array(buffer);
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+      }
+      return client.installSkillPackage({
+        version: "skill_package_installation.v1", archive_base64: btoa(binary),
+        surface: "code", confirm_untrusted: true,
+      }, `web-skill-install-${globalThis.crypto.randomUUID()}`);
+    }),
+    onSuccess: () => setMessage(t("Skill 包已安装", "Skill package installed")),
+  });
+  return <div className="settings-web-skill">
+    <input accept="application/zip" hidden ref={inputRef} type="file"
+      onChange={(event) => {
+        const file = event.target.files?.[0];
+        if (file) void install.mutate(file);
+        event.currentTarget.value = "";
+      }} />
+    <button className="settings-action" disabled={install.isPending}
+      onClick={() => inputRef.current?.click()} type="button">
+      {install.isPending ? <LoaderCircle aria-hidden="true" className="spin" size={15} /> : <PackageSearch aria-hidden="true" size={15} />}
+      {t("安装 Skill 包", "Install Skill package")}
+    </button>
+    {message && <span className="projection-placeholder">{message}</span>}
+    {install.error && <span className="inline-warning">{install.error instanceof Error ? install.error.message : t("安装失败", "Install failed")}</span>}
+  </div>;
 }
 
 export function SettingsView({
@@ -158,9 +196,10 @@ export function SettingsView({
           <button onClick={onOpenModels} type="button">
             <Cpu aria-hidden="true" size={16} /><span>{t("模型与配置", "Models and providers")}</span>
           </button>
-          <button disabled={!desktop} onClick={onOpenSkills} type="button">
+          <button onClick={onOpenSkills} type="button">
             <PackageSearch aria-hidden="true" size={16} /><span>{t("Skill 包", "Skill packages")}</span>
           </button>
+          {!desktop && client.hasSkillInstallation && <WebSkillInstall client={client} />}
         </nav>
       </aside>
       <SidebarResizeHandle onChange={resizeSidebar} value={sidebarWidth} />
