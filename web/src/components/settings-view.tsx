@@ -24,6 +24,7 @@ import { applyRunNavigationMode, readRunNavigationMode,
   type RunNavigationMode } from "../lib/run-navigation";
 import { PrayuBrand } from "./prayu-brand";
 import { RunPermissionSettings } from "./run-permission-settings";
+import { SafeWebReadinessPanel } from "./safe-web-readiness";
 import { SidebarResizeHandle, clampSidebarWidth, defaultSidebarWidth } from "./workbench-frame";
 
 export type SettingsCapability = {
@@ -178,7 +179,7 @@ export function SettingsView({
         </header>
         <div className="settings-scroll">
           {section === "profile" && <ProfileSettings capabilities={capabilities}
-            desktop={desktop} health={health} />}
+            desktop={desktop} health={health} client={client} />}
           {section === "general" && <GeneralSettings capabilities={capabilities}
             desktop={desktop} health={health} />}
           {section === "permissions" && <RunPermissionSettings client={client}
@@ -218,10 +219,11 @@ function WorkbenchSettings({ mode, onModeChange }: {
   </section>;
 }
 
-function ProfileSettings({ capabilities, desktop, health }: {
+function ProfileSettings({ capabilities, desktop, health, client }: {
   capabilities: SettingsCapability[];
   desktop: boolean;
   health: HealthView | null;
+  client: CyberAgentClient;
 }) {
   const { t } = useLocale();
   const enabled = capabilities.filter((capability) => capability.enabled);
@@ -259,6 +261,10 @@ function ProfileSettings({ capabilities, desktop, health }: {
             <div><dt>{t("界面", "Interface")}</dt><dd>React / Vite</dd></div>
             <div><dt>{t("本地存储", "Local store")}</dt><dd>SQLite</dd></div>
           </dl>
+        </section>
+        <section>
+          <h2>{t("Safe Web", "Safe Web")}</h2>
+          <SafeWebReadinessPanel client={client} />
         </section>
         <section>
           <h2>{t("当前能力", "Active capabilities")}</h2>
