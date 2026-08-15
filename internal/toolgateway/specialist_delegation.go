@@ -152,6 +152,10 @@ func NormalizeSupervisorToolPayload(name ToolName, payload json.RawMessage) (jso
 		_, canonical, err := normalizeSpecialistDelegationPayload(payload)
 		return canonical, err
 	}
+	if name == ChildTaskProposeTool {
+		_, canonical, err := normalizeChildTaskProposalPayload(payload)
+		return canonical, err
+	}
 	if name == ControlledCommandProposeTool {
 		_, canonical, err := normalizeControlledCommandProposalPayload(payload)
 		return canonical, err
