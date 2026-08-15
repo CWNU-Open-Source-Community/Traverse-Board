@@ -328,6 +328,7 @@ func migrationPlan() []migration {
 		{Version: 99, Name: "immutable Docker Sandbox product admission and completion", Statements: sandboxDockerProductAdmissionStatements},
 		{Version: 100, Name: "operator price snapshots and the run monetary budget ledger", Statements: monetaryBudgetStatements},
 		{Version: 101, Name: "structured agent dependency waiting and unique wake receipts", Statements: dependencyWaitStatements},
+		{Version: 102, Name: "model-proposed bounded child task scheduling", Statements: childTaskStatements},
 	}
 }
 

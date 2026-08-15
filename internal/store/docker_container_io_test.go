@@ -697,10 +697,20 @@ func removeSchemaV100ForTestStatements() []string {
 }
 
 func removeSchemaV101ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV102ForTestStatements(), []string{
 		`DROP TABLE agent_dependency_edge_operations`,
 		`DROP TABLE agent_dependency_wakes`,
 		`DROP TABLE agent_dependency_edges`,
 		`DELETE FROM schema_migrations WHERE version = 101`,
+	}...)
+}
+
+func removeSchemaV102ForTestStatements() []string {
+	return []string{
+		`DROP TABLE child_task_review_operations`,
+		`DROP TABLE child_task_assignments`,
+		`DROP TABLE child_task_proposal_operations`,
+		`DROP TABLE child_task_proposals`,
+		`DELETE FROM schema_migrations WHERE version = 102`,
 	}
 }

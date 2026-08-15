@@ -90,6 +90,9 @@ func SupervisorToolDefinitions() []ToolDefinition {
 	definition := specialistDelegationDefinition
 	definition.InputSchema = append(json.RawMessage(nil), definition.InputSchema...)
 	definitions = append(definitions, definition)
+	childTask := childTaskProposeDefinition
+	childTask.InputSchema = append(json.RawMessage(nil), childTask.InputSchema...)
+	definitions = append(definitions, childTask)
 	controlled := controlledCommandProposalDefinition
 	controlled.InputSchema = append(json.RawMessage(nil), controlled.InputSchema...)
 	definitions = append(definitions, controlled)
@@ -125,6 +128,11 @@ func SupervisorToolDefinition(name ToolName) (ToolDefinition, bool) {
 		definition := dockerSandboxProposalDefinition
 		definition.InputSchema = append(json.RawMessage(nil),
 			definition.InputSchema...)
+		return definition, true
+	}
+	if name == ChildTaskProposeTool {
+		definition := childTaskProposeDefinition
+		definition.InputSchema = append(json.RawMessage(nil), definition.InputSchema...)
 		return definition, true
 	}
 	if name != SpecialistDelegationProposeTool {

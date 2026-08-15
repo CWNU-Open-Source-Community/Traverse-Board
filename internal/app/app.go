@@ -127,6 +127,7 @@ func (a *App) newToolGateway() *toolgateway.Gateway {
 	gateway := toolgateway.New(a.store, a.checker).
 		WithStructuredMemoryExecutor(application.NewStructuredMemoryToolExecutor(a.store)).
 		WithSpecialistDelegationExecutor(application.NewSpecialistDelegationToolExecutor(a.store)).
+		WithChildTaskProposalExecutor(application.NewChildTaskToolExecutor(a.store)).
 		WithPlanDeliveryExecutor(application.NewPlanDeliveryToolExecutor(a.store)).
 		WithControlledCommandProposalExecutor(
 			application.NewControlledCommandProposalToolExecutor(a.store)).
