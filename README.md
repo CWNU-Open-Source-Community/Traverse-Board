@@ -186,6 +186,8 @@ Expand-Archive ".\$zip" -DestinationPath .\Prayu-portable
 pwsh -NoProfile -File scripts/release-desktop.ps1 -Version v0.1.0-rc.1
 ```
 
+Canonical release CI pins Go 1.25.12, Node 24.16.0 (including its bundled npm), and Rust 1.97.1; `release-metadata.json` additionally binds those observed versions plus the Go, npm, Cargo, and embedded-analyzer hashes. 本地命令会记录实际工具链，正式 GitHub Release 只采用上述 CI 固定版本。
+
 `Desktop release` 工作流会在 PR 中重跑依赖边界、可复现构建、ZIP 完整性验证和解压启动冒烟；`workflow_dispatch` 只保留 Actions artifact，只有可追溯到 `main` 的 `v*` tag 才会创建 GitHub Release。带 `-` 的版本会发布为 prerelease。The `Desktop release` workflow reruns dependency boundaries, the reproducible build, ZIP integrity verification, and an extracted-executable startup smoke on pull requests. `workflow_dispatch` keeps only an Actions artifact; only a `v*` tag reachable from `main` creates a GitHub Release, and versions containing `-` are prereleases.
 
 **SmartScreen 预期 / SmartScreen expectations**：便携 ZIP 与 EXE 均未签名，Windows SmartScreen 可能提示“未知发布者”。这是未签名候选的预期限制，不是构建缺陷；正式签名发行（MSIX）在另一条发布线完成。The ZIP and EXE are unsigned, so Windows SmartScreen may warn about an unknown publisher. This is the expected limitation of an unsigned candidate, not a build defect; the signed MSIX release is tracked separately.

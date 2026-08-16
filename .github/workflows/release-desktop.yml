@@ -49,17 +49,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up current Go 1.25 patch
+      - name: Set up pinned Go 1.25.12
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.25.x'
-          check-latest: true
+          go-version: '1.25.12'
           cache: true
 
-      - name: Set up Node 24
+      - name: Set up pinned Node 24.16.0
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 24
+          node-version: '24.16.0'
           cache: npm
           cache-dependency-path: web/package-lock.json
 
@@ -140,17 +139,16 @@ jobs:
           "revision=$revision" >> $env:GITHUB_OUTPUT
           "artifact_name=Prayu-desktop-release-$artifactVersion" >> $env:GITHUB_OUTPUT
 
-      - name: Set up current Go 1.25 patch
+      - name: Set up pinned Go 1.25.12
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.25.x'
-          check-latest: true
+          go-version: '1.25.12'
           cache: true
 
-      - name: Set up Node 24
+      - name: Set up pinned Node 24.16.0
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 24
+          node-version: '24.16.0'
           cache: npm
           cache-dependency-path: web/package-lock.json
 
