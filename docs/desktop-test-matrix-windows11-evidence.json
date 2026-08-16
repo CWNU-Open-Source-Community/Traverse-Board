@@ -1,0 +1,37 @@
+﻿{
+    "protocol_version":  "desktop_test_matrix.v1",
+    "generated_at":  "2026-08-16T06:55:05.3693478Z",
+    "binary":  "cyberagent-desktop.exe",
+    "environment":  {
+                        "windows_version":  "Microsoft Windows 11 专业版",
+                        "build_number":  "26200",
+                        "webview2_runtime":  "151.0.4129.86",
+                        "dpi_percent":  150,
+                        "monitors":  {
+                                         "primary":  true,
+                                         "bounds":  "2560x1440"
+                                     }
+                    },
+    "results":  [
+                    {
+                        "id":  "cold_start",
+                        "status":  "pass",
+                        "detail":  "store_created=True pid=19912"
+                    },
+                    {
+                        "id":  "second_instance",
+                        "status":  "pass",
+                        "detail":  "second_exited=True"
+                    },
+                    {
+                        "id":  "normal_exit",
+                        "status":  "pass",
+                        "detail":  "clean_exit=True"
+                    },
+                    {
+                        "id":  "kill_reopen",
+                        "status":  "pass",
+                        "detail":  "kill_ready=True data_retained=True reopened=True"
+                    }
+                ]
+}
