@@ -1071,6 +1071,20 @@ cyberagent context show --task task-demo
 
 Run-scoped WorkItems and Notes are independent from Session compaction, so compacting or replacing conversation history does not remove structured plan or memory records. The Supervisor's token-aware memory selector combines the latest summary with those durable sources before each Run model call.
 
+## Project Config (.prayu)
+
+`cyberagent run create` automatically loads `<workspace>/.prayu/config.yaml` and applies it as a narrowing-only snapshot (skip with `--ignore-project-config`):
+
+```powershell
+cyberagent project-config validate <path-to-config.yaml>
+cyberagent project-config show <path-to-config.yaml> --profile code --max-turns 100 --max-tool-calls 100
+```
+
+The file uses `project_config.v1` (JSON schema in `configs/project-config.schema.json`, example in `configs/project-config.example.yaml`). It is untrusted input: it can only reduce the operator/process/policy limits, never widen them. `budget.max_turns`/`budget.max_tool_calls` must be strictly lower than the requested ceiling; `allowed_profiles` may only shrink the set; `read_only: true` forbids write-capable profiles (`code`/`script`); `exclude_paths` are workspace-relative paths without escapes; `skill_suggestions` use the signed Skill identity contract (`name@version`); `test_command_id`/`format_command_id` may only reference registered Tool Gateway typed action IDs — never Shell text. Unknown fields, duplicate keys, type errors, YAML aliases/anchors, files over 64 KiB, nesting deeper than 32, more than 4096 nodes, symlinks/junctions/reparse points, and oversized path lists all fail closed. Any widening attempt aborts Run creation with the offending field named.
+
+At Run creation the normalized effective view and its SHA-256 fingerprint are pinned into the Run config snapshot; editing `.prayu/config.yaml` afterwards never changes a running Run.
+
+
 ## MCP Server
 
 `cyberagent mcp serve` runs a Model Context Protocol server over stdio

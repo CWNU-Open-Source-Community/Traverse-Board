@@ -48,6 +48,24 @@ const (
 	DockerSandboxRunProposeTool     ToolName = "sandbox_docker_run_propose"
 )
 
+// TypedActionIDs returns the registered typed-action registry. Project config
+// command fields may only reference these IDs — never Shell text or paths.
+func TypedActionIDs() map[string]struct{} {
+	return map[string]struct{}{
+		string(ReadFileTool):                    {},
+		string(ListWorkspaceTool):               {},
+		string(ReplaceFileTool):                 {},
+		string(ScriptProcessTool):               {},
+		string(WorkItemCreateTool):              {},
+		string(NoteCreateTool):                  {},
+		string(PlanDeliveryProposeTool):         {},
+		string(SpecialistDelegationProposeTool): {},
+		string(ChildTaskProposeTool):            {},
+		string(ControlledCommandProposeTool):    {},
+		string(DockerSandboxRunProposeTool):     {},
+	}
+}
+
 func (n ToolName) Valid() bool {
 	switch n {
 	case ReadFileTool, ListWorkspaceTool, ShellTool, ReplaceFileTool, ScriptProcessTool,

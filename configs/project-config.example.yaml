@@ -1,0 +1,11 @@
+protocol: project_config.v1
+read_only: false
+allowed_profiles: [code, review]
+budget:
+  max_turns: 20
+  max_tool_calls: 10
+exclude_paths:
+  - fixtures
+  - "secrets/**"
+skill_suggestions:
+  - scan-aid@1.0.0
