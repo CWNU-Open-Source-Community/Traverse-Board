@@ -38,14 +38,31 @@ jobs:
         shell: powershell
         run: ./scripts/package-portable-zip.ps1
 
-      - name: Upload portable ZIP artifacts
+      - name: Package per-user MSIX
+        shell: powershell
+        run: ./scripts/package-msix.ps1
+
+      - name: Sign MSIX (fail-closed when certificate is configured)
+        if: ${{ secrets.MSIX_CERTIFICATE_BASE64 != '' }}
+        shell: powershell
+        env:
+          MSIX_CERTIFICATE_BASE64: ${{ secrets.MSIX_CERTIFICATE_BASE64 }}
+          MSIX_CERTIFICATE_PASSWORD: ${{ secrets.MSIX_CERTIFICATE_PASSWORD }}
+        run: |
+          $cert = Join-Path $env:RUNNER_TEMP "msix-cert.pfx"
+          [System.IO.File]::WriteAllBytes($cert, [System.Convert]::FromBase64String($env:MSIX_CERTIFICATE_BASE64))
+          ./scripts/package-msix.ps1 -CertificatePath $cert -CertificatePassword $env:MSIX_CERTIFICATE_PASSWORD
+
+      - name: Upload Desktop release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Prayu-portable
+          name: Prayu-desktop-release
           if-no-files-found: error
           path: |
             build/desktop/*.zip
+            build/desktop/*.msix
             build/desktop/SHA256SUMS
             build/desktop/portable-zip-manifest.json
+            build/desktop/msix-manifest.json
             build/desktop/sbom.json
             build/desktop/NOTICE
