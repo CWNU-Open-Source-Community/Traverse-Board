@@ -20,7 +20,7 @@ $ErrorActionPreference = "Stop"
 & (Join-Path $PSScriptRoot "build-desktop.ps1") `
     -OutputDirectory $OutputDirectory -Version $Version -VerifyReproducible
 & (Join-Path $PSScriptRoot "package-portable-zip.ps1") `
-    -OutputDirectory $OutputDirectory -Version $Version
+    -OutputDirectory $OutputDirectory -Version $Version -VerifyReproducible
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $outputRoot = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $OutputDirectory))

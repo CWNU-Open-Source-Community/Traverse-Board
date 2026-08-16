@@ -62,6 +62,9 @@ Assert-ReleaseCondition ($manifest.version -eq $metadata.app_version) `
     "Portable manifest and release metadata versions differ"
 Assert-ReleaseCondition ($manifest.revision -eq $metadata.revision) `
     "Portable manifest and release metadata revisions differ"
+Assert-ReleaseCondition ([bool]$manifest.zip_reproducibility_checked -and
+    [bool]$manifest.zip_timestamps_reproducible) `
+    "Portable ZIP reproducibility was not checked"
 if (-not [string]::IsNullOrWhiteSpace($ExpectedVersion)) {
     Assert-ReleaseCondition ($manifest.version -ceq $ExpectedVersion) `
         "Portable release version does not match the expected version"

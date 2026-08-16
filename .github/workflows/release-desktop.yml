@@ -160,7 +160,7 @@ jobs:
 
       - name: Package portable ZIP with SBOM, NOTICE, checksums, and manifest
         shell: pwsh
-        run: ./scripts/package-portable-zip.ps1 -Version '${{ steps.release.outputs.version }}'
+        run: ./scripts/package-portable-zip.ps1 -Version '${{ steps.release.outputs.version }}' -VerifyReproducible
 
       - name: Verify downloaded-shape artifact and start extracted executable
         shell: pwsh

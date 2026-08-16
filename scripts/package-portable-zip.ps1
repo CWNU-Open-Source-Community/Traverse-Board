@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$OutputDirectory = "build/desktop",
-    [string]$Version = "v0.1.0"
+    [string]$Version = "v0.1.0",
+    [switch]$VerifyReproducible
 )
 
 <#
@@ -90,6 +91,25 @@ try {
     & go run ./cmd/releasegen -zip $staging -out $outputRoot -zip-name $zipName
     if ($LASTEXITCODE -ne 0) { throw "deterministic ZIP packaging failed" }
 
+    if ($VerifyReproducible) {
+        $reproZipName = ".portable-repro-" + [guid]::NewGuid().ToString("N") + ".zip"
+        $reproZipPath = Join-Path $outputRoot $reproZipName
+        try {
+            & go run ./cmd/releasegen -zip $staging -out $outputRoot -zip-name $reproZipName
+            if ($LASTEXITCODE -ne 0) { throw "portable ZIP reproducibility build failed" }
+            $firstZipHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath).Hash
+            $secondZipHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $reproZipPath).Hash
+            if ($firstZipHash -cne $secondZipHash) {
+                throw "Portable ZIP reproducibility check failed: consecutive archive hashes differ"
+            }
+        }
+        finally {
+            if (Test-Path -LiteralPath $reproZipPath -PathType Leaf) {
+                Remove-Item -LiteralPath $reproZipPath -Force
+            }
+        }
+    }
+
     $zipHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath).Hash.ToLowerInvariant()
     $binaryHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $binaryPath).Hash.ToLowerInvariant()
     $sbomHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $sbomPath).Hash.ToLowerInvariant()
@@ -104,6 +124,7 @@ try {
         notice_sha256 = $noticeHash
         version = $Version
         revision = [string]$metadata.revision
+        zip_reproducibility_checked = [bool]$VerifyReproducible
         zip_timestamps_reproducible = $true
         contents = $contents
         entries = @($entries)
