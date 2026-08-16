@@ -55,9 +55,10 @@ type Gateway struct {
 	artifacts                  *artifact.Manager
 	structuredMemory           StructuredMemoryExecutor
 	delegationProposals        SpecialistDelegationExecutor
-	childTaskProposals          ChildTaskProposalExecutor
+	childTaskProposals         ChildTaskProposalExecutor
 	planDeliveryProposals      PlanDeliveryExecutor
 	controlledCommandProposals ControlledCommandProposalExecutor
+	oneShotCommandProposals    OneShotCommandProposalExecutor
 	hostCommandProposals       HostCommandProposalExecutor
 	dockerSandboxProposals     DockerSandboxProposalExecutor
 	waitGraph                  *waitgraph.Graph
@@ -184,6 +185,8 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (Outcome, error) {
 		return g.invokePlanDelivery(ctx, normalized)
 	case ControlledCommandProposeTool:
 		return g.invokeControlledCommandProposal(ctx, normalized)
+	case OneShotCommandProposeTool:
+		return g.invokeOneShotCommandProposal(ctx, normalized)
 	case HostCommandProposeTool:
 		return g.invokeHostCommandProposal(ctx, normalized)
 	case DockerSandboxRunProposeTool:

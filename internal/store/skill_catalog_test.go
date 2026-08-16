@@ -15,15 +15,23 @@ import (
 )
 
 func removeSchemaV104ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV105ForTestStatements(), []string{
 		`DROP TABLE skill_catalog_audit`,
 		`DROP TABLE skill_catalog_imports`,
 		`DROP TABLE skill_catalog_pins`,
 		`DROP TABLE skill_catalog_publishers`,
 		`DELETE FROM schema_migrations WHERE version = 104`,
-	}
+	}...)
 }
 
+
+func removeSchemaV105ForTestStatements() []string {
+	return []string{
+		`DROP TABLE once_command_proposal_operations`,
+		`DROP TABLE once_command_proposals`,
+		`DELETE FROM schema_migrations WHERE version = 105`,
+	}
+}
 func TestSkillCatalogMigrationAndRemovalChain(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "skill-catalog-migration.db"))
 	if err != nil {
@@ -35,14 +43,14 @@ func TestSkillCatalogMigrationAndRemovalChain(t *testing.T) {
 	if err != nil || version != LatestSchemaVersion {
 		t.Fatalf("version=%d want=%d err=%v", version, LatestSchemaVersion, err)
 	}
-	for _, statement := range removeSchemaV104ForTestStatements() {
+	for _, statement := range removeSchemaV105ForTestStatements() {
 		if _, err := st.db.ExecContext(ctx, statement); err != nil {
 			t.Fatalf("remove v103 %q: %v", statement, err)
 		}
 	}
 	version, err = st.SchemaVersion(ctx)
-	if err != nil || version != 103 {
-		t.Fatalf("version after v104 removal=%d want=103 err=%v", version, err)
+	if err != nil || version != 104 {
+		t.Fatalf("version after v105 removal=%d want=104 err=%v", version, err)
 	}
 }
 

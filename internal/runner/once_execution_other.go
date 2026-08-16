@@ -58,7 +58,12 @@ func (unixOnceStarter) Start(ctx context.Context, spec OnceStartSpec) (OnceStart
 		var exitErr *exec.ExitError
 		if errors.As(waitErr, &exitErr) {
 			started.ExitCode = exitErr.ExitCode()
-			waitErr = nil
+			if ctx.Err() == nil {
+				// A plain non-zero exit is evidence, not an error.
+				waitErr = nil
+			}
+			// When the context fired, the kill error must surface: timeout
+			// and cancellation are hard failures with evidence attached.
 		}
 	}
 	return started, waitErr

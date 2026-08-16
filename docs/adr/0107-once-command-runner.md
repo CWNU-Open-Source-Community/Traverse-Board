@@ -4,9 +4,9 @@ Date: 2026-08-16
 
 ## Status
 
-Accepted for the operator-facing one-shot command runner described below.
-Supervisor 内的提案工具（one_shot_command_propose）与 Desktop 控制面作为
-后续 PR 落地。
+Accepted for the operator-facing one-shot command runner and the
+one_shot_command_propose proposal chain described below. Desktop 控制面与
+OpenAPI 作为后续 PR 落地。
 
 ## 背景 / Context
 

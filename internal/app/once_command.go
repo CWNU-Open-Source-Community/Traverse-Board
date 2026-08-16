@@ -16,6 +16,9 @@ import (
 // The four-tier gate decides: conservative denies, approval requires
 // --approved, full access runs with audit, debug never opens a shell.
 func (a *App) onceCommandCommand(ctx context.Context, args []string) error {
+	if len(args) > 0 && (args[0] == "proposals" || args[0] == "review" || (args[0] == "run" && len(args) > 1 && strings.Contains(strings.Join(args, " "), "--proposal"))) {
+		return a.onceCommandProposalCommands(ctx, args)
+	}
 	if len(args) == 0 || args[0] != "run" {
 		return errors.New("usage: cyberagent once-command run --run <run-id> --executable <abs-path> [--cwd <relative>] [--env KEY=VALUE]... [--timeout 30s] [--purpose <text>] [--approved] [--enable-danger-full-access] -- <argv...>")
 	}
