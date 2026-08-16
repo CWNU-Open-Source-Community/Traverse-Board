@@ -66,6 +66,19 @@ var restrictedCDPMethods = map[string]restrictedCDPMethodScope{
 	"Page.captureScreenshot":         restrictedCDPTargetMethod,
 }
 
+// fullCDPMethods is the additional, highly-sensitive CDP method set admitted
+// only under a confirmed FullCDPAuthorization. It never includes methods that
+// disable browser security.
+var fullCDPMethods = map[string]restrictedCDPMethodScope{
+	"Network.getCookies":    restrictedCDPTargetMethod,
+	"Network.getAllCookies": restrictedCDPTargetMethod,
+	"Storage.getCookies":    restrictedCDPTargetMethod,
+	"Fetch.fulfillRequest":  restrictedCDPTargetMethod,
+	"Runtime.enable":        restrictedCDPTargetMethod,
+	"Runtime.evaluate":      restrictedCDPTargetMethod,
+	"Log.enable":            restrictedCDPTargetMethod,
+}
+
 type RestrictedNavigationResult struct {
 	ProtocolVersion    string    `json:"protocol_version"`
 	Authorization      string    `json:"authorization_fingerprint"`
@@ -136,6 +149,16 @@ type restrictedCDPClient struct {
 	blockedRequests  int
 	blockedDocument  bool
 	budgetErr        error
+	capturedRequests []capturedRequestMetadata
+	fullCDP          bool
+}
+
+// capturedRequestMetadata is bounded request metadata only. It never retains
+// headers, cookies, bodies, or any secret-bearing field.
+type capturedRequestMetadata struct {
+	URL          string `json:"url"`
+	Method       string `json:"method"`
+	ResourceType string `json:"resource_type"`
 }
 
 type cdpWireMessage struct {
@@ -551,7 +574,12 @@ func (client *restrictedCDPClient) methodSessionAllowed(method string,
 ) bool {
 	scope, ok := restrictedCDPMethods[method]
 	if !ok {
-		return false
+		if client.fullCDP {
+			scope, ok = fullCDPMethods[method]
+		}
+		if !ok {
+			return false
+		}
 	}
 	if scope == restrictedCDPBrowserMethod {
 		return sessionID == ""
@@ -598,12 +626,19 @@ func (client *restrictedCDPClient) handleEvent(ctx context.Context,
 			RequestID    string `json:"requestId"`
 			ResourceType string `json:"resourceType"`
 			Request      struct {
-				URL string `json:"url"`
+				URL    string `json:"url"`
+				Method string `json:"method"`
 			} `json:"request"`
 		}
 		if err := json.Unmarshal(message.Params, &paused); err != nil ||
 			!validRestrictedCDPToken(paused.RequestID) {
 			return errors.New("restricted CDP request event is malformed")
+		}
+		if len(client.capturedRequests) < client.maxRequests {
+			client.capturedRequests = append(client.capturedRequests, capturedRequestMetadata{
+				URL: paused.Request.URL, Method: paused.Request.Method,
+				ResourceType: paused.ResourceType,
+			})
 		}
 		decision := client.scope.AuthorizeNavigation(paused.Request.URL)
 		if decision.Allowed && client.allowedRequests+client.blockedRequests < client.maxRequests {
