@@ -32,6 +32,29 @@ func TestDetectLicense(t *testing.T) {
 	}
 }
 
+func TestValidateLicensesFailsClosed(t *testing.T) {
+	mitDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(mitDir, "LICENSE"), []byte("MIT License"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unknownDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(unknownDir, "LICENSE"), []byte("custom terms"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := validateLicenses([]module{{Path: "example.com/ok", Version: "v1.0.0", Dir: mitDir}}); err != nil {
+		t.Fatalf("known license rejected: %v", err)
+	}
+	err := validateLicenses([]module{
+		{Path: "example.com/missing", Version: "v1.0.0", Dir: t.TempDir()},
+		{Path: "example.com/unknown", Version: "v2.0.0", Dir: unknownDir},
+	})
+	if err == nil || !strings.Contains(err.Error(), "example.com/missing@v1.0.0 (missing)") ||
+		!strings.Contains(err.Error(), "example.com/unknown@v2.0.0 (unrecognized)") {
+		t.Fatalf("unexpected validation error: %v", err)
+	}
+}
+
 func TestBuildSBOMIsDeterministicCycloneDX(t *testing.T) {
 	modules := []module{
 		{Path: "github.com/example/b", Version: "v1.0.0", Dir: t.TempDir()},

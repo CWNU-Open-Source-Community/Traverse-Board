@@ -7,7 +7,16 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repositoryRoot = [System.IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
-$binary = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $BinaryPath))
+$binary = if ([System.IO.Path]::IsPathRooted($BinaryPath)) {
+    [System.IO.Path]::GetFullPath($BinaryPath)
+} else {
+    [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $BinaryPath))
+}
+$repositoryPrefix = $repositoryRoot.TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+if (-not $binary.StartsWith($repositoryPrefix,
+        [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Desktop smoke binary must remain inside the repository"
+}
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     throw "Desktop operator-preview smoke requires Windows"
 }

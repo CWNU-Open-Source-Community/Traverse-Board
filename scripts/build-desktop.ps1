@@ -19,6 +19,11 @@ $launcherSourcePath = Join-Path $repositoryRoot "packaging/windows/$launcherName
 $guideSourcePath = Join-Path $repositoryRoot "packaging/windows/$guideName"
 $launcherPath = Join-Path $outputRoot $launcherName
 $guidePath = Join-Path $outputRoot $guideName
+$goSumPath = Join-Path $repositoryRoot "go.sum"
+$nodeLockPath = Join-Path $repositoryRoot "web/package-lock.json"
+$cargoLockPath = Join-Path $repositoryRoot "analyzers/Cargo.lock"
+$rustToolchainPath = Join-Path $repositoryRoot "analyzers/rust-toolchain.toml"
+$embeddedAnalyzerPath = Join-Path $repositoryRoot "internal/analyzer/embedded/cyberagent-analyzer-fixture.wasm"
 
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     throw "Desktop portable build currently supports only Windows"
@@ -33,6 +38,12 @@ if ($Version -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$') {
 if (-not (Test-Path -LiteralPath $launcherSourcePath -PathType Leaf) -or
     -not (Test-Path -LiteralPath $guideSourcePath -PathType Leaf)) {
     throw "Desktop operator-preview launcher and local test guide are required"
+}
+foreach ($provenanceInput in @($goSumPath, $nodeLockPath, $cargoLockPath,
+        $rustToolchainPath, $embeddedAnalyzerPath)) {
+    if (-not (Test-Path -LiteralPath $provenanceInput -PathType Leaf)) {
+        throw "Desktop release provenance input is missing: $provenanceInput"
+    }
 }
 
 function Invoke-Checked {
@@ -102,6 +113,21 @@ try {
     if ($LASTEXITCODE -ne 0 -or $goVersion -notmatch '^go[0-9]+\.[0-9]+') {
         throw "Go version build metadata is invalid"
     }
+    $nodeVersion = (& node --version).Trim()
+    if ($LASTEXITCODE -ne 0 -or $nodeVersion -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+') {
+        throw "Node version build metadata is invalid"
+    }
+    $npmVersion = (& npm --version).Trim()
+    if ($LASTEXITCODE -ne 0 -or $npmVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+') {
+        throw "npm version build metadata is invalid"
+    }
+    $rustToolchainText = [System.IO.File]::ReadAllText($rustToolchainPath)
+    $rustToolchainMatch = [regex]::Match($rustToolchainText,
+        '(?m)^channel\s*=\s*"(?<version>[0-9]+\.[0-9]+\.[0-9]+)"\s*$')
+    if (-not $rustToolchainMatch.Success) {
+        throw "Pinned Rust toolchain metadata is invalid"
+    }
+    $rustVersion = $rustToolchainMatch.Groups['version'].Value
     $targetOS = (& go env GOOS).Trim()
     if ($LASTEXITCODE -ne 0 -or $targetOS -ne "windows") {
         throw "Desktop portable build requires GOOS=windows"
@@ -160,6 +186,13 @@ try {
         source_date_epoch = [int64]$sourceDateEpoch
         modified = [System.Convert]::ToBoolean($modified)
         go_version = $goVersion
+        node_version = $nodeVersion
+        npm_version = $npmVersion
+        rust_version = $rustVersion
+        go_sum_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $goSumPath).Hash.ToLowerInvariant()
+        node_lock_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $nodeLockPath).Hash.ToLowerInvariant()
+        cargo_lock_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $cargoLockPath).Hash.ToLowerInvariant()
+        embedded_analyzer_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $embeddedAnalyzerPath).Hash.ToLowerInvariant()
         target_os = $targetOS
         target_arch = $targetArch
         cgo_enabled = $cgoEnabled

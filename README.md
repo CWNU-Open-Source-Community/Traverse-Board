@@ -166,12 +166,27 @@ The release candidate is an unsigned portable ZIP (`Prayu-portable-<version>-win
 **下载后校验 / Verify after download**（PowerShell）：
 
 ```powershell
-# 与 SHA256SUMS 中的条目比对 / compare against SHA256SUMS
-Get-FileHash .\Prayu-portable-v0.1.0-windows-amd64.zip -Algorithm SHA256
+# 从 GitHub Release 下载 ZIP 与伴随证明文件 / download the ZIP and companions
+gh release download v0.1.0-rc.1 --pattern 'Prayu-portable-*' --pattern 'SHA256SUMS'
 
-# 启动请用启动器，不要直接双击裸 EXE / use the launcher, not the bare EXE
-.\Start-Prayu-Operator-Preview.cmd
+# 与 SHA256SUMS 精确比对 / compare exactly against SHA256SUMS
+$zip = 'Prayu-portable-v0.1.0-rc.1-windows-amd64.zip'
+$expected = ((Get-Content .\SHA256SUMS | Where-Object { $_ -match "  $([regex]::Escape($zip))$" }) -split '\s+')[0]
+$actual = (Get-FileHash ".\$zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actual -cne $expected) { throw 'portable ZIP checksum mismatch' }
+
+# 解压后使用启动器，不要直接双击裸 EXE / extract and use the launcher
+Expand-Archive ".\$zip" -DestinationPath .\Prayu-portable
+.\Prayu-portable\Start-Prayu-Operator-Preview.cmd
 ```
+
+维护者从 clean checkout 生成同一套 ZIP、SBOM、NOTICE、校验和与清单只需一条命令：
+
+```powershell
+pwsh -NoProfile -File scripts/release-desktop.ps1 -Version v0.1.0-rc.1
+```
+
+`Desktop release` 工作流会在 PR 中重跑依赖边界、可复现构建、ZIP 完整性验证和解压启动冒烟；`workflow_dispatch` 只保留 Actions artifact，只有可追溯到 `main` 的 `v*` tag 才会创建 GitHub Release。带 `-` 的版本会发布为 prerelease。The `Desktop release` workflow reruns dependency boundaries, the reproducible build, ZIP integrity verification, and an extracted-executable startup smoke on pull requests. `workflow_dispatch` keeps only an Actions artifact; only a `v*` tag reachable from `main` creates a GitHub Release, and versions containing `-` are prereleases.
 
 **SmartScreen 预期 / SmartScreen expectations**：便携 ZIP 与 EXE 均未签名，Windows SmartScreen 可能提示“未知发布者”。这是未签名候选的预期限制，不是构建缺陷；正式签名发行（MSIX）在另一条发布线完成。The ZIP and EXE are unsigned, so Windows SmartScreen may warn about an unknown publisher. This is the expected limitation of an unsigned candidate, not a build defect; the signed MSIX release is tracked separately.
 
