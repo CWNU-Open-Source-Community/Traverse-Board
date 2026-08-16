@@ -14,6 +14,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/credential"
+	"cyberagent-workbench/internal/gitmutation"
 	"cyberagent-workbench/internal/runmutation"
 )
 
@@ -25,28 +26,15 @@ const (
 	MaxPRBodyBytes        = 64 * 1024
 )
 
-// RemoteOperation is the closed typed set. Force push, remote branch
-// deletion, and protected-branch mutation are not expressible.
-type RemoteOperation string
+type RemoteOperation = gitmutation.RemoteOperation
 
 const (
-	RemoteFetch      RemoteOperation = "fetch"
-	RemotePullFF     RemoteOperation = "pull_ff"
-	RemotePushBranch RemoteOperation = "push_branch"
-	RemoteCreatePR   RemoteOperation = "create_pr"
-	RemoteUpdatePR   RemoteOperation = "update_pr"
+	RemoteFetch      = gitmutation.RemoteFetch
+	RemotePullFF     = gitmutation.RemotePullFF
+	RemotePushBranch = gitmutation.RemotePushBranch
+	RemoteCreatePR   = gitmutation.RemoteCreatePR
+	RemoteUpdatePR   = gitmutation.RemoteUpdatePR
 )
-
-func (o RemoteOperation) Valid() bool {
-	switch o {
-	case RemoteFetch, RemotePullFF, RemotePushBranch, RemoteCreatePR, RemoteUpdatePR:
-		return true
-	default:
-		return false
-	}
-}
-
-func (o RemoteOperation) RequiresNetwork() bool { return true }
 
 // RemoteSpec is the structured request. The credential is a NAME reference
 // only; the secret never enters this struct, argv, logs, or storage.
