@@ -27,7 +27,11 @@ const (
 
 type PackageTrustClass string
 
-const PackageTrustOperatorInstalledUntrusted PackageTrustClass = "operator_installed_untrusted"
+const (
+	PackageTrustOperatorInstalledUntrusted PackageTrustClass = "operator_installed_untrusted"
+	PackageTrustSignedUntrusted            PackageTrustClass = "signed_untrusted"
+	PackageTrustCatalogTrusted             PackageTrustClass = "catalog_trusted"
+)
 
 type PackageRiskCode string
 
@@ -97,7 +101,10 @@ func ParsePackage(raw []byte) (*SkillPackage, error) {
 	if len(raw) == 0 || len(raw) > MaxPackageArchiveBytes {
 		return nil, fmt.Errorf("invalid skill package: archive must contain between 1 and %d bytes", MaxPackageArchiveBytes)
 	}
-	records, uncompressedBytes, err := inspectPackageContainer(raw)
+	records, uncompressedBytes, err := inspectPackageContainer(raw,
+		[]string{PackageManifestPath, PackageContentPath},
+		[]uint32{uint32(MaxManifestBytes), uint32(MaxContentBytes)},
+		uint64(MaxPackageUncompressedBytes))
 	if err != nil {
 		return nil, fmt.Errorf("invalid skill package: %w", err)
 	}
@@ -176,7 +183,10 @@ const (
 	zipDeflateVersion         = 20
 )
 
-func inspectPackageContainer(raw []byte) ([]packageEntryRecord, int, error) {
+func inspectPackageContainer(raw []byte, expectedNames []string, limits []uint32,
+	totalLimit uint64,
+) ([]packageEntryRecord, int, error) {
+	count := len(expectedNames)
 	if len(raw) < zipEndHeaderBytes || binary.LittleEndian.Uint32(raw[:4]) != zipLocalHeaderSignature {
 		return nil, 0, errors.New("ZIP must start with a local file header")
 	}
@@ -188,9 +198,9 @@ func inspectPackageContainer(raw []byte) ([]packageEntryRecord, int, error) {
 	if binary.LittleEndian.Uint16(end[4:6]) != 0 || binary.LittleEndian.Uint16(end[6:8]) != 0 {
 		return nil, 0, errors.New("multi-disk ZIP is not supported")
 	}
-	if binary.LittleEndian.Uint16(end[8:10]) != PackageEntryCount ||
-		binary.LittleEndian.Uint16(end[10:12]) != PackageEntryCount {
-		return nil, 0, fmt.Errorf("ZIP must contain exactly %d entries", PackageEntryCount)
+	if int(binary.LittleEndian.Uint16(end[8:10])) != count ||
+		int(binary.LittleEndian.Uint16(end[10:12])) != count {
+		return nil, 0, fmt.Errorf("ZIP must contain exactly %d entries", count)
 	}
 	if binary.LittleEndian.Uint16(end[20:22]) != 0 {
 		return nil, 0, errors.New("ZIP comments are forbidden")
@@ -201,8 +211,7 @@ func inspectPackageContainer(raw []byte) ([]packageEntryRecord, int, error) {
 		return nil, 0, errors.New("ZIP contains prefix, gap, ZIP64, or trailing data")
 	}
 
-	expectedNames := [...]string{PackageManifestPath, PackageContentPath}
-	records := make([]packageEntryRecord, 0, PackageEntryCount)
+	records := make([]packageEntryRecord, 0, count)
 	cursor := int(centralOffset)
 	totalUncompressed := uint64(0)
 	for index, expectedName := range expectedNames {
@@ -246,16 +255,16 @@ func inspectPackageContainer(raw []byte) ([]packageEntryRecord, int, error) {
 			return nil, 0, fmt.Errorf("ZIP entry %q contains non-deterministic metadata", name)
 		}
 		limit := uint32(MaxContentBytes)
-		if index == 0 {
-			limit = uint32(MaxManifestBytes)
+		if index < len(limits) {
+			limit = limits[index]
 		}
 		if uncompressed == 0 || uncompressed > limit || compressed == 0 ||
 			uint64(uncompressed) > uint64(compressed)*MaxPackageCompressionRatio {
 			return nil, 0, fmt.Errorf("ZIP entry %q exceeds its size or compression-ratio bound", name)
 		}
 		totalUncompressed += uint64(uncompressed)
-		if totalUncompressed > MaxPackageUncompressedBytes {
-			return nil, 0, fmt.Errorf("ZIP uncompressed content exceeds %d bytes", MaxPackageUncompressedBytes)
+		if totalUncompressed > totalLimit {
+			return nil, 0, fmt.Errorf("ZIP uncompressed content exceeds %d bytes", totalLimit)
 		}
 		records = append(records, packageEntryRecord{
 			name: name, flags: flags, method: method, crc32: crc,

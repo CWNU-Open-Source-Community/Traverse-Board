@@ -1,0 +1,28 @@
+{
+  "_comment": "Operator reference for the team Skill catalog (schema v103). The authoritative catalog lives in SQLite (skill_catalog_publishers / skill_catalog_pins / skill_catalog_imports / skill_catalog_audit); this file documents the shape for review and onboarding. Trust decisions are only ever applied by an operator or admin via `cyberagent skill catalog trust|revoke|pin|enable|disable`.",
+  "publishers": [
+    {
+      "name": "ctf-blue-team",
+      "team": "blue",
+      "fingerprint": "<sha256-of-ed25519-public-key>",
+      "public_key": "<base64-ed25519-public-key>",
+      "trust_class": "trusted"
+    }
+  ],
+  "pins": [
+    {
+      "skill_name": "scan-aid",
+      "surface": "code",
+      "version": "1.0.0",
+      "enabled": true
+    }
+  ],
+  "imports": [
+    {
+      "source_kind": "url",
+      "source": "https://publisher.example/skills/scan-aid-1.0.0.zip",
+      "pin": "<sha256-of-the-signed-zip-bytes>",
+      "publisher_fingerprint": "<sha256-of-ed25519-public-key>"
+    }
+  ]
+}

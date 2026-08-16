@@ -35,6 +35,7 @@ type Manifest struct {
 	Protocol               string                 `json:"protocol"`
 	Name                   string                 `json:"name"`
 	Version                string                 `json:"version"`
+	Publisher              string                 `json:"publisher,omitempty"`
 	Description            string                 `json:"description"`
 	Profiles               []domain.Profile       `json:"profiles"`
 	ToolDependencies       []toolgateway.ToolName `json:"tool_dependencies"`
@@ -42,6 +43,27 @@ type Manifest struct {
 	ContentSHA256          string                 `json:"content_sha256"`
 	ContentBytes           int                    `json:"content_bytes"`
 	ContentTokenUpperBound int                    `json:"content_token_upper_bound"`
+}
+
+// MaxPublisherBytes bounds the publisher identity inside a signed manifest.
+// A publisher is a plain lowercase identity bound to an Ed25519 public key;
+// it is not a permission grant by itself.
+const MaxPublisherBytes = 96
+
+// validatePublisher rejects empty or hostile publisher names. Signed packages
+// require it; unsigned v1 packages must leave it empty.
+func validatePublisher(value string) error {
+	if value == "" || len(value) > MaxPublisherBytes || !utf8.ValidString(value) {
+		return errors.New("skill publisher must be a bounded identity")
+	}
+	for _, current := range []byte(value) {
+		if (current >= 'a' && current <= 'z') || (current >= '0' && current <= '9') ||
+			current == '-' || current == '.' {
+			continue
+		}
+		return errors.New("skill publisher must use lowercase letters, digits, dots, and dashes only")
+	}
+	return nil
 }
 
 func (m Manifest) Validate(content []byte) error {

@@ -321,6 +321,7 @@ open build/desktop/Prayu.app
 | v101 | 结构化 Agent 依赖等待与唯一唤醒收据 | structured agent dependency waiting and unique wake receipts |
 | v102 | 模型提议的有界 child 任务调度（core/readonly fan-out 分面、去重与准入） | model-proposed bounded child task scheduling (core/read-only fan-out surfaces, dedup, and admission) |
 | v103 | 持久浏览器网络隔离证据与操作者 review | durable browser network containment evidence and operator review |
+| v104 | 签名 Skill 包、团队 Catalog 与固定 URL/Git 导入（publisher 信任/撤销、版本 pin、审计） | signed skill packages, team catalog, and pinned URL/Git imports (publisher trust/revoke, version pins, audit) |
 
 </details>
 

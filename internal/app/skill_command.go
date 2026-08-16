@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -332,9 +334,219 @@ func (a *App) skillCommand(ctx context.Context, args []string) error {
 		printSkillSelection(a, selection)
 		printSkillBoundary(a)
 		return nil
+	case "catalog":
+		return a.skillCatalogCommand(ctx, args[1:], registry)
+	case "import-url":
+		return a.skillImportSourceCommand(ctx, args[1:], "url", registry)
+	case "import-git":
+		return a.skillImportSourceCommand(ctx, args[1:], "git", registry)
+	case "import-dir":
+		return a.skillImportSourceCommand(ctx, args[1:], "dir", registry)
 	default:
 		return fmt.Errorf("unknown skill subcommand %q", args[0])
 	}
+}
+
+func (a *App) skillCatalogService(registry *skills.Registry) (*application.SkillCatalogService, *skills.LocalPackageObjectStore, error) {
+	if err := a.ensureStore(); err != nil {
+		return nil, nil, err
+	}
+	objects, err := skills.NewLocalPackageObjectStore(a.home)
+	if err != nil {
+		return nil, nil, err
+	}
+	registryService := application.NewSkillPackageRegistryService(a.store, objects, registry)
+	return application.NewSkillCatalogService(a.store, registryService), objects, nil
+}
+
+func (a *App) skillCatalogCommand(ctx context.Context, args []string, registry *skills.Registry) error {
+	if len(args) == 0 {
+		return errors.New("usage: cyberagent skill catalog list|trust|revoke|pin|enable|disable|audit")
+	}
+	service, _, err := a.skillCatalogService(registry)
+	if err != nil {
+		return err
+	}
+	switch args[0] {
+	case "list":
+		if len(args) != 1 {
+			return errors.New("usage: cyberagent skill catalog list")
+		}
+		publishers, err := service.ListPublishers(ctx)
+		if err != nil {
+			return err
+		}
+		for _, publisher := range publishers {
+			fmt.Fprintf(a.out, "publisher\t%s\tteam=%s\ttrust=%s\tfingerprint=%s\ttrusted_by=%s\n",
+				publisher.Name, publisher.Team, publisher.TrustClass, publisher.Fingerprint, publisher.TrustedBy)
+		}
+		pins, err := service.ListPins(ctx)
+		if err != nil {
+			return err
+		}
+		for _, pin := range pins {
+			fmt.Fprintf(a.out, "pin\t%s@%s\tsurface=%s\tenabled=%t\tpinned_by=%s\n",
+				pin.SkillName, pin.Version, pin.Surface, pin.Enabled, pin.PinnedBy)
+		}
+		fmt.Fprintf(a.out, "publisher_count: %d\npin_count: %d\n", len(publishers), len(pins))
+		return nil
+	case "trust":
+		flags := newFlagSet("skill catalog trust", a.errOut)
+		team := flags.String("team", "", "publisher team label")
+		operator := flags.String("operator", "cli_operator", "operator identity")
+		if err := flags.Parse(reorderFlags(args[1:], map[string]bool{"team": true, "operator": true})); err != nil {
+			return err
+		}
+		if flags.NArg() != 2 {
+			return errors.New("usage: cyberagent skill catalog trust <publisher-name> <base64-public-key> [--team label] [--operator cli_operator]")
+		}
+		publisher, err := service.TrustPublisher(ctx, application.TrustSkillPublisherRequest{
+			Name: flags.Arg(0), PublicKey: flags.Arg(1), Team: *team, Actor: *operator,
+		})
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(a.out, "trusted_publisher: %s\nfingerprint: %s\nteam: %s\n", publisher.Name, publisher.Fingerprint, publisher.Team)
+		return nil
+	case "revoke":
+		flags := newFlagSet("skill catalog revoke", a.errOut)
+		operator := flags.String("operator", "cli_operator", "operator identity")
+		if err := flags.Parse(reorderFlags(args[1:], map[string]bool{"operator": true})); err != nil {
+			return err
+		}
+		if flags.NArg() != 1 {
+			return errors.New("usage: cyberagent skill catalog revoke <fingerprint> [--operator cli_operator]")
+		}
+		if err := service.RevokePublisher(ctx, application.RevokeSkillPublisherRequest{
+			Fingerprint: flags.Arg(0), Actor: *operator,
+		}); err != nil {
+			return err
+		}
+		fmt.Fprintf(a.out, "revoked: %s\n", flags.Arg(0))
+		return nil
+	case "pin":
+		flags := newFlagSet("skill catalog pin", a.errOut)
+		surfaceValue := flags.String("surface", "", "target catalog surface")
+		operator := flags.String("operator", "cli_operator", "operator identity")
+		if err := flags.Parse(reorderFlags(args[1:], map[string]bool{"surface": true, "operator": true})); err != nil {
+			return err
+		}
+		if flags.NArg() != 1 {
+			return errors.New("usage: cyberagent skill catalog pin <name>@<version> --surface code|cyber [--operator cli_operator]")
+		}
+		name, version, err := skills.ParseInstalledPackageRef(flags.Arg(0))
+		if err != nil {
+			return err
+		}
+		surface, err := domain.ParseExecutionSurface(*surfaceValue)
+		if err != nil {
+			return err
+		}
+		if err := service.PinVersion(ctx, application.PinSkillVersionRequest{
+			SkillName: name, Version: version, Surface: surface, Actor: *operator,
+		}); err != nil {
+			return err
+		}
+		fmt.Fprintf(a.out, "pinned: %s@%s\tsurface=%s\n", name, version, surface)
+		return nil
+	case "enable", "disable":
+		flags := newFlagSet("skill catalog "+args[0], a.errOut)
+		surfaceValue := flags.String("surface", "", "target catalog surface")
+		operator := flags.String("operator", "cli_operator", "operator identity")
+		if err := flags.Parse(reorderFlags(args[1:], map[string]bool{"surface": true, "operator": true})); err != nil {
+			return err
+		}
+		if flags.NArg() != 1 {
+			return fmt.Errorf("usage: cyberagent skill catalog %s <name> --surface code|cyber [--operator cli_operator]", args[0])
+		}
+		surface, err := domain.ParseExecutionSurface(*surfaceValue)
+		if err != nil {
+			return err
+		}
+		if err := service.SetEnabled(ctx, application.SetSkillEnabledRequest{
+			SkillName: flags.Arg(0), Surface: surface, Enabled: args[0] == "enable", Actor: *operator,
+		}); err != nil {
+			return err
+		}
+		fmt.Fprintf(a.out, "%sd: %s\tsurface=%s\n", args[0], flags.Arg(0), surface)
+		return nil
+	case "audit":
+		if len(args) != 1 {
+			return errors.New("usage: cyberagent skill catalog audit")
+		}
+		events, err := service.ListAudit(ctx, 100)
+		if err != nil {
+			return err
+		}
+		for _, event := range events {
+			fmt.Fprintf(a.out, "%d\t%s\tsubject=%s\tactor=%s\t%s\n",
+				event.Sequence, event.EventType, event.Subject, event.Actor, event.CreatedAt.Format(time.RFC3339Nano))
+		}
+		fmt.Fprintf(a.out, "audit_count: %d\n", len(events))
+		return nil
+	default:
+		return fmt.Errorf("unknown skill catalog subcommand %q", args[0])
+	}
+}
+
+func (a *App) skillImportSourceCommand(ctx context.Context, args []string, kind string, registry *skills.Registry) error {
+	service, _, err := a.skillCatalogService(registry)
+	if err != nil {
+		return err
+	}
+	flags := newFlagSet("skill import-"+kind, a.errOut)
+	surfaceValue := flags.String("surface", "", "target catalog surface")
+	operationKey := flags.String("operation-key", "", "stable idempotency key")
+	operator := flags.String("operator", "cli_operator", "operator identity")
+	confirmed := flags.Bool("confirm-untrusted-skill", false,
+		"explicitly confirm installation of untrusted instructions")
+	var sha256Value, commitValue *string
+	if kind == "url" {
+		sha256Value = flags.String("sha256", "", "required expected SHA-256 of the pinned URL bytes")
+	} else if kind == "git" {
+		commitValue = flags.String("commit", "", "required pinned commit SHA")
+	}
+	if err := flags.Parse(reorderFlags(args, map[string]bool{
+		"surface": true, "operation-key": true, "operator": true,
+		"confirm-untrusted-skill": false, "sha256": true, "commit": true,
+	})); err != nil {
+		return err
+	}
+	if flags.NArg() != 1 {
+		return fmt.Errorf("usage: cyberagent skill import-%s <source> --surface code|cyber --operation-key <stable-key> --confirm-untrusted-skill %s",
+			kind, map[string]string{"url": "--sha256 <hex>", "git": "--commit <sha>", "dir": ""}[kind])
+	}
+	surface, err := domain.ParseExecutionSurface(*surfaceValue)
+	if err != nil {
+		return err
+	}
+	var result application.ImportSkillFromSourceResult
+	switch kind {
+	case "url":
+		result, err = service.ImportFromURL(ctx, application.ImportSkillFromURLRequest{
+			URL: flags.Arg(0), SHA256: *sha256Value, Surface: surface,
+			OperationKey: *operationKey, InstalledBy: *operator, ConfirmUntrusted: *confirmed,
+		})
+	case "git":
+		result, err = service.ImportFromGit(ctx, application.ImportSkillFromGitRequest{
+			RepoURL: flags.Arg(0), CommitSHA: *commitValue, Surface: surface,
+			OperationKey: *operationKey, InstalledBy: *operator, ConfirmUntrusted: *confirmed,
+			StagingRoot: filepath.Join(os.TempDir(), "cyberagent-skill-staging"),
+		})
+	case "dir":
+		result, err = service.ImportFromDirectory(ctx, application.ImportSkillFromDirectoryRequest{
+			Directory: flags.Arg(0), Surface: surface,
+			OperationKey: *operationKey, InstalledBy: *operator, ConfirmUntrusted: *confirmed,
+		})
+	}
+	if err != nil {
+		return err
+	}
+	printInstalledSkillPackage(a, result.Installed)
+	fmt.Fprintf(a.out, "signed: %t\nimport_id: %s\nsource_kind: %s\nsource: %s\npin: %s\npublisher_fingerprint: %s\n",
+		result.Signed, result.Import.ID, result.Import.SourceKind, result.Import.Source,
+		result.Import.Pin, result.Import.PublisherFingerprint)
+	return nil
 }
 
 func printSkillPackagePreview(a *App, preview skills.PackagePreview) {
