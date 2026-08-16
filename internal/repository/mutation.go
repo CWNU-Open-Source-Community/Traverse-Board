@@ -1,0 +1,510 @@
+package repository
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"cyberagent-workbench/internal/apperror"
+	"cyberagent-workbench/internal/runmutation"
+)
+
+const (
+	MutationProtocolVersion = "repository_mutation.v1"
+	MaxMutationPaths        = 200
+	MaxMutationMessageRunes = 4096
+	MaxMutationBranchBytes  = 255
+	MaxGitOutputBytes       = 64 * 1024
+	MaxGitDuration          = 2 * time.Minute
+)
+
+// MutationOperation is the closed typed-operation set. There is no way to
+// express reset --hard, clean -fdx, force checkout, rebase, or history
+// rewriting; unknown strings are rejected outright.
+type MutationOperation string
+
+const (
+	MutationStage        MutationOperation = "stage"
+	MutationUnstage      MutationOperation = "unstage"
+	MutationCommit       MutationOperation = "commit"
+	MutationCreateBranch MutationOperation = "create_branch"
+	MutationSwitchBranch MutationOperation = "switch_branch"
+)
+
+func (o MutationOperation) Valid() bool {
+	switch o {
+	case MutationStage, MutationUnstage, MutationCommit, MutationCreateBranch, MutationSwitchBranch:
+		return true
+	default:
+		return false
+	}
+}
+
+// MutationSpec is the structured request. It contains no shell text and no
+// free-form git argv.
+type MutationSpec struct {
+	ProtocolVersion string            `json:"protocol_version"`
+	Operation       MutationOperation `json:"operation"`
+	Paths           []string          `json:"paths,omitempty"`
+	AllChanges      bool              `json:"all_changes,omitempty"`
+	Message         string            `json:"message,omitempty"`
+	Branch          string            `json:"branch,omitempty"`
+}
+
+// MutationBinding pins the exact repository state the operator reviewed.
+// Any drift invalidates execution until a fresh review happens.
+type MutationBinding struct {
+	ProtocolVersion   string
+	Root              string
+	Head              string
+	Branch            string
+	IndexSHA256       string
+	StatusFingerprint string
+	CapturedAt        time.Time
+}
+
+// MutationReview is the pre-execution evidence: the bound state, the file
+// list, and the bounded diff stat for the exact staged content.
+type MutationReview struct {
+	Binding      MutationBinding
+	Changes      []Change
+	StagedDiff   string
+	DiffStat     string
+	TargetBranch string
+	TargetCommit string
+}
+
+// MutationReceipt is the post-execution verified evidence.
+type MutationReceipt struct {
+	ProtocolVersion    string
+	Operation          MutationOperation
+	PreHead            string
+	PostHead           string
+	Branch             string
+	CommitID           string
+	Conflicted         bool
+	Clean              bool
+	StderrPrefix       string
+	ObservedBytes      int
+	StartedAt          time.Time
+	CompletedAt        time.Time
+	BindingFingerprint string
+}
+
+// MutationExecutor runs typed operations through the real git binary with a
+// hardened environment. The closed argv templates make arbitrary git
+// invocation impossible.
+type MutationExecutor struct {
+	gitPath string
+}
+
+func NewMutationExecutor() (*MutationExecutor, error) {
+	path, err := exec.LookPath("git")
+	if err != nil {
+		return nil, fmt.Errorf("git binary is unavailable: %w", err)
+	}
+	return &MutationExecutor{gitPath: path}, nil
+}
+
+func (e *MutationExecutor) Available() bool { return e != nil && e.gitPath != "" }
+
+// CaptureBinding snapshots HEAD, branch, index bytes, and the sorted porcelain
+// status into an immutable fingerprint.
+func (e *MutationExecutor) CaptureBinding(ctx context.Context, root string) (MutationBinding, error) {
+	root, err := normalizeRepositoryRoot(root)
+	if err != nil {
+		return MutationBinding{}, err
+	}
+	head, err := e.gitOutput(ctx, root, "rev-parse", "--verify", "HEAD")
+	if err != nil {
+		// Unborn HEAD is a valid repository state (no commits yet).
+		head = "unborn"
+	}
+	status, err := e.gitOutput(ctx, root, "status", "--porcelain=v1")
+	if err != nil {
+		return MutationBinding{}, apperror.Normalize(err)
+	}
+	branch, err := e.gitOutput(ctx, root, "branch", "--show-current")
+	if err != nil {
+		branch = ""
+	}
+	indexRaw, err := os.ReadFile(filepath.Join(root, ".git", "index"))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return MutationBinding{}, apperror.Normalize(err)
+	}
+	indexDigest := sha256.Sum256(indexRaw)
+	untrackedHash := e.untrackedContentHash(ctx, root)
+	statusHash := sha256.Sum256([]byte(status + untrackedHash))
+	return MutationBinding{
+		ProtocolVersion: MutationProtocolVersion, Root: root,
+		Head: strings.TrimSpace(head), Branch: strings.TrimSpace(branch),
+		IndexSHA256:       hex.EncodeToString(indexDigest[:]),
+		StatusFingerprint: hex.EncodeToString(statusHash[:]),
+		CapturedAt:        time.Now().UTC(),
+	}, nil
+}
+
+// Review produces the pre-execution evidence for the exact spec.
+func (e *MutationExecutor) Review(ctx context.Context, root string, spec MutationSpec) (MutationReview, error) {
+	if err := e.validateSpec(spec); err != nil {
+		return MutationReview{}, err
+	}
+	binding, err := e.CaptureBinding(ctx, root)
+	if err != nil {
+		return MutationReview{}, err
+	}
+	review := MutationReview{Binding: binding, TargetBranch: spec.Branch}
+	state, err := Inspect(ctx, root, "git-mutation")
+	if err != nil {
+		return MutationReview{}, err
+	}
+	review.Changes = state.Changes
+	if spec.Operation == MutationCommit || spec.Operation == MutationStage {
+		staged, err := e.gitOutput(ctx, root, "diff", "--cached", "--stat")
+		if err == nil {
+			review.DiffStat = staged
+		}
+		stagedDiff, err := e.gitOutput(ctx, root, "diff", "--cached", "--unified=3", "--")
+		if err == nil {
+			review.StagedDiff = stagedDiff
+		}
+	}
+	return review, nil
+}
+
+// Execute verifies the binding is still current, runs the exact operation,
+// and readbacks the repository state as evidence. A drifted binding fails
+// closed and demands a fresh review.
+func (e *MutationExecutor) Execute(ctx context.Context, root string, spec MutationSpec,
+	binding MutationBinding,
+) (MutationReceipt, error) {
+	if err := e.validateSpec(spec); err != nil {
+		return MutationReceipt{}, err
+	}
+	current, err := e.CaptureBinding(ctx, root)
+	if err != nil {
+		return MutationReceipt{}, err
+	}
+	if !bindingCurrent(binding, current) {
+		return MutationReceipt{}, apperror.New(apperror.CodeFailedPrecondition,
+			"repository state drifted after review; re-review is required")
+	}
+	started := time.Now().UTC()
+	stdout, stderr, exitCode, err := e.runGit(ctx, root, spec)
+	completed := time.Now().UTC()
+	receipt := MutationReceipt{
+		ProtocolVersion: MutationProtocolVersion, Operation: spec.Operation,
+		PreHead: current.Head, Branch: current.Branch,
+		StderrPrefix: boundedOutput(stderr), ObservedBytes: len(stderr) + len(stdout),
+		StartedAt: started, CompletedAt: completed,
+		BindingFingerprint: runmutation.Fingerprint("repository_mutation_binding.v1",
+			root, current.Head, current.IndexSHA256, current.StatusFingerprint),
+	}
+	if exitCode != 0 {
+		return receipt, apperror.New(apperror.CodeFailedPrecondition,
+			"git mutation failed: "+strings.TrimSpace(boundedOutput(stderr)))
+	}
+	if err != nil && ctx.Err() == nil {
+		return receipt, apperror.Wrap(apperror.CodeFailedPrecondition,
+			"git mutation failed: "+strings.TrimSpace(boundedOutput(stderr)), err)
+	}
+	if ctx.Err() != nil {
+		return receipt, ctx.Err()
+	}
+	post, err := e.CaptureBinding(ctx, root)
+	if err != nil {
+		return receipt, err
+	}
+	receipt.PostHead = post.Head
+	receipt.Clean = len(strings.TrimSpace(mustStatus(e, ctx, root))) == 0
+	receipt.Conflicted = hasConflicts(e, ctx, root)
+	if spec.Operation == MutationCommit {
+		receipt.CommitID = post.Head
+		if post.Head == current.Head {
+			return receipt, apperror.New(apperror.CodeFailedPrecondition,
+				"commit produced no new commit")
+		}
+	}
+	return receipt, nil
+}
+
+func (e *MutationExecutor) runGit(ctx context.Context, root string, spec MutationSpec) (string, string, int, error) {
+	args, err := e.argvFor(root, spec)
+	if err != nil {
+		return "", "", 0, err
+	}
+	command := exec.CommandContext(ctx, e.gitPath, args...)
+	command.Dir = root
+	command.Env = hardenedGitEnvironment()
+	var stdout, stderr boundedBuffer
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	started := time.Now()
+	err = command.Run()
+	if time.Since(started) > MaxGitDuration && ctx.Err() == nil {
+		_ = command.Process.Kill()
+		return stdout.String(), stderr.String(), 0, errors.New("git mutation exceeded its duration bound")
+	}
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return stdout.String(), stderr.String(), exitErr.ExitCode(), nil
+		}
+		return stdout.String(), stderr.String(), 0, err
+	}
+	return stdout.String(), stderr.String(), 0, nil
+}
+
+func (e *MutationExecutor) argvFor(root string, spec MutationSpec) ([]string, error) {
+	base := []string{"-C", root, "--no-optional-locks", "-c", "core.autocrlf=false", "--literal-pathspecs"}
+	paths, err := normalizeMutationPaths(spec.Paths)
+	if err != nil {
+		return nil, err
+	}
+	switch spec.Operation {
+	case MutationStage:
+		if spec.AllChanges {
+			return append(base, "add", "--all"), nil
+		}
+		if len(paths) == 0 {
+			return nil, errors.New("stage requires at least one path or all_changes")
+		}
+		return append(append(base, "add", "--"), paths...), nil
+	case MutationUnstage:
+		if spec.AllChanges {
+			return append(base, "reset", "--quiet", "HEAD", "--"), nil
+		}
+		if len(paths) == 0 {
+			return nil, errors.New("unstage requires at least one path or all_changes")
+		}
+		return append(append(base, "reset", "--quiet", "HEAD", "--"), paths...), nil
+	case MutationCommit:
+		if strings.TrimSpace(spec.Message) == "" || utf8.RuneCountInString(spec.Message) > MaxMutationMessageRunes ||
+			!utf8.ValidString(spec.Message) || strings.ContainsRune(spec.Message, 0) {
+			return nil, errors.New("commit message must be bounded valid UTF-8")
+		}
+		args := append(base, "commit", "--quiet", "-m", spec.Message)
+		if len(paths) > 0 {
+			args = append(append(args, "--"), paths...)
+		}
+		return args, nil
+	case MutationCreateBranch:
+		if err := validateBranchName(spec.Branch); err != nil {
+			return nil, err
+		}
+		return append(base, "branch", "--", spec.Branch), nil
+	case MutationSwitchBranch:
+		if err := validateBranchName(spec.Branch); err != nil {
+			return nil, err
+		}
+		return append(base, "switch", "--quiet", "--", spec.Branch), nil
+	default:
+		return nil, errors.New("unsupported mutation operation")
+	}
+}
+
+func (e *MutationExecutor) validateSpec(spec MutationSpec) error {
+	if spec.ProtocolVersion != MutationProtocolVersion {
+		return fmt.Errorf("unsupported mutation protocol %q", spec.ProtocolVersion)
+	}
+	if !spec.Operation.Valid() {
+		return fmt.Errorf("unsupported mutation operation %q", spec.Operation)
+	}
+	if spec.AllChanges && len(spec.Paths) > 0 {
+		return errors.New("all_changes cannot be combined with explicit paths")
+	}
+	if spec.Operation == MutationCommit {
+		if strings.TrimSpace(spec.Message) == "" {
+			return errors.New("commit requires a message")
+		}
+	} else if spec.Operation == MutationCreateBranch || spec.Operation == MutationSwitchBranch {
+		if err := validateBranchName(spec.Branch); err != nil {
+			return err
+		}
+	}
+	_, err := normalizeMutationPaths(spec.Paths)
+	return err
+}
+
+func normalizeMutationPaths(paths []string) ([]string, error) {
+	if len(paths) > MaxMutationPaths {
+		return nil, fmt.Errorf("mutation paths exceed %d entries", MaxMutationPaths)
+	}
+	normalized := make([]string, 0, len(paths))
+	for _, value := range paths {
+		if value == "" || len(value) > MaxPathRunes || strings.ContainsRune(value, 0) || !utf8.ValidString(value) {
+			return nil, errors.New("mutation path is invalid")
+		}
+		if strings.HasPrefix(value, "-") || strings.Contains(value, "..") ||
+			filepath.IsAbs(value) || strings.Contains(value, "\\") {
+			return nil, fmt.Errorf("mutation path %q escapes the typed contract", value)
+		}
+		clean := filepath.ToSlash(filepath.Clean(value))
+		if clean != value {
+			return nil, fmt.Errorf("mutation path %q is not normalized", value)
+		}
+		normalized = append(normalized, value)
+	}
+	return normalized, nil
+}
+
+func validateBranchName(branch string) error {
+	if branch == "" || len(branch) > MaxMutationBranchBytes || !utf8.ValidString(branch) ||
+		strings.ContainsRune(branch, 0) || strings.ContainsAny(branch, " \\~^:?*[\"\\") ||
+		strings.HasPrefix(branch, "-") || strings.HasPrefix(branch, "/") || strings.HasSuffix(branch, "/") ||
+		strings.HasSuffix(branch, ".") || strings.Contains(branch, "..") || strings.Contains(branch, "//") ||
+		strings.Contains(branch, "@{") {
+		return fmt.Errorf("branch name %q is invalid", branch)
+	}
+	return nil
+}
+
+func bindingCurrent(left, right MutationBinding) bool {
+	return left.Head == right.Head && left.IndexSHA256 == right.IndexSHA256 &&
+		left.StatusFingerprint == right.StatusFingerprint
+}
+
+func (e *MutationExecutor) gitOutput(ctx context.Context, root string, args ...string) (string, error) {
+	full := append([]string{"-C", root, "--no-optional-locks"}, args...)
+	command := exec.CommandContext(ctx, e.gitPath, full...)
+	command.Env = hardenedGitEnvironment()
+	command.Dir = root
+	var stdout, stderr boundedBuffer
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	err := command.Run()
+	if err != nil {
+		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err,
+			strings.TrimSpace(stderr.String()))
+	}
+	return stdout.String(), nil
+}
+
+// untrackedContentHash folds bounded content digests of untracked files into
+// the binding so edits to not-yet-tracked files also invalidate stale reviews.
+func (e *MutationExecutor) untrackedContentHash(ctx context.Context, root string) string {
+	listing, err := e.gitOutput(ctx, root, "ls-files", "--others", "--exclude-standard")
+	if err != nil {
+		return ""
+	}
+	hash := sha256.New()
+	count := 0
+	for _, line := range strings.Split(listing, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.ContainsRune(line, 0) {
+			continue
+		}
+		if count >= MaxChangeItems {
+			hash.Write([]byte("truncated"))
+			break
+		}
+		raw, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(line)))
+		if err != nil {
+			hash.Write([]byte(line + ":unreadable"))
+		} else {
+			digest := sha256.Sum256(raw)
+			hash.Write([]byte(line + ":" + hex.EncodeToString(digest[:])))
+		}
+		count++
+	}
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func mustStatus(e *MutationExecutor, ctx context.Context, root string) string {
+	value, err := e.gitOutput(ctx, root, "status", "--porcelain=v1")
+	if err != nil {
+		return ""
+	}
+	return value
+}
+
+func hasConflicts(e *MutationExecutor, ctx context.Context, root string) bool {
+	value, err := e.gitOutput(ctx, root, "status", "--porcelain=v1")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(value, "\n") {
+		if strings.HasPrefix(line, "UU ") || strings.HasPrefix(line, "AA ") ||
+			strings.HasPrefix(line, "DD ") || strings.HasPrefix(line, "AU ") || strings.HasPrefix(line, "UA ") {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeRepositoryRoot(root string) (string, error) {
+	root = filepath.Clean(root)
+	if strings.TrimSpace(root) == "" || strings.ContainsRune(root, 0) {
+		return "", errors.New("repository root is invalid")
+	}
+	info, err := os.Stat(filepath.Join(root, ".git"))
+	if err != nil || !info.IsDir() {
+		return "", errors.New("repository root does not contain a .git directory")
+	}
+	return root, nil
+}
+
+// hardenedGitEnvironment runs git with system/global config ignored, hooks,
+// pager, editor, external diff, credential helpers, and LFS filters disabled,
+// and never inherits the agent process environment.
+func hardenedGitEnvironment() []string {
+	hooksDir := os.TempDir()
+	return []string{
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=" + os.DevNull,
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_ASKPASS=false",
+		"GIT_EDITOR=false",
+		"GIT_PAGER=cat",
+		"GIT_OPTIONAL_LOCKS=0",
+		"GIT_LFS_SKIP_SMUDGE=1",
+		"GIT_CONFIG_COUNT=6",
+		"GIT_CONFIG_KEY_0=core.hooksPath",
+		"GIT_CONFIG_VALUE_0=" + hooksDir,
+		"GIT_CONFIG_KEY_1=core.fsmonitor",
+		"GIT_CONFIG_VALUE_1=false",
+		"GIT_CONFIG_KEY_2=credential.helper",
+		"GIT_CONFIG_VALUE_2=",
+		"GIT_CONFIG_KEY_3=diff.external",
+		"GIT_CONFIG_VALUE_3=",
+		"GIT_CONFIG_KEY_4=core.autocrlf",
+		"GIT_CONFIG_VALUE_4=false",
+		"GIT_CONFIG_KEY_5=core.pager",
+		"GIT_CONFIG_VALUE_5=cat",
+		"SystemRoot=" + os.Getenv("SystemRoot"),
+	}
+}
+
+type boundedBuffer struct{ buf bytes.Buffer }
+
+func (b *boundedBuffer) Write(value []byte) (int, error) {
+	if b.buf.Len() >= MaxGitOutputBytes {
+		return len(value), nil
+	}
+	remaining := MaxGitOutputBytes - b.buf.Len()
+	if len(value) > remaining {
+		value = value[:remaining]
+	}
+	return b.buf.Write(value)
+}
+
+func (b *boundedBuffer) String() string { return b.buf.String() }
+
+func boundedOutput(value string) string {
+	if len(value) > 4096 {
+		value = value[:4096]
+	}
+	return value
+}
+
+var _ = sort.Strings
