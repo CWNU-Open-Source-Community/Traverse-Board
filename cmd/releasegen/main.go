@@ -87,6 +87,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, "releasegen:", err)
 		os.Exit(1)
 	}
+	if err := validateLicenses(modules); err != nil {
+		fmt.Fprintln(os.Stderr, "releasegen:", err)
+		os.Exit(1)
+	}
 	sbom, err := buildSBOM(modules, *appVersion)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "releasegen:", err)
@@ -169,6 +173,26 @@ func detectLicense(dir string) license {
 		}
 	}
 	return license{}
+}
+
+// validateLicenses keeps release packaging fail-closed when a compiled module
+// has no readable license text or the text cannot be mapped to an SPDX id.
+func validateLicenses(modules []module) error {
+	var invalid []string
+	for _, module := range sortedModules(modules) {
+		lic := detectLicense(module.Dir)
+		if !lic.Found {
+			invalid = append(invalid, module.Path+"@"+module.Version+" (missing)")
+			continue
+		}
+		if lic.SPDXID == "LicenseRef-unknown" {
+			invalid = append(invalid, module.Path+"@"+module.Version+" (unrecognized)")
+		}
+	}
+	if len(invalid) != 0 {
+		return fmt.Errorf("compiled modules have incomplete license metadata: %s", strings.Join(invalid, ", "))
+	}
+	return nil
 }
 
 // matchSPDX returns a best-effort SPDX id for a license text. It is a heuristic:
