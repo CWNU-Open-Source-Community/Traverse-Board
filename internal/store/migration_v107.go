@@ -1,0 +1,35 @@
+package store
+
+var gitRemoteStatements = []string{
+	`CREATE TABLE git_remote_operations (
+		id TEXT PRIMARY KEY,
+		protocol_version TEXT NOT NULL,
+		operation_key_digest TEXT NOT NULL UNIQUE,
+		request_fingerprint TEXT NOT NULL,
+		run_id TEXT NOT NULL,
+		workspace_id TEXT NOT NULL,
+		operation TEXT NOT NULL,
+		spec_json TEXT NOT NULL,
+		remote_host TEXT NOT NULL,
+		remote_port TEXT NOT NULL DEFAULT '443',
+		protocol TEXT NOT NULL,
+		branch TEXT NOT NULL DEFAULT '',
+		pre_head TEXT NOT NULL DEFAULT '',
+		post_head TEXT NOT NULL DEFAULT '',
+		commit_id TEXT NOT NULL DEFAULT '',
+		pull_request_url TEXT NOT NULL DEFAULT '',
+		pull_request_number INTEGER NOT NULL DEFAULT 0,
+		stderr_prefix TEXT NOT NULL DEFAULT '',
+		completed_at TEXT,
+		created_at TEXT NOT NULL,
+		FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE RESTRICT,
+		CHECK(protocol_version = 'repository_remote.v1'),
+		CHECK(operation IN ('fetch', 'pull_ff', 'push_branch', 'create_pr', 'update_pr')),
+		CHECK(length(remote_host) BETWEEN 1 AND 253 AND instr(remote_host, char(0)) = 0),
+		CHECK(protocol IN ('https', 'file')),
+		CHECK(json_valid(spec_json) AND length(spec_json) BETWEEN 1 AND 32768),
+		CHECK(length(id) BETWEEN 1 AND 256 AND instr(id, char(0)) = 0),
+		CHECK(length(operation_key_digest) = 64 AND length(request_fingerprint) = 64),
+		CHECK(julianday(created_at) IS NOT NULL)
+	);`,
+}

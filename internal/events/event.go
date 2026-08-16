@@ -171,6 +171,7 @@ const (
 	SkillImportCompletedEvent                     = "skill.import_completed"
 	OnceCommandExecutedEvent                      = "once_command.executed"
 	GitMutationCompletedEvent                     = "git.mutation_completed"
+	GitRemoteCompletedEvent                       = "git.remote_completed"
 	SandboxManifestPreparedEvent                  = "sandbox.manifest_prepared"
 	SandboxManifestValidatedEvent                 = "sandbox.manifest_validated"
 	SandboxExecutionCandidateValidatedEvent       = "sandbox.execution_candidate_validated"

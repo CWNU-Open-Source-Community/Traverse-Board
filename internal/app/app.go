@@ -227,6 +227,8 @@ func (a *App) dispatch(ctx context.Context, args []string) error {
 		return a.onceCommandCommand(ctx, args[1:])
 	case "git-op":
 		return a.gitOpCommand(ctx, args[1:])
+	case "git-remote":
+		return a.gitRemoteCommand(ctx, args[1:])
 	case "headless":
 		return a.headlessCommand(ctx, args[1:])
 	case "run":
