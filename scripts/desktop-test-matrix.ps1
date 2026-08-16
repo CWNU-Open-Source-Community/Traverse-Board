@@ -34,11 +34,26 @@ if ([string]::IsNullOrWhiteSpace($OutputPath)) {
     $OutputPath = Join-Path (Split-Path -Parent $binary) "desktop-test-matrix.json"
 }
 $output = [System.IO.Path]::GetFullPath($OutputPath)
+$minimumWebView2RuntimeVersion = "94.0.992.31"
+
+$binaryItem = Get-Item -LiteralPath $binary
+$binaryHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $binary).Hash.ToLowerInvariant()
+$releaseMetadataPath = Join-Path (Split-Path -Parent $binary) "release-metadata.json"
+$releaseMetadata = $null
+$releaseMetadataHashMatches = $false
+if (Test-Path -LiteralPath $releaseMetadataPath -PathType Leaf) {
+    try {
+        $releaseMetadata = Get-Content -Raw -LiteralPath $releaseMetadataPath | ConvertFrom-Json
+    } catch {
+        throw "Desktop release metadata is not valid JSON"
+    }
+    $releaseMetadataHashMatches = [string]$releaseMetadata.sha256 -eq $binaryHash
+}
 
 $results = [System.Collections.Generic.List[object]]::new()
 function Add-Result {
-    param([string]$ID, [string]$Status, [string]$Detail)
-    $results.Add([pscustomobject][ordered]@{ id = $ID; status = $Status; detail = $Detail })
+    param([string]$ID, [string]$Status, [object]$Facts)
+    $results.Add([pscustomobject][ordered]@{ id = $ID; status = $Status; facts = $Facts })
 }
 
 # Redact any user/home/workspace identity that could leak a personal secret.
@@ -75,17 +90,72 @@ function Get-DpiPercent {
             -Name LogPixels -ErrorAction SilentlyContinue).LogPixels
         if ($logPixels -is [int] -and $logPixels -gt 0) { $pixelsPerInch = $logPixels }
     }
-    return [Math]::Round(100 * $pixelsPerInch / 96)
+    return [int][Math]::Round(100 * $pixelsPerInch / 96)
 }
 
 function Get-MonitorLayout {
     try {
         Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop | Out-Null
+        if (-not ("DesktopMatrixNative" -as [type])) {
+            Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class DesktopMatrixNative
+{
+    [StructLayout(LayoutKind.Sequential)]
+    public struct POINT
+    {
+        public int X;
+        public int Y;
+    }
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr MonitorFromPoint(POINT point, uint flags);
+
+    [DllImport("shcore.dll")]
+    public static extern int GetDpiForMonitor(IntPtr monitor, int dpiType,
+        out uint dpiX, out uint dpiY);
+
+    [DllImport("shcore.dll")]
+    public static extern int GetScaleFactorForMonitor(IntPtr monitor,
+        out int scalePercent);
+}
+'@ -ErrorAction Stop | Out-Null
+        }
         $screens = [System.Windows.Forms.Screen]::AllScreens
+        $fallbackDpi = Get-DpiPercent
         $items = foreach ($screen in $screens) {
+            $dpiPercent = $fallbackDpi
+            try {
+                $point = [DesktopMatrixNative+POINT]::new()
+                $point.X = $screen.Bounds.X + [int]($screen.Bounds.Width / 2)
+                $point.Y = $screen.Bounds.Y + [int]($screen.Bounds.Height / 2)
+                $monitor = [DesktopMatrixNative]::MonitorFromPoint($point, 2)
+                [int]$scalePercent = 0
+                [uint32]$dpiX = 0
+                [uint32]$dpiY = 0
+                if ($monitor -ne [IntPtr]::Zero -and
+                    [DesktopMatrixNative]::GetScaleFactorForMonitor($monitor,
+                        [ref]$scalePercent) -eq 0 -and $scalePercent -gt 0) {
+                    $dpiPercent = $scalePercent
+                } elseif ($monitor -ne [IntPtr]::Zero -and
+                    [DesktopMatrixNative]::GetDpiForMonitor($monitor, 0,
+                        [ref]$dpiX, [ref]$dpiY) -eq 0 -and $dpiX -gt 0) {
+                    $dpiPercent = [int][Math]::Round(100 * $dpiX / 96)
+                }
+            } catch {
+                $dpiPercent = $fallbackDpi
+            }
             [pscustomobject][ordered]@{
-                primary = $screen.Primary
-                bounds  = "$($screen.Bounds.Width)x$($screen.Bounds.Height)"
+                primary     = $screen.Primary
+                dpi_percent = $dpiPercent
+                bounds      = [pscustomobject][ordered]@{
+                    x      = $screen.Bounds.X
+                    y      = $screen.Bounds.Y
+                    width  = $screen.Bounds.Width
+                    height = $screen.Bounds.Height
+                }
             }
         }
         return @($items)
@@ -94,15 +164,43 @@ function Get-MonitorLayout {
     }
 }
 
+function Test-VersionAtLeast {
+    param([string]$Actual, [string]$Minimum)
+    try {
+        return ([version]$Actual -ge [version]$Minimum)
+    } catch {
+        return $false
+    }
+}
+
 # ---- Environment ----
 $osInfo = Get-CimInstance Win32_OperatingSystem
+$webView2Runtime = Get-WebView2RuntimeVersion
+$monitorLayout = @(Get-MonitorLayout)
 $environment = [pscustomobject][ordered]@{
     windows_version = [string]$osInfo.Caption
     build_number    = [string]$osInfo.BuildNumber
-    webview2_runtime = (Get-WebView2RuntimeVersion)
-    dpi_percent     = (Get-DpiPercent)
-    monitors        = (Get-MonitorLayout)
+    architecture    = [string]$osInfo.OSArchitecture
+    webview2_runtime = $webView2Runtime
+    minimum_webview2_runtime = $minimumWebView2RuntimeVersion
+    webview2_supported = (Test-VersionAtLeast -Actual $webView2Runtime `
+        -Minimum $minimumWebView2RuntimeVersion)
+    primary_dpi_percent = (Get-DpiPercent)
+    monitors        = $monitorLayout
 }
+$releaseMetadataValid = $null -ne $releaseMetadata -and $releaseMetadataHashMatches -and
+    [string]$releaseMetadata.revision -match '^[0-9a-f]{40}$' -and
+    -not [bool]$releaseMetadata.modified
+Add-Result "candidate_provenance" ($(if ($releaseMetadataValid) { "pass" } else { "fail" })) `
+    ([pscustomobject][ordered]@{
+        release_metadata_present = $null -ne $releaseMetadata
+        sha256_matches            = $releaseMetadataHashMatches
+        revision_bound            = $null -ne $releaseMetadata -and
+            [string]$releaseMetadata.revision -match '^[0-9a-f]{40}$'
+        modified                  = $(if ($null -ne $releaseMetadata) {
+            [bool]$releaseMetadata.modified
+        } else { $null })
+    })
 
 # ---- Scenarios ----
 $temporaryRoot = Join-Path $repositoryRoot ".tmp"
@@ -131,8 +229,13 @@ try {
         }
         Start-Sleep -Milliseconds 100
     }
-    Add-Result "cold_start" ($(if ($storeCreated) { "pass" } else { "fail" })) `
-        ("store_created=" + $storeCreated + " pid=" + $primary.Id)
+    $primary.Refresh()
+    $primaryAlive = -not $primary.HasExited
+    Add-Result "cold_start" ($(if ($storeCreated -and $primaryAlive) { "pass" } else { "fail" })) `
+        ([pscustomobject][ordered]@{
+            process_alive = $primaryAlive
+            store_created = $storeCreated
+        })
 
     # S2 second instance yields to the first
     $second = Start-Process -FilePath $binary -ArgumentList "--operator-preview" -PassThru
@@ -143,17 +246,44 @@ try {
         if ($second.HasExited) { $secondExited = $true; break }
         Start-Sleep -Milliseconds 100
     }
-    if (-not $secondExited) { $null = Stop-Process -Id $second.Id -Force; $second.WaitForExit() }
-    Add-Result "second_instance" ($(if ($secondExited) { "pass" } else { "fail" })) `
-        ("second_exited=" + $secondExited)
+    $secondExitCode = $null
+    if ($secondExited) {
+        $second.Refresh()
+        $secondExitCode = $second.ExitCode
+    } else {
+        $null = Stop-Process -Id $second.Id -Force
+        $second.WaitForExit()
+    }
+    $secondYielded = $secondExited -and $secondExitCode -eq 0
+    Add-Result "second_instance" ($(if ($secondYielded) { "pass" } else { "fail" })) `
+        ([pscustomobject][ordered]@{
+            second_exited    = $secondExited
+            second_exit_code = $secondExitCode
+        })
+    $second.Dispose()
+    $second = $null
 
     # S3 normal exit: graceful close must terminate without force kill
     $null = $primary.CloseMainWindow()
     $cleanExit = $primary.WaitForExit(5000)
+    $normalExitCode = $null
+    if ($cleanExit) {
+        $primary.Refresh()
+        $normalExitCode = $primary.ExitCode
+    } else {
+        Stop-Process -Id $primary.Id -Force -ErrorAction SilentlyContinue
+        $primary.WaitForExit()
+    }
+    $storePresentAfterExit = Test-Path -LiteralPath $database -PathType Leaf
+    $normalExitPassed = $cleanExit -and $normalExitCode -eq 0 -and $storePresentAfterExit
     $primary.Dispose()
     $primary = $null
-    Add-Result "normal_exit" ($(if ($cleanExit) { "pass" } else { "fail" })) `
-        ("clean_exit=" + $cleanExit)
+    Add-Result "normal_exit" ($(if ($normalExitPassed) { "pass" } else { "fail" })) `
+        ([pscustomobject][ordered]@{
+            clean_exit              = $cleanExit
+            exit_code               = $normalExitCode
+            store_present_after_exit = $storePresentAfterExit
+        })
 
     # S4 force kill then reopen with data retention
     $primary = Start-Process -FilePath $binary -ArgumentList "--operator-preview" -PassThru
@@ -171,6 +301,9 @@ try {
         }
         Start-Sleep -Milliseconds 100
     }
+    $storeLengthBeforeKill = if (Test-Path -LiteralPath $database -PathType Leaf) {
+        [int64](Get-Item -LiteralPath $database).Length
+    } else { [int64]0 }
     $null = Stop-Process -Id $primary.Id -Force
     $primary.WaitForExit()
     $primary.Dispose()
@@ -191,8 +324,19 @@ try {
         }
         Start-Sleep -Milliseconds 100
     }
-    Add-Result "kill_reopen" ($(if ($killReady -and $retained -and $reopened) { "pass" } else { "fail" })) `
-        ("kill_ready=" + $killReady + " data_retained=" + $retained + " reopened=" + $reopened)
+    $storeLengthAfterReopen = if (Test-Path -LiteralPath $database -PathType Leaf) {
+        [int64](Get-Item -LiteralPath $database).Length
+    } else { [int64]0 }
+    $killReopenPassed = $killReady -and $retained -and $reopened -and
+        $storeLengthBeforeKill -gt 0 -and $storeLengthAfterReopen -gt 0
+    Add-Result "kill_reopen" ($(if ($killReopenPassed) { "pass" } else { "fail" })) `
+        ([pscustomobject][ordered]@{
+            ready_before_kill       = $killReady
+            store_retained          = $retained
+            store_bytes_before_kill = $storeLengthBeforeKill
+            reopened                = $reopened
+            store_bytes_after_reopen = $storeLengthAfterReopen
+        })
 }
 finally {
     $env:CYBERAGENT_HOME = $previousHome
@@ -233,12 +377,47 @@ finally {
     }
 }
 
+$automatedFailed = @($results | Where-Object { $_.status -ne "pass" }).Count -gt 0
+$manualChecks = @(
+    [pscustomobject][ordered]@{
+        id = "ui_1024x768_and_200_percent"
+        status = "not_run"
+        detail = "Requires operator visual review at both 1024x768 and 200% DPI"
+    },
+    [pscustomobject][ordered]@{
+        id = "multi_monitor_mixed_dpi"
+        status = "not_run"
+        detail = "Requires two physical or virtual displays with different scaling"
+    },
+    [pscustomobject][ordered]@{
+        id = "webview2_missing_old_corrupt"
+        status = "not_run"
+        detail = "Requires an isolated host or VM with the runtime unavailable or unsupported"
+    },
+    [pscustomobject][ordered]@{
+        id = "offline_start"
+        status = "not_run"
+        detail = "Requires operator-controlled network isolation"
+    }
+)
+$candidate = [pscustomobject][ordered]@{
+    name              = (Protect-Path $binary)
+    sha256            = $binaryHash
+    size_bytes        = [int64]$binaryItem.Length
+    app_version       = $(if ($null -ne $releaseMetadata) { [string]$releaseMetadata.app_version } else { "" })
+    revision          = $(if ($null -ne $releaseMetadata) { [string]$releaseMetadata.revision } else { "" })
+    source_date_epoch = $(if ($null -ne $releaseMetadata) { [int64]$releaseMetadata.source_date_epoch } else { [int64]0 })
+    modified          = $(if ($null -ne $releaseMetadata) { [bool]$releaseMetadata.modified } else { $null })
+}
 $report = [pscustomobject][ordered]@{
-    protocol_version = "desktop_test_matrix.v1"
+    protocol_version = "desktop_test_matrix.v2"
     generated_at     = [DateTime]::UtcNow.ToString("o")
-    binary           = (Protect-Path $binary)
+    automated_status = $(if ($automatedFailed) { "fail" } else { "pass" })
+    overall_status   = $(if ($automatedFailed) { "fail" } else { "needs_manual_evidence" })
+    candidate        = $candidate
     environment      = $environment
     results          = @($results)
+    manual_checks    = $manualChecks
 }
-$report | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $output -Encoding utf8
+$report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $output -Encoding utf8
 Write-Output "desktop_test_matrix_written: $output"

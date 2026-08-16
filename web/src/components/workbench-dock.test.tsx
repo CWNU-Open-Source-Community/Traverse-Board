@@ -61,10 +61,16 @@ describe("WorkbenchDock", () => {
     renderDock();
     expect(screen.getByRole("button", { name: "打开工作区" })).toBeDisabled();
   });
+
+  it("localizes the native Workspace action in English", () => {
+    renderDock("en-US");
+    expect(screen.getByRole("button", { name: "Open workspace" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "打开工作区" })).not.toBeInTheDocument();
+  });
 });
 
-function renderDock() {
-  window.localStorage.setItem("prayu.locale.v1", "zh-CN");
+function renderDock(locale: "zh-CN" | "en-US" = "zh-CN") {
+  window.localStorage.setItem("prayu.locale.v1", locale);
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });

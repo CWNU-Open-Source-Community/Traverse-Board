@@ -91,9 +91,16 @@ try {
     if ($LASTEXITCODE -ne 0 -or $sourceDateEpoch -notmatch '^[1-9][0-9]*$') {
         throw "Git source date epoch is unavailable"
     }
-    $dirtyOutput = @(& git status --porcelain)
-    if ($LASTEXITCODE -ne 0) { throw "Git worktree state is unavailable" }
-    $modified = if ($dirtyOutput.Count -gt 0) { "true" } else { "false" }
+    & git diff --quiet --ignore-submodules --
+    $worktreeDiffExit = $LASTEXITCODE
+    if ($worktreeDiffExit -gt 1) { throw "Git worktree state is unavailable" }
+    & git diff --cached --quiet --ignore-submodules --
+    $indexDiffExit = $LASTEXITCODE
+    if ($indexDiffExit -gt 1) { throw "Git index state is unavailable" }
+    $untrackedOutput = @(& git ls-files --others --exclude-standard)
+    if ($LASTEXITCODE -ne 0) { throw "Git untracked-file state is unavailable" }
+    $modified = if ($worktreeDiffExit -eq 1 -or $indexDiffExit -eq 1 -or
+        $untrackedOutput.Count -gt 0) { "true" } else { "false" }
     $cgoEnabled = (& go env CGO_ENABLED).Trim()
     if ($LASTEXITCODE -ne 0 -or $cgoEnabled -notmatch '^[01]$') {
         throw "Go CGO build metadata is invalid"

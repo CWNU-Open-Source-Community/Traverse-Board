@@ -340,7 +340,7 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
         items={visibleTabs.map(({ id, label, icon }) => ({ id, label: t(...label), icon }))}
         onSelect={setTab}>
         {tab === "activity" && (
-          activityQuery.isLoading ? <LoadingState label="加载活动" /> :
+          activityQuery.isLoading ? <LoadingState label={t("加载活动", "Loading activity")} /> :
             activityQuery.isError || !activityQuery.data ?
               <ErrorState error={activityQuery.error} /> :
               <RunActivityTimeline activity={activityQuery.data}
