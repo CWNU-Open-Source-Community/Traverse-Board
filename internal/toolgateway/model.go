@@ -45,6 +45,7 @@ const (
 	ChildTaskProposeTool            ToolName = "child_task_propose"
 	ControlledCommandProposeTool    ToolName = "controlled_command_propose"
 	HostCommandProposeTool          ToolName = "host_command_propose"
+	OneShotCommandProposeTool       ToolName = "one_shot_command_propose"
 	DockerSandboxRunProposeTool     ToolName = "sandbox_docker_run_propose"
 )
 
@@ -71,7 +72,7 @@ func (n ToolName) Valid() bool {
 	case ReadFileTool, ListWorkspaceTool, ShellTool, ReplaceFileTool, ScriptProcessTool,
 		WorkItemCreateTool, NoteCreateTool, PlanDeliveryProposeTool,
 		SpecialistDelegationProposeTool, ChildTaskProposeTool, ControlledCommandProposeTool,
-		DockerSandboxRunProposeTool:
+		OneShotCommandProposeTool, DockerSandboxRunProposeTool:
 		// Host commands remain proposals at this layer; execution is owned by
 		// the separate control-token review path.
 		return true
@@ -117,7 +118,7 @@ func ClassForTool(name ToolName) (ActionClass, bool) {
 		return ClassRunMemory, true
 	case PlanDeliveryProposeTool, SpecialistDelegationProposeTool, ChildTaskProposeTool,
 		ControlledCommandProposeTool, HostCommandProposeTool,
-		DockerSandboxRunProposeTool:
+		OneShotCommandProposeTool, DockerSandboxRunProposeTool:
 		return ClassAgentProposal, true
 	default:
 		return "", false

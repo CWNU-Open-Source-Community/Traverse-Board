@@ -1109,6 +1109,18 @@ The file uses `project_config.v1` (JSON schema in `configs/project-config.schema
 At Run creation the normalized effective view and its SHA-256 fingerprint are pinned into the Run config snapshot; editing `.prayu/config.yaml` afterwards never changes a running Run.
 
 
+## Once Command Runner
+
+`cyberagent once-command run` executes one workspace-scoped, one-shot command under the four-tier execution permission gate:
+
+```powershell
+cyberagent once-command run --run <run-id> --executable C:\Windows\System32\git.exe --cwd . --timeout 30s --purpose "list git version" --enable-danger-full-access -- --version
+cyberagent once-command run --run <run-id> --executable <abs-path> --approved -- <argv...>
+```
+
+The protocol is structured (`once_command.v1`): executable + literal argv + cwd + allowlisted env, never a shell string. The executable must be a native binary outside the Workspace (shell interpreters like cmd/powershell/bash and script targets like .bat/.cmd are rejected); the working directory must resolve inside the Workspace (symlink/junction escapes are rejected); the environment only accepts SystemRoot/WINDIR/TEMP/TMP and never loads PowerShell/Bash profiles. Output is capped at 64 KiB, UTF-8-repaired, and secret-redacted; the Run event `once_command.executed` records metadata only. Tier behavior: conservative denies, approval requires `--approved` per command, full access runs with audit (requires `--enable-danger-full-access`), debug never opens a persistent shell. Windows termination uses a kill-on-close Job Object bound at process creation, so timeout/cancel reaps the whole process tree.
+
+
 ## MCP Server
 
 `cyberagent mcp serve` runs a Model Context Protocol server over stdio

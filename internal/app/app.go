@@ -223,6 +223,8 @@ func (a *App) dispatch(ctx context.Context, args []string) error {
 		return a.mcpCommand(ctx, args[1:])
 	case "project-config":
 		return a.projectConfigCommand(ctx, args[1:])
+	case "once-command":
+		return a.onceCommandCommand(ctx, args[1:])
 	case "headless":
 		return a.headlessCommand(ctx, args[1:])
 	case "run":

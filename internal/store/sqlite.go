@@ -331,6 +331,7 @@ func migrationPlan() []migration {
 		{Version: 102, Name: "model-proposed bounded child task scheduling", Statements: childTaskStatements},
 		{Version: 103, Name: "durable browser network containment evidence and operator review", Statements: browserNetworkReadinessStatements},
 		{Version: 104, Name: "signed skill packages, team catalog, and pinned URL/Git imports", Statements: skillCatalogStatements},
+		{Version: 105, Name: "workspace one-shot command proposals", Statements: onceCommandProposalStatements},
 	}
 }
 
