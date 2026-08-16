@@ -40,6 +40,7 @@ type terminalProcessStub struct {
 	reader    *io.PipeReader
 	writer    *io.PipeWriter
 	wait      chan int
+	fail      error
 	input     bytes.Buffer
 	columns   int
 	rows      int
@@ -61,6 +62,9 @@ func (p *terminalProcessStub) Resize(columns int, rows int) error {
 	return nil
 }
 func (p *terminalProcessStub) Wait(ctx context.Context) (int, error) {
+	if p.fail != nil {
+		return 0, p.fail
+	}
 	select {
 	case code := <-p.wait:
 		return code, nil
@@ -130,6 +134,55 @@ func TestUserTerminalOwnsLifecycleAndBoundsOutput(t *testing.T) {
 	}
 	if _, err := manager.Get(session.ID); !errors.Is(err, ErrTerminalClosed) {
 		t.Fatalf("closed session error=%v", err)
+	}
+}
+
+func TestTerminalBackendCrashMarksSessionFailedAndDeniesAgentInput(t *testing.T) {
+	backend := &terminalBackendStub{}
+	broker := executionauth.NewTerminalInputBroker()
+	manager, err := NewManager(backend, broker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Shutdown()
+	request := terminalStartTestRequest(t)
+	session, err := manager.Start(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.State != SessionRunning {
+		t.Fatalf("state=%s", session.State)
+	}
+	backend.mu.Lock()
+	process := backend.process
+	backend.mu.Unlock()
+	process.mu.Lock()
+	process.fail = io.ErrUnexpectedEOF
+	_ = process.writer.CloseWithError(io.ErrUnexpectedEOF)
+	process.mu.Unlock()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		session, err = manager.Get(session.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if session.State == SessionFailed || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if session.State != SessionFailed {
+		t.Fatalf("crashed session state=%s, want failed", session.State)
+	}
+	bridge, err := NewAgentInputBridge(manager, broker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bridge.Issue(context.Background(), IssueAgentInputRequest{
+		SessionID: session.ID, RequestedBy: "desktop_operator",
+		OperatorConfirmed: true, TTL: time.Minute,
+	}); !errors.Is(err, ErrAgentInputBridgeDenied) {
+		t.Fatalf("failed session granted agent input: %v", err)
 	}
 }
 

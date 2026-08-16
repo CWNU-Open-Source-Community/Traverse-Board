@@ -1138,6 +1138,11 @@ cyberagent git-op switch-branch --run <run-id> --branch work --operation-key <ke
 Operations are limited to stage/unstage/commit/create-branch/switch-branch; destructive or history-rewriting git commands cannot be expressed. Every execution binds to the exact reviewed repository state (HEAD + branch + index bytes + sorted status + untracked-content digests); any drift after review fails closed and demands a fresh review. Commits use pathspecs limited to the reviewed paths. The git binary runs with a fully replaced environment: system/global config ignored, hooks pointed at an empty directory, pager/editor/external diff/credential helpers/filters disabled, no agent environment inheritance. Receipts (commit id, conflict/clean flags, bounded stderr) land in `git_mutation_operations` (schema v106) plus a metadata-only `git.mutation_completed` Run event; operation keys make retries idempotent.
 
 
+## Debug Terminal and Time-Bound Agent Input
+
+The persistent debug terminal is user-owned by default: every Run gets a dedicated ConPTY/PTY session (cwd, process tree in a kill-on-close Job Object, lifecycle). Agent input is never automatic — it requires the Debug maximum-access gate, one-time operator confirmation, a 15s–15m TTL, and a Run/session/process-bound lease that lives only in process memory: an application restart invalidates every outstanding token, and no database state can restore it. The UI always shows who owns input, with instant revoke and emergency stop. Sessions are recorded in `terminal_sessions` (schema v107) with state/cwd/resize/agent-input status; closed/failed sessions cannot be silently revived. Audit events (source `debug_terminal`, closed set: started/stopped/agent_input_issued/revoked/expired/resized/cwd_changed/crashed) distinguish user from Agent input and never persist raw output, passwords, or secrets. Backend crashes mark the session failed and deny further Agent input; output is read through a cursor so reconnects never duplicate. The one-shot command runner's stateless semantics are untouched.
+
+
 ## Once Command Runner
 
 `cyberagent once-command run` executes one workspace-scoped, one-shot command under the four-tier execution permission gate:
