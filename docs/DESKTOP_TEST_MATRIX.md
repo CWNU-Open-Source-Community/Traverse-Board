@@ -60,6 +60,7 @@
 ## 证据状态 / Evidence status
 
 - `docs/desktop-test-matrix-windows11-evidence.json` 是 PR #79 的历史 v1 证据，只证明 Windows 11 / 150% / 单屏上的四个自动场景。
+- `docs/desktop-test-matrix-windows11-v2-evidence.json` 绑定 clean commit、候选 SHA-256 和逐屏 DPI；当前记录在 Windows 11 / 150% / 单屏上通过 provenance 与四项自动场景，但 `overall_status` 仍为 `needs_manual_evidence`。
 - v2 自动报告绑定候选 SHA-256 与 release metadata，并把未执行的人工项显式写成 `not_run`。
 - Windows 10、100/125/200% DPI、多显示器、WebView2 缺失/过旧/损坏及离线启动必须由对应主机产生独立证据；不能用 Playwright、CSS 缩放或单机结果替代。
 - 所有必需单元格为 `pass` 且无未关闭 blocker 后，才可把 Issue #55 判定为完成。
