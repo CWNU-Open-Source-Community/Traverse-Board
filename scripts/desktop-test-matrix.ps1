@@ -263,9 +263,23 @@ try {
     $second.Dispose()
     $second = $null
 
-    # S3 normal exit: graceful close must terminate without force kill
-    $null = $primary.CloseMainWindow()
-    $cleanExit = $primary.WaitForExit(5000)
+    # S3 normal exit: the store may be created before the native window handle is
+    # published, especially on a freshly provisioned Windows 10 VM. Wait for the
+    # actual main window before sending WM_CLOSE so startup speed cannot turn a
+    # successful graceful exit into a false negative.
+    $windowDeadline = [DateTime]::UtcNow.AddSeconds($StartupTimeoutSeconds)
+    $windowReady = $false
+    while ([DateTime]::UtcNow -lt $windowDeadline) {
+        $primary.Refresh()
+        if ($primary.HasExited) { break }
+        if ($primary.MainWindowHandle -ne [IntPtr]::Zero) {
+            $windowReady = $true
+            break
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    $closeRequested = $windowReady -and $primary.CloseMainWindow()
+    $cleanExit = $closeRequested -and $primary.WaitForExit(10000)
     $normalExitCode = $null
     if ($cleanExit) {
         $primary.Refresh()
@@ -280,6 +294,8 @@ try {
     $primary = $null
     Add-Result "normal_exit" ($(if ($normalExitPassed) { "pass" } else { "fail" })) `
         ([pscustomobject][ordered]@{
+            window_ready            = $windowReady
+            close_requested         = $closeRequested
             clean_exit              = $cleanExit
             exit_code               = $normalExitCode
             store_present_after_exit = $storePresentAfterExit

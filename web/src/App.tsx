@@ -30,6 +30,12 @@ import { closeDesktopWindow, minimiseDesktopWindow,
 import { useConnectionStore } from "./state/connection";
 
 const sidebarWidthStorageKey = "prayu.sidebar.width.v1";
+const narrowWorkspaceQuery = "(max-width: 760px)";
+
+function initialSidebarVisibility(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return true;
+  return !window.matchMedia(narrowWorkspaceQuery).matches;
+}
 
 export default function App() {
   const token = useConnectionStore((state) => state.token);
@@ -149,7 +155,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
 }) {
   const { t } = useLocale();
   const [surface, setSurface] = useState<"workspace" | "settings">("workspace");
-  const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [sidebarVisible, setSidebarVisible] = useState(initialSidebarVisibility);
   const [skillPreviewOpen, setSkillPreviewOpen] = useState(false);
   const [runCreationOpen, setRunCreationOpen] = useState(false);
   const [runDraft, setRunDraft] = useState<Partial<NewRunDraft>>({});
@@ -246,6 +252,16 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
       setHealth(healthQuery.data);
     }
   }, [healthQuery.data, setHealth]);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const narrowWorkspace = window.matchMedia(narrowWorkspaceQuery);
+    const collapseSidebar = (event: MediaQueryListEvent) => {
+      if (event.matches) setSidebarVisible(false);
+    };
+    narrowWorkspace.addEventListener("change", collapseSidebar);
+    return () => narrowWorkspace.removeEventListener("change", collapseSidebar);
+  }, []);
 
   const leave = () => {
     setSurface("workspace");

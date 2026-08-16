@@ -12,7 +12,9 @@ vi.mock("./lib/locale", () => ({
     t: (chinese: string) => chinese }),
 }));
 
-vi.mock("./components/resource-sidebar", () => ({ ResourceSidebar: () => null }));
+vi.mock("./components/resource-sidebar", () => ({
+  ResourceSidebar: () => <aside data-testid="resource-sidebar" />,
+}));
 vi.mock("./components/run-workspace", () => ({
   RunWorkspace: ({ client, runID }: {
     client: { hasVerificationEvidence: boolean };
@@ -95,6 +97,27 @@ describe("App capability wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: "设置" }));
     expect(document.querySelector(".prayu-shell.settings-mode")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "常规" })).toHaveClass("active");
+  });
+
+  it("starts with the sidebar collapsed in a narrow workspace and allows explicit reveal", () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({
+      matches: true,
+      media: "(max-width: 760px)",
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })));
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
+
+    render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
+
+    expect(document.querySelector(".shell-body")).toHaveClass("sidebar-hidden");
+    expect(screen.queryByTestId("resource-sidebar")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "显示或隐藏侧栏" }));
+    expect(screen.getByTestId("resource-sidebar")).toBeInTheDocument();
   });
 
   it("projects Docker execution into the settings capability surface", () => {
