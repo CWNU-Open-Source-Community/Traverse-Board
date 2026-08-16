@@ -97,7 +97,7 @@ func TestRemoteFetchAndFastForwardPull(t *testing.T) {
 	executor := newRemoteExecutor(t)
 	// Advance the remote with an unrelated clone.
 	other := filepath.Join(t.TempDir(), "other")
-	remoteGit(t, "clone", "--quiet", remoteURL, other)
+	remoteGit(t, "clone", "--quiet", "-b", "main", remoteURL, other)
 	remoteGit(t, "-C", other, "config", "user.email", "x@example.com")
 	remoteGit(t, "-C", other, "config", "user.name", "x")
 	if err := os.WriteFile(filepath.Join(other, "adv.txt"), []byte("adv\n"), 0o600); err != nil {

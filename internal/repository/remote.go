@@ -119,16 +119,20 @@ func (e *RemoteExecutor) ValidateSpec(spec RemoteSpec) error {
 	if err != nil || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return errors.New("remote URL must be a clean absolute URL without credentials, query, or fragment")
 	}
-	if parsed.Scheme != "https" {
-		if !(e.allowLocalRemote && parsed.Scheme == "file") {
+	if parsed.Scheme == "file" {
+		if !e.allowLocalRemote {
 			return errors.New("remote URL must use HTTPS; local and wrapped protocols are rejected")
 		}
-	}
-	if len(parsed.Hostname()) > MaxRemoteHostBytes || parsed.Hostname() == "" {
-		return errors.New("remote host is invalid")
-	}
-	if parsed.Hostname() == "127.0.0.1" || parsed.Hostname() == "localhost" || parsed.Hostname() == "::1" {
-		return errors.New("loopback remote hosts are rejected for product use")
+		// Test-only local fixtures have no meaningful host scope.
+	} else if parsed.Scheme != "https" {
+		return errors.New("remote URL must use HTTPS; local and wrapped protocols are rejected")
+	} else {
+		if len(parsed.Hostname()) > MaxRemoteHostBytes || parsed.Hostname() == "" {
+			return errors.New("remote host is invalid")
+		}
+		if parsed.Hostname() == "127.0.0.1" || parsed.Hostname() == "localhost" || parsed.Hostname() == "::1" {
+			return errors.New("loopback remote hosts are rejected for product use")
+		}
 	}
 	if spec.Branch != "" {
 		if err := validateBranchName(spec.Branch); err != nil {
