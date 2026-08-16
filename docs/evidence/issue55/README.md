@@ -39,3 +39,25 @@ The malformed-DLL scenario exposed that Wails could terminate before the
 application-level startup reporter ran. The adjacent Windows prerequisite
 change adds a client-DLL integrity/loadability check. Final release-candidate
 evidence is recorded only after that fix is rebuilt and rerun in the guest.
+
+## Damaged-runtime fix candidate
+
+Candidate `v0.1.0-issue55-r3`, revision
+`e0ddc27c5b56d098cbaed77f635ff591c78f240a`, SHA-256
+`838994bca94707f84c665d48bd2fa463271aa52503eb5842d2b2619f93fc7295`,
+passed the automated Win10 matrix at both 100% and 200% DPI. It also converted
+the malformed-DLL silent exit into the same bounded recovery guidance used by
+the missing and old-runtime cases.
+
+- `win10-22h2-r3-1024x768-100dpi-normal.jpg` records the full single-monitor
+  surface at 100% DPI.
+- `win10-22h2-r3-1024x768-200dpi-normal.jpg` records the compact surface at
+  200% DPI.
+- `win10-22h2-r3-webview2-corrupt-guidance.jpg` records the new fail-closed
+  damaged-runtime path.
+
+The r3 run also found that the evidence collector only queried legacy
+`Clients` keys even though the bundled Go WebView2 loader queries
+`ClientState`. The collector now checks both registry layouts and can derive a
+version from `EBWebView` when `pv` is absent. A final candidate is rebuilt so
+its revision and all retained reports remain aligned.

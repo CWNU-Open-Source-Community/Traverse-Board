@@ -67,13 +67,22 @@ function Get-WebView2RuntimeVersion {
     $guid = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
     $roots = @(
         "HKCU:\Software\Microsoft\EdgeUpdate\Clients\$guid",
+        "HKCU:\Software\Microsoft\EdgeUpdate\ClientState\$guid",
         "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\$guid",
-        "HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients\$guid"
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\ClientState\$guid",
+        "HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients\$guid",
+        "HKLM:\SOFTWARE\Microsoft\EdgeUpdate\ClientState\$guid"
     )
     foreach ($root in $roots) {
         if (Test-Path -LiteralPath $root) {
-            $value = (Get-ItemProperty -LiteralPath $root -Name pv -ErrorAction SilentlyContinue).pv
-            if (-not [string]::IsNullOrWhiteSpace($value)) { return [string]$value }
+            $values = Get-ItemProperty -LiteralPath $root -ErrorAction SilentlyContinue
+            if (-not [string]::IsNullOrWhiteSpace([string]$values.pv)) {
+                return [string]$values.pv
+            }
+            if (-not [string]::IsNullOrWhiteSpace([string]$values.EBWebView)) {
+                return [System.IO.Path]::GetFileName(
+                    ([string]$values.EBWebView).TrimEnd('\', '/'))
+            }
         }
     }
     return ""
