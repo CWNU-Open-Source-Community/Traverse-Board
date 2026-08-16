@@ -42,13 +42,15 @@ foreach ($required in @($binaryPath, $metadataPath, $launcherPath, $guidePath, $
 }
 
 $metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
-if ($metadata.protocol_version -ne "portable_release_metadata.v1" -or
-    $metadata.app_version -ne $Version -or
-    $metadata.revision -notmatch '^[0-9a-f]{40}$' -or
-    [bool]$metadata.modified -or
-    -not [bool]$metadata.reproducibility_checked -or
-    -not [bool]$metadata.reproducible) {
-    throw "Portable ZIP requires clean, reproducible release metadata for $Version"
+$metadataProblems = [System.Collections.Generic.List[string]]::new()
+if ($metadata.protocol_version -ne "portable_release_metadata.v1") { $metadataProblems.Add("protocol") }
+if ($metadata.app_version -ne $Version) { $metadataProblems.Add("version") }
+if ($metadata.revision -notmatch '^[0-9a-f]{40}$') { $metadataProblems.Add("revision") }
+if ([bool]$metadata.modified) { $metadataProblems.Add("modified") }
+if (-not [bool]$metadata.reproducibility_checked) { $metadataProblems.Add("reproducibility_not_checked") }
+if (-not [bool]$metadata.reproducible) { $metadataProblems.Add("not_reproducible") }
+if ($metadataProblems.Count -ne 0) {
+    throw "Portable ZIP release metadata failed: $($metadataProblems -join ', ')"
 }
 
 # SBOM + NOTICE

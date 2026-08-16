@@ -102,9 +102,15 @@ try {
     if ($LASTEXITCODE -ne 0 -or $sourceDateEpoch -notmatch '^[1-9][0-9]*$') {
         throw "Git source date epoch is unavailable"
     }
-    $dirtyOutput = @(& git status --porcelain)
-    if ($LASTEXITCODE -ne 0) { throw "Git worktree state is unavailable" }
-    $modified = if ($dirtyOutput.Count -gt 0) { "true" } else { "false" }
+    # Compare normalized content instead of relying on status' stat cache. On
+    # Windows, a just-regenerated LF/CRLF-normalized file can transiently appear
+    # modified in `git status` even when `git diff` proves its blob is unchanged.
+    & git diff --quiet HEAD --
+    $diffExit = $LASTEXITCODE
+    if ($diffExit -notin @(0, 1)) { throw "Git tracked worktree state is unavailable" }
+    $untracked = @(& git ls-files --others --exclude-standard)
+    if ($LASTEXITCODE -ne 0) { throw "Git untracked worktree state is unavailable" }
+    $modified = if ($diffExit -eq 1 -or $untracked.Count -gt 0) { "true" } else { "false" }
     $cgoEnabled = (& go env CGO_ENABLED).Trim()
     if ($LASTEXITCODE -ne 0 -or $cgoEnabled -notmatch '^[01]$') {
         throw "Go CGO build metadata is invalid"
