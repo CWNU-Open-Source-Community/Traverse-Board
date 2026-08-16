@@ -61,3 +61,28 @@ The r3 run also found that the evidence collector only queried legacy
 `ClientState`. The collector now checks both registry layouts and can derive a
 version from `EBWebView` when `pv` is absent. A final candidate is rebuilt so
 its revision and all retained reports remain aligned.
+
+## Final r4 candidate
+
+Candidate `v0.1.0-issue55-r4`, revision
+`c3096e52bf1179b295840b2f5f24dd4708849499`, SHA-256
+`86791c530996eea604501577287feadb7002296252fa344a96bb406c554934a4`,
+is the retained release-candidate evidence set. The build was produced twice
+from a clean revision with byte-identical output.
+
+- `desktop-test-matrix-windows10-{100,125,200}dpi-r4.json` and
+  `desktop-test-matrix-windows11-150dpi-r4.json` each pass provenance, cold
+  start, second-instance yield, normal exit, and kill/reopen data retention.
+- `win10-22h2-r4-1024x768-{100,200}dpi-normal.jpg` records the two required
+  single-monitor shell layouts.
+- `win10-22h2-r4-offline-normal.jpg` records the rendered shell while the guest
+  Ethernet adapter is disabled.
+- `win10-22h2-r4-webview2-{missing,old,corrupt}-guidance.jpg` records all three
+  fail-closed runtime paths for the same candidate.
+- `result-r4.json` is the candidate-bound result manifest and records every
+  unperformed item explicitly.
+
+The available host has one display and the high-integrity VM connection cannot
+be safely driven for the full interactive checklist. Those two remaining
+release-evidence items are tracked by GitHub issue #85; they are not reported
+as passes here.

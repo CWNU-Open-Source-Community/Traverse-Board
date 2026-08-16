@@ -2,7 +2,7 @@
 
 版本 / Version: desktop-test-matrix.v2
 
-状态 / Status: 自动化已就绪；跨主机人工证据未完成 / automation ready; cross-host manual evidence incomplete
+状态 / Status: r4 单屏自动/核心可视证据完成；双屏与完整交互签字由 #85 跟踪 / r4 single-monitor automation and core visual evidence complete; mixed-display and full interaction sign-off tracked by #85
 
 对应 Issue / Issue: #55
 
@@ -61,8 +61,10 @@
 
 - `docs/desktop-test-matrix-windows11-evidence.json` 是 PR #79 的历史 v1 证据，只证明 Windows 11 / 150% / 单屏上的四个自动场景。
 - `docs/desktop-test-matrix-windows11-v2-evidence.json` 绑定 clean commit、候选 SHA-256 和逐屏 DPI；当前记录在 Windows 11 / 150% / 单屏上通过 provenance 与四项自动场景，但 `overall_status` 仍为 `needs_manual_evidence`。
-- v2 自动报告绑定候选 SHA-256 与 release metadata，并把未执行的人工项显式写成 `not_run`。
-- Windows 10、100/125/200% DPI、多显示器、WebView2 缺失/过旧/损坏及离线启动必须由对应主机产生独立证据；不能用 Playwright、CSS 缩放或单机结果替代。
+- `docs/evidence/issue55/result-r4.json` 是最终 r4 候选清单；同目录四份自动报告覆盖 Windows 10 的 100/125/200% 与 Windows 11 的 150%，并绑定 clean revision、SHA-256 和 WebView2 `151.0.4129.86`。
+- r4 脱敏截图覆盖 1024×768 的 100/200% 单屏 shell、离线启动，以及 WebView2 缺失、`93.0.1.0` 过旧和 malformed-DLL 损坏诊断。所有场景均使用同一 r4 SHA-256。
+- v2 自动报告仍把人工项写成 `not_run`；候选清单只把实际观察到的核心 shell 与异常场景记为 `pass`。
+- 多显示器混合 DPI 与完整交互式 UI checklist 受当前单显示器/输入条件限制，明确保留为 `blocked`/`not_run`，并由 #85 跟踪；不能用 Playwright、CSS 缩放或单屏结果替代。
 - 所有必需单元格为 `pass` 且无未关闭 blocker 后，才可把 Issue #55 判定为完成。
 
 ## 脱敏 / Sanitization

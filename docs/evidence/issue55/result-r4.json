@@ -1,0 +1,91 @@
+{
+  "schema": "issue55_release_candidate_evidence.v1",
+  "generated_at": "2026-08-16T14:18:01Z",
+  "issue": 55,
+  "candidate": {
+    "name": "cyberagent-desktop.exe",
+    "app_version": "v0.1.0-issue55-r4",
+    "revision": "c3096e52bf1179b295840b2f5f24dd4708849499",
+    "sha256": "86791c530996eea604501577287feadb7002296252fa344a96bb406c554934a4",
+    "size_bytes": 52199424,
+    "modified": false,
+    "reproducible": true
+  },
+  "automated_reports": [
+    {
+      "file": "desktop-test-matrix-windows10-100dpi-r4.json",
+      "os": "Windows 10 Pro 22H2 build 19045",
+      "dpi_percent": 100,
+      "status": "pass"
+    },
+    {
+      "file": "desktop-test-matrix-windows10-125dpi-r4.json",
+      "os": "Windows 10 Pro 22H2 build 19045",
+      "dpi_percent": 125,
+      "status": "pass"
+    },
+    {
+      "file": "desktop-test-matrix-windows11-150dpi-r4.json",
+      "os": "Windows 11 Pro build 26200",
+      "dpi_percent": 150,
+      "status": "pass"
+    },
+    {
+      "file": "desktop-test-matrix-windows10-200dpi-r4.json",
+      "os": "Windows 10 Pro 22H2 build 19045",
+      "dpi_percent": 200,
+      "status": "pass"
+    }
+  ],
+  "manual_results": [
+    {
+      "id": "single_monitor_shell_1024x768_100_and_200_percent",
+      "status": "pass",
+      "detail": "The title bar, primary content, sidebar or collapsed control, and composer remain visible without overlap or clipping.",
+      "evidence": [
+        "win10-22h2-r4-1024x768-100dpi-normal.jpg",
+        "win10-22h2-r4-1024x768-200dpi-normal.jpg"
+      ]
+    },
+    {
+      "id": "offline_start",
+      "status": "pass",
+      "detail": "The guest Ethernet adapter reported Disabled during launch and Up after restoration; the local shell rendered without external network access.",
+      "evidence": [
+        "win10-22h2-r4-offline-normal.jpg"
+      ]
+    },
+    {
+      "id": "webview2_missing_old_corrupt",
+      "status": "pass",
+      "detail": "Missing, 93.0.1.0, and malformed-DLL scenarios all displayed bounded recovery guidance and started no download or installer.",
+      "evidence": [
+        "win10-22h2-r4-webview2-missing-guidance.jpg",
+        "win10-22h2-r4-webview2-old-guidance.jpg",
+        "win10-22h2-r4-webview2-corrupt-guidance.jpg"
+      ]
+    },
+    {
+      "id": "full_interactive_ui_checklist",
+      "status": "not_run",
+      "detail": "Theme, language, sidebar drag, long conversation, Markdown, Live Activity, approval queue, and settings require operator input evidence.",
+      "blocker": "https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench/issues/85"
+    },
+    {
+      "id": "multi_monitor_mixed_dpi",
+      "status": "blocked",
+      "detail": "The available host exposes one display, so a mixed-DPI cross-monitor move cannot be observed honestly.",
+      "blocker": "https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench/issues/85"
+    }
+  ],
+  "environment_cleanup": {
+    "guest_dpi_percent": 100,
+    "guest_network": "up",
+    "webview2_runtime": "151.0.4129.86",
+    "webview2_runtime_present": true,
+    "candidate_processes_stopped": true,
+    "enhanced_session_mode": true
+  },
+  "overall_status": "needs_manual_evidence",
+  "release_ready": false
+}
