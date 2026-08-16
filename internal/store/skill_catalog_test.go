@@ -24,7 +24,6 @@ func removeSchemaV104ForTestStatements() []string {
 	}...)
 }
 
-
 func removeSchemaV105ForTestStatements() []string {
 	return append(removeSchemaV106ForTestStatements(), []string{
 		`DROP TABLE once_command_proposal_operations`,
@@ -34,9 +33,16 @@ func removeSchemaV105ForTestStatements() []string {
 }
 
 func removeSchemaV106ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV107ForTestStatements(), []string{
 		`DROP TABLE git_mutation_operations`,
 		`DELETE FROM schema_migrations WHERE version = 106`,
+	}...)
+}
+
+func removeSchemaV107ForTestStatements() []string {
+	return []string{
+		`DROP TABLE git_remote_operations`,
+		`DELETE FROM schema_migrations WHERE version = 107`,
 	}
 }
 func TestSkillCatalogMigrationAndRemovalChain(t *testing.T) {

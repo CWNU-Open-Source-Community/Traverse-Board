@@ -46,6 +46,7 @@ type RemoteSpec struct {
 	BaseBranch       string          `json:"base_branch,omitempty"`
 	PRTitle          string          `json:"pr_title,omitempty"`
 	PRBody           string          `json:"pr_body,omitempty"`
+	PRNumber         int64           `json:"pr_number,omitempty"`
 	CredentialName   string          `json:"credential_name,omitempty"`
 	NetworkTTLMillis int64           `json:"network_ttl_millis,omitempty"`
 }
