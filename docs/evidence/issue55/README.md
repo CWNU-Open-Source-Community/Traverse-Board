@@ -18,5 +18,24 @@ Windows 10 Pro 22H2 build `19045.2965` with a 1024x768 display.
   600px CSS minimum shell exceeded the 512x384 logical viewport, clipping the
   sidebar and composer.
 
-Post-fix screenshots and the candidate-bound result table are added only after
-the rebuilt clean revision passes the same real-VM checks.
+## First post-layout-fix candidate
+
+The following screenshots use candidate `v0.1.0-issue55-r2`, revision
+`c14dcf17974762d36772127323ef0b2661e05403`, SHA-256
+`55ca272fc097a728fee9934a7545e03fd83cb86640502356dd047e880bfc1f2c`.
+They are retained as intermediate, candidate-bound evidence because the runtime
+fault-injection pass subsequently found a separate startup defect.
+
+- `win10-22h2-1024x768-200dpi-fixed.jpg` shows the full title bar, primary
+  content, and composer fitting the 512x384 logical viewport at 200% DPI.
+- `win10-22h2-1024x768-200dpi-offline.jpg` shows the same bounded surface while
+  the guest Ethernet adapter is disabled.
+- `win10-22h2-webview2-missing-guidance.jpg` records the bounded recovery dialog
+  when the WebView2 registration is absent. No installer or download starts.
+- `win10-22h2-webview2-old-guidance.jpg` records the same fail-closed behavior
+  for a simulated `93.0.1.0` runtime, below the required `94.0.992.31`.
+
+The malformed-DLL scenario exposed that Wails could terminate before the
+application-level startup reporter ran. The adjacent Windows prerequisite
+change adds a client-DLL integrity/loadability check. Final release-candidate
+evidence is recorded only after that fix is rebuilt and rerun in the guest.
