@@ -16,11 +16,12 @@ import (
 	"unicode/utf8"
 
 	"cyberagent-workbench/internal/apperror"
+	"cyberagent-workbench/internal/gitmutation"
 	"cyberagent-workbench/internal/runmutation"
 )
 
 const (
-	MutationProtocolVersion = "repository_mutation.v1"
+	MutationProtocolVersion = gitmutation.ProtocolVersion
 	MaxMutationPaths        = 200
 	MaxMutationMessageRunes = 4096
 	MaxMutationBranchBytes  = 255
@@ -28,27 +29,17 @@ const (
 	MaxGitDuration          = 2 * time.Minute
 )
 
-// MutationOperation is the closed typed-operation set. There is no way to
-// express reset --hard, clean -fdx, force checkout, rebase, or history
-// rewriting; unknown strings are rejected outright.
-type MutationOperation string
+// MutationOperation and its closed typed set live in the gitmutation package
+// so store and application can share them without import cycles.
+type MutationOperation = gitmutation.Operation
 
 const (
-	MutationStage        MutationOperation = "stage"
-	MutationUnstage      MutationOperation = "unstage"
-	MutationCommit       MutationOperation = "commit"
-	MutationCreateBranch MutationOperation = "create_branch"
-	MutationSwitchBranch MutationOperation = "switch_branch"
+	MutationStage        = gitmutation.Stage
+	MutationUnstage      = gitmutation.Unstage
+	MutationCommit       = gitmutation.Commit
+	MutationCreateBranch = gitmutation.CreateBranch
+	MutationSwitchBranch = gitmutation.SwitchBranch
 )
-
-func (o MutationOperation) Valid() bool {
-	switch o {
-	case MutationStage, MutationUnstage, MutationCommit, MutationCreateBranch, MutationSwitchBranch:
-		return true
-	default:
-		return false
-	}
-}
 
 // MutationSpec is the structured request. It contains no shell text and no
 // free-form git argv.

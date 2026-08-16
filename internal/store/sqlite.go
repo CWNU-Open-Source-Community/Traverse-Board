@@ -332,6 +332,7 @@ func migrationPlan() []migration {
 		{Version: 103, Name: "durable browser network containment evidence and operator review", Statements: browserNetworkReadinessStatements},
 		{Version: 104, Name: "signed skill packages, team catalog, and pinned URL/Git imports", Statements: skillCatalogStatements},
 		{Version: 105, Name: "workspace one-shot command proposals", Statements: onceCommandProposalStatements},
+		{Version: 106, Name: "typed local Git mutation operations", Statements: gitMutationStatements},
 	}
 }
 
