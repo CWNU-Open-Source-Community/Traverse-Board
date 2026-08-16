@@ -157,6 +157,24 @@ open build/desktop/Prayu.app
 
 更多命令与边界见[使用手册](docs/usage.md)。
 
+### 便携 ZIP 下载与验证 / Portable ZIP download and verification
+
+发布候选是未签名的便携 ZIP（`Prayu-portable-<version>-windows-amd64.zip`），包含 `cyberagent-desktop.exe`、操作者预览启动器、`LOCAL-TEST-GUIDE.txt`、`LICENSE`、第三方 `NOTICE`、CycloneDX `sbom.json` 与 `release-metadata.json`。发布件不带 API key、用户数据、缓存、调试日志或源映射。
+
+The release candidate is an unsigned portable ZIP (`Prayu-portable-<version>-windows-amd64.zip`) containing `cyberagent-desktop.exe`, the operator-preview launcher, `LOCAL-TEST-GUIDE.txt`, `LICENSE`, a third-party `NOTICE`, the CycloneDX `sbom.json`, and `release-metadata.json`. It carries no API key, user data, cache, debug log, or source map.
+
+**下载后校验 / Verify after download**（PowerShell）：
+
+```powershell
+# 与 SHA256SUMS 中的条目比对 / compare against SHA256SUMS
+Get-FileHash .\Prayu-portable-v0.1.0-windows-amd64.zip -Algorithm SHA256
+
+# 启动请用启动器，不要直接双击裸 EXE / use the launcher, not the bare EXE
+.\Start-Prayu-Operator-Preview.cmd
+```
+
+**SmartScreen 预期 / SmartScreen expectations**：便携 ZIP 与 EXE 均未签名，Windows SmartScreen 可能提示“未知发布者”。这是未签名候选的预期限制，不是构建缺陷；正式签名发行（MSIX）在另一条发布线完成。The ZIP and EXE are unsigned, so Windows SmartScreen may warn about an unknown publisher. This is the expected limitation of an unsigned candidate, not a build defect; the signed MSIX release is tracked separately.
+
 ## 项目结构
 
 | 路径 | 说明 |
