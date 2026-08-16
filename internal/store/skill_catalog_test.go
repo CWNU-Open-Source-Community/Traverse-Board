@@ -40,9 +40,16 @@ func removeSchemaV106ForTestStatements() []string {
 }
 
 func removeSchemaV107ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV108ForTestStatements(), []string{
 		`DROP TABLE git_remote_operations`,
 		`DELETE FROM schema_migrations WHERE version = 107`,
+	}...)
+}
+
+func removeSchemaV108ForTestStatements() []string {
+	return []string{
+		`DROP TABLE terminal_sessions`,
+		`DELETE FROM schema_migrations WHERE version = 108`,
 	}
 }
 func TestSkillCatalogMigrationAndRemovalChain(t *testing.T) {

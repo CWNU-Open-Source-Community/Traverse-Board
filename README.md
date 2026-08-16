@@ -325,6 +325,7 @@ open build/desktop/Prayu.app
 | v105 | 工作区一次性命令提案（不可变参数、审批指纹、操作者执行） | workspace one-shot command proposals (immutable parameters, approval fingerprints, operator execution) |
 | v106 | typed 本地 Git 写操作台账（绑定指纹、幂等、回读收据） | typed local Git mutation operations (binding fingerprints, idempotency, readback receipts) |
 | v107 | 网络作用域远端 Git 与 PR 操作台账（host/port/protocol/TTL/Run 绑定、脱敏收据） | network-scoped remote Git and PR operations (host/port/protocol/TTL/Run binding, redacted receipts) |
+| v108 | Debug 终端会话台账（状态/cwd/resize/进程/Agent 输入态） | debug terminal session ledger (state/cwd/resize/process/agent-input status) |
 
 </details>
 
