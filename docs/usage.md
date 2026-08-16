@@ -1109,6 +1109,21 @@ The file uses `project_config.v1` (JSON schema in `configs/project-config.schema
 At Run creation the normalized effective view and its SHA-256 fingerprint are pinned into the Run config snapshot; editing `.prayu/config.yaml` afterwards never changes a running Run.
 
 
+## Typed Git Mutations
+
+`cyberagent git-op` performs local Git write operations as typed, review-bound mutations (never free-form git argv):
+
+```powershell
+cyberagent git-op stage --run <run-id> --path src/a.go --operation-key <key>          # prints review
+cyberagent git-op stage --run <run-id> --path src/a.go --operation-key <key> --confirm
+cyberagent git-op commit --run <run-id> --path src/a.go --message "add a" --operation-key <key> --confirm
+cyberagent git-op create-branch --run <run-id> --branch work --operation-key <key> --confirm
+cyberagent git-op switch-branch --run <run-id> --branch work --operation-key <key> --confirm
+```
+
+Operations are limited to stage/unstage/commit/create-branch/switch-branch; destructive or history-rewriting git commands cannot be expressed. Every execution binds to the exact reviewed repository state (HEAD + branch + index bytes + sorted status + untracked-content digests); any drift after review fails closed and demands a fresh review. Commits use pathspecs limited to the reviewed paths. The git binary runs with a fully replaced environment: system/global config ignored, hooks pointed at an empty directory, pager/editor/external diff/credential helpers/filters disabled, no agent environment inheritance. Receipts (commit id, conflict/clean flags, bounded stderr) land in `git_mutation_operations` (schema v106) plus a metadata-only `git.mutation_completed` Run event; operation keys make retries idempotent.
+
+
 ## Once Command Runner
 
 `cyberagent once-command run` executes one workspace-scoped, one-shot command under the four-tier execution permission gate:

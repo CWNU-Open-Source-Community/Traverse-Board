@@ -323,6 +323,7 @@ open build/desktop/Prayu.app
 | v103 | 持久浏览器网络隔离证据与操作者 review | durable browser network containment evidence and operator review |
 | v104 | 签名 Skill 包、团队 Catalog 与固定 URL/Git 导入（publisher 信任/撤销、版本 pin、审计） | signed skill packages, team catalog, and pinned URL/Git imports (publisher trust/revoke, version pins, audit) |
 | v105 | 工作区一次性命令提案（不可变参数、审批指纹、操作者执行） | workspace one-shot command proposals (immutable parameters, approval fingerprints, operator execution) |
+| v106 | typed 本地 Git 写操作台账（绑定指纹、幂等、回读收据） | typed local Git mutation operations (binding fingerprints, idempotency, readback receipts) |
 
 </details>
 
