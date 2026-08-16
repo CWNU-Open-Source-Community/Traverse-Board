@@ -105,6 +105,9 @@ func NewRemoteExecutor(credentials credential.Store) (*RemoteExecutor, error) {
 
 func (e *RemoteExecutor) Available() bool { return e != nil && e.gitPath != "" }
 
+// AllowLocalRemotesForTest permits file:// remotes for offline fixtures.
+func (e *RemoteExecutor) AllowLocalRemotesForTest() { e.allowLocalRemote = true }
+
 func (e *RemoteExecutor) ValidateSpec(spec RemoteSpec) error {
 	if spec.ProtocolVersion != RemoteProtocolVersion {
 		return fmt.Errorf("unsupported remote protocol %q", spec.ProtocolVersion)

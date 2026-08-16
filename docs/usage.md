@@ -1109,6 +1109,20 @@ The file uses `project_config.v1` (JSON schema in `configs/project-config.schema
 At Run creation the normalized effective view and its SHA-256 fingerprint are pinned into the Run config snapshot; editing `.prayu/config.yaml` afterwards never changes a running Run.
 
 
+## Remote Git and Pull Requests
+
+`cyberagent git-remote` performs network-scoped remote Git and PR operations as typed, review-bound requests (schema v107 ledger):
+
+```powershell
+cyberagent git-remote fetch --run <run-id> --remote <https-url> --branch main --ttl 30s --operation-key <key> --confirm
+cyberagent git-remote pull --run <run-id> --remote <https-url> --branch main --operation-key <key> --confirm
+cyberagent git-remote push-branch --run <run-id> --remote <https-url> --branch feat --operation-key <key> --confirm
+cyberagent git-remote create-pr --run <run-id> --remote <https-url> --branch feat --base main --title "feat" --credential github-pat --operation-key <key> --confirm
+```
+
+Operations are fetch / pull_ff (fast-forward only) / push_branch (new branches only — an existing remote branch is default-denied) / create_pr / update_pr; force push, remote branch deletion, and protected-branch mutation cannot be expressed. Only HTTPS remotes are accepted (loopback and credential-in-URL rejected); the network scope binds host/port/protocol/TTL/Run into the request fingerprint. Credentials are referenced by name only: the secret resolves from the system credential store, reaches git through a temporary askpass helper plus a child-process environment variable, and reaches the GitHub API only as an Authorization header — never in argv, logs, SQLite, Activity, OpenAPI, or model context (asserted by tests). Proxies, SSH ProxyCommand, and protocol wrappers are switched off; the PR API accepts only github.com with explainable 401/403 rate-limit/422/404 errors. Receipts are redacted and land in `git_remote_operations` plus a `git.remote_completed` Run event.
+
+
 ## Typed Git Mutations
 
 `cyberagent git-op` performs local Git write operations as typed, review-bound mutations (never free-form git argv):

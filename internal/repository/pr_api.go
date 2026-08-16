@@ -35,6 +35,9 @@ type PRClient struct {
 	apiBase string // test override
 }
 
+// SetAPIBaseForTest redirects API calls to a local test server.
+func (c *PRClient) SetAPIBaseForTest(base string) { c.apiBase = base }
+
 func NewPRClient() *PRClient {
 	return &PRClient{client: &http.Client{Timeout: 30 * time.Second}}
 }
