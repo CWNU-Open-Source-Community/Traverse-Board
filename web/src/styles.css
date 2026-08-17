@@ -2664,6 +2664,7 @@ body { background: transparent; }
   --prayu-accent: #58b7ff;
   --prayu-danger: #ff7c72;
   --prayu-success: #58c98b;
+  --prayu-warning: #f2bf67;
   --prayu-glass-fill: rgb(24 27 33 / 52%);
   --prayu-glass-fill-strong: rgb(27 30 36 / 72%);
   --prayu-glass-highlight: rgb(255 255 255 / 24%);
@@ -2689,6 +2690,7 @@ body { background: transparent; }
   --prayu-accent: #0877d1;
   --prayu-danger: #b42318;
   --prayu-success: #18794e;
+  --prayu-warning: #875b08;
   --prayu-glass-fill: rgb(255 255 255 / 52%);
   --prayu-glass-fill-strong: rgb(255 255 255 / 74%);
   --prayu-glass-highlight: rgb(255 255 255 / 92%);
@@ -2714,6 +2716,7 @@ body { background: transparent; }
   --prayu-accent: #72c5ff;
   --prayu-danger: #ff8a80;
   --prayu-success: #68d49a;
+  --prayu-warning: #ffd17a;
   --prayu-glass-fill: rgb(20 27 36 / 24%);
   --prayu-glass-fill-strong: rgb(20 27 36 / 44%);
   --prayu-glass-highlight: rgb(255 255 255 / 30%);
@@ -4068,4 +4071,946 @@ summary:focus-visible {
   .run-activity-safety { align-self: flex-start; }
   .run-activity-meta { flex-wrap: wrap; }
   .run-activity-sequence { margin-left: 0; }
+}
+
+/* Unified glass completion layer.
+   Older feature surfaces predate the Acrylic token system above. Keep their
+   layout contracts, but normalize every visible material, control and text
+   treatment to the same theme-aware glass vocabulary. */
+:root {
+  --border: var(--prayu-border);
+  --border-strong: var(--prayu-border-strong);
+  --muted: var(--prayu-muted);
+  --surface: var(--prayu-panel);
+  --surface-subtle: var(--prayu-control);
+  --surface-muted: var(--prayu-control);
+  --ink: var(--prayu-text);
+  --text: var(--prayu-text);
+  --text-secondary: var(--prayu-muted);
+  --accent: var(--prayu-accent);
+  --accent-soft: color-mix(in srgb, var(--prayu-accent) 14%, transparent);
+  --danger: var(--prayu-danger);
+  --warning: var(--prayu-warning);
+  --mono: var(--prayu-font-mono);
+}
+
+html,
+body,
+#root {
+  color: var(--prayu-text);
+}
+
+body,
+button,
+input,
+select,
+textarea {
+  font-family: var(--prayu-font-ui);
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+code,
+pre,
+kbd,
+samp {
+  font-family: var(--prayu-font-mono);
+}
+
+/* Modal material: Run creation, model routing, workspace attachment and
+   archive confirmation now share the same thick, focused glass layer. */
+.desktop-dialog-backdrop,
+.command-palette-backdrop {
+  color: var(--prayu-text);
+  background: rgb(3 7 13 / 58%);
+  -webkit-backdrop-filter: blur(16px) saturate(135%);
+  backdrop-filter: blur(16px) saturate(135%);
+  animation: prayu-backdrop-arrive 160ms ease-out both;
+}
+
+.desktop-dialog,
+.command-palette {
+  position: relative;
+  border: 1px solid var(--prayu-border-strong);
+  border-radius: 22px;
+  color: var(--prayu-text);
+  background: var(--prayu-glass-fill-strong);
+  box-shadow:
+    0 28px 88px rgb(0 0 0 / 42%),
+    inset 0 1px 0 var(--prayu-glass-highlight),
+    inset 0 -1px 0 color-mix(in srgb, var(--prayu-text) 8%, transparent);
+  -webkit-backdrop-filter: blur(42px) saturate(185%) contrast(104%);
+  backdrop-filter: blur(42px) saturate(185%) contrast(104%);
+  animation: prayu-glass-materialize 210ms cubic-bezier(.2, .82, .2, 1) both;
+}
+
+.desktop-dialog::before,
+.command-palette::before {
+  position: absolute;
+  z-index: 0;
+  inset: 1px;
+  border: 1px solid color-mix(in srgb, var(--prayu-glass-highlight) 58%, transparent);
+  border-bottom-color: transparent;
+  border-radius: 20px;
+  pointer-events: none;
+  content: "";
+}
+
+.desktop-dialog > *,
+.command-palette > * {
+  position: relative;
+  z-index: 1;
+}
+
+.desktop-dialog > header {
+  min-height: 72px;
+  padding: 14px 18px;
+  border-color: var(--prayu-border);
+  background: color-mix(in srgb, var(--prayu-control) 72%, transparent);
+}
+
+.desktop-dialog h2 {
+  color: var(--prayu-text);
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: -.015em;
+}
+
+.desktop-dialog header small,
+.desktop-package-heading span,
+.desktop-package-list small,
+.desktop-package-digests,
+.desktop-install-confirmation {
+  color: var(--prayu-muted);
+}
+
+.desktop-dialog > footer {
+  min-height: 66px;
+  padding: 12px 18px;
+  border-color: var(--prayu-border);
+  background: color-mix(in srgb, var(--prayu-control) 82%, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  backdrop-filter: blur(24px) saturate(150%);
+}
+
+.desktop-dialog-body {
+  scrollbar-color: var(--prayu-border-strong) transparent;
+}
+
+.dialog-icon,
+.model-control-workspace .dialog-icon {
+  width: 38px;
+  height: 38px;
+  border: 1px solid color-mix(in srgb, var(--prayu-accent) 34%, var(--prayu-border));
+  border-radius: 12px;
+  color: var(--prayu-accent);
+  background: color-mix(in srgb, var(--prayu-accent) 12%, var(--prayu-control));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--prayu-glass-highlight) 55%, transparent);
+}
+
+.desktop-dialog .icon-button {
+  width: 36px;
+  height: 36px;
+  border-color: var(--prayu-border);
+  border-radius: 11px;
+  color: var(--prayu-muted);
+  background: var(--prayu-control);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+.desktop-dialog .icon-button:hover:not(:disabled) {
+  border-color: var(--prayu-border-strong);
+  color: var(--prayu-text);
+  background: var(--prayu-control-hover);
+}
+
+.desktop-dialog input:not([type="checkbox"]):not([type="radio"]),
+.desktop-dialog select,
+.desktop-dialog textarea {
+  border-color: var(--prayu-border-strong);
+  color: var(--prayu-text);
+  background: var(--prayu-control);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--prayu-glass-highlight) 35%, transparent);
+}
+
+.desktop-dialog input::placeholder,
+.desktop-dialog textarea::placeholder {
+  color: var(--prayu-muted);
+}
+
+.desktop-dialog input:focus,
+.desktop-dialog select:focus,
+.desktop-dialog textarea:focus {
+  border-color: color-mix(in srgb, var(--prayu-focus) 72%, var(--prayu-border-strong));
+  outline: 0;
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--prayu-focus) 14%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--prayu-glass-highlight) 45%, transparent);
+}
+
+.desktop-dialog option {
+  color: var(--prayu-text);
+  background: color-mix(in srgb, var(--prayu-panel-strong) 96%, #111820);
+}
+
+[data-prayu-theme="light"] .desktop-dialog option {
+  color: var(--prayu-text);
+  background: #f7f9fc;
+}
+
+.desktop-dialog input[type="checkbox"],
+.desktop-dialog input[type="radio"] {
+  accent-color: var(--prayu-accent);
+}
+
+/* The New Run flow is a first-class product surface, not an unthemed form. */
+.run-creation-dialog {
+  width: min(680px, 100%);
+}
+
+.run-creation-form {
+  gap: 19px;
+  padding: 20px;
+}
+
+.run-creation-form > label,
+.workspace-import-field,
+.run-creation-choice-row legend {
+  color: var(--prayu-text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.run-creation-form > label,
+.workspace-import-field {
+  gap: 9px;
+}
+
+.workspace-import-control {
+  min-height: 84px;
+  padding: 14px 16px;
+  border-color: var(--prayu-border-strong);
+  border-radius: 14px;
+  color: var(--prayu-text);
+  background: var(--prayu-control);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--prayu-glass-highlight) 38%, transparent);
+  transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease,
+    transform 150ms ease;
+}
+
+.workspace-import-control > svg {
+  flex: 0 0 auto;
+  color: var(--prayu-accent);
+}
+
+.workspace-import-control small {
+  color: var(--prayu-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.workspace-import-control:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--prayu-accent) 46%, var(--prayu-border-strong));
+  background: var(--prayu-control-hover);
+  transform: translateY(-1px);
+}
+
+.workspace-import-control:active:not(:disabled) {
+  transform: scale(.99);
+}
+
+.workspace-import-control.selected {
+  border-color: color-mix(in srgb, var(--prayu-accent) 62%, var(--prayu-border-strong));
+  background: color-mix(in srgb, var(--prayu-accent) 12%, var(--prayu-control));
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--prayu-accent) 9%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--prayu-glass-highlight) 46%, transparent);
+}
+
+.run-creation-form select,
+.run-creation-form textarea {
+  border-radius: 12px;
+}
+
+.run-creation-form select {
+  height: 44px;
+  padding: 0 12px;
+}
+
+.run-creation-form textarea {
+  min-height: 128px;
+  padding: 12px 13px;
+  line-height: 1.58;
+  caret-color: var(--prayu-accent);
+}
+
+.run-creation-choice-row legend {
+  margin-bottom: 9px;
+}
+
+.run-creation-segments {
+  gap: 4px;
+  padding: 4px;
+  overflow: visible;
+  border-color: var(--prayu-border);
+  border-radius: 14px;
+  background: var(--prayu-control);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+
+.run-creation-segments button {
+  height: 38px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--prayu-muted);
+  background: transparent;
+  transition: color 140ms ease, background-color 140ms ease, box-shadow 140ms ease,
+    transform 140ms ease;
+}
+
+.run-creation-segments button:hover:not(.selected) {
+  color: var(--prayu-text);
+  background: var(--prayu-control-hover);
+}
+
+.run-creation-segments button.selected {
+  color: var(--prayu-selected-ink);
+  background: var(--prayu-selected);
+  box-shadow:
+    0 6px 18px rgb(0 0 0 / 17%),
+    inset 0 1px 0 rgb(255 255 255 / 82%);
+}
+
+.run-creation-segments button:active {
+  transform: scale(.98);
+}
+
+.dialog-secondary,
+.dialog-primary,
+.dialog-danger {
+  min-height: 40px;
+  padding: 8px 15px;
+  border-radius: 12px;
+  transition: border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease,
+    transform 100ms ease;
+}
+
+.dialog-secondary {
+  border-color: var(--prayu-border-strong);
+  color: var(--prayu-text);
+  background: var(--prayu-control);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--prayu-glass-highlight) 40%, transparent);
+}
+
+.dialog-secondary:hover:not(:disabled) {
+  background: var(--prayu-control-hover);
+}
+
+.dialog-primary {
+  border-color: color-mix(in srgb, var(--prayu-selected) 72%, var(--prayu-accent));
+  color: var(--prayu-selected-ink);
+  background: var(--prayu-selected);
+  box-shadow:
+    0 8px 24px color-mix(in srgb, var(--prayu-glass-shadow) 78%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--prayu-accent) 12%, transparent),
+    inset 0 1px 0 rgb(255 255 255 / 86%);
+}
+
+.dialog-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--prayu-selected) 91%, var(--prayu-accent));
+  transform: translateY(-1px);
+}
+
+.dialog-secondary:active:not(:disabled),
+.dialog-primary:active:not(:disabled),
+.dialog-danger:active:not(:disabled) {
+  transform: scale(.97);
+}
+
+.dialog-danger {
+  border-color: color-mix(in srgb, var(--prayu-danger) 68%, var(--prayu-border));
+  color: #fff;
+  background: var(--prayu-danger);
+}
+
+/* Sidebar history was the last high-traffic surface retaining beige text and
+   an orange scrollbar. Small type gets explicit contrast and weight. */
+.prayu-sidebar .sidebar-brand,
+.prayu-sidebar .sidebar-primary-navigation,
+.prayu-sidebar .sidebar-history,
+.prayu-sidebar .sidebar-profile {
+  color: var(--prayu-text);
+  text-shadow: none;
+}
+
+.sidebar-brand-action {
+  border-radius: 10px;
+  color: var(--prayu-muted);
+  background: transparent;
+}
+
+.sidebar-brand-action:hover {
+  color: var(--prayu-text);
+  background: var(--prayu-control-hover);
+}
+
+.sidebar-history-search {
+  height: 38px;
+  margin: 0 14px 9px;
+  padding: 0 11px;
+  border-color: var(--prayu-border);
+  border-radius: 11px;
+  color: var(--prayu-muted);
+  background: var(--prayu-control);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+
+.sidebar-history-search:focus-within {
+  border-color: var(--prayu-focus);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--prayu-focus) 13%, transparent);
+}
+
+.sidebar-history-search input {
+  color: var(--prayu-text);
+  font-size: 11px;
+}
+
+.sidebar-history-search input::placeholder {
+  color: var(--prayu-muted);
+}
+
+.sidebar-history {
+  scrollbar-color: var(--prayu-border-strong) transparent;
+}
+
+.sidebar-history-heading {
+  min-height: 32px;
+  padding: 4px 10px;
+  color: color-mix(in srgb, var(--prayu-text) 86%, var(--prayu-muted));
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.sidebar-history-heading button,
+.sidebar-history-heading small {
+  color: var(--prayu-muted);
+}
+
+.sidebar-history-heading button {
+  border-radius: 8px;
+}
+
+.sidebar-history-heading button:hover:not(:disabled) {
+  color: var(--prayu-text);
+  background: var(--prayu-control-hover);
+}
+
+.prayu-sidebar .resource-row.sidebar-history-row {
+  min-height: 46px;
+  border-radius: 10px;
+  color: var(--prayu-text);
+}
+
+.prayu-sidebar .sidebar-history-row:hover:not(.selected) {
+  background: var(--prayu-control-hover);
+}
+
+.prayu-sidebar .sidebar-history-row > svg,
+.sidebar-history-delete,
+.sidebar-history-copy small {
+  color: var(--prayu-muted);
+}
+
+.sidebar-history-copy strong {
+  color: inherit;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.sidebar-history-copy small {
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.sidebar-history-row-shell {
+  border-radius: 11px;
+}
+
+.sidebar-history-delete:hover {
+  color: var(--prayu-danger);
+  background: color-mix(in srgb, var(--prayu-danger) 12%, transparent);
+}
+
+.history-status {
+  background: var(--prayu-muted);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--prayu-text) 7%, transparent);
+}
+
+.history-status.status-running,
+.history-status.status-active,
+.history-status.status-completed {
+  background: var(--prayu-success);
+}
+
+.history-status.status-failed,
+.history-status.status-cancelled {
+  background: var(--prayu-danger);
+}
+
+.history-status.status-paused,
+.history-status.status-waiting_approval {
+  background: var(--prayu-warning);
+}
+
+.sidebar-history-empty,
+.sidebar-history .state-message {
+  min-height: 48px;
+  margin: 2px 3px 5px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--prayu-muted);
+  background: color-mix(in srgb, var(--prayu-control) 54%, transparent);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.sidebar-history-empty > svg {
+  color: color-mix(in srgb, var(--prayu-accent) 58%, var(--prayu-muted));
+}
+
+.sidebar-history .load-more {
+  border-color: var(--prayu-border);
+  border-radius: 9px;
+  color: var(--prayu-muted);
+  background: var(--prayu-control);
+}
+
+.prayu-sidebar .sidebar-profile {
+  border-top-color: var(--prayu-border);
+  background: color-mix(in srgb, var(--prayu-control) 52%, transparent);
+}
+
+.prayu-sidebar .sidebar-profile:hover {
+  background: var(--prayu-control-hover);
+}
+
+.sidebar-profile > svg:last-child {
+  color: var(--prayu-muted);
+}
+
+/* Normalize the remaining auxiliary pages and panes that still declared the
+   first-generation warm paper palette directly. */
+.prayu-shell .workspace-tabs button {
+  color: var(--prayu-muted);
+}
+
+.prayu-shell .workspace-tabs button.active {
+  border-bottom-color: var(--prayu-accent);
+  color: var(--prayu-text);
+}
+
+.prayu-shell .workspace-tabs button.active svg,
+.utility-workspace > header svg {
+  color: var(--prayu-accent);
+}
+
+.prayu-shell .budget-track,
+.prayu-shell .budget-track::-webkit-progress-bar {
+  background: color-mix(in srgb, var(--prayu-text) 10%, transparent);
+}
+
+.prayu-shell .budget-track::-webkit-progress-value,
+.prayu-shell .budget-track::-moz-progress-bar {
+  background: var(--prayu-accent);
+}
+
+.workspace-open-button {
+  border-color: var(--prayu-border);
+  color: var(--prayu-muted);
+  background: var(--prayu-control);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+.workspace-open-button:hover:not(:disabled) {
+  border-color: var(--prayu-border-strong);
+  color: var(--prayu-text);
+  background: var(--prayu-control-hover);
+}
+
+.workspace-open-message {
+  color: var(--prayu-accent) !important;
+}
+
+.workbench-summary,
+.workbench-sidecar,
+.workbench-bottom-panel {
+  border-color: var(--prayu-border);
+  color: var(--prayu-text);
+  background: color-mix(in srgb, var(--prayu-panel-strong) 86%, transparent);
+  -webkit-backdrop-filter: blur(28px) saturate(155%);
+  backdrop-filter: blur(28px) saturate(155%);
+}
+
+.workbench-summary > header,
+.workbench-summary > section,
+.workbench-bottom-panel > header,
+.workbench-sidecar-tabs,
+.workbench-side-task-list article {
+  border-color: var(--prayu-border);
+}
+
+.workbench-summary > header,
+.workbench-summary h2,
+.workbench-summary dt,
+.summary-inert-row,
+.workbench-terminal-empty,
+.workbench-tool-empty,
+.workbench-side-task-list small,
+.workbench-sidecar-menu kbd {
+  color: var(--prayu-muted);
+}
+
+.workbench-summary dd,
+.workbench-bottom-panel > header > button:first-child,
+.workbench-sidecar-tab,
+.workbench-terminal-empty strong,
+.workbench-tool-empty strong {
+  color: var(--prayu-text);
+}
+
+.workbench-bottom-panel > header > button:first-child.active,
+.workbench-sidecar-tab.active {
+  background: var(--prayu-control-hover);
+}
+
+.prayu-empty-heading,
+.utility-empty-state {
+  color: var(--prayu-muted);
+}
+
+.utility-workspace > header,
+.model-control-workspace > header,
+.model-control-workspace .model-availability-section + .model-availability-section {
+  border-color: var(--prayu-border);
+}
+
+.user-terminal-panel {
+  background: #080b10;
+}
+
+.user-terminal-controls {
+  border-color: rgb(255 255 255 / 10%);
+  color: #b9c1cc;
+  background: #0e131a;
+}
+
+.user-terminal-controls button {
+  border-color: rgb(255 255 255 / 14%);
+  color: #edf2f7;
+  background: #151c25;
+}
+
+.user-terminal-controls button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--prayu-accent) 58%, transparent);
+  background: #1c2733;
+}
+
+.user-terminal-state {
+  color: #9aa6b4;
+}
+
+.user-terminal-state.running {
+  color: var(--prayu-success);
+}
+
+.user-terminal-state.failed,
+.user-terminal-message {
+  color: var(--prayu-danger);
+}
+
+.context-meter > i {
+  background: conic-gradient(var(--prayu-accent) var(--context-percent),
+    color-mix(in srgb, var(--prayu-text) 14%, transparent) 0);
+}
+
+.public-model-stream-dot {
+  background: var(--prayu-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--prayu-accent) 14%, transparent);
+}
+
+.prayu-shell :is(.event-row pre, .tool-call pre, .repository-diff-list pre,
+  .repository-comparison-preview-workspace pre, .repository-commit-file-preview pre,
+  .explorer-file pre),
+.desktop-dialog :is(.desktop-package-list code, .desktop-package-heading > code) {
+  border-color: var(--prayu-border);
+  color: var(--prayu-text);
+  background: var(--prayu-control);
+}
+
+.prayu-shell :is(.tag-line code, .host-command-env-key),
+.file-proposal-editor > header,
+.file-proposal-editor > footer {
+  border-color: var(--prayu-border);
+  color: var(--prayu-text);
+  background: var(--prayu-control);
+}
+
+.verification-plan-list p,
+.verification-list p,
+.explorer-provenance code,
+.search-result-open code {
+  color: var(--prayu-text);
+}
+
+.explorer-list button:not(:disabled):hover,
+.operator-action-list > button:hover,
+.operator-action-list > button:focus-visible,
+.command-palette-results > button.selected {
+  color: var(--prayu-text);
+  background: var(--prayu-control-hover);
+}
+
+.status-badge {
+  border-color: var(--prayu-border);
+  color: var(--prayu-muted);
+  background: var(--prayu-control);
+}
+
+.status-running,
+.status-active,
+.status-completed,
+.status-live,
+.status-approved,
+.status-applied,
+.status-instructed,
+.status-succeeded,
+.status-fixed,
+.status-validated,
+.status-accepted {
+  border-color: color-mix(in srgb, var(--prayu-success) 42%, var(--prayu-border));
+  color: var(--prayu-success);
+  background: color-mix(in srgb, var(--prayu-success) 11%, var(--prayu-control));
+}
+
+.status-failed,
+.status-cancelled,
+.status-denied,
+.status-critical,
+.status-high,
+.status-rejected,
+.status-aborted {
+  border-color: color-mix(in srgb, var(--prayu-danger) 42%, var(--prayu-border));
+  color: var(--prayu-danger);
+  background: color-mix(in srgb, var(--prayu-danger) 11%, var(--prayu-control));
+}
+
+.status-medium,
+.status-partial,
+.status-waiting-approval,
+.status-paused,
+.status-pending,
+.status-reconnecting {
+  border-color: color-mix(in srgb, var(--prayu-warning) 44%, var(--prayu-border));
+  color: var(--prayu-warning);
+  background: color-mix(in srgb, var(--prayu-warning) 10%, var(--prayu-control));
+}
+
+.inline-warning,
+.operation-receipt.receipt-warning,
+.command-proposal-evidence,
+.verification-receipt-focus.unavailable {
+  border-color: color-mix(in srgb, var(--prayu-warning) 55%, var(--prayu-border));
+  color: var(--prayu-warning);
+  background: color-mix(in srgb, var(--prayu-warning) 9%, var(--prayu-control));
+}
+
+.operation-receipt.receipt-warning span,
+.operation-receipt.receipt-warning small,
+.command-proposal-evidence > header {
+  color: var(--prayu-warning);
+}
+
+.command-proposal-evidence > header {
+  border-color: color-mix(in srgb, var(--prayu-warning) 55%, var(--prayu-border));
+}
+
+.operation-receipt,
+.desktop-install-success {
+  border-color: color-mix(in srgb, var(--prayu-success) 48%, var(--prayu-border));
+  color: var(--prayu-success);
+  background: color-mix(in srgb, var(--prayu-success) 9%, var(--prayu-control));
+}
+
+.operation-receipt span,
+.operation-receipt small,
+.desktop-dialog > footer > span {
+  color: color-mix(in srgb, var(--prayu-success) 78%, var(--prayu-text));
+}
+
+.host-command-risk {
+  border-color: color-mix(in srgb, var(--prayu-danger) 56%, var(--prayu-border));
+  color: var(--prayu-danger);
+  background: color-mix(in srgb, var(--prayu-danger) 9%, var(--prayu-control));
+}
+
+.connection-page {
+  color: var(--prayu-text);
+  background:
+    radial-gradient(circle at 70% 18%, color-mix(in srgb, var(--prayu-accent) 13%, transparent),
+      transparent 34%),
+    var(--prayu-window);
+}
+
+[data-prayu-theme="glass"] .connection-page {
+  background: transparent;
+}
+
+.connection-panel .field-label,
+.connection-heading h1 {
+  color: var(--prayu-text);
+}
+
+.connection-panel input {
+  border-color: var(--prayu-border-strong);
+  border-radius: 12px;
+  color: var(--prayu-text);
+  background: var(--prayu-control);
+}
+
+.connection-panel .token-row button {
+  border-radius: 12px;
+  color: var(--prayu-selected-ink);
+  background: var(--prayu-selected);
+  box-shadow: 0 7px 20px var(--prayu-shadow), inset 0 1px 0 rgb(255 255 255 / 84%);
+}
+
+@keyframes prayu-backdrop-arrive {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes prayu-glass-materialize {
+  from {
+    opacity: 0;
+    transform: scale(.975) translateY(8px);
+    filter: blur(7px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+    filter: blur(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .desktop-dialog-backdrop,
+  .command-palette-backdrop,
+  .desktop-dialog,
+  .command-palette {
+    animation: none;
+  }
+
+  .workspace-import-control,
+  .run-creation-segments button,
+  .dialog-secondary,
+  .dialog-primary,
+  .dialog-danger {
+    transition: opacity 120ms ease, color 120ms ease, background-color 120ms ease;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .desktop-dialog-backdrop,
+  .command-palette-backdrop {
+    background: rgb(5 8 13 / 82%);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .desktop-dialog,
+  .command-palette,
+  .sidebar-history-search,
+  .workbench-summary,
+  .workbench-sidecar,
+  .workbench-bottom-panel,
+  .workspace-open-button {
+    background: var(--prayu-panel-strong);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .desktop-dialog,
+  .command-palette,
+  .workspace-import-control,
+  .run-creation-segments,
+  .sidebar-history-search,
+  .sidebar-history-empty {
+    border-color: var(--prayu-text);
+  }
+
+  .sidebar-history-heading,
+  .sidebar-history-empty,
+  .sidebar-history .state-message,
+  .sidebar-history-copy small {
+    color: var(--prayu-text);
+  }
+}
+
+@media (forced-colors: active) {
+  .desktop-dialog,
+  .command-palette,
+  .workspace-import-control,
+  .run-creation-segments,
+  .sidebar-history-search,
+  .sidebar-history-empty,
+  .workbench-summary,
+  .workbench-sidecar,
+  .workbench-bottom-panel {
+    border-color: CanvasText;
+    color: CanvasText;
+    background: Canvas;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .dialog-primary,
+  .run-creation-segments button.selected {
+    border-color: Highlight;
+    color: HighlightText;
+    background: Highlight;
+    box-shadow: none;
+  }
+}
+
+@media (max-width: 680px) {
+  .desktop-dialog-backdrop {
+    padding: 10px;
+  }
+
+  .desktop-dialog,
+  .command-palette {
+    border-radius: 18px;
+  }
+
+  .desktop-dialog::before,
+  .command-palette::before {
+    border-radius: 16px;
+  }
+
+  .run-creation-form {
+    gap: 16px;
+    padding: 16px;
+  }
 }
