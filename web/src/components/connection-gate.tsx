@@ -67,6 +67,7 @@ export function ConnectionGate() {
 		verificationEvidenceEnabled: bootstrap.verification_evidence_enabled,
 		embeddedAnalyzerExecutionEnabled: bootstrap.embedded_analyzer_execution_enabled,
 		dockerExecutionEnabled: bootstrap.docker_execution_enabled,
+		agentCodeToolsEnabled: bootstrap.agent_code_tools_enabled,
       });
     }).catch((caught: unknown) => {
       if (active) {

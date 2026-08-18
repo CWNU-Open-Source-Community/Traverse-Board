@@ -9,7 +9,8 @@ describe("FileEditPanel", () => {
     const user = userEvent.setup();
     const edit = {
       id: "edit-1", session_id: "session-1", workspace_id: "workspace-1",
-      path: "README.md", status: "proposed", diff: "--- README.md\n+++ README.md\n-old\n+new",
+      path: "README.md", operation: "replace", status: "proposed",
+      diff: "--- README.md\n+++ README.md\n-old\n+new",
       original_hash: "a".repeat(64), proposed_hash: "b".repeat(64),
       secrets_redacted: true, allowed_actions: ["approve_intent", "deny"],
       created_at: "2026-07-18T00:00:00Z", updated_at: "2026-07-18T00:00:00Z",
@@ -46,7 +47,8 @@ describe("FileEditPanel", () => {
     const user = userEvent.setup();
     const edit = {
       id: "edit-approved", session_id: "session-1", workspace_id: "workspace-1",
-      path: "safe.txt", status: "approved", diff: "--- safe.txt\n+++ safe.txt\n+value",
+      path: "safe.txt", operation: "replace", status: "approved",
+      diff: "--- safe.txt\n+++ safe.txt\n+value",
       original_hash: "a".repeat(64), proposed_hash: "b".repeat(64),
       secrets_redacted: false, allowed_actions: [], apply_enabled: true,
       created_at: "2026-07-18T00:00:00Z", updated_at: "2026-07-18T00:00:00Z",
@@ -83,7 +85,8 @@ describe("FileEditPanel", () => {
   it("keeps mixed multi-file outcomes visible without a batch mutation", async () => {
     const applied = {
       id: "edit-applied", session_id: "session-1", workspace_id: "workspace-1",
-      path: "applied.txt", status: "applied", diff: "+applied", original_hash: "missing",
+      path: "applied.txt", operation: "create", status: "applied", diff: "+applied",
+      original_hash: "missing",
       proposed_hash: "a".repeat(64), secrets_redacted: false, allowed_actions: [],
       apply_enabled: false, created_at: "2026-07-18T00:00:00Z",
       updated_at: "2026-07-18T00:00:00Z",
@@ -120,7 +123,7 @@ describe("FileEditPanel", () => {
     const user = userEvent.setup();
     const edit = {
       id: "edit-review", session_id: "session-1", workspace_id: "workspace-1",
-      path: "src/main.go", status: "proposed",
+      path: "src/main.go", operation: "replace", status: "proposed",
       diff: "--- a/src/main.go\n+++ b/src/main.go\n@@ -2 +2 @@\n-old\n+new",
       original_hash: "a".repeat(64), proposed_hash: "b".repeat(64),
       secrets_redacted: false, allowed_actions: ["approve_intent", "deny"],
@@ -148,7 +151,8 @@ describe("FileEditPanel", () => {
 });
 
 function changeSetFor(edit: {
-  id: string; path: string; status: string; diff: string; secrets_redacted: boolean;
+  id: string; path: string; operation: string; status: string; diff: string;
+  secrets_redacted: boolean;
   allowed_actions: readonly string[]; apply_enabled: boolean; updated_at: string;
 }) {
   const item = changeSetItem(edit);
@@ -165,10 +169,11 @@ function changeSetFor(edit: {
 }
 
 function changeSetItem(edit: {
-  id: string; path: string; status: string; diff: string; secrets_redacted: boolean;
+  id: string; path: string; operation: string; status: string; diff: string;
+  secrets_redacted: boolean;
   allowed_actions: readonly string[]; apply_enabled: boolean; updated_at: string;
 }) {
-  return { id: edit.id, path: edit.path, status: edit.status,
+  return { id: edit.id, path: edit.path, operation: edit.operation, status: edit.status,
     diff_bytes: new TextEncoder().encode(edit.diff).length,
     secrets_redacted: edit.secrets_redacted, allowed_actions: [...edit.allowed_actions],
     apply_enabled: edit.apply_enabled, updated_at: edit.updated_at };

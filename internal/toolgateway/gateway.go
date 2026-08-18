@@ -63,6 +63,7 @@ type Gateway struct {
 	dockerSandboxProposals     DockerSandboxProposalExecutor
 	skillCandidates            SkillCandidateExecutor
 	debugTerminal              DebugTerminalExecutor
+	agentCode                  AgentCodeExecutor
 	waitGraph                  *waitgraph.Graph
 }
 
@@ -154,6 +155,9 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (Outcome, error) {
 	if normalized.Name == DebugTerminalTool && g.debugTerminal == nil {
 		return Outcome{}, errors.New("debug terminal executor is required")
 	}
+	if isAgentCodeTool(normalized.Name) && g.agentCode == nil {
+		return Outcome{}, errors.New("agent code tool executor is required")
+	}
 	fallback := waitgraph.External(normalized.RequestedBy)
 	if normalized.AgentID != "" {
 		fallback = waitgraph.Agent(normalized.AgentID)
@@ -181,6 +185,9 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (Outcome, error) {
 		}
 	}
 	switch normalized.Name {
+	case WorkspaceListTool, WorkspaceReadTool, WorkspaceGlobTool, WorkspaceGrepTool,
+		WorkspaceChangeTool, WorkspaceApplyTool, WorkspaceDeleteTool:
+		return g.invokeAgentCode(ctx, normalized)
 	case ReadFileTool, ListWorkspaceTool:
 		return g.invokeWorkspaceRead(ctx, normalized)
 	case ShellTool:
@@ -535,11 +542,20 @@ func approvalProposalFromFileEdit(edit fileedit.Edit) approval.Proposal {
 		decided := edit.UpdatedAt
 		decidedAt = &decided
 	}
+	toolName := fileedit.ApprovalToolName(edit)
+	fingerprint := approval.FileEditFingerprint(edit.SessionID, edit.WorkspaceID,
+		edit.Path, edit.ProposedHash)
+	if edit.Operation != "" && edit.Operation != fileedit.OperationReplace {
+		fingerprint = approval.FileMutationFingerprint(toolName, edit.SessionID,
+			edit.WorkspaceID, edit.Operation, edit.Path, edit.DestinationPath,
+			edit.OriginalHash, edit.ProposedHash, edit.DestinationOriginalHash,
+			edit.DestinationProposedHash)
+	}
 	return approval.Proposal{
-		IdempotencyKey: approval.ProposalIdempotencyKey(string(ReplaceFileTool), edit.ID), ProposalID: edit.ID,
-		SessionID: edit.SessionID, WorkspaceID: edit.WorkspaceID, ToolName: string(ReplaceFileTool),
+		IdempotencyKey: approval.ProposalIdempotencyKey(toolName, edit.ID), ProposalID: edit.ID,
+		SessionID: edit.SessionID, WorkspaceID: edit.WorkspaceID, ToolName: toolName,
 		ActionClass: string(ClassWorkspaceWrite), Mode: string(ApprovalPerCall), Status: status,
-		RequestFingerprint: approval.FileEditFingerprint(edit.SessionID, edit.WorkspaceID, edit.Path, edit.ProposedHash),
+		RequestFingerprint: fingerprint,
 		DecisionReason:     edit.Reason, RequestedBy: "tool_gateway", ReviewedBy: reviewer,
 		CreatedAt: edit.CreatedAt, UpdatedAt: edit.UpdatedAt, DecidedAt: decidedAt,
 	}
@@ -735,6 +751,16 @@ func gatewayDecision(source policy.Decision, mode ApprovalMode, fallbackRisk str
 }
 
 func validateToolArguments(call ToolCall) error {
+	if isAgentCodeTool(call.Name) {
+		if len(call.Arguments) != 0 || call.RunID == "" || call.MissionID == "" ||
+			call.AgentID == "" || call.SessionID == "" || call.WorkspaceID == "" ||
+			call.RequestedBy != "run_supervisor" || call.OperationKey == "" ||
+			call.LeaseID == "" {
+			return errors.New("agent code tools require a structured fenced root Supervisor scope")
+		}
+		_, err := NormalizeAgentCodePayload(call.Name, call.Payload)
+		return err
+	}
 	if call.Name == WorkItemCreateTool || call.Name == NoteCreateTool ||
 		call.Name == SpecialistDelegationProposeTool ||
 		call.Name == ChildTaskProposeTool ||

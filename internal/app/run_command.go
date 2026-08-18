@@ -1584,6 +1584,40 @@ func (a *App) runShow(ctx context.Context, service *application.RunService, args
 	if err != nil {
 		return err
 	}
+	permission, err := a.store.GetRunExecutionPermission(ctx, run.ID)
+	if err != nil {
+		return err
+	}
+	rootAgent, found, err := a.store.GetRootAgent(ctx, run.ID)
+	if err != nil {
+		return err
+	}
+	unavailableReason := ""
+	if !found {
+		unavailableReason = "Run root Agent is unavailable"
+		rootAgent.Role = domain.AgentRoleRoot
+		rootAgent.Profile = mode.Profile
+	}
+	rootFingerprint := ""
+	if mission.WorkspaceID == "" {
+		unavailableReason = "Run has no registered Workspace"
+	} else {
+		registered, lookupErr := a.store.GetWorkspaceInfo(ctx, mission.WorkspaceID)
+		if lookupErr != nil {
+			return lookupErr
+		}
+		rootFingerprint, err = workspace.AgentCodeRootFingerprint(registered.RootPath)
+		if err != nil {
+			unavailableReason = "registered Workspace root is unavailable"
+		}
+	}
+	agentCodeTools := toolgateway.AgentCodeCapabilities(toolgateway.AgentCodeCapabilityContext{
+		RunID: run.ID, MissionID: mission.ID, RootAgentID: rootAgent.ID,
+		WorkspaceID: mission.WorkspaceID, RootFingerprint: rootFingerprint,
+		Surface: mode.Surface, Phase: mode.Phase, Role: rootAgent.Role,
+		Profile: rootAgent.Profile, PermissionMode: permission.Mode,
+		ModeRevision: mode.Revision, PermissionRevision: permission.Revision,
+		UnavailableReason: unavailableReason})
 	scope, _ := json.Marshal(mission.Scope)
 	budget, _ := json.Marshal(run.Budget)
 	fmt.Fprintf(a.out, "id: %s\nmission: %s\nstatus: %s\ngoal: %s\nprofile: %s\nsurface: %s\nphase: %s\nmode_revision: %d\nmode_policy: %s\nworkspace: %s\nsession: %s\nroute: %s\ninteractive: %t\nscope: %s\nbudget: %s\ncreated_at: %s\nupdated_at: %s\n",
@@ -1595,6 +1629,17 @@ func (a *App) runShow(ctx context.Context, service *application.RunService, args
 	}
 	if run.FinishedAt != nil {
 		fmt.Fprintf(a.out, "finished_at: %s\n", run.FinishedAt.Format(time.RFC3339))
+	}
+	fmt.Fprintf(a.out, "agent_code_tools_protocol: %s\nagent_code_tools_generation: %s\n",
+		agentCodeTools.ProtocolVersion, agentCodeTools.Generation)
+	for _, capability := range agentCodeTools.Tools {
+		fmt.Fprintf(a.out, "agent_code_tool: %s\tavailable=%t\tclass=%s\tapproval=%s\tsource=%s",
+			capability.Name, capability.Available, capability.Class, capability.Approval,
+			capability.Source)
+		if capability.Refusal != "" {
+			fmt.Fprintf(a.out, "\treason=%s", capability.Refusal)
+		}
+		fmt.Fprintln(a.out)
 	}
 	return nil
 }

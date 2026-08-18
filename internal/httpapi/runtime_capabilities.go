@@ -58,6 +58,7 @@ type RuntimeCapabilitiesView struct {
 	ProcessExecutionEnabled            bool                    `json:"process_execution_enabled"`
 	ShellExecutionEnabled              bool                    `json:"shell_execution_enabled"`
 	DockerExecutionEnabled             bool                    `json:"docker_execution_enabled"`
+	AgentCodeToolsEnabled              bool                    `json:"agent_code_tools_enabled"`
 	WakeWorker                         RunWakeWorkerHealthView `json:"wake_worker"`
 }
 
@@ -121,7 +122,8 @@ func (a *API) runtimeCapabilities(request *http.Request) (any, *Page, error) {
 		VerificationEvidenceEnabled:      a.verificationEvidenceEnabled,
 		EmbeddedAnalyzerExecutionEnabled: a.embeddedAnalyzerExecutionEnabled,
 		ProcessExecutionEnabled:          false, ShellExecutionEnabled: false,
-		DockerExecutionEnabled: a.dockerExecutionEnabled, WakeWorker: worker,
+		DockerExecutionEnabled: a.dockerExecutionEnabled, AgentCodeToolsEnabled: true,
+		WakeWorker: worker,
 	}, nil, nil
 }
 

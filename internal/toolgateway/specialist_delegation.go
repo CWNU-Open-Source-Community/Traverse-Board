@@ -116,6 +116,9 @@ func SupervisorToolDefinitions() []ToolDefinition {
 }
 
 func SupervisorToolDefinition(name ToolName) (ToolDefinition, bool) {
+	if definition, found := AgentCodeToolDefinition(name); found {
+		return definition, true
+	}
 	if definition, found := StructuredMemoryToolDefinition(name); found {
 		return definition, true
 	}
@@ -170,6 +173,9 @@ func SupervisorToolDefinition(name ToolName) (ToolDefinition, bool) {
 }
 
 func NormalizeSupervisorToolPayload(name ToolName, payload json.RawMessage) (json.RawMessage, error) {
+	if isAgentCodeTool(name) {
+		return NormalizeAgentCodePayload(name, payload)
+	}
 	if name == PlanDeliveryProposeTool {
 		_, canonical, err := normalizePlanDeliveryPayload(payload)
 		return canonical, err

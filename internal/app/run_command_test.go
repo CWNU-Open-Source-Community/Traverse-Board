@@ -1604,7 +1604,10 @@ func TestRunCLIEndToEndLifecycle(t *testing.T) {
 		}
 	}
 	shown, stderr, code := executeTestCommand(t, "run", "show", runID)
-	if code != 0 || !strings.Contains(shown, "status: cancelled") || !strings.Contains(shown, `"max_turns":12`) {
+	if code != 0 || !strings.Contains(shown, "status: cancelled") || !strings.Contains(shown, `"max_turns":12`) ||
+		!strings.Contains(shown, "agent_code_tools_protocol: "+toolgateway.AgentCodeRegistryVersion) ||
+		!strings.Contains(shown, "agent_code_tool: workspace_read\tavailable=true") ||
+		!strings.Contains(shown, "agent_code_tool: workspace_change\tavailable=false") {
 		t.Fatalf("unexpected show output=%s stderr=%s", shown, stderr)
 	}
 	eventOutput, stderr, code := executeTestCommand(t, "run", "events", runID)

@@ -490,10 +490,10 @@ func modelHarnessAvailabilityView(
 		ProtocolVersion: value.ProtocolVersion, Model: value.Model,
 		TransportProtocol: value.TransportProtocol, ToolStrategy: value.ToolStrategy,
 		JSONStrategy: value.JSONStrategy, QualificationStatus: value.QualificationStatus,
-		ToolCallsQualified:     value.ToolCallsQualified,
-		ToolResultsQualified:   value.ToolResultsQualified,
-		StrictJSONQualified:    value.StrictJSONQualified,
-		StreamingQualified:     value.StreamingQualified,
+		ToolCallsQualified:        value.ToolCallsQualified,
+		ToolResultsQualified:      value.ToolResultsQualified,
+		StrictJSONQualified:       value.StrictJSONQualified,
+		StreamingQualified:        value.StreamingQualified,
 		RootEligible:              value.RootEligible,
 		StructuredJSONEligible:    value.StructuredJSONEligible,
 		LatestQualificationStatus: value.LatestQualificationStatus,
@@ -529,18 +529,24 @@ func fileEditPreviewView(value fileedit.Preview, terminal bool) FileEditPreviewV
 		}
 	}
 	return FileEditPreviewView{ID: value.ID, SessionID: value.SessionID,
-		WorkspaceID: value.WorkspaceID, Path: value.Path, Status: value.Status,
+		WorkspaceID: value.WorkspaceID, Path: value.Path, Operation: value.Operation,
+		DestinationPath: value.DestinationPath, Status: value.Status,
 		Diff: value.Diff, OriginalHash: value.OriginalHash, ProposedHash: value.ProposedHash,
-		Reason: value.Reason, SecretsRedacted: value.SecretsRedacted,
+		DestinationOriginalHash: value.DestinationOriginalHash,
+		DestinationProposedHash: value.DestinationProposedHash,
+		Reason:                  value.Reason, SecretsRedacted: value.SecretsRedacted,
 		AllowedActions: actions, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
 		ApplyEnabled: false}
 }
 
 func fileEditView(value fileedit.Edit, terminal bool) FileEditPreviewView {
 	return fileEditPreviewView(fileedit.Preview{ID: value.ID, SessionID: value.SessionID,
-		WorkspaceID: value.WorkspaceID, Path: value.Path, Status: value.Status,
+		WorkspaceID: value.WorkspaceID, Path: value.Path, Operation: value.Operation,
+		DestinationPath: value.DestinationPath, Status: value.Status,
 		Diff: value.Diff, OriginalHash: value.OriginalHash, ProposedHash: value.ProposedHash,
-		Reason: value.Reason, SecretsRedacted: value.SecretsRedacted,
+		DestinationOriginalHash: value.DestinationOriginalHash,
+		DestinationProposedHash: value.DestinationProposedHash,
+		Reason:                  value.Reason, SecretsRedacted: value.SecretsRedacted,
 		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}, terminal)
 }
 

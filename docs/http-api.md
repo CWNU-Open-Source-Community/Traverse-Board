@@ -95,6 +95,12 @@ render independent controls, but it contains no token, owner, lease, Run, or pri
 error and cannot enable a worker, install a service, or grant a mutation. Every control
 route still requires the control token and its corresponding Go gate independently.
 
+The process capability document reports whether the `agent-code-tools.v1` runtime
+is compiled in, while `GET /api/v1/runs/{run_id}` carries the authoritative
+Run-specific generation and per-tool availability/refusal snapshot. The latter is
+derived by Go from persisted scope and current Workspace state; it is informational
+and cannot itself authorize a model call or file mutation.
+
 ### Windows Desktop 进程内传输 / Windows Desktop In-Process Transport
 
 Desktop 至 D1-G13/V12 复用同一 `api.v1` Handler，但不调用 `ListenAndServe`，也不绑定回环端口。Wails AssetServer 在同一进程内把 React 请求交给 Go；适配层只接受精确 `http://wails.localhost`。默认只生成内存 read token；十九个独立 flag 开放各自窄 route 或进程生命周期内的 wake worker。Repository state/Diff/history/comparison/键盘可访问成对预览、change-set、带有界审计事实的 Journey、带复核元数据和精确 Verify 导航的 Handoff，以及验证分页/快照下载/回执历史不增加 flag；回执及其复核 POST 复用 verification evidence 自己的默认关闭 flag。导航目标只驻留 React 内存并由既有严格 GET 投影复核，不增加 HTTP route。任一 control capability 会生成同一个不同于 read token 的内存 control token，未启用 route 仍返回 404。两个 token 都不写磁盘、日志、Local Storage 或注册表。
@@ -335,7 +341,7 @@ allowlist/scoped egress 需要尚未实现的 Go-owned host/port/protocol guard�
 | --- | --- | --- |
 | `GET` | `/api/v1` | API and application versions plus top-level resources |
 | `GET` | `/api/v1/health` | Health and SQLite schema version |
-| `GET` | `/api/v1/capabilities` | Exact Go capability flags plus metadata-only bounded worker health; no runtime enablement/token/owner/lease/private error |
+| `GET` | `/api/v1/capabilities` | Exact Go capability flags, including `agent_code_tools_enabled`, plus metadata-only bounded worker health; no runtime enablement/token/owner/lease/private error |
 | `GET` | `/api/v1/openapi.json` | Raw deterministic OpenAPI 3.1 JSON document |
 | `POST` | `/api/v1/sandbox/docker/readiness` | Read-bearer, strict exact-plan readiness; no mutation or long-lived authority |
 | `POST` | `/api/v1/sandbox/docker/admissions` | Control-bearer, idempotent exact Docker Sandbox product admission |
@@ -362,7 +368,7 @@ allowlist/scoped egress 需要尚未实现的 Go-owned host/port/protocol guard�
 | `POST` | `/api/v1/models/routes/{profile}` | Persist one validated Provider/model route before updating the in-memory Router |
 | `GET` | `/api/v1/runs` | Creation-ordered Runs; `status`, `mission_id`, stable keyset pagination |
 | `POST` | `/api/v1/runs` | Idempotently create one closed Mission/Run/Session in a registered Workspace |
-| `GET` | `/api/v1/runs/{run_id}` | Run, Mission, immutable execution-mode/profile snapshots, read-only Plan/checkpoint/external-Skill metadata, tool usage, token-free execution-lease summary |
+| `GET` | `/api/v1/runs/{run_id}` | Run, Mission, immutable execution-mode/profile snapshots, read-only Plan/checkpoint/external-Skill metadata, tool usage, token-free lease summary, and the `agent-code-tools.v1` generation with per-tool availability/refusal |
 | `GET` | `/api/v1/runs/{run_id}/external-skills` | Bounded external-Skill provenance and root/Specialist delivery counts; no content, paths, digests, or private identities |
 | `GET` | `/api/v1/runs/{run_id}/activity` | Chronological public model updates plus allowlisted Harness facts; redacted/bounded, no private reasoning, raw payload, Prompt, Tool arguments, or Tool output |
 | `GET` | `/api/v1/runs/{run_id}/events` | Ordered Run events; pagination |
@@ -539,9 +545,9 @@ cyberagent api openapi
 cyberagent api openapi --output docs/openapi.json
 ```
 
-运行时的 `/api/v1/openapi.json` 返回同一份原始文档，仍要求 loopback 与 read Bearer 认证，不接受 query 或 body。它使用 `application/vnd.oai.openapi+json`，不套普通 `api.v1` envelope。当前契约有 95 个 path、103 个 operation 和 232 个 schema。测试逐条命中公开 handler，并确认普通 DTO 不包含 Workspace root、Artifact/Skill/Session 正文、模型输出、工具参数、私有 lifecycle、operation/fencing/lease owner、API key、Provider Base URL 或环境变量名。CDP 权限响应只投影固定能力布尔值、当前进程闸门和四项 false authority，不包含 endpoint、browser path、Profile、Cookie、请求正文或 CDP payload。
+运行时的 `/api/v1/openapi.json` 返回同一份原始文档，仍要求 loopback 与 read Bearer 认证，不接受 query 或 body。它使用 `application/vnd.oai.openapi+json`，不套普通 `api.v1` envelope。当前契约有 102 个 path、111 个 operation 和 248 个 schema。测试逐条命中公开 handler，并确认普通 DTO 不包含 Workspace root、Artifact/Skill/Session 正文、模型输出、工具参数、私有 lifecycle、operation/fencing/lease owner、API key、Provider Base URL 或环境变量名。CDP 权限响应只投影固定能力布尔值、当前进程闸门和四项 false authority，不包含 endpoint、browser path、Profile、Cookie、请求正文或 CDP payload。
 
-The runtime `/api/v1/openapi.json` returns the same raw document under the loopback and read-bearer boundary and accepts neither a query nor a body. It uses `application/vnd.oai.openapi+json` rather than the ordinary `api.v1` envelope. The contract contains 95 paths, 103 operations, and 232 schemas. Tests exercise every handler and verify that ordinary DTOs omit Workspace roots, Artifact/Skill/Session bodies, model output, Tool arguments, private lifecycle, operation/fencing/lease-owner identities, API keys, Provider base URLs, and environment-variable names. CDP permission responses expose only closed capability booleans, current process gates, and four false authority fields; they contain no endpoint, browser path, Profile, Cookie, request body, or CDP payload.
+The runtime `/api/v1/openapi.json` returns the same raw document under the loopback and read-bearer boundary and accepts neither a query nor a body. It uses `application/vnd.oai.openapi+json` rather than the ordinary `api.v1` envelope. The contract contains 102 paths, 111 operations, and 248 schemas. Tests exercise every handler and verify that ordinary DTOs omit Workspace roots, Artifact/Skill/Session bodies, model output, Tool arguments, private lifecycle, operation/fencing/lease-owner identities, API keys, Provider base URLs, and environment-variable names. CDP permission responses expose only closed capability booleans, current process gates, and four false authority fields; they contain no endpoint, browser path, Profile, Cookie, request body, or CDP payload.
 
 ## 主动取消 / Active-Call Cancellation
 

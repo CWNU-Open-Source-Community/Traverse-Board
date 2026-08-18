@@ -378,8 +378,18 @@ func TestReadAPIExposesDurableStateWithoutArtifactContentOrCheckpointInput(t *te
 		runDetail.Steering.Messages[0].Sequence != 1 || runDetail.ExternalSkills == nil ||
 		runDetail.ExternalSkills.ProtocolVersion != skills.ExternalSkillProjectionProtocolVersion ||
 		runDetail.ExternalSkills.ItemCount != 1 || len(runDetail.ExternalSkills.Items) != 1 ||
-		runDetail.ExternalSkills.Items[0].Name != "api-projection-review" {
+		runDetail.ExternalSkills.Items[0].Name != "api-projection-review" ||
+		runDetail.AgentCodeTools.ProtocolVersion != toolgateway.AgentCodeRegistryVersion ||
+		runDetail.AgentCodeTools.Generation == "" || len(runDetail.AgentCodeTools.Tools) != 7 {
 		t.Fatalf("unexpected Run detail: %#v", runDetail)
+	}
+	agentCodeAvailability := make(map[string]bool, len(runDetail.AgentCodeTools.Tools))
+	for _, capability := range runDetail.AgentCodeTools.Tools {
+		agentCodeAvailability[capability.Name] = capability.Available
+	}
+	if !agentCodeAvailability[string(toolgateway.WorkspaceReadTool)] ||
+		agentCodeAvailability[string(toolgateway.WorkspaceChangeTool)] {
+		t.Fatalf("unexpected Review profile workspace tool matrix: %#v", runDetail.AgentCodeTools)
 	}
 	if strings.Contains(runDetailResponse.Body.String(), `"lease_id"`) {
 		t.Fatal("Run detail exposed the execution fencing token")

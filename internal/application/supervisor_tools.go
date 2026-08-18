@@ -15,11 +15,17 @@ import (
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/toolgateway"
+	"cyberagent-workbench/internal/workspace"
 )
 
 const supervisorToolResultVersion = "supervisor_tool_result.v1"
 
 const supervisorToolCallTimeout = 30 * time.Second
+
+type supervisorAgentCodeTools struct {
+	Capabilities toolgateway.AgentCodeCapabilitySnapshot
+	Authority    json.RawMessage
+}
 
 type supervisorToolResultEnvelope struct {
 	Version   string            `json:"version"`
@@ -38,7 +44,12 @@ func supervisorStructuredToolSpecs(surface domain.ExecutionSurface,
 	permissionMode domain.RunExecutionPermissionMode,
 	skillCandidateEnabled bool,
 	debugTerminalEnabled bool,
+	agentCodeOptions ...supervisorAgentCodeTools,
 ) []llm.ToolSpec {
+	agentCode := toolgateway.AgentCodeCapabilitySnapshot{}
+	if len(agentCodeOptions) > 0 {
+		agentCode = agentCodeOptions[0].Capabilities
+	}
 	definitions := toolgateway.SupervisorToolDefinitions()
 	if phase == domain.ExecutionPhasePlan {
 		definitions = toolgateway.PlanPhaseSupervisorToolDefinitions()
@@ -65,6 +76,11 @@ func supervisorStructuredToolSpecs(surface domain.ExecutionSurface,
 			Parameters: append(json.RawMessage(nil), definition.InputSchema...),
 		})
 	}
+	for _, definition := range agentCode.VisibleDefinitions() {
+		out = append(out, llm.ToolSpec{Name: string(definition.Name),
+			Description: definition.Description,
+			Parameters:  append(json.RawMessage(nil), definition.InputSchema...)})
+	}
 	return out
 }
 
@@ -73,7 +89,14 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 	permissionMode domain.RunExecutionPermissionMode,
 	skillCandidateEnabled bool,
 	debugTerminalEnabled bool,
+	agentCodeOptions ...supervisorAgentCodeTools,
 ) ([]llm.ToolCall, error) {
+	agentCode := toolgateway.AgentCodeCapabilitySnapshot{}
+	var agentCodeAuthority json.RawMessage
+	if len(agentCodeOptions) > 0 {
+		agentCode = agentCodeOptions[0].Capabilities
+		agentCodeAuthority = agentCodeOptions[0].Authority
+	}
 	if len(calls) == 0 || len(calls) > domain.MaxSupervisorToolCallsPerRound {
 		return nil, fmt.Errorf("supervisor tool batch must contain 1 to %d calls",
 			domain.MaxSupervisorToolCallsPerRound)
@@ -95,8 +118,20 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 			name != toolgateway.HostCommandProposeTool &&
 			name != toolgateway.DockerSandboxRunProposeTool &&
 			name != toolgateway.SkillCandidateProposeTool &&
-			name != toolgateway.DebugTerminalTool {
+			name != toolgateway.DebugTerminalTool && !toolgateway.IsAgentCodeTool(name) {
 			return nil, fmt.Errorf("provider requested unsupported supervisor tool %q", call.Name)
+		}
+		if toolgateway.IsAgentCodeTool(name) {
+			available := false
+			for _, capability := range agentCode.Tools {
+				if capability.Name == name && capability.Available {
+					available = true
+					break
+				}
+			}
+			if !available || len(agentCodeAuthority) == 0 {
+				return nil, fmt.Errorf("provider requested unavailable agent code tool %q", call.Name)
+			}
 		}
 		if name == toolgateway.PlanDeliveryProposeTool && phase != domain.ExecutionPhasePlan {
 			return nil, errors.New("provider requested Plan/Delivery proposal outside Plan phase")
@@ -135,8 +170,45 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 		}
 		seen[callID] = struct{}{}
 		out[index] = llm.ToolCall{ID: callID, Name: string(name), Arguments: payload}
+		if toolgateway.IsAgentCodeTool(name) {
+			out[index].Authority = append(json.RawMessage(nil), agentCodeAuthority...)
+		}
 	}
 	return out, nil
+}
+
+func (s *RunSupervisor) supervisorAgentCodeCapabilities(ctx context.Context,
+	turn domain.SupervisorTurn, permission domain.RunExecutionPermissionSnapshot,
+) (toolgateway.AgentCodeCapabilitySnapshot, json.RawMessage, error) {
+	store, ok := s.store.(AgentCodeToolStore)
+	if !ok || turn.Mode.Surface != domain.ExecutionSurfaceCode ||
+		strings.TrimSpace(turn.Mission.WorkspaceID) == "" {
+		return toolgateway.AgentCodeCapabilitySnapshot{}, nil, nil
+	}
+	registered, err := store.GetWorkspaceInfo(ctx, turn.Mission.WorkspaceID)
+	if err != nil {
+		return toolgateway.AgentCodeCapabilitySnapshot{}, nil, apperror.Normalize(err)
+	}
+	rootFingerprint, err := workspace.AgentCodeRootFingerprint(registered.RootPath)
+	if err != nil {
+		return toolgateway.AgentCodeCapabilitySnapshot{}, nil, apperror.Normalize(err)
+	}
+	scope := toolgateway.AgentCodeCapabilityContext{RunID: turn.Run.ID,
+		MissionID: turn.Mission.ID, RootAgentID: turn.Agent.ID,
+		WorkspaceID: turn.Mission.WorkspaceID, RootFingerprint: rootFingerprint,
+		Surface: turn.Mode.Surface, Phase: turn.Mode.Phase, Role: turn.Agent.Role,
+		Profile: turn.Mode.Profile, PermissionMode: permission.Mode,
+		ModeRevision: turn.Mode.Revision, PermissionRevision: permission.Revision}
+	snapshot := toolgateway.AgentCodeCapabilities(scope)
+	authority, err := toolgateway.NewAgentCodeCallAuthority(scope, turn.Run.SessionID)
+	if err != nil {
+		return toolgateway.AgentCodeCapabilitySnapshot{}, nil, err
+	}
+	encoded, err := toolgateway.EncodeAgentCodeCallAuthority(authority)
+	if err != nil {
+		return toolgateway.AgentCodeCapabilitySnapshot{}, nil, err
+	}
+	return snapshot, encoded, nil
 }
 
 func supervisorToolOperationKey(runID string, turn int, name toolgateway.ToolName,
@@ -170,14 +242,36 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 ) (domain.SupervisorToolResult, error) {
 	name := toolgateway.ToolName(call.ToolName)
 	operationKey := supervisorToolOperationKey(call.RunID, call.Turn, name, json.RawMessage(call.PayloadJSON))
-	toolCtx, cancelTool := context.WithTimeout(ctx, supervisorToolCallTimeout)
-	outcome, err := s.tools.Invoke(toolCtx, toolgateway.ToolCall{
+	toolCall := toolgateway.ToolCall{
 		Name: name, Payload: json.RawMessage(call.PayloadJSON), OperationKey: operationKey,
 		RunID: call.RunID, AgentID: turn.Agent.ID, SessionID: turn.Run.SessionID,
 		WorkspaceID: turn.Mission.WorkspaceID,
 		LeaseID:     turn.Checkpoint.LeaseID, LeaseGeneration: turn.Checkpoint.LeaseGeneration,
 		RequestedBy: "run_supervisor",
-	})
+	}
+	if toolgateway.IsAgentCodeTool(name) {
+		authority, authorityErr := toolgateway.DecodeAgentCodeCallAuthority(
+			json.RawMessage(call.AuthorityJSON))
+		if authorityErr != nil || authority.RunID != call.RunID ||
+			authority.RootAgentID != turn.Agent.ID || authority.SessionID != turn.Run.SessionID ||
+			authority.MissionID != turn.Mission.ID ||
+			authority.WorkspaceID != turn.Mission.WorkspaceID {
+			return domain.SupervisorToolResult{}, apperror.New(apperror.CodeFailedPrecondition,
+				"durable agent code tool authority does not match the active Supervisor turn")
+		}
+		toolCall.MissionID = authority.MissionID
+		toolCall.RootFingerprint = authority.RootFingerprint
+		toolCall.Surface = authority.Surface
+		toolCall.Phase = authority.Phase
+		toolCall.Role = authority.Role
+		toolCall.Profile = authority.Profile
+		toolCall.PermissionMode = authority.PermissionMode
+		toolCall.ModeRevision = authority.ModeRevision
+		toolCall.PermissionRevision = authority.PermissionRevision
+		toolCall.CapabilityGeneration = authority.CapabilityGeneration
+	}
+	toolCtx, cancelTool := context.WithTimeout(ctx, supervisorToolCallTimeout)
+	outcome, err := s.tools.Invoke(toolCtx, toolCall)
 	toolContextErr := toolCtx.Err()
 	cancelTool()
 	if ctx.Err() != nil {
@@ -231,7 +325,7 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		Version: supervisorToolResultVersion, Tool: call.ToolName, Status: string(status),
 		Metadata: metadata, Code: code, Message: message,
 	}
-	if name == toolgateway.DebugTerminalTool {
+	if name == toolgateway.DebugTerminalTool || toolgateway.IsAgentCodeTool(name) {
 		envelope.Stdout = redact.String(outcome.Result.Stdout)
 		envelope.Stderr = redact.String(outcome.Result.Stderr)
 		envelope.Truncated = outcome.Result.Truncated
@@ -253,8 +347,8 @@ func recoverableSupervisorToolError(name toolgateway.ToolName,
 	case apperror.CodeInvalidArgument, apperror.CodeConflict,
 		apperror.CodeResourceExhausted, apperror.CodeDeadlineExceeded:
 		return true
-	case apperror.CodeFailedPrecondition, apperror.CodeNotFound:
-		return name == toolgateway.DebugTerminalTool
+	case apperror.CodeFailedPrecondition, apperror.CodeNotFound, apperror.CodePolicyDenied:
+		return name == toolgateway.DebugTerminalTool || toolgateway.IsAgentCodeTool(name)
 	default:
 		return false
 	}

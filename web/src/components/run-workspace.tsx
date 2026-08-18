@@ -462,6 +462,7 @@ function RunOverview({ client, detail }: { client: CyberAgentClient; detail: Run
       <ActiveCallCancelPanel client={client} detail={detail} />
       <RunWakePanel client={client} detail={detail} />
       <ExecutionBoundarySummary detail={detail} />
+      <AgentCodeToolsPanel detail={detail} />
       <section className="detail-section">
         <h2>执行状态</h2>
         <dl className="detail-grid">
@@ -488,6 +489,32 @@ function RunOverview({ client, detail }: { client: CyberAgentClient; detail: Run
       {detail.external_skills && <ExternalSkillsSection client={client} initial={detail.external_skills} runID={detail.run.id} />}
     </div>
   );
+}
+
+function AgentCodeToolsPanel({ detail }: { detail: RunDetailView }) {
+  const { t } = useLocale();
+  const snapshot = detail.agent_code_tools;
+  const available = snapshot.tools.filter((tool) => tool.available).length;
+  return <section className="detail-section">
+    <div className="section-heading">
+      <h2>{t("模型工作区工具", "Model workspace tools")}</h2>
+      <span>{available}/{snapshot.tools.length} · {shortID(snapshot.generation)}</span>
+    </div>
+    <dl className="detail-grid compact">
+      <KeyValue label={t("协议", "Protocol")} value={snapshot.protocol_version} />
+      <KeyValue label={t("作用域", "Scope")}
+        value={`${snapshot.surface}/${snapshot.phase}/${snapshot.role}/${snapshot.profile}`} />
+    </dl>
+    <div className="steering-list" aria-label={t("模型工作区工具能力", "Model workspace tool capabilities")}>
+      {snapshot.tools.map((tool) => <div className="steering-row" key={tool.name}>
+        <code>{tool.name}</code>
+        <StatusBadge status={tool.available ? "available" : "unavailable"} />
+        <span>{tool.source} · {tool.available
+          ? `${tool.class} · ${tool.approval}`
+          : tool.refusal_reason ?? t("当前模式不可用", "Unavailable in the current mode")}</span>
+      </div>)}
+    </div>
+  </section>;
 }
 
 export function RunControlPanel({ client, detail }: {

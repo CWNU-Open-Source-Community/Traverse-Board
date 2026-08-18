@@ -340,6 +340,7 @@ func migrationPlan() []migration {
 		{Version: 111, Name: "mode-aware external Skill installation ledger", Statements: skillPackageModeMetadataStatements},
 		{Version: 112, Name: "review-gated untrusted Skill candidates", Statements: skillCandidateReviewStatements},
 		{Version: 113, Name: "debug terminal Supervisor tool ledger", Statements: debugTerminalSupervisorLedgerStatements},
+		{Version: 114, Name: "model-callable agent code tools and guarded file mutations", Statements: agentCodeToolStatements},
 	}
 }
 
@@ -840,6 +841,11 @@ func (s *SQLiteStore) SaveFileEdit(ctx context.Context, edit fileedit.Edit) (fil
 	if strings.TrimSpace(edit.Status) == "" {
 		edit.Status = fileedit.StatusProposed
 	}
+	operation, err := fileedit.NormalizeOperation(edit.Operation)
+	if err != nil {
+		return fileedit.Edit{}, err
+	}
+	edit.Operation = operation
 	redactedOriginal := redact.String(edit.OriginalText)
 	redactedProposed := redact.String(edit.ProposedText)
 	if redactedOriginal != edit.OriginalText || redactedProposed != edit.ProposedText {
@@ -870,24 +876,32 @@ func (s *SQLiteStore) SaveFileEdit(ctx context.Context, edit fileedit.Edit) (fil
 		return fileedit.Edit{}, lookupErr
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO file_edits
-		(id, session_id, workspace_id, path, status, original_text, proposed_text, diff_text,
-		 original_hash, proposed_hash, reason, secrets_redacted, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(id, session_id, workspace_id, path, operation_kind, destination_path, status,
+		 original_text, proposed_text, diff_text, original_hash, proposed_hash,
+		 destination_original_hash, destination_proposed_hash,
+		 reason, secrets_redacted, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			session_id=excluded.session_id,
 			workspace_id=excluded.workspace_id,
 			path=excluded.path,
+			operation_kind=excluded.operation_kind,
+			destination_path=excluded.destination_path,
 			status=excluded.status,
 			original_text=excluded.original_text,
 			proposed_text=excluded.proposed_text,
 			diff_text=excluded.diff_text,
 			original_hash=excluded.original_hash,
 			proposed_hash=excluded.proposed_hash,
+			destination_original_hash=excluded.destination_original_hash,
+			destination_proposed_hash=excluded.destination_proposed_hash,
 			reason=excluded.reason,
 			secrets_redacted=excluded.secrets_redacted,
 			updated_at=excluded.updated_at`,
-		edit.ID, edit.SessionID, edit.WorkspaceID, edit.Path, edit.Status, edit.OriginalText,
-		edit.ProposedText, edit.Diff, edit.OriginalHash, edit.ProposedHash, edit.Reason,
+		edit.ID, edit.SessionID, edit.WorkspaceID, edit.Path, edit.Operation,
+		edit.DestinationPath, edit.Status, edit.OriginalText,
+		edit.ProposedText, edit.Diff, edit.OriginalHash, edit.ProposedHash,
+		edit.DestinationOriginalHash, edit.DestinationProposedHash, edit.Reason,
 		boolInt(edit.SecretsRedacted), ts(edit.CreatedAt), ts(edit.UpdatedAt))
 	if err != nil {
 		return fileedit.Edit{}, err
@@ -905,15 +919,19 @@ func (s *SQLiteStore) SaveFileEdit(ctx context.Context, edit fileedit.Edit) (fil
 }
 
 func (s *SQLiteStore) GetFileEdit(ctx context.Context, id string) (fileedit.Edit, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, session_id, workspace_id, path, status, original_text,
-		proposed_text, diff_text, original_hash, proposed_hash, reason, secrets_redacted, created_at, updated_at
+	row := s.db.QueryRowContext(ctx, `SELECT id, session_id, workspace_id, path, operation_kind,
+		destination_path, status, original_text, proposed_text, diff_text, original_hash,
+		proposed_hash, destination_original_hash, destination_proposed_hash,
+		reason, secrets_redacted, created_at, updated_at
 		FROM file_edits WHERE id = ?`, id)
 	return scanFileEdit(row)
 }
 
 func (s *SQLiteStore) ListFileEdits(ctx context.Context, filter fileedit.ListFilter) ([]fileedit.Edit, error) {
-	query := `SELECT id, session_id, workspace_id, path, status, original_text, proposed_text, diff_text,
-		original_hash, proposed_hash, reason, secrets_redacted, created_at, updated_at FROM file_edits WHERE 1=1`
+	query := `SELECT id, session_id, workspace_id, path, operation_kind, destination_path,
+		status, original_text, proposed_text, diff_text, original_hash, proposed_hash,
+		destination_original_hash, destination_proposed_hash, reason, secrets_redacted,
+		created_at, updated_at FROM file_edits WHERE 1=1`
 	var args []any
 	if strings.TrimSpace(filter.SessionID) != "" {
 		query += ` AND session_id = ?`
@@ -1008,8 +1026,10 @@ func scanFileEdit(row scanner) (fileedit.Edit, error) {
 	var secretsRedacted int
 	var created string
 	var updated string
-	if err := row.Scan(&edit.ID, &edit.SessionID, &edit.WorkspaceID, &edit.Path, &edit.Status,
+	if err := row.Scan(&edit.ID, &edit.SessionID, &edit.WorkspaceID, &edit.Path,
+		&edit.Operation, &edit.DestinationPath, &edit.Status,
 		&edit.OriginalText, &edit.ProposedText, &edit.Diff, &edit.OriginalHash, &edit.ProposedHash,
+		&edit.DestinationOriginalHash, &edit.DestinationProposedHash,
 		&edit.Reason, &secretsRedacted, &created, &updated); err != nil {
 		return fileedit.Edit{}, err
 	}
@@ -1025,7 +1045,9 @@ func scanFileEditPreview(row scanner) (fileedit.Preview, error) {
 	var created string
 	var updated string
 	if err := row.Scan(&preview.ID, &preview.SessionID, &preview.WorkspaceID, &preview.Path,
+		&preview.Operation, &preview.DestinationPath,
 		&preview.Status, &preview.Diff, &preview.OriginalHash, &preview.ProposedHash,
+		&preview.DestinationOriginalHash, &preview.DestinationProposedHash,
 		&preview.Reason, &secretsRedacted, &created, &updated); err != nil {
 		return fileedit.Preview{}, err
 	}

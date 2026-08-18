@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/runactivity"
+	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/workspace"
 )
 
@@ -543,7 +545,8 @@ func (a *API) runFileEditChangeSet(request *http.Request,
 		applyEnabled := a.fileEditApplyEnabled && value.Status == fileedit.StatusApproved &&
 			!run.Terminal()
 		items[index] = FileEditChangeSetItemView{
-			ID: value.ID, Path: value.Path, Status: value.Status,
+			ID: value.ID, Path: value.Path, Operation: value.Operation,
+			DestinationPath: value.DestinationPath, Status: value.Status,
 			DiffBytes: len([]byte(value.Diff)), SecretsRedacted: value.SecretsRedacted,
 			AllowedActions: preview.AllowedActions, ApplyEnabled: applyEnabled,
 			UpdatedAt: value.UpdatedAt,
@@ -795,6 +798,11 @@ func (a *API) run(request *http.Request, runID string) (any, *Page, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	agentCodeTools, err := a.runAgentCodeCapabilities(request.Context(), run, mission,
+		mode, executionPermission)
+	if err != nil {
+		return nil, nil, err
+	}
 	detail := RunDetailView{Run: runView(run), Mission: missionView(mission),
 		Mode: runModeView(mode), ExecutionProfile: runExecutionProfileView(executionProfile),
 		ExecutionPermission: runExecutionPermissionView(
@@ -802,7 +810,7 @@ func (a *API) run(request *http.Request, runID string) (any, *Page, error) {
 		BrowserCDPPermission: runBrowserCDPPermissionView(browserCDPPermission,
 			a.browserCDPPermissionCapabilities, executionPermission),
 		ExecutionInteraction: runExecutionInteractionView(executionInteraction),
-		ToolUsage:            toolUsageView(usage)}
+		ToolUsage:            toolUsageView(usage), AgentCodeTools: agentCodeTools}
 	checkpoint, found, err := a.store.GetSupervisorCheckpoint(request.Context(), run.ID)
 	if err != nil {
 		return nil, nil, err
@@ -897,6 +905,65 @@ func (a *API) run(request *http.Request, runID string) (any, *Page, error) {
 		detail.PlanDelivery = &state
 	}
 	return detail, nil, nil
+}
+
+func (a *API) runAgentCodeCapabilities(ctx context.Context, run domain.Run,
+	mission domain.Mission, mode domain.RunModeSnapshot,
+	permission domain.RunExecutionPermissionSnapshot,
+) (AgentCodeCapabilitiesView, error) {
+	rootFingerprint := ""
+	unavailableReason := ""
+	if mission.WorkspaceID == "" {
+		unavailableReason = "Run has no registered Workspace"
+	} else {
+		registered, err := a.store.GetWorkspaceInfo(ctx, mission.WorkspaceID)
+		if err != nil {
+			return AgentCodeCapabilitiesView{}, err
+		}
+		rootFingerprint, err = workspace.AgentCodeRootFingerprint(registered.RootPath)
+		if err != nil {
+			unavailableReason = "registered Workspace root is unavailable"
+		}
+	}
+	nodes, err := a.store.ListAgentNodes(ctx, run.ID)
+	if err != nil {
+		return AgentCodeCapabilitiesView{}, err
+	}
+	var root domain.AgentNode
+	for _, node := range nodes {
+		if node.Role != domain.AgentRoleRoot {
+			continue
+		}
+		if root.ID != "" {
+			return AgentCodeCapabilitiesView{}, apperror.New(apperror.CodeFailedPrecondition,
+				"Run has more than one root Agent")
+		}
+		root = node
+	}
+	if root.ID == "" {
+		if unavailableReason == "" {
+			unavailableReason = "Run root Agent is unavailable"
+		}
+		root.Role = domain.AgentRoleRoot
+		root.Profile = mode.Profile
+	}
+	snapshot := toolgateway.AgentCodeCapabilities(toolgateway.AgentCodeCapabilityContext{
+		RunID: run.ID, MissionID: mission.ID, RootAgentID: root.ID,
+		WorkspaceID: mission.WorkspaceID, RootFingerprint: rootFingerprint,
+		Surface: mode.Surface, Phase: mode.Phase, Role: root.Role, Profile: root.Profile,
+		PermissionMode: permission.Mode, ModeRevision: mode.Revision,
+		PermissionRevision: permission.Revision, UnavailableReason: unavailableReason})
+	tools := make([]AgentCodeToolCapabilityView, len(snapshot.Tools))
+	for index, item := range snapshot.Tools {
+		tools[index] = AgentCodeToolCapabilityView{Name: string(item.Name),
+			Class: string(item.Class), Source: item.Source, ReadOnly: item.ReadOnly,
+			Approval: item.Approval, Available: item.Available,
+			RefusalReason: item.Refusal}
+	}
+	return AgentCodeCapabilitiesView{ProtocolVersion: snapshot.ProtocolVersion,
+		Generation: snapshot.Generation, Surface: snapshot.Surface, Phase: snapshot.Phase,
+		Role: snapshot.Role, Profile: snapshot.Profile,
+		PermissionMode: snapshot.PermissionMode, Tools: tools}, nil
 }
 
 func (a *API) runEvents(request *http.Request, runID string) (any, *Page, error) {

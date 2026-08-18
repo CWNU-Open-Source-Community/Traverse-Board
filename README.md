@@ -66,6 +66,19 @@ CLI / TUI / React / Windows Desktop / CI
 | 扩展 | 模式感知的惰性 Skill 包、生成候选人工审查、Provider/Tool 接口、Go/Rust JSON 协议、内嵌 WASI Analyzer、Sandbox 合同与默认关闭的 network-none Docker 产品执行 |
 | 客户端 | `cyberagent` CLI、Bubble Tea TUI、认证 HTTP/OpenAPI、React/Vite、Windows/macOS Desktop 便携预览 |
 
+### 模型可调用的工作区工具
+
+Schema v114 引入 `agent-code-tools.v1`，让 root Supervisor 能在真实 Workspace 中完成多轮“搜索 -> 阅读 -> 修改”闭环，同时不把文件系统权限交给模型。可用性由 Go 按 Run、Mission、Workspace、根目录指纹、Surface、Phase、Role、Profile、权限档及各自 revision 生成；模型只能提交符合 JSON Schema 的参数，不能伪造或扩大这份 authority。
+
+| 模式 | 可用工具 |
+|---|---|
+| Code / Plan / root | `workspace_list`、`workspace_read`、`workspace_glob`、`workspace_grep` |
+| Code / Deliver / root（Code 或 Script Profile） | 上述只读工具，加 `workspace_change`、`workspace_apply`、`workspace_delete` |
+| Code / Deliver / root（Review 或 Learn Profile） | 仅上述只读工具 |
+| Cyber Surface 或 Specialist | 不公开任何 `agent-code-tools.v1` 工具，并在 capability 快照中说明拒绝原因 |
+
+只读结果稳定排序、分页且有界，并拒绝根目录逃逸、大小写别名、未列入 Go allowlist 的隐藏项（仅 `.github` 作为代码证据开放）、忽略项、链接或重解析点、二进制、非 UTF-8 与超限文件。`workspace_change` 只创建 replace/create/move 提案；`workspace_delete` 是独立、需精确确认的删除提案；`workspace_apply` 只能应用已经批准的精确版本，并重新检查原文件与目标文件哈希，避免审阅后内容漂移。每次调用、结果/拒绝、authority 快照、预算消耗与有界 Artifact 都进入可恢复 Supervisor 账本。`cyberagent run show <run-id>`、Run Detail API 和 Desktop Run 页面可查看当前 generation、逐工具可用性与拒绝原因。该协议不授予 Shell、Git、网络或 Sandbox 权限；完整设计见[使用手册](docs/usage.md)和 [ADR 0115](docs/adr/0115-model-callable-workspace-tools.md)。
+
 ### 真实 Git、PowerShell 与 Bash
 
 Prayu 调用真实的 Git 和操作系统 Shell，不是命令模拟器；但它也不会给模型一个永久、无审阅的裸终端。当前 Code 工作流按风险拆成以下入口：
@@ -423,6 +436,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 | v111 | 保存 Surface/Phase/Role 与调用策略的外部 Skill 安装账本 | external-Skill installation ledger preserving Surface/Phase/Role and invocation policy |
 | v112 | 工具来源绑定、人工审查门禁的不可信 Skill 候选状态机 | tool-origin-bound, human-review-gated untrusted Skill candidate state machine |
 | v113 | 允许 Debug 终端进入 Supervisor 持久工具调用账本 | admit the debug terminal into the durable Supervisor tool-call ledger |
+| v114 | 模型可调用的工作区工具与哈希保护文件变更 | model-callable workspace tools and hash-guarded file mutations |
 
 </details>
 

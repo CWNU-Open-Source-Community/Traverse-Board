@@ -196,11 +196,6 @@ func prepareHarnessRequest(profile ModelHarness, workload HarnessWorkload,
 	default:
 		return ChatRequest{}, errors.New("model Harness workload is invalid")
 	}
-	if !profile.StrictJSONQualified {
-		return ChatRequest{}, fmt.Errorf(
-			"model Harness is not qualified for strict JSON (%s)",
-			profile.QualificationStatus)
-	}
 	if workload != HarnessWorkloadRoot {
 		request.Tools = nil
 	}
@@ -212,6 +207,11 @@ func prepareHarnessRequest(profile ModelHarness, workload HarnessWorkload,
 				"model Harness is not qualified for streamed tool calling (%s)",
 				profile.QualificationStatus)
 		}
+	}
+	if !profile.StrictJSONQualified {
+		return ChatRequest{}, fmt.Errorf(
+			"model Harness is not qualified for strict JSON (%s)",
+			profile.QualificationStatus)
 	}
 	switch profile.JSONStrategy {
 	case HarnessJSONStrategyNative:

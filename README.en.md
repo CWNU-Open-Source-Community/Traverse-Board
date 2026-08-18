@@ -66,6 +66,19 @@ The allowed direction is always `TypeScript -> Go -> LLM/Rust/Docker`. TypeScrip
 | Extension seams | Mode-aware inert Skill packages, human-reviewed generated candidates, Provider and Tool interfaces, Go/Rust JSON protocol, embedded WASI Analyzer, Sandbox contracts, and a network-none Docker product execution that is disabled by default |
 | Clients | `cyberagent` CLI, Bubble Tea TUI, authenticated HTTP/OpenAPI, React/Vite, and Windows/macOS Desktop portable preview |
 
+### Model-callable workspace tools
+
+Schema v114 introduces `agent-code-tools.v1`, allowing the root Supervisor to complete real multi-round `search -> read -> change` workflows without giving filesystem authority to the model. Go derives availability from the exact Run, Mission, Workspace, root fingerprint, Surface, Phase, Role, Profile, permission tier, and their revisions. The model can only submit schema-valid arguments and cannot mint or widen that authority.
+
+| Mode | Available tools |
+|---|---|
+| Code / Plan / root | `workspace_list`, `workspace_read`, `workspace_glob`, and `workspace_grep` |
+| Code / Deliver / root with Code or Script Profile | The read tools plus `workspace_change`, `workspace_apply`, and `workspace_delete` |
+| Code / Deliver / root with Review or Learn Profile | Read tools only |
+| Cyber Surface or Specialist | No `agent-code-tools.v1` tools are advertised; the capability snapshot records the refusal reason |
+
+Read results are deterministically ordered, paginated, and bounded. Root escape, casing aliases, hidden entries outside the Go allowlist (`.github` is the sole code-evidence exception), ignored entries, links or reparse points, binary/non-UTF-8 data, and oversized files fail closed. `workspace_change` creates replace/create/move proposals only; `workspace_delete` is a separate exactly confirmed deletion proposal; `workspace_apply` can apply only an approved exact revision and rechecks source and destination hashes to detect review-time drift. Calls, results or refusals, authority snapshots, budget charges, and bounded Artifacts enter the resumable Supervisor ledger. `cyberagent run show <run-id>`, the Run Detail API, and the Desktop Run page expose the current generation and per-tool availability. This protocol grants no Shell, Git, network, or Sandbox authority. See the [Usage Guide](docs/usage.md) and [ADR 0115](docs/adr/0115-model-callable-workspace-tools.md).
+
 ### Real Git, PowerShell, and Bash
 
 Prayu invokes real Git and operating-system shells; it is not a command emulator. It deliberately does not give the model a permanent, unreviewed raw terminal. The Code workflow separates execution by risk:

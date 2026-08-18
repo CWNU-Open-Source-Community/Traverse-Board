@@ -16,29 +16,50 @@ const (
 )
 
 type ApplyOperation struct {
-	ProtocolVersion    string
-	KeyDigest          string
-	RequestFingerprint string
-	RunID              string
-	SessionID          string
-	WorkspaceID        string
-	EditID             string
-	Path               string
-	OriginalHash       string
-	ProposedHash       string
-	ObservedHash       string
-	AppliedBy          string
-	EventSequence      int64
-	CreatedAt          time.Time
+	ProtocolVersion         string
+	KeyDigest               string
+	RequestFingerprint      string
+	RunID                   string
+	SessionID               string
+	WorkspaceID             string
+	EditID                  string
+	Operation               string
+	Path                    string
+	DestinationPath         string
+	OriginalHash            string
+	ProposedHash            string
+	ObservedHash            string
+	DestinationOriginalHash string
+	DestinationProposedHash string
+	DestinationObservedHash string
+	AppliedBy               string
+	EventSequence           int64
+	CreatedAt               time.Time
 }
 
 func (o ApplyOperation) Validate() error {
+	operation, err := NormalizeOperation(o.Operation)
+	if err != nil || operation != o.Operation {
+		return errors.New("FileEdit apply operation kind is invalid")
+	}
 	if o.ProtocolVersion != FileEditApplyProtocolVersion || !validDigest(o.KeyDigest) ||
-		!validDigest(o.RequestFingerprint) || !validDigest(o.ProposedHash) ||
+		!validDigest(o.RequestFingerprint) ||
+		(o.ProposedHash != missingHash && !validDigest(o.ProposedHash)) ||
 		(o.OriginalHash != missingHash && !validDigest(o.OriginalHash)) ||
 		(o.ObservedHash != o.OriginalHash && o.ObservedHash != o.ProposedHash) ||
 		o.EventSequence <= 0 || o.CreatedAt.IsZero() {
 		return errors.New("FileEdit apply operation metadata is invalid")
+	}
+	if operation == OperationMove {
+		if o.DestinationPath == "" || o.DestinationOriginalHash != missingHash ||
+			!validDigest(o.DestinationProposedHash) ||
+			(o.DestinationObservedHash != o.DestinationOriginalHash &&
+				o.DestinationObservedHash != o.DestinationProposedHash) {
+			return errors.New("FileEdit move apply destination metadata is invalid")
+		}
+	} else if o.DestinationPath != "" || o.DestinationOriginalHash != "" ||
+		o.DestinationProposedHash != "" || o.DestinationObservedHash != "" {
+		return errors.New("non-move FileEdit apply cannot contain destination metadata")
 	}
 	for _, value := range []string{o.RunID, o.SessionID, o.WorkspaceID, o.EditID,
 		o.Path, o.AppliedBy} {

@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/redact"
 )
 
@@ -54,7 +55,7 @@ const (
 // TypedActionIDs returns the registered typed-action registry. Project config
 // command fields may only reference these IDs — never Shell text or paths.
 func TypedActionIDs() map[string]struct{} {
-	return map[string]struct{}{
+	out := map[string]struct{}{
 		string(ReadFileTool):                    {},
 		string(ListWorkspaceTool):               {},
 		string(ReplaceFileTool):                 {},
@@ -68,9 +69,16 @@ func TypedActionIDs() map[string]struct{} {
 		string(OneShotCommandProposeTool):       {},
 		string(DockerSandboxRunProposeTool):     {},
 	}
+	for _, name := range agentCodeToolNames() {
+		out[string(name)] = struct{}{}
+	}
+	return out
 }
 
 func (n ToolName) Valid() bool {
+	if isAgentCodeTool(n) {
+		return true
+	}
 	switch n {
 	case ReadFileTool, ListWorkspaceTool, ShellTool, ReplaceFileTool, ScriptProcessTool,
 		WorkItemCreateTool, NoteCreateTool, PlanDeliveryProposeTool,
@@ -109,6 +117,9 @@ func (c ActionClass) Valid() bool {
 }
 
 func ClassForTool(name ToolName) (ActionClass, bool) {
+	if definition, found := AgentCodeToolDefinition(name); found {
+		return definition.Class, true
+	}
 	switch name {
 	case ReadFileTool, ListWorkspaceTool:
 		return ClassWorkspaceRead, true
@@ -170,19 +181,29 @@ func (s Status) Valid() bool {
 }
 
 type ToolCall struct {
-	Name            ToolName          `json:"name"`
-	Arguments       map[string]string `json:"arguments"`
-	Payload         json.RawMessage   `json:"payload,omitempty"`
-	InvocationID    string            `json:"invocation_id,omitempty"`
-	OperationKey    string            `json:"-"`
-	RunID           string            `json:"run_id,omitempty"`
-	AgentID         string            `json:"agent_id,omitempty"`
-	SessionID       string            `json:"session_id,omitempty"`
-	WorkspaceID     string            `json:"workspace_id,omitempty"`
-	LeaseID         string            `json:"-"`
-	LeaseGeneration int64             `json:"-"`
-	WorkspaceRoot   string            `json:"-"`
-	RequestedBy     string            `json:"requested_by,omitempty"`
+	Name                 ToolName                          `json:"name"`
+	Arguments            map[string]string                 `json:"arguments"`
+	Payload              json.RawMessage                   `json:"payload,omitempty"`
+	InvocationID         string                            `json:"invocation_id,omitempty"`
+	OperationKey         string                            `json:"-"`
+	RunID                string                            `json:"run_id,omitempty"`
+	AgentID              string                            `json:"agent_id,omitempty"`
+	SessionID            string                            `json:"session_id,omitempty"`
+	WorkspaceID          string                            `json:"workspace_id,omitempty"`
+	MissionID            string                            `json:"mission_id,omitempty"`
+	RootFingerprint      string                            `json:"root_fingerprint,omitempty"`
+	Surface              domain.ExecutionSurface           `json:"surface,omitempty"`
+	Phase                domain.ExecutionPhase             `json:"phase,omitempty"`
+	Role                 domain.AgentRole                  `json:"role,omitempty"`
+	Profile              domain.Profile                    `json:"profile,omitempty"`
+	PermissionMode       domain.RunExecutionPermissionMode `json:"permission_mode,omitempty"`
+	ModeRevision         int64                             `json:"mode_revision,omitempty"`
+	PermissionRevision   int64                             `json:"permission_revision,omitempty"`
+	CapabilityGeneration string                            `json:"capability_generation,omitempty"`
+	LeaseID              string                            `json:"-"`
+	LeaseGeneration      int64                             `json:"-"`
+	WorkspaceRoot        string                            `json:"-"`
+	RequestedBy          string                            `json:"requested_by,omitempty"`
 }
 
 func NormalizeToolCall(call ToolCall) (ToolCall, error) {
@@ -194,6 +215,14 @@ func NormalizeToolCall(call ToolCall) (ToolCall, error) {
 	call.AgentID = strings.TrimSpace(call.AgentID)
 	call.SessionID = strings.TrimSpace(call.SessionID)
 	call.WorkspaceID = strings.TrimSpace(call.WorkspaceID)
+	call.MissionID = strings.TrimSpace(call.MissionID)
+	call.RootFingerprint = strings.TrimSpace(call.RootFingerprint)
+	call.Surface = domain.ExecutionSurface(strings.TrimSpace(string(call.Surface)))
+	call.Phase = domain.ExecutionPhase(strings.TrimSpace(string(call.Phase)))
+	call.Role = domain.AgentRole(strings.TrimSpace(string(call.Role)))
+	call.Profile = domain.Profile(strings.TrimSpace(string(call.Profile)))
+	call.PermissionMode = domain.RunExecutionPermissionMode(strings.TrimSpace(string(call.PermissionMode)))
+	call.CapabilityGeneration = strings.TrimSpace(call.CapabilityGeneration)
 	call.LeaseID = strings.TrimSpace(call.LeaseID)
 	call.WorkspaceRoot = strings.TrimSpace(call.WorkspaceRoot)
 	call.RequestedBy = strings.TrimSpace(redact.String(call.RequestedBy))
@@ -204,6 +233,8 @@ func NormalizeToolCall(call ToolCall) (ToolCall, error) {
 		"invocation id": call.InvocationID, "operation key": call.OperationKey,
 		"run id": call.RunID, "agent id": call.AgentID, "session id": call.SessionID,
 		"workspace id": call.WorkspaceID, "lease id": call.LeaseID, "requester": call.RequestedBy,
+		"mission id": call.MissionID, "root fingerprint": call.RootFingerprint,
+		"capability generation": call.CapabilityGeneration,
 	} {
 		if !utf8.ValidString(value) {
 			return ToolCall{}, fmt.Errorf("tool %s must be valid UTF-8", label)
@@ -214,6 +245,19 @@ func NormalizeToolCall(call ToolCall) (ToolCall, error) {
 	}
 	if (call.LeaseID == "") != (call.LeaseGeneration == 0) || call.LeaseGeneration < 0 {
 		return ToolCall{}, errors.New("tool execution lease identity and generation are inconsistent")
+	}
+	if call.ModeRevision < 0 || call.PermissionRevision < 0 {
+		return ToolCall{}, errors.New("tool capability revisions cannot be negative")
+	}
+	if isAgentCodeTool(call.Name) {
+		if !call.Surface.Valid() || !call.Phase.Valid() || !domain.ValidAgentRole(call.Role) ||
+			call.PermissionMode.Valid() == false || call.ModeRevision <= 0 ||
+			call.PermissionRevision <= 0 || !validAgentCodeDigest(call.CapabilityGeneration, false) {
+			return ToolCall{}, errors.New("agent code tool capability binding is invalid")
+		}
+		if _, err := domain.ParseProfile(string(call.Profile)); err != nil {
+			return ToolCall{}, errors.New("agent code tool profile binding is invalid")
+		}
 	}
 	if strings.ContainsRune(call.OperationKey, 0) {
 		return ToolCall{}, errors.New("tool operation key cannot contain NUL")
@@ -260,8 +304,14 @@ func (c ToolCall) Validate() error {
 		return err
 	}
 	if normalized.Name != c.Name || !bytes.Equal(normalized.Payload, c.Payload) || normalized.InvocationID != c.InvocationID ||
-		normalized.OperationKey != c.OperationKey || normalized.RunID != c.RunID || normalized.SessionID != c.SessionID ||
+		normalized.OperationKey != c.OperationKey || normalized.RunID != c.RunID ||
+		normalized.AgentID != c.AgentID || normalized.SessionID != c.SessionID ||
 		normalized.WorkspaceID != c.WorkspaceID || normalized.LeaseID != c.LeaseID ||
+		normalized.MissionID != c.MissionID || normalized.RootFingerprint != c.RootFingerprint ||
+		normalized.Surface != c.Surface || normalized.Phase != c.Phase || normalized.Role != c.Role ||
+		normalized.Profile != c.Profile || normalized.PermissionMode != c.PermissionMode ||
+		normalized.ModeRevision != c.ModeRevision || normalized.PermissionRevision != c.PermissionRevision ||
+		normalized.CapabilityGeneration != c.CapabilityGeneration ||
 		normalized.LeaseGeneration != c.LeaseGeneration || normalized.WorkspaceRoot != c.WorkspaceRoot ||
 		normalized.RequestedBy != c.RequestedBy ||
 		!maps.Equal(normalized.Arguments, c.Arguments) {

@@ -119,6 +119,83 @@ func TestSupervisorToolBatchAndResultEventsAreAtomicAndReplayable(t *testing.T) 
 	}
 }
 
+func TestSupervisorAgentCodeAuthorityIsDurableAndRequired(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "supervisor-agent-code.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	mission, run := createStructuredToolTestRun(t, ctx, st, "durable agent code authority")
+	if _, err := application.NewRunService(st).Start(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	turn, err := st.BeginSupervisorTurn(ctx,
+		acquireTestRunExecutionLease(t, ctx, st, run.ID), "inspect workspace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	permission, err := st.GetRunExecutionPermission(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := toolgateway.AgentCodeCapabilityContext{RunID: run.ID, MissionID: mission.ID,
+		RootAgentID: turn.Agent.ID, WorkspaceID: mission.WorkspaceID,
+		RootFingerprint: strings.Repeat("c", 64), Surface: turn.Mode.Surface,
+		Phase: turn.Mode.Phase, Role: turn.Agent.Role, Profile: turn.Agent.Profile,
+		PermissionMode: permission.Mode, ModeRevision: turn.Mode.Revision,
+		PermissionRevision: permission.Revision}
+	authority, err := toolgateway.NewAgentCodeCallAuthority(scope, run.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorityJSON, err := toolgateway.EncodeAgentCodeCallAuthority(authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := toolgateway.NormalizeAgentCodePayload(toolgateway.WorkspaceListTool,
+		json.RawMessage(`{"version":"agent-code-tools.v1","path":".","limit":20}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	operationKey := runmutation.SupervisorToolOperationKey(run.ID,
+		turn.Checkpoint.NextTurn, string(toolgateway.WorkspaceListTool), string(payload))
+	callID, err := runmutation.SupervisorToolCallID(operationKey, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt := llm.ModelAttempt{Number: 1, TransportAttempt: 1, MaxAttempts: 1,
+		Provider: "test", Model: "model"}
+	if inserted, err := st.RecordSupervisorModelStarted(ctx, turn.Checkpoint, attempt); err != nil || !inserted {
+		t.Fatalf("start model attempt: inserted=%t err=%v", inserted, err)
+	}
+	attempt.Outcome = llm.OutcomeSuccess
+	checkpoint, err := st.RecordSupervisorModelCompleted(ctx, turn.Checkpoint, attempt,
+		llm.ChatResponse{Provider: "test", Model: "model",
+			Usage: llm.Usage{InputTokens: 1, OutputTokens: 1, TotalTokens: 2},
+			ToolCalls: []llm.ToolCall{{ID: callID, Name: string(toolgateway.WorkspaceListTool),
+				Arguments: payload, Authority: authorityJSON}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rounds, err := st.ListSupervisorToolRounds(ctx, checkpoint)
+	if err != nil || len(rounds) != 1 || len(rounds[0].Calls) != 1 ||
+		rounds[0].Calls[0].AuthorityJSON != string(authorityJSON) {
+		t.Fatalf("authority was not durable: %#v err=%v", rounds, err)
+	}
+
+	secondOperationKey := runmutation.SupervisorToolOperationKey(run.ID,
+		checkpoint.NextTurn, string(toolgateway.WorkspaceReadTool),
+		`{"version":"agent-code-tools.v1","path":"README.md","start_line":1,"end_line":1}`)
+	secondID, _ := runmutation.SupervisorToolCallID(secondOperationKey, 2)
+	if _, err := normalizeSupervisorToolCallsForStore([]llm.ToolCall{{ID: secondID,
+		Name:      string(toolgateway.WorkspaceReadTool),
+		Arguments: json.RawMessage(`{"version":"agent-code-tools.v1","path":"README.md","start_line":1,"end_line":1}`)}},
+		run.ID, checkpoint.NextTurn, 2); err == nil {
+		t.Fatal("agent code call without Go-issued authority was persisted")
+	}
+}
+
 func TestConcurrentSupervisorToolResultReplayConvergesAcrossStores(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "supervisor-tool-result-concurrency.db")
 	st, err := Open(path)
