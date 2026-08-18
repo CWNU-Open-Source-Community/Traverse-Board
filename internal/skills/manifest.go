@@ -24,6 +24,9 @@ const (
 	MaxNameBytes              = 64
 	MaxDescriptionRunes       = 512
 	MaxProfiles               = 4
+	MaxSurfaces               = 2
+	MaxPhases                 = 2
+	MaxRoles                  = 2
 	MaxToolDependencies       = 8
 	MaxContentPathBytes       = 256
 	MaxContentPathDepth       = 8
@@ -32,17 +35,23 @@ const (
 // Manifest is metadata only. ToolDependencies declare prerequisites; they do
 // not grant a Skill or an Agent permission to invoke those tools.
 type Manifest struct {
-	Protocol               string                 `json:"protocol"`
-	Name                   string                 `json:"name"`
-	Version                string                 `json:"version"`
-	Publisher              string                 `json:"publisher,omitempty"`
-	Description            string                 `json:"description"`
-	Profiles               []domain.Profile       `json:"profiles"`
-	ToolDependencies       []toolgateway.ToolName `json:"tool_dependencies"`
-	ContentPath            string                 `json:"content_path"`
-	ContentSHA256          string                 `json:"content_sha256"`
-	ContentBytes           int                    `json:"content_bytes"`
-	ContentTokenUpperBound int                    `json:"content_token_upper_bound"`
+	Protocol               string                    `json:"protocol"`
+	Name                   string                    `json:"name"`
+	Version                string                    `json:"version"`
+	Publisher              string                    `json:"publisher,omitempty"`
+	Description            string                    `json:"description"`
+	Profiles               []domain.Profile          `json:"profiles"`
+	Surfaces               []domain.ExecutionSurface `json:"surfaces,omitempty"`
+	Phases                 []domain.ExecutionPhase   `json:"phases,omitempty"`
+	Roles                  []domain.AgentRole        `json:"roles,omitempty"`
+	UserInvocable          bool                      `json:"user_invocable,omitempty"`
+	ModelInvocable         bool                      `json:"model_invocable,omitempty"`
+	ExplicitOnly           bool                      `json:"explicit_only,omitempty"`
+	ToolDependencies       []toolgateway.ToolName    `json:"tool_dependencies"`
+	ContentPath            string                    `json:"content_path"`
+	ContentSHA256          string                    `json:"content_sha256"`
+	ContentBytes           int                       `json:"content_bytes"`
+	ContentTokenUpperBound int                       `json:"content_token_upper_bound"`
 }
 
 // MaxPublisherBytes bounds the publisher identity inside a signed manifest.
@@ -80,6 +89,9 @@ func (m Manifest) Validate(content []byte) error {
 		return err
 	}
 	if err := validateProfiles(m.Profiles); err != nil {
+		return err
+	}
+	if err := validateModeMetadata(m); err != nil {
 		return err
 	}
 	if err := validateToolDependencies(m.Profiles, m.ToolDependencies); err != nil {
@@ -213,7 +225,8 @@ func toolCompatibleWithProfile(profile domain.Profile, dependency toolgateway.To
 	readOnly := dependency == toolgateway.ListWorkspaceTool || dependency == toolgateway.ReadFileTool
 	switch profile {
 	case domain.ProfileCode:
-		return readOnly || dependency == toolgateway.ReplaceFileTool
+		return readOnly || dependency == toolgateway.ReplaceFileTool ||
+			dependency == toolgateway.SkillCandidateProposeTool
 	case domain.ProfileReview, domain.ProfileLearn:
 		return readOnly
 	case domain.ProfileScript:
@@ -244,6 +257,9 @@ func validSHA256(value string) bool {
 
 func cloneManifest(manifest Manifest) Manifest {
 	manifest.Profiles = slices.Clone(manifest.Profiles)
+	manifest.Surfaces = slices.Clone(manifest.Surfaces)
+	manifest.Phases = slices.Clone(manifest.Phases)
+	manifest.Roles = slices.Clone(manifest.Roles)
 	manifest.ToolDependencies = slices.Clone(manifest.ToolDependencies)
 	return manifest
 }

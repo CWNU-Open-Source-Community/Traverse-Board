@@ -9,7 +9,9 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/runmutation"
+	"cyberagent-workbench/internal/skills"
 )
 
 func TestExternalSkillSelectionIsImmutableAndPinsInstallation(t *testing.T) {
@@ -76,6 +78,100 @@ func TestExternalSkillSelectionIsImmutableAndPinsInstallation(t *testing.T) {
 	}
 	assertExternalInstallationCanBeSelectedByAnotherRun(t, ctx, st)
 	assertExternalSelectionCannotCommitWithoutOperation(t, ctx, st)
+}
+
+func TestExternalSkillSelectionFreezesHistoricalBuiltinNameCollision(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "external-skill-builtin-collision.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	installation, installOperation, installResult := fixturePackageInstallation(t,
+		"doctor", "0.9.0", "historical-doctor-install", time.Now().UTC().Add(-time.Minute))
+	if _, _, _, err := st.PreparePackageInstallation(ctx, installation,
+		installOperation); err != nil {
+		t.Fatal(err)
+	}
+	installed, _, err := st.CompletePackageInstallation(ctx, installResult)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mission, run, err := application.NewRunService(st).Create(ctx,
+		application.CreateRunRequest{
+			Goal: "replay a historical external Skill selection", Profile: "review",
+			Budget: domain.Budget{MaxTurns: 2, MaxTokens: 2048},
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mode, err := st.GetRunMode(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createdAt := time.Now().UTC()
+	selection, err := skills.ResolveExternalSelection(skills.ResolveExternalSelectionRequest{
+		SelectionID: "historical-doctor-selection", RunID: run.ID, MissionID: mission.ID,
+		ModeSnapshotID: mode.ID, ModeRevision: mode.Revision, Surface: mode.Surface,
+		Profile: mission.Profile, Packages: []skills.InstalledPackage{installed},
+		TokenBudget: 1024, RequestedBy: "operator", Confirmed: true, CreatedAt: createdAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyDigest := runmutation.Fingerprint("external_skill_selection_operation.v1",
+		run.ID, "historical-doctor-selection-operation")
+	operation := skills.ExternalSelectionOperation{
+		KeyDigest: keyDigest, RequestFingerprint: skills.ExternalSelectionRequestFingerprint(selection),
+		SelectionID: selection.ID, RunID: run.ID, RequestedBy: selection.RequestedBy,
+		CreatedAt: selection.CreatedAt,
+	}
+	event, err := events.New(run.ID, mission.ID,
+		events.ExternalSkillSelectionCreatedEvent, "external_skills", selection.ID,
+		map[string]any{
+			"protocol": selection.ProtocolVersion, "surface": selection.Surface,
+			"profile": selection.Profile, "item_count": selection.ItemCount,
+			"token_budget":       selection.TokenBudget,
+			"token_upper_bound":  selection.TokenUpperBound,
+			"operator_confirmed": true, "context_delivery": true,
+			"tool_capability_grant": false,
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	event.CreatedAt = selection.CreatedAt
+	if _, replayed, err := st.CreateExternalSkillSelection(ctx, selection,
+		operation, event); err != nil || replayed {
+		t.Fatalf("seed historical external selection: replayed=%t err=%v", replayed, err)
+	}
+
+	service := application.NewExternalSkillSelectionService(st)
+	replayed, err := service.Select(ctx, application.SelectExternalSkillsRequest{
+		RunID: run.ID, PackageRefs: []string{"doctor@0.9.0"}, TokenBudget: 1024,
+		OperationKey: "historical-doctor-selection-operation", RequestedBy: "operator",
+		ConfirmUntrustedContext: true,
+	})
+	if err != nil || !replayed.Replayed || replayed.Selection.ID != selection.ID {
+		t.Fatalf("historical selection replay = %#v err=%v", replayed, err)
+	}
+
+	_, newRun, err := application.NewRunService(st).Create(ctx,
+		application.CreateRunRequest{
+			Goal: "reject a new external Skill collision", Profile: "review",
+			Budget: domain.Budget{MaxTurns: 2, MaxTokens: 2048},
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.Select(ctx, application.SelectExternalSkillsRequest{
+		RunID: newRun.ID, PackageRefs: []string{"doctor@0.9.0"}, TokenBudget: 1024,
+		OperationKey: "new-doctor-selection-operation", RequestedBy: "operator",
+		ConfirmUntrustedContext: true,
+	})
+	if apperror.CodeOf(err) != apperror.CodeConflict {
+		t.Fatalf("new built-in name collision error = %v", err)
+	}
 }
 
 func assertExternalInstallationCanBeSelectedByAnotherRun(t *testing.T, ctx context.Context,

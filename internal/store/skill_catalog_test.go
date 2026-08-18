@@ -47,9 +47,63 @@ func removeSchemaV107ForTestStatements() []string {
 }
 
 func removeSchemaV108ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV109ForTestStatements(), []string{
 		`DROP TABLE terminal_sessions`,
 		`DELETE FROM schema_migrations WHERE version = 108`,
+	}...)
+}
+
+func removeSchemaV109ForTestStatements() []string {
+	return append(removeSchemaV110ForTestStatements(), []string{
+		`DELETE FROM schema_migrations WHERE version = 109`,
+	}...)
+}
+
+func removeSchemaV110ForTestStatements() []string {
+	return append(removeSchemaV111ForTestStatements(), []string{
+		`DROP TRIGGER trg_root_mode_skill_context_commit_delete_immutable`,
+		`DROP TRIGGER trg_root_mode_skill_context_commit_update_immutable`,
+		`DROP TRIGGER trg_root_mode_skill_context_preparation_delete_immutable`,
+		`DROP TRIGGER trg_root_mode_skill_context_preparation_update_immutable`,
+		`DROP TRIGGER trg_root_mode_skill_context_commit_insert`,
+		`DROP TRIGGER trg_root_mode_skill_context_preparation_insert`,
+		`DROP TABLE root_mode_skill_context_commits`,
+		`DROP INDEX idx_root_mode_skill_context_run_turn`,
+		`DROP TABLE root_mode_skill_context_preparations`,
+		`DELETE FROM schema_migrations WHERE version = 110`,
+	}...)
+}
+
+func removeSchemaV111ForTestStatements() []string {
+	return append(removeSchemaV112ForTestStatements(), []string{
+		`DROP TRIGGER skill_package_installation_insert_guard`,
+		`ALTER TABLE skill_package_installations DROP COLUMN explicit_only`,
+		`ALTER TABLE skill_package_installations DROP COLUMN model_invocable`,
+		`ALTER TABLE skill_package_installations DROP COLUMN user_invocable`,
+		`ALTER TABLE skill_package_installations DROP COLUMN roles_json`,
+		`ALTER TABLE skill_package_installations DROP COLUMN phases_json`,
+		`ALTER TABLE skill_package_installations DROP COLUMN surfaces_json`,
+		skillPackageInstallationStatements[2],
+		`DELETE FROM schema_migrations WHERE version = 111`,
+	}...)
+}
+
+func removeSchemaV112ForTestStatements() []string {
+	return []string{
+		`DROP TRIGGER skill_candidate_imports_no_delete`,
+		`DROP TRIGGER skill_candidate_imports_no_update`,
+		`DROP TRIGGER skill_candidate_reviews_no_delete`,
+		`DROP TRIGGER skill_candidate_reviews_no_update`,
+		`DROP TRIGGER skill_candidates_no_delete`,
+		`DROP TRIGGER skill_candidates_no_update`,
+		`DROP TRIGGER skill_candidate_import_insert_guard`,
+		`DROP TRIGGER skill_candidate_review_insert_guard`,
+		`DROP TRIGGER skill_candidate_insert_guard`,
+		`DROP TABLE skill_candidate_imports`,
+		`DROP TABLE skill_candidate_reviews`,
+		`DROP INDEX idx_skill_candidates_run_created`,
+		`DROP TABLE skill_candidates`,
+		`DELETE FROM schema_migrations WHERE version = 112`,
 	}
 }
 func TestSkillCatalogMigrationAndRemovalChain(t *testing.T) {

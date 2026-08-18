@@ -96,13 +96,19 @@ func SupervisorToolDefinitions() []ToolDefinition {
 	controlled := controlledCommandProposalDefinition
 	controlled.InputSchema = append(json.RawMessage(nil), controlled.InputSchema...)
 	definitions = append(definitions, controlled)
+	oneShot := oneShotCommandProposalDefinition
+	oneShot.InputSchema = append(json.RawMessage(nil), oneShot.InputSchema...)
+	definitions = append(definitions, oneShot)
 	host := hostCommandProposalDefinition
 	host.InputSchema = append(json.RawMessage(nil), host.InputSchema...)
 	definitions = append(definitions, host)
 	dockerSandbox := dockerSandboxProposalDefinition
 	dockerSandbox.InputSchema = append(json.RawMessage(nil),
 		dockerSandbox.InputSchema...)
-	return append(definitions, dockerSandbox)
+	definitions = append(definitions, dockerSandbox)
+	candidate := skillCandidateProposalDefinition
+	candidate.InputSchema = append(json.RawMessage(nil), candidate.InputSchema...)
+	return append(definitions, candidate)
 }
 
 func SupervisorToolDefinition(name ToolName) (ToolDefinition, bool) {
@@ -119,6 +125,11 @@ func SupervisorToolDefinition(name ToolName) (ToolDefinition, bool) {
 		definition.InputSchema = append(json.RawMessage(nil), definition.InputSchema...)
 		return definition, true
 	}
+	if name == OneShotCommandProposeTool {
+		definition := oneShotCommandProposalDefinition
+		definition.InputSchema = append(json.RawMessage(nil), definition.InputSchema...)
+		return definition, true
+	}
 	if name == HostCommandProposeTool {
 		definition := hostCommandProposalDefinition
 		definition.InputSchema = append(json.RawMessage(nil), definition.InputSchema...)
@@ -132,6 +143,11 @@ func SupervisorToolDefinition(name ToolName) (ToolDefinition, bool) {
 	}
 	if name == ChildTaskProposeTool {
 		definition := childTaskProposeDefinition
+		definition.InputSchema = append(json.RawMessage(nil), definition.InputSchema...)
+		return definition, true
+	}
+	if name == SkillCandidateProposeTool {
+		definition := skillCandidateProposalDefinition
 		definition.InputSchema = append(json.RawMessage(nil), definition.InputSchema...)
 		return definition, true
 	}
@@ -160,12 +176,20 @@ func NormalizeSupervisorToolPayload(name ToolName, payload json.RawMessage) (jso
 		_, canonical, err := normalizeControlledCommandProposalPayload(payload)
 		return canonical, err
 	}
+	if name == OneShotCommandProposeTool {
+		_, canonical, err := normalizeOneShotCommandProposalPayload(payload)
+		return canonical, err
+	}
 	if name == HostCommandProposeTool {
 		_, canonical, err := normalizeHostCommandProposalPayload(payload)
 		return canonical, err
 	}
 	if name == DockerSandboxRunProposeTool {
 		_, canonical, err := normalizeDockerSandboxProposalPayload(payload)
+		return canonical, err
+	}
+	if name == SkillCandidateProposeTool {
+		_, canonical, err := normalizeSkillCandidatePayload(payload)
 		return canonical, err
 	}
 	return NormalizeStructuredMemoryPayload(name, payload)

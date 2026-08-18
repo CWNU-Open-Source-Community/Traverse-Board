@@ -22002,6 +22002,9 @@
           "context_injection_authorized": {
             "type": "boolean"
           },
+          "explicit_only": {
+            "type": "boolean"
+          },
           "import_command_execution": {
             "type": "boolean"
           },
@@ -22011,11 +22014,26 @@
           "import_provider_calls": {
             "type": "boolean"
           },
+          "model_invocable": {
+            "type": "boolean"
+          },
           "name": {
             "type": "string"
           },
           "package_fingerprint": {
             "type": "string"
+          },
+          "phases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "profiles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "protocol_version": {
             "enum": [
@@ -22032,6 +22050,12 @@
           "replayed": {
             "type": "boolean"
           },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "run_selection_authorized": {
             "type": "boolean"
           },
@@ -22042,6 +22066,12 @@
             ],
             "type": "string"
           },
+          "surfaces": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "tool_capability_grant": {
             "type": "boolean"
           },
@@ -22050,6 +22080,9 @@
               "operator_installed_untrusted"
             ],
             "type": "string"
+          },
+          "user_invocable": {
+            "type": "boolean"
           },
           "version": {
             "type": "string"
@@ -22060,6 +22093,13 @@
           "name",
           "version",
           "surface",
+          "profiles",
+          "surfaces",
+          "phases",
+          "roles",
+          "user_invocable",
+          "model_invocable",
+          "explicit_only",
           "trust_class",
           "archive_sha256",
           "package_fingerprint",

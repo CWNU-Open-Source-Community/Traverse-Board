@@ -90,9 +90,11 @@ func TestDesktopSkillPackagePreviewUsesOneTimePathlessSnapshot(t *testing.T) {
 		"confirmation_expires_at", "confirmation_handle",
 		"declared_tool_count", "declared_tools", "entry_count", "executable_asset_count",
 		"import_command_execution", "import_network_access", "import_provider_calls",
-		"install_hook_count", "installation_authorized", "name", "package_fingerprint",
-		"package_protocol", "profiles", "protocol_version", "risk_codes", "skill_protocol",
+		"install_hook_count", "installation_authorized", "model_invocable", "name",
+		"package_fingerprint", "package_protocol", "phases", "profiles", "protocol_version",
+		"risk_codes", "roles", "skill_protocol", "surfaces", "explicit_only",
 		"tool_capability_grant", "trust_class", "uncompressed_bytes", "validated", "version",
+		"user_invocable",
 	})
 	if _, err := bridge.Preview(context.Background(), selection.Handle); apperror.CodeOf(err) != apperror.CodeNotFound {
 		t.Fatalf("replayed handle error = %v, code = %s", err, apperror.CodeOf(err))

@@ -44,6 +44,12 @@ type SkillPackagePreview struct {
 	Name                   string    `json:"name"`
 	Version                string    `json:"version"`
 	Profiles               []string  `json:"profiles"`
+	Surfaces               []string  `json:"surfaces"`
+	Phases                 []string  `json:"phases"`
+	Roles                  []string  `json:"roles"`
+	UserInvocable          bool      `json:"user_invocable"`
+	ModelInvocable         bool      `json:"model_invocable"`
+	ExplicitOnly           bool      `json:"explicit_only"`
 	DeclaredTools          []string  `json:"declared_tools"`
 	DeclaredToolCount      int       `json:"declared_tool_count"`
 	ContentBytes           int       `json:"content_bytes"`
@@ -285,6 +291,19 @@ func projectSkillPackagePreview(value skills.PackagePreview) SkillPackagePreview
 	for index, profile := range value.Manifest.Profiles {
 		profiles[index] = string(profile)
 	}
+	surfaces := make([]string, len(value.Manifest.Surfaces))
+	for index, surface := range value.Manifest.Surfaces {
+		surfaces[index] = string(surface)
+	}
+	phases := make([]string, len(value.Manifest.Phases))
+	for index, phase := range value.Manifest.Phases {
+		phases[index] = string(phase)
+	}
+	roles := make([]string, len(value.Manifest.Roles))
+	for index, role := range value.Manifest.Roles {
+		roles[index] = string(role)
+	}
+	userInvocable, modelInvocable, explicitOnly := value.Manifest.InvocationPolicy()
 	tools := make([]string, len(value.Manifest.ToolDependencies))
 	for index, tool := range value.Manifest.ToolDependencies {
 		tools[index] = string(tool)
@@ -300,6 +319,12 @@ func projectSkillPackagePreview(value skills.PackagePreview) SkillPackagePreview
 		Name:                   value.Manifest.Name,
 		Version:                value.Manifest.Version,
 		Profiles:               profiles,
+		Surfaces:               surfaces,
+		Phases:                 phases,
+		Roles:                  roles,
+		UserInvocable:          userInvocable,
+		ModelInvocable:         modelInvocable,
+		ExplicitOnly:           explicitOnly,
 		DeclaredTools:          tools,
 		DeclaredToolCount:      len(tools),
 		ContentBytes:           value.Manifest.ContentBytes,
@@ -324,6 +349,9 @@ func projectSkillPackagePreview(value skills.PackagePreview) SkillPackagePreview
 
 func cloneSkillPackagePreview(value SkillPackagePreview) SkillPackagePreview {
 	value.Profiles = append([]string(nil), value.Profiles...)
+	value.Surfaces = append([]string(nil), value.Surfaces...)
+	value.Phases = append([]string(nil), value.Phases...)
+	value.Roles = append([]string(nil), value.Roles...)
 	value.DeclaredTools = append([]string(nil), value.DeclaredTools...)
 	value.RiskCodes = append([]string(nil), value.RiskCodes...)
 	return value

@@ -1,0 +1,18 @@
+{
+  "protocol": "skill.v1",
+  "name": "simplify",
+  "version": "1.0.0",
+  "description": "Evidence-gated post-verification simplification of dead code, duplication, abstractions, and dependencies.",
+  "profiles": ["code"],
+  "surfaces": ["code"],
+  "phases": ["deliver"],
+  "roles": ["root"],
+  "user_invocable": true,
+  "model_invocable": true,
+  "explicit_only": false,
+  "tool_dependencies": ["list_workspace", "read_file", "replace_file"],
+  "content_path": "SKILL.md",
+  "content_sha256": "9e0cbc75477bf932959d4d2bb55173cef9ff9818ce3d5c313b3b79b198cbafe3",
+  "content_bytes": 1082,
+  "content_token_upper_bound": 1082
+}

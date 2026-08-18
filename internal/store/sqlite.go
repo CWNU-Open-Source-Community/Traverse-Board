@@ -335,6 +335,10 @@ func migrationPlan() []migration {
 		{Version: 106, Name: "typed local Git mutation operations", Statements: gitMutationStatements},
 		{Version: 107, Name: "network-scoped remote Git and PR operations", Statements: gitRemoteStatements},
 		{Version: 108, Name: "debug terminal session ledger", Statements: terminalSessionStatements},
+		{Version: 109, Name: "complete Supervisor structured tool registry", Statements: supervisorToolRegistryStatements},
+		{Version: 110, Name: "phase-aware root Skill context subsets", Statements: rootModeSkillContextStatements},
+		{Version: 111, Name: "mode-aware external Skill installation ledger", Statements: skillPackageModeMetadataStatements},
+		{Version: 112, Name: "review-gated untrusted Skill candidates", Statements: skillCandidateReviewStatements},
 	}
 }
 

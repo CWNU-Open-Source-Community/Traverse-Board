@@ -224,7 +224,7 @@ func (g *Gateway) invokeOneShotCommandProposal(ctx context.Context, call ToolCal
 			StartedAt: started, CompletedAt: &completed},
 		Result: &Result{Status: StatusCompleted, ExitCode: 0, MIME: "application/json",
 			Metadata: map[string]string{"proposal_id": result.ProposalID,
-				"replayed": strconv.FormatBool(result.Replayed)}},
+				"replayed": strconv.FormatBool(result.Replayed)}, CompletedAt: completed},
 	}, nil
 }
 

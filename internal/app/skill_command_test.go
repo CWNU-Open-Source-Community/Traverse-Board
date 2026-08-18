@@ -23,10 +23,21 @@ func TestSkillCLIListsShowsAndValidatesBuiltinsWithoutRuntimeState(t *testing.T)
 	t.Setenv("CYBERAGENT_HOME", home)
 
 	listed, stderr, code := executeTestCommand(t, "skill", "list")
-	if code != 0 || stderr != "" || !strings.Contains(listed, "code@1.1.0") ||
-		!strings.Contains(listed, "learn@1.1.0") || !strings.Contains(listed, "review@1.1.0") ||
-		!strings.Contains(listed, "plan-delivery@1.1.0") ||
-		!strings.Contains(listed, "script@1.1.0") || !strings.Contains(listed, "context_injection: root_selected_and_specialist_minimized") ||
+	if code != 0 || stderr != "" || !strings.Contains(listed, "code@1.2.0") ||
+		!strings.Contains(listed, "learn@1.2.0") || !strings.Contains(listed, "review@1.3.0") ||
+		!strings.Contains(listed, "plan-delivery@1.2.0") ||
+		!strings.Contains(listed, "script@1.2.0") ||
+		!strings.Contains(listed, "doctor@1.0.0") ||
+		!strings.Contains(listed, "debug@1.0.0") ||
+		!strings.Contains(listed, "run-verify@1.0.0") ||
+		!strings.Contains(listed, "run-skill-generator@1.0.0") ||
+		!strings.Contains(listed, "focused-checks@1.0.0") ||
+		!strings.Contains(listed, "simplify@1.0.0") ||
+		!strings.Contains(listed, "security-review@1.0.0") ||
+		!strings.Contains(listed, "surfaces=code") ||
+		!strings.Contains(listed, "roles=root,specialist") ||
+		!strings.Contains(listed, "explicit_only=true") ||
+		!strings.Contains(listed, "context_injection: root_selected_and_specialist_minimized") ||
 		!strings.Contains(listed, "tool_capability_grant: disabled") {
 		t.Fatalf("unexpected skill list: code=%d stderr=%q output=%q", code, stderr, listed)
 	}
@@ -38,14 +49,18 @@ func TestSkillCLIListsShowsAndValidatesBuiltinsWithoutRuntimeState(t *testing.T)
 	}
 
 	filtered, stderr, code := executeTestCommand(t, "skill", "list", "--profile", "review")
-	if code != 0 || stderr != "" || !strings.Contains(filtered, "review@1.1.0") ||
-		!strings.Contains(filtered, "plan-delivery@1.1.0") ||
-		strings.Contains(filtered, "code@1.1.0") || strings.Contains(filtered, "script@1.1.0") {
+	if code != 0 || stderr != "" || !strings.Contains(filtered, "review@1.3.0") ||
+		!strings.Contains(filtered, "plan-delivery@1.2.0") ||
+		strings.Contains(filtered, "code@1.2.0") || strings.Contains(filtered, "script@1.2.0") {
 		t.Fatalf("unexpected profile filter: code=%d stderr=%q output=%q", code, stderr, filtered)
 	}
 
 	shown, stderr, code := executeTestCommand(t, "skill", "show", "code")
 	if code != 0 || stderr != "" || !strings.Contains(shown, "protocol: skill.v1") ||
+		!strings.Contains(shown, "surfaces: code") ||
+		!strings.Contains(shown, "phases: plan,deliver") ||
+		!strings.Contains(shown, "roles: root,specialist") ||
+		!strings.Contains(shown, "model_invocable: true") ||
 		!strings.Contains(shown, "tool_dependencies: list_workspace,read_file,replace_file") ||
 		!strings.Contains(shown, "content_sha256: 279113f9") ||
 		strings.Contains(shown, "The current runtime does not inject") {
@@ -53,7 +68,7 @@ func TestSkillCLIListsShowsAndValidatesBuiltinsWithoutRuntimeState(t *testing.T)
 	}
 
 	validated, stderr, code := executeTestCommand(t, "skill", "validate")
-	if code != 0 || stderr != "" || !strings.Contains(validated, "validated 5 built-in skill.v1 manifests") {
+	if code != 0 || stderr != "" || !strings.Contains(validated, "validated 12 built-in skill.v1 manifests") {
 		t.Fatalf("unexpected skill validation: code=%d stderr=%q output=%q", code, stderr, validated)
 	}
 	if _, err := os.Stat(filepath.Join(home, "cyberagent.db")); !os.IsNotExist(err) {
@@ -105,6 +120,12 @@ func TestSkillPackageValidateCLIIsReadOnlyMetadataOnlyAndInert(t *testing.T) {
 	if code != 0 || stderr != "" ||
 		!strings.Contains(output, "package_protocol: skill_package.v1") ||
 		!strings.Contains(output, "skill: external-review@1.0.0") ||
+		!strings.Contains(output, "surfaces: legacy") ||
+		!strings.Contains(output, "phases: legacy") ||
+		!strings.Contains(output, "roles: legacy") ||
+		!strings.Contains(output, "user_invocable: true") ||
+		!strings.Contains(output, "model_invocable: false") ||
+		!strings.Contains(output, "explicit_only: true") ||
 		!strings.Contains(output, "trust_class: operator_installed_untrusted") ||
 		!strings.Contains(output, "risk_codes: untrusted_instructions,declared_tools_not_capabilities") ||
 		!strings.Contains(output, "entry_count: 2") ||

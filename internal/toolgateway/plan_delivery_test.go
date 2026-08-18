@@ -34,8 +34,18 @@ const gatewayPlanDeliveryPayload = `{"version":"plan_delivery.v1","directions":[
 	`{"title":"C","summary":"C","tradeoffs":["C"],"modules":[{"title":"C","objective":"C","acceptance_criteria":["C"],"dependencies":[]}]}]}`
 
 func TestPlanDeliveryDefinitionIsPlanOnlyAndPayloadIsStrict(t *testing.T) {
-	if len(SupervisorToolDefinitions()) != 7 || len(PlanPhaseSupervisorToolDefinitions()) != 8 {
-		t.Fatal("Plan/Delivery tool leaked into the ordinary Supervisor tool set")
+	if len(SupervisorToolDefinitions()) != 9 || len(PlanPhaseSupervisorToolDefinitions()) != 9 {
+		t.Fatal("phase-specific Supervisor tool definitions have an unexpected size")
+	}
+	for _, current := range SupervisorToolDefinitions() {
+		if current.Name == PlanDeliveryProposeTool {
+			t.Fatal("Plan/Delivery tool leaked into the Deliver Supervisor tool set")
+		}
+	}
+	for _, current := range PlanPhaseSupervisorToolDefinitions() {
+		if current.Name == SkillCandidateProposeTool {
+			t.Fatal("Skill candidate tool leaked into the Plan Supervisor tool set")
+		}
 	}
 	definition, found := SupervisorToolDefinition(PlanDeliveryProposeTool)
 	if !found || definition.Class != ClassAgentProposal ||

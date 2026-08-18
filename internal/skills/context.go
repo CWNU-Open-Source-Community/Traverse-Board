@@ -41,9 +41,14 @@ type ContextAssembly struct {
 	SelectionID          string
 	RunID                string
 	MissionID            string
+	Surface              domain.ExecutionSurface
+	Phase                domain.ExecutionPhase
 	Profile              domain.Profile
+	Role                 domain.AgentRole
+	ModeBound            bool
 	SelectionFingerprint string
 	Fingerprint          string
+	SelectionItemCount   int
 	TokenBudget          int
 	TokenUpperBound      int
 	ItemCount            int
@@ -60,8 +65,13 @@ type RootContextPreparationRequest struct {
 	SelectionID          string
 	ProtocolVersion      string
 	Profile              domain.Profile
+	ModeSnapshotID       string
+	ModeRevision         int64
+	Surface              domain.ExecutionSurface
+	Phase                domain.ExecutionPhase
 	SelectionFingerprint string
 	ContextFingerprint   string
+	SelectionItemCount   int
 	ItemCount            int
 	TokenBudget          int
 	TokenUpperBound      int
@@ -87,6 +97,17 @@ type RootContextCommit struct {
 // requires a complete persisted selection and revalidates every pinned tuple
 // against the immutable Registry before returning redacted in-memory text.
 func (r *Registry) AssembleContext(selection Selection) (ContextAssembly, error) {
+	return r.AssembleContextFor(selection, ExecutionContext{
+		Surface: domain.ExecutionSurfaceCode, Phase: domain.ExecutionPhaseDeliver,
+		Profile: selection.Profile, Role: domain.AgentRoleRoot,
+	})
+}
+
+// AssembleContextFor revalidates every pinned Registry tuple, then delivers
+// only the subset compatible with the active surface, phase, Profile, and role.
+func (r *Registry) AssembleContextFor(selection Selection,
+	execution ExecutionContext,
+) (ContextAssembly, error) {
 	if r == nil {
 		return ContextAssembly{}, errors.New("skill registry is required")
 	}
@@ -96,10 +117,17 @@ func (r *Registry) AssembleContext(selection Selection) (ContextAssembly, error)
 	if err := r.Validate(); err != nil {
 		return ContextAssembly{}, err
 	}
+	if err := execution.Validate(); err != nil {
+		return ContextAssembly{}, err
+	}
+	if execution.Profile != selection.Profile {
+		return ContextAssembly{}, errors.New("skill execution context does not match the persisted selection Profile")
+	}
 
 	items := make([]ContextItem, 0, len(selection.Items))
 	totalTokens := 0
 	totalRedactions := 0
+	modeBound := false
 	for _, selected := range selection.Items {
 		entry, found := r.version(selected.Name, selected.Version)
 		if !found {
@@ -119,6 +147,10 @@ func (r *Registry) AssembleContext(selection Selection) (ContextAssembly, error)
 		if !containsProfile(manifest.Profiles, selection.Profile) {
 			return ContextAssembly{}, fmt.Errorf("selected Skill %q no longer supports profile %q", selected.Name, selection.Profile)
 		}
+		modeBound = modeBound || manifest.HasModeMetadata()
+		if !manifest.SupportsContext(execution) {
+			continue
+		}
 
 		redacted := redact.Text(string(entry.content))
 		delivered := []byte(redacted.Text)
@@ -135,7 +167,7 @@ func (r *Registry) AssembleContext(selection Selection) (ContextAssembly, error)
 		}
 		digest := sha256.Sum256(delivered)
 		items = append(items, ContextItem{
-			Ordinal: selected.Ordinal, Name: selected.Name, Version: selected.Version,
+			Ordinal: len(items) + 1, Name: selected.Name, Version: selected.Version,
 			SourceSHA256: selected.ContentSHA256, SourceBytes: selected.ContentBytes,
 			SourceTokenUpperBound: selected.TokenUpperBound,
 			DeliveredSHA256:       hex.EncodeToString(digest[:]), DeliveredBytes: len(delivered),
@@ -149,8 +181,11 @@ func (r *Registry) AssembleContext(selection Selection) (ContextAssembly, error)
 	}
 	assembly := ContextAssembly{
 		ProtocolVersion: ContextProtocolVersion, SelectionID: selection.ID,
-		RunID: selection.RunID, MissionID: selection.MissionID, Profile: selection.Profile,
-		SelectionFingerprint: selection.Fingerprint, TokenBudget: selection.TokenBudget,
+		RunID: selection.RunID, MissionID: selection.MissionID, Surface: execution.Surface,
+		Phase: execution.Phase, Profile: selection.Profile, Role: execution.Role,
+		ModeBound:            modeBound,
+		SelectionFingerprint: selection.Fingerprint, SelectionItemCount: selection.ItemCount,
+		TokenBudget:     selection.TokenBudget,
 		TokenUpperBound: totalTokens, ItemCount: len(items), RedactionCount: totalRedactions,
 		Items: items,
 	}
@@ -173,13 +208,25 @@ func (a ContextAssembly) Validate() error {
 	if err != nil || profile != a.Profile {
 		return fmt.Errorf("invalid Skill context profile %q", a.Profile)
 	}
-	if a.TokenBudget <= 0 || a.TokenBudget > MaxSelectionTokenBudget ||
-		a.TokenUpperBound <= 0 || a.TokenUpperBound > a.TokenBudget {
+	execution := ExecutionContext{Surface: a.Surface, Phase: a.Phase, Profile: a.Profile, Role: a.Role}
+	if err := execution.Validate(); err != nil {
+		return err
+	}
+	if a.SelectionItemCount <= 0 || a.SelectionItemCount > MaxSelectionItems ||
+		a.TokenBudget <= 0 || a.TokenBudget > MaxSelectionTokenBudget ||
+		a.TokenUpperBound < 0 || a.TokenUpperBound > a.TokenBudget {
 		return errors.New("skill context token accounting is invalid")
 	}
-	if len(a.Items) == 0 || len(a.Items) > MaxSelectionItems || a.ItemCount != len(a.Items) ||
+	if len(a.Items) > a.SelectionItemCount || a.ItemCount != len(a.Items) ||
 		a.RedactionCount < 0 || a.RedactionCount > a.TokenBudget {
 		return errors.New("skill context item or redaction accounting is invalid")
+	}
+	if len(a.Items) == 0 {
+		if !a.ModeBound || a.TokenUpperBound != 0 || a.RedactionCount != 0 {
+			return errors.New("empty Skill context must be mode-bound with zero accounting")
+		}
+	} else if a.TokenUpperBound == 0 {
+		return errors.New("non-empty Skill context requires a positive token bound")
 	}
 	totalTokens := 0
 	totalRedactions := 0
@@ -231,6 +278,37 @@ func (a ContextAssembly) Preparation(rootAgentID string, supervisorAttemptID str
 	}
 }
 
+// PreparationForMode binds a mode-aware root delivery, including an empty
+// compatible subset, to the exact immutable Run mode snapshot used to build it.
+func (a ContextAssembly) PreparationForMode(mode domain.RunModeSnapshot,
+	rootAgentID string, supervisorAttemptID string, turn int,
+) (RootContextPreparationRequest, error) {
+	if err := mode.Validate(); err != nil {
+		return RootContextPreparationRequest{}, err
+	}
+	if a.RunID != mode.RunID || a.MissionID != mode.MissionID ||
+		a.Surface != mode.Surface || a.Phase != mode.Phase || a.Profile != mode.Profile ||
+		a.Role != domain.AgentRoleRoot {
+		return RootContextPreparationRequest{}, errors.New(
+			"root Skill context does not match the immutable Run mode snapshot")
+	}
+	request := a.Preparation(rootAgentID, supervisorAttemptID, turn)
+	request.ModeSnapshotID = mode.ID
+	request.ModeRevision = mode.Revision
+	request.Surface = mode.Surface
+	request.Phase = mode.Phase
+	request.SelectionItemCount = a.SelectionItemCount
+	if err := request.Validate(); err != nil {
+		return RootContextPreparationRequest{}, err
+	}
+	return request, nil
+}
+
+func (r RootContextPreparationRequest) ModeBound() bool {
+	return r.ModeSnapshotID != "" || r.ModeRevision != 0 || r.Surface != "" ||
+		r.Phase != "" || r.SelectionItemCount != 0
+}
+
 func (r RootContextPreparationRequest) Validate() error {
 	for _, value := range []string{
 		r.RunID, r.MissionID, r.RootAgentID, r.SupervisorAttemptID, r.SelectionID,
@@ -249,11 +327,25 @@ func (r RootContextPreparationRequest) Validate() error {
 	if !validSHA256(r.SelectionFingerprint) || !validSHA256(r.ContextFingerprint) {
 		return errors.New("root Skill context fingerprints are invalid")
 	}
-	if r.ItemCount <= 0 || r.ItemCount > MaxSelectionItems ||
-		r.TokenBudget <= 0 || r.TokenBudget > MaxSelectionTokenBudget ||
-		r.TokenUpperBound <= 0 || r.TokenUpperBound > r.TokenBudget ||
+	if r.TokenBudget <= 0 || r.TokenBudget > MaxSelectionTokenBudget ||
 		r.RedactionCount < 0 || r.RedactionCount > r.TokenBudget {
 		return errors.New("root Skill context bounds are invalid")
+	}
+	if !r.ModeBound() {
+		if r.ItemCount <= 0 || r.ItemCount > MaxSelectionItems ||
+			r.TokenUpperBound <= 0 || r.TokenUpperBound > r.TokenBudget {
+			return errors.New("legacy root Skill context bounds are invalid")
+		}
+		return nil
+	}
+	if !validSelectionIdentity(r.ModeSnapshotID) || r.ModeRevision <= 0 ||
+		!r.Surface.Valid() || !r.Phase.Valid() ||
+		r.SelectionItemCount <= 0 || r.SelectionItemCount > MaxSelectionItems ||
+		r.ItemCount < 0 || r.ItemCount > r.SelectionItemCount ||
+		r.TokenUpperBound < 0 || r.TokenUpperBound > r.TokenBudget ||
+		(r.ItemCount == 0 && (r.TokenUpperBound != 0 || r.RedactionCount != 0)) ||
+		(r.ItemCount > 0 && r.TokenUpperBound == 0) {
+		return errors.New("mode-bound root Skill context bounds are invalid")
 	}
 	return nil
 }
@@ -279,6 +371,10 @@ func ContextFingerprint(assembly ContextAssembly) string {
 		ContextProtocolVersion, assembly.SelectionID, assembly.RunID, assembly.MissionID,
 		string(assembly.Profile), assembly.SelectionFingerprint,
 		strconv.Itoa(assembly.TokenBudget), strconv.Itoa(len(assembly.Items)),
+	}
+	if assembly.ModeBound {
+		parts = append(parts, "skill_mode.v1", string(assembly.Surface),
+			string(assembly.Phase), string(assembly.Role))
 	}
 	for _, item := range assembly.Items {
 		parts = append(parts, strconv.Itoa(item.Ordinal), item.Name, item.Version,

@@ -128,9 +128,12 @@ func (a *App) newToolGateway() *toolgateway.Gateway {
 		WithStructuredMemoryExecutor(application.NewStructuredMemoryToolExecutor(a.store)).
 		WithSpecialistDelegationExecutor(application.NewSpecialistDelegationToolExecutor(a.store)).
 		WithChildTaskProposalExecutor(application.NewChildTaskToolExecutor(a.store)).
+		WithSkillCandidateExecutor(application.NewSkillCandidateToolExecutor(a.store)).
 		WithPlanDeliveryExecutor(application.NewPlanDeliveryToolExecutor(a.store)).
 		WithControlledCommandProposalExecutor(
 			application.NewControlledCommandProposalToolExecutor(a.store)).
+		WithOneShotCommandProposalExecutor(
+			application.NewOneShotCommandProposalToolExecutor(a.store)).
 		WithHostCommandProposalExecutor(
 			application.NewHostCommandProposalToolExecutor(a.store)).
 		WithWorkspaceRootResolver(func(ctx context.Context, workspaceID string) (string, error) {
@@ -257,7 +260,7 @@ func (a *App) printHelp() {
 	fmt.Fprintln(a.out, "  cyberagent learn ask")
 	fmt.Fprintln(a.out, "  cyberagent provider list|test|qualify")
 	fmt.Fprintln(a.out, "  cyberagent model list|set")
-	fmt.Fprintln(a.out, "  cyberagent skill list|show|validate|package|import|installed|remove|select|selection|select-external|external-selection")
+	fmt.Fprintln(a.out, "  cyberagent skill list|show|validate|package|import|installed|remove|candidate|candidates|select|selection|select-external|external-selection")
 	fmt.Fprintln(a.out, "  cyberagent context compact|show")
 	fmt.Fprintln(a.out, "  cyberagent session create|list|send|history")
 	fmt.Fprintln(a.out, "  cyberagent tool schema|invoke|list|show|approve|deny")
