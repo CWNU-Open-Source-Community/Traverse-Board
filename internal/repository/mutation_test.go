@@ -2,11 +2,13 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"cyberagent-workbench/internal/apperror"
 )
@@ -225,4 +227,79 @@ func TestMutationCreateAndSwitchBranch(t *testing.T) {
 	if current, _ := executor.gitOutput(ctx, root, "branch", "--show-current"); strings.TrimSpace(current) != "work" {
 		t.Fatalf("branch did not switch: %q", current)
 	}
+}
+
+func TestMutationRunGitEnforcesDurationBound(t *testing.T) {
+	executor := blockingMutationExecutor(50 * time.Millisecond)
+	started := time.Now()
+	_, _, _, err := executor.runGit(t.Context(), t.TempDir(), MutationSpec{
+		ProtocolVersion: MutationProtocolVersion, Operation: MutationStage,
+		Paths: []string{"file.txt"},
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("git mutation timeout was not enforced: %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("git mutation exceeded the injected duration bound: %s", elapsed)
+	}
+}
+
+func TestMutationRunGitPreservesCallerCancellation(t *testing.T) {
+	executor := blockingMutationExecutor(time.Minute)
+	ctx, cancel := context.WithCancel(t.Context())
+	timer := time.AfterFunc(50*time.Millisecond, cancel)
+	defer timer.Stop()
+	_, _, _, err := executor.runGit(ctx, t.TempDir(), MutationSpec{
+		ProtocolVersion: MutationProtocolVersion, Operation: MutationStage,
+		Paths: []string{"file.txt"},
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("caller cancellation was not preserved: %v", err)
+	}
+}
+
+func TestMutationExecuteReportsDurationDeadline(t *testing.T) {
+	root := newMutationRepo(t)
+	executor := newExecutor(t)
+	executor.maxDuration = 50 * time.Millisecond
+	executor.commandContext = blockingMutationCommand
+	if err := os.WriteFile(filepath.Join(root, "slow.txt"), []byte("slow\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	spec := MutationSpec{ProtocolVersion: MutationProtocolVersion,
+		Operation: MutationStage, Paths: []string{"slow.txt"}}
+	binding, err := executor.CaptureBinding(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = executor.Execute(t.Context(), root, spec, binding)
+	if apperror.CodeOf(err) != apperror.CodeDeadlineExceeded {
+		t.Fatalf("duration bound did not surface as deadline exceeded: %v", err)
+	}
+}
+
+func blockingMutationExecutor(duration time.Duration) *MutationExecutor {
+	return &MutationExecutor{
+		gitPath: os.Args[0], maxDuration: duration,
+		commandContext: blockingMutationCommand,
+	}
+}
+
+func blockingMutationCommand(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+	return exec.CommandContext(ctx, os.Args[0],
+		"-test.run=^TestMutationGitHelperProcess$", "--", "mutation-git-helper")
+}
+
+func TestMutationGitHelperProcess(t *testing.T) {
+	helper := false
+	for _, argument := range os.Args {
+		if argument == "mutation-git-helper" {
+			helper = true
+			break
+		}
+	}
+	if !helper {
+		return
+	}
+	time.Sleep(10 * time.Second)
 }
