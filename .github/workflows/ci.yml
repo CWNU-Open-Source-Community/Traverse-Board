@@ -175,6 +175,8 @@ jobs:
           npm run build
       - name: Test Desktop boundaries
         run: go test -tags "desktop" -count=1 ./cmd/cyberagent-desktop ./internal/desktop ./internal/webui
+      - name: Verify POSIX command runtime transport
+        run: go test -v -count=1 ./internal/runner -run '^TestCommandRuntimePlatform(ShellSmoke|CancelReapsOwnedProcessTree)$'
       - name: Build and verify portable macOS app bundle
         run: ./scripts/build-desktop-darwin.sh -SkipFrontend -VerifyReproducible
       - name: Upload portable macOS app bundle
@@ -220,6 +222,8 @@ jobs:
         run: go test -tags "desktop,wv2runtime.error" -count=1 ./cmd/cyberagent-desktop ./internal/desktop ./internal/webui
       - name: Verify cross-platform Runner receipt vectors
         run: go test -count=1 ./internal/runner -run 'TestEvidenceSetReceipt(Golden|Compatibility).*Vectors'
+      - name: Verify Windows command runtime transports
+        run: go test -v -count=1 ./internal/runner -run '^TestCommandRuntime(Platform(ShellSmoke|CancelReapsOwnedProcessTree)|WindowsPowerShell5PowerShell7AndGitBashSmoke)$'
       - name: Verify Windows analyzer conformance boundaries
         shell: pwsh
         run: |
