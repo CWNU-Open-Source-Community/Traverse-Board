@@ -358,6 +358,12 @@ allowlist/scoped egress 需要尚未实现的 Go-owned host/port/protocol guard�
 | `GET` | `/api/v1/workspaces/{workspace_id}/repository-commit-comparison?base_object_id={exact_object}&head_object_id={exact_object}` | Bounded metadata comparison of two exact local commit trees; no ancestry requirement, blob/patch/root/mutation/process/network/hook |
 | `GET` | `/api/v1/workspaces/{workspace_id}/repository-commits/{object_id}` | One exact lowercase SHA-1 commit's bounded changed-path/mode metadata; no blob body, checkout, ref mutation, remote, process, network, or hook |
 | `GET` | `/api/v1/workspaces/{workspace_id}/repository-commits/{object_id}/file-preview?path={canonical_path}` | One bounded redacted regular/executable UTF-8 file from the exact commit; no raw blob, root, checkout, mutation, process, network, or hook |
+| `GET` | `/api/v1/memories?scope={user|project}&scope_id={id}` | Explicit long-term memories; optional disabled/expired inclusion, no automatic extraction or authority |
+| `POST` | `/api/v1/memories` | Control-bearer explicit memory creation with provenance, retention, Secret/source validation, and optional explicit redaction |
+| `GET` | `/api/v1/memories/export` | JSON-ready memory lifecycle export including disabled/expired records and fixed `capability_grant=false` |
+| `GET` | `/api/v1/memories/{memory_id}` | One exact redacted memory, provenance, retention, digest, status, and optimistic version |
+| `PATCH` | `/api/v1/memories/{memory_id}` | Exact-version edit, enable, or disable; repeats Secret/source validation |
+| `DELETE` | `/api/v1/memories/{memory_id}` | Exact-version physical deletion with `recoverable=false` |
 | `GET` | `/api/v1/operation-receipts` | At most 100 terminal metadata-only receipts; optional exact `run_id`, no operation key/path/private lease |
 | `GET` | `/api/v1/models` | Redacted Provider/model-route availability with one Registry generation; no key, Base URL, environment name, probe, or model call |
 | `GET` | `/api/v1/models/credentials` | Supported Provider system-store and Registry generation status only; fixed `plaintext_returned=false` |
@@ -369,6 +375,9 @@ allowlist/scoped egress 需要尚未实现的 Go-owned host/port/protocol guard�
 | `GET` | `/api/v1/runs` | Creation-ordered Runs; `status`, `mission_id`, stable keyset pagination |
 | `POST` | `/api/v1/runs` | Idempotently create one closed Mission/Run/Session in a registered Workspace |
 | `GET` | `/api/v1/runs/{run_id}` | Run, Mission, immutable execution-mode/profile snapshots, read-only Plan/checkpoint/external-Skill metadata, tool usage, token-free lease summary, and the `agent-code-tools.v1` generation with per-tool availability/refusal |
+| `GET` | `/api/v1/runs/{run_id}/project-instructions` | Pinned/live hierarchical sources, hashes, why-effective/conflict details, history, and non-mutating drift diff |
+| `POST` | `/api/v1/runs/{run_id}/project-instructions/refresh` | Pinned-and-reviewed-live dual-fingerprint confirmation that appends a new immutable instruction revision |
+| `POST` | `/api/v1/runs/{run_id}/continuity-checkpoints` | Capture one bounded, redacted, provenance-bearing, all-false-authority context checkpoint |
 | `GET` | `/api/v1/runs/{run_id}/external-skills` | Bounded external-Skill provenance and root/Specialist delivery counts; no content, paths, digests, or private identities |
 | `GET` | `/api/v1/runs/{run_id}/activity` | Chronological public model updates plus allowlisted Harness facts; redacted/bounded, no private reasoning, raw payload, Prompt, Tool arguments, or Tool output |
 | `GET` | `/api/v1/runs/{run_id}/events` | Ordered Run events; pagination |
@@ -387,6 +396,9 @@ allowlist/scoped egress 需要尚未实现的 Go-owned host/port/protocol guard�
 | `POST` | `/api/v1/runs/{run_id}/browser-cdp-permission` | Operator-select `restricted|full_debug`; full mode requires Debug execution permission, dedicated startup gate and exact confirmation; selection never starts a browser or opens CDP |
 | `POST` | `/api/v1/runs/{run_id}/lifecycle` | Idempotent `start|pause|resume` under exact state/quiescence/lease gates |
 | `POST` | `/api/v1/runs/{run_id}/execute` | Freeze and execute at most eight pending inputs through the existing RunSupervisor |
+| `GET` | `/api/v1/sessions/{session_id}/tree` | Browse stored/derived continuity nodes with memory/Git drift and fixed `capability_grant=false` |
+| `POST` | `/api/v1/continuity-nodes/{node_id}/fork` | Create a fresh Mission/Run/Session from bounded context while resetting every runtime authority |
+| `POST` | `/api/v1/continuity-nodes/{node_id}/resume` | Create an auditable fresh Run/Session branch; never resurrect approvals, credentials, processes, leases, or network authority |
 | `POST` | `/api/v1/runs/{run_id}/plan/direction` | Select one persisted direction and create its bounded WorkItems/Note; no phase change or execution |
 | `POST` | `/api/v1/runs/{run_id}/plan/deliver` | Explicitly enter Deliver after selection; no Run resume, model/tool call, or execution |
 | `GET` | `/api/v1/runs/{run_id}/approvals` | At most 100 pending metadata records and bounded actions; no command, path, content, fingerprint, or reason |
@@ -545,9 +557,9 @@ cyberagent api openapi
 cyberagent api openapi --output docs/openapi.json
 ```
 
-运行时的 `/api/v1/openapi.json` 返回同一份原始文档，仍要求 loopback 与 read Bearer 认证，不接受 query 或 body。它使用 `application/vnd.oai.openapi+json`，不套普通 `api.v1` envelope。当前契约有 102 个 path、111 个 operation 和 248 个 schema。测试逐条命中公开 handler，并确认普通 DTO 不包含 Workspace root、Artifact/Skill/Session 正文、模型输出、工具参数、私有 lifecycle、operation/fencing/lease owner、API key、Provider Base URL 或环境变量名。CDP 权限响应只投影固定能力布尔值、当前进程闸门和四项 false authority，不包含 endpoint、browser path、Profile、Cookie、请求正文或 CDP payload。
+运行时的 `/api/v1/openapi.json` 返回同一份原始文档，仍要求 loopback 与 read Bearer 认证，不接受 query 或 body。它使用 `application/vnd.oai.openapi+json`，不套普通 `api.v1` envelope。当前契约有 111 个 path、123 个 operation 和 274 个 schema。测试逐条命中公开 handler，并确认普通 DTO 不包含 Workspace root、Artifact/Skill/Session 正文、模型输出、工具参数、私有 lifecycle、operation/fencing/lease owner、API key、Provider Base URL 或环境变量名。CDP 权限响应只投影固定能力布尔值、当前进程闸门和四项 false authority，不包含 endpoint、browser path、Profile、Cookie、请求正文或 CDP payload。
 
-The runtime `/api/v1/openapi.json` returns the same raw document under the loopback and read-bearer boundary and accepts neither a query nor a body. It uses `application/vnd.oai.openapi+json` rather than the ordinary `api.v1` envelope. The contract contains 102 paths, 111 operations, and 248 schemas. Tests exercise every handler and verify that ordinary DTOs omit Workspace roots, Artifact/Skill/Session bodies, model output, Tool arguments, private lifecycle, operation/fencing/lease-owner identities, API keys, Provider base URLs, and environment-variable names. CDP permission responses expose only closed capability booleans, current process gates, and four false authority fields; they contain no endpoint, browser path, Profile, Cookie, request body, or CDP payload.
+The runtime `/api/v1/openapi.json` returns the same raw document under the loopback and read-bearer boundary and accepts neither a query nor a body. It uses `application/vnd.oai.openapi+json` rather than the ordinary `api.v1` envelope. The contract contains 111 paths, 123 operations, and 274 schemas. Tests exercise every handler and verify that ordinary DTOs omit Workspace roots, Artifact/Skill/Session bodies, model output, Tool arguments, private lifecycle, operation/fencing/lease-owner identities, API keys, Provider base URLs, and environment-variable names. CDP permission responses expose only closed capability booleans, current process gates, and four false authority fields; they contain no endpoint, browser path, Profile, Cookie, request body, or CDP payload.
 
 ## 主动取消 / Active-Call Cancellation
 

@@ -547,6 +547,22 @@ Model projection is separate from persistence. Trusted operator, model, and Go-c
 
 This design contains authority rather than attempting to classify every malicious sentence. A README can still contain false or contradictory facts, and a model can still reason badly about them, but document text cannot acquire Go capabilities or silently become system/assistant history. Policy, scope, approvals, budgets, leases, and Tool Gateway remain authoritative even if a model follows an indirect injection semantically.
 
+Schema v114 extends that boundary with three deliberately non-authorizing context layers.
+`project_instruction_snapshot.v1` discovers bounded root-to-target `AGENTS.md`,
+`CLAUDE.md`, and `.prayu` guidance, records path/hash/scope/trust/applicability and
+why-effective metadata, and pins the full fingerprint to the Run. Live file drift is
+read-only until an operator confirms a diff bound to both the old pinned fingerprint and the
+reviewed live fingerprint, then appends a new
+immutable revision. `context_memory.v1` is explicit user/project data with provenance,
+retention, optimistic edit/disable, export, Secret/source rejection, and physical delete;
+there is no model/tool/file extraction path. `continuity_snapshot.v1` and immutable
+root/checkpoint/fork/resume nodes capture bounded summary/message provenance, memory
+references, project fingerprints, and exact Git identity. Fork/Resume creates a fresh
+Mission/Run/Session and explicitly resets approvals, capabilities, credentials, network,
+process, Debug/terminal/execution leases, and execution profiles. All three protocols have
+closed all-false authority projections. See [ADR 0115](adr/0115-non-authorizing-durable-context-continuity.md)
+and the [bilingual operating/threat guide](context-continuity.md).
+
 Skills are versioned knowledge packages with metadata, applicability rules, prompt content, and optional tool prerequisites. The embedded `skill.v1` Registry strictly pins metadata and content identity; a bounded version index retains at most eight embedded versions per Skill, exposes only the current version for new selection, and resolves historical content only by an already-persisted exact version. Schema v39 adds one immutable, Profile-compatible, aggregate-budgeted `skill_selection.v1` per Run with digest-only operation replay. Schema v40 adds root-only `skill_context.v1`: each Supervisor turn reloads only the persisted selection, rechecks exact version/hash/bytes/Profile, redacts before independent budgeting, and injects deterministic in-memory system guidance. Schema v47 derives at most one already-pinned, surface-compatible guide for each Specialist Attempt and commits its metadata-only delivery with the first child model call. Prerequisites grant no tool capability, and the root policy remains authoritative.
 
 ADR 0024 defines external `skill_package.v1` as strict untrusted input. Schema v69 adds a separate content-addressed user Registry: Go records an immutable installation intent before publishing the validated archive, verifies complete readback before recording completion, and represents removal only as an object-retaining tombstone. Code and Cyber catalogs are separate, Cyber accepts exactly `script`, built-in names are reserved, and an exact Run-pinned version cannot be removed. The object interface has only `Put` and `Verify`. Import does not execute or expose content, call a Provider/network/tool, or grant Run selection/context injection. External packages are therefore stored and auditable but remain unavailable to the Agent runtime until a later exact selection and minimized-load protocol. ADR 0031 records this boundary.
@@ -642,7 +658,7 @@ The same Go adapter owns read projections for the bounded Agent graph, operator-
 
 ## Persistence
 
-SQLite remains the local source of truth. Schema migration `v1` records the legacy baseline, `v2`-`v18` establish the Run/Supervisor/memory/tool/Artifact/lease control plane, `v19`-`v38` add bounded Agent coordination, reviewed delegation, read-only Fan-out, Findings, and operator scheduling, and `v39`-`v47` add immutable Skill selection/context, Run modes, Plan/Delivery, provenance, checkpoints, steering, and Specialist minimization. Schemas `v48`-`v63` build the still-disabled Sandbox evidence and recovery chain; `v64`-`v68` add non-authorizing execution-profile and Docker production-evidence decisions; `v69`-`v71` add the inert user Skill Registry, exact Run selection/context, and read-only provenance; `v72`-`v96` continue the audited Run, Desktop, Provider, browser, Analyzer, and host-command control-plane evolution; and `v97` adds durable, non-authorizing Docker lifecycle ownership and recovery. Non-schema D1-B1 exposes the existing v69 Registry through inert HTTP/Desktop confirmation and adds no migration. Migrations are ordered, checksummed, transactional, and safe to apply repeatedly; legacy databases are upgraded without deleting their data or fabricating new operator decisions.
+SQLite remains the local source of truth. Schema migration `v1` records the legacy baseline, `v2`-`v18` establish the Run/Supervisor/memory/tool/Artifact/lease control plane, `v19`-`v38` add bounded Agent coordination, reviewed delegation, read-only Fan-out, Findings, and operator scheduling, and `v39`-`v47` add immutable Skill selection/context, Run modes, Plan/Delivery, provenance, checkpoints, steering, and Specialist minimization. Schemas `v48`-`v63` build the still-disabled Sandbox evidence and recovery chain; `v64`-`v68` add non-authorizing execution-profile and Docker production-evidence decisions; `v69`-`v71` add the inert user Skill Registry, exact Run selection/context, and read-only provenance; `v72`-`v113` continue the audited Run, Desktop, Provider, browser, Analyzer, Docker, dependency, MCP, project-config, Git, external-Skill, and Debug-terminal control planes; and `v114` adds explicit long-term memory plus immutable instruction/continuity ledgers without authority restoration. Non-schema D1-B1 exposes the existing v69 Registry through inert HTTP/Desktop confirmation and adds no migration. Migrations are ordered, checksummed, transactional, and safe to apply repeatedly; legacy databases are upgraded without deleting their data or fabricating new operator decisions.
 
 ```text
 missions

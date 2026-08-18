@@ -14,6 +14,7 @@ import (
 	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/artifact"
 	"cyberagent-workbench/internal/browserruntime"
+	"cyberagent-workbench/internal/contextmgr"
 	"cyberagent-workbench/internal/credential"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
@@ -73,8 +74,10 @@ type openAPITag struct {
 }
 
 type openAPIPathItem struct {
-	Get  *openAPIOperation `json:"get,omitempty"`
-	Post *openAPIOperation `json:"post,omitempty"`
+	Get    *openAPIOperation `json:"get,omitempty"`
+	Post   *openAPIOperation `json:"post,omitempty"`
+	Patch  *openAPIOperation `json:"patch,omitempty"`
+	Delete *openAPIOperation `json:"delete,omitempty"`
 }
 
 type openAPIOperation struct {
@@ -167,6 +170,16 @@ func GenerateOpenAPI() ([]byte, error) {
 				return nil, fmt.Errorf("duplicate OpenAPI POST path %q", spec.Path)
 			}
 			item.Post = &operation
+		case http.MethodPatch:
+			if item.Patch != nil {
+				return nil, fmt.Errorf("duplicate OpenAPI PATCH path %q", spec.Path)
+			}
+			item.Patch = &operation
+		case http.MethodDelete:
+			if item.Delete != nil {
+				return nil, fmt.Errorf("duplicate OpenAPI DELETE path %q", spec.Path)
+			}
+			item.Delete = &operation
 		default:
 			return nil, fmt.Errorf("unsupported OpenAPI method %q", spec.Method)
 		}
@@ -236,6 +249,8 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 	workItemID := pathIdentityParameter("work_item_id", "WorkItem identity")
 	noteID := pathIdentityParameter("note_id", "Note identity")
 	artifactID := pathIdentityParameter("artifact_id", "Artifact identity")
+	memoryID := pathIdentityParameter("memory_id", "Long-term memory identity")
+	continuityNodeID := pathIdentityParameter("node_id", "Continuity checkpoint identity")
 	reportID := pathIdentityParameter("report_id", "Finding Report identity")
 	approvalID := pathIdentityParameter("approval_id", "Approval identity")
 	proposalID := pathIdentityParameter("proposal_id",
@@ -259,6 +274,75 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			"minLength": domain.MinAgentOperationKeyBytes,
 			"maxLength": domain.MaxAgentOperationKeyBytes, "pattern": `^\S+$`}}
 	return []openAPIOperationSpec{
+		{Path: "/api/v1/memories", OperationID: "listContextMemories",
+			Summary: "List explicit long-term memories", Tag: "Memory",
+			Description: "Returns only explicitly stored user or project memories. Memory is preference/factual context and never grants authority.",
+			DataType:    reflect.TypeOf(contextmgr.Memory{}), Collection: true,
+			Parameters: []openAPIParameter{
+				stringQueryParameter("scope", "Memory scope", []string{"user", "project"}),
+				identityQueryParameter("scope_id", "local-user or Workspace identity"),
+				booleanQueryParameter("include_disabled", "Include disabled memories"),
+				booleanQueryParameter("include_expired", "Include expired memories"),
+				{Name: "limit", In: "query", Description: "Maximum items", Schema: map[string]any{"type": "integer", "minimum": 1, "maximum": contextmgr.MaxMemoryListItems}},
+			}},
+		{Path: "/api/v1/memories", Method: http.MethodPost,
+			OperationID: "createContextMemory", Summary: "Create explicit long-term memory",
+			Tag: "Control", Description: "Stores one explicit, provenance-bound memory after secret and sensitive-source checks. It cannot be invoked by model context and grants no authority.",
+			DataType: reflect.TypeOf(contextmgr.Memory{}), RequestType: reflect.TypeOf(contextMemoryCreateRequestView{}),
+			Control: true, SuccessStatus: http.StatusCreated},
+		{Path: "/api/v1/memories/export", OperationID: "exportContextMemories",
+			Summary: "Export long-term memories", Tag: "Memory",
+			Description: "Exports active, disabled, and expired records with provenance, retention, and an explicit false capability projection.",
+			DataType:    reflect.TypeOf(application.ContextMemoryExport{}),
+			Parameters: []openAPIParameter{
+				stringQueryParameter("scope", "Memory scope", []string{"user", "project"}),
+				identityQueryParameter("scope_id", "local-user or Workspace identity"),
+			}},
+		{Path: "/api/v1/memories/{memory_id}", OperationID: "getContextMemory",
+			Summary: "Inspect one long-term memory", Tag: "Memory",
+			Description: "Returns the exact redacted content, provenance, status, retention, digest, and optimistic version.",
+			DataType:    reflect.TypeOf(contextmgr.Memory{}), NotFound: true,
+			Parameters: []openAPIParameter{memoryID}},
+		{Path: "/api/v1/memories/{memory_id}", Method: http.MethodPatch,
+			OperationID: "updateContextMemory", Summary: "Edit, enable, or disable memory",
+			Tag: "Control", Description: "Updates an explicit memory under optimistic version checking and repeats secret/source validation.",
+			DataType: reflect.TypeOf(contextmgr.Memory{}), RequestType: reflect.TypeOf(contextMemoryUpdateRequestView{}),
+			Control: true, NotFound: true, Parameters: []openAPIParameter{memoryID}, SuccessStatus: http.StatusOK},
+		{Path: "/api/v1/memories/{memory_id}", Method: http.MethodDelete,
+			OperationID: "deleteContextMemory", Summary: "Permanently delete memory",
+			Tag: "Control", Description: "Physically deletes one exact memory version; future prompts and exports cannot recover it.",
+			DataType: reflect.TypeOf(contextMemoryDeleteView{}), RequestType: reflect.TypeOf(contextMemoryDeleteRequestView{}),
+			Control: true, NotFound: true, Parameters: []openAPIParameter{memoryID}, SuccessStatus: http.StatusOK},
+		{Path: "/api/v1/runs/{run_id}/project-instructions",
+			OperationID: "getRunProjectInstructions", Summary: "Explain effective project instructions",
+			Tag: "Runs", Description: "Returns pinned and live hierarchical sources, hashes, scope, precedence, why-effective details, conflicts, drift, and history without changing the Run.",
+			DataType: reflect.TypeOf(application.ProjectInstructionState{}), NotFound: true,
+			Parameters: []openAPIParameter{runID, stringQueryParameter("target_path", "Workspace-relative target", nil)}},
+		{Path: "/api/v1/runs/{run_id}/project-instructions/refresh", Method: http.MethodPost,
+			OperationID: "refreshRunProjectInstructions", Summary: "Confirm project instruction refresh",
+			Tag: "Control", Description: "Confirms a diff bound to both the pinned and reviewed-live fingerprints. Files never alter an active Run silently, and refreshed instructions remain non-authorizing.",
+			DataType: reflect.TypeOf(application.ProjectInstructionState{}), RequestType: reflect.TypeOf(projectInstructionRefreshRequestView{}),
+			Control: true, NotFound: true, Parameters: []openAPIParameter{runID}, SuccessStatus: http.StatusOK},
+		{Path: "/api/v1/sessions/{session_id}/tree", OperationID: "getSessionContinuityTree",
+			Summary: "Browse Session checkpoints and branches", Tag: "Sessions",
+			Description: "Returns the connected checkpoint/Fork/Resume component plus compaction, decision, Artifact, Delivery, Git drift, and memory expiry projections.",
+			DataType:    reflect.TypeOf(contextmgr.SessionTree{}), NotFound: true,
+			Parameters: []openAPIParameter{sessionID}},
+		{Path: "/api/v1/runs/{run_id}/continuity-checkpoints", Method: http.MethodPost,
+			OperationID: "createContinuityCheckpoint", Summary: "Create a bounded context checkpoint",
+			Tag: "Control", Description: "Captures redacted compaction, recent-message provenance, memory references, pinned config fingerprints, and Git identity with an all-false authority projection.",
+			DataType: reflect.TypeOf(contextmgr.ContinuityNode{}), RequestType: reflect.TypeOf(continuityCheckpointRequestView{}),
+			Control: true, NotFound: true, Parameters: []openAPIParameter{runID}, SuccessStatus: http.StatusCreated},
+		{Path: "/api/v1/continuity-nodes/{node_id}/fork", Method: http.MethodPost,
+			OperationID: "forkContinuityNode", Summary: "Fork a new Run from a checkpoint",
+			Tag: "Control", Description: "Creates a new Run and Session with the exact bounded context snapshot while resetting approvals, capabilities, credentials, processes, leases, network authorization, and execution profiles.",
+			DataType: reflect.TypeOf(continuityBranchView{}), RequestType: reflect.TypeOf(continuityBranchRequestView{}),
+			Control: true, NotFound: true, Parameters: []openAPIParameter{continuityNodeID}, SuccessStatus: http.StatusCreated},
+		{Path: "/api/v1/continuity-nodes/{node_id}/resume", Method: http.MethodPost,
+			OperationID: "resumeContinuityNode", Summary: "Resume in a new Run from a checkpoint",
+			Tag: "Control", Description: "Creates an auditable new Run/Session branch from the checkpoint; durable historical context never resurrects authority.",
+			DataType: reflect.TypeOf(continuityBranchView{}), RequestType: reflect.TypeOf(continuityBranchRequestView{}),
+			Control: true, NotFound: true, Parameters: []openAPIParameter{continuityNodeID}, SuccessStatus: http.StatusCreated},
 		{Path: DockerSandboxReadinessPath, Method: http.MethodPost,
 			OperationID: "evaluateDockerSandboxReadiness",
 			Summary:     "Evaluate Docker Sandbox readiness", Tag: "Sandbox",

@@ -393,6 +393,38 @@ describe("CyberAgentClient", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("uses the distinct control bearer for optimistic PATCH and DELETE without leaking it", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-memory-patch",
+        data: { id: "memory-1", version: 2, status: "disabled" },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-memory-delete",
+        data: { id: "memory-1", deleted: true, recoverable: false },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+
+    const updated = await client.patchControl<{ version: number; status: string }>(
+      "/memories/memory-1", { expected_version: 1, status: "disabled" });
+    const deleted = await client.deleteControl<{ deleted: boolean; recoverable: boolean }>(
+      "/memories/memory-1", { expected_version: 2 });
+
+    expect(updated).toMatchObject({ version: 2, status: "disabled" });
+    expect(deleted).toEqual({ id: "memory-1", deleted: true, recoverable: false });
+    const [patchURL, patchInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [deleteURL, deleteInit] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(patchURL).toBe("/api/v1/memories/memory-1");
+    expect(deleteURL).toBe("/api/v1/memories/memory-1");
+    expect(patchInit).toMatchObject({ method: "PATCH" });
+    expect(deleteInit).toMatchObject({ method: "DELETE" });
+    expect(patchInit.headers).toMatchObject({ Authorization: "Bearer control-secret" });
+    expect(deleteInit.headers).toMatchObject({ Authorization: "Bearer control-secret" });
+    expect(String(patchInit.body)).not.toContain("control-secret");
+    expect(String(deleteInit.body)).not.toContain("control-secret");
+  });
+
   it("separates Run creation from existing Run controls and validates closed authority", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-create", data: runCreationData,

@@ -58,7 +58,7 @@ The allowed direction is always `TypeScript -> Go -> LLM/Rust/Docker`. TypeScrip
 | Area | Current capability |
 |---|---|
 | Agent runtime | Mission/Run, resumable Supervisor, strict lifecycle, checkpoints, cancellation, retry, budgets, and execution leases |
-| Models and context | Mock, Anthropic-compatible, OpenAI-compatible, and loopback-only Ollama providers, routing, qualification, capability probing, streaming, context compaction, and structured memory |
+| Models and context | Mock, Anthropic-compatible, OpenAI-compatible, and loopback-only Ollama providers, routing, qualification, capability probing, streaming, compaction, hierarchical project instructions, explicit user/project memory, and Session continuity trees |
 | Planning and collaboration | Plan/Delivery, work items, notes, up to two core children, 1/2/4/6 read-only fan-out tiers, shared budgets and cancellation |
 | Tools and permissions | Tool Gateway, JSON Schema validation, Policy, Scope, human approval, four host-permission tiers, fixed commands, per-command PowerShell/Git Bash approval, and time-bound Debug terminal input |
 | Code workflows | Native folder selection and Workspace import, workspace browsing, repository state/history, diff review, file-edit proposals, verification plans, Code Journey, and Handoff |
@@ -68,7 +68,7 @@ The allowed direction is always `TypeScript -> Go -> LLM/Rust/Docker`. TypeScrip
 
 ### Model-callable workspace tools
 
-Schema v114 introduces `agent-code-tools.v1`, allowing the root Supervisor to complete real multi-round `search -> read -> change` workflows without giving filesystem authority to the model. Go derives availability from the exact Run, Mission, Workspace, root fingerprint, Surface, Phase, Role, Profile, permission tier, and their revisions. The model can only submit schema-valid arguments and cannot mint or widen that authority.
+Schema v115 introduces `agent-code-tools.v1`, allowing the root Supervisor to complete real multi-round `search -> read -> change` workflows without giving filesystem authority to the model. Go derives availability from the exact Run, Mission, Workspace, root fingerprint, Surface, Phase, Role, Profile, permission tier, and their revisions. The model can only submit schema-valid arguments and cannot mint or widen that authority.
 
 | Mode | Available tools |
 |---|---|
@@ -77,7 +77,7 @@ Schema v114 introduces `agent-code-tools.v1`, allowing the root Supervisor to co
 | Code / Deliver / root with Review or Learn Profile | Read tools only |
 | Cyber Surface or Specialist | No `agent-code-tools.v1` tools are advertised; the capability snapshot records the refusal reason |
 
-Read results are deterministically ordered, paginated, and bounded. Root escape, casing aliases, hidden entries outside the Go allowlist (`.github` is the sole code-evidence exception), ignored entries, links or reparse points, binary/non-UTF-8 data, and oversized files fail closed. `workspace_change` creates replace/create/move proposals only; `workspace_delete` is a separate exactly confirmed deletion proposal; `workspace_apply` can apply only an approved exact revision and rechecks source and destination hashes to detect review-time drift. Calls, results or refusals, authority snapshots, budget charges, and bounded Artifacts enter the resumable Supervisor ledger. `cyberagent run show <run-id>`, the Run Detail API, and the Desktop Run page expose the current generation and per-tool availability. This protocol grants no Shell, Git, network, or Sandbox authority. See the [Usage Guide](docs/usage.md) and [ADR 0115](docs/adr/0115-model-callable-workspace-tools.md).
+Read results are deterministically ordered, paginated, and bounded. Root escape, casing aliases, hidden entries outside the Go allowlist (`.github` is the sole code-evidence exception), ignored entries, links or reparse points, binary/non-UTF-8 data, and oversized files fail closed. `workspace_change` creates replace/create/move proposals only; `workspace_delete` is a separate exactly confirmed deletion proposal; `workspace_apply` can apply only an approved exact revision and rechecks source and destination hashes to detect review-time drift. Calls, results or refusals, authority snapshots, budget charges, and bounded Artifacts enter the resumable Supervisor ledger. `cyberagent run show <run-id>`, the Run Detail API, and the Desktop Run page expose the current generation and per-tool availability. This protocol grants no Shell, Git, network, or Sandbox authority. See the [Usage Guide](docs/usage.md) and [ADR 0116](docs/adr/0116-model-callable-workspace-tools.md).
 
 ### Real Git, PowerShell, and Bash
 
@@ -95,6 +95,7 @@ Every `debug_terminal` write still passes Shell Policy; commands that require se
 ### Security boundaries
 
 - Provider-private thinking, raw prompts, raw deltas, tool arguments, raw tool output, and API keys are never exposed as public activity.
+- Project instructions, long-term memory, and checkpoints are always untrusted, non-authorizing context. Fork/Resume never restores approvals, capabilities, credentials, network access, processes, terminal leases, or execution profiles. See the [bilingual context, threat-model, and deletion guide](docs/context-continuity.md) and [ADR 0115](docs/adr/0115-non-authorizing-durable-context-continuity.md).
 - File edits, host commands, browser CDP, terminal input, and Sandbox execution are independent authorization surfaces.
 - Conservative commands use Go-owned fixed templates. PowerShell/Bash is available only through per-command approval or a revocable Debug lease. General host execution and Debug authority cannot be enabled by a model, Skill, or repository document.
 - The Docker Sandbox product entry is disabled by default. An explicit process capability, the current `docker` Profile, a matching permission tier, an exact per-call approval, Policy, budgets, and a 30-second readiness check must all hold at once; database records can never restore start authority after a restart.

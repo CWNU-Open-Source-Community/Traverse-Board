@@ -6,7 +6,7 @@ Last updated: 2026-08-19
 
 ## Resume Context
 
-当前检查点是 issue #99 / schema v114 的模型可调用工作区工具。Go-owned
+当前检查点是 issue #99 / schema v115 的模型可调用工作区工具。Go-owned
 `agent-code-tools.v1` Registry 向 Code/root 暴露四项有界读取工具，并仅在
 Deliver + Code/Script Profile 增加变更提案、精确应用和独立删除工具；Plan、
 Review/Learn、Cyber 与 Specialist 按矩阵保持只读或完全不可用。每轮 authority
@@ -14,7 +14,7 @@ Review/Learn、Cyber 与 Specialist 按矩阵保持只读或完全不可用。�
 校验；模型不能通过参数取得 authority。路径边界拒绝大小写别名、隐藏/忽略项、
 link/reparse、二进制/非 UTF-8 与超限内容；写入沿用人工审查并增加 source/destination
 CAS。调用、结果/拒绝、预算和有界 Artifact 进入可恢复 Supervisor 账本，CLI、
-HTTP/OpenAPI 与 Desktop 均显示 generation 和逐工具拒绝原因。完整边界见 ADR 0115。
+HTTP/OpenAPI 与 Desktop 均显示 generation 和逐工具拒绝原因。完整边界见 ADR 0116。
 
 前一检查点是 schema v113 的真实 Shell transport 与受监督 Debug terminal；其
 PowerShell/Git Bash、终端租约和独立权限边界保持不变。

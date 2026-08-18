@@ -1437,20 +1437,26 @@ func (a *App) runCreate(ctx context.Context, service *application.RunService, ar
 	timeout := fs.Duration("timeout", 0, "run timeout; zero means unset")
 	ignoreProjectConfig := fs.Bool("ignore-project-config", false,
 		"skip the .prayu/config.yaml narrowing snapshot for this Run")
+	instructionTarget := fs.String("instruction-target", ".",
+		"workspace-relative file or directory used for hierarchical project instructions")
+	ignoreProjectInstructions := fs.Bool("ignore-project-instructions", false,
+		"skip hierarchical project-instruction discovery for this Run")
 	if err := fs.Parse(reorderFlags(args, map[string]bool{
-		"workspace":             true,
-		"profile":               true,
-		"surface":               true,
-		"phase":                 true,
-		"route":                 true,
-		"session":               true,
-		"interactive":           false,
-		"max-turns":             true,
-		"max-tokens":            true,
-		"max-tool-calls":        true,
-		"max-cost-usd":          true,
-		"timeout":               true,
-		"ignore-project-config": false,
+		"workspace":                   true,
+		"profile":                     true,
+		"surface":                     true,
+		"phase":                       true,
+		"route":                       true,
+		"session":                     true,
+		"interactive":                 false,
+		"max-turns":                   true,
+		"max-tokens":                  true,
+		"max-tool-calls":              true,
+		"max-cost-usd":                true,
+		"timeout":                     true,
+		"ignore-project-config":       false,
+		"instruction-target":          true,
+		"ignore-project-instructions": false,
 	})); err != nil {
 		return err
 	}
@@ -1467,7 +1473,27 @@ func (a *App) runCreate(ctx context.Context, service *application.RunService, ar
 		workspaceRecord = &rec
 		workspaceID = rec.ID
 	}
+	if strings.TrimSpace(*sessionID) != "" {
+		sess, err := a.store.GetSession(ctx, strings.TrimSpace(*sessionID))
+		if err != nil {
+			return err
+		}
+		if workspaceID != "" && sess.WorkspaceID != "" && workspaceID != sess.WorkspaceID {
+			return errors.New("session and requested workspace do not match")
+		}
+		if workspaceID == "" {
+			workspaceID = sess.WorkspaceID
+		}
+		if workspaceRecord == nil && workspaceID != "" {
+			rec, err := a.store.GetWorkspaceByID(ctx, workspaceID)
+			if err != nil {
+				return err
+			}
+			workspaceRecord = &rec
+		}
+	}
 	var projectConfig *projectconfig.Effective
+	var projectInstructions *projectconfig.InstructionSnapshot
 	if workspaceRecord != nil && !*ignoreProjectConfig {
 		config, found, err := projectconfig.LoadWorkspace(ctx, workspaceRecord.RootPath)
 		if err != nil {
@@ -1490,17 +1516,13 @@ func (a *App) runCreate(ctx context.Context, service *application.RunService, ar
 			projectConfig = &effective
 		}
 	}
-	if strings.TrimSpace(*sessionID) != "" {
-		sess, err := a.store.GetSession(ctx, strings.TrimSpace(*sessionID))
+	if workspaceRecord != nil && !*ignoreProjectInstructions {
+		discovered, err := projectconfig.DiscoverInstructions(ctx, workspaceRecord.RootPath,
+			*instructionTarget)
 		if err != nil {
-			return err
+			return fmt.Errorf("project instruction discovery fail-closed: %w", err)
 		}
-		if workspaceID != "" && sess.WorkspaceID != "" && workspaceID != sess.WorkspaceID {
-			return errors.New("session and requested workspace do not match")
-		}
-		if workspaceID == "" {
-			workspaceID = sess.WorkspaceID
-		}
+		projectInstructions = &discovered
 	}
 	mission, run, err := service.Create(ctx, application.CreateRunRequest{
 		Goal:        strings.Join(fs.Args(), " "),
@@ -1518,7 +1540,9 @@ func (a *App) runCreate(ctx context.Context, service *application.RunService, ar
 			MaxCostUSD:     *maxCostUSD,
 			TimeoutSeconds: int64(timeout.Seconds()),
 		},
-		ProjectConfig: projectConfig,
+		ProjectConfig:       projectConfig,
+		ProjectInstructions: projectInstructions,
+		RequestedBy:         "cli_operator",
 	})
 	if err != nil {
 		return err
@@ -1527,9 +1551,10 @@ func (a *App) runCreate(ctx context.Context, service *application.RunService, ar
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(a.out, "run %s created\nmission: %s\nsession: %s\nstatus: %s\nprofile: %s\nsurface: %s\nphase: %s\nmode_revision: %d\nworkspace: %s\nroute: %s\n",
+	fmt.Fprintf(a.out, "run %s created\nmission: %s\nsession: %s\nstatus: %s\nprofile: %s\nsurface: %s\nphase: %s\nmode_revision: %d\nworkspace: %s\nroute: %s\nproject_instructions: %s\n",
 		run.ID, mission.ID, run.SessionID, run.Status, mission.Profile, mode.Surface,
-		mode.Phase, mode.Revision, mission.WorkspaceID, run.Config.ModelRoute)
+		mode.Phase, mode.Revision, mission.WorkspaceID, run.Config.ModelRoute,
+		run.Config.ProjectInstructionsFingerprint)
 	return nil
 }
 

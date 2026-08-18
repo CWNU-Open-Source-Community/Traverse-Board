@@ -89,10 +89,11 @@ import { AgentGraphPanel, ChildTasksPanel, DelegationsPanel, ExternalSkillsSecti
 import { RunActivityTimeline } from "./run-activity-timeline";
 import { EmbeddedAnalyzerPanel } from "./embedded-analyzer-panel";
 import { DockerSandboxPanel } from "./docker-sandbox-panel";
+import { ContextContinuityPanel } from "./context-continuity-panel";
 
 export type RunTab = "activity" | "overview" | "journey" | "actions" | "approvals" | "diffs" | "repository" | "files" | "evidence" | "verify" | "handoff" |
   "receipts" | "agents" | "delegations" | "fanout" | "findings" | "events" | "work" |
-  "notes" | "artifacts" | "tools" | "analyzer" | "child-tasks" | "sandbox";
+  "context" | "notes" | "artifacts" | "tools" | "analyzer" | "child-tasks" | "sandbox";
 
 const tabs: Array<{ id: RunTab; label: [string, string]; icon: typeof Activity }> = [
   { id: "activity", label: ["活动", "Activity"], icon: MessageSquareText },
@@ -114,7 +115,8 @@ const tabs: Array<{ id: RunTab; label: [string, string]; icon: typeof Activity }
   { id: "findings", label: ["发现", "Findings"], icon: ShieldAlert },
   { id: "events", label: ["事件", "Events"], icon: Activity },
   { id: "work", label: ["任务", "Work"], icon: ClipboardList },
-  { id: "notes", label: ["记忆", "Memory"], icon: StickyNote },
+  { id: "context", label: ["上下文", "Context"], icon: Database },
+  { id: "notes", label: ["运行笔记", "Run notes"], icon: StickyNote },
   { id: "artifacts", label: ["产物", "Artifacts"], icon: FileArchive },
   { id: "tools", label: ["工具", "Tools"], icon: Wrench },
   { id: "analyzer", label: ["分析器", "Analyzer"], icon: Bug },
@@ -400,6 +402,8 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
             <LoadMoreButton hasNextPage={Boolean(workQuery.hasNextPage)} isFetching={workQuery.isFetchingNextPage} onClick={() => void workQuery.fetchNextPage()} />
           </CollectionState>
         )}
+        {tab === "context" && <ContextContinuityPanel client={client} runID={runID}
+          sessionID={detail.run.session_id ?? ""} workspaceID={detail.mission.workspace_id ?? ""} />}
         {tab === "notes" && (
           <CollectionState query={notesQuery} empty="暂无记忆">
             <NoteList client={client} notes={notes} />

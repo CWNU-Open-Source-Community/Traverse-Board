@@ -58,7 +58,7 @@ CLI / TUI / React / Windows Desktop / CI
 | 领域 | 当前能力 |
 |---|---|
 | Agent 运行时 | Mission/Run、可恢复 Supervisor、严格生命周期、检查点、取消、重试、预算和执行租约 |
-| 模型与上下文 | Mock、Anthropic-compatible、OpenAI-compatible 与 loopback-only Ollama Provider、模型路由、资格校验、能力探测、流式响应、上下文压缩、结构化记忆 |
+| 模型与上下文 | Mock、Anthropic-compatible、OpenAI-compatible 与 loopback-only Ollama Provider、模型路由、资格校验、能力探测、流式响应、上下文压缩、层级项目指令、显式 user/project 长期记忆与 Session 恢复树 |
 | 计划与协作 | Plan/Delivery、工作项、备注、最多两个核心 child、1/2/4/6 档只读 Fan-out、共享预算与取消扇出 |
 | 工具与权限 | Tool Gateway、JSON Schema 校验、Policy、Scope、人工审批、四档宿主权限、受控固定命令、逐条审批 PowerShell/Git Bash，以及限时 Debug 终端输入 |
 | 代码工作流 | 系统目录选择与 Workspace 导入、工作区浏览、仓库状态、提交历史、Diff 审阅、文件编辑提案、验证计划、Code Journey 与 Handoff |
@@ -68,7 +68,7 @@ CLI / TUI / React / Windows Desktop / CI
 
 ### 模型可调用的工作区工具
 
-Schema v114 引入 `agent-code-tools.v1`，让 root Supervisor 能在真实 Workspace 中完成多轮“搜索 -> 阅读 -> 修改”闭环，同时不把文件系统权限交给模型。可用性由 Go 按 Run、Mission、Workspace、根目录指纹、Surface、Phase、Role、Profile、权限档及各自 revision 生成；模型只能提交符合 JSON Schema 的参数，不能伪造或扩大这份 authority。
+Schema v115 引入 `agent-code-tools.v1`，让 root Supervisor 能在真实 Workspace 中完成多轮“搜索 -> 阅读 -> 修改”闭环，同时不把文件系统权限交给模型。可用性由 Go 按 Run、Mission、Workspace、根目录指纹、Surface、Phase、Role、Profile、权限档及各自 revision 生成；模型只能提交符合 JSON Schema 的参数，不能伪造或扩大这份 authority。
 
 | 模式 | 可用工具 |
 |---|---|
@@ -77,7 +77,7 @@ Schema v114 引入 `agent-code-tools.v1`，让 root Supervisor 能在真实 Work
 | Code / Deliver / root（Review 或 Learn Profile） | 仅上述只读工具 |
 | Cyber Surface 或 Specialist | 不公开任何 `agent-code-tools.v1` 工具，并在 capability 快照中说明拒绝原因 |
 
-只读结果稳定排序、分页且有界，并拒绝根目录逃逸、大小写别名、未列入 Go allowlist 的隐藏项（仅 `.github` 作为代码证据开放）、忽略项、链接或重解析点、二进制、非 UTF-8 与超限文件。`workspace_change` 只创建 replace/create/move 提案；`workspace_delete` 是独立、需精确确认的删除提案；`workspace_apply` 只能应用已经批准的精确版本，并重新检查原文件与目标文件哈希，避免审阅后内容漂移。每次调用、结果/拒绝、authority 快照、预算消耗与有界 Artifact 都进入可恢复 Supervisor 账本。`cyberagent run show <run-id>`、Run Detail API 和 Desktop Run 页面可查看当前 generation、逐工具可用性与拒绝原因。该协议不授予 Shell、Git、网络或 Sandbox 权限；完整设计见[使用手册](docs/usage.md)和 [ADR 0115](docs/adr/0115-model-callable-workspace-tools.md)。
+只读结果稳定排序、分页且有界，并拒绝根目录逃逸、大小写别名、未列入 Go allowlist 的隐藏项（仅 `.github` 作为代码证据开放）、忽略项、链接或重解析点、二进制、非 UTF-8 与超限文件。`workspace_change` 只创建 replace/create/move 提案；`workspace_delete` 是独立、需精确确认的删除提案；`workspace_apply` 只能应用已经批准的精确版本，并重新检查原文件与目标文件哈希，避免审阅后内容漂移。每次调用、结果/拒绝、authority 快照、预算消耗与有界 Artifact 都进入可恢复 Supervisor 账本。`cyberagent run show <run-id>`、Run Detail API 和 Desktop Run 页面可查看当前 generation、逐工具可用性与拒绝原因。该协议不授予 Shell、Git、网络或 Sandbox 权限；完整设计见[使用手册](docs/usage.md)和 [ADR 0116](docs/adr/0116-model-callable-workspace-tools.md)。
 
 ### 真实 Git、PowerShell 与 Bash
 
@@ -95,6 +95,7 @@ Prayu 调用真实的 Git 和操作系统 Shell，不是命令模拟器；但它
 ### 安全边界
 
 - 不公开 Provider 私有 thinking、原始 Prompt、raw delta、工具参数、工具原始输出或 API key。
+- 项目指令、长期记忆和 Checkpoint 始终是不可信、非授权上下文；Fork/Resume 不恢复审批、capability、凭据、网络、进程、终端租约或执行档位。详见[双语上下文/威胁模型与删除说明](docs/context-continuity.md)和 [ADR 0115](docs/adr/0115-non-authorizing-durable-context-continuity.md)。
 - 文件编辑、宿主命令、浏览器 CDP、终端输入和 Sandbox 是彼此独立的授权面。
 - 受控命令默认使用 Go 固定模板；PowerShell/Bash 仅通过逐条审批或可撤销 Debug 租约开放。通用宿主执行与 Debug 能力不会因模型、Skill 或仓库文档而自动开启。
 - Docker Sandbox 产品入口默认关闭。显式进程 capability、当前 `docker` Profile、匹配权限档、精确 per-call 审批、Policy、预算与 30 秒 readiness 必须同时成立；数据库记录不能在重启后恢复 start authority。
@@ -317,7 +318,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 完整逐切片原始记录保留在 [`PROGRESS_BOOK.md`](docs/PROGRESS_BOOK.md)，当前检查点与验收证据保留在 [`PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)，恢复上下文见 [`PROJECT_MEMORY.md`](docs/PROJECT_MEMORY.md)。这些账本是历史记录，不应被当作待重新执行的任务列表。
 
 <details>
-<summary><strong>SQLite Schema v1-v112 迁移审计表 / Migration ledger</strong></summary>
+<summary><strong>SQLite Schema v1-v114 迁移审计表 / Migration ledger</strong></summary>
 
 此表是 Store 防漏迁移测试使用的审计合同。新增 schema 时必须按顺序追加，不得改写或删除既有行。
 
@@ -436,7 +437,8 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 | v111 | 保存 Surface/Phase/Role 与调用策略的外部 Skill 安装账本 | external-Skill installation ledger preserving Surface/Phase/Role and invocation policy |
 | v112 | 工具来源绑定、人工审查门禁的不可信 Skill 候选状态机 | tool-origin-bound, human-review-gated untrusted Skill candidate state machine |
 | v113 | 允许 Debug 终端进入 Supervisor 持久工具调用账本 | admit the debug terminal into the durable Supervisor tool-call ledger |
-| v114 | 模型可调用的工作区工具与哈希保护文件变更 | model-callable workspace tools and hash-guarded file mutations |
+| v114 | 层级项目指令快照、显式长期记忆与非授权会话连续性树 | hierarchical project-instruction snapshots, explicit long-term memory, and non-authorizing session continuity trees |
+| v115 | 模型可调用的工作区工具与哈希保护文件变更 | model-callable workspace tools and hash-guarded file mutations |
 
 </details>
 

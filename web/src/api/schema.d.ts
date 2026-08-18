@@ -84,6 +84,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/continuity-nodes/{node_id}/fork": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fork a new Run from a checkpoint
+         * @description Creates a new Run and Session with the exact bounded context snapshot while resetting approvals, capabilities, credentials, processes, leases, network authorization, and execution profiles.
+         */
+        post: operations["forkContinuityNode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/continuity-nodes/{node_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume in a new Run from a checkpoint
+         * @description Creates an auditable new Run/Session branch from the checkpoint; durable historical context never resurrects authority.
+         */
+        post: operations["resumeContinuityNode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -102,6 +142,78 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/memories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List explicit long-term memories
+         * @description Returns only explicitly stored user or project memories. Memory is preference/factual context and never grants authority.
+         */
+        get: operations["listContextMemories"];
+        put?: never;
+        /**
+         * Create explicit long-term memory
+         * @description Stores one explicit, provenance-bound memory after secret and sensitive-source checks. It cannot be invoked by model context and grants no authority.
+         */
+        post: operations["createContextMemory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/memories/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export long-term memories
+         * @description Exports active, disabled, and expired records with provenance, retention, and an explicit false capability projection.
+         */
+        get: operations["exportContextMemories"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/memories/{memory_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect one long-term memory
+         * @description Returns the exact redacted content, provenance, status, retention, digest, and optimistic version.
+         */
+        get: operations["getContextMemory"];
+        put?: never;
+        post?: never;
+        /**
+         * Permanently delete memory
+         * @description Physically deletes one exact memory version; future prompts and exports cannot recover it.
+         */
+        delete: operations["deleteContextMemory"];
+        options?: never;
+        head?: never;
+        /**
+         * Edit, enable, or disable memory
+         * @description Updates an explicit memory under optimistic version checking and repeats secret/source validation.
+         */
+        patch: operations["updateContextMemory"];
         trace?: never;
     };
     "/api/v1/models": {
@@ -712,6 +824,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/continuity-checkpoints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a bounded context checkpoint
+         * @description Captures redacted compaction, recent-message provenance, memory references, pinned config fingerprints, and Git identity with an all-false authority projection.
+         */
+        post: operations["createContinuityCheckpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/delegations": {
         parameters: {
             query?: never;
@@ -1316,6 +1448,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/project-instructions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Explain effective project instructions
+         * @description Returns pinned and live hierarchical sources, hashes, scope, precedence, why-effective details, conflicts, drift, and history without changing the Run.
+         */
+        get: operations["getRunProjectInstructions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/project-instructions/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm project instruction refresh
+         * @description Confirms a diff bound to both the pinned and reviewed-live fingerprints. Files never alter an active Run silently, and refreshed instructions remain non-authorizing.
+         */
+        post: operations["refreshRunProjectInstructions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/reports": {
         parameters: {
             query?: never;
@@ -1834,6 +2006,26 @@ export interface paths {
          * @description Cancels one exact pending operator-steering message for the bound Session. Prepared, committed, and already consumed input is immutable; this operation does not stop a model call or start execution.
          */
         post: operations["cancelSessionSteering"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session_id}/tree": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Browse Session checkpoints and branches
+         * @description Returns the connected checkpoint/Fork/Resume component plus compaction, decision, Artifact, Delivery, Git drift, and memory expiry projections.
+         */
+        get: operations["getSessionContinuityTree"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2622,6 +2814,87 @@ export interface components {
             arguments?: string[];
             executable: string;
             working_directory: string;
+        };
+        ContextMemoryExport: {
+            capability_grant: boolean;
+            /** Format: date-time */
+            exported_at: string;
+            items: components["schemas"]["Memory"][];
+            protocol_version: string;
+            scope: string;
+            scope_id: string;
+        };
+        ContinuityAuthority: {
+            approval: boolean;
+            capability: boolean;
+            credential: boolean;
+            execution_profile: boolean;
+            network: boolean;
+            process: boolean;
+            secret: boolean;
+            terminal_lease: boolean;
+        };
+        ContinuityMemoryReference: {
+            content_sha256: string;
+            id: string;
+            scope: string;
+            scope_id: string;
+            /** Format: int64 */
+            version: number;
+        };
+        ContinuityMessage: {
+            content: string;
+            content_sha256: string;
+            /** Format: int64 */
+            id: number;
+            instruction_authorized: boolean;
+            role: string;
+            source_kind: string;
+            source_ref?: string;
+        };
+        ContinuityNode: {
+            context_sha256: string;
+            /** Format: date-time */
+            created_at: string;
+            created_by: string;
+            git_branch?: string;
+            git_head?: string;
+            id: string;
+            kind: string;
+            parent_id?: string;
+            project_config_fingerprint?: string;
+            project_instructions_fingerprint?: string;
+            protocol_version: string;
+            run_id: string;
+            session_id: string;
+            snapshot: components["schemas"]["ContinuitySnapshot"];
+            source_node_id?: string;
+            summary?: string;
+            title: string;
+            workspace_id: string;
+        };
+        ContinuitySnapshot: {
+            authority: components["schemas"]["ContinuityAuthority"];
+            /** Format: date-time */
+            created_at: string;
+            fingerprint: string;
+            git_branch?: string;
+            git_head?: string;
+            inherited_context: string[];
+            memories: components["schemas"]["ContinuityMemoryReference"][];
+            project_config_fingerprint?: string;
+            project_instructions_fingerprint?: string;
+            protocol_version: string;
+            recent_messages: components["schemas"]["ContinuityMessage"][];
+            source_run_id: string;
+            source_session_id: string;
+            summary_content?: string;
+            summary_content_sha256?: string;
+            /** Format: int64 */
+            summary_id?: number;
+            /** Format: int64 */
+            through_message_id?: number;
+            workspace_id: string;
         };
         ControlledCommandExecutionReceiptView: {
             /** Format: int32 */
@@ -3497,11 +3770,82 @@ export interface components {
             working_directory: string;
             workspace_id: string;
         };
+        IgnoredInstruction: {
+            path: string;
+            reason: string;
+        };
         IndexView: {
             /** @enum {string} */
             api_version: "api.v1";
             app_version: string;
             resources: string[];
+        };
+        InstructionAuthority: {
+            debug_grant: boolean;
+            formatting_guidance: boolean;
+            hook_execution: boolean;
+            network_grant: boolean;
+            plugin_grant: boolean;
+            policy_override: boolean;
+            secret_access: boolean;
+            tool_grant: boolean;
+            validation_guidance: boolean;
+            workflow_guidance: boolean;
+        };
+        InstructionConflict: {
+            higher_precedence_path: string;
+            lower_precedence_path: string;
+            resolution: string;
+        };
+        InstructionLimits: {
+            /** Format: int32 */
+            max_depth: number;
+            /** Format: int32 */
+            max_file_bytes: number;
+            /** Format: int32 */
+            max_files: number;
+            /** Format: int32 */
+            max_total_bytes: number;
+        };
+        InstructionSnapshot: {
+            conflicts: components["schemas"]["InstructionConflict"][];
+            fingerprint: string;
+            ignored: components["schemas"]["IgnoredInstruction"][];
+            limits: components["schemas"]["InstructionLimits"];
+            /** Format: date-time */
+            loaded_at: string;
+            protocol_version: string;
+            sources: components["schemas"]["InstructionSource"][];
+            target_path: string;
+        };
+        InstructionSnapshotDiff: {
+            added: string[];
+            changed: string[];
+            from_fingerprint: string;
+            order_changed: boolean;
+            removed: string[];
+            requires_confirmation: boolean;
+            to_fingerprint: string;
+        };
+        InstructionSource: {
+            applicable_to: string[];
+            authority: components["schemas"]["InstructionAuthority"];
+            content: string;
+            content_sha256: string;
+            /** Format: int32 */
+            depth: number;
+            kind: string;
+            /** Format: date-time */
+            loaded_at: string;
+            /** Format: int32 */
+            ordinal: number;
+            path: string;
+            /** Format: int32 */
+            precedence: number;
+            redacted: boolean;
+            scope: string;
+            trust: string;
+            why_effective: string;
         };
         Manifest: {
             backend: string;
@@ -3516,6 +3860,30 @@ export interface components {
             resources: components["schemas"]["ResourceLimits"];
             /** Format: int32 */
             timeout_seconds: number;
+        };
+        Memory: {
+            content: string;
+            content_sha256: string;
+            /** Format: date-time */
+            created_at: string;
+            created_by: string;
+            id: string;
+            protocol_version: string;
+            redacted: boolean;
+            references: string[];
+            /** Format: date-time */
+            retention_until?: string;
+            scope: string;
+            scope_id: string;
+            source_kind: string;
+            source_ref?: string;
+            status: string;
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
+            updated_by: string;
+            /** Format: int64 */
+            version: number;
         };
         MessageView: {
             compacted: boolean;
@@ -3935,6 +4303,18 @@ export interface components {
         PriceSnapshotListView: {
             items: components["schemas"]["PriceSnapshotItemView"][];
             protocol_version: string;
+        };
+        ProjectInstructionState: {
+            capability_grant: boolean;
+            diff: components["schemas"]["InstructionSnapshotDiff"];
+            history: components["schemas"]["RunInstructionSnapshot"][];
+            live: components["schemas"]["InstructionSnapshot"];
+            pinned: components["schemas"]["RunInstructionSnapshot"];
+            pinned_present: boolean;
+            refresh_confirmed: boolean;
+            run_id: string;
+            stale: boolean;
+            workspace_id: string;
         };
         ProviderAvailabilityView: {
             configuration_error: boolean;
@@ -4417,8 +4797,11 @@ export interface components {
             transport_enabled: boolean;
         };
         RunConfigView: {
+            continuity_context_fingerprint?: string;
             interactive: boolean;
             model_route: string;
+            project_config_fingerprint?: string;
+            project_instructions_fingerprint?: string;
         };
         RunCreationControlRequestView: {
             goal: string;
@@ -4656,6 +5039,17 @@ export interface components {
             revision: number;
             /** @enum {string} */
             risk_tier: "minimal" | "elevated" | "high";
+        };
+        RunInstructionSnapshot: {
+            confirmed_by: string;
+            /** Format: date-time */
+            created_at: string;
+            diff: components["schemas"]["InstructionSnapshotDiff"];
+            id: string;
+            /** Format: int64 */
+            revision: number;
+            run_id: string;
+            snapshot: components["schemas"]["InstructionSnapshot"];
         };
         RunLifecycleControlRequestView: {
             /** @enum {string} */
@@ -4919,6 +5313,35 @@ export interface components {
             tool_called: boolean;
             /** @enum {string} */
             version: "session_steering_cancellation.v1";
+        };
+        SessionTree: {
+            capability_grant: boolean;
+            /** Format: date-time */
+            generated_at: string;
+            nodes: components["schemas"]["SessionTreeNode"][];
+            protocol_version: string;
+            session_id: string;
+            workspace_id: string;
+        };
+        SessionTreeNode: {
+            /** Format: date-time */
+            created_at: string;
+            derived: boolean;
+            fingerprint?: string;
+            git_branch?: string;
+            git_head?: string;
+            id: string;
+            kind: string;
+            parent_id?: string;
+            project_config_fingerprint?: string;
+            project_instructions_fingerprint?: string;
+            run_id: string;
+            session_id: string;
+            source_node_id?: string;
+            status: string;
+            summary?: string;
+            title: string;
+            warnings: string[];
         };
         SessionView: {
             /** Format: date-time */
@@ -5693,6 +6116,58 @@ export interface components {
             id: string;
             name: string;
         };
+        contextMemoryCreateRequestView: {
+            content: string;
+            redact_sensitive?: boolean;
+            references?: string[];
+            /** Format: date-time */
+            retention_until?: string;
+            scope: string;
+            scope_id: string;
+            source_ref?: string;
+            title: string;
+        };
+        contextMemoryDeleteRequestView: {
+            /** Format: int64 */
+            expected_version: number;
+        };
+        contextMemoryDeleteView: {
+            deleted: boolean;
+            id: string;
+            recoverable: boolean;
+        };
+        contextMemoryUpdateRequestView: {
+            content?: string;
+            /** Format: int64 */
+            expected_version: number;
+            redact_sensitive?: boolean;
+            references?: string[];
+            retention_until?: unknown;
+            source_ref?: string;
+            status?: string;
+            title?: string;
+        };
+        continuityBranchRequestView: {
+            goal?: string;
+        };
+        continuityBranchView: {
+            capability_grant: boolean;
+            inherited: string[];
+            mission: components["schemas"]["MissionView"];
+            node: components["schemas"]["ContinuityNode"];
+            not_inherited: string[];
+            run: components["schemas"]["RunView"];
+        };
+        continuityCheckpointRequestView: {
+            summary?: string;
+            title?: string;
+        };
+        projectInstructionRefreshRequestView: {
+            confirm: boolean;
+            expected_fingerprint: string;
+            expected_live_fingerprint: string;
+            target_path?: string;
+        };
     };
     responses: {
         /** @description Invalid path, query, method, or request body */
@@ -5933,6 +6408,92 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
+    forkContinuityNode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Continuity checkpoint identity */
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["continuityBranchRequestView"];
+            };
+        };
+        responses: {
+            /** @description Resource created or idempotently replayed */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["continuityBranchView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    resumeContinuityNode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Continuity checkpoint identity */
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["continuityBranchRequestView"];
+            };
+        };
+        responses: {
+            /** @description Resource created or idempotently replayed */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["continuityBranchView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     getHealth: {
         parameters: {
             query?: never;
@@ -5960,6 +6521,244 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listContextMemories: {
+        parameters: {
+            query?: {
+                /** @description Memory scope */
+                scope?: "user" | "project";
+                /** @description local-user or Workspace identity */
+                scope_id?: string;
+                /** @description Include disabled memories */
+                include_disabled?: boolean;
+                /** @description Include expired memories */
+                include_expired?: boolean;
+                /** @description Maximum items */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Memory"][];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    createContextMemory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["contextMemoryCreateRequestView"];
+            };
+        };
+        responses: {
+            /** @description Resource created or idempotently replayed */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Memory"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    exportContextMemories: {
+        parameters: {
+            query?: {
+                /** @description Memory scope */
+                scope?: "user" | "project";
+                /** @description local-user or Workspace identity */
+                scope_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ContextMemoryExport"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getContextMemory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Long-term memory identity */
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Memory"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    deleteContextMemory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Long-term memory identity */
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["contextMemoryDeleteRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["contextMemoryDeleteView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    updateContextMemory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Long-term memory identity */
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["contextMemoryUpdateRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Memory"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
         };
@@ -7195,6 +7994,49 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["ControlledCommandProposalView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    createContinuityCheckpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["continuityCheckpointRequestView"];
+            };
+        };
+        responses: {
+            /** @description Resource created or idempotently replayed */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ContinuityNode"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";
@@ -8513,6 +9355,87 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
+    getRunProjectInstructions: {
+        parameters: {
+            query?: {
+                /** @description Workspace-relative target */
+                target_path?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ProjectInstructionState"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    refreshRunProjectInstructions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["projectInstructionRefreshRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ProjectInstructionState"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     listRunFindingReports: {
         parameters: {
             query?: {
@@ -9785,6 +10708,41 @@ export interface operations {
             413: components["responses"]["RequestEntityTooLarge"];
             414: components["responses"]["RequestTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getSessionContinuityTree: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session identity */
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SessionTree"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
         };

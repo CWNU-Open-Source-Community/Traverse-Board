@@ -220,7 +220,8 @@ func TestWorkspaceFSResolveForWriteRejectsSymlinkEscape(t *testing.T) {
 	if err := os.Symlink(outside, link); err != nil {
 		t.Skipf("symlink creation unavailable: %v", err)
 	}
-	if _, err := NewWorkspaceFS(root).ResolveForWrite("link.txt"); err == nil || !strings.Contains(err.Error(), "escapes workspace") {
+	if _, err := NewWorkspaceFS(root).ResolveForWrite("link.txt"); err == nil ||
+		!strings.Contains(err.Error(), "symbolic links or reparse points") {
 		t.Fatalf("expected symlink escape rejection, got %v", err)
 	}
 }

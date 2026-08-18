@@ -75,7 +75,7 @@ cyberagent run resume <run-id>
 cyberagent run cancel <run-id>
 ```
 
-Schema v114 exposes `agent-code-tools.v1` to the root Supervisor during ordinary
+Schema v115 exposes `agent-code-tools.v1` to the root Supervisor during ordinary
 `run step` or `run execute` model rounds. It is not a separate user command and it
 does not grant a shell. Code/Plan exposes bounded `workspace_list`,
 `workspace_read`, `workspace_glob`, and `workspace_grep`. Code/Deliver keeps those
@@ -1162,6 +1162,22 @@ cyberagent project-config show <path-to-config.yaml> --profile code --max-turns 
 The file uses `project_config.v1` (JSON schema in `configs/project-config.schema.json`, example in `configs/project-config.example.yaml`). It is untrusted input: it can only reduce the operator/process/policy limits, never widen them. `budget.max_turns`/`budget.max_tool_calls` must be strictly lower than the requested ceiling; `allowed_profiles` may only shrink the set; `read_only: true` forbids write-capable profiles (`code`/`script`); `exclude_paths` are workspace-relative paths without escapes; `skill_suggestions` use the signed Skill identity contract (`name@version`); `test_command_id`/`format_command_id` may only reference registered Tool Gateway typed action IDs — never Shell text. Unknown fields, duplicate keys, type errors, YAML aliases/anchors, files over 64 KiB, nesting deeper than 32, more than 4096 nodes, symlinks/junctions/reparse points, and oversized path lists all fail closed. Any widening attempt aborts Run creation with the offending field named.
 
 At Run creation the normalized effective view and its SHA-256 fingerprint are pinned into the Run config snapshot; editing `.prayu/config.yaml` afterwards never changes a running Run.
+
+## Durable Context Continuity / 持久上下文连续性
+
+Schema v114 adds hierarchical `AGENTS.md`/`CLAUDE.md`/`.prayu` instruction discovery,
+operator-explicit user/project memory, and a browsable Session checkpoint/Fork/Resume tree.
+项目指令在 Run 创建时固定；磁盘漂移只有在显示 diff 并以旧 fingerprint 显式确认后才会
+追加新 revision。长期记忆不会从对话、模型输出、工具结果或仓库文件自动提炼，支持编辑、
+禁用、保留期、导出和不可恢复的物理删除。Checkpoint 只携带有界脱敏上下文；Fork/Resume
+创建新的 Run/Session，永不继承审批、capability、凭据、网络权限、进程、终端/执行 lease
+或 execution profile。
+
+Use `cyberagent context instructions`, `cyberagent context memory ...`, and
+`cyberagent session tree|checkpoint|fork|resume`; the Desktop **Context** tab exposes the same
+source explanations, drift, memory lifecycle, tree, and branch comparison. Complete commands,
+limits, threat model, privacy deletion semantics, and English/Chinese guidance are in
+[Project Instructions, Long-Term Memory, And Session Continuity](context-continuity.md).
 
 
 ## Remote Git and Pull Requests

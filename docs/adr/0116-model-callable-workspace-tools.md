@@ -1,8 +1,8 @@
-# ADR 0115: Model-Callable Workspace Tools
+# ADR 0116: Model-Callable Workspace Tools
 
 - Status: Accepted
 - Date: 2026-08-19
-- Scope: Code Surface root Supervisor; schema v114
+- Scope: Code Surface root Supervisor; schema v115
 
 ## Context
 
