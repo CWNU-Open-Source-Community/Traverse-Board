@@ -64,7 +64,14 @@ func TestSchemaV113PreservesCallsAndAdmitsDebugTerminal(t *testing.T) {
 		}
 	}
 
-	_, run := createStructuredToolTestRun(t, ctx, legacy, "preserve v112 Supervisor tools")
+	_, run, err := application.NewRunService(legacy).Create(ctx, application.CreateRunRequest{
+		Goal: "preserve v112 Supervisor tools", Profile: "code",
+		Budget: domain.Budget{MaxTurns: 5, MaxToolCalls: 20},
+	})
+	if err != nil {
+		_ = legacy.Close()
+		t.Fatal(err)
+	}
 	if _, err := application.NewRunService(legacy).Start(ctx, run.ID); err != nil {
 		_ = legacy.Close()
 		t.Fatal(err)

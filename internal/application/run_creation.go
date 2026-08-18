@@ -9,6 +9,7 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
+	"cyberagent-workbench/internal/projectconfig"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/session"
@@ -98,12 +99,18 @@ func (s *ControlledRunCreationService) Create(ctx context.Context,
 		return ControlledRunCreationResult{}, apperror.New(
 			apperror.CodeFailedPrecondition, "controlled Run workspace record is invalid")
 	}
+	instructions, err := projectconfig.DiscoverInstructions(ctx, workspace.RootPath, ".")
+	if err != nil {
+		return ControlledRunCreationResult{}, apperror.Wrap(
+			apperror.CodeFailedPrecondition, "project instruction discovery failed closed", err)
+	}
 
 	prepared, err := prepareRun(ctx, CreateRunRequest{
 		Goal: normalized.Goal, Profile: string(normalized.Profile),
 		Surface: string(normalized.Surface), Phase: string(normalized.Phase),
 		WorkspaceID: normalized.WorkspaceID, ModelRoute: string(normalized.Profile),
 		Interactive: true, Budget: domain.DefaultBudget(), RequestedBy: normalized.RequestedBy,
+		ProjectInstructions: &instructions,
 	}, nil)
 	if err != nil {
 		return ControlledRunCreationResult{}, apperror.Normalize(err)

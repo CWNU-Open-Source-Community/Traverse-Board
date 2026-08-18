@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"cyberagent-workbench/internal/contextmgr"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/idgen"
@@ -117,6 +118,32 @@ func createMissionRunTx(ctx context.Context, tx *sql.Tx, mission domain.Mission,
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, run.ID, run.MissionID, run.SessionID, run.Status,
 		configJSON, budgetJSON, nullableTS(run.StartedAt), nullableTS(run.FinishedAt), ts(run.CreatedAt), ts(run.UpdatedAt)); err != nil {
 		return err
+	}
+	if err := insertInitialRunInstructionSnapshotTx(ctx, tx, run, mode.RequestedBy); err != nil {
+		return err
+	}
+	if mission.WorkspaceID != "" {
+		snapshot, err := contextmgr.SealContinuitySnapshot(contextmgr.ContinuitySnapshot{
+			SourceRunID: run.ID, SourceSessionID: run.SessionID,
+			WorkspaceID: mission.WorkspaceID, RecentMessages: []contextmgr.ContinuityMessage{},
+			Memories:                       []contextmgr.ContinuityMemoryReference{},
+			ProjectConfigFingerprint:       run.Config.ProjectConfigFingerprint,
+			ProjectInstructionsFingerprint: run.Config.ProjectInstructionsFingerprint,
+			InheritedContext:               []string{}, CreatedAt: run.CreatedAt,
+		})
+		if err != nil {
+			return fmt.Errorf("seal initial continuity snapshot: %w", err)
+		}
+		node, err := contextmgr.NewContinuityNode(idgen.New("continuity"),
+			contextmgr.ContinuityNodeRoot, run.SessionID, run.ID, mission.WorkspaceID,
+			"", "", "Run created", "Initial immutable Run context", "run_service",
+			snapshot, run.CreatedAt)
+		if err != nil {
+			return fmt.Errorf("prepare initial continuity node: %w", err)
+		}
+		if err := insertSessionContinuityNodeTx(ctx, tx, node); err != nil {
+			return err
+		}
 	}
 	if err := insertInitialRunModeSnapshotTx(ctx, tx, mode, run, mission); err != nil {
 		return err

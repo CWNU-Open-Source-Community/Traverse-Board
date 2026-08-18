@@ -54,11 +54,74 @@ type RunConfig struct {
 	// Run creation. Editing the project file later never changes this Run.
 	ProjectConfig            json.RawMessage `json:"project_config,omitempty"`
 	ProjectConfigFingerprint string          `json:"project_config_fingerprint,omitempty"`
+	// ProjectInstructions is the immutable, provenance-rich hierarchy selected
+	// at Run creation (or by an explicit confirmed refresh). It is workflow
+	// guidance only and is never an authorization source.
+	ProjectInstructions            json.RawMessage `json:"project_instructions,omitempty"`
+	ProjectInstructionsFingerprint string          `json:"project_instructions_fingerprint,omitempty"`
+	// ContinuityContext is an immutable checkpoint/Fork/Resume snapshot. It is
+	// historical user data only: the embedded authority projection must remain
+	// all-false and can never recreate an approval, capability, process, lease,
+	// credential, network grant, or execution profile.
+	ContinuityContext            json.RawMessage `json:"continuity_context,omitempty"`
+	ContinuityContextFingerprint string          `json:"continuity_context_fingerprint,omitempty"`
 }
 
 func (c RunConfig) Validate() error {
 	if strings.TrimSpace(c.ModelRoute) == "" {
 		return errors.New("model route is required")
+	}
+	if len(c.ProjectInstructions) == 0 {
+		if c.ProjectInstructionsFingerprint != "" {
+			return errors.New("project instruction fingerprint requires a snapshot")
+		}
+	} else {
+		if len(c.ProjectInstructions) > 512*1024 || !json.Valid(c.ProjectInstructions) ||
+			!validLowerHexDigest(c.ProjectInstructionsFingerprint) {
+			return errors.New("project instruction snapshot or fingerprint is invalid")
+		}
+		var binding struct {
+			Fingerprint string `json:"fingerprint"`
+		}
+		if err := json.Unmarshal(c.ProjectInstructions, &binding); err != nil ||
+			binding.Fingerprint != c.ProjectInstructionsFingerprint {
+			return errors.New("project instruction snapshot fingerprint binding is invalid")
+		}
+	}
+	if len(c.ContinuityContext) == 0 {
+		if c.ContinuityContextFingerprint != "" {
+			return errors.New("continuity context fingerprint requires a snapshot")
+		}
+		return nil
+	}
+	if len(c.ContinuityContext) > 512*1024 || !json.Valid(c.ContinuityContext) ||
+		!validLowerHexDigest(c.ContinuityContextFingerprint) {
+		return errors.New("continuity context snapshot or fingerprint is invalid")
+	}
+	var continuity struct {
+		ProtocolVersion string `json:"protocol_version"`
+		Fingerprint     string `json:"fingerprint"`
+		Authority       struct {
+			Capability       bool `json:"capability"`
+			Approval         bool `json:"approval"`
+			Process          bool `json:"process"`
+			TerminalLease    bool `json:"terminal_lease"`
+			Network          bool `json:"network"`
+			Credential       bool `json:"credential"`
+			Secret           bool `json:"secret"`
+			ExecutionProfile bool `json:"execution_profile"`
+		} `json:"authority"`
+	}
+	if err := json.Unmarshal(c.ContinuityContext, &continuity); err != nil ||
+		continuity.ProtocolVersion != "continuity_snapshot.v1" ||
+		continuity.Fingerprint != c.ContinuityContextFingerprint {
+		return errors.New("continuity context snapshot fingerprint binding is invalid")
+	}
+	if continuity.Authority.Capability || continuity.Authority.Approval ||
+		continuity.Authority.Process || continuity.Authority.TerminalLease ||
+		continuity.Authority.Network || continuity.Authority.Credential ||
+		continuity.Authority.Secret || continuity.Authority.ExecutionProfile {
+		return errors.New("continuity context cannot inherit authority")
 	}
 	return nil
 }

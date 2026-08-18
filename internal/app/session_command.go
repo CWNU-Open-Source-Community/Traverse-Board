@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"cyberagent-workbench/internal/application"
+	"cyberagent-workbench/internal/contextmgr"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/workspace"
 )
@@ -28,9 +29,111 @@ func (a *App) sessionCommand(ctx context.Context, args []string) error {
 		return a.sessionSend(ctx, manager, args[1:])
 	case "history":
 		return a.sessionHistory(ctx, manager, args[1:])
+	case "tree":
+		return a.sessionTree(ctx, args[1:])
+	case "checkpoint":
+		return a.sessionContinuityCheckpoint(ctx, args[1:])
+	case "fork", "resume":
+		return a.sessionContinuityBranch(ctx, args[0], args[1:])
 	default:
 		return fmt.Errorf("unknown session subcommand %q", args[0])
 	}
+}
+
+func (a *App) sessionTree(ctx context.Context, args []string) error {
+	fs := newFlagSet("session tree", a.errOut)
+	jsonOutput := fs.Bool("json", false, "emit the full machine-readable tree")
+	if err := fs.Parse(reorderFlags(args, map[string]bool{"json": false})); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return errors.New("usage: cyberagent session tree <session-id> [--json]")
+	}
+	tree, err := application.NewContextContinuityService(a.store).Tree(ctx, fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	if *jsonOutput {
+		return writeContextJSON(a, tree)
+	}
+	fmt.Fprintf(a.out, "protocol: %s\nsession: %s\nworkspace: %s\nnode_count: %d\ncapability_grant: false\n",
+		tree.ProtocolVersion, tree.SessionID, tree.WorkspaceID, len(tree.Nodes))
+	for _, node := range tree.Nodes {
+		link := node.ParentID
+		if node.SourceNodeID != "" {
+			link = "source=" + node.SourceNodeID
+		} else if link != "" {
+			link = "parent=" + link
+		}
+		fmt.Fprintf(a.out, "%s\t%s\tstatus=%s\trun=%s\t%s\t%s\n",
+			node.ID, node.Kind, node.Status, node.RunID, link, node.Title)
+		for _, warning := range node.Warnings {
+			fmt.Fprintf(a.out, "  warning: %s\n", warning)
+		}
+	}
+	return nil
+}
+
+func (a *App) sessionContinuityCheckpoint(ctx context.Context, args []string) error {
+	fs := newFlagSet("session checkpoint", a.errOut)
+	title := fs.String("title", "Operator checkpoint", "checkpoint title")
+	summary := fs.String("summary", "", "bounded operator summary")
+	operator := fs.String("operator", "cli_operator", "operator identity")
+	jsonOutput := fs.Bool("json", false, "emit JSON")
+	if err := fs.Parse(reorderFlags(args, map[string]bool{
+		"title": true, "summary": true, "operator": true, "json": false,
+	})); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return errors.New("usage: cyberagent session checkpoint <run-id> [--title <text>] [--summary <text>] [--operator <id>] [--json]")
+	}
+	node, err := application.NewContextContinuityService(a.store).Checkpoint(ctx,
+		application.CreateContinuityCheckpointRequest{RunID: fs.Arg(0), Title: *title,
+			Summary: *summary, RequestedBy: *operator})
+	if err != nil {
+		return err
+	}
+	if *jsonOutput {
+		return writeContextJSON(a, node)
+	}
+	fmt.Fprintf(a.out, "checkpoint: %s\nrun: %s\nsession: %s\nparent: %s\nfingerprint: %s\ngit_branch: %s\ngit_head: %s\ncontext_items: %d\ncapability_grant: false\n",
+		node.ID, node.RunID, node.SessionID, node.ParentID, node.ContextSHA256,
+		node.GitBranch, node.GitHead, len(node.Snapshot.InheritedContext))
+	return nil
+}
+
+func (a *App) sessionContinuityBranch(ctx context.Context, action string, args []string) error {
+	fs := newFlagSet("session "+action, a.errOut)
+	goal := fs.String("goal", "", "new Run goal; defaults to the source Run goal")
+	operator := fs.String("operator", "cli_operator", "operator identity")
+	jsonOutput := fs.Bool("json", false, "emit JSON")
+	if err := fs.Parse(reorderFlags(args, map[string]bool{
+		"goal": true, "operator": true, "json": false,
+	})); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("usage: cyberagent session %s <continuity-node-id> [--goal <text>] [--operator <id>] [--json]", action)
+	}
+	kind := contextmgr.ContinuityNodeFork
+	if action == "resume" {
+		kind = contextmgr.ContinuityNodeResume
+	}
+	result, err := application.NewContextContinuityService(a.store).Branch(ctx,
+		application.BranchContinuityRequest{SourceNodeID: fs.Arg(0), Kind: kind,
+			Goal: *goal, RequestedBy: *operator})
+	if err != nil {
+		return err
+	}
+	if *jsonOutput {
+		return writeContextJSON(a, result)
+	}
+	fmt.Fprintf(a.out, "%s: %s\nrun: %s\nsession: %s\nsource: %s\ncontext_fingerprint: %s\ninherited_items: %d\nnot_inherited: %s\ncapability_grant: false\n",
+		action, result.Node.ID, result.Run.ID, result.Run.SessionID,
+		result.Node.SourceNodeID, result.Node.ContextSHA256, len(result.Inherited),
+		strings.Join(result.NotInherited, ","))
+	return nil
 }
 
 func (a *App) newSessionManager() *session.Manager {

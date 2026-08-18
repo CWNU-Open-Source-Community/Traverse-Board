@@ -343,8 +343,14 @@ func performControlRequest(t *testing.T, api *API, method string, runID string, 
 func performControlPathRequest(t *testing.T, api *API, requestPath string, key string,
 	body *strings.Reader,
 ) *httptest.ResponseRecorder {
+	return performControlMethodPathRequest(t, api, http.MethodPost, requestPath, key, body)
+}
+
+func performControlMethodPathRequest(t *testing.T, api *API, method string,
+	requestPath string, key string, body *strings.Reader,
+) *httptest.ResponseRecorder {
 	t.Helper()
-	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1"+requestPath, body)
+	request := httptest.NewRequest(method, "http://127.0.0.1"+requestPath, body)
 	request.Host = "127.0.0.1:8765"
 	request.RemoteAddr = "127.0.0.1:45000"
 	request.Header.Set("Authorization", "Bearer "+testControlToken)

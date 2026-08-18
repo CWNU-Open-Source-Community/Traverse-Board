@@ -108,8 +108,26 @@ func removeSchemaV112ForTestStatements() []string {
 }
 
 func removeSchemaV113ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV114ForTestStatements(), []string{
 		`DELETE FROM schema_migrations WHERE version = 113`,
+	}...)
+}
+
+func removeSchemaV114ForTestStatements() []string {
+	return []string{
+		`DROP TRIGGER trg_session_continuity_nodes_no_delete`,
+		`DROP TRIGGER trg_session_continuity_nodes_no_update`,
+		`DROP INDEX idx_session_continuity_nodes_run_created`,
+		`DROP INDEX idx_session_continuity_nodes_session_created`,
+		`DROP TABLE session_continuity_nodes`,
+		`DROP TRIGGER trg_run_instruction_snapshots_no_delete`,
+		`DROP TRIGGER trg_run_instruction_snapshots_no_update`,
+		`DROP INDEX idx_run_instruction_snapshots_run_revision`,
+		`DROP TABLE run_instruction_snapshots`,
+		`DROP TRIGGER trg_context_memories_identity_immutable`,
+		`DROP INDEX idx_context_memories_scope_status_updated`,
+		`DROP TABLE context_memories`,
+		`DELETE FROM schema_migrations WHERE version = 114`,
 	}
 }
 func TestSkillCatalogMigrationAndRemovalChain(t *testing.T) {

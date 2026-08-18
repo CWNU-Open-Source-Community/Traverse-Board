@@ -51,6 +51,7 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 		resources := []string{"runs", "sessions", "work-items", "notes", "artifacts",
 			"agent-graph", "delegations", "readonly-fanout", "finding-reports",
 			"external-skills", "workspaces", "workspace-explorer", "workspace-search", "models",
+			"project-instructions", "long-term-memories", "session-tree",
 			"repository-state", "repository-diff", "repository-history", "repository-file-history", "repository-commit-detail", "repository-commit-comparison", "repository-commit-file-preview", "verification-evidence", "verification-plan", "verification-plan-coverage", "verification-snapshot-export", "verification-snapshot-receipts", "code-handoff", "code-handoff-export",
 			"operation-receipts", "operator-actions", "evidence-inventory",
 			"run-activity", "event-stream", "event-poll", "capabilities", "openapi"}
@@ -63,7 +64,9 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 		}
 		if a.controlEnabled {
 			resources = append(resources, "model-cancellation-control",
-				"specialist-model-cancellation-control", "execution-profile-control")
+				"specialist-model-cancellation-control", "execution-profile-control",
+				"context-memory-control", "project-instruction-refresh-control",
+				"continuity-checkpoint-control", "continuity-branch-control")
 		}
 		if a.executionPermissionControlEnabled {
 			resources = append(resources, "execution-permission-control")
@@ -183,6 +186,8 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 		}
 	case "sessions":
 		return a.routeSessions(request, segments)
+	case "memories":
+		return a.contextMemories(request, segments)
 	case "work-items":
 		if len(segments) == 2 {
 			return a.workItem(request, segments[1])
@@ -485,6 +490,8 @@ func (a *API) routeRuns(request *http.Request, segments []string) (any, *Page, e
 			return a.runVerificationSnapshotReceiptReviews(request, segments[1])
 		case "code-handoff":
 			return a.runCodeHandoff(request, segments[1])
+		case "project-instructions":
+			return a.runProjectInstructions(request, segments[1])
 		}
 	case 4:
 		if segments[2] == "code-handoff" && segments[3] == "export" {
@@ -708,6 +715,9 @@ func (a *API) routeSessions(request *http.Request, segments []string) (any, *Pag
 	case 3:
 		if segments[2] == "messages" {
 			return a.sessionMessages(request, segments[1])
+		}
+		if segments[2] == "tree" {
+			return a.sessionContinuityTree(request, segments[1])
 		}
 	}
 	return nil, nil, apperror.New(apperror.CodeNotFound, "Session HTTP API endpoint was not found")

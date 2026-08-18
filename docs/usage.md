@@ -1138,6 +1138,22 @@ The file uses `project_config.v1` (JSON schema in `configs/project-config.schema
 
 At Run creation the normalized effective view and its SHA-256 fingerprint are pinned into the Run config snapshot; editing `.prayu/config.yaml` afterwards never changes a running Run.
 
+## Durable Context Continuity / 持久上下文连续性
+
+Schema v114 adds hierarchical `AGENTS.md`/`CLAUDE.md`/`.prayu` instruction discovery,
+operator-explicit user/project memory, and a browsable Session checkpoint/Fork/Resume tree.
+项目指令在 Run 创建时固定；磁盘漂移只有在显示 diff 并以旧 fingerprint 显式确认后才会
+追加新 revision。长期记忆不会从对话、模型输出、工具结果或仓库文件自动提炼，支持编辑、
+禁用、保留期、导出和不可恢复的物理删除。Checkpoint 只携带有界脱敏上下文；Fork/Resume
+创建新的 Run/Session，永不继承审批、capability、凭据、网络权限、进程、终端/执行 lease
+或 execution profile。
+
+Use `cyberagent context instructions`, `cyberagent context memory ...`, and
+`cyberagent session tree|checkpoint|fork|resume`; the Desktop **Context** tab exposes the same
+source explanations, drift, memory lifecycle, tree, and branch comparison. Complete commands,
+limits, threat model, privacy deletion semantics, and English/Chinese guidance are in
+[Project Instructions, Long-Term Memory, And Session Continuity](context-continuity.md).
+
 
 ## Remote Git and Pull Requests
 
