@@ -3,7 +3,9 @@
 package main
 
 import (
+	"bytes"
 	"debug/pe"
+	"encoding/binary"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -176,6 +178,40 @@ func TestPEImageExportsProcedureWithoutLoadingDLL(t *testing.T) {
 	}
 	if peImageExportsProcedure(image, "CreateWebViewEnvironmentWithOptionsInternal") {
 		t.Fatal("unexpected WebView2 export was found")
+	}
+}
+
+func TestPEImageExportsProcedureRejectsInvalidFunctionTarget(t *testing.T) {
+	const (
+		sectionRVA = uint32(0x1000)
+		targetRVA  = uint32(0x1100)
+		procedure  = "ExampleProcedure"
+	)
+	imageBytes := make([]byte, 512)
+	binary.LittleEndian.PutUint32(imageBytes[20:24], 1)
+	binary.LittleEndian.PutUint32(imageBytes[24:28], 1)
+	binary.LittleEndian.PutUint32(imageBytes[28:32], sectionRVA+64)
+	binary.LittleEndian.PutUint32(imageBytes[32:36], sectionRVA+68)
+	binary.LittleEndian.PutUint32(imageBytes[36:40], sectionRVA+72)
+	binary.LittleEndian.PutUint32(imageBytes[64:68], targetRVA)
+	binary.LittleEndian.PutUint32(imageBytes[68:72], sectionRVA+128)
+	binary.LittleEndian.PutUint16(imageBytes[72:74], 0)
+	copy(imageBytes[128:], procedure+"\x00")
+	optionalHeader := &pe.OptionalHeader64{NumberOfRvaAndSizes: 1}
+	optionalHeader.DataDirectory[0] = pe.DataDirectory{VirtualAddress: sectionRVA, Size: 128}
+	image := &pe.File{
+		OptionalHeader: optionalHeader,
+		Sections: []*pe.Section{{
+			SectionHeader: pe.SectionHeader{VirtualAddress: sectionRVA, Size: uint32(len(imageBytes))},
+			ReaderAt:      bytes.NewReader(imageBytes),
+		}},
+	}
+	if !peImageExportsProcedure(image, procedure) {
+		t.Fatal("valid export target was rejected")
+	}
+	binary.LittleEndian.PutUint32(imageBytes[64:68], sectionRVA+uint32(len(imageBytes)))
+	if peImageExportsProcedure(image, procedure) {
+		t.Fatal("out-of-image export target was accepted")
 	}
 }
 

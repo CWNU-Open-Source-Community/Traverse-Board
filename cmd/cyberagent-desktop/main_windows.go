@@ -174,13 +174,21 @@ func peImageExportsProcedure(image *pe.File, procedure string) bool {
 	if !ok {
 		return false
 	}
+	functionCount := binary.LittleEndian.Uint32(header[20:24])
 	nameCount := binary.LittleEndian.Uint32(header[24:28])
+	functionTableRVA := binary.LittleEndian.Uint32(header[28:32])
 	nameTableRVA := binary.LittleEndian.Uint32(header[32:36])
-	if nameCount == 0 || nameTableRVA == 0 {
+	ordinalTableRVA := binary.LittleEndian.Uint32(header[36:40])
+	if functionCount == 0 || nameCount == 0 || nameCount > 1<<16 ||
+		functionTableRVA == 0 || nameTableRVA == 0 || ordinalTableRVA == 0 {
 		return false
 	}
 	_, tableOffset, tableSize, ok := peImageSectionRange(image, nameTableRVA, 0)
 	if !ok || uint64(nameCount)*4 > tableSize-uint64(tableOffset) {
+		return false
+	}
+	_, ordinalOffset, ordinalSize, ok := peImageSectionRange(image, ordinalTableRVA, 0)
+	if !ok || uint64(nameCount)*2 > ordinalSize-uint64(ordinalOffset) {
 		return false
 	}
 	for index := uint32(0); index < nameCount; index++ {
@@ -196,7 +204,29 @@ func peImageExportsProcedure(image *pe.File, procedure string) bool {
 		candidate, found := peImageBytes(image, procedureRVA, uint32(len(procedure)+1))
 		if found && candidate[len(procedure)] == 0 &&
 			string(candidate[:len(procedure)]) == procedure {
-			return true
+			ordinalEntryRVA := uint64(ordinalTableRVA) + uint64(index)*2
+			if ordinalEntryRVA > uint64(^uint32(0)) {
+				return false
+			}
+			ordinalEntry, ordinalFound := peImageBytes(image, uint32(ordinalEntryRVA), 2)
+			if !ordinalFound {
+				return false
+			}
+			ordinal := uint32(binary.LittleEndian.Uint16(ordinalEntry))
+			if ordinal >= functionCount {
+				return false
+			}
+			functionEntryRVA := uint64(functionTableRVA) + uint64(ordinal)*4
+			if functionEntryRVA > uint64(^uint32(0)) {
+				return false
+			}
+			functionEntry, functionFound := peImageBytes(image, uint32(functionEntryRVA), 4)
+			if !functionFound {
+				return false
+			}
+			targetRVA := binary.LittleEndian.Uint32(functionEntry)
+			_, _, _, targetFound := peImageSectionRange(image, targetRVA, 1)
+			return targetRVA != 0 && targetFound
 		}
 	}
 	return false
