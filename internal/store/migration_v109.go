@@ -34,7 +34,7 @@ var supervisorToolRegistryStatements = []string{
 			'specialist_delegation_propose', 'child_task_propose',
 			'plan_delivery_propose', 'controlled_command_propose',
 			'one_shot_command_propose', 'host_command_propose',
-			'sandbox_docker_run_propose')),
+			'sandbox_docker_run_propose', 'skill_candidate_propose')),
 		CHECK(status IN ('pending', 'completed', 'denied', 'failed')),
 		CHECK((status = 'pending' AND result_json = '' AND error_code = '' AND completed_at IS NULL)
 			OR (status = 'completed' AND length(result_json) > 0 AND error_code = '' AND completed_at IS NOT NULL)
