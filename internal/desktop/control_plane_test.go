@@ -359,9 +359,8 @@ func TestControlPlaneSeparatesRunCreationFromExistingRunControls(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer plane.Close()
-	workspace := store.WorkspaceRecord{ID: "workspace-desktop-create", Name: "desktop-create",
-		RootPath: t.TempDir()}
-	if err := plane.stateStore.SaveWorkspace(t.Context(), workspace); err != nil {
+	workspace, err := plane.RegisterWorkspaceDirectory(t.Context(), t.TempDir())
+	if err != nil {
 		t.Fatal(err)
 	}
 	body := `{"version":"run_creation.v1","goal":"Desktop Run",` +

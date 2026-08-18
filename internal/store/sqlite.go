@@ -340,6 +340,7 @@ func migrationPlan() []migration {
 		{Version: 111, Name: "mode-aware external Skill installation ledger", Statements: skillPackageModeMetadataStatements},
 		{Version: 112, Name: "review-gated untrusted Skill candidates", Statements: skillCandidateReviewStatements},
 		{Version: 113, Name: "debug terminal Supervisor tool ledger", Statements: debugTerminalSupervisorLedgerStatements},
+		{Version: 114, Name: "project instructions, explicit memory, and session continuity", Statements: contextContinuityStatements},
 	}
 }
 

@@ -16,7 +16,6 @@ import (
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/httpapi"
 	"cyberagent-workbench/internal/modelregistry"
-	"cyberagent-workbench/internal/store"
 )
 
 func TestControlPlaneCompletesARealAnthropicCompatibleDesktopChatTurn(t *testing.T) {
@@ -92,9 +91,8 @@ func TestControlPlaneCompletesARealAnthropicCompatibleDesktopChatTurn(t *testing
 	}
 	defer plane.Close()
 
-	workspace := store.WorkspaceRecord{ID: "workspace-real-model-chat", Name: "real-model-chat",
-		RootPath: t.TempDir()}
-	if err := plane.stateStore.SaveWorkspace(t.Context(), workspace); err != nil {
+	workspace, err := plane.RegisterWorkspaceDirectory(t.Context(), t.TempDir())
+	if err != nil {
 		t.Fatal(err)
 	}
 	harness := desktopControlRequest(plane.Handler(), http.MethodPost,

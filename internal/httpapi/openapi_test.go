@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"cyberagent-workbench/internal/application"
+	"cyberagent-workbench/internal/contextmgr"
 	"cyberagent-workbench/internal/coordinator"
 	"cyberagent-workbench/internal/credential"
 	"cyberagent-workbench/internal/domain"
@@ -61,148 +62,64 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 		t.Fatalf("OpenAPI metadata is incomplete: %#v", document)
 	}
 	expectedPaths := sortedOpenAPIPaths()
-	controlSuccessStatuses := make(map[string]string)
+	specsByOperation := make(map[string]openAPIOperationSpec)
+	expectedOperationCounts := make(map[string]int)
 	for _, spec := range openAPIOperationSpecs() {
-		if !spec.Control {
-			continue
-		}
-		status, statusErr := openAPISuccessStatus(spec)
-		if statusErr != nil {
-			t.Fatal(statusErr)
-		}
-		controlSuccessStatuses[spec.Path] = status
+		specsByOperation[spec.OperationID] = spec
+		expectedOperationCounts[spec.Path]++
 	}
 	actualPaths := make([]string, 0, len(document.Paths))
 	operationIDs := make(map[string]struct{}, len(document.Paths))
 	for path, item := range document.Paths {
 		actualPaths = append(actualPaths, path)
-		operations := make([]*openAPIOperation, 0, 2)
+		type operationEntry struct {
+			method    string
+			operation *openAPIOperation
+		}
+		operations := make([]operationEntry, 0, 4)
 		if item.Get != nil {
-			if item.Get.OperationID == "" || !item.Get.ReadOnly || item.Get.Responses["200"] == nil ||
-				item.Get.RequestBody != nil || len(item.Get.Security) != 0 {
-				t.Fatalf("path %s has an incomplete read operation: %#v", path, item.Get)
-			}
-			operations = append(operations, item.Get)
+			operations = append(operations, operationEntry{method: http.MethodGet, operation: item.Get})
 		}
 		if item.Post != nil {
-			if path == DockerSandboxReadinessPath {
-				if !item.Post.ReadOnly || item.Post.OperationID !=
-					"evaluateDockerSandboxReadiness" ||
-					item.Post.Responses["200"] == nil || item.Post.RequestBody == nil ||
-					len(item.Post.Security) != 0 {
-					t.Fatalf("path %s has an incomplete read-token readiness operation: %#v",
-						path, item.Post)
-				}
-			} else {
-				validControl := (path == DockerSandboxAdmissionPath &&
-					item.Post.OperationID == "admitDockerSandbox") ||
-					(path == DockerSandboxStartPath &&
-						item.Post.OperationID == "startDockerSandbox") ||
-					(path == DockerSandboxCancelPath &&
-						item.Post.OperationID == "cancelDockerSandbox") ||
-					(path == ModelCancellationPathTemplate &&
-						item.Post.OperationID == "requestModelCancellation") ||
-					(path == SessionArchiveControlPathTemplate &&
-						item.Post.OperationID == "archiveSession") ||
-					(path == SpecialistModelCancellationPathTemplate &&
-						item.Post.OperationID == "requestSpecialistModelCancellation") ||
-					(path == RunExecutionProfileControlPathTemplate &&
-						item.Post.OperationID == "selectRunExecutionProfile") ||
-					(path == RunExecutionPermissionControlPathTemplate &&
-						item.Post.OperationID == "selectRunExecutionPermission") ||
-					(path == RunBrowserCDPPermissionControlPathTemplate &&
-						item.Post.OperationID == "selectRunBrowserCDPPermission") ||
-					(path == RunCreationControlPath && item.Post.OperationID == "createRun") ||
-					(path == SessionMessageControlPathTemplate &&
-						item.Post.OperationID == "submitSessionMessage") ||
-					(path == SessionSteeringCancellationPathTemplate &&
-						item.Post.OperationID == "cancelSessionSteering") ||
-					(path == RunLifecycleControlPathTemplate &&
-						item.Post.OperationID == "controlRunLifecycle") ||
-					(path == PlanDirectionControlPathTemplate &&
-						item.Post.OperationID == "selectPlanDirection") ||
-					(path == PlanDeliveryControlPathTemplate &&
-						item.Post.OperationID == "enterPlanDelivery") ||
-					(path == ApprovalDecisionControlPathTemplate &&
-						item.Post.OperationID == "decideRunApproval") ||
-					(path == ControlledCommandProposalReviewPathTemplate &&
-						item.Post.OperationID == "reviewControlledCommandProposal") ||
-					(path == HostCommandProposalReviewPathTemplate &&
-						item.Post.OperationID == "reviewHostCommandProposal") ||
-					(path == RunExecutionControlPathTemplate &&
-						item.Post.OperationID == "executeRunSelection") ||
-					(path == ModelRouteControlPathTemplate &&
-						item.Post.OperationID == "selectModelRoute") ||
-					(path == ProviderDiagnosticPath &&
-						item.Post.OperationID == "diagnoseProvider") ||
-					(path == ModelHarnessQualificationPath &&
-						item.Post.OperationID == "qualifyModelHarness") ||
-					(path == PriceSnapshotsPath &&
-						item.Post.OperationID == "importPriceSnapshot") ||
-					(path == FanoutExecutionCancelPathTemplate &&
-						item.Post.OperationID == "cancelRunFanoutExecution") ||
-					(path == ChildTaskProposalReviewPathTemplate &&
-						item.Post.OperationID == "reviewRunChildTaskProposal") ||
-					(path == ChildTaskProposalAdmitPathTemplate &&
-						item.Post.OperationID == "admitRunChildTaskProposal") ||
-					(path == ProviderCredentialPathTemplate &&
-						item.Post.OperationID == "changeProviderCredential") ||
-					(path == FileEditProposalPathTemplate &&
-						item.Post.OperationID == "createFileEditProposal") ||
-					(path == FileEditReviewPathTemplate &&
-						item.Post.OperationID == "reviewRunFileEdit") ||
-					(path == FileEditApplyPathTemplate &&
-						item.Post.OperationID == "applyRunFileEdit") ||
-					(path == RunWakeIntentPathTemplate &&
-						item.Post.OperationID == "scheduleRunWake") ||
-					(path == RunWakeCancellationPathTemplate &&
-						item.Post.OperationID == "cancelRunWake") ||
-					(path == RunWakeExecutionPathTemplate &&
-						item.Post.OperationID == "consumeRunWake") ||
-					(path == SkillPackageInstallPath &&
-						item.Post.OperationID == "installSkillPackage") ||
-					(path == EvidenceAttachmentPathTemplate &&
-						item.Post.OperationID == "attachRunEvidence") ||
-					(path == VerificationEvidencePathTemplate &&
-						item.Post.OperationID == "recordRunVerificationEvidence") ||
-					(path == VerificationPlanPathTemplate &&
-						item.Post.OperationID == "recordRunVerificationPlan") ||
-					(path == VerificationAssociationPathTemplate &&
-						item.Post.OperationID == "associateRunVerificationEvidence") ||
-					(path == VerificationSnapshotReceiptPathTemplate &&
-						item.Post.OperationID == "recordRunVerificationSnapshotReceipt") ||
-					(path == VerificationSnapshotReceiptReviewPathTemplate &&
-						item.Post.OperationID == "recordRunVerificationSnapshotReceiptReview") ||
-					(path == RunExecutionInteractionControlPathTemplate &&
-						item.Post.OperationID == "selectRunExecutionInteraction") ||
-					(path == PlanModeControlPathTemplate &&
-						item.Post.OperationID == "enterPlanMode") ||
-					(path == EmbeddedAnalyzerExecutionPathTemplate &&
-						item.Post.OperationID == "executeEmbeddedAnalyzer")
-				successStatus := controlSuccessStatuses[path]
-				if !validControl ||
-					item.Post.ReadOnly || successStatus == "" || item.Post.Responses[successStatus] == nil ||
-					item.Post.RequestBody == nil ||
-					len(item.Post.Security) != 1 || item.Post.Security[0]["ControlBearerAuth"] == nil {
-					t.Fatalf("path %s has an incomplete control operation: %#v", path, item.Post)
-				}
-			}
-			operations = append(operations, item.Post)
+			operations = append(operations, operationEntry{method: http.MethodPost, operation: item.Post})
 		}
-		expectedOperations := 1
-		if path == RunCreationControlPath || path == SessionMessageControlPathTemplate ||
-			path == RunWakeIntentPathTemplate || path == EvidenceAttachmentPathTemplate ||
-			path == VerificationEvidencePathTemplate || path == VerificationPlanPathTemplate ||
-			path == VerificationSnapshotReceiptPathTemplate ||
-			path == VerificationSnapshotReceiptReviewPathTemplate ||
-			path == PriceSnapshotsPath {
-			expectedOperations = 2
+		if item.Patch != nil {
+			operations = append(operations, operationEntry{method: http.MethodPatch, operation: item.Patch})
 		}
+		if item.Delete != nil {
+			operations = append(operations, operationEntry{method: http.MethodDelete, operation: item.Delete})
+		}
+		expectedOperations := expectedOperationCounts[path]
 		if len(operations) != expectedOperations {
 			t.Fatalf("path %s exposes %d operations, want %d: %#v",
 				path, len(operations), expectedOperations, item)
 		}
-		for _, operation := range operations {
+		for _, entry := range operations {
+			operation := entry.operation
+			spec, found := specsByOperation[operation.OperationID]
+			if !found || spec.Path != path {
+				t.Fatalf("path %s exposes undocumented operation %#v", path, operation)
+			}
+			expectedMethod := spec.Method
+			if expectedMethod == "" {
+				expectedMethod = http.MethodGet
+			}
+			status, statusErr := openAPISuccessStatus(spec)
+			if statusErr != nil {
+				t.Fatal(statusErr)
+			}
+			if expectedMethod != entry.method || operation.Responses[status] == nil ||
+				(operation.RequestBody != nil) != (spec.RequestType != nil) {
+				t.Fatalf("path %s operation does not match its Go spec: %#v", path, operation)
+			}
+			if spec.Control {
+				if operation.ReadOnly || len(operation.Security) != 1 ||
+					operation.Security[0]["ControlBearerAuth"] == nil || operation.RequestBody == nil {
+					t.Fatalf("path %s has an incomplete control operation: %#v", path, operation)
+				}
+			} else if !operation.ReadOnly || len(operation.Security) != 0 {
+				t.Fatalf("path %s has an incomplete read operation: %#v", path, operation)
+			}
 			if _, duplicate := operationIDs[operation.OperationID]; duplicate {
 				t.Fatalf("duplicate OpenAPI operation id %q", operation.OperationID)
 			}
@@ -220,49 +137,20 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 	if err := json.Unmarshal(first, &raw); err != nil {
 		t.Fatal(err)
 	}
+	allowedMethods := make(map[string]map[string]bool)
+	for _, spec := range openAPIOperationSpecs() {
+		method := strings.ToLower(spec.Method)
+		if method == "" {
+			method = "get"
+		}
+		if allowedMethods[spec.Path] == nil {
+			allowedMethods[spec.Path] = make(map[string]bool)
+		}
+		allowedMethods[spec.Path][method] = true
+	}
 	for path, item := range raw.Paths {
 		for method := range item {
-			if method != "get" && !((path == ModelCancellationPathTemplate ||
-				path == DockerSandboxReadinessPath ||
-				path == DockerSandboxAdmissionPath ||
-				path == DockerSandboxStartPath || path == DockerSandboxCancelPath ||
-				path == SpecialistModelCancellationPathTemplate ||
-				path == SessionArchiveControlPathTemplate ||
-				path == RunExecutionProfileControlPathTemplate ||
-				path == RunExecutionPermissionControlPathTemplate ||
-				path == RunBrowserCDPPermissionControlPathTemplate ||
-				path == RunExecutionInteractionControlPathTemplate ||
-				path == RunCreationControlPath || path == SessionMessageControlPathTemplate ||
-				path == SessionSteeringCancellationPathTemplate ||
-				path == RunLifecycleControlPathTemplate ||
-				path == PlanDirectionControlPathTemplate ||
-				path == PlanModeControlPathTemplate ||
-				path == PlanDeliveryControlPathTemplate ||
-				path == ApprovalDecisionControlPathTemplate ||
-				path == ControlledCommandProposalReviewPathTemplate ||
-				path == HostCommandProposalReviewPathTemplate ||
-				path == RunExecutionControlPathTemplate ||
-				path == ModelRouteControlPathTemplate ||
-				path == ProviderDiagnosticPath || path == ModelHarnessQualificationPath ||
-				path == PriceSnapshotsPath ||
-				path == FanoutExecutionCancelPathTemplate ||
-				path == ChildTaskProposalReviewPathTemplate ||
-				path == ChildTaskProposalAdmitPathTemplate ||
-				path == ProviderCredentialPathTemplate ||
-				path == FileEditProposalPathTemplate || path == FileEditReviewPathTemplate ||
-				path == FileEditApplyPathTemplate ||
-				path == RunWakeIntentPathTemplate ||
-				path == RunWakeCancellationPathTemplate ||
-				path == RunWakeExecutionPathTemplate ||
-				path == SkillPackageInstallPath ||
-				path == EvidenceAttachmentPathTemplate ||
-				path == VerificationEvidencePathTemplate ||
-				path == VerificationPlanPathTemplate ||
-				path == VerificationAssociationPathTemplate ||
-				path == VerificationSnapshotReceiptPathTemplate ||
-				path == VerificationSnapshotReceiptReviewPathTemplate ||
-				path == EmbeddedAnalyzerExecutionPathTemplate) &&
-				method == "post") {
+			if !allowedMethods[path][method] {
 				t.Fatalf("OpenAPI path %s exposed unexpected operation %q", path, method)
 			}
 		}
@@ -698,6 +586,19 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	openAPIMemory, err := application.NewContextMemoryService(fixture.store).Create(t.Context(),
+		contextmgr.CreateMemoryRequest{Scope: contextmgr.MemoryScopeUser,
+			ScopeID: contextmgr.LocalUserMemoryScope, Title: "OpenAPI memory fixture",
+			Content: "Preserve the public contract.", RequestedBy: "openapi_test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	openAPICheckpoint, err := application.NewContextContinuityService(fixture.store).Checkpoint(
+		t.Context(), application.CreateContinuityCheckpointRequest{RunID: fixture.run.ID,
+			Title: "OpenAPI checkpoint fixture", RequestedBy: "openapi_test"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	replacements := map[string]string{
 		"{run_id}":       fixture.run.ID,
 		"{workspace_id}": fixture.workspace.ID,
@@ -708,7 +609,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		"{note_id}":      fixture.notes[0].ID,
 		"{artifact_id}":  fixture.artifactID,
 		"{report_id}":    "report-openapi-missing-0001",
-		"{execution_id}":  "fanout-execution-openapi-missing-0001",
+		"{execution_id}": "fanout-execution-openapi-missing-0001",
 		"{approval_id}":  approvalRecord.ID,
 		"{proposal_id}":  "controlled-command-proposal-openapi",
 		"{edit_id}":      fileEditRecord.ID,
@@ -717,6 +618,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		"{ordinal}":      "1",
 		"{route}":        "code",
 		"{provider}":     "mimo",
+		"{memory_id}":    openAPIMemory.ID,
+		"{node_id}":      openAPICheckpoint.ID,
 	}
 	for _, spec := range openAPIOperationSpecs() {
 		requestPath := spec.Path
@@ -801,7 +704,33 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				fixture.api.ServeHTTP(response, request)
 			} else if spec.Control {
 				body := `{"profile":"docker"}`
-				if spec.Path == DockerSandboxAdmissionPath {
+				if spec.OperationID == "createContextMemory" {
+					body = `{"scope":"user","scope_id":"local-user",` +
+						`"title":"OpenAPI created memory","content":"Explicit test memory."}`
+				} else if spec.OperationID == "updateContextMemory" {
+					body = `{"expected_version":1,"status":"disabled"}`
+				} else if spec.OperationID == "deleteContextMemory" {
+					body = `{"expected_version":2}`
+				} else if spec.OperationID == "refreshRunProjectInstructions" {
+					state, inspectErr := application.NewProjectInstructionService(fixture.store).
+						Inspect(t.Context(), fixture.run.ID, "")
+					if inspectErr != nil {
+						t.Fatal(inspectErr)
+					}
+					encoded, marshalErr := json.Marshal(projectInstructionRefreshRequestView{
+						ExpectedFingerprint:     state.Pinned.Snapshot.Fingerprint,
+						ExpectedLiveFingerprint: state.Live.Fingerprint, Confirm: true,
+					})
+					if marshalErr != nil {
+						t.Fatal(marshalErr)
+					}
+					body = string(encoded)
+				} else if spec.OperationID == "createContinuityCheckpoint" {
+					body = `{"title":"OpenAPI live checkpoint"}`
+				} else if spec.OperationID == "forkContinuityNode" ||
+					spec.OperationID == "resumeContinuityNode" {
+					body = `{"goal":"OpenAPI continuity branch"}`
+				} else if spec.Path == DockerSandboxAdmissionPath {
 					encoded, marshalErr := json.Marshal(DockerSandboxAdmissionRequestView{
 						PlanID: "sandbox-docker-plan-openapi", Manifest: dockerSandboxHTTPTestManifest(),
 						RequestedBy: "openapi_test",
@@ -855,7 +784,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 					body = `{"version":"child_task_admit.v1","confirm_admit":true}`
 				} else if spec.Path == PriceSnapshotsPath {
 					encoded, marshalErr := json.Marshal(PriceSnapshotImportRequestView{
-						Version: pricing.ProtocolVersion,
+						Version:  pricing.ProtocolVersion,
 						Document: openAPIPriceSnapshotDocument(t),
 					})
 					if marshalErr != nil {
@@ -947,7 +876,11 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 					body = `{"attempt_id":"` + attemptID + `","model_attempt":` +
 						fmt.Sprint(modelAttempt) + `}`
 				}
-				response = performControlPathRequest(t, fixture.api, requestPath,
+				method := spec.Method
+				if method == "" {
+					method = http.MethodPost
+				}
+				response = performControlMethodPathRequest(t, fixture.api, method, requestPath,
 					"openapi-live-operation-012345-"+spec.OperationID,
 					strings.NewReader(body))
 				status, statusErr := openAPISuccessStatus(spec)
@@ -1155,7 +1088,7 @@ func openAPIPriceSnapshotDocument(t *testing.T) string {
 		ProtocolVersion: pricing.ProtocolVersion, ID: "openapi-live-price-table",
 		Source: pricing.SourceOperatorImport, Currency: pricing.CurrencyUSD,
 		ImportedBy: "openapi_test",
-		ValidFrom: now.Add(-time.Minute).Format(time.RFC3339),
+		ValidFrom:  now.Add(-time.Minute).Format(time.RFC3339),
 		ValidUntil: now.Add(time.Hour).Format(time.RFC3339),
 		Entries: []struct {
 			Provider                  string `json:"provider"`

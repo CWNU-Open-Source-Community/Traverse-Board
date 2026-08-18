@@ -4078,6 +4078,20 @@ export class CyberAgentClient {
     return this.sendControl<T>(path, body, idempotencyKey, signal);
   }
 
+  async patchControl<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+    if (!this.hasControl) {
+      throw new Error("A control bearer token is required for this operation");
+    }
+    return this.sendControlRequest<T>(path, body, signal, "", "PATCH");
+  }
+
+  async deleteControl<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+    if (!this.hasControl) {
+      throw new Error("A control bearer token is required for this operation");
+    }
+    return this.sendControlRequest<T>(path, body, signal, "", "DELETE");
+  }
+
   async createRun(body: RunCreationControlRequestView, idempotencyKey: string,
     signal?: AbortSignal): Promise<RunCreationControlView> {
     if (!this.hasRunCreation) {
@@ -4528,7 +4542,7 @@ export class CyberAgentClient {
   }
 
   private async sendControlRequest<T>(path: string, body: unknown, signal?: AbortSignal,
-    idempotencyKey = ""): Promise<T> {
+    idempotencyKey = "", method: "POST" | "PATCH" | "DELETE" = "POST"): Promise<T> {
     const headers: Record<string, string> = {
       Accept: "application/json",
       Authorization: `Bearer ${this.controlToken}`,
@@ -4538,7 +4552,7 @@ export class CyberAgentClient {
       headers["Idempotency-Key"] = idempotencyKey;
     }
     const response = await fetch(this.url(path), {
-      method: "POST",
+      method,
       headers,
       body: JSON.stringify(body),
       signal,

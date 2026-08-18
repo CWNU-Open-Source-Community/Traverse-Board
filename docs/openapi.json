@@ -348,6 +348,216 @@
         "x-cyberagent-read-only": true
       }
     },
+    "/api/v1/continuity-nodes/{node_id}/fork": {
+      "post": {
+        "operationId": "forkContinuityNode",
+        "summary": "Fork a new Run from a checkpoint",
+        "description": "Creates a new Run and Session with the exact bounded context snapshot while resetting approvals, capabilities, credentials, processes, leases, network authorization, and execution profiles.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "node_id",
+            "in": "path",
+            "description": "Continuity checkpoint identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Resource created or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/continuityBranchView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/continuityBranchRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/continuity-nodes/{node_id}/resume": {
+      "post": {
+        "operationId": "resumeContinuityNode",
+        "summary": "Resume in a new Run from a checkpoint",
+        "description": "Creates an auditable new Run/Session branch from the checkpoint; durable historical context never resurrects authority.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "node_id",
+            "in": "path",
+            "description": "Continuity checkpoint identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Resource created or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/continuityBranchView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/continuityBranchRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/health": {
       "get": {
         "operationId": "getHealth",
@@ -407,6 +617,579 @@
           }
         },
         "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/memories": {
+      "get": {
+        "operationId": "listContextMemories",
+        "summary": "List explicit long-term memories",
+        "description": "Returns only explicitly stored user or project memories. Memory is preference/factual context and never grants authority.",
+        "tags": [
+          "Memory"
+        ],
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "query",
+            "description": "Memory scope",
+            "schema": {
+              "enum": [
+                "user",
+                "project"
+              ],
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "name": "scope_id",
+            "in": "query",
+            "description": "local-user or Workspace identity",
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "include_disabled",
+            "in": "query",
+            "description": "Include disabled memories",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "include_expired",
+            "in": "query",
+            "description": "Include expired memories",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum items",
+            "schema": {
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/Memory"
+                      },
+                      "type": "array"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      },
+      "post": {
+        "operationId": "createContextMemory",
+        "summary": "Create explicit long-term memory",
+        "description": "Stores one explicit, provenance-bound memory after secret and sensitive-source checks. It cannot be invoked by model context and grants no authority.",
+        "tags": [
+          "Control"
+        ],
+        "responses": {
+          "201": {
+            "description": "Resource created or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Memory"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/contextMemoryCreateRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/memories/export": {
+      "get": {
+        "operationId": "exportContextMemories",
+        "summary": "Export long-term memories",
+        "description": "Exports active, disabled, and expired records with provenance, retention, and an explicit false capability projection.",
+        "tags": [
+          "Memory"
+        ],
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "query",
+            "description": "Memory scope",
+            "schema": {
+              "enum": [
+                "user",
+                "project"
+              ],
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "name": "scope_id",
+            "in": "query",
+            "description": "local-user or Workspace identity",
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ContextMemoryExport"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/memories/{memory_id}": {
+      "get": {
+        "operationId": "getContextMemory",
+        "summary": "Inspect one long-term memory",
+        "description": "Returns the exact redacted content, provenance, status, retention, digest, and optimistic version.",
+        "tags": [
+          "Memory"
+        ],
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "description": "Long-term memory identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Memory"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      },
+      "patch": {
+        "operationId": "updateContextMemory",
+        "summary": "Edit, enable, or disable memory",
+        "description": "Updates an explicit memory under optimistic version checking and repeats secret/source validation.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "description": "Long-term memory identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Memory"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/contextMemoryUpdateRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      },
+      "delete": {
+        "operationId": "deleteContextMemory",
+        "summary": "Permanently delete memory",
+        "description": "Physically deletes one exact memory version; future prompts and exports cannot recover it.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "description": "Long-term memory identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/contextMemoryDeleteView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/contextMemoryDeleteRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
       }
     },
     "/api/v1/models": {
@@ -3400,6 +4183,111 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ControlledCommandProposalReviewRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/continuity-checkpoints": {
+      "post": {
+        "operationId": "createContinuityCheckpoint",
+        "summary": "Create a bounded context checkpoint",
+        "description": "Captures redacted compaction, recent-message provenance, memory references, pinned config fingerprints, and Git identity with an all-false authority projection.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Resource created or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ContinuityNode"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/continuityCheckpointRequestView"
               }
             }
           }
@@ -6708,6 +7596,198 @@
         "x-cyberagent-read-only": false
       }
     },
+    "/api/v1/runs/{run_id}/project-instructions": {
+      "get": {
+        "operationId": "getRunProjectInstructions",
+        "summary": "Explain effective project instructions",
+        "description": "Returns pinned and live hierarchical sources, hashes, scope, precedence, why-effective details, conflicts, drift, and history without changing the Run.",
+        "tags": [
+          "Runs"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "target_path",
+            "in": "query",
+            "description": "Workspace-relative target",
+            "schema": {
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ProjectInstructionState"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/runs/{run_id}/project-instructions/refresh": {
+      "post": {
+        "operationId": "refreshRunProjectInstructions",
+        "summary": "Confirm project instruction refresh",
+        "description": "Confirms a diff bound to both the pinned and reviewed-live fingerprints. Files never alter an active Run silently, and refreshed instructions remain non-authorizing.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ProjectInstructionState"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/projectInstructionRefreshRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/runs/{run_id}/reports": {
       "get": {
         "operationId": "listRunFindingReports",
@@ -9868,6 +10948,84 @@
         "x-cyberagent-read-only": false
       }
     },
+    "/api/v1/sessions/{session_id}/tree": {
+      "get": {
+        "operationId": "getSessionContinuityTree",
+        "summary": "Browse Session checkpoints and branches",
+        "description": "Returns the connected checkpoint/Fork/Resume component plus compaction, decision, Artifact, Delivery, Git drift, and memory expiry projections.",
+        "tags": [
+          "Sessions"
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "description": "Session identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/SessionTree"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
     "/api/v1/skills/packages/install": {
       "post": {
         "operationId": "installSkillPackage",
@@ -12928,6 +14086,337 @@
         "required": [
           "executable",
           "working_directory"
+        ],
+        "type": "object"
+      },
+      "ContextMemoryExport": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_grant": {
+            "type": "boolean"
+          },
+          "exported_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Memory"
+            },
+            "type": "array"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "scope_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "exported_at",
+          "scope",
+          "scope_id",
+          "items",
+          "capability_grant"
+        ],
+        "type": "object"
+      },
+      "ContinuityAuthority": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "type": "boolean"
+          },
+          "capability": {
+            "type": "boolean"
+          },
+          "credential": {
+            "type": "boolean"
+          },
+          "execution_profile": {
+            "type": "boolean"
+          },
+          "network": {
+            "type": "boolean"
+          },
+          "process": {
+            "type": "boolean"
+          },
+          "secret": {
+            "type": "boolean"
+          },
+          "terminal_lease": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "capability",
+          "approval",
+          "process",
+          "terminal_lease",
+          "network",
+          "credential",
+          "secret",
+          "execution_profile"
+        ],
+        "type": "object"
+      },
+      "ContinuityMemoryReference": {
+        "additionalProperties": false,
+        "properties": {
+          "content_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "scope_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "version": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "scope",
+          "scope_id",
+          "version",
+          "content_sha256"
+        ],
+        "type": "object"
+      },
+      "ContinuityMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "content_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "integer"
+          },
+          "instruction_authorized": {
+            "type": "boolean"
+          },
+          "role": {
+            "type": "string"
+          },
+          "source_kind": {
+            "type": "string"
+          },
+          "source_ref": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "role",
+          "source_kind",
+          "content_sha256",
+          "instruction_authorized",
+          "content"
+        ],
+        "type": "object"
+      },
+      "ContinuityNode": {
+        "additionalProperties": false,
+        "properties": {
+          "context_sha256": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "git_branch": {
+            "type": "string"
+          },
+          "git_head": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "parent_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "project_config_fingerprint": {
+            "type": "string"
+          },
+          "project_instructions_fingerprint": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/ContinuitySnapshot"
+          },
+          "source_node_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "protocol_version",
+          "kind",
+          "session_id",
+          "run_id",
+          "workspace_id",
+          "title",
+          "snapshot",
+          "context_sha256",
+          "created_by",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "ContinuitySnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/ContinuityAuthority"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "git_branch": {
+            "type": "string"
+          },
+          "git_head": {
+            "type": "string"
+          },
+          "inherited_context": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "memories": {
+            "items": {
+              "$ref": "#/components/schemas/ContinuityMemoryReference"
+            },
+            "type": "array"
+          },
+          "project_config_fingerprint": {
+            "type": "string"
+          },
+          "project_instructions_fingerprint": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "recent_messages": {
+            "items": {
+              "$ref": "#/components/schemas/ContinuityMessage"
+            },
+            "type": "array"
+          },
+          "source_run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "summary_content": {
+            "type": "string"
+          },
+          "summary_content_sha256": {
+            "type": "string"
+          },
+          "summary_id": {
+            "format": "int64",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "integer"
+          },
+          "through_message_id": {
+            "format": "int64",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "integer"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "source_run_id",
+          "source_session_id",
+          "workspace_id",
+          "recent_messages",
+          "memories",
+          "inherited_context",
+          "authority",
+          "fingerprint",
+          "created_at"
         ],
         "type": "object"
       },
@@ -16243,6 +17732,22 @@
         ],
         "type": "object"
       },
+      "IgnoredInstruction": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "reason"
+        ],
+        "type": "object"
+      },
       "IndexView": {
         "additionalProperties": false,
         "properties": {
@@ -16266,6 +17771,269 @@
           "api_version",
           "app_version",
           "resources"
+        ],
+        "type": "object"
+      },
+      "InstructionAuthority": {
+        "additionalProperties": false,
+        "properties": {
+          "debug_grant": {
+            "type": "boolean"
+          },
+          "formatting_guidance": {
+            "type": "boolean"
+          },
+          "hook_execution": {
+            "type": "boolean"
+          },
+          "network_grant": {
+            "type": "boolean"
+          },
+          "plugin_grant": {
+            "type": "boolean"
+          },
+          "policy_override": {
+            "type": "boolean"
+          },
+          "secret_access": {
+            "type": "boolean"
+          },
+          "tool_grant": {
+            "type": "boolean"
+          },
+          "validation_guidance": {
+            "type": "boolean"
+          },
+          "workflow_guidance": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "workflow_guidance",
+          "formatting_guidance",
+          "validation_guidance",
+          "tool_grant",
+          "network_grant",
+          "secret_access",
+          "debug_grant",
+          "plugin_grant",
+          "hook_execution",
+          "policy_override"
+        ],
+        "type": "object"
+      },
+      "InstructionConflict": {
+        "additionalProperties": false,
+        "properties": {
+          "higher_precedence_path": {
+            "type": "string"
+          },
+          "lower_precedence_path": {
+            "type": "string"
+          },
+          "resolution": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "lower_precedence_path",
+          "higher_precedence_path",
+          "resolution"
+        ],
+        "type": "object"
+      },
+      "InstructionLimits": {
+        "additionalProperties": false,
+        "properties": {
+          "max_depth": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "max_file_bytes": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "max_files": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "max_total_bytes": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "max_files",
+          "max_file_bytes",
+          "max_total_bytes",
+          "max_depth"
+        ],
+        "type": "object"
+      },
+      "InstructionSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "conflicts": {
+            "items": {
+              "$ref": "#/components/schemas/InstructionConflict"
+            },
+            "type": "array"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "ignored": {
+            "items": {
+              "$ref": "#/components/schemas/IgnoredInstruction"
+            },
+            "type": "array"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/InstructionLimits"
+          },
+          "loaded_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/InstructionSource"
+            },
+            "type": "array"
+          },
+          "target_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "target_path",
+          "sources",
+          "ignored",
+          "conflicts",
+          "fingerprint",
+          "loaded_at",
+          "limits"
+        ],
+        "type": "object"
+      },
+      "InstructionSnapshotDiff": {
+        "additionalProperties": false,
+        "properties": {
+          "added": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "changed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "from_fingerprint": {
+            "type": "string"
+          },
+          "order_changed": {
+            "type": "boolean"
+          },
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "requires_confirmation": {
+            "type": "boolean"
+          },
+          "to_fingerprint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "from_fingerprint",
+          "to_fingerprint",
+          "added",
+          "removed",
+          "changed",
+          "order_changed",
+          "requires_confirmation"
+        ],
+        "type": "object"
+      },
+      "InstructionSource": {
+        "additionalProperties": false,
+        "properties": {
+          "applicable_to": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "authority": {
+            "$ref": "#/components/schemas/InstructionAuthority"
+          },
+          "content": {
+            "type": "string"
+          },
+          "content_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "depth": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "loaded_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "ordinal": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "precedence": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "redacted": {
+            "type": "boolean"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "trust": {
+            "type": "string"
+          },
+          "why_effective": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ordinal",
+          "path",
+          "kind",
+          "scope",
+          "depth",
+          "precedence",
+          "content",
+          "content_sha256",
+          "loaded_at",
+          "trust",
+          "applicable_to",
+          "why_effective",
+          "redacted",
+          "authority"
         ],
         "type": "object"
       },
@@ -16326,6 +18094,96 @@
           "output",
           "timeout_seconds",
           "cancellation"
+        ],
+        "type": "object"
+      },
+      "Memory": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "content_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "redacted": {
+            "type": "boolean"
+          },
+          "references": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "retention_until": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "scope_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_kind": {
+            "type": "string"
+          },
+          "source_ref": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updated_by": {
+            "type": "string"
+          },
+          "version": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "protocol_version",
+          "scope",
+          "scope_id",
+          "title",
+          "content",
+          "content_sha256",
+          "status",
+          "source_kind",
+          "references",
+          "redacted",
+          "created_by",
+          "updated_by",
+          "version",
+          "created_at",
+          "updated_at"
         ],
         "type": "object"
       },
@@ -18023,6 +19881,61 @@
         "required": [
           "protocol_version",
           "items"
+        ],
+        "type": "object"
+      },
+      "ProjectInstructionState": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_grant": {
+            "type": "boolean"
+          },
+          "diff": {
+            "$ref": "#/components/schemas/InstructionSnapshotDiff"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/RunInstructionSnapshot"
+            },
+            "type": "array"
+          },
+          "live": {
+            "$ref": "#/components/schemas/InstructionSnapshot"
+          },
+          "pinned": {
+            "$ref": "#/components/schemas/RunInstructionSnapshot"
+          },
+          "pinned_present": {
+            "type": "boolean"
+          },
+          "refresh_confirmed": {
+            "type": "boolean"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "workspace_id",
+          "pinned",
+          "live",
+          "diff",
+          "history",
+          "pinned_present",
+          "stale",
+          "refresh_confirmed",
+          "capability_grant"
         ],
         "type": "object"
       },
@@ -19971,10 +21884,19 @@
       "RunConfigView": {
         "additionalProperties": false,
         "properties": {
+          "continuity_context_fingerprint": {
+            "type": "string"
+          },
           "interactive": {
             "type": "boolean"
           },
           "model_route": {
+            "type": "string"
+          },
+          "project_config_fingerprint": {
+            "type": "string"
+          },
+          "project_instructions_fingerprint": {
             "type": "string"
           }
         },
@@ -20902,6 +22824,48 @@
           "process_enabled",
           "execution_authorized",
           "capability_grant"
+        ],
+        "type": "object"
+      },
+      "RunInstructionSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmed_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "diff": {
+            "$ref": "#/components/schemas/InstructionSnapshotDiff"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/InstructionSnapshot"
+          }
+        },
+        "required": [
+          "id",
+          "run_id",
+          "revision",
+          "snapshot",
+          "diff",
+          "confirmed_by",
+          "created_at"
         ],
         "type": "object"
       },
@@ -21913,6 +23877,128 @@
           "model_called",
           "tool_called",
           "capability_grant"
+        ],
+        "type": "object"
+      },
+      "SessionTree": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_grant": {
+            "type": "boolean"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/SessionTreeNode"
+            },
+            "type": "array"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "session_id",
+          "workspace_id",
+          "nodes",
+          "capability_grant",
+          "generated_at"
+        ],
+        "type": "object"
+      },
+      "SessionTreeNode": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "derived": {
+            "type": "boolean"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "git_branch": {
+            "type": "string"
+          },
+          "git_head": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "parent_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "project_config_fingerprint": {
+            "type": "string"
+          },
+          "project_instructions_fingerprint": {
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_node_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "run_id",
+          "session_id",
+          "title",
+          "status",
+          "warnings",
+          "derived",
+          "created_at"
         ],
         "type": "object"
       },
@@ -25054,6 +27140,200 @@
           "id",
           "name",
           "created_at"
+        ],
+        "type": "object"
+      },
+      "contextMemoryCreateRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "redact_sensitive": {
+            "type": "boolean"
+          },
+          "references": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "retention_until": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "scope_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_ref": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "scope_id",
+          "title",
+          "content"
+        ],
+        "type": "object"
+      },
+      "contextMemoryDeleteRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_version": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_version"
+        ],
+        "type": "object"
+      },
+      "contextMemoryDeleteView": {
+        "additionalProperties": false,
+        "properties": {
+          "deleted": {
+            "type": "boolean"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "recoverable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "deleted",
+          "recoverable"
+        ],
+        "type": "object"
+      },
+      "contextMemoryUpdateRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "expected_version": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "redact_sensitive": {
+            "type": "boolean"
+          },
+          "references": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "retention_until": {},
+          "source_ref": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_version"
+        ],
+        "type": "object"
+      },
+      "continuityBranchRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "goal": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "continuityBranchView": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_grant": {
+            "type": "boolean"
+          },
+          "inherited": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "mission": {
+            "$ref": "#/components/schemas/MissionView"
+          },
+          "node": {
+            "$ref": "#/components/schemas/ContinuityNode"
+          },
+          "not_inherited": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "run": {
+            "$ref": "#/components/schemas/RunView"
+          }
+        },
+        "required": [
+          "mission",
+          "run",
+          "node",
+          "inherited",
+          "not_inherited",
+          "capability_grant"
+        ],
+        "type": "object"
+      },
+      "continuityCheckpointRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "summary": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "projectInstructionRefreshRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "type": "boolean"
+          },
+          "expected_fingerprint": {
+            "type": "string"
+          },
+          "expected_live_fingerprint": {
+            "type": "string"
+          },
+          "target_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_fingerprint",
+          "expected_live_fingerprint",
+          "confirm"
         ],
         "type": "object"
       }

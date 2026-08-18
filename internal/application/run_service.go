@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"cyberagent-workbench/internal/contextmgr"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/idgen"
@@ -52,6 +53,12 @@ type CreateRunRequest struct {
 	// reduce the requested budget and profiles; any widening was already
 	// rejected by the caller, and the Run pins this exact view at creation.
 	ProjectConfig *projectconfig.Effective
+	// ProjectInstructions is discovered inside the Workspace boundary and pins
+	// workflow-only guidance for deterministic Run context.
+	ProjectInstructions *projectconfig.InstructionSnapshot
+	// ContinuityContext is an explicitly selected immutable restore point. It
+	// is injected as untrusted historical data and carries no authorization.
+	ContinuityContext *contextmgr.ContinuitySnapshot
 }
 
 func NewRunService(store RunStore) *RunService {
@@ -108,6 +115,34 @@ func projectFingerprintOf(project *projectconfig.Effective) string {
 		return ""
 	}
 	return project.Fingerprint()
+}
+
+func projectInstructionSnapshotOf(snapshot *projectconfig.InstructionSnapshot) ([]byte, string, error) {
+	if snapshot == nil {
+		return nil, "", nil
+	}
+	if err := snapshot.Validate(); err != nil {
+		return nil, "", err
+	}
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		return nil, "", err
+	}
+	return raw, snapshot.Fingerprint, nil
+}
+
+func continuitySnapshotOf(snapshot *contextmgr.ContinuitySnapshot) ([]byte, string, error) {
+	if snapshot == nil {
+		return nil, "", nil
+	}
+	if err := snapshot.Validate(); err != nil {
+		return nil, "", err
+	}
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		return nil, "", err
+	}
+	return raw, snapshot.Fingerprint, nil
 }
 
 func (s *RunService) Create(ctx context.Context, req CreateRunRequest) (domain.Mission, domain.Run, error) {
@@ -208,6 +243,15 @@ func prepareRun(ctx context.Context, req CreateRunRequest,
 	if err != nil {
 		return preparedRun{}, err
 	}
+	projectInstructions, projectInstructionsFingerprint, err :=
+		projectInstructionSnapshotOf(req.ProjectInstructions)
+	if err != nil {
+		return preparedRun{}, fmt.Errorf("project instruction snapshot: %w", err)
+	}
+	continuityContext, continuityContextFingerprint, err := continuitySnapshotOf(req.ContinuityContext)
+	if err != nil {
+		return preparedRun{}, fmt.Errorf("continuity context snapshot: %w", err)
+	}
 	now := time.Now().UTC()
 	if createSession {
 		linkedSession = session.New(workspaceID, goal, route)
@@ -235,10 +279,14 @@ func prepareRun(ctx context.Context, req CreateRunRequest,
 		SessionID: linkedSession.ID,
 		Status:    domain.RunCreated,
 		Config: domain.RunConfig{
-			ModelRoute:               route,
-			Interactive:              req.Interactive,
-			ProjectConfig:            projectSnapshot,
-			ProjectConfigFingerprint: projectFingerprintOf(req.ProjectConfig),
+			ModelRoute:                     route,
+			Interactive:                    req.Interactive,
+			ProjectConfig:                  projectSnapshot,
+			ProjectConfigFingerprint:       projectFingerprintOf(req.ProjectConfig),
+			ProjectInstructions:            projectInstructions,
+			ProjectInstructionsFingerprint: projectInstructionsFingerprint,
+			ContinuityContext:              continuityContext,
+			ContinuityContextFingerprint:   continuityContextFingerprint,
 		},
 		Budget:    budget,
 		CreatedAt: now,

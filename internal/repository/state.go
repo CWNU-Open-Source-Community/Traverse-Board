@@ -33,14 +33,17 @@ type Change struct {
 }
 
 type State struct {
-	ProtocolVersion      string   `json:"protocol_version"`
-	WorkspaceID          string   `json:"workspace_id"`
-	Kind                 string   `json:"kind"`
-	Available            bool     `json:"available"`
-	Clean                bool     `json:"clean"`
-	Detached             bool     `json:"detached"`
-	Branch               string   `json:"branch"`
-	Head                 string   `json:"head"`
+	ProtocolVersion string `json:"protocol_version"`
+	WorkspaceID     string `json:"workspace_id"`
+	Kind            string `json:"kind"`
+	Available       bool   `json:"available"`
+	Clean           bool   `json:"clean"`
+	Detached        bool   `json:"detached"`
+	Branch          string `json:"branch"`
+	Head            string `json:"head"`
+	// FullHead is used by Go-owned immutable bindings. Public views retain the
+	// deliberately shortened display hash in Head.
+	FullHead             string   `json:"-"`
 	Changes              []Change `json:"changes"`
 	StagedCount          int      `json:"staged_count"`
 	WorktreeCount        int      `json:"worktree_count"`
@@ -91,7 +94,8 @@ func Inspect(ctx context.Context, root string, workspaceID string) (State, error
 	base.Available = true
 	base.Clean = status.IsClean()
 	if head, headErr := repo.Head(); headErr == nil {
-		base.Head = shortHash(head.Hash().String())
+		base.FullHead = head.Hash().String()
+		base.Head = shortHash(base.FullHead)
 		if head.Name().IsBranch() {
 			base.Branch, base.Truncated, base.RedactionCount = safeReference(
 				head.Name().Short(), base.Truncated, base.RedactionCount)

@@ -687,6 +687,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		a.serveDockerSandbox(tracked, request, requestID)
 		return
 	}
+	if request.Method != http.MethodGet && isContextContinuityMutationPath(request.URL.Path) {
+		a.serveContextContinuityMutation(tracked, request, requestID)
+		return
+	}
 	if request.URL.Path == "/api/v1/runs" && request.Method != http.MethodGet {
 		a.serveRunCreationControl(tracked, request, requestID)
 		return

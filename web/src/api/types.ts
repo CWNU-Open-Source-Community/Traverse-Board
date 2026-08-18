@@ -165,6 +165,13 @@ export type VerificationSnapshotReceiptReviewControlView = components["schemas"]
 export type VerificationSnapshotReceiptReviewInventoryView = components["schemas"]["VerificationSnapshotReceiptReviewInventoryView"];
 export type CodeHandoffView = components["schemas"]["CodeHandoffView"];
 export type CodeHandoffExportView = components["schemas"]["CodeHandoffExportView"];
+export type ContextMemoryView = components["schemas"]["Memory"];
+export type ContextMemoryExportView = components["schemas"]["ContextMemoryExport"];
+export type ContinuityNodeView = components["schemas"]["ContinuityNode"];
+export type ContinuityBranchView = components["schemas"]["continuityBranchView"];
+export type ProjectInstructionStateView = components["schemas"]["ProjectInstructionState"];
+export type SessionTreeView = components["schemas"]["SessionTree"];
+export type SessionTreeNodeView = components["schemas"]["SessionTreeNode"];
 
 export interface SuccessEnvelope<T> {
   version: "api.v1";
