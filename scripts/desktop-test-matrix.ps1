@@ -53,7 +53,7 @@ if (Test-Path -LiteralPath $releaseMetadataPath -PathType Leaf) {
 $results = [System.Collections.Generic.List[object]]::new()
 function Add-Result {
     param([string]$ID, [string]$Status, [object]$Facts)
-    $results.Add([pscustomobject][ordered]@{ id = $ID; status = $Status; facts = $Facts })
+    [void]$results.Add([pscustomobject][ordered]@{ id = $ID; status = $Status; facts = $Facts })
 }
 
 # Redact any user/home/workspace identity that could leak a personal secret.
@@ -64,24 +64,33 @@ function Protect-Path {
 }
 
 function Get-WebView2RuntimeVersion {
-    $guid = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
-    $roots = @(
-        "HKCU:\Software\Microsoft\EdgeUpdate\Clients\$guid",
-        "HKCU:\Software\Microsoft\EdgeUpdate\ClientState\$guid",
-        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\$guid",
-        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\ClientState\$guid",
-        "HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients\$guid",
-        "HKLM:\SOFTWARE\Microsoft\EdgeUpdate\ClientState\$guid"
+    $channelIDs = @(
+        "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+        "{2CD8A007-E189-409D-A2C8-9AF4EF3C72AA}",
+        "{0D50BFEC-CD6A-4F9A-964C-C7416E3ACB10}",
+        "{65C35B14-6C1D-4122-AC46-7148CC9D6497}"
     )
-    foreach ($root in $roots) {
-        if (Test-Path -LiteralPath $root) {
-            $values = Get-ItemProperty -LiteralPath $root -ErrorAction SilentlyContinue
-            if (-not [string]::IsNullOrWhiteSpace([string]$values.pv)) {
-                return [string]$values.pv
-            }
-            if (-not [string]::IsNullOrWhiteSpace([string]$values.EBWebView)) {
-                return [System.IO.Path]::GetFileName(
-                    ([string]$values.EBWebView).TrimEnd('\', '/'))
+    # Exhaust the ClientState layout used by the bundled loader before the
+    # documented Clients fallback. Otherwise a stale stable-channel Clients
+    # key could hide the preview channel the application will actually load.
+    foreach ($layout in @("ClientState", "Clients")) {
+        foreach ($channelID in $channelIDs) {
+            $roots = @(
+                "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\$layout\$channelID",
+                "HKCU:\Software\Microsoft\EdgeUpdate\$layout\$channelID",
+                "HKLM:\SOFTWARE\Microsoft\EdgeUpdate\$layout\$channelID"
+            )
+            foreach ($root in $roots) {
+                if (Test-Path -LiteralPath $root) {
+                    $values = Get-ItemProperty -LiteralPath $root -ErrorAction SilentlyContinue
+                    if (-not [string]::IsNullOrWhiteSpace([string]$values.pv)) {
+                        return [string]$values.pv
+                    }
+                    if (-not [string]::IsNullOrWhiteSpace([string]$values.EBWebView)) {
+                        return [System.IO.Path]::GetFileName(
+                            ([string]$values.EBWebView).TrimEnd('\', '/'))
+                    }
+                }
             }
         }
     }
@@ -219,11 +228,13 @@ $database = Join-Path $isolatedHome "cyberagent.db"
 $previousHome = $env:CYBERAGENT_HOME
 $primary = $null
 $second = $null
+$startedProcessIDs = [System.Collections.Generic.List[int]]::new()
 try {
     $env:CYBERAGENT_HOME = $isolatedHome
 
     # S1 cold start
     $primary = Start-Process -FilePath $binary -ArgumentList "--operator-preview" -PassThru
+    [void]$startedProcessIDs.Add($primary.Id)
     $deadline = [DateTime]::UtcNow.AddSeconds($StartupTimeoutSeconds)
     $storeCreated = $false
     while ([DateTime]::UtcNow -lt $deadline) {
@@ -248,6 +259,7 @@ try {
 
     # S2 second instance yields to the first
     $second = Start-Process -FilePath $binary -ArgumentList "--operator-preview" -PassThru
+    [void]$startedProcessIDs.Add($second.Id)
     $secondExited = $false
     $secondDeadline = [DateTime]::UtcNow.AddSeconds(15)
     while ([DateTime]::UtcNow -lt $secondDeadline) {
@@ -312,6 +324,7 @@ try {
 
     # S4 force kill then reopen with data retention
     $primary = Start-Process -FilePath $binary -ArgumentList "--operator-preview" -PassThru
+    [void]$startedProcessIDs.Add($primary.Id)
     $reopenDeadline = [DateTime]::UtcNow.AddSeconds($StartupTimeoutSeconds)
     $killReady = $false
     while ([DateTime]::UtcNow -lt $reopenDeadline) {
@@ -335,6 +348,7 @@ try {
     $primary = $null
     $retained = Test-Path -LiteralPath $database -PathType Leaf
     $primary = Start-Process -FilePath $binary -ArgumentList "--operator-preview" -PassThru
+    [void]$startedProcessIDs.Add($primary.Id)
     $reopenDeadline = [DateTime]::UtcNow.AddSeconds($StartupTimeoutSeconds)
     $reopened = $false
     while ([DateTime]::UtcNow -lt $reopenDeadline) {
@@ -377,13 +391,22 @@ finally {
             $process.Dispose()
         }
     }
-    # The single-instance / crash-recovery path may leave a lingering desktop
-    # process holding the SQLite store. Terminate any remaining desktop process
-    # that shares the tested binary path before cleaning up.
-    Get-Process -Name "cyberagent-desktop" -ErrorAction SilentlyContinue |
-        Where-Object { $_.Path -and $_.Path.Equals($binary,
-            [System.StringComparison]::OrdinalIgnoreCase) } |
-        Stop-Process -Force -ErrorAction SilentlyContinue
+    # A failed scenario can lose its Process object after disposal. Revisit
+    # only PIDs started by this run; never terminate a pre-existing user-owned
+    # instance merely because it shares the candidate binary path.
+    foreach ($startedProcessID in $startedProcessIDs) {
+        $remaining = Get-Process -Id $startedProcessID -ErrorAction SilentlyContinue
+        if ($null -ne $remaining) {
+            try {
+                if ($remaining.Path -and $remaining.Path.Equals($binary,
+                        [System.StringComparison]::OrdinalIgnoreCase)) {
+                    Stop-Process -Id $startedProcessID -Force -ErrorAction SilentlyContinue
+                }
+            } catch {
+                # An exited process or denied Path read needs no broader cleanup.
+            }
+        }
+    }
     if (Test-Path -LiteralPath $isolatedHome) {
         $resolvedHome = [System.IO.Path]::GetFullPath($isolatedHome)
         $resolvedTemporaryRoot = [System.IO.Path]::GetFullPath($temporaryRoot).TrimEnd('\') + '\'

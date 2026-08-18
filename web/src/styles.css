@@ -5048,3 +5048,46 @@ samp {
     padding: 16px;
   }
 }
+
+/* A 1024x768 display at 200% scaling exposes only a 512x384 logical
+   viewport. Keep every primary sidebar destination reachable without letting
+   flex shrinking collapse the brand underneath the navigation. */
+@media (max-width: 760px) and (max-height: 480px) {
+  .prayu-sidebar .sidebar-brand {
+    flex: 0 0 54px;
+    height: 54px;
+    padding: 5px 44px 5px 12px;
+  }
+
+  .prayu-sidebar .prayu-brand-icon {
+    width: 36px;
+    border-radius: 10px;
+  }
+
+  .prayu-sidebar .prayu-brand-glyph { font-size: 22px; }
+  .prayu-sidebar .prayu-brand-copy strong { font-size: 15px; }
+  .prayu-sidebar .prayu-brand-copy small { font-size: 9px; }
+  .prayu-sidebar .sidebar-brand-action { top: 12px; right: 10px; }
+
+  .prayu-sidebar .sidebar-primary-navigation {
+    flex: 0 0 auto;
+    gap: 1px;
+    padding: 0 8px 5px;
+  }
+
+  .prayu-sidebar .sidebar-primary-navigation button {
+    min-height: 31px;
+    padding: 4px 8px;
+  }
+
+  .prayu-sidebar .sidebar-history {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .prayu-sidebar .sidebar-profile {
+    flex: 0 0 46px;
+    min-height: 46px;
+    padding: 5px 12px;
+  }
+}
