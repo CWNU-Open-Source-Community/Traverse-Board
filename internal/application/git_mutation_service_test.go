@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/store"
@@ -139,5 +140,12 @@ func TestGitMutationServiceStaleReviewRejectedEndToEnd(t *testing.T) {
 		Spec: spec}, review.Review.Binding)
 	if err == nil || !strings.Contains(err.Error(), "re-review") {
 		t.Fatalf("stale review executed end-to-end: %v", err)
+	}
+	replayed, err := service.Execute(ctx, GitMutationRequest{RunID: runID,
+		OperationKey: "git-op-key-0003", Spec: spec}, review.Review.Binding)
+	if err == nil || apperror.CodeOf(err) != apperror.CodeFailedPrecondition ||
+		!replayed.Replayed || replayed.Record.CompletedAt != nil ||
+		!strings.Contains(err.Error(), "reconcile repository state") {
+		t.Fatalf("pending mutation replay reported success: result=%#v err=%v", replayed, err)
 	}
 }

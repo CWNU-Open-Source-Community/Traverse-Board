@@ -105,6 +105,11 @@ func (s *GitRemoteService) Execute(ctx context.Context, request GitRemoteRequest
 		return GitRemoteExecuteResult{}, apperror.Normalize(err)
 	}
 	if replayed {
+		if created.CompletedAt == nil {
+			return GitRemoteExecuteResult{Record: created, Replayed: true}, apperror.New(
+				apperror.CodeFailedPrecondition,
+				"previous remote git operation did not record a terminal receipt; reconcile remote state before using a new operation key")
+		}
 		return GitRemoteExecuteResult{Record: created, Replayed: true}, nil
 	}
 	binding := repository.RemoteBinding{
