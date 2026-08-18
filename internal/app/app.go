@@ -131,6 +131,8 @@ func (a *App) newToolGateway() *toolgateway.Gateway {
 		WithPlanDeliveryExecutor(application.NewPlanDeliveryToolExecutor(a.store)).
 		WithControlledCommandProposalExecutor(
 			application.NewControlledCommandProposalToolExecutor(a.store)).
+		WithOneShotCommandProposalExecutor(
+			application.NewOneShotCommandProposalToolExecutor(a.store)).
 		WithHostCommandProposalExecutor(
 			application.NewHostCommandProposalToolExecutor(a.store)).
 		WithWorkspaceRootResolver(func(ctx context.Context, workspaceID string) (string, error) {

@@ -98,13 +98,27 @@ func (s *SQLiteStore) ListOnceCommandProposals(ctx context.Context, runID string
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var proposals []OnceCommandProposal
+	var ids []string
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	// SQLiteStore intentionally uses one connection. Release the result set
+	// before loading each complete record or the nested query waits forever
+	// for the connection held by rows.
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	proposals := make([]OnceCommandProposal, 0, len(ids))
+	for _, id := range ids {
 		proposal, found, err := getOnceCommandProposal(ctx, s.db, id)
 		if err != nil {
 			return nil, err
@@ -113,7 +127,7 @@ func (s *SQLiteStore) ListOnceCommandProposals(ctx context.Context, runID string
 			proposals = append(proposals, proposal)
 		}
 	}
-	return proposals, rows.Err()
+	return proposals, nil
 }
 
 // ReviewOnceCommandProposal is the immutable operator decision. Approving

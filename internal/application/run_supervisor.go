@@ -102,6 +102,7 @@ type RunSupervisorStore interface {
 	PlanDeliveryProposalMutationStore
 	ControlledCommandProposalMutationStore
 	HostCommandProposalMutationStore
+	OneShotCommandProposalStore
 	toolgateway.Store
 }
 
@@ -209,6 +210,8 @@ func NewRunSupervisor(store RunSupervisorStore, router *llm.Router, checker poli
 			WithPlanDeliveryExecutor(NewPlanDeliveryToolExecutor(store)).
 			WithControlledCommandProposalExecutor(
 				NewControlledCommandProposalToolExecutor(store)).
+			WithOneShotCommandProposalExecutor(
+				NewOneShotCommandProposalToolExecutor(store)).
 			WithHostCommandProposalExecutor(
 				NewHostCommandProposalToolExecutor(store)),
 		skillRegistry: skillRegistry, skillRegistryErr: skillRegistryErr,

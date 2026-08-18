@@ -96,6 +96,9 @@ func SupervisorToolDefinitions() []ToolDefinition {
 	controlled := controlledCommandProposalDefinition
 	controlled.InputSchema = append(json.RawMessage(nil), controlled.InputSchema...)
 	definitions = append(definitions, controlled)
+	oneShot := oneShotCommandProposalDefinition
+	oneShot.InputSchema = append(json.RawMessage(nil), oneShot.InputSchema...)
+	definitions = append(definitions, oneShot)
 	host := hostCommandProposalDefinition
 	host.InputSchema = append(json.RawMessage(nil), host.InputSchema...)
 	definitions = append(definitions, host)
@@ -116,6 +119,11 @@ func SupervisorToolDefinition(name ToolName) (ToolDefinition, bool) {
 	}
 	if name == ControlledCommandProposeTool {
 		definition := controlledCommandProposalDefinition
+		definition.InputSchema = append(json.RawMessage(nil), definition.InputSchema...)
+		return definition, true
+	}
+	if name == OneShotCommandProposeTool {
+		definition := oneShotCommandProposalDefinition
 		definition.InputSchema = append(json.RawMessage(nil), definition.InputSchema...)
 		return definition, true
 	}
@@ -158,6 +166,10 @@ func NormalizeSupervisorToolPayload(name ToolName, payload json.RawMessage) (jso
 	}
 	if name == ControlledCommandProposeTool {
 		_, canonical, err := normalizeControlledCommandProposalPayload(payload)
+		return canonical, err
+	}
+	if name == OneShotCommandProposeTool {
+		_, canonical, err := normalizeOneShotCommandProposalPayload(payload)
 		return canonical, err
 	}
 	if name == HostCommandProposeTool {

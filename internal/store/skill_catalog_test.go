@@ -47,10 +47,14 @@ func removeSchemaV107ForTestStatements() []string {
 }
 
 func removeSchemaV108ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV109ForTestStatements(), []string{
 		`DROP TABLE terminal_sessions`,
 		`DELETE FROM schema_migrations WHERE version = 108`,
-	}
+	}...)
+}
+
+func removeSchemaV109ForTestStatements() []string {
+	return []string{`DELETE FROM schema_migrations WHERE version = 109`}
 }
 func TestSkillCatalogMigrationAndRemovalChain(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "skill-catalog-migration.db"))

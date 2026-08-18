@@ -63,6 +63,7 @@ func TypedActionIDs() map[string]struct{} {
 		string(SpecialistDelegationProposeTool): {},
 		string(ChildTaskProposeTool):            {},
 		string(ControlledCommandProposeTool):    {},
+		string(OneShotCommandProposeTool):       {},
 		string(DockerSandboxRunProposeTool):     {},
 	}
 }

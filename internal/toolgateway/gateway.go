@@ -135,6 +135,10 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (Outcome, error) {
 		g.controlledCommandProposals == nil {
 		return Outcome{}, errors.New("controlled command proposal executor is required")
 	}
+	if normalized.Name == OneShotCommandProposeTool &&
+		g.oneShotCommandProposals == nil {
+		return Outcome{}, errors.New("one-shot command proposal executor is required")
+	}
 	if normalized.Name == HostCommandProposeTool && g.hostCommandProposals == nil {
 		return Outcome{}, errors.New("host command proposal executor is required")
 	}
@@ -724,6 +728,7 @@ func validateToolArguments(call ToolCall) error {
 		call.Name == ChildTaskProposeTool ||
 		call.Name == PlanDeliveryProposeTool ||
 		call.Name == ControlledCommandProposeTool ||
+		call.Name == OneShotCommandProposeTool ||
 		call.Name == HostCommandProposeTool ||
 		call.Name == DockerSandboxRunProposeTool {
 		if len(call.Arguments) != 0 {
@@ -765,6 +770,13 @@ func validateToolArguments(call ToolCall) error {
 				return errors.New("controlled command proposals require a fenced root Supervisor")
 			}
 			_, _, err := normalizeControlledCommandProposalPayload(call.Payload)
+			return err
+		case OneShotCommandProposeTool:
+			if call.RequestedBy != "run_supervisor" || call.AgentID == "" ||
+				call.WorkspaceID == "" || call.LeaseID == "" {
+				return errors.New("one-shot command proposals require a fenced root Supervisor")
+			}
+			_, _, err := normalizeOneShotCommandProposalPayload(call.Payload)
 			return err
 		case HostCommandProposeTool:
 			if call.RequestedBy != "run_supervisor" || call.AgentID == "" || call.LeaseID == "" {

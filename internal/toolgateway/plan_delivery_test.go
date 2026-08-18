@@ -34,7 +34,7 @@ const gatewayPlanDeliveryPayload = `{"version":"plan_delivery.v1","directions":[
 	`{"title":"C","summary":"C","tradeoffs":["C"],"modules":[{"title":"C","objective":"C","acceptance_criteria":["C"],"dependencies":[]}]}]}`
 
 func TestPlanDeliveryDefinitionIsPlanOnlyAndPayloadIsStrict(t *testing.T) {
-	if len(SupervisorToolDefinitions()) != 7 || len(PlanPhaseSupervisorToolDefinitions()) != 8 {
+	if len(SupervisorToolDefinitions()) != 8 || len(PlanPhaseSupervisorToolDefinitions()) != 9 {
 		t.Fatal("Plan/Delivery tool leaked into the ordinary Supervisor tool set")
 	}
 	definition, found := SupervisorToolDefinition(PlanDeliveryProposeTool)

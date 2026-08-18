@@ -2,6 +2,7 @@ package application
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"cyberagent-workbench/internal/domain"
@@ -67,6 +68,36 @@ func TestSupervisorAcceptsAdvertisedDockerSandboxProposal(t *testing.T) {
 	if err != nil || len(prepared) != 1 ||
 		prepared[0].Name != string(toolgateway.DockerSandboxRunProposeTool) {
 		t.Fatalf("advertised Docker Sandbox proposal was rejected: %#v err=%v", prepared, err)
+	}
+}
+
+func TestSupervisorExposesAndAcceptsOneShotCommandProposal(t *testing.T) {
+	found := false
+	for _, spec := range supervisorStructuredToolSpecs(domain.ExecutionPhaseDeliver,
+		domain.RunExecutionPermissionConservative) {
+		if spec.Name == string(toolgateway.OneShotCommandProposeTool) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("one-shot command proposal is not exposed to the Supervisor")
+	}
+	payload, err := json.Marshal(toolgateway.OneShotCommandProposalSpec{
+		Version: "once_command.v1", ExecutablePath: filepath.Join(t.TempDir(), "tool.exe"),
+		Argv: []string{"version"}, WorkingDirectory: t.TempDir(),
+		Environment: []string{}, TimeoutMS: 1000, Purpose: "inspect tool version",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := []llm.ToolCall{{ID: "provider-call-once",
+		Name: string(toolgateway.OneShotCommandProposeTool), Arguments: payload}}
+	prepared, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
+		domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionConservative)
+	if err != nil || len(prepared) != 1 ||
+		prepared[0].Name != string(toolgateway.OneShotCommandProposeTool) {
+		t.Fatalf("one-shot command proposal was rejected: %#v err=%v", prepared, err)
 	}
 }
 

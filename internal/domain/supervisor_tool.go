@@ -75,9 +75,12 @@ func (c SupervisorToolCall) Validate() error {
 	}
 	if c.ToolName != "work_item_create" && c.ToolName != "note_create" &&
 		c.ToolName != "specialist_delegation_propose" &&
+		c.ToolName != "child_task_propose" &&
 		c.ToolName != "plan_delivery_propose" &&
 		c.ToolName != "controlled_command_propose" &&
-		c.ToolName != "host_command_propose" {
+		c.ToolName != "one_shot_command_propose" &&
+		c.ToolName != "host_command_propose" &&
+		c.ToolName != "sandbox_docker_run_propose" {
 		return fmt.Errorf("unsupported supervisor tool %q", c.ToolName)
 	}
 	if len(c.PayloadJSON) == 0 || len(c.PayloadJSON) > MaxSupervisorToolPayloadBytes ||
