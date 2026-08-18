@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -175,6 +176,83 @@ func TestSkillPackageInstallationConvergesAcrossIndependentStores(t *testing.T) 
 		if err := first.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table).Scan(&count); err != nil || count != want {
 			t.Fatalf("%s count=%d err=%v", table, count, err)
 		}
+	}
+}
+
+func TestSkillPackageInstallationPersistsModeMetadata(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "skill-package-modes.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	installation, operation, _ := fixturePackageInstallation(t,
+		"mode-aware-review", "1.0.0", "mode-aware-install-key",
+		time.Now().UTC().Add(-time.Minute))
+	installation.Manifest.Surfaces = []domain.ExecutionSurface{domain.ExecutionSurfaceCode}
+	installation.Manifest.Phases = []domain.ExecutionPhase{
+		domain.ExecutionPhasePlan, domain.ExecutionPhaseDeliver,
+	}
+	installation.Manifest.Roles = []domain.AgentRole{
+		domain.AgentRoleRoot, domain.AgentRoleSpecialist,
+	}
+	installation.Manifest.UserInvocable = true
+	installation.Manifest.ModelInvocable = true
+	installation.RequestFingerprint = skills.PackageInstallationIntentFingerprint(installation)
+	installation.InstallationFingerprint = skills.PackageInstallationFingerprint(installation)
+	operation.RequestFingerprint = installation.RequestFingerprint
+	if _, _, _, err := st.PreparePackageInstallation(ctx, installation, operation); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := st.GetPackageInstallation(ctx, installation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(loaded.Manifest.Surfaces, installation.Manifest.Surfaces) ||
+		!slices.Equal(loaded.Manifest.Phases, installation.Manifest.Phases) ||
+		!slices.Equal(loaded.Manifest.Roles, installation.Manifest.Roles) ||
+		!loaded.Manifest.UserInvocable || !loaded.Manifest.ModelInvocable ||
+		loaded.Manifest.ExplicitOnly ||
+		loaded.RequestFingerprint != installation.RequestFingerprint {
+		t.Fatalf("mode metadata changed after readback: %#v", loaded.Manifest)
+	}
+}
+
+func TestSchemaV111PreservesLegacySkillPackageFingerprint(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "skill-package-v110.db")
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installation, operation, _ := fixturePackageInstallation(t,
+		"legacy-mode-defaults", "1.0.0", "legacy-mode-install-key",
+		time.Now().UTC().Add(-time.Minute))
+	if _, _, _, err := st.PreparePackageInstallation(ctx, installation, operation); err != nil {
+		t.Fatal(err)
+	}
+	wantRequest := installation.RequestFingerprint
+	for _, statement := range removeSchemaV111ForTestStatements() {
+		if _, err := st.db.ExecContext(ctx, statement); err != nil {
+			t.Fatalf("downgrade v111 with %q: %v", statement, err)
+		}
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	upgraded, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upgraded.Close()
+	loaded, err := upgraded.GetPackageInstallation(ctx, installation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Manifest.HasModeMetadata() || loaded.Manifest.UserInvocable ||
+		loaded.Manifest.ModelInvocable || loaded.Manifest.ExplicitOnly ||
+		loaded.RequestFingerprint != wantRequest {
+		t.Fatalf("legacy mode defaults or fingerprint changed: %#v", loaded)
 	}
 }
 

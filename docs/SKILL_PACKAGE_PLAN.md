@@ -1,10 +1,12 @@
 # CyberAgent Workbench Custom Skill Package Plan
 
-状态：`skill_package.v1` 纯内存校验、schema v69 内容寻址本地 Registry、schema v70 外部 Skill Run 固定选择与最小上下文、schema v71 安全只读来源投影、Desktop D1-A 路径隔离 Go 预览桥、D0-A Wails 原生 `.zip` 风险预览入口，以及 D1-B1 HTTP/Desktop 显式确认的惰性安装均已完成。CLI 可导入、查询、选择和追加移除 tombstone；签名、远程分发、Marketplace 与安装时执行尚未实现。
+状态：`skill_package.v1` 纯内存校验、schema v69 内容寻址本地 Registry、schema v70 外部 Skill Run 固定选择与最小上下文、schema v71 安全只读来源投影、schema v104 签名/固定来源团队 Catalog、schema v111 外部模式元数据账本，以及 schema v112 不可信生成候选人工审查均已完成。Desktop/Wails 与 HTTP 继续提供显式确认的惰性安装；Marketplace 与安装时执行没有开放。
 
 ## 当前能力
 
-现有 Go `skill.v1` 已严格定义名称、语义版本、描述、兼容 Profile、工具前置声明、Markdown 内容路径、UTF-8 字节数、保守 token 上界和 SHA-256。`internal/skills.LoadFS` 可以从受控 `fs.FS` 构造不可变 Registry，当前只用于编译进二进制的 `code`、`review`、`learn`、`script` 和 `plan-delivery`，以及测试夹具。
+现有 Go `skill.v1` 已严格定义名称、语义版本、描述、兼容 Profile、工具前置声明、Markdown 内容路径、UTF-8 字节数、保守 token 上界和 SHA-256。当前内置 Manifest 还显式声明 `surfaces`（Code/Cyber）、`phases`（Plan/Deliver）、`roles`（root/Specialist）以及 `user_invocable`、`model_invocable`、`explicit_only` 调用策略；四维兼容必须同时命中，调用许可与正文交付分别判断，任何字段都不授予能力。`internal/skills.LoadFS` 可以从受控 `fs.FS` 构造不可变 Registry，当前编译进二进制的十二项为 `code`、`review`、`learn`、`script`、`plan-delivery`、`doctor`、`debug`、`run-verify`、`focused-checks`、`simplify`、`security-review` 和 `run-skill-generator`，另支持测试夹具。
+
+Profile Skill 中 `code/learn` 仅支持 Code，增强后的 `review@1.3.0` 支持 Code 与 Review Profile，`script` 支持 Code 与 Cyber；它们支持 Plan/Deliver、root/Specialist 和 user/model 来源。`plan-delivery` 跨全部 Profile 与 Surface，但仅支持 root 且必须由操作者显式选择。六项新增通用能力均为 root 可组合指导：`doctor` 仅 Plan，`run-verify`、`focused-checks` 和 `simplify` 仅 Deliver，`debug` 与 `security-review` 跨两阶段。schema v110 按当前 mode 固定每轮兼容子集并允许审计空交付。schema v111 让外部安装账本保存同一模式字段且保持 legacy 指纹；schema v112 的 `run-skill-generator` 只在 Code/Deliver/root 显式选择后开放候选提案，生成、人工审批、惰性安装与 Run 选择互不替代。当前产品仍无模型自主选择入口，`model_invocable` 只为未来受控选择器声明准入。
 
 当前产品入口包括：
 
@@ -20,8 +22,10 @@
 - `cyberagent skill external-selection <run-id>`
 - `cyberagent skill select`
 - `cyberagent skill selection`
+- `cyberagent skill candidates [--run <run-id>]`
+- `cyberagent skill candidate show|approve|reject|import ...`
 
-其中 `skill package validate` 只通过有界普通文件读取和纯内存 parser 返回 metadata-only 风险预览，不创建数据库、不落盘、不安装、不执行正文，也不访问网络、Provider 或工具。schema v69 的 `skill import` 在显式确认后只增加不可变元数据与原始包对象，仍不执行正文、联网、调用 Provider/工具或授予能力。schema v70 再要求独立 Run 级确认，固定精确 active 版本，并只把脱敏正文作为用户角色的非可信工作流指导交付；包内工具声明不授权。schema v71 仅向 HTTP、TUI 和 React 投影有界来源与交付状态，不暴露正文、文件路径、hash/digest/fingerprint、内部选择/安装 ID、操作者身份或 operation key。D1-B1 的 Desktop 使用一次性确认句柄，HTTP 使用严格有界 canonical base64，把显式确认的包写入同一惰性 Registry；两者都不执行或自动选择包。项目目前没有签名、URL/Git 安装或 Marketplace。
+其中 `skill package validate` 只通过有界普通文件读取和纯内存 parser 返回 metadata-only 风险预览，不创建数据库、不落盘、不安装、不执行正文，也不访问网络、Provider 或工具。schema v69 的 `skill import` 在显式确认后只增加不可变元数据与原始包对象，仍不执行正文、联网、调用 Provider/工具或授予能力；schema v111 将模式元数据绑定到同一安装意图。schema v70 再要求独立 Run 级确认，固定精确 active 版本，并只把脱敏正文作为用户角色的非可信工作流指导交付；包内工具声明不授权。schema v112 的候选正文是单独的、有界不可信审查数据，只有 `show --show-content` 显式显示；批准与二次确认后的导入仍不自动选择。签名、URL/Git 固定来源和团队 Catalog 见 schema v104，在线 Marketplace 仍未开放。
 
 ## 第一版包边界
 
@@ -45,7 +49,7 @@
 ## 本地 Registry
 
 - Go 在用户数据目录的 `skill-registry/objects/sha256/<prefix>/<digest>.zip` 维护 content-addressed 对象；正文不进入仓库、SQLite 或 Run 事件。
-- SQLite 只保存包摘要、信任状态、Profile、安装/完成操作和移除 tombstone 等有界元数据；五类表全部不可更新或删除。
+- SQLite 安装 Registry 只保存包摘要、完整模式元数据、信任状态、安装/完成操作和移除 tombstone；schema v112 另在候选表中保存最多 4096 字节、带精确摘要的不可信待审正文。候选、审查和导入收据均不可更新或删除。
 - 相同对象并发发布收敛；同名同版本已有不可变安装时冲突；Registry 最多 64 个历史包身份，同名最多 8 个版本。
 - 已被 Run 精确固定的版本不能移除。移除只追加 tombstone 且保留对象；恢复/重装需要未来显式协议，不静默推断。
 - 导入先写安装意图，再使用同目录独占临时文件、file sync、原子 hard link 和完整回读验证发布对象，最后写完成结果；崩溃后以同一 operation key 恢复。目录 sync 在 Windows 上为 best effort，不作超出平台证据的持久性声明。
@@ -63,6 +67,9 @@ cyberagent skill installed show <name>@<version>
 cyberagent skill select-external <run-id> <name>@<version> --operation-key <stable-key> --confirm-untrusted-skill-context
 cyberagent skill external-selection <run-id>
 cyberagent skill remove <name>@<version> --operation-key <stable-key> --confirm-remove
+cyberagent skill candidates [--run <run-id>]
+cyberagent skill candidate show <candidate-id> --show-content
+cyberagent skill candidate approve|reject|import <candidate-id> ...
 ```
 
 Desktop D1 阶段：
@@ -87,7 +94,9 @@ Desktop D1 阶段：
 4. [x] schema v71 增加按 Run 隔离的有界只读来源/交付投影，并接入 HTTP/OpenAPI、TUI 与 React；所有内容、摘要和私有身份保持在边界内。
 5. [x] Desktop D1-A 增加路径隔离的 Go-owned 本地验证预览桥，D0-A 再把原生 selector 接入 Wails `.zip` 对话框和只读 UI；renderer 永不接收路径/正文。
 6. [x] Desktop D1-B1 增加 handle-only Wails 确认安装和 canonical-base64 HTTP control；两者复用内容寻址惰性 Registry，独立 capability 默认关闭，安装不执行正文或授予能力。
-7. [ ] 最后评估签名包、团队 Catalog 与 Marketplace；远程自动安装不属于基础版本。
+7. [x] schema v111 为外部安装保存规范化 Surface/Phase/Role 与调用策略，mode-aware 意图升级为 v2 指纹并精确保留 legacy v1。
+8. [x] schema v112 增加 `run-skill-generator`、真实工具来源绑定的候选、exact-fingerprint 人工审批/拒绝、二次确认导入和崩溃恢复；导入后不自动选择。
+9. [x] schema v104 已提供签名包、团队 Catalog 与固定 URL/Git 来源；在线 Marketplace 和安装时执行继续不属于基础版本。
 
 ## 已验证基线
 
@@ -104,5 +113,5 @@ Desktop D1 阶段：
 - 恶意 ZIP、路径逃逸、链接、特殊文件、超大包、重复项、Unicode/大小写碰撞和内容 hash 漂移全部失败关闭。
 - 导入前后不会执行命令、访问网络、调用模型或改变工具权限。
 - 并发导入、重启恢复和相同 operation 重放收敛到同一不可变版本。
-- v69 已保证安装与 tombstone 跨重启恢复；v70 已完成外部 Run 固定版本、Go/SQL 移除门禁、root/Specialist 上下文恢复与首次模型调用原子提交；v71 已完成按 Run 隔离、不可写且不含正文/摘要/私有身份的来源与交付投影。
+- v69 已保证安装与 tombstone 跨重启恢复；v70 已完成外部 Run 固定版本、Go/SQL 移除门禁、root/Specialist 上下文恢复与首次模型调用原子提交；v71 已完成安全只读投影；v111 保证模式字段/指纹回读；v112 保证未经 exact-fingerprint 人工批准和独立不可信确认的候选不能导入，导入收据也不能伪装成 Run selection。
 - CLI、HTTP 与 Desktop 对同一包复用同一 parser/Registry 语义并产生相同 digest、信任与风险事实；Desktop 不暴露路径/bytes，HTTP 拒绝非规范编码，跨入口重放收敛到同一不可变安装结果。

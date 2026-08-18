@@ -31,7 +31,7 @@ type supervisorToolResultEnvelope struct {
 }
 
 func supervisorStructuredToolSpecs(phase domain.ExecutionPhase,
-	permissionMode domain.RunExecutionPermissionMode,
+	permissionMode domain.RunExecutionPermissionMode, skillCandidateEnabled bool,
 ) []llm.ToolSpec {
 	definitions := toolgateway.SupervisorToolDefinitions()
 	if phase == domain.ExecutionPhasePlan {
@@ -39,6 +39,10 @@ func supervisorStructuredToolSpecs(phase domain.ExecutionPhase,
 	}
 	out := make([]llm.ToolSpec, 0, len(definitions))
 	for _, definition := range definitions {
+		if definition.Name == toolgateway.SkillCandidateProposeTool &&
+			!skillCandidateEnabled {
+			continue
+		}
 		if definition.Name == toolgateway.HostCommandProposeTool &&
 			permissionMode != domain.RunExecutionPermissionApproval {
 			continue
@@ -53,6 +57,7 @@ func supervisorStructuredToolSpecs(phase domain.ExecutionPhase,
 
 func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, round int,
 	phase domain.ExecutionPhase, permissionMode domain.RunExecutionPermissionMode,
+	skillCandidateEnabled bool,
 ) ([]llm.ToolCall, error) {
 	if len(calls) == 0 || len(calls) > domain.MaxSupervisorToolCallsPerRound {
 		return nil, fmt.Errorf("supervisor tool batch must contain 1 to %d calls",
@@ -73,11 +78,19 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 			name != toolgateway.ControlledCommandProposeTool &&
 			name != toolgateway.OneShotCommandProposeTool &&
 			name != toolgateway.HostCommandProposeTool &&
-			name != toolgateway.DockerSandboxRunProposeTool {
+			name != toolgateway.DockerSandboxRunProposeTool &&
+			name != toolgateway.SkillCandidateProposeTool {
 			return nil, fmt.Errorf("provider requested unsupported supervisor tool %q", call.Name)
 		}
 		if name == toolgateway.PlanDeliveryProposeTool && phase != domain.ExecutionPhasePlan {
 			return nil, errors.New("provider requested Plan/Delivery proposal outside Plan phase")
+		}
+		if name == toolgateway.SkillCandidateProposeTool && phase != domain.ExecutionPhaseDeliver {
+			return nil, errors.New("provider requested Skill candidate proposal outside Deliver phase")
+		}
+		if name == toolgateway.SkillCandidateProposeTool && !skillCandidateEnabled {
+			return nil, errors.New(
+				"provider requested Skill candidate proposal without the explicit generator Skill")
 		}
 		if name == toolgateway.HostCommandProposeTool &&
 			permissionMode != domain.RunExecutionPermissionApproval {

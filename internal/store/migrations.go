@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const LatestSchemaVersion = 109
+const LatestSchemaVersion = 112
 
 type migration struct {
 	Version    int
@@ -5016,6 +5016,161 @@ var rootSkillContextStatements = []string{
 	`CREATE TRIGGER trg_root_skill_context_commit_delete_immutable
 		BEFORE DELETE ON root_skill_context_commits BEGIN
 			SELECT RAISE(ABORT, 'root Skill context commit cannot be deleted');
+		END;`,
+}
+
+var rootModeSkillContextStatements = []string{
+	`CREATE TABLE root_mode_skill_context_preparations (
+		id TEXT PRIMARY KEY,
+		run_id TEXT NOT NULL,
+		mission_id TEXT NOT NULL,
+		root_agent_id TEXT NOT NULL,
+		supervisor_attempt_id TEXT NOT NULL,
+		turn_number INTEGER NOT NULL,
+		selection_id TEXT NOT NULL,
+		protocol_version TEXT NOT NULL,
+		profile TEXT NOT NULL,
+		mode_snapshot_id TEXT NOT NULL,
+		mode_revision INTEGER NOT NULL,
+		surface TEXT NOT NULL,
+		phase TEXT NOT NULL,
+		selection_fingerprint TEXT NOT NULL,
+		context_fingerprint TEXT NOT NULL,
+		selection_item_count INTEGER NOT NULL,
+		item_count INTEGER NOT NULL,
+		token_budget INTEGER NOT NULL,
+		token_upper_bound INTEGER NOT NULL,
+		redaction_count INTEGER NOT NULL,
+		prepared_at TEXT NOT NULL,
+		FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE RESTRICT,
+		FOREIGN KEY(mission_id) REFERENCES missions(id) ON DELETE RESTRICT,
+		FOREIGN KEY(run_id, root_agent_id) REFERENCES agent_nodes(run_id, id) ON DELETE RESTRICT,
+		FOREIGN KEY(selection_id) REFERENCES run_skill_selections(id) ON DELETE RESTRICT,
+		FOREIGN KEY(mode_snapshot_id) REFERENCES run_mode_snapshots(id) ON DELETE RESTRICT,
+		UNIQUE(run_id, supervisor_attempt_id),
+		CHECK(protocol_version = 'skill_context.v1'),
+		CHECK(profile IN ('code', 'review', 'learn', 'script')),
+		CHECK(surface IN ('code', 'cyber')),
+		CHECK(phase IN ('plan', 'deliver')),
+		CHECK(turn_number > 0),
+		CHECK(mode_revision > 0),
+		CHECK(selection_item_count BETWEEN 1 AND 8),
+		CHECK(item_count BETWEEN 0 AND selection_item_count),
+		CHECK(token_budget BETWEEN 1 AND 8192),
+		CHECK(token_upper_bound BETWEEN 0 AND token_budget),
+		CHECK(redaction_count BETWEEN 0 AND token_budget),
+		CHECK((item_count = 0 AND token_upper_bound = 0 AND redaction_count = 0)
+			OR (item_count > 0 AND token_upper_bound > 0)),
+		CHECK(length(selection_fingerprint) = 64
+			AND selection_fingerprint = lower(selection_fingerprint)
+			AND selection_fingerprint NOT GLOB '*[^0-9a-f]*'),
+		CHECK(length(context_fingerprint) = 64
+			AND context_fingerprint = lower(context_fingerprint)
+			AND context_fingerprint NOT GLOB '*[^0-9a-f]*'),
+		CHECK(id = trim(id) AND length(id) BETWEEN 1 AND 256 AND instr(id, char(0)) = 0),
+		CHECK(run_id = trim(run_id) AND length(run_id) BETWEEN 1 AND 256 AND instr(run_id, char(0)) = 0),
+		CHECK(mission_id = trim(mission_id) AND length(mission_id) BETWEEN 1 AND 256 AND instr(mission_id, char(0)) = 0),
+		CHECK(root_agent_id = trim(root_agent_id) AND length(root_agent_id) BETWEEN 1 AND 256
+			AND instr(root_agent_id, char(0)) = 0),
+		CHECK(supervisor_attempt_id = trim(supervisor_attempt_id)
+			AND length(supervisor_attempt_id) BETWEEN 1 AND 256
+			AND instr(supervisor_attempt_id, char(0)) = 0),
+		CHECK(selection_id = trim(selection_id) AND length(selection_id) BETWEEN 1 AND 256
+			AND instr(selection_id, char(0)) = 0),
+		CHECK(mode_snapshot_id = trim(mode_snapshot_id)
+			AND length(mode_snapshot_id) BETWEEN 1 AND 256
+			AND instr(mode_snapshot_id, char(0)) = 0)
+	);`,
+	`CREATE INDEX idx_root_mode_skill_context_run_turn
+		ON root_mode_skill_context_preparations(run_id, turn_number, prepared_at, id);`,
+	`CREATE TABLE root_mode_skill_context_commits (
+		preparation_id TEXT PRIMARY KEY,
+		run_id TEXT NOT NULL,
+		supervisor_attempt_id TEXT NOT NULL UNIQUE,
+		model_attempt INTEGER NOT NULL,
+		committed_at TEXT NOT NULL,
+		FOREIGN KEY(preparation_id) REFERENCES root_mode_skill_context_preparations(id) ON DELETE RESTRICT,
+		FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE RESTRICT,
+		CHECK(model_attempt > 0),
+		CHECK(run_id = trim(run_id) AND length(run_id) BETWEEN 1 AND 256 AND instr(run_id, char(0)) = 0),
+		CHECK(supervisor_attempt_id = trim(supervisor_attempt_id)
+			AND length(supervisor_attempt_id) BETWEEN 1 AND 256
+			AND instr(supervisor_attempt_id, char(0)) = 0)
+	);`,
+	`CREATE TRIGGER trg_root_mode_skill_context_preparation_insert
+		BEFORE INSERT ON root_mode_skill_context_preparations
+		WHEN EXISTS (
+			SELECT 1 FROM root_skill_context_preparations legacy
+			WHERE legacy.run_id = NEW.run_id
+				AND legacy.supervisor_attempt_id = NEW.supervisor_attempt_id
+		) OR NOT EXISTS (
+			SELECT 1 FROM runs run
+			JOIN missions mission ON mission.id = run.mission_id
+			JOIN run_supervisor_checkpoints checkpoint ON checkpoint.run_id = run.id
+			JOIN agent_nodes root ON root.run_id = run.id AND root.id = NEW.root_agent_id
+			JOIN run_skill_selections selection ON selection.id = NEW.selection_id
+			JOIN run_mode_snapshots mode ON mode.id = NEW.mode_snapshot_id
+			WHERE run.id = NEW.run_id AND run.mission_id = NEW.mission_id
+				AND mission.profile = NEW.profile AND run.status = 'running'
+				AND checkpoint.phase = 'turn_started'
+				AND checkpoint.attempt_id = NEW.supervisor_attempt_id
+				AND checkpoint.next_turn = NEW.turn_number
+				AND root.role = 'root' AND root.status = 'running'
+				AND root.active_attempt_id = NEW.supervisor_attempt_id
+				AND selection.run_id = NEW.run_id AND selection.mission_id = NEW.mission_id
+				AND selection.profile = NEW.profile
+				AND selection.selection_fingerprint = NEW.selection_fingerprint
+				AND selection.item_count = NEW.selection_item_count
+				AND selection.token_budget = NEW.token_budget
+				AND NEW.item_count <= selection.item_count
+				AND NEW.token_upper_bound <= selection.token_upper_bound
+				AND mode.run_id = NEW.run_id AND mode.mission_id = NEW.mission_id
+				AND mode.revision = NEW.mode_revision AND mode.surface = NEW.surface
+				AND mode.phase = NEW.phase AND mode.profile = NEW.profile
+				AND mode.revision = (
+					SELECT MAX(current.revision) FROM run_mode_snapshots current
+					WHERE current.run_id = NEW.run_id
+				)
+		)
+		BEGIN
+			SELECT RAISE(ABORT, 'mode-bound root Skill context preparation binding is invalid');
+		END;`,
+	`CREATE TRIGGER trg_root_mode_skill_context_commit_insert
+		BEFORE INSERT ON root_mode_skill_context_commits
+		WHEN NOT EXISTS (
+			SELECT 1 FROM root_mode_skill_context_preparations preparation
+			JOIN runs run ON run.id = preparation.run_id
+			JOIN run_supervisor_checkpoints checkpoint ON checkpoint.run_id = run.id
+			JOIN agent_nodes root
+				ON root.run_id = run.id AND root.id = preparation.root_agent_id
+			WHERE preparation.id = NEW.preparation_id
+				AND preparation.run_id = NEW.run_id
+				AND preparation.supervisor_attempt_id = NEW.supervisor_attempt_id
+				AND run.status = 'running' AND checkpoint.phase = 'turn_started'
+				AND checkpoint.attempt_id = NEW.supervisor_attempt_id
+				AND checkpoint.next_turn = preparation.turn_number
+				AND root.role = 'root' AND root.status = 'running'
+				AND root.active_attempt_id = NEW.supervisor_attempt_id
+				AND julianday(NEW.committed_at) >= julianday(preparation.prepared_at)
+		)
+		BEGIN
+			SELECT RAISE(ABORT, 'mode-bound root Skill context commit binding is invalid');
+		END;`,
+	`CREATE TRIGGER trg_root_mode_skill_context_preparation_update_immutable
+		BEFORE UPDATE ON root_mode_skill_context_preparations BEGIN
+			SELECT RAISE(ABORT, 'mode-bound root Skill context preparation cannot be updated');
+		END;`,
+	`CREATE TRIGGER trg_root_mode_skill_context_preparation_delete_immutable
+		BEFORE DELETE ON root_mode_skill_context_preparations BEGIN
+			SELECT RAISE(ABORT, 'mode-bound root Skill context preparation cannot be deleted');
+		END;`,
+	`CREATE TRIGGER trg_root_mode_skill_context_commit_update_immutable
+		BEFORE UPDATE ON root_mode_skill_context_commits BEGIN
+			SELECT RAISE(ABORT, 'mode-bound root Skill context commit cannot be updated');
+		END;`,
+	`CREATE TRIGGER trg_root_mode_skill_context_commit_delete_immutable
+		BEFORE DELETE ON root_mode_skill_context_commits BEGIN
+			SELECT RAISE(ABORT, 'mode-bound root Skill context commit cannot be deleted');
 		END;`,
 }
 

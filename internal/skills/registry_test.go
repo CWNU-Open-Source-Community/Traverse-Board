@@ -30,11 +30,16 @@ func TestBuiltinRegistryIsDeterministicBoundedAndReadOnly(t *testing.T) {
 			}
 		}
 	}
-	if want := []string{"code", "learn", "plan-delivery", "review", "script"}; !reflect.DeepEqual(names, want) {
+	if want := []string{
+		"code", "debug", "doctor", "focused-checks", "learn", "plan-delivery",
+		"review", "run-skill-generator", "run-verify", "script", "security-review", "simplify",
+	}; !reflect.DeepEqual(names, want) {
 		t.Fatalf("built-in order = %v, want %v", names, want)
 	}
 	review := registry.List(domain.ProfileReview)
-	if len(review) != 2 || review[0].Name != "plan-delivery" || review[1].Name != "review" {
+	if want := []string{
+		"debug", "doctor", "focused-checks", "plan-delivery", "review", "security-review",
+	}; !reflect.DeepEqual(manifestNames(review), want) {
 		t.Fatalf("review profile projection = %#v", review)
 	}
 
@@ -47,6 +52,14 @@ func TestBuiltinRegistryIsDeterministicBoundedAndReadOnly(t *testing.T) {
 	if _, ok := registry.Get("Code"); ok {
 		t.Fatal("registry normalized an invalid skill name")
 	}
+}
+
+func manifestNames(manifests []Manifest) []string {
+	names := make([]string, len(manifests))
+	for index, manifest := range manifests {
+		names[index] = manifest.Name
+	}
+	return names
 }
 
 func TestLoadFSUsesStrictJSONAndPathBinding(t *testing.T) {

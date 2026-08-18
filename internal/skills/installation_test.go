@@ -133,3 +133,41 @@ func TestPackageInstallationSeparatesCodeAndCyberCatalogs(t *testing.T) {
 		t.Fatalf("Code catalog rejected a review package: %v", err)
 	}
 }
+
+func TestPackageInstallationBindsModeMetadataToIntent(t *testing.T) {
+	content := []byte("# Mode-aware external Skill\n")
+	manifest := fixtureModeManifest(content)
+	manifest.Name = "mode-aware-external"
+	raw := mustBuildPackageArchive(t, manifest, content, packageArchiveOptions{})
+	parsed, err := ParsePackage(raw)
+	if err != nil {
+		t.Fatalf("mode-aware package validation failed: %v", err)
+	}
+	operation := runmutation.Fingerprint("skill_package_install_operation.v1", "mode-aware-key")
+	installation, err := NewPackageInstallation("skill-install-mode-aware", parsed,
+		domain.ExecutionSurfaceCode, operation, "operator", time.Now().UTC())
+	if err != nil {
+		t.Fatalf("mode-aware package installation error = %v", err)
+	}
+	if !validSHA256(installation.RequestFingerprint) ||
+		installation.RequestFingerprint != PackageInstallationIntentFingerprint(installation) {
+		t.Fatal("mode-aware installation did not receive an intent fingerprint")
+	}
+	tampered := installation
+	tampered.Manifest.Phases = []domain.ExecutionPhase{domain.ExecutionPhaseDeliver}
+	if tampered.Validate() == nil {
+		t.Fatal("installation accepted mode metadata changed after fingerprinting")
+	}
+
+	manifest.Surfaces = []domain.ExecutionSurface{domain.ExecutionSurfaceCyber}
+	raw = mustBuildPackageArchive(t, manifest, content, packageArchiveOptions{})
+	parsed, err = ParsePackage(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewPackageInstallation("skill-install-mode-mismatch", parsed,
+		domain.ExecutionSurfaceCode, operation, "operator", time.Now().UTC()); err == nil ||
+		!strings.Contains(err.Error(), "installation surface") {
+		t.Fatalf("surface mismatch error = %v", err)
+	}
+}

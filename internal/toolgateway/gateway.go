@@ -61,6 +61,7 @@ type Gateway struct {
 	oneShotCommandProposals    OneShotCommandProposalExecutor
 	hostCommandProposals       HostCommandProposalExecutor
 	dockerSandboxProposals     DockerSandboxProposalExecutor
+	skillCandidates            SkillCandidateExecutor
 	waitGraph                  *waitgraph.Graph
 }
 
@@ -146,6 +147,9 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (Outcome, error) {
 		g.dockerSandboxProposals == nil {
 		return Outcome{}, errors.New("Docker Sandbox proposal executor is required")
 	}
+	if normalized.Name == SkillCandidateProposeTool && g.skillCandidates == nil {
+		return Outcome{}, errors.New("Skill candidate proposal executor is required")
+	}
 	fallback := waitgraph.External(normalized.RequestedBy)
 	if normalized.AgentID != "" {
 		fallback = waitgraph.Agent(normalized.AgentID)
@@ -195,6 +199,8 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (Outcome, error) {
 		return g.invokeHostCommandProposal(ctx, normalized)
 	case DockerSandboxRunProposeTool:
 		return g.invokeDockerSandboxProposal(ctx, normalized)
+	case SkillCandidateProposeTool:
+		return g.invokeSkillCandidate(ctx, normalized)
 	default:
 		return Outcome{}, fmt.Errorf("unsupported tool %q", normalized.Name)
 	}
@@ -730,7 +736,8 @@ func validateToolArguments(call ToolCall) error {
 		call.Name == ControlledCommandProposeTool ||
 		call.Name == OneShotCommandProposeTool ||
 		call.Name == HostCommandProposeTool ||
-		call.Name == DockerSandboxRunProposeTool {
+		call.Name == DockerSandboxRunProposeTool ||
+		call.Name == SkillCandidateProposeTool {
 		if len(call.Arguments) != 0 {
 			return fmt.Errorf("tool %s accepts a JSON payload instead of string arguments", call.Name)
 		}
@@ -790,6 +797,13 @@ func validateToolArguments(call ToolCall) error {
 				return errors.New("Docker Sandbox proposals require a fenced root Supervisor")
 			}
 			_, _, err := normalizeDockerSandboxProposalPayload(call.Payload)
+			return err
+		case SkillCandidateProposeTool:
+			if call.RequestedBy != "run_supervisor" || call.AgentID == "" ||
+				call.WorkspaceID == "" || call.LeaseID == "" {
+				return errors.New("Skill candidate proposals require a fenced root Supervisor")
+			}
+			_, _, err := normalizeSkillCandidatePayload(call.Payload)
 			return err
 		}
 	}

@@ -88,14 +88,23 @@ var planDeliveryDefinition = ToolDefinition{
 }
 
 func PlanPhaseSupervisorToolDefinitions() []ToolDefinition {
-	definitions := SupervisorToolDefinitions()
+	all := SupervisorToolDefinitions()
+	definitions := make([]ToolDefinition, 0, len(all))
+	for _, current := range all {
+		if current.Name != SkillCandidateProposeTool {
+			definitions = append(definitions, current)
+		}
+	}
 	definition := planDeliveryDefinition
 	definition.InputSchema = append(json.RawMessage(nil), definition.InputSchema...)
 	return append(definitions, definition)
 }
 
 func AllSupervisorToolDefinitions() []ToolDefinition {
-	return PlanPhaseSupervisorToolDefinitions()
+	definitions := SupervisorToolDefinitions()
+	plan := planDeliveryDefinition
+	plan.InputSchema = append(json.RawMessage(nil), plan.InputSchema...)
+	return append(definitions, plan)
 }
 
 func normalizePlanDeliveryPayload(payload json.RawMessage) (domain.PlanDeliverySpec,

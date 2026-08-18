@@ -112,6 +112,22 @@ func (s *ExternalSkillSelectionService) Select(ctx context.Context,
 		}
 		return SelectExternalSkillsResult{Selection: stored, Replayed: true}, nil
 	}
+	builtins, err := skills.BuiltinRegistry()
+	if err != nil {
+		return SelectExternalSkillsResult{}, apperror.Wrap(apperror.CodeInternal,
+			"built-in Skill Registry could not be loaded", err)
+	}
+	for _, ref := range normalized.PackageRefs {
+		name, _, parseErr := skills.ParseInstalledPackageRef(ref)
+		if parseErr != nil {
+			return SelectExternalSkillsResult{}, apperror.Wrap(
+				apperror.CodeInvalidArgument, "external Skill reference is invalid", parseErr)
+		}
+		if _, reserved := builtins.Get(name); reserved {
+			return SelectExternalSkillsResult{}, apperror.New(apperror.CodeConflict,
+				"external Skill selections cannot use a built-in Skill name")
+		}
+	}
 	mode, err := s.store.GetRunMode(ctx, run.ID)
 	if err != nil {
 		return SelectExternalSkillsResult{}, apperror.Normalize(err)
@@ -152,7 +168,7 @@ func (s *ExternalSkillSelectionService) Select(ctx context.Context,
 	candidate, err := skills.ResolveExternalSelection(skills.ResolveExternalSelectionRequest{
 		SelectionID: idgen.New("external-skill-selection"), RunID: run.ID,
 		MissionID: mission.ID, ModeSnapshotID: mode.ID, ModeRevision: mode.Revision,
-		Surface: mode.Surface, Profile: mission.Profile, Packages: packages,
+		Surface: mode.Surface, Phase: mode.Phase, Profile: mission.Profile, Packages: packages,
 		SpecialistRef: normalized.SpecialistRef, TokenBudget: normalized.TokenBudget,
 		RequestedBy: normalized.RequestedBy, Confirmed: true, CreatedAt: now,
 	})

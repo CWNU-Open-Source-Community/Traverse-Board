@@ -17,7 +17,8 @@ import (
 
 const skillPackageInstallationSelect = `SELECT id, protocol_version,
 	operation_key_digest, request_fingerprint, name, version, surface,
-	manifest_protocol, description, profiles_json, tool_dependencies_json,
+	manifest_protocol, description, profiles_json, surfaces_json, phases_json,
+	roles_json, user_invocable, model_invocable, explicit_only, tool_dependencies_json,
 	content_path, content_sha256, content_bytes, content_token_upper_bound,
 	archive_sha256, package_fingerprint, archive_bytes, uncompressed_bytes,
 	entry_count, trust_class, risk_codes_json, executable_asset_count,
@@ -100,14 +101,16 @@ func (s *SQLiteStore) PreparePackageInstallation(ctx context.Context,
 		ts(operation.CreatedAt)); err != nil {
 		return skills.PackageInstallation{}, nil, false, err
 	}
-	profilesJSON, dependenciesJSON, risksJSON, err := packageInstallationJSON(installation)
+	profilesJSON, surfacesJSON, phasesJSON, rolesJSON, dependenciesJSON, risksJSON, err :=
+		packageInstallationJSON(installation)
 	if err != nil {
 		return skills.PackageInstallation{}, nil, false, err
 	}
 	manifest := installation.Manifest
 	if _, err := tx.ExecContext(ctx, `INSERT INTO skill_package_installations
 		(id, protocol_version, operation_key_digest, request_fingerprint, name, version,
-		surface, manifest_protocol, description, profiles_json, tool_dependencies_json,
+		surface, manifest_protocol, description, profiles_json, surfaces_json, phases_json,
+		roles_json, user_invocable, model_invocable, explicit_only, tool_dependencies_json,
 		content_path, content_sha256, content_bytes, content_token_upper_bound,
 		archive_sha256, package_fingerprint, archive_bytes, uncompressed_bytes,
 		entry_count, trust_class, risk_codes_json, executable_asset_count,
@@ -116,10 +119,12 @@ func (s *SQLiteStore) PreparePackageInstallation(ctx context.Context,
 		context_injection_authorized, operator_confirmed, installation_fingerprint,
 		installed_by, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-		?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, installation.ID, installation.ProtocolVersion,
+		?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, installation.ID, installation.ProtocolVersion,
 		installation.OperationKeyDigest, installation.RequestFingerprint, installation.Name,
 		installation.Version, installation.Surface, manifest.Protocol, manifest.Description,
-		profilesJSON, dependenciesJSON, manifest.ContentPath, manifest.ContentSHA256,
+		profilesJSON, surfacesJSON, phasesJSON, rolesJSON, boolInt(manifest.UserInvocable),
+		boolInt(manifest.ModelInvocable), boolInt(manifest.ExplicitOnly), dependenciesJSON,
+		manifest.ContentPath, manifest.ContentSHA256,
 		manifest.ContentBytes, manifest.ContentTokenUpperBound, installation.ArchiveSHA256,
 		installation.PackageFingerprint, installation.ArchiveBytes,
 		installation.UncompressedBytes, installation.EntryCount, installation.TrustClass,
@@ -455,12 +460,13 @@ type packageRowScanner interface {
 
 func scanPackageInstallation(row packageRowScanner) (skills.PackageInstallation, error) {
 	var value skills.PackageInstallation
-	var profilesJSON, dependenciesJSON, risksJSON, created string
+	var profilesJSON, surfacesJSON, phasesJSON, rolesJSON, dependenciesJSON, risksJSON, created string
 	var commandExecution, networkAccess, providerCalls, toolGrant, runSelection int
-	var contextInjection, confirmed int
+	var userInvocable, modelInvocable, explicitOnly, contextInjection, confirmed int
 	err := row.Scan(&value.ID, &value.ProtocolVersion, &value.OperationKeyDigest,
 		&value.RequestFingerprint, &value.Name, &value.Version, &value.Surface,
-		&value.Manifest.Protocol, &value.Manifest.Description, &profilesJSON,
+		&value.Manifest.Protocol, &value.Manifest.Description, &profilesJSON, &surfacesJSON,
+		&phasesJSON, &rolesJSON, &userInvocable, &modelInvocable, &explicitOnly,
 		&dependenciesJSON, &value.Manifest.ContentPath, &value.Manifest.ContentSHA256,
 		&value.Manifest.ContentBytes, &value.Manifest.ContentTokenUpperBound,
 		&value.ArchiveSHA256, &value.PackageFingerprint, &value.ArchiveBytes,
@@ -471,12 +477,22 @@ func scanPackageInstallation(row packageRowScanner) (skills.PackageInstallation,
 	if err != nil {
 		return skills.PackageInstallation{}, err
 	}
-	if !storeBools(commandExecution, networkAccess, providerCalls, toolGrant,
+	if !storeBools(userInvocable, modelInvocable, explicitOnly, commandExecution,
+		networkAccess, providerCalls, toolGrant,
 		runSelection, contextInjection, confirmed) {
 		return skills.PackageInstallation{}, apperror.New(
 			apperror.CodeInternal, "stored Skill package installation booleans are invalid")
 	}
 	if err := decodeCanonicalPackageJSON(profilesJSON, &value.Manifest.Profiles, true); err != nil {
+		return skills.PackageInstallation{}, err
+	}
+	if err := decodeCanonicalPackageJSON(surfacesJSON, &value.Manifest.Surfaces, false); err != nil {
+		return skills.PackageInstallation{}, err
+	}
+	if err := decodeCanonicalPackageJSON(phasesJSON, &value.Manifest.Phases, false); err != nil {
+		return skills.PackageInstallation{}, err
+	}
+	if err := decodeCanonicalPackageJSON(rolesJSON, &value.Manifest.Roles, false); err != nil {
 		return skills.PackageInstallation{}, err
 	}
 	if err := decodeCanonicalPackageJSON(dependenciesJSON,
@@ -488,6 +504,9 @@ func scanPackageInstallation(row packageRowScanner) (skills.PackageInstallation,
 	}
 	value.Manifest.Name = value.Name
 	value.Manifest.Version = value.Version
+	value.Manifest.UserInvocable = userInvocable == 1
+	value.Manifest.ModelInvocable = modelInvocable == 1
+	value.Manifest.ExplicitOnly = explicitOnly == 1
 	value.ImportCommandExecution = commandExecution == 1
 	value.ImportNetworkAccess = networkAccess == 1
 	value.ImportProviderCalls = providerCalls == 1
@@ -766,20 +785,42 @@ func samePackageRemoveOperation(left, right skills.PackageRemoveOperation) bool 
 		left.RemovedBy == right.RemovedBy
 }
 
-func packageInstallationJSON(value skills.PackageInstallation) (string, string, string, error) {
+func packageInstallationJSON(value skills.PackageInstallation) (string, string, string, string, string, string, error) {
+	if value.Manifest.Surfaces == nil {
+		value.Manifest.Surfaces = []domain.ExecutionSurface{}
+	}
+	if value.Manifest.Phases == nil {
+		value.Manifest.Phases = []domain.ExecutionPhase{}
+	}
+	if value.Manifest.Roles == nil {
+		value.Manifest.Roles = []domain.AgentRole{}
+	}
 	profiles, err := json.Marshal(value.Manifest.Profiles)
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", "", "", err
+	}
+	surfaces, err := json.Marshal(value.Manifest.Surfaces)
+	if err != nil {
+		return "", "", "", "", "", "", err
+	}
+	phases, err := json.Marshal(value.Manifest.Phases)
+	if err != nil {
+		return "", "", "", "", "", "", err
+	}
+	roles, err := json.Marshal(value.Manifest.Roles)
+	if err != nil {
+		return "", "", "", "", "", "", err
 	}
 	dependencies, err := json.Marshal(value.Manifest.ToolDependencies)
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", "", "", err
 	}
 	risks, err := json.Marshal(value.RiskCodes)
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", "", "", err
 	}
-	return string(profiles), string(dependencies), string(risks), nil
+	return string(profiles), string(surfaces), string(phases), string(roles),
+		string(dependencies), string(risks), nil
 }
 
 func decodeCanonicalPackageJSON[T ~string](raw string, target *[]T, requireSorted bool) error {

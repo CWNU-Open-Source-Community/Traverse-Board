@@ -85,6 +85,12 @@ type skillSelectionReplayStore struct {
 	createCalls int
 }
 
+func (s *skillSelectionReplayStore) GetRunMode(context.Context,
+	string,
+) (domain.RunModeSnapshot, error) {
+	return domain.RunModeSnapshot{}, errors.New("unexpected Run mode read during exact replay")
+}
+
 func (s *skillSelectionReplayStore) GetMission(context.Context, string) (domain.Mission, error) {
 	return s.mission, nil
 }

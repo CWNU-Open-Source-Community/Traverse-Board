@@ -47,6 +47,7 @@ const (
 	HostCommandProposeTool          ToolName = "host_command_propose"
 	OneShotCommandProposeTool       ToolName = "one_shot_command_propose"
 	DockerSandboxRunProposeTool     ToolName = "sandbox_docker_run_propose"
+	SkillCandidateProposeTool       ToolName = "skill_candidate_propose"
 )
 
 // TypedActionIDs returns the registered typed-action registry. Project config
@@ -73,11 +74,11 @@ func (n ToolName) Valid() bool {
 	case ReadFileTool, ListWorkspaceTool, ShellTool, ReplaceFileTool, ScriptProcessTool,
 		WorkItemCreateTool, NoteCreateTool, PlanDeliveryProposeTool,
 		SpecialistDelegationProposeTool, ChildTaskProposeTool, ControlledCommandProposeTool,
-		OneShotCommandProposeTool, DockerSandboxRunProposeTool:
-		// Host commands remain proposals at this layer; execution is owned by
-		// the separate control-token review path.
+		OneShotCommandProposeTool, DockerSandboxRunProposeTool, SkillCandidateProposeTool:
 		return true
 	case HostCommandProposeTool:
+		// Host commands remain proposals at this layer; execution is owned by
+		// the separate control-token review path.
 		return true
 	default:
 		return false
@@ -119,7 +120,7 @@ func ClassForTool(name ToolName) (ActionClass, bool) {
 		return ClassRunMemory, true
 	case PlanDeliveryProposeTool, SpecialistDelegationProposeTool, ChildTaskProposeTool,
 		ControlledCommandProposeTool, HostCommandProposeTool,
-		OneShotCommandProposeTool, DockerSandboxRunProposeTool:
+		OneShotCommandProposeTool, DockerSandboxRunProposeTool, SkillCandidateProposeTool:
 		return ClassAgentProposal, true
 	default:
 		return "", false

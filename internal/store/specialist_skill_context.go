@@ -240,12 +240,24 @@ func validateSpecialistSkillContextBinding(
 		return apperror.New(apperror.CodeFailedPrecondition,
 			"Specialist Skill context provenance does not match durable Run state")
 	}
-	selected, found := skills.SpecialistSelectionItem(selection, mode.Surface, mode.Profile)
+	registry, err := skills.BuiltinRegistry()
+	if err != nil {
+		return apperror.Wrap(apperror.CodeFailedPrecondition,
+			"embedded Skill Registry is unavailable", err)
+	}
+	selected, found, err := registry.SpecialistSelectionItem(selection, skills.ExecutionContext{
+		Surface: mode.Surface, Phase: mode.Phase, Profile: mode.Profile,
+		Role: domain.AgentRoleSpecialist,
+	})
+	if err != nil {
+		return apperror.Wrap(apperror.CodeFailedPrecondition,
+			"Specialist Skill compatibility could not be reconstructed", err)
+	}
 	if !found {
 		if request.ItemCount != 0 || request.TokenUpperBound != 0 ||
 			request.RedactionCount != 0 {
 			return apperror.New(apperror.CodeFailedPrecondition,
-				"Specialist Skill context exceeds its empty surface policy")
+				"Specialist Skill context exceeds its empty mode policy")
 		}
 		return nil
 	}

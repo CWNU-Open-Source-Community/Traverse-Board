@@ -63,7 +63,7 @@ CLI / TUI / React / Windows Desktop / CI
 | 工具与权限 | Tool Gateway、JSON Schema 校验、Policy、Scope、人工审批、四档宿主权限、受控固定命令提案 |
 | 代码工作流 | 系统目录选择与 Workspace 导入、工作区浏览、仓库状态、提交历史、Diff 审阅、文件编辑提案、验证计划、Code Journey 与 Handoff |
 | 可观测性 | 追加式 Run 事件、Live Activity、公开模型进度、Harness 事实、Artifact、Finding/Evidence/Report、SARIF |
-| 扩展 | 惰性 Skill 包、Provider 接口、Tool 接口、Go/Rust JSON 协议、内嵌 WASI Analyzer、Sandbox 合同与默认关闭的 network-none Docker 产品执行 |
+| 扩展 | 模式感知的惰性 Skill 包、生成候选人工审查、Provider/Tool 接口、Go/Rust JSON 协议、内嵌 WASI Analyzer、Sandbox 合同与默认关闭的 network-none Docker 产品执行 |
 | 客户端 | `cyberagent` CLI、Bubble Tea TUI、认证 HTTP/OpenAPI、React/Vite、Windows/macOS Desktop 便携预览 |
 
 ### 安全边界
@@ -97,6 +97,32 @@ cyberagent run sandbox docker-admit <plan-id> --manifest-file <manifest.json> `
 [HTTP API](docs/http-api.md) 和
 [ADR 0099](docs/adr/0099-docker-sandbox-product-admission-and-recovery.md)。普通 Code 工作流
 仍不依赖 Docker。
+
+### 模式感知 Skill 与生成候选
+
+当前 12 个内置 Skill 使用 `profiles × surfaces × phases × roles` 四维兼容矩阵，并把
+`user_invocable`、`model_invocable` 与 `explicit_only` 作为独立调用策略。schema v111
+让外部 Skill 安装账本也完整保存这些字段；legacy 包保持原指纹和“仅操作者显式调用”
+策略。安装始终是惰性的，不等于选择、正文注入或能力授权。
+
+`run-skill-generator` 只适用于 Code/Deliver/root，并且必须由操作者显式选择。模型的
+`skill_candidate_propose` 只能创建绑定真实工具调用和内容指纹的不可信候选；schema
+v112 以只追加记录推导 `proposed -> approved -> imported` 或 `proposed -> rejected`，
+模型、Agent 和 Supervisor 身份不能充当人工 reviewer。批准与导入是两步独立操作，
+导入还需再次确认不可信指令；导入后仍需原有独立流程才能选择。
+
+```powershell
+cyberagent skill candidates --run <run-id>
+cyberagent skill candidate show <candidate-id> --show-content
+cyberagent skill candidate approve <candidate-id> `
+  --candidate-fingerprint <sha256> --operation-key <stable-review-key>
+cyberagent skill candidate import <candidate-id> `
+  --candidate-fingerprint <sha256> --operation-key <stable-import-key> `
+  --confirm-untrusted-skill
+```
+
+完整模式矩阵、候选限制和失败恢复语义见[使用手册](docs/usage.md)与
+[ADR 0113](docs/adr/0113-mode-aware-external-skill-ledger-and-generated-candidate-review.md)。
 
 ## 快速开始
 
@@ -265,7 +291,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 完整逐切片原始记录保留在 [`PROGRESS_BOOK.md`](docs/PROGRESS_BOOK.md)，当前检查点与验收证据保留在 [`PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)，恢复上下文见 [`PROJECT_MEMORY.md`](docs/PROJECT_MEMORY.md)。这些账本是历史记录，不应被当作待重新执行的任务列表。
 
 <details>
-<summary><strong>SQLite Schema v1-v99 迁移审计表 / Migration ledger</strong></summary>
+<summary><strong>SQLite Schema v1-v112 迁移审计表 / Migration ledger</strong></summary>
 
 此表是 Store 防漏迁移测试使用的审计合同。新增 schema 时必须按顺序追加，不得改写或删除既有行。
 
@@ -380,6 +406,9 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 | v107 | 网络作用域远端 Git 与 PR 操作台账（host/port/protocol/TTL/Run 绑定、脱敏收据） | network-scoped remote Git and PR operations (host/port/protocol/TTL/Run binding, redacted receipts) |
 | v108 | Debug 终端会话台账（状态/cwd/resize/进程/Agent 输入态） | debug terminal session ledger (state/cwd/resize/process/agent-input status) |
 | v109 | 完整 Supervisor 结构化工具注册表（child、Docker 与一次性命令） | complete Supervisor structured-tool registry (child, Docker, and one-shot commands) |
+| v110 | 按 Run mode 固定的 root Skill 阶段子集与空交付账本 | Run-mode-bound root Skill phase subsets and empty-delivery ledger |
+| v111 | 保存 Surface/Phase/Role 与调用策略的外部 Skill 安装账本 | external-Skill installation ledger preserving Surface/Phase/Role and invocation policy |
+| v112 | 工具来源绑定、人工审查门禁的不可信 Skill 候选状态机 | tool-origin-bound, human-review-gated untrusted Skill candidate state machine |
 
 </details>
 
