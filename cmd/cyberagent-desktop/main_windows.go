@@ -4,6 +4,7 @@ package main
 
 import (
 	"debug/pe"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
@@ -155,15 +156,94 @@ func validateWebView2ClientDLL(path string, machine uint16) error {
 		image.FileHeader.Characteristics&pe.IMAGE_FILE_DLL == 0 {
 		return errors.New("WebView2 runtime client DLL architecture is invalid")
 	}
-	dll, err := syswindows.LoadDLL(path)
-	if err != nil {
-		return errors.New("WebView2 runtime client DLL cannot be loaded")
-	}
-	defer dll.Release()
-	if _, err := dll.FindProc("CreateWebViewEnvironmentWithOptionsInternal"); err != nil {
+	if !peImageExportsProcedure(image, "CreateWebViewEnvironmentWithOptionsInternal") {
 		return errors.New("WebView2 runtime client DLL entry point is unavailable")
 	}
 	return nil
+}
+
+// peImageExportsProcedure inspects the on-disk export table instead of loading
+// the candidate DLL. A prerequisite check must not execute DllMain or resolve
+// arbitrary dependencies before Wails starts the trusted WebView2 runtime.
+func peImageExportsProcedure(image *pe.File, procedure string) bool {
+	directory, ok := peExportDirectory(image)
+	if !ok || directory.VirtualAddress == 0 || directory.Size < 40 || procedure == "" {
+		return false
+	}
+	header, ok := peImageBytes(image, directory.VirtualAddress, 40)
+	if !ok {
+		return false
+	}
+	nameCount := binary.LittleEndian.Uint32(header[24:28])
+	nameTableRVA := binary.LittleEndian.Uint32(header[32:36])
+	if nameCount == 0 || nameTableRVA == 0 {
+		return false
+	}
+	_, tableOffset, tableSize, ok := peImageSectionRange(image, nameTableRVA, 0)
+	if !ok || uint64(nameCount)*4 > tableSize-uint64(tableOffset) {
+		return false
+	}
+	for index := uint32(0); index < nameCount; index++ {
+		entryRVA := uint64(nameTableRVA) + uint64(index)*4
+		if entryRVA > uint64(^uint32(0)) {
+			return false
+		}
+		entry, found := peImageBytes(image, uint32(entryRVA), 4)
+		if !found {
+			return false
+		}
+		procedureRVA := binary.LittleEndian.Uint32(entry)
+		candidate, found := peImageBytes(image, procedureRVA, uint32(len(procedure)+1))
+		if found && candidate[len(procedure)] == 0 &&
+			string(candidate[:len(procedure)]) == procedure {
+			return true
+		}
+	}
+	return false
+}
+
+func peExportDirectory(image *pe.File) (pe.DataDirectory, bool) {
+	if image == nil {
+		return pe.DataDirectory{}, false
+	}
+	switch header := image.OptionalHeader.(type) {
+	case *pe.OptionalHeader32:
+		return header.DataDirectory[0], header.NumberOfRvaAndSizes > 0
+	case *pe.OptionalHeader64:
+		return header.DataDirectory[0], header.NumberOfRvaAndSizes > 0
+	default:
+		return pe.DataDirectory{}, false
+	}
+}
+
+func peImageBytes(image *pe.File, rva, size uint32) ([]byte, bool) {
+	section, offset, _, ok := peImageSectionRange(image, rva, size)
+	if !ok {
+		return nil, false
+	}
+	buffer := make([]byte, int(size))
+	read, err := section.ReadAt(buffer, offset)
+	return buffer, err == nil && read == len(buffer)
+}
+
+func peImageSectionRange(image *pe.File, rva, size uint32) (*pe.Section, int64, uint64, bool) {
+	if image == nil {
+		return nil, 0, 0, false
+	}
+	address := uint64(rva)
+	required := uint64(size)
+	for _, section := range image.Sections {
+		start := uint64(section.VirtualAddress)
+		rawSize := uint64(section.Size)
+		if address < start {
+			continue
+		}
+		offset := address - start
+		if offset <= rawSize && required <= rawSize-offset {
+			return section, int64(offset), rawSize, true
+		}
+	}
+	return nil, 0, 0, false
 }
 
 func applyDesktopPlatformOptions(appOptions *options.App) {

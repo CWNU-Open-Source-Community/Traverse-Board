@@ -3,6 +3,7 @@
 package main
 
 import (
+	"debug/pe"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 
+	"github.com/wailsapp/go-webview2/webviewloader"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
@@ -156,5 +158,33 @@ func TestValidateWebView2ClientDLLRejectsUnexpectedDLL(t *testing.T) {
 	path := filepath.Join(systemRoot, "System32", "kernel32.dll")
 	if err := validateWebView2ClientDLL(path, machine); err == nil {
 		t.Fatal("DLL without the WebView2 client entry point was accepted")
+	}
+}
+
+func TestPEImageExportsProcedureWithoutLoadingDLL(t *testing.T) {
+	systemRoot := os.Getenv("SystemRoot")
+	if systemRoot == "" {
+		t.Skip("SystemRoot is unavailable")
+	}
+	image, err := pe.Open(filepath.Join(systemRoot, "System32", "kernel32.dll"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer image.Close()
+	if !peImageExportsProcedure(image, "GetProcAddress") {
+		t.Fatal("known kernel32 export was not found")
+	}
+	if peImageExportsProcedure(image, "CreateWebViewEnvironmentWithOptionsInternal") {
+		t.Fatal("unexpected WebView2 export was found")
+	}
+}
+
+func TestInstalledWebView2RuntimeIntegrityWhenAvailable(t *testing.T) {
+	version, err := webviewloader.GetAvailableCoreWebView2BrowserVersionString("")
+	if err != nil || strings.TrimSpace(version) == "" {
+		t.Skip("WebView2 Runtime is unavailable")
+	}
+	if err := verifyInstalledWebView2Runtime(version); err != nil {
+		t.Fatalf("installed WebView2 Runtime failed integrity inspection: %v", err)
 	}
 }
