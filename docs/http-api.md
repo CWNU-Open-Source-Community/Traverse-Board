@@ -1,8 +1,8 @@
 # 本地 HTTP API / Local HTTP API
 
-CyberAgent Workbench 提供由 Go 控制的本地 `api.v1`，用于检查 SQLite 持久状态并投影可恢复 Run events。独立 capability 允许受控 Run/Session/Plan/审批、固定命令提案审阅、Provider 诊断/路由/系统凭证、FileEdit 提案/只读恢复/审阅/apply、wake 意图/前台消费、不可变操作者验证、metadata-only 快照回执及其不授权复核、惰性 Skill 安装，以及 schema v99 默认关闭的精确 Docker Sandbox 产品执行。只读面还提供 capability/worker health、exact-root Repository 状态与脱敏 Diff、非原子的多文件 FileEdit 汇总、逐验证项确定性快照下载/回执历史和带有界复核元数据的可重建 Code Handoff。API 不编辑/重排消息、不接受快照或验证结果、不执行验证或 Skill、不启动任意 Git/通用宿主进程，也不替代 Policy、Tool Gateway 或 Sandbox 门禁；Docker 路由只能调用同一 Go Application 服务的 network-none、精确计划边界。
+CyberAgent Workbench 提供由 Go 控制的本地 `api.v1`，用于检查 SQLite 持久状态并投影可恢复 Run events。独立 capability 允许受控 Run/Session/Plan/审批、固定命令提案审阅、Provider 诊断/路由/系统凭证、FileEdit 提案/只读恢复/审阅/apply、wake 意图/前台消费、不可变操作者验证、metadata-only 快照回执及其不授权复核、惰性 Skill 安装、schema v115 的 Run-owned 普通命令运行时，以及 schema v99 默认关闭的精确 Docker Sandbox 产品执行。只读面还提供 capability/worker health、exact-root Repository 状态与脱敏 Diff、非原子的多文件 FileEdit 汇总、逐验证项确定性快照下载/回执历史和带有界复核元数据的可重建 Code Handoff。API 不直接接受 Shell/argv/stdin 或 Job mutation endpoint；命令只能由认证 Run execution 内的 root Supervisor 通过同一 Tool Gateway/Application 服务发起，仍受 Code/Local/Deliver/full-access、当前租约、Policy、无网络/无凭证与进程启动 capability 约束。
 
-CyberAgent Workbench exposes a Go-controlled local `api.v1` for durable SQLite state and resumable Run-event projections. Independent capabilities permit controlled Run/Session/Plan/approval operations, fixed-command proposal review, Provider diagnostics/routes/system credentials, operator price-snapshot import and listing, FileEdit propose/read-only recovery/review/apply, wake intent/foreground consumption, immutable operator verification, metadata-only snapshot receipts and their non-authorizing review, inert Skill installation, and schema-v99 exact Docker Sandbox execution that is disabled by default. Read-only surfaces also expose capabilities/worker health, exact-root Repository state and redacted Diffs, non-atomic multi-file FileEdit summaries, deterministic per-check verification snapshot downloads/receipt history, and a regenerable Code handoff with bounded review metadata. The API cannot edit/reorder messages, accept a snapshot or verification result, execute verification or a Skill, start arbitrary Git or a general host process, or replace Policy, the Tool Gateway, or Sandbox gates. Docker routes can invoke only the same Go Application service's exact network-none plan boundary.
+CyberAgent Workbench exposes a Go-controlled local `api.v1` for durable SQLite state and resumable Run-event projections. Independent capabilities permit controlled Run/Session/Plan/approval operations, fixed-command proposal review, Provider diagnostics/routes/system credentials, operator price-snapshot import and listing, FileEdit propose/read-only recovery/review/apply, wake intent/foreground consumption, immutable operator verification, metadata-only snapshot receipts and their non-authorizing review, inert Skill installation, the schema-v115 Run-owned ordinary command runtime, and schema-v99 exact Docker Sandbox execution that is disabled by default. Read-only surfaces also expose capabilities/worker health, exact-root Repository state and redacted Diffs, non-atomic multi-file FileEdit summaries, deterministic per-check verification snapshot downloads/receipt history, and a regenerable Code handoff with bounded review metadata. There is no direct HTTP Shell/argv/stdin or Job-mutation endpoint: only an authenticated Run execution may let its root Supervisor call the same Tool Gateway/Application service under Code/Local/Deliver/full-access, current-lease, Policy, no-network/no-credential, and process-startup gates.
 
 ## 启动 / Start
 
@@ -35,11 +35,12 @@ go run ./cmd/cyberagent api serve --listen 127.0.0.1:8765 --ui-dir web/dist `
   --enable-permission-control --enable-docker-execution
 ```
 
-权限开关只让 API 选择和评估对应策略，不会自动创建任意命令执行器或 CDP
-transport。当前只有
-四种固定模板执行链与 v89 固定提案审批已接入。`approval`、`full_access` 和
-`debug` 的任意宿主命令/Agent 持久终端传输仍关闭。未设置
-`CYBERAGENT_API_CONTROL_TOKEN` 时，permission control 不能启动。
+权限开关不会让数据库快照自动获得执行权。`full_access` 与当前 Code/Local/Deliver
+Run、root Supervisor lease、`--enable-permission-control`、
+`--enable-danger-full-access` 同时成立时，API 进程会安装 v115
+`command_runtime`；它与 `approval` 的逐条审阅路径和 `debug` 用户终端彼此独立。
+未设置 `CYBERAGENT_API_CONTROL_TOKEN` 时，permission control 与 Run execution
+都不能启动。
 
 设置独立 control token 后，普通 `api serve` 同时开放固定提案 review route；
 Desktop 则必须额外使用 `--enable-command-proposals`。三条 endpoint 为：
@@ -71,6 +72,7 @@ api_url: http://127.0.0.1:8765/api/v1
 api_version: api.v1
 api_token_generated: false
 api_control_enabled: true
+command_runtime_enabled: true
 ui_url: http://127.0.0.1:8765/
 ui_source: <absolute-path-to-web/dist>
 ui_assets: 2

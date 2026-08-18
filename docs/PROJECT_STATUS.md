@@ -1,12 +1,23 @@
 # Project Status
 
-Last updated: 2026-08-18
+Last updated: 2026-08-19
 
 > **Scope authority:** active mainline work targets the general-purpose Agent Harness and Code workflow. CTF-specific solving and offensive automation are optional add-ons and have no active implementation schedule. Historical references and percentages below remain audit history, not queued work. See [Product Scope](PRODUCT_SCOPE.md).
 
 ## Resume Context
 
-当前检查点是 schema v110-v112 的 mode-aware Skill 模型与不可信生成候选审查。
+当前检查点是 issue #100 / schema v115 的普通模式 Run-owned 命令闭环。root
+Supervisor 仅在 Code/Local/Deliver、durable `full_access`、当前 execution lease 与
+进程内 danger-full-access capability 同时成立时看到 `command_runtime`。固定
+PowerShell/Bash 与绝对路径原生进程支持有序批次、单调 stdout/stderr cursor、受限
+stdin、timeout/cancel/kill 和后台 Job；输出统一作为不可信数据清洗，并按上限提交带
+SHA-256 的 Run Artifact。启动 turn lease 只 fence write-ahead intent；独立 process-
+owner generation/heartbeat 跨 turn 持有 live handle，Windows Job Object 与 POSIX
+guardian/process group 负责崩溃整树清理，重启不收养或重放 PID。Desktop/API capability
+与用户终端、Debug terminal、审批 one-shot、Docker 分开。网络/凭证只接受
+`disabled`/`none`；宿主 full-access 不是 packet sandbox。详见 ADR 0116。
+
+前一检查点是 schema v110-v112 的 mode-aware Skill 模型与不可信生成候选审查。
 内置 Registry 现有 12 项；Surface/Phase/Profile/Role 共同决定 root/Specialist 正文
 交付，schema v110 为每个 root turn 固定实际阶段子集并允许空交付。七项优先通用能力
 （增强 review、doctor、debug、run-verify/ui-evidence、focused-checks、simplify、
