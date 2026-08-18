@@ -3,14 +3,20 @@
 package main
 
 import (
+	"bytes"
+	"debug/pe"
+	"encoding/binary"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"cyberagent-workbench/internal/apperror"
 
+	"github.com/wailsapp/go-webview2/webviewloader"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
@@ -72,23 +78,26 @@ func TestApplyDesktopPlatformOptionsPinsOnlyWindowsOptions(t *testing.T) {
 
 func TestWebView2PrerequisiteFailsClosedWithoutStartingAnInstaller(t *testing.T) {
 	tests := []struct {
-		name    string
-		detect  func(string) (string, error)
-		compare func(string, string) (int, error)
+		name      string
+		detect    func(string) (string, error)
+		compare   func(string, string) (int, error)
+		integrity func(string) error
 	}{
 		{name: "missing", detect: func(string) (string, error) { return "", nil },
-			compare: func(string, string) (int, error) { return 0, nil }},
+			compare: func(string, string) (int, error) { return 0, nil }, integrity: func(string) error { return nil }},
 		{name: "probe error", detect: func(string) (string, error) { return "", errors.New(`C:\PRIVATE`) },
-			compare: func(string, string) (int, error) { return 0, nil }},
+			compare: func(string, string) (int, error) { return 0, nil }, integrity: func(string) error { return nil }},
 		{name: "old", detect: func(string) (string, error) { return "93.0.1.0", nil },
-			compare: func(string, string) (int, error) { return -1, nil }},
+			compare: func(string, string) (int, error) { return -1, nil }, integrity: func(string) error { return nil }},
 		{name: "invalid", detect: func(string) (string, error) { return "invalid", nil },
-			compare: func(string, string) (int, error) { return 0, errors.New("invalid version") }},
+			compare: func(string, string) (int, error) { return 0, errors.New("invalid version") }, integrity: func(string) error { return nil }},
+		{name: "damaged", detect: func(string) (string, error) { return "120.0.1.2", nil },
+			compare: func(string, string) (int, error) { return 1, nil }, integrity: func(string) error { return errors.New(`C:\PRIVATE`) }},
 	}
 	for _, current := range tests {
 		t.Run(current.name, func(t *testing.T) {
 			err := requireWebView2Runtime(webView2RuntimeProbe{
-				detect: current.detect, compare: current.compare,
+				detect: current.detect, compare: current.compare, integrity: current.integrity,
 			})
 			if !errors.Is(err, errWebView2RuntimeRequired) ||
 				apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
@@ -104,8 +113,9 @@ func TestWebView2PrerequisiteFailsClosedWithoutStartingAnInstaller(t *testing.T)
 	}
 
 	if err := requireWebView2Runtime(webView2RuntimeProbe{
-		detect:  func(string) (string, error) { return "120.0.1.2", nil },
-		compare: func(string, string) (int, error) { return 1, nil },
+		detect:    func(string) (string, error) { return "120.0.1.2", nil },
+		compare:   func(string, string) (int, error) { return 1, nil },
+		integrity: func(string) error { return nil },
 	}); err != nil {
 		t.Fatalf("current WebView2 runtime was rejected: %v", err)
 	}
@@ -121,5 +131,96 @@ func TestWebView2PrerequisiteFailsClosedWithoutStartingAnInstaller(t *testing.T)
 		strings.Contains(all, "silently") || strings.Contains(all, "press ok") ||
 		messages.DownloadPage != "" || messages.PressOKToInstall != "" {
 		t.Fatalf("WebView2 messages can trigger or direct an implicit installer: %q", all)
+	}
+}
+
+func TestValidateWebView2ClientDLLRejectsDamagedImages(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "EmbeddedBrowserWebView.dll")
+	if err := os.WriteFile(path, []byte{'M', 'Z', 0, 0}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, machine, err := webView2RuntimeArchitecture()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateWebView2ClientDLL(path, machine); err == nil {
+		t.Fatal("damaged WebView2 client DLL was accepted")
+	}
+}
+
+func TestValidateWebView2ClientDLLRejectsUnexpectedDLL(t *testing.T) {
+	systemRoot := os.Getenv("SystemRoot")
+	if systemRoot == "" {
+		t.Skip("SystemRoot is unavailable")
+	}
+	_, machine, err := webView2RuntimeArchitecture()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(systemRoot, "System32", "kernel32.dll")
+	if err := validateWebView2ClientDLL(path, machine); err == nil {
+		t.Fatal("DLL without the WebView2 client entry point was accepted")
+	}
+}
+
+func TestPEImageExportsProcedureWithoutLoadingDLL(t *testing.T) {
+	systemRoot := os.Getenv("SystemRoot")
+	if systemRoot == "" {
+		t.Skip("SystemRoot is unavailable")
+	}
+	image, err := pe.Open(filepath.Join(systemRoot, "System32", "kernel32.dll"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer image.Close()
+	if !peImageExportsProcedure(image, "GetProcAddress") {
+		t.Fatal("known kernel32 export was not found")
+	}
+	if peImageExportsProcedure(image, "CreateWebViewEnvironmentWithOptionsInternal") {
+		t.Fatal("unexpected WebView2 export was found")
+	}
+}
+
+func TestPEImageExportsProcedureRejectsInvalidFunctionTarget(t *testing.T) {
+	const (
+		sectionRVA = uint32(0x1000)
+		targetRVA  = uint32(0x1100)
+		procedure  = "ExampleProcedure"
+	)
+	imageBytes := make([]byte, 512)
+	binary.LittleEndian.PutUint32(imageBytes[20:24], 1)
+	binary.LittleEndian.PutUint32(imageBytes[24:28], 1)
+	binary.LittleEndian.PutUint32(imageBytes[28:32], sectionRVA+64)
+	binary.LittleEndian.PutUint32(imageBytes[32:36], sectionRVA+68)
+	binary.LittleEndian.PutUint32(imageBytes[36:40], sectionRVA+72)
+	binary.LittleEndian.PutUint32(imageBytes[64:68], targetRVA)
+	binary.LittleEndian.PutUint32(imageBytes[68:72], sectionRVA+128)
+	binary.LittleEndian.PutUint16(imageBytes[72:74], 0)
+	copy(imageBytes[128:], procedure+"\x00")
+	optionalHeader := &pe.OptionalHeader64{NumberOfRvaAndSizes: 1}
+	optionalHeader.DataDirectory[0] = pe.DataDirectory{VirtualAddress: sectionRVA, Size: 128}
+	image := &pe.File{
+		OptionalHeader: optionalHeader,
+		Sections: []*pe.Section{{
+			SectionHeader: pe.SectionHeader{VirtualAddress: sectionRVA, Size: uint32(len(imageBytes))},
+			ReaderAt:      bytes.NewReader(imageBytes),
+		}},
+	}
+	if !peImageExportsProcedure(image, procedure) {
+		t.Fatal("valid export target was rejected")
+	}
+	binary.LittleEndian.PutUint32(imageBytes[64:68], sectionRVA+uint32(len(imageBytes)))
+	if peImageExportsProcedure(image, procedure) {
+		t.Fatal("out-of-image export target was accepted")
+	}
+}
+
+func TestInstalledWebView2RuntimeIntegrityWhenAvailable(t *testing.T) {
+	version, err := webviewloader.GetAvailableCoreWebView2BrowserVersionString("")
+	if err != nil || strings.TrimSpace(version) == "" {
+		t.Skip("WebView2 Runtime is unavailable")
+	}
+	if err := verifyInstalledWebView2Runtime(version); err != nil {
+		t.Fatalf("installed WebView2 Runtime failed integrity inspection: %v", err)
 	}
 }

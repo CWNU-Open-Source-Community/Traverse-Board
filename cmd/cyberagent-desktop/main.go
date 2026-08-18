@@ -27,7 +27,11 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const desktopSingleInstanceID = "e3305a58-3d1e-4e2f-b4ca-d1032a737b96"
+const (
+	desktopSingleInstanceID = "e3305a58-3d1e-4e2f-b4ca-d1032a737b96"
+	defaultDesktopWidth     = 1440
+	defaultDesktopHeight    = 900
+)
 
 type desktopOptions struct {
 	operatorPreview        bool
@@ -76,6 +80,21 @@ func secondInstanceHandler(lifecycle *desktop.Lifecycle) func(options.SecondInst
 	return func(_ options.SecondInstanceData) {
 		lifecycle.RequestRestore()
 	}
+}
+
+func shouldMaximiseDesktopWindow(screens []runtime.Screen) bool {
+	var selected *runtime.Screen
+	for index := range screens {
+		if screens[index].IsCurrent {
+			selected = &screens[index]
+			break
+		}
+		if selected == nil && screens[index].IsPrimary {
+			selected = &screens[index]
+		}
+	}
+	return selected != nil && (selected.Size.Width < defaultDesktopWidth ||
+		selected.Size.Height < defaultDesktopHeight)
 }
 
 func (nativeSkillPackagePicker) OpenSkillPackage(ctx context.Context) (string, error) {
@@ -481,14 +500,21 @@ func runDesktop(config desktopOptions) error {
 	}
 
 	appOptions := &options.App{
-		Title: app.Name, Width: 1440, Height: 900, MinWidth: 1024, MinHeight: 680,
+		Title: app.Name, Width: defaultDesktopWidth, Height: defaultDesktopHeight,
+		MinWidth: 320, MinHeight: 320,
 		Frameless:        true,
 		WindowStartState: options.Normal,
 		BackgroundColour: options.NewRGBA(0, 0, 0, 0),
 		AssetServer: &assetserver.Options{
 			Handler: inProcessAPIHandler{next: controlPlane.Handler()},
 		},
-		OnStartup: lifecycle.Start,
+		OnStartup: func(ctx context.Context) {
+			lifecycle.Start(ctx)
+			if screens, screenErr := runtime.ScreenGetAll(ctx); screenErr == nil &&
+				shouldMaximiseDesktopWindow(screens) {
+				runtime.WindowMaximise(ctx)
+			}
+		},
 		OnShutdown: func(context.Context) {
 			lifecycle.Stop()
 		},

@@ -1,10 +1,12 @@
 import { render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import type { RunActivityView } from "../api/types";
+import { LocaleProvider, type PrayuLocale } from "../lib/locale";
 import { RunActivityTimeline } from "./run-activity-timeline";
 
 describe("RunActivityTimeline", () => {
   it("separates public model updates from verifiable Harness facts", () => {
-    render(<RunActivityTimeline activity={activity()} />);
+    renderTimeline(<RunActivityTimeline activity={activity()} />);
 
     expect(screen.getByText("模型公开更新")).toBeInTheDocument();
     expect(screen.getByText("模型调用")).toBeInTheDocument();
@@ -19,7 +21,7 @@ describe("RunActivityTimeline", () => {
     const value = activity();
     value.items.push(toolItem(13, "工具操作开始", "running"),
       toolItem(14, "工具操作完成", "completed"));
-    render(<RunActivityTimeline activity={value} />);
+    renderTimeline(<RunActivityTimeline activity={value} />);
 
     expect(screen.getByText("运行了 2 个操作")).toBeInTheDocument();
     expect(screen.getAllByText("git diff --check")).toHaveLength(2);
@@ -31,7 +33,7 @@ describe("RunActivityTimeline", () => {
     const value = activity();
     value.items = [];
     value.truncated = true;
-    render(<RunActivityTimeline activity={value} streamError="connection lost" />);
+    renderTimeline(<RunActivityTimeline activity={value} streamError="connection lost" />);
 
     expect(screen.getByText(/最近一段活动/u)).toBeInTheDocument();
     expect(screen.getByText(/connection lost/u)).toBeInTheDocument();
@@ -41,7 +43,7 @@ describe("RunActivityTimeline", () => {
   it("fails closed if a server ever marks private reasoning as included", () => {
     const value = activity();
     value.private_reasoning_included = true;
-    render(<RunActivityTimeline activity={value} />);
+    renderTimeline(<RunActivityTimeline activity={value} />);
 
     expect(screen.getByText(/活动投影已拒绝/u)).toBeInTheDocument();
     expect(screen.queryByText("Prayu 更新")).not.toBeInTheDocument();
@@ -49,7 +51,8 @@ describe("RunActivityTimeline", () => {
 
   it("shows provisional public commentary as live Activity", () => {
     const value = activity();
-    render(<RunActivityTimeline activity={value} liveCommentary={publicSnapshot()} liveStatus="live" />);
+    renderTimeline(<RunActivityTimeline activity={value}
+      liveCommentary={publicSnapshot()} liveStatus="live" />);
 
     expect(screen.getByText("Prayu")).toBeInTheDocument();
     expect(screen.getByText("正在检查差异，下一步运行测试。")).toBeInTheDocument();
@@ -73,7 +76,8 @@ describe("RunActivityTimeline", () => {
       model_attempt: 2,
       tool_round: 4,
     });
-    render(<RunActivityTimeline activity={value} liveCommentary={publicSnapshot()} liveStatus="live" />);
+    renderTimeline(<RunActivityTimeline activity={value}
+      liveCommentary={publicSnapshot()} liveStatus="live" />);
 
     expect(screen.getByText("持久化后的公开进度。")).toBeInTheDocument();
     expect(screen.queryByText("正在检查差异，下一步运行测试。")).not.toBeInTheDocument();
@@ -83,7 +87,8 @@ describe("RunActivityTimeline", () => {
   it("does not project a provisional root reply as Live Activity", () => {
     const snapshot = publicSnapshot();
     snapshot.content_kind = "root_message";
-    render(<RunActivityTimeline activity={activity()} liveCommentary={snapshot} liveStatus="live" />);
+    renderTimeline(<RunActivityTimeline activity={activity()}
+      liveCommentary={snapshot} liveStatus="live" />);
 
     expect(screen.queryByText("正在检查差异，下一步运行测试。")).not.toBeInTheDocument();
     expect(screen.queryByText("临时")).not.toBeInTheDocument();
@@ -97,14 +102,31 @@ describe("RunActivityTimeline", () => {
       toolLifecycleItem(15, "工具结果已记录", "读取文件", "completed"),
       toolLifecycleItem(16, "工具批次完成", "", "completed"),
     );
-    render(<RunActivityTimeline activity={value} />);
+    renderTimeline(<RunActivityTimeline activity={value} />);
 
     expect(screen.getByText("运行了 2 个操作")).toBeInTheDocument();
     expect(screen.getByText("浏览工作区")).toBeInTheDocument();
     expect(screen.getByText("读取文件")).toBeInTheDocument();
     expect(screen.queryByText("工具批次完成")).not.toBeInTheDocument();
   });
+
+  it("localizes Activity chrome in English", () => {
+    const value = activity();
+    value.items = [];
+    renderTimeline(<RunActivityTimeline activity={value} />, "en-US");
+
+    expect(screen.getByRole("region", { name: "Run activity" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Activity" })).toBeInTheDocument();
+    expect(screen.getByText("No private chain of thought")).toBeInTheDocument();
+    expect(screen.getByText("No public activity yet")).toBeInTheDocument();
+    expect(screen.queryByText("还没有公开活动")).not.toBeInTheDocument();
+  });
 });
+
+function renderTimeline(node: ReactNode, locale: PrayuLocale = "zh-CN") {
+  window.localStorage.setItem("prayu.locale.v1", locale);
+  return render(<LocaleProvider>{node}</LocaleProvider>);
+}
 
 function activity(): RunActivityView {
   return {

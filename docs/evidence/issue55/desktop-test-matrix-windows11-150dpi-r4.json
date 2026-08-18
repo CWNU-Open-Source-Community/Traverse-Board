@@ -1,0 +1,108 @@
+{
+  "protocol_version": "desktop_test_matrix.v2",
+  "generated_at": "2026-08-16T14:01:00.7433456Z",
+  "automated_status": "pass",
+  "overall_status": "needs_manual_evidence",
+  "candidate": {
+    "name": "cyberagent-desktop.exe",
+    "sha256": "86791c530996eea604501577287feadb7002296252fa344a96bb406c554934a4",
+    "size_bytes": 52199424,
+    "app_version": "v0.1.0-issue55-r4",
+    "revision": "c3096e52bf1179b295840b2f5f24dd4708849499",
+    "source_date_epoch": 1786888067,
+    "modified": false
+  },
+  "environment": {
+    "windows_version": "Microsoft Windows 11 专业版",
+    "build_number": "26200",
+    "architecture": "64 位",
+    "webview2_runtime": "151.0.4129.86",
+    "minimum_webview2_runtime": "94.0.992.31",
+    "webview2_supported": true,
+    "primary_dpi_percent": 150,
+    "monitors": [
+      {
+        "primary": true,
+        "dpi_percent": 150,
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "width": 2560,
+          "height": 1440
+        }
+      }
+    ]
+  },
+  "results": [
+    {
+      "id": "candidate_provenance",
+      "status": "pass",
+      "facts": {
+        "release_metadata_present": true,
+        "sha256_matches": true,
+        "revision_bound": true,
+        "modified": false
+      }
+    },
+    {
+      "id": "cold_start",
+      "status": "pass",
+      "facts": {
+        "process_alive": true,
+        "store_created": true
+      }
+    },
+    {
+      "id": "second_instance",
+      "status": "pass",
+      "facts": {
+        "second_exited": true,
+        "second_exit_code": 0
+      }
+    },
+    {
+      "id": "normal_exit",
+      "status": "pass",
+      "facts": {
+        "window_ready": true,
+        "close_requested": true,
+        "clean_exit": true,
+        "exit_code": 0,
+        "store_present_after_exit": true
+      }
+    },
+    {
+      "id": "kill_reopen",
+      "status": "pass",
+      "facts": {
+        "ready_before_kill": true,
+        "store_retained": true,
+        "store_bytes_before_kill": 5632000,
+        "reopened": true,
+        "store_bytes_after_reopen": 5632000
+      }
+    }
+  ],
+  "manual_checks": [
+    {
+      "id": "ui_1024x768_and_200_percent",
+      "status": "not_run",
+      "detail": "Requires operator visual review at both 1024x768 and 200% DPI"
+    },
+    {
+      "id": "multi_monitor_mixed_dpi",
+      "status": "not_run",
+      "detail": "Requires two physical or virtual displays with different scaling"
+    },
+    {
+      "id": "webview2_missing_old_corrupt",
+      "status": "not_run",
+      "detail": "Requires an isolated host or VM with the runtime unavailable or unsupported"
+    },
+    {
+      "id": "offline_start",
+      "status": "not_run",
+      "detail": "Requires operator-controlled network isolation"
+    }
+  ]
+}

@@ -212,6 +212,7 @@ export function WorkbenchDock({ children, client, desktop, resourceKind, runID, 
 }
 
 function WorkspaceOpenMenu({ desktop, workspaceID }: { desktop: boolean; workspaceID: string }) {
+  const { t } = useLocale();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [launchers, setLaunchers] = useState<DesktopWorkspaceLauncher[]>([]);
@@ -239,7 +240,9 @@ function WorkspaceOpenMenu({ desktop, workspaceID }: { desktop: boolean; workspa
     setMessage("");
     try {
       const result = await openDesktopWorkspace(workspaceID, launcher.id);
-      setMessage(result.status === "started" ? `已在 ${launcher.label} 中打开` : "已取消打开");
+      setMessage(result.status === "started" ?
+        t(`已在 ${launcher.label} 中打开`, `Opened in ${launcher.label}`) :
+        t("已取消打开", "Opening cancelled"));
       if (result.status === "started") setOpen(false);
     } catch (error) {
       setMessage(desktopErrorMessage(error));
@@ -249,20 +252,22 @@ function WorkspaceOpenMenu({ desktop, workspaceID }: { desktop: boolean; workspa
   };
 
   return <div className="workspace-open-root" ref={root}>
-    <button aria-expanded={open} aria-haspopup="menu" aria-label="打开工作区"
+    <button aria-expanded={open} aria-haspopup="menu" aria-label={t("打开工作区", "Open workspace")}
       className="workspace-open-button" disabled={!desktop || !workspaceID || loading}
-      onClick={() => void toggle()} title={desktop ? "打开工作区" : "桌面版支持打开工作区"}
+      onClick={() => void toggle()} title={desktop ? t("打开工作区", "Open workspace") :
+        t("桌面版支持打开工作区", "Open workspace is available in the Desktop app")}
       type="button">
       {loading ? <LoaderCircle aria-hidden="true" className="spin" size={15} /> :
         <FolderOpen aria-hidden="true" size={15} />}
       <ChevronDown aria-hidden="true" size={14} />
     </button>
-    {open && <div aria-label="打开方式" className="workspace-open-menu" role="menu">
+    {open && <div aria-label={t("打开方式", "Open with")} className="workspace-open-menu" role="menu">
       {launchers.map((launcher) => <button key={launcher.id}
         onClick={() => void launch(launcher)} role="menuitem" type="button">
         {launcherIcon(launcher.kind)}<span>{launcher.label}</span>
       </button>)}
-      {!loading && launchers.length === 0 && !message && <span>没有可用的打开方式</span>}
+      {!loading && launchers.length === 0 && !message &&
+        <span>{t("没有可用的打开方式", "No available application")}</span>}
       {message && <span className="workspace-open-message" role="status">{message}</span>}
     </div>}
     {!open && message && <span className="workspace-open-live" role="status">{message}</span>}

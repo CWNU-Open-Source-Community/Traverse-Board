@@ -15,29 +15,32 @@ import {
 import type { PublicModelStreamSnapshot, RunActivityItemView, RunActivityView } from "../api/types";
 import type { PublicModelStreamStatus } from "../hooks/use-public-model-stream";
 import { formatDate } from "../lib/format";
+import { useLocale } from "../lib/locale";
 import { SafeMarkdown } from "./safe-markdown";
 
-const sourceLabels: Record<RunActivityItemView["source"], string> = {
-  harness: "Harness 事件",
-  model: "模型公开更新",
-  operator: "用户",
+type Translator = (chinese: string, english: string) => string;
+
+const sourceLabels: Record<RunActivityItemView["source"], [string, string]> = {
+  harness: ["Harness 事件", "Harness event"],
+  model: ["模型公开更新", "Public model update"],
+  operator: ["用户", "Operator"],
 };
 
-const statusLabels: Record<string, string> = {
-  approved: "已批准",
-  blocked: "已阻止",
-  cancelled: "已取消",
-  cancelling: "取消中",
-  completed: "已完成",
-  denied: "已拒绝",
-  expired: "已超时",
-  failed: "失败",
-  pending: "待处理",
-  running: "进行中",
-  satisfied: "已满足",
-  selected: "已选择",
-  superseded: "已替换",
-  waiting: "等待中",
+const statusLabels: Record<string, [string, string]> = {
+  approved: ["已批准", "Approved"],
+  blocked: ["已阻止", "Blocked"],
+  cancelled: ["已取消", "Cancelled"],
+  cancelling: ["取消中", "Cancelling"],
+  completed: ["已完成", "Completed"],
+  denied: ["已拒绝", "Denied"],
+  expired: ["已超时", "Expired"],
+  failed: ["失败", "Failed"],
+  pending: ["待处理", "Pending"],
+  running: ["进行中", "Running"],
+  satisfied: ["已满足", "Satisfied"],
+  selected: ["已选择", "Selected"],
+  superseded: ["已替换", "Superseded"],
+  waiting: ["等待中", "Waiting"],
 };
 
 function ActivityIcon({ kind, source }: Pick<RunActivityItemView, "kind" | "source">) {
@@ -70,11 +73,13 @@ export function RunActivityTimeline({ activity, liveCommentary = null,
   liveStatus?: PublicModelStreamStatus;
   streamError?: string;
 }) {
+  const { t } = useLocale();
   if (activity.private_reasoning_included) {
     return (
-      <section aria-label="Run 活动" className="run-activity">
+      <section aria-label={t("Run 活动", "Run activity")} className="run-activity">
         <div className="inline-warning">
-          活动投影已拒绝：服务端声明其中包含模型私有推理。
+          {t("活动投影已拒绝：服务端声明其中包含模型私有推理。",
+            "Activity projection rejected: the server declared private model reasoning.")}
         </div>
       </section>
     );
@@ -84,35 +89,41 @@ export function RunActivityTimeline({ activity, liveCommentary = null,
     !hasDurablePublicUpdate(activity.items, liveCommentary)
     ? provisionalActivityItem(activity, liveCommentary, liveStatus) : null;
   return (
-    <section aria-label="Run 活动" className="run-activity">
+    <section aria-label={t("Run 活动", "Run activity")} className="run-activity">
       <header className="run-activity-header">
         <div>
-          <h2>活动</h2>
-          <p>公开模型更新与 Go 记录的执行事实</p>
+          <h2>{t("活动", "Activity")}</h2>
+          <p>{t("公开模型更新与 Go 记录的执行事实",
+            "Public model updates and execution facts recorded by Go")}</p>
         </div>
         <span className="run-activity-safety"
-          title="这里只展示公开摘要与白名单事件，不展示或推断模型私有思维链">
+          title={t("这里只展示公开摘要与白名单事件，不展示或推断模型私有思维链",
+            "Only public summaries and allowlisted events are shown; private reasoning is neither shown nor inferred")}>
           <ShieldCheck aria-hidden="true" size={15} />
-          不包含私有思维链
+          {t("不包含私有思维链", "No private chain of thought")}
         </span>
       </header>
-      {streamError && <div className="inline-warning">活动流连接：{streamError}</div>}
+      {streamError && <div className="inline-warning">
+        {t("活动流连接", "Activity stream")}: {streamError}
+      </div>}
       {activity.truncated && (
         <div className="run-activity-window">
-          当前显示最近一段活动，已读取到事件 #{activity.through_sequence}
+          {t(`当前显示最近一段活动，已读取到事件 #${activity.through_sequence}`,
+            `Showing recent activity through event #${activity.through_sequence}`)}
         </div>
       )}
       {activity.items.length === 0 && !provisional ? (
         <div className="run-activity-empty">
           <MessageSquareText aria-hidden="true" size={21} />
-          <span>还没有公开活动</span>
+          <span>{t("还没有公开活动", "No public activity yet")}</span>
         </div>
       ) : (
         <ol className="run-activity-list">
           {groupActivityItems(activity.items).map((entry) => entry.type === "message" ?
-            <ActivityMessage item={entry.item} key={entry.item.id} /> :
-            <HarnessDisclosure items={entry.items} key={entry.id} />)}
-          {provisional && <ActivityMessage item={provisional} key={provisional.id} provisional />}
+            <ActivityMessage item={entry.item} key={entry.item.id} t={t} /> :
+            <HarnessDisclosure items={entry.items} key={entry.id} t={t} />)}
+          {provisional && <ActivityMessage item={provisional} key={provisional.id}
+            provisional t={t} />}
         </ol>
       )}
     </section>
@@ -140,9 +151,10 @@ export function groupActivityItems(items: RunActivityItemView[]): ActivityEntry[
   return entries;
 }
 
-function ActivityMessage({ item, provisional = false }: {
+function ActivityMessage({ item, provisional = false, t }: {
   item: RunActivityItemView;
   provisional?: boolean;
+  t: Translator;
 }) {
   return (
     <li className={`run-activity-item source-${item.source}${provisional ? " is-provisional" : ""}`}>
@@ -150,9 +162,10 @@ function ActivityMessage({ item, provisional = false }: {
       <div className="run-activity-body">
         <div className="run-activity-meta">
           <span className={`run-activity-source source-${item.source}`}>
-            {item.verifiable && <Check aria-hidden="true" size={12} />}{sourceLabels[item.source]}
+            {item.verifiable && <Check aria-hidden="true" size={12} />}{t(...sourceLabels[item.source])}
           </span>
-          {provisional && <span className="run-activity-live"><span aria-hidden="true" />临时</span>}
+          {provisional && <span className="run-activity-live"><span aria-hidden="true" />
+            {t("临时", "Live")}</span>}
           <time dateTime={item.created_at}>{formatDate(item.created_at)}</time>
           {!provisional && <span className="run-activity-sequence">#{item.sequence}</span>}
         </div>
@@ -161,10 +174,14 @@ function ActivityMessage({ item, provisional = false }: {
           <SafeMarkdown className="run-activity-detail">{item.detail}</SafeMarkdown> :
           <div className="run-activity-detail">{item.detail}</div>)}
         {item.source === "model" && <small>{provisional
-          ? "临时公开进度；验证后由持久活动替换，不会写入对话历史。"
-          : "模型公开生成，可能包含判断；执行记录以 Harness 事件为准。"}</small>}
+          ? t("临时公开进度；验证后由持久活动替换，不会写入对话历史。",
+            "Provisional public progress; durable activity replaces it after verification and it is not added to conversation history.")
+          : t("模型公开生成，可能包含判断；执行记录以 Harness 事件为准。",
+            "Public model output may contain judgments; Harness events remain the execution record.")}</small>}
         {item.source === "operator" &&
-          <small>{item.instruction_authorized ? "已授权的用户输入" : "非指令证据"}</small>}
+          <small>{item.instruction_authorized ?
+            t("已授权的用户输入", "Authorized operator input") :
+            t("非指令证据", "Non-instruction evidence")}</small>}
       </div>
     </li>
   );
@@ -202,12 +219,12 @@ function provisionalActivityItem(activity: RunActivityView, snapshot: PublicMode
   };
 }
 
-function HarnessDisclosure({ items }: { items: RunActivityItemView[] }) {
+function HarnessDisclosure({ items, t }: { items: RunActivityItemView[]; t: Translator }) {
   const status = disclosureStatus(items);
   const first = items[0];
   const last = items[items.length - 1];
   if (!first || !last) return null;
-  const rows = disclosureRows(items);
+  const rows = disclosureRows(items, t);
   const defaultOpen = ["blocked", "failed", "pending", "waiting"].includes(status);
   return (
     <li className="run-activity-item source-harness harness-disclosure-item">
@@ -215,9 +232,9 @@ function HarnessDisclosure({ items }: { items: RunActivityItemView[] }) {
         <summary>
           <ChevronRight aria-hidden="true" className="disclosure-chevron" size={15} />
           <ActivityIcon kind={first.kind} source="harness" />
-          <strong>{disclosureTitle(first.kind, rows.length)}</strong>
+          <strong>{disclosureTitle(first.kind, rows.length, t)}</strong>
           {status && <span className={`run-activity-status status-${status}`}>
-            {statusLabels[status] ?? status}
+            {statusLabels[status] ? t(...statusLabels[status]) : status}
           </span>}
           <time dateTime={last.created_at}>{formatDate(last.created_at)}</time>
         </summary>
@@ -236,15 +253,17 @@ function HarnessDisclosure({ items }: { items: RunActivityItemView[] }) {
   );
 }
 
-function disclosureTitle(kind: RunActivityItemView["kind"], count: number): string {
-  const suffix = count > 1 ? `${count} 项` : "";
+function disclosureTitle(kind: RunActivityItemView["kind"], count: number, t: Translator): string {
+  const suffix = count > 1 ? t(`${count} 项`, `${count} items`) : "";
   switch (kind) {
-  case "tool_call": return `运行了 ${Math.max(1, count)} 个操作`;
-  case "model_call": return count > 1 ? `模型调用 ${count} 次` : "模型调用";
-  case "approval": return `审批记录${suffix ? ` · ${suffix}` : ""}`;
-  case "file_change": return `文件更改${suffix ? ` · ${suffix}` : ""}`;
-  case "plan": return `计划记录${suffix ? ` · ${suffix}` : ""}`;
-  default: return `运行详情${suffix ? ` · ${suffix}` : ""}`;
+  case "tool_call": return t(`运行了 ${Math.max(1, count)} 个操作`,
+    `Ran ${Math.max(1, count)} ${count === 1 ? "operation" : "operations"}`);
+  case "model_call": return count > 1 ? t(`模型调用 ${count} 次`, `${count} model calls`) :
+    t("模型调用", "Model call");
+  case "approval": return `${t("审批记录", "Approval record")}${suffix ? ` · ${suffix}` : ""}`;
+  case "file_change": return `${t("文件更改", "File change")}${suffix ? ` · ${suffix}` : ""}`;
+  case "plan": return `${t("计划记录", "Plan record")}${suffix ? ` · ${suffix}` : ""}`;
+  default: return `${t("运行详情", "Run details")}${suffix ? ` · ${suffix}` : ""}`;
   }
 }
 
@@ -269,7 +288,7 @@ interface DisclosureRow {
   sequence: number;
 }
 
-function disclosureRows(items: RunActivityItemView[]): DisclosureRow[] {
+function disclosureRows(items: RunActivityItemView[], t: Translator): DisclosureRow[] {
   if (items[0]?.kind !== "tool_call") {
     return items.map((item) => ({
       id: item.id, title: item.title, detail: item.detail ?? "",
@@ -279,7 +298,7 @@ function disclosureRows(items: RunActivityItemView[]): DisclosureRow[] {
   const results = items.filter((item) => item.title === "工具结果已记录");
   if (results.length > 0) {
     return results.map((item) => ({
-      id: item.id, title: item.detail || "工具操作", detail: "",
+      id: item.id, title: item.detail || t("工具操作", "Tool operation"), detail: "",
       status: item.status ?? "", sequence: item.sequence,
     }));
   }

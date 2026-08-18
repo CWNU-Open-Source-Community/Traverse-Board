@@ -13,6 +13,7 @@ import (
 	"cyberagent-workbench/internal/desktop"
 
 	"github.com/wailsapp/wails/v2/pkg/options"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type testWindowRestorer struct {
@@ -31,6 +32,36 @@ func newWailsRendererRequest(method, target string, body io.Reader) *http.Reques
 	request.URL.Host = ""
 	request.RequestURI = request.URL.RequestURI()
 	return request
+}
+
+func desktopTestScreen(current, primary bool, width, height int) runtime.Screen {
+	screen := runtime.Screen{IsCurrent: current, IsPrimary: primary}
+	screen.Size.Width = width
+	screen.Size.Height = height
+	return screen
+}
+
+func TestDesktopWindowMaximisesOnlyWhenTheDefaultSizeDoesNotFit(t *testing.T) {
+	tests := []struct {
+		name    string
+		screens []runtime.Screen
+		want    bool
+	}{
+		{name: "no screen data", want: false},
+		{name: "large current screen", screens: []runtime.Screen{
+			desktopTestScreen(true, true, 1706, 960)}, want: false},
+		{name: "high DPI low resolution current screen", screens: []runtime.Screen{
+			desktopTestScreen(true, true, 512, 384)}, want: true},
+		{name: "small primary fallback", screens: []runtime.Screen{
+			desktopTestScreen(false, true, 1024, 768)}, want: true},
+	}
+	for _, current := range tests {
+		t.Run(current.name, func(t *testing.T) {
+			if got := shouldMaximiseDesktopWindow(current.screens); got != current.want {
+				t.Fatalf("shouldMaximiseDesktopWindow() = %t, want %t", got, current.want)
+			}
+		})
+	}
 }
 
 func TestDesktopOptionsDefaultToReadOnlyAndRequireExplicitCapabilities(t *testing.T) {
