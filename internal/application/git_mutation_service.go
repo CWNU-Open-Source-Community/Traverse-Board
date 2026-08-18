@@ -128,6 +128,11 @@ func (s *GitMutationService) Execute(ctx context.Context, request GitMutationReq
 		return GitMutationExecuteResult{}, apperror.Normalize(err)
 	}
 	if replayed {
+		if created.CompletedAt == nil {
+			return GitMutationExecuteResult{Record: created, Replayed: true}, apperror.New(
+				apperror.CodeFailedPrecondition,
+				"previous git mutation did not record a terminal receipt; reconcile repository state before using a new operation key")
+		}
 		return GitMutationExecuteResult{Record: created, Replayed: true}, nil
 	}
 	receipt, err := s.executor.Execute(ctx, workspace.RootPath, request.Spec, binding)

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/credential"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/repository"
@@ -123,5 +124,36 @@ func TestGitRemoteServiceCreatePRWithReferencedCredential(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("git.remote_completed event missing")
+	}
+}
+
+func TestGitRemoteServicePendingReplayFailsClosed(t *testing.T) {
+	ctx := context.Background()
+	st, runID, _ := newRemoteServiceFixture(t)
+	credentials := credential.NewMemoryStore()
+	executor, err := repository.NewRemoteExecutor(credentials)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewGitRemoteService(st, executor, nil, credentials)
+	request := GitRemoteRequest{RunID: runID, OperationKey: "remote-key-pending-0001",
+		Spec: repository.RemoteSpec{
+			ProtocolVersion:  repository.RemoteProtocolVersion,
+			Operation:        repository.RemoteCreatePR,
+			RemoteURL:        "https://github.com/owner/repo.git",
+			Branch:           "feature",
+			BaseBranch:       "main",
+			PRTitle:          "feature",
+			NetworkTTLMillis: 30000,
+		}}
+	if _, err := service.Execute(ctx, request); err == nil ||
+		apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
+		t.Fatalf("missing PR client did not leave a failed pending attempt: %v", err)
+	}
+	replayed, err := service.Execute(ctx, request)
+	if err == nil || apperror.CodeOf(err) != apperror.CodeFailedPrecondition ||
+		!replayed.Replayed || replayed.Record.CompletedAt != nil ||
+		!strings.Contains(err.Error(), "reconcile remote state") {
+		t.Fatalf("pending remote replay reported success: result=%#v err=%v", replayed, err)
 	}
 }
