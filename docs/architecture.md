@@ -658,7 +658,7 @@ The same Go adapter owns read projections for the bounded Agent graph, operator-
 
 ## Persistence
 
-SQLite remains the local source of truth. Schema migration `v1` records the legacy baseline, `v2`-`v18` establish the Run/Supervisor/memory/tool/Artifact/lease control plane, `v19`-`v38` add bounded Agent coordination, reviewed delegation, read-only Fan-out, Findings, and operator scheduling, and `v39`-`v47` add immutable Skill selection/context, Run modes, Plan/Delivery, provenance, checkpoints, steering, and Specialist minimization. Schemas `v48`-`v63` build the still-disabled Sandbox evidence and recovery chain; `v64`-`v68` add non-authorizing execution-profile and Docker production-evidence decisions; `v69`-`v71` add the inert user Skill Registry, exact Run selection/context, and read-only provenance; `v72`-`v113` continue the audited Run, Desktop, Provider, browser, Analyzer, Docker, dependency, MCP, project-config, Git, external-Skill, and Debug-terminal control planes; and `v114` adds explicit long-term memory plus immutable instruction/continuity ledgers without authority restoration. Non-schema D1-B1 exposes the existing v69 Registry through inert HTTP/Desktop confirmation and adds no migration. Migrations are ordered, checksummed, transactional, and safe to apply repeatedly; legacy databases are upgraded without deleting their data or fabricating new operator decisions.
+SQLite remains the local source of truth. Schema migration `v1` records the legacy baseline, `v2`-`v18` establish the Run/Supervisor/memory/tool/Artifact/lease control plane, `v19`-`v38` add bounded Agent coordination, reviewed delegation, read-only Fan-out, Findings, and operator scheduling, and `v39`-`v47` add immutable Skill selection/context, Run modes, Plan/Delivery, provenance, checkpoints, steering, and Specialist minimization. Schemas `v48`-`v63` build the still-disabled Sandbox evidence and recovery chain; `v64`-`v68` add non-authorizing execution-profile and Docker production-evidence decisions; `v69`-`v71` add the inert user Skill Registry, exact Run selection/context, and read-only provenance; `v72`-`v113` continue the audited Run, Desktop, Provider, browser, Analyzer, Docker, dependency, MCP, project-config, Git, external-Skill, and Debug-terminal control planes; `v114` adds explicit long-term memory plus immutable instruction/continuity ledgers without authority restoration; `v115` adds model-callable workspace tools and hash-guarded file mutations; and `v116` adds the Run-owned ordinary command runtime and its Supervisor call ledger. Non-schema D1-B1 exposes the existing v69 Registry through inert HTTP/Desktop confirmation and adds no migration. Migrations are ordered, checksummed, transactional, and safe to apply repeatedly; legacy databases are upgraded without deleting their data or fabricating new operator decisions.
 
 ```text
 missions
@@ -1133,3 +1133,44 @@ process-local root digest and exact mode revision revoke bindings on Workspace o
 phase drift. Windows uses
 ConPTY plus a creation-time Job Object; macOS/POSIX uses Bash PTY plus owned process-
 group cleanup. Cyber and Plan do not expose the tool.
+
+## Run-Owned Ordinary Command Runtime
+
+ADR 0117 adds `command-runtime.v2` as a fourth, separately owned execution path.
+It is neither the user terminal nor its Debug input lease, neither an approval
+proposal nor Docker. Only the root Supervisor in Code/Local/Deliver with current
+`full_access`, a live execution lease, and the process-local danger-full-access
+capability can see it. The Gateway validates an action-tagged union, runs ordinary
+Policy on each exact command, and exposes fixed PowerShell/Bash script profiles or
+an absolute non-workspace native executable with literal argv. cwd, restricted env,
+stdin, timeout, output, `network=disabled`, and `credentials=none` are mandatory
+contract fields; executable, environment, and canonical Workspace root are hashed.
+
+Foreground requests run one-to-four commands sequentially under explicit
+fail-fast/continue semantics. Background Jobs have a monotonic interleaved
+stdout/stderr cursor, bounded stdin writes, wait/cancel/kill, a byte-and-frame-bounded
+inline ring, terminal hashes, and bounded Artifact capture. Output is sanitized by
+a stateful chunk decoder before storage and again at the model boundary. The
+projection always marks it as untrusted and records ownership as
+`run_owned_command_runtime`, with user-terminal/debug-terminal/sandbox sharing false.
+
+Schema v116 stores a write-ahead immutable launch intent fenced by the starting
+Supervisor generation. Live handles then belong to a distinct random process owner
+and generation whose heartbeat expires after 15 seconds. Releasing the turn lease
+does not kill the Job, so a later turn in the same host process can continue it;
+a second process cannot adopt it. Desktop/API keep that host alive across client
+disconnects; opt-in CLI `run step/execute` owns Jobs only until invocation exit.
+Durable root/mode/profile/permission/root-hash
+drift does kill it. Windows assigns a kill-on-close Job Object in the creation call.
+POSIX uses an owned process group, a fixed parent-pipe guardian, and Linux parent-
+death signaling. Restart waits out a still-live owner heartbeat and then records
+`interrupted`; it never executes the stored intent or signals a durable PID. A
+deliberately new POSIX session can escape the inherited process group and remains
+an explicit unsandboxed `full_access` risk rather than a safely adoptable Job.
+
+The network declaration is an intent and policy boundary, not a portable packet-
+containment claim. Profile/helper/proxy/credential environment paths and common
+explicit network commands are denied, and any Policy result requiring approval is
+routed away from this automatic tool. Because `full_access` is still unsandboxed
+host execution, network or credential use requires a separate exact review, while
+Docker `network none` remains the path for containment evidence.

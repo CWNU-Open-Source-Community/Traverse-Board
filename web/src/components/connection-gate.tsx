@@ -43,6 +43,7 @@ export function ConnectionGate() {
         operatorApprovalEnabled: bootstrap.operator_approval_enabled,
         dangerFullAccessEnabled: bootstrap.danger_full_access_enabled,
         debugMaximumAccessEnabled: bootstrap.debug_maximum_access_enabled,
+        commandRuntimeEnabled: bootstrap.command_runtime_enabled,
         runCreationEnabled: bootstrap.run_creation_enabled,
         sessionMessageEnabled: bootstrap.session_message_enabled,
         sessionSteeringControlEnabled: bootstrap.session_steering_control_enabled,

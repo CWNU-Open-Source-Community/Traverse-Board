@@ -60,7 +60,7 @@ CLI / TUI / React / Windows Desktop / CI
 | Agent 运行时 | Mission/Run、可恢复 Supervisor、严格生命周期、检查点、取消、重试、预算和执行租约 |
 | 模型与上下文 | Mock、Anthropic-compatible、OpenAI-compatible 与 loopback-only Ollama Provider、模型路由、资格校验、能力探测、流式响应、上下文压缩、层级项目指令、显式 user/project 长期记忆与 Session 恢复树 |
 | 计划与协作 | Plan/Delivery、工作项、备注、最多两个核心 child、1/2/4/6 档只读 Fan-out、共享预算与取消扇出 |
-| 工具与权限 | Tool Gateway、JSON Schema 校验、Policy、Scope、人工审批、四档宿主权限、受控固定命令、逐条审批 PowerShell/Git Bash，以及限时 Debug 终端输入 |
+| 工具与权限 | Tool Gateway、JSON Schema 校验、Policy、Scope、人工审批、四档宿主权限、受控固定命令、普通模式 Run-owned 命令运行时、逐条审批 PowerShell/Git Bash，以及限时 Debug 终端输入 |
 | 代码工作流 | 系统目录选择与 Workspace 导入、工作区浏览、仓库状态、提交历史、Diff 审阅、文件编辑提案、验证计划、Code Journey 与 Handoff |
 | 可观测性 | 追加式 Run 事件、Live Activity、公开模型进度、Harness 事实、Artifact、Finding/Evidence/Report、SARIF |
 | 扩展 | 模式感知的惰性 Skill 包、生成候选人工审查、Provider/Tool 接口、Go/Rust JSON 协议、内嵌 WASI Analyzer、Sandbox 合同与默认关闭的 network-none Docker 产品执行 |
@@ -86,18 +86,22 @@ Prayu 调用真实的 Git 和操作系统 Shell，不是命令模拟器；但它
 | 入口 | 实际执行 | 权限与限制 |
 |---|---|---|
 | 类型化 Git | 真实 `git` 进程；覆盖本地 stage/unstage/commit/分支切换，以及独立授权的 fetch、fast-forward pull、push branch、创建/更新 PR | 参数由 Go 合成，固定仓库状态、禁用 hook/外部 diff/凭证继承；破坏历史的任意 Git argv 不在此入口开放 |
+| Run-owned 命令运行时 | 真实 PowerShell/Bash 或绝对路径原生进程；支持有序批次、cursor 输出、受限 stdin 与后台 Job | 仅 Code/Local/Deliver/root + `full_access`，且进程必须显式开启 permission-control/danger-full-access；固定无 Profile 解释器、受限环境、`network=disabled`/`credentials=none`，每次 Tool 调用重新校验当前 Run 租约与 Policy |
 | Approval 一次性 Shell | Windows 上的真实 PowerShell 或同一 Git for Windows 发行版中的 Git Bash；命令被固定成无 Profile、非交互的一次性 argv | 仅 Code/Local/Controlled/Approval；模型只能提出一行命令，操作者必须核对解释器哈希、完整 argv、cwd 与宿主网络风险并逐条批准；不支持持久或后台所有权 |
 | Debug 持久终端 | Windows 使用 PowerShell + ConPTY + creation-time Job Object；macOS 使用 Bash + PTY + 独立进程组 | 仅 Code/Local/Deliver/Debug；用户先启动终端，再显式授予 15 秒至 15 分钟的进程内 Agent 输入租约，可随时撤销。普通后台 job 随终端清理；主动 POSIX daemonize 仍是宿主残余风险 |
 | Full-access 一次性进程 | Windows 上按绝对路径和 SHA-256 启动真实可执行文件与字面 argv | 仅操作者 CLI 双确认；仍是非沙箱宿主执行，可运行高权限解释器，但不向模型公开 |
 
-`debug_terminal` 每次写入仍经过 Shell Policy；需要另行逐条审批的命令不会借 Debug 租约绕过审批。授权瞬间会固定输出水位，模型不能读取租约授予前的终端滚动内容。为支持 Run 恢复，模型提交的规范化命令和水位之后脱敏、有界的结果会进入 Supervisor 工具记录；schema v113 让该工具进入同一持久调用账本并保留既有记录。进程内 Workspace 根目录摘要和 mode revision 会阻止目录或阶段漂移后旧租约复活；用户键盘输入、原始 PTY 字节、根目录路径和租约 bearer 均不持久化。应用重启会终止会话并使租约失效。Cyber Surface 不公开这些宿主 Shell 路径。完整边界见[使用手册](docs/usage.md)和 [ADR 0114](docs/adr/0114-real-shell-transports-and-supervised-debug-terminal.md)。
+`command_runtime` 与用户终端、Debug 终端、人工审批 one-shot 和 Docker Sandbox 不共享 session 或所有权。schema v116 先以当前 Supervisor generation lease 写入不可变启动意图，再由独立、可过期的进程所有者心跳维持后台 Job；下一 turn 可继续读取或写 stdin，另一进程不能凭数据库记录收养它。崩溃时 Windows creation-time Job Object 或 POSIX guardian/process group 回收 owned 进程树，重启只把所有者已过期的记录收敛为 `interrupted`，绝不按持久 PID 重新执行；POSIX 上主动新建 session 并脱离 inherited process group 的 daemon 仍是非沙箱 `full_access` 残余风险。stdout/stderr 以单调 cursor 保留通道与时间，内联窗口溢出后仍可生成有 SHA-256 的有界 Artifact；所有返回模型的内容统一去除 ANSI/C1/Unicode 控制序列、修复 UTF-8 并脱敏。
+
+`debug_terminal` 每次写入仍经过 Shell Policy；需要另行逐条审批的命令不会借 Debug 租约绕过审批。授权瞬间会固定输出水位，模型不能读取租约授予前的终端滚动内容。为支持 Run 恢复，模型提交的规范化命令和水位之后脱敏、有界的结果会进入 Supervisor 工具记录；schema v113 让该工具进入同一持久调用账本并保留既有记录。进程内 Workspace 根目录摘要和 mode revision 会阻止目录或阶段漂移后旧租约复活；用户键盘输入、原始 PTY 字节、根目录路径和租约 bearer 均不持久化。应用重启会终止会话并使租约失效。Cyber Surface 不公开这些宿主 Shell 路径。完整边界见[使用手册](docs/usage.md)、[ADR 0114](docs/adr/0114-real-shell-transports-and-supervised-debug-terminal.md)和 [ADR 0117](docs/adr/0117-run-owned-command-runtime.md)。
 
 ### 安全边界
 
 - 不公开 Provider 私有 thinking、原始 Prompt、raw delta、工具参数、工具原始输出或 API key。
 - 项目指令、长期记忆和 Checkpoint 始终是不可信、非授权上下文；Fork/Resume 不恢复审批、capability、凭据、网络、进程、终端租约或执行档位。详见[双语上下文/威胁模型与删除说明](docs/context-continuity.md)和 [ADR 0115](docs/adr/0115-non-authorizing-durable-context-continuity.md)。
 - 文件编辑、宿主命令、浏览器 CDP、终端输入和 Sandbox 是彼此独立的授权面。
-- 受控命令默认使用 Go 固定模板；PowerShell/Bash 仅通过逐条审批或可撤销 Debug 租约开放。通用宿主执行与 Debug 能力不会因模型、Skill 或仓库文档而自动开启。
+- 普通命令运行时只接受 `network=disabled` 与 `credentials=none`，清空 credential helper/Profile/高风险环境入口并拒绝显式网络意图；它不是可证明的 OS 网络沙箱，`full_access` 仍是宿主执行能力，需要联网的命令必须改走独立逐次审阅路径。
+- 受控命令默认使用 Go 固定模板；PowerShell/Bash 只通过 Code/Deliver/root + `full_access` 的 Run-owned runtime、逐条审批，或可撤销 Debug 租约三条独立路径开放。通用宿主执行与 Debug 能力不会因模型、Skill 或仓库文档而自动开启。
 - Docker Sandbox 产品入口默认关闭。显式进程 capability、当前 `docker` Profile、匹配权限档、精确 per-call 审批、Policy、预算与 30 秒 readiness 必须同时成立；数据库记录不能在重启后恢复 start authority。
 - 当前产品执行只接受 environment-free、secret-free 的 `network=disabled` Manifest，并在 Docker create/inspect 两侧固定 `network none`。allowlist/scoped egress 仍缺少 Go-owned host/port/protocol guard，因此一律以 `managed_egress_unavailable` 失败关闭；Docker 不可用时没有宿主 fallback。
 - 内置浏览器仍没有产品入口：受限运行时核心存在，但独立 OS/容器网络隔离证据尚未完成。
@@ -318,7 +322,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 完整逐切片原始记录保留在 [`PROGRESS_BOOK.md`](docs/PROGRESS_BOOK.md)，当前检查点与验收证据保留在 [`PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)，恢复上下文见 [`PROJECT_MEMORY.md`](docs/PROJECT_MEMORY.md)。这些账本是历史记录，不应被当作待重新执行的任务列表。
 
 <details>
-<summary><strong>SQLite Schema v1-v114 迁移审计表 / Migration ledger</strong></summary>
+<summary><strong>SQLite Schema v1-v116 迁移审计表 / Migration ledger</strong></summary>
 
 此表是 Store 防漏迁移测试使用的审计合同。新增 schema 时必须按顺序追加，不得改写或删除既有行。
 
@@ -439,6 +443,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 | v113 | 允许 Debug 终端进入 Supervisor 持久工具调用账本 | admit the debug terminal into the durable Supervisor tool-call ledger |
 | v114 | 层级项目指令快照、显式长期记忆与非授权会话连续性树 | hierarchical project-instruction snapshots, explicit long-term memory, and non-authorizing session continuity trees |
 | v115 | 模型可调用的工作区工具与哈希保护文件变更 | model-callable workspace tools and hash-guarded file mutations |
+| v116 | 增加 Run-owned command-runtime.v2 Job 与 Supervisor 调用账本 | add Run-owned command-runtime.v2 jobs and Supervisor call ledger support |
 
 </details>
 

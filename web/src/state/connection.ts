@@ -18,6 +18,7 @@ interface ConnectionState {
   operatorApprovalEnabled: boolean;
   dangerFullAccessEnabled: boolean;
   debugMaximumAccessEnabled: boolean;
+  commandRuntimeEnabled: boolean;
   runCreationEnabled: boolean;
   sessionMessageEnabled: boolean;
   sessionSteeringControlEnabled: boolean;
@@ -68,6 +69,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   operatorApprovalEnabled: false,
   dangerFullAccessEnabled: false,
   debugMaximumAccessEnabled: false,
+  commandRuntimeEnabled: false,
   runCreationEnabled: false,
   sessionMessageEnabled: false,
   sessionSteeringControlEnabled: false,
@@ -105,6 +107,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
       operatorApprovalEnabled: present && (capabilities.operatorApprovalEnabled ?? false),
       dangerFullAccessEnabled: present && (capabilities.dangerFullAccessEnabled ?? false),
       debugMaximumAccessEnabled: present && (capabilities.debugMaximumAccessEnabled ?? false),
+      commandRuntimeEnabled: present && (capabilities.commandRuntimeEnabled ?? false),
       runCreationEnabled: present && (capabilities.runCreationEnabled ?? true),
       sessionMessageEnabled: present && (capabilities.sessionMessageEnabled ?? true),
       sessionSteeringControlEnabled: present &&
@@ -144,6 +147,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
     executionPermissionControlEnabled: false, operatorApprovalEnabled: false,
     browserCDPPermissionControlEnabled: false, fullCDPDebugEnabled: false,
     dangerFullAccessEnabled: false, debugMaximumAccessEnabled: false,
+    commandRuntimeEnabled: false,
     sessionSteeringControlEnabled: false,
     runLifecycleEnabled: false, runExecutionEnabled: false,
 	planDeliveryControlEnabled: false, approvalControlEnabled: false,

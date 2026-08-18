@@ -44,6 +44,7 @@ type ConnectionBootstrap struct {
 	OperatorApprovalEnabled                 bool   `json:"operator_approval_enabled"`
 	DangerFullAccessEnabled                 bool   `json:"danger_full_access_enabled"`
 	DebugMaximumAccessEnabled               bool   `json:"debug_maximum_access_enabled"`
+	CommandRuntimeEnabled                   bool   `json:"command_runtime_enabled"`
 	RunCreationEnabled                      bool   `json:"run_creation_enabled"`
 	SessionMessageEnabled                   bool   `json:"session_message_enabled"`
 	SessionSteeringControlEnabled           bool   `json:"session_steering_control_enabled"`
@@ -279,6 +280,8 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop Docker execution requires operator approval permission control")
 	}
+	commandRuntimeEnabled := config.RunExecutionEnabled &&
+		permissionCapabilities.Allows(domain.RunExecutionPermissionFullAccess)
 	browserCDPCapabilities := domain.BrowserCDPPermissionRuntimeCapabilities{
 		ControlEnabled:   config.BrowserCDPPermissionControlEnabled,
 		FullDebugEnabled: config.FullCDPDebugEnabled,
@@ -327,6 +330,7 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 			OperatorApprovalEnabled:                 config.OperatorApprovalEnabled,
 			DangerFullAccessEnabled:                 config.DangerFullAccessEnabled,
 			DebugMaximumAccessEnabled:               config.DebugMaximumAccessEnabled,
+			CommandRuntimeEnabled:                   commandRuntimeEnabled,
 			RunCreationEnabled:                      config.RunCreationEnabled,
 			SessionMessageEnabled:                   config.SessionMessageEnabled,
 			SessionSteeringControlEnabled:           config.SessionSteeringControlEnabled,
@@ -345,8 +349,8 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 			RunWakeExecutionEnabled:                 config.RunWakeExecutionEnabled,
 			RunWakeWorkerEnabled:                    config.RunWakeWorkerEnabled,
 			ReadOnlyDefault:                         !controlEnabled,
-			ProcessExecutionEnabled:                 config.UserTerminalEnabled,
-			ShellExecutionEnabled:                   config.UserTerminalEnabled,
+			ProcessExecutionEnabled:                 config.UserTerminalEnabled || commandRuntimeEnabled,
+			ShellExecutionEnabled:                   config.UserTerminalEnabled || commandRuntimeEnabled,
 			DockerExecutionEnabled:                  config.DockerExecutionEnabled,
 			AgentCodeToolsEnabled:                   true,
 			SkillInstallationEnabled:                config.SkillInstallationEnabled,

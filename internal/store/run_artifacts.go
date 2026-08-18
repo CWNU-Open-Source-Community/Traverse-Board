@@ -224,6 +224,21 @@ func validateArtifactSourceTx(ctx context.Context, tx *sql.Tx, request artifact.
 		if status != string(scriptprocess.StatusCompleted) && status != string(scriptprocess.StatusFailed) {
 			return errors.New("artifact ScriptProcess source must be terminal")
 		}
+	case "command_runtime":
+		var runID, sessionID, workspaceID string
+		if err := tx.QueryRowContext(ctx, `SELECT run_id, session_id, workspace_id,
+			state, stdout, stderr FROM command_runtime_jobs WHERE id = ?`, request.SourceID).
+			Scan(&runID, &sessionID, &workspaceID, &status, &stdout, &stderr); err != nil {
+			return err
+		}
+		if runID != request.RunID || sessionID != request.SessionID ||
+			workspaceID != request.WorkspaceID {
+			return errors.New("artifact source scope does not match the stored command runtime Job")
+		}
+		if status != "completed" && status != "failed" && status != "timed_out" &&
+			status != "cancelled" && status != "killed" && status != "interrupted" {
+			return errors.New("artifact command runtime source must be terminal")
+		}
 	case "replace_file":
 		var sessionID, storedReason sql.NullString
 		var workspaceID string

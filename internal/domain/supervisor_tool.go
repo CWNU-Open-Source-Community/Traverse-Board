@@ -85,6 +85,7 @@ func (c SupervisorToolCall) Validate() error {
 		c.ToolName != "sandbox_docker_run_propose" &&
 		c.ToolName != "skill_candidate_propose" &&
 		c.ToolName != "debug_terminal" &&
+		c.ToolName != "command_runtime" &&
 		c.ToolName != "workspace_list" && c.ToolName != "workspace_read" &&
 		c.ToolName != "workspace_glob" && c.ToolName != "workspace_grep" &&
 		c.ToolName != "workspace_change" && c.ToolName != "workspace_apply" &&

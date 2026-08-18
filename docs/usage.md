@@ -1225,6 +1225,114 @@ Windows uses PowerShell in a ConPTY assigned to a creation-time kill-on-close Jo
 
 The canonical model command and sanitized bounded post-grant result are stored in the resumable Supervisor tool transcript. Schema v113 transactionally widens that durable call ledger for `debug_terminal` while preserving earlier calls. The process-local binding also pins the exact mode revision and a canonical Workspace-root digest; a Plan round trip or Workspace re-registration invalidates it instead of reviving authority. The bearer, user keystrokes, raw PTY stream, pre-grant scrollback, root path, environment, and process identity are not persisted. Schema v108 defines a `terminal_sessions` metadata ledger contract, but the current Desktop lifecycle remains process-local and does not use that table to restore a process or authority; no database row can revive a terminal or lease. Agent-input grant/write/revoke events store only bounded identities, sizes, and digests.
 
+## Ordinary Run-Owned Command Runtime / 普通模式 Run-owned 命令运行时
+
+`command_runtime` gives the root Supervisor a real but bounded command loop in
+Code/Local/Deliver without granting Debug-terminal input. It is available only in
+a host process that explicitly enables both the permission-control and
+danger-full-access startup gates. The Run must separately be in Code/Deliver,
+select the Local profile, hold durable `full_access`, and have a current Supervisor
+execution lease. The safe `--operator-preview` bundle intentionally does not turn
+on danger-full-access.
+
+```powershell
+# Desktop: the Settings capability row will show “命令运行时 / Command runtime”.
+.\build\desktop\cyberagent-desktop.exe `
+  --enable-run-execution `
+  --enable-permission-control `
+  --enable-danger-full-access
+
+# Loopback API host: a control token is also required for Run execution/control.
+$env:CYBERAGENT_API_CONTROL_TOKEN = "<ephemeral-control-token>"
+cyberagent api serve --enable-permission-control --enable-danger-full-access
+
+# A bounded CLI invocation may host the runtime until that invocation exits.
+cyberagent run step <run-id> --enable-permission-control --enable-danger-full-access
+cyberagent run execute <run-id> --max-steps 3 `
+  --enable-permission-control --enable-danger-full-access
+```
+
+普通命令运行时由 Run/Go manager 所有，不复用用户终端或 Debug terminal。启动闸门只
+提供本进程 capability；数据库中的 `full_access` 快照本身不能恢复执行权。普通
+`cyberagent run step/execute` 默认不安装 runtime adapter；同时传入两项启动开关后，可在
+该 CLI 进程内执行前台命令，并在同一次 `run execute` 的多个 turn 间维持 Job。CLI 退出会
+把仍活动的 Job 明确终止为 `interrupted`；需要跨调用/断线续读时应使用 Desktop 或
+`api serve` 的长生命周期 Supervisor。
+
+The model-facing request is a strict tagged union. Shell profiles accept `script`
+and reject `executable`/`arguments`; the process profile requires an absolute
+non-workspace native executable plus literal `arguments` and rejects shells or
+script interpreters. Every boundary field is explicit, including empty arrays:
+
+```json
+{
+  "version": "command-runtime.v2",
+  "action": "run",
+  "failure_policy": "fail_fast",
+  "max_bytes": 32768,
+  "commands": [
+    {
+      "version": "command-runtime.v2",
+      "profile": "powershell",
+      "script": "Get-ChildItem -Force",
+      "working_directory": ".",
+      "environment": [],
+      "stdin_policy": "closed",
+      "close_initial_stdin": true,
+      "timeout_milliseconds": 10000,
+      "output": {"inline_bytes": 65536, "artifact_bytes": 4194304},
+      "network": "disabled",
+      "credentials": "none",
+      "purpose": "inspect the workspace"
+    }
+  ]
+}
+```
+
+`run` executes one to four commands in order; `fail_fast` stops after the first
+non-success terminal state, while `continue` records every result. The foreground
+timeout sum may not exceed 25 seconds. `start` creates one background Job. The
+remaining actions are:
+
+| Action | Required fields | Meaning |
+|---|---|---|
+| `list` | none | list up to 32 Jobs for the current Run |
+| `read` | `job_id`, `cursor`, `max_bytes`, `wait_milliseconds=0` | read one immediately available page |
+| `wait` | `job_id`, `cursor`, `max_bytes`, positive wait up to 5 seconds | long-poll until output, terminal state, or deadline |
+| `write_stdin` | `job_id`, `stdin`, `close_stdin` | one bounded, secret-screened, operation-idempotent write |
+| `cancel` | `job_id`, grace up to 5 seconds | request best-effort graceful tree termination, then kill (Windows Job termination is immediate) |
+| `kill` | `job_id` | terminate the owned process tree immediately |
+
+stdout and stderr share one monotonic byte cursor but each frame retains its stream
+and timestamp. `base_cursor` plus `dropped=true` means the requested prefix left the
+inline ring; it never means the page is complete. Every terminal result includes
+exit state/code, observed byte counts, tree-reaped evidence, output hashes, and the
+reason `inline_window` or `artifact_limit` when applicable. Sanitized terminal
+output up to the declared 4 MiB-per-stream cap is committed through the existing
+Run Artifact path; tool metadata returns Artifact IDs and SHA-256 values.
+
+Schema v116 stores the canonical launch intent before process creation under the
+current turn generation. A separate expiring process-owner heartbeat then permits
+a later turn in the same host process to continue the Job without keeping
+the turn lease open. Root/mode/profile/permission/Workspace-root drift kills live
+owned Jobs. Windows uses a creation-time kill-on-close Job Object. POSIX uses an
+owned process group plus a parent-pipe guardian (and Linux parent-death signal).
+After crash, restart waits for the owner heartbeat to expire, records
+`interrupted`, and never re-executes or signals a persisted, possibly reused PID.
+Deliberate POSIX daemonization into a new session can escape the inherited process
+group; it remains an unsandboxed `full_access` residual risk and is never adopted
+from the durable row.
+
+Only `network=disabled` and `credentials=none` exist. The runtime fixes or clears
+Profile, HOME/USERPROFILE, Git helper/hook/config, SSH agent, prompt, proxy, and
+loader-related paths; pins Git to file-only transport; applies immutable offline
+defaults for Go/Cargo/npm/pip/uv; and rejects secret-like env/stdin and explicit network intent.
+This is not packet-level host containment: `full_access` remains unsandboxed host
+execution, retains the host OS user token, and cannot prove that credential files are
+unreadable. Commands that need network/credentials or trigger per-command approval
+must use a separate reviewed one-shot path; use Docker `network none` when actual
+network containment evidence is required. See [ADR 0117](adr/0117-run-owned-command-runtime.md).
+
 ## Review-Gated PowerShell and Git Bash
 
 In an Approval Run, the root Supervisor may submit `host_command_propose` with either `transport=process` (absolute executable plus literal argv) or `transport=shell` (`shell=powershell|bash` plus one bounded line). The Shell form is currently executable only on Windows. Go resolves PowerShell from trusted Windows locations and Git Bash from the same Git for Windows distribution selected by `git.exe`; it never accepts the legacy System32 WSL `bash.exe` shim as Git Bash. Canonical argv are fixed to:

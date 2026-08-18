@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"testing"
@@ -8,6 +9,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
+	"cyberagent-workbench/internal/domain"
 )
 
 type wakeWorkerHealthFake struct {
@@ -15,6 +17,13 @@ type wakeWorkerHealthFake struct {
 }
 
 func (f wakeWorkerHealthFake) Health() application.RunWakeWorkerHealth { return f.health }
+
+type runExecutionControllerFake struct{}
+
+func (runExecutionControllerFake) Execute(context.Context,
+	application.ExecuteRunHandoffRequest) (application.ExecuteRunHandoffResult, error) {
+	return application.ExecuteRunHandoffResult{}, nil
+}
 
 func TestRuntimeCapabilitiesAreReadOnlyAndDefaultClosed(t *testing.T) {
 	fixture := newAPIFixture(t)
@@ -30,7 +39,8 @@ func TestRuntimeCapabilitiesAreReadOnlyAndDefaultClosed(t *testing.T) {
 		view.HostCommandProposalEnabled ||
 		view.FileEditProposalEnabled || view.ProviderCredentialEnabled ||
 		view.RunWakeWorkerEnabled ||
-		view.ProcessExecutionEnabled || view.ShellExecutionEnabled ||
+		!view.AgentCodeToolsEnabled ||
+		view.CommandRuntimeEnabled || view.ProcessExecutionEnabled || view.ShellExecutionEnabled ||
 		view.DockerExecutionEnabled || view.WakeWorker.Enabled ||
 		view.WakeWorker.State != "disabled" || view.WakeWorker.Active ||
 		view.WakeWorker.RuntimeEnableSupported || view.WakeWorker.PersistentService ||
@@ -40,6 +50,33 @@ func TestRuntimeCapabilitiesAreReadOnlyAndDefaultClosed(t *testing.T) {
 	assertAPIError(t, performSessionMessageRequest(t, fixture.api, http.MethodGet,
 		"/api/v1/capabilities", testControlToken, "", "", nil),
 		http.StatusUnauthorized, "POLICY_DENIED")
+}
+
+func TestRuntimeCapabilitiesEnableCommandRuntimeOnlyForFullAccessExecution(t *testing.T) {
+	fixture := newAPIFixture(t)
+	api, err := New(fixture.store, Config{
+		AccessToken: testAccessToken, ControlToken: testControlToken,
+		RunExecutionEnabled: true, RunExecutionController: runExecutionControllerFake{},
+		ExecutionPermissionControlEnabled: true,
+		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
+			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+		},
+		AppVersion: "command-runtime-capability-test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := performSessionMessageRequest(t, api, http.MethodGet,
+		"/api/v1/capabilities", testAccessToken, "", "", nil)
+	var view RuntimeCapabilitiesView
+	decodeDataStatus(t, response, http.StatusOK, &view)
+	if !view.RunExecutionEnabled || !view.ExecutionPermissionControlEnabled ||
+		!view.OperatorApprovalEnabled || !view.DangerFullAccessEnabled ||
+		!view.CommandRuntimeEnabled || !view.ProcessExecutionEnabled ||
+		!view.ShellExecutionEnabled || !view.AgentCodeToolsEnabled ||
+		view.DebugMaximumAccessEnabled {
+		t.Fatalf("command runtime capability projection is invalid: %#v", view)
+	}
 }
 
 func TestRuntimeCapabilitiesProjectBoundedWorkerHealthWithoutPrivateState(t *testing.T) {

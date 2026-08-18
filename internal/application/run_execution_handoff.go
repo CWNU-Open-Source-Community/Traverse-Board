@@ -78,6 +78,15 @@ func (s *RunExecutionHandoffService) WithDebugTerminalAgentInput(
 	return s
 }
 
+func (s *RunExecutionHandoffService) WithCommandRuntime(
+	executor toolgateway.CommandRuntimeExecutor,
+) *RunExecutionHandoffService {
+	if s != nil && s.supervisor != nil {
+		s.supervisor.WithCommandRuntime(executor)
+	}
+	return s
+}
+
 func (s *RunExecutionHandoffService) PublicModelStream(
 	runID string,
 ) (PublicModelStreamSnapshot, bool) {

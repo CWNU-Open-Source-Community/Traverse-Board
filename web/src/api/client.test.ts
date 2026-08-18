@@ -13,6 +13,7 @@ function runtimeCapabilitiesData(overrides: Record<string, unknown> = {}) {
     agent_code_tools_enabled: true,
     execution_permission_control_enabled: true, operator_approval_enabled: true,
     danger_full_access_enabled: true, debug_maximum_access_enabled: true,
+    command_runtime_enabled: true,
     browser_cdp_permission_control_enabled: true, full_cdp_debug_enabled: true,
     run_control_enabled: true, run_creation_enabled: true,
     session_message_enabled: true, session_steering_control_enabled: true,
@@ -27,7 +28,7 @@ function runtimeCapabilitiesData(overrides: Record<string, unknown> = {}) {
     skill_installation_enabled: true, evidence_attachment_enabled: true,
     verification_evidence_enabled: true,
     embedded_analyzer_execution_enabled: true,
-    process_execution_enabled: false, shell_execution_enabled: false,
+    process_execution_enabled: true, shell_execution_enabled: true,
     docker_execution_enabled: false,
     wake_worker: { protocol_version: "run_wake_worker_health.v1", enabled: true,
       state: "running", active: true, poll_interval_ms: 2000, concurrency: 1,
@@ -155,12 +156,13 @@ describe("CyberAgentClient", () => {
       .toThrow("must be /api/v1");
   });
 
-  it("discovers bounded process capabilities without runtime enable authority", async () => {
+  it("discovers Run-owned commands and model workspace tools independently", async () => {
     const data = {
       protocol_version: "runtime_capabilities.v1",
       agent_code_tools_enabled: true,
       execution_permission_control_enabled: true, operator_approval_enabled: true,
       danger_full_access_enabled: true, debug_maximum_access_enabled: true,
+      command_runtime_enabled: true,
       browser_cdp_permission_control_enabled: true, full_cdp_debug_enabled: true,
       run_control_enabled: true, run_creation_enabled: true,
       session_message_enabled: true, session_steering_control_enabled: true,
@@ -175,7 +177,7 @@ describe("CyberAgentClient", () => {
       skill_installation_enabled: true, evidence_attachment_enabled: true,
       verification_evidence_enabled: true,
       embedded_analyzer_execution_enabled: true,
-      process_execution_enabled: false, shell_execution_enabled: false,
+      process_execution_enabled: true, shell_execution_enabled: true,
       docker_execution_enabled: false,
       wake_worker: { protocol_version: "run_wake_worker_health.v1", enabled: true,
         state: "running", active: true, poll_interval_ms: 2000, concurrency: 1,
@@ -189,6 +191,8 @@ describe("CyberAgentClient", () => {
     expect(clientCapabilitiesFromRuntime(view)).toMatchObject({
       executionPermissionControlEnabled: true, operatorApprovalEnabled: true,
       dangerFullAccessEnabled: true, debugMaximumAccessEnabled: true,
+      commandRuntimeEnabled: true,
+      agentCodeToolsEnabled: true,
       browserCDPPermissionControlEnabled: true, fullCDPDebugEnabled: true,
       controlledCommandProposalControlEnabled: true,
       fileEditProposalEnabled: true, providerCredentialEnabled: true,

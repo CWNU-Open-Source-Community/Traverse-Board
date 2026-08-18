@@ -23688,6 +23688,9 @@
           "browser_cdp_permission_control_enabled": {
             "type": "boolean"
           },
+          "command_runtime_enabled": {
+            "type": "boolean"
+          },
           "controlled_command_proposal_control_enabled": {
             "type": "boolean"
           },
@@ -23792,6 +23795,7 @@
           "operator_approval_enabled",
           "danger_full_access_enabled",
           "debug_maximum_access_enabled",
+          "command_runtime_enabled",
           "browser_cdp_permission_control_enabled",
           "full_cdp_debug_enabled",
           "run_creation_enabled",

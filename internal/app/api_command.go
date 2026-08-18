@@ -8,11 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/httpapi"
+	"cyberagent-workbench/internal/idgen"
+	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/skills"
 	"cyberagent-workbench/internal/webui"
 )
@@ -139,6 +142,30 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	lifecycleControl := application.NewRunLifecycleControlService(a.store)
 	executionControl := application.NewRunExecutionHandoffService(a.store, a.router,
 		a.checker).WithActiveCalls(a.calls)
+	commandManager, err := runner.NewPlatformCommandRuntimeManager(a.store,
+		idgen.New("command-runtime-owner"))
+	if err != nil {
+		return err
+	}
+	if _, err := commandManager.ReconcileStartup(ctx); err != nil {
+		return apperror.Wrap(apperror.CodeUnavailable,
+			"command runtime startup reconciliation failed", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
+		_ = commandManager.Shutdown(shutdownCtx)
+		cancel()
+	}()
+	var commandRuntime *application.CommandRuntimeService
+	if controlToken != "" && permissionCapabilities.Allows(
+		domain.RunExecutionPermissionFullAccess) {
+		commandRuntime, err = application.NewCommandRuntimeService(a.store,
+			commandManager, permissionCapabilities)
+		if err != nil {
+			return err
+		}
+		executionControl.WithCommandRuntime(commandRuntime)
+	}
 	if executor := a.newDockerSandboxProposalExecutor(); executor != nil {
 		executionControl.WithDockerSandboxProposalExecutor(executor)
 	}
@@ -233,20 +260,20 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		PriceSnapshotController:                 a.store,
 		FanoutExecutionController: application.NewReadOnlyFanoutExecutionService(
 			a.store, a.router, a.checker),
-		ChildTaskControlController:              application.NewChildTaskControlService(a.store),
-		ProviderCredentialController:            providerCredentialControl,
-		FileEditReviewController:                fileEditReview,
-		FileEditProposalController:              fileEditProposal,
-		RunWakeController:                       runWakeControl,
-		FileEditApplyController:                 fileEditApply,
-		RunWakeExecutionController:              runWakeExecution,
-		RunWakeWorkerHealthSource:               workerHealth,
-		SkillInstallationController:             skillInstallation,
-		EmbeddedAnalyzerExecutionController:     embeddedAnalyzerExecution,
-		DockerSandboxController:                 dockerSandbox,
-		ModelRegistry:                           a.models,
-		AppVersion:                              Version,
-		UIHandler:                               uiBundle,
+		ChildTaskControlController:          application.NewChildTaskControlService(a.store),
+		ProviderCredentialController:        providerCredentialControl,
+		FileEditReviewController:            fileEditReview,
+		FileEditProposalController:          fileEditProposal,
+		RunWakeController:                   runWakeControl,
+		FileEditApplyController:             fileEditApply,
+		RunWakeExecutionController:          runWakeExecution,
+		RunWakeWorkerHealthSource:           workerHealth,
+		SkillInstallationController:         skillInstallation,
+		EmbeddedAnalyzerExecutionController: embeddedAnalyzerExecution,
+		DockerSandboxController:             dockerSandbox,
+		ModelRegistry:                       a.models,
+		AppVersion:                          Version,
+		UIHandler:                           uiBundle,
 	})
 	if err != nil {
 		return err
@@ -259,6 +286,18 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	if err != nil {
 		_ = listener.Close()
 		return err
+	}
+	reconcileCtx, reconcileCancel := context.WithCancel(ctx)
+	defer reconcileCancel()
+	if commandRuntime != nil {
+		go func() {
+			if reconcileErr := commandRuntime.RunReconciler(reconcileCtx,
+				500*time.Millisecond); reconcileErr != nil && reconcileCtx.Err() == nil {
+				fmt.Fprintln(a.errOut, "command-runtime-reconciler:", reconcileErr)
+			}
+		}()
+	} else {
+		go runCommandRuntimeStartupReconciler(reconcileCtx, commandManager, a.errOut)
 	}
 	origin := "http://" + listener.Addr().String()
 	baseURL := origin + "/api/v1"
@@ -296,16 +335,40 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	fmt.Fprintf(a.out, "file_edit_proposals_enabled: %t\nprovider_credentials_enabled: %t\nwake_worker_enabled: %t\nwake_worker_concurrency: %d\nwake_worker_max_steps: %d\n",
 		*fileEditProposals, *providerCredentials, *wakeWorker,
 		application.RunWakeWorkerConcurrency, application.RunWakeWorkerMaxSteps)
-	fmt.Fprintf(a.out, "execution_permission_control_enabled: %t\noperator_approval_enabled: %t\nhost_command_proposal_control_enabled: %t\ndanger_full_access_enabled: %t\ndebug_maximum_access_enabled: %t\n",
+	fmt.Fprintf(a.out, "execution_permission_control_enabled: %t\noperator_approval_enabled: %t\nhost_command_proposal_control_enabled: %t\ndanger_full_access_enabled: %t\ndebug_maximum_access_enabled: %t\ncommand_runtime_enabled: %t\n",
 		*permissionControl, permissionCapabilities.OperatorApprovalEnabled,
 		*hostCommandProposals,
 		permissionCapabilities.DangerFullAccessEnabled,
-		permissionCapabilities.DebugMaximumAccessEnabled)
+		permissionCapabilities.DebugMaximumAccessEnabled, commandRuntime != nil)
 	fmt.Fprintf(a.out, "browser_cdp_permission_control_enabled: %t\nfull_cdp_debug_enabled: %t\n",
 		*browserCDPControl, browserCDPCapabilities.FullDebugEnabled)
 	fmt.Fprintf(a.out, "docker_execution_enabled: %t\n", *dockerExecution)
 	fmt.Fprintln(a.out, "note: the API is loopback-only; control is separately authorized and tokens are not persisted")
 	return server.Serve(ctx, listener)
+}
+
+func runCommandRuntimeStartupReconciler(ctx context.Context,
+	manager *runner.CommandRuntimeManager, errOut interface{ Write([]byte) (int, error) },
+) {
+	if manager == nil {
+		return
+	}
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if _, err := manager.ReconcileStartup(ctx); err != nil && ctx.Err() == nil {
+				fmt.Fprintln(errOut, "command-runtime-reconciler:", err)
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
+				_ = manager.Shutdown(shutdownCtx)
+				cancel()
+				return
+			}
+		}
+	}
 }
 
 func (a *App) apiOpenAPICommand(args []string) error {

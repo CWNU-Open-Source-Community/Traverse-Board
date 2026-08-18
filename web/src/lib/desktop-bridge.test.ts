@@ -18,6 +18,7 @@ const bootstrap = {
   operator_approval_enabled: false,
   danger_full_access_enabled: false,
   debug_maximum_access_enabled: false,
+  command_runtime_enabled: false,
   run_creation_enabled: false,
   session_message_enabled: false,
   session_steering_control_enabled: false,

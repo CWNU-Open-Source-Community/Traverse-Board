@@ -37,6 +37,7 @@ export interface DesktopConnectionBootstrap {
   operator_approval_enabled: boolean;
   danger_full_access_enabled: boolean;
   debug_maximum_access_enabled: boolean;
+  command_runtime_enabled: boolean;
   run_creation_enabled: boolean;
   session_message_enabled: boolean;
   session_steering_control_enabled: boolean;
@@ -690,7 +691,7 @@ function getDebugTerminalAgentInputBridge(): NativeDebugTerminalAgentInputBridge
 function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
   if (!hasExactKeys(value, [
     "agent_code_tools_enabled", "api_base_url", "api_version", "app_version",
-    "approval_control_enabled",
+    "approval_control_enabled", "command_runtime_enabled",
     "controlled_command_proposal_control_enabled",
     "host_command_proposal_control_enabled",
     "execution_permission_control_enabled", "operator_approval_enabled",
@@ -725,6 +726,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     typeof value.operator_approval_enabled === "boolean" &&
     typeof value.danger_full_access_enabled === "boolean" &&
     typeof value.debug_maximum_access_enabled === "boolean" &&
+    typeof value.command_runtime_enabled === "boolean" &&
     typeof value.run_creation_enabled === "boolean" &&
     typeof value.session_message_enabled === "boolean" &&
     typeof value.session_steering_control_enabled === "boolean" &&
@@ -778,6 +780,8 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     (!value.host_command_proposal_control_enabled || value.operator_approval_enabled) &&
     (!value.full_cdp_debug_enabled ||
       (value.browser_cdp_permission_control_enabled && value.debug_maximum_access_enabled)) &&
+    value.command_runtime_enabled ===
+      (value.run_execution_enabled && value.danger_full_access_enabled) &&
     value.read_only_default === !(value.control_enabled || value.run_creation_enabled ||
       value.execution_permission_control_enabled ||
       value.browser_cdp_permission_control_enabled ||
@@ -794,8 +798,10 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
       value.evidence_attachment_enabled || value.verification_evidence_enabled ||
       value.embedded_analyzer_execution_enabled || value.docker_execution_enabled ||
       value.user_terminal_enabled) &&
-    value.process_execution_enabled === value.user_terminal_enabled &&
-    value.shell_execution_enabled === value.user_terminal_enabled &&
+    value.process_execution_enabled ===
+      (value.user_terminal_enabled || value.command_runtime_enabled) &&
+    value.shell_execution_enabled ===
+      (value.user_terminal_enabled || value.command_runtime_enabled) &&
     (!value.docker_execution_enabled || (value.execution_permission_control_enabled &&
       value.operator_approval_enabled)) &&
     value.renderer_path_input_supported === false;

@@ -16,6 +16,7 @@ import (
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/executionauth"
 	"cyberagent-workbench/internal/httpapi"
+	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/modelregistry"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/runner"
@@ -30,26 +31,28 @@ import (
 // It does not listen on a socket and it adds no renderer authority beyond the
 // tokens explicitly supplied in ControlPlaneConfig.
 type ControlPlane struct {
-	stateStore        *store.SQLiteStore
-	workspaceManager  *workspace.Manager
-	workspaceImportMu sync.Mutex
-	handler           http.Handler
-	closeOnce         sync.Once
-	closeErr          error
-	skillInstaller    *application.SkillPackageRegistryService
-	dockerSandbox     *application.DockerSandboxService
-	userTerminal      *desktopUserTerminalService
-	debugAgentInput   application.DebugTerminalAgentInputController
-	terminalManager   *terminalruntime.Manager
-	boundaryMonitor   *terminalruntime.HostBoundaryMonitor
-	terminalWorkerMu  sync.Mutex
-	terminalCancel    context.CancelFunc
-	terminalDone      chan struct{}
-	wakeWorker        *application.RunWakeWorker
-	workerMu          sync.Mutex
-	workerCancel      context.CancelFunc
-	workerDone        chan struct{}
-	closed            bool
+	stateStore            *store.SQLiteStore
+	workspaceManager      *workspace.Manager
+	workspaceImportMu     sync.Mutex
+	handler               http.Handler
+	closeOnce             sync.Once
+	closeErr              error
+	skillInstaller        *application.SkillPackageRegistryService
+	dockerSandbox         *application.DockerSandboxService
+	userTerminal          *desktopUserTerminalService
+	debugAgentInput       application.DebugTerminalAgentInputController
+	commandRuntime        *application.CommandRuntimeService
+	commandRuntimeManager *runner.CommandRuntimeManager
+	terminalManager       *terminalruntime.Manager
+	boundaryMonitor       *terminalruntime.HostBoundaryMonitor
+	terminalWorkerMu      sync.Mutex
+	terminalCancel        context.CancelFunc
+	terminalDone          chan struct{}
+	wakeWorker            *application.RunWakeWorker
+	workerMu              sync.Mutex
+	workerCancel          context.CancelFunc
+	workerDone            chan struct{}
+	closed                bool
 }
 
 type ControlPlaneConfig struct {
@@ -152,6 +155,34 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	executionControl := application.NewRunExecutionHandoffService(stateStore,
 		models.Router(), checker).WithActiveCalls(
 		application.NewActiveCallRegistry())
+	commandManager, err := runner.NewPlatformCommandRuntimeManager(stateStore,
+		idgen.New("command-runtime-owner"))
+	if err != nil {
+		_ = stateStore.Close()
+		return nil, err
+	}
+	if _, err := commandManager.ReconcileStartup(context.Background()); err != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_ = commandManager.Shutdown(shutdownCtx)
+		cancel()
+		_ = stateStore.Close()
+		return nil, apperror.Wrap(apperror.CodeUnavailable,
+			"command runtime startup reconciliation failed", err)
+	}
+	var commandRuntime *application.CommandRuntimeService
+	if config.RunExecutionEnabled && config.ExecutionPermissionCapabilities.Allows(
+		domain.RunExecutionPermissionFullAccess) {
+		commandRuntime, err = application.NewCommandRuntimeService(stateStore,
+			commandManager, config.ExecutionPermissionCapabilities)
+		if err != nil {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			_ = commandManager.Shutdown(shutdownCtx)
+			cancel()
+			_ = stateStore.Close()
+			return nil, err
+		}
+		executionControl.WithCommandRuntime(commandRuntime)
+	}
 	dockerProposalExecutor, err := application.NewDockerSandboxProposalExecutor(
 		dockerSandbox)
 	if err != nil {
@@ -307,21 +338,21 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		HostCommandProposalController:           hostCommandProposals,
 		ModelControlController:                  modelControl,
 		PriceSnapshotController:                 stateStore,
-		FanoutExecutionController:               application.NewReadOnlyFanoutExecutionService(
+		FanoutExecutionController: application.NewReadOnlyFanoutExecutionService(
 			stateStore, models.Router(), checker),
-		ChildTaskControlController:              application.NewChildTaskControlService(stateStore),
-		ProviderCredentialController:            providerCredentialControl,
-		FileEditReviewController:                fileEditReview,
-		FileEditProposalController:              fileEditProposal,
-		RunWakeController:                       runWakeControl,
-		FileEditApplyController:                 fileEditApply,
-		RunWakeExecutionController:              runWakeExecution,
-		RunWakeWorkerHealthSource:               workerHealth,
-		SkillInstallationController:             skillInstaller,
-		EmbeddedAnalyzerExecutionController:     embeddedAnalyzerExecution,
-		DockerSandboxController:                 dockerSandbox,
-		ModelRegistry:                           models,
-		AppVersion:                              config.AppVersion, UIHandler: config.UIHandler,
+		ChildTaskControlController:          application.NewChildTaskControlService(stateStore),
+		ProviderCredentialController:        providerCredentialControl,
+		FileEditReviewController:            fileEditReview,
+		FileEditProposalController:          fileEditProposal,
+		RunWakeController:                   runWakeControl,
+		FileEditApplyController:             fileEditApply,
+		RunWakeExecutionController:          runWakeExecution,
+		RunWakeWorkerHealthSource:           workerHealth,
+		SkillInstallationController:         skillInstaller,
+		EmbeddedAnalyzerExecutionController: embeddedAnalyzerExecution,
+		DockerSandboxController:             dockerSandbox,
+		ModelRegistry:                       models,
+		AppVersion:                          config.AppVersion, UIHandler: config.UIHandler,
 	})
 	if err != nil {
 		if terminalManager != nil {
@@ -335,6 +366,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		skillInstaller: skillInstaller, dockerSandbox: dockerSandbox,
 		userTerminal:    userTerminal,
 		debugAgentInput: debugAgentInput,
+		commandRuntime:  commandRuntime, commandRuntimeManager: commandManager,
 		terminalManager: terminalManager, boundaryMonitor: boundaryMonitor,
 		wakeWorker: wakeWorker}, nil
 }
@@ -451,7 +483,7 @@ func (c *ControlPlane) StartTerminalBoundaryMonitor(parent context.Context) erro
 	if c == nil {
 		return errors.New("desktop control plane is unavailable")
 	}
-	if c.boundaryMonitor == nil {
+	if c.boundaryMonitor == nil && c.commandRuntimeManager == nil {
 		return nil
 	}
 	if parent == nil || parent.Err() != nil {
@@ -465,8 +497,10 @@ func (c *ControlPlane) StartTerminalBoundaryMonitor(parent context.Context) erro
 	if closed || c.terminalDone != nil {
 		return errors.New("desktop terminal boundary monitor is already started")
 	}
-	if err := c.boundaryMonitor.Start(parent); err != nil {
-		return err
+	if c.boundaryMonitor != nil {
+		if err := c.boundaryMonitor.Start(parent); err != nil {
+			return err
+		}
 	}
 	ctx, cancel := context.WithCancel(parent)
 	c.terminalCancel = cancel
@@ -488,6 +522,14 @@ func (c *ControlPlane) runTerminalBindingWorker(ctx context.Context,
 	if c.debugAgentInput != nil {
 		c.debugAgentInput.Reconcile(ctx)
 	}
+	if c.commandRuntimeManager != nil {
+		if err := c.reconcileCommandRuntime(ctx); err != nil {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
+			_ = c.commandRuntimeManager.Shutdown(shutdownCtx)
+			cancel()
+			return
+		}
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -499,8 +541,28 @@ func (c *ControlPlane) runTerminalBindingWorker(ctx context.Context,
 			if c.debugAgentInput != nil {
 				c.debugAgentInput.Reconcile(ctx)
 			}
+			if c.commandRuntimeManager != nil {
+				if err := c.reconcileCommandRuntime(ctx); err != nil {
+					shutdownCtx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
+					_ = c.commandRuntimeManager.Shutdown(shutdownCtx)
+					cancel()
+					return
+				}
+			}
 		}
 	}
+}
+
+func (c *ControlPlane) reconcileCommandRuntime(ctx context.Context) error {
+	if c.commandRuntime != nil {
+		_, err := c.commandRuntime.Reconcile(ctx)
+		return err
+	}
+	if c.commandRuntimeManager != nil {
+		_, err := c.commandRuntimeManager.ReconcileStartup(ctx)
+		return err
+	}
+	return nil
 }
 
 func (c *ControlPlane) Close() error {
@@ -535,6 +597,13 @@ func (c *ControlPlane) Close() error {
 			shutdownContext, shutdownCancel := context.WithTimeout(
 				context.Background(), 2*time.Second)
 			c.debugAgentInput.Shutdown(shutdownContext)
+			shutdownCancel()
+		}
+		if c.commandRuntimeManager != nil {
+			shutdownContext, shutdownCancel := context.WithTimeout(
+				context.Background(), 7*time.Second)
+			c.closeErr = errors.Join(c.closeErr,
+				c.commandRuntimeManager.Shutdown(shutdownContext))
 			shutdownCancel()
 		}
 		if c.stateStore == nil {

@@ -159,3 +159,137 @@ func TestSchemaV113PreservesCallsAndAdmitsDebugTerminal(t *testing.T) {
 		t.Fatalf("foreign key violation=%q err=%v", violation, err)
 	}
 }
+
+func TestSchemaV116PreservesAgentCodeAuthorityAndAdmitsCommandRuntime(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "v115-supervisor-tools.db")
+	db, err := sql.Open("sqlite3", sqliteDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = ON;`); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `CREATE TABLE schema_migrations (
+		version INTEGER PRIMARY KEY,
+		name TEXT NOT NULL,
+		checksum TEXT NOT NULL,
+		applied_at TEXT NOT NULL
+	);`); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	legacy := &SQLiteStore{db: db, home: filepath.Dir(path)}
+	for _, item := range migrationPlan()[:115] {
+		if err := legacy.applyMigration(ctx, item); err != nil {
+			_ = legacy.Close()
+			t.Fatalf("apply v115 migration %d: %v", item.Version, err)
+		}
+	}
+	_, run, err := application.NewRunService(legacy).Create(ctx, application.CreateRunRequest{
+		Goal: "preserve v115 workspace authority", Profile: "code",
+		Budget: domain.Budget{MaxTurns: 5, MaxToolCalls: 20},
+	})
+	if err != nil {
+		_ = legacy.Close()
+		t.Fatal(err)
+	}
+	if _, err := application.NewRunService(legacy).Start(ctx, run.ID); err != nil {
+		_ = legacy.Close()
+		t.Fatal(err)
+	}
+	turn, err := legacy.BeginSupervisorTurn(ctx,
+		acquireTestRunExecutionLease(t, ctx, legacy, run.ID), "persist workspace authority")
+	if err != nil {
+		_ = legacy.Close()
+		t.Fatal(err)
+	}
+	permission, err := legacy.GetRunExecutionPermission(ctx, run.ID)
+	if err != nil {
+		_ = legacy.Close()
+		t.Fatal(err)
+	}
+	authorityWorkspaceID := turn.Mission.WorkspaceID
+	if authorityWorkspaceID == "" {
+		authorityWorkspaceID = "workspace-v115"
+	}
+	authority, err := toolgateway.NewAgentCodeCallAuthority(toolgateway.AgentCodeCapabilityContext{
+		RunID: run.ID, MissionID: turn.Mission.ID, RootAgentID: turn.Agent.ID,
+		WorkspaceID: authorityWorkspaceID, RootFingerprint: strings.Repeat("a", 64),
+		Surface: turn.Mode.Surface, Phase: turn.Mode.Phase, Role: turn.Agent.Role,
+		Profile: turn.Mode.Profile, PermissionMode: permission.Mode,
+		ModeRevision: turn.Mode.Revision, PermissionRevision: permission.Revision,
+	}, run.SessionID)
+	if err != nil {
+		_ = legacy.Close()
+		t.Fatal(err)
+	}
+	encodedAuthority, err := toolgateway.EncodeAgentCodeCallAuthority(authority)
+	if err != nil {
+		_ = legacy.Close()
+		t.Fatal(err)
+	}
+	payload, err := toolgateway.NormalizeSupervisorToolPayload(toolgateway.WorkspaceListTool,
+		json.RawMessage(`{"version":"agent-code-tools.v1","path":"","limit":10}`))
+	if err != nil {
+		_ = legacy.Close()
+		t.Fatal(err)
+	}
+	operationKey := runmutation.SupervisorToolOperationKey(run.ID, turn.Checkpoint.NextTurn,
+		string(toolgateway.WorkspaceListTool), string(payload))
+	callID, err := runmutation.SupervisorToolCallID(operationKey, 1)
+	if err != nil {
+		_ = legacy.Close()
+		t.Fatal(err)
+	}
+	attempt := llm.ModelAttempt{
+		Number: 1, TransportAttempt: 1, MaxAttempts: 1, Provider: "test", Model: "model",
+	}
+	if inserted, err := legacy.RecordSupervisorModelStarted(ctx, turn.Checkpoint, attempt); err != nil || !inserted {
+		_ = legacy.Close()
+		t.Fatalf("record v115 model start: inserted=%t err=%v", inserted, err)
+	}
+	attempt.Outcome = llm.OutcomeSuccess
+	checkpoint, err := legacy.RecordSupervisorModelCompleted(ctx, turn.Checkpoint, attempt,
+		llm.ChatResponse{Provider: "test", Model: "model",
+			Usage: llm.Usage{InputTokens: 1, OutputTokens: 1, TotalTokens: 2},
+			ToolCalls: []llm.ToolCall{{ID: callID, Name: string(toolgateway.WorkspaceListTool),
+				Arguments: payload, Authority: encodedAuthority}}})
+	if err != nil {
+		_ = legacy.Close()
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	upgraded, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upgraded.Close()
+	if version, err := upgraded.SchemaVersion(ctx); err != nil || version != 116 {
+		t.Fatalf("schema version=%d want=116 err=%v", version, err)
+	}
+	if _, err := upgraded.db.ExecContext(ctx, `INSERT INTO run_supervisor_tool_calls
+		(run_id, turn, attempt_id, round, position, model_attempt, call_id, tool_name,
+		 payload_json, authority_json, status, result_json, error_code, created_at, completed_at)
+		VALUES (?, ?, ?, 1, 2, 1, ?, ?, ?, '', ?, '', '', ?, NULL)`, checkpoint.RunID,
+		checkpoint.NextTurn, checkpoint.AttemptID, "command-runtime-v116",
+		string(toolgateway.CommandRuntimeTool),
+		`{"version":"command-runtime.v2","action":"list"}`,
+		domain.SupervisorToolPending, ts(time.Now().UTC())); err != nil {
+		t.Fatalf("insert command_runtime after v116 migration: %v", err)
+	}
+	rounds, err := upgraded.ListSupervisorToolRounds(ctx, checkpoint)
+	if err != nil || len(rounds) != 1 || len(rounds[0].Calls) != 2 {
+		t.Fatalf("v116 Supervisor calls=%#v err=%v", rounds, err)
+	}
+	if rounds[0].Calls[0].AuthorityJSON != string(encodedAuthority) ||
+		rounds[0].Calls[1].ToolName != string(toolgateway.CommandRuntimeTool) ||
+		rounds[0].Calls[1].AuthorityJSON != "" {
+		t.Fatalf("v116 authority preservation failed: %#v", rounds[0].Calls)
+	}
+}

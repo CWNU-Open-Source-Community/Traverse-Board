@@ -173,7 +173,7 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		bootstrap.ExecutionPermissionControlEnabled ||
 		bootstrap.BrowserCDPPermissionControlEnabled || bootstrap.FullCDPDebugEnabled ||
 		bootstrap.OperatorApprovalEnabled || bootstrap.DangerFullAccessEnabled ||
-		bootstrap.DebugMaximumAccessEnabled ||
+		bootstrap.DebugMaximumAccessEnabled || bootstrap.CommandRuntimeEnabled ||
 		bootstrap.FileEditReviewEnabled || bootstrap.FileEditProposalEnabled ||
 		bootstrap.RunWakeControlEnabled || bootstrap.FileEditApplyEnabled ||
 		bootstrap.RunWakeExecutionEnabled || bootstrap.RunWakeWorkerEnabled ||
@@ -201,6 +201,7 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		"execution_permission_control_enabled", "operator_approval_enabled",
 		"browser_cdp_permission_control_enabled", "full_cdp_debug_enabled",
 		"danger_full_access_enabled", "debug_maximum_access_enabled",
+		"command_runtime_enabled",
 		"docker_execution_enabled", "file_edit_review_enabled", "file_edit_proposal_enabled",
 		"model_control_enabled", "provider_credential_enabled",
 		"file_edit_apply_enabled",
@@ -217,6 +218,32 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		"workspace_import_enabled",
 		"workspace_open_enabled",
 	})
+}
+
+func TestDesktopBridgeProjectsRunOwnedCommandRuntimeSeparatelyFromUserTerminal(t *testing.T) {
+	selector, preview := NewSkillPackagePreviewBoundary()
+	bridge, err := NewDesktopBridge(DesktopBridgeConfig{
+		ContextProvider: func() context.Context { return context.Background() },
+		FilePicker:      &testSkillPackagePicker{}, ReadToken: testDesktopReadToken,
+		ControlToken: testDesktopControlToken, RunExecutionEnabled: true,
+		ExecutionPermissionControlEnabled: true, OperatorApprovalEnabled: true,
+		DangerFullAccessEnabled: true,
+		APIVersion:              "api.v1", AppVersion: "test", UIDigest: testDesktopUIDigest,
+		Selector: selector, PreviewBridge: preview,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap, err := bridge.Bootstrap()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bootstrap.CommandRuntimeEnabled || !bootstrap.ProcessExecutionEnabled ||
+		!bootstrap.ShellExecutionEnabled || bootstrap.UserTerminalEnabled ||
+		bootstrap.AgentTerminalInputDefault || bootstrap.DebugMaximumAccessEnabled ||
+		bootstrap.DockerExecutionEnabled {
+		t.Fatalf("command runtime ownership projection is wrong: %#v", bootstrap)
+	}
 }
 
 func TestDesktopBridgeProjectsOnlyTheProcessLocalDockerCapability(t *testing.T) {

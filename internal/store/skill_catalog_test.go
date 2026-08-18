@@ -131,12 +131,26 @@ func removeSchemaV114ForTestStatements() []string {
 	}...)
 }
 
+func removeSchemaV116ForTestStatements() []string {
+	statements := []string{
+		`DROP TRIGGER trg_command_runtime_job_delete_immutable`,
+		`DROP TRIGGER trg_command_runtime_job_update_transition`,
+		`DROP TRIGGER trg_command_runtime_job_insert_limit`,
+		`DROP TRIGGER trg_command_runtime_job_insert_scope`,
+		`DROP INDEX idx_command_runtime_jobs_active`,
+		`DROP INDEX idx_command_runtime_jobs_run_created`,
+		`DROP TABLE command_runtime_jobs`,
+	}
+	statements = append(statements, debugTerminalSupervisorLedgerStatements...)
+	return append(statements, `DELETE FROM schema_migrations WHERE version = 116`)
+}
+
 // removeSchemaV115ForTestStatements restores the v114 shapes before older
 // migration tests remove their target version. Every historical downgrade chain
 // reaches this helper, so leaving only the v115 migration row deleted would make
 // v115 reapply ALTER COLUMN statements to an already-v115 schema.
 func removeSchemaV115ForTestStatements() []string {
-	statements := []string{
+	statements := append(removeSchemaV116ForTestStatements(),
 		`DROP TRIGGER trg_file_edit_apply_result_insert`,
 		`DROP TRIGGER trg_file_edit_apply_result_update_immutable`,
 		`DROP TRIGGER trg_file_edit_apply_result_delete_immutable`,
@@ -146,7 +160,7 @@ func removeSchemaV115ForTestStatements() []string {
 		`ALTER TABLE file_edit_apply_results RENAME TO file_edit_apply_results_v115`,
 		`DROP INDEX idx_file_edit_apply_operations_run_created`,
 		`ALTER TABLE file_edit_apply_operations RENAME TO file_edit_apply_operations_v115`,
-	}
+	)
 	// The first three v76 statements recreate the v113 operation table, index,
 	// and result table. Copy data before installing the immutable insert guards.
 	statements = append(statements, fileEditApplyStatements[:3]...)

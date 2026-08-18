@@ -137,6 +137,7 @@ export interface ClientCapabilities {
   operatorApprovalEnabled?: boolean;
   dangerFullAccessEnabled?: boolean;
   debugMaximumAccessEnabled?: boolean;
+  commandRuntimeEnabled?: boolean;
   runCreationEnabled?: boolean;
   sessionMessageEnabled?: boolean;
   sessionSteeringControlEnabled?: boolean;
@@ -1096,7 +1097,8 @@ function parseProviderCredentialList(value: unknown): ProviderCredentialListView
 }
 
 function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
-  const capabilityKeys = ["agent_code_tools_enabled", "approval_control_enabled", "docker_execution_enabled",
+  const capabilityKeys = ["agent_code_tools_enabled", "approval_control_enabled",
+    "command_runtime_enabled", "docker_execution_enabled",
     "browser_cdp_permission_control_enabled", "full_cdp_debug_enabled",
     "controlled_command_proposal_control_enabled",
     "host_command_proposal_control_enabled",
@@ -1137,7 +1139,10 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
     (value.full_cdp_debug_enabled && (!value.browser_cdp_permission_control_enabled ||
       !value.debug_maximum_access_enabled)) ||
     (value.host_command_proposal_control_enabled && !value.operator_approval_enabled) ||
-    value.process_execution_enabled !== false || value.shell_execution_enabled !== false ||
+    value.command_runtime_enabled !==
+      (value.run_execution_enabled && value.danger_full_access_enabled) ||
+    value.process_execution_enabled !== value.command_runtime_enabled ||
+    value.shell_execution_enabled !== value.command_runtime_enabled ||
     (value.docker_execution_enabled && !value.execution_permission_control_enabled)) {
     throw new APIRequestError("Run wake worker capability response is invalid",
       "INVALID_RESPONSE", 502);
@@ -1214,6 +1219,7 @@ export function clientCapabilitiesFromRuntime(value: RuntimeCapabilitiesView): C
     operatorApprovalEnabled: value.operator_approval_enabled,
     dangerFullAccessEnabled: value.danger_full_access_enabled,
     debugMaximumAccessEnabled: value.debug_maximum_access_enabled,
+    commandRuntimeEnabled: value.command_runtime_enabled,
     runCreationEnabled: value.run_creation_enabled,
     sessionMessageEnabled: value.session_message_enabled,
     sessionSteeringControlEnabled: value.session_steering_control_enabled,

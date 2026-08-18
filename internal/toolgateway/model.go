@@ -47,6 +47,7 @@ const (
 	ControlledCommandProposeTool    ToolName = "controlled_command_propose"
 	HostCommandProposeTool          ToolName = "host_command_propose"
 	DebugTerminalTool               ToolName = "debug_terminal"
+	CommandRuntimeTool              ToolName = "command_runtime"
 	OneShotCommandProposeTool       ToolName = "one_shot_command_propose"
 	DockerSandboxRunProposeTool     ToolName = "sandbox_docker_run_propose"
 	SkillCandidateProposeTool       ToolName = "skill_candidate_propose"
@@ -84,7 +85,7 @@ func (n ToolName) Valid() bool {
 		WorkItemCreateTool, NoteCreateTool, PlanDeliveryProposeTool,
 		SpecialistDelegationProposeTool, ChildTaskProposeTool, ControlledCommandProposeTool,
 		OneShotCommandProposeTool, DockerSandboxRunProposeTool,
-		SkillCandidateProposeTool, DebugTerminalTool:
+		SkillCandidateProposeTool, DebugTerminalTool, CommandRuntimeTool:
 		return true
 	case HostCommandProposeTool:
 		// Host commands remain proposals at this layer; execution is owned by
@@ -129,6 +130,8 @@ func ClassForTool(name ToolName) (ActionClass, bool) {
 		return ClassShell, true
 	case DebugTerminalTool:
 		return ClassShell, true
+	case CommandRuntimeTool:
+		return ClassProcess, true
 	case ScriptProcessTool:
 		return ClassProcess, true
 	case WorkItemCreateTool, NoteCreateTool:
@@ -251,7 +254,7 @@ func NormalizeToolCall(call ToolCall) (ToolCall, error) {
 	}
 	if isAgentCodeTool(call.Name) {
 		if !call.Surface.Valid() || !call.Phase.Valid() || !domain.ValidAgentRole(call.Role) ||
-			call.PermissionMode.Valid() == false || call.ModeRevision <= 0 ||
+			!call.PermissionMode.Valid() || call.ModeRevision <= 0 ||
 			call.PermissionRevision <= 0 || !validAgentCodeDigest(call.CapabilityGeneration, false) {
 			return ToolCall{}, errors.New("agent code tool capability binding is invalid")
 		}
