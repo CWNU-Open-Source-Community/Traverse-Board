@@ -204,7 +204,7 @@ func (e *RemoteExecutor) ExecuteGit(ctx context.Context, root string, spec Remot
 		args = []string{"pull", "--quiet", "--ff-only", spec.RemoteURL, spec.Branch}
 	case RemotePushBranch:
 		// New branch only: refuse to touch a branch that already exists.
-		exists, err := e.remoteBranchExists(ctx, root, spec)
+		exists, err := e.remoteBranchExists(ctx, root, spec, askpass, secret)
 		if err != nil {
 			return RemoteReceipt{}, err
 		}
@@ -214,12 +214,7 @@ func (e *RemoteExecutor) ExecuteGit(ctx context.Context, root string, spec Remot
 		}
 		args = []string{"push", "--quiet", spec.RemoteURL, "HEAD:refs/heads/" + spec.Branch}
 	}
-	command := exec.CommandContext(ctx, e.gitPath, append([]string{"-C", root, "--no-optional-locks",
-		"-c", "core.autocrlf=false", "-c", "http.proxy=", "-c", "https.proxy=",
-		"-c", "core.sshCommand=", "-c", "protocol.ext.allow=never"}, args...)...)
-	command.Dir = root
-	command.Env = append(hardenedGitEnvironment(),
-		"GIT_ASKPASS="+askpass, "GIT_PASSWORD="+secret)
+	command := e.remoteGitCommand(ctx, root, askpass, secret, args...)
 	var stdout, stderr boundedBuffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr
@@ -253,9 +248,11 @@ func (e *RemoteExecutor) ExecuteGit(ctx context.Context, root string, spec Remot
 	return receipt, nil
 }
 
-func (e *RemoteExecutor) remoteBranchExists(ctx context.Context, root string, spec RemoteSpec) (bool, error) {
-	command := exec.CommandContext(ctx, e.gitPath, "-C", root, "ls-remote", "--heads", spec.RemoteURL, "refs/heads/"+spec.Branch)
-	command.Env = hardenedGitEnvironment()
+func (e *RemoteExecutor) remoteBranchExists(ctx context.Context, root string, spec RemoteSpec,
+	askpass, secret string,
+) (bool, error) {
+	command := e.remoteGitCommand(ctx, root, askpass, secret,
+		"ls-remote", "--heads", spec.RemoteURL, "refs/heads/"+spec.Branch)
 	var stdout, stderr boundedBuffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr
@@ -264,6 +261,19 @@ func (e *RemoteExecutor) remoteBranchExists(ctx context.Context, root string, sp
 		return false, apperror.New(apperror.CodeFailedPrecondition, "remote branch probe failed")
 	}
 	return strings.TrimSpace(stdout.String()) != "", nil
+}
+
+func (e *RemoteExecutor) remoteGitCommand(ctx context.Context, root, askpass, secret string,
+	args ...string,
+) *exec.Cmd {
+	hardenedArgs := append([]string{"-C", root, "--no-optional-locks",
+		"-c", "core.autocrlf=false", "-c", "http.proxy=", "-c", "https.proxy=",
+		"-c", "core.sshCommand=", "-c", "protocol.ext.allow=never"}, args...)
+	command := exec.CommandContext(ctx, e.gitPath, hardenedArgs...)
+	command.Dir = root
+	command.Env = append(hardenedGitEnvironment(),
+		"GIT_ASKPASS="+askpass, "GIT_PASSWORD="+secret)
+	return command
 }
 
 func (e *RemoteExecutor) currentHead(ctx context.Context, root string) (string, error) {

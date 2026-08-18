@@ -2,10 +2,13 @@ package repository
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -178,6 +181,73 @@ func TestRemoteAskpassHelperResolvesCredentialByName(t *testing.T) {
 		t.Fatalf("askpass helper: path=%q secret=%q err=%v", path, secret, err)
 	}
 	_ = os.Remove(path)
+}
+
+func TestRemoteGitCommandIsCredentialedAndHardened(t *testing.T) {
+	executor := newRemoteExecutor(t)
+	command := executor.remoteGitCommand(t.Context(), t.TempDir(),
+		"C:/temporary/askpass.cmd", "secret-token-value",
+		"ls-remote", "--heads", "https://example.com/repo.git", "refs/heads/feature")
+	args := strings.Join(command.Args, "\x00")
+	for _, required := range []string{
+		"--no-optional-locks", "http.proxy=", "https.proxy=",
+		"core.sshCommand=", "protocol.ext.allow=never", "ls-remote",
+	} {
+		if !strings.Contains(args, required) {
+			t.Fatalf("remote branch probe omitted hardened argument %q: %q", required, command.Args)
+		}
+	}
+	if strings.Contains(args, "secret-token-value") {
+		t.Fatalf("credential leaked into git argv: %q", command.Args)
+	}
+	environment := strings.Join(command.Env, "\x00")
+	for _, required := range []string{
+		"GIT_ASKPASS=C:/temporary/askpass.cmd", "GIT_PASSWORD=secret-token-value",
+	} {
+		if !strings.Contains(environment, required) {
+			t.Fatalf("remote branch probe omitted credential environment %q", required)
+		}
+	}
+}
+
+func TestRemoteBranchProbeAuthenticatesWithReferencedCredential(t *testing.T) {
+	credentials := credential.NewMemoryStore()
+	if err := credentials.Put(t.Context(), "private-remote", "secret-token-value"); err != nil {
+		t.Fatal(err)
+	}
+	executor, err := NewRemoteExecutor(credentials)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var authenticated atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		username, password, ok := request.BasicAuth()
+		if !ok {
+			w.Header().Set("WWW-Authenticate", `Basic realm="private Git"`)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if username != "secret-token-value" || password != "secret-token-value" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		authenticated.Store(true)
+		w.Header().Set("Content-Type", "application/x-git-upload-pack-advertisement")
+		_, _ = w.Write([]byte("001e# service=git-upload-pack\n00000000"))
+	}))
+	defer server.Close()
+	askpass, secret, err := executor.askpassHelper(t.Context(), "private-remote")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(askpass)
+	exists, err := executor.remoteBranchExists(t.Context(), t.TempDir(), RemoteSpec{
+		RemoteURL: server.URL + "/repository.git", Branch: "feature",
+	}, askpass, secret)
+	if err != nil || exists || !authenticated.Load() {
+		t.Fatalf("credentialed branch probe failed: exists=%t authenticated=%t err=%v",
+			exists, authenticated.Load(), err)
+	}
 }
 
 var _ = time.Now
