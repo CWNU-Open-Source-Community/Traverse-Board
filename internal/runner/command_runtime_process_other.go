@@ -44,28 +44,64 @@ func (unixCommandRuntimeStarter) Start(spec CommandRuntimeResolvedSpec) (command
 	command.Dir = spec.AbsoluteDirectory
 	command.Env = append([]string(nil), spec.Environment...)
 	command.SysProcAttr = commandRuntimeSysProcAttr()
-	stdout, err := command.StdoutPipe()
+	stdout, stdoutChild, err := os.Pipe()
 	if err != nil {
 		return nil, err
 	}
-	stderr, err := command.StderrPipe()
+	stderr, stderrChild, err := os.Pipe()
 	if err != nil {
+		_ = stdout.Close()
+		_ = stdoutChild.Close()
 		return nil, err
 	}
+	command.Stdout = stdoutChild
+	command.Stderr = stderrChild
 	var stdin io.WriteCloser
 	if spec.Spec.StdinPolicy == CommandRuntimeStdinPipe {
 		stdin, err = command.StdinPipe()
 		if err != nil {
+			_ = stdout.Close()
+			_ = stdoutChild.Close()
+			_ = stderr.Close()
+			_ = stderrChild.Close()
 			return nil, err
 		}
 	}
 	if err := command.Start(); err != nil {
+		if stdin != nil {
+			_ = stdin.Close()
+		}
+		_ = stdout.Close()
+		_ = stdoutChild.Close()
+		_ = stderr.Close()
+		_ = stderrChild.Close()
 		return nil, err
+	}
+	// Cmd.Wait closes descriptors created by StdoutPipe and StderrPipe as soon
+	// as the direct child exits. That races the runtime collectors for short
+	// commands and can discard their final output. Own the pipes explicitly and
+	// release only the parent's child-facing copies after a successful launch;
+	// descendants keep their inherited copies until Wait reaps the process group.
+	closeErr := errors.Join(stdoutChild.Close(), stderrChild.Close())
+	if closeErr != nil {
+		_ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
+		_ = command.Wait()
+		if stdin != nil {
+			_ = stdin.Close()
+		}
+		_ = stdout.Close()
+		_ = stderr.Close()
+		return nil, closeErr
 	}
 	guardian, guardianSignal, err := startCommandRuntimeGuardian(command.Process.Pid)
 	if err != nil {
 		_ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
 		_ = command.Wait()
+		if stdin != nil {
+			_ = stdin.Close()
+		}
+		_ = stdout.Close()
+		_ = stderr.Close()
 		return nil, err
 	}
 	return &unixCommandRuntimeProcess{command: command, stdin: stdin,
@@ -145,11 +181,15 @@ func (p *unixCommandRuntimeProcess) Close() error {
 	}
 	var result error
 	result = errors.Join(result, p.CloseStdin())
-	if p.stdout != nil {
-		result = errors.Join(result, p.stdout.Close())
+	p.mu.Lock()
+	stdout, stderr := p.stdout, p.stderr
+	p.stdout, p.stderr = nil, nil
+	p.mu.Unlock()
+	if stdout != nil {
+		result = errors.Join(result, stdout.Close())
 	}
-	if p.stderr != nil {
-		result = errors.Join(result, p.stderr.Close())
+	if stderr != nil {
+		result = errors.Join(result, stderr.Close())
 	}
 	return result
 }
