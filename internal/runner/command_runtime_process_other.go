@@ -156,12 +156,28 @@ func (p *unixCommandRuntimeProcess) Cancel(grace time.Duration) error {
 	if err := syscall.Kill(-p.pgid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
 		return err
 	}
+	// Reap concurrently with the grace period. Darwin reports EPERM rather
+	// than ESRCH when a process group still exists but contains only zombies;
+	// without a waiter, a successful TERM can therefore be mistaken for a
+	// failed escalation. Wait is idempotent and also reaps any remaining owned
+	// descendants before publishing waitDone.
+	go func() { _, _ = p.Wait() }()
 	deadline := time.Now().Add(grace)
 	for grace > 0 && time.Now().Before(deadline) {
+		select {
+		case <-p.waitDone:
+			return nil
+		default:
+		}
 		if err := syscall.Kill(-p.pgid, 0); errors.Is(err, syscall.ESRCH) {
 			return nil
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+	select {
+	case <-p.waitDone:
+		return nil
+	default:
 	}
 	return p.Kill()
 }
