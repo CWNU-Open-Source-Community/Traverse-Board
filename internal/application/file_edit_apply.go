@@ -120,14 +120,32 @@ func (s *FileEditApplyService) Apply(ctx context.Context,
 			return ApplyFileEditResult{}, apperror.New(apperror.CodeConflict,
 				"workspace file changed after review; refusing to apply")
 		}
+		destinationObservedHash := ""
+		if binding.edit.Operation == fileedit.OperationMove {
+			destinationObservedHash, hashErr = fileedit.CurrentHash(binding.workspace.RootPath,
+				binding.edit.DestinationPath)
+			if hashErr != nil {
+				return ApplyFileEditResult{}, apperror.Normalize(hashErr)
+			}
+			if destinationObservedHash != binding.edit.DestinationOriginalHash &&
+				destinationObservedHash != binding.edit.DestinationProposedHash {
+				return ApplyFileEditResult{}, apperror.New(apperror.CodeConflict,
+					"workspace move destination changed after review; refusing to apply")
+			}
+		}
 		operation = fileedit.ApplyOperation{
 			ProtocolVersion: fileedit.FileEditApplyProtocolVersion,
 			KeyDigest:       keyDigest, RequestFingerprint: fingerprint,
 			RunID: binding.run.ID, SessionID: binding.run.SessionID,
 			WorkspaceID: binding.edit.WorkspaceID, EditID: binding.edit.ID,
-			Path: binding.edit.Path, OriginalHash: binding.edit.OriginalHash,
-			ProposedHash: binding.edit.ProposedHash, ObservedHash: observedHash,
-			AppliedBy: normalized.AppliedBy, CreatedAt: s.now().UTC(),
+			Operation: binding.edit.Operation, Path: binding.edit.Path,
+			DestinationPath: binding.edit.DestinationPath,
+			OriginalHash:    binding.edit.OriginalHash,
+			ProposedHash:    binding.edit.ProposedHash, ObservedHash: observedHash,
+			DestinationOriginalHash: binding.edit.DestinationOriginalHash,
+			DestinationProposedHash: binding.edit.DestinationProposedHash,
+			DestinationObservedHash: destinationObservedHash,
+			AppliedBy:               normalized.AppliedBy, CreatedAt: s.now().UTC(),
 		}
 		operation, storedResult, preparedReplay, err = s.store.PrepareFileEditApply(ctx,
 			operation)
@@ -156,6 +174,15 @@ func (s *FileEditApplyService) Apply(ctx context.Context,
 	if currentHash != operation.OriginalHash && currentHash != operation.ProposedHash {
 		return ApplyFileEditResult{}, apperror.New(apperror.CodeConflict,
 			"workspace file no longer matches the prepared FileEdit apply operation")
+	}
+	if operation.Operation == fileedit.OperationMove {
+		destinationHash, destinationErr := fileedit.CurrentHash(binding.workspace.RootPath,
+			operation.DestinationPath)
+		if destinationErr != nil || (destinationHash != operation.DestinationOriginalHash &&
+			destinationHash != operation.DestinationProposedHash) {
+			return ApplyFileEditResult{}, apperror.New(apperror.CodeConflict,
+				"workspace move destination no longer matches the prepared operation")
+		}
 	}
 	fileWritten := binding.edit.Status == fileedit.StatusApproved &&
 		currentHash == operation.OriginalHash
@@ -199,6 +226,14 @@ func (s *FileEditApplyService) Apply(ctx context.Context,
 			}
 			return ApplyFileEditResult{}, apperror.Normalize(hashErr)
 		}
+		if operation.Operation == fileedit.OperationMove {
+			destinationHash, destinationErr := fileedit.CurrentHash(binding.workspace.RootPath,
+				operation.DestinationPath)
+			if destinationErr != nil || destinationHash != operation.DestinationProposedHash {
+				return ApplyFileEditResult{}, apperror.New(apperror.CodeConflict,
+					"applied move failed destination hash verification")
+			}
+		}
 	}
 	result, completionReplay, completionErr := s.store.CompleteFileEditApply(ctx,
 		fileedit.ApplyResult{OperationKeyDigest: operation.KeyDigest, Status: status,
@@ -223,6 +258,10 @@ func (s *FileEditApplyService) Apply(ctx context.Context,
 func (s *FileEditApplyService) cleanupStaging(ctx context.Context,
 	operation fileedit.ApplyOperation,
 ) fileedit.StagingCleanupResult {
+	if operation.Operation == fileedit.OperationMove ||
+		operation.Operation == fileedit.OperationDelete {
+		return fileedit.StagingCleanupResult{}
+	}
 	binding, err := s.loadOperationBinding(ctx, operation)
 	if err != nil {
 		return fileedit.StagingCleanupResult{Pending: true}
@@ -277,7 +316,7 @@ func (s *FileEditApplyService) loadBinding(ctx context.Context, runID string,
 		edit.SessionID != run.SessionID || edit.WorkspaceID != mission.WorkspaceID ||
 		workspace.ID != mission.WorkspaceID || record.RunID != run.ID ||
 		record.SessionID != run.SessionID || record.WorkspaceID != mission.WorkspaceID ||
-		record.ProposalID != edit.ID || record.ToolName != "replace_file" ||
+		record.ProposalID != edit.ID || record.ToolName != fileedit.ApprovalToolName(edit) ||
 		record.ActionClass != "workspace_write" || record.Status != approval.StatusApproved {
 		return fileEditApplyBinding{}, apperror.New(apperror.CodeFailedPrecondition,
 			"FileEdit apply binding or approval is invalid")
@@ -295,11 +334,14 @@ func (s *FileEditApplyService) loadBinding(ctx context.Context, runID string,
 func (s *FileEditApplyService) checkCurrentPolicy(ctx context.Context,
 	binding fileEditApplyBinding,
 ) error {
-	decision := s.checker.CheckToolCall(tools.Call{Name: "replace_file",
+	decision := s.checker.CheckToolCall(tools.Call{Name: fileedit.ApprovalToolName(binding.edit),
 		Args: map[string]string{
 			"run_id": binding.run.ID, "workspace_id": binding.edit.WorkspaceID,
 			"path": binding.edit.Path, "original_hash": binding.edit.OriginalHash,
-			"proposed_hash": binding.edit.ProposedHash,
+			"proposed_hash":             binding.edit.ProposedHash,
+			"destination_path":          binding.edit.DestinationPath,
+			"destination_original_hash": binding.edit.DestinationOriginalHash,
+			"destination_proposed_hash": binding.edit.DestinationProposedHash,
 		}})
 	if err := s.store.RecordPolicyDecision(ctx, policy.DecisionRecord{
 		SessionID: binding.run.SessionID, SubjectID: binding.edit.ID,
@@ -323,9 +365,13 @@ func (s *FileEditApplyService) loadOperationBinding(ctx context.Context,
 	}
 	if binding.run.SessionID != operation.SessionID ||
 		binding.edit.WorkspaceID != operation.WorkspaceID ||
+		binding.edit.Operation != operation.Operation ||
 		binding.edit.Path != operation.Path ||
+		binding.edit.DestinationPath != operation.DestinationPath ||
 		binding.edit.OriginalHash != operation.OriginalHash ||
-		binding.edit.ProposedHash != operation.ProposedHash {
+		binding.edit.ProposedHash != operation.ProposedHash ||
+		binding.edit.DestinationOriginalHash != operation.DestinationOriginalHash ||
+		binding.edit.DestinationProposedHash != operation.DestinationProposedHash {
 		return fileEditApplyBinding{}, apperror.New(apperror.CodeConflict,
 			"prepared FileEdit apply binding changed")
 	}

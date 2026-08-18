@@ -15,6 +15,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
+	"cyberagent-workbench/internal/artifact"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/llm"
@@ -111,6 +112,87 @@ func TestRunSupervisorExecutesAllowlistedStructuredToolAndContinuesModel(t *test
 		if strings.Contains(message.Content, "下一步创建工作项") {
 			t.Fatalf("display-only commentary leaked into Session history: %#v", messages)
 		}
+	}
+}
+
+func TestRunSupervisorCompletesTwoRealAgentCodeToolRounds(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-agent-code-tools.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	workspaceRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspaceRoot, "README.md"),
+		[]byte("first line\nsecond line\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveWorkspace(ctx, store.WorkspaceRecord{ID: "ws-agent-code-rounds",
+		Name: "agent-code-rounds", RootPath: workspaceRoot,
+		CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	service := application.NewRunService(st)
+	_, run, err := service.Create(ctx, application.CreateRunRequest{
+		Goal: "inspect the workspace in two rounds", Profile: "code", Surface: "code",
+		Phase: "deliver", WorkspaceID: "ws-agent-code-rounds", ModelRoute: "tool-loop/model",
+		Budget: domain.Budget{MaxTurns: 3, MaxToolCalls: 5},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Start(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	provider := &scriptedToolProvider{responses: []*llm.ChatResponse{
+		toolResponse("provider-list", string(toolgateway.WorkspaceListTool),
+			`{"version":"agent-code-tools.v1","path":".","limit":20}`),
+		toolResponse("provider-read", string(toolgateway.WorkspaceReadTool),
+			`{"version":"agent-code-tools.v1","path":"README.md","start_line":1,"end_line":20}`),
+		textResponse(rootActionResponse(domain.RootActionContinue,
+			"workspace inspection completed", "", "")),
+	}}
+	result, err := newToolLoopSupervisor(st, provider).Step(ctx, run.ID)
+	if err != nil || result.ToolRounds != 2 || result.ToolCalls != 2 ||
+		result.ModelAttempts != 3 || result.Text != "workspace inspection completed" {
+		t.Fatalf("agent code tool lifecycle=%#v err=%v", result, err)
+	}
+	requests := provider.Requests()
+	if len(requests) != 3 || !hasToolSpec(requests[0], string(toolgateway.WorkspaceListTool)) ||
+		!hasToolSpec(requests[0], string(toolgateway.WorkspaceApplyTool)) ||
+		!hasToolResult(requests[1], `agent-code-tools.v1`) ||
+		!hasToolResult(requests[2], `first line`) {
+		t.Fatalf("provider did not receive agent code tools/results: %#v", requests)
+	}
+	rounds, err := st.ListRunSupervisorToolRoundsPage(ctx, run.ID, 0, 4)
+	if err != nil || len(rounds) != 2 {
+		t.Fatalf("durable agent code rounds=%#v err=%v", rounds, err)
+	}
+	for _, round := range rounds {
+		if len(round.Calls) != 1 || round.Calls[0].AuthorityJSON == "" ||
+			!strings.Contains(round.Calls[0].AuthorityJSON, `"capability_generation"`) {
+			t.Fatalf("agent code authority was not durable: %#v", round)
+		}
+	}
+	usage, err := st.GetToolCallUsage(ctx, run.ID)
+	if err != nil || usage.Consumed != 2 {
+		t.Fatalf("agent code calls were not budgeted: %#v err=%v", usage, err)
+	}
+	artifacts, err := st.ListRunArtifacts(ctx, artifact.ListFilter{RunID: run.ID})
+	if err != nil || len(artifacts) != 2 {
+		t.Fatalf("agent code artifacts=%#v err=%v", artifacts, err)
+	}
+	artifactTools := map[string]bool{}
+	for _, descriptor := range artifacts {
+		artifactTools[descriptor.ToolName] = true
+		if descriptor.SourceID == "" || descriptor.Stream != artifact.StreamStdout ||
+			descriptor.MIME != "application/json" || descriptor.SizeBytes <= 0 {
+			t.Fatalf("agent code artifact binding=%#v", descriptor)
+		}
+	}
+	if !artifactTools[string(toolgateway.WorkspaceListTool)] ||
+		!artifactTools[string(toolgateway.WorkspaceReadTool)] {
+		t.Fatalf("agent code artifact tools=%#v", artifactTools)
 	}
 }
 
@@ -316,6 +398,82 @@ func TestRunSupervisorRecoversPendingToolResultAcrossStoreRestart(t *testing.T) 
 		countEventType(eventList, events.ToolCompletedEvent) != 1 ||
 		countEventType(eventList, events.SupervisorToolResultEvent) != 1 {
 		t.Fatalf("recovered tool events are inconsistent: %#v err=%v", eventList, err)
+	}
+}
+
+func TestRunSupervisorRecoversPendingAgentCodeReadAcrossStoreRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "supervisor-agent-code-restart.db")
+	workspaceRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspaceRoot, "README.md"),
+		[]byte("durable workspace read\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := st.SaveWorkspace(ctx, store.WorkspaceRecord{ID: "ws-agent-code-restart",
+		Name: "agent-code-restart", RootPath: workspaceRoot,
+		CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	service := application.NewRunService(st)
+	_, run, err := service.Create(ctx, application.CreateRunRequest{
+		Goal: "recover a durable workspace read", Profile: "code", Surface: "code",
+		Phase: "deliver", WorkspaceID: "ws-agent-code-restart", ModelRoute: "tool-loop/model",
+		Budget: domain.Budget{MaxTurns: 3, MaxToolCalls: 5},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Start(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	provider := &scriptedToolProvider{responses: []*llm.ChatResponse{
+		toolResponse("provider-agent-code-before-restart", string(toolgateway.WorkspaceReadTool),
+			`{"version":"agent-code-tools.v1","path":"README.md","start_line":1,"end_line":20}`),
+		textResponse(rootActionResponse(domain.RootActionContinue,
+			"recovered workspace read", "", "")),
+	}}
+	failing := &failOnceToolResultStore{SQLiteStore: st, fail: true}
+	first, err := newToolLoopSupervisor(failing, provider).Step(ctx, run.ID)
+	if apperror.CodeOf(err) != apperror.CodeInternal ||
+		first.Checkpoint.Phase != domain.SupervisorTurnStarted {
+		t.Fatalf("agent code result failure was not recoverable: %#v err=%v", first, err)
+	}
+	rounds, err := st.ListRunSupervisorToolRoundsPage(ctx, run.ID, 0, 4)
+	if err != nil || len(rounds) != 1 || rounds[0].Calls[0].AuthorityJSON == "" ||
+		rounds[0].Calls[0].Status != domain.SupervisorToolPending {
+		t.Fatalf("pending agent code authority=%#v err=%v", rounds, err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err = store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	resumed, err := newToolLoopSupervisor(st, provider).Step(ctx, run.ID)
+	if err != nil || !resumed.Recovered || resumed.ToolRounds != 1 ||
+		resumed.ToolCalls != 1 || resumed.ModelAttempts != 2 ||
+		resumed.Text != "recovered workspace read" {
+		t.Fatalf("pending agent code read was not recovered: %#v err=%v", resumed, err)
+	}
+	usage, err := st.GetToolCallUsage(ctx, run.ID)
+	if err != nil || usage.Consumed != 2 {
+		t.Fatalf("recovered agent code calls were not budgeted: %#v err=%v", usage, err)
+	}
+	artifacts, err := st.ListRunArtifacts(ctx, artifact.ListFilter{RunID: run.ID})
+	if err != nil || len(artifacts) != 2 {
+		t.Fatalf("recovered agent code artifacts=%#v err=%v", artifacts, err)
+	}
+	for _, descriptor := range artifacts {
+		if descriptor.ToolName != string(toolgateway.WorkspaceReadTool) {
+			t.Fatalf("recovered artifact lost tool binding: %#v", descriptor)
+		}
 	}
 }
 

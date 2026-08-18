@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -166,8 +167,9 @@ func (fs WorkspaceFS) resolveExistingFile(requested string) (string, error) {
 	return path, nil
 }
 
-// ResolveForWrite returns a workspace-scoped file path. Existing symlinks are
-// resolved, while new files require an existing parent directory.
+// ResolveForWrite returns a workspace-scoped file path without following
+// symlinks, junctions, reparse-point redirects, or case aliases. New files
+// require an existing real parent directory.
 func (fs WorkspaceFS) ResolveForWrite(requested string) (string, error) {
 	fs = fs.withFallback("")
 	if strings.TrimSpace(fs.Root) == "" {
@@ -185,10 +187,15 @@ func (fs WorkspaceFS) ResolveForWrite(requested string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	root, err = filepath.EvalSymlinks(root)
-	if err != nil {
-		return "", err
+	rootInfo, err := os.Lstat(root)
+	if err != nil || !rootInfo.IsDir() || rootInfo.Mode()&os.ModeSymlink != 0 {
+		return "", errors.New("workspace root must be a real directory")
 	}
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil || !sameWorkspacePath(root, resolvedRoot) {
+		return "", errors.New("workspace root cannot be redirected")
+	}
+	root = filepath.Clean(resolvedRoot)
 	candidate, err := filepath.Abs(filepath.Join(root, requested))
 	if err != nil {
 		return "", err
@@ -197,34 +204,70 @@ func (fs WorkspaceFS) ResolveForWrite(requested string) (string, error) {
 		return "", fmt.Errorf("path escapes workspace: %s", requested)
 	}
 
-	if _, err := os.Lstat(candidate); err == nil {
-		resolved, err := filepath.EvalSymlinks(candidate)
-		if err != nil {
-			return "", err
-		}
-		if !withinRoot(root, resolved) {
-			return "", fmt.Errorf("path escapes workspace: %s", requested)
-		}
-		info, err := os.Stat(resolved)
-		if err != nil {
-			return "", err
-		}
-		if info.IsDir() {
-			return "", fmt.Errorf("%s is a directory", requested)
-		}
-		return resolved, nil
-	} else if !os.IsNotExist(err) {
+	relative, err := filepath.Rel(root, candidate)
+	if err != nil {
 		return "", err
 	}
+	current := root
+	components := strings.Split(relative, string(os.PathSeparator))
+	for index, component := range components {
+		entries, readErr := os.ReadDir(current)
+		if readErr != nil {
+			return "", fmt.Errorf("parent directory must already exist: %w", readErr)
+		}
+		exact, alias := false, false
+		for _, entry := range entries {
+			if entry.Name() == component {
+				exact = true
+				break
+			}
+			if strings.EqualFold(entry.Name(), component) {
+				alias = true
+			}
+		}
+		last := index == len(components)-1
+		if !exact {
+			if alias {
+				return "", errors.New("workspace path casing does not match the stored entry")
+			}
+			if last {
+				return filepath.Join(current, component), nil
+			}
+			return "", errors.New("parent directory must already exist")
+		}
+		current = filepath.Join(current, component)
+		info, infoErr := os.Lstat(current)
+		if infoErr != nil {
+			return "", infoErr
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", errors.New("workspace writes do not follow symbolic links or reparse points")
+		}
+		resolved, resolveErr := filepath.EvalSymlinks(current)
+		if resolveErr != nil || !withinRoot(root, resolved) || !sameWorkspacePath(current, resolved) {
+			return "", errors.New("workspace writes do not follow redirected paths")
+		}
+		if last {
+			if info.IsDir() {
+				return "", fmt.Errorf("%s is a directory", requested)
+			}
+			if !info.Mode().IsRegular() {
+				return "", fmt.Errorf("%s is not a regular file", requested)
+			}
+		} else if !info.IsDir() {
+			return "", errors.New("parent path is not a directory")
+		}
+	}
+	return current, nil
+}
 
-	parent, err := filepath.EvalSymlinks(filepath.Dir(candidate))
-	if err != nil {
-		return "", fmt.Errorf("parent directory must already exist: %w", err)
+func sameWorkspacePath(left, right string) bool {
+	left = filepath.Clean(left)
+	right = filepath.Clean(right)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(left, right)
 	}
-	if !withinRoot(root, parent) {
-		return "", fmt.Errorf("path escapes workspace: %s", requested)
-	}
-	return filepath.Join(parent, filepath.Base(candidate)), nil
+	return left == right
 }
 
 func (fs WorkspaceFS) resolveExistingDir(requested string) (string, error) {

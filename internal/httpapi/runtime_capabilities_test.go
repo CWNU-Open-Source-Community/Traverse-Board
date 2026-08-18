@@ -39,6 +39,7 @@ func TestRuntimeCapabilitiesAreReadOnlyAndDefaultClosed(t *testing.T) {
 		view.HostCommandProposalEnabled ||
 		view.FileEditProposalEnabled || view.ProviderCredentialEnabled ||
 		view.RunWakeWorkerEnabled ||
+		!view.AgentCodeToolsEnabled ||
 		view.CommandRuntimeEnabled || view.ProcessExecutionEnabled || view.ShellExecutionEnabled ||
 		view.DockerExecutionEnabled || view.WakeWorker.Enabled ||
 		view.WakeWorker.State != "disabled" || view.WakeWorker.Active ||
@@ -72,7 +73,8 @@ func TestRuntimeCapabilitiesEnableCommandRuntimeOnlyForFullAccessExecution(t *te
 	if !view.RunExecutionEnabled || !view.ExecutionPermissionControlEnabled ||
 		!view.OperatorApprovalEnabled || !view.DangerFullAccessEnabled ||
 		!view.CommandRuntimeEnabled || !view.ProcessExecutionEnabled ||
-		!view.ShellExecutionEnabled || view.DebugMaximumAccessEnabled {
+		!view.ShellExecutionEnabled || !view.AgentCodeToolsEnabled ||
+		view.DebugMaximumAccessEnabled {
 		t.Fatalf("command runtime capability projection is invalid: %#v", view)
 	}
 }

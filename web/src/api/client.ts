@@ -160,6 +160,7 @@ export interface ClientCapabilities {
   verificationEvidenceEnabled?: boolean;
   embeddedAnalyzerExecutionEnabled?: boolean;
   dockerExecutionEnabled?: boolean;
+  agentCodeToolsEnabled?: boolean;
 }
 
 export class APIRequestError extends Error {
@@ -1096,8 +1097,8 @@ function parseProviderCredentialList(value: unknown): ProviderCredentialListView
 }
 
 function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
-  const capabilityKeys = ["approval_control_enabled", "command_runtime_enabled",
-    "docker_execution_enabled",
+  const capabilityKeys = ["agent_code_tools_enabled", "approval_control_enabled",
+    "command_runtime_enabled", "docker_execution_enabled",
     "browser_cdp_permission_control_enabled", "full_cdp_debug_enabled",
     "controlled_command_proposal_control_enabled",
     "host_command_proposal_control_enabled",
@@ -1243,6 +1244,7 @@ export function clientCapabilitiesFromRuntime(value: RuntimeCapabilitiesView): C
     verificationEvidenceEnabled: value.verification_evidence_enabled,
     embeddedAnalyzerExecutionEnabled: value.embedded_analyzer_execution_enabled,
     dockerExecutionEnabled: value.docker_execution_enabled,
+    agentCodeToolsEnabled: value.agent_code_tools_enabled,
   };
 }
 
@@ -1307,18 +1309,28 @@ function parseFileEditProposalRecovery(value: unknown, runID: string,
 
 function parseFileEditPreview(value: unknown): FileEditQueueView["items"][number] {
   if (!isRecord(value) || !hasOnlyKeys(value, ["allowed_actions", "apply_enabled", "created_at",
-    "diff", "id", "original_hash", "path", "proposed_hash", "reason", "secrets_redacted",
+    "destination_original_hash", "destination_path", "destination_proposed_hash", "diff", "id",
+    "operation", "original_hash", "path", "proposed_hash", "reason", "secrets_redacted",
     "session_id", "status", "updated_at", "workspace_id"]) ||
     !["proposed", "approved", "applied", "denied", "failed"].includes(String(value.status)) ||
+    !["replace", "create", "move", "delete"].includes(String(value.operation)) ||
     !boundedIdentity(value.id) || !boundedIdentity(value.session_id) ||
-    !boundedIdentity(value.workspace_id) || !boundedText(value.path, 4096) ||
+    !boundedIdentity(value.workspace_id) || !validWorkspaceRelativePath(value.path) ||
+    value.path === "." ||
     typeof value.diff !== "string" || value.diff.length > 1_100_000 ||
-    !boundedText(value.original_hash, 128) || !boundedText(value.proposed_hash, 128) ||
+    !(isSHA256(value.original_hash) || value.original_hash === "missing") ||
+    !(isSHA256(value.proposed_hash) || value.proposed_hash === "missing") ||
     typeof value.secrets_redacted !== "boolean" || typeof value.apply_enabled !== "boolean" ||
     !Array.isArray(value.allowed_actions) || value.allowed_actions.length > 2 ||
     !value.allowed_actions.every((action) => action === "approve_intent" || action === "deny") ||
     !validDate(value.created_at) || !validDate(value.updated_at) ||
     (value.reason !== undefined && typeof value.reason !== "string") ||
+    (value.operation === "move" ?
+      (!validWorkspaceRelativePath(value.destination_path) || value.destination_path === "." ||
+        value.destination_path === value.path || value.destination_original_hash !== "missing" ||
+        !isSHA256(value.destination_proposed_hash)) :
+      (value.destination_path !== undefined || value.destination_original_hash !== undefined ||
+        value.destination_proposed_hash !== undefined)) ||
     (value.apply_enabled === true &&
       (value.status !== "approved" || value.allowed_actions.length !== 0))) {
     throw new APIRequestError("File edit preview violated its metadata-only contract",
@@ -1365,14 +1377,20 @@ function parseFileEditChangeSet(value: unknown, runID: string): FileEditChangeSe
       "INVALID_RESPONSE", 502);
   }
   const items = value.items.map((item) => {
-    if (!hasExactKeys(item, ["allowed_actions", "apply_enabled", "diff_bytes", "id", "path",
-      "secrets_redacted", "status", "updated_at"]) || !boundedIdentity(item.id) ||
+    if (!hasOnlyKeys(item, ["allowed_actions", "apply_enabled", "destination_path", "diff_bytes",
+      "id", "operation", "path", "secrets_redacted", "status", "updated_at"]) ||
+      !boundedIdentity(item.id) ||
       !validWorkspaceRelativePath(item.path) || item.path === "." ||
+      !["replace", "create", "move", "delete"].includes(String(item.operation)) ||
+      (item.operation === "move" ?
+        (!validWorkspaceRelativePath(item.destination_path) || item.destination_path === "." ||
+          item.destination_path === item.path) : item.destination_path !== undefined) ||
       !["proposed", "approved", "applied", "denied", "failed"].includes(String(item.status)) ||
       !safeBoundedCount(item.diff_bytes, 1_064_960) ||
       typeof item.secrets_redacted !== "boolean" || typeof item.apply_enabled !== "boolean" ||
       !Array.isArray(item.allowed_actions) || item.allowed_actions.length > 2 ||
-      !item.allowed_actions.every((action) => action === "approve_intent" || action === "deny") ||
+      !item.allowed_actions.every((action: unknown) =>
+        action === "approve_intent" || action === "deny") ||
       !validDate(item.updated_at) ||
       (item.status === "proposed" ?
         !(item.allowed_actions.length === 0 ||

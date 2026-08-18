@@ -13,8 +13,10 @@ import (
 )
 
 const fileEditApplyOperationSelect = `SELECT protocol_version, operation_key_digest,
-	request_fingerprint, run_id, session_id, workspace_id, edit_id, path,
-	original_hash, proposed_hash, observed_hash, applied_by, event_sequence, created_at
+	request_fingerprint, run_id, session_id, workspace_id, edit_id, operation_kind,
+	path, destination_path, original_hash, proposed_hash, observed_hash,
+	destination_original_hash, destination_proposed_hash, destination_observed_hash,
+	applied_by, event_sequence, created_at
 	FROM file_edit_apply_operations `
 
 func (s *SQLiteStore) GetFileEditApplyOperation(ctx context.Context,
@@ -80,10 +82,13 @@ func (s *SQLiteStore) PrepareFileEditApply(ctx context.Context,
 	event, err := appendRunWakeEventTx(ctx, tx, operation.RunID,
 		events.FileEditApplyRequestedEvent, "file_edit_apply", operation.EditID,
 		map[string]any{
-			"operation_key_digest": operation.KeyDigest,
-			"observed_hash":        operation.ObservedHash,
-			"proposed_hash":        operation.ProposedHash,
-			"policy_rechecked":     true,
+			"operation_key_digest":      operation.KeyDigest,
+			"operation":                 operation.Operation,
+			"observed_hash":             operation.ObservedHash,
+			"proposed_hash":             operation.ProposedHash,
+			"destination_observed_hash": operation.DestinationObservedHash,
+			"destination_proposed_hash": operation.DestinationProposedHash,
+			"policy_rechecked":          true,
 		}, operation.CreatedAt)
 	if err != nil {
 		return fileedit.ApplyOperation{}, nil, false, err
@@ -94,12 +99,17 @@ func (s *SQLiteStore) PrepareFileEditApply(ctx context.Context,
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO file_edit_apply_operations
 		(operation_key_digest, request_fingerprint, protocol_version, run_id,
-		 session_id, workspace_id, edit_id, path, original_hash, proposed_hash,
-		 observed_hash, applied_by, event_sequence, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, operation.KeyDigest,
+		 session_id, workspace_id, edit_id, operation_kind, path, destination_path,
+		 original_hash, proposed_hash, observed_hash, destination_original_hash,
+		 destination_proposed_hash, destination_observed_hash,
+		 applied_by, event_sequence, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, operation.KeyDigest,
 		operation.RequestFingerprint, operation.ProtocolVersion, operation.RunID,
-		operation.SessionID, operation.WorkspaceID, operation.EditID, operation.Path,
+		operation.SessionID, operation.WorkspaceID, operation.EditID, operation.Operation,
+		operation.Path, operation.DestinationPath,
 		operation.OriginalHash, operation.ProposedHash, operation.ObservedHash,
+		operation.DestinationOriginalHash, operation.DestinationProposedHash,
+		operation.DestinationObservedHash,
 		operation.AppliedBy, operation.EventSequence, ts(operation.CreatedAt)); err != nil {
 		return fileedit.ApplyOperation{}, nil, false, normalizeFileEditApplyStoreError(err)
 	}
@@ -171,8 +181,11 @@ func scanFileEditApplyOperation(row scanner) (fileedit.ApplyOperation, error) {
 	var createdAt string
 	if err := row.Scan(&value.ProtocolVersion, &value.KeyDigest,
 		&value.RequestFingerprint, &value.RunID, &value.SessionID, &value.WorkspaceID,
-		&value.EditID, &value.Path, &value.OriginalHash, &value.ProposedHash,
-		&value.ObservedHash, &value.AppliedBy, &value.EventSequence, &createdAt); err != nil {
+		&value.EditID, &value.Operation, &value.Path, &value.DestinationPath,
+		&value.OriginalHash, &value.ProposedHash, &value.ObservedHash,
+		&value.DestinationOriginalHash, &value.DestinationProposedHash,
+		&value.DestinationObservedHash, &value.AppliedBy, &value.EventSequence,
+		&createdAt); err != nil {
 		return fileedit.ApplyOperation{}, err
 	}
 	value.CreatedAt = parseTS(createdAt)
@@ -254,7 +267,13 @@ func sameFileEditApplyOperation(stored fileedit.ApplyOperation,
 		stored.RequestFingerprint == requested.RequestFingerprint &&
 		stored.RunID == requested.RunID && stored.SessionID == requested.SessionID &&
 		stored.WorkspaceID == requested.WorkspaceID && stored.EditID == requested.EditID &&
-		stored.Path == requested.Path && stored.OriginalHash == requested.OriginalHash &&
+		stored.Operation == requested.Operation && stored.Path == requested.Path &&
+		stored.DestinationPath == requested.DestinationPath &&
+		stored.OriginalHash == requested.OriginalHash &&
 		stored.ProposedHash == requested.ProposedHash &&
-		stored.ObservedHash == requested.ObservedHash && stored.AppliedBy == requested.AppliedBy
+		stored.ObservedHash == requested.ObservedHash &&
+		stored.DestinationOriginalHash == requested.DestinationOriginalHash &&
+		stored.DestinationProposedHash == requested.DestinationProposedHash &&
+		stored.DestinationObservedHash == requested.DestinationObservedHash &&
+		stored.AppliedBy == requested.AppliedBy
 }

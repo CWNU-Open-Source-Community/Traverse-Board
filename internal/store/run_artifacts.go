@@ -182,7 +182,9 @@ func validateArtifactSourceTx(ctx context.Context, tx *sql.Tx, request artifact.
 	}
 	var status, stdout, stderr string
 	switch request.ToolName {
-	case "read_file", "list_workspace":
+	case "read_file", "list_workspace",
+		"workspace_list", "workspace_read", "workspace_glob", "workspace_grep",
+		"workspace_change", "workspace_apply", "workspace_delete":
 		var runID, sessionID, workspaceID, toolName string
 		if err := tx.QueryRowContext(ctx, `SELECT run_id, session_id, workspace_id, tool_name
 			FROM run_tool_calls WHERE id = ?`, request.SourceID).

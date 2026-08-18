@@ -66,6 +66,7 @@ type ConnectionBootstrap struct {
 	ProcessExecutionEnabled                 bool   `json:"process_execution_enabled"`
 	ShellExecutionEnabled                   bool   `json:"shell_execution_enabled"`
 	DockerExecutionEnabled                  bool   `json:"docker_execution_enabled"`
+	AgentCodeToolsEnabled                   bool   `json:"agent_code_tools_enabled"`
 	SkillInstallationEnabled                bool   `json:"skill_installation_enabled"`
 	EvidenceAttachmentEnabled               bool   `json:"evidence_attachment_enabled"`
 	VerificationEvidenceEnabled             bool   `json:"verification_evidence_enabled"`
@@ -351,6 +352,7 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 			ProcessExecutionEnabled:                 config.UserTerminalEnabled || commandRuntimeEnabled,
 			ShellExecutionEnabled:                   config.UserTerminalEnabled || commandRuntimeEnabled,
 			DockerExecutionEnabled:                  config.DockerExecutionEnabled,
+			AgentCodeToolsEnabled:                   true,
 			SkillInstallationEnabled:                config.SkillInstallationEnabled,
 			EvidenceAttachmentEnabled:               config.EvidenceAttachmentEnabled,
 			VerificationEvidenceEnabled:             config.VerificationEvidenceEnabled,

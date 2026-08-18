@@ -251,7 +251,8 @@ func TestSupervisorCommandRuntimeRequiresCodeDeliverFullAccessAndRuntime(t *test
 		t.Run(test.name, func(t *testing.T) {
 			found := false
 			for _, spec := range supervisorStructuredToolSpecs(test.surface, test.phase,
-				test.mode, false, false, test.enabled) {
+				test.mode, false, false,
+				supervisorToolOptions{CommandRuntimeEnabled: test.enabled}) {
 				found = found || spec.Name == string(toolgateway.CommandRuntimeTool)
 			}
 			if found != test.want {
@@ -264,12 +265,14 @@ func TestSupervisorCommandRuntimeRequiresCodeDeliverFullAccessAndRuntime(t *test
 		Name: string(toolgateway.CommandRuntimeTool), Arguments: payload}}
 	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
 		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionFullAccess, false, false, false); err == nil {
+		domain.RunExecutionPermissionFullAccess, false, false,
+		supervisorToolOptions{}); err == nil {
 		t.Fatal("forged command runtime call was accepted without the runtime")
 	}
 	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
 		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionFullAccess, false, false, true); err != nil {
+		domain.RunExecutionPermissionFullAccess, false, false,
+		supervisorToolOptions{CommandRuntimeEnabled: true}); err != nil {
 		t.Fatalf("authorized command runtime call was rejected: %v", err)
 	}
 	if !recoverableSupervisorToolError(toolgateway.CommandRuntimeTool,

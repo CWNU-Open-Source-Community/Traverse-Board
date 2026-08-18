@@ -131,7 +131,7 @@ func removeSchemaV114ForTestStatements() []string {
 	}...)
 }
 
-func removeSchemaV115ForTestStatements() []string {
+func removeSchemaV116ForTestStatements() []string {
 	statements := []string{
 		`DROP TRIGGER trg_command_runtime_job_delete_immutable`,
 		`DROP TRIGGER trg_command_runtime_job_update_transition`,
@@ -142,8 +142,62 @@ func removeSchemaV115ForTestStatements() []string {
 		`DROP TABLE command_runtime_jobs`,
 	}
 	statements = append(statements, debugTerminalSupervisorLedgerStatements...)
-	return append(statements, `DELETE FROM schema_migrations WHERE version = 115`)
+	return append(statements, `DELETE FROM schema_migrations WHERE version = 116`)
 }
+
+// removeSchemaV115ForTestStatements restores the v114 shapes before older
+// migration tests remove their target version. Every historical downgrade chain
+// reaches this helper, so leaving only the v115 migration row deleted would make
+// v115 reapply ALTER COLUMN statements to an already-v115 schema.
+func removeSchemaV115ForTestStatements() []string {
+	statements := append(removeSchemaV116ForTestStatements(),
+		`DROP TRIGGER trg_file_edit_apply_result_insert`,
+		`DROP TRIGGER trg_file_edit_apply_result_update_immutable`,
+		`DROP TRIGGER trg_file_edit_apply_result_delete_immutable`,
+		`DROP TRIGGER trg_file_edit_apply_operation_insert`,
+		`DROP TRIGGER trg_file_edit_apply_operation_update_immutable`,
+		`DROP TRIGGER trg_file_edit_apply_operation_delete_immutable`,
+		`ALTER TABLE file_edit_apply_results RENAME TO file_edit_apply_results_v115`,
+		`DROP INDEX idx_file_edit_apply_operations_run_created`,
+		`ALTER TABLE file_edit_apply_operations RENAME TO file_edit_apply_operations_v115`,
+	)
+	// The first three v76 statements recreate the v113 operation table, index,
+	// and result table. Copy data before installing the immutable insert guards.
+	statements = append(statements, fileEditApplyStatements[:3]...)
+	statements = append(statements,
+		`INSERT INTO file_edit_apply_operations
+			(operation_key_digest, request_fingerprint, protocol_version, run_id, session_id,
+			 workspace_id, edit_id, path, original_hash, proposed_hash, observed_hash,
+			 applied_by, event_sequence, created_at)
+		 SELECT operation_key_digest, request_fingerprint, protocol_version, run_id, session_id,
+			 workspace_id, edit_id, path, original_hash, proposed_hash, observed_hash,
+			 applied_by, event_sequence, created_at
+		 FROM file_edit_apply_operations_v115 WHERE operation_kind = 'replace'`,
+		`INSERT INTO file_edit_apply_results
+			(operation_key_digest, status, reason_code, event_sequence, completed_at)
+		 SELECT result.operation_key_digest, result.status, result.reason_code,
+			 result.event_sequence, result.completed_at
+		 FROM file_edit_apply_results_v115 result
+		 JOIN file_edit_apply_operations operation
+			 ON operation.operation_key_digest = result.operation_key_digest`,
+		`DROP TABLE file_edit_apply_results_v115`,
+		`DROP TABLE file_edit_apply_operations_v115`,
+	)
+	statements = append(statements, fileEditApplyStatements[3:]...)
+	// Rebuilding the v115 Supervisor table with the v113 migration statements
+	// deliberately discards only the v115 Go-issued authority column. Historical
+	// non-workspace calls and every other durable field are preserved.
+	statements = append(statements, debugTerminalSupervisorLedgerStatements...)
+	statements = append(statements,
+		`ALTER TABLE file_edits DROP COLUMN destination_proposed_hash`,
+		`ALTER TABLE file_edits DROP COLUMN destination_original_hash`,
+		`ALTER TABLE file_edits DROP COLUMN destination_path`,
+		`ALTER TABLE file_edits DROP COLUMN operation_kind`,
+		`DELETE FROM schema_migrations WHERE version = 115`,
+	)
+	return statements
+}
+
 func TestSkillCatalogMigrationAndRemovalChain(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "skill-catalog-migration.db"))
 	if err != nil {

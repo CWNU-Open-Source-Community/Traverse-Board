@@ -218,8 +218,9 @@ func (s *SQLiteStore) ListFileEditPreviewsPage(ctx context.Context,
 	if err := validateStoreReadPage(offset, limit); err != nil {
 		return nil, err
 	}
-	query := `SELECT id, session_id, workspace_id, path, status, diff_text,
-		original_hash, proposed_hash, reason, secrets_redacted, created_at, updated_at
+	query := `SELECT id, session_id, workspace_id, path, operation_kind, destination_path,
+		status, diff_text, original_hash, proposed_hash, destination_original_hash,
+		destination_proposed_hash, reason, secrets_redacted, created_at, updated_at
 		FROM file_edits WHERE 1=1`
 	var args []any
 	if sessionID := strings.TrimSpace(filter.SessionID); sessionID != "" {
@@ -256,8 +257,10 @@ func (s *SQLiteStore) ListFileEditPreviewsPage(ctx context.Context,
 }
 
 func (s *SQLiteStore) GetFileEditPreview(ctx context.Context, id string) (fileedit.Preview, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, session_id, workspace_id, path, status, diff_text,
-		original_hash, proposed_hash, reason, secrets_redacted, created_at, updated_at
+	row := s.db.QueryRowContext(ctx, `SELECT id, session_id, workspace_id, path,
+		operation_kind, destination_path, status, diff_text, original_hash, proposed_hash,
+		destination_original_hash, destination_proposed_hash,
+		reason, secrets_redacted, created_at, updated_at
 		FROM file_edits WHERE id = ?`, strings.TrimSpace(id))
 	return scanFileEditPreview(row)
 }

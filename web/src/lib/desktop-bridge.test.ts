@@ -4,6 +4,7 @@ import type { DesktopSkillPreview } from "./desktop-bridge";
 
 const bootstrap = {
   protocol_version: "desktop_connection_bootstrap.v1",
+  agent_code_tools_enabled: true,
   api_base_url: "/api/v1",
   api_version: "api.v1",
   app_version: "v0.1.0",

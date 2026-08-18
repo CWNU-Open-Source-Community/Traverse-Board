@@ -1,12 +1,12 @@
-# ADR 0116: 普通模式 Run-owned 命令运行时 / Ordinary-mode Run-owned Command Runtime
+# ADR 0117: 普通模式 Run-owned 命令运行时 / Ordinary-mode Run-owned Command Runtime
 
 Date: 2026-08-19
 
 ## Status / 状态
 
-Accepted for schema v115 and the `command-runtime.v2` root-Supervisor tool.
+Accepted for schema v116 and the `command-runtime.v2` root-Supervisor tool.
 
-已接受，用于 schema v115 与 root Supervisor 的 `command-runtime.v2` 工具。
+已接受，用于 schema v116 与 root Supervisor 的 `command-runtime.v2` 工具。
 
 ## Context / 背景
 
@@ -207,7 +207,7 @@ file-only transport，Go/Cargo/npm/pip/uv 使用不可覆盖的 offline 默认�
 - Background work is resumable across model turns and renderer disconnects while
   the owning application remains alive, but is intentionally interrupted across an
   application crash/restart.
-- Schema v115 stores immutable launch material, owner-heartbeat state, bounded
+- Schema v116 stores immutable launch material, owner-heartbeat state, bounded
   sanitized terminal evidence, and `command_runtime` Supervisor calls. It stores no
   process handle, raw pre-sanitized output, or startup capability. Normalized,
   bounded, secret-screened stdin remains in the durable Supervisor call payload for

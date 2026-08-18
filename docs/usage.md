@@ -75,6 +75,31 @@ cyberagent run resume <run-id>
 cyberagent run cancel <run-id>
 ```
 
+Schema v115 exposes `agent-code-tools.v1` to the root Supervisor during ordinary
+`run step` or `run execute` model rounds. It is not a separate user command and it
+does not grant a shell. Code/Plan exposes bounded `workspace_list`,
+`workspace_read`, `workspace_glob`, and `workspace_grep`. Code/Deliver keeps those
+reads and, only for Code or Script Profiles, adds `workspace_change`,
+`workspace_apply`, and the separately confirmed `workspace_delete`. Review/Learn
+remain read-only; Cyber and Specialist receive none of these tools.
+
+`workspace_change` can propose one exact replace, create, or move. A human reviews
+the resulting FileEdit through the existing CLI/API/Desktop approval flow before
+`workspace_apply` can write it. Deletion uses its own tool and confirmation path.
+Go revalidates the persisted Run/Mission/Workspace/root, mode and permission
+revisions, exact reviewed operation, source/destination hashes, Policy, and budget
+at execution time. Directory/file results are stable, cursor-paginated, bounded,
+secret-redacted untrusted evidence; hidden entries other than the Go-allowlisted
+`.github` code-evidence tree, ignored entries, links/reparse points,
+binary/non-UTF-8 data, oversized files, root escape, and casing ambiguity fail
+closed. Calls, refusals, bounded results, and read Artifacts survive Run recovery.
+
+`cyberagent run show <run-id>` prints `agent_code_tools_protocol`, the capability
+generation, and one availability/refusal line per tool. The same snapshot is
+available in `GET /api/v1/runs/{run_id}` and the Desktop Run overview. Runs created
+without a registered Workspace retain compatibility, but their snapshot marks all
+seven tools unavailable and the Supervisor does not advertise them.
+
 `browser-cdp-permission` 与宿主执行权限正交。`restricted` 只记录未来导航、DOM
 和截图的能力上限；`full_debug` 还包含请求改写/重放、Cookie 和任意 CDP 方法，
 属于“高度敏感权限”。当前两档都固定
@@ -1286,7 +1311,7 @@ reason `inline_window` or `artifact_limit` when applicable. Sanitized terminal
 output up to the declared 4 MiB-per-stream cap is committed through the existing
 Run Artifact path; tool metadata returns Artifact IDs and SHA-256 values.
 
-Schema v115 stores the canonical launch intent before process creation under the
+Schema v116 stores the canonical launch intent before process creation under the
 current turn generation. A separate expiring process-owner heartbeat then permits
 a later turn in the same host process to continue the Job without keeping
 the turn lease open. Root/mode/profile/permission/Workspace-root drift kills live
@@ -1306,7 +1331,7 @@ This is not packet-level host containment: `full_access` remains unsandboxed hos
 execution, retains the host OS user token, and cannot prove that credential files are
 unreadable. Commands that need network/credentials or trigger per-command approval
 must use a separate reviewed one-shot path; use Docker `network none` when actual
-network containment evidence is required. See [ADR 0116](adr/0116-run-owned-command-runtime.md).
+network containment evidence is required. See [ADR 0117](adr/0117-run-owned-command-runtime.md).
 
 ## Review-Gated PowerShell and Git Bash
 

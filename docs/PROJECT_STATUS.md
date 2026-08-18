@@ -6,7 +6,7 @@ Last updated: 2026-08-19
 
 ## Resume Context
 
-当前检查点是 issue #100 / schema v115 的普通模式 Run-owned 命令闭环。root
+当前检查点是 issue #100 / schema v116 的普通模式 Run-owned 命令闭环。root
 Supervisor 仅在 Code/Local/Deliver、durable `full_access`、当前 execution lease 与
 进程内 danger-full-access capability 同时成立时看到 `command_runtime`。固定
 PowerShell/Bash 与绝对路径原生进程支持有序批次、单调 stdout/stderr cursor、受限
@@ -15,9 +15,22 @@ SHA-256 的 Run Artifact。启动 turn lease 只 fence write-ahead intent；独�
 owner generation/heartbeat 跨 turn 持有 live handle，Windows Job Object 与 POSIX
 guardian/process group 负责崩溃整树清理，重启不收养或重放 PID。Desktop/API capability
 与用户终端、Debug terminal、审批 one-shot、Docker 分开。网络/凭证只接受
-`disabled`/`none`；宿主 full-access 不是 packet sandbox。详见 ADR 0116。
+`disabled`/`none`；宿主 full-access 不是 packet sandbox。详见 ADR 0117。
 
-前一检查点是 schema v110-v112 的 mode-aware Skill 模型与不可信生成候选审查。
+前一检查点是 issue #99 / schema v115 的模型可调用工作区工具。Go-owned
+`agent-code-tools.v1` Registry 向 Code/root 暴露四项有界读取工具，并仅在
+Deliver + Code/Script Profile 增加变更提案、精确应用和独立删除工具；Plan、
+Review/Learn、Cyber 与 Specialist 按矩阵保持只读或完全不可用。每轮 authority
+绑定 Run/Mission/Workspace/root fingerprint、模式、权限及 revision，在执行前重新
+校验；模型不能通过参数取得 authority。路径边界拒绝大小写别名、隐藏/忽略项、
+link/reparse、二进制/非 UTF-8 与超限内容；写入沿用人工审查并增加 source/destination
+CAS。调用、结果/拒绝、预算和有界 Artifact 进入可恢复 Supervisor 账本，CLI、
+HTTP/OpenAPI 与 Desktop 均显示 generation 和逐工具拒绝原因。完整边界见 ADR 0116。
+
+前一检查点是 schema v113 的真实 Shell transport 与受监督 Debug terminal；其
+PowerShell/Git Bash、终端租约和独立权限边界保持不变。
+
+再前一检查点是 schema v110-v112 的 mode-aware Skill 模型与不可信生成候选审查。
 内置 Registry 现有 12 项；Surface/Phase/Profile/Role 共同决定 root/Specialist 正文
 交付，schema v110 为每个 root turn 固定实际阶段子集并允许空交付。七项优先通用能力
 （增强 review、doctor、debug、run-verify/ui-evidence、focused-checks、simplify、
@@ -984,7 +997,7 @@ Residual risks to address soon:
 - Automatic workspace read outcomes are normalized but are not independently persisted when invoked by standalone CLI commands; Session slash-command text is still audited through Session messages.
 - Secret redaction is heuristic, not a full secrets manager; add opt-in raw local inspection later only with clear warnings.
 - Binary or non-UTF-8 files are refused by `read_file`; richer file viewers should stay workspace-scoped and type-aware.
-- File edit writes re-resolve and re-hash immediately before `os.WriteFile`, but portable Go cannot fully eliminate filesystem TOCTOU races without OS-specific no-follow/open-handle code. Keep workspace permissions as the primary local boundary.
+- FileEdit mutations now run through a verified Go `os.Root` directory handle; create and move publish without clobbering a concurrent destination, and an interrupted move is recoverable. Replacement still re-hashes immediately before atomic rename, so a non-cooperating local writer can race the final content-CAS window even though it cannot redirect the operation outside the opened Workspace. Keep workspace permissions as an additional local boundary.
 - The symlink-escape unit test is skipped on this Windows account because creating symlinks requires an unavailable privilege; traversal, path resolution, and stale-file tests pass, and the runtime still resolves links before accepting a path.
 - Docker runner intentionally returns a clear placeholder error and is not a real isolation boundary yet.
 - Session `/run` now creates a persisted tool proposal; approval still dry-runs by design. Real execution must flow through stricter workspace scoping, sandbox, and event logging.

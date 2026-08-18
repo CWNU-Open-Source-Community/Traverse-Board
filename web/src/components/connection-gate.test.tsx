@@ -51,6 +51,7 @@ describe("ConnectionGate", () => {
   it("auto-connects a closed-authority Desktop bootstrap without rendering its token", async () => {
     const bootstrap = vi.fn().mockResolvedValue({
       protocol_version: "desktop_connection_bootstrap.v1",
+      agent_code_tools_enabled: true,
       api_base_url: "/api/v1",
       api_version: "api.v1",
       app_version: "v0.1.0",
@@ -120,6 +121,7 @@ describe("ConnectionGate", () => {
 function runtimeCapabilities() {
   return {
     protocol_version: "runtime_capabilities.v1",
+    agent_code_tools_enabled: true,
     execution_permission_control_enabled: true, operator_approval_enabled: true,
     danger_full_access_enabled: true, debug_maximum_access_enabled: true,
     command_runtime_enabled: true,

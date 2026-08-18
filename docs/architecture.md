@@ -658,7 +658,7 @@ The same Go adapter owns read projections for the bounded Agent graph, operator-
 
 ## Persistence
 
-SQLite remains the local source of truth. Schema migration `v1` records the legacy baseline, `v2`-`v18` establish the Run/Supervisor/memory/tool/Artifact/lease control plane, `v19`-`v38` add bounded Agent coordination, reviewed delegation, read-only Fan-out, Findings, and operator scheduling, and `v39`-`v47` add immutable Skill selection/context, Run modes, Plan/Delivery, provenance, checkpoints, steering, and Specialist minimization. Schemas `v48`-`v63` build the still-disabled Sandbox evidence and recovery chain; `v64`-`v68` add non-authorizing execution-profile and Docker production-evidence decisions; `v69`-`v71` add the inert user Skill Registry, exact Run selection/context, and read-only provenance; `v72`-`v113` continue the audited Run, Desktop, Provider, browser, Analyzer, Docker, dependency, MCP, project-config, Git, external-Skill, and Debug-terminal control planes; `v114` adds explicit long-term memory plus immutable instruction/continuity ledgers without authority restoration; and `v115` adds the Run-owned ordinary command runtime and its Supervisor call ledger. Non-schema D1-B1 exposes the existing v69 Registry through inert HTTP/Desktop confirmation and adds no migration. Migrations are ordered, checksummed, transactional, and safe to apply repeatedly; legacy databases are upgraded without deleting their data or fabricating new operator decisions.
+SQLite remains the local source of truth. Schema migration `v1` records the legacy baseline, `v2`-`v18` establish the Run/Supervisor/memory/tool/Artifact/lease control plane, `v19`-`v38` add bounded Agent coordination, reviewed delegation, read-only Fan-out, Findings, and operator scheduling, and `v39`-`v47` add immutable Skill selection/context, Run modes, Plan/Delivery, provenance, checkpoints, steering, and Specialist minimization. Schemas `v48`-`v63` build the still-disabled Sandbox evidence and recovery chain; `v64`-`v68` add non-authorizing execution-profile and Docker production-evidence decisions; `v69`-`v71` add the inert user Skill Registry, exact Run selection/context, and read-only provenance; `v72`-`v113` continue the audited Run, Desktop, Provider, browser, Analyzer, Docker, dependency, MCP, project-config, Git, external-Skill, and Debug-terminal control planes; `v114` adds explicit long-term memory plus immutable instruction/continuity ledgers without authority restoration; `v115` adds model-callable workspace tools and hash-guarded file mutations; and `v116` adds the Run-owned ordinary command runtime and its Supervisor call ledger. Non-schema D1-B1 exposes the existing v69 Registry through inert HTTP/Desktop confirmation and adds no migration. Migrations are ordered, checksummed, transactional, and safe to apply repeatedly; legacy databases are upgraded without deleting their data or fabricating new operator decisions.
 
 ```text
 missions
@@ -1136,7 +1136,7 @@ group cleanup. Cyber and Plan do not expose the tool.
 
 ## Run-Owned Ordinary Command Runtime
 
-ADR 0116 adds `command-runtime.v2` as a fourth, separately owned execution path.
+ADR 0117 adds `command-runtime.v2` as a fourth, separately owned execution path.
 It is neither the user terminal nor its Debug input lease, neither an approval
 proposal nor Docker. Only the root Supervisor in Code/Local/Deliver with current
 `full_access`, a live execution lease, and the process-local danger-full-access
@@ -1154,7 +1154,7 @@ a stateful chunk decoder before storage and again at the model boundary. The
 projection always marks it as untrusted and records ownership as
 `run_owned_command_runtime`, with user-terminal/debug-terminal/sandbox sharing false.
 
-Schema v115 stores a write-ahead immutable launch intent fenced by the starting
+Schema v116 stores a write-ahead immutable launch intent fenced by the starting
 Supervisor generation. Live handles then belong to a distinct random process owner
 and generation whose heartbeat expires after 15 seconds. Releasing the turn lease
 does not kill the Job, so a later turn in the same host process can continue it;

@@ -1,249 +1,188 @@
 package store
 
-// commandRuntimeStatements adds the Run-owned command-runtime.v2 job ledger and
-// widens the Supervisor tool-call registry. The database validates every
-// launch against the exact current Code/Deliver, local-profile, full-access,
-// and generation-lease snapshots; process-local startup capabilities remain a
-// separate application check and are deliberately never persisted as grants.
-var commandRuntimeStatements = []string{
-	`CREATE TABLE command_runtime_jobs (
-		id TEXT PRIMARY KEY,
-		protocol_version TEXT NOT NULL,
-		operation_digest TEXT NOT NULL UNIQUE,
+// agentCodeToolStatements adds operation-aware FileEdit state and widens the
+// Supervisor ledger to the versioned agent-code-tools.v1 registry. Existing
+// replacement edits and apply receipts are copied as operation_kind=replace.
+var agentCodeToolStatements = []string{
+	`ALTER TABLE file_edits ADD COLUMN operation_kind TEXT NOT NULL DEFAULT 'replace'
+		CHECK(operation_kind IN ('replace', 'create', 'move', 'delete'));`,
+	`ALTER TABLE file_edits ADD COLUMN destination_path TEXT NOT NULL DEFAULT '';`,
+	`ALTER TABLE file_edits ADD COLUMN destination_original_hash TEXT NOT NULL DEFAULT '';`,
+	`ALTER TABLE file_edits ADD COLUMN destination_proposed_hash TEXT NOT NULL DEFAULT '';`,
+
+	`DROP TRIGGER trg_file_edit_apply_result_insert;`,
+	`DROP TRIGGER trg_file_edit_apply_result_update_immutable;`,
+	`DROP TRIGGER trg_file_edit_apply_result_delete_immutable;`,
+	`DROP TRIGGER trg_file_edit_apply_operation_insert;`,
+	`DROP TRIGGER trg_file_edit_apply_operation_update_immutable;`,
+	`DROP TRIGGER trg_file_edit_apply_operation_delete_immutable;`,
+	`ALTER TABLE file_edit_apply_results RENAME TO file_edit_apply_results_v114;`,
+	`DROP INDEX idx_file_edit_apply_operations_run_created;`,
+	`ALTER TABLE file_edit_apply_operations RENAME TO file_edit_apply_operations_v114;`,
+	`CREATE TABLE file_edit_apply_operations (
+		operation_key_digest TEXT PRIMARY KEY,
 		request_fingerprint TEXT NOT NULL,
-		invocation_id TEXT NOT NULL,
+		protocol_version TEXT NOT NULL,
 		run_id TEXT NOT NULL,
-		mission_id TEXT NOT NULL,
 		session_id TEXT NOT NULL,
 		workspace_id TEXT NOT NULL,
-		root_agent_id TEXT NOT NULL,
-		workspace_root_sha256 TEXT NOT NULL,
-		mode_snapshot_id TEXT NOT NULL,
-		mode_revision INTEGER NOT NULL,
-		profile_snapshot_id TEXT NOT NULL,
-		profile_revision INTEGER NOT NULL,
-		permission_snapshot_id TEXT NOT NULL,
-		permission_revision INTEGER NOT NULL,
-		permission_mode TEXT NOT NULL,
-		lease_id TEXT NOT NULL,
-		lease_generation INTEGER NOT NULL,
-		lease_owner_id TEXT NOT NULL,
-		owner_id TEXT NOT NULL,
-		owner_generation INTEGER NOT NULL,
-		owner_renewed_at TEXT NOT NULL,
-		owner_expires_at TEXT NOT NULL,
-		intent_json TEXT NOT NULL,
-		spec_fingerprint TEXT NOT NULL,
-		profile TEXT NOT NULL,
-		executable_path TEXT NOT NULL,
-		executable_sha256 TEXT NOT NULL,
-		environment_sha256 TEXT NOT NULL,
-		working_directory TEXT NOT NULL,
-		stdin_policy TEXT NOT NULL,
-		network TEXT NOT NULL,
-		credentials TEXT NOT NULL,
-		timeout_milliseconds INTEGER NOT NULL,
-		inline_limit_bytes INTEGER NOT NULL,
-		artifact_limit_bytes INTEGER NOT NULL,
-		state TEXT NOT NULL,
-		pid INTEGER NOT NULL,
-		process_group INTEGER NOT NULL,
-		stdout TEXT NOT NULL,
-		stderr TEXT NOT NULL,
-		stdout_observed_bytes INTEGER NOT NULL,
-		stderr_observed_bytes INTEGER NOT NULL,
-		output_cursor INTEGER NOT NULL,
-		output_base_cursor INTEGER NOT NULL,
-		output_frames_json TEXT NOT NULL,
-		stdout_sha256 TEXT NOT NULL,
-		stderr_sha256 TEXT NOT NULL,
-		truncation_reason TEXT NOT NULL,
-		exit_code INTEGER,
-		timed_out INTEGER NOT NULL,
-		cancelled INTEGER NOT NULL,
-		killed INTEGER NOT NULL,
-		tree_reaped INTEGER NOT NULL,
-		job_assigned_at_creation INTEGER NOT NULL,
-		stdin_closed INTEGER NOT NULL,
-		stdin_write_count INTEGER NOT NULL,
-		version INTEGER NOT NULL,
+		edit_id TEXT NOT NULL UNIQUE,
+		operation_kind TEXT NOT NULL,
+		path TEXT NOT NULL,
+		destination_path TEXT NOT NULL,
+		original_hash TEXT NOT NULL,
+		proposed_hash TEXT NOT NULL,
+		observed_hash TEXT NOT NULL,
+		destination_original_hash TEXT NOT NULL,
+		destination_proposed_hash TEXT NOT NULL,
+		destination_observed_hash TEXT NOT NULL,
+		applied_by TEXT NOT NULL,
+		event_sequence INTEGER NOT NULL,
 		created_at TEXT NOT NULL,
-		started_at TEXT,
-		completed_at TEXT,
-		updated_at TEXT NOT NULL,
 		FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE RESTRICT,
-		FOREIGN KEY(mission_id) REFERENCES missions(id) ON DELETE RESTRICT,
 		FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE RESTRICT,
 		FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE RESTRICT,
-		FOREIGN KEY(run_id, root_agent_id) REFERENCES agent_nodes(run_id, id) ON DELETE RESTRICT,
-		FOREIGN KEY(mode_snapshot_id) REFERENCES run_mode_snapshots(id) ON DELETE RESTRICT,
-		FOREIGN KEY(profile_snapshot_id) REFERENCES run_execution_profile_snapshots(id) ON DELETE RESTRICT,
-		FOREIGN KEY(permission_snapshot_id) REFERENCES run_execution_permission_snapshots(id) ON DELETE RESTRICT,
-		CHECK(protocol_version = 'command-runtime.v2'),
-		CHECK(profile IN ('powershell', 'bash', 'process')),
-		CHECK(stdin_policy IN ('closed', 'pipe')),
-		CHECK(network = 'disabled' AND credentials = 'none'),
-		CHECK(permission_mode = 'full_access'),
-		CHECK(mode_revision > 0 AND profile_revision > 0 AND permission_revision > 0
-			AND lease_generation > 0 AND owner_generation > 0),
-		CHECK(timeout_milliseconds BETWEEN 1 AND 1800000),
-		CHECK(inline_limit_bytes BETWEEN 4096 AND 524288),
-		CHECK(artifact_limit_bytes BETWEEN inline_limit_bytes AND 4194304),
-		CHECK(state IN ('prepared', 'running', 'stopping', 'completed', 'failed',
-			'timed_out', 'cancelled', 'killed', 'interrupted')),
-		CHECK(pid >= 0 AND process_group >= 0),
-		CHECK(length(CAST(stdout AS BLOB)) <= artifact_limit_bytes
-			AND length(CAST(stderr AS BLOB)) <= artifact_limit_bytes),
-		CHECK(stdout_observed_bytes >= 0 AND stderr_observed_bytes >= 0),
-		CHECK(output_cursor >= 0 AND output_base_cursor BETWEEN 0 AND output_cursor),
-		CHECK(json_valid(output_frames_json)
-			AND length(CAST(output_frames_json AS BLOB)) BETWEEN 2 AND 2097152),
-		CHECK(length(stdout_sha256) IN (0, 64) AND length(stderr_sha256) IN (0, 64)),
-		CHECK(truncation_reason IN ('', 'inline_window', 'artifact_limit')),
-		CHECK(timed_out IN (0, 1) AND cancelled IN (0, 1) AND killed IN (0, 1)
-			AND tree_reaped IN (0, 1) AND job_assigned_at_creation IN (0, 1)
-			AND stdin_closed IN (0, 1)),
-		CHECK(stdin_write_count BETWEEN 0 AND 64 AND version > 0),
-		CHECK(julianday(created_at) IS NOT NULL AND julianday(updated_at) IS NOT NULL
-			AND julianday(updated_at) >= julianday(created_at)),
-		CHECK(julianday(owner_renewed_at) IS NOT NULL
-			AND julianday(owner_expires_at) IS NOT NULL
-			AND julianday(owner_renewed_at) >= julianday(created_at)
-			AND julianday(owner_expires_at) > julianday(owner_renewed_at)
-			AND julianday(updated_at) >= julianday(owner_renewed_at)),
-		CHECK((state = 'prepared' AND pid = 0 AND process_group = 0
-				AND started_at IS NULL AND completed_at IS NULL AND exit_code IS NULL)
-			OR (state IN ('running', 'stopping') AND pid > 0 AND process_group > 0
-				AND job_assigned_at_creation = 1 AND started_at IS NOT NULL
-				AND completed_at IS NULL AND exit_code IS NULL AND tree_reaped = 0)
-			OR (state IN ('completed', 'failed', 'timed_out', 'cancelled', 'killed', 'interrupted')
-				AND started_at IS NOT NULL AND completed_at IS NOT NULL
-				AND exit_code IS NOT NULL AND tree_reaped = 1)),
-		CHECK(timed_out = (state = 'timed_out') AND cancelled = (state = 'cancelled')
-			AND killed = (state = 'killed')),
-		CHECK(length(CAST(intent_json AS BLOB)) BETWEEN 2 AND 262144
-			AND json_valid(intent_json)),
-		CHECK(length(id) BETWEEN 1 AND 256 AND id = trim(id) AND instr(id, char(0)) = 0),
-		CHECK(length(invocation_id) BETWEEN 1 AND 256 AND invocation_id = trim(invocation_id)
-			AND instr(invocation_id, char(0)) = 0),
-		CHECK(length(run_id) BETWEEN 1 AND 256 AND run_id = trim(run_id) AND instr(run_id, char(0)) = 0),
-		CHECK(length(mission_id) BETWEEN 1 AND 256 AND mission_id = trim(mission_id) AND instr(mission_id, char(0)) = 0),
-		CHECK(length(session_id) BETWEEN 1 AND 256 AND session_id = trim(session_id) AND instr(session_id, char(0)) = 0),
-		CHECK(length(workspace_id) BETWEEN 1 AND 256 AND workspace_id = trim(workspace_id) AND instr(workspace_id, char(0)) = 0),
-		CHECK(length(root_agent_id) BETWEEN 1 AND 256 AND root_agent_id = trim(root_agent_id) AND instr(root_agent_id, char(0)) = 0),
-		CHECK(length(lease_id) BETWEEN 1 AND 256 AND lease_id = trim(lease_id) AND instr(lease_id, char(0)) = 0),
-		CHECK(length(lease_owner_id) BETWEEN 1 AND 256 AND lease_owner_id = trim(lease_owner_id) AND instr(lease_owner_id, char(0)) = 0),
-		CHECK(length(owner_id) BETWEEN 1 AND 256 AND owner_id = trim(owner_id) AND instr(owner_id, char(0)) = 0),
-		CHECK(length(executable_path) BETWEEN 1 AND 4096 AND executable_path = trim(executable_path)
-			AND instr(executable_path, char(0)) = 0),
-		CHECK(length(working_directory) BETWEEN 1 AND 4096 AND working_directory = trim(working_directory)
-			AND instr(working_directory, char(0)) = 0),
-		CHECK(length(operation_digest) = 64 AND operation_digest = lower(operation_digest)
-			AND operation_digest NOT GLOB '*[^0-9a-f]*'),
+		FOREIGN KEY(edit_id) REFERENCES file_edits(id) ON DELETE RESTRICT,
+		CHECK(protocol_version = 'file_edit_apply.v1'),
+		CHECK(operation_kind IN ('replace', 'create', 'move', 'delete')),
+		CHECK(length(operation_key_digest) = 64 AND operation_key_digest = lower(operation_key_digest)
+			AND operation_key_digest NOT GLOB '*[^0-9a-f]*'),
 		CHECK(length(request_fingerprint) = 64 AND request_fingerprint = lower(request_fingerprint)
 			AND request_fingerprint NOT GLOB '*[^0-9a-f]*'),
-		CHECK(length(workspace_root_sha256) = 64 AND workspace_root_sha256 = lower(workspace_root_sha256)
-			AND workspace_root_sha256 NOT GLOB '*[^0-9a-f]*'),
-		CHECK(length(spec_fingerprint) = 64 AND spec_fingerprint = lower(spec_fingerprint)
-			AND spec_fingerprint NOT GLOB '*[^0-9a-f]*'),
-		CHECK(length(executable_sha256) = 64 AND executable_sha256 = lower(executable_sha256)
-			AND executable_sha256 NOT GLOB '*[^0-9a-f]*'),
-		CHECK(length(environment_sha256) = 64 AND environment_sha256 = lower(environment_sha256)
-			AND environment_sha256 NOT GLOB '*[^0-9a-f]*'),
-		CHECK(stdout_sha256 = '' OR (stdout_sha256 = lower(stdout_sha256)
-			AND stdout_sha256 NOT GLOB '*[^0-9a-f]*')),
-		CHECK(stderr_sha256 = '' OR (stderr_sha256 = lower(stderr_sha256)
-			AND stderr_sha256 NOT GLOB '*[^0-9a-f]*'))
-	);`,
-	`CREATE INDEX idx_command_runtime_jobs_run_created
-		ON command_runtime_jobs(run_id, created_at DESC, id);`,
-	`CREATE INDEX idx_command_runtime_jobs_active
-		ON command_runtime_jobs(state, run_id, updated_at);`,
-	`CREATE TRIGGER trg_command_runtime_job_insert_scope
-		BEFORE INSERT ON command_runtime_jobs
+		CHECK(original_hash = 'missing' OR (length(original_hash) = 64
+			AND original_hash = lower(original_hash) AND original_hash NOT GLOB '*[^0-9a-f]*')),
+		CHECK(proposed_hash = 'missing' OR (length(proposed_hash) = 64
+			AND proposed_hash = lower(proposed_hash) AND proposed_hash NOT GLOB '*[^0-9a-f]*')),
+		CHECK(observed_hash IN (original_hash, proposed_hash)),
+		CHECK((operation_kind = 'move' AND length(destination_path) BETWEEN 1 AND 512
+			AND destination_original_hash = 'missing'
+			AND length(destination_proposed_hash) = 64
+			AND destination_proposed_hash = lower(destination_proposed_hash)
+			AND destination_proposed_hash NOT GLOB '*[^0-9a-f]*'
+			AND destination_observed_hash IN (destination_original_hash, destination_proposed_hash))
+			OR (operation_kind != 'move' AND destination_path = ''
+				AND destination_original_hash = '' AND destination_proposed_hash = ''
+				AND destination_observed_hash = '')),
+		CHECK(event_sequence > 0),
+		CHECK(path = trim(path) AND length(path) BETWEEN 1 AND 512 AND instr(path, char(0)) = 0),
+		CHECK(applied_by = trim(applied_by) AND length(applied_by) BETWEEN 1 AND 256
+			AND instr(applied_by, char(0)) = 0)
+	) WITHOUT ROWID;`,
+	`INSERT INTO file_edit_apply_operations
+		(operation_key_digest, request_fingerprint, protocol_version, run_id, session_id,
+		 workspace_id, edit_id, operation_kind, path, destination_path, original_hash,
+		 proposed_hash, observed_hash, destination_original_hash,
+		 destination_proposed_hash, destination_observed_hash, applied_by, event_sequence,
+		 created_at)
+		SELECT operation_key_digest, request_fingerprint, protocol_version, run_id, session_id,
+		 workspace_id, edit_id, 'replace', path, '', original_hash, proposed_hash,
+		 observed_hash, '', '', '', applied_by, event_sequence, created_at
+		FROM file_edit_apply_operations_v114;`,
+	`CREATE INDEX idx_file_edit_apply_operations_run_created
+		ON file_edit_apply_operations(run_id, created_at);`,
+	`CREATE TABLE file_edit_apply_results (
+		operation_key_digest TEXT PRIMARY KEY,
+		status TEXT NOT NULL,
+		reason_code TEXT NOT NULL,
+		event_sequence INTEGER NOT NULL,
+		completed_at TEXT NOT NULL,
+		FOREIGN KEY(operation_key_digest) REFERENCES file_edit_apply_operations(operation_key_digest)
+			ON DELETE RESTRICT,
+		CHECK(status IN ('applied', 'failed')),
+		CHECK((status = 'applied' AND reason_code = '') OR
+			(status = 'failed' AND length(reason_code) BETWEEN 1 AND 64)),
+		CHECK(reason_code = trim(reason_code) AND instr(reason_code, char(0)) = 0),
+		CHECK(event_sequence > 0)
+	) WITHOUT ROWID;`,
+	`INSERT INTO file_edit_apply_results
+		(operation_key_digest, status, reason_code, event_sequence, completed_at)
+		SELECT operation_key_digest, status, reason_code, event_sequence, completed_at
+		FROM file_edit_apply_results_v114;`,
+	`DROP TABLE file_edit_apply_results_v114;`,
+	`DROP TABLE file_edit_apply_operations_v114;`,
+	`CREATE TRIGGER trg_file_edit_apply_operation_insert
+		BEFORE INSERT ON file_edit_apply_operations
 		WHEN NOT EXISTS (
 			SELECT 1 FROM runs run
 			JOIN missions mission ON mission.id = run.mission_id
-			JOIN agent_nodes root ON root.run_id = run.id AND root.id = NEW.root_agent_id
-			JOIN run_mode_snapshots mode ON mode.id = NEW.mode_snapshot_id
-			JOIN run_execution_profile_snapshots profile ON profile.id = NEW.profile_snapshot_id
-			JOIN run_execution_permission_snapshots permission ON permission.id = NEW.permission_snapshot_id
-			JOIN run_execution_leases lease ON lease.run_id = run.id
-			WHERE run.id = NEW.run_id AND run.mission_id = NEW.mission_id
-				AND run.session_id = NEW.session_id AND mission.workspace_id = NEW.workspace_id
-				AND run.status = 'running' AND root.parent_id IS NULL AND root.role = 'root'
-				AND mode.run_id = run.id AND mode.mission_id = mission.id
-				AND mode.revision = NEW.mode_revision AND mode.surface = 'code'
-				AND mode.phase = 'deliver' AND mode.revision = (
-					SELECT MAX(current.revision) FROM run_mode_snapshots current
-					WHERE current.run_id = run.id)
-				AND profile.run_id = run.id AND profile.mission_id = mission.id
-				AND profile.revision = NEW.profile_revision AND profile.profile = 'local'
-				AND profile.revision = (SELECT MAX(current.revision)
-					FROM run_execution_profile_snapshots current WHERE current.run_id = run.id)
-				AND permission.run_id = run.id AND permission.mission_id = mission.id
-				AND permission.revision = NEW.permission_revision
-				AND permission.mode = NEW.permission_mode AND permission.mode = 'full_access'
-				AND permission.revision = (SELECT MAX(current.revision)
-					FROM run_execution_permission_snapshots current WHERE current.run_id = run.id)
-				AND lease.lease_id = NEW.lease_id AND lease.generation = NEW.lease_generation
-				AND lease.owner_id = NEW.lease_owner_id AND lease.status = 'active'
-				AND julianday(lease.expires_at) > julianday('now')
+			JOIN sessions session_record ON session_record.id = run.session_id
+			JOIN file_edits edit ON edit.id = NEW.edit_id
+			JOIN tool_approvals approval ON approval.proposal_id = edit.id
+			JOIN run_events event ON event.run_id = run.id AND event.sequence = NEW.event_sequence
+			WHERE run.id = NEW.run_id AND run.session_id = NEW.session_id
+				AND run.status = 'running' AND session_record.status = 'active'
+				AND mission.workspace_id = NEW.workspace_id
+				AND edit.session_id = NEW.session_id AND edit.workspace_id = NEW.workspace_id
+				AND edit.status = 'approved' AND edit.operation_kind = NEW.operation_kind
+				AND edit.path = NEW.path AND edit.destination_path = NEW.destination_path
+				AND edit.original_hash = NEW.original_hash
+				AND edit.proposed_hash = NEW.proposed_hash
+				AND edit.destination_original_hash = NEW.destination_original_hash
+				AND edit.destination_proposed_hash = NEW.destination_proposed_hash
+				AND NEW.observed_hash IN (edit.original_hash, edit.proposed_hash)
+				AND ((edit.operation_kind = 'move' AND NEW.destination_observed_hash IN
+					(edit.destination_original_hash, edit.destination_proposed_hash))
+					OR (edit.operation_kind != 'move' AND NEW.destination_observed_hash = ''))
+				AND approval.run_id = run.id AND approval.session_id = NEW.session_id
+				AND approval.workspace_id = NEW.workspace_id
+				AND approval.tool_name = CASE edit.operation_kind
+					WHEN 'create' THEN 'create_file' WHEN 'move' THEN 'move_file'
+					WHEN 'delete' THEN 'delete_file' ELSE 'replace_file' END
+				AND approval.action_class = 'workspace_write'
+				AND approval.status = 'approved'
+				AND event.type = 'file_edit.apply_requested'
+				AND event.source = 'file_edit_apply' AND event.subject_id = edit.id
+				AND event.created_at = NEW.created_at
+				AND json_extract(event.payload_json, '$.operation_key_digest') =
+					NEW.operation_key_digest
+				AND json_extract(event.payload_json, '$.operation') = NEW.operation_kind
+				AND json_extract(event.payload_json, '$.observed_hash') = NEW.observed_hash
+				AND json_extract(event.payload_json, '$.proposed_hash') = NEW.proposed_hash
+				AND COALESCE(json_extract(event.payload_json, '$.destination_observed_hash'), '') =
+					NEW.destination_observed_hash
+				AND COALESCE(json_extract(event.payload_json, '$.destination_proposed_hash'), '') =
+					NEW.destination_proposed_hash
+				AND json_extract(event.payload_json, '$.policy_rechecked') = 1
 		)
-		BEGIN
-			SELECT RAISE(ABORT, 'command runtime scope is stale or unauthorized');
+		BEGIN SELECT RAISE(ABORT, 'FileEdit apply operation binding is invalid'); END;`,
+	`CREATE TRIGGER trg_file_edit_apply_operation_update_immutable
+		BEFORE UPDATE ON file_edit_apply_operations BEGIN
+			SELECT RAISE(ABORT, 'FileEdit apply operation cannot be updated');
 		END;`,
-	`CREATE TRIGGER trg_command_runtime_job_insert_limit
-		BEFORE INSERT ON command_runtime_jobs
-		WHEN (SELECT COUNT(*) FROM command_runtime_jobs
-			WHERE run_id = NEW.run_id AND state IN ('prepared', 'running', 'stopping')) >= 32
-		BEGIN
-			SELECT RAISE(ABORT, 'command runtime active job limit exceeded');
+	`CREATE TRIGGER trg_file_edit_apply_operation_delete_immutable
+		BEFORE DELETE ON file_edit_apply_operations BEGIN
+			SELECT RAISE(ABORT, 'FileEdit apply operation cannot be deleted');
 		END;`,
-	`CREATE TRIGGER trg_command_runtime_job_update_transition
-		BEFORE UPDATE ON command_runtime_jobs
-		WHEN NEW.version != OLD.version + 1
-			OR NEW.id != OLD.id OR NEW.operation_digest != OLD.operation_digest
-			OR NEW.request_fingerprint != OLD.request_fingerprint
-			OR NEW.invocation_id != OLD.invocation_id OR NEW.run_id != OLD.run_id
-			OR NEW.mission_id != OLD.mission_id OR NEW.session_id != OLD.session_id
-			OR NEW.workspace_id != OLD.workspace_id OR NEW.root_agent_id != OLD.root_agent_id
-			OR NEW.workspace_root_sha256 != OLD.workspace_root_sha256
-			OR NEW.mode_snapshot_id != OLD.mode_snapshot_id OR NEW.mode_revision != OLD.mode_revision
-			OR NEW.profile_snapshot_id != OLD.profile_snapshot_id OR NEW.profile_revision != OLD.profile_revision
-			OR NEW.permission_snapshot_id != OLD.permission_snapshot_id
-			OR NEW.permission_revision != OLD.permission_revision OR NEW.permission_mode != OLD.permission_mode
-			OR NEW.lease_id != OLD.lease_id OR NEW.lease_generation != OLD.lease_generation
-			OR NEW.lease_owner_id != OLD.lease_owner_id OR NEW.owner_id != OLD.owner_id
-			OR NEW.owner_generation != OLD.owner_generation
-			OR julianday(NEW.owner_renewed_at) < julianday(OLD.owner_renewed_at)
-			OR julianday(NEW.owner_expires_at) < julianday(OLD.owner_expires_at)
-			OR NEW.intent_json != OLD.intent_json OR NEW.spec_fingerprint != OLD.spec_fingerprint
-			OR NEW.profile != OLD.profile OR NEW.executable_path != OLD.executable_path
-			OR NEW.executable_sha256 != OLD.executable_sha256
-			OR NEW.environment_sha256 != OLD.environment_sha256
-			OR NEW.working_directory != OLD.working_directory
-			OR NEW.stdin_policy != OLD.stdin_policy OR NEW.network != OLD.network
-			OR NEW.credentials != OLD.credentials OR NEW.timeout_milliseconds != OLD.timeout_milliseconds
-			OR NEW.inline_limit_bytes != OLD.inline_limit_bytes
-			OR NEW.artifact_limit_bytes != OLD.artifact_limit_bytes OR NEW.created_at != OLD.created_at
-			OR NEW.stdout_observed_bytes < OLD.stdout_observed_bytes
-			OR NEW.stderr_observed_bytes < OLD.stderr_observed_bytes
-			OR NEW.output_cursor < OLD.output_cursor OR NEW.output_base_cursor < OLD.output_base_cursor
-			OR NEW.stdin_write_count < OLD.stdin_write_count
-			OR (OLD.state = 'prepared' AND NEW.state NOT IN ('running', 'failed', 'interrupted'))
-			OR (OLD.state = 'running' AND NEW.state NOT IN ('running', 'stopping', 'completed', 'failed',
-				'timed_out', 'cancelled', 'killed', 'interrupted'))
-			OR (OLD.state = 'stopping' AND NEW.state NOT IN ('stopping', 'failed', 'timed_out',
-				'cancelled', 'killed', 'interrupted'))
-			OR (OLD.state IN ('completed', 'failed', 'timed_out', 'cancelled', 'killed', 'interrupted'))
-		BEGIN
-			SELECT RAISE(ABORT, 'command runtime transition is invalid');
+	`CREATE TRIGGER trg_file_edit_apply_result_insert
+		BEFORE INSERT ON file_edit_apply_results
+		WHEN NOT EXISTS (
+			SELECT 1 FROM file_edit_apply_operations operation
+			JOIN file_edits edit ON edit.id = operation.edit_id
+			JOIN run_events event ON event.run_id = operation.run_id
+				AND event.sequence = NEW.event_sequence
+			WHERE operation.operation_key_digest = NEW.operation_key_digest
+				AND ((NEW.status = 'applied' AND edit.status = 'applied'
+					AND edit.proposed_hash = operation.proposed_hash AND NEW.reason_code = '')
+					OR (NEW.status = 'failed' AND edit.status = 'failed'
+						AND length(NEW.reason_code) BETWEEN 1 AND 64))
+				AND event.type = 'file_edit.apply_completed'
+				AND event.source = 'file_edit_apply' AND event.subject_id = edit.id
+				AND event.created_at = NEW.completed_at
+				AND json_extract(event.payload_json, '$.operation_key_digest') =
+					NEW.operation_key_digest
+				AND json_extract(event.payload_json, '$.status') = NEW.status
+				AND json_extract(event.payload_json, '$.reason_code') = NEW.reason_code
+		)
+		BEGIN SELECT RAISE(ABORT, 'FileEdit apply result binding is invalid'); END;`,
+	`CREATE TRIGGER trg_file_edit_apply_result_update_immutable
+		BEFORE UPDATE ON file_edit_apply_results BEGIN
+			SELECT RAISE(ABORT, 'FileEdit apply result cannot be updated');
 		END;`,
-	`CREATE TRIGGER trg_command_runtime_job_delete_immutable
-		BEFORE DELETE ON command_runtime_jobs BEGIN
-			SELECT RAISE(ABORT, 'command runtime jobs are immutable audit records');
+	`CREATE TRIGGER trg_file_edit_apply_result_delete_immutable
+		BEFORE DELETE ON file_edit_apply_results BEGIN
+			SELECT RAISE(ABORT, 'FileEdit apply result cannot be deleted');
 		END;`,
+
 	`DROP TRIGGER trg_supervisor_tool_call_model_attempt;`,
 	`DROP TRIGGER trg_supervisor_tool_round_completion;`,
 	`DROP INDEX idx_run_supervisor_tool_calls_pending;`,
@@ -258,6 +197,7 @@ var commandRuntimeStatements = []string{
 		call_id TEXT NOT NULL,
 		tool_name TEXT NOT NULL,
 		payload_json TEXT NOT NULL,
+		authority_json TEXT NOT NULL DEFAULT '',
 		status TEXT NOT NULL,
 		result_json TEXT NOT NULL DEFAULT '',
 		error_code TEXT NOT NULL DEFAULT '',
@@ -273,8 +213,15 @@ var commandRuntimeStatements = []string{
 			'specialist_delegation_propose', 'child_task_propose',
 			'plan_delivery_propose', 'controlled_command_propose',
 			'one_shot_command_propose', 'host_command_propose',
-			'sandbox_docker_run_propose', 'skill_candidate_propose',
-			'debug_terminal', 'command_runtime')),
+			'sandbox_docker_run_propose', 'skill_candidate_propose', 'debug_terminal',
+			'workspace_list', 'workspace_read', 'workspace_glob', 'workspace_grep',
+			'workspace_change', 'workspace_apply', 'workspace_delete')),
+		CHECK((tool_name IN ('workspace_list', 'workspace_read', 'workspace_glob',
+			'workspace_grep', 'workspace_change', 'workspace_apply', 'workspace_delete')
+			AND length(authority_json) BETWEEN 2 AND 4096 AND json_valid(authority_json) = 1)
+			OR (tool_name NOT IN ('workspace_list', 'workspace_read', 'workspace_glob',
+				'workspace_grep', 'workspace_change', 'workspace_apply', 'workspace_delete')
+				AND authority_json = '')),
 		CHECK(status IN ('pending', 'completed', 'denied', 'failed')),
 		CHECK((status = 'pending' AND result_json = '' AND error_code = '' AND completed_at IS NULL)
 			OR (status = 'completed' AND length(result_json) > 0 AND error_code = '' AND completed_at IS NOT NULL)
@@ -283,9 +230,9 @@ var commandRuntimeStatements = []string{
 	);`,
 	`INSERT INTO run_supervisor_tool_calls
 		(run_id, turn, attempt_id, round, position, model_attempt, call_id, tool_name,
-		payload_json, status, result_json, error_code, created_at, completed_at)
+		payload_json, authority_json, status, result_json, error_code, created_at, completed_at)
 		SELECT run_id, turn, attempt_id, round, position, model_attempt, call_id, tool_name,
-		payload_json, status, result_json, error_code, created_at, completed_at
+		payload_json, '', status, result_json, error_code, created_at, completed_at
 		FROM run_supervisor_tool_calls_v114;`,
 	`DROP TABLE run_supervisor_tool_calls_v114;`,
 	`CREATE INDEX idx_run_supervisor_tool_calls_pending
@@ -297,9 +244,7 @@ var commandRuntimeStatements = []string{
 			WHERE run_id = NEW.run_id AND turn = NEW.turn AND attempt_id = NEW.attempt_id
 				AND round = NEW.round AND model_attempt = NEW.model_attempt
 		)
-		BEGIN
-			SELECT RAISE(ABORT, 'supervisor tool call model attempt mismatch');
-		END;`,
+		BEGIN SELECT RAISE(ABORT, 'supervisor tool call model attempt mismatch'); END;`,
 	`CREATE TRIGGER trg_supervisor_tool_round_completion
 		BEFORE UPDATE OF completed_at ON run_supervisor_tool_rounds
 		WHEN NEW.completed_at IS NOT NULL AND EXISTS (
@@ -307,7 +252,5 @@ var commandRuntimeStatements = []string{
 			WHERE run_id = NEW.run_id AND turn = NEW.turn AND attempt_id = NEW.attempt_id
 				AND round = NEW.round AND status = 'pending'
 		)
-		BEGIN
-			SELECT RAISE(ABORT, 'supervisor tool round still has pending calls');
-		END;`,
+		BEGIN SELECT RAISE(ABORT, 'supervisor tool round still has pending calls'); END;`,
 }

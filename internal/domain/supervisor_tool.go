@@ -10,11 +10,12 @@ import (
 )
 
 const (
-	MaxSupervisorToolRounds        = 4
-	MaxSupervisorToolCallsPerRound = 4
-	MaxSupervisorToolPayloadBytes  = 96 * 1024
-	MaxSupervisorToolResultBytes   = 16 * 1024
-	MaxSupervisorToolIdentityRunes = 256
+	MaxSupervisorToolRounds         = 4
+	MaxSupervisorToolCallsPerRound  = 4
+	MaxSupervisorToolPayloadBytes   = 96 * 1024
+	MaxSupervisorToolResultBytes    = 384 * 1024
+	MaxSupervisorToolAuthorityBytes = 4 * 1024
+	MaxSupervisorToolIdentityRunes  = 256
 )
 
 type SupervisorToolCallStatus string
@@ -40,20 +41,21 @@ func (s SupervisorToolCallStatus) Terminal() bool {
 }
 
 type SupervisorToolCall struct {
-	RunID        string
-	Turn         int
-	AttemptID    string
-	Round        int
-	Position     int
-	ModelAttempt int
-	CallID       string
-	ToolName     string
-	PayloadJSON  string
-	Status       SupervisorToolCallStatus
-	ResultJSON   string
-	ErrorCode    string
-	CreatedAt    time.Time
-	CompletedAt  *time.Time
+	RunID         string
+	Turn          int
+	AttemptID     string
+	Round         int
+	Position      int
+	ModelAttempt  int
+	CallID        string
+	ToolName      string
+	PayloadJSON   string
+	AuthorityJSON string
+	Status        SupervisorToolCallStatus
+	ResultJSON    string
+	ErrorCode     string
+	CreatedAt     time.Time
+	CompletedAt   *time.Time
 }
 
 func (c SupervisorToolCall) Validate() error {
@@ -81,12 +83,26 @@ func (c SupervisorToolCall) Validate() error {
 		c.ToolName != "one_shot_command_propose" &&
 		c.ToolName != "host_command_propose" &&
 		c.ToolName != "sandbox_docker_run_propose" &&
-		c.ToolName != "skill_candidate_propose" {
+		c.ToolName != "skill_candidate_propose" &&
+		c.ToolName != "debug_terminal" &&
+		c.ToolName != "command_runtime" &&
+		c.ToolName != "workspace_list" && c.ToolName != "workspace_read" &&
+		c.ToolName != "workspace_glob" && c.ToolName != "workspace_grep" &&
+		c.ToolName != "workspace_change" && c.ToolName != "workspace_apply" &&
+		c.ToolName != "workspace_delete" {
 		return fmt.Errorf("unsupported supervisor tool %q", c.ToolName)
 	}
 	if len(c.PayloadJSON) == 0 || len(c.PayloadJSON) > MaxSupervisorToolPayloadBytes ||
 		!utf8.ValidString(c.PayloadJSON) || !json.Valid([]byte(c.PayloadJSON)) {
 		return errors.New("supervisor tool payload must be bounded valid UTF-8 JSON")
+	}
+	if isAgentCodeSupervisorTool(c.ToolName) {
+		if len(c.AuthorityJSON) == 0 || len(c.AuthorityJSON) > MaxSupervisorToolAuthorityBytes ||
+			!utf8.ValidString(c.AuthorityJSON) || !json.Valid([]byte(c.AuthorityJSON)) {
+			return errors.New("agent code supervisor tool requires bounded durable authority JSON")
+		}
+	} else if c.AuthorityJSON != "" {
+		return errors.New("non-agent-code supervisor tool cannot carry authority JSON")
 	}
 	if !c.Status.Valid() {
 		return fmt.Errorf("invalid supervisor tool status %q", c.Status)
@@ -112,6 +128,16 @@ func (c SupervisorToolCall) Validate() error {
 		return errors.New("denied or failed supervisor tool call requires an error code")
 	}
 	return nil
+}
+
+func isAgentCodeSupervisorTool(name string) bool {
+	switch name {
+	case "workspace_list", "workspace_read", "workspace_glob", "workspace_grep",
+		"workspace_change", "workspace_apply", "workspace_delete":
+		return true
+	default:
+		return false
+	}
 }
 
 type SupervisorToolRound struct {

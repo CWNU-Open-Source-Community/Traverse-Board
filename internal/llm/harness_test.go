@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -20,10 +21,14 @@ func TestAnthropicHarnessRequiresExactModelQualification(t *testing.T) {
 		Tools:    []ToolSpec{{Name: "echo", Parameters: []byte(`{"type":"object"}`)}},
 		JSONMode: true,
 	}
-	if _, profile, err := router.PrepareHarnessRequest(
-		ref, HarnessWorkloadRoot, request); err == nil ||
+	_, profile, prepareErr := router.PrepareHarnessRequest(
+		ref, HarnessWorkloadRoot, request)
+	if prepareErr == nil ||
 		profile.QualificationStatus != HarnessQualificationRequired {
-		t.Fatalf("unqualified request unexpectedly passed: profile=%#v err=%v", profile, err)
+		t.Fatalf("unqualified request unexpectedly passed: profile=%#v err=%v", profile, prepareErr)
+	}
+	if !strings.Contains(prepareErr.Error(), "not qualified for streamed tool calling") {
+		t.Fatalf("unqualified provider did not return an actionable tool diagnostic: %v", prepareErr)
 	}
 
 	base, err := router.HarnessProfile(ref)

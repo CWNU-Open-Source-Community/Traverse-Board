@@ -57,6 +57,15 @@ func TestSupervisorToolCallAcceptsEveryDurableToolName(t *testing.T) {
 		"plan_delivery_propose",
 		"controlled_command_propose",
 		"host_command_propose",
+		"debug_terminal",
+		"command_runtime",
+		"workspace_list",
+		"workspace_read",
+		"workspace_glob",
+		"workspace_grep",
+		"workspace_change",
+		"workspace_apply",
+		"workspace_delete",
 	} {
 		t.Run(toolName, func(t *testing.T) {
 			call := SupervisorToolCall{
@@ -64,6 +73,9 @@ func TestSupervisorToolCallAcceptsEveryDurableToolName(t *testing.T) {
 				Position: 1, ModelAttempt: 1, CallID: "toolu_0123456789abcdef01234567",
 				ToolName: toolName, PayloadJSON: `{}`, Status: SupervisorToolPending,
 				CreatedAt: now,
+			}
+			if isAgentCodeSupervisorTool(toolName) {
+				call.AuthorityJSON = `{}`
 			}
 			if err := call.Validate(); err != nil {
 				t.Fatalf("durable tool %q was rejected: %v", toolName, err)

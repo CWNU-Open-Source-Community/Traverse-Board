@@ -150,7 +150,7 @@ permission control 与 danger-full-access：
 Settings 只投影独立的“命令运行时 / Command runtime” capability；renderer 没有
 Shell/argv/stdin/Job API。只有 Code/Local/Deliver/root、当前 `full_access` 的 Supervisor
 能经 Tool Gateway 使用真实 PowerShell/Bash/原生进程。Job 属于 Run/Go manager，不与
-用户终端或 Debug terminal 共用 session；schema v115 的 owner heartbeat 允许下一 turn
+用户终端或 Debug terminal 共用 session；schema v116 的 owner heartbeat 允许下一 turn
 续读，应用退出或权限/root 漂移会整树清理。`--operator-preview` 不隐式开启该高权限能力。
 
 显式启用 Run 权限与独立 CDP 权限选择：

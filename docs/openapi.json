@@ -291,7 +291,7 @@
       "get": {
         "operationId": "getRuntimeCapabilities",
         "summary": "Inspect process-local runtime capabilities",
-        "description": "Returns bounded enablement metadata and Run wake worker health without bearer tokens, owner or lease identities, private errors, runtime enable controls, or persistent-service authority.",
+        "description": "Returns bounded enablement metadata, including whether the agent-code-tools.v1 runtime is compiled in, and Run wake worker health without bearer tokens, owner or lease identities, private errors, runtime enable controls, or persistent-service authority.",
         "tags": [
           "System"
         ],
@@ -2277,7 +2277,7 @@
       "get": {
         "operationId": "getRun",
         "summary": "Inspect a Run",
-        "description": "Returns Run, Mission, checkpoint, tool usage, token-free execution-lease metadata, and read-only Plan/Delivery and external-Skill metadata projections when present.",
+        "description": "Returns Run, Mission, checkpoint, tool usage, token-free execution-lease metadata, read-only Plan/Delivery and external-Skill metadata projections, and the Go-derived agent-code-tools.v1 generation with per-tool availability or refusal when present. The capability projection is informational and grants no execution authority.",
         "tags": [
           "Runs"
         ],
@@ -12187,6 +12187,137 @@
         ],
         "type": "object"
       },
+      "AgentCodeCapabilitiesView": {
+        "additionalProperties": false,
+        "properties": {
+          "generation": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "permission_mode": {
+            "enum": [
+              "conservative",
+              "approval",
+              "full_access",
+              "debug"
+            ],
+            "type": "string"
+          },
+          "phase": {
+            "enum": [
+              "plan",
+              "deliver"
+            ],
+            "type": "string"
+          },
+          "profile": {
+            "enum": [
+              "code",
+              "review",
+              "learn",
+              "script"
+            ],
+            "type": "string"
+          },
+          "protocol_version": {
+            "enum": [
+              "agent-code-tools.v1"
+            ],
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "root"
+            ],
+            "type": "string"
+          },
+          "surface": {
+            "enum": [
+              "code",
+              "cyber"
+            ],
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "$ref": "#/components/schemas/AgentCodeToolCapabilityView"
+            },
+            "maxItems": 7,
+            "minItems": 7,
+            "type": "array"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "generation",
+          "surface",
+          "phase",
+          "role",
+          "profile",
+          "permission_mode",
+          "tools"
+        ],
+        "type": "object"
+      },
+      "AgentCodeToolCapabilityView": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "enum": [
+              "automatic",
+              "proposal_then_operator_review",
+              "approved_proposal_only"
+            ],
+            "type": "string"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "class": {
+            "enum": [
+              "workspace_read",
+              "workspace_write"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "enum": [
+              "workspace_list",
+              "workspace_read",
+              "workspace_glob",
+              "workspace_grep",
+              "workspace_change",
+              "workspace_apply",
+              "workspace_delete"
+            ],
+            "type": "string"
+          },
+          "read_only": {
+            "type": "boolean"
+          },
+          "refusal_reason": {
+            "maxLength": 512,
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "agent-code-tools.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "class",
+          "source",
+          "read_only",
+          "approval",
+          "available"
+        ],
+        "type": "object"
+      },
       "AgentCompletionView": {
         "additionalProperties": false,
         "properties": {
@@ -16408,6 +16539,10 @@
           "apply_enabled": {
             "type": "boolean"
           },
+          "destination_path": {
+            "maxLength": 4096,
+            "type": "string"
+          },
           "diff_bytes": {
             "format": "int32",
             "maximum": 1064960,
@@ -16417,6 +16552,15 @@
           "id": {
             "maxLength": 256,
             "minLength": 1,
+            "type": "string"
+          },
+          "operation": {
+            "enum": [
+              "replace",
+              "create",
+              "move",
+              "delete"
+            ],
             "type": "string"
           },
           "path": {
@@ -16444,6 +16588,7 @@
         "required": [
           "id",
           "path",
+          "operation",
           "status",
           "diff_bytes",
           "secrets_redacted",
@@ -16587,6 +16732,20 @@
             "format": "date-time",
             "type": "string"
           },
+          "destination_original_hash": {
+            "maxLength": 64,
+            "pattern": "^([0-9a-f]{64}|missing)$",
+            "type": "string"
+          },
+          "destination_path": {
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "destination_proposed_hash": {
+            "maxLength": 64,
+            "pattern": "^([0-9a-f]{64}|missing)$",
+            "type": "string"
+          },
           "diff": {
             "type": "string"
           },
@@ -16595,13 +16754,27 @@
             "minLength": 1,
             "type": "string"
           },
+          "operation": {
+            "enum": [
+              "replace",
+              "create",
+              "move",
+              "delete"
+            ],
+            "type": "string"
+          },
           "original_hash": {
+            "maxLength": 64,
+            "pattern": "^([0-9a-f]{64}|missing)$",
             "type": "string"
           },
           "path": {
+            "maxLength": 4096,
             "type": "string"
           },
           "proposed_hash": {
+            "maxLength": 64,
+            "pattern": "^([0-9a-f]{64}|missing)$",
             "type": "string"
           },
           "reason": {
@@ -16640,6 +16813,7 @@
           "session_id",
           "workspace_id",
           "path",
+          "operation",
           "status",
           "diff",
           "original_hash",
@@ -21986,6 +22160,9 @@
       "RunDetailView": {
         "additionalProperties": false,
         "properties": {
+          "agent_code_tools": {
+            "$ref": "#/components/schemas/AgentCodeCapabilitiesView"
+          },
           "browser_cdp_permission": {
             "$ref": "#/components/schemas/RunBrowserCDPPermissionView"
           },
@@ -22035,7 +22212,8 @@
           "browser_cdp_permission",
           "execution_interaction",
           "operator_steering",
-          "tool_usage"
+          "tool_usage",
+          "agent_code_tools"
         ],
         "type": "object"
       },
@@ -23501,6 +23679,9 @@
       "RuntimeCapabilitiesView": {
         "additionalProperties": false,
         "properties": {
+          "agent_code_tools_enabled": {
+            "type": "boolean"
+          },
           "approval_control_enabled": {
             "type": "boolean"
           },
@@ -23641,6 +23822,7 @@
           "process_execution_enabled",
           "shell_execution_enabled",
           "docker_execution_enabled",
+          "agent_code_tools_enabled",
           "wake_worker"
         ],
         "type": "object"
