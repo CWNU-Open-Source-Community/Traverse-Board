@@ -91,8 +91,16 @@ func TestBuiltinRegistryRetainsArchivedPinnedContext(t *testing.T) {
 	}
 	if assembly.Items[0].Version != "1.0.0" ||
 		!strings.Contains(assembly.Items[0].Content, "Metadata placeholder") ||
-		registry.List(domain.ProfileCode)[0].Version != "1.1.0" {
+		registry.List(domain.ProfileCode)[0].Version != "1.2.0" {
 		t.Fatalf("archived Skill delivery drifted: %#v", assembly)
+	}
+	if _, found := registry.version("code", "1.1.0"); !found {
+		t.Fatal("previous mode-unaware code version was not retained for exact resumption")
+	}
+	if archivedReview, found := registry.version("review", "1.2.0"); !found ||
+		archivedReview.manifest.ContentSHA256 !=
+			"b8e55af0094db9844cd47fa4db459897a8200ec9f39fe9f31aa74316113563c3" {
+		t.Fatal("previous review version was not retained for exact resumption")
 	}
 }
 

@@ -1,0 +1,18 @@
+{
+  "protocol": "skill.v1",
+  "name": "run-skill-generator",
+  "version": "1.0.0",
+  "description": "Generate one bounded untrusted Code Skill candidate for exact-fingerprint human review and separate import.",
+  "profiles": ["code"],
+  "surfaces": ["code"],
+  "phases": ["deliver"],
+  "roles": ["root"],
+  "user_invocable": true,
+  "model_invocable": false,
+  "explicit_only": true,
+  "tool_dependencies": ["skill_candidate_propose"],
+  "content_path": "SKILL.md",
+  "content_sha256": "e4904ed9d9a4f175c08c0f06b0bb84015a05630f40ffbdce7505c67241a4a51d",
+  "content_bytes": 1461,
+  "content_token_upper_bound": 1461
+}

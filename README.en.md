@@ -63,7 +63,7 @@ The allowed direction is always `TypeScript -> Go -> LLM/Rust/Docker`. TypeScrip
 | Tools and permissions | Tool Gateway, JSON Schema validation, Policy, Scope, human approval, four host-permission tiers, and fixed-command proposals |
 | Code workflows | Native folder selection and Workspace import, workspace browsing, repository state/history, diff review, file-edit proposals, verification plans, Code Journey, and Handoff |
 | Observability | Append-only Run events, Live Activity, public model commentary, Harness facts, Artifacts, Findings/Evidence/Reports, and SARIF |
-| Extension seams | Inert Skill packages, Provider and Tool interfaces, Go/Rust JSON protocol, embedded WASI Analyzer, Sandbox contracts, and a network-none Docker product execution that is disabled by default |
+| Extension seams | Mode-aware inert Skill packages, human-reviewed generated candidates, Provider and Tool interfaces, Go/Rust JSON protocol, embedded WASI Analyzer, Sandbox contracts, and a network-none Docker product execution that is disabled by default |
 | Clients | `cyberagent` CLI, Bubble Tea TUI, authenticated HTTP/OpenAPI, React/Vite, and Windows/macOS Desktop portable preview |
 
 ### Security boundaries
@@ -99,6 +99,38 @@ Full CLI, HTTP, cancellation/recovery, reason/remediation, and budget documentat
 [usage manual](docs/usage.md), [HTTP API](docs/http-api.md), and
 [ADR 0099](docs/adr/0099-docker-sandbox-product-admission-and-recovery.md).
 Ordinary Code workflows still do not require Docker.
+
+### Mode-aware Skills and generated candidates
+
+The 12 built-in Skills use a `profiles × surfaces × phases × roles` compatibility
+matrix, with `user_invocable`, `model_invocable`, and `explicit_only` as a
+separate invocation policy. Schema v111 preserves the same metadata in the
+external-Skill installation ledger. Legacy packages retain their exact
+fingerprints and conservative explicit-operator policy. Installation remains
+inert: it is not selection, context delivery, or a capability grant.
+
+`run-skill-generator` is explicit-only and limited to the Code/Deliver/root
+context. The model-facing `skill_candidate_propose` tool can create only an
+untrusted candidate bound to the real tool invocation and exact content
+fingerprints. Schema v112 derives either `proposed -> approved -> imported` or
+`proposed -> rejected` from append-only facts; model, Agent, Skill, and
+Supervisor identities cannot act as the human reviewer. Approval and import
+are separate operator actions, import requires a second untrusted-instruction
+confirmation, and an imported package is still not selected.
+
+```powershell
+cyberagent skill candidates --run <run-id>
+cyberagent skill candidate show <candidate-id> --show-content
+cyberagent skill candidate approve <candidate-id> `
+  --candidate-fingerprint <sha256> --operation-key <stable-review-key>
+cyberagent skill candidate import <candidate-id> `
+  --candidate-fingerprint <sha256> --operation-key <stable-import-key> `
+  --confirm-untrusted-skill
+```
+
+See the [usage manual](docs/usage.md) and
+[ADR 0113](docs/adr/0113-mode-aware-external-skill-ledger-and-generated-candidate-review.md)
+for the complete matrix, candidate bounds, and recovery behavior.
 
 ## Quick start
 

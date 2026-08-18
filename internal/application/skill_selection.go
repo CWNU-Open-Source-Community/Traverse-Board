@@ -21,6 +21,7 @@ import (
 type SkillSelectionStore interface {
 	GetMission(ctx context.Context, id string) (domain.Mission, error)
 	GetRun(ctx context.Context, id string) (domain.Run, error)
+	GetRunMode(ctx context.Context, runID string) (domain.RunModeSnapshot, error)
 	GetSkillSelection(ctx context.Context, id string) (skills.Selection, error)
 	GetSkillSelectionByRun(ctx context.Context, runID string) (skills.Selection, bool, error)
 	GetSkillSelectionOperation(ctx context.Context, keyDigest string) (skills.SelectionOperation, bool, error)
@@ -91,9 +92,15 @@ func (s *SkillSelectionService) Select(ctx context.Context, request SelectSkills
 		return SelectSkillsResult{Selection: stored, Replayed: true}, apperror.Normalize(err)
 	}
 	now := time.Now().UTC()
+	mode, err := s.store.GetRunMode(ctx, run.ID)
+	if err != nil {
+		return SelectSkillsResult{}, apperror.Normalize(err)
+	}
 	selection, err := s.registry.ResolveSelection(skills.ResolveSelectionRequest{
 		SelectionID: idgen.New("skill-selection"), RunID: run.ID, MissionID: mission.ID,
-		Profile: mission.Profile, Names: normalized.Names, TokenBudget: normalized.TokenBudget,
+		Surface: mode.Surface, Phase: mode.Phase, Profile: mission.Profile,
+		Names: normalized.Names, TokenBudget: normalized.TokenBudget,
+		Invocation: skills.InvocationSourceUser, Explicit: true,
 		RequestedBy: normalized.RequestedBy, CreatedAt: now,
 	})
 	if err != nil {

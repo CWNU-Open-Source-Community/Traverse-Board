@@ -79,6 +79,7 @@ type ResolveExternalSelectionRequest struct {
 	ModeSnapshotID string
 	ModeRevision   int64
 	Surface        domain.ExecutionSurface
+	Phase          domain.ExecutionPhase
 	Profile        domain.Profile
 	Packages       []InstalledPackage
 	SpecialistRef  string
@@ -96,6 +97,9 @@ func ResolveExternalSelection(request ResolveExternalSelectionRequest) (External
 	request.RequestedBy = strings.TrimSpace(request.RequestedBy)
 	request.SpecialistRef = strings.TrimSpace(request.SpecialistRef)
 	request.CreatedAt = request.CreatedAt.UTC()
+	if request.Phase == "" {
+		request.Phase = domain.ExecutionPhaseDeliver
+	}
 	if !request.Confirmed {
 		return ExternalSelection{}, errors.New("external Skill context selection requires explicit operator confirmation")
 	}
@@ -105,7 +109,7 @@ func ResolveExternalSelection(request ResolveExternalSelectionRequest) (External
 	if request.TokenBudget <= 0 || request.TokenBudget > MaxExternalSelectionTokenBudget {
 		return ExternalSelection{}, fmt.Errorf("external Skill selection token budget must be between 1 and %d", MaxExternalSelectionTokenBudget)
 	}
-	if !request.Surface.Valid() || request.ModeRevision <= 0 {
+	if !request.Surface.Valid() || !request.Phase.Valid() || request.ModeRevision <= 0 {
 		return ExternalSelection{}, errors.New("external Skill selection mode is invalid")
 	}
 	profile, err := domain.ParseProfile(string(request.Profile))
@@ -147,6 +151,19 @@ func ResolveExternalSelection(request ResolveExternalSelectionRequest) (External
 				ref, request.Surface, request.Profile)
 		}
 		specialist := request.SpecialistRef != "" && ref == request.SpecialistRef
+		if installation.Manifest.HasModeMetadata() {
+			if !installation.Manifest.AllowsInvocation(InvocationSourceUser, true) ||
+				!supportsExternalSelectionAcrossPhases(installation.Manifest, request.Surface,
+					request.Profile, domain.AgentRoleRoot) {
+				return ExternalSelection{}, fmt.Errorf(
+					"selected external Skill %q must support root delivery in both Plan and Deliver because the external selection is immutable", ref)
+			}
+			if specialist && !supportsExternalSelectionAcrossPhases(installation.Manifest,
+				request.Surface, request.Profile, domain.AgentRoleSpecialist) {
+				return ExternalSelection{}, fmt.Errorf(
+					"selected external Skill %q must support the Specialist role in both phases", ref)
+			}
+		}
 		if specialist {
 			specialistFound = true
 		}
@@ -194,6 +211,21 @@ func ResolveExternalSelection(request ResolveExternalSelectionRequest) (External
 		return ExternalSelection{}, err
 	}
 	return CloneExternalSelection(selection), nil
+}
+
+func supportsExternalSelectionAcrossPhases(manifest Manifest,
+	surface domain.ExecutionSurface, profile domain.Profile, role domain.AgentRole,
+) bool {
+	for _, phase := range []domain.ExecutionPhase{
+		domain.ExecutionPhasePlan, domain.ExecutionPhaseDeliver,
+	} {
+		if !manifest.SupportsContext(ExecutionContext{
+			Surface: surface, Phase: phase, Profile: profile, Role: role,
+		}) {
+			return false
+		}
+	}
+	return true
 }
 
 func (s ExternalSelection) Validate() error {

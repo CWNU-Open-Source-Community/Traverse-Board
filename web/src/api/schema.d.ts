@@ -4904,22 +4904,29 @@ export interface components {
         SkillPackageInstallView: {
             archive_sha256: string;
             context_injection_authorized: boolean;
+            explicit_only: boolean;
             import_command_execution: boolean;
             import_network_access: boolean;
             import_provider_calls: boolean;
+            model_invocable: boolean;
             name: string;
             package_fingerprint: string;
+            phases: string[];
+            profiles: string[];
             /** @enum {string} */
             protocol_version: "skill_package_installation.v1";
             receipt: components["schemas"]["OperationReceiptView"];
             recovered_pending: boolean;
             replayed: boolean;
+            roles: string[];
             run_selection_authorized: boolean;
             /** @enum {string} */
             surface: "code" | "cyber";
+            surfaces: string[];
             tool_capability_grant: boolean;
             /** @enum {string} */
             trust_class: "operator_installed_untrusted";
+            user_invocable: boolean;
             version: string;
         };
         SpecialistModelCancellationView: {

@@ -1,0 +1,12 @@
+{
+  "protocol": "skill.v1",
+  "name": "learn",
+  "version": "1.1.0",
+  "description": "Stepwise explanation, verification, and learning guidance.",
+  "profiles": ["learn"],
+  "tool_dependencies": [],
+  "content_path": "SKILL.md",
+  "content_sha256": "1f3f63745ee758b81699dc7799d9101cdfe6d048759ebf285eb1487bfefbdfda",
+  "content_bytes": 397,
+  "content_token_upper_bound": 397
+}

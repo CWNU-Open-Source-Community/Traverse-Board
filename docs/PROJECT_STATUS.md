@@ -1,10 +1,26 @@
 # Project Status
 
-Last updated: 2026-08-15
+Last updated: 2026-08-18
 
 > **Scope authority:** active mainline work targets the general-purpose Agent Harness and Code workflow. CTF-specific solving and offensive automation are optional add-ons and have no active implementation schedule. Historical references and percentages below remain audit history, not queued work. See [Product Scope](PRODUCT_SCOPE.md).
 
 ## Resume Context
+
+当前检查点是 schema v110-v112 的 mode-aware Skill 模型与不可信生成候选审查。
+内置 Registry 现有 12 项；Surface/Phase/Profile/Role 共同决定 root/Specialist 正文
+交付，schema v110 为每个 root turn 固定实际阶段子集并允许空交付。七项优先通用能力
+（增强 review、doctor、debug、run-verify/ui-evidence、focused-checks、simplify、
+security-review）已内嵌。schema v111 把 surfaces/phases/roles 和三项调用策略写入外部
+安装账本，mode-aware 意图使用 v2 指纹，legacy 行保持原 v1 指纹与保守有效策略。
+
+schema v112 新增 explicit-only `run-skill-generator`。只有 Code/Deliver/root 的实际选中
+上下文才公开 `skill_candidate_propose`；候选绑定真实 tool invocation、Run/Session/
+Workspace/root 和确定性包指纹。`proposed -> approved -> imported` / `rejected` 由三个
+不可变表推导，模型/Agent/Supervisor 身份不能审批或导入，导入还需独立不可信确认，
+且绝不自动选择。CLI 提供 list/show/approve/reject/import；普通投影不显示候选正文。
+详细边界见 ADR 0111-0113 与 `docs/usage.md`。
+
+下面保留 2026-08-15 及更早的历史检查点，作为审计上下文而非当前待办。
 
 当前单切片检查点是 issue #48 的 Ollama 本地 Provider 与能力探测（ADR 0100）。
 新增无凭证的 loopback-only `ollama` Provider：只接受显式配置的 `http` loopback

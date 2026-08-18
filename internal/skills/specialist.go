@@ -130,7 +130,14 @@ func (r *Registry) AssembleSpecialistContext(parent Selection,
 
 	assignmentFingerprint := SpecialistAssignmentFingerprint(child)
 	items := make([]SelectionItem, 0, MaxSpecialistContextItems)
-	if selected, found := SpecialistSelectionItem(parent, mode.Surface, mode.Profile); found {
+	selected, found, err := r.SpecialistSelectionItem(parent, ExecutionContext{
+		Surface: mode.Surface, Phase: mode.Phase, Profile: mode.Profile,
+		Role: domain.AgentRoleSpecialist,
+	})
+	if err != nil {
+		return SpecialistContextAssembly{}, err
+	}
+	if found {
 		items = append(items, selected)
 	}
 
@@ -150,7 +157,10 @@ func (r *Registry) AssembleSpecialistContext(parent Selection,
 		derived.TokenBudget = tokenBudget
 		derived.TokenUpperBound = items[0].TokenUpperBound
 		derived.Fingerprint = SelectionFingerprint(derived)
-		context, err := r.AssembleContext(derived)
+		context, err := r.AssembleContextFor(derived, ExecutionContext{
+			Surface: mode.Surface, Phase: mode.Phase, Profile: mode.Profile,
+			Role: domain.AgentRoleSpecialist,
+		})
 		if err != nil {
 			return SpecialistContextAssembly{}, fmt.Errorf(
 				"assemble Specialist Skill subset: %w", err)
@@ -333,45 +343,37 @@ func SpecialistAssignmentFingerprint(child domain.AgentNode) string {
 }
 
 // SpecialistSelectionItem returns at most one item already pinned by the
-// parent Run. It never consults child-provided text or introduces a Registry
-// entry that the operator did not select before the Run started.
-func SpecialistSelectionItem(parent Selection, surface domain.ExecutionSurface,
-	profile domain.Profile,
-) (SelectionItem, bool) {
-	if parent.Profile != profile || !surface.Valid() {
-		return SelectionItem{}, false
+// parent Run. Compatibility comes from the pinned manifest version rather than
+// a hard-coded Skill name table.
+func (r *Registry) SpecialistSelectionItem(parent Selection,
+	execution ExecutionContext,
+) (SelectionItem, bool, error) {
+	if r == nil || execution.Role != domain.AgentRoleSpecialist ||
+		execution.Profile != parent.Profile {
+		return SelectionItem{}, false, nil
 	}
-	selectedName := specialistSkillName(surface, profile)
-	if selectedName == "" {
-		return SelectionItem{}, false
+	if err := execution.Validate(); err != nil {
+		return SelectionItem{}, false, err
 	}
+	var selected SelectionItem
+	found := false
 	for _, item := range parent.Items {
-		if item.Name == selectedName {
-			selected := item
-			selected.Ordinal = 1
-			return selected, true
+		entry, ok := r.version(item.Name, item.Version)
+		if !ok {
+			return SelectionItem{}, false, fmt.Errorf(
+				"selected Skill %q version %q is unavailable in the embedded Registry",
+				item.Name, item.Version)
 		}
-	}
-	return SelectionItem{}, false
-}
-
-func specialistSkillName(surface domain.ExecutionSurface, profile domain.Profile) string {
-	if surface == domain.ExecutionSurfaceCyber {
-		if profile == domain.ProfileScript {
-			return "script"
+		if !entry.manifest.SupportsContext(execution) {
+			continue
 		}
-		return ""
+		if found {
+			return SelectionItem{}, false, errors.New(
+				"selected Skills expose more than one Specialist guide for the active mode")
+		}
+		selected = item
+		selected.Ordinal = 1
+		found = true
 	}
-	switch profile {
-	case domain.ProfileCode:
-		return "code"
-	case domain.ProfileReview:
-		return "review"
-	case domain.ProfileLearn:
-		return "learn"
-	case domain.ProfileScript:
-		return "script"
-	default:
-		return ""
-	}
+	return selected, found, nil
 }

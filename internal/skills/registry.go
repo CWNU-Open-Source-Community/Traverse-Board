@@ -119,6 +119,35 @@ func (r *Registry) List(profile domain.Profile) []Manifest {
 	return manifests
 }
 
+// ListForContext returns only Skills whose mode metadata and invocation policy
+// both permit the supplied activation context.
+func (r *Registry) ListForContext(context ExecutionContext, source InvocationSource,
+	explicit bool,
+) ([]Manifest, error) {
+	if r == nil {
+		return nil, nil
+	}
+	if err := context.Validate(); err != nil {
+		return nil, err
+	}
+	if !source.Valid() {
+		return nil, fmt.Errorf("invalid Skill invocation source %q", source)
+	}
+	names := make([]string, 0, len(r.entries))
+	for name, entry := range r.entries {
+		if entry.manifest.SupportsContext(context) &&
+			entry.manifest.AllowsInvocation(source, explicit) {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	manifests := make([]Manifest, 0, len(names))
+	for _, name := range names {
+		manifests = append(manifests, cloneManifest(r.entries[name].manifest))
+	}
+	return manifests, nil
+}
+
 func (r *Registry) Get(name string) (Manifest, bool) {
 	if r == nil || !validName(name) {
 		return Manifest{}, false
@@ -221,6 +250,12 @@ func sameRegistryEntry(left registryEntry, right registryEntry) bool {
 		left.manifest.Version == right.manifest.Version &&
 		left.manifest.Description == right.manifest.Description &&
 		slices.Equal(left.manifest.Profiles, right.manifest.Profiles) &&
+		slices.Equal(left.manifest.Surfaces, right.manifest.Surfaces) &&
+		slices.Equal(left.manifest.Phases, right.manifest.Phases) &&
+		slices.Equal(left.manifest.Roles, right.manifest.Roles) &&
+		left.manifest.UserInvocable == right.manifest.UserInvocable &&
+		left.manifest.ModelInvocable == right.manifest.ModelInvocable &&
+		left.manifest.ExplicitOnly == right.manifest.ExplicitOnly &&
 		slices.Equal(left.manifest.ToolDependencies, right.manifest.ToolDependencies) &&
 		left.manifest.ContentPath == right.manifest.ContentPath &&
 		left.manifest.ContentSHA256 == right.manifest.ContentSHA256 &&
@@ -249,6 +284,14 @@ func decodeManifest(raw []byte) (Manifest, error) {
 		return Manifest{}, errors.New("manifest contains trailing JSON data")
 	}
 	return manifest, nil
+}
+
+// DecodeManifestMetadata strictly decodes a bounded manifest without treating
+// its body as trusted instructions. Callers must still validate it with the
+// exact content bytes before use.
+func DecodeManifestMetadata(raw []byte) (Manifest, error) {
+	manifest, err := decodeManifest(raw)
+	return cloneManifest(manifest), err
 }
 
 func rejectDuplicateManifestFields(raw []byte) error {

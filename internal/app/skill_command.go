@@ -41,8 +41,12 @@ func (a *App) skillCommand(ctx context.Context, args []string) error {
 			}
 		}
 		for _, manifest := range registry.List(profile) {
-			fmt.Fprintf(a.out, "%s@%s\tprofiles=%s\ttools=%s\tcontent=%s\tbytes=%d\ttoken_upper_bound=%d\n",
-				manifest.Name, manifest.Version, joinProfiles(manifest.Profiles), joinToolDependencies(manifest.ToolDependencies),
+			userInvocable, modelInvocable, explicitOnly := manifest.InvocationPolicy()
+			fmt.Fprintf(a.out, "%s@%s\tprofiles=%s\tsurfaces=%s\tphases=%s\troles=%s\tuser_invocable=%t\tmodel_invocable=%t\texplicit_only=%t\ttools=%s\tcontent=%s\tbytes=%d\ttoken_upper_bound=%d\n",
+				manifest.Name, manifest.Version, joinProfiles(manifest.Profiles),
+				joinSurfaces(manifest.Surfaces), joinPhases(manifest.Phases), joinRoles(manifest.Roles),
+				userInvocable, modelInvocable, explicitOnly,
+				joinToolDependencies(manifest.ToolDependencies),
 				manifest.ContentPath, manifest.ContentBytes, manifest.ContentTokenUpperBound)
 		}
 		printSkillBoundary(a)
@@ -55,9 +59,12 @@ func (a *App) skillCommand(ctx context.Context, args []string) error {
 		if !ok {
 			return fmt.Errorf("skill %q not found", args[1])
 		}
-		fmt.Fprintf(a.out, "protocol: %s\nname: %s\nversion: %s\ndescription: %s\nprofiles: %s\ntool_dependencies: %s\ncontent_path: %s\ncontent_sha256: %s\ncontent_bytes: %d\ncontent_token_upper_bound: %d\n",
+		userInvocable, modelInvocable, explicitOnly := manifest.InvocationPolicy()
+		fmt.Fprintf(a.out, "protocol: %s\nname: %s\nversion: %s\ndescription: %s\nprofiles: %s\nsurfaces: %s\nphases: %s\nroles: %s\nuser_invocable: %t\nmodel_invocable: %t\nexplicit_only: %t\ntool_dependencies: %s\ncontent_path: %s\ncontent_sha256: %s\ncontent_bytes: %d\ncontent_token_upper_bound: %d\n",
 			manifest.Protocol, manifest.Name, manifest.Version, manifest.Description, joinProfiles(manifest.Profiles),
-			joinToolDependencies(manifest.ToolDependencies), manifest.ContentPath, manifest.ContentSHA256,
+			joinSurfaces(manifest.Surfaces), joinPhases(manifest.Phases), joinRoles(manifest.Roles),
+			userInvocable, modelInvocable, explicitOnly, joinToolDependencies(manifest.ToolDependencies),
+			manifest.ContentPath, manifest.ContentSHA256,
 			manifest.ContentBytes, manifest.ContentTokenUpperBound)
 		printSkillBoundary(a)
 		return nil
@@ -199,6 +206,10 @@ func (a *App) skillCommand(ctx context.Context, args []string) error {
 		fmt.Fprintf(a.out, "installed_count: %d\n", len(values))
 		printExternalSkillBoundary(a)
 		return nil
+	case "candidates":
+		return a.skillCandidateCommand(ctx, append([]string{"list"}, args[1:]...), registry)
+	case "candidate":
+		return a.skillCandidateCommand(ctx, args[1:], registry)
 	case "remove":
 		flags := newFlagSet("skill remove", a.errOut)
 		operationKey := flags.String("operation-key", "", "stable idempotency key")
@@ -550,9 +561,12 @@ func (a *App) skillImportSourceCommand(ctx context.Context, args []string, kind 
 }
 
 func printSkillPackagePreview(a *App, preview skills.PackagePreview) {
-	fmt.Fprintf(a.out, "package_protocol: %s\nskill_protocol: %s\nskill: %s@%s\nprofiles: %s\ntool_dependencies: %s\ncontent_sha256: %s\ncontent_bytes: %d\ncontent_token_upper_bound: %d\narchive_sha256: %s\npackage_fingerprint: %s\narchive_bytes: %d\nuncompressed_bytes: %d\nentry_count: %d\ntrust_class: %s\nrisk_codes: %s\nexecutable_assets: %d\ninstall_hooks: %d\nimport_command_execution: %t\nimport_network_access: %t\nimport_provider_calls: %t\ntool_capability_grant: %t\ninstallation_authorized: %t\nvalidated: true\n",
+	userInvocable, modelInvocable, explicitOnly := preview.Manifest.InvocationPolicy()
+	fmt.Fprintf(a.out, "package_protocol: %s\nskill_protocol: %s\nskill: %s@%s\nprofiles: %s\nsurfaces: %s\nphases: %s\nroles: %s\nuser_invocable: %t\nmodel_invocable: %t\nexplicit_only: %t\ntool_dependencies: %s\ncontent_sha256: %s\ncontent_bytes: %d\ncontent_token_upper_bound: %d\narchive_sha256: %s\npackage_fingerprint: %s\narchive_bytes: %d\nuncompressed_bytes: %d\nentry_count: %d\ntrust_class: %s\nrisk_codes: %s\nexecutable_assets: %d\ninstall_hooks: %d\nimport_command_execution: %t\nimport_network_access: %t\nimport_provider_calls: %t\ntool_capability_grant: %t\ninstallation_authorized: %t\nvalidated: true\n",
 		preview.ProtocolVersion, preview.Manifest.Protocol, preview.Manifest.Name,
 		preview.Manifest.Version, joinProfiles(preview.Manifest.Profiles),
+		joinSurfaces(preview.Manifest.Surfaces), joinPhases(preview.Manifest.Phases),
+		joinRoles(preview.Manifest.Roles), userInvocable, modelInvocable, explicitOnly,
 		joinToolDependencies(preview.Manifest.ToolDependencies), preview.Manifest.ContentSHA256,
 		preview.Manifest.ContentBytes, preview.Manifest.ContentTokenUpperBound,
 		preview.ArchiveSHA256, preview.PackageFingerprint, preview.ArchiveBytes,
@@ -576,10 +590,13 @@ func printInstalledSkillPackage(a *App, value skills.InstalledPackage) {
 		status = "removed"
 	}
 	installation := value.Installation
-	fmt.Fprintf(a.out, "installation_id: %s\nprotocol: %s\nskill: %s\nsurface: %s\nprofiles: %s\ntool_dependencies: %s\ncontent_sha256: %s\ncontent_bytes: %d\ncontent_token_upper_bound: %d\narchive_sha256: %s\npackage_fingerprint: %s\narchive_bytes: %d\nuncompressed_bytes: %d\nentry_count: %d\ntrust_class: %s\nrisk_codes: %s\nobject_key: %s\nobject_verified: %t\nstatus: %s\noperator_confirmed: %t\nimport_command_execution: %t\nimport_network_access: %t\nimport_provider_calls: %t\nrun_selection_authorized: %t\ncontext_injection_authorized: %t\ntool_capability_grant: %t\ncontent_body_exposed: false\ninstalled_by: %s\ncreated_at: %s\ncompleted_at: %s\n",
+	userInvocable, modelInvocable, explicitOnly := installation.Manifest.InvocationPolicy()
+	fmt.Fprintf(a.out, "installation_id: %s\nprotocol: %s\nskill: %s\nsurface: %s\nprofiles: %s\nsurfaces: %s\nphases: %s\nroles: %s\nuser_invocable: %t\nmodel_invocable: %t\nexplicit_only: %t\ntool_dependencies: %s\ncontent_sha256: %s\ncontent_bytes: %d\ncontent_token_upper_bound: %d\narchive_sha256: %s\npackage_fingerprint: %s\narchive_bytes: %d\nuncompressed_bytes: %d\nentry_count: %d\ntrust_class: %s\nrisk_codes: %s\nobject_key: %s\nobject_verified: %t\nstatus: %s\noperator_confirmed: %t\nimport_command_execution: %t\nimport_network_access: %t\nimport_provider_calls: %t\nrun_selection_authorized: %t\ncontext_injection_authorized: %t\ntool_capability_grant: %t\ncontent_body_exposed: false\ninstalled_by: %s\ncreated_at: %s\ncompleted_at: %s\n",
 		installation.ID, installation.ProtocolVersion,
 		skills.FormatInstalledPackageRef(installation.Name, installation.Version),
 		installation.Surface, joinProfiles(installation.Manifest.Profiles),
+		joinSurfaces(installation.Manifest.Surfaces), joinPhases(installation.Manifest.Phases),
+		joinRoles(installation.Manifest.Roles), userInvocable, modelInvocable, explicitOnly,
 		joinToolDependencies(installation.Manifest.ToolDependencies),
 		installation.Manifest.ContentSHA256, installation.Manifest.ContentBytes,
 		installation.Manifest.ContentTokenUpperBound, installation.ArchiveSHA256,
@@ -647,6 +664,39 @@ func joinProfiles(profiles []domain.Profile) string {
 	values := make([]string, len(profiles))
 	for index, profile := range profiles {
 		values[index] = string(profile)
+	}
+	return strings.Join(values, ",")
+}
+
+func joinSurfaces(surfaces []domain.ExecutionSurface) string {
+	if len(surfaces) == 0 {
+		return "legacy"
+	}
+	values := make([]string, len(surfaces))
+	for index, surface := range surfaces {
+		values[index] = string(surface)
+	}
+	return strings.Join(values, ",")
+}
+
+func joinPhases(phases []domain.ExecutionPhase) string {
+	if len(phases) == 0 {
+		return "legacy"
+	}
+	values := make([]string, len(phases))
+	for index, phase := range phases {
+		values[index] = string(phase)
+	}
+	return strings.Join(values, ",")
+}
+
+func joinRoles(roles []domain.AgentRole) string {
+	if len(roles) == 0 {
+		return "legacy"
+	}
+	values := make([]string, len(roles))
+	for index, role := range roles {
+		values[index] = string(role)
 	}
 	return strings.Join(values, ",")
 }

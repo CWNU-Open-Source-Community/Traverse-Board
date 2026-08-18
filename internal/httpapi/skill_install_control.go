@@ -35,6 +35,13 @@ type SkillPackageInstallView struct {
 	Name                       string               `json:"name"`
 	Version                    string               `json:"version"`
 	Surface                    string               `json:"surface"`
+	Profiles                   []string             `json:"profiles"`
+	Surfaces                   []string             `json:"surfaces"`
+	Phases                     []string             `json:"phases"`
+	Roles                      []string             `json:"roles"`
+	UserInvocable              bool                 `json:"user_invocable"`
+	ModelInvocable             bool                 `json:"model_invocable"`
+	ExplicitOnly               bool                 `json:"explicit_only"`
 	TrustClass                 string               `json:"trust_class"`
 	ArchiveSHA256              string               `json:"archive_sha256"`
 	PackageFingerprint         string               `json:"package_fingerprint"`
@@ -111,10 +118,30 @@ func (a *API) serveSkillPackageInstallControl(writer http.ResponseWriter,
 		return
 	}
 	installation := result.Package.Installation
+	profiles := make([]string, len(installation.Manifest.Profiles))
+	for index, profile := range installation.Manifest.Profiles {
+		profiles[index] = string(profile)
+	}
+	surfaces := make([]string, len(installation.Manifest.Surfaces))
+	for index, surface := range installation.Manifest.Surfaces {
+		surfaces[index] = string(surface)
+	}
+	phases := make([]string, len(installation.Manifest.Phases))
+	for index, phase := range installation.Manifest.Phases {
+		phases[index] = string(phase)
+	}
+	roles := make([]string, len(installation.Manifest.Roles))
+	for index, role := range installation.Manifest.Roles {
+		roles[index] = string(role)
+	}
+	userInvocable, modelInvocable, explicitOnly := installation.Manifest.InvocationPolicy()
 	a.writeSuccessStatus(writer, requestID, SkillPackageInstallView{
 		ProtocolVersion: skills.PackageInstallationProtocolVersion,
 		Name:            installation.Name, Version: installation.Version,
 		Surface: string(installation.Surface), TrustClass: string(installation.TrustClass),
+		Profiles: profiles, Surfaces: surfaces, Phases: phases, Roles: roles,
+		UserInvocable: userInvocable, ModelInvocable: modelInvocable,
+		ExplicitOnly:       explicitOnly,
 		ArchiveSHA256:      installation.ArchiveSHA256,
 		PackageFingerprint: installation.PackageFingerprint,
 		Replayed:           result.Replayed, RecoveredPending: result.RecoveredPending,

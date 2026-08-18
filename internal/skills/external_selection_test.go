@@ -8,6 +8,7 @@ import (
 
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/runmutation"
+	"cyberagent-workbench/internal/toolgateway"
 )
 
 func TestExternalSelectionRequiresExplicitConfirmationAndPinsExactObject(t *testing.T) {
@@ -88,6 +89,58 @@ func TestExternalSelectionRejectsRemovedCrossSurfaceAndDrift(t *testing.T) {
 	if _, err := ResolveExternalSelection(request); err == nil ||
 		!strings.Contains(err.Error(), "removed") {
 		t.Fatalf("removed selection error = %v", err)
+	}
+}
+
+func TestExternalSelectionRejectsPhaseSpecificModeAwarePackage(t *testing.T) {
+	content := []byte("# Plan helper\n\nInspect the plan only.\n")
+	manifest := BindManifestContent(Manifest{
+		Protocol: ProtocolVersion, Name: "plan-only-external", Version: "1.0.0",
+		Description:   "A phase-specific external workflow.",
+		Profiles:      []domain.Profile{domain.ProfileReview},
+		Surfaces:      []domain.ExecutionSurface{domain.ExecutionSurfaceCode},
+		Phases:        []domain.ExecutionPhase{domain.ExecutionPhasePlan},
+		Roles:         []domain.AgentRole{domain.AgentRoleRoot},
+		UserInvocable: true, ExplicitOnly: true,
+		ToolDependencies: []toolgateway.ToolName{toolgateway.ReadFileTool},
+	}, content)
+	raw, err := BuildUnsignedPackage(manifest, content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := ParsePackage(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createdAt := time.Date(2026, 7, 17, 5, 0, 0, 0, time.UTC)
+	installation, err := NewPackageInstallation("install-plan-only", parsed,
+		domain.ExecutionSurfaceCode, runmutation.Fingerprint("install", "plan-only"),
+		"operator", createdAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	descriptor := DescriptorForInstallation(installation)
+	objectKey, err := PackageObjectKey(descriptor.ArchiveSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := NewPackageInstallResult(installation, PackageObjectReceipt{
+		Descriptor: descriptor, ObjectKey: objectKey,
+	}, createdAt.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = ResolveExternalSelection(ResolveExternalSelectionRequest{
+		SelectionID: "phase-specific-selection", RunID: "run-phase", MissionID: "mission-phase",
+		ModeSnapshotID: "mode-phase", ModeRevision: 1,
+		Surface: domain.ExecutionSurfaceCode, Phase: domain.ExecutionPhasePlan,
+		Profile:     domain.ProfileReview,
+		Packages:    []InstalledPackage{{Installation: installation, Result: result}},
+		TokenBudget: 1024, RequestedBy: "operator", Confirmed: true,
+		CreatedAt: createdAt.Add(2 * time.Second),
+	})
+	if err == nil || !strings.Contains(err.Error(), "both Plan and Deliver") {
+		t.Fatalf("phase-specific immutable external selection error = %v", err)
 	}
 }
 

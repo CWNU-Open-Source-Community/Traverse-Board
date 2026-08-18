@@ -59,9 +59,13 @@ type ResolveSelectionRequest struct {
 	SelectionID string
 	RunID       string
 	MissionID   string
+	Surface     domain.ExecutionSurface
+	Phase       domain.ExecutionPhase
 	Profile     domain.Profile
 	Names       []string
 	TokenBudget int
+	Invocation  InvocationSource
+	Explicit    bool
 	RequestedBy string
 	CreatedAt   time.Time
 }
@@ -78,6 +82,22 @@ func (r *Registry) ResolveSelection(request ResolveSelectionRequest) (Selection,
 	request.MissionID = strings.TrimSpace(request.MissionID)
 	request.RequestedBy = strings.TrimSpace(request.RequestedBy)
 	request.CreatedAt = request.CreatedAt.UTC()
+	if request.Surface == "" {
+		request.Surface = domain.ExecutionSurfaceCode
+	}
+	if request.Phase == "" {
+		request.Phase = domain.ExecutionPhaseDeliver
+	}
+	if request.Invocation == "" {
+		request.Invocation = InvocationSourceUser
+		request.Explicit = true
+	}
+	if !request.Surface.Valid() || !request.Phase.Valid() {
+		return Selection{}, errors.New("skill selection surface or phase is invalid")
+	}
+	if !request.Invocation.Valid() {
+		return Selection{}, fmt.Errorf("invalid Skill invocation source %q", request.Invocation)
+	}
 	profile, err := domain.ParseProfile(string(request.Profile))
 	if err != nil || profile != request.Profile {
 		return Selection{}, fmt.Errorf("invalid Skill selection profile %q", request.Profile)
@@ -97,6 +117,7 @@ func (r *Registry) ResolveSelection(request ResolveSelectionRequest) (Selection,
 	}
 	sort.Strings(names)
 	items := make([]SelectionItem, 0, len(names))
+	manifests := make([]Manifest, 0, len(names))
 	tokenUpperBound := 0
 	for index, name := range names {
 		if index > 0 && name == names[index-1] {
@@ -106,8 +127,13 @@ func (r *Registry) ResolveSelection(request ResolveSelectionRequest) (Selection,
 		if !ok {
 			return Selection{}, fmt.Errorf("selected Skill %q was not found", name)
 		}
-		if !containsProfile(manifest.Profiles, profile) {
-			return Selection{}, fmt.Errorf("selected Skill %q is incompatible with profile %q", name, profile)
+		if !manifestSupportsRootRun(manifest, request.Surface, profile) {
+			return Selection{}, fmt.Errorf("selected Skill %q is incompatible with surface %q and profile %q",
+				name, request.Surface, profile)
+		}
+		if !manifest.AllowsInvocation(request.Invocation, request.Explicit) {
+			return Selection{}, fmt.Errorf("selected Skill %q does not allow %s invocation under the requested explicitness policy",
+				name, request.Invocation)
 		}
 		item := SelectionItem{
 			SelectionID: request.SelectionID, Ordinal: index + 1,
@@ -116,7 +142,11 @@ func (r *Registry) ResolveSelection(request ResolveSelectionRequest) (Selection,
 			TokenUpperBound: manifest.ContentTokenUpperBound,
 		}
 		items = append(items, item)
+		manifests = append(manifests, manifest)
 		tokenUpperBound += item.TokenUpperBound
+	}
+	if err := validateSelectionModeCoverage(manifests, request.Surface, profile); err != nil {
+		return Selection{}, err
 	}
 	if tokenUpperBound > request.TokenBudget {
 		return Selection{}, fmt.Errorf("selected Skills require token upper bound %d, budget is %d", tokenUpperBound, request.TokenBudget)
@@ -133,6 +163,52 @@ func (r *Registry) ResolveSelection(request ResolveSelectionRequest) (Selection,
 		return Selection{}, err
 	}
 	return selection, nil
+}
+
+func manifestSupportsRootRun(manifest Manifest, surface domain.ExecutionSurface,
+	profile domain.Profile,
+) bool {
+	for _, phase := range []domain.ExecutionPhase{
+		domain.ExecutionPhasePlan, domain.ExecutionPhaseDeliver,
+	} {
+		if manifest.SupportsContext(ExecutionContext{
+			Surface: surface, Phase: phase, Profile: profile, Role: domain.AgentRoleRoot,
+		}) {
+			return true
+		}
+	}
+	return false
+}
+
+// validateSelectionModeCoverage permits phase-specific root subsets while
+// retaining the single-guide Specialist bound in each phase.
+func validateSelectionModeCoverage(manifests []Manifest, surface domain.ExecutionSurface,
+	profile domain.Profile,
+) error {
+	for _, manifest := range manifests {
+		if !manifestSupportsRootRun(manifest, surface, profile) {
+			return fmt.Errorf("selected Skill %q must support root delivery in at least one phase",
+				manifest.Name)
+		}
+	}
+	for _, phase := range []domain.ExecutionPhase{
+		domain.ExecutionPhasePlan, domain.ExecutionPhaseDeliver,
+	} {
+		specialistCount := 0
+		for _, manifest := range manifests {
+			if manifest.SupportsContext(ExecutionContext{
+				Surface: surface, Phase: phase, Profile: profile,
+				Role: domain.AgentRoleSpecialist,
+			}) {
+				specialistCount++
+			}
+		}
+		if specialistCount > MaxSpecialistContextItems {
+			return fmt.Errorf("selected Skills expose %d Specialist guides in %q phase, maximum is %d",
+				specialistCount, phase, MaxSpecialistContextItems)
+		}
+	}
+	return nil
 }
 
 func (s Selection) Validate() error {

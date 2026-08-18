@@ -1,12 +1,18 @@
 {
   "protocol": "skill.v1",
   "name": "review",
-  "version": "1.1.0",
-  "description": "Severity-first code review and residual-risk guidance.",
-  "profiles": ["review"],
+  "version": "1.3.0",
+  "description": "Evidence-graded merge-base, full-diff, lifecycle, concurrency, recovery, and test-strength review.",
+  "profiles": ["code", "review"],
+  "surfaces": ["code"],
+  "phases": ["plan", "deliver"],
+  "roles": ["root", "specialist"],
+  "user_invocable": true,
+  "model_invocable": true,
+  "explicit_only": false,
   "tool_dependencies": ["list_workspace", "read_file"],
   "content_path": "SKILL.md",
-  "content_sha256": "b8e55af0094db9844cd47fa4db459897a8200ec9f39fe9f31aa74316113563c3",
-  "content_bytes": 407,
-  "content_token_upper_bound": 407
+  "content_sha256": "0e0b45f5ea9499721dbff485e502ae332a96ed781e11c5a9b652776f3360f9a4",
+  "content_bytes": 1410,
+  "content_token_upper_bound": 1410
 }

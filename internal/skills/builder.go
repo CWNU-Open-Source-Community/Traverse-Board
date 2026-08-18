@@ -4,10 +4,54 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/flate"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"hash/crc32"
 )
+
+// BindManifestContent derives the immutable body metadata used by an unsigned
+// package. It performs no I/O and grants no installation authority.
+func BindManifestContent(manifest Manifest, content []byte) Manifest {
+	digest := sha256.Sum256(content)
+	manifest.Publisher = ""
+	manifest.ContentPath = PackageContentPath
+	manifest.ContentSHA256 = hex.EncodeToString(digest[:])
+	manifest.ContentBytes = len(content)
+	manifest.ContentTokenUpperBound = ContentTokenUpperBound(content)
+	return cloneManifest(manifest)
+}
+
+// BuildUnsignedPackage creates the only deterministic package shape accepted
+// by ParsePackage. The result is still untrusted data and is not installed.
+func BuildUnsignedPackage(manifest Manifest, content []byte) ([]byte, error) {
+	if manifest.Publisher != "" {
+		return nil, errors.New("unsigned Skill package cannot declare a publisher")
+	}
+	if err := manifest.Validate(content); err != nil {
+		return nil, err
+	}
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		return nil, err
+	}
+	if len(manifestJSON) > MaxManifestBytes {
+		return nil, errors.New("Skill package manifest exceeds its byte bound")
+	}
+	raw, err := buildDeterministicPackage([]deterministicZipEntry{
+		{name: PackageManifestPath, data: manifestJSON},
+		{name: PackageContentPath, data: bytes.Clone(content)},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if _, err := ParsePackage(raw); err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
 
 // deterministicZipEntry is one fixed-profile ZIP entry. The builder emits the
 // exact container profile validatePackageContainer enforces: Deflate with a

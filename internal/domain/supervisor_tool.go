@@ -80,7 +80,8 @@ func (c SupervisorToolCall) Validate() error {
 		c.ToolName != "controlled_command_propose" &&
 		c.ToolName != "one_shot_command_propose" &&
 		c.ToolName != "host_command_propose" &&
-		c.ToolName != "sandbox_docker_run_propose" {
+		c.ToolName != "sandbox_docker_run_propose" &&
+		c.ToolName != "skill_candidate_propose" {
 		return fmt.Errorf("unsupported supervisor tool %q", c.ToolName)
 	}
 	if len(c.PayloadJSON) == 0 || len(c.PayloadJSON) > MaxSupervisorToolPayloadBytes ||

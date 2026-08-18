@@ -12,7 +12,7 @@ import (
 
 func TestManifestValidationRejectsMalformedAndEscalatingMetadata(t *testing.T) {
 	content := []byte("# Test\n\nBounded content.\n")
-	valid := fixtureManifest(content)
+	valid := fixtureModeManifest(content)
 	if err := valid.Validate(content); err != nil {
 		t.Fatalf("valid manifest failed: %v", err)
 	}
@@ -32,6 +32,23 @@ func TestManifestValidationRejectsMalformedAndEscalatingMetadata(t *testing.T) {
 		{name: "duplicate profiles", mutate: func(m *Manifest) { m.Profiles = []domain.Profile{domain.ProfileCode, domain.ProfileCode} }, want: "unique and sorted"},
 		{name: "unsorted profiles", mutate: func(m *Manifest) { m.Profiles = []domain.Profile{domain.ProfileReview, domain.ProfileCode} }, want: "unique and sorted"},
 		{name: "unknown profile", mutate: func(m *Manifest) { m.Profiles = []domain.Profile{"admin"} }, want: "invalid skill profile"},
+		{name: "missing surfaces", mutate: func(m *Manifest) { m.Surfaces = nil }, want: "declared together"},
+		{name: "unsorted surfaces", mutate: func(m *Manifest) {
+			m.Surfaces = []domain.ExecutionSurface{domain.ExecutionSurfaceCyber, domain.ExecutionSurfaceCode}
+		}, want: "canonically ordered"},
+		{name: "unknown surface", mutate: func(m *Manifest) { m.Surfaces = []domain.ExecutionSurface{"admin"} }, want: "invalid skill surfaces"},
+		{name: "unsorted phases", mutate: func(m *Manifest) {
+			m.Phases = []domain.ExecutionPhase{domain.ExecutionPhaseDeliver, domain.ExecutionPhasePlan}
+		}, want: "canonically ordered"},
+		{name: "duplicate roles", mutate: func(m *Manifest) {
+			m.Roles = []domain.AgentRole{domain.AgentRoleRoot, domain.AgentRoleRoot}
+		}, want: "canonically ordered"},
+		{name: "not invocable", mutate: func(m *Manifest) {
+			m.UserInvocable, m.ModelInvocable = false, false
+		}, want: "must be user_invocable"},
+		{name: "explicit model invocation", mutate: func(m *Manifest) {
+			m.ExplicitOnly, m.ModelInvocable = true, true
+		}, want: "explicit_only"},
 		{name: "unknown tool", mutate: func(m *Manifest) { m.ToolDependencies = []toolgateway.ToolName{"invented"} }, want: "unsupported skill tool dependency"},
 		{name: "missing tool declaration", mutate: func(m *Manifest) { m.ToolDependencies = nil }, want: "tool_dependencies is required"},
 		{name: "unsorted tools", mutate: func(m *Manifest) {
@@ -67,6 +84,27 @@ func TestManifestValidationRejectsMalformedAndEscalatingMetadata(t *testing.T) {
 	}
 }
 
+func TestLegacyManifestKeepsConservativeInvocationAndModeCompatibility(t *testing.T) {
+	content := []byte("# Legacy\n")
+	manifest := fixtureManifest(content)
+	if err := manifest.Validate(content); err != nil {
+		t.Fatalf("legacy manifest failed validation: %v", err)
+	}
+	if !manifest.AllowsInvocation(InvocationSourceUser, true) ||
+		manifest.AllowsInvocation(InvocationSourceModel, false) {
+		t.Fatal("legacy manifest invocation policy drifted")
+	}
+	if !manifest.SupportsContext(ExecutionContext{
+		Surface: domain.ExecutionSurfaceCode, Phase: domain.ExecutionPhaseDeliver,
+		Profile: domain.ProfileCode, Role: domain.AgentRoleSpecialist,
+	}) || manifest.SupportsContext(ExecutionContext{
+		Surface: domain.ExecutionSurfaceCyber, Phase: domain.ExecutionPhaseDeliver,
+		Profile: domain.ProfileCode, Role: domain.AgentRoleSpecialist,
+	}) {
+		t.Fatal("legacy Specialist compatibility drifted")
+	}
+}
+
 func TestCoreVersionAndNameBounds(t *testing.T) {
 	for _, value := range []string{"0.0.0", "1.2.3", "999999999.0.1"} {
 		if !validCoreVersion(value) {
@@ -97,4 +135,18 @@ func fixtureManifest(content []byte) Manifest {
 		ContentBytes:           len(content),
 		ContentTokenUpperBound: ContentTokenUpperBound(content),
 	}
+}
+
+func fixtureModeManifest(content []byte) Manifest {
+	manifest := fixtureManifest(content)
+	manifest.Surfaces = []domain.ExecutionSurface{
+		domain.ExecutionSurfaceCode, domain.ExecutionSurfaceCyber,
+	}
+	manifest.Phases = []domain.ExecutionPhase{
+		domain.ExecutionPhasePlan, domain.ExecutionPhaseDeliver,
+	}
+	manifest.Roles = []domain.AgentRole{domain.AgentRoleRoot, domain.AgentRoleSpecialist}
+	manifest.UserInvocable = true
+	manifest.ModelInvocable = true
+	return manifest
 }

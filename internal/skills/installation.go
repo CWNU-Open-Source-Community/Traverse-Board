@@ -193,6 +193,9 @@ func (i PackageInstallation) Validate() error {
 	if err := validatePackageManifestMetadata(i.Manifest); err != nil {
 		return err
 	}
+	if i.Manifest.HasModeMetadata() && !slices.Contains(i.Manifest.Surfaces, i.Surface) {
+		return errors.New("installed Skill manifest does not support its installation surface")
+	}
 	if i.Surface == domain.ExecutionSurfaceCyber &&
 		!slices.Equal(i.Manifest.Profiles, []domain.Profile{domain.ProfileScript}) {
 		return errors.New("cyber Skill packages must declare only the script Profile")
@@ -234,6 +237,25 @@ func (o PackageInstallOperation) Validate() error {
 }
 
 func PackageInstallationIntentFingerprint(i PackageInstallation) string {
+	if i.Manifest.HasModeMetadata() {
+		return runmutation.Fingerprint("skill_package_installation_intent.v2",
+			i.Name, i.Version, string(i.Surface), i.Manifest.Protocol,
+			i.Manifest.Description, strings.Join(profileStrings(i.Manifest.Profiles), ","),
+			strings.Join(surfaceStrings(i.Manifest.Surfaces), ","),
+			strings.Join(phaseStrings(i.Manifest.Phases), ","),
+			strings.Join(roleStrings(i.Manifest.Roles), ","),
+			"user_invocable="+strconv.FormatBool(i.Manifest.UserInvocable),
+			"model_invocable="+strconv.FormatBool(i.Manifest.ModelInvocable),
+			"explicit_only="+strconv.FormatBool(i.Manifest.ExplicitOnly),
+			strings.Join(toolStrings(i.Manifest.ToolDependencies), ","), i.Manifest.ContentPath,
+			i.Manifest.ContentSHA256, strconv.Itoa(i.Manifest.ContentBytes),
+			strconv.Itoa(i.Manifest.ContentTokenUpperBound), i.ArchiveSHA256,
+			i.PackageFingerprint, strconv.Itoa(i.ArchiveBytes),
+			strconv.Itoa(i.UncompressedBytes), strconv.Itoa(i.EntryCount), string(i.TrustClass),
+			strings.Join(riskStrings(i.RiskCodes), ","), i.InstalledBy,
+			"command=false", "network=false", "provider=false", "tool_grant=false",
+			"run_selection=false", "context_injection=false")
+	}
 	return runmutation.Fingerprint("skill_package_installation_intent.v1",
 		i.Name, i.Version, string(i.Surface), i.Manifest.Protocol,
 		i.Manifest.Description, strings.Join(profileStrings(i.Manifest.Profiles), ","),
@@ -461,6 +483,9 @@ func validatePackageManifestMetadata(manifest Manifest) error {
 	if err := validateProfiles(manifest.Profiles); err != nil {
 		return err
 	}
+	if err := validateModeMetadata(manifest); err != nil {
+		return err
+	}
 	if err := validateToolDependencies(manifest.Profiles, manifest.ToolDependencies); err != nil {
 		return err
 	}
@@ -497,6 +522,30 @@ func validUTC(value time.Time) bool {
 }
 
 func profileStrings(values []domain.Profile) []string {
+	result := make([]string, len(values))
+	for index, value := range values {
+		result[index] = string(value)
+	}
+	return result
+}
+
+func surfaceStrings(values []domain.ExecutionSurface) []string {
+	result := make([]string, len(values))
+	for index, value := range values {
+		result[index] = string(value)
+	}
+	return result
+}
+
+func phaseStrings(values []domain.ExecutionPhase) []string {
+	result := make([]string, len(values))
+	for index, value := range values {
+		result[index] = string(value)
+	}
+	return result
+}
+
+func roleStrings(values []domain.AgentRole) []string {
 	result := make([]string, len(values))
 	for index, value := range values {
 		result[index] = string(value)

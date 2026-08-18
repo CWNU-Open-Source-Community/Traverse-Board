@@ -133,6 +133,129 @@ func TestSelectedRunCannotStartModelWithoutPreparedRootSkillContext(t *testing.T
 	}
 }
 
+func TestModeBoundRootSkillContextPersistsEmptyDeliverSubset(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "root-mode-skill-context.db")
+	st, run := createSkillSelectionRun(t, path, "code")
+	ctx := context.Background()
+	registry, err := skills.BuiltinRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, err := application.NewSkillSelectionService(st, registry).Select(ctx,
+		application.SelectSkillsRequest{
+			RunID: run.ID, Names: []string{"doctor"}, TokenBudget: 4096,
+			OperationKey: "root-mode-skill-context-selection", RequestedBy: "operator",
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := application.NewRunService(st).Start(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	turn, err := st.BeginSupervisorTurn(ctx,
+		acquireTestRunExecutionLease(t, ctx, st, run.ID), "deliver Plan-only Skill selection")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assembly, err := registry.AssembleContextFor(selected.Selection, skills.ExecutionContext{
+		Surface: turn.Mode.Surface, Phase: turn.Mode.Phase,
+		Profile: turn.Mode.Profile, Role: domain.AgentRoleRoot,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assembly.ItemCount != 0 || assembly.TokenUpperBound != 0 ||
+		assembly.SelectionItemCount != 1 {
+		t.Fatalf("unexpected empty phase subset: %#v", assembly)
+	}
+	request, err := assembly.PreparationForMode(turn.Mode, turn.Agent.ID,
+		turn.Checkpoint.AttemptID, turn.Checkpoint.NextTurn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := st.PrepareRootSkillContext(ctx, turn.Checkpoint, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prepared.ItemCount != 0 || prepared.SelectionItemCount != 1 ||
+		prepared.Phase != domain.ExecutionPhaseDeliver || !prepared.ModeBound() {
+		t.Fatalf("mode-bound preparation drifted: %#v", prepared)
+	}
+	assertTableCount(t, st, "root_mode_skill_context_preparations", 1)
+	assertTableCount(t, st, "root_skill_context_preparations", 0)
+
+	forged := request
+	forged.ItemCount = 1
+	forged.TokenUpperBound = 1
+	if _, err := st.PrepareRootSkillContext(ctx, turn.Checkpoint, forged); apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
+		t.Fatalf("forged phase subset error = %v", err)
+	}
+	attempt := llm.ModelAttempt{
+		Number: 1, TransportAttempt: 1, MaxAttempts: 3, Provider: "test", Model: "model",
+	}
+	if inserted, err := st.RecordSupervisorModelStarted(ctx, turn.Checkpoint, attempt); err != nil || !inserted {
+		t.Fatalf("mode-bound model start: inserted=%t err=%v", inserted, err)
+	}
+	assertTableCount(t, st, "root_mode_skill_context_commits", 1)
+
+	eventList, err := st.ListRunEvents(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range eventList {
+		if item.Type != events.SkillContextPreparedEvent &&
+			item.Type != events.SkillContextCommittedEvent {
+			continue
+		}
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(item.PayloadJSON), &payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload["item_count"] != float64(0) ||
+			payload["selection_item_count"] != float64(1) ||
+			payload["phase"] != string(domain.ExecutionPhaseDeliver) ||
+			payload["surface"] != string(domain.ExecutionSurfaceCode) {
+			t.Fatalf("mode-bound event payload drifted: %#v", payload)
+		}
+	}
+	for _, mutation := range []string{
+		`UPDATE root_mode_skill_context_preparations SET item_count = 1 WHERE id = ?`,
+		`DELETE FROM root_mode_skill_context_preparations WHERE id = ?`,
+		`UPDATE root_mode_skill_context_commits SET model_attempt = 2 WHERE preparation_id = ?`,
+		`DELETE FROM root_mode_skill_context_commits WHERE preparation_id = ?`,
+	} {
+		if _, err := st.db.ExecContext(ctx, mutation, prepared.ID); err == nil {
+			t.Fatalf("immutable mode-bound context mutation succeeded: %s", mutation)
+		}
+	}
+}
+
+func TestSchemaV110AddsPhaseAwareRootSkillContextLedger(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v109-root-mode-skill-context.db")
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range removeSchemaV110ForTestStatements() {
+		if _, err := st.db.ExecContext(t.Context(), statement); err != nil {
+			t.Fatalf("downgrade v110 with %q: %v", statement, err)
+		}
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	upgraded, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upgraded.Close()
+	if version, err := upgraded.SchemaVersion(t.Context()); err != nil || version != LatestSchemaVersion {
+		t.Fatalf("schema version=%d err=%v", version, err)
+	}
+	assertTableCount(t, upgraded, "root_mode_skill_context_preparations", 0)
+	assertTableCount(t, upgraded, "root_mode_skill_context_commits", 0)
+}
+
 func TestSchemaV39SkillSelectionSurvivesRootContextMigration(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v39-root-skill-context.db")
 	st, run := createSkillSelectionRun(t, path, "code")

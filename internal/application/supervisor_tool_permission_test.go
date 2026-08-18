@@ -23,7 +23,8 @@ func TestSupervisorHostCommandToolIsExposedOnlyInApprovalPermission(t *testing.T
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			found := false
-			for _, spec := range supervisorStructuredToolSpecs(domain.ExecutionPhaseDeliver, test.mode) {
+			for _, spec := range supervisorStructuredToolSpecs(domain.ExecutionPhaseDeliver,
+				test.mode, false) {
 				if spec.Name == string(toolgateway.HostCommandProposeTool) {
 					found = true
 				}
@@ -39,7 +40,7 @@ func TestSupervisorAcceptsChildTaskProposalInDeliverPhase(t *testing.T) {
 	payload := json.RawMessage(`{"version":"child_task_proposal.v1","tasks":[{"title":"Inspect","goal":"Inspect the parser","skills":["model.chat","read_file"],"turn_limit":2,"token_limit":128,"timeout_millis":60000}]}`)
 	calls := []llm.ToolCall{{ID: "provider-call-1", Name: string(toolgateway.ChildTaskProposeTool), Arguments: payload}}
 	prepared, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
-		domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionConservative)
+		domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionConservative, false)
 	if err != nil || len(prepared) != 1 || prepared[0].Name != string(toolgateway.ChildTaskProposeTool) {
 		t.Fatalf("child task proposal was rejected: %#v err=%v", prepared, err)
 	}
@@ -64,7 +65,7 @@ func TestSupervisorAcceptsAdvertisedDockerSandboxProposal(t *testing.T) {
 	calls := []llm.ToolCall{{ID: "provider-call-docker",
 		Name: string(toolgateway.DockerSandboxRunProposeTool), Arguments: payload}}
 	prepared, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
-		domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionConservative)
+		domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionConservative, false)
 	if err != nil || len(prepared) != 1 ||
 		prepared[0].Name != string(toolgateway.DockerSandboxRunProposeTool) {
 		t.Fatalf("advertised Docker Sandbox proposal was rejected: %#v err=%v", prepared, err)
@@ -74,7 +75,7 @@ func TestSupervisorAcceptsAdvertisedDockerSandboxProposal(t *testing.T) {
 func TestSupervisorExposesAndAcceptsOneShotCommandProposal(t *testing.T) {
 	found := false
 	for _, spec := range supervisorStructuredToolSpecs(domain.ExecutionPhaseDeliver,
-		domain.RunExecutionPermissionConservative) {
+		domain.RunExecutionPermissionConservative, false) {
 		if spec.Name == string(toolgateway.OneShotCommandProposeTool) {
 			found = true
 			break
@@ -94,7 +95,7 @@ func TestSupervisorExposesAndAcceptsOneShotCommandProposal(t *testing.T) {
 	calls := []llm.ToolCall{{ID: "provider-call-once",
 		Name: string(toolgateway.OneShotCommandProposeTool), Arguments: payload}}
 	prepared, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
-		domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionConservative)
+		domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionConservative, false)
 	if err != nil || len(prepared) != 1 ||
 		prepared[0].Name != string(toolgateway.OneShotCommandProposeTool) {
 		t.Fatalf("one-shot command proposal was rejected: %#v err=%v", prepared, err)
@@ -105,12 +106,38 @@ func TestSupervisorRejectsForgedHostCommandToolOutsideApprovalPermission(t *test
 	payload := json.RawMessage(`{"version":"host_command_proposal.v1","executable_path":"/workspace/tool","argv":["version"],"working_directory":"/workspace","timeout_milliseconds":1000,"purpose":"inspect the exact tool version"}`)
 	calls := []llm.ToolCall{{ID: "provider-call-1", Name: string(toolgateway.HostCommandProposeTool), Arguments: payload}}
 	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
-		domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionConservative); err == nil {
+		domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionConservative, false); err == nil {
 		t.Fatal("forged host command proposal was accepted outside approval permission")
 	}
 	prepared, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
-		domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionApproval)
+		domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionApproval, false)
 	if err != nil || len(prepared) != 1 || prepared[0].Name != string(toolgateway.HostCommandProposeTool) {
 		t.Fatalf("approval host command proposal was rejected: %#v err=%v", prepared, err)
+	}
+}
+
+func TestSupervisorSkillCandidateToolRequiresExplicitGeneratorContext(t *testing.T) {
+	found := func(enabled bool) bool {
+		for _, spec := range supervisorStructuredToolSpecs(domain.ExecutionPhaseDeliver,
+			domain.RunExecutionPermissionConservative, enabled) {
+			if spec.Name == string(toolgateway.SkillCandidateProposeTool) {
+				return true
+			}
+		}
+		return false
+	}
+	if found(false) || !found(true) {
+		t.Fatal("Skill candidate tool exposure did not follow explicit generator context")
+	}
+	payload := json.RawMessage(`{"version":"skill_candidate_proposal.v1","name":"bounded-helper","skill_version":"1.0.0","description":"A reusable generated workflow.","profiles":["code"],"surfaces":["code"],"phases":["deliver"],"roles":["root"],"user_invocable":true,"model_invocable":false,"explicit_only":true,"tool_dependencies":["read_file"],"content":"# Bounded helper\n\nInspect and report verified facts.\n"}`)
+	calls := []llm.ToolCall{{ID: "provider-call-candidate",
+		Name: string(toolgateway.SkillCandidateProposeTool), Arguments: payload}}
+	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
+		domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionConservative, false); err == nil {
+		t.Fatal("forged Skill candidate proposal was accepted without generator context")
+	}
+	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
+		domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionConservative, true); err != nil {
+		t.Fatalf("explicit generator Skill candidate proposal was rejected: %v", err)
 	}
 }
