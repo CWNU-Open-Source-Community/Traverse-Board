@@ -71,7 +71,8 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 			name != toolgateway.ChildTaskProposeTool &&
 			name != toolgateway.PlanDeliveryProposeTool &&
 			name != toolgateway.ControlledCommandProposeTool &&
-			name != toolgateway.HostCommandProposeTool {
+			name != toolgateway.HostCommandProposeTool &&
+			name != toolgateway.DockerSandboxRunProposeTool {
 			return nil, fmt.Errorf("provider requested unsupported supervisor tool %q", call.Name)
 		}
 		if name == toolgateway.PlanDeliveryProposeTool && phase != domain.ExecutionPhasePlan {

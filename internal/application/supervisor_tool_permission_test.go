@@ -44,6 +44,32 @@ func TestSupervisorAcceptsChildTaskProposalInDeliverPhase(t *testing.T) {
 	}
 }
 
+func TestSupervisorAcceptsAdvertisedDockerSandboxProposal(t *testing.T) {
+	payload := json.RawMessage(`{
+  "version":"sandbox_docker_run_proposal.v1",
+  "plan_id":"docker-plan-1",
+  "manifest":{
+    "protocol_version":"sandbox_manifest.v1",
+    "backend":"docker",
+    "command":{"executable":"/bin/echo","arguments":["ok"],"working_directory":"/workspace"},
+    "mounts":[{"source":".","target":"/workspace","access":"read_write"}],
+    "network":{"mode":"disabled"},
+    "resources":{"cpu_quota_millis":1000,"memory_bytes":33554432,"pids":32,"max_output_bytes":4096},
+    "output":{"capture_stdout":true,"capture_stderr":true},
+    "timeout_seconds":30,
+    "cancellation":{"grace_period_millis":1000}
+  }
+}`)
+	calls := []llm.ToolCall{{ID: "provider-call-docker",
+		Name: string(toolgateway.DockerSandboxRunProposeTool), Arguments: payload}}
+	prepared, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
+		domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionConservative)
+	if err != nil || len(prepared) != 1 ||
+		prepared[0].Name != string(toolgateway.DockerSandboxRunProposeTool) {
+		t.Fatalf("advertised Docker Sandbox proposal was rejected: %#v err=%v", prepared, err)
+	}
+}
+
 func TestSupervisorRejectsForgedHostCommandToolOutsideApprovalPermission(t *testing.T) {
 	payload := json.RawMessage(`{"version":"host_command_proposal.v1","executable_path":"/workspace/tool","argv":["version"],"working_directory":"/workspace","timeout_milliseconds":1000,"purpose":"inspect the exact tool version"}`)
 	calls := []llm.ToolCall{{ID: "provider-call-1", Name: string(toolgateway.HostCommandProposeTool), Arguments: payload}}
