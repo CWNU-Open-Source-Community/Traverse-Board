@@ -1,0 +1,193 @@
+package toolgateway
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+	"testing"
+	"time"
+
+	"cyberagent-workbench/internal/policy"
+	"cyberagent-workbench/internal/runner"
+)
+
+type commandRuntimeExecutorStub struct {
+	calls int
+	scope CommandRuntimeContext
+	input CommandRuntimeInput
+}
+
+type commandRuntimePolicyStore struct {
+	*trackedStructuredStore
+	decisions []policy.DecisionRecord
+}
+
+func (s *commandRuntimePolicyStore) RecordPolicyDecision(_ context.Context,
+	record policy.DecisionRecord,
+) error {
+	s.decisions = append(s.decisions, record)
+	return nil
+}
+
+func (s *commandRuntimeExecutorStub) ExecuteCommandRuntime(_ context.Context,
+	scope CommandRuntimeContext, input CommandRuntimeInput,
+) (CommandRuntimeExecutionResult, error) {
+	s.calls++
+	s.scope = scope
+	s.input = input
+	exitCode := 0
+	return CommandRuntimeExecutionResult{
+		Backend: "run_owned_command_runtime", Action: input.Action,
+		Jobs: []runner.CommandRuntimeJobSnapshot{{
+			ID: "command-job-1", State: runner.CommandRuntimeJobCompleted,
+			Profile: runner.CommandRuntimePowerShell, ExitCode: &exitCode,
+			OutputCursor: 45, TreeReaped: true,
+		}},
+		Pages: []runner.CommandRuntimeOutputPage{{
+			JobID: "command-job-1", BaseCursor: 0, NextCursor: 45, EndCursor: 45,
+			State: runner.CommandRuntimeJobCompleted, ExitCode: &exitCode,
+			Frames: []runner.CommandRuntimeFrame{{Cursor: 0, NextCursor: 45,
+				Stream: runner.CommandRuntimeStdout, Timestamp: time.Now().UTC(),
+				Text: "\x1b[31mok\x1b[0m token=secret-value-1234567890"}},
+		}},
+		Artifacts: []CommandRuntimeArtifactOutput{{
+			JobID:  "command-job-1",
+			Stdout: "\x1b[32martifact-ok\x1b[0m token=secret-value-1234567890\n",
+		}},
+	}, nil
+}
+
+func TestCommandRuntimePayloadIsExplicitStrictAndCanonical(t *testing.T) {
+	valid := commandRuntimeValidPayload("Write-Output ok")
+	input, canonical, err := normalizeCommandRuntimePayload(valid)
+	if err != nil || input.Action != CommandRuntimeActionRun ||
+		len(input.Commands) != 1 || !json.Valid(canonical) {
+		t.Fatalf("valid command runtime payload failed: %s err=%v", canonical, err)
+	}
+	if !strings.Contains(string(canonical), `"environment":[]`) {
+		t.Fatalf("canonical payload lost an explicit empty boundary: %s", canonical)
+	}
+	for _, payload := range []json.RawMessage{
+		json.RawMessage(`{"version":"command-runtime.v2","action":"list","cursor":0}`),
+		json.RawMessage(`{"version":"command-runtime.v2","action":"start","commands":null}`),
+		json.RawMessage(`{"version":"command-runtime.v2","action":"write_stdin","job_id":"job-1","stdin":null,"close_stdin":false}`),
+		json.RawMessage(`{"version":"command-runtime.v2","action":"run","failure_policy":"fail_fast","max_bytes":4096,"commands":[{"version":"command-runtime.v2","profile":"powershell","script":"Write-Output ok","working_directory":".","stdin_policy":"closed","close_initial_stdin":true,"timeout_milliseconds":1000,"output":{"inline_bytes":4096,"artifact_bytes":4096},"network":"disabled","credentials":"none","purpose":"test"}]}`),
+		json.RawMessage(`{"version":"command-runtime.v2","action":"start","commands":[{"version":"command-runtime.v2","profile":"process","executable":"C:\\\\tool.exe","working_directory":".","environment":[],"stdin_policy":"closed","close_initial_stdin":true,"timeout_milliseconds":1000,"output":{"inline_bytes":4096,"artifact_bytes":4096},"network":"disabled","credentials":"none","purpose":"test"}]}`),
+	} {
+		if _, _, err := normalizeCommandRuntimePayload(payload); err == nil {
+			t.Fatalf("incomplete or inapplicable payload was accepted: %s", payload)
+		}
+	}
+	if _, _, err := normalizeCommandRuntimePayload(commandRuntimeValidPayload(
+		"Write-Output token=secret-value-1234567890")); err == nil {
+		t.Fatal("secret-bearing command reached the durable tool boundary")
+	}
+}
+
+func TestCommandRuntimeGatewayUsesFencedScopeAndSanitizesUntrustedFrames(t *testing.T) {
+	state := &commandRuntimePolicyStore{trackedStructuredStore: newTrackedStructuredStore()}
+	executor := &commandRuntimeExecutorStub{}
+	gateway := New(state, policy.NewDefaultChecker()).WithCommandRuntimeExecutor(executor)
+	outcome, err := gateway.Invoke(t.Context(), commandRuntimeToolCall(
+		commandRuntimeValidPayload("Write-Output ok")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if executor.calls != 1 || executor.scope.LeaseID != "lease-1" ||
+		executor.scope.LeaseGeneration != 7 || executor.input.Action != CommandRuntimeActionRun ||
+		outcome.Result == nil || outcome.Result.Status != StatusCompleted ||
+		outcome.Result.Metadata["owner"] != "run_owned_command_runtime" ||
+		outcome.Result.Metadata["job_1_artifact_stdout_id"] == "" ||
+		outcome.Result.Metadata["job_1_artifact_stdout_sha256"] == "" ||
+		outcome.Result.Metadata["user_terminal_shared"] != "false" ||
+		outcome.Result.Metadata["debug_terminal_shared"] != "false" ||
+		outcome.Result.Metadata["sandbox_shared"] != "false" {
+		t.Fatalf("unexpected command runtime outcome: %#v", outcome)
+	}
+	if len(state.decisions) != 1 || !state.decisions[0].Decision.Allowed ||
+		state.decisions[0].Context != "tool_run.command_runtime.command_1" {
+		t.Fatalf("exact command policy review was not audited: %#v", state.decisions)
+	}
+	if strings.Contains(outcome.Result.Stdout, "\x1b") ||
+		strings.Contains(outcome.Result.Stdout, "secret-value") ||
+		!strings.Contains(outcome.Result.Stdout, "ok") {
+		t.Fatalf("untrusted output was not sanitized: %q", outcome.Result.Stdout)
+	}
+}
+
+func TestCommandRuntimeGatewayRejectsNetworkIntentBeforeExecution(t *testing.T) {
+	state := &commandRuntimePolicyStore{trackedStructuredStore: newTrackedStructuredStore()}
+	executor := &commandRuntimeExecutorStub{}
+	gateway := New(state, policy.NewDefaultChecker()).WithCommandRuntimeExecutor(executor)
+	for _, script := range []string{
+		"Invoke-WebRequest https://example.com", "git fetch origin", "curl http://example.com",
+	} {
+		outcome, err := gateway.Invoke(t.Context(), commandRuntimeToolCall(
+			commandRuntimeValidPayload(script)))
+		if err != nil || outcome.Result == nil || outcome.Result.Status != StatusDenied ||
+			outcome.Decision.Allowed {
+			t.Fatalf("network command %q was not denied: %#v err=%v", script, outcome, err)
+		}
+	}
+	if executor.calls != 0 {
+		t.Fatalf("network-denied requests reached executor %d times", executor.calls)
+	}
+	if len(state.decisions) != 3 {
+		t.Fatalf("network denials were not audited per command: %#v", state.decisions)
+	}
+}
+
+func TestCommandRuntimeGatewayAuditsEveryCommandBeforeDenyingBatch(t *testing.T) {
+	state := &commandRuntimePolicyStore{trackedStructuredStore: newTrackedStructuredStore()}
+	executor := &commandRuntimeExecutorStub{}
+	gateway := New(state, policy.NewDefaultChecker()).WithCommandRuntimeExecutor(executor)
+	var input CommandRuntimeInput
+	if err := json.Unmarshal(commandRuntimeValidPayload("Write-Output first"), &input); err != nil {
+		t.Fatal(err)
+	}
+	second := input.Commands[0]
+	second.Script = "Invoke-WebRequest https://example.com"
+	second.Purpose = "network command that must be denied"
+	third := input.Commands[0]
+	third.Script = "Write-Output third"
+	third.Purpose = "third command that must still be audited"
+	input.Commands = append(input.Commands, second, third)
+	payload, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome, err := gateway.Invoke(t.Context(), commandRuntimeToolCall(payload))
+	if err != nil || outcome.Result == nil || outcome.Result.Status != StatusDenied ||
+		executor.calls != 0 {
+		t.Fatalf("mixed-policy batch outcome=%#v calls=%d err=%v", outcome, executor.calls, err)
+	}
+	if len(state.decisions) != 3 || !state.decisions[0].Decision.Allowed ||
+		state.decisions[1].Decision.Allowed || !state.decisions[2].Decision.Allowed {
+		t.Fatalf("batch policy audit is incomplete: %#v", state.decisions)
+	}
+}
+
+func commandRuntimeValidPayload(script string) json.RawMessage {
+	payload, _ := json.Marshal(CommandRuntimeInput{
+		Version: CommandRuntimeToolProtocolVersion, Action: CommandRuntimeActionRun,
+		FailurePolicy: CommandRuntimeFailFast, MaxBytes: commandRuntimePointer(4096),
+		Commands: []runner.CommandRuntimeSpec{{
+			Version: runner.CommandRuntimeProtocolVersion,
+			Profile: runner.CommandRuntimePowerShell, Script: script,
+			WorkingDirectory: ".", Environment: []runner.CommandRuntimeEnvironment{},
+			StdinPolicy: runner.CommandRuntimeStdinClosed, CloseInitialStdin: true,
+			TimeoutMilliseconds: 1000,
+			Output:              runner.CommandRuntimeOutputPolicy{InlineBytes: 4096, ArtifactBytes: 4096},
+			Network:             runner.CommandRuntimeNetworkDisabled,
+			Credentials:         runner.CommandRuntimeCredentialsNone, Purpose: "test command",
+		}},
+	})
+	return payload
+}
+
+func commandRuntimeToolCall(payload json.RawMessage) ToolCall {
+	return ToolCall{Name: CommandRuntimeTool, Payload: payload,
+		OperationKey: "command-runtime-operation-0001", RunID: "run-1",
+		AgentID: "agent-root-1", SessionID: "session-1", WorkspaceID: "workspace-1",
+		LeaseID: "lease-1", LeaseGeneration: 7, RequestedBy: "run_supervisor"}
+}

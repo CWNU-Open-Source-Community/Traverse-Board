@@ -1257,15 +1257,35 @@ func (a *App) runUsage(ctx context.Context, service *application.RunService, arg
 	return nil
 }
 
-func (a *App) runSupervisorStep(ctx context.Context, args []string) error {
+func (a *App) runSupervisorStep(ctx context.Context, args []string) (resultErr error) {
 	fs := newFlagSet("run step", a.errOut)
-	if err := fs.Parse(args); err != nil {
+	enablePermissionControl := fs.Bool("enable-permission-control", false,
+		"enable execution permission evaluation for this process")
+	enableFullAccess := fs.Bool("enable-danger-full-access", false,
+		"enable the ordinary full-access command runtime for this process")
+	if err := fs.Parse(reorderFlags(args, map[string]bool{
+		"enable-permission-control": false, "enable-danger-full-access": false,
+	})); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return errors.New("usage: cyberagent run step <run-id>")
+		return errors.New("usage: cyberagent run step <run-id> [--enable-permission-control --enable-danger-full-access]")
 	}
-	result, err := a.newRunSupervisor().Step(ctx, fs.Arg(0))
+	supervisor := a.newRunSupervisor()
+	manager, commandRuntime, err := a.newCLICommandRuntime(ctx,
+		*enablePermissionControl, *enableFullAccess)
+	if err != nil {
+		return err
+	}
+	if commandRuntime != nil {
+		supervisor.WithCommandRuntime(commandRuntime)
+	}
+	stopReconciler := a.startCLICommandRuntimeReconciler(ctx, commandRuntime)
+	defer func() {
+		resultErr = errors.Join(resultErr, stopReconciler(),
+			shutdownCLICommandRuntime(manager))
+	}()
+	result, err := supervisor.Step(ctx, fs.Arg(0))
 	if err != nil {
 		return err
 	}
@@ -1306,18 +1326,38 @@ func (a *App) runAgentGraph(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (a *App) runSupervisorExecute(ctx context.Context, args []string) error {
+func (a *App) runSupervisorExecute(ctx context.Context, args []string) (resultErr error) {
 	fs := newFlagSet("run execute", a.errOut)
 	maxSteps := fs.Int("max-steps", 1, "maximum supervised turns in this invocation")
 	finish := fs.Bool("finish", false, "finalize the run as completed after the step limit")
 	summary := fs.String("summary", "", "completion summary used with --finish")
-	if err := fs.Parse(reorderFlags(args, map[string]bool{"max-steps": true, "finish": false, "summary": true})); err != nil {
+	enablePermissionControl := fs.Bool("enable-permission-control", false,
+		"enable execution permission evaluation for this process")
+	enableFullAccess := fs.Bool("enable-danger-full-access", false,
+		"enable the ordinary full-access command runtime for this process")
+	if err := fs.Parse(reorderFlags(args, map[string]bool{
+		"max-steps": true, "finish": false, "summary": true,
+		"enable-permission-control": false, "enable-danger-full-access": false,
+	})); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 || *maxSteps <= 0 {
-		return errors.New("usage: cyberagent run execute <run-id> [--max-steps <n>] [--finish] [--summary <text>]")
+		return errors.New("usage: cyberagent run execute <run-id> [--max-steps <n>] [--finish] [--summary <text>] [--enable-permission-control --enable-danger-full-access]")
 	}
 	supervisor := a.newRunSupervisor()
+	manager, commandRuntime, err := a.newCLICommandRuntime(ctx,
+		*enablePermissionControl, *enableFullAccess)
+	if err != nil {
+		return err
+	}
+	if commandRuntime != nil {
+		supervisor.WithCommandRuntime(commandRuntime)
+	}
+	stopReconciler := a.startCLICommandRuntimeReconciler(ctx, commandRuntime)
+	defer func() {
+		resultErr = errors.Join(resultErr, stopReconciler(),
+			shutdownCLICommandRuntime(manager))
+	}()
 	result, err := supervisor.Execute(ctx, fs.Arg(0), *maxSteps)
 	for _, step := range result.Steps {
 		fmt.Fprintf(a.out, "turn %d\t%s\t%s/%s\tattempts=%d\trepairs=%d\ttool_rounds=%d\ttool_calls=%d\tstream_events=%d\ttokens=%d\tnext=%d\n",
@@ -1345,6 +1385,79 @@ func (a *App) runSupervisorExecute(ctx context.Context, args []string) error {
 	}
 	fmt.Fprintf(a.out, "execution stopped: %s\nrun_status: %s\n", result.StopReason, result.RunStatus)
 	return nil
+}
+
+func (a *App) newCLICommandRuntime(ctx context.Context,
+	enablePermissionControl bool, enableFullAccess bool,
+) (*runner.CommandRuntimeManager, *application.CommandRuntimeService, error) {
+	if !enablePermissionControl && !enableFullAccess {
+		return nil, nil, nil
+	}
+	if !enablePermissionControl || !enableFullAccess {
+		return nil, nil, apperror.New(apperror.CodeInvalidArgument,
+			"command runtime requires both --enable-permission-control and --enable-danger-full-access")
+	}
+	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true}
+	if err := capabilities.Validate(); err != nil {
+		return nil, nil, apperror.Wrap(apperror.CodeInvalidArgument,
+			"command runtime startup capability is invalid", err)
+	}
+	manager, err := runner.NewPlatformCommandRuntimeManager(a.store,
+		idgen.New("command-runtime-cli-owner"))
+	if err != nil {
+		return nil, nil, commandRuntimeCLIError(err)
+	}
+	if _, err := manager.ReconcileStartup(ctx); err != nil {
+		_ = shutdownCLICommandRuntime(manager)
+		return nil, nil, apperror.Wrap(apperror.CodeUnavailable,
+			"command runtime startup reconciliation failed", err)
+	}
+	service, err := application.NewCommandRuntimeService(a.store, manager, capabilities)
+	if err != nil {
+		_ = shutdownCLICommandRuntime(manager)
+		return nil, nil, err
+	}
+	return manager, service, nil
+}
+
+func shutdownCLICommandRuntime(manager *runner.CommandRuntimeManager) error {
+	if manager == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
+	defer cancel()
+	return manager.Shutdown(ctx)
+}
+
+func (a *App) startCLICommandRuntimeReconciler(ctx context.Context,
+	service *application.CommandRuntimeService,
+) func() error {
+	if service == nil {
+		return func() error { return nil }
+	}
+	reconcileCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() {
+		err := service.RunReconciler(reconcileCtx, 500*time.Millisecond)
+		if err != nil &&
+			reconcileCtx.Err() == nil {
+			fmt.Fprintln(a.errOut, "command-runtime-reconciler:", err)
+		}
+		done <- err
+	}()
+	return func() error {
+		cancel()
+		return <-done
+	}
+}
+
+func commandRuntimeCLIError(err error) error {
+	if errors.Is(err, runner.ErrCommandRuntimeUnavailable) {
+		return apperror.Wrap(apperror.CodeUnavailable,
+			"command runtime is unavailable on this host", err)
+	}
+	return apperror.Normalize(err)
 }
 
 func (a *App) runSupervisorFinalize(ctx context.Context, outcome application.LifecycleOutcome, args []string) error {

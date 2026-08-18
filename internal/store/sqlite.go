@@ -341,6 +341,7 @@ func migrationPlan() []migration {
 		{Version: 112, Name: "review-gated untrusted Skill candidates", Statements: skillCandidateReviewStatements},
 		{Version: 113, Name: "debug terminal Supervisor tool ledger", Statements: debugTerminalSupervisorLedgerStatements},
 		{Version: 114, Name: "project instructions, explicit memory, and session continuity", Statements: contextContinuityStatements},
+		{Version: 115, Name: "Run-owned command runtime jobs", Statements: commandRuntimeStatements},
 	}
 }
 

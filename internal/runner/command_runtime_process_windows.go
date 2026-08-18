@@ -46,6 +46,7 @@ func (windowsCommandRuntimeStarter) Start(spec CommandRuntimeResolvedSpec) (
 	commandRuntimeProcess, error,
 ) {
 	if spec.Spec.Version != CommandRuntimeProtocolVersion ||
+		validateCommandRuntimeLaunchDirectory(spec) != nil ||
 		commandRuntimeFileDigestMatches(spec.ExecutablePath, spec.ExecutableSHA256) != nil ||
 		commandRuntimeExecutableAttributes(spec.ExecutablePath) != nil {
 		return nil, ErrCommandRuntimeBoundary
@@ -78,29 +79,28 @@ func (windowsCommandRuntimeStarter) Start(spec CommandRuntimeResolvedSpec) (
 		_ = windows.CloseHandle(job)
 		return nil, err
 	}
+	cleanup := true
+	defer func() {
+		if cleanup {
+			closeCommandRuntimeWindowsHandles(job, stdinChild, stdinParent)
+			stdoutPipe.close()
+			stderrPipe.close()
+		}
+	}()
 
 	attributes, err := windows.NewProcThreadAttributeList(2)
 	if err != nil {
-		closeCommandRuntimeWindowsHandles(job, stdinChild, stdinParent)
-		stdoutPipe.close()
-		stderrPipe.close()
 		return nil, err
 	}
 	defer attributes.Delete()
 	jobHandles := []windows.Handle{job}
 	if err := attributes.Update(procThreadAttributeJobList,
 		unsafe.Pointer(&jobHandles[0]), unsafe.Sizeof(jobHandles[0])); err != nil {
-		closeCommandRuntimeWindowsHandles(job, stdinChild, stdinParent)
-		stdoutPipe.close()
-		stderrPipe.close()
 		return nil, err
 	}
 	inherited := []windows.Handle{stdinChild, stdoutPipe.write, stderrPipe.write}
 	if err := attributes.Update(windows.PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
 		unsafe.Pointer(&inherited[0]), uintptr(len(inherited))*unsafe.Sizeof(inherited[0])); err != nil {
-		closeCommandRuntimeWindowsHandles(job, stdinChild, stdinParent)
-		stdoutPipe.close()
-		stderrPipe.close()
 		return nil, err
 	}
 	applicationName, err := windows.UTF16PtrFromString(spec.ExecutablePath)
@@ -130,9 +130,6 @@ func (windowsCommandRuntimeStarter) Start(spec CommandRuntimeResolvedSpec) (
 		windows.CREATE_UNICODE_ENVIRONMENT | windows.EXTENDED_STARTUPINFO_PRESENT)
 	if err := windows.CreateProcess(applicationName, commandLine, nil, nil, true,
 		flags, &environment[0], directory, &startup.StartupInfo, &processInfo); err != nil {
-		closeCommandRuntimeWindowsHandles(job, stdinChild, stdinParent)
-		stdoutPipe.close()
-		stderrPipe.close()
 		return nil, err
 	}
 	_ = windows.CloseHandle(stdinChild)
@@ -145,9 +142,6 @@ func (windowsCommandRuntimeStarter) Start(spec CommandRuntimeResolvedSpec) (
 		_ = windows.TerminateJobObject(job, commandRuntimeWindowsExitCode)
 		_ = windows.CloseHandle(processInfo.Thread)
 		_ = windows.CloseHandle(processInfo.Process)
-		closeCommandRuntimeWindowsHandles(job, stdinParent)
-		stdoutPipe.close()
-		stderrPipe.close()
 		return nil, err
 	}
 	_ = windows.CloseHandle(processInfo.Thread)
@@ -164,7 +158,6 @@ func (windowsCommandRuntimeStarter) Start(spec CommandRuntimeResolvedSpec) (
 		spec.Spec.StdinPolicy == CommandRuntimeStdinPipe && stdinFile == nil {
 		_ = windows.TerminateJobObject(job, commandRuntimeWindowsExitCode)
 		_ = windows.CloseHandle(processInfo.Process)
-		_ = windows.CloseHandle(job)
 		if stdoutFile != nil {
 			_ = stdoutFile.Close()
 		}
@@ -176,6 +169,7 @@ func (windowsCommandRuntimeStarter) Start(spec CommandRuntimeResolvedSpec) (
 		}
 		return nil, ErrCommandRuntimeUnavailable
 	}
+	cleanup = false
 	return &windowsCommandRuntimeProcess{process: processInfo.Process, job: job,
 		stdin: stdinFile, stdout: stdoutFile, stderr: stderrFile,
 		pid: int(processInfo.ProcessId)}, nil
@@ -208,18 +202,33 @@ func (p *windowsCommandRuntimeProcess) CloseStdin() error {
 	return input.Close()
 }
 func (p *windowsCommandRuntimeProcess) Wait() (int, error) {
-	code, err := waitControlledProcess(context.Background(), p.process,
+	p.mu.Lock()
+	process, job := p.process, p.job
+	closed := p.closed
+	p.mu.Unlock()
+	if closed || process == 0 || job == 0 {
+		return commandRuntimeWindowsExitCode, ErrCommandRuntimeJobClosed
+	}
+	code, err := waitControlledProcess(context.Background(), process,
 		MaxCommandRuntimeTimeout+time.Minute)
 	// Descendants are not allowed to outlive the main command. This also
 	// closes inherited output handles so collectors cannot hang forever.
-	_ = windows.TerminateJobObject(p.job, commandRuntimeWindowsExitCode)
-	_, reapErr := waitControlledJobReaped(context.Background(), p.job, 5*time.Second)
+	_ = p.terminateJob()
+	_, reapErr := waitControlledJobReaped(context.Background(), job, 5*time.Second)
 	return code, errors.Join(err, reapErr)
 }
 func (p *windowsCommandRuntimeProcess) Cancel(time.Duration) error {
-	return windows.TerminateJobObject(p.job, commandRuntimeWindowsExitCode)
+	return p.terminateJob()
 }
 func (p *windowsCommandRuntimeProcess) Kill() error {
+	return p.terminateJob()
+}
+func (p *windowsCommandRuntimeProcess) terminateJob() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed || p.job == 0 {
+		return nil
+	}
 	return windows.TerminateJobObject(p.job, commandRuntimeWindowsExitCode)
 }
 func (p *windowsCommandRuntimeProcess) Close() error {
@@ -308,15 +317,8 @@ func closeCommandRuntimeWindowsHandles(handles ...windows.Handle) {
 	}
 }
 
-func cleanupCommandRuntimeOrphan(pid, _ int) {
-	if pid <= 0 {
-		return
-	}
-	handle, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.SYNCHRONIZE,
-		false, uint32(pid))
-	if err != nil {
-		return
-	}
-	defer windows.CloseHandle(handle)
-	_ = windows.TerminateProcess(handle, commandRuntimeWindowsExitCode)
+func cleanupCommandRuntimeOrphan(_, _ int) {
+	// The process was assigned to a kill-on-close Job Object in the same
+	// CreateProcess call. Windows closes the process owner's handles on crash,
+	// so a restart must never terminate a recycled PID from durable metadata.
 }

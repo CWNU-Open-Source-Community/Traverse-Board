@@ -3,6 +3,7 @@
 package runner
 
 import (
+	"debug/pe"
 	"errors"
 	"os"
 	"os/exec"
@@ -86,10 +87,19 @@ func commandRuntimeNativeExecutableAllowed(path string) bool {
 	if filepath.Ext(base) != ".exe" && filepath.Ext(base) != ".com" {
 		return false
 	}
+	stem := strings.TrimSuffix(strings.TrimSuffix(base, ".exe"), ".com")
+	if strings.HasPrefix(stem, "python3.") || strings.HasPrefix(stem, "pypy3.") {
+		return false
+	}
 	blocked := map[string]struct{}{
 		"cmd.exe": {}, "powershell.exe": {}, "pwsh.exe": {}, "bash.exe": {},
 		"sh.exe": {}, "wscript.exe": {}, "cscript.exe": {}, "mshta.exe": {},
-		"rundll32.exe": {}, "regsvr32.exe": {},
+		"rundll32.exe": {}, "regsvr32.exe": {}, "python.exe": {},
+		"python2.exe": {}, "python3.exe": {}, "py.exe": {}, "pypy.exe": {},
+		"pypy3.exe": {}, "node.exe": {}, "deno.exe": {}, "bun.exe": {},
+		"perl.exe": {}, "ruby.exe": {}, "php.exe": {}, "lua.exe": {},
+		"java.exe": {}, "javaw.exe": {}, "dotnet.exe": {}, "mono.exe": {},
+		"busybox.exe": {}, "wsl.exe": {}, "runas.exe": {},
 	}
 	_, found := blocked[base]
 	return !found
@@ -101,7 +111,7 @@ func commandRuntimeInheritedEnvironmentNames() []string {
 		"TEMP", "TMP", "ProgramData", "ProgramFiles", "ProgramW6432",
 		"CommonProgramFiles", "CommonProgramW6432", "LOCALAPPDATA",
 		"NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "OS", "GOROOT",
-		"GOPATH", "GOCACHE", "GOMODCACHE", "RUSTUP_HOME", "CARGO_HOME",
+		"GOPATH", "GOCACHE", "GOMODCACHE", "RUSTUP_HOME",
 	}
 }
 
@@ -109,10 +119,18 @@ func commandRuntimeFixedEnvironment() []string {
 	return []string{
 		"CI=1", "NO_COLOR=1", "TERM=dumb", "PAGER=cat", "GIT_PAGER=cat",
 		"GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=never", "GIT_CONFIG_NOSYSTEM=1",
-		"GIT_CONFIG_GLOBAL=NUL", "GIT_CONFIG_COUNT=2",
+		"GIT_CONFIG_GLOBAL=NUL", "GIT_CONFIG_COUNT=5",
 		"GIT_CONFIG_KEY_0=credential.helper", "GIT_CONFIG_VALUE_0=",
 		"GIT_CONFIG_KEY_1=core.hooksPath", "GIT_CONFIG_VALUE_1=NUL",
+		"GIT_CONFIG_KEY_2=core.fsmonitor", "GIT_CONFIG_VALUE_2=false",
+		"GIT_CONFIG_KEY_3=diff.external", "GIT_CONFIG_VALUE_3=",
+		"GIT_CONFIG_KEY_4=core.pager", "GIT_CONFIG_VALUE_4=cat",
 		"GIT_LFS_SKIP_SMUDGE=1", "GIT_OPTIONAL_LOCKS=0",
+		"GIT_ALLOW_PROTOCOL=file", "GIT_ASKPASS=false", "SSH_ASKPASS=false",
+		"GIT_EDITOR=false", "GIT_SEQUENCE_EDITOR=false", "GIT_EXTERNAL_DIFF=",
+		"GOPROXY=off", "GOSUMDB=off", "CARGO_NET_OFFLINE=true",
+		"NPM_CONFIG_OFFLINE=true", "PIP_NO_INDEX=1", "UV_OFFLINE=1",
+		"DOTNET_CLI_TELEMETRY_OPTOUT=1", "POWERSHELL_TELEMETRY_OPTOUT=1",
 		"HOME=", "USERPROFILE=", "SSH_AUTH_SOCK=",
 	}
 }
@@ -126,5 +144,18 @@ func commandRuntimeExecutableAttributes(path string) error {
 	if err != nil || attributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
 		return errors.New("runtime executable is a reparse point")
 	}
-	return nil
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	parsed, err := pe.NewFile(file)
+	if err != nil {
+		return errors.New("runtime executable is not a PE image")
+	}
+	return parsed.Close()
+}
+
+func commandRuntimePathEqual(left, right string) bool {
+	return strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
 }

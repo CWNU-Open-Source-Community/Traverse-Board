@@ -195,6 +195,7 @@ type RunSupervisor struct {
 	skillRegistryErr         error
 	waitGraph                *waitgraph.Graph
 	debugTerminalEnabled     bool
+	commandRuntimeEnabled    bool
 }
 
 func NewRunSupervisor(store RunSupervisorStore, router *llm.Router, checker policy.Checker) *RunSupervisor {
@@ -260,6 +261,16 @@ func (s *RunSupervisor) WithDebugTerminalAgentInput(
 	}
 	s.tools.WithDebugTerminalExecutor(executor)
 	s.debugTerminalEnabled = true
+	return s
+}
+
+func (s *RunSupervisor) WithCommandRuntime(
+	executor toolgateway.CommandRuntimeExecutor,
+) *RunSupervisor {
+	if s != nil && s.tools != nil && executor != nil {
+		s.tools.WithCommandRuntimeExecutor(executor)
+		s.commandRuntimeEnabled = true
+	}
 	return s
 }
 
@@ -541,7 +552,8 @@ func (s *RunSupervisor) stepWithLeaseMode(ctx context.Context, lease domain.RunE
 	request := llm.ChatRequest{
 		Messages: messages,
 		Tools: supervisorStructuredToolSpecs(turn.Mode.Surface, turn.Mode.Phase,
-			executionPermission.Mode, skillCandidateEnabled, s.debugTerminalEnabled),
+			executionPermission.Mode, skillCandidateEnabled, s.debugTerminalEnabled,
+			s.commandRuntimeEnabled),
 		JSONMode: true,
 		Metadata: map[string]string{
 			"run_id": turn.Run.ID, "mission_id": turn.Mission.ID, "session_id": turn.Run.SessionID,
@@ -714,7 +726,8 @@ func (s *RunSupervisor) stepWithLeaseMode(ctx context.Context, lease domain.RunE
 				response.ToolCalls, parseErr = prepareSupervisorToolCalls(response.ToolCalls,
 					turn.Run.ID, turn.Checkpoint.NextTurn, len(toolRounds)+1,
 					turn.Mode.Surface, turn.Mode.Phase, executionPermission.Mode,
-					skillCandidateEnabled, s.debugTerminalEnabled)
+					skillCandidateEnabled, s.debugTerminalEnabled,
+					s.commandRuntimeEnabled)
 			}
 			if parseErr == nil {
 				if commentary, ok := prepareModelPublicCommentary(s.checker, turn.Checkpoint,

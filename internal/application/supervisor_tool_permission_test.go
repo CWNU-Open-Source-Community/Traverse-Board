@@ -218,3 +218,62 @@ func TestSupervisorDebugTerminalRequiresDeliverDebugAndRuntime(t *testing.T) {
 		t.Fatal("missing Debug terminal lease was not model-recoverable")
 	}
 }
+
+func TestSupervisorCommandRuntimeRequiresCodeDeliverFullAccessAndRuntime(t *testing.T) {
+	tests := []struct {
+		name    string
+		surface domain.ExecutionSurface
+		phase   domain.ExecutionPhase
+		mode    domain.RunExecutionPermissionMode
+		enabled bool
+		want    bool
+	}{
+		{name: "enabled", surface: domain.ExecutionSurfaceCode,
+			phase: domain.ExecutionPhaseDeliver,
+			mode:  domain.RunExecutionPermissionFullAccess, enabled: true, want: true},
+		{name: "no runtime", surface: domain.ExecutionSurfaceCode,
+			phase: domain.ExecutionPhaseDeliver,
+			mode:  domain.RunExecutionPermissionFullAccess},
+		{name: "Plan", surface: domain.ExecutionSurfaceCode,
+			phase: domain.ExecutionPhasePlan,
+			mode:  domain.RunExecutionPermissionFullAccess, enabled: true},
+		{name: "approval permission", surface: domain.ExecutionSurfaceCode,
+			phase: domain.ExecutionPhaseDeliver,
+			mode:  domain.RunExecutionPermissionApproval, enabled: true},
+		{name: "Debug permission", surface: domain.ExecutionSurfaceCode,
+			phase: domain.ExecutionPhaseDeliver,
+			mode:  domain.RunExecutionPermissionDebug, enabled: true},
+		{name: "Cyber surface", surface: domain.ExecutionSurfaceCyber,
+			phase: domain.ExecutionPhaseDeliver,
+			mode:  domain.RunExecutionPermissionFullAccess, enabled: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			found := false
+			for _, spec := range supervisorStructuredToolSpecs(test.surface, test.phase,
+				test.mode, false, false, test.enabled) {
+				found = found || spec.Name == string(toolgateway.CommandRuntimeTool)
+			}
+			if found != test.want {
+				t.Fatalf("command runtime visible=%t want=%t", found, test.want)
+			}
+		})
+	}
+	payload := json.RawMessage(`{"version":"command-runtime.v2","action":"list"}`)
+	calls := []llm.ToolCall{{ID: "provider-call-command-runtime",
+		Name: string(toolgateway.CommandRuntimeTool), Arguments: payload}}
+	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
+		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
+		domain.RunExecutionPermissionFullAccess, false, false, false); err == nil {
+		t.Fatal("forged command runtime call was accepted without the runtime")
+	}
+	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
+		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
+		domain.RunExecutionPermissionFullAccess, false, false, true); err != nil {
+		t.Fatalf("authorized command runtime call was rejected: %v", err)
+	}
+	if !recoverableSupervisorToolError(toolgateway.CommandRuntimeTool,
+		apperror.CodeFailedPrecondition) {
+		t.Fatal("command runtime lifecycle conflict was not model-recoverable")
+	}
+}

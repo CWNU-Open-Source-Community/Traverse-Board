@@ -11,7 +11,7 @@ import (
 	"cyberagent-workbench/internal/domain"
 )
 
-func (a *App) runWake(ctx context.Context, args []string) error {
+func (a *App) runWake(ctx context.Context, args []string) (resultErr error) {
 	if len(args) == 0 {
 		return errors.New("usage: cyberagent run wake schedule|show|cancel|consume")
 	}
@@ -93,16 +93,34 @@ func (a *App) runWake(ctx context.Context, args []string) error {
 		fs := newFlagSet("run wake consume", a.errOut)
 		operator := fs.String("operator", "cli_foreground", "foreground owner identity")
 		maxSteps := fs.Int("max-steps", 1, "bounded Run Supervisor handoff steps")
+		enablePermissionControl := fs.Bool("enable-permission-control", false,
+			"enable execution permission evaluation for this process")
+		enableFullAccess := fs.Bool("enable-danger-full-access", false,
+			"enable the ordinary full-access command runtime for this process")
 		if err := fs.Parse(reorderFlags(args[1:], map[string]bool{
-			"operator": true, "max-steps": true,
+			"operator": true, "max-steps": true, "enable-permission-control": false,
+			"enable-danger-full-access": false,
 		})); err != nil {
 			return err
 		}
 		if fs.NArg() != 1 {
-			return errors.New("usage: cyberagent run wake consume <run-id> [--max-steps 1..8] [--operator <id>]")
+			return errors.New("usage: cyberagent run wake consume <run-id> [--max-steps 1..8] [--operator <id>] [--enable-permission-control --enable-danger-full-access]")
 		}
 		handoff := application.NewRunExecutionHandoffService(a.store, a.router,
 			a.checker).WithActiveCalls(a.calls)
+		manager, commandRuntime, err := a.newCLICommandRuntime(ctx,
+			*enablePermissionControl, *enableFullAccess)
+		if err != nil {
+			return err
+		}
+		if commandRuntime != nil {
+			handoff.WithCommandRuntime(commandRuntime)
+		}
+		stopReconciler := a.startCLICommandRuntimeReconciler(ctx, commandRuntime)
+		defer func() {
+			resultErr = errors.Join(resultErr, stopReconciler(),
+				shutdownCLICommandRuntime(manager))
+		}()
 		result, err := application.NewForegroundRunWakeConsumer(a.store, handoff).
 			Consume(ctx, application.ConsumeRunWakeRequest{
 				Version: domain.RunWakeConsumerProtocolVersion, RunID: fs.Arg(0),

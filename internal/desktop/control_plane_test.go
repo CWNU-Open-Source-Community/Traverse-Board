@@ -232,6 +232,47 @@ func TestControlPlaneKeepsDebugAgentInputInsideGoControlPlane(t *testing.T) {
 	}
 }
 
+func TestControlPlaneInstallsCommandRuntimeOnlyWithRunExecution(t *testing.T) {
+	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled: true,
+		DangerFullAccessEnabled: true,
+	}
+	disabled, err := OpenControlPlane(ControlPlaneConfig{
+		DatabasePath:                      filepath.Join(t.TempDir(), "command-runtime-disabled.db"),
+		ReadToken:                         desktopControlPlaneTestToken,
+		ControlToken:                      desktopControlPlaneControlToken,
+		ExecutionPermissionControlEnabled: true,
+		ExecutionPermissionCapabilities:   capabilities,
+		AppVersion:                        "desktop-test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if disabled.commandRuntime != nil || disabled.commandRuntimeManager == nil {
+		t.Fatal("full-access without Run execution installed the command runtime adapter")
+	}
+	if err := disabled.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	enabled, err := OpenControlPlane(ControlPlaneConfig{
+		DatabasePath:                      filepath.Join(t.TempDir(), "command-runtime-enabled.db"),
+		ReadToken:                         desktopControlPlaneTestToken,
+		ControlToken:                      desktopControlPlaneControlToken,
+		RunExecutionEnabled:               true,
+		ExecutionPermissionControlEnabled: true,
+		ExecutionPermissionCapabilities:   capabilities,
+		AppVersion:                        "desktop-test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer enabled.Close()
+	if enabled.commandRuntime == nil || enabled.commandRuntimeManager == nil {
+		t.Fatal("Run execution plus full-access did not install the command runtime adapter")
+	}
+}
+
 func TestControlPlaneSharesCLIStoreAndReopensFromAHighWaterCursor(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "shared.db")
 	cliStore, err := store.Open(databasePath)

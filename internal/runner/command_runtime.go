@@ -8,11 +8,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"cyberagent-workbench/internal/redact"
@@ -27,6 +27,7 @@ const (
 	MaxCommandRuntimeArgumentBytes    = 16 * 1024
 	MaxCommandRuntimeEnvironment      = 32
 	MaxCommandRuntimeEnvironmentBytes = 64 * 1024
+	MaxCommandRuntimePathBytes        = 4096
 	MaxCommandRuntimePurposeRunes     = 1200
 	MaxCommandRuntimeScriptBytes      = 64 * 1024
 	MaxCommandRuntimeTimeout          = 30 * time.Minute
@@ -75,6 +76,10 @@ const (
 	CommandRuntimeNetworkDisabled CommandRuntimeNetwork = "disabled"
 )
 
+type CommandRuntimeCredentialPolicy string
+
+const CommandRuntimeCredentialsNone CommandRuntimeCredentialPolicy = "none"
+
 type CommandRuntimeEnvironment struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
@@ -86,20 +91,21 @@ type CommandRuntimeOutputPolicy struct {
 }
 
 type CommandRuntimeSpec struct {
-	Version             string                      `json:"version"`
-	Profile             CommandRuntimeProfile       `json:"profile"`
-	Executable          string                      `json:"executable,omitempty"`
-	Arguments           []string                    `json:"arguments,omitempty"`
-	Script              string                      `json:"script,omitempty"`
-	WorkingDirectory    string                      `json:"working_directory"`
-	Environment         []CommandRuntimeEnvironment `json:"environment"`
-	StdinPolicy         CommandRuntimeStdinPolicy   `json:"stdin_policy"`
-	InitialStdin        string                      `json:"initial_stdin,omitempty"`
-	CloseInitialStdin   bool                        `json:"close_initial_stdin"`
-	TimeoutMilliseconds int64                       `json:"timeout_milliseconds"`
-	Output              CommandRuntimeOutputPolicy  `json:"output"`
-	Network             CommandRuntimeNetwork       `json:"network"`
-	Purpose             string                      `json:"purpose"`
+	Version             string                         `json:"version"`
+	Profile             CommandRuntimeProfile          `json:"profile"`
+	Executable          string                         `json:"executable,omitempty"`
+	Arguments           []string                       `json:"arguments,omitempty"`
+	Script              string                         `json:"script,omitempty"`
+	WorkingDirectory    string                         `json:"working_directory"`
+	Environment         []CommandRuntimeEnvironment    `json:"environment"`
+	StdinPolicy         CommandRuntimeStdinPolicy      `json:"stdin_policy"`
+	InitialStdin        string                         `json:"initial_stdin,omitempty"`
+	CloseInitialStdin   bool                           `json:"close_initial_stdin"`
+	TimeoutMilliseconds int64                          `json:"timeout_milliseconds"`
+	Output              CommandRuntimeOutputPolicy     `json:"output"`
+	Network             CommandRuntimeNetwork          `json:"network"`
+	Credentials         CommandRuntimeCredentialPolicy `json:"credentials"`
+	Purpose             string                         `json:"purpose"`
 }
 
 // CommandRuntimeResolvedSpec is the canonical launch contract. The absolute
@@ -111,6 +117,7 @@ type CommandRuntimeResolvedSpec struct {
 	ExecutableSHA256     string
 	CanonicalArgv        []string
 	AbsoluteDirectory    string
+	WorkspaceRoot        string
 	Environment          []string
 	EnvironmentSHA256    string
 	WorkspaceRootSHA256  string
@@ -119,82 +126,105 @@ type CommandRuntimeResolvedSpec struct {
 	EnvironmentInherited bool
 }
 
-func NormalizeCommandRuntimeSpec(spec CommandRuntimeSpec,
-	workspaceRoot string,
-) (CommandRuntimeResolvedSpec, error) {
+// NormalizeCommandRuntimeIntent validates every path-independent field before a
+// Supervisor call can enter the durable replay ledger. Workspace identity and
+// executable availability are deliberately resolved only at the launch boundary.
+func NormalizeCommandRuntimeIntent(spec CommandRuntimeSpec) (CommandRuntimeSpec, error) {
 	spec.Version = strings.TrimSpace(spec.Version)
 	spec.Profile = CommandRuntimeProfile(strings.ToLower(strings.TrimSpace(string(spec.Profile))))
 	spec.Executable = strings.TrimSpace(spec.Executable)
 	spec.WorkingDirectory = filepath.ToSlash(strings.TrimSpace(spec.WorkingDirectory))
-	spec.Purpose = strings.TrimSpace(redact.String(spec.Purpose))
+	purpose := strings.TrimSpace(spec.Purpose)
+	if redact.String(purpose) != purpose {
+		return CommandRuntimeSpec{}, fmt.Errorf(
+			"%w: purpose contains secret-like material", ErrCommandRuntimeBoundary)
+	}
+	spec.Purpose = purpose
 	if spec.Version != CommandRuntimeProtocolVersion || !spec.Profile.Valid() {
-		return CommandRuntimeResolvedSpec{}, ErrCommandRuntimeBoundary
+		return CommandRuntimeSpec{}, ErrCommandRuntimeBoundary
 	}
-	if spec.WorkingDirectory == "" {
-		spec.WorkingDirectory = "."
-	}
-	if spec.StdinPolicy == "" {
-		spec.StdinPolicy = CommandRuntimeStdinClosed
-	}
-	if spec.StdinPolicy == CommandRuntimeStdinClosed && spec.InitialStdin == "" {
-		spec.CloseInitialStdin = true
-	}
-	if spec.Network == "" {
-		spec.Network = CommandRuntimeNetworkDisabled
-	}
-	if spec.Output.InlineBytes == 0 {
-		spec.Output.InlineBytes = 64 * 1024
-	}
-	if spec.Output.ArtifactBytes == 0 {
-		spec.Output.ArtifactBytes = MaxCommandRuntimeArtifactBytes
-	}
-	if !spec.StdinPolicy.Valid() || spec.Network != CommandRuntimeNetworkDisabled ||
+	if spec.WorkingDirectory == "" ||
+		len([]byte(spec.WorkingDirectory)) > MaxCommandRuntimePathBytes ||
+		len([]byte(spec.Executable)) > MaxCommandRuntimePathBytes ||
+		redact.String(spec.WorkingDirectory) != spec.WorkingDirectory ||
+		redact.String(spec.Executable) != spec.Executable || spec.Environment == nil ||
+		!spec.StdinPolicy.Valid() ||
+		(spec.StdinPolicy == CommandRuntimeStdinClosed && !spec.CloseInitialStdin) ||
+		spec.Network != CommandRuntimeNetworkDisabled ||
+		spec.Credentials != CommandRuntimeCredentialsNone ||
 		spec.TimeoutMilliseconds < 1 ||
 		spec.TimeoutMilliseconds > MaxCommandRuntimeTimeout.Milliseconds() ||
 		spec.Output.InlineBytes < MinCommandRuntimeInlineBytes ||
 		spec.Output.InlineBytes > MaxCommandRuntimeInlineBytes ||
 		spec.Output.ArtifactBytes < spec.Output.InlineBytes ||
 		spec.Output.ArtifactBytes > MaxCommandRuntimeArtifactBytes ||
-		spec.Purpose == "" || !utf8.ValidString(spec.Purpose) ||
-		strings.ContainsRune(spec.Purpose, 0) ||
+		spec.Purpose == "" || !validCommandRuntimeText(spec.Purpose, false) ||
 		utf8.RuneCountInString(spec.Purpose) > MaxCommandRuntimePurposeRunes {
-		return CommandRuntimeResolvedSpec{}, ErrCommandRuntimeBoundary
+		return CommandRuntimeSpec{}, ErrCommandRuntimeBoundary
 	}
-	if !utf8.ValidString(spec.InitialStdin) || strings.ContainsRune(spec.InitialStdin, 0) ||
+	if !validCommandRuntimeText(spec.InitialStdin, true) ||
 		len([]byte(spec.InitialStdin)) > MaxCommandRuntimeStdinBytes ||
 		redact.String(spec.InitialStdin) != spec.InitialStdin {
-		return CommandRuntimeResolvedSpec{}, fmt.Errorf("%w: stdin is invalid or contains secret-like material", ErrCommandRuntimeBoundary)
+		return CommandRuntimeSpec{}, fmt.Errorf("%w: stdin is invalid or contains secret-like material", ErrCommandRuntimeBoundary)
 	}
 	if spec.StdinPolicy == CommandRuntimeStdinClosed && spec.InitialStdin != "" {
-		return CommandRuntimeResolvedSpec{}, fmt.Errorf("%w: closed stdin cannot carry input", ErrCommandRuntimeBoundary)
+		return CommandRuntimeSpec{}, fmt.Errorf("%w: closed stdin cannot carry input", ErrCommandRuntimeBoundary)
 	}
-	if spec.StdinPolicy == CommandRuntimeStdinPipe && spec.CloseInitialStdin &&
-		spec.InitialStdin == "" {
-		// Closing an initially empty pipe is meaningful and accepted.
+	cleanDirectory := filepath.Clean(filepath.FromSlash(spec.WorkingDirectory))
+	if filepath.IsAbs(cleanDirectory) || cleanDirectory == ".." ||
+		strings.HasPrefix(cleanDirectory, ".."+string(filepath.Separator)) ||
+		!validCommandRuntimeText(spec.WorkingDirectory, false) {
+		return CommandRuntimeSpec{}, fmt.Errorf(
+			"%w: working directory must be Workspace-relative", ErrCommandRuntimeBoundary)
 	}
+	spec.WorkingDirectory = filepath.ToSlash(cleanDirectory)
+	arguments, err := normalizeCommandRuntimeArguments(spec.Arguments)
+	if err != nil {
+		return CommandRuntimeSpec{}, err
+	}
+	spec.Arguments = arguments
+	switch spec.Profile {
+	case CommandRuntimePowerShell, CommandRuntimeBash:
+		if spec.Executable != "" || spec.Arguments != nil || spec.Script == "" ||
+			!validCommandRuntimeText(spec.Script, true) ||
+			len([]byte(spec.Script)) > MaxCommandRuntimeScriptBytes ||
+			redact.String(spec.Script) != spec.Script {
+			return CommandRuntimeSpec{}, fmt.Errorf("%w: shell profile requires one bounded secret-free script", ErrCommandRuntimeBoundary)
+		}
+	case CommandRuntimeProcess:
+		if spec.Executable == "" || !filepath.IsAbs(spec.Executable) ||
+			spec.Arguments == nil || spec.Script != "" ||
+			!validCommandRuntimeText(spec.Executable, false) ||
+			!commandRuntimeNativeExecutableAllowed(spec.Executable) {
+			return CommandRuntimeSpec{}, fmt.Errorf("%w: process profile requires an absolute native executable and literal argv", ErrCommandRuntimeBoundary)
+		}
+	}
+	environment, _, _, err := normalizeCommandRuntimeEnvironment(spec.Environment)
+	if err != nil {
+		return CommandRuntimeSpec{}, err
+	}
+	spec.Environment = environment
+	return spec, nil
+}
 
+func NormalizeCommandRuntimeSpec(spec CommandRuntimeSpec,
+	workspaceRoot string,
+) (CommandRuntimeResolvedSpec, error) {
+	spec, err := NormalizeCommandRuntimeIntent(spec)
+	if err != nil {
+		return CommandRuntimeResolvedSpec{}, err
+	}
 	root, directory, relative, err := resolveCommandRuntimeDirectory(workspaceRoot,
 		spec.WorkingDirectory)
 	if err != nil {
 		return CommandRuntimeResolvedSpec{}, err
 	}
 	spec.WorkingDirectory = relative
-	arguments, err := normalizeCommandRuntimeArguments(spec.Arguments)
-	if err != nil {
-		return CommandRuntimeResolvedSpec{}, err
-	}
-	spec.Arguments = arguments
 
 	var executablePath string
 	var canonicalArgv []string
 	switch spec.Profile {
 	case CommandRuntimePowerShell, CommandRuntimeBash:
-		if spec.Executable != "" || len(spec.Arguments) != 0 || spec.Script == "" ||
-			!utf8.ValidString(spec.Script) || strings.ContainsRune(spec.Script, 0) ||
-			len([]byte(spec.Script)) > MaxCommandRuntimeScriptBytes ||
-			redact.String(spec.Script) != spec.Script {
-			return CommandRuntimeResolvedSpec{}, fmt.Errorf("%w: shell profile requires one bounded secret-free script", ErrCommandRuntimeBoundary)
-		}
 		executablePath, err = resolveCommandRuntimeShell(spec.Profile)
 		if err != nil {
 			return CommandRuntimeResolvedSpec{}, err
@@ -205,9 +235,6 @@ func NormalizeCommandRuntimeSpec(spec CommandRuntimeSpec,
 			canonicalArgv = []string{"--noprofile", "--norc", "-c", spec.Script}
 		}
 	case CommandRuntimeProcess:
-		if spec.Executable == "" || spec.Script != "" {
-			return CommandRuntimeResolvedSpec{}, fmt.Errorf("%w: process profile requires an executable and literal argv", ErrCommandRuntimeBoundary)
-		}
 		executablePath, err = resolveCommandRuntimeProcess(spec.Executable)
 		if err != nil {
 			return CommandRuntimeResolvedSpec{}, err
@@ -218,7 +245,11 @@ func NormalizeCommandRuntimeSpec(spec CommandRuntimeSpec,
 		if within, withinErr := pathWithin(filepath.Dir(executablePath), root); withinErr != nil || within {
 			return CommandRuntimeResolvedSpec{}, fmt.Errorf("%w: process executable must be outside the workspace", ErrCommandRuntimeBoundary)
 		}
-		canonicalArgv = append([]string(nil), spec.Arguments...)
+		canonicalArgv = cloneCommandRuntimeStrings(spec.Arguments)
+	}
+	if err := commandRuntimeExecutableAttributes(executablePath); err != nil {
+		return CommandRuntimeResolvedSpec{}, fmt.Errorf(
+			"%w: executable is not a supported native image", ErrCommandRuntimeBoundary)
 	}
 
 	executableSHA, err := commandRuntimeFileSHA256(executablePath)
@@ -235,7 +266,7 @@ func NormalizeCommandRuntimeSpec(spec CommandRuntimeSpec,
 	return CommandRuntimeResolvedSpec{
 		Spec: spec, ExecutablePath: executablePath,
 		ExecutableSHA256: executableSHA, CanonicalArgv: canonicalArgv,
-		AbsoluteDirectory: directory, Environment: environment,
+		AbsoluteDirectory: directory, WorkspaceRoot: root, Environment: environment,
 		EnvironmentSHA256:   hex.EncodeToString(environmentSHA[:]),
 		WorkspaceRootSHA256: hex.EncodeToString(rootDigest[:]),
 		ExecutablePinned:    true, ProfileStartupFiles: false,
@@ -245,35 +276,37 @@ func NormalizeCommandRuntimeSpec(spec CommandRuntimeSpec,
 
 func CommandRuntimeSpecFingerprint(spec CommandRuntimeResolvedSpec) string {
 	value := struct {
-		Version             string                      `json:"version"`
-		Profile             CommandRuntimeProfile       `json:"profile"`
-		ExecutablePath      string                      `json:"executable_path"`
-		ExecutableSHA256    string                      `json:"executable_sha256"`
-		Argv                []string                    `json:"argv"`
-		WorkingDirectory    string                      `json:"working_directory"`
-		Environment         []CommandRuntimeEnvironment `json:"environment"`
-		EnvironmentSHA256   string                      `json:"environment_sha256"`
-		StdinPolicy         CommandRuntimeStdinPolicy   `json:"stdin_policy"`
-		InitialStdinSHA256  string                      `json:"initial_stdin_sha256"`
-		CloseInitialStdin   bool                        `json:"close_initial_stdin"`
-		TimeoutMilliseconds int64                       `json:"timeout_milliseconds"`
-		Output              CommandRuntimeOutputPolicy  `json:"output"`
-		Network             CommandRuntimeNetwork       `json:"network"`
-		Purpose             string                      `json:"purpose"`
-		WorkspaceRootSHA256 string                      `json:"workspace_root_sha256"`
+		Version             string                         `json:"version"`
+		Profile             CommandRuntimeProfile          `json:"profile"`
+		ExecutablePath      string                         `json:"executable_path"`
+		ExecutableSHA256    string                         `json:"executable_sha256"`
+		Argv                []string                       `json:"argv"`
+		WorkingDirectory    string                         `json:"working_directory"`
+		Environment         []CommandRuntimeEnvironment    `json:"environment"`
+		EnvironmentSHA256   string                         `json:"environment_sha256"`
+		StdinPolicy         CommandRuntimeStdinPolicy      `json:"stdin_policy"`
+		InitialStdinSHA256  string                         `json:"initial_stdin_sha256"`
+		CloseInitialStdin   bool                           `json:"close_initial_stdin"`
+		TimeoutMilliseconds int64                          `json:"timeout_milliseconds"`
+		Output              CommandRuntimeOutputPolicy     `json:"output"`
+		Network             CommandRuntimeNetwork          `json:"network"`
+		Credentials         CommandRuntimeCredentialPolicy `json:"credentials"`
+		Purpose             string                         `json:"purpose"`
+		WorkspaceRootSHA256 string                         `json:"workspace_root_sha256"`
 	}{
 		Version: spec.Spec.Version, Profile: spec.Spec.Profile,
 		ExecutablePath: spec.ExecutablePath, ExecutableSHA256: spec.ExecutableSHA256,
-		Argv:                append([]string(nil), spec.CanonicalArgv...),
+		Argv:                cloneCommandRuntimeStrings(spec.CanonicalArgv),
 		WorkingDirectory:    spec.Spec.WorkingDirectory,
-		Environment:         append([]CommandRuntimeEnvironment(nil), spec.Spec.Environment...),
+		Environment:         cloneCommandRuntimeEnvironment(spec.Spec.Environment),
 		EnvironmentSHA256:   spec.EnvironmentSHA256,
 		StdinPolicy:         spec.Spec.StdinPolicy,
 		InitialStdinSHA256:  commandRuntimeStringSHA256(spec.Spec.InitialStdin),
 		CloseInitialStdin:   spec.Spec.CloseInitialStdin,
 		TimeoutMilliseconds: spec.Spec.TimeoutMilliseconds,
 		Output:              spec.Spec.Output, Network: spec.Spec.Network,
-		Purpose: spec.Spec.Purpose, WorkspaceRootSHA256: spec.WorkspaceRootSHA256,
+		Credentials: spec.Spec.Credentials,
+		Purpose:     spec.Spec.Purpose, WorkspaceRootSHA256: spec.WorkspaceRootSHA256,
 	}
 	encoded, err := json.Marshal(value)
 	if err != nil {
@@ -294,7 +327,7 @@ func resolveCommandRuntimeDirectory(workspaceRoot string,
 	if err != nil {
 		return "", "", "", fmt.Errorf("%w: workspace root is unavailable", ErrCommandRuntimeBoundary)
 	}
-	if filepath.IsAbs(relative) || strings.ContainsRune(relative, 0) {
+	if filepath.IsAbs(relative) || !validCommandRuntimeText(relative, false) {
 		return "", "", "", fmt.Errorf("%w: working directory must be workspace-relative", ErrCommandRuntimeBoundary)
 	}
 	cleanRelative := filepath.Clean(filepath.FromSlash(relative))
@@ -327,10 +360,14 @@ func normalizeCommandRuntimeArguments(values []string) ([]string, error) {
 	if len(values) > MaxCommandRuntimeArguments {
 		return nil, fmt.Errorf("%w: too many command arguments", ErrCommandRuntimeBoundary)
 	}
-	result := append([]string(nil), values...)
+	if values == nil {
+		return nil, nil
+	}
+	result := make([]string, len(values))
+	copy(result, values)
 	total := 0
 	for _, value := range result {
-		if !utf8.ValidString(value) || strings.ContainsRune(value, 0) ||
+		if !validCommandRuntimeText(value, false) ||
 			len([]byte(value)) > MaxCommandRuntimeArgumentBytes ||
 			redact.String(value) != value {
 			return nil, fmt.Errorf("%w: argument is invalid or contains secret-like material", ErrCommandRuntimeBoundary)
@@ -343,13 +380,32 @@ func normalizeCommandRuntimeArguments(values []string) ([]string, error) {
 	return result, nil
 }
 
+func cloneCommandRuntimeStrings(values []string) []string {
+	if values == nil {
+		return nil
+	}
+	result := make([]string, len(values))
+	copy(result, values)
+	return result
+}
+
+func cloneCommandRuntimeEnvironment(values []CommandRuntimeEnvironment) []CommandRuntimeEnvironment {
+	if values == nil {
+		return nil
+	}
+	result := make([]CommandRuntimeEnvironment, len(values))
+	copy(result, values)
+	return result
+}
+
 func normalizeCommandRuntimeEnvironment(values []CommandRuntimeEnvironment) (
 	[]CommandRuntimeEnvironment, []string, [sha256.Size]byte, error,
 ) {
 	if len(values) > MaxCommandRuntimeEnvironment {
 		return nil, nil, [sha256.Size]byte{}, fmt.Errorf("%w: too many environment entries", ErrCommandRuntimeBoundary)
 	}
-	result := append([]CommandRuntimeEnvironment(nil), values...)
+	result := make([]CommandRuntimeEnvironment, len(values))
+	copy(result, values)
 	sort.Slice(result, func(left int, right int) bool {
 		return strings.ToLower(result[left].Name) < strings.ToLower(result[right].Name)
 	})
@@ -359,7 +415,7 @@ func normalizeCommandRuntimeEnvironment(values []CommandRuntimeEnvironment) (
 		entry := &result[index]
 		entry.Name = strings.TrimSpace(entry.Name)
 		if !validCommandRuntimeEnvironmentName(entry.Name) ||
-			!utf8.ValidString(entry.Value) || strings.ContainsRune(entry.Value, 0) ||
+			!validCommandRuntimeText(entry.Value, false) ||
 			redact.String(entry.Name+"="+entry.Value) != entry.Name+"="+entry.Value {
 			return nil, nil, [sha256.Size]byte{}, fmt.Errorf("%w: environment entry is invalid or secret-like", ErrCommandRuntimeBoundary)
 		}
@@ -401,9 +457,18 @@ func validCommandRuntimeEnvironmentName(value string) bool {
 		return false
 	}
 	lower := strings.ToLower(value)
+	if strings.HasPrefix(lower, "git_") || strings.HasPrefix(lower, "ssh_") {
+		return false
+	}
+	for _, fixed := range commandRuntimeFixedEnvironment() {
+		name, _, _ := strings.Cut(fixed, "=")
+		if strings.EqualFold(name, value) {
+			return false
+		}
+	}
 	for _, fragment := range []string{
 		"api_key", "apikey", "auth", "cookie", "credential", "password",
-		"passwd", "private_key", "secret", "token", "askpass",
+		"passwd", "private_key", "proxy", "secret", "token", "askpass",
 	} {
 		if strings.Contains(lower, fragment) {
 			return false
@@ -414,12 +479,31 @@ func validCommandRuntimeEnvironmentName(value string) bool {
 		"userprofile", "bash_env", "env", "shellopts", "prompt_command",
 		"ld_preload", "ld_library_path", "dyld_insert_libraries",
 		"node_options", "pythonstartup", "git_config_global",
-		"git_config_system", "git_config_count", "ssh_command":
+		"git_config_system", "git_config_count", "git_ssh", "git_ssh_command",
+		"ssh_command", "cargo_home", "uv_config_file", "poetry_config_dir":
+		return false
+	case "aws_access_key_id", "aws_profile", "aws_default_profile", "azure_config_dir",
+		"cloudsdk_config", "docker_config", "gh_config_dir", "kubeconfig",
+		"netrc", "npm_config_userconfig", "pip_config_file":
 		return false
 	}
-	return !strings.HasPrefix(lower, "git_config_key_") &&
-		!strings.HasPrefix(lower, "git_config_value_") &&
-		!strings.HasPrefix(lower, "dyld_")
+	return !strings.HasPrefix(lower, "dyld_")
+}
+
+func validCommandRuntimeText(value string, allowLineWhitespace bool) bool {
+	if !utf8.ValidString(value) {
+		return false
+	}
+	for _, current := range value {
+		if current == 0 || unicode.In(current, unicode.Cf) {
+			return false
+		}
+		if unicode.IsControl(current) &&
+			!(allowLineWhitespace && (current == '\n' || current == '\r' || current == '\t')) {
+			return false
+		}
+	}
+	return true
 }
 
 func replaceCommandRuntimeEnvironment(values []string, name string, value string) []string {
@@ -435,20 +519,14 @@ func replaceCommandRuntimeEnvironment(values []string, name string, value string
 }
 
 func resolveCommandRuntimeProcess(value string) (string, error) {
-	if strings.ContainsRune(value, 0) || strings.ContainsAny(value, "\r\n") {
+	if !validCommandRuntimeText(value, false) {
 		return "", ErrCommandRuntimeBoundary
+	}
+	if !filepath.IsAbs(value) {
+		return "", fmt.Errorf("%w: process executable must be an absolute path", ErrCommandRuntimeBoundary)
 	}
 	path := value
 	var err error
-	if !filepath.IsAbs(path) {
-		if filepath.Base(path) != path {
-			return "", fmt.Errorf("%w: executable must be an absolute path or bare name", ErrCommandRuntimeBoundary)
-		}
-		path, err = exec.LookPath(path)
-		if err != nil {
-			return "", fmt.Errorf("%w: executable was not found", ErrCommandRuntimeUnavailable)
-		}
-	}
 	path, err = filepath.Abs(path)
 	if err != nil {
 		return "", ErrCommandRuntimeBoundary
@@ -483,12 +561,59 @@ func commandRuntimeStringSHA256(value string) string {
 	return hex.EncodeToString(digest[:])
 }
 
+func CommandRuntimeWorkspaceRootSHA256(workspaceRoot string) (string, error) {
+	root, _, _, err := resolveCommandRuntimeDirectory(workspaceRoot, ".")
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256([]byte(root))
+	return hex.EncodeToString(digest[:]), nil
+}
+
+func validateCommandRuntimeLaunchDirectory(spec CommandRuntimeResolvedSpec) error {
+	root, err := filepath.EvalSymlinks(spec.WorkspaceRoot)
+	if err != nil {
+		return ErrCommandRuntimeBoundary
+	}
+	root, err = filepath.Abs(root)
+	if err != nil || !commandRuntimePathEqual(root, spec.WorkspaceRoot) {
+		return ErrCommandRuntimeBoundary
+	}
+	directory, err := filepath.EvalSymlinks(spec.AbsoluteDirectory)
+	if err != nil {
+		return ErrCommandRuntimeBoundary
+	}
+	directory, err = filepath.Abs(directory)
+	if err != nil || !commandRuntimePathEqual(directory, spec.AbsoluteDirectory) {
+		return ErrCommandRuntimeBoundary
+	}
+	for _, path := range []string{root, directory} {
+		info, statErr := os.Lstat(path)
+		if statErr != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return ErrCommandRuntimeBoundary
+		}
+	}
+	within, err := pathWithin(directory, root)
+	if err != nil || !within {
+		return ErrCommandRuntimeBoundary
+	}
+	relative, err := filepath.Rel(root, directory)
+	if err != nil || filepath.ToSlash(relative) != spec.Spec.WorkingDirectory {
+		return ErrCommandRuntimeBoundary
+	}
+	digest := sha256.Sum256([]byte(filepath.Clean(root)))
+	if hex.EncodeToString(digest[:]) != spec.WorkspaceRootSHA256 {
+		return ErrCommandRuntimeBoundary
+	}
+	return nil
+}
+
 func commandRuntimeBaseEnvironment() []string {
 	allowed := commandRuntimeInheritedEnvironmentNames()
 	values := make([]string, 0, len(allowed)+16)
 	for _, name := range allowed {
 		if value, found := os.LookupEnv(name); found && value != "" &&
-			utf8.ValidString(value) && !strings.ContainsRune(value, 0) &&
+			validCommandRuntimeText(value, false) &&
 			redact.String(name+"="+value) == name+"="+value {
 			values = append(values, name+"="+value)
 		}
@@ -503,37 +628,39 @@ func commandRuntimeBaseEnvironment() []string {
 
 func commandRuntimeIntentJSON(spec CommandRuntimeResolvedSpec) string {
 	value := struct {
-		Version             string                      `json:"version"`
-		PolicyVersion       string                      `json:"policy_version"`
-		Profile             CommandRuntimeProfile       `json:"profile"`
-		ExecutablePath      string                      `json:"executable_path"`
-		ExecutableSHA256    string                      `json:"executable_sha256"`
-		Argv                []string                    `json:"argv"`
-		WorkingDirectory    string                      `json:"working_directory"`
-		Environment         []CommandRuntimeEnvironment `json:"environment"`
-		EnvironmentSHA256   string                      `json:"environment_sha256"`
-		StdinPolicy         CommandRuntimeStdinPolicy   `json:"stdin_policy"`
-		InitialStdinBytes   int                         `json:"initial_stdin_bytes"`
-		InitialStdinSHA256  string                      `json:"initial_stdin_sha256"`
-		CloseInitialStdin   bool                        `json:"close_initial_stdin"`
-		TimeoutMilliseconds int64                       `json:"timeout_milliseconds"`
-		Output              CommandRuntimeOutputPolicy  `json:"output"`
-		Network             CommandRuntimeNetwork       `json:"network"`
-		Purpose             string                      `json:"purpose"`
+		Version             string                         `json:"version"`
+		PolicyVersion       string                         `json:"policy_version"`
+		Profile             CommandRuntimeProfile          `json:"profile"`
+		ExecutablePath      string                         `json:"executable_path"`
+		ExecutableSHA256    string                         `json:"executable_sha256"`
+		Argv                []string                       `json:"argv"`
+		WorkingDirectory    string                         `json:"working_directory"`
+		Environment         []CommandRuntimeEnvironment    `json:"environment"`
+		EnvironmentSHA256   string                         `json:"environment_sha256"`
+		StdinPolicy         CommandRuntimeStdinPolicy      `json:"stdin_policy"`
+		InitialStdinBytes   int                            `json:"initial_stdin_bytes"`
+		InitialStdinSHA256  string                         `json:"initial_stdin_sha256"`
+		CloseInitialStdin   bool                           `json:"close_initial_stdin"`
+		TimeoutMilliseconds int64                          `json:"timeout_milliseconds"`
+		Output              CommandRuntimeOutputPolicy     `json:"output"`
+		Network             CommandRuntimeNetwork          `json:"network"`
+		Credentials         CommandRuntimeCredentialPolicy `json:"credentials"`
+		Purpose             string                         `json:"purpose"`
 	}{
 		Version: spec.Spec.Version, PolicyVersion: CommandRuntimePolicyVersion,
 		Profile: spec.Spec.Profile, ExecutablePath: spec.ExecutablePath,
 		ExecutableSHA256:    spec.ExecutableSHA256,
-		Argv:                append([]string(nil), spec.CanonicalArgv...),
+		Argv:                cloneCommandRuntimeStrings(spec.CanonicalArgv),
 		WorkingDirectory:    spec.Spec.WorkingDirectory,
-		Environment:         append([]CommandRuntimeEnvironment(nil), spec.Spec.Environment...),
+		Environment:         cloneCommandRuntimeEnvironment(spec.Spec.Environment),
 		EnvironmentSHA256:   spec.EnvironmentSHA256,
 		StdinPolicy:         spec.Spec.StdinPolicy,
 		InitialStdinBytes:   len([]byte(spec.Spec.InitialStdin)),
 		InitialStdinSHA256:  commandRuntimeStringSHA256(spec.Spec.InitialStdin),
 		CloseInitialStdin:   spec.Spec.CloseInitialStdin,
 		TimeoutMilliseconds: spec.Spec.TimeoutMilliseconds,
-		Output:              spec.Spec.Output, Network: spec.Spec.Network, Purpose: spec.Spec.Purpose,
+		Output:              spec.Spec.Output, Network: spec.Spec.Network,
+		Credentials: spec.Spec.Credentials, Purpose: spec.Spec.Purpose,
 	}
 	encoded, _ := json.Marshal(value)
 	return string(encoded)

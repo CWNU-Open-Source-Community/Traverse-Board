@@ -12,6 +12,7 @@ type PermissionOperationKind string
 const (
 	PermissionOperationFixedTemplate      PermissionOperationKind = "fixed_template"
 	PermissionOperationStatelessCommand   PermissionOperationKind = "stateless_command"
+	PermissionOperationManagedCommand     PermissionOperationKind = "managed_command"
 	PermissionOperationPersistentTerminal PermissionOperationKind = "persistent_terminal"
 )
 
@@ -88,14 +89,20 @@ func EvaluateExecutionPermission(snapshot domain.RunExecutionPermissionSnapshot,
 		decision.Reason = "operator approved this exact one-shot command"
 	case domain.RunExecutionPermissionFullAccess:
 		if request.Kind == PermissionOperationPersistentTerminal ||
-			request.BackgroundProcess || request.AgentTerminalInput {
+			(request.BackgroundProcess && request.Kind != PermissionOperationManagedCommand) ||
+			request.AgentTerminalInput {
 			decision.Reason = "full-access mode does not grant persistent debug terminal capabilities"
 			return decision, nil
 		}
 		decision.Allowed = true
 		decision.HostFilesystem = request.HostFilesystem
 		decision.Network = request.Network
-		decision.Reason = "danger-full-access process gate permits one-shot host execution"
+		decision.BackgroundProcess = request.BackgroundProcess
+		if request.Kind == PermissionOperationManagedCommand {
+			decision.Reason = "danger-full-access process gate permits a Run-owned managed command"
+		} else {
+			decision.Reason = "danger-full-access process gate permits one-shot host execution"
+		}
 	case domain.RunExecutionPermissionDebug:
 		decision.Allowed = true
 		decision.HostFilesystem = request.HostFilesystem
@@ -113,6 +120,7 @@ func EvaluateExecutionPermission(snapshot domain.RunExecutionPermissionSnapshot,
 func validatePermissionRequest(request PermissionRequest) error {
 	switch request.Kind {
 	case PermissionOperationFixedTemplate, PermissionOperationStatelessCommand,
+		PermissionOperationManagedCommand,
 		PermissionOperationPersistentTerminal:
 	default:
 		return fmt.Errorf("unsupported execution permission operation kind %q", request.Kind)
@@ -123,6 +131,11 @@ func validatePermissionRequest(request PermissionRequest) error {
 	}
 	if request.Kind == PermissionOperationFixedTemplate && request.BackgroundProcess {
 		return errors.New("fixed command templates cannot request a background process")
+	}
+	if request.Kind == PermissionOperationManagedCommand &&
+		(!request.HostFilesystem || !request.BackgroundProcess || request.Network ||
+			request.AgentTerminalInput || request.OperatorApproved) {
+		return errors.New("managed commands require host/background ownership without network, terminal input, or approval")
 	}
 	return nil
 }

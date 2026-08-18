@@ -63,6 +63,7 @@ type Gateway struct {
 	dockerSandboxProposals     DockerSandboxProposalExecutor
 	skillCandidates            SkillCandidateExecutor
 	debugTerminal              DebugTerminalExecutor
+	commandRuntime             CommandRuntimeExecutor
 	waitGraph                  *waitgraph.Graph
 }
 
@@ -154,6 +155,9 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (Outcome, error) {
 	if normalized.Name == DebugTerminalTool && g.debugTerminal == nil {
 		return Outcome{}, errors.New("debug terminal executor is required")
 	}
+	if normalized.Name == CommandRuntimeTool && g.commandRuntime == nil {
+		return Outcome{}, errors.New("command runtime executor is required")
+	}
 	fallback := waitgraph.External(normalized.RequestedBy)
 	if normalized.AgentID != "" {
 		fallback = waitgraph.Agent(normalized.AgentID)
@@ -207,6 +211,8 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (Outcome, error) {
 		return g.invokeSkillCandidate(ctx, normalized)
 	case DebugTerminalTool:
 		return g.invokeDebugTerminal(ctx, normalized)
+	case CommandRuntimeTool:
+		return g.invokeCommandRuntime(ctx, normalized)
 	default:
 		return Outcome{}, fmt.Errorf("unsupported tool %q", normalized.Name)
 	}
@@ -744,7 +750,8 @@ func validateToolArguments(call ToolCall) error {
 		call.Name == HostCommandProposeTool ||
 		call.Name == DockerSandboxRunProposeTool ||
 		call.Name == SkillCandidateProposeTool ||
-		call.Name == DebugTerminalTool {
+		call.Name == DebugTerminalTool ||
+		call.Name == CommandRuntimeTool {
 		if len(call.Arguments) != 0 {
 			return fmt.Errorf("tool %s accepts a JSON payload instead of string arguments", call.Name)
 		}
@@ -818,6 +825,13 @@ func validateToolArguments(call ToolCall) error {
 				return errors.New("debug terminal calls require a fenced root Supervisor")
 			}
 			_, _, err := normalizeDebugTerminalPayload(call.Payload)
+			return err
+		case CommandRuntimeTool:
+			if call.RequestedBy != "run_supervisor" || call.AgentID == "" ||
+				call.WorkspaceID == "" || call.LeaseID == "" {
+				return errors.New("command runtime calls require a fenced root Supervisor")
+			}
+			_, _, err := normalizeCommandRuntimePayload(call.Payload)
 			return err
 		}
 	}

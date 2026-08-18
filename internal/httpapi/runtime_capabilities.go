@@ -5,6 +5,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
+	"cyberagent-workbench/internal/domain"
 )
 
 const RuntimeCapabilitiesProtocolVersion = "runtime_capabilities.v1"
@@ -32,6 +33,7 @@ type RuntimeCapabilitiesView struct {
 	OperatorApprovalEnabled            bool                    `json:"operator_approval_enabled"`
 	DangerFullAccessEnabled            bool                    `json:"danger_full_access_enabled"`
 	DebugMaximumAccessEnabled          bool                    `json:"debug_maximum_access_enabled"`
+	CommandRuntimeEnabled              bool                    `json:"command_runtime_enabled"`
 	BrowserCDPPermissionControlEnabled bool                    `json:"browser_cdp_permission_control_enabled"`
 	FullCDPDebugEnabled                bool                    `json:"full_cdp_debug_enabled"`
 	RunCreationEnabled                 bool                    `json:"run_creation_enabled"`
@@ -92,6 +94,9 @@ func (a *API) runtimeCapabilities(request *http.Request) (any, *Page, error) {
 		worker.Active = health.Active
 		worker.PollIntervalMillis = health.PollIntervalMillis
 	}
+	commandRuntimeEnabled := a.runExecutionEnabled &&
+		a.executionPermissionCapabilities.Allows(
+			domain.RunExecutionPermissionFullAccess)
 	return RuntimeCapabilitiesView{
 		ProtocolVersion:   RuntimeCapabilitiesProtocolVersion,
 		RunControlEnabled: a.controlEnabled, RunCreationEnabled: a.runCreationEnabled,
@@ -99,6 +104,7 @@ func (a *API) runtimeCapabilities(request *http.Request) (any, *Page, error) {
 		OperatorApprovalEnabled:            a.executionPermissionCapabilities.OperatorApprovalEnabled,
 		DangerFullAccessEnabled:            a.executionPermissionCapabilities.DangerFullAccessEnabled,
 		DebugMaximumAccessEnabled:          a.executionPermissionCapabilities.DebugMaximumAccessEnabled,
+		CommandRuntimeEnabled:              commandRuntimeEnabled,
 		BrowserCDPPermissionControlEnabled: a.browserCDPPermissionControlEnabled,
 		FullCDPDebugEnabled:                a.browserCDPPermissionCapabilities.FullDebugEnabled,
 		SessionMessageEnabled:              a.sessionMessageEnabled,
@@ -120,8 +126,9 @@ func (a *API) runtimeCapabilities(request *http.Request) (any, *Page, error) {
 		EvidenceAttachmentEnabled:        a.evidenceAttachmentEnabled,
 		VerificationEvidenceEnabled:      a.verificationEvidenceEnabled,
 		EmbeddedAnalyzerExecutionEnabled: a.embeddedAnalyzerExecutionEnabled,
-		ProcessExecutionEnabled:          false, ShellExecutionEnabled: false,
-		DockerExecutionEnabled: a.dockerExecutionEnabled, WakeWorker: worker,
+		ProcessExecutionEnabled:          commandRuntimeEnabled,
+		ShellExecutionEnabled:            commandRuntimeEnabled,
+		DockerExecutionEnabled:           a.dockerExecutionEnabled, WakeWorker: worker,
 	}, nil, nil
 }
 

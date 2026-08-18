@@ -49,6 +49,7 @@ export default function App() {
   const operatorApprovalEnabled = useConnectionStore((state) => state.operatorApprovalEnabled);
   const dangerFullAccessEnabled = useConnectionStore((state) => state.dangerFullAccessEnabled);
   const debugMaximumAccessEnabled = useConnectionStore((state) => state.debugMaximumAccessEnabled);
+  const commandRuntimeEnabled = useConnectionStore((state) => state.commandRuntimeEnabled);
   const runCreationEnabled = useConnectionStore((state) => state.runCreationEnabled);
   const sessionMessageEnabled = useConnectionStore((state) => state.sessionMessageEnabled);
   const sessionSteeringControlEnabled = useConnectionStore(
@@ -89,6 +90,7 @@ export default function App() {
     operatorApprovalEnabled={operatorApprovalEnabled}
     dangerFullAccessEnabled={dangerFullAccessEnabled}
     debugMaximumAccessEnabled={debugMaximumAccessEnabled}
+    commandRuntimeEnabled={commandRuntimeEnabled}
     sessionMessageEnabled={sessionMessageEnabled}
     sessionSteeringControlEnabled={sessionSteeringControlEnabled}
     runLifecycleEnabled={runLifecycleEnabled} runExecutionEnabled={runExecutionEnabled}
@@ -111,7 +113,8 @@ export default function App() {
 
 function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreationEnabled,
   executionPermissionControlEnabled, operatorApprovalEnabled, dangerFullAccessEnabled,
-  debugMaximumAccessEnabled, browserCDPPermissionControlEnabled, fullCDPDebugEnabled,
+  debugMaximumAccessEnabled, commandRuntimeEnabled,
+  browserCDPPermissionControlEnabled, fullCDPDebugEnabled,
   sessionMessageEnabled, sessionSteeringControlEnabled, runLifecycleEnabled,
   runExecutionEnabled, planDeliveryControlEnabled, approvalControlEnabled,
   controlledCommandProposalControlEnabled,
@@ -131,6 +134,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   operatorApprovalEnabled: boolean;
   dangerFullAccessEnabled: boolean;
   debugMaximumAccessEnabled: boolean;
+  commandRuntimeEnabled: boolean;
   sessionMessageEnabled: boolean;
   sessionSteeringControlEnabled: boolean;
   runLifecycleEnabled: boolean;
@@ -168,7 +172,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   const client = useMemo(() => new CyberAgentClient(token, undefined, controlToken, {
     runControlEnabled, runCreationEnabled, sessionMessageEnabled,
     executionPermissionControlEnabled, operatorApprovalEnabled,
-    dangerFullAccessEnabled, debugMaximumAccessEnabled,
+    dangerFullAccessEnabled, debugMaximumAccessEnabled, commandRuntimeEnabled,
     browserCDPPermissionControlEnabled, fullCDPDebugEnabled,
     sessionSteeringControlEnabled,
     runLifecycleEnabled, runExecutionEnabled,
@@ -183,7 +187,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     dockerExecutionEnabled,
   }), [token, controlToken, runControlEnabled, runCreationEnabled,
     executionPermissionControlEnabled, operatorApprovalEnabled,
-    dangerFullAccessEnabled, debugMaximumAccessEnabled,
+    dangerFullAccessEnabled, debugMaximumAccessEnabled, commandRuntimeEnabled,
     browserCDPPermissionControlEnabled, fullCDPDebugEnabled, sessionMessageEnabled,
     sessionSteeringControlEnabled, runLifecycleEnabled, runExecutionEnabled,
     planDeliveryControlEnabled, approvalControlEnabled, modelControlEnabled,
@@ -212,6 +216,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     { id: "operator-approval", label: t("用户审批", "Operator approval"), enabled: operatorApprovalEnabled },
     { id: "full-access", label: t("完全访问", "Full access"), enabled: dangerFullAccessEnabled },
     { id: "debug-access", label: t("调试权限", "Debug access"), enabled: debugMaximumAccessEnabled },
+    { id: "command-runtime", label: t("命令运行时", "Command runtime"), enabled: commandRuntimeEnabled },
     { id: "run-creation", label: t("创建任务", "Create task"), enabled: runCreationEnabled },
     { id: "session-message", label: t("会话消息", "Session messages"), enabled: sessionMessageEnabled },
     { id: "steering", label: t("队列引导", "Queue steering"), enabled: sessionSteeringControlEnabled },
@@ -238,7 +243,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     { id: "docker-execution", label: t("Docker 沙箱", "Docker sandbox"), enabled: dockerExecutionEnabled },
   ], [approvalControlEnabled, controlledCommandProposalControlEnabled,
     hostCommandProposalControlEnabled,
-    dangerFullAccessEnabled, debugMaximumAccessEnabled,
+    commandRuntimeEnabled, dangerFullAccessEnabled, debugMaximumAccessEnabled,
     evidenceAttachmentEnabled, executionPermissionControlEnabled, fileEditApplyEnabled,
     fileEditProposalEnabled, fileEditReviewEnabled, modelControlEnabled,
     operatorApprovalEnabled, planDeliveryControlEnabled, providerCredentialEnabled, runControlEnabled,

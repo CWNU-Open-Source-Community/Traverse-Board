@@ -114,7 +114,7 @@ func removeSchemaV113ForTestStatements() []string {
 }
 
 func removeSchemaV114ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV115ForTestStatements(), []string{
 		`DROP TRIGGER trg_session_continuity_nodes_no_delete`,
 		`DROP TRIGGER trg_session_continuity_nodes_no_update`,
 		`DROP INDEX idx_session_continuity_nodes_run_created`,
@@ -128,7 +128,21 @@ func removeSchemaV114ForTestStatements() []string {
 		`DROP INDEX idx_context_memories_scope_status_updated`,
 		`DROP TABLE context_memories`,
 		`DELETE FROM schema_migrations WHERE version = 114`,
+	}...)
+}
+
+func removeSchemaV115ForTestStatements() []string {
+	statements := []string{
+		`DROP TRIGGER trg_command_runtime_job_delete_immutable`,
+		`DROP TRIGGER trg_command_runtime_job_update_transition`,
+		`DROP TRIGGER trg_command_runtime_job_insert_limit`,
+		`DROP TRIGGER trg_command_runtime_job_insert_scope`,
+		`DROP INDEX idx_command_runtime_jobs_active`,
+		`DROP INDEX idx_command_runtime_jobs_run_created`,
+		`DROP TABLE command_runtime_jobs`,
 	}
+	statements = append(statements, debugTerminalSupervisorLedgerStatements...)
+	return append(statements, `DELETE FROM schema_migrations WHERE version = 115`)
 }
 func TestSkillCatalogMigrationAndRemovalChain(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "skill-catalog-migration.db"))

@@ -112,7 +112,11 @@ func SupervisorToolDefinitions() []ToolDefinition {
 	debugTerminal := debugTerminalDefinition
 	debugTerminal.InputSchema = append(json.RawMessage(nil),
 		debugTerminal.InputSchema...)
-	return append(definitions, debugTerminal)
+	definitions = append(definitions, debugTerminal)
+	commandRuntime := commandRuntimeDefinition
+	commandRuntime.InputSchema = append(json.RawMessage(nil),
+		commandRuntime.InputSchema...)
+	return append(definitions, commandRuntime)
 }
 
 func SupervisorToolDefinition(name ToolName) (ToolDefinition, bool) {
@@ -147,6 +151,12 @@ func SupervisorToolDefinition(name ToolName) (ToolDefinition, bool) {
 	}
 	if name == DebugTerminalTool {
 		definition := debugTerminalDefinition
+		definition.InputSchema = append(json.RawMessage(nil),
+			definition.InputSchema...)
+		return definition, true
+	}
+	if name == CommandRuntimeTool {
+		definition := commandRuntimeDefinition
 		definition.InputSchema = append(json.RawMessage(nil),
 			definition.InputSchema...)
 		return definition, true
@@ -204,6 +214,10 @@ func NormalizeSupervisorToolPayload(name ToolName, payload json.RawMessage) (jso
 	}
 	if name == DebugTerminalTool {
 		_, canonical, err := normalizeDebugTerminalPayload(payload)
+		return canonical, err
+	}
+	if name == CommandRuntimeTool {
+		_, canonical, err := normalizeCommandRuntimePayload(payload)
 		return canonical, err
 	}
 	return NormalizeStructuredMemoryPayload(name, payload)

@@ -5185,6 +5185,7 @@ export interface components {
         RuntimeCapabilitiesView: {
             approval_control_enabled: boolean;
             browser_cdp_permission_control_enabled: boolean;
+            command_runtime_enabled: boolean;
             controlled_command_proposal_control_enabled: boolean;
             danger_full_access_enabled: boolean;
             debug_maximum_access_enabled: boolean;
