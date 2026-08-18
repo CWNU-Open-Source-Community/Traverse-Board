@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/outputsafe"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/tools"
@@ -294,76 +295,6 @@ func (g *Gateway) recordDebugTerminalPolicyDecision(ctx context.Context,
 }
 
 func sanitizeDebugTerminalOutput(data []byte) string {
-	// Remove terminal control sequences before the page becomes model context.
 	// The renderer still receives the untouched PTY bytes through its own ring.
-	input := strings.ToValidUTF8(string(data), "?")
-	// Terminals may encode C1 controls either as the common ESC-prefixed form
-	// or as their Unicode control code points. Normalize the latter so their
-	// parameter/string payload is removed with the same parser below instead of
-	// leaving misleading fragments such as "31m" in model-visible text.
-	input = strings.NewReplacer(
-		"\u0090", "\x1bP", // DCS
-		"\u0098", "\x1bX", // SOS
-		"\u009b", "\x1b[", // CSI
-		"\u009c", "\x1b\\", // ST
-		"\u009d", "\x1b]", // OSC
-		"\u009e", "\x1b^", // PM
-		"\u009f", "\x1b_", // APC
-	).Replace(input)
-	var output strings.Builder
-	output.Grow(len(input))
-	for index := 0; index < len(input); {
-		if input[index] != 0x1b {
-			value := input[index]
-			if value == '\n' || value == '\r' || value == '\t' || value >= 0x20 {
-				output.WriteByte(value)
-			}
-			index++
-			continue
-		}
-		index++
-		if index >= len(input) {
-			break
-		}
-		switch input[index] {
-		case '[':
-			index++
-			for index < len(input) {
-				value := input[index]
-				index++
-				if value >= 0x40 && value <= 0x7e {
-					break
-				}
-			}
-		case ']', 'P', 'X', '^', '_':
-			index++
-			for index < len(input) {
-				if input[index] == 0x07 {
-					index++
-					break
-				}
-				if input[index] == 0x1b && index+1 < len(input) &&
-					input[index+1] == '\\' {
-					index += 2
-					break
-				}
-				index++
-			}
-		default:
-			index++
-		}
-	}
-	var safe strings.Builder
-	safe.Grow(output.Len())
-	for _, value := range output.String() {
-		if value == '\n' || value == '\r' || value == '\t' {
-			safe.WriteRune(value)
-			continue
-		}
-		if unicode.IsControl(value) || unicode.In(value, unicode.Cf) {
-			continue
-		}
-		safe.WriteRune(value)
-	}
-	return redact.String(safe.String())
+	return outputsafe.Sanitize(data)
 }
