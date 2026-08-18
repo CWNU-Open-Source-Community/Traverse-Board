@@ -94,7 +94,9 @@ export function FileEditPanel({ client, runID }: { client: CyberAgentClient; run
         return <button aria-pressed={edit.id === selectedEditID} className="file-edit-row"
           key={edit.id} onClick={() => setSelectedEditID(edit.id)} type="button">
           <FileText aria-hidden="true" size={15} />
-          <code>{edit.path}</code>
+          <code>{edit.operation === "move"
+            ? `${edit.path} → ${edit.destination_path}` : edit.path}</code>
+          <span>{edit.operation}</span>
           <span className="file-edit-counts"><b className="diff-additions">+{diff.additions}</b>
             <b className="diff-deletions">-{diff.deletions}</b></span>
           {edit.secrets_redacted && <span>{t("已脱敏", "redacted")}</span>}
@@ -137,7 +139,9 @@ function FileReviewDrawer({ applyEnabled, applying, client, diff, edit, onApply,
   const { t } = useLocale();
   return <aside aria-label={t(`审阅 ${edit.path}`, `Review ${edit.path}`)} className="file-review-drawer">
     <header>
-      <div><code>{edit.path}</code><StatusBadge status={edit.status} /></div>
+      <div><code>{edit.operation === "move"
+        ? `${edit.path} → ${edit.destination_path}` : edit.path}</code>
+        <StatusBadge status={edit.operation} /><StatusBadge status={edit.status} /></div>
       <button aria-label={t("关闭审阅", "Close review")} className="icon-button" onClick={onClose}
         title={t("关闭审阅", "Close review")} type="button">
         <PanelRightClose aria-hidden="true" size={16} />
@@ -154,6 +158,7 @@ function FileReviewDrawer({ applyEnabled, applying, client, diff, edit, onApply,
       <span>{t("应用权限", "Apply authority")}: {edit.apply_enabled ? t("就绪", "ready") : t("禁用", "disabled")}</span>
       <div>
         {client.hasFileEditProposals && edit.status === "proposed" &&
+          edit.proposed_hash !== "missing" &&
           <button aria-label={t(`恢复 ${edit.path}`, `Recover ${edit.path}`)} className="icon-button"
             disabled={reviewing || applying} onClick={onRecover}
             title={t("恢复持久化待审提案", "Recover durable pending proposal")} type="button">

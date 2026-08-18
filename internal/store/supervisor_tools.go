@@ -25,7 +25,7 @@ func (s *SQLiteStore) ListSupervisorToolRounds(ctx context.Context,
 	rows, err := s.db.QueryContext(ctx, `SELECT
 		r.run_id, r.turn, r.attempt_id, r.round, r.model_attempt, r.created_at, r.completed_at,
 		c.run_id, c.turn, c.attempt_id, c.round, c.position, c.model_attempt, c.call_id, c.tool_name,
-		c.payload_json, c.status, c.result_json, c.error_code, c.created_at, c.completed_at
+		c.payload_json, c.authority_json, c.status, c.result_json, c.error_code, c.created_at, c.completed_at
 		FROM run_supervisor_tool_rounds r
 		JOIN run_supervisor_tool_calls c
 			ON c.run_id = r.run_id AND c.turn = r.turn AND c.attempt_id = r.attempt_id AND c.round = r.round
@@ -56,7 +56,7 @@ func (s *SQLiteStore) ListRunSupervisorToolRoundsPage(ctx context.Context, runID
 	SELECT
 		r.run_id, r.turn, r.attempt_id, r.round, r.model_attempt, r.created_at, r.completed_at,
 		c.run_id, c.turn, c.attempt_id, c.round, c.position, c.model_attempt, c.call_id, c.tool_name,
-		c.payload_json, c.status, c.result_json, c.error_code, c.created_at, c.completed_at
+		c.payload_json, c.authority_json, c.status, c.result_json, c.error_code, c.created_at, c.completed_at
 		FROM selected r
 		JOIN run_supervisor_tool_calls c
 			ON c.run_id = r.run_id AND c.turn = r.turn AND c.attempt_id = r.attempt_id AND c.round = r.round
@@ -135,10 +135,11 @@ func insertSupervisorToolRoundTx(ctx context.Context, tx *sql.Tx, run domain.Run
 	for index, call := range normalized {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO run_supervisor_tool_calls
 			(run_id, turn, attempt_id, round, position, model_attempt, call_id, tool_name, payload_json,
-			 status, result_json, error_code, created_at, completed_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', ?, NULL)`,
+			 authority_json, status, result_json, error_code, created_at, completed_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', ?, NULL)`,
 			checkpoint.RunID, checkpoint.NextTurn, checkpoint.AttemptID, round, index+1, attempt.Number,
-			call.ID, call.Name, string(call.Arguments), domain.SupervisorToolPending, ts(now)); err != nil {
+			call.ID, call.Name, string(call.Arguments), string(call.Authority),
+			domain.SupervisorToolPending, ts(now)); err != nil {
 			return err
 		}
 		names = append(names, call.Name)
@@ -173,6 +174,23 @@ func normalizeSupervisorToolCallsForStore(calls []llm.ToolCall, runID string, tu
 				"supervisor tool payload exceeds its durable limit")
 		}
 		normalized[index].Arguments = append(json.RawMessage(nil), safe...)
+		if toolgateway.IsAgentCodeTool(name) {
+			authority, authorityErr := toolgateway.DecodeAgentCodeCallAuthority(
+				normalized[index].Authority)
+			if authorityErr != nil || authority.RunID != runID {
+				return nil, apperror.New(apperror.CodeInvalidArgument,
+					"agent code supervisor tool is missing its exact durable authority")
+			}
+			canonicalAuthority, authorityErr := toolgateway.EncodeAgentCodeCallAuthority(authority)
+			if authorityErr != nil || len(canonicalAuthority) > domain.MaxSupervisorToolAuthorityBytes {
+				return nil, apperror.New(apperror.CodeInvalidArgument,
+					"agent code supervisor tool authority is invalid")
+			}
+			normalized[index].Authority = canonicalAuthority
+		} else if len(normalized[index].Authority) != 0 {
+			return nil, apperror.New(apperror.CodeInvalidArgument,
+				"non-agent-code supervisor tool cannot carry authority")
+		}
 		operationKey := runmutation.SupervisorToolOperationKey(runID, turn, normalized[index].Name, string(safe))
 		expectedID, err := runmutation.SupervisorToolCallID(operationKey, round)
 		if err != nil || normalized[index].ID != expectedID {
@@ -295,7 +313,7 @@ func getSupervisorToolCallTx(ctx context.Context, tx *sql.Tx, checkpoint domain.
 	callID string,
 ) (domain.SupervisorToolCall, error) {
 	return scanSupervisorToolCall(tx.QueryRowContext(ctx, `SELECT run_id, turn, attempt_id, round, position,
-		model_attempt, call_id, tool_name, payload_json, status, result_json, error_code, created_at, completed_at
+		model_attempt, call_id, tool_name, payload_json, authority_json, status, result_json, error_code, created_at, completed_at
 		FROM run_supervisor_tool_calls
 		WHERE run_id = ? AND turn = ? AND attempt_id = ? AND call_id = ?`, checkpoint.RunID,
 		checkpoint.NextTurn, checkpoint.AttemptID, strings.TrimSpace(callID)))
@@ -311,7 +329,8 @@ func scanSupervisorToolRoundCall(row scanner) (domain.SupervisorToolRound, domai
 	var callCompletedAt sql.NullString
 	if err := row.Scan(&round.RunID, &round.Turn, &round.AttemptID, &round.Round, &round.ModelAttempt,
 		&roundCreatedAt, &roundCompletedAt, &call.RunID, &call.Turn, &call.AttemptID, &call.Round,
-		&call.Position, &call.ModelAttempt, &call.CallID, &call.ToolName, &call.PayloadJSON, &callStatus,
+		&call.Position, &call.ModelAttempt, &call.CallID, &call.ToolName, &call.PayloadJSON,
+		&call.AuthorityJSON, &callStatus,
 		&call.ResultJSON, &call.ErrorCode, &callCreatedAt, &callCompletedAt); err != nil {
 		return domain.SupervisorToolRound{}, domain.SupervisorToolCall{}, err
 	}
@@ -339,7 +358,8 @@ func scanSupervisorToolCall(row scanner) (domain.SupervisorToolCall, error) {
 	var createdAt string
 	var completedAt sql.NullString
 	if err := row.Scan(&call.RunID, &call.Turn, &call.AttemptID, &call.Round, &call.Position,
-		&call.ModelAttempt, &call.CallID, &call.ToolName, &call.PayloadJSON, &status, &call.ResultJSON,
+		&call.ModelAttempt, &call.CallID, &call.ToolName, &call.PayloadJSON, &call.AuthorityJSON,
+		&status, &call.ResultJSON,
 		&call.ErrorCode, &createdAt, &completedAt); err != nil {
 		return domain.SupervisorToolCall{}, err
 	}

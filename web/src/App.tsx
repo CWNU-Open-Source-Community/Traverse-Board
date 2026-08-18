@@ -78,6 +78,8 @@ export default function App() {
     (state) => state.embeddedAnalyzerExecutionEnabled);
   const dockerExecutionEnabled = useConnectionStore(
     (state) => state.dockerExecutionEnabled);
+  const agentCodeToolsEnabled = useConnectionStore(
+    (state) => state.agentCodeToolsEnabled);
   if (!token) {
     return <ConnectionGate />;
   }
@@ -106,7 +108,8 @@ export default function App() {
     evidenceAttachmentEnabled={evidenceAttachmentEnabled}
     verificationEvidenceEnabled={verificationEvidenceEnabled}
     embeddedAnalyzerExecutionEnabled={embeddedAnalyzerExecutionEnabled}
-    dockerExecutionEnabled={dockerExecutionEnabled} />;
+    dockerExecutionEnabled={dockerExecutionEnabled}
+    agentCodeToolsEnabled={agentCodeToolsEnabled} />;
 }
 
 function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreationEnabled,
@@ -120,7 +123,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   fileEditProposalEnabled, fileEditApplyEnabled, runWakeControlEnabled,
   runWakeExecutionEnabled, runWakeWorkerEnabled, skillInstallationEnabled,
   evidenceAttachmentEnabled, verificationEvidenceEnabled,
-  embeddedAnalyzerExecutionEnabled, dockerExecutionEnabled }: {
+  embeddedAnalyzerExecutionEnabled, dockerExecutionEnabled, agentCodeToolsEnabled }: {
   token: string;
   controlToken: string;
   runControlEnabled: boolean;
@@ -152,6 +155,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   verificationEvidenceEnabled: boolean;
   embeddedAnalyzerExecutionEnabled: boolean;
   dockerExecutionEnabled: boolean;
+  agentCodeToolsEnabled: boolean;
 }) {
   const { t } = useLocale();
   const [surface, setSurface] = useState<"workspace" | "settings">("workspace");
@@ -181,6 +185,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     verificationEvidenceEnabled,
     embeddedAnalyzerExecutionEnabled,
     dockerExecutionEnabled,
+    agentCodeToolsEnabled,
   }), [token, controlToken, runControlEnabled, runCreationEnabled,
     executionPermissionControlEnabled, operatorApprovalEnabled,
     dangerFullAccessEnabled, debugMaximumAccessEnabled,
@@ -192,7 +197,8 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     providerCredentialEnabled, fileEditReviewEnabled, fileEditProposalEnabled,
     fileEditApplyEnabled, runWakeControlEnabled, runWakeExecutionEnabled,
     runWakeWorkerEnabled, skillInstallationEnabled, evidenceAttachmentEnabled,
-    verificationEvidenceEnabled, embeddedAnalyzerExecutionEnabled, dockerExecutionEnabled]);
+    verificationEvidenceEnabled, embeddedAnalyzerExecutionEnabled, dockerExecutionEnabled,
+    agentCodeToolsEnabled]);
   const queryClient = useQueryClient();
   const health = useConnectionStore((state) => state.health);
   const setHealth = useConnectionStore((state) => state.setHealth);
@@ -236,6 +242,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     { id: "verification", label: t("验证证据", "Verification evidence"), enabled: verificationEvidenceEnabled },
     { id: "embedded-analyzer", label: t("内置分析器", "Embedded analyzer"), enabled: embeddedAnalyzerExecutionEnabled },
     { id: "docker-execution", label: t("Docker 沙箱", "Docker sandbox"), enabled: dockerExecutionEnabled },
+    { id: "agent-code-tools", label: t("模型工作区工具", "Model workspace tools"), enabled: agentCodeToolsEnabled },
   ], [approvalControlEnabled, controlledCommandProposalControlEnabled,
     hostCommandProposalControlEnabled,
     dangerFullAccessEnabled, debugMaximumAccessEnabled,
@@ -245,7 +252,8 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     runCreationEnabled, runExecutionEnabled, runLifecycleEnabled,
     runWakeControlEnabled, runWakeExecutionEnabled, runWakeWorkerEnabled,
     sessionMessageEnabled, sessionSteeringControlEnabled, skillInstallationEnabled,
-    verificationEvidenceEnabled, embeddedAnalyzerExecutionEnabled, dockerExecutionEnabled, t]);
+    verificationEvidenceEnabled, embeddedAnalyzerExecutionEnabled, dockerExecutionEnabled,
+    agentCodeToolsEnabled, t]);
 
   useEffect(() => {
     if (healthQuery.data) {

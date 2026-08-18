@@ -73,7 +73,7 @@ export interface paths {
         };
         /**
          * Inspect process-local runtime capabilities
-         * @description Returns bounded enablement metadata and Run wake worker health without bearer tokens, owner or lease identities, private errors, runtime enable controls, or persistent-service authority.
+         * @description Returns bounded enablement metadata, including whether the agent-code-tools.v1 runtime is compiled in, and Run wake worker health without bearer tokens, owner or lease identities, private errors, runtime enable controls, or persistent-service authority.
          */
         get: operations["getRuntimeCapabilities"];
         put?: never;
@@ -453,7 +453,7 @@ export interface paths {
         };
         /**
          * Inspect a Run
-         * @description Returns Run, Mission, checkpoint, tool usage, token-free execution-lease metadata, and read-only Plan/Delivery and external-Skill metadata projections when present.
+         * @description Returns Run, Mission, checkpoint, tool usage, token-free execution-lease metadata, read-only Plan/Delivery and external-Skill metadata projections, and the Go-derived agent-code-tools.v1 generation with per-tool availability or refusal when present. The capability projection is informational and grants no execution authority.
          */
         get: operations["getRun"];
         put?: never;
@@ -2304,6 +2304,35 @@ export interface components {
             /** Format: int32 */
             transport_attempt: number;
         };
+        AgentCodeCapabilitiesView: {
+            generation: string;
+            /** @enum {string} */
+            permission_mode: "conservative" | "approval" | "full_access" | "debug";
+            /** @enum {string} */
+            phase: "plan" | "deliver";
+            /** @enum {string} */
+            profile: "code" | "review" | "learn" | "script";
+            /** @enum {string} */
+            protocol_version: "agent-code-tools.v1";
+            /** @enum {string} */
+            role: "root";
+            /** @enum {string} */
+            surface: "code" | "cyber";
+            tools: components["schemas"]["AgentCodeToolCapabilityView"][];
+        };
+        AgentCodeToolCapabilityView: {
+            /** @enum {string} */
+            approval: "automatic" | "proposal_then_operator_review" | "approved_proposal_only";
+            available: boolean;
+            /** @enum {string} */
+            class: "workspace_read" | "workspace_write";
+            /** @enum {string} */
+            name: "workspace_list" | "workspace_read" | "workspace_glob" | "workspace_grep" | "workspace_change" | "workspace_apply" | "workspace_delete";
+            read_only: boolean;
+            refusal_reason?: string;
+            /** @enum {string} */
+            source: "agent-code-tools.v1";
+        };
         AgentCompletionView: {
             attempt_id: string;
             /** Format: date-time */
@@ -3397,9 +3426,12 @@ export interface components {
         FileEditChangeSetItemView: {
             allowed_actions: string[];
             apply_enabled: boolean;
+            destination_path?: string;
             /** Format: int32 */
             diff_bytes: number;
             id: string;
+            /** @enum {string} */
+            operation: "replace" | "create" | "move" | "delete";
             path: string;
             secrets_redacted: boolean;
             /** @enum {string} */
@@ -3441,8 +3473,13 @@ export interface components {
             apply_enabled: boolean;
             /** Format: date-time */
             created_at: string;
+            destination_original_hash?: string;
+            destination_path?: string;
+            destination_proposed_hash?: string;
             diff: string;
             id: string;
+            /** @enum {string} */
+            operation: "replace" | "create" | "move" | "delete";
             original_hash: string;
             path: string;
             proposed_hash: string;
@@ -4786,6 +4823,7 @@ export interface components {
             session: components["schemas"]["SessionView"];
         };
         RunDetailView: {
+            agent_code_tools: components["schemas"]["AgentCodeCapabilitiesView"];
             browser_cdp_permission: components["schemas"]["RunBrowserCDPPermissionView"];
             checkpoint?: components["schemas"]["SupervisorCheckpointView"];
             execution_interaction: components["schemas"]["RunExecutionInteractionView"];
@@ -5183,6 +5221,7 @@ export interface components {
             state: "disabled" | "ready" | "running" | "draining" | "stopped";
         };
         RuntimeCapabilitiesView: {
+            agent_code_tools_enabled: boolean;
             approval_control_enabled: boolean;
             browser_cdp_permission_control_enabled: boolean;
             controlled_command_proposal_control_enabled: boolean;

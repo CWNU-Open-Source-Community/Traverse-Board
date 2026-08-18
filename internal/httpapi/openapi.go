@@ -28,6 +28,7 @@ import (
 	"cyberagent-workbench/internal/sandbox"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/skills"
+	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/verification"
 	"cyberagent-workbench/internal/workspace"
 )
@@ -385,7 +386,7 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			DataType: reflect.TypeOf(HealthView{})},
 		{Path: "/api/v1/capabilities", OperationID: "getRuntimeCapabilities",
 			Summary: "Inspect process-local runtime capabilities", Tag: "System",
-			Description: "Returns bounded enablement metadata and Run wake worker health without bearer tokens, owner or lease identities, private errors, runtime enable controls, or persistent-service authority.",
+			Description: "Returns bounded enablement metadata, including whether the agent-code-tools.v1 runtime is compiled in, and Run wake worker health without bearer tokens, owner or lease identities, private errors, runtime enable controls, or persistent-service authority.",
 			DataType:    reflect.TypeOf(RuntimeCapabilitiesView{})},
 		{Path: "/api/v1/browser/safe-web-readiness", OperationID: "getBrowserSafeWebReadiness",
 			Summary: "Inspect Safe Web readiness", Tag: "Browser",
@@ -692,7 +693,7 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			DataType:    reflect.TypeOf(OperatorActionCenterView{}), NotFound: true,
 			Parameters: []openAPIParameter{runID}},
 		{Path: "/api/v1/runs/{run_id}", OperationID: "getRun", Summary: "Inspect a Run", Tag: "Runs",
-			Description: "Returns Run, Mission, checkpoint, tool usage, token-free execution-lease metadata, and read-only Plan/Delivery and external-Skill metadata projections when present.",
+			Description: "Returns Run, Mission, checkpoint, tool usage, token-free execution-lease metadata, read-only Plan/Delivery and external-Skill metadata projections, and the Go-derived agent-code-tools.v1 generation with per-tool availability or refusal when present. The capability projection is informational and grants no execution authority.",
 			DataType:    reflect.TypeOf(RunDetailView{}), NotFound: true, Parameters: []openAPIParameter{runID}},
 		{Path: "/api/v1/runs/{run_id}/events", OperationID: "listRunEvents", Summary: "List Run events",
 			Tag: "Runs", Description: "Returns the ordered append-only Run event stream.",
@@ -1579,6 +1580,10 @@ func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[str
 	if typeName == "FileEditChangeSetView" && fieldName == "items" {
 		schema["maxItems"] = application.MaxFileEditChangeSetItems
 	}
+	if typeName == "AgentCodeCapabilitiesView" && fieldName == "tools" {
+		schema["minItems"] = 7
+		schema["maxItems"] = 7
+	}
 	if typeName == "OperationReceiptHistoryView" && fieldName == "items" {
 		schema["maxItems"] = operationreceipt.MaxHistoryItems
 	}
@@ -1631,6 +1636,17 @@ func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[str
 	}
 	if typeName == "FileEditProposalRecoveryView" && fieldName == "current_content_sha256" {
 		schema["pattern"] = "^([0-9a-f]{64}|missing)$"
+	}
+	if (typeName == "FileEditPreviewView" &&
+		(fieldName == "original_hash" || fieldName == "proposed_hash")) ||
+		(typeName == "FileEditPreviewView" &&
+			(fieldName == "destination_original_hash" || fieldName == "destination_proposed_hash")) {
+		schema["pattern"] = "^([0-9a-f]{64}|missing)$"
+	}
+	if typeName == "AgentCodeCapabilitiesView" && fieldName == "generation" {
+		schema["minLength"] = 64
+		schema["maxLength"] = 64
+		schema["pattern"] = "^[0-9a-f]{64}$"
 	}
 	if (typeName == "VerificationEvidenceItemView" ||
 		typeName == "VerificationEvidenceControlView") && fieldName == "summary_sha256" {
@@ -1720,12 +1736,14 @@ var openAPIFieldEnums = map[string][]string{
 	"FileEditProposalRecoveryView.status":                      {fileedit.StatusProposed},
 	"FileEditQueueView.protocol_version":                       {application.FileEditReviewProtocolVersion},
 	"FileEditChangeSetView.protocol_version":                   {application.FileEditChangeSetProtocolVersion},
+	"FileEditChangeSetItemView.operation":                      {fileedit.OperationReplace, fileedit.OperationCreate, fileedit.OperationMove, fileedit.OperationDelete},
 	"FileEditChangeSetItemView.status":                         {fileedit.StatusProposed, fileedit.StatusApproved, fileedit.StatusApplied, fileedit.StatusDenied, fileedit.StatusFailed},
 	"FileEditReviewRequestView.version":                        {application.FileEditReviewProtocolVersion},
 	"FileEditReviewRequestView.action":                         {string(application.FileEditApproveIntent), string(application.FileEditDeny)},
 	"FileEditReviewView.protocol_version":                      {application.FileEditReviewProtocolVersion},
 	"FileEditReviewView.action":                                {string(application.FileEditApproveIntent), string(application.FileEditDeny)},
 	"FileEditPreviewView.status":                               {fileedit.StatusProposed, fileedit.StatusApproved, fileedit.StatusApplied, fileedit.StatusDenied, fileedit.StatusFailed},
+	"FileEditPreviewView.operation":                            {fileedit.OperationReplace, fileedit.OperationCreate, fileedit.OperationMove, fileedit.OperationDelete},
 	"FileEditApplyRequestView.version":                         {fileedit.FileEditApplyProtocolVersion},
 	"FileEditApplyView.protocol_version":                       {fileedit.FileEditApplyProtocolVersion},
 	"FileEditApplyView.status":                                 {string(fileedit.ApplyCompleted), string(fileedit.ApplyFailed)},
@@ -1739,6 +1757,16 @@ var openAPIFieldEnums = map[string][]string{
 	"RunWakeExecutionRequestView.version":                      {domain.RunWakeConsumerProtocolVersion},
 	"RunWakeExecutionView.protocol_version":                    {domain.RunWakeConsumerProtocolVersion},
 	"RunWakeExecutionView.consumption_status":                  {string(domain.RunWakeConsumptionPrepared), string(domain.RunWakeConsumptionCompleted), string(domain.RunWakeConsumptionFailed)},
+	"AgentCodeCapabilitiesView.protocol_version":               {toolgateway.AgentCodeRegistryVersion},
+	"AgentCodeCapabilitiesView.surface":                        {string(domain.ExecutionSurfaceCode), string(domain.ExecutionSurfaceCyber)},
+	"AgentCodeCapabilitiesView.phase":                          {string(domain.ExecutionPhasePlan), string(domain.ExecutionPhaseDeliver)},
+	"AgentCodeCapabilitiesView.role":                           {string(domain.AgentRoleRoot)},
+	"AgentCodeCapabilitiesView.profile":                        {string(domain.ProfileCode), string(domain.ProfileReview), string(domain.ProfileLearn), string(domain.ProfileScript)},
+	"AgentCodeCapabilitiesView.permission_mode":                {string(domain.RunExecutionPermissionConservative), string(domain.RunExecutionPermissionApproval), string(domain.RunExecutionPermissionFullAccess), string(domain.RunExecutionPermissionDebug)},
+	"AgentCodeToolCapabilityView.name":                         {string(toolgateway.WorkspaceListTool), string(toolgateway.WorkspaceReadTool), string(toolgateway.WorkspaceGlobTool), string(toolgateway.WorkspaceGrepTool), string(toolgateway.WorkspaceChangeTool), string(toolgateway.WorkspaceApplyTool), string(toolgateway.WorkspaceDeleteTool)},
+	"AgentCodeToolCapabilityView.class":                        {string(toolgateway.ClassWorkspaceRead), string(toolgateway.ClassWorkspaceWrite)},
+	"AgentCodeToolCapabilityView.source":                       {toolgateway.AgentCodeRegistryVersion},
+	"AgentCodeToolCapabilityView.approval":                     {"automatic", "proposal_then_operator_review", "approved_proposal_only"},
 	"SkillPackageInstallRequestView.version":                   {skills.PackageInstallationProtocolVersion},
 	"SkillPackageInstallRequestView.surface":                   {string(domain.ExecutionSurfaceCode), string(domain.ExecutionSurfaceCyber)},
 	"SkillPackageInstallView.protocol_version":                 {skills.PackageInstallationProtocolVersion},
@@ -2247,6 +2275,14 @@ var openAPIFieldMaxLengths = map[string]int{
 	"VerificationPlanItemCoverageDetailView.plan_item_sha256":  64,
 	"VerificationAssociationReferenceView.plan_item_sha256":    64,
 	"FileEditChangeSetItemView.path":                           4096,
+	"FileEditChangeSetItemView.destination_path":               4096,
+	"FileEditPreviewView.path":                                 4096,
+	"FileEditPreviewView.destination_path":                     4096,
+	"FileEditPreviewView.original_hash":                        64,
+	"FileEditPreviewView.proposed_hash":                        64,
+	"FileEditPreviewView.destination_original_hash":            64,
+	"FileEditPreviewView.destination_proposed_hash":            64,
+	"AgentCodeToolCapabilityView.refusal_reason":               512,
 	"EvidenceAttachmentRequestView.source_ref":                 workspace.MaxExplorerPathRunes,
 	"EvidenceAttachmentRequestView.content_sha256":             64,
 	"EvidenceAttachmentView.source_ref":                        workspace.MaxExplorerPathRunes,

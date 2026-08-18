@@ -238,6 +238,168 @@ func TestManagerShowsSafeDiffWhenRedactedPreviewsMatch(t *testing.T) {
 	}
 }
 
+func TestManagerMoveAndDeleteUseExactHashes(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source.txt")
+	if err := os.WriteFile(source, []byte("move me\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(newMemoryStore())
+	sourceHash, err := CurrentHash(root, "source.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	move, err := manager.Propose(context.Background(), Proposal{WorkspaceID: "ws-demo",
+		WorkspaceRoot: root, Path: "source.txt", Operation: OperationMove,
+		DestinationPath: "nested/destination.txt", ExpectedOriginalHash: sourceHash,
+		ExpectedDestinationHash: missingHash})
+	if err == nil {
+		t.Fatal("move unexpectedly created a missing parent directory")
+	}
+	if err := os.MkdirAll(filepath.Join(root, "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	move, err = manager.Propose(context.Background(), Proposal{WorkspaceID: "ws-demo",
+		WorkspaceRoot: root, Path: "source.txt", Operation: OperationMove,
+		DestinationPath: "nested/destination.txt", ExpectedOriginalHash: sourceHash,
+		ExpectedDestinationHash: missingHash})
+	if err != nil || move.ProposedHash != missingHash ||
+		move.DestinationProposedHash != sourceHash || !strings.Contains(move.Diff, "move source.txt") {
+		t.Fatalf("move proposal=%#v err=%v", move, err)
+	}
+	if _, err := manager.ApproveIntent(context.Background(), move.ID); err != nil {
+		t.Fatal(err)
+	}
+	appliedMove, err := manager.Approve(context.Background(), move.ID, root)
+	if err != nil || appliedMove.Status != StatusApplied {
+		t.Fatalf("move apply=%#v err=%v", appliedMove, err)
+	}
+	if _, err := os.Stat(source); !os.IsNotExist(err) {
+		t.Fatalf("move source still exists: %v", err)
+	}
+	destination := filepath.Join(root, "nested", "destination.txt")
+	data, err := os.ReadFile(destination)
+	if err != nil || string(data) != "move me\n" {
+		t.Fatalf("move destination=%q err=%v", data, err)
+	}
+	destinationHash, err := CurrentHash(root, "nested/destination.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deletion, err := manager.Propose(context.Background(), Proposal{WorkspaceID: "ws-demo",
+		WorkspaceRoot: root, Path: "nested/destination.txt", Operation: OperationDelete,
+		ExpectedOriginalHash: destinationHash})
+	if err != nil || deletion.ProposedHash != missingHash ||
+		!strings.Contains(deletion.Diff, "delete nested/destination.txt") {
+		t.Fatalf("delete proposal=%#v err=%v", deletion, err)
+	}
+	if _, err := manager.ApproveIntent(context.Background(), deletion.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Approve(context.Background(), deletion.ID, root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(destination); !os.IsNotExist(err) {
+		t.Fatalf("delete target still exists: %v", err)
+	}
+}
+
+func TestManagerMoveRefusesOccupiedDestinationAfterReview(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "source.txt"), []byte("source\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sourceHash, _ := CurrentHash(root, "source.txt")
+	manager := NewManager(newMemoryStore())
+	move, err := manager.Propose(context.Background(), Proposal{WorkspaceID: "ws-demo",
+		WorkspaceRoot: root, Path: "source.txt", Operation: OperationMove,
+		DestinationPath: "destination.txt", ExpectedOriginalHash: sourceHash,
+		ExpectedDestinationHash: missingHash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.ApproveIntent(context.Background(), move.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "destination.txt"), []byte("occupied\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	failed, err := manager.Approve(context.Background(), move.ID, root)
+	if err == nil || failed.Status != StatusFailed {
+		t.Fatalf("occupied destination move=%#v err=%v", failed, err)
+	}
+	data, _ := os.ReadFile(filepath.Join(root, "source.txt"))
+	if string(data) != "source\n" {
+		t.Fatalf("failed move changed source: %q", data)
+	}
+}
+
+func TestManagerMoveRecoversPublishedHardLinkAfterInterruptedApply(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source.txt")
+	destination := filepath.Join(root, "destination.txt")
+	if err := os.WriteFile(source, []byte("recover me\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sourceHash, err := CurrentHash(root, "source.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(newMemoryStore())
+	move, err := manager.Propose(context.Background(), Proposal{WorkspaceID: "ws-demo",
+		WorkspaceRoot: root, Path: "source.txt", Operation: OperationMove,
+		DestinationPath: "destination.txt", ExpectedOriginalHash: sourceHash,
+		ExpectedDestinationHash: missingHash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.ApproveIntent(context.Background(), move.ID); err != nil {
+		t.Fatal(err)
+	}
+	// This is the durable intermediate state of the no-clobber move: the
+	// destination was published, but the process stopped before source removal.
+	if err := os.Link(source, destination); err != nil {
+		t.Fatal(err)
+	}
+	applied, err := manager.Approve(context.Background(), move.ID, root)
+	if err != nil || applied.Status != StatusApplied {
+		t.Fatalf("recover move=%#v err=%v", applied, err)
+	}
+	if _, err := os.Stat(source); !os.IsNotExist(err) {
+		t.Fatalf("recovered move left its source: %v", err)
+	}
+	data, err := os.ReadFile(destination)
+	if err != nil || string(data) != "recover me\n" {
+		t.Fatalf("recovered destination=%q err=%v", data, err)
+	}
+}
+
+func TestManagerCreateRefusesConcurrentTargetAfterReview(t *testing.T) {
+	root := t.TempDir()
+	manager := NewManager(newMemoryStore())
+	created, err := manager.Propose(context.Background(), Proposal{WorkspaceID: "ws-demo",
+		WorkspaceRoot: root, Path: "created.txt", Operation: OperationCreate,
+		ExpectedOriginalHash: missingHash, ProposedText: "proposal\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.ApproveIntent(context.Background(), created.ID); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(root, "created.txt")
+	if err := os.WriteFile(target, []byte("concurrent\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	failed, err := manager.Approve(context.Background(), created.ID, root)
+	if err == nil || failed.Status != StatusFailed {
+		t.Fatalf("concurrent create=%#v err=%v", failed, err)
+	}
+	data, readErr := os.ReadFile(target)
+	if readErr != nil || string(data) != "concurrent\n" {
+		t.Fatalf("concurrent target was overwritten: %q err=%v", data, readErr)
+	}
+}
+
 func TestUnifiedDiffHandlesEmptyFile(t *testing.T) {
 	diff := UnifiedDiff("new.txt", "", "hello\n")
 	if !strings.Contains(diff, "@@ -0,0 +1,1 @@") || !strings.Contains(diff, "+hello") {

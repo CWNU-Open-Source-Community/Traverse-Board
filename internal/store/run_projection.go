@@ -153,6 +153,8 @@ func projectFileEditTx(ctx context.Context, tx *sql.Tx, edit fileedit.Edit, prev
 		"session_id":       edit.SessionID,
 		"workspace_id":     edit.WorkspaceID,
 		"path":             edit.Path,
+		"operation":        edit.Operation,
+		"destination_path": edit.DestinationPath,
 		"status":           edit.Status,
 		"previous_status":  previousStatus,
 		"reason":           edit.Reason,
@@ -162,6 +164,8 @@ func projectFileEditTx(ctx context.Context, tx *sql.Tx, edit fileedit.Edit, prev
 		payload["diff"] = edit.Diff
 		payload["original_hash"] = edit.OriginalHash
 		payload["proposed_hash"] = edit.ProposedHash
+		payload["destination_original_hash"] = edit.DestinationOriginalHash
+		payload["destination_proposed_hash"] = edit.DestinationProposedHash
 	}
 	return appendRunEventForSessionTx(ctx, tx, edit.SessionID, eventType, "fileedit_store", edit.ID, payload)
 }

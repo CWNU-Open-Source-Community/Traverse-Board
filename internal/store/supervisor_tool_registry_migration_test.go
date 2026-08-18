@@ -63,6 +63,15 @@ func TestSchemaV113PreservesCallsAndAdmitsDebugTerminal(t *testing.T) {
 			t.Fatalf("apply v112 migration %d: %v", item.Version, err)
 		}
 	}
+	// The current writer always supplies the Go-issued authority column. Add it
+	// only while constructing a representative legacy call; migration v115
+	// deliberately ignores this compatibility column when it rebuilds the
+	// authoritative ledger, just as it does for an untouched v112/v113 store.
+	if _, err := db.ExecContext(ctx, `ALTER TABLE run_supervisor_tool_calls
+		ADD COLUMN authority_json TEXT NOT NULL DEFAULT '';`); err != nil {
+		_ = legacy.Close()
+		t.Fatal(err)
+	}
 
 	_, run, err := application.NewRunService(legacy).Create(ctx, application.CreateRunRequest{
 		Goal: "preserve v112 Supervisor tools", Profile: "code",

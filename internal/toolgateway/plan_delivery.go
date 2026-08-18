@@ -104,7 +104,8 @@ func AllSupervisorToolDefinitions() []ToolDefinition {
 	definitions := SupervisorToolDefinitions()
 	plan := planDeliveryDefinition
 	plan.InputSchema = append(json.RawMessage(nil), plan.InputSchema...)
-	return append(definitions, plan)
+	definitions = append(definitions, plan)
+	return append(definitions, AgentCodeToolDefinitions()...)
 }
 
 func normalizePlanDeliveryPayload(payload json.RawMessage) (domain.PlanDeliverySpec,

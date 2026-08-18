@@ -90,12 +90,17 @@ type ToolCall struct {
 	ID        string          `json:"id"`
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments"`
+	// Authority is Go-issued, never provider-supplied, and omitted from wire
+	// payloads. Supervisor persistence uses it to replay a pending call against
+	// the exact capability snapshot that exposed the tool.
+	Authority json.RawMessage `json:"-"`
 }
 
 func NormalizeToolCall(call ToolCall) (ToolCall, error) {
 	call.ID = strings.TrimSpace(call.ID)
 	call.Name = strings.TrimSpace(call.Name)
 	call.Arguments = append(json.RawMessage(nil), bytes.TrimSpace(call.Arguments)...)
+	call.Authority = append(json.RawMessage(nil), bytes.TrimSpace(call.Authority)...)
 	if call.ID == "" || call.Name == "" || !utf8.ValidString(call.ID) || !utf8.ValidString(call.Name) ||
 		len([]rune(call.ID)) > MaxProviderToolIdentity || len([]rune(call.Name)) > MaxProviderToolIdentity ||
 		strings.ContainsRune(call.ID, 0) || strings.ContainsRune(call.Name, 0) {

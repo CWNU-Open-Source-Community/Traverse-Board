@@ -203,6 +203,15 @@ func FileEditFingerprint(sessionID string, workspaceID string, path string, prop
 	return Fingerprint("replace_file", sessionID, workspaceID, path, proposedHash)
 }
 
+func FileMutationFingerprint(toolName, sessionID, workspaceID, operation, sourcePath,
+	destinationPath, originalHash, proposedHash, destinationOriginalHash,
+	destinationProposedHash string,
+) string {
+	return Fingerprint("file_mutation.v1", toolName, sessionID, workspaceID, operation,
+		sourcePath, destinationPath, originalHash, proposedHash,
+		destinationOriginalHash, destinationProposedHash)
+}
+
 func DecisionFingerprint(request DecisionRequest) string {
 	return Fingerprint(request.ProposalID, string(request.Action), request.Reason, request.ReviewedBy)
 }

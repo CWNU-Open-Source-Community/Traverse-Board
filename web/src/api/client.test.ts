@@ -10,6 +10,7 @@ const healthEnvelope = {
 function runtimeCapabilitiesData(overrides: Record<string, unknown> = {}) {
   return {
     protocol_version: "runtime_capabilities.v1",
+    agent_code_tools_enabled: true,
     execution_permission_control_enabled: true, operator_approval_enabled: true,
     danger_full_access_enabled: true, debug_maximum_access_enabled: true,
     browser_cdp_permission_control_enabled: true, full_cdp_debug_enabled: true,
@@ -157,6 +158,7 @@ describe("CyberAgentClient", () => {
   it("discovers bounded process capabilities without runtime enable authority", async () => {
     const data = {
       protocol_version: "runtime_capabilities.v1",
+      agent_code_tools_enabled: true,
       execution_permission_control_enabled: true, operator_approval_enabled: true,
       danger_full_access_enabled: true, debug_maximum_access_enabled: true,
       browser_cdp_permission_control_enabled: true, full_cdp_debug_enabled: true,
@@ -1325,7 +1327,7 @@ describe("CyberAgentClient", () => {
 
   it("rejects FileEdit body leakage and validates review-only decisions", async () => {
     const edit = { id: "edit-1", session_id: "session-1", workspace_id: "workspace-1",
-      path: "README.md", status: "proposed", diff: "--- a/README.md\n+++ b/README.md\n",
+      path: "README.md", operation: "replace", status: "proposed", diff: "--- a/README.md\n+++ b/README.md\n",
       original_hash: "missing", proposed_hash: "a".repeat(64), secrets_redacted: false,
       allowed_actions: ["approve_intent", "deny"], created_at: "2026-07-18T00:00:00Z",
       updated_at: "2026-07-18T00:00:00Z", apply_enabled: false };
@@ -1358,7 +1360,8 @@ describe("CyberAgentClient", () => {
   });
 
   it("validates a multi-file change set without accepting batch authority", async () => {
-    const item = { id: "edit-1", path: "README.md", status: "proposed", diff_bytes: 42,
+    const item = { id: "edit-1", path: "README.md", operation: "replace",
+      status: "proposed", diff_bytes: 42,
       secrets_redacted: false, allowed_actions: ["approve_intent", "deny"],
       apply_enabled: false, updated_at: "2026-07-18T00:00:00Z" };
     const changeSet = { protocol_version: "file_edit_change_set.v1", run_id: "run-1",
@@ -1429,7 +1432,8 @@ describe("CyberAgentClient", () => {
 
   it("validates apply, foreground wake, and inert Skill installation boundaries", async () => {
     const appliedEdit = { id: "edit-1", session_id: "session-1", workspace_id: "workspace-1",
-      path: "safe.txt", status: "applied", diff: "--- safe.txt\n+++ safe.txt\n+ok\n",
+      path: "safe.txt", operation: "replace", status: "applied",
+      diff: "--- safe.txt\n+++ safe.txt\n+ok\n",
       original_hash: "missing", proposed_hash: "a".repeat(64), secrets_redacted: false,
       allowed_actions: [], created_at: "2026-07-18T00:00:00Z",
       updated_at: "2026-07-18T00:00:01Z", apply_enabled: false };
@@ -2468,7 +2472,8 @@ describe("CyberAgentClient", () => {
       expires_at: "2099-07-18T00:05:00Z", editable: true, file_write: false };
     const reissued = { ...source, source_handle: "C".repeat(43) };
     const edit = { id: "edit-1", session_id: "session-1", workspace_id: "workspace-1",
-      path: "README.md", status: "proposed", diff: "--- a/README.md\n+++ b/README.md\n",
+      path: "README.md", operation: "replace", status: "proposed",
+      diff: "--- a/README.md\n+++ b/README.md\n",
       original_hash: "a".repeat(64), proposed_hash: "b".repeat(64),
       secrets_redacted: false, allowed_actions: ["approve_intent", "deny"],
       apply_enabled: false, created_at: "2026-07-18T00:00:00Z",

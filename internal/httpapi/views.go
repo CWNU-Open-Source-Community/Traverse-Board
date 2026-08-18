@@ -109,20 +109,24 @@ type ModelHarnessQualificationView struct {
 }
 
 type FileEditPreviewView struct {
-	ID              string                             `json:"id"`
-	SessionID       string                             `json:"session_id"`
-	WorkspaceID     string                             `json:"workspace_id"`
-	Path            string                             `json:"path"`
-	Status          string                             `json:"status"`
-	Diff            string                             `json:"diff"`
-	OriginalHash    string                             `json:"original_hash"`
-	ProposedHash    string                             `json:"proposed_hash"`
-	Reason          string                             `json:"reason,omitempty"`
-	SecretsRedacted bool                               `json:"secrets_redacted"`
-	AllowedActions  []application.FileEditReviewAction `json:"allowed_actions"`
-	CreatedAt       time.Time                          `json:"created_at"`
-	UpdatedAt       time.Time                          `json:"updated_at"`
-	ApplyEnabled    bool                               `json:"apply_enabled"`
+	ID                      string                             `json:"id"`
+	SessionID               string                             `json:"session_id"`
+	WorkspaceID             string                             `json:"workspace_id"`
+	Path                    string                             `json:"path"`
+	Operation               string                             `json:"operation"`
+	DestinationPath         string                             `json:"destination_path,omitempty"`
+	Status                  string                             `json:"status"`
+	Diff                    string                             `json:"diff"`
+	OriginalHash            string                             `json:"original_hash"`
+	ProposedHash            string                             `json:"proposed_hash"`
+	DestinationOriginalHash string                             `json:"destination_original_hash,omitempty"`
+	DestinationProposedHash string                             `json:"destination_proposed_hash,omitempty"`
+	Reason                  string                             `json:"reason,omitempty"`
+	SecretsRedacted         bool                               `json:"secrets_redacted"`
+	AllowedActions          []application.FileEditReviewAction `json:"allowed_actions"`
+	CreatedAt               time.Time                          `json:"created_at"`
+	UpdatedAt               time.Time                          `json:"updated_at"`
+	ApplyEnabled            bool                               `json:"apply_enabled"`
 }
 
 type FileEditQueueView struct {
@@ -136,6 +140,8 @@ type FileEditQueueView struct {
 type FileEditChangeSetItemView struct {
 	ID              string                             `json:"id"`
 	Path            string                             `json:"path"`
+	Operation       string                             `json:"operation"`
+	DestinationPath string                             `json:"destination_path,omitempty"`
 	Status          string                             `json:"status"`
 	DiffBytes       int                                `json:"diff_bytes"`
 	SecretsRedacted bool                               `json:"secrets_redacted"`
@@ -945,8 +951,30 @@ type RunDetailView struct {
 	Lease                *RunExecutionLeaseView       `json:"execution_lease,omitempty"`
 	Steering             OperatorSteeringQueueView    `json:"operator_steering"`
 	ToolUsage            ToolUsageView                `json:"tool_usage"`
+	AgentCodeTools       AgentCodeCapabilitiesView    `json:"agent_code_tools"`
 	PlanDelivery         *PlanDeliveryStateView       `json:"plan_delivery,omitempty"`
 	ExternalSkills       *ExternalSkillProjectionView `json:"external_skills,omitempty"`
+}
+
+type AgentCodeToolCapabilityView struct {
+	Name          string `json:"name"`
+	Class         string `json:"class"`
+	Source        string `json:"source"`
+	ReadOnly      bool   `json:"read_only"`
+	Approval      string `json:"approval"`
+	Available     bool   `json:"available"`
+	RefusalReason string `json:"refusal_reason,omitempty"`
+}
+
+type AgentCodeCapabilitiesView struct {
+	ProtocolVersion string                        `json:"protocol_version"`
+	Generation      string                        `json:"generation"`
+	Surface         string                        `json:"surface"`
+	Phase           string                        `json:"phase"`
+	Role            string                        `json:"role"`
+	Profile         string                        `json:"profile"`
+	PermissionMode  string                        `json:"permission_mode"`
+	Tools           []AgentCodeToolCapabilityView `json:"tools"`
 }
 
 type SessionView struct {

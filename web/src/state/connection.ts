@@ -40,6 +40,7 @@ interface ConnectionState {
   verificationEvidenceEnabled: boolean;
   embeddedAnalyzerExecutionEnabled: boolean;
   dockerExecutionEnabled: boolean;
+  agentCodeToolsEnabled: boolean;
   connect: (token: string, health: HealthView, controlToken?: string,
     capabilities?: ClientCapabilities) => void;
   disconnect: () => void;
@@ -89,6 +90,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   verificationEvidenceEnabled: false,
   embeddedAnalyzerExecutionEnabled: false,
   dockerExecutionEnabled: false,
+  agentCodeToolsEnabled: false,
   connect: (token, health, controlToken = "", capabilities = {}) => {
     const present = controlToken.trim() !== "";
     set({ token, health, controlToken,
@@ -133,6 +135,8 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
 	    (capabilities.embeddedAnalyzerExecutionEnabled ?? false),
 	  dockerExecutionEnabled: present &&
 	    (capabilities.dockerExecutionEnabled ?? false),
+	  agentCodeToolsEnabled: present &&
+	    (capabilities.agentCodeToolsEnabled ?? false),
     });
   },
   disconnect: () => set({ token: "", controlToken: "", health: null,
@@ -153,6 +157,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
 	verificationEvidenceEnabled: false,
 	embeddedAnalyzerExecutionEnabled: false,
 	dockerExecutionEnabled: false,
+	agentCodeToolsEnabled: false,
     ...initialSelection }),
   selectRun: (selectedRunID) => set({ selectedRunID, resourceKind: "run" }),
   selectSession: (selectedSessionID) => set({ selectedSessionID, resourceKind: "session" }),

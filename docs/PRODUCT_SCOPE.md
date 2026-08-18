@@ -13,13 +13,13 @@ Prayu 当前开发的是通用、本地优先的 AI Agent Harness 与 Code Agent
 - Mission、Run、Session、检查点、恢复、取消、预算和事件流；
 - Provider 路由、资格校验、公开流式回复、上下文压缩和结构化记忆；
 - Plan/Delivery、工作项、备注、受控 child 与只读 Fan-out；
-- Workspace、Repository、Diff、文件编辑提案、验证、Journey 和 Handoff；
+- Workspace、Repository、Diff、模型可调用的有界读取/搜索、人工审查的文件变更、验证、Journey 和 Handoff；
 - Tool Gateway、Skill、Policy、Scope、Approval、Capability 和权限档位；
 - Artifact、Finding、Evidence、Report、SARIF 和 Live Activity；
 - CLI、TUI、HTTP/OpenAPI、React/Vite 和 Windows Desktop；
 - Go 主控的 Rust Analyzer 与 Sandbox 扩展合同。
 
-The active product is a general-purpose, local-first AI Agent Harness and Code Agent surface covering resumable execution, models and context, planning, code workflows, permissions, audit/reporting, and shared CLI/TUI/API/Desktop clients.
+The active product is a general-purpose, local-first AI Agent Harness and Code Agent surface covering resumable execution, models and context, planning, bounded model-callable Workspace reads and reviewed mutations, permissions, audit/reporting, and shared CLI/TUI/API/Desktop clients.
 
 ## 可选附加范围 / Optional Add-on Scope
 

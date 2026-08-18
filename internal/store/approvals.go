@@ -261,20 +261,32 @@ func validateApprovalProposalSourceTx(ctx context.Context, tx *sql.Tx, proposal 
 			proposal.RequestFingerprint != approval.ShellFingerprint(sessionID.String, workspaceID.String, command) {
 			return errors.New("approval request does not match the stored shell proposal")
 		}
-	case "replace_file":
+	case "replace_file", "create_file", "move_file", "delete_file":
 		var sessionID sql.NullString
-		var workspaceID, path, proposedHash, status string
-		if err := tx.QueryRowContext(ctx, `SELECT session_id, workspace_id, path, proposed_hash, status FROM file_edits WHERE id = ?`, proposal.ProposalID).
-			Scan(&sessionID, &workspaceID, &path, &proposedHash, &status); err != nil {
+		var workspaceID, operation, path, destinationPath, originalHash, proposedHash string
+		var destinationOriginalHash, destinationProposedHash, status string
+		if err := tx.QueryRowContext(ctx, `SELECT session_id, workspace_id, operation_kind,
+			path, destination_path, original_hash, proposed_hash,
+			destination_original_hash, destination_proposed_hash, status
+			FROM file_edits WHERE id = ?`, proposal.ProposalID).
+			Scan(&sessionID, &workspaceID, &operation, &path, &destinationPath,
+				&originalHash, &proposedHash, &destinationOriginalHash,
+				&destinationProposedHash, &status); err != nil {
 			return err
 		}
-		expectedStatus, _, _, err := approvalStateForFileEdit(fileedit.Edit{Status: status}, true)
+		edit := fileedit.Edit{Status: status, Operation: operation, Path: path,
+			DestinationPath: destinationPath, OriginalHash: originalHash,
+			ProposedHash: proposedHash, DestinationOriginalHash: destinationOriginalHash,
+			DestinationProposedHash: destinationProposedHash}
+		expectedStatus, _, _, err := approvalStateForFileEdit(edit, true)
 		if err != nil {
 			return err
 		}
 		if proposal.SessionID != sessionID.String || proposal.WorkspaceID != workspaceID ||
-			proposal.ActionClass != "workspace_write" || proposal.Mode != "per_call" || proposal.Status != expectedStatus ||
-			proposal.RequestFingerprint != approval.FileEditFingerprint(sessionID.String, workspaceID, path, proposedHash) {
+			proposal.ToolName != fileedit.ApprovalToolName(edit) ||
+			proposal.ActionClass != "workspace_write" || proposal.Mode != "per_call" ||
+			proposal.Status != expectedStatus || proposal.RequestFingerprint !=
+			fileEditApprovalFingerprint(sessionID.String, workspaceID, edit) {
 			return errors.New("approval request does not match the stored file edit proposal")
 		}
 	case "script_process":
@@ -330,11 +342,12 @@ func syncFileEditApprovalTx(ctx context.Context, tx *sql.Tx, edit fileedit.Edit,
 	if err != nil {
 		return err
 	}
+	toolName := fileedit.ApprovalToolName(edit)
 	proposal := approval.Proposal{
-		IdempotencyKey: approval.ProposalIdempotencyKey("replace_file", edit.ID), ProposalID: edit.ID,
-		SessionID: edit.SessionID, WorkspaceID: edit.WorkspaceID, ToolName: "replace_file", ActionClass: "workspace_write",
+		IdempotencyKey: approval.ProposalIdempotencyKey(toolName, edit.ID), ProposalID: edit.ID,
+		SessionID: edit.SessionID, WorkspaceID: edit.WorkspaceID, ToolName: toolName, ActionClass: "workspace_write",
 		Mode: "per_call", Status: status,
-		RequestFingerprint: approval.FileEditFingerprint(edit.SessionID, edit.WorkspaceID, edit.Path, edit.ProposedHash),
+		RequestFingerprint: fileEditApprovalFingerprint(edit.SessionID, edit.WorkspaceID, edit),
 		DecisionReason:     edit.Reason, RequestedBy: "tool_gateway", ReviewedBy: reviewer,
 		CreatedAt: edit.CreatedAt, UpdatedAt: edit.UpdatedAt, DecidedAt: decidedAt,
 	}
@@ -343,6 +356,15 @@ func syncFileEditApprovalTx(ctx context.Context, tx *sql.Tx, edit fileedit.Edit,
 		return err
 	}
 	return requireApprovalStatusTx(ctx, tx, proposal, status)
+}
+
+func fileEditApprovalFingerprint(sessionID, workspaceID string, edit fileedit.Edit) string {
+	if edit.Operation == "" || edit.Operation == fileedit.OperationReplace {
+		return approval.FileEditFingerprint(sessionID, workspaceID, edit.Path, edit.ProposedHash)
+	}
+	return approval.FileMutationFingerprint(fileedit.ApprovalToolName(edit), sessionID,
+		workspaceID, edit.Operation, edit.Path, edit.DestinationPath, edit.OriginalHash,
+		edit.ProposedHash, edit.DestinationOriginalHash, edit.DestinationProposedHash)
 }
 
 func approvalStateForToolRun(run toolrun.ToolRun, existed bool) (approval.Status, string, string, *time.Time, error) {

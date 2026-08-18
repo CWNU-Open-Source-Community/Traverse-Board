@@ -140,6 +140,7 @@ func (a *App) newToolGateway() *toolgateway.Gateway {
 			rec, err := a.store.GetWorkspaceByID(ctx, workspaceID)
 			return rec.RootPath, err
 		})
+	gateway.WithAgentCodeExecutor(application.NewAgentCodeToolExecutor(a.store, a.checker))
 	if executor := a.newDockerSandboxProposalExecutor(); executor != nil {
 		gateway.WithDockerSandboxProposalExecutor(executor)
 	}

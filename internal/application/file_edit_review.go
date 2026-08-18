@@ -96,7 +96,8 @@ func (s *FileEditReviewService) Review(ctx context.Context,
 		}
 		if record.RunID != run.ID || record.SessionID != run.SessionID ||
 			record.WorkspaceID != mission.WorkspaceID || record.ProposalID != edit.ID ||
-			record.ToolName != "replace_file" || record.ActionClass != "workspace_write" {
+			record.ToolName != fileedit.ApprovalToolName(edit) ||
+			record.ActionClass != "workspace_write" {
 			return ReviewFileEditResult{}, apperror.New(apperror.CodeFailedPrecondition,
 				"file edit approval binding is invalid")
 		}
@@ -116,7 +117,7 @@ func (s *FileEditReviewService) Review(ctx context.Context,
 			}
 			decision, decisionErr := s.store.DecideApproval(ctx, approval.DecisionRequest{
 				ProposalID: edit.ID,
-				IdempotencyKey: approval.ReviewIdempotencyKey("replace_file", edit.ID,
+				IdempotencyKey: approval.ReviewIdempotencyKey(fileedit.ApprovalToolName(edit), edit.ID,
 					approvalAction),
 				Action: approvalAction, Reason: reason, ReviewedBy: "file_edit_review",
 			})
