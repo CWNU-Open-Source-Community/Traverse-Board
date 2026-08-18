@@ -122,12 +122,13 @@ func TestSchemaV114MigrationPreservesLegacyDataAndReopens(t *testing.T) {
 	if err := state.SaveWorkspace(ctx, legacy); err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range []string{
+	statements := append(removeSchemaV115ForTestStatements(), []string{
 		`DROP TABLE session_continuity_nodes`,
 		`DROP TABLE run_instruction_snapshots`,
 		`DROP TABLE context_memories`,
 		`DELETE FROM schema_migrations WHERE version = 114`,
-	} {
+	}...)
+	for _, statement := range statements {
 		if _, err := state.db.ExecContext(ctx, statement); err != nil {
 			t.Fatalf("prepare v113 fixture with %q: %v", statement, err)
 		}
