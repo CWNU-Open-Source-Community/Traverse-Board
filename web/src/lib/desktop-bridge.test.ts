@@ -580,6 +580,62 @@ describe("desktop native bridge", () => {
     await expect(module.readDesktopUserTerminal(session.session_id, 0))
       .rejects.toThrow("output was rejected");
   });
+
+  it("grants only a bounded process-local Debug terminal Agent-input lease", async () => {
+    const enabled = {
+      ...bootstrap,
+      control_token: "control-token-0123456789abcdefghijkl",
+      read_only_default: false,
+      debug_maximum_access_enabled: true,
+      execution_permission_control_enabled: true,
+      operator_approval_enabled: true,
+      danger_full_access_enabled: true,
+      process_execution_enabled: true,
+      shell_execution_enabled: true,
+      user_terminal_enabled: true,
+    };
+    const binding = {
+      protocol_version: "desktop_debug_terminal_agent_input.v1",
+      binding_id: "terminal-input-lease-1",
+      run_id: "run-1",
+      terminal_session_id: "user-terminal-1",
+      issued_at: "2026-08-18T01:00:00Z",
+      expires_at: "2026-08-18T01:05:00Z",
+      process_local: true,
+      token_exposed: false,
+      raw_input_persisted: false,
+    };
+    const grant = vi.fn().mockResolvedValue(binding);
+    const get = vi.fn().mockResolvedValue(binding);
+    const revoke = vi.fn().mockResolvedValue(undefined);
+    installBridge({
+      Bootstrap: vi.fn().mockResolvedValue(enabled),
+      GrantDebugTerminalAgentInput: grant,
+      GetDebugTerminalAgentInput: get,
+      RevokeDebugTerminalAgentInput: revoke,
+    });
+    const module = await import("./desktop-bridge");
+    await module.loadDesktopBootstrap();
+    await expect(module.grantDesktopDebugTerminalAgentInput(
+      "run-1", "user-terminal-1", 300)).resolves.toEqual(binding);
+    await expect(module.getDesktopDebugTerminalAgentInput("run-1"))
+      .resolves.toEqual(binding);
+    await expect(module.revokeDesktopDebugTerminalAgentInput(binding.binding_id))
+      .resolves.toBeUndefined();
+    expect(grant).toHaveBeenCalledWith({
+      protocol_version: "desktop_debug_terminal_agent_input.v1",
+      run_id: "run-1",
+      terminal_session_id: "user-terminal-1",
+      ttl_seconds: 300,
+      confirm_debug_maximum_access: true,
+      confirm_agent_terminal_input: true,
+    });
+    expect(revoke).toHaveBeenCalledWith({
+      protocol_version: "desktop_debug_terminal_agent_input.v1",
+      binding_id: binding.binding_id,
+      operator_confirmed: true,
+    });
+  });
 });
 
 function installBridge(overrides: Partial<{
@@ -596,6 +652,9 @@ function installBridge(overrides: Partial<{
   WriteUserTerminal: (request: unknown) => Promise<unknown>;
   ResizeUserTerminal: (request: unknown) => Promise<unknown>;
   CloseUserTerminal: (request: unknown) => Promise<unknown>;
+  GrantDebugTerminalAgentInput: (request: unknown) => Promise<unknown>;
+  GetDebugTerminalAgentInput: (runID: string) => Promise<unknown>;
+  RevokeDebugTerminalAgentInput: (request: unknown) => Promise<void>;
 }>) {
   window.go = {
     desktop: {

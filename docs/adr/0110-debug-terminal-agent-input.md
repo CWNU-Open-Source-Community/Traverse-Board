@@ -4,9 +4,15 @@ Date: 2026-08-16
 
 ## Status
 
-Accepted for the durable terminal-session ledger and audit surface described
-below. 会话/PTY/lease 机制沿用既有实现（session.go、terminal_lease.go、
-debug_terminal_agent_input.go），本 ADR 记录其产品边界与新增台账。
+Partially superseded by [ADR 0114](0114-real-shell-transports-and-supervised-debug-terminal.md).
+本文件保留 schema v108 台账合同和早期产品目标的历史记录；PTY、Desktop 授权与
+模型工具的当前边界以 ADR 0114 为准。
+
+Implementation correction (2026-08-18): schema v108 and the Store methods define
+`terminal_sessions`, but the current Desktop process-local lifecycle does not yet
+synchronize that table. It must not be described as a restorable process or authority
+ledger. Agent-input audit events are connected; raw PTY output and the bearer remain
+memory-only.
 
 ## 背景 / Context
 
@@ -43,4 +49,3 @@ crashed），actor 归属区分用户与 Agent，payload 有界化——raw outp
   审计后，剩余 CLI 产品入口作为后续 PR。
 - 非目标维持：不接管用户已有终端、普通 Code 模式无持久 Agent Shell、不记录完整
   交互输出与 Secret。
-

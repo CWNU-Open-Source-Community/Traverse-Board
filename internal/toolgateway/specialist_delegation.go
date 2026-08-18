@@ -108,7 +108,11 @@ func SupervisorToolDefinitions() []ToolDefinition {
 	definitions = append(definitions, dockerSandbox)
 	candidate := skillCandidateProposalDefinition
 	candidate.InputSchema = append(json.RawMessage(nil), candidate.InputSchema...)
-	return append(definitions, candidate)
+	definitions = append(definitions, candidate)
+	debugTerminal := debugTerminalDefinition
+	debugTerminal.InputSchema = append(json.RawMessage(nil),
+		debugTerminal.InputSchema...)
+	return append(definitions, debugTerminal)
 }
 
 func SupervisorToolDefinition(name ToolName) (ToolDefinition, bool) {
@@ -137,6 +141,12 @@ func SupervisorToolDefinition(name ToolName) (ToolDefinition, bool) {
 	}
 	if name == DockerSandboxRunProposeTool {
 		definition := dockerSandboxProposalDefinition
+		definition.InputSchema = append(json.RawMessage(nil),
+			definition.InputSchema...)
+		return definition, true
+	}
+	if name == DebugTerminalTool {
+		definition := debugTerminalDefinition
 		definition.InputSchema = append(json.RawMessage(nil),
 			definition.InputSchema...)
 		return definition, true
@@ -190,6 +200,10 @@ func NormalizeSupervisorToolPayload(name ToolName, payload json.RawMessage) (jso
 	}
 	if name == SkillCandidateProposeTool {
 		_, canonical, err := normalizeSkillCandidatePayload(payload)
+		return canonical, err
+	}
+	if name == DebugTerminalTool {
+		_, canonical, err := normalizeDebugTerminalPayload(payload)
 		return canonical, err
 	}
 	return NormalizeStructuredMemoryPayload(name, payload)

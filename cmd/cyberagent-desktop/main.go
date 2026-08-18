@@ -243,7 +243,7 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 	commandProposalControl := fs.Bool("enable-command-proposals", false,
 		"enable review and one-shot execution of Agent-proposed fixed Go commands")
 	hostCommandProposals := fs.Bool("enable-host-command-proposals", false,
-		"enable exact non-shell host command proposals with independent operator review")
+		"enable exact process or canonical PowerShell/Git Bash proposals with independent operator review")
 	modelControl := fs.Bool("enable-model-control", false,
 		"enable persisted model route selection and explicit connectivity diagnostics")
 	providerCredentials := fs.Bool("enable-provider-credentials", false,
@@ -491,9 +491,10 @@ func runDesktop(config desktopOptions) error {
 		AppVersion:                              app.Version, UIDigest: bundle.Digest(), Selector: selector,
 		PreviewBridge: preview, SkillInstaller: controlPlane.SkillInstaller(),
 		WorkspaceResolver: controlPlane, WorkspaceLauncher: newNativeWorkspaceLauncher(),
-		WorkspaceDirectoryPicker: nativeWorkspaceDirectoryPicker{},
-		WorkspaceRegistrar:       controlPlane,
-		UserTerminalController:   controlPlane.UserTerminalController(),
+		WorkspaceDirectoryPicker:          nativeWorkspaceDirectoryPicker{},
+		WorkspaceRegistrar:                controlPlane,
+		UserTerminalController:            controlPlane.UserTerminalController(),
+		DebugTerminalAgentInputController: controlPlane.DebugTerminalAgentInputController(),
 	})
 	if err != nil {
 		return err

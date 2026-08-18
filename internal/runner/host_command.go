@@ -60,9 +60,11 @@ func (n HostNetworkIntent) Validate() error {
 	return nil
 }
 
-// HostCommandSpec is the exact, non-shell transport request reviewed by the
-// operator or accepted by the danger-full-access gate. Environment values are
-// process-local; only their sorted names and digest are durable.
+// HostCommandSpec is the exact process request reviewed by the operator or
+// accepted by the danger-full-access gate. Approval proposals may use one of
+// the canonical Shell envelopes below; full access intentionally has a wider
+// argv contract. Environment values are process-local; only their sorted names
+// and digest are durable.
 type HostCommandSpec struct {
 	ProtocolVersion     string
 	PolicyVersion       string
@@ -187,18 +189,84 @@ func HostCommandSpecFingerprint(spec HostCommandSpec) string {
 	return hex.EncodeToString(digest[:])
 }
 
-// ValidateHostCommandProposalTransport rejects command interpreters and
-// inline-code switches that would turn exact argv review back into shell-text
-// approval. Danger-full-access execution intentionally uses the broader
-// HostCommandSpec contract instead.
+// CanonicalHostShellArguments converts one explicitly selected shell dialect
+// into the only argv shape accepted by approval-mode host proposals. Profiles,
+// interactive input, startup files, and persistent/background ownership stay
+// disabled; the final item is the exact command line covered by review.
+func CanonicalHostShellArguments(shell string, command string) ([]string, error) {
+	if command == "" || !utf8.ValidString(command) || strings.ContainsRune(command, 0) ||
+		strings.ContainsAny(command, "\r\n") ||
+		len([]byte(command)) > MaxHostCommandArgumentBytes ||
+		redact.String(command) != command {
+		return nil, ErrHostCommandBoundary
+	}
+	switch strings.ToLower(strings.TrimSpace(shell)) {
+	case "powershell":
+		return []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command}, nil
+	case "bash":
+		return []string{"--noprofile", "--norc", "-c", command}, nil
+	default:
+		return nil, ErrHostCommandBoundary
+	}
+}
+
+// HostCommandShellDialect identifies a canonical reviewed shell envelope.
+// Non-shell specs return ("", false).
+func HostCommandShellDialect(spec HostCommandSpec) (string, bool) {
+	base := strings.ToLower(filepath.Base(spec.ExecutablePath))
+	var shell string
+	switch base {
+	case "powershell", "powershell.exe", "pwsh", "pwsh.exe":
+		shell = "powershell"
+	case "bash", "bash.exe":
+		shell = "bash"
+	default:
+		return "", false
+	}
+	if len(spec.Argv) == 0 {
+		return "", false
+	}
+	expected, err := CanonicalHostShellArguments(shell, spec.Argv[len(spec.Argv)-1])
+	if err != nil || !equalStrings(expected, spec.Argv) {
+		return "", false
+	}
+	return shell, true
+}
+
+// ValidateHostCommandProposalTransport accepts native literal argv plus two
+// canonical, explicitly reviewed shell envelopes. All other interpreters and
+// inline-code switches remain denied. Danger-full-access execution
+// intentionally uses the broader HostCommandSpec contract instead.
 func ValidateHostCommandProposalTransport(spec HostCommandSpec) error {
+	return validateHostCommandProposalTransport(spec, true)
+}
+
+// ValidateHostCommandProcessProposalTransport preserves the original literal-
+// argv process boundary. Canonical PowerShell/Bash is admitted only when the
+// caller has already selected and resolved the explicit Shell transport.
+func ValidateHostCommandProcessProposalTransport(spec HostCommandSpec) error {
+	return validateHostCommandProposalTransport(spec, false)
+}
+
+func validateHostCommandProposalTransport(spec HostCommandSpec,
+	allowCanonicalShell bool,
+) error {
 	if err := spec.Validate(); err != nil {
 		return err
 	}
 	base := strings.ToLower(filepath.Base(spec.ExecutablePath))
 	switch base {
-	case "cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh", "pwsh.exe",
-		"sh", "sh.exe", "bash", "bash.exe", "dash", "dash.exe", "zsh", "zsh.exe",
+	case "powershell", "powershell.exe", "pwsh", "pwsh.exe", "bash", "bash.exe":
+		if !allowCanonicalShell {
+			return fmt.Errorf("%w: command interpreters are not accepted by process transport",
+				ErrHostCommandDenied)
+		}
+		if _, ok := HostCommandShellDialect(spec); !ok {
+			return fmt.Errorf("%w: approval-mode shell argv is not canonical",
+				ErrHostCommandDenied)
+		}
+		return nil
+	case "cmd", "cmd.exe", "sh", "sh.exe", "dash", "dash.exe", "zsh", "zsh.exe",
 		"wscript", "wscript.exe", "cscript", "cscript.exe", "mshta", "mshta.exe",
 		"rundll32", "rundll32.exe", "regsvr32", "regsvr32.exe", "env", "env.exe":
 		return fmt.Errorf("%w: command interpreters and wrappers are not accepted by approval mode",
@@ -336,7 +404,7 @@ func (p HostCommandProposal) Validate() error {
 		p.PermissionRevision <= 0 || p.RequestedBy != "run_supervisor" ||
 		p.InstructionAuthorized || p.ExecutionAuthorized || p.CapabilityGrant ||
 		!validSHA256(p.Fingerprint) || p.CreatedAt.IsZero() ||
-		p.Spec.Validate() != nil {
+		ValidateHostCommandProposalTransport(p.Spec) != nil {
 		return ErrHostCommandBoundary
 	}
 	if HostCommandProposalFingerprint(p) != p.Fingerprint {

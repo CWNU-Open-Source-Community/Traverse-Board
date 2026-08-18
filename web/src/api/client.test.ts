@@ -1141,7 +1141,7 @@ describe("CyberAgentClient", () => {
     )).rejects.toThrow("invalid");
   });
 
-  it("reviews an exact non-shell host command and rejects widened receipts", async () => {
+  it("reviews an exact host command envelope and rejects widened receipts", async () => {
     const pending = {
       id: "host-command-proposal-1", protocol_version: "host_command_proposal.v1",
       policy_version: "host_command_policy.v1", run_id: "run-1",

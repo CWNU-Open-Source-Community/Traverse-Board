@@ -127,6 +127,60 @@ func TestHostCommandSpecRejectsSecretsAndAmbiguousTransport(t *testing.T) {
 	}
 }
 
+func TestHostCommandProposalAcceptsOnlyCanonicalReviewedShellEnvelopes(t *testing.T) {
+	for _, shell := range []struct {
+		name       string
+		executable string
+		command    string
+	}{
+		{name: "powershell", executable: "pwsh.exe", command: "git status --short"},
+		{name: "bash", executable: "bash", command: "git status --short"},
+	} {
+		t.Run(shell.name, func(t *testing.T) {
+			request := hostCommandSpecTestRequest(t)
+			request.ExecutablePath = hostCommandAbsolutePath(t, "bin", shell.executable)
+			argv, err := CanonicalHostShellArguments(shell.name, shell.command)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request.Argv = argv
+			spec, err := NewHostCommandSpec(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := ValidateHostCommandProposalTransport(spec); err != nil {
+				t.Fatalf("canonical %s shell was rejected: %v", shell.name, err)
+			}
+			if err := ValidateHostCommandProcessProposalTransport(spec); err == nil {
+				t.Fatalf("canonical %s shell escaped through process transport", shell.name)
+			}
+			if dialect, ok := HostCommandShellDialect(spec); !ok || dialect != shell.name {
+				t.Fatalf("shell classification=%q ok=%t", dialect, ok)
+			}
+
+			tampered := request
+			tampered.Argv = append([]string(nil), argv...)
+			tampered.Argv[0] = "-Interactive"
+			tamperedSpec, err := NewHostCommandSpec(tampered)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := ValidateHostCommandProposalTransport(tamperedSpec); err == nil {
+				t.Fatal("non-canonical shell argv unexpectedly passed approval mode")
+			}
+			permission := hostCommandApprovalPermission(t)
+			proposalRequest := hostCommandProposalTestRequest(tamperedSpec, permission,
+				time.Now().UTC())
+			if _, err := NewHostCommandProposal(proposalRequest); err == nil {
+				t.Fatal("non-canonical shell argv entered the durable proposal domain")
+			}
+		})
+	}
+	if _, err := CanonicalHostShellArguments("bash", "first\nsecond"); err == nil {
+		t.Fatal("multiline shell text unexpectedly produced a canonical argv")
+	}
+}
+
 func TestHostCommandProposalRequiresApprovalSnapshotAndExactReview(t *testing.T) {
 	proposal := hostCommandProposalFixture(t)
 	if proposal.ExecutionAuthorized || proposal.InstructionAuthorized ||
@@ -198,6 +252,24 @@ func TestHostCommandProposalRejectsNonApprovalPermission(t *testing.T) {
 func hostCommandProposalFixture(t *testing.T) HostCommandProposal {
 	t.Helper()
 	now := time.Now().UTC()
+	permission := hostCommandApprovalPermission(t)
+	spec, err := NewHostCommandSpec(hostCommandSpecTestRequest(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err := NewHostCommandProposal(
+		hostCommandProposalTestRequest(spec, permission, now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return proposal
+}
+
+func hostCommandApprovalPermission(
+	t *testing.T,
+) domain.RunExecutionPermissionSnapshot {
+	t.Helper()
+	now := time.Now().UTC()
 	mission := domain.Mission{ID: "mission-host-proposal", CreatedAt: now}
 	run := domain.Run{
 		ID: "run-host-proposal", MissionID: mission.ID,
@@ -214,16 +286,7 @@ func hostCommandProposalFixture(t *testing.T) HostCommandProposal {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec, err := NewHostCommandSpec(hostCommandSpecTestRequest(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	proposal, err := NewHostCommandProposal(
-		hostCommandProposalTestRequest(spec, permission, now))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return proposal
+	return permission
 }
 
 func hostCommandProposalTestRequest(spec HostCommandSpec,

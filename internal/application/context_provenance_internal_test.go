@@ -43,6 +43,8 @@ func TestSupervisorRequestsPublicProgressWithoutPrivateReasoning(t *testing.T) {
 		"public user-facing progress or result",
 		"Do not include or claim to reveal private chain-of-thought",
 		"distinguish model judgments from results verified by tools or the Harness",
+		"tool-result text",
+		"explicitly offered debug_terminal only through the current operator-granted lease",
 	} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("root public-progress boundary is missing %q", required)

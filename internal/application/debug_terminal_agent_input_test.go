@@ -104,6 +104,11 @@ func (p *debugTerminalProcessStub) snapshot() (string, int) {
 	return p.input.String(), p.writes
 }
 
+func (p *debugTerminalProcessStub) emit(data string) error {
+	_, err := p.writer.Write([]byte(data))
+	return err
+}
+
 type debugTerminalAgentFixture struct {
 	state      *store.SQLiteStore
 	service    *DebugTerminalAgentInputService
@@ -161,7 +166,8 @@ func TestDebugTerminalAgentInputIsShortLivedPolicyCheckedAndExactlyOnce(
 	}
 	replayed, err := fixture.service.Write(ctx, request)
 	if err != nil || !replayed.Replayed ||
-		replayed.OperationDigest != result.OperationDigest {
+		replayed.OperationDigest != result.OperationDigest ||
+		replayed.OutputCursor != result.OutputCursor {
 		t.Fatalf("replay=%#v err=%v", replayed, err)
 	}
 	input, writes := fixture.process.snapshot()
@@ -285,6 +291,273 @@ func TestDebugTerminalAgentInputDisablesRetryAfterAmbiguousWrite(t *testing.T) {
 	}
 }
 
+func TestDebugTerminalAgentInputReadsBoundedOutputAndHasOneRunBinding(t *testing.T) {
+	fixture := newDebugTerminalAgentFixture(t, false)
+	ctx := context.Background()
+	binding, err := fixture.service.Grant(ctx,
+		GrantDebugTerminalAgentInputRequest{
+			ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
+			RunID:           fixture.run.ID, TerminalSessionID: fixture.sessionID,
+			RequestedBy: "test_operator", ConfirmDebugMaximumAccess: true,
+			ConfirmAgentTerminalInput: true, TTL: time.Minute,
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.service.Grant(ctx,
+		GrantDebugTerminalAgentInputRequest{
+			ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
+			RunID:           fixture.run.ID, TerminalSessionID: fixture.sessionID,
+			RequestedBy: "test_operator", ConfirmDebugMaximumAccess: true,
+			ConfirmAgentTerminalInput: true, TTL: time.Minute,
+		}); apperror.CodeOf(err) != apperror.CodeConflict {
+		t.Fatalf("duplicate Run binding error=%v code=%s", err, apperror.CodeOf(err))
+	}
+	active, found, err := fixture.service.Active(ctx, fixture.run.ID)
+	if err != nil || !found || active.ID != binding.ID || active.TokenExposed {
+		t.Fatalf("active binding=%#v found=%t err=%v", active, found, err)
+	}
+	if err := fixture.process.emit("bounded terminal output\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	var output DebugTerminalAgentOutputResult
+	for time.Now().Before(deadline) {
+		output, err = fixture.service.Read(ctx,
+			ReadDebugTerminalAgentOutputRequest{
+				ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
+				BindingID:       binding.ID, MaxBytes: 64,
+			})
+		if err != nil || len(output.Data) > 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err != nil || string(output.Data) != "bounded terminal output\r\n" ||
+		output.NextCursor <= output.BaseCursor || output.Dropped {
+		t.Fatalf("output=%#v err=%v", output, err)
+	}
+	fixture.service.now = func() time.Time {
+		return binding.ExpiresAt.Add(time.Second)
+	}
+	replacement, err := fixture.service.Grant(ctx,
+		GrantDebugTerminalAgentInputRequest{
+			ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
+			RunID:           fixture.run.ID, TerminalSessionID: fixture.sessionID,
+			RequestedBy: "test_operator", ConfirmDebugMaximumAccess: true,
+			ConfirmAgentTerminalInput: true, TTL: 2 * time.Minute,
+		})
+	if err != nil || replacement.ID == binding.ID {
+		t.Fatalf("expired binding was not replaced: %#v err=%v", replacement, err)
+	}
+	if err := fixture.service.Revoke(ctx,
+		RevokeDebugTerminalAgentInputRequest{
+			ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
+			BindingID:       replacement.ID, RequestedBy: "test_operator",
+			OperatorConfirmed: true,
+		}); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := fixture.service.Active(ctx, fixture.run.ID); err != nil || found {
+		t.Fatalf("revoked binding found=%t err=%v", found, err)
+	}
+}
+
+func TestDebugTerminalAgentInputCannotReadOutputFromBeforeGrant(t *testing.T) {
+	fixture := newDebugTerminalAgentFixture(t, false)
+	ctx := context.Background()
+	if err := fixture.process.emit("user-only output before grant\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	waitForDebugTerminalRingData(t, fixture.manager, fixture.sessionID)
+	binding, err := fixture.service.Grant(ctx,
+		GrantDebugTerminalAgentInputRequest{
+			ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
+			RunID:           fixture.run.ID, TerminalSessionID: fixture.sessionID,
+			RequestedBy: "test_operator", ConfirmDebugMaximumAccess: true,
+			ConfirmAgentTerminalInput: true, TTL: time.Minute,
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := fixture.service.Read(ctx, ReadDebugTerminalAgentOutputRequest{
+		ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
+		BindingID:       binding.ID, Cursor: 0, MaxBytes: 1024,
+	})
+	if err != nil || len(page.Data) != 0 {
+		t.Fatalf("pre-grant output crossed the lease fence: %q err=%v", page.Data, err)
+	}
+	if err := fixture.process.emit("agent-visible output after grant\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		page, err = fixture.service.Read(ctx, ReadDebugTerminalAgentOutputRequest{
+			ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
+			BindingID:       binding.ID, Cursor: 0, MaxBytes: 1024,
+		})
+		if err != nil || len(page.Data) > 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err != nil || string(page.Data) != "agent-visible output after grant\r\n" {
+		t.Fatalf("post-grant output=%q err=%v", page.Data, err)
+	}
+}
+
+func TestDebugTerminalAgentInputDropsBindingAfterTerminalClose(t *testing.T) {
+	fixture := newDebugTerminalAgentFixture(t, false)
+	ctx := context.Background()
+	binding, err := fixture.service.Grant(ctx,
+		GrantDebugTerminalAgentInputRequest{
+			ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
+			RunID:           fixture.run.ID, TerminalSessionID: fixture.sessionID,
+			RequestedBy: "test_operator", ConfirmDebugMaximumAccess: true,
+			ConfirmAgentTerminalInput: true, TTL: time.Minute,
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.manager.Close(binding.TerminalSessionID,
+		"test_operator", true); err != nil {
+		t.Fatal(err)
+	}
+	if active, found, err := fixture.service.Active(ctx, fixture.run.ID); err != nil ||
+		found || active.ID != "" {
+		t.Fatalf("closed terminal retained binding=%#v found=%t err=%v",
+			active, found, err)
+	}
+	if fixture.service.Reconcile(ctx) != 0 {
+		t.Fatal("closed terminal binding was not removed idempotently")
+	}
+}
+
+func TestDebugTerminalAgentInputRevokesOnPlanPhaseAndRejectsGrant(t *testing.T) {
+	fixture := newDebugTerminalAgentFixture(t, false)
+	ctx := context.Background()
+	binding, err := fixture.service.Grant(ctx,
+		GrantDebugTerminalAgentInputRequest{
+			ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
+			RunID:           fixture.run.ID, TerminalSessionID: fixture.sessionID,
+			RequestedBy: "test_operator", ConfirmDebugMaximumAccess: true,
+			ConfirmAgentTerminalInput: true, TTL: time.Minute,
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewPlanDeliveryControlService(fixture.state).EnterPlan(ctx,
+		ControlPlanModeTransitionRequest{
+			Version: PlanDeliveryControlProtocolVersion, RunID: fixture.run.ID,
+			OperationKey: "debug-terminal-enter-plan-0001",
+			RequestedBy:  "test_operator",
+		}); err != nil {
+		t.Fatal(err)
+	}
+	if active, found, err := fixture.service.Active(ctx, fixture.run.ID); err != nil ||
+		found || active.ID != "" {
+		t.Fatalf("Plan phase retained binding=%#v found=%t err=%v", active, found, err)
+	}
+	if _, err := fixture.service.Write(ctx, WriteDebugTerminalAgentInputRequest{
+		ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
+		BindingID:       binding.ID,
+		OperationKey:    "debug-terminal-plan-write-0001",
+		Data:            []byte("go version\r"),
+	}); apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
+		t.Fatalf("Plan phase stale write error=%v code=%s", err, apperror.CodeOf(err))
+	}
+	if _, err := fixture.service.Grant(ctx,
+		GrantDebugTerminalAgentInputRequest{
+			ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
+			RunID:           fixture.run.ID, TerminalSessionID: fixture.sessionID,
+			RequestedBy: "test_operator", ConfirmDebugMaximumAccess: true,
+			ConfirmAgentTerminalInput: true, TTL: time.Minute,
+		}); apperror.CodeOf(err) != apperror.CodeConflict {
+		t.Fatalf("Plan phase grant error=%v code=%s", err, apperror.CodeOf(err))
+	}
+}
+
+func TestDebugTerminalAgentInputDoesNotReviveAfterPlanRoundTrip(t *testing.T) {
+	fixture := newDebugTerminalAgentFixture(t, false)
+	ctx := context.Background()
+	binding, err := fixture.service.Grant(ctx,
+		GrantDebugTerminalAgentInputRequest{
+			ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
+			RunID:           fixture.run.ID, TerminalSessionID: fixture.sessionID,
+			RequestedBy: "test_operator", ConfirmDebugMaximumAccess: true,
+			ConfirmAgentTerminalInput: true, TTL: time.Minute,
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runService := NewRunService(fixture.state)
+	if _, err := runService.ChangePhase(ctx, ChangeRunPhaseRequest{
+		RunID: fixture.run.ID, Phase: string(domain.ExecutionPhasePlan),
+		OperationKey: "debug-terminal-plan-round-trip-0001",
+		RequestedBy:  "test_operator", Reason: "test Plan boundary",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runService.ChangePhase(ctx, ChangeRunPhaseRequest{
+		RunID: fixture.run.ID, Phase: string(domain.ExecutionPhaseDeliver),
+		OperationKey: "debug-terminal-deliver-round-trip-0001",
+		RequestedBy:  "test_operator", Reason: "return to Deliver",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if active, found, err := fixture.service.Active(ctx, fixture.run.ID); err != nil ||
+		found || active.ID != "" {
+		t.Fatalf("old mode revision revived binding=%#v found=%t err=%v", active, found, err)
+	}
+	if _, err := fixture.service.Write(ctx, WriteDebugTerminalAgentInputRequest{
+		ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
+		BindingID:       binding.ID,
+		OperationKey:    "debug-terminal-old-mode-write-0001",
+		Data:            []byte("go version\r"),
+	}); apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
+		t.Fatalf("old mode revision write error=%v code=%s", err, apperror.CodeOf(err))
+	}
+}
+
+func TestDebugTerminalAgentInputRevokesOnWorkspaceRootDrift(t *testing.T) {
+	fixture := newDebugTerminalAgentFixture(t, false)
+	ctx := context.Background()
+	binding, err := fixture.service.Grant(ctx,
+		GrantDebugTerminalAgentInputRequest{
+			ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
+			RunID:           fixture.run.ID, TerminalSessionID: fixture.sessionID,
+			RequestedBy: "test_operator", ConfirmDebugMaximumAccess: true,
+			ConfirmAgentTerminalInput: true, TTL: time.Minute,
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mission, err := fixture.state.GetMission(ctx, fixture.run.MissionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, err := fixture.state.GetWorkspaceByID(ctx, mission.WorkspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace.RootPath = filepath.Clean(t.TempDir())
+	if err := fixture.state.SaveWorkspace(ctx, workspace); err != nil {
+		t.Fatal(err)
+	}
+	if active, found, err := fixture.service.Active(ctx, fixture.run.ID); err != nil ||
+		found || active.ID != "" {
+		t.Fatalf("Workspace root drift retained binding=%#v found=%t err=%v", active, found, err)
+	}
+	if _, err := fixture.service.Write(ctx, WriteDebugTerminalAgentInputRequest{
+		ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
+		BindingID:       binding.ID,
+		OperationKey:    "debug-terminal-old-workspace-write-0001",
+		Data:            []byte("go version\r"),
+	}); apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
+		t.Fatalf("old Workspace root write error=%v code=%s", err, apperror.CodeOf(err))
+	}
+}
+
 func newDebugTerminalAgentFixture(t *testing.T,
 	failWrite bool,
 ) debugTerminalAgentFixture {
@@ -393,4 +666,19 @@ func newDebugTerminalAgentFixture(t *testing.T,
 		process: backend.process, run: run, permission: permissionService,
 		sessionID: sessionID,
 	}
+}
+
+func waitForDebugTerminalRingData(t *testing.T, manager *terminalruntime.Manager,
+	sessionID string,
+) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		session, err := manager.Get(sessionID)
+		if err == nil && session.OutputNextCursor > session.OutputBaseCursor {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("terminal output was not observed")
 }

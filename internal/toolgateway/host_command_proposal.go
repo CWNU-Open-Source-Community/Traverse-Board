@@ -17,12 +17,22 @@ import (
 
 type HostCommandProposalSpec struct {
 	Version             string   `json:"version"`
-	ExecutablePath      string   `json:"executable_path"`
-	Argv                []string `json:"argv"`
+	Transport           string   `json:"transport,omitempty"`
+	ExecutablePath      string   `json:"executable_path,omitempty"`
+	Argv                []string `json:"argv,omitempty"`
+	Shell               string   `json:"shell,omitempty"`
+	Command             string   `json:"command,omitempty"`
 	WorkingDirectory    string   `json:"working_directory"`
 	TimeoutMilliseconds int64    `json:"timeout_milliseconds"`
 	Purpose             string   `json:"purpose"`
 }
+
+const (
+	HostCommandTransportProcess = "process"
+	HostCommandTransportShell   = "shell"
+	HostCommandShellPowerShell  = "powershell"
+	HostCommandShellBash        = "bash"
+)
 
 func normalizeHostCommandProposalPayload(payload json.RawMessage) (
 	HostCommandProposalSpec, json.RawMessage, error,
@@ -31,31 +41,90 @@ func normalizeHostCommandProposalPayload(payload json.RawMessage) (
 	if err != nil {
 		return HostCommandProposalSpec{}, nil, err
 	}
+	fields, err := structuredPayloadFields(payload)
+	if err != nil {
+		return HostCommandProposalSpec{}, nil, err
+	}
 	spec.Version = strings.TrimSpace(spec.Version)
+	spec.Transport = strings.ToLower(strings.TrimSpace(spec.Transport))
+	if spec.Transport == "" {
+		// Keep durable pre-shell payloads replayable. New callers are directed
+		// to send the transport explicitly by the Tool schema.
+		if transportPresent, _ := structuredPayloadField(fields, "transport"); transportPresent {
+			return HostCommandProposalSpec{}, nil,
+				errors.New("host command proposal transport is invalid")
+		}
+		spec.Transport = HostCommandTransportProcess
+	}
 	spec.ExecutablePath = strings.TrimSpace(spec.ExecutablePath)
+	spec.Shell = strings.ToLower(strings.TrimSpace(spec.Shell))
+	spec.Command = strings.TrimSpace(spec.Command)
 	spec.WorkingDirectory = strings.TrimSpace(spec.WorkingDirectory)
 	spec.Purpose = strings.TrimSpace(redact.String(spec.Purpose))
-	spec.Argv = append([]string(nil), spec.Argv...)
+	if spec.Argv != nil {
+		spec.Argv = append([]string{}, spec.Argv...)
+	}
+	executablePresent, executableNonNull := structuredPayloadField(fields, "executable_path")
+	argvPresent, argvNonNull := structuredPayloadField(fields, "argv")
+	shellPresent, shellNonNull := structuredPayloadField(fields, "shell")
+	commandPresent, commandNonNull := structuredPayloadField(fields, "command")
+	switch spec.Transport {
+	case HostCommandTransportProcess:
+		if !executablePresent || !executableNonNull || !argvPresent || !argvNonNull ||
+			spec.Argv == nil || shellPresent || commandPresent {
+			return HostCommandProposalSpec{}, nil,
+				errors.New("process host command proposal fields are invalid")
+		}
+	case HostCommandTransportShell:
+		if executablePresent || argvPresent || !shellPresent || !shellNonNull ||
+			!commandPresent || !commandNonNull {
+			return HostCommandProposalSpec{}, nil,
+				errors.New("shell host command proposal fields are invalid")
+		}
+	}
 	if err := spec.Validate(); err != nil {
 		return HostCommandProposalSpec{}, nil, err
 	}
-	canonical, err := json.Marshal(spec)
+	canonical, err := marshalHostCommandProposalSpec(spec)
 	if err != nil {
 		return HostCommandProposalSpec{}, nil, err
 	}
 	return spec, canonical, nil
 }
 
+func marshalHostCommandProposalSpec(spec HostCommandProposalSpec) (
+	json.RawMessage, error,
+) {
+	if spec.Transport == HostCommandTransportProcess {
+		return json.Marshal(struct {
+			Version             string   `json:"version"`
+			Transport           string   `json:"transport"`
+			ExecutablePath      string   `json:"executable_path"`
+			Argv                []string `json:"argv"`
+			WorkingDirectory    string   `json:"working_directory"`
+			TimeoutMilliseconds int64    `json:"timeout_milliseconds"`
+			Purpose             string   `json:"purpose"`
+		}{spec.Version, spec.Transport, spec.ExecutablePath, spec.Argv,
+			spec.WorkingDirectory, spec.TimeoutMilliseconds, spec.Purpose})
+	}
+	return json.Marshal(struct {
+		Version             string `json:"version"`
+		Transport           string `json:"transport"`
+		Shell               string `json:"shell"`
+		Command             string `json:"command"`
+		WorkingDirectory    string `json:"working_directory"`
+		TimeoutMilliseconds int64  `json:"timeout_milliseconds"`
+		Purpose             string `json:"purpose"`
+	}{spec.Version, spec.Transport, spec.Shell, spec.Command,
+		spec.WorkingDirectory, spec.TimeoutMilliseconds, spec.Purpose})
+}
+
 func (s HostCommandProposalSpec) Validate() error {
 	if s.Version != runner.HostCommandProposalProtocolVersion ||
-		s.ExecutablePath == "" || s.WorkingDirectory == "" ||
-		!utf8.ValidString(s.ExecutablePath) ||
+		s.WorkingDirectory == "" ||
 		!utf8.ValidString(s.WorkingDirectory) ||
-		strings.ContainsRune(s.ExecutablePath, 0) ||
 		strings.ContainsRune(s.WorkingDirectory, 0) ||
-		len([]rune(s.ExecutablePath)) > MaxWorkspaceRootPathRunes ||
 		len([]rune(s.WorkingDirectory)) > MaxWorkspaceRootPathRunes ||
-		len(s.Argv) > runner.MaxHostCommandArguments ||
 		s.TimeoutMilliseconds < 1 ||
 		s.TimeoutMilliseconds > runner.MaxHostCommandTimeout.Milliseconds() ||
 		!utf8.ValidString(s.Purpose) || s.Purpose == "" ||
@@ -63,6 +132,29 @@ func (s HostCommandProposalSpec) Validate() error {
 		strings.ContainsRune(s.Purpose, 0) ||
 		utf8.RuneCountInString(s.Purpose) > runner.MaxHostCommandPurposeRunes {
 		return errors.New("host command proposal payload is invalid")
+	}
+	switch s.Transport {
+	case HostCommandTransportProcess:
+		if s.ExecutablePath == "" || !utf8.ValidString(s.ExecutablePath) ||
+			strings.ContainsRune(s.ExecutablePath, 0) ||
+			len([]rune(s.ExecutablePath)) > MaxWorkspaceRootPathRunes ||
+			s.Shell != "" || s.Command != "" {
+			return errors.New("process host command proposal transport is invalid")
+		}
+	case HostCommandTransportShell:
+		if s.ExecutablePath != "" || len(s.Argv) != 0 ||
+			(s.Shell != HostCommandShellPowerShell && s.Shell != HostCommandShellBash) ||
+			s.Command == "" || !utf8.ValidString(s.Command) ||
+			strings.ContainsRune(s.Command, 0) || strings.ContainsAny(s.Command, "\r\n") ||
+			len([]byte(s.Command)) > runner.MaxHostCommandArgumentBytes ||
+			redact.String(s.Command) != s.Command {
+			return errors.New("shell host command proposal is invalid or contains secret-like material")
+		}
+	default:
+		return errors.New("host command proposal transport is invalid")
+	}
+	if len(s.Argv) > runner.MaxHostCommandArguments {
+		return errors.New("host command proposal argv exceeds its item limit")
 	}
 	total := 0
 	for _, argument := range s.Argv {
@@ -143,8 +235,8 @@ type HostCommandProposalExecutor interface {
 var hostCommandProposalDefinition = ToolDefinition{
 	Name: HostCommandProposeTool, Class: ClassAgentProposal,
 	Approval:    ApprovalAutomatic,
-	Description: "Record a review-required request for one exact one-shot host process. The model cannot approve or execute it, provide environment values, use shell text, start a persistent process, or request background execution.",
-	InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["version","executable_path","argv","working_directory","timeout_milliseconds","purpose"],"properties":{"version":{"const":"host_command_proposal.v1"},"executable_path":{"type":"string","minLength":1,"maxLength":4096},"argv":{"type":"array","maxItems":64,"items":{"type":"string","maxLength":16384}},"working_directory":{"type":"string","minLength":1,"maxLength":4096},"timeout_milliseconds":{"type":"integer","minimum":1,"maximum":600000},"purpose":{"type":"string","minLength":1,"maxLength":1200}}}`),
+	Description: "Record a review-required request for one exact, non-persistent host process. Use transport=process with an absolute executable and literal argv, or transport=shell with shell=powershell|bash and one bounded command line. The model cannot approve or execute it, provide environment values, persist a process, or request background execution.",
+	InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["version","transport","working_directory","timeout_milliseconds","purpose"],"properties":{"version":{"const":"host_command_proposal.v1"},"transport":{"enum":["process","shell"]},"executable_path":{"type":"string","minLength":1,"maxLength":4096},"argv":{"type":"array","maxItems":64,"items":{"type":"string","maxLength":16384}},"shell":{"enum":["powershell","bash"]},"command":{"type":"string","minLength":1,"maxLength":16384},"working_directory":{"type":"string","minLength":1,"maxLength":4096},"timeout_milliseconds":{"type":"integer","minimum":1,"maximum":600000},"purpose":{"type":"string","minLength":1,"maxLength":1200}},"oneOf":[{"properties":{"transport":{"const":"process"}},"required":["executable_path","argv"],"allOf":[{"not":{"required":["shell"]}},{"not":{"required":["command"]}}]},{"properties":{"transport":{"const":"shell"}},"required":["shell","command"],"allOf":[{"not":{"required":["executable_path"]}},{"not":{"required":["argv"]}}]}]}`),
 }
 
 func (g *Gateway) WithHostCommandProposalExecutor(
@@ -165,7 +257,8 @@ func (g *Gateway) invokeHostCommandProposal(ctx context.Context,
 	}
 	call.Payload = canonical
 	policyPayload, err := json.Marshal(map[string]any{
-		"executable": spec.ExecutablePath, "arguments": spec.Argv,
+		"transport": spec.Transport, "executable": spec.ExecutablePath,
+		"arguments": spec.Argv, "shell": spec.Shell, "command": spec.Command,
 	})
 	if err != nil {
 		return Outcome{}, err

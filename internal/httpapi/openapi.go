@@ -893,7 +893,7 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 		{Path: HostCommandProposalCollectionPathTemplate,
 			OperationID: "listHostCommandProposals",
 			Summary:     "List exact host command proposals", Tag: "Control",
-			Description: "Returns exact non-shell host command proposals for approval-mode Runs. Executable identity, argv, working directory, environment names and digest, host-network intent, and the non-sandboxed boundary are explicit; environment values and raw output are omitted.",
+			Description: "Returns exact process or canonical PowerShell/Git Bash host command proposals for approval-mode Runs. Executable identity, every argv item, working directory, environment names and digest, host-network intent, and the non-sandboxed boundary are explicit; environment values and raw output are omitted.",
 			DataType:    reflect.TypeOf(HostCommandProposalView{}),
 			Collection:  true, NotFound: true,
 			Parameters: []openAPIParameter{runID,

@@ -1,6 +1,6 @@
 # ADR 0081: Gated Host Execution And Debug Terminal Input
 
-- Status: Accepted
+- Status: Accepted; product-route limitations partially superseded by ADR 0114
 - Date: 2026-07-30
 - Scope: P12-E1, P12-E2, and P12-E3 on schema v90
 

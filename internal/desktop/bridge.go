@@ -176,6 +176,7 @@ type DesktopBridgeConfig struct {
 	WorkspaceDirectoryPicker                WorkspaceDirectoryPicker
 	WorkspaceRegistrar                      WorkspaceDirectoryRegistrar
 	UserTerminalController                  UserTerminalController
+	DebugTerminalAgentInputController       application.DebugTerminalAgentInputController
 }
 
 // DesktopBridge is the complete renderer binding surface for D0-A. Keep this
@@ -191,6 +192,7 @@ type DesktopBridge struct {
 	workspaceDirectoryPicker WorkspaceDirectoryPicker
 	workspaceRegistrar       WorkspaceDirectoryRegistrar
 	userTerminal             UserTerminalController
+	debugTerminalAgentInput  application.DebugTerminalAgentInputController
 	bootstrap                ConnectionBootstrap
 	dialogActive             atomic.Bool
 	workspaceOpenActive      atomic.Bool
@@ -247,6 +249,11 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 	if config.UserTerminalEnabled && config.UserTerminalController == nil {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop user terminal requires the Go terminal controller")
+	}
+	if config.UserTerminalEnabled && config.DebugMaximumAccessEnabled &&
+		config.DebugTerminalAgentInputController == nil {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"desktop Debug terminal Agent input requires the Go lease controller")
 	}
 	permissionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled:   config.OperatorApprovalEnabled,
@@ -307,6 +314,7 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 		workspaceDirectoryPicker: config.WorkspaceDirectoryPicker,
 		workspaceRegistrar:       config.WorkspaceRegistrar,
 		userTerminal:             config.UserTerminalController,
+		debugTerminalAgentInput:  config.DebugTerminalAgentInputController,
 		bootstrap: ConnectionBootstrap{
 			ProtocolVersion: ConnectionBootstrapProtocolVersion,
 			APIBaseURL:      DesktopAPIBasePath, APIVersion: apiVersion, AppVersion: appVersion,

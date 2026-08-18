@@ -1092,3 +1092,28 @@ not persisted. Accepted review is only an eligibility fact for a future adapter:
 network, profile-write, termination, cleanup, CDP, and Artifact authority remain false. No CLI,
 HTTP, Desktop, model, Skill, Tool, or Runner surface consumes these facts to start a browser.
 ADR 0073 records these bounds.
+
+## Canonical Shell Review And Supervised Debug Terminal
+
+ADR 0114 extends the Code execution boundary without introducing a general
+always-on model Shell. Approval-mode `host_command_propose` selects either the
+existing exact process transport or a canonical one-line PowerShell/Git Bash
+transport. Go resolves and hashes the interpreter, freezes the no-profile argv,
+and reuses the immutable proposal, independent review, write-ahead intent, Windows
+Job Object, and metadata receipt chain. A model cannot select the executable,
+approve the proposal, provide environment values, persist the process, or retry an
+uncertain execution.
+
+The separate Debug path starts with a user-owned terminal. Desktop can request a
+15-second-to-15-minute process-local input lease, but the bearer never crosses the
+Go boundary. Only a root Code/Deliver Supervisor with the current Debug permission
+and installed runtime adapter sees `debug_terminal`. Schema v113 admits that tool to
+the durable Supervisor call ledger with a data-preserving table migration. Each write rechecks all durable
+bindings and Shell Policy; each read is cursor-addressed, bounded, and clamped to the
+output watermark captured when the lease was granted. Canonical model commands and
+sanitized, explicitly untrusted post-grant results are durable Supervisor evidence, while user input,
+raw PTY bytes, process environment, root paths, and bearer tokens stay in memory. A
+process-local root digest and exact mode revision revoke bindings on Workspace or
+phase drift. Windows uses
+ConPTY plus a creation-time Job Object; macOS/POSIX uses Bash PTY plus owned process-
+group cleanup. Cyber and Plan do not expose the tool.

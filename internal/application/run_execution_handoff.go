@@ -69,6 +69,15 @@ func (s *RunExecutionHandoffService) WithDockerSandboxProposalExecutor(
 	return s
 }
 
+func (s *RunExecutionHandoffService) WithDebugTerminalAgentInput(
+	controller DebugTerminalAgentInputController,
+) *RunExecutionHandoffService {
+	if s != nil && s.supervisor != nil {
+		s.supervisor.WithDebugTerminalAgentInput(controller)
+	}
+	return s
+}
+
 func (s *RunExecutionHandoffService) PublicModelStream(
 	runID string,
 ) (PublicModelStreamSnapshot, bool) {

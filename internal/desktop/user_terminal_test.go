@@ -239,13 +239,27 @@ func TestDesktopUserTerminalRequiresCurrentDebugBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	workspace.RootPath = filepath.Clean(t.TempDir())
+	if err := state.SaveWorkspace(ctx, workspace); err != nil {
+		t.Fatal(err)
+	}
+	if count := service.reconcileBindings(ctx); count != 1 {
+		t.Fatalf("Workspace root reconciliation closed %d sessions", count)
+	}
+	if _, err := service.Get(ctx, second.SessionID); err == nil {
+		t.Fatal("terminal remained available after its Workspace root changed")
+	}
+	third, err := service.Start(ctx, start)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := application.NewRunService(state).Cancel(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
 	if count := service.reconcileBindings(ctx); count != 1 {
 		t.Fatalf("terminal Run reconciliation closed %d sessions", count)
 	}
-	if _, err := service.Get(ctx, second.SessionID); err == nil {
+	if _, err := service.Get(ctx, third.SessionID); err == nil {
 		t.Fatal("terminal remained available after its Run terminated")
 	}
 	if count := service.reconcileBindings(ctx); count != 0 {

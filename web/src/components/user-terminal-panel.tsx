@@ -2,16 +2,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { LoaderCircle, Play, Square } from "lucide-react";
+import { Bot, LoaderCircle, Play, ShieldOff, Square } from "lucide-react";
 import {
   closeDesktopUserTerminal,
+  desktopDebugTerminalAgentInputEnabled,
   desktopErrorMessage,
   desktopUserTerminalEnabled,
+  getDesktopDebugTerminalAgentInput,
   getDesktopUserTerminal,
+  grantDesktopDebugTerminalAgentInput,
   readDesktopUserTerminal,
+  revokeDesktopDebugTerminalAgentInput,
   resizeDesktopUserTerminal,
   startDesktopUserTerminal,
   writeDesktopUserTerminal,
+  type DesktopDebugTerminalAgentInputBinding,
   type DesktopTerminalSession,
 } from "../lib/desktop-bridge";
 
@@ -31,9 +36,12 @@ export function UserTerminalPanel({ runID, sessionID, onSession }: {
   const cursorRef = useRef(0);
   const writeQueueRef = useRef(Promise.resolve());
   const [session, setSession] = useState<DesktopTerminalSession | null>(null);
+  const [agentBinding, setAgentBinding] =
+    useState<DesktopDebugTerminalAgentInputBinding | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const enabled = desktopUserTerminalEnabled();
+  const agentInputEnabled = desktopDebugTerminalAgentInputEnabled();
 
   useEffect(() => {
     sessionRef.current = sessionID;
@@ -166,6 +174,34 @@ export function UserTerminalPanel({ runID, sessionID, onSession }: {
     };
   }, [enabled, onSession, sessionID, writePage]);
 
+  useEffect(() => {
+    if (!runID || !sessionID || !agentInputEnabled) {
+      setAgentBinding(null);
+      return;
+    }
+    let cancelled = false;
+    void getDesktopDebugTerminalAgentInput(runID).then((binding) => {
+      if (!cancelled && binding.terminal_session_id === sessionID) {
+        setAgentBinding(binding);
+      }
+    }).catch(() => {
+      if (!cancelled) setAgentBinding(null);
+    });
+    return () => { cancelled = true; };
+  }, [agentInputEnabled, runID, sessionID]);
+
+  useEffect(() => {
+    if (!agentBinding) return;
+    const remaining = Date.parse(agentBinding.expires_at) - Date.now();
+    if (remaining <= 0) {
+      setAgentBinding(null);
+      return;
+    }
+    const timer = window.setTimeout(() => setAgentBinding(null),
+      Math.min(remaining, 2_147_000_000));
+    return () => window.clearTimeout(timer);
+  }, [agentBinding]);
+
   const start = async () => {
     if (!enabled || !runID) return;
     const requestedRunID = runID;
@@ -184,6 +220,7 @@ export function UserTerminalPanel({ runID, sessionID, onSession }: {
       cursorRef.current = created.output_base_cursor;
       sessionRef.current = created.session_id;
       setSession(created);
+      setAgentBinding(null);
       onSession(created.session_id);
       terminal?.focus();
     } catch (error) {
@@ -200,12 +237,53 @@ export function UserTerminalPanel({ runID, sessionID, onSession }: {
     setBusy(true);
     setMessage("");
     try {
+      if (agentBinding) {
+        await revokeDesktopDebugTerminalAgentInput(agentBinding.binding_id)
+          .catch(() => undefined);
+      }
       await closeDesktopUserTerminal(sessionID);
       if (!mountedRef.current) return;
       onSession("");
       setSession(null);
+      setAgentBinding(null);
       sessionRef.current = "";
       cursorRef.current = 0;
+    } catch (error) {
+      if (mountedRef.current) setMessage(desktopErrorMessage(error));
+    } finally {
+      if (mountedRef.current) setBusy(false);
+    }
+  };
+
+  const grantAgentInput = async () => {
+    if (!agentInputEnabled || !runID || !sessionID) return;
+    if (!globalThis.confirm(
+      "允许 Agent 在未来 5 分钟向此终端提交命令？命令会经过策略检查，但仍可访问当前用户的宿主文件与网络、启动后台进程；命令文本和脱敏后的有界结果会进入 Run 审计记录。请勿在命令中放入 Secret。",
+    )) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const binding = await grantDesktopDebugTerminalAgentInput(runID, sessionID, 300);
+      if (!mountedRef.current || runRef.current !== runID ||
+        sessionRef.current !== sessionID) {
+        await revokeDesktopDebugTerminalAgentInput(binding.binding_id).catch(() => undefined);
+        return;
+      }
+      setAgentBinding(binding);
+    } catch (error) {
+      if (mountedRef.current) setMessage(desktopErrorMessage(error));
+    } finally {
+      if (mountedRef.current) setBusy(false);
+    }
+  };
+
+  const revokeAgentInput = async () => {
+    if (!agentBinding) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      await revokeDesktopDebugTerminalAgentInput(agentBinding.binding_id);
+      if (mountedRef.current) setAgentBinding(null);
     } catch (error) {
       if (mountedRef.current) setMessage(desktopErrorMessage(error));
     } finally {
@@ -226,6 +304,20 @@ export function UserTerminalPanel({ runID, sessionID, onSession }: {
         {busy ? <LoaderCircle aria-hidden="true" className="spin" size={14} /> :
           <Square aria-hidden="true" size={13} />}
         <span>关闭</span>
+      </button>}
+      {sessionID && session?.state === "running" && !agentBinding && <button
+        disabled={busy || !agentInputEnabled} onClick={() => void grantAgentInput()}
+        title="限时授权：宿主文件/网络/后台进程；命令与脱敏结果进入 Run 记录"
+        type="button">
+        <Bot aria-hidden="true" size={14} />
+        <span>允许 Agent · 5m</span>
+      </button>}
+      {sessionID && agentBinding && <button className="agent-input-active"
+        disabled={busy} onClick={() => void revokeAgentInput()}
+        title={`Agent 输入有效至 ${new Date(agentBinding.expires_at).toLocaleTimeString()}`}
+        type="button">
+        <ShieldOff aria-hidden="true" size={14} />
+        <span>撤销 Agent</span>
       </button>}
       <span className={`user-terminal-state ${session?.state ?? "idle"}`}>
         {session?.state ?? (enabled ? "idle" : "disabled")}

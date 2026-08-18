@@ -2,6 +2,8 @@ package terminal
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -141,6 +143,7 @@ type Session struct {
 	ProtocolVersion          string
 	PolicyVersion            string
 	Scope                    SessionScope
+	WorkspaceRootSHA256      string
 	Backend                  string
 	State                    SessionState
 	Columns                  int
@@ -169,6 +172,7 @@ func (s Session) Validate() error {
 		!validTerminalState(s.State) ||
 		s.Columns < MinColumns || s.Columns > MaxColumns ||
 		s.Rows < MinRows || s.Rows > MaxRows || s.CreatedAt.IsZero() ||
+		!validWorkspaceRootSHA256(s.WorkspaceRootSHA256) ||
 		s.OutputNextCursor < s.OutputBaseCursor ||
 		!s.UserOwned || s.AgentInputDefault || !s.JobAssignedAtCreation ||
 		!s.KillOnJobClose || !s.Persistent || !s.ProcessLocal ||
@@ -264,6 +268,10 @@ func (m *Manager) Start(ctx context.Context, request StartRequest) (Session, err
 		return Session{}, fmt.Errorf("%w: terminal session limit reached",
 			ErrTerminalDenied)
 	}
+	workspaceRootSHA256, err := WorkspaceRootSHA256(request.WorkspaceRoot)
+	if err != nil {
+		return Session{}, err
+	}
 	process, err := m.backend.Start(ctx, BackendStartRequest{
 		SessionID: request.ID, WorkspaceRoot: request.WorkspaceRoot,
 		Columns: request.Columns, Rows: request.Rows,
@@ -280,7 +288,8 @@ func (m *Manager) Start(ctx context.Context, request StartRequest) (Session, err
 	value := Session{
 		ID: request.ID, ProtocolVersion: SessionProtocolVersion,
 		PolicyVersion: SessionPolicyVersion, Scope: request.Scope,
-		Backend: m.backend.Name(), State: SessionRunning,
+		WorkspaceRootSHA256: workspaceRootSHA256,
+		Backend:             m.backend.Name(), State: SessionRunning,
 		Columns: request.Columns, Rows: request.Rows,
 		CreatedAt: m.now().UTC(), UserOwned: boundary.UserOwned,
 		AgentInputDefault:     boundary.AgentInputDefault,
@@ -308,6 +317,25 @@ func (m *Manager) Start(ctx context.Context, request StartRequest) (Session, err
 	go m.readLoop(entry)
 	go m.waitLoop(processContext, entry)
 	return value, nil
+}
+
+// WorkspaceRootSHA256 binds process-local terminal state to the canonical
+// root without exposing the host path to renderer or model projections.
+func WorkspaceRootSHA256(root string) (string, error) {
+	if !filepath.IsAbs(root) || filepath.Clean(root) != root ||
+		strings.ContainsRune(root, 0) || !utf8.ValidString(root) {
+		return "", ErrTerminalBoundary
+	}
+	digest := sha256.Sum256([]byte(root))
+	return hex.EncodeToString(digest[:]), nil
+}
+
+func validWorkspaceRootSHA256(value string) bool {
+	if len(value) != sha256.Size*2 || value != strings.ToLower(value) {
+		return false
+	}
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == sha256.Size
 }
 
 func (m *Manager) Get(sessionID string) (Session, error) {

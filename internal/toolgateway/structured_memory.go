@@ -1,6 +1,7 @@
 package toolgateway
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -403,6 +404,23 @@ func decodeStructuredPayload[T any](payload json.RawMessage) (T, error) {
 		return zero, fmt.Errorf("invalid structured memory payload trailing data: %s", redact.String(err.Error()))
 	}
 	return value, nil
+}
+
+func structuredPayloadFields(payload json.RawMessage) (
+	map[string]json.RawMessage, error,
+) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &fields); err != nil || fields == nil {
+		return nil, errors.New("invalid structured memory payload: expected a JSON object")
+	}
+	return fields, nil
+}
+
+func structuredPayloadField(fields map[string]json.RawMessage,
+	name string,
+) (present bool, nonNull bool) {
+	value, present := fields[name]
+	return present, present && !bytes.Equal(bytes.TrimSpace(value), []byte("null"))
 }
 
 func redactRunMutationPayload(name ToolName, payload json.RawMessage) json.RawMessage {

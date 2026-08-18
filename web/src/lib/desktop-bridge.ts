@@ -7,6 +7,8 @@ export const desktopWorkspaceLauncherProtocol = "desktop_workspace_launcher_list
 export const desktopWorkspaceOpenProtocol = "desktop_workspace_open.v1";
 export const desktopWorkspaceImportProtocol = "desktop_workspace_import.v1";
 export const desktopUserTerminalProtocol = "desktop_user_terminal.v1";
+export const desktopDebugTerminalAgentInputProtocol =
+  "desktop_debug_terminal_agent_input.v1";
 
 export interface DesktopOperationReceipt {
   protocol_version: "operation_receipt.v1";
@@ -102,6 +104,18 @@ export interface DesktopTerminalWriteResult {
   protocol_version: typeof desktopUserTerminalProtocol;
   session_id: string;
   bytes_written: number;
+}
+
+export interface DesktopDebugTerminalAgentInputBinding {
+  protocol_version: typeof desktopDebugTerminalAgentInputProtocol;
+  binding_id: string;
+  run_id: string;
+  terminal_session_id: string;
+  issued_at: string;
+  expires_at: string;
+  process_local: true;
+  token_exposed: false;
+  raw_input_persisted: false;
 }
 
 export interface DesktopWorkspaceLauncher {
@@ -265,6 +279,20 @@ interface NativeDesktopBridge {
     session_id: string;
     user_confirmed: true;
   }) => Promise<unknown>;
+  GrantDebugTerminalAgentInput?: (request: {
+    protocol_version: typeof desktopDebugTerminalAgentInputProtocol;
+    run_id: string;
+    terminal_session_id: string;
+    ttl_seconds: number;
+    confirm_debug_maximum_access: true;
+    confirm_agent_terminal_input: true;
+  }) => Promise<unknown>;
+  GetDebugTerminalAgentInput?: (runID: string) => Promise<unknown>;
+  RevokeDebugTerminalAgentInput?: (request: {
+    protocol_version: typeof desktopDebugTerminalAgentInputProtocol;
+    binding_id: string;
+    operator_confirmed: true;
+  }) => Promise<void>;
 }
 
 type NativeWorkspaceBridge = NativeDesktopBridge & Required<Pick<NativeDesktopBridge,
@@ -274,6 +302,9 @@ type NativeWorkspaceImportBridge = NativeDesktopBridge & Required<Pick<NativeDes
 type NativeTerminalBridge = NativeDesktopBridge & Required<Pick<NativeDesktopBridge,
   "StartUserTerminal" | "GetUserTerminal" | "ReadUserTerminal" |
   "WriteUserTerminal" | "ResizeUserTerminal" | "CloseUserTerminal">>;
+type NativeDebugTerminalAgentInputBridge = NativeDesktopBridge & Required<Pick<NativeDesktopBridge,
+  "GrantDebugTerminalAgentInput" | "GetDebugTerminalAgentInput" |
+  "RevokeDebugTerminalAgentInput">>;
 
 declare global {
   interface Window {
@@ -435,6 +466,12 @@ export function desktopUserTerminalEnabled(): boolean {
   return activeBootstrap?.user_terminal_enabled === true && getTerminalBridge() !== null;
 }
 
+export function desktopDebugTerminalAgentInputEnabled(): boolean {
+  return activeBootstrap?.user_terminal_enabled === true &&
+    activeBootstrap.debug_maximum_access_enabled === true &&
+    getDebugTerminalAgentInputBridge() !== null;
+}
+
 export async function startDesktopUserTerminal(runID: string,
   columns = 120, rows = 32, replaceExisting = false): Promise<DesktopTerminalSession> {
   const bridge = getTerminalBridge();
@@ -540,6 +577,54 @@ export async function closeDesktopUserTerminal(sessionID: string): Promise<void>
   });
 }
 
+export async function grantDesktopDebugTerminalAgentInput(runID: string,
+  terminalSessionID: string, ttlSeconds = 300):
+  Promise<DesktopDebugTerminalAgentInputBinding> {
+  const bridge = getDebugTerminalAgentInputBridge();
+  if (!bridge || !desktopDebugTerminalAgentInputEnabled() ||
+    !validWorkspaceID(runID) || !validWorkspaceID(terminalSessionID) ||
+    !Number.isInteger(ttlSeconds) || ttlSeconds < 15 || ttlSeconds > 900) {
+    throw new Error("Desktop Debug terminal Agent-input grant was rejected");
+  }
+  const value = await bridge.GrantDebugTerminalAgentInput({
+    protocol_version: desktopDebugTerminalAgentInputProtocol,
+    run_id: runID,
+    terminal_session_id: terminalSessionID,
+    ttl_seconds: ttlSeconds,
+    confirm_debug_maximum_access: true,
+    confirm_agent_terminal_input: true,
+  });
+  if (!validDebugTerminalAgentInputBinding(value, runID, terminalSessionID)) {
+    throw new Error("Desktop Debug terminal Agent-input binding was rejected");
+  }
+  return value;
+}
+
+export async function getDesktopDebugTerminalAgentInput(runID: string):
+  Promise<DesktopDebugTerminalAgentInputBinding> {
+  const bridge = getDebugTerminalAgentInputBridge();
+  if (!bridge || !desktopDebugTerminalAgentInputEnabled() || !validWorkspaceID(runID)) {
+    throw new Error("Desktop Debug terminal Agent input is disabled");
+  }
+  const value = await bridge.GetDebugTerminalAgentInput(runID);
+  if (!validDebugTerminalAgentInputBinding(value, runID)) {
+    throw new Error("Desktop Debug terminal Agent-input binding was rejected");
+  }
+  return value;
+}
+
+export async function revokeDesktopDebugTerminalAgentInput(bindingID: string): Promise<void> {
+  const bridge = getDebugTerminalAgentInputBridge();
+  if (!bridge || !desktopDebugTerminalAgentInputEnabled() || !validWorkspaceID(bindingID)) {
+    throw new Error("Desktop Debug terminal Agent-input revoke was rejected");
+  }
+  await bridge.RevokeDebugTerminalAgentInput({
+    protocol_version: desktopDebugTerminalAgentInputProtocol,
+    binding_id: bindingID,
+    operator_confirmed: true,
+  });
+}
+
 export function desktopErrorMessage(value: unknown): string {
   if (value instanceof Error && value.message.trim()) {
     return value.message;
@@ -589,6 +674,16 @@ function getTerminalBridge(): NativeTerminalBridge | null {
     return null;
   }
   return bridge as NativeTerminalBridge;
+}
+
+function getDebugTerminalAgentInputBridge(): NativeDebugTerminalAgentInputBridge | null {
+  const bridge = getBridge();
+  if (!bridge || typeof bridge.GrantDebugTerminalAgentInput !== "function" ||
+    typeof bridge.GetDebugTerminalAgentInput !== "function" ||
+    typeof bridge.RevokeDebugTerminalAgentInput !== "function") {
+    return null;
+  }
+  return bridge as NativeDebugTerminalAgentInputBridge;
 }
 
 function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
@@ -754,6 +849,22 @@ function validTerminalWriteResult(value: unknown, sessionID: string,
   return hasExactKeys(value, ["bytes_written", "protocol_version", "session_id"]) &&
     value.protocol_version === desktopUserTerminalProtocol &&
     value.session_id === sessionID && value.bytes_written === expectedBytes;
+}
+
+function validDebugTerminalAgentInputBinding(value: unknown, runID: string,
+  terminalSessionID?: string): value is DesktopDebugTerminalAgentInputBinding {
+  return hasExactKeys(value, ["binding_id", "expires_at", "issued_at", "process_local",
+    "protocol_version", "raw_input_persisted", "run_id", "terminal_session_id",
+    "token_exposed"]) &&
+    value.protocol_version === desktopDebugTerminalAgentInputProtocol &&
+    validWorkspaceID(value.binding_id) && value.run_id === runID &&
+    validWorkspaceID(value.terminal_session_id) &&
+    (terminalSessionID === undefined || value.terminal_session_id === terminalSessionID) &&
+    typeof value.issued_at === "string" && Number.isFinite(Date.parse(value.issued_at)) &&
+    typeof value.expires_at === "string" && Number.isFinite(Date.parse(value.expires_at)) &&
+    Date.parse(value.expires_at) > Date.parse(value.issued_at) &&
+    value.process_local === true && value.token_exposed === false &&
+    value.raw_input_persisted === false;
 }
 
 function validTerminalSize(columns: unknown, rows: unknown): columns is number {

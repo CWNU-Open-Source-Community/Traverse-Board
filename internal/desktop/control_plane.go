@@ -242,6 +242,11 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 			return nil, err
 		}
 	}
+	if debugAgentInput != nil &&
+		config.ExecutionPermissionCapabilities.Allows(
+			domain.RunExecutionPermissionDebug) {
+		executionControl.WithDebugTerminalAgentInput(debugAgentInput)
+	}
 	controlledCommandExecutor, err := runner.NewPlatformControlledExecutor()
 	if err != nil {
 		if terminalManager != nil {
@@ -378,9 +383,9 @@ func (c *ControlPlane) UserTerminalController() UserTerminalController {
 	return c.userTerminal
 }
 
-// DebugTerminalAgentInputController is a Go-only orchestration boundary. It is
-// intentionally absent from the Wails bridge and HTTP API, so renderer code,
-// repository content, Skills, and models cannot mint terminal-input leases.
+// DebugTerminalAgentInputController exposes only grant/query/revoke to the
+// trusted Desktop bridge. The bearer stays inside Go; HTTP, repository
+// content, Skills, and models cannot mint or retrieve it.
 func (c *ControlPlane) DebugTerminalAgentInputController() application.DebugTerminalAgentInputController {
 	if c == nil {
 		return nil

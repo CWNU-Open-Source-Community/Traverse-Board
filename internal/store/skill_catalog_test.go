@@ -89,7 +89,7 @@ func removeSchemaV111ForTestStatements() []string {
 }
 
 func removeSchemaV112ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV113ForTestStatements(), []string{
 		`DROP TRIGGER skill_candidate_imports_no_delete`,
 		`DROP TRIGGER skill_candidate_imports_no_update`,
 		`DROP TRIGGER skill_candidate_reviews_no_delete`,
@@ -104,6 +104,12 @@ func removeSchemaV112ForTestStatements() []string {
 		`DROP INDEX idx_skill_candidates_run_created`,
 		`DROP TABLE skill_candidates`,
 		`DELETE FROM schema_migrations WHERE version = 112`,
+	}...)
+}
+
+func removeSchemaV113ForTestStatements() []string {
+	return []string{
+		`DELETE FROM schema_migrations WHERE version = 113`,
 	}
 }
 func TestSkillCatalogMigrationAndRemovalChain(t *testing.T) {

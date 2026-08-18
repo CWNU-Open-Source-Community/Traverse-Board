@@ -142,9 +142,10 @@ for the interface.
 
 Current limits
 --------------
-- The system credential store, the ConPTY user terminal, the restricted
-  browser, and Full CDP remain Windows-only; their switches stay off or fail
-  closed on macOS.
+- The system credential store, restricted browser, and Full CDP remain
+  unavailable on macOS. ConPTY is Windows-only; the default-off user terminal
+  uses a local Bash PTY when all Debug startup gates are supplied. This PTY
+  path still requires the manual macOS evidence in ADR 0114 before release.
 - The local artifact is only ad-hoc signed and not notarized;
   release_ready=false. When opened after being copied from another machine,
   you may need to right-click and choose Open in Finder.

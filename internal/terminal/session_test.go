@@ -27,7 +27,8 @@ func (b *terminalBackendStub) Start(_ context.Context,
 ) (Process, error) {
 	reader, writer := io.Pipe()
 	process := &terminalProcessStub{
-		reader: reader, writer: writer, wait: make(chan int, 1),
+		reader: reader, writer: writer,
+		wait: make(chan terminalProcessWaitResult, 1),
 	}
 	b.mu.Lock()
 	b.process = process
@@ -35,12 +36,16 @@ func (b *terminalBackendStub) Start(_ context.Context,
 	return process, nil
 }
 
+type terminalProcessWaitResult struct {
+	code int
+	err  error
+}
+
 type terminalProcessStub struct {
 	mu        sync.Mutex
 	reader    *io.PipeReader
 	writer    *io.PipeWriter
-	wait      chan int
-	fail      error
+	wait      chan terminalProcessWaitResult
 	input     bytes.Buffer
 	columns   int
 	rows      int
@@ -62,12 +67,9 @@ func (p *terminalProcessStub) Resize(columns int, rows int) error {
 	return nil
 }
 func (p *terminalProcessStub) Wait(ctx context.Context) (int, error) {
-	if p.fail != nil {
-		return 0, p.fail
-	}
 	select {
-	case code := <-p.wait:
-		return code, nil
+	case result := <-p.wait:
+		return result.code, result.err
 	case <-ctx.Done():
 		return 0, ctx.Err()
 	}
@@ -75,7 +77,7 @@ func (p *terminalProcessStub) Wait(ctx context.Context) (int, error) {
 func (p *terminalProcessStub) Close() error {
 	p.closeOnce.Do(func() {
 		_ = p.writer.Close()
-		p.wait <- 0
+		p.wait <- terminalProcessWaitResult{}
 	})
 	return nil
 }
@@ -156,10 +158,8 @@ func TestTerminalBackendCrashMarksSessionFailedAndDeniesAgentInput(t *testing.T)
 	backend.mu.Lock()
 	process := backend.process
 	backend.mu.Unlock()
-	process.mu.Lock()
-	process.fail = io.ErrUnexpectedEOF
 	_ = process.writer.CloseWithError(io.ErrUnexpectedEOF)
-	process.mu.Unlock()
+	process.wait <- terminalProcessWaitResult{err: io.ErrUnexpectedEOF}
 	deadline := time.Now().Add(3 * time.Second)
 	for {
 		session, err = manager.Get(session.ID)
@@ -302,7 +302,7 @@ func TestExitedTerminalDoesNotConsumeActiveCapacity(t *testing.T) {
 		if startErr != nil {
 			t.Fatal(startErr)
 		}
-		backend.process.wait <- 0
+		backend.process.wait <- terminalProcessWaitResult{}
 		waitForTerminalState(t, manager, session.ID, SessionExited)
 	}
 	request := terminalStartTestRequestFor(t, "after-exited-capacity")

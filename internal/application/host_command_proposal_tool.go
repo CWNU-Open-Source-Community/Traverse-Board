@@ -7,7 +7,9 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -38,13 +40,16 @@ type HostCommandProposalMutationStore interface {
 }
 
 type HostCommandProposalToolExecutor struct {
-	store HostCommandProposalMutationStore
+	store        HostCommandProposalMutationStore
+	resolveShell func(string) (string, error)
 }
 
 func NewHostCommandProposalToolExecutor(
 	store HostCommandProposalMutationStore,
 ) *HostCommandProposalToolExecutor {
-	return &HostCommandProposalToolExecutor{store: store}
+	return &HostCommandProposalToolExecutor{
+		store: store, resolveShell: resolveProposalShellExecutable,
+	}
 }
 
 func (e *HostCommandProposalToolExecutor) ProposeHostCommand(ctx context.Context,
@@ -117,8 +122,26 @@ func (e *HostCommandProposalToolExecutor) ProposeHostCommand(ctx context.Context
 		return toolgateway.HostCommandProposalResult{}, apperror.Wrap(
 			apperror.CodePolicyDenied, err.Error(), err)
 	}
+	executableRequest := payload.ExecutablePath
+	argv := append([]string(nil), payload.Argv...)
+	if payload.Transport == toolgateway.HostCommandTransportShell {
+		if e.resolveShell == nil {
+			return toolgateway.HostCommandProposalResult{}, apperror.New(
+				apperror.CodeFailedPrecondition, "host shell resolver is unavailable")
+		}
+		executableRequest, err = e.resolveShell(payload.Shell)
+		if err != nil {
+			return toolgateway.HostCommandProposalResult{}, apperror.Wrap(
+				apperror.CodeUnavailable, "requested host shell is unavailable", err)
+		}
+		argv, err = runner.CanonicalHostShellArguments(payload.Shell, payload.Command)
+		if err != nil {
+			return toolgateway.HostCommandProposalResult{}, apperror.Wrap(
+				apperror.CodeInvalidArgument, "host shell command is invalid", err)
+		}
+	}
 	executablePath, executableSHA, err := proposalExecutableIdentity(
-		payload.ExecutablePath, workspace.RootPath)
+		executableRequest, workspace.RootPath)
 	if err != nil {
 		return toolgateway.HostCommandProposalResult{}, apperror.Wrap(
 			apperror.CodePolicyDenied, err.Error(), err)
@@ -126,7 +149,7 @@ func (e *HostCommandProposalToolExecutor) ProposeHostCommand(ctx context.Context
 	environment := sanitizedHostEnvironment()
 	spec, err := runner.NewHostCommandSpec(runner.HostCommandSpecRequest{
 		ExecutablePath: executablePath, ExecutableSHA256: executableSHA,
-		Argv: payload.Argv, WorkingDirectory: workingDirectory,
+		Argv: argv, WorkingDirectory: workingDirectory,
 		Environment: environment, NetworkIntent: runner.HostNetworkIntentHost,
 		TimeoutMilliseconds: payload.TimeoutMilliseconds,
 		Purpose:             payload.Purpose,
@@ -135,7 +158,11 @@ func (e *HostCommandProposalToolExecutor) ProposeHostCommand(ctx context.Context
 		return toolgateway.HostCommandProposalResult{}, apperror.Wrap(
 			apperror.CodeInvalidArgument, "host command specification is invalid", err)
 	}
-	if err := runner.ValidateHostCommandProposalTransport(spec); err != nil {
+	validateTransport := runner.ValidateHostCommandProposalTransport
+	if payload.Transport == toolgateway.HostCommandTransportProcess {
+		validateTransport = runner.ValidateHostCommandProcessProposalTransport
+	}
+	if err := validateTransport(spec); err != nil {
 		return toolgateway.HostCommandProposalResult{}, apperror.Wrap(
 			apperror.CodePolicyDenied, err.Error(), err)
 	}
@@ -229,6 +256,21 @@ func proposalExecutableRootAllowed(path string, workspaceRoot string) bool {
 	if local := os.Getenv("LOCALAPPDATA"); local != "" {
 		roots = append(roots, filepath.Join(local, "Programs"))
 	}
+	trustedGitBash := ""
+	if runtime.GOOS == "windows" {
+		if gitPath, err := exec.LookPath("git.exe"); err == nil {
+			if gitRoot, ok := gitForWindowsDistributionRoot(gitPath); ok {
+				// Git for Windows is commonly installed outside Program Files. Trust
+				// only Bash itself from the exact distribution already selected by
+				// PATH, not the distribution root. The executable is still hashed and
+				// reviewed before any proposal can execute.
+				trustedGitBash = filepath.Clean(filepath.Join(gitRoot, "bin", "bash.exe"))
+			}
+		}
+	}
+	if trustedGitBash != "" && strings.EqualFold(path, trustedGitBash) {
+		return true
+	}
 	for _, root := range roots {
 		if strings.TrimSpace(root) == "" {
 			continue
@@ -239,6 +281,86 @@ func proposalExecutableRootAllowed(path string, workspaceRoot string) bool {
 		}
 	}
 	return false
+}
+
+func resolveProposalShellExecutable(shell string) (string, error) {
+	shell = strings.ToLower(strings.TrimSpace(shell))
+	candidates := make([]string, 0, 8)
+	if runtime.GOOS != "windows" {
+		return "", runner.ErrHostCommandPlatform
+	}
+	switch shell {
+	case toolgateway.HostCommandShellPowerShell:
+		if root := os.Getenv("ProgramFiles"); root != "" {
+			candidates = append(candidates, filepath.Join(root, "PowerShell", "7", "pwsh.exe"))
+		}
+		if root := os.Getenv("SystemRoot"); root != "" {
+			candidates = append(candidates, filepath.Join(root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"))
+		}
+	case toolgateway.HostCommandShellBash:
+		// Prefer Bash from the exact Git for Windows distribution already
+		// selected by PATH. Fixed trusted installs remain fallback candidates.
+		if gitPath, err := exec.LookPath("git.exe"); err == nil {
+			if gitRoot, ok := gitForWindowsDistributionRoot(gitPath); ok {
+				candidates = append(candidates,
+					filepath.Join(gitRoot, "bin", "bash.exe"))
+			}
+		}
+		roots := []string{os.Getenv("ProgramFiles"), os.Getenv("ProgramFiles(x86)")}
+		if local := os.Getenv("LOCALAPPDATA"); local != "" {
+			roots = append(roots, filepath.Join(local, "Programs"))
+		}
+		for _, root := range roots {
+			if strings.TrimSpace(root) != "" {
+				candidates = append(candidates, filepath.Join(root, "Git", "bin", "bash.exe"))
+			}
+		}
+	default:
+		return "", errors.New("unsupported host shell")
+	}
+	for _, candidate := range candidates {
+		if !filepath.IsAbs(candidate) {
+			continue
+		}
+		absolute, err := filepath.Abs(candidate)
+		if err != nil {
+			continue
+		}
+		info, err := os.Lstat(absolute)
+		if err == nil && info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
+			return filepath.Clean(absolute), nil
+		}
+	}
+	return "", errors.New("requested shell executable was not found in trusted candidates")
+}
+
+func gitForWindowsDistributionRoot(gitPath string) (string, bool) {
+	if runtime.GOOS != "windows" {
+		return "", false
+	}
+	absolute, err := filepath.Abs(strings.TrimSpace(gitPath))
+	if err != nil {
+		return "", false
+	}
+	info, err := os.Lstat(absolute)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 ||
+		!strings.EqualFold(filepath.Base(absolute), "git.exe") {
+		return "", false
+	}
+	programDirectory := filepath.Dir(absolute)
+	switch strings.ToLower(filepath.Base(programDirectory)) {
+	case "cmd", "bin":
+	default:
+		return "", false
+	}
+	root := filepath.Clean(filepath.Join(programDirectory, ".."))
+	volumeRoot := filepath.Clean(filepath.VolumeName(root) + string(filepath.Separator))
+	rootInfo, err := os.Lstat(root)
+	if err != nil || !rootInfo.IsDir() || rootInfo.Mode()&os.ModeSymlink != 0 ||
+		strings.EqualFold(root, volumeRoot) {
+		return "", false
+	}
+	return root, true
 }
 
 func pathWithinRoot(path string, root string) bool {
