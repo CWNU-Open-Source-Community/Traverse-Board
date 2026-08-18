@@ -96,7 +96,9 @@ type MutationReceipt struct {
 // hardened environment. The closed argv templates make arbitrary git
 // invocation impossible.
 type MutationExecutor struct {
-	gitPath string
+	gitPath        string
+	maxDuration    time.Duration
+	commandContext func(context.Context, string, ...string) *exec.Cmd
 }
 
 func NewMutationExecutor() (*MutationExecutor, error) {
@@ -104,7 +106,9 @@ func NewMutationExecutor() (*MutationExecutor, error) {
 	if err != nil {
 		return nil, fmt.Errorf("git binary is unavailable: %w", err)
 	}
-	return &MutationExecutor{gitPath: path}, nil
+	return &MutationExecutor{
+		gitPath: path, maxDuration: MaxGitDuration, commandContext: exec.CommandContext,
+	}, nil
 }
 
 func (e *MutationExecutor) Available() bool { return e != nil && e.gitPath != "" }
@@ -205,6 +209,10 @@ func (e *MutationExecutor) Execute(ctx context.Context, root string, spec Mutati
 		return receipt, apperror.New(apperror.CodeFailedPrecondition,
 			"git mutation failed: "+strings.TrimSpace(boundedOutput(stderr)))
 	}
+	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+		return receipt, apperror.New(apperror.CodeDeadlineExceeded,
+			"git mutation exceeded its duration bound")
+	}
 	if err != nil && ctx.Err() == nil {
 		return receipt, apperror.Wrap(apperror.CodeFailedPrecondition,
 			"git mutation failed: "+strings.TrimSpace(boundedOutput(stderr)), err)
@@ -234,17 +242,25 @@ func (e *MutationExecutor) runGit(ctx context.Context, root string, spec Mutatio
 	if err != nil {
 		return "", "", 0, err
 	}
-	command := exec.CommandContext(ctx, e.gitPath, args...)
+	duration := e.maxDuration
+	if duration <= 0 {
+		duration = MaxGitDuration
+	}
+	commandCtx, cancel := context.WithTimeout(ctx, duration)
+	defer cancel()
+	commandContext := e.commandContext
+	if commandContext == nil {
+		commandContext = exec.CommandContext
+	}
+	command := commandContext(commandCtx, e.gitPath, args...)
 	command.Dir = root
 	command.Env = hardenedGitEnvironment()
 	var stdout, stderr boundedBuffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr
-	started := time.Now()
 	err = command.Run()
-	if time.Since(started) > MaxGitDuration && ctx.Err() == nil {
-		_ = command.Process.Kill()
-		return stdout.String(), stderr.String(), 0, errors.New("git mutation exceeded its duration bound")
+	if commandErr := commandCtx.Err(); commandErr != nil {
+		return stdout.String(), stderr.String(), 0, commandErr
 	}
 	if err != nil {
 		var exitErr *exec.ExitError
