@@ -22,16 +22,22 @@ const supervisorToolResultVersion = "supervisor_tool_result.v1"
 const supervisorToolCallTimeout = 30 * time.Second
 
 type supervisorToolResultEnvelope struct {
-	Version  string            `json:"version"`
-	Tool     string            `json:"tool"`
-	Status   string            `json:"status"`
-	Metadata map[string]string `json:"metadata,omitempty"`
-	Code     string            `json:"code,omitempty"`
-	Message  string            `json:"message,omitempty"`
+	Version   string            `json:"version"`
+	Tool      string            `json:"tool"`
+	Status    string            `json:"status"`
+	Metadata  map[string]string `json:"metadata,omitempty"`
+	Code      string            `json:"code,omitempty"`
+	Message   string            `json:"message,omitempty"`
+	Stdout    string            `json:"stdout,omitempty"`
+	Stderr    string            `json:"stderr,omitempty"`
+	Truncated bool              `json:"truncated,omitempty"`
 }
 
-func supervisorStructuredToolSpecs(phase domain.ExecutionPhase,
-	permissionMode domain.RunExecutionPermissionMode, skillCandidateEnabled bool,
+func supervisorStructuredToolSpecs(surface domain.ExecutionSurface,
+	phase domain.ExecutionPhase,
+	permissionMode domain.RunExecutionPermissionMode,
+	skillCandidateEnabled bool,
+	debugTerminalEnabled bool,
 ) []llm.ToolSpec {
 	definitions := toolgateway.SupervisorToolDefinitions()
 	if phase == domain.ExecutionPhasePlan {
@@ -44,7 +50,14 @@ func supervisorStructuredToolSpecs(phase domain.ExecutionPhase,
 			continue
 		}
 		if definition.Name == toolgateway.HostCommandProposeTool &&
-			permissionMode != domain.RunExecutionPermissionApproval {
+			(permissionMode != domain.RunExecutionPermissionApproval ||
+				surface != domain.ExecutionSurfaceCode) {
+			continue
+		}
+		if definition.Name == toolgateway.DebugTerminalTool &&
+			(!debugTerminalEnabled || surface != domain.ExecutionSurfaceCode ||
+				phase != domain.ExecutionPhaseDeliver ||
+				permissionMode != domain.RunExecutionPermissionDebug) {
 			continue
 		}
 		out = append(out, llm.ToolSpec{
@@ -56,8 +69,10 @@ func supervisorStructuredToolSpecs(phase domain.ExecutionPhase,
 }
 
 func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, round int,
-	phase domain.ExecutionPhase, permissionMode domain.RunExecutionPermissionMode,
+	surface domain.ExecutionSurface, phase domain.ExecutionPhase,
+	permissionMode domain.RunExecutionPermissionMode,
 	skillCandidateEnabled bool,
+	debugTerminalEnabled bool,
 ) ([]llm.ToolCall, error) {
 	if len(calls) == 0 || len(calls) > domain.MaxSupervisorToolCallsPerRound {
 		return nil, fmt.Errorf("supervisor tool batch must contain 1 to %d calls",
@@ -79,7 +94,8 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 			name != toolgateway.OneShotCommandProposeTool &&
 			name != toolgateway.HostCommandProposeTool &&
 			name != toolgateway.DockerSandboxRunProposeTool &&
-			name != toolgateway.SkillCandidateProposeTool {
+			name != toolgateway.SkillCandidateProposeTool &&
+			name != toolgateway.DebugTerminalTool {
 			return nil, fmt.Errorf("provider requested unsupported supervisor tool %q", call.Name)
 		}
 		if name == toolgateway.PlanDeliveryProposeTool && phase != domain.ExecutionPhasePlan {
@@ -93,8 +109,17 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 				"provider requested Skill candidate proposal without the explicit generator Skill")
 		}
 		if name == toolgateway.HostCommandProposeTool &&
-			permissionMode != domain.RunExecutionPermissionApproval {
-			return nil, errors.New("provider requested host command proposal outside approval permission")
+			(permissionMode != domain.RunExecutionPermissionApproval ||
+				surface != domain.ExecutionSurfaceCode) {
+			return nil, errors.New(
+				"provider requested host command proposal outside Code/approval mode")
+		}
+		if name == toolgateway.DebugTerminalTool &&
+			(!debugTerminalEnabled || surface != domain.ExecutionSurfaceCode ||
+				phase != domain.ExecutionPhaseDeliver ||
+				permissionMode != domain.RunExecutionPermissionDebug) {
+			return nil, errors.New(
+				"provider requested Debug terminal outside Code/Deliver/Debug runtime")
 		}
 		payload, err := toolgateway.NormalizeSupervisorToolPayload(name, call.Arguments)
 		if err != nil {
@@ -165,7 +190,7 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 	completedAt := time.Now().UTC()
 	if err != nil {
 		code := apperror.CodeOf(apperror.Normalize(err))
-		if !recoverableSupervisorToolError(code) {
+		if !recoverableSupervisorToolError(name, code) {
 			return domain.SupervisorToolResult{}, apperror.Normalize(err)
 		}
 		encoded, encodeErr := json.Marshal(supervisorToolResultEnvelope{
@@ -202,10 +227,16 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		code = string(apperror.CodePolicyDenied)
 		message = boundedSupervisorToolMessage(outcome.Decision.Reason)
 	}
-	encoded, err := json.Marshal(supervisorToolResultEnvelope{
+	envelope := supervisorToolResultEnvelope{
 		Version: supervisorToolResultVersion, Tool: call.ToolName, Status: string(status),
 		Metadata: metadata, Code: code, Message: message,
-	})
+	}
+	if name == toolgateway.DebugTerminalTool {
+		envelope.Stdout = redact.String(outcome.Result.Stdout)
+		envelope.Stderr = redact.String(outcome.Result.Stderr)
+		envelope.Truncated = outcome.Result.Truncated
+	}
+	encoded, err := json.Marshal(envelope)
 	if err != nil {
 		return domain.SupervisorToolResult{}, err
 	}
@@ -215,11 +246,15 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 	}, nil
 }
 
-func recoverableSupervisorToolError(code apperror.Code) bool {
+func recoverableSupervisorToolError(name toolgateway.ToolName,
+	code apperror.Code,
+) bool {
 	switch code {
-	case apperror.CodeInvalidArgument, apperror.CodeConflict, apperror.CodeResourceExhausted,
-		apperror.CodeDeadlineExceeded:
+	case apperror.CodeInvalidArgument, apperror.CodeConflict,
+		apperror.CodeResourceExhausted, apperror.CodeDeadlineExceeded:
 		return true
+	case apperror.CodeFailedPrecondition, apperror.CodeNotFound:
+		return name == toolgateway.DebugTerminalTool
 	default:
 		return false
 	}

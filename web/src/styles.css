@@ -4758,6 +4758,11 @@ samp {
   background: #1c2733;
 }
 
+.user-terminal-controls button.agent-input-active {
+  border-color: color-mix(in srgb, var(--prayu-success) 55%, transparent);
+  color: var(--prayu-success);
+}
+
 .user-terminal-state {
   color: #9aa6b4;
 }

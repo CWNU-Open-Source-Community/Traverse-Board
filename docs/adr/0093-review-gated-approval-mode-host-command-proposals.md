@@ -1,6 +1,6 @@
 # ADR 0093: Review-Gated Approval-Mode Host Command Proposals
 
-- Status: Accepted
+- Status: Accepted; canonical Shell exclusion superseded by ADR 0114
 - Date: 2026-08-09
 - Scope: P13-C1, P13-C2, and P13-C3; schema v96
 
@@ -11,6 +11,11 @@ the Root Agent request four fixed Go command templates under the conservative
 permission level. Schema v90 lets an operator directly execute an exact
 non-sandboxed host process under `full_access`. The `approval` permission level
 had a domain contract but no durable, model-to-operator product path.
+
+ADR 0114 later added two tightly canonicalized Shell envelopes to this same
+review chain. Statements below that categorically reject all Shell text remain
+the historical v96 decision; ADR 0114 is authoritative for the current
+PowerShell/Git Bash exception.
 
 Passing model-authored Shell text to either existing path would erase that
 separation. It would also make command parsing, environment inheritance,
@@ -73,8 +78,9 @@ Agent terminal input.
   approve it, alter the reviewed envelope, or trigger a retry.
 - Approval-mode execution still has the current user's host filesystem and
   network authority. The UI and API must never describe it as sandboxed.
-- Shell-heavy workflows remain unavailable in this mode; users must choose a
-  directly executable program with explicit argv.
+- At v96, Shell-heavy workflows were unavailable and users had to choose a
+  directly executable program with explicit argv. ADR 0114 now permits only
+  the canonical reviewed PowerShell/Git Bash envelopes described there.
 
 ## Verification
 

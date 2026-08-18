@@ -45,6 +45,7 @@ const (
 	ChildTaskProposeTool            ToolName = "child_task_propose"
 	ControlledCommandProposeTool    ToolName = "controlled_command_propose"
 	HostCommandProposeTool          ToolName = "host_command_propose"
+	DebugTerminalTool               ToolName = "debug_terminal"
 	OneShotCommandProposeTool       ToolName = "one_shot_command_propose"
 	DockerSandboxRunProposeTool     ToolName = "sandbox_docker_run_propose"
 	SkillCandidateProposeTool       ToolName = "skill_candidate_propose"
@@ -74,7 +75,8 @@ func (n ToolName) Valid() bool {
 	case ReadFileTool, ListWorkspaceTool, ShellTool, ReplaceFileTool, ScriptProcessTool,
 		WorkItemCreateTool, NoteCreateTool, PlanDeliveryProposeTool,
 		SpecialistDelegationProposeTool, ChildTaskProposeTool, ControlledCommandProposeTool,
-		OneShotCommandProposeTool, DockerSandboxRunProposeTool, SkillCandidateProposeTool:
+		OneShotCommandProposeTool, DockerSandboxRunProposeTool,
+		SkillCandidateProposeTool, DebugTerminalTool:
 		return true
 	case HostCommandProposeTool:
 		// Host commands remain proposals at this layer; execution is owned by
@@ -113,6 +115,8 @@ func ClassForTool(name ToolName) (ActionClass, bool) {
 	case ReplaceFileTool:
 		return ClassWorkspaceWrite, true
 	case ShellTool:
+		return ClassShell, true
+	case DebugTerminalTool:
 		return ClassShell, true
 	case ScriptProcessTool:
 		return ClassProcess, true

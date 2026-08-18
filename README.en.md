@@ -60,17 +60,30 @@ The allowed direction is always `TypeScript -> Go -> LLM/Rust/Docker`. TypeScrip
 | Agent runtime | Mission/Run, resumable Supervisor, strict lifecycle, checkpoints, cancellation, retry, budgets, and execution leases |
 | Models and context | Mock, Anthropic-compatible, OpenAI-compatible, and loopback-only Ollama providers, routing, qualification, capability probing, streaming, context compaction, and structured memory |
 | Planning and collaboration | Plan/Delivery, work items, notes, up to two core children, 1/2/4/6 read-only fan-out tiers, shared budgets and cancellation |
-| Tools and permissions | Tool Gateway, JSON Schema validation, Policy, Scope, human approval, four host-permission tiers, and fixed-command proposals |
+| Tools and permissions | Tool Gateway, JSON Schema validation, Policy, Scope, human approval, four host-permission tiers, fixed commands, per-command PowerShell/Git Bash approval, and time-bound Debug terminal input |
 | Code workflows | Native folder selection and Workspace import, workspace browsing, repository state/history, diff review, file-edit proposals, verification plans, Code Journey, and Handoff |
 | Observability | Append-only Run events, Live Activity, public model commentary, Harness facts, Artifacts, Findings/Evidence/Reports, and SARIF |
 | Extension seams | Mode-aware inert Skill packages, human-reviewed generated candidates, Provider and Tool interfaces, Go/Rust JSON protocol, embedded WASI Analyzer, Sandbox contracts, and a network-none Docker product execution that is disabled by default |
 | Clients | `cyberagent` CLI, Bubble Tea TUI, authenticated HTTP/OpenAPI, React/Vite, and Windows/macOS Desktop portable preview |
 
+### Real Git, PowerShell, and Bash
+
+Prayu invokes real Git and operating-system shells; it is not a command emulator. It deliberately does not give the model a permanent, unreviewed raw terminal. The Code workflow separates execution by risk:
+
+| Path | Real execution | Authority and limits |
+|---|---|---|
+| Typed Git | The real `git` process for local stage/unstage/commit/branch switching and separately authorized fetch, fast-forward pull, branch push, and PR create/update | Go constructs arguments, binds repository state, and disables hooks, external diffs, and inherited credentials. Arbitrary history-rewriting Git argv is not exposed here |
+| Approval one-shot shell | Real PowerShell or Git Bash from the selected Git for Windows distribution, with a fixed no-profile, non-interactive one-shot argv | Code/Local/Controlled/Approval only. The model may propose one line; an operator reviews the interpreter hash, complete argv, cwd, and host-network risk for every execution. No persistent or background ownership |
+| Persistent Debug terminal | PowerShell + ConPTY + a creation-time Job Object on Windows; Bash + PTY + a separate process group on macOS | Code/Local/Deliver/Debug only. The user starts the terminal and grants a revocable, process-local Agent-input lease for 15 seconds to 15 minutes. Ordinary background jobs share the terminal lifecycle; deliberate POSIX daemonization is a residual host risk |
+| Full-access one-shot process | A real Windows executable and literal argv pinned by absolute path and SHA-256 | Operator-only CLI with two confirmations. It is unsandboxed, may run powerful interpreters, and is not model-facing |
+
+Every `debug_terminal` write still passes Shell Policy; commands that require separate per-command approval cannot bypass it through a Debug lease. Grant establishes an output watermark, so the model cannot read terminal scrollback from before the lease. For resumability, the canonical model command and sanitized bounded results after that watermark enter the Supervisor tool transcript; schema v113 admits this tool to the same durable call ledger without losing existing calls. A process-local Workspace-root digest and exact mode revision prevent an old lease from reviving after root or phase drift. User keystrokes, raw PTY bytes, the root path, and the lease bearer are not persisted. Restart terminates the session and invalidates every lease. These host-shell paths are not exposed on the Cyber Surface. See the [Usage Guide](docs/usage.md) and [ADR 0114](docs/adr/0114-real-shell-transports-and-supervised-debug-terminal.md).
+
 ### Security boundaries
 
 - Provider-private thinking, raw prompts, raw deltas, tool arguments, raw tool output, and API keys are never exposed as public activity.
 - File edits, host commands, browser CDP, terminal input, and Sandbox execution are independent authorization surfaces.
-- Conservative commands use Go-owned fixed templates. General host execution and Debug authority cannot be enabled by a model, Skill, or repository document.
+- Conservative commands use Go-owned fixed templates. PowerShell/Bash is available only through per-command approval or a revocable Debug lease. General host execution and Debug authority cannot be enabled by a model, Skill, or repository document.
 - The Docker Sandbox product entry is disabled by default. An explicit process capability, the current `docker` Profile, a matching permission tier, an exact per-call approval, Policy, budgets, and a 30-second readiness check must all hold at once; database records can never restore start authority after a restart.
 - Product execution currently accepts only environment-free, secret-free `network=disabled` Manifests and pins `network none` on both the Docker create and inspect sides. Allowlist/scoped egress still lacks a Go-owned host/port/protocol guard, so it always fails closed with `managed_egress_unavailable`; there is no host fallback when Docker is unavailable.
 - The built-in browser has no product entry point yet. A restricted runtime core exists, but independent OS/container network-containment evidence is incomplete.
@@ -179,7 +192,7 @@ In Windows Desktop, **New Task** opens the native folder picker and completes `s
 open build/desktop/Prayu.app
 ```
 
-Use the operator-preview launcher `build/desktop/Start-Prayu-Operator-Preview.command`, or open `Prayu.app` directly (read-only default). The artifact is only ad-hoc signed and not notarized; after copying it from another machine you may need to right-click and choose Open in Finder on first launch. The macOS system credential store is not wired yet, so use environment variables such as `MIMO_API_KEY`, `DEEPSEEK_API_KEY`, and `CYBERAGENT_ANTHROPIC_API_KEY`; the ConPTY user terminal, restricted browser, and Full CDP stay off on macOS. See [`packaging/macos/LOCAL-TEST-GUIDE.txt`](packaging/macos/LOCAL-TEST-GUIDE.txt) for the full manual test flow and [ADR 0097](docs/adr/0097-macos-desktop-portable-build.md) for the boundaries.
+Use the operator-preview launcher `build/desktop/Start-Prayu-Operator-Preview.command`, or open `Prayu.app` directly (read-only default). The artifact is only ad-hoc signed and not notarized; after copying it from another machine you may need to right-click and choose Open in Finder on first launch. The macOS system credential store is not wired yet, so use environment variables such as `MIMO_API_KEY`, `DEEPSEEK_API_KEY`, and `CYBERAGENT_ANTHROPIC_API_KEY`. The user terminal stays off by default and uses a local Bash PTY when the corresponding startup gates are enabled; the restricted browser and Full CDP stay off. See [`packaging/macos/LOCAL-TEST-GUIDE.txt`](packaging/macos/LOCAL-TEST-GUIDE.txt), [ADR 0097](docs/adr/0097-macos-desktop-portable-build.md), and [ADR 0114](docs/adr/0114-real-shell-transports-and-supervised-debug-terminal.md).
 
 See the [Usage Guide](docs/usage.md) for more commands and boundaries.
 

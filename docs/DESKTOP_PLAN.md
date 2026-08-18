@@ -2,7 +2,7 @@
 
 状态：Desktop D0-A、D0-B、D1-R1 至 D1-G13/V12 与 D1-UX11 自动化核心已完成，数据库 schema 为 v91。Wails v2.13.0 Windows 壳、嵌入式 React bundle、进程内 Go API、同库恢复、高水位事件续传、WebView2 失败关闭、内存令牌、原生 `.zip` 对话框、路径隔离 Skill、受控 Run/Session/Plan/审批、安全恢复的 Monaco FileEdit、只读 Repository/脱敏 Diff/本地历史/精确提交预览/可导航精确文件历史/精确提交比较与键盘可访问的成对 base/head 预览、多文件独立审阅、不可变操作者验证、snapshot-keyset 逐检查项下钻/快照下载/record-only 回执历史/不授权复核、可恢复 Code Handoff、Code Journey、generation-safe Windows Credential Manager Provider reload、默认关闭的有界 wake worker、用户所有的可选 ConPTY/xterm、四档宿主权限、两档 CDP 权限、独立权限设置页和固定命令提案审批面板已经落地。R10 仍只在内部 `NonProductOnly` 测试边界固定接受信封的 bytes/SHA；P10 Analyzer 与 P11-C5-C7 受限浏览器核心都没有 Desktop 产品进程入口。Windows 10 实机矩阵、Agent-owned Debug 终端、浏览器 OS/容器网络隔离、可操作内置浏览器、完整 CDP、安装包、签名正式发行、注册表、自启动和更新仍未实现。macOS 便携构建（D0-Mac）已落地：同一控制平面在 darwin 构建标签下编译，WKWebView 无需运行时预检，启动失败走有界 osascript 对话框，工作区启动器只通过固定 /usr/bin/open 打开已验证的 .app，脚本产出 ad-hoc 签名的未公证 `Prayu.app` 并复用双构建 SHA-256 校验；签名、公证与人工 macOS 矩阵仍未实现，边界见 ADR 0097。
 
-D1-UX1 至 D1-UX10 已把用户可见名称统一为 Prayu，并落地艺术字、无边框标题栏、透明热区的有界可调工作台/设置侧栏、复用既有 Go 边界的 Agent 输入区、可组合工具面板、独立权限中心，以及 Windows 原生 Acrylic 和浅/深色玻璃令牌。D1-UX10 明确取代早期整页工作台/设置背景和笔刷式选中视觉；选中态现在由 CSS 绘制为高对比圆角白色表面。设置页只调用 Go-owned 运行时与控制服务；内置浏览器仍未启动，用户终端只有显式开关后才可用且不属于 Agent。TypeScript 没有获得凭证、Policy、工具、Shell、Docker 或通用进程权限；模型与权限切换仍走既有 Go mutation。操作员可在原生确认后用固定外部应用打开精确已登记 Workspace，但 renderer 不接收路径、命令、环境或任意参数，该能力不属于 Agent/Runner/Shell。CLI、module、数据目录和协议标识继续兼容既有 CyberAgent 名称。
+D1-UX1 至 D1-UX10 已把用户可见名称统一为 Prayu，并落地艺术字、无边框标题栏、透明热区的有界可调工作台/设置侧栏、复用既有 Go 边界的 Agent 输入区、可组合工具面板、独立权限中心，以及 Windows 原生 Acrylic 和浅/深色玻璃令牌。D1-UX10 明确取代早期整页工作台/设置背景和笔刷式选中视觉；选中态现在由 CSS 绘制为高对比圆角白色表面。设置页只调用 Go-owned 运行时与控制服务；内置浏览器仍未启动，用户终端只有显式开关后才可用且默认属于用户。ADR 0114 追加了可撤销的限时 Agent 输入授权，bearer 仍只在 Go 内存中。TypeScript 没有获得凭证、Policy、Docker、任意路径或通用进程权限；模型与权限切换仍走既有 Go mutation。操作员可在原生确认后用固定外部应用打开精确已登记 Workspace，但 renderer 不接收路径、命令、环境或任意参数，该能力不属于 Agent/Runner/Shell。CLI、module、数据目录和协议标识继续兼容既有 CyberAgent 名称。
 
 ## 目标
 
@@ -81,7 +81,7 @@ macOS 本地构建（D0-Mac）：
 open build/desktop/Prayu.app
 ```
 
-输出为 `build/desktop/Prayu.app` 与同目录启动器/指南，默认不开放 control token；需要 Xcode 命令行工具（codesign）与 `CGO_ENABLED=1`。产物只有 ad-hoc 签名、未公证，是开发/便携测试包，不是正式发行包。macOS 11+（Big Sur）自带 WKWebView，构建不做 WebView2 式运行时预检；启动失败只写入 stderr 并显示有界 osascript 对话框。工作区启动器只通过固定 `/usr/bin/open` 打开已验证的 .app（Finder、Terminal、Antigravity、PyCharm、WebStorm、Visual Studio Code）。系统凭证库、ConPTY 用户终端、受限浏览器与完整 CDP 在 macOS 上保持关闭或失败关闭，凭证请使用环境变量。自动检查通过后 `release_ready` 仍为 false，直到签名、公证与人工 macOS 矩阵完成。
+输出为 `build/desktop/Prayu.app` 与同目录启动器/指南，默认不开放 control token；需要 Xcode 命令行工具（codesign）与 `CGO_ENABLED=1`。产物只有 ad-hoc 签名、未公证，是开发/便携测试包，不是正式发行包。macOS 11+（Big Sur）自带 WKWebView，构建不做 WebView2 式运行时预检；启动失败只写入 stderr 并显示有界 osascript 对话框。工作区启动器只通过固定 `/usr/bin/open` 打开已验证的 .app（Finder、Terminal、Antigravity、PyCharm、WebStorm、Visual Studio Code）。系统凭证库仍未接入；用户终端默认关闭，显式启用后使用 Bash PTY，受限浏览器与完整 CDP 继续失败关闭，凭证请使用环境变量。自动检查通过后 `release_ready` 仍为 false，直到签名、公证、PTY 实机行为与人工 macOS 矩阵完成。
 
 显式启用受控 Run 创建：
 

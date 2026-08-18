@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +20,7 @@ import (
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/session"
 	terminalruntime "cyberagent-workbench/internal/terminal"
+	"cyberagent-workbench/internal/tools"
 )
 
 const (
@@ -59,6 +62,10 @@ type DebugTerminalAgentInputBridge interface {
 		terminalruntime.AgentWriteResult,
 		error,
 	)
+	Read(context.Context, terminalruntime.AgentReadRequest) (
+		terminalruntime.AgentReadResult,
+		error,
+	)
 	Revoke(string, string, bool) (
 		executionauth.TerminalInputLease,
 		error,
@@ -72,6 +79,15 @@ type DebugTerminalAgentInputController interface {
 	)
 	Write(context.Context, WriteDebugTerminalAgentInputRequest) (
 		DebugTerminalAgentInputWriteResult,
+		error,
+	)
+	Read(context.Context, ReadDebugTerminalAgentOutputRequest) (
+		DebugTerminalAgentOutputResult,
+		error,
+	)
+	Active(context.Context, string) (
+		DebugTerminalAgentInputBinding,
+		bool,
 		error,
 	)
 	Revoke(context.Context, RevokeDebugTerminalAgentInputRequest) error
@@ -96,6 +112,13 @@ type WriteDebugTerminalAgentInputRequest struct {
 	Data            []byte
 }
 
+type ReadDebugTerminalAgentOutputRequest struct {
+	ProtocolVersion string
+	BindingID       string
+	Cursor          uint64
+	MaxBytes        int
+}
+
 type RevokeDebugTerminalAgentInputRequest struct {
 	ProtocolVersion   string
 	BindingID         string
@@ -112,6 +135,9 @@ type DebugTerminalAgentInputBinding struct {
 	SessionID                string
 	WorkspaceID              string
 	TerminalSessionID        string
+	WorkspaceRootSHA256      string
+	ModeSnapshotID           string
+	ModeRevision             int64
 	InteractionSnapshotID    string
 	InteractionRevision      int64
 	ExecutionProfileRevision int64
@@ -138,11 +164,24 @@ type DebugTerminalAgentInputWriteResult struct {
 	DataSHA256            string
 	DataBytes             int
 	BytesWritten          int
+	OutputCursor          uint64
 	Replayed              bool
 	ProcessLocal          bool
 	TokenExposed          bool
 	RawInputPersisted     bool
 	AutomaticRetryAllowed bool
+}
+
+type DebugTerminalAgentOutputResult struct {
+	ProtocolVersion   string
+	BindingID         string
+	TerminalSessionID string
+	Backend           string
+	BaseCursor        uint64
+	NextCursor        uint64
+	Data              []byte
+	Dropped           bool
+	State             terminalruntime.SessionState
 }
 
 type debugTerminalAgentBindings struct {
@@ -171,10 +210,11 @@ type debugTerminalOperation struct {
 }
 
 type debugTerminalBindingEntry struct {
-	binding    DebugTerminalAgentInputBinding
-	token      string
-	scope      executionauth.TerminalInputScope
-	operations map[string]debugTerminalOperation
+	binding     DebugTerminalAgentInputBinding
+	token       string
+	scope       executionauth.TerminalInputScope
+	outputFloor uint64
+	operations  map[string]debugTerminalOperation
 }
 
 type DebugTerminalAgentInputService struct {
@@ -223,6 +263,9 @@ func (s *DebugTerminalAgentInputService) Grant(
 	if err := s.requireAvailable(ctx); err != nil {
 		return DebugTerminalAgentInputBinding{}, err
 	}
+	// Expired process-local bindings must not consume the bounded registry and
+	// block a later explicit operator grant.
+	s.Reconcile(ctx)
 	bindings, decision, err := s.loadAuthorizedBindings(ctx, normalized.RunID)
 	if err != nil {
 		return DebugTerminalAgentInputBinding{}, err
@@ -239,6 +282,16 @@ func (s *DebugTerminalAgentInputService) Grant(
 			apperror.CodeResourceExhausted,
 			"debug terminal Agent-input binding limit reached")
 	}
+	for _, entry := range s.bindings {
+		if entry != nil && entry.binding.RunID == bindings.run.ID &&
+			!entry.binding.Revoked &&
+			s.now().UTC().Before(entry.binding.ExpiresAt) {
+			s.mu.Unlock()
+			return DebugTerminalAgentInputBinding{}, apperror.New(
+				apperror.CodeConflict,
+				"Run already has an active debug terminal Agent-input binding")
+		}
+	}
 	s.mu.Unlock()
 	issued, err := s.bridge.Issue(ctx, terminalruntime.IssueAgentInputRequest{
 		SessionID:         normalized.TerminalSessionID,
@@ -250,12 +303,21 @@ func (s *DebugTerminalAgentInputService) Grant(
 			apperror.CodePolicyDenied,
 			"debug terminal Agent-input lease was denied", err)
 	}
+	workspaceRootSHA256, err := terminalruntime.WorkspaceRootSHA256(
+		filepath.Clean(bindings.workspace.RootPath))
+	if err != nil {
+		_, _ = s.bridge.Revoke(issued.Lease.ID, normalized.RequestedBy, true)
+		return DebugTerminalAgentInputBinding{}, apperror.Wrap(
+			apperror.CodeFailedPrecondition,
+			"debug terminal Workspace root binding is invalid", err)
+	}
 	expectedScope := debugTerminalInputScope(bindings,
 		normalized.TerminalSessionID)
 	if issued.ProtocolVersion != terminalruntime.AgentInputBridgeProtocolVersion ||
 		issued.Token == "" || issued.Lease.Scope != expectedScope ||
 		issued.Lease.RequestedBy != normalized.RequestedBy ||
-		issued.Lease.Revoked {
+		issued.Lease.Revoked ||
+		issued.WorkspaceRootSHA256 != workspaceRootSHA256 {
 		_, _ = s.bridge.Revoke(issued.Lease.ID, normalized.RequestedBy, true)
 		return DebugTerminalAgentInputBinding{}, apperror.New(
 			apperror.CodeConflict,
@@ -271,6 +333,25 @@ func (s *DebugTerminalAgentInputService) Grant(
 			apperror.CodeConflict,
 			"debug terminal Agent-input binding changed during grant")
 	}
+	outputFence, err := s.bridge.Read(ctx, terminalruntime.AgentReadRequest{
+		Token: issued.Token, Scope: issued.Lease.Scope,
+		Cursor: math.MaxUint64, MaxBytes: 1,
+	})
+	if err != nil ||
+		outputFence.ProtocolVersion != terminalruntime.AgentInputBridgeProtocolVersion ||
+		outputFence.LeaseID != issued.Lease.ID ||
+		outputFence.SessionID != normalized.TerminalSessionID ||
+		outputFence.Page.SessionID != normalized.TerminalSessionID {
+		_, _ = s.bridge.Revoke(issued.Lease.ID, normalized.RequestedBy, true)
+		if err != nil {
+			return DebugTerminalAgentInputBinding{}, apperror.Wrap(
+				apperror.CodeFailedPrecondition,
+				"debug terminal output fence could not be established", err)
+		}
+		return DebugTerminalAgentInputBinding{}, apperror.New(
+			apperror.CodeConflict,
+			"debug terminal output fence returned an inconsistent binding")
+	}
 	binding := projectDebugTerminalBinding(bindings, issued)
 	if err := s.store.RecordDebugTerminalAgentInputAudit(ctx,
 		debugTerminalAuditRecord(binding,
@@ -280,8 +361,17 @@ func (s *DebugTerminalAgentInputService) Grant(
 		return DebugTerminalAgentInputBinding{}, apperror.Normalize(err)
 	}
 	s.mu.Lock()
+	duplicateRun := false
+	for _, entry := range s.bindings {
+		if entry != nil && entry.binding.RunID == binding.RunID &&
+			!entry.binding.Revoked &&
+			s.now().UTC().Before(entry.binding.ExpiresAt) {
+			duplicateRun = true
+			break
+		}
+	}
 	if len(s.bindings) >= MaxDebugTerminalAgentInputBindings ||
-		s.bindings[binding.ID] != nil {
+		s.bindings[binding.ID] != nil || duplicateRun {
 		s.mu.Unlock()
 		_, _ = s.bridge.Revoke(binding.ID, binding.RequestedBy, true)
 		revoked := binding
@@ -290,13 +380,18 @@ func (s *DebugTerminalAgentInputService) Grant(
 			debugTerminalAuditRecord(revoked,
 				terminalruntime.AgentInputAuditRevoked, "", "", 0, 0,
 				s.now().UTC()))
-		return DebugTerminalAgentInputBinding{}, apperror.New(
-			apperror.CodeResourceExhausted,
-			"debug terminal Agent-input binding limit reached")
+		code := apperror.CodeResourceExhausted
+		message := "debug terminal Agent-input binding limit reached"
+		if duplicateRun {
+			code = apperror.CodeConflict
+			message = "Run already has an active debug terminal Agent-input binding"
+		}
+		return DebugTerminalAgentInputBinding{}, apperror.New(code, message)
 	}
 	s.bindings[binding.ID] = &debugTerminalBindingEntry{
 		binding: binding, token: issued.Token, scope: issued.Lease.Scope,
-		operations: make(map[string]debugTerminalOperation),
+		outputFloor: outputFence.Page.NextCursor,
+		operations:  make(map[string]debugTerminalOperation),
 	}
 	s.mu.Unlock()
 	return binding, nil
@@ -319,23 +414,12 @@ func (s *DebugTerminalAgentInputService) Write(
 	if err != nil {
 		return DebugTerminalAgentInputWriteResult{}, err
 	}
-	current, decision, err := s.loadAuthorizedBindings(ctx, entry.binding.RunID)
-	if err != nil || !sameBindingAndDurableState(entry.binding, current) ||
-		!decision.Allowed || !decision.AgentTerminalInput {
-		s.invalidateBindingWithAudit(ctx, entry)
-		if err != nil {
-			if apperror.CodeOf(err) == apperror.CodeConflict {
-				return DebugTerminalAgentInputWriteResult{}, apperror.New(
-					apperror.CodePolicyDenied,
-					"debug terminal Agent-input binding is stale or no longer authorized")
-			}
-			return DebugTerminalAgentInputWriteResult{}, err
-		}
-		return DebugTerminalAgentInputWriteResult{}, apperror.New(
-			apperror.CodePolicyDenied,
-			"debug terminal Agent-input binding is stale or no longer authorized")
+	if err := s.revalidateBinding(ctx, entry); err != nil {
+		return DebugTerminalAgentInputWriteResult{}, err
 	}
-	policyDecision := s.checker.CheckText("tool_run.shell", command)
+	policyDecision := s.checker.CheckToolCall(tools.Call{
+		Name: "shell", Args: map[string]string{"command": command},
+	})
 	if !policyDecision.Allowed || policyDecision.NeedsApproval {
 		return DebugTerminalAgentInputWriteResult{}, apperror.New(
 			apperror.CodePolicyDenied, policyDecision.Reason)
@@ -382,6 +466,25 @@ func (s *DebugTerminalAgentInputService) Write(
 		state: debugTerminalOperationPending,
 	}
 	s.mu.Unlock()
+	tail, tailErr := s.bridge.Read(ctx, terminalruntime.AgentReadRequest{
+		Token: entry.token, Scope: entry.scope,
+		Cursor: math.MaxUint64, MaxBytes: 1,
+	})
+	if tailErr != nil {
+		s.removePendingOperation(entry.binding.ID, operationDigest)
+		return DebugTerminalAgentInputWriteResult{}, apperror.Wrap(
+			apperror.CodeFailedPrecondition,
+			"debug terminal output cursor could not be fenced before input", tailErr)
+	}
+	if tail.ProtocolVersion != terminalruntime.AgentInputBridgeProtocolVersion ||
+		tail.LeaseID != entry.binding.ID ||
+		tail.SessionID != entry.binding.TerminalSessionID ||
+		tail.Page.SessionID != entry.binding.TerminalSessionID {
+		s.removePendingOperation(entry.binding.ID, operationDigest)
+		return DebugTerminalAgentInputWriteResult{}, apperror.New(
+			apperror.CodeConflict,
+			"debug terminal output cursor returned an inconsistent binding")
+	}
 
 	preparedAt := s.now().UTC()
 	prepared := debugTerminalAuditRecord(entry.binding,
@@ -415,6 +518,7 @@ func (s *DebugTerminalAgentInputService) Write(
 		BindingID:       entry.binding.ID, TerminalSessionID: written.SessionID,
 		OperationDigest: operationDigest, DataSHA256: dataDigest,
 		DataBytes: len(normalized.Data), BytesWritten: written.BytesWritten,
+		OutputCursor: tail.Page.NextCursor,
 		ProcessLocal: true, AutomaticRetryAllowed: false,
 	}
 	completed := debugTerminalAuditRecord(entry.binding,
@@ -436,6 +540,112 @@ func (s *DebugTerminalAgentInputService) Write(
 	}
 	s.mu.Unlock()
 	return result, nil
+}
+
+// Active returns the single process-local Agent-input binding for a Run. It
+// never exposes the bearer token and revalidates every durable permission
+// snapshot before making the binding available to a model-facing adapter.
+func (s *DebugTerminalAgentInputService) Active(
+	ctx context.Context,
+	runID string,
+) (DebugTerminalAgentInputBinding, bool, error) {
+	if err := s.requireAvailable(ctx); err != nil {
+		return DebugTerminalAgentInputBinding{}, false, err
+	}
+	runID = strings.TrimSpace(runID)
+	if !domain.ValidAgentID(runID) {
+		return DebugTerminalAgentInputBinding{}, false, apperror.New(
+			apperror.CodeInvalidArgument,
+			"debug terminal Agent-input Run id is invalid")
+	}
+	s.mu.Lock()
+	var found *debugTerminalBindingEntry
+	for _, entry := range s.bindings {
+		if entry != nil && entry.binding.RunID == runID &&
+			!entry.binding.Revoked {
+			if found != nil {
+				s.mu.Unlock()
+				return DebugTerminalAgentInputBinding{}, false, apperror.New(
+					apperror.CodeConflict,
+					"Run has multiple debug terminal Agent-input bindings")
+			}
+			found = entry
+		}
+	}
+	s.mu.Unlock()
+	if found == nil {
+		return DebugTerminalAgentInputBinding{}, false, nil
+	}
+	entry, err := s.bindingEntry(ctx, found.binding.ID)
+	if err != nil {
+		if apperror.CodeOf(err) == apperror.CodeFailedPrecondition {
+			return DebugTerminalAgentInputBinding{}, false, nil
+		}
+		return DebugTerminalAgentInputBinding{}, false, err
+	}
+	if err := s.revalidateBinding(ctx, entry); err != nil {
+		if apperror.CodeOf(err) == apperror.CodePolicyDenied ||
+			apperror.CodeOf(err) == apperror.CodeFailedPrecondition {
+			return DebugTerminalAgentInputBinding{}, false, nil
+		}
+		return DebugTerminalAgentInputBinding{}, false, err
+	}
+	return entry.binding, true, nil
+}
+
+// Read returns a bounded cursor page without consuming renderer output. The
+// lease and all durable Run bindings are checked again for every page.
+func (s *DebugTerminalAgentInputService) Read(
+	ctx context.Context,
+	request ReadDebugTerminalAgentOutputRequest,
+) (DebugTerminalAgentOutputResult, error) {
+	if err := s.requireAvailable(ctx); err != nil {
+		return DebugTerminalAgentOutputResult{}, err
+	}
+	request.BindingID = strings.TrimSpace(request.BindingID)
+	if request.ProtocolVersion != DebugTerminalAgentInputProtocolVersion ||
+		!domain.ValidAgentID(request.BindingID) || request.MaxBytes < 1 ||
+		request.MaxBytes > terminalruntime.MaxTerminalOutputReadBytes {
+		return DebugTerminalAgentOutputResult{}, apperror.New(
+			apperror.CodeInvalidArgument,
+			"debug terminal Agent-output read is invalid")
+	}
+	entry, err := s.bindingEntry(ctx, request.BindingID)
+	if err != nil {
+		return DebugTerminalAgentOutputResult{}, err
+	}
+	if err := s.revalidateBinding(ctx, entry); err != nil {
+		return DebugTerminalAgentOutputResult{}, err
+	}
+	cursor := request.Cursor
+	if cursor == 0 || cursor < entry.outputFloor {
+		cursor = entry.outputFloor
+	}
+	read, err := s.bridge.Read(ctx, terminalruntime.AgentReadRequest{
+		Token: entry.token, Scope: entry.scope, Cursor: cursor,
+		MaxBytes: request.MaxBytes,
+	})
+	if err != nil {
+		return DebugTerminalAgentOutputResult{}, apperror.Wrap(
+			apperror.CodeFailedPrecondition,
+			"debug terminal Agent-output read was denied", err)
+	}
+	if read.ProtocolVersion != terminalruntime.AgentInputBridgeProtocolVersion ||
+		read.LeaseID != entry.binding.ID ||
+		read.SessionID != entry.binding.TerminalSessionID ||
+		read.Page.SessionID != entry.binding.TerminalSessionID {
+		return DebugTerminalAgentOutputResult{}, apperror.New(
+			apperror.CodeConflict,
+			"debug terminal Agent-output read returned an inconsistent binding")
+	}
+	return DebugTerminalAgentOutputResult{
+		ProtocolVersion: DebugTerminalAgentInputProtocolVersion,
+		BindingID:       entry.binding.ID, TerminalSessionID: read.SessionID,
+		Backend: read.Backend, BaseCursor: read.Page.BaseCursor,
+		NextCursor: read.Page.NextCursor,
+		Data:       append([]byte(nil), read.Page.Data...),
+		Dropped:    read.Page.Dropped, State: read.Page.State,
+	}, nil
 }
 
 func (s *DebugTerminalAgentInputService) Revoke(
@@ -496,7 +706,8 @@ func (s *DebugTerminalAgentInputService) Reconcile(ctx context.Context) int {
 		if err == nil && decision.Allowed &&
 			decision.AgentTerminalInput &&
 			sameBindingAndDurableState(entry.binding, current) &&
-			s.now().UTC().Before(entry.binding.ExpiresAt) {
+			s.now().UTC().Before(entry.binding.ExpiresAt) &&
+			s.bridgeBindingLive(ctx, entry) {
 			continue
 		}
 		if s.invalidateBindingWithAudit(ctx, entry) {
@@ -590,6 +801,7 @@ func (s *DebugTerminalAgentInputService) loadAuthorizedBindings(
 		mission.WorkspaceID != workspace.ID ||
 		mode.RunID != run.ID || mode.MissionID != mission.ID ||
 		mode.Surface != domain.ExecutionSurfaceCode ||
+		mode.Phase != domain.ExecutionPhaseDeliver ||
 		profile.RunID != run.ID || profile.MissionID != mission.ID ||
 		profile.Profile != domain.RunExecutionProfileLocal ||
 		interaction.RunID != run.ID ||
@@ -626,6 +838,42 @@ func (s *DebugTerminalAgentInputService) loadAuthorizedBindings(
 		run: run, mission: mission, workspace: workspace, mode: mode,
 		profile: profile, interaction: interaction, permission: permission,
 	}, decision, nil
+}
+
+func (s *DebugTerminalAgentInputService) revalidateBinding(
+	ctx context.Context,
+	entry *debugTerminalBindingEntry,
+) error {
+	current, decision, err := s.loadAuthorizedBindings(ctx, entry.binding.RunID)
+	if err == nil && sameBindingAndDurableState(entry.binding, current) &&
+		decision.Allowed && decision.AgentTerminalInput &&
+		s.bridgeBindingLive(ctx, entry) {
+		return nil
+	}
+	s.invalidateBindingWithAudit(ctx, entry)
+	if err != nil && apperror.CodeOf(err) != apperror.CodeConflict {
+		return err
+	}
+	return apperror.New(apperror.CodePolicyDenied,
+		"debug terminal Agent-input binding is stale or no longer authorized")
+}
+
+func (s *DebugTerminalAgentInputService) bridgeBindingLive(
+	ctx context.Context,
+	entry *debugTerminalBindingEntry,
+) bool {
+	if entry == nil || s.bridge == nil {
+		return false
+	}
+	read, err := s.bridge.Read(ctx, terminalruntime.AgentReadRequest{
+		Token: entry.token, Scope: entry.scope,
+		Cursor: math.MaxUint64, MaxBytes: 1,
+	})
+	return err == nil &&
+		read.ProtocolVersion == terminalruntime.AgentInputBridgeProtocolVersion &&
+		read.LeaseID == entry.binding.ID &&
+		read.SessionID == entry.binding.TerminalSessionID &&
+		read.Page.SessionID == entry.binding.TerminalSessionID
 }
 
 func normalizeDebugTerminalGrant(
@@ -747,6 +995,9 @@ func projectDebugTerminalBinding(bindings debugTerminalAgentBindings,
 		RunID:           bindings.run.ID, MissionID: bindings.mission.ID,
 		SessionID: bindings.run.SessionID, WorkspaceID: bindings.workspace.ID,
 		TerminalSessionID:        issued.Lease.Scope.TerminalSessionID,
+		WorkspaceRootSHA256:      issued.WorkspaceRootSHA256,
+		ModeSnapshotID:           bindings.mode.ID,
+		ModeRevision:             bindings.mode.Revision,
 		InteractionSnapshotID:    issued.Lease.Scope.InteractionSnapshotID,
 		InteractionRevision:      issued.Lease.Scope.InteractionRevision,
 		ExecutionProfileRevision: issued.Lease.Scope.ExecutionProfileRevision,
@@ -768,6 +1019,7 @@ func sameDebugTerminalBindings(left debugTerminalAgentBindings,
 		left.run.MissionID == right.run.MissionID &&
 		left.run.SessionID == right.run.SessionID &&
 		left.workspace.ID == right.workspace.ID &&
+		filepath.Clean(left.workspace.RootPath) == filepath.Clean(right.workspace.RootPath) &&
 		left.mode.ID == right.mode.ID &&
 		left.mode.Revision == right.mode.Revision &&
 		left.profile.ID == right.profile.ID &&
@@ -781,10 +1033,18 @@ func sameDebugTerminalBindings(left debugTerminalAgentBindings,
 func sameBindingAndDurableState(binding DebugTerminalAgentInputBinding,
 	current debugTerminalAgentBindings,
 ) bool {
+	workspaceRootSHA256, err := terminalruntime.WorkspaceRootSHA256(
+		filepath.Clean(current.workspace.RootPath))
+	if err != nil {
+		return false
+	}
 	return binding.RunID == current.run.ID &&
 		binding.MissionID == current.mission.ID &&
 		binding.SessionID == current.run.SessionID &&
 		binding.WorkspaceID == current.workspace.ID &&
+		binding.WorkspaceRootSHA256 == workspaceRootSHA256 &&
+		binding.ModeSnapshotID == current.mode.ID &&
+		binding.ModeRevision == current.mode.Revision &&
 		binding.InteractionSnapshotID == current.interaction.ID &&
 		binding.InteractionRevision == current.interaction.Revision &&
 		binding.ExecutionProfileRevision == current.profile.Revision &&

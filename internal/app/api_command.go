@@ -48,7 +48,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	permissionControl := fs.Bool("enable-permission-control", false,
 		"enable operator-selected Run execution permissions")
 	hostCommandProposals := fs.Bool("enable-host-command-proposals", false,
-		"enable exact non-shell host command proposals with independent operator review")
+		"enable exact process or canonical PowerShell/Git Bash proposals with independent operator review")
 	dangerFullAccess := fs.Bool("enable-danger-full-access", false,
 		"enable danger-full-access permission selection")
 	debugMaximumAccess := fs.Bool("enable-debug-maximum-access", false,

@@ -337,12 +337,21 @@ func (s *desktopUserTerminalService) reconcileBindings(ctx context.Context) int 
 			continue
 		}
 		mode, modeErr := s.store.GetRunMode(ctx, run.ID)
+		mission, missionErr := s.store.GetMission(ctx, run.MissionID)
+		var workspace store.WorkspaceRecord
+		var workspaceErr error
+		if missionErr == nil {
+			workspace, workspaceErr = s.store.GetWorkspaceByID(ctx, mission.WorkspaceID)
+		}
 		profile, profileErr := s.store.GetRunExecutionProfile(ctx, run.ID)
 		interaction, interactionErr := s.store.GetRunExecutionInteraction(ctx, run.ID)
 		permission, permissionErr := s.store.GetRunExecutionPermission(ctx, run.ID)
-		if modeErr != nil || profileErr != nil || interactionErr != nil ||
+		if modeErr != nil || missionErr != nil || workspaceErr != nil ||
+			profileErr != nil || interactionErr != nil ||
 			permissionErr != nil {
 			if errors.Is(modeErr, sql.ErrNoRows) ||
+				errors.Is(missionErr, sql.ErrNoRows) ||
+				errors.Is(workspaceErr, sql.ErrNoRows) ||
 				errors.Is(profileErr, sql.ErrNoRows) ||
 				errors.Is(interactionErr, sql.ErrNoRows) ||
 				errors.Is(permissionErr, sql.ErrNoRows) {
@@ -351,7 +360,12 @@ func (s *desktopUserTerminalService) reconcileBindings(ctx context.Context) int 
 			}
 			continue
 		}
+		workspaceRootSHA256, rootErr := terminalruntime.WorkspaceRootSHA256(
+			filepath.Clean(workspace.RootPath))
 		if mode.Surface != domain.ExecutionSurfaceCode ||
+			rootErr != nil || mission.WorkspaceID != session.Scope.WorkspaceID ||
+			workspace.ID != session.Scope.WorkspaceID ||
+			workspaceRootSHA256 != session.WorkspaceRootSHA256 ||
 			profile.Profile != domain.RunExecutionProfileLocal ||
 			interaction.ID != session.Scope.InteractionSnapshotID ||
 			interaction.Revision != session.Scope.InteractionRevision ||

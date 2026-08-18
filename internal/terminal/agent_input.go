@@ -25,9 +25,10 @@ type IssueAgentInputRequest struct {
 }
 
 type IssuedAgentInput struct {
-	ProtocolVersion string
-	Lease           executionauth.TerminalInputLease
-	Token           string
+	ProtocolVersion     string
+	Lease               executionauth.TerminalInputLease
+	Token               string
+	WorkspaceRootSHA256 string
 }
 
 type AgentWriteRequest struct {
@@ -41,6 +42,21 @@ type AgentWriteResult struct {
 	LeaseID         string
 	SessionID       string
 	BytesWritten    int
+}
+
+type AgentReadRequest struct {
+	Token    string
+	Scope    executionauth.TerminalInputScope
+	Cursor   uint64
+	MaxBytes int
+}
+
+type AgentReadResult struct {
+	ProtocolVersion string
+	LeaseID         string
+	SessionID       string
+	Backend         string
+	Page            OutputPage
 }
 
 func NewAgentInputBridge(manager *Manager,
@@ -86,6 +102,7 @@ func (b *AgentInputBridge) Issue(ctx context.Context,
 	return IssuedAgentInput{
 		ProtocolVersion: AgentInputBridgeProtocolVersion,
 		Lease:           issued.Lease, Token: issued.Token,
+		WorkspaceRootSHA256: session.WorkspaceRootSHA256,
 	}, nil
 }
 
@@ -102,19 +119,7 @@ func (b *AgentInputBridge) Write(ctx context.Context,
 		return AgentWriteResult{}, err
 	}
 	session, err := b.manager.Get(request.Scope.TerminalSessionID)
-	if err != nil || session.State != SessionRunning ||
-		session.Scope.WorkspaceID != request.Scope.WorkspaceID ||
-		session.Scope.RunID != request.Scope.RunID ||
-		session.Scope.InteractionSnapshotID !=
-			request.Scope.InteractionSnapshotID ||
-		session.Scope.InteractionRevision != request.Scope.InteractionRevision ||
-		session.Scope.ExecutionProfileRevision !=
-			request.Scope.ExecutionProfileRevision ||
-		session.Scope.PermissionSnapshotID !=
-			request.Scope.PermissionSnapshotID ||
-		session.Scope.PermissionRevision != request.Scope.PermissionRevision ||
-		session.Scope.PermissionMode != request.Scope.PermissionMode ||
-		session.Scope.Mode != request.Scope.Mode ||
+	if err != nil || !agentSessionMatchesScope(session, request.Scope) ||
 		session.ID != lease.Scope.TerminalSessionID {
 		return AgentWriteResult{}, ErrAgentInputBridgeDenied
 	}
@@ -126,6 +131,52 @@ func (b *AgentInputBridge) Write(ctx context.Context,
 		ProtocolVersion: AgentInputBridgeProtocolVersion,
 		LeaseID:         lease.ID, SessionID: session.ID, BytesWritten: count,
 	}, nil
+}
+
+// Read returns a bounded, cursor-addressed projection of the same terminal
+// protected by the short-lived Agent-input lease. Reading does not consume
+// bytes from the user-owned terminal ring, so the renderer remains primary.
+func (b *AgentInputBridge) Read(ctx context.Context,
+	request AgentReadRequest,
+) (AgentReadResult, error) {
+	if b == nil || b.manager == nil || b.broker == nil ||
+		ctx == nil || ctx.Err() != nil || request.MaxBytes < 1 ||
+		request.MaxBytes > MaxTerminalOutputReadBytes {
+		return AgentReadResult{}, ErrAgentInputBridgeDenied
+	}
+	lease, err := b.broker.Authorize(request.Token, request.Scope)
+	if err != nil {
+		return AgentReadResult{}, err
+	}
+	session, err := b.manager.Get(request.Scope.TerminalSessionID)
+	if err != nil || !agentSessionMatchesScope(session, request.Scope) ||
+		session.ID != lease.Scope.TerminalSessionID {
+		return AgentReadResult{}, ErrAgentInputBridgeDenied
+	}
+	page, err := b.manager.Read(session.ID, request.Cursor, request.MaxBytes)
+	if err != nil {
+		return AgentReadResult{}, err
+	}
+	return AgentReadResult{
+		ProtocolVersion: AgentInputBridgeProtocolVersion,
+		LeaseID:         lease.ID, SessionID: session.ID, Backend: session.Backend,
+		Page: page,
+	}, nil
+}
+
+func agentSessionMatchesScope(session Session,
+	scope executionauth.TerminalInputScope,
+) bool {
+	return session.State == SessionRunning &&
+		session.Scope.WorkspaceID == scope.WorkspaceID &&
+		session.Scope.RunID == scope.RunID &&
+		session.Scope.InteractionSnapshotID == scope.InteractionSnapshotID &&
+		session.Scope.InteractionRevision == scope.InteractionRevision &&
+		session.Scope.ExecutionProfileRevision == scope.ExecutionProfileRevision &&
+		session.Scope.PermissionSnapshotID == scope.PermissionSnapshotID &&
+		session.Scope.PermissionRevision == scope.PermissionRevision &&
+		session.Scope.PermissionMode == scope.PermissionMode &&
+		session.Scope.Mode == scope.Mode
 }
 
 func (b *AgentInputBridge) Revoke(leaseID string, requestedBy string,
