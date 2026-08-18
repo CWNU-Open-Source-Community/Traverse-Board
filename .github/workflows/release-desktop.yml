@@ -2,6 +2,32 @@ name: Desktop release
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: Portable release version (for example v0.1.0-rc.1)
+        required: true
+        default: v0.1.0-rc.1
+        type: string
+  pull_request:
+    paths:
+      - '.github/workflows/release-desktop.yml'
+      - 'cmd/releasegen/**'
+      - 'scripts/build-desktop.ps1'
+      - 'scripts/check-windows-compat.ps1'
+      - 'scripts/package-portable-zip.ps1'
+      - 'scripts/release-desktop.ps1'
+      - 'scripts/smoke-desktop-operator-preview.ps1'
+      - 'scripts/verify-portable-zip.ps1'
+      - 'packaging/windows/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'web/package.json'
+      - 'web/package-lock.json'
+      - 'analyzers/Cargo.toml'
+      - 'analyzers/Cargo.lock'
+      - 'analyzers/rust-toolchain.toml'
+      - 'internal/analyzer/embedded/**'
+      - 'README.md'
   push:
     tags:
       - 'v*'
@@ -9,43 +35,247 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  portable-zip:
-    name: Portable ZIP (SBOM + NOTICE + checksums)
-    runs-on: windows-latest
+  dependency-boundaries:
+    name: Release dependency and license boundaries
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up current Go 1.25 patch
-        uses: actions/setup-go@v5
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          go-version: '1.25.x'
+          fetch-depth: 0
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
+      - name: Set up pinned Go 1.25.12
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          node-version: 24
+          go-version: '1.25.12'
+          cache: true
 
-      - name: Verify Go module graph is tidy (lockfile drift / undeclared dependency)
-        run: go mod tidy -diff
-
-      - name: Build Desktop (reproducibility check)
-        shell: powershell
-        run: ./scripts/build-desktop.ps1 -VerifyReproducible
-
-      - name: Package portable ZIP (SBOM + NOTICE + SHA-256 + manifest)
-        shell: powershell
-        run: ./scripts/package-portable-zip.ps1
-
-      - name: Upload portable ZIP artifacts
-        uses: actions/upload-artifact@v4
+      - name: Set up pinned Node 24.16.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          name: Prayu-portable
+          node-version: '24.16.0'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Verify Go module graph and checksums
+        run: |
+          go mod verify
+          go mod tidy -diff
+
+      - name: Verify Node lockfile
+        working-directory: web
+        run: npm ci --ignore-scripts
+
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.97.1 --profile minimal
+
+      - name: Verify locked Rust graph and canonical embedded analyzer
+        run: |
+          cargo +1.97.1 metadata --locked --format-version 1 --manifest-path analyzers/Cargo.toml >/dev/null
+          ./scripts/build-embedded-wasi.sh
+          cmp --silent \
+            analyzers/target/wasm32-wasip1/release/cyberagent-analyzer-fixture.wasm \
+            internal/analyzer/embedded/cyberagent-analyzer-fixture.wasm
+
+  portable-zip:
+    name: Portable ZIP (reproducible + verified)
+    needs: dependency-boundaries
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      msix_version: ${{ steps.release.outputs.msix_version }}
+      revision: ${{ steps.release.outputs.revision }}
+      artifact_name: ${{ steps.release.outputs.artifact_name }}
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve and validate release identity
+        id: release
+        shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if ($env:EVENT_NAME -eq "push") {
+            if ($env:REF_TYPE -ne "tag") { throw "Release pushes must be tags" }
+            $version = $env:REF_NAME
+          } elseif ($env:EVENT_NAME -eq "workflow_dispatch") {
+            $version = $env:INPUT_VERSION
+          } elseif ($env:EVENT_NAME -eq "pull_request") {
+            if ($env:PR_NUMBER -notmatch '^[1-9][0-9]*$') { throw "Pull request number is invalid" }
+            $version = "v0.1.0-pr.$($env:PR_NUMBER)"
+          } else {
+            throw "Unsupported Desktop release event"
+          }
+          if ($version -notmatch '^v(?<major>[0-9]+)\.(?<minor>[0-9]+)\.(?<patch>[0-9]+)(?:[-+][0-9A-Za-z.-]+)?$') {
+            throw "Desktop release version is invalid"
+          }
+          foreach ($part in @($Matches.major, $Matches.minor, $Matches.patch)) {
+            if ([int64]$part -gt 65535) { throw "MSIX release version component is too large" }
+          }
+          $msixVersion = "$($Matches.major).$($Matches.minor).$($Matches.patch).0"
+          $revision = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $revision -notmatch '^[0-9a-f]{40}$') {
+            throw "Release revision is invalid"
+          }
+          if ($env:EVENT_NAME -eq "push") {
+            git merge-base --is-ancestor $revision origin/main
+            if ($LASTEXITCODE -ne 0) { throw "Release tag is not reachable from origin/main" }
+          }
+          $artifactVersion = $version -replace '[^0-9A-Za-z._-]', '_'
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "msix_version=$msixVersion" >> $env:GITHUB_OUTPUT
+          "revision=$revision" >> $env:GITHUB_OUTPUT
+          "artifact_name=Prayu-desktop-release-$artifactVersion" >> $env:GITHUB_OUTPUT
+
+      - name: Set up pinned Go 1.25.12
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25.12'
+          cache: true
+
+      - name: Set up pinned Node 24.16.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.16.0'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build Desktop twice and compare bytes
+        shell: pwsh
+        run: ./scripts/build-desktop.ps1 -Version '${{ steps.release.outputs.version }}' -VerifyReproducible
+
+      - name: Package portable ZIP with SBOM, NOTICE, checksums, and manifest
+        shell: pwsh
+        run: ./scripts/package-portable-zip.ps1 -Version '${{ steps.release.outputs.version }}' -VerifyReproducible
+
+      - name: Verify downloaded-shape artifact and start extracted executable
+        shell: pwsh
+        run: |
+          ./scripts/verify-portable-zip.ps1 `
+            -ExpectedVersion '${{ steps.release.outputs.version }}' `
+            -ExpectedRevision '${{ steps.release.outputs.revision }}' `
+            -SmokeTest
+
+      - name: Package unsigned per-user MSIX candidate
+        shell: pwsh
+        run: ./scripts/package-msix.ps1 -Version '${{ steps.release.outputs.msix_version }}'
+
+      - name: Upload exact Desktop release candidates
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.release.outputs.artifact_name }}
           if-no-files-found: error
+          retention-days: 14
           path: |
-            build/desktop/*.zip
+            build/desktop/cyberagent-desktop.exe
+            build/desktop/Prayu-portable-*.zip
+            build/desktop/PrayuDesktop.msix
             build/desktop/SHA256SUMS
             build/desktop/portable-zip-manifest.json
+            build/desktop/msix-manifest.json
+            build/desktop/release-metadata.json
+            build/desktop/windows-compatibility.json
             build/desktop/sbom.json
             build/desktop/NOTICE
+
+  publish:
+    name: Publish verified GitHub Release
+    if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+    needs: portable-zip
+    runs-on: windows-latest
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      MSIX_CERTIFICATE_BASE64: ${{ secrets.MSIX_CERTIFICATE_BASE64 }}
+      MSIX_CERTIFICATE_PASSWORD: ${{ secrets.MSIX_CERTIFICATE_PASSWORD }}
+    steps:
+      - name: Checkout released source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Download the exact candidate from this run
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build/desktop | Out-Null
+          gh run download $env:GITHUB_RUN_ID `
+            --repo $env:GITHUB_REPOSITORY `
+            --name '${{ needs.portable-zip.outputs.artifact_name }}' `
+            --dir build/desktop
+
+      - name: Reverify downloaded candidate
+        shell: pwsh
+        run: |
+          ./scripts/verify-portable-zip.ps1 `
+            -ExpectedVersion '${{ needs.portable-zip.outputs.version }}' `
+            -ExpectedRevision '${{ needs.portable-zip.outputs.revision }}'
+
+      - name: Sign MSIX when the protected certificate is configured
+        if: ${{ env.MSIX_CERTIFICATE_BASE64 != '' }}
+        shell: pwsh
+        run: |
+          $certificate = Join-Path $env:RUNNER_TEMP "msix-cert.pfx"
+          try {
+            [System.IO.File]::WriteAllBytes(
+              $certificate,
+              [System.Convert]::FromBase64String($env:MSIX_CERTIFICATE_BASE64)
+            )
+            ./scripts/package-msix.ps1 `
+              -Version '${{ needs.portable-zip.outputs.msix_version }}' `
+              -CertificatePath $certificate `
+              -CertificatePassword $env:MSIX_CERTIFICATE_PASSWORD
+          } finally {
+            if (Test-Path -LiteralPath $certificate) {
+              Remove-Item -LiteralPath $certificate -Force
+            }
+          }
+
+      - name: Create verified release asset set
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ needs.portable-zip.outputs.version }}
+        run: |
+          $assets = @(
+            "build/desktop/Prayu-portable-$env:RELEASE_VERSION-windows-amd64.zip",
+            "build/desktop/SHA256SUMS",
+            "build/desktop/portable-zip-manifest.json",
+            "build/desktop/release-metadata.json",
+            "build/desktop/windows-compatibility.json",
+            "build/desktop/sbom.json",
+            "build/desktop/NOTICE"
+          )
+          $msixManifest = "build/desktop/msix-manifest.json"
+          if ((Test-Path -LiteralPath $msixManifest -PathType Leaf) -and
+              (Get-Content -LiteralPath $msixManifest -Raw | ConvertFrom-Json).signed) {
+            $assets += "build/desktop/PrayuDesktop.msix", $msixManifest
+          }
+          foreach ($asset in $assets) {
+            if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) {
+              throw "Release asset is missing: $asset"
+            }
+          }
+          $arguments = @(
+            "release", "create", $env:RELEASE_VERSION
+          ) + $assets + @(
+            "--repo", $env:GITHUB_REPOSITORY,
+            "--verify-tag",
+            "--generate-notes",
+            "--title", "Prayu Desktop $env:RELEASE_VERSION"
+          )
+          if ($env:RELEASE_VERSION.Contains("-")) { $arguments += "--prerelease" }
+          & gh @arguments
+          if ($LASTEXITCODE -ne 0) { throw "GitHub Release creation failed" }

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Per-user MSIX manifest for Prayu Desktop. Identity.Name and
+  Identity.Publisher are the stable package identity; Publisher must match the
+  code-signing certificate subject. Version is Major.Minor.Build.Revision.
+  WebView2 Evergreen Runtime is a framework dependency, and the desktop app
+  additionally runs its own bounded runtime precheck.
+-->
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+         xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10">
+  <Identity Name="PrayuDesktop"
+            Publisher="CN=Prayu"
+            Version="0.1.0.0" />
+  <Properties>
+    <DisplayName>Prayu</DisplayName>
+    <PublisherDisplayName>Prayu</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19044.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+  <Applications>
+    <Application Id="Prayu" Executable="cyberagent-desktop.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="Prayu" Description="Local-first, recoverable, auditable AI agent workbench"
+                          Square150x150Logo="Assets\Square150x150Logo.png"
+                          Square44x44Logo="Assets\Square44x44Logo.png"
+                          BackgroundColor="transparent" />
+      <Extensions>
+        <desktop:Extension Category="windows.fullTrustProcess" Executable="cyberagent-desktop.exe" />
+      </Extensions>
+    </Application>
+  </Applications>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

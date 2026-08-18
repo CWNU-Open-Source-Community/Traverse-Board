@@ -96,6 +96,15 @@ Add-Check "release_identity" $(if ($metadata.protocol_version -eq "portable_rele
     $metadata.revision -match '^[0-9a-f]{40}$' -and
     [int64]$metadata.source_date_epoch -gt 0) { "pass" } else { "fail" }) `
     "version, revision, and source date are pinned"
+Add-Check "release_toolchain" $(if ($metadata.go_version -match '^go[0-9]+\.[0-9]+' -and
+    $metadata.node_version -match '^v[0-9]+\.[0-9]+\.[0-9]+' -and
+    $metadata.npm_version -match '^[0-9]+\.[0-9]+\.[0-9]+' -and
+    $metadata.rust_version -match '^[0-9]+\.[0-9]+\.[0-9]+' -and
+    $metadata.go_sum_sha256 -match '^[0-9a-f]{64}$' -and
+    $metadata.node_lock_sha256 -match '^[0-9a-f]{64}$' -and
+    $metadata.cargo_lock_sha256 -match '^[0-9a-f]{64}$' -and
+    $metadata.embedded_analyzer_sha256 -match '^[0-9a-f]{64}$') { "pass" } else { "fail" }) `
+    "Go, Node, npm, Rust, lockfiles, and the embedded analyzer are hash-bound"
 Add-Check "go_target" $(if ($metadata.target_os -eq "windows" -and
     $metadata.target_arch -in @("amd64", "arm64") -and
     $metadata.cgo_enabled -match '^[01]$') { "pass" } else { "fail" }) `
