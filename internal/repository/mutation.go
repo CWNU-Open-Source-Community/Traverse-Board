@@ -454,9 +454,8 @@ func normalizeRepositoryRoot(root string) (string, error) {
 	if strings.TrimSpace(root) == "" || strings.ContainsRune(root, 0) {
 		return "", errors.New("repository root is invalid")
 	}
-	info, err := os.Stat(filepath.Join(root, ".git"))
-	if err != nil || !info.IsDir() {
-		return "", errors.New("repository root does not contain a .git directory")
+	if _, err := os.Stat(filepath.Join(root, ".git")); err != nil {
+		return "", errors.New("repository root does not contain Git metadata")
 	}
 	return root, nil
 }

@@ -1174,3 +1174,44 @@ explicit network commands are denied, and any Policy result requiring approval i
 routed away from this automatic tool. Because `full_access` is still unsandboxed
 host execution, network or credential use requires a separate exact review, while
 Docker `network none` remains the path for containment evidence.
+
+## Transactional Workspace Checkpoints
+
+ADR 0118 and schema v117 add `workspace-checkpoint.v1` as a storage and Application
+boundary below all product surfaces. A checkpoint binds one Run/Workspace/root
+fingerprint to its base commit, branch, exact raw Git index, deterministically ordered
+tracked/untracked manifest, source receipt, attempt/capability generation, and recovery
+grade. File and index content is SHA-256 addressed and deduplicated; SQLite sealing
+triggers make referenced blobs immutable and maintain references atomically. Per-entry,
+per-index, per-checkpoint, preview/conflict, and global-store ceilings are fixed in Go,
+with the 2-GiB store bound also enforced by SQLite so concurrent writers cannot bypass
+it. Ignored, generated, large, sensitive-looking, linked/reparse, special, unreadable,
+and external content is explicit evidence, not an implicit recovery promise.
+
+FileEdit/model Workspace writes, Run-owned foreground batches/background Jobs, and
+typed Git writes open and close one operation-keyed transaction around the logical
+mutation. The same public boundary is available to the agent-merge writer. Manifest,
+Git-status/index, receipt, invocation, attempt, capability-generation, and lease facts
+provide attribution. Since no portable filesystem watcher is installed, Shell-derived
+checkpoints deliberately remain `partial`; effects outside the canonical root are never
+claimed as reversible.
+
+Restore is an append-only transaction under current authority. Preview compares the
+reviewed cursor, historical target, and a fresh live capture. Path/index/root/branch/
+commit/case/link drift conflicts before any write. Confirmed Undo/Redo/Rewind requires
+a paused Code/Deliver Run, active Session, no current execution lease, exact process
+capability, non-conservative permission, explicit operator, expected cursor, and stable
+operation key. Application uses root-confined atomic file writes plus exact raw-index
+replacement, never `git reset --hard` or blanket untracked cleanup. Terminal capture
+must exactly verify the target before the CAS cursor advances.
+
+Fork creates and verifies a distinct Git worktree and branch, then atomically registers
+a new Workspace/Mission/Run/Session/continuity node. It copies file/index state but no
+approval, credential, capability, execution lease, process, terminal, or network grant;
+the source history and cursor stay immutable. CLI may provide an explicit operator path;
+HTTP/Desktop never accept one and instead use a Go-derived sibling keyed by the operation
+digest, with no root path in the response. Prepared operations reconcile on startup:
+ordinary interrupted boundaries close with explicit partial evidence, restores resume
+only under the same live identity, and a registered Fork finishes its existing Run
+instead of creating a duplicate. Desktop, CLI, and OpenAPI are thin projections over
+this single service. Operational details are in [Workspace Checkpoints](workspace-checkpoints.md).

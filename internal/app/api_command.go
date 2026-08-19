@@ -130,6 +130,15 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	if err := a.ensureStore(); err != nil {
 		return err
 	}
+	workspaceCheckpoints, err := application.NewWorkspaceCheckpointService(a.store,
+		permissionCapabilities)
+	if err != nil {
+		return err
+	}
+	if _, err := workspaceCheckpoints.Reconcile(ctx); err != nil {
+		return apperror.Wrap(apperror.CodeUnavailable,
+			"Workspace checkpoint startup reconciliation failed", err)
+	}
 	dockerSandbox, err := a.newDockerSandboxService(*dockerExecution,
 		permissionCapabilities)
 	if err != nil {
@@ -177,7 +186,8 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		WithRegistryReload(a.models, a.store)
 	fileEditReview := application.NewFileEditReviewService(a.store)
 	fileEditProposal := application.NewFileEditProposalService(a.store, a.checker)
-	fileEditApply := application.NewFileEditApplyService(a.store, a.checker)
+	fileEditApply := application.NewFileEditApplyService(a.store, a.checker,
+		workspaceCheckpoints)
 	runWakeControl := application.NewRunWakeControlService(a.store)
 	runWakeExecution := application.NewForegroundRunWakeConsumer(a.store,
 		executionControl)
@@ -249,6 +259,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		EvidenceAttachmentEnabled:               controlToken != "",
 		VerificationEvidenceEnabled:             controlToken != "",
 		EmbeddedAnalyzerExecutionEnabled:        controlToken != "",
+		WorkspaceCheckpointControlEnabled:       controlToken != "",
 		RunLifecycleController:                  lifecycleControl,
 		RunExecutionController:                  executionControl,
 		PublicModelStreamSource:                 executionControl,
@@ -270,6 +281,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		RunWakeWorkerHealthSource:           workerHealth,
 		SkillInstallationController:         skillInstallation,
 		EmbeddedAnalyzerExecutionController: embeddedAnalyzerExecution,
+		WorkspaceCheckpointController:       workspaceCheckpoints,
 		DockerSandboxController:             dockerSandbox,
 		ModelRegistry:                       a.models,
 		AppVersion:                          Version,

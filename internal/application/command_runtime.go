@@ -15,6 +15,7 @@ import (
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/toolgateway"
+	"cyberagent-workbench/internal/workspacecheckpoint"
 )
 
 type CommandRuntimeStore interface {
@@ -36,6 +37,7 @@ type CommandRuntimeService struct {
 	store        CommandRuntimeStore
 	manager      *runner.CommandRuntimeManager
 	capabilities domain.ExecutionPermissionRuntimeCapabilities
+	checkpoints  *WorkspaceCheckpointService
 }
 
 type commandRuntimeBindings struct {
@@ -61,7 +63,8 @@ func NewCommandRuntimeService(store CommandRuntimeStore,
 			"command runtime requires the danger-full-access startup gate")
 	}
 	return &CommandRuntimeService{store: store, manager: manager,
-		capabilities: capabilities}, nil
+		capabilities: capabilities,
+		checkpoints:  embeddedWorkspaceCheckpointService(store, capabilities)}, nil
 }
 
 func (s *CommandRuntimeService) ExecuteCommandRuntime(ctx context.Context,
@@ -84,20 +87,54 @@ func (s *CommandRuntimeService) ExecuteCommandRuntime(ctx context.Context,
 	}
 	switch input.Action {
 	case toolgateway.CommandRuntimeActionRun:
-		return s.runForeground(ctx, scope, input, bindings, result)
+		boundaryRequest := s.commandRuntimeBoundaryRequest(scope,
+			commandRuntimeWorkspaceBoundaryKey("foreground", scope.OperationKey),
+			scope.InvocationID)
+		if s.checkpoints != nil {
+			if _, err := s.checkpoints.BeginBoundary(ctx, boundaryRequest); err != nil {
+				return result, err
+			}
+		}
+		value, runErr := s.runForeground(ctx, scope, input, bindings, result)
+		boundaryCause := runErr
+		if boundaryCause == nil {
+			boundaryCause = commandRuntimeMutationResultError(value)
+		}
+		boundaryErr := s.completeCommandRuntimeBoundary(ctx, boundaryRequest,
+			boundaryCause)
+		return value, errors.Join(runErr, boundaryErr)
 	case toolgateway.CommandRuntimeActionStart:
+		if err := s.completeTerminalCommandRuntimeBoundaries(ctx, scope.RunID); err != nil {
+			return result, err
+		}
 		resolved, err := runner.NormalizeCommandRuntimeSpec(input.Commands[0],
 			bindings.workspace.RootPath)
 		if err != nil {
 			return result, commandRuntimeError(err)
 		}
+		operationDigest, jobID := runner.CommandRuntimeOperationIdentity(scope.RunID,
+			scope.OperationKey)
+		boundaryRequest := s.commandRuntimeBoundaryRequest(scope, operationDigest, jobID)
+		if s.checkpoints != nil {
+			if _, err := s.checkpoints.BeginBoundary(ctx, boundaryRequest); err != nil {
+				return result, err
+			}
+		}
 		job, replayed, err := s.manager.Start(ctx, runner.CommandRuntimeStartRequest{
 			Scope: s.runnerScope(scope, bindings, scope.OperationKey), Spec: resolved})
 		if err != nil {
-			return result, commandRuntimeError(err)
+			operationErr := commandRuntimeError(err)
+			return result, errors.Join(operationErr,
+				s.completeCommandRuntimeBoundary(ctx, boundaryRequest, operationErr))
 		}
 		result.Jobs = append(result.Jobs, job)
 		result.Replayed = replayed
+		if job.State.Terminal() {
+			if boundaryErr := s.completeCommandRuntimeBoundary(ctx, boundaryRequest,
+				commandRuntimeJobStateError(job.State)); boundaryErr != nil {
+				return result, boundaryErr
+			}
+		}
 		return result, nil
 	case toolgateway.CommandRuntimeActionList:
 		jobs, err := s.manager.List(ctx, runner.CommandRuntimeListFilter{
@@ -128,6 +165,9 @@ func (s *CommandRuntimeService) ExecuteCommandRuntime(ctx context.Context,
 				return result, commandRuntimeError(err)
 			}
 			appendCommandRuntimeArtifact(&result, record)
+			if err := s.completeCommandRuntimeJobBoundary(ctx, record); err != nil {
+				return result, err
+			}
 		}
 		return result, nil
 	case toolgateway.CommandRuntimeActionWriteStdin:
@@ -141,6 +181,15 @@ func (s *CommandRuntimeService) ExecuteCommandRuntime(ctx context.Context,
 		}
 		result.Jobs = append(result.Jobs, job)
 		result.Replayed = replayed
+		if job.State.Terminal() {
+			record, getErr := s.store.GetCommandRuntimeJob(ctx, input.JobID)
+			if getErr != nil {
+				return result, commandRuntimeError(getErr)
+			}
+			if err := s.completeCommandRuntimeJobBoundary(ctx, record); err != nil {
+				return result, err
+			}
+		}
 		return result, nil
 	case toolgateway.CommandRuntimeActionCancel, toolgateway.CommandRuntimeActionKill:
 		record, err := s.authorizeJob(ctx, input.JobID, bindings)
@@ -151,6 +200,9 @@ func (s *CommandRuntimeService) ExecuteCommandRuntime(ctx context.Context,
 			result.Jobs = append(result.Jobs, runner.ProjectCommandRuntimeJob(record))
 			result.Replayed = true
 			appendCommandRuntimeArtifact(&result, record)
+			if err := s.completeCommandRuntimeJobBoundary(ctx, record); err != nil {
+				return result, err
+			}
 			return result, nil
 		}
 		if _, err := s.authorizeActiveJob(ctx, input.JobID, bindings); err != nil {
@@ -166,6 +218,15 @@ func (s *CommandRuntimeService) ExecuteCommandRuntime(ctx context.Context,
 			return result, commandRuntimeError(err)
 		}
 		result.Jobs = append(result.Jobs, job)
+		if job.State.Terminal() {
+			record, getErr := s.store.GetCommandRuntimeJob(ctx, input.JobID)
+			if getErr != nil {
+				return result, commandRuntimeError(getErr)
+			}
+			if err := s.completeCommandRuntimeJobBoundary(ctx, record); err != nil {
+				return result, err
+			}
+		}
 		return result, nil
 	default:
 		return result, apperror.New(apperror.CodeInvalidArgument,
@@ -217,6 +278,93 @@ func (s *CommandRuntimeService) runForeground(ctx context.Context,
 		}
 	}
 	return result, nil
+}
+
+func (s *CommandRuntimeService) commandRuntimeBoundaryRequest(
+	scope toolgateway.CommandRuntimeContext, operationKey, receiptID string,
+) WorkspaceMutationBoundaryRequest {
+	return WorkspaceMutationBoundaryRequest{RunID: scope.RunID,
+		Kind: workspacecheckpoint.TransactionCommandBatch, OperationKey: operationKey,
+		TriggerReceiptID: receiptID, InvocationID: scope.InvocationID,
+		CapabilityGeneration: scope.CapabilityGeneration, LeaseID: scope.LeaseID,
+		LeaseGeneration: scope.LeaseGeneration,
+		IncompleteReasons: []string{
+			"filesystem watcher attribution is unavailable; shell writes are inferred from bounded manifests and Git state",
+		}}
+}
+
+func (s *CommandRuntimeService) completeCommandRuntimeBoundary(ctx context.Context,
+	request WorkspaceMutationBoundaryRequest, cause error,
+) error {
+	if s == nil || s.checkpoints == nil {
+		return nil
+	}
+	completionCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx),
+		30*time.Second)
+	defer cancel()
+	_, err := s.checkpoints.CompleteBoundary(completionCtx, request, cause)
+	return err
+}
+
+func (s *CommandRuntimeService) completeCommandRuntimeJobBoundary(ctx context.Context,
+	job runner.CommandRuntimeJob,
+) error {
+	if s == nil || s.checkpoints == nil || !job.State.Terminal() {
+		return nil
+	}
+	operationDigest := workspaceBoundaryOperationDigest(job.RunID,
+		workspacecheckpoint.TransactionCommandBatch, job.OperationDigest)
+	if _, found, err := s.checkpoints.store.GetWorkspaceCheckpointTransactionByOperation(ctx,
+		operationDigest); err != nil {
+		return apperror.Normalize(err)
+	} else if !found {
+		// Foreground batch Jobs are covered by one batch-level boundary. Only
+		// background Jobs have a per-Job boundary keyed by OperationDigest.
+		return nil
+	}
+	return s.completeCommandRuntimeBoundary(ctx, WorkspaceMutationBoundaryRequest{
+		RunID: job.RunID, Kind: workspacecheckpoint.TransactionCommandBatch,
+		OperationKey: job.OperationDigest, TriggerReceiptID: job.ID,
+		InvocationID: job.InvocationID}, commandRuntimeJobStateError(job.State))
+}
+
+func (s *CommandRuntimeService) completeTerminalCommandRuntimeBoundaries(ctx context.Context,
+	runID string,
+) error {
+	if s == nil || s.checkpoints == nil {
+		return nil
+	}
+	jobs, err := s.store.ListCommandRuntimeJobs(ctx,
+		runner.CommandRuntimeListFilter{RunID: runID, Limit: 500})
+	if err != nil {
+		return commandRuntimeError(err)
+	}
+	for _, job := range jobs {
+		if job.State.Terminal() {
+			if err := s.completeCommandRuntimeJobBoundary(ctx, job); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func commandRuntimeMutationResultError(
+	result toolgateway.CommandRuntimeExecutionResult,
+) error {
+	for _, job := range result.Jobs {
+		if err := commandRuntimeJobStateError(job.State); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func commandRuntimeJobStateError(state runner.CommandRuntimeJobState) error {
+	if state == runner.CommandRuntimeJobCompleted {
+		return nil
+	}
+	return fmt.Errorf("command runtime workspace mutation ended in state %s", state)
 }
 
 func (s *CommandRuntimeService) cancelForegroundJob(jobID string) error {
@@ -401,12 +549,18 @@ func (s *CommandRuntimeService) Reconcile(ctx context.Context) (int, error) {
 		return 0, commandRuntimeError(err)
 	}
 	jobs, err := s.store.ListCommandRuntimeJobs(ctx,
-		runner.CommandRuntimeListFilter{ActiveOnly: true, Limit: 500})
+		runner.CommandRuntimeListFilter{Limit: 500})
 	if err != nil {
 		return 0, commandRuntimeError(err)
 	}
 	stopped := reconciled
 	for _, job := range jobs {
+		if job.State.Terminal() {
+			if completeErr := s.completeCommandRuntimeJobBoundary(ctx, job); completeErr != nil {
+				return stopped, completeErr
+			}
+			continue
+		}
 		if !s.manager.OwnsActiveJob(job) {
 			continue
 		}
@@ -415,9 +569,20 @@ func (s *CommandRuntimeService) Reconcile(ctx context.Context) (int, error) {
 			return stopped, bindErr
 		}
 		if !current {
-			if _, stopErr := s.manager.Stop(context.WithoutCancel(ctx), job.ID,
-				true, 0); stopErr == nil {
+			stoppedJob, stopErr := s.manager.Stop(context.WithoutCancel(ctx), job.ID,
+				true, 0)
+			if stopErr == nil {
 				stopped++
+				if stoppedJob.State.Terminal() {
+					record, getErr := s.store.GetCommandRuntimeJob(ctx, job.ID)
+					if getErr != nil {
+						return stopped, commandRuntimeError(getErr)
+					}
+					if completeErr := s.completeCommandRuntimeJobBoundary(ctx,
+						record); completeErr != nil {
+						return stopped, completeErr
+					}
+				}
 			}
 		}
 	}
@@ -529,6 +694,12 @@ func commandRuntimeBatchOperationKey(operationKey string, index int) string {
 	digest := sha256.Sum256([]byte(fmt.Sprintf("command-runtime-batch.v2:%d:%s",
 		index, operationKey)))
 	return "command-runtime-" + hex.EncodeToString(digest[:])
+}
+
+func commandRuntimeWorkspaceBoundaryKey(action, operationKey string) string {
+	digest := sha256.Sum256([]byte("command-runtime-workspace-boundary.v1\x00" +
+		action + "\x00" + operationKey))
+	return hex.EncodeToString(digest[:])
 }
 
 func commandRuntimeError(err error) error {

@@ -90,10 +90,11 @@ import { RunActivityTimeline } from "./run-activity-timeline";
 import { EmbeddedAnalyzerPanel } from "./embedded-analyzer-panel";
 import { DockerSandboxPanel } from "./docker-sandbox-panel";
 import { ContextContinuityPanel } from "./context-continuity-panel";
+import { WorkspaceCheckpointPanel } from "./workspace-checkpoint-panel";
 
 export type RunTab = "activity" | "overview" | "journey" | "actions" | "approvals" | "diffs" | "repository" | "files" | "evidence" | "verify" | "handoff" |
   "receipts" | "agents" | "delegations" | "fanout" | "findings" | "events" | "work" |
-  "context" | "notes" | "artifacts" | "tools" | "analyzer" | "child-tasks" | "sandbox";
+  "context" | "checkpoints" | "notes" | "artifacts" | "tools" | "analyzer" | "child-tasks" | "sandbox";
 
 const tabs: Array<{ id: RunTab; label: [string, string]; icon: typeof Activity }> = [
   { id: "activity", label: ["活动", "Activity"], icon: MessageSquareText },
@@ -108,6 +109,7 @@ const tabs: Array<{ id: RunTab; label: [string, string]; icon: typeof Activity }
   { id: "verify", label: ["验证", "Verify"], icon: ClipboardCheck },
   { id: "handoff", label: ["交接", "Handoff"], icon: BookOpenCheck },
   { id: "receipts", label: ["操作收据", "Receipts"], icon: History },
+  { id: "checkpoints", label: ["工作区检查点", "Checkpoints"], icon: History },
   { id: "agents", label: ["子智能体", "Agents"], icon: GitBranch },
   { id: "delegations", label: ["委派", "Delegations"], icon: Network },
   { id: "fanout", label: ["并发派发", "Fan-out"], icon: ScanSearch },
@@ -123,7 +125,7 @@ const tabs: Array<{ id: RunTab; label: [string, string]; icon: typeof Activity }
   { id: "sandbox", label: ["沙箱", "Sandbox"], icon: Server },
 ];
 
-const compactTabs = new Set<RunTab>(["activity", "approvals", "diffs", "repository", "files"]);
+const compactTabs = new Set<RunTab>(["activity", "approvals", "diffs", "repository", "files", "checkpoints"]);
 
 export function RunWorkspaceTabs({ activeTab, ariaLabel, children, items, onSelect }: {
   activeTab: RunTab;
@@ -383,6 +385,8 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
           <CodeHandoffPanel client={client} runID={runID}
             onOpenReceiptReview={openReceiptReview} />}
         {tab === "receipts" && <OperationReceiptHistory client={client} runID={runID} />}
+        {tab === "checkpoints" && <WorkspaceCheckpointPanel client={client} runID={runID}
+          runStatus={detail.run.status} />}
         {tab === "agents" && <AgentGraphPanel client={client} runID={runID} />}
         {tab === "delegations" && <DelegationsPanel client={client} runID={runID} />}
         {tab === "fanout" && <FanoutPanel client={client} runID={runID} />}

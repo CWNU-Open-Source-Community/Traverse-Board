@@ -330,6 +330,15 @@ type CommandRuntimeStartRequest struct {
 	Spec  CommandRuntimeResolvedSpec
 }
 
+// CommandRuntimeOperationIdentity is the deterministic durable identity used
+// before a process starts and again when its background Job reaches terminal
+// state. It lets callers bind external transaction ledgers without retaining
+// the plaintext idempotency key.
+func CommandRuntimeOperationIdentity(runID, operationKey string) (string, string) {
+	digest := commandRuntimeDigest("command_runtime_operation.v2", runID, operationKey)
+	return digest, "command-job-" + digest[:24]
+}
+
 type CommandRuntimeJobSnapshot struct {
 	ID                    string                         `json:"id"`
 	State                 CommandRuntimeJobState         `json:"state"`
@@ -495,10 +504,9 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 	}
 	m.mu.Unlock()
 
-	operationDigest := commandRuntimeDigest("command_runtime_operation.v2",
-		request.Scope.RunID, request.Scope.OperationKey)
+	operationDigest, jobID := CommandRuntimeOperationIdentity(request.Scope.RunID,
+		request.Scope.OperationKey)
 	fingerprint := CommandRuntimeSpecFingerprint(request.Spec)
-	jobID := "command-job-" + operationDigest[:24]
 	now := time.Now().UTC()
 	ownerExpiresAt := now.Add(m.ownerLeaseTTL)
 	record := CommandRuntimeJob{

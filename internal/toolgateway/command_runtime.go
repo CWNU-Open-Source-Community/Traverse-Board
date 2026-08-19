@@ -139,16 +139,17 @@ func (i CommandRuntimeInput) Validate() error {
 }
 
 type CommandRuntimeContext struct {
-	InvocationID    string
-	OperationKey    string
-	RunID           string
-	RootAgentID     string
-	SessionID       string
-	WorkspaceID     string
-	LeaseID         string
-	LeaseGeneration int64
-	RequestedBy     string
-	PolicyDecision  Decision
+	InvocationID         string
+	OperationKey         string
+	RunID                string
+	RootAgentID          string
+	SessionID            string
+	WorkspaceID          string
+	CapabilityGeneration string
+	LeaseID              string
+	LeaseGeneration      int64
+	RequestedBy          string
+	PolicyDecision       Decision
 }
 
 func (c CommandRuntimeContext) Validate() error {
@@ -159,7 +160,8 @@ func (c CommandRuntimeContext) Validate() error {
 			return errors.New("command runtime requires normalized bounded identities")
 		}
 	}
-	if !domain.ValidAgentID(c.RootAgentID) || c.LeaseGeneration <= 0 ||
+	if !domain.ValidAgentID(c.RootAgentID) ||
+		!validAgentCodeDigest(c.CapabilityGeneration, false) || c.LeaseGeneration <= 0 ||
 		c.RequestedBy != "run_supervisor" || c.PolicyDecision.Validate() != nil ||
 		!c.PolicyDecision.Allowed || c.PolicyDecision.Approval != ApprovalAutomatic {
 		return errors.New("command runtime requires an automatically authorized fenced root scope")
@@ -463,7 +465,8 @@ func (g *Gateway) invokeCommandRuntime(ctx context.Context, call ToolCall) (
 	scope := CommandRuntimeContext{InvocationID: call.InvocationID,
 		OperationKey: call.OperationKey, RunID: call.RunID, RootAgentID: call.AgentID,
 		SessionID: call.SessionID, WorkspaceID: call.WorkspaceID,
-		LeaseID: call.LeaseID, LeaseGeneration: call.LeaseGeneration,
+		CapabilityGeneration: call.CapabilityGeneration,
+		LeaseID:              call.LeaseID, LeaseGeneration: call.LeaseGeneration,
 		RequestedBy: call.RequestedBy, PolicyDecision: decision}
 	if err := scope.Validate(); err != nil {
 		return Outcome{}, err

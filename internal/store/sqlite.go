@@ -343,6 +343,7 @@ func migrationPlan() []migration {
 		{Version: 114, Name: "project instructions, explicit memory, and session continuity", Statements: contextContinuityStatements},
 		{Version: 115, Name: "model-callable agent code tools and guarded file mutations", Statements: agentCodeToolStatements},
 		{Version: 116, Name: "Run-owned command runtime jobs", Statements: commandRuntimeStatements},
+		{Version: 117, Name: "content-addressed reversible Workspace checkpoints", Statements: workspaceCheckpointStatements},
 	}
 }
 

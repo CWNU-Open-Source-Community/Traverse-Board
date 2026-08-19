@@ -1808,6 +1808,130 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/workspace-checkpoints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Browse the Workspace checkpoint timeline
+         * @description Returns immutable pre/post Workspace manifests, mutation transactions, the CAS cursor, recovery completeness, and content-store usage without exposing blob content.
+         */
+        get: operations["listWorkspaceCheckpoints"];
+        put?: never;
+        /**
+         * Create a manual Workspace checkpoint
+         * @description Captures a bounded content-addressed manifest and exact Git index under an idempotency key; excluded content and incomplete attribution remain explicit.
+         */
+        post: operations["createWorkspaceCheckpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/workspace-checkpoints/fork": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fork a checkpoint into an independent Run
+         * @description Creates an exact branch-backed Git worktree, a distinct Workspace and a new Run. Context is bounded; approvals, credentials, capabilities, leases, processes, terminals, network authority, and execution profiles are reset.
+         */
+        post: operations["forkWorkspaceCheckpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/workspace-checkpoints/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview a Workspace rewind
+         * @description Computes a bounded three-way diff against live files and the Git index without writing. External drift is returned as explicit conflicts.
+         */
+        post: operations["previewWorkspaceRewind"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/workspace-checkpoints/redo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Redo the latest Workspace undo
+         * @description Restores the original mutation's after checkpoint under the same paused-Run, CAS, permission, and conflict checks as rewind.
+         */
+        post: operations["redoWorkspaceMutation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/workspace-checkpoints/rewind": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rewind to a Workspace checkpoint
+         * @description Requires confirm=true, a paused quiescent Run, current operator authorization, and an unchanged preview cursor. Restore is an auditable new write and never uses hard reset or blanket untracked deletion.
+         */
+        post: operations["rewindWorkspaceCheckpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/workspace-checkpoints/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo the current Workspace mutation
+         * @description Restores the current mutation's before checkpoint with three-way conflict detection and appends a new immutable undo transaction.
+         */
+        post: operations["undoWorkspaceMutation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sandbox/docker/admissions": {
         parameters: {
             query?: never;
@@ -2505,6 +2629,47 @@ export interface components {
             /** Format: int32 */
             grace_period_millis: number;
         };
+        Change: {
+            binary: boolean;
+            from_sha256: string;
+            kind: string;
+            path: string;
+            previous_path?: string;
+            reason?: string;
+            recoverable: boolean;
+            to_sha256: string;
+        };
+        Checkpoint: {
+            attempt_id?: string;
+            base_commit: string;
+            branch: string;
+            capability_generation?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int32 */
+            entry_count: number;
+            id: string;
+            incomplete_reasons: string[];
+            index_blob_sha256?: string;
+            index_sha256: string;
+            manifest_sha256: string;
+            mission_id: string;
+            parent_checkpoint_id?: string;
+            phase: string;
+            protocol_version: string;
+            recovery_level: string;
+            requested_by?: string;
+            root_fingerprint: string;
+            root_path_sha256: string;
+            run_id: string;
+            session_id: string;
+            /** Format: int64 */
+            stored_bytes: number;
+            title?: string;
+            trigger: string;
+            trigger_receipt_id: string;
+            workspace_id: string;
+        };
         ChildTaskAdmitRequestView: {
             confirm_admit: boolean;
             version: string;
@@ -2814,6 +2979,14 @@ export interface components {
             arguments?: string[];
             executable: string;
             working_directory: string;
+        };
+        Conflict: {
+            current_sha256?: string;
+            expected_sha256?: string;
+            kind: string;
+            path?: string;
+            reason: string;
+            target_sha256?: string;
         };
         ContextMemoryExport: {
             capability_grant: boolean;
@@ -4258,6 +4431,17 @@ export interface components {
             /** @enum {string} */
             version: "plan_delivery_control.v1";
         };
+        Preview: {
+            changes: components["schemas"]["Change"][];
+            conflicts: components["schemas"]["Conflict"][];
+            expected_current_checkpoint_id: string;
+            index_changed: boolean;
+            observed_checkpoint_id: string;
+            protocol_version: string;
+            recovery_level: string;
+            target_checkpoint_id: string;
+            truncated: boolean;
+        };
         PriceEntryView: {
             /** Format: int64 */
             cache_read_per_million_micros: number;
@@ -5097,6 +5281,14 @@ export interface components {
             /** @enum {string} */
             surface: "code" | "cyber";
         };
+        RunState: {
+            current_checkpoint_id: string;
+            last_transaction_id?: string;
+            run_id: string;
+            /** Format: date-time */
+            updated_at: string;
+            workspace_id: string;
+        };
         RunView: {
             budget: components["schemas"]["BudgetView"];
             config: components["schemas"]["RunConfigView"];
@@ -5257,6 +5449,7 @@ export interface components {
             skill_installation_enabled: boolean;
             verification_evidence_enabled: boolean;
             wake_worker: components["schemas"]["RunWakeWorkerHealthView"];
+            workspace_checkpoint_control_enabled: boolean;
         };
         ScopeView: {
             allowed_targets?: string[];
@@ -5405,6 +5598,14 @@ export interface components {
             /** @enum {string} */
             status: "pending" | "observed" | "resolved";
         };
+        StorageUsage: {
+            /** Format: int64 */
+            blob_bytes: number;
+            /** Format: int32 */
+            blob_count: number;
+            /** Format: int32 */
+            checkpoint_count: number;
+        };
         SupervisorCheckpointView: {
             attempt_id?: string;
             /** Format: int64 */
@@ -5468,6 +5669,30 @@ export interface components {
             limit: number;
             /** Format: int64 */
             remaining: number;
+        };
+        Transaction: {
+            after_checkpoint_id?: string;
+            before_checkpoint_id: string;
+            /** Format: date-time */
+            completed_at?: string;
+            conflict_json?: string;
+            /** Format: date-time */
+            created_at: string;
+            error_code?: string;
+            expected_current_checkpoint_id?: string;
+            id: string;
+            kind: string;
+            operation_key_digest: string;
+            protocol_version: string;
+            recovery_level: string;
+            request_fingerprint: string;
+            run_id: string;
+            status: string;
+            target_checkpoint_id?: string;
+            trigger_receipt_id: string;
+            /** Format: date-time */
+            updated_at: string;
+            workspace_id: string;
         };
         VerificationAssociationControlView: {
             approval: boolean;
@@ -6050,6 +6275,15 @@ export interface components {
             /** Format: int64 */
             version: number;
         };
+        WorkspaceCheckpointTimeline: {
+            checkpoints: components["schemas"]["Checkpoint"][];
+            current?: components["schemas"]["RunState"];
+            protocol_version: string;
+            run_id: string;
+            storage_usage: components["schemas"]["StorageUsage"];
+            transactions: components["schemas"]["Transaction"][];
+            workspace_id: string;
+        };
         WorkspaceExplorerEntryView: {
             /** @enum {string} */
             kind: "directory" | "file" | "blocked";
@@ -6086,6 +6320,15 @@ export interface components {
             total_bytes: number;
             truncated: boolean;
             workspace_id: string;
+        };
+        WorkspaceRestoreResult: {
+            after?: components["schemas"]["Checkpoint"];
+            before: components["schemas"]["Checkpoint"];
+            confirmed: boolean;
+            preview: components["schemas"]["Preview"];
+            protocol_version: string;
+            replayed: boolean;
+            transaction?: components["schemas"]["Transaction"];
         };
         WorkspaceSearchResultView: {
             content_truncated: boolean;
@@ -6168,6 +6411,78 @@ export interface components {
             expected_fingerprint: string;
             expected_live_fingerprint: string;
             target_path?: string;
+        };
+        workspaceCheckpointCaptureView: {
+            operation_key: string;
+            title?: string;
+        };
+        workspaceCheckpointCursorActionView: {
+            confirm: boolean;
+            expected_current_checkpoint_id: string;
+            operation_key: string;
+        };
+        workspaceCheckpointForkContinuityView: {
+            /** Format: date-time */
+            created_at: string;
+            git_branch?: string;
+            git_head?: string;
+            id: string;
+            kind: string;
+            run_id: string;
+            session_id: string;
+            source_node_id?: string;
+            workspace_id: string;
+        };
+        workspaceCheckpointForkMissionView: {
+            id: string;
+            profile: string;
+            workspace_id: string;
+        };
+        workspaceCheckpointForkResultView: {
+            checkpoint: components["schemas"]["Checkpoint"];
+            continuity_node: components["schemas"]["workspaceCheckpointForkContinuityView"];
+            mission: components["schemas"]["workspaceCheckpointForkMissionView"];
+            not_inherited: string[];
+            protocol_version: string;
+            replayed: boolean;
+            run: components["schemas"]["workspaceCheckpointForkRunView"];
+            source_run_id: string;
+            target: components["schemas"]["Checkpoint"];
+            transaction: components["schemas"]["Transaction"];
+            workspace: components["schemas"]["workspaceCheckpointForkWorkspaceView"];
+        };
+        workspaceCheckpointForkRunView: {
+            /** Format: date-time */
+            created_at: string;
+            id: string;
+            mission_id: string;
+            session_id: string;
+            status: string;
+        };
+        workspaceCheckpointForkView: {
+            branch: string;
+            confirm: boolean;
+            expected_current_checkpoint_id: string;
+            goal?: string;
+            operation_key: string;
+            target_checkpoint_id: string;
+            workspace_name: string;
+        };
+        workspaceCheckpointForkWorkspaceView: {
+            /** Format: date-time */
+            created_at: string;
+            id: string;
+            name: string;
+        };
+        workspaceCheckpointPreviewView: {
+            expected_current_checkpoint_id: string;
+            target_checkpoint_id: string;
+        };
+        workspaceCheckpointRewindView: {
+            confirm: boolean;
+            expected_current_checkpoint_id: string;
+            operation_key: string;
+            target_checkpoint_id: string;
         };
     };
     responses: {
@@ -10261,6 +10576,302 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listWorkspaceCheckpoints: {
+        parameters: {
+            query?: {
+                /** @description Maximum checkpoints and transactions */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["WorkspaceCheckpointTimeline"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    createWorkspaceCheckpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["workspaceCheckpointCaptureView"];
+            };
+        };
+        responses: {
+            /** @description Resource created or idempotently replayed */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Checkpoint"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    forkWorkspaceCheckpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["workspaceCheckpointForkView"];
+            };
+        };
+        responses: {
+            /** @description Resource created or idempotently replayed */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["workspaceCheckpointForkResultView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    previewWorkspaceRewind: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["workspaceCheckpointPreviewView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["WorkspaceRestoreResult"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    redoWorkspaceMutation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["workspaceCheckpointCursorActionView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["WorkspaceRestoreResult"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    rewindWorkspaceCheckpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["workspaceCheckpointRewindView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["WorkspaceRestoreResult"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    undoWorkspaceMutation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["workspaceCheckpointCursorActionView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["WorkspaceRestoreResult"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
         };

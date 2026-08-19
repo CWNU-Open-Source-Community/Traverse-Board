@@ -250,6 +250,7 @@ type Config struct {
 	EvidenceAttachmentEnabled               bool
 	VerificationEvidenceEnabled             bool
 	EmbeddedAnalyzerExecutionEnabled        bool
+	WorkspaceCheckpointControlEnabled       bool
 	ExecutionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
 	BrowserCDPPermissionCapabilities        domain.BrowserCDPPermissionRuntimeCapabilities
 	RunLifecycleController                  RunLifecycleController
@@ -272,6 +273,7 @@ type Config struct {
 	RunWakeWorkerHealthSource               RunWakeWorkerHealthSource
 	SkillInstallationController             SkillInstallationController
 	EmbeddedAnalyzerExecutionController     EmbeddedAnalyzerExecutionController
+	WorkspaceCheckpointController           WorkspaceCheckpointController
 	DockerSandboxController                 DockerSandboxController
 	ModelRegistry                           *modelregistry.Registry
 	AppVersion                              string
@@ -307,6 +309,7 @@ type API struct {
 	evidenceAttachmentEnabled               bool
 	verificationEvidenceEnabled             bool
 	embeddedAnalyzerExecutionEnabled        bool
+	workspaceCheckpointControlEnabled       bool
 	dockerSandboxControlEnabled             bool
 	dockerExecutionEnabled                  bool
 	executionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
@@ -331,6 +334,7 @@ type API struct {
 	runWakeWorkerHealthSource               RunWakeWorkerHealthSource
 	skillInstallationController             SkillInstallationController
 	embeddedAnalyzerExecutionController     EmbeddedAnalyzerExecutionController
+	workspaceCheckpointController           WorkspaceCheckpointController
 	dockerSandboxController                 DockerSandboxController
 	modelRegistry                           *modelregistry.Registry
 	appVersion                              string
@@ -376,7 +380,8 @@ func New(store Store, config Config) (*API, error) {
 		config.FileEditApplyEnabled || config.RunWakeExecutionEnabled ||
 		config.RunWakeWorkerEnabled ||
 		config.SkillInstallationEnabled || config.EvidenceAttachmentEnabled ||
-		config.VerificationEvidenceEnabled || config.EmbeddedAnalyzerExecutionEnabled) &&
+		config.VerificationEvidenceEnabled || config.EmbeddedAnalyzerExecutionEnabled ||
+		config.WorkspaceCheckpointControlEnabled) &&
 		!controlTokenPresent {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API control capabilities require a control token")
@@ -452,6 +457,11 @@ func New(store Store, config Config) (*API, error) {
 		config.EmbeddedAnalyzerExecutionController == nil {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API embedded analyzer execution controller is required when enabled")
+	}
+	if config.WorkspaceCheckpointControlEnabled &&
+		config.WorkspaceCheckpointController == nil {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"HTTP API Workspace checkpoint controller is required when enabled")
 	}
 	dockerExecutionEnabled := false
 	if config.DockerSandboxController != nil {
@@ -531,18 +541,19 @@ func New(store Store, config Config) (*API, error) {
 			config.ControlledCommandProposalControlEnabled,
 		hostCommandProposalControlEnabled: controlTokenPresent &&
 			config.HostCommandProposalControlEnabled,
-		modelControlEnabled:              controlTokenPresent && config.ModelControlEnabled,
-		providerCredentialEnabled:        controlTokenPresent && config.ProviderCredentialEnabled,
-		fileEditReviewEnabled:            controlTokenPresent && config.FileEditReviewEnabled,
-		fileEditProposalEnabled:          controlTokenPresent && config.FileEditProposalEnabled,
-		runWakeControlEnabled:            controlTokenPresent && config.RunWakeControlEnabled,
-		fileEditApplyEnabled:             controlTokenPresent && config.FileEditApplyEnabled,
-		runWakeExecutionEnabled:          controlTokenPresent && config.RunWakeExecutionEnabled,
-		runWakeWorkerEnabled:             controlTokenPresent && config.RunWakeWorkerEnabled,
-		skillInstallationEnabled:         controlTokenPresent && config.SkillInstallationEnabled,
-		evidenceAttachmentEnabled:        controlTokenPresent && config.EvidenceAttachmentEnabled,
-		verificationEvidenceEnabled:      controlTokenPresent && config.VerificationEvidenceEnabled,
-		embeddedAnalyzerExecutionEnabled: controlTokenPresent && config.EmbeddedAnalyzerExecutionEnabled,
+		modelControlEnabled:               controlTokenPresent && config.ModelControlEnabled,
+		providerCredentialEnabled:         controlTokenPresent && config.ProviderCredentialEnabled,
+		fileEditReviewEnabled:             controlTokenPresent && config.FileEditReviewEnabled,
+		fileEditProposalEnabled:           controlTokenPresent && config.FileEditProposalEnabled,
+		runWakeControlEnabled:             controlTokenPresent && config.RunWakeControlEnabled,
+		fileEditApplyEnabled:              controlTokenPresent && config.FileEditApplyEnabled,
+		runWakeExecutionEnabled:           controlTokenPresent && config.RunWakeExecutionEnabled,
+		runWakeWorkerEnabled:              controlTokenPresent && config.RunWakeWorkerEnabled,
+		skillInstallationEnabled:          controlTokenPresent && config.SkillInstallationEnabled,
+		evidenceAttachmentEnabled:         controlTokenPresent && config.EvidenceAttachmentEnabled,
+		verificationEvidenceEnabled:       controlTokenPresent && config.VerificationEvidenceEnabled,
+		embeddedAnalyzerExecutionEnabled:  controlTokenPresent && config.EmbeddedAnalyzerExecutionEnabled,
+		workspaceCheckpointControlEnabled: controlTokenPresent && config.WorkspaceCheckpointControlEnabled,
 		dockerSandboxControlEnabled: config.DockerSandboxController != nil &&
 			controlTokenPresent && config.ExecutionPermissionControlEnabled,
 		dockerExecutionEnabled:              dockerExecutionEnabled,
@@ -568,6 +579,7 @@ func New(store Store, config Config) (*API, error) {
 		runWakeWorkerHealthSource:           config.RunWakeWorkerHealthSource,
 		skillInstallationController:         config.SkillInstallationController,
 		embeddedAnalyzerExecutionController: config.EmbeddedAnalyzerExecutionController,
+		workspaceCheckpointController:       config.WorkspaceCheckpointController,
 		dockerSandboxController:             config.DockerSandboxController,
 		modelRegistry:                       modelRegistry,
 		openAPI:                             document, eventStream: eventStream,
@@ -685,6 +697,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if isDockerSandboxPath(request.URL.Path) {
 		a.serveDockerSandbox(tracked, request, requestID)
+		return
+	}
+	if runID, action, matched := matchWorkspaceCheckpointPath(request.URL.Path); matched {
+		a.serveWorkspaceCheckpoint(tracked, request, requestID, runID, action)
 		return
 	}
 	if request.Method != http.MethodGet && isContextContinuityMutationPath(request.URL.Path) {

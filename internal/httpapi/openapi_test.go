@@ -511,6 +511,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		fixture.store, executionController)
 	fixture.api.embeddedAnalyzerExecutionController =
 		application.NewEmbeddedAnalyzerExecutionService(fixture.store)
+	fixture.api.workspaceCheckpointControlEnabled = true
+	fixture.api.workspaceCheckpointController = &workspaceCheckpointControllerStub{}
 	fixture.api.skillInstallationController = application.NewSkillPackageRegistryService(
 		fixture.store, objects, builtins)
 	steering, err := fixture.store.EnqueueOperatorSteering(t.Context(),
@@ -727,6 +729,27 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 					body = string(encoded)
 				} else if spec.OperationID == "createContinuityCheckpoint" {
 					body = `{"title":"OpenAPI live checkpoint"}`
+				} else if spec.OperationID == "createWorkspaceCheckpoint" {
+					body = `{"operation_key":"openapi-workspace-checkpoint-create-0001",` +
+						`"title":"OpenAPI Workspace checkpoint"}`
+				} else if spec.OperationID == "previewWorkspaceRewind" {
+					body = `{"target_checkpoint_id":"checkpoint-target",` +
+						`"expected_current_checkpoint_id":"checkpoint-current"}`
+				} else if spec.OperationID == "rewindWorkspaceCheckpoint" {
+					body = `{"target_checkpoint_id":"checkpoint-target",` +
+						`"expected_current_checkpoint_id":"checkpoint-current",` +
+						`"operation_key":"openapi-workspace-rewind-0001","confirm":true}`
+				} else if spec.OperationID == "undoWorkspaceMutation" ||
+					spec.OperationID == "redoWorkspaceMutation" {
+					body = `{"expected_current_checkpoint_id":"checkpoint-current",` +
+						`"operation_key":"openapi-workspace-cursor-` + spec.OperationID + `",` +
+						`"confirm":true}`
+				} else if spec.OperationID == "forkWorkspaceCheckpoint" {
+					body = `{"target_checkpoint_id":"checkpoint-target",` +
+						`"expected_current_checkpoint_id":"checkpoint-current",` +
+						`"operation_key":"openapi-workspace-fork-0001",` +
+						`"workspace_name":"openapi-fork",` +
+						`"branch":"codex/openapi-workspace-fork","confirm":true}`
 				} else if spec.OperationID == "forkContinuityNode" ||
 					spec.OperationID == "resumeContinuityNode" {
 					body = `{"goal":"OpenAPI continuity branch"}`

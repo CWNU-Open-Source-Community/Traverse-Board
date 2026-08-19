@@ -252,14 +252,14 @@ func NormalizeToolCall(call ToolCall) (ToolCall, error) {
 	if call.ModeRevision < 0 || call.PermissionRevision < 0 {
 		return ToolCall{}, errors.New("tool capability revisions cannot be negative")
 	}
-	if isAgentCodeTool(call.Name) {
+	if isAgentCodeTool(call.Name) || call.Name == CommandRuntimeTool {
 		if !call.Surface.Valid() || !call.Phase.Valid() || !domain.ValidAgentRole(call.Role) ||
 			!call.PermissionMode.Valid() || call.ModeRevision <= 0 ||
 			call.PermissionRevision <= 0 || !validAgentCodeDigest(call.CapabilityGeneration, false) {
-			return ToolCall{}, errors.New("agent code tool capability binding is invalid")
+			return ToolCall{}, errors.New("workspace-affecting tool capability binding is invalid")
 		}
 		if _, err := domain.ParseProfile(string(call.Profile)); err != nil {
-			return ToolCall{}, errors.New("agent code tool profile binding is invalid")
+			return ToolCall{}, errors.New("workspace-affecting tool profile binding is invalid")
 		}
 	}
 	if strings.ContainsRune(call.OperationKey, 0) {

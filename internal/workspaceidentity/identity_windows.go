@@ -1,6 +1,6 @@
 //go:build windows
 
-package workspace
+package workspaceidentity
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func agentCodeRootIdentity(root string, _ os.FileInfo) (string, error) {
+func rootIdentity(root string, _ os.FileInfo) (string, error) {
 	name, err := windows.UTF16PtrFromString(root)
 	if err != nil {
 		return "", err

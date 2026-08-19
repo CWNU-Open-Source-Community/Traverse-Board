@@ -908,6 +908,40 @@ redacted projection at 128 KiB. File text is plain evidence with
 `instruction_authorized=false`; notes addressed to an automated assistant do not gain
 system, user, tool, or Policy authority by appearing in a repository file.
 
+### Transactional Workspace Checkpoints
+
+Schema v117 adds an immutable, bounded checkpoint timeline for a Run's exact Workspace
+and Git index. Automatic before/after boundaries cover FileEdit apply, model-callable
+file tools, Run-owned command batches/background Jobs, typed Git mutations, and the
+agent-merge contract. A manual capture and every restore use a stable operation key:
+
+```powershell
+cyberagent workspace checkpoint timeline --run <run-id> --limit 100
+cyberagent workspace checkpoint capture --run <run-id> `
+  --operation-key before-refactor --title "Before parser refactor"
+cyberagent workspace checkpoint preview --run <run-id> `
+  --checkpoint <target-id> --expected-current <current-id>
+cyberagent workspace checkpoint rewind --run <run-id> `
+  --checkpoint <target-id> --expected-current <current-id> `
+  --operation-key rewind-parser-1 --confirm --enable-permission-control
+```
+
+Undo and Redo use the same `--expected-current`, `--operation-key`, and `--confirm`
+contract. Restore is permitted only for a paused Code/Deliver Run with an active
+Session, no live execution lease, a current non-conservative permission, and matching
+process capability flags. It writes a new checkpoint after an exact three-way preview;
+it never invokes `git reset --hard` or blanket-deletes untracked files. Fork additionally
+requires a new Git branch and an absent destination path, creates an independent
+Workspace/Mission/Run/Session, and restores no historical authority.
+
+The CLI supplies that exact destination with `--workspace-root`. HTTP/Desktop do not
+accept renderer-provided absolute paths; Go derives a deterministic absent sibling from
+the trusted source Workspace and operation key, and the response omits the root path.
+
+See [Workspace Checkpoints](workspace-checkpoints.md) for CLI, HTTP, Desktop, quota,
+conflict, and recovery details, and [ADR 0118](adr/0118-transactional-workspace-checkpoints.md)
+for the protocol and threat model.
+
 ## Script Mode
 
 ```powershell

@@ -184,6 +184,7 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		bootstrap.VerificationEvidenceEnabled || bootstrap.EmbeddedAnalyzerExecutionEnabled ||
 		bootstrap.UserTerminalEnabled ||
 		bootstrap.AgentTerminalInputDefault ||
+		!bootstrap.WorkspaceCheckpointControlEnabled ||
 		bootstrap.WorkspaceOpenEnabled ||
 		bootstrap.WorkspaceImportEnabled ||
 		bootstrap.RendererPathInputSupported {
@@ -215,6 +216,7 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		"verification_evidence_enabled", "embedded_analyzer_execution_enabled",
 		"user_terminal_enabled",
 		"agent_terminal_input_default", "ui_digest",
+		"workspace_checkpoint_control_enabled",
 		"workspace_import_enabled",
 		"workspace_open_enabled",
 	})

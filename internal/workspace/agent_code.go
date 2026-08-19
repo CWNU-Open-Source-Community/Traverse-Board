@@ -20,6 +20,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/redact"
+	"cyberagent-workbench/internal/workspaceidentity"
 )
 
 const (
@@ -597,13 +598,12 @@ func openAgentWorkspace(root string) (agentWorkspace, error) {
 		return agentWorkspace{}, apperror.New(apperror.CodeFailedPrecondition,
 			"workspace root identity could not be inspected")
 	}
-	identity, err := agentCodeRootIdentity(canonical, canonicalInfo)
+	fingerprint, err := workspaceidentity.Fingerprint(canonical)
 	if err != nil {
 		return agentWorkspace{}, apperror.New(apperror.CodeFailedPrecondition,
 			"workspace root identity could not be established")
 	}
-	sum := sha256.Sum256([]byte(filepath.ToSlash(canonical) + "\x00" + identity))
-	workspace := agentWorkspace{root: canonical, fingerprint: hex.EncodeToString(sum[:])}
+	workspace := agentWorkspace{root: canonical, fingerprint: fingerprint}
 	workspace.ignore = loadAgentIgnoreRules(canonical)
 	return workspace, nil
 }

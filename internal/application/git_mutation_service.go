@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/session"
+	"cyberagent-workbench/internal/workspacecheckpoint"
 )
 
 // GitMutationStore is the bounded store surface for the typed Git workflow.
@@ -27,12 +29,21 @@ type GitMutationStore interface {
 // GitMutationService owns the review-then-execute flow. Every execution is
 // bound to a Run, a Workspace, and the exact reviewed repository state.
 type GitMutationService struct {
-	store    GitMutationStore
-	executor *repository.MutationExecutor
+	store       GitMutationStore
+	executor    *repository.MutationExecutor
+	checkpoints *WorkspaceCheckpointService
 }
 
-func NewGitMutationService(store GitMutationStore, executor *repository.MutationExecutor) *GitMutationService {
-	return &GitMutationService{store: store, executor: executor}
+func NewGitMutationService(store GitMutationStore, executor *repository.MutationExecutor,
+	checkpoints ...*WorkspaceCheckpointService,
+) *GitMutationService {
+	checkpointService := embeddedWorkspaceCheckpointService(store,
+		domain.ExecutionPermissionRuntimeCapabilities{})
+	if len(checkpoints) != 0 {
+		checkpointService = checkpoints[0]
+	}
+	return &GitMutationService{store: store, executor: executor,
+		checkpoints: checkpointService}
 }
 
 type GitMutationRequest struct {
@@ -123,28 +134,54 @@ func (s *GitMutationService) Execute(ctx context.Context, request GitMutationReq
 		RunID: run.ID, WorkspaceID: workspace.ID, Operation: request.Spec.Operation,
 		SpecJSON: string(specJSON), PreHead: binding.Head, CreatedAt: time.Now().UTC(),
 	}
+	boundaryRequest := WorkspaceMutationBoundaryRequest{RunID: run.ID,
+		Kind: workspacecheckpoint.TransactionGitMutation, OperationKey: keyDigest,
+		TriggerReceiptID: keyDigest}
+	if s.checkpoints != nil {
+		if _, err := s.checkpoints.BeginBoundary(ctx, boundaryRequest); err != nil {
+			return GitMutationExecuteResult{}, err
+		}
+	}
+	completeBoundary := func(cause error) error {
+		if s.checkpoints == nil {
+			return nil
+		}
+		completionCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx),
+			30*time.Second)
+		defer cancel()
+		_, err := s.checkpoints.CompleteBoundary(completionCtx, boundaryRequest, cause)
+		return err
+	}
 	created, replayed, err := s.store.CreateGitMutationOperation(ctx, record)
 	if err != nil {
-		return GitMutationExecuteResult{}, apperror.Normalize(err)
+		operationErr := apperror.Normalize(err)
+		return GitMutationExecuteResult{}, errors.Join(operationErr,
+			completeBoundary(operationErr))
 	}
 	if replayed {
 		if created.CompletedAt == nil {
-			return GitMutationExecuteResult{Record: created, Replayed: true}, apperror.New(
+			operationErr := apperror.New(
 				apperror.CodeFailedPrecondition,
 				"previous git mutation did not record a terminal receipt; reconcile repository state before using a new operation key")
+			return GitMutationExecuteResult{Record: created, Replayed: true},
+				errors.Join(operationErr, completeBoundary(operationErr))
 		}
-		return GitMutationExecuteResult{Record: created, Replayed: true}, nil
+		return GitMutationExecuteResult{Record: created, Replayed: true},
+			completeBoundary(nil)
 	}
 	receipt, err := s.executor.Execute(ctx, workspace.RootPath, request.Spec, binding)
 	if err != nil {
-		return GitMutationExecuteResult{}, err
+		return GitMutationExecuteResult{}, errors.Join(err, completeBoundary(err))
 	}
 	completed, _, err := s.store.CompleteGitMutationOperation(ctx, created.ID, repository.MutationRecord{
 		PostHead: receipt.PostHead, Branch: receipt.Branch, CommitID: receipt.CommitID,
 		Conflicted: receipt.Conflicted, Clean: receipt.Clean, StderrPrefix: receipt.StderrPrefix,
 	}, time.Now().UTC())
 	if err != nil {
-		return GitMutationExecuteResult{}, apperror.Normalize(err)
+		operationErr := apperror.Normalize(err)
+		return GitMutationExecuteResult{}, errors.Join(operationErr,
+			completeBoundary(operationErr))
 	}
-	return GitMutationExecuteResult{Record: completed, Receipt: receipt}, nil
+	result := GitMutationExecuteResult{Record: completed, Receipt: receipt}
+	return result, completeBoundary(nil)
 }

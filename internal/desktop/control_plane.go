@@ -143,6 +143,17 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		return nil, err
 	}
 	checker := policy.NewDefaultChecker()
+	workspaceCheckpoints, err := application.NewWorkspaceCheckpointService(stateStore,
+		config.ExecutionPermissionCapabilities)
+	if err != nil {
+		_ = stateStore.Close()
+		return nil, err
+	}
+	if _, err := workspaceCheckpoints.Reconcile(context.Background()); err != nil {
+		_ = stateStore.Close()
+		return nil, apperror.Wrap(apperror.CodeUnavailable,
+			"desktop Workspace checkpoint startup reconciliation failed", err)
+	}
 	dockerSandbox, err := newDesktopDockerSandboxService(context.Background(),
 		stateStore, home, config.DockerExecutionEnabled,
 		config.ExecutionPermissionCapabilities)
@@ -199,7 +210,8 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		WithRegistryReload(models, stateStore)
 	fileEditReview := application.NewFileEditReviewService(stateStore)
 	fileEditProposal := application.NewFileEditProposalService(stateStore, checker)
-	fileEditApply := application.NewFileEditApplyService(stateStore, checker)
+	fileEditApply := application.NewFileEditApplyService(stateStore, checker,
+		workspaceCheckpoints)
 	runWakeControl := application.NewRunWakeControlService(stateStore)
 	runWakeExecution := application.NewForegroundRunWakeConsumer(stateStore,
 		executionControl)
@@ -329,6 +341,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		EvidenceAttachmentEnabled:               config.EvidenceAttachmentEnabled,
 		VerificationEvidenceEnabled:             config.VerificationEvidenceEnabled,
 		EmbeddedAnalyzerExecutionEnabled:        config.EmbeddedAnalyzerExecutionEnabled,
+		WorkspaceCheckpointControlEnabled:       config.ControlToken != "",
 		RunLifecycleController:                  lifecycleControl,
 		RunExecutionController:                  executionControl,
 		PublicModelStreamSource:                 executionControl,
@@ -350,6 +363,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		RunWakeWorkerHealthSource:           workerHealth,
 		SkillInstallationController:         skillInstaller,
 		EmbeddedAnalyzerExecutionController: embeddedAnalyzerExecution,
+		WorkspaceCheckpointController:       workspaceCheckpoints,
 		DockerSandboxController:             dockerSandbox,
 		ModelRegistry:                       models,
 		AppVersion:                          config.AppVersion, UIHandler: config.UIHandler,

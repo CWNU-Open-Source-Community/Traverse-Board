@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/runner"
 )
@@ -189,5 +190,10 @@ func commandRuntimeToolCall(payload json.RawMessage) ToolCall {
 	return ToolCall{Name: CommandRuntimeTool, Payload: payload,
 		OperationKey: "command-runtime-operation-0001", RunID: "run-1",
 		AgentID: "agent-root-1", SessionID: "session-1", WorkspaceID: "workspace-1",
-		LeaseID: "lease-1", LeaseGeneration: 7, RequestedBy: "run_supervisor"}
+		Surface: domain.ExecutionSurfaceCode, Phase: domain.ExecutionPhaseDeliver,
+		Role: domain.AgentRoleRoot, Profile: domain.ProfileCode,
+		PermissionMode: domain.RunExecutionPermissionFullAccess,
+		ModeRevision:   1, PermissionRevision: 1,
+		CapabilityGeneration: strings.Repeat("a", 64),
+		LeaseID:              "lease-1", LeaseGeneration: 7, RequestedBy: "run_supervisor"}
 }

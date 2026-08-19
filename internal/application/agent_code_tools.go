@@ -37,8 +37,10 @@ type AgentCodeToolExecutor struct {
 func NewAgentCodeToolExecutor(store AgentCodeToolStore,
 	checker policy.Checker,
 ) *AgentCodeToolExecutor {
+	checkpoints := embeddedWorkspaceCheckpointService(store,
+		domain.ExecutionPermissionRuntimeCapabilities{})
 	return &AgentCodeToolExecutor{store: store, manager: fileedit.NewManager(store),
-		apply: NewFileEditApplyService(store, checker)}
+		apply: NewFileEditApplyService(store, checker, checkpoints)}
 }
 
 func (e *AgentCodeToolExecutor) ExecuteAgentCode(ctx context.Context,
@@ -387,7 +389,9 @@ func (e *AgentCodeToolExecutor) applyChange(ctx context.Context,
 	}
 	return e.apply.Apply(ctx, ApplyFileEditRequest{Version: fileedit.FileEditApplyProtocolVersion,
 		RunID: scope.RunID, EditID: edit.ID, OperationKey: scope.OperationKey,
-		AppliedBy: scope.RootAgentID})
+		AppliedBy: scope.RootAgentID, InvocationID: scope.InvocationID,
+		CapabilityGeneration: scope.CapabilityGeneration, LeaseID: scope.LeaseID,
+		LeaseGeneration: scope.LeaseGeneration})
 }
 
 func (e *AgentCodeToolExecutor) applyDelete(ctx context.Context,
@@ -405,7 +409,9 @@ func (e *AgentCodeToolExecutor) applyDelete(ctx context.Context,
 	}
 	return e.apply.Apply(ctx, ApplyFileEditRequest{Version: fileedit.FileEditApplyProtocolVersion,
 		RunID: scope.RunID, EditID: edit.ID, OperationKey: scope.OperationKey,
-		AppliedBy: scope.RootAgentID})
+		AppliedBy: scope.RootAgentID, InvocationID: scope.InvocationID,
+		CapabilityGeneration: scope.CapabilityGeneration, LeaseID: scope.LeaseID,
+		LeaseGeneration: scope.LeaseGeneration})
 }
 
 func agentCodeEditID(operationKey string) string {

@@ -14,6 +14,7 @@ import (
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/tools"
+	"cyberagent-workbench/internal/workspacecheckpoint"
 )
 
 type FileEditApplyStore interface {
@@ -33,18 +34,23 @@ type FileEditApplyStore interface {
 }
 
 type FileEditApplyService struct {
-	store   FileEditApplyStore
-	manager *fileedit.Manager
-	checker policy.Checker
-	now     func() time.Time
+	store       FileEditApplyStore
+	manager     *fileedit.Manager
+	checker     policy.Checker
+	checkpoints *WorkspaceCheckpointService
+	now         func() time.Time
 }
 
 type ApplyFileEditRequest struct {
-	Version      string
-	RunID        string
-	EditID       string
-	OperationKey string
-	AppliedBy    string
+	Version              string
+	RunID                string
+	EditID               string
+	OperationKey         string
+	AppliedBy            string
+	InvocationID         string
+	CapabilityGeneration string
+	LeaseID              string
+	LeaseGeneration      int64
 }
 
 type ApplyFileEditResult struct {
@@ -57,15 +63,21 @@ type ApplyFileEditResult struct {
 }
 
 func NewFileEditApplyService(store FileEditApplyStore,
-	checker policy.Checker,
+	checker policy.Checker, checkpoints ...*WorkspaceCheckpointService,
 ) *FileEditApplyService {
+	checkpointService := embeddedWorkspaceCheckpointService(store,
+		domain.ExecutionPermissionRuntimeCapabilities{})
+	if len(checkpoints) != 0 {
+		checkpointService = checkpoints[0]
+	}
 	return &FileEditApplyService{store: store, manager: fileedit.NewManager(store),
-		checker: checker, now: func() time.Time { return time.Now().UTC() }}
+		checkpoints: checkpointService,
+		checker:     checker, now: func() time.Time { return time.Now().UTC() }}
 }
 
 func (s *FileEditApplyService) Apply(ctx context.Context,
 	request ApplyFileEditRequest,
-) (ApplyFileEditResult, error) {
+) (value ApplyFileEditResult, returnErr error) {
 	if s == nil || s.store == nil || s.manager == nil || s.checker == nil || s.now == nil {
 		return ApplyFileEditResult{}, apperror.New(apperror.CodeFailedPrecondition,
 			"FileEdit apply dependencies are required")
@@ -198,6 +210,24 @@ func (s *FileEditApplyService) Apply(ctx context.Context,
 			return ApplyFileEditResult{}, policyErr
 		}
 	}
+	boundaryRequest := WorkspaceMutationBoundaryRequest{RunID: operation.RunID,
+		Kind: workspacecheckpoint.TransactionFileTool, OperationKey: operation.KeyDigest,
+		TriggerReceiptID: operation.EditID, InvocationID: normalized.InvocationID,
+		CapabilityGeneration: normalized.CapabilityGeneration,
+		LeaseID:              normalized.LeaseID, LeaseGeneration: normalized.LeaseGeneration}
+	if s.checkpoints != nil {
+		if _, err := s.checkpoints.BeginBoundary(ctx, boundaryRequest); err != nil {
+			return ApplyFileEditResult{}, err
+		}
+		defer func() {
+			completionCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx),
+				30*time.Second)
+			defer cancel()
+			_, boundaryErr := s.checkpoints.CompleteBoundary(completionCtx,
+				boundaryRequest, returnErr)
+			returnErr = errors.Join(returnErr, boundaryErr)
+		}()
+	}
 	applied := binding.edit
 	var applyErr error
 	switch binding.edit.Status {
@@ -246,7 +276,7 @@ func (s *FileEditApplyService) Apply(ctx context.Context,
 		return ApplyFileEditResult{}, apperror.Normalize(completionErr)
 	}
 	cleanup := s.cleanupStaging(ctx, operation)
-	value := ApplyFileEditResult{Operation: operation, Result: result, Edit: applied,
+	value = ApplyFileEditResult{Operation: operation, Result: result, Edit: applied,
 		StagingCleanup: cleanup, Replayed: preparedReplay || completionReplay,
 		FileWritten: fileWritten}
 	if applyErr != nil {
@@ -394,5 +424,13 @@ func normalizeFileEditApplyRequest(request ApplyFileEditRequest) (
 	}
 	request.OperationKey = key
 	request.AppliedBy = strings.TrimSpace(request.AppliedBy)
+	request.InvocationID = strings.TrimSpace(request.InvocationID)
+	request.CapabilityGeneration = strings.TrimSpace(request.CapabilityGeneration)
+	request.LeaseID = strings.TrimSpace(request.LeaseID)
+	if (request.LeaseID == "") != (request.LeaseGeneration == 0) ||
+		request.LeaseGeneration < 0 {
+		return ApplyFileEditRequest{}, apperror.New(apperror.CodeInvalidArgument,
+			"FileEdit apply execution lease is invalid")
+	}
 	return request, nil
 }
