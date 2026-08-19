@@ -20,10 +20,8 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"unsafe"
 
 	"cyberagent-workbench/internal/uievidence"
-	"golang.org/x/sys/windows"
 )
 
 const uiEvidenceRuntimeSmokeEnvironment = "CYBERAGENT_UI_EVIDENCE_SMOKE"
@@ -64,6 +62,21 @@ type uiEvidenceSmokeReceipt struct {
 	Artifacts         []uiEvidenceSmokeArtifact `json:"artifacts"`
 }
 
+type uiEvidenceSmokeLaunchReceipt struct {
+	ProtocolVersion  string         `json:"protocol_version"`
+	SourceCommit     string         `json:"source_commit"`
+	DirtyDigest      string         `json:"dirty_digest"`
+	CleanCheckout    bool           `json:"clean_checkout"`
+	BrowserProduct   BrowserProduct `json:"browser_product"`
+	BrowserChannel   BrowserChannel `json:"browser_channel"`
+	BrowserVersion   string         `json:"browser_version"`
+	ExecutableSHA256 string         `json:"executable_sha256"`
+	ProcessAdapter   string         `json:"process_adapter"`
+	TemporaryProfile bool           `json:"temporary_profile"`
+	Headless         bool           `json:"headless"`
+	CapturedAt       time.Time      `json:"captured_at"`
+}
+
 // TestInstalledEdgeUIEvidenceHeadlessMatrixAndRegression is opt-in because it
 // starts the real, fixed-location Edge binary. Unit tests cover every
 // authorization/lifecycle boundary; this test deliberately exercises the same
@@ -75,6 +88,18 @@ func TestInstalledEdgeUIEvidenceHeadlessMatrixAndRegression(t *testing.T) {
 
 	commit, dirtyDigest, clean := uiEvidenceSmokeSourceBinding(t)
 	identity := installedStableEdge(t)
+	artifactDirectory := uiEvidenceSmokeArtifactDirectory(t)
+	writeUIEvidenceSmokeLaunchReceipt(t, artifactDirectory, uiEvidenceSmokeLaunchReceipt{
+		ProtocolVersion: "ui-evidence-ci-launch.v1", SourceCommit: commit,
+		DirtyDigest: dirtyDigest, CleanCheckout: clean,
+		BrowserProduct: identity.Product, BrowserChannel: identity.Channel,
+		BrowserVersion: identity.Version, ExecutableSHA256: identity.ExecutableSHA256,
+		ProcessAdapter:   WindowsBrowserProcessAdapterName,
+		TemporaryProfile: true, Headless: true, CapturedAt: time.Now().UTC(),
+	})
+	t.Logf("real Edge launch: commit=%s version=%s executable_sha256=%s adapter=%s",
+		commit, identity.Version, identity.ExecutableSHA256,
+		WindowsBrowserProcessAdapterName)
 	origin, closeFixture := startUIEvidenceSmokeFixture(t)
 	defer closeFixture()
 
@@ -114,7 +139,6 @@ func TestInstalledEdgeUIEvidenceHeadlessMatrixAndRegression(t *testing.T) {
 		}
 	}()
 
-	artifactDirectory := uiEvidenceSmokeArtifactDirectory(t)
 	receipt := uiEvidenceSmokeReceipt{
 		ProtocolVersion: "ui-evidence-ci-smoke.v1", SourceCommit: commit,
 		DirtyDigest: dirtyDigest, CleanCheckout: clean, BrowserProduct: identity.Product,
@@ -366,11 +390,9 @@ console.info("ui-evidence-ready");</script></body></html>`
 }
 
 type uiEvidenceSmokeEdgeProcess struct {
-	job     windows.Handle
-	process windows.Handle
-	pid     uint32
-	stopped bool
-	reaped  bool
+	platform browserPlatformProcess
+	stopped  bool
+	reaped   bool
 }
 
 func startUIEvidenceSmokeEdge(t *testing.T, identity BrowserExecutableIdentity,
@@ -389,113 +411,54 @@ func startUIEvidenceSmokeEdge(t *testing.T, identity BrowserExecutableIdentity,
 	if err := validateBrowserEnvironmentDirectories(profilePath); err != nil {
 		t.Fatal(err)
 	}
-	pinned, err := pinBrowserExecutable(identity.CanonicalPath, identity.ExecutableSHA256)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pinned.Close()
-	job, err := newBrowserJob(BrowserStartSpec{ActiveProcessLimit: MaxBrowserProcessCount,
-		JobMemoryLimitBytes: MaxBrowserJobMemoryBytes})
-	if err != nil {
-		t.Fatal(err)
-	}
-	attributes, err := windows.NewProcThreadAttributeList(1)
-	if err != nil {
-		windows.CloseHandle(job)
-		t.Fatal(err)
-	}
-	defer attributes.Delete()
-	jobHandles := []windows.Handle{job}
-	if err := attributes.Update(procThreadAttributeJobList,
-		unsafe.Pointer(&jobHandles[0]), unsafe.Sizeof(jobHandles[0])); err != nil {
-		windows.CloseHandle(job)
-		t.Fatal(err)
-	}
 	arguments := fixedRestrictedBrowserArguments(profilePath)
-	applicationName, err := windows.UTF16PtrFromString(identity.CanonicalPath)
+	now := time.Now().UTC()
+	spec := BrowserStartSpec{
+		ProtocolVersion:               BrowserStartSpecProtocolVersion,
+		ExecutableIdentityFingerprint: identity.Fingerprint,
+		ExecutablePath:                identity.CanonicalPath, ExecutableSHA256: identity.ExecutableSHA256,
+		ProfilePath: profilePath, Arguments: arguments, InitialURL: "about:blank",
+		RemoteDebuggingAddress: "127.0.0.1", RemoteDebuggingPort: 0,
+		ActiveProcessLimit: MaxBrowserProcessCount, JobMemoryLimitBytes: MaxBrowserJobMemoryBytes,
+		LoopbackNavigationRequired: true, HostNameResolutionDisabled: true,
+		NetworkDefaultDeny: true, CreatedAt: now, RuntimeDeadline: now.Add(2 * time.Minute),
+	}
+	spec.Fingerprint = browserRuntimeFingerprint(spec)
+	platform, err := (windowsBrowserProcessStarter{}).Start(t.Context(), spec)
 	if err != nil {
-		windows.CloseHandle(job)
-		t.Fatal(err)
+		t.Fatalf("start fixed-location Edge through the production process adapter: %v", err)
 	}
-	commandLine := windows.ComposeCommandLine(append([]string{identity.CanonicalPath},
-		arguments...))
-	commandLineBuffer, err := windows.UTF16FromString(commandLine)
-	if err != nil {
-		windows.CloseHandle(job)
-		t.Fatal(err)
-	}
-	directory, err := windows.UTF16PtrFromString(filepath.Dir(identity.CanonicalPath))
-	if err != nil {
-		windows.CloseHandle(job)
-		t.Fatal(err)
-	}
-	environment, err := browserEnvironmentBlock(profilePath)
-	if err != nil {
-		windows.CloseHandle(job)
-		t.Fatal(err)
-	}
-	startup := windows.StartupInfoEx{StartupInfo: windows.StartupInfo{
-		Cb: uint32(unsafe.Sizeof(windows.StartupInfoEx{}))},
-		ProcThreadAttributeList: attributes.List()}
-	processInfo := windows.ProcessInformation{}
-	flags := uint32(windows.CREATE_SUSPENDED | windows.CREATE_NO_WINDOW |
-		windows.CREATE_UNICODE_ENVIRONMENT | windows.EXTENDED_STARTUPINFO_PRESENT)
-	if err := windows.CreateProcess(applicationName, &commandLineBuffer[0], nil, nil,
-		false, flags, &environment[0], directory, &startup.StartupInfo,
-		&processInfo); err != nil {
-		windows.CloseHandle(job)
-		t.Fatalf("start fixed-location Edge in the smoke Job Object: %v", err)
-	}
-	if _, err := windows.ResumeThread(processInfo.Thread); err != nil {
-		windows.CloseHandle(processInfo.Thread)
-		_ = windows.TerminateJobObject(job, browserJobExitCode)
-		windows.CloseHandle(processInfo.Process)
-		windows.CloseHandle(job)
-		t.Fatal(err)
-	}
-	windows.CloseHandle(processInfo.Thread)
-	return &uiEvidenceSmokeEdgeProcess{job: job, process: processInfo.Process,
-		pid: processInfo.ProcessId}
+	return &uiEvidenceSmokeEdgeProcess{platform: platform}
 }
 
 func (process *uiEvidenceSmokeEdgeProcess) Active() bool {
-	if process == nil || process.job == 0 || process.stopped {
+	if process == nil || process.platform == nil || process.stopped {
 		return false
 	}
-	accounting := struct {
-		TotalUserTime             int64
-		TotalKernelTime           int64
-		ThisPeriodTotalUserTime   int64
-		ThisPeriodTotalKernelTime int64
-		TotalPageFaultCount       uint32
-		TotalProcesses            uint32
-		ActiveProcesses           uint32
-		TotalTerminatedProcesses  uint32
-	}{}
-	return windows.QueryInformationJobObject(process.job,
-		windows.JobObjectBasicAccountingInformation,
-		uintptr(unsafe.Pointer(&accounting)), uint32(unsafe.Sizeof(accounting)), nil) == nil &&
-		accounting.ActiveProcesses > 0
+	select {
+	case <-process.platform.Done():
+		return false
+	default:
+		return true
+	}
 }
 
 func (process *uiEvidenceSmokeEdgeProcess) Stop(t *testing.T) {
 	t.Helper()
-	if process == nil || process.job == 0 || process.stopped {
+	if process == nil || process.platform == nil || process.stopped {
 		return
 	}
-	wasActive := process.Active()
 	process.stopped = true
-	if err := windows.TerminateJobObject(process.job, browserJobExitCode); err != nil &&
-		wasActive {
-		t.Errorf("terminate exact UI evidence smoke Job Object: %v", err)
+	stopContext, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer stopCancel()
+	if err := process.platform.Stop(stopContext, false); err != nil {
+		t.Errorf("stop exact UI evidence smoke Job Object: %v", err)
 	}
-	process.reaped = waitBrowserJobReaped(process.job, 10*time.Second)
-	if !process.reaped {
+	exit, ok := process.platform.Exit()
+	process.reaped = ok && exit.TreeReaped
+	if !ok || !process.reaped {
 		t.Errorf("real Edge process tree did not exit after Job Object cleanup")
 	}
-	windows.CloseHandle(process.process)
-	windows.CloseHandle(process.job)
-	process.process, process.job = 0, 0
 }
 
 func uiEvidenceSmokePortReleased(t *testing.T, endpoint *url.URL) bool {
@@ -539,7 +502,8 @@ func waitForUIEvidenceSmokeEndpoint(t *testing.T, profilePath string,
 			return endpoint
 		}
 		if !process.Active() {
-			t.Fatal("real Edge Job Object exited before DevTools was ready")
+			exit, _ := process.platform.Exit()
+			t.Fatalf("real Edge Job Object exited before DevTools was ready: %+v", exit)
 		}
 		select {
 		case <-deadline.C:
@@ -764,4 +728,16 @@ func writeUIEvidenceSmokeReceipt(t *testing.T, directory string,
 	digest := sha256.Sum256(raw)
 	t.Logf("UI evidence smoke receipt sha256=%s directory=%s",
 		hex.EncodeToString(digest[:]), directory)
+}
+
+func writeUIEvidenceSmokeLaunchReceipt(t *testing.T, directory string,
+	receipt uiEvidenceSmokeLaunchReceipt,
+) {
+	t.Helper()
+	raw, err := json.MarshalIndent(receipt, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw = append(raw, '\n')
+	writeUIEvidenceSmokeArtifact(t, directory, "launch.json", raw)
 }
