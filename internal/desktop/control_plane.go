@@ -12,6 +12,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
+	"cyberagent-workbench/internal/browserruntime"
 	"cyberagent-workbench/internal/credential"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/executionauth"
@@ -42,6 +43,7 @@ type ControlPlane struct {
 	userTerminal          *desktopUserTerminalService
 	debugAgentInput       application.DebugTerminalAgentInputController
 	commandRuntime        *application.CommandRuntimeService
+	uiEvidence            *application.UIEvidenceService
 	commandRuntimeManager *runner.CommandRuntimeManager
 	terminalManager       *terminalruntime.Manager
 	boundaryMonitor       *terminalruntime.HostBoundaryMonitor
@@ -88,6 +90,8 @@ type ControlPlaneConfig struct {
 	EmbeddedAnalyzerExecutionEnabled        bool
 	BatchDeliveryControlEnabled             bool
 	BatchDeliveryHostValidationEnabled      bool
+	UIEvidenceControlEnabled                bool
+	BrowserRuntimeCapabilities              browserruntime.ProductionRuntimeCapabilities
 	UserTerminalEnabled                     bool
 	DockerExecutionEnabled                  bool
 	AppVersion                              string
@@ -114,6 +118,20 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 			!config.BatchDeliveryControlEnabled || config.ControlToken == "") {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop batch validation requires control, permission control, and danger-full-access")
+	}
+	if config.UIEvidenceControlEnabled {
+		capabilities := config.BrowserRuntimeCapabilities
+		if !config.RunExecutionEnabled ||
+			!config.ExecutionPermissionCapabilities.Allows(
+				domain.RunExecutionPermissionFullAccess) ||
+			!config.BrowserCDPPermissionControlEnabled ||
+			!config.BrowserCDPPermissionCapabilities.ControlEnabled ||
+			capabilities.Validate() != nil || !capabilities.SafeWebStartEnabled ||
+			!capabilities.DisposableProfileEnabled ||
+			!capabilities.NetworkContainmentEnabled || !capabilities.RestrictedCDPEnabled {
+			return nil, apperror.New(apperror.CodeInvalidArgument,
+				"desktop UI evidence requires full-access command runtime and restricted Safe Web")
+		}
 	}
 	stateStore, err := store.Open(config.DatabasePath)
 	if err != nil {
@@ -211,6 +229,53 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 			return nil, err
 		}
 		executionControl.WithCommandRuntime(commandRuntime)
+	}
+	uiEvidence, err := application.NewUIEvidenceReadService(stateStore)
+	if err != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_ = commandManager.Shutdown(shutdownCtx)
+		cancel()
+		_ = stateStore.Close()
+		return nil, err
+	}
+	if _, err := uiEvidence.Reconcile(context.Background()); err != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_ = commandManager.Shutdown(shutdownCtx)
+		cancel()
+		_ = stateStore.Close()
+		return nil, apperror.Wrap(apperror.CodeUnavailable,
+			"desktop UI evidence startup reconciliation failed", err)
+	}
+	if config.UIEvidenceControlEnabled {
+		browserController, controllerErr := browserruntime.NewPlatformBrowserProcessController()
+		if controllerErr != nil {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			_ = commandManager.Shutdown(shutdownCtx)
+			cancel()
+			_ = stateStore.Close()
+			return nil, controllerErr
+		}
+		browserService := application.NewBrowserRuntimeService(stateStore,
+			browserController, config.BrowserRuntimeCapabilities,
+			config.BrowserCDPPermissionCapabilities)
+		browserProvider, providerErr :=
+			application.NewSafeWebUIEvidenceBrowserProvider(browserService)
+		if providerErr != nil {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			_ = commandManager.Shutdown(shutdownCtx)
+			cancel()
+			_ = stateStore.Close()
+			return nil, providerErr
+		}
+		uiEvidence, err = application.NewUIEvidenceService(stateStore, commandRuntime,
+			browserProvider, filepath.Join(home, "runtime", "ui-evidence-profiles"))
+		if err != nil {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			_ = commandManager.Shutdown(shutdownCtx)
+			cancel()
+			_ = stateStore.Close()
+			return nil, err
+		}
 	}
 	dockerProposalExecutor, err := application.NewDockerSandboxProposalExecutor(
 		dockerSandbox)
@@ -362,6 +427,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		WorkspaceCheckpointControlEnabled:       config.ControlToken != "",
 		BatchDeliveryControlEnabled:             config.BatchDeliveryControlEnabled,
 		BatchDeliveryHostValidationEnabled:      config.BatchDeliveryHostValidationEnabled,
+		UIEvidenceControlEnabled:                config.UIEvidenceControlEnabled,
 		RunLifecycleController:                  lifecycleControl,
 		RunExecutionController:                  executionControl,
 		PublicModelStreamSource:                 executionControl,
@@ -385,6 +451,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		EmbeddedAnalyzerExecutionController: embeddedAnalyzerExecution,
 		WorkspaceCheckpointController:       workspaceCheckpoints,
 		BatchDeliveryController:             batchDelivery,
+		UIEvidenceController:                uiEvidence,
 		DockerSandboxController:             dockerSandbox,
 		ModelRegistry:                       models,
 		AppVersion:                          config.AppVersion, UIHandler: config.UIHandler,
@@ -401,8 +468,9 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		skillInstaller: skillInstaller, dockerSandbox: dockerSandbox,
 		userTerminal:    userTerminal,
 		debugAgentInput: debugAgentInput,
-		commandRuntime:  commandRuntime, commandRuntimeManager: commandManager,
-		terminalManager: terminalManager, boundaryMonitor: boundaryMonitor,
+		commandRuntime:  commandRuntime, uiEvidence: uiEvidence,
+		commandRuntimeManager: commandManager,
+		terminalManager:       terminalManager, boundaryMonitor: boundaryMonitor,
 		wakeWorker: wakeWorker}, nil
 }
 
@@ -632,6 +700,12 @@ func (c *ControlPlane) Close() error {
 			shutdownContext, shutdownCancel := context.WithTimeout(
 				context.Background(), 2*time.Second)
 			c.debugAgentInput.Shutdown(shutdownContext)
+			shutdownCancel()
+		}
+		if c.uiEvidence != nil {
+			shutdownContext, shutdownCancel := context.WithTimeout(
+				context.Background(), 35*time.Second)
+			c.closeErr = errors.Join(c.closeErr, c.uiEvidence.Close(shutdownContext))
 			shutdownCancel()
 		}
 		if c.commandRuntimeManager != nil {

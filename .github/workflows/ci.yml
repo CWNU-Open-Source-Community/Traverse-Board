@@ -220,6 +220,22 @@ jobs:
           npm run build
       - name: Test Desktop boundaries
         run: go test -tags "desktop,wv2runtime.error" -count=1 ./cmd/cyberagent-desktop ./internal/desktop ./internal/webui
+      - name: Verify real Edge UI evidence matrix and regression detection
+        shell: pwsh
+        run: |
+          $artifactDirectory = Join-Path $env:RUNNER_TEMP "ui-evidence-smoke"
+          New-Item -ItemType Directory -Path $artifactDirectory -Force | Out-Null
+          $env:CYBERAGENT_UI_EVIDENCE_SMOKE = "1"
+          $env:CYBERAGENT_UI_EVIDENCE_ARTIFACT_DIR = $artifactDirectory
+          go test -v -timeout 3m -count=1 ./internal/browserruntime -run '^TestInstalledEdgeUIEvidenceHeadlessMatrixAndRegression$'
+      - name: Upload real Edge UI evidence receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ui-evidence-edge-smoke
+          path: ${{ runner.temp }}/ui-evidence-smoke
+          if-no-files-found: warn
+          retention-days: 5
       - name: Verify cross-platform Runner receipt vectors
         run: go test -count=1 ./internal/runner -run 'TestEvidenceSetReceipt(Golden|Compatibility).*Vectors'
       - name: Verify Windows command runtime transports

@@ -288,6 +288,30 @@ func TestDisposableProfileMaterializeReleaseCleanupAndRecovery(t *testing.T) {
 	}
 }
 
+func TestRemoveProfileTreeBoundedRetriesTransientWindowsStyleSharingFailure(t *testing.T) {
+	profile := filepath.Join(t.TempDir(), "owned-profile")
+	if err := os.Mkdir(profile, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	remove := func(path string) error {
+		calls++
+		if calls == 1 {
+			return &os.PathError{Op: "unlinkat", Path: path, Err: os.ErrPermission}
+		}
+		return os.RemoveAll(path)
+	}
+	if err := removeProfileTreeBounded(profile, time.Second, remove); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("bounded Profile cleanup calls=%d, want 2", calls)
+	}
+	if _, err := os.Lstat(profile); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("bounded Profile cleanup left its exact target: %v", err)
+	}
+}
+
 func TestDisposableProfileRefusesForeignMarker(t *testing.T) {
 	facts := newLoopbackBrowserRuntimeFacts(t)
 	lease := facts.materialize(t)

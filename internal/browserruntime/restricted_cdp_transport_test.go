@@ -1,10 +1,14 @@
 package browserruntime
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"image"
+	"image/color"
+	"image/png"
 	"net"
 	"net/http"
 	"os"
@@ -239,14 +243,15 @@ func writeDevToolsActivePort(t *testing.T, profilePath string, port int,
 }
 
 type scriptedCDPServer struct {
-	listener net.Listener
-	server   *http.Server
-	port     int
-	path     string
-	url      string
-	png      []byte
-	mu       sync.Mutex
-	methods  []string
+	listener        net.Listener
+	server          *http.Server
+	port            int
+	path            string
+	url             string
+	png             []byte
+	mu              sync.Mutex
+	methods         []string
+	selectorQueries map[string]int
 }
 
 func newScriptedCDPServer(t *testing.T, allowedURL string) *scriptedCDPServer {
@@ -256,7 +261,7 @@ func newScriptedCDPServer(t *testing.T, allowedURL string) *scriptedCDPServer {
 		t.Fatal(err)
 	}
 	server := &scriptedCDPServer{listener: listener, path: "/devtools/browser/test",
-		url: allowedURL, png: []byte("\x89PNG\r\n\x1a\nrestricted-fixture")}
+		url: allowedURL, png: restrictedTestPNG(), selectorQueries: make(map[string]int)}
 	server.port = listener.Addr().(*net.TCPAddr).Port
 	mux := http.NewServeMux()
 	mux.HandleFunc(server.path, server.serveWebSocket)
@@ -294,6 +299,7 @@ func (server *scriptedCDPServer) serveWebSocket(writer http.ResponseWriter,
 	defer connection.Close()
 	var pendingNavigationID int64
 	navigationStage := 0
+	performanceCalls := 0
 	for {
 		_, raw, err := connection.ReadMessage()
 		if err != nil {
@@ -344,6 +350,17 @@ func (server *scriptedCDPServer) serveWebSocket(writer http.ResponseWriter,
 					map[string]any{"frameId": "frame-test"})
 				writeCDPEvent(connection, "session-test", "Page.loadEventFired",
 					map[string]any{"timestamp": 1})
+				writeCDPEvent(connection, "session-test", "Runtime.consoleAPICalled",
+					map[string]any{"type": "warning", "timestamp": 1,
+						"args": []map[string]any{{"type": "string", "value": "fixture warning"}}})
+				writeCDPEvent(connection, "session-test", "Network.requestWillBeSent",
+					map[string]any{"requestId": "network-test", "type": "XHR",
+						"request": map[string]any{"url": server.url + "?token=hidden", "method": "GET"}})
+				writeCDPEvent(connection, "session-test", "Network.responseReceived",
+					map[string]any{"requestId": "network-test", "response": map[string]any{
+						"url": server.url + "?token=hidden", "status": 500, "mimeType": "application/json"}})
+				writeCDPEvent(connection, "session-test", "Network.loadingFinished",
+					map[string]any{"requestId": "network-test"})
 				pendingNavigationID = 0
 			}
 		case "DOM.getDocument":
@@ -371,12 +388,59 @@ func (server *scriptedCDPServer) serveWebSocket(writer http.ResponseWriter,
 			writeCDPResult(connection, command.ID, map[string]any{
 				"data": base64.StdEncoding.EncodeToString(server.png),
 			})
+		case "DOM.querySelector":
+			var params struct {
+				Selector string `json:"selector"`
+			}
+			_ = json.Unmarshal(command.Params, &params)
+			server.mu.Lock()
+			server.selectorQueries[params.Selector]++
+			queryCount := server.selectorQueries[params.Selector]
+			server.mu.Unlock()
+			nodeID := 0
+			if params.Selector != "#absent" &&
+				(params.Selector != "#eventual" || queryCount >= 3) {
+				nodeID = 7
+			}
+			writeCDPResult(connection, command.ID, map[string]any{"nodeId": nodeID})
+		case "DOM.getBoxModel":
+			writeCDPResult(connection, command.ID, map[string]any{"model": map[string]any{
+				"border": []float64{2, 2, 6, 2, 6, 6, 2, 6}}})
+		case "DOM.getOuterHTML":
+			writeCDPResult(connection, command.ID, map[string]any{
+				"outerHTML": `<html><main>token=abcdefghijklmnopqrstuvwxyz1234567890</main></html>`,
+			})
+		case "Accessibility.getFullAXTree":
+			writeCDPResult(connection, command.ID, map[string]any{"nodes": []map[string]any{{
+				"nodeId": "ax-1", "name": map[string]any{"value": "fixture"}}}})
+		case "Performance.getMetrics":
+			performanceCalls++
+			if performanceCalls == 3 {
+				writeCDPEvent(connection, "session-test", "Runtime.consoleAPICalled",
+					map[string]any{"type": "warning", "timestamp": 2,
+						"args": []map[string]any{{"type": "string", "value": "delayed warning"}}})
+			}
+			writeCDPResult(connection, command.ID, map[string]any{"metrics": []map[string]any{{
+				"name": "LayoutCount", "value": 2}}})
 		case "Target.closeTarget":
 			writeCDPResult(connection, command.ID, map[string]any{"success": true})
 		default:
 			writeCDPResult(connection, command.ID, map[string]any{})
 		}
 	}
+}
+
+func restrictedTestPNG() []byte {
+	canvas := image.NewRGBA(image.Rect(0, 0, 10, 10))
+	drawColor := color.RGBA{R: 240, G: 240, B: 240, A: 255}
+	for y := 0; y < 10; y++ {
+		for x := 0; x < 10; x++ {
+			canvas.SetRGBA(x, y, drawColor)
+		}
+	}
+	var output bytes.Buffer
+	_ = png.Encode(&output, canvas)
+	return output.Bytes()
 }
 
 func writeCDPResult(connection *websocket.Conn, id int64, result map[string]any) {

@@ -1692,6 +1692,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/ui-evidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List source-bound UI evidence attempts
+         * @description Returns immutable manifests and fail-closed outcomes. not_run is unknown and never a passing result.
+         */
+        get: operations["listRunUIEvidence"];
+        put?: never;
+        /**
+         * Start real-browser UI evidence
+         * @description Persists not_run before asynchronously executing the exact source-bound build/start recipe in a Run-owned process tree, a temporary browser Profile, and a loopback-only reviewed Safe Web runtime.
+         */
+        post: operations["startRunUIEvidence"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/verification-evidence": {
         parameters: {
             query?: never;
@@ -2314,6 +2338,66 @@ export interface paths {
          * @description Imports one explicitly confirmed, strictly validated, bounded archive into the content-addressed untrusted Skill Registry. Import executes no scripts, hooks, commands, tools, Provider calls, or network requests and grants no Run-selection or context-delivery authority.
          */
         post: operations["installSkillPackage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ui-evidence/{attempt_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect one UI evidence bundle
+         * @description Returns the exact manifest, step receipts, and artifact metadata without binary content.
+         */
+        get: operations["getUIEvidence"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ui-evidence/{attempt_id}/artifacts/{artifact_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download one verified UI evidence artifact
+         * @description Returns exact hash-verified untrusted bytes with MIME, ETag, source digest, and no-store headers.
+         */
+        get: operations["downloadUIEvidenceArtifact"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ui-evidence/{attempt_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel one UI evidence attempt
+         * @description Cancels the service-owned context and waits for bounded process-tree, Profile, network, and port cleanup.
+         */
+        post: operations["cancelUIEvidence"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3427,6 +3511,34 @@ export interface components {
             verification_snapshot_receipt_reviews: components["schemas"]["CodeHandoffSnapshotReceiptReviewsView"];
             workspace_id: string;
         };
+        CommandRuntimeEnvironment: {
+            name: string;
+            value: string;
+        };
+        CommandRuntimeOutputPolicy: {
+            /** Format: int32 */
+            artifact_bytes: number;
+            /** Format: int32 */
+            inline_bytes: number;
+        };
+        CommandRuntimeSpec: {
+            arguments?: string[];
+            close_initial_stdin: boolean;
+            credentials: string;
+            environment: components["schemas"]["CommandRuntimeEnvironment"][];
+            executable?: string;
+            initial_stdin?: string;
+            network: string;
+            output: components["schemas"]["CommandRuntimeOutputPolicy"];
+            profile: string;
+            purpose: string;
+            script?: string;
+            stdin_policy: string;
+            /** Format: int64 */
+            timeout_milliseconds: number;
+            version: string;
+            working_directory: string;
+        };
         CommandSpec: {
             arguments?: string[];
             executable: string;
@@ -4481,7 +4593,8 @@ export interface components {
             mounts: components["schemas"]["Mount"][];
             network: components["schemas"]["NetworkScope"];
             output: components["schemas"]["OutputSpec"];
-            protocol_version: string;
+            /** @enum {string} */
+            protocol_version: "ui-evidence.v1";
             resources: components["schemas"]["ResourceLimits"];
             /** Format: int32 */
             timeout_seconds: number;
@@ -5901,6 +6014,7 @@ export interface components {
             session_steering_control_enabled: boolean;
             shell_execution_enabled: boolean;
             skill_installation_enabled: boolean;
+            ui_evidence_control_enabled: boolean;
             verification_evidence_enabled: boolean;
             wake_worker: components["schemas"]["RunWakeWorkerHealthView"];
             workspace_checkpoint_control_enabled: boolean;
@@ -6147,6 +6261,251 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
             workspace_id: string;
+        };
+        UIEvidenceArtifactMetadata: {
+            attempt_id: string;
+            /** Format: int64 */
+            bytes: number;
+            /** Format: date-time */
+            created_at: string;
+            fingerprint: string;
+            /** Format: int32 */
+            height?: number;
+            id: string;
+            /** @enum {string} */
+            kind: "screenshot" | "dom" | "accessibility" | "console" | "network" | "performance";
+            mime: string;
+            /** @enum {string} */
+            protocol_version: "ui-evidence-artifact.v1";
+            redacted: boolean;
+            /** @enum {string} */
+            retention_policy: "run_history";
+            run_id: string;
+            sha256: string;
+            source_commit: string;
+            step_id: string;
+            untrusted: boolean;
+            viewport: components["schemas"]["UIEvidenceViewport"];
+            /** Format: int32 */
+            width?: number;
+        };
+        UIEvidenceAttempt: {
+            /** Format: int64 */
+            artifact_bytes: number;
+            /** Format: int32 */
+            artifact_count: number;
+            cleanup: components["schemas"]["UIEvidenceCleanupReceipt"];
+            /** Format: date-time */
+            completed_at?: string;
+            /** Format: date-time */
+            created_at: string;
+            diagnostics: components["schemas"]["UIEvidenceDiagnosticsSummary"];
+            failure_code?: string;
+            failure_message?: string;
+            /** @enum {string} */
+            failure_stage: "none" | "build" | "launch" | "readiness" | "navigation" | "selector" | "assertion" | "console" | "network" | "capture" | "cleanup";
+            manifest: components["schemas"]["UIEvidenceManifest"];
+            operation_digest: string;
+            /** @enum {string} */
+            protocol_version: "ui-evidence-attempt.v1";
+            request_fingerprint: string;
+            /** Format: date-time */
+            started_at?: string;
+            /** @enum {string} */
+            status: "not_run" | "running" | "passed" | "failed" | "cancelled" | "timed_out" | "interrupted";
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: int64 */
+            version: number;
+        };
+        UIEvidenceBrowserIdentity: {
+            /** @enum {string} */
+            driver_protocol: "restricted-cdp-ui-evidence.v1";
+            executable_sha256: string;
+            headless: boolean;
+            /** @enum {string} */
+            product: "chrome" | "edge";
+            temporary_profile: boolean;
+            version: string;
+        };
+        UIEvidenceBrowserSelection: {
+            /** @enum {string} */
+            channel: "stable" | "beta" | "dev" | "canary";
+            /** @enum {string} */
+            product: "chrome" | "edge";
+        };
+        UIEvidenceBundle: {
+            artifacts: components["schemas"]["UIEvidenceArtifactMetadata"][];
+            attempt: components["schemas"]["UIEvidenceAttempt"];
+            steps: components["schemas"]["UIEvidenceStepReceipt"][];
+        };
+        UIEvidenceCapturePolicy: {
+            accessibility: boolean;
+            console: boolean;
+            dom: boolean;
+            mask_selectors: string[];
+            network: boolean;
+            performance: boolean;
+            screenshot: boolean;
+            video: boolean;
+        };
+        UIEvidenceCleanupReceipt: {
+            application_tree_reaped: boolean;
+            browser_tree_reaped: boolean;
+            network_released: boolean;
+            port_released: boolean;
+            profile_removed: boolean;
+        };
+        UIEvidenceCommandRecipe: {
+            canonical_argv: string[];
+            /** @enum {string} */
+            credentials: "none";
+            environment_names: string[];
+            environment_sha256: string;
+            executable_name: string;
+            executable_path_sha256: string;
+            executable_sha256: string;
+            fingerprint: string;
+            /** @enum {string} */
+            network: "disabled";
+            /** @enum {string} */
+            profile: "powershell" | "bash" | "process";
+            /** @enum {string} */
+            protocol_version: "command-runtime.v2";
+            purpose: string;
+            /** Format: int64 */
+            timeout_milliseconds: number;
+            working_directory: string;
+        };
+        UIEvidenceDiagnosticsSummary: {
+            /** Format: int32 */
+            allowed_requests: number;
+            /** Format: int32 */
+            blocked_requests: number;
+            /** Format: int32 */
+            console_errors: number;
+            /** Format: int32 */
+            console_warnings: number;
+            /** Format: int32 */
+            failed_requests: number;
+            /** Format: int32 */
+            http_failures: number;
+            /** Format: int32 */
+            page_errors: number;
+        };
+        UIEvidenceEnvironment: {
+            locale: string;
+            reduced_motion: boolean;
+            /** @enum {string} */
+            theme: "light" | "dark";
+            viewport: components["schemas"]["UIEvidenceViewport"];
+        };
+        UIEvidenceEvidenceAuthority: {
+            credential_access: boolean;
+            network_access: boolean;
+            personal_profile: boolean;
+            process_start: boolean;
+            request_mutation: boolean;
+            verification_pass: boolean;
+        };
+        UIEvidenceFailurePolicy: {
+            fail_on_console_error: boolean;
+            fail_on_http_status: boolean;
+            fail_on_page_error: boolean;
+            fail_on_request_error: boolean;
+        };
+        UIEvidenceFixture: {
+            data_sha256: string;
+            deterministic: boolean;
+            name: string;
+            page_state: string;
+            seed: string;
+            synthetic: boolean;
+        };
+        UIEvidenceManifest: {
+            attempt_id: string;
+            authority: components["schemas"]["UIEvidenceEvidenceAuthority"];
+            browser: components["schemas"]["UIEvidenceBrowserIdentity"];
+            build?: components["schemas"]["UIEvidenceCommandRecipe"];
+            capture: components["schemas"]["UIEvidenceCapturePolicy"];
+            /** Format: date-time */
+            created_at: string;
+            environment: components["schemas"]["UIEvidenceEnvironment"];
+            failure_policy: components["schemas"]["UIEvidenceFailurePolicy"];
+            fingerprint: string;
+            fixture: components["schemas"]["UIEvidenceFixture"];
+            mission_id: string;
+            /** @enum {string} */
+            protocol_version: "ui-evidence.v1";
+            readiness: components["schemas"]["UIEvidenceReadiness"];
+            route: string;
+            run_id: string;
+            session_id: string;
+            source: components["schemas"]["UIEvidenceSourceBinding"];
+            start: components["schemas"]["UIEvidenceCommandRecipe"];
+            steps: components["schemas"]["UIEvidenceStep"][];
+            url: string;
+            workspace_id: string;
+        };
+        UIEvidenceReadiness: {
+            expected_status: number[];
+            /** Format: int64 */
+            interval_milliseconds: number;
+            method: string;
+            /** Format: int64 */
+            timeout_milliseconds: number;
+            url: string;
+        };
+        UIEvidenceRuntimeStep: {
+            input?: string;
+            step: components["schemas"]["UIEvidenceStep"];
+        };
+        UIEvidenceSourceBinding: {
+            branch?: string;
+            commit: string;
+            dirty: boolean;
+            dirty_digest: string;
+            index_sha256: string;
+            manifest_sha256: string;
+            /** @enum {string} */
+            repository_kind: "git" | "non_git";
+            root_fingerprint: string;
+        };
+        UIEvidenceStep: {
+            capture_after: boolean;
+            id: string;
+            input_sha256?: string;
+            /** @enum {string} */
+            kind: "navigate" | "click" | "type" | "assert_present" | "assert_absent" | "capture";
+            selector?: string;
+        };
+        UIEvidenceStepReceipt: {
+            attempt_id: string;
+            /** Format: date-time */
+            completed_at: string;
+            /** @enum {string} */
+            failure_stage: "none" | "build" | "launch" | "readiness" | "navigation" | "selector" | "assertion" | "console" | "network" | "capture" | "cleanup";
+            fingerprint: string;
+            /** @enum {string} */
+            kind: "navigate" | "click" | "type" | "assert_present" | "assert_absent" | "capture";
+            message?: string;
+            /** @enum {string} */
+            protocol_version: "ui-evidence-step.v1";
+            /** Format: int32 */
+            sequence: number;
+            /** Format: date-time */
+            started_at: string;
+            /** @enum {string} */
+            status: "passed" | "failed" | "cancelled" | "timed_out";
+            step_id: string;
+        };
+        UIEvidenceViewport: {
+            /** Format: double */
+            dpr: number;
+            /** Format: int32 */
+            height: number;
+            /** Format: int32 */
+            width: number;
         };
         VerificationAssociationControlView: {
             approval: boolean;
@@ -6865,6 +7224,23 @@ export interface components {
             expected_fingerprint: string;
             expected_live_fingerprint: string;
             target_path?: string;
+        };
+        uiEvidenceCancelView: {
+            confirm: boolean;
+        };
+        uiEvidenceStartView: {
+            browser: components["schemas"]["UIEvidenceBrowserSelection"];
+            build?: components["schemas"]["CommandRuntimeSpec"];
+            capture: components["schemas"]["UIEvidenceCapturePolicy"];
+            environment: components["schemas"]["UIEvidenceEnvironment"];
+            failure_policy: components["schemas"]["UIEvidenceFailurePolicy"];
+            fixture: components["schemas"]["UIEvidenceFixture"];
+            operation_key: string;
+            readiness: components["schemas"]["UIEvidenceReadiness"];
+            route: string;
+            start: components["schemas"]["CommandRuntimeSpec"];
+            steps: components["schemas"]["UIEvidenceRuntimeStep"][];
+            url: string;
         };
         workspaceCheckpointCaptureView: {
             operation_key: string;
@@ -10684,6 +11060,89 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
+    listRunUIEvidence: {
+        parameters: {
+            query?: {
+                /** @description Optional exact attempt status */
+                status?: "not_run" | "running" | "passed" | "failed" | "cancelled" | "timed_out" | "interrupted";
+                /** @description Maximum attempts */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["UIEvidenceAttempt"][];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    startRunUIEvidence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["uiEvidenceStartView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["UIEvidenceAttempt"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     listRunVerificationEvidence: {
         parameters: {
             query?: never;
@@ -12205,6 +12664,118 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getUIEvidence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UI evidence attempt identity */
+                attempt_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["UIEvidenceBundle"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    downloadUIEvidenceArtifact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UI evidence attempt identity */
+                attempt_id: string;
+                /** @description Artifact identity */
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Hash-verified untrusted evidence bytes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                    "application/octet-stream": string;
+                    "image/png": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    cancelUIEvidence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UI evidence attempt identity */
+                attempt_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["uiEvidenceCancelView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["UIEvidenceAttempt"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             412: components["responses"]["FailedPrecondition"];
             413: components["responses"]["RequestEntityTooLarge"];
