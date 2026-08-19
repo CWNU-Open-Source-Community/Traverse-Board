@@ -132,7 +132,7 @@ func removeSchemaV114ForTestStatements() []string {
 }
 
 func removeSchemaV116ForTestStatements() []string {
-	statements := []string{
+	statements := append(removeSchemaV117ForTestStatements(),
 		`DROP TRIGGER trg_command_runtime_job_delete_immutable`,
 		`DROP TRIGGER trg_command_runtime_job_update_transition`,
 		`DROP TRIGGER trg_command_runtime_job_insert_limit`,
@@ -140,7 +140,7 @@ func removeSchemaV116ForTestStatements() []string {
 		`DROP INDEX idx_command_runtime_jobs_active`,
 		`DROP INDEX idx_command_runtime_jobs_run_created`,
 		`DROP TABLE command_runtime_jobs`,
-	}
+	)
 	statements = append(statements, debugTerminalSupervisorLedgerStatements...)
 	return append(statements, `DELETE FROM schema_migrations WHERE version = 116`)
 }

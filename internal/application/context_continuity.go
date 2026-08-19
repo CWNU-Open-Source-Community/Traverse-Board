@@ -58,6 +58,9 @@ type BranchContinuityRequest struct {
 	Kind         contextmgr.ContinuityNodeKind
 	Goal         string
 	RequestedBy  string
+	WorkspaceID  string
+	GitBranch    string
+	GitHead      string
 }
 
 type ContinuityBranchResult struct {
@@ -132,33 +135,52 @@ func (s *ContextContinuityService) Checkpoint(ctx context.Context,
 func (s *ContextContinuityService) Branch(ctx context.Context,
 	request BranchContinuityRequest,
 ) (ContinuityBranchResult, error) {
+	prepared, node, result, err := s.prepareBranch(ctx, request)
+	if err != nil {
+		return ContinuityBranchResult{}, err
+	}
+	if err := s.store.CreateMissionRunWithContinuity(ctx, prepared.Mission, prepared.Run,
+		prepared.Mode, prepared.Session, prepared.CreateSession, prepared.InitialEvents, node); err != nil {
+		return ContinuityBranchResult{}, err
+	}
+	return result, nil
+}
+
+func (s *ContextContinuityService) prepareBranch(ctx context.Context,
+	request BranchContinuityRequest,
+) (preparedRun, contextmgr.ContinuityNode, ContinuityBranchResult, error) {
 	if s == nil || s.store == nil {
-		return ContinuityBranchResult{}, errors.New("context continuity store is required")
+		return preparedRun{}, contextmgr.ContinuityNode{}, ContinuityBranchResult{},
+			errors.New("context continuity store is required")
 	}
 	request.SourceNodeID = strings.TrimSpace(request.SourceNodeID)
 	request.RequestedBy = strings.TrimSpace(request.RequestedBy)
+	request.WorkspaceID = strings.TrimSpace(request.WorkspaceID)
+	request.GitBranch = strings.TrimSpace(request.GitBranch)
+	request.GitHead = strings.TrimSpace(request.GitHead)
 	if err := contextmgr.ValidateMemoryActor(request.RequestedBy); err != nil {
-		return ContinuityBranchResult{}, err
+		return preparedRun{}, contextmgr.ContinuityNode{}, ContinuityBranchResult{}, err
 	}
 	if request.Kind != contextmgr.ContinuityNodeFork &&
 		request.Kind != contextmgr.ContinuityNodeResume {
-		return ContinuityBranchResult{}, errors.New("continuity branch kind must be fork or resume")
+		return preparedRun{}, contextmgr.ContinuityNode{}, ContinuityBranchResult{},
+			errors.New("continuity branch kind must be fork or resume")
 	}
 	source, err := s.store.GetSessionContinuityNode(ctx, request.SourceNodeID)
 	if err != nil {
-		return ContinuityBranchResult{}, err
+		return preparedRun{}, contextmgr.ContinuityNode{}, ContinuityBranchResult{}, err
 	}
 	sourceRun, err := s.store.GetRun(ctx, source.RunID)
 	if err != nil {
-		return ContinuityBranchResult{}, err
+		return preparedRun{}, contextmgr.ContinuityNode{}, ContinuityBranchResult{}, err
 	}
 	sourceMission, err := s.store.GetMission(ctx, sourceRun.MissionID)
 	if err != nil {
-		return ContinuityBranchResult{}, err
+		return preparedRun{}, contextmgr.ContinuityNode{}, ContinuityBranchResult{}, err
 	}
 	mode, err := s.store.GetRunMode(ctx, sourceRun.ID)
 	if err != nil {
-		return ContinuityBranchResult{}, err
+		return preparedRun{}, contextmgr.ContinuityNode{}, ContinuityBranchResult{}, err
 	}
 	goal := boundedContinuityText(request.Goal, 16*1024)
 	if goal == "" {
@@ -168,10 +190,12 @@ func (s *ContextContinuityService) Branch(ctx context.Context,
 	if len(sourceRun.Config.ProjectConfig) > 0 {
 		var value projectconfig.Effective
 		if err := json.Unmarshal(sourceRun.Config.ProjectConfig, &value); err != nil {
-			return ContinuityBranchResult{}, fmt.Errorf("decode pinned project config: %w", err)
+			return preparedRun{}, contextmgr.ContinuityNode{}, ContinuityBranchResult{},
+				fmt.Errorf("decode pinned project config: %w", err)
 		}
 		if value.Fingerprint() != sourceRun.Config.ProjectConfigFingerprint {
-			return ContinuityBranchResult{}, errors.New("pinned project config fingerprint mismatch")
+			return preparedRun{}, contextmgr.ContinuityNode{}, ContinuityBranchResult{},
+				errors.New("pinned project config fingerprint mismatch")
 		}
 		project = &value
 	}
@@ -179,24 +203,47 @@ func (s *ContextContinuityService) Branch(ctx context.Context,
 	if len(sourceRun.Config.ProjectInstructions) > 0 {
 		var value projectconfig.InstructionSnapshot
 		if err := json.Unmarshal(sourceRun.Config.ProjectInstructions, &value); err != nil {
-			return ContinuityBranchResult{}, fmt.Errorf("decode pinned project instructions: %w", err)
+			return preparedRun{}, contextmgr.ContinuityNode{}, ContinuityBranchResult{},
+				fmt.Errorf("decode pinned project instructions: %w", err)
 		}
 		if err := value.Validate(); err != nil {
-			return ContinuityBranchResult{}, fmt.Errorf("pinned project instructions: %w", err)
+			return preparedRun{}, contextmgr.ContinuityNode{}, ContinuityBranchResult{},
+				fmt.Errorf("pinned project instructions: %w", err)
 		}
 		instructions = &value
 	}
 	continuity := source.Snapshot
+	workspaceID := sourceMission.WorkspaceID
+	if request.WorkspaceID != "" {
+		workspaceID = request.WorkspaceID
+		continuity.WorkspaceID = workspaceID
+		continuity.GitBranch, continuity.GitHead = request.GitBranch, request.GitHead
+		inherited := make([]string, 0, len(continuity.InheritedContext)+1)
+		for _, value := range continuity.InheritedContext {
+			if !strings.HasPrefix(value, "git:") {
+				inherited = append(inherited, value)
+			}
+		}
+		if continuity.GitHead != "" {
+			inherited = append(inherited, "git:"+continuity.GitBranch+":"+continuity.GitHead)
+		}
+		continuity.InheritedContext = inherited
+		continuity.Fingerprint = ""
+		continuity, err = contextmgr.SealContinuitySnapshot(continuity)
+		if err != nil {
+			return preparedRun{}, contextmgr.ContinuityNode{}, ContinuityBranchResult{}, err
+		}
+	}
 	prepared, err := prepareRun(ctx, CreateRunRequest{
 		Goal: goal, Profile: string(sourceMission.Profile), Surface: string(mode.Surface),
-		Phase: string(mode.Phase), WorkspaceID: sourceMission.WorkspaceID,
+		Phase: string(mode.Phase), WorkspaceID: workspaceID,
 		ModelRoute: sourceRun.Config.ModelRoute, Interactive: sourceRun.Config.Interactive,
 		Budget: sourceRun.Budget, RequestedBy: request.RequestedBy,
 		ProjectConfig: project, ProjectInstructions: instructions,
 		ContinuityContext: &continuity,
 	}, s.store.GetSession)
 	if err != nil {
-		return ContinuityBranchResult{}, err
+		return preparedRun{}, contextmgr.ContinuityNode{}, ContinuityBranchResult{}, err
 	}
 	title := "Fork from " + source.ID
 	if request.Kind == contextmgr.ContinuityNodeResume {
@@ -205,20 +252,20 @@ func (s *ContextContinuityService) Branch(ctx context.Context,
 	node, err := contextmgr.NewContinuityNode(idgen.New("continuity"), request.Kind,
 		prepared.Run.SessionID, prepared.Run.ID, prepared.Mission.WorkspaceID, "",
 		source.ID, title, "Explicit context snapshot inherited; all authority reset",
-		request.RequestedBy, source.Snapshot, time.Now().UTC())
+		request.RequestedBy, continuity, time.Now().UTC())
 	if err != nil {
-		return ContinuityBranchResult{}, err
+		return preparedRun{}, contextmgr.ContinuityNode{}, ContinuityBranchResult{}, err
 	}
-	if err := s.store.CreateMissionRunWithContinuity(ctx, prepared.Mission, prepared.Run,
-		prepared.Mode, prepared.Session, prepared.CreateSession, prepared.InitialEvents, node); err != nil {
-		return ContinuityBranchResult{}, err
-	}
-	return ContinuityBranchResult{Mission: prepared.Mission, Run: prepared.Run, Node: node,
+	result := ContinuityBranchResult{Mission: prepared.Mission, Run: prepared.Run, Node: node,
 		Inherited: append([]string{}, source.Snapshot.InheritedContext...),
 		NotInherited: []string{"approvals", "capability grants", "credentials", "debug sessions",
 			"execution leases", "network authorization", "processes", "terminal leases",
 			"execution profiles"},
-		CapabilityGrant: false}, nil
+		CapabilityGrant: false}
+	if request.WorkspaceID != "" {
+		result.Inherited = append([]string{}, continuity.InheritedContext...)
+	}
+	return prepared, node, result, nil
 }
 
 func (s *ContextContinuityService) Tree(ctx context.Context,

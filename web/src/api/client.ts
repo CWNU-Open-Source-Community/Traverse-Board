@@ -159,6 +159,7 @@ export interface ClientCapabilities {
   evidenceAttachmentEnabled?: boolean;
   verificationEvidenceEnabled?: boolean;
   embeddedAnalyzerExecutionEnabled?: boolean;
+  workspaceCheckpointControlEnabled?: boolean;
   dockerExecutionEnabled?: boolean;
   agentCodeToolsEnabled?: boolean;
 }
@@ -1105,7 +1106,7 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
     "execution_permission_control_enabled", "operator_approval_enabled",
     "danger_full_access_enabled", "debug_maximum_access_enabled",
     "evidence_attachment_enabled", "verification_evidence_enabled",
-    "embedded_analyzer_execution_enabled",
+    "embedded_analyzer_execution_enabled", "workspace_checkpoint_control_enabled",
     "file_edit_apply_enabled", "file_edit_proposal_enabled",
     "file_edit_review_enabled", "model_control_enabled", "plan_delivery_control_enabled",
     "process_execution_enabled", "provider_credential_enabled", "protocol_version",
@@ -1243,6 +1244,7 @@ export function clientCapabilitiesFromRuntime(value: RuntimeCapabilitiesView): C
     evidenceAttachmentEnabled: value.evidence_attachment_enabled,
     verificationEvidenceEnabled: value.verification_evidence_enabled,
     embeddedAnalyzerExecutionEnabled: value.embedded_analyzer_execution_enabled,
+    workspaceCheckpointControlEnabled: value.workspace_checkpoint_control_enabled,
     dockerExecutionEnabled: value.docker_execution_enabled,
     agentCodeToolsEnabled: value.agent_code_tools_enabled,
   };
@@ -3397,6 +3399,7 @@ export class CyberAgentClient {
   readonly hasEvidenceAttachment: boolean;
   readonly hasVerificationEvidence: boolean;
   readonly hasEmbeddedAnalyzerExecution: boolean;
+  readonly hasWorkspaceCheckpointControl: boolean;
 
   constructor(
     private readonly token: string,
@@ -3446,6 +3449,8 @@ export class CyberAgentClient {
       (capabilities.verificationEvidenceEnabled ?? false);
     this.hasEmbeddedAnalyzerExecution = controlPresent &&
       (capabilities.embeddedAnalyzerExecutionEnabled ?? false);
+    this.hasWorkspaceCheckpointControl = controlPresent &&
+      (capabilities.workspaceCheckpointControlEnabled ?? false);
   }
 
   async health(signal?: AbortSignal): Promise<HealthView> {

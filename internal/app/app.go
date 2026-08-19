@@ -255,7 +255,7 @@ func (a *App) printHelp() {
 	fmt.Fprintln(a.out, "  cyberagent version")
 	fmt.Fprintln(a.out, "  cyberagent doctor portable [--json]")
 	fmt.Fprintln(a.out, "  cyberagent doctor browser-readiness --product <edge|chrome|chromium> [--json]")
-	fmt.Fprintln(a.out, "  cyberagent workspace init|list|show|tree|read")
+	fmt.Fprintln(a.out, "  cyberagent workspace init|list|show|tree|read|checkpoint")
 	fmt.Fprintln(a.out, "  cyberagent script new|run")
 	fmt.Fprintln(a.out, "  cyberagent ctf init|analyze|writeup")
 	fmt.Fprintln(a.out, "  cyberagent learn ask")
@@ -365,6 +365,8 @@ func (a *App) workspaceCommand(ctx context.Context, args []string) error {
 		return a.workspaceTree(ctx, args[1:])
 	case "read":
 		return a.workspaceRead(ctx, args[1:])
+	case "checkpoint":
+		return a.workspaceCheckpointCommand(ctx, args[1:])
 	default:
 		return fmt.Errorf("unknown workspace subcommand %q", args[0])
 	}

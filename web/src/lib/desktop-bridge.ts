@@ -64,6 +64,7 @@ export interface DesktopConnectionBootstrap {
   evidence_attachment_enabled: boolean;
   verification_evidence_enabled: boolean;
   embedded_analyzer_execution_enabled: boolean;
+  workspace_checkpoint_control_enabled: boolean;
   user_terminal_enabled: boolean;
   agent_terminal_input_default: false;
   workspace_open_enabled: boolean;
@@ -700,6 +701,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     "control_enabled", "control_token", "docker_execution_enabled", "file_edit_apply_enabled",
     "evidence_attachment_enabled",
 	"verification_evidence_enabled", "embedded_analyzer_execution_enabled",
+	"workspace_checkpoint_control_enabled",
     "user_terminal_enabled", "agent_terminal_input_default",
     "file_edit_proposal_enabled", "file_edit_review_enabled", "model_control_enabled",
     "provider_credential_enabled", "process_execution_enabled",
@@ -748,6 +750,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     typeof value.evidence_attachment_enabled === "boolean" &&
     typeof value.verification_evidence_enabled === "boolean" &&
     typeof value.embedded_analyzer_execution_enabled === "boolean" &&
+    typeof value.workspace_checkpoint_control_enabled === "boolean" &&
     typeof value.docker_execution_enabled === "boolean" &&
     typeof value.user_terminal_enabled === "boolean" &&
     value.agent_terminal_input_default === false &&
@@ -767,7 +770,8 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
       value.run_wake_execution_enabled || value.run_wake_worker_enabled ||
       value.skill_installation_enabled ||
       value.evidence_attachment_enabled || value.verification_evidence_enabled ||
-      value.embedded_analyzer_execution_enabled || value.docker_execution_enabled ||
+	  value.embedded_analyzer_execution_enabled || value.workspace_checkpoint_control_enabled ||
+	  value.docker_execution_enabled ||
       value.user_terminal_enabled) &&
     (value.control_token === "" || validToken(value.control_token)) &&
     value.control_token !== value.read_token &&
@@ -796,7 +800,8 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
       value.run_wake_execution_enabled || value.run_wake_worker_enabled ||
       value.skill_installation_enabled ||
       value.evidence_attachment_enabled || value.verification_evidence_enabled ||
-      value.embedded_analyzer_execution_enabled || value.docker_execution_enabled ||
+	  value.embedded_analyzer_execution_enabled || value.workspace_checkpoint_control_enabled ||
+	  value.docker_execution_enabled ||
       value.user_terminal_enabled) &&
     value.process_execution_enabled ===
       (value.user_terminal_enabled || value.command_runtime_enabled) &&

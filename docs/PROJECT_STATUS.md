@@ -6,7 +6,44 @@ Last updated: 2026-08-19
 
 ## Resume Context
 
-当前检查点是 issue #100 / schema v116 的普通模式 Run-owned 命令闭环。root
+当前检查点是 issue #101 / schema v117 的事务化 Workspace Checkpoint、恢复与独立
+Fork。`workspace-checkpoint.v1` 固定 Run/Workspace/root、base commit、branch、原始 Git
+index、稳定 manifest、内容哈希、触发收据、attempt/capability generation 和恢复等级；
+普通内容以 SHA-256 去重，SQLite seal/refcount/quota trigger 保证不可变引用和 2 GiB 全局
+blob 硬上限，并将 checkpoint/manifest entry/transaction 元数据分别限制为
+10,000/2,000,000/20,000 条。FileEdit、模型工作区 apply/delete、Run-owned command batch/background Job、typed
+Git 与 agent merge 合同都使用同一 before/after 事务边界。Shell 因没有可移植 watcher
+明确为 partial，不宣称根目录外副作用可回滚。
+
+Timeline、manual capture、三方 preview、Undo/Redo/Rewind 与 Fork 共用 Application 服务，
+由 CLI、认证 OpenAPI 和 Desktop Checkpoints tab 投影。恢复是新的追加写，要求 paused
+Code/Deliver、active Session、无 live execution lease、当前非 conservative 权限、进程
+capability、显式操作者、精确 cursor CAS 与 operation key；root/branch/commit/index/path
+大小写/link/external drift 均失败关闭。实现只做 root-confined 原子文件/index 替换，绝不
+`git reset --hard` 或 blanket-delete untracked；Git index 经标准 `index.lock` 做 presence+
+digest CAS，能精确恢复“原本没有 index”的状态。Fork 建立并验证独立 Git worktree、
+Workspace/Mission/Run/Session/continuity node，不继承审批、凭据、capability、lease、进程、
+终端或网络 authority；启动 reconciliation 收敛 prepared boundary/restore/已注册 Fork，
+并补齐 boundary prepare 前后及 terminal transaction/cursor commit 之间的两个 CAS 窗口
+（Fork 永不推进 source cursor），
+并在 Run 尚未注册时凭 SQLite 私有、非 JSON 的目标路径/分支记录校验完整 commit 后清理
+孤立 worktree；清理前重捕获完整 manifest/index，崩溃后的用户编辑会导致失败关闭并保留。
+手工 capture 在同 Run 有 open mutation boundary 时冲突，不会移动写者游标。
+完整边界见 ADR 0118 与 `docs/workspace-checkpoints.md`。
+
+Issue #101 的本地发布门已通过 `go test -count=1 -timeout 20m ./...`（完整 Store
+迁移链 854.6 秒，Application 414.7 秒，HTTP API 180.5 秒）、`go vet ./...`、
+`go mod verify`、`go mod tidy -diff`，以及
+workspacecheckpoint/schema-v117/Application 新路径的 `-race` 回归。OpenAPI golden 与
+TypeScript schema 已确定性重建；受影响 Go 包的 `SA*`/`S1*`/`QF*` staticcheck、strict
+TypeScript、61 个前端文件/249 项测试、production
+build 和 `npm audit --audit-level=high` 均通过。额外 govulncheck 如实报告本机 Go 1.26.5
+标准库的 5 项已知问题（上游修复版本 1.26.6）；它们不是仓库模块或本次变更，不能把本机
+扫描写成 zero finding，GitHub CI 的 latest Go 1.25 patch 扫描仍是合并门。生成后的
+OpenAPI 为 117 paths / 130 operations / 293 schemas；Fork DTO 不含 Workspace root、
+内部 Run config 或 continuity 正文。
+
+前一检查点是 issue #100 / schema v116 的普通模式 Run-owned 命令闭环。root
 Supervisor 仅在 Code/Local/Deliver、durable `full_access`、当前 execution lease 与
 进程内 danger-full-access capability 同时成立时看到 `command_runtime`。固定
 PowerShell/Bash 与绝对路径原生进程支持有序批次、单调 stdout/stderr cursor、受限

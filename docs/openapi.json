@@ -9862,6 +9862,723 @@
         "x-cyberagent-read-only": true
       }
     },
+    "/api/v1/runs/{run_id}/workspace-checkpoints": {
+      "get": {
+        "operationId": "listWorkspaceCheckpoints",
+        "summary": "Browse the Workspace checkpoint timeline",
+        "description": "Returns immutable pre/post Workspace manifests, mutation transactions, the CAS cursor, recovery completeness, and content-store usage without exposing blob content.",
+        "tags": [
+          "Runs"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum checkpoints and transactions",
+            "schema": {
+              "default": 100,
+              "maximum": 2000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/WorkspaceCheckpointTimeline"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      },
+      "post": {
+        "operationId": "createWorkspaceCheckpoint",
+        "summary": "Create a manual Workspace checkpoint",
+        "description": "Captures a bounded content-addressed manifest and exact Git index under an idempotency key; excluded content and incomplete attribution remain explicit.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Resource created or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Checkpoint"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/workspaceCheckpointCaptureView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/workspace-checkpoints/fork": {
+      "post": {
+        "operationId": "forkWorkspaceCheckpoint",
+        "summary": "Fork a checkpoint into an independent Run",
+        "description": "Creates an exact branch-backed Git worktree, a distinct Workspace and a new Run. Context is bounded; approvals, credentials, capabilities, leases, processes, terminals, network authority, and execution profiles are reset.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Resource created or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/workspaceCheckpointForkResultView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/workspaceCheckpointForkView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/workspace-checkpoints/preview": {
+      "post": {
+        "operationId": "previewWorkspaceRewind",
+        "summary": "Preview a Workspace rewind",
+        "description": "Computes a bounded three-way diff against live files and the Git index without writing. External drift is returned as explicit conflicts.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/WorkspaceRestoreResult"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/workspaceCheckpointPreviewView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/workspace-checkpoints/redo": {
+      "post": {
+        "operationId": "redoWorkspaceMutation",
+        "summary": "Redo the latest Workspace undo",
+        "description": "Restores the original mutation's after checkpoint under the same paused-Run, CAS, permission, and conflict checks as rewind.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/WorkspaceRestoreResult"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/workspaceCheckpointCursorActionView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/workspace-checkpoints/rewind": {
+      "post": {
+        "operationId": "rewindWorkspaceCheckpoint",
+        "summary": "Rewind to a Workspace checkpoint",
+        "description": "Requires confirm=true, a paused quiescent Run, current operator authorization, and an unchanged preview cursor. Restore is an auditable new write and never uses hard reset or blanket untracked deletion.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/WorkspaceRestoreResult"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/workspaceCheckpointRewindView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/workspace-checkpoints/undo": {
+      "post": {
+        "operationId": "undoWorkspaceMutation",
+        "summary": "Undo the current Workspace mutation",
+        "description": "Restores the current mutation's before checkpoint with three-way conflict detection and appends a new immutable undo transaction.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/WorkspaceRestoreResult"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/workspaceCheckpointCursorActionView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/sandbox/docker/admissions": {
       "post": {
         "operationId": "admitDockerSandbox",
@@ -13003,6 +13720,172 @@
         ],
         "type": "object"
       },
+      "Change": {
+        "additionalProperties": false,
+        "properties": {
+          "binary": {
+            "type": "boolean"
+          },
+          "from_sha256": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "previous_path": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "recoverable": {
+            "type": "boolean"
+          },
+          "to_sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "path",
+          "from_sha256",
+          "to_sha256",
+          "binary",
+          "recoverable"
+        ],
+        "type": "object"
+      },
+      "Checkpoint": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "base_commit": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "capability_generation": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "entry_count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "incomplete_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "index_blob_sha256": {
+            "type": "string"
+          },
+          "index_sha256": {
+            "type": "string"
+          },
+          "manifest_sha256": {
+            "type": "string"
+          },
+          "mission_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "parent_checkpoint_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "recovery_level": {
+            "type": "string"
+          },
+          "requested_by": {
+            "type": "string"
+          },
+          "root_fingerprint": {
+            "type": "string"
+          },
+          "root_path_sha256": {
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "stored_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "trigger": {
+            "type": "string"
+          },
+          "trigger_receipt_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "protocol_version",
+          "run_id",
+          "mission_id",
+          "session_id",
+          "workspace_id",
+          "trigger",
+          "phase",
+          "trigger_receipt_id",
+          "root_fingerprint",
+          "root_path_sha256",
+          "base_commit",
+          "branch",
+          "index_sha256",
+          "manifest_sha256",
+          "recovery_level",
+          "incomplete_reasons",
+          "entry_count",
+          "stored_bytes",
+          "created_at"
+        ],
+        "type": "object"
+      },
       "ChildTaskAdmitRequestView": {
         "additionalProperties": false,
         "properties": {
@@ -14217,6 +15100,34 @@
         "required": [
           "executable",
           "working_directory"
+        ],
+        "type": "object"
+      },
+      "Conflict": {
+        "additionalProperties": false,
+        "properties": {
+          "current_sha256": {
+            "type": "string"
+          },
+          "expected_sha256": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "target_sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "reason"
         ],
         "type": "object"
       },
@@ -19891,6 +20802,62 @@
         ],
         "type": "object"
       },
+      "Preview": {
+        "additionalProperties": false,
+        "properties": {
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/Change"
+            },
+            "type": "array"
+          },
+          "conflicts": {
+            "items": {
+              "$ref": "#/components/schemas/Conflict"
+            },
+            "type": "array"
+          },
+          "expected_current_checkpoint_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "index_changed": {
+            "type": "boolean"
+          },
+          "observed_checkpoint_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "recovery_level": {
+            "type": "string"
+          },
+          "target_checkpoint_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "expected_current_checkpoint_id",
+          "target_checkpoint_id",
+          "observed_checkpoint_id",
+          "recovery_level",
+          "index_changed",
+          "changes",
+          "conflicts",
+          "truncated"
+        ],
+        "type": "object"
+      },
       "PriceEntryView": {
         "additionalProperties": false,
         "properties": {
@@ -23223,6 +24190,42 @@
         ],
         "type": "object"
       },
+      "RunState": {
+        "additionalProperties": false,
+        "properties": {
+          "current_checkpoint_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "last_transaction_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "workspace_id",
+          "current_checkpoint_id",
+          "updated_at"
+        ],
+        "type": "object"
+      },
       "RunView": {
         "additionalProperties": false,
         "properties": {
@@ -23786,6 +24789,9 @@
           },
           "wake_worker": {
             "$ref": "#/components/schemas/RunWakeWorkerHealthView"
+          },
+          "workspace_checkpoint_control_enabled": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -23819,6 +24825,7 @@
           "evidence_attachment_enabled",
           "verification_evidence_enabled",
           "embedded_analyzer_execution_enabled",
+          "workspace_checkpoint_control_enabled",
           "process_execution_enabled",
           "shell_execution_enabled",
           "docker_execution_enabled",
@@ -24443,6 +25450,29 @@
         ],
         "type": "object"
       },
+      "StorageUsage": {
+        "additionalProperties": false,
+        "properties": {
+          "blob_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "blob_count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "checkpoint_count": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "blob_count",
+          "blob_bytes",
+          "checkpoint_count"
+        ],
+        "type": "object"
+      },
       "SupervisorCheckpointView": {
         "additionalProperties": false,
         "properties": {
@@ -24657,6 +25687,103 @@
           "consumed",
           "limit",
           "remaining"
+        ],
+        "type": "object"
+      },
+      "Transaction": {
+        "additionalProperties": false,
+        "properties": {
+          "after_checkpoint_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "before_checkpoint_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "completed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "conflict_json": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "error_code": {
+            "type": "string"
+          },
+          "expected_current_checkpoint_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "operation_key_digest": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "recovery_level": {
+            "type": "string"
+          },
+          "request_fingerprint": {
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "target_checkpoint_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "trigger_receipt_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "protocol_version",
+          "operation_key_digest",
+          "request_fingerprint",
+          "run_id",
+          "workspace_id",
+          "kind",
+          "trigger_receipt_id",
+          "before_checkpoint_id",
+          "status",
+          "recovery_level",
+          "created_at",
+          "updated_at"
         ],
         "type": "object"
       },
@@ -27055,6 +28182,51 @@
         ],
         "type": "object"
       },
+      "WorkspaceCheckpointTimeline": {
+        "additionalProperties": false,
+        "properties": {
+          "checkpoints": {
+            "items": {
+              "$ref": "#/components/schemas/Checkpoint"
+            },
+            "type": "array"
+          },
+          "current": {
+            "$ref": "#/components/schemas/RunState"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "storage_usage": {
+            "$ref": "#/components/schemas/StorageUsage"
+          },
+          "transactions": {
+            "items": {
+              "$ref": "#/components/schemas/Transaction"
+            },
+            "type": "array"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "run_id",
+          "workspace_id",
+          "checkpoints",
+          "transactions",
+          "storage_usage"
+        ],
+        "type": "object"
+      },
       "WorkspaceExplorerEntryView": {
         "additionalProperties": false,
         "properties": {
@@ -27204,6 +28376,40 @@
           "redaction_count",
           "root_path_exposed",
           "provenance"
+        ],
+        "type": "object"
+      },
+      "WorkspaceRestoreResult": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "$ref": "#/components/schemas/Checkpoint"
+          },
+          "before": {
+            "$ref": "#/components/schemas/Checkpoint"
+          },
+          "confirmed": {
+            "type": "boolean"
+          },
+          "preview": {
+            "$ref": "#/components/schemas/Preview"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "transaction": {
+            "$ref": "#/components/schemas/Transaction"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "preview",
+          "before",
+          "confirmed",
+          "replayed"
         ],
         "type": "object"
       },
@@ -27519,6 +28725,321 @@
         "required": [
           "expected_fingerprint",
           "expected_live_fingerprint",
+          "confirm"
+        ],
+        "type": "object"
+      },
+      "workspaceCheckpointCaptureView": {
+        "additionalProperties": false,
+        "properties": {
+          "operation_key": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_key"
+        ],
+        "type": "object"
+      },
+      "workspaceCheckpointCursorActionView": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "type": "boolean"
+          },
+          "expected_current_checkpoint_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "operation_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_current_checkpoint_id",
+          "operation_key",
+          "confirm"
+        ],
+        "type": "object"
+      },
+      "workspaceCheckpointForkContinuityView": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "git_branch": {
+            "type": "string"
+          },
+          "git_head": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_node_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "session_id",
+          "run_id",
+          "workspace_id",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "workspaceCheckpointForkMissionView": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "profile"
+        ],
+        "type": "object"
+      },
+      "workspaceCheckpointForkResultView": {
+        "additionalProperties": false,
+        "properties": {
+          "checkpoint": {
+            "$ref": "#/components/schemas/Checkpoint"
+          },
+          "continuity_node": {
+            "$ref": "#/components/schemas/workspaceCheckpointForkContinuityView"
+          },
+          "mission": {
+            "$ref": "#/components/schemas/workspaceCheckpointForkMissionView"
+          },
+          "not_inherited": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "run": {
+            "$ref": "#/components/schemas/workspaceCheckpointForkRunView"
+          },
+          "source_run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/components/schemas/Checkpoint"
+          },
+          "transaction": {
+            "$ref": "#/components/schemas/Transaction"
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/workspaceCheckpointForkWorkspaceView"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "source_run_id",
+          "target",
+          "workspace",
+          "mission",
+          "run",
+          "continuity_node",
+          "checkpoint",
+          "transaction",
+          "not_inherited",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "workspaceCheckpointForkRunView": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "mission_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "mission_id",
+          "session_id",
+          "status",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "workspaceCheckpointForkView": {
+        "additionalProperties": false,
+        "properties": {
+          "branch": {
+            "type": "string"
+          },
+          "confirm": {
+            "type": "boolean"
+          },
+          "expected_current_checkpoint_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "goal": {
+            "type": "string"
+          },
+          "operation_key": {
+            "type": "string"
+          },
+          "target_checkpoint_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "workspace_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_checkpoint_id",
+          "expected_current_checkpoint_id",
+          "operation_key",
+          "workspace_name",
+          "branch",
+          "confirm"
+        ],
+        "type": "object"
+      },
+      "workspaceCheckpointForkWorkspaceView": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "workspaceCheckpointPreviewView": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_current_checkpoint_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "target_checkpoint_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_checkpoint_id",
+          "expected_current_checkpoint_id"
+        ],
+        "type": "object"
+      },
+      "workspaceCheckpointRewindView": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "type": "boolean"
+          },
+          "expected_current_checkpoint_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "operation_key": {
+            "type": "string"
+          },
+          "target_checkpoint_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_checkpoint_id",
+          "expected_current_checkpoint_id",
+          "operation_key",
           "confirm"
         ],
         "type": "object"

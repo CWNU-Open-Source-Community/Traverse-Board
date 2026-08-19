@@ -28,6 +28,7 @@ function runtimeCapabilitiesData(overrides: Record<string, unknown> = {}) {
     skill_installation_enabled: true, evidence_attachment_enabled: true,
     verification_evidence_enabled: true,
     embedded_analyzer_execution_enabled: true,
+	workspace_checkpoint_control_enabled: true,
     process_execution_enabled: true, shell_execution_enabled: true,
     docker_execution_enabled: false,
     wake_worker: { protocol_version: "run_wake_worker_health.v1", enabled: true,
@@ -177,6 +178,7 @@ describe("CyberAgentClient", () => {
       skill_installation_enabled: true, evidence_attachment_enabled: true,
       verification_evidence_enabled: true,
       embedded_analyzer_execution_enabled: true,
+	  workspace_checkpoint_control_enabled: true,
       process_execution_enabled: true, shell_execution_enabled: true,
       docker_execution_enabled: false,
       wake_worker: { protocol_version: "run_wake_worker_health.v1", enabled: true,
@@ -199,6 +201,7 @@ describe("CyberAgentClient", () => {
       runWakeWorkerEnabled: true,
       verificationEvidenceEnabled: true,
       embeddedAnalyzerExecutionEnabled: true,
+	  workspaceCheckpointControlEnabled: true,
     });
   });
 

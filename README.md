@@ -61,7 +61,7 @@ CLI / TUI / React / Windows Desktop / CI
 | 模型与上下文 | Mock、Anthropic-compatible、OpenAI-compatible 与 loopback-only Ollama Provider、模型路由、资格校验、能力探测、流式响应、上下文压缩、层级项目指令、显式 user/project 长期记忆与 Session 恢复树 |
 | 计划与协作 | Plan/Delivery、工作项、备注、最多两个核心 child、1/2/4/6 档只读 Fan-out、共享预算与取消扇出 |
 | 工具与权限 | Tool Gateway、JSON Schema 校验、Policy、Scope、人工审批、四档宿主权限、受控固定命令、普通模式 Run-owned 命令运行时、逐条审批 PowerShell/Git Bash，以及限时 Debug 终端输入 |
-| 代码工作流 | 系统目录选择与 Workspace 导入、工作区浏览、仓库状态、提交历史、Diff 审阅、文件编辑提案、验证计划、Code Journey 与 Handoff |
+| 代码工作流 | 系统目录选择与 Workspace 导入、工作区浏览、仓库状态、提交历史、Diff 审阅、文件编辑提案、事务化 Workspace Checkpoint、Undo/Redo/Rewind、独立 Fork、验证计划、Code Journey 与 Handoff |
 | 可观测性 | 追加式 Run 事件、Live Activity、公开模型进度、Harness 事实、Artifact、Finding/Evidence/Report、SARIF |
 | 扩展 | 模式感知的惰性 Skill 包、生成候选人工审查、Provider/Tool 接口、Go/Rust JSON 协议、内嵌 WASI Analyzer、Sandbox 合同与默认关闭的 network-none Docker 产品执行 |
 | 客户端 | `cyberagent` CLI、Bubble Tea TUI、认证 HTTP/OpenAPI、React/Vite、Windows/macOS Desktop 便携预览 |
@@ -78,6 +78,12 @@ Schema v115 引入 `agent-code-tools.v1`，让 root Supervisor 能在真实 Work
 | Cyber Surface 或 Specialist | 不公开任何 `agent-code-tools.v1` 工具，并在 capability 快照中说明拒绝原因 |
 
 只读结果稳定排序、分页且有界，并拒绝根目录逃逸、大小写别名、未列入 Go allowlist 的隐藏项（仅 `.github` 作为代码证据开放）、忽略项、链接或重解析点、二进制、非 UTF-8 与超限文件。`workspace_change` 只创建 replace/create/move 提案；`workspace_delete` 是独立、需精确确认的删除提案；`workspace_apply` 只能应用已经批准的精确版本，并重新检查原文件与目标文件哈希，避免审阅后内容漂移。每次调用、结果/拒绝、authority 快照、预算消耗与有界 Artifact 都进入可恢复 Supervisor 账本。`cyberagent run show <run-id>`、Run Detail API 和 Desktop Run 页面可查看当前 generation、逐工具可用性与拒绝原因。该协议不授予 Shell、Git、网络或 Sandbox 权限；完整设计见[使用手册](docs/usage.md)和 [ADR 0116](docs/adr/0116-model-callable-workspace-tools.md)。
+
+### 事务化 Workspace Checkpoint
+
+Schema v117 的 `workspace-checkpoint.v1` 在文件工具、Run-owned 命令批次/后台 Job、typed Git 写入与 agent merge 边界前后记录不可变检查点。检查点固定 base commit、branch、原始 Git index、稳定排序的 tracked/untracked manifest、内容哈希、触发收据、attempt/capability generation 与恢复等级；普通文件和 index 以 SHA-256 内容寻址去重，ignored/generated/large/sensitive/link/external 状态会显式标记而不是静默承诺可恢复。Shell 没有可移植 watcher，因此其边界明确降级为 `partial`，只承诺观测到的 Workspace/Git 状态，不宣称回滚根目录外副作用。
+
+Desktop 的 **工作区检查点 / Checkpoints**、CLI 的 `cyberagent workspace checkpoint ...` 和认证 OpenAPI 共用同一个 Application 服务。Rewind、Undo、Redo 先做 live/current/target 三方预览，再以精确 cursor CAS 和当前权限确认写入；恢复本身是一次新的追加式写操作，不改写旧历史、不调用 `git reset --hard`、不批量清理 untracked 文件。Fork 从历史检查点建立独立 Git worktree、Workspace、Mission/Run/Session，且不继承审批、凭据、capability、lease、进程或网络授权；HTTP/Desktop 不接受或返回绝对 worktree 路径，由 Go 从受信源 Workspace 确定性生成同级目标。完整操作说明见 [Workspace Checkpoints](docs/workspace-checkpoints.md)，设计与失败语义见 [ADR 0118](docs/adr/0118-transactional-workspace-checkpoints.md)。
 
 ### 真实 Git、PowerShell 与 Bash
 
@@ -98,7 +104,7 @@ Prayu 调用真实的 Git 和操作系统 Shell，不是命令模拟器；但它
 ### 安全边界
 
 - 不公开 Provider 私有 thinking、原始 Prompt、raw delta、工具参数、工具原始输出或 API key。
-- 项目指令、长期记忆和 Checkpoint 始终是不可信、非授权上下文；Fork/Resume 不恢复审批、capability、凭据、网络、进程、终端租约或执行档位。详见[双语上下文/威胁模型与删除说明](docs/context-continuity.md)和 [ADR 0115](docs/adr/0115-non-authorizing-durable-context-continuity.md)。
+- 项目指令、长期记忆和对话 Checkpoint 始终是不可信、非授权上下文；Workspace Checkpoint 只保存有界文件/index 状态。两类 Fork/Resume 都不恢复审批、capability、凭据、网络、进程、终端租约或执行档位。详见[双语上下文/威胁模型与删除说明](docs/context-continuity.md)、[Workspace Checkpoints](docs/workspace-checkpoints.md)、[ADR 0115](docs/adr/0115-non-authorizing-durable-context-continuity.md)和 [ADR 0118](docs/adr/0118-transactional-workspace-checkpoints.md)。
 - 文件编辑、宿主命令、浏览器 CDP、终端输入和 Sandbox 是彼此独立的授权面。
 - 普通命令运行时只接受 `network=disabled` 与 `credentials=none`，清空 credential helper/Profile/高风险环境入口并拒绝显式网络意图；它不是可证明的 OS 网络沙箱，`full_access` 仍是宿主执行能力，需要联网的命令必须改走独立逐次审阅路径。
 - 受控命令默认使用 Go 固定模板；PowerShell/Bash 只通过 Code/Deliver/root + `full_access` 的 Run-owned runtime、逐条审批，或可撤销 Debug 租约三条独立路径开放。通用宿主执行与 Debug 能力不会因模型、Skill 或仓库文档而自动开启。
@@ -322,7 +328,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 完整逐切片原始记录保留在 [`PROGRESS_BOOK.md`](docs/PROGRESS_BOOK.md)，当前检查点与验收证据保留在 [`PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)，恢复上下文见 [`PROJECT_MEMORY.md`](docs/PROJECT_MEMORY.md)。这些账本是历史记录，不应被当作待重新执行的任务列表。
 
 <details>
-<summary><strong>SQLite Schema v1-v116 迁移审计表 / Migration ledger</strong></summary>
+<summary><strong>SQLite Schema v1-v117 迁移审计表 / Migration ledger</strong></summary>
 
 此表是 Store 防漏迁移测试使用的审计合同。新增 schema 时必须按顺序追加，不得改写或删除既有行。
 
@@ -444,6 +450,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 | v114 | 层级项目指令快照、显式长期记忆与非授权会话连续性树 | hierarchical project-instruction snapshots, explicit long-term memory, and non-authorizing session continuity trees |
 | v115 | 模型可调用的工作区工具与哈希保护文件变更 | model-callable workspace tools and hash-guarded file mutations |
 | v116 | 增加 Run-owned command-runtime.v2 Job 与 Supervisor 调用账本 | add Run-owned command-runtime.v2 jobs and Supervisor call ledger support |
+| v117 | 增加事务化 workspace-checkpoint.v1、恢复/Fork 账本与内容寻址 blob | add transactional workspace-checkpoint.v1, restore/Fork ledger, and content-addressed blobs |
 
 </details>
 

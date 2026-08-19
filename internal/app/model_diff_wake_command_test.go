@@ -93,6 +93,19 @@ func TestModelRouteFileReviewAndWakeCommandsUseDurableBoundaries(t *testing.T) {
 	if err != nil || string(written) != "do not write during review\n" {
 		t.Fatalf("CLI apply wrote %q err=%v", written, err)
 	}
+	checkpointStore, err := store.Open(filepath.Join(home, "cyberagent.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	transactions, err := checkpointStore.ListWorkspaceCheckpointTransactions(
+		t.Context(), run.ID, 10)
+	closeErr := checkpointStore.Close()
+	if err != nil || closeErr != nil || len(transactions) != 1 ||
+		transactions[0].Kind != "file_tool" || transactions[0].Status != "completed" ||
+		transactions[0].BeforeCheckpointID == "" || transactions[0].AfterCheckpointID == "" {
+		t.Fatalf("CLI apply checkpoint transaction=%+v err=%v close=%v",
+			transactions, err, closeErr)
+	}
 
 	output, stderr, code = executeTestCommand(t, "run", "wake", "schedule", run.ID,
 		"--operation-key", "cli-wake-schedule-0001")

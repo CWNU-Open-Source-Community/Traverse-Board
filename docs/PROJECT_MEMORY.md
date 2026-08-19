@@ -2,9 +2,37 @@
 
 > Scope checkpoint (2026-08-13): continue only the general-purpose Agent Harness and Code workflow. CTF-specific solving/offensive automation is an optional add-on with no active slices; retain generic extension seams only. Historical Cyber percentages are not current planning metrics. See [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md).
 
-Last updated: 2026-08-15
+Last updated: 2026-08-19
 
-## Current Single-Slice Checkpoint: Structured Dependency Waiting / Issue #50
+## Current Single-Slice Checkpoint: Transactional Workspace Checkpoints / Issue #101
+
+2026-08-19 的 issue #101 落地 `workspace-checkpoint.v1`（ADR 0118，schema v117）。每个
+检查点不可变绑定 Run/Mission/Session/Workspace、attempt/capability generation、触发收据、
+parent/cursor、规范根指纹、base commit/branch、原始 Git index 与稳定 tracked/untracked
+manifest；普通文件/index 以 SHA-256 内容寻址去重。固定上限为 20,000 entries、4 MiB/
+file、32 MiB/index、64 MiB/checkpoint、2,000 preview changes、256 conflicts、2 GiB
+全局 blob store。ignored/generated/large/sensitive/link/reparse/special/unreadable/external
+都显式标记；没有静态加密声明，疑似敏感文件不会写入 blob。SQLite sealing/refcount/
+immutability/GC/quota trigger 与 schema v1-v116 downgrade chain 均已覆盖测试。
+
+FileEdit 与 `agent-code-tools.v1` 写入、Run-owned command foreground/background、typed Git
+写入以及未来 agent merge writer 共用 operation-keyed before/after boundary。Shell 没有
+portable watcher，因此即便 in-root bytes 可存储也明确为 partial；根外、registry/service/
+network side effects 不在恢复承诺中。Preview 比较 reviewed cursor、target 与 freshly
+captured live state；external edit、dirty index、root/branch/commit/case/link drift 都冲突。
+Undo/Redo/Rewind 是 append-only 新写，要求 paused Code/Deliver、active Session、无 live
+execution lease、当前权限/进程 capability、显式 operator 与 exact CAS cursor，不使用
+`git reset --hard` 或 blanket untracked deletion。
+
+Fork 创建并验证独立 Git worktree/branch，再原子注册 Workspace/Mission/Run/Session/events/
+continuity node；只复制目标 bytes/index，不继承 permission/profile authority、approval、
+credential、capability、lease、terminal/process/network grant，source cursor 不变。启动时
+reconciliation 关闭普通 interrupted boundary、只在 identity/authority/cursor 仍匹配时恢复
+prepared restore，并完成已注册但 checkpoint 尚未落盘的 Fork 而不复制 worktree。CLI、
+OpenAPI 与 Desktop Checkpoints tab 共用 Application 服务。不要把 conversation continuity
+checkpoint 当成 Workspace bytes，也不要把 Workspace restore 当成历史 authority 恢复。
+
+## Previous Single-Slice Checkpoint: Structured Dependency Waiting / Issue #50
 
 2026-08-15 的 issue #50 落地结构化依赖等待（ADR 0102，schema v101）。`agent_dependency_edges`
 持久化版本化 wait edge（source/target/reason/deadline/generation/failure_policy，

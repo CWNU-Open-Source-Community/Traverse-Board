@@ -1,8 +1,8 @@
 # 本地 HTTP API / Local HTTP API
 
-CyberAgent Workbench 提供由 Go 控制的本地 `api.v1`，用于检查 SQLite 持久状态并投影可恢复 Run events。独立 capability 允许受控 Run/Session/Plan/审批、固定命令提案审阅、Provider 诊断/路由/系统凭证、FileEdit 提案/只读恢复/审阅/apply、wake 意图/前台消费、不可变操作者验证、metadata-only 快照回执及其不授权复核、惰性 Skill 安装、schema v116 的 Run-owned 普通命令运行时，以及 schema v99 默认关闭的精确 Docker Sandbox 产品执行。只读面还提供 capability/worker health、exact-root Repository 状态与脱敏 Diff、非原子的多文件 FileEdit 汇总、逐验证项确定性快照下载/回执历史和带有界复核元数据的可重建 Code Handoff。API 不直接接受 Shell/argv/stdin 或 Job mutation endpoint；命令只能由认证 Run execution 内的 root Supervisor 通过同一 Tool Gateway/Application 服务发起，仍受 Code/Local/Deliver/full-access、当前租约、Policy、无网络/无凭证与进程启动 capability 约束。
+CyberAgent Workbench 提供由 Go 控制的本地 `api.v1`，用于检查 SQLite 持久状态并投影可恢复 Run events。独立 capability 允许受控 Run/Session/Plan/审批、固定命令提案审阅、Provider 诊断/路由/系统凭证、FileEdit 提案/只读恢复/审阅/apply、wake 意图/前台消费、不可变操作者验证、metadata-only 快照回执及其不授权复核、惰性 Skill 安装、schema v116 的 Run-owned 普通命令运行时、schema v117 的 Workspace Checkpoint 时间线/恢复/Fork，以及 schema v99 默认关闭的精确 Docker Sandbox 产品执行。只读面还提供 capability/worker health、exact-root Repository 状态与脱敏 Diff、非原子的多文件 FileEdit 汇总、逐验证项确定性快照下载/回执历史和带有界复核元数据的可重建 Code Handoff。API 不直接接受 Shell/argv/stdin 或 Job mutation endpoint；命令只能由认证 Run execution 内的 root Supervisor 通过同一 Tool Gateway/Application 服务发起，仍受 Code/Local/Deliver/full-access、当前租约、Policy、无网络/无凭证与进程启动 capability 约束。
 
-CyberAgent Workbench exposes a Go-controlled local `api.v1` for durable SQLite state and resumable Run-event projections. Independent capabilities permit controlled Run/Session/Plan/approval operations, fixed-command proposal review, Provider diagnostics/routes/system credentials, operator price-snapshot import and listing, FileEdit propose/read-only recovery/review/apply, wake intent/foreground consumption, immutable operator verification, metadata-only snapshot receipts and their non-authorizing review, inert Skill installation, the schema-v116 Run-owned ordinary command runtime, and schema-v99 exact Docker Sandbox execution that is disabled by default. Read-only surfaces also expose capabilities/worker health, exact-root Repository state and redacted Diffs, non-atomic multi-file FileEdit summaries, deterministic per-check verification snapshot downloads/receipt history, and a regenerable Code handoff with bounded review metadata. There is no direct HTTP Shell/argv/stdin or Job-mutation endpoint: only an authenticated Run execution may let its root Supervisor call the same Tool Gateway/Application service under Code/Local/Deliver/full-access, current-lease, Policy, no-network/no-credential, and process-startup gates.
+CyberAgent Workbench exposes a Go-controlled local `api.v1` for durable SQLite state and resumable Run-event projections. Independent capabilities permit controlled Run/Session/Plan/approval operations, fixed-command proposal review, Provider diagnostics/routes/system credentials, operator price-snapshot import and listing, FileEdit propose/read-only recovery/review/apply, wake intent/foreground consumption, immutable operator verification, metadata-only snapshot receipts and their non-authorizing review, inert Skill installation, the schema-v116 Run-owned ordinary command runtime, schema-v117 Workspace Checkpoint timeline/restore/Fork operations, and schema-v99 exact Docker Sandbox execution that is disabled by default. Read-only surfaces also expose capabilities/worker health, exact-root Repository state and redacted Diffs, non-atomic multi-file FileEdit summaries, deterministic per-check verification snapshot downloads/receipt history, and a regenerable Code handoff with bounded review metadata. There is no direct HTTP Shell/argv/stdin or Job-mutation endpoint: only an authenticated Run execution may let its root Supervisor call the same Tool Gateway/Application service under Code/Local/Deliver/full-access, current-lease, Policy, no-network/no-credential, and process-startup gates.
 
 ## 启动 / Start
 
@@ -337,6 +337,26 @@ allowlist/scoped egress 需要尚未实现的 Go-owned host/port/protocol guard�
 `managed_egress_unavailable`；无 Docker 时不会退回宿主执行。见
 [ADR 0099](adr/0099-docker-sandbox-product-admission-and-recovery.md)。
 
+## Workspace Checkpoint API
+
+Schema v117 的 checkpoint timeline 使用 read bearer；manual capture、Rewind、Undo、
+Redo 与 Fork 使用不同的 control bearer，并要求进程已开启
+`workspace_checkpoint_control_enabled`。所有 POST 都严格拒绝未知/重复字段与超限 body。
+Preview 是只读的三方比较，但仍使用 control bearer，因为它会采集 live Workspace 状态；
+Rewind/Undo/Redo/Fork 还必须提交 `confirm: true`、稳定 operation key 和精确
+`expected_current_checkpoint_id`。服务端随后重新检查 paused Code/Deliver Run、active
+Session、当前权限、进程 capability、无 execution lease、root/Git identity 与 CAS cursor；
+客户端确认不能绕过这些门禁。
+
+Timeline 返回检查点来源、attempt/capability generation、Git/index/manifest 摘要、恢复
+等级和不完整原因。Preview 返回有界 path/index change 与冲突；它不写文件。恢复追加新的
+transaction/checkpoint/event，不改写历史，不接受任意路径或 Git argv，也不恢复历史授权。
+Fork 的 branch 由 Go 规范化、验证和创建；目标路径不进入 HTTP body，而是根据受信 source
+Workspace 和 operation key 确定性生成同级 `prayu-fork-<digest-prefix>` worktree。成功响应
+只返回安全的 Workspace/Run ID 与状态，不返回 `RootPath`、内部 Run config 或 continuity
+正文。精确请求/响应 schema 见 `docs/openapi.json`，操作流程见
+[Workspace Checkpoints](workspace-checkpoints.md)。
+
 ## Endpoints
 
 | Method | Path | Result / Filters |
@@ -380,6 +400,13 @@ allowlist/scoped egress 需要尚未实现的 Go-owned host/port/protocol guard�
 | `GET` | `/api/v1/runs/{run_id}/project-instructions` | Pinned/live hierarchical sources, hashes, why-effective/conflict details, history, and non-mutating drift diff |
 | `POST` | `/api/v1/runs/{run_id}/project-instructions/refresh` | Pinned-and-reviewed-live dual-fingerprint confirmation that appends a new immutable instruction revision |
 | `POST` | `/api/v1/runs/{run_id}/continuity-checkpoints` | Capture one bounded, redacted, provenance-bearing, all-false-authority context checkpoint |
+| `GET` | `/api/v1/runs/{run_id}/workspace-checkpoints` | Bounded immutable Workspace checkpoint timeline, cursor, transaction provenance, recovery grade, and reasons |
+| `POST` | `/api/v1/runs/{run_id}/workspace-checkpoints` | Control-bearer, operation-keyed manual capture; no file mutation or authority grant |
+| `POST` | `/api/v1/runs/{run_id}/workspace-checkpoints/preview` | Fresh live/current/target three-way diff and bounded conflicts; no file mutation |
+| `POST` | `/api/v1/runs/{run_id}/workspace-checkpoints/rewind` | Explicitly confirmed, exact-cursor append-only restore to one checkpoint |
+| `POST` | `/api/v1/runs/{run_id}/workspace-checkpoints/undo` | Explicitly confirmed undo of the current terminal mutation boundary |
+| `POST` | `/api/v1/runs/{run_id}/workspace-checkpoints/redo` | Explicitly confirmed redo available only after the matching Undo terminal state |
+| `POST` | `/api/v1/runs/{run_id}/workspace-checkpoints/fork` | Explicitly confirmed independent Git worktree/Workspace/Mission/Run/Session Fork; no authority inheritance |
 | `GET` | `/api/v1/runs/{run_id}/external-skills` | Bounded external-Skill provenance and root/Specialist delivery counts; no content, paths, digests, or private identities |
 | `GET` | `/api/v1/runs/{run_id}/activity` | Chronological public model updates plus allowlisted Harness facts; redacted/bounded, no private reasoning, raw payload, Prompt, Tool arguments, or Tool output |
 | `GET` | `/api/v1/runs/{run_id}/events` | Ordered Run events; pagination |
@@ -561,7 +588,7 @@ cyberagent api openapi --output docs/openapi.json
 
 运行时的 `/api/v1/openapi.json` 返回同一份原始文档，仍要求 loopback 与 read Bearer 认证，不接受 query 或 body。它使用 `application/vnd.oai.openapi+json`，不套普通 `api.v1` envelope。当前契约有 111 个 path、123 个 operation 和 274 个 schema。测试逐条命中公开 handler，并确认普通 DTO 不包含 Workspace root、Artifact/Skill/Session 正文、模型输出、工具参数、私有 lifecycle、operation/fencing/lease owner、API key、Provider Base URL 或环境变量名。CDP 权限响应只投影固定能力布尔值、当前进程闸门和四项 false authority，不包含 endpoint、browser path、Profile、Cookie、请求正文或 CDP payload。
 
-The runtime `/api/v1/openapi.json` returns the same raw document under the loopback and read-bearer boundary and accepts neither a query nor a body. It uses `application/vnd.oai.openapi+json` rather than the ordinary `api.v1` envelope. The contract contains 111 paths, 123 operations, and 274 schemas. Tests exercise every handler and verify that ordinary DTOs omit Workspace roots, Artifact/Skill/Session bodies, model output, Tool arguments, private lifecycle, operation/fencing/lease-owner identities, API keys, Provider base URLs, and environment-variable names. CDP permission responses expose only closed capability booleans, current process gates, and four false authority fields; they contain no endpoint, browser path, Profile, Cookie, request body, or CDP payload.
+The runtime `/api/v1/openapi.json` returns the same raw document under the loopback and read-bearer boundary and accepts neither a query nor a body. It uses `application/vnd.oai.openapi+json` rather than the ordinary `api.v1` envelope. The contract contains 117 paths, 130 operations, and 293 schemas. Tests exercise every handler and verify that ordinary DTOs omit Workspace roots, Artifact/Skill/Session bodies, model output, Tool arguments, private lifecycle, operation/fencing/lease-owner identities, API keys, Provider base URLs, and environment-variable names. CDP permission responses expose only closed capability booleans, current process gates, and four false authority fields; they contain no endpoint, browser path, Profile, Cookie, request body, or CDP payload.
 
 ## 主动取消 / Active-Call Cancellation
 

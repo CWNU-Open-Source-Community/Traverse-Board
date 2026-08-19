@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"cyberagent-workbench/internal/contextmgr"
 	"cyberagent-workbench/internal/domain"
@@ -150,6 +151,52 @@ func (s *SQLiteStore) CreateMissionRunWithContinuity(ctx context.Context,
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err := createMissionRunWithContinuityTx(ctx, tx, mission, run, mode,
+		linkedSession, createSession, initialEvents, node); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// CreateWorkspaceMissionRunWithContinuity atomically registers an independent
+// Workspace and its authority-reset fork Run. Filesystem worktree creation is
+// verified before this transaction begins.
+func (s *SQLiteStore) CreateWorkspaceMissionRunWithContinuity(ctx context.Context,
+	workspace session.WorkspaceRecord, mission domain.Mission, run domain.Run,
+	mode domain.RunModeSnapshot, linkedSession session.Session, createSession bool,
+	initialEvents []events.Event, node contextmgr.ContinuityNode,
+) error {
+	workspace.ID, workspace.Name, workspace.RootPath = strings.TrimSpace(workspace.ID),
+		strings.TrimSpace(workspace.Name), strings.TrimSpace(workspace.RootPath)
+	if workspace.ID == "" || workspace.Name == "" || workspace.RootPath == "" ||
+		strings.ContainsRune(workspace.ID+workspace.Name+workspace.RootPath, 0) {
+		return errors.New("fork Workspace registration is invalid")
+	}
+	if workspace.CreatedAt.IsZero() {
+		workspace.CreatedAt = time.Now().UTC()
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workspaces
+		(id, name, root_path, created_at) VALUES (?, ?, ?, ?)`, workspace.ID,
+		workspace.Name, workspace.RootPath, ts(workspace.CreatedAt)); err != nil {
+		return err
+	}
+	if err := createMissionRunWithContinuityTx(ctx, tx, mission, run, mode,
+		linkedSession, createSession, initialEvents, node); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func createMissionRunWithContinuityTx(ctx context.Context, tx *sql.Tx,
+	mission domain.Mission, run domain.Run, mode domain.RunModeSnapshot,
+	linkedSession session.Session, createSession bool, initialEvents []events.Event,
+	node contextmgr.ContinuityNode,
+) error {
 	if err := createMissionRunTx(ctx, tx, mission, run, mode, linkedSession,
 		createSession, initialEvents); err != nil {
 		return err
@@ -173,7 +220,7 @@ func (s *SQLiteStore) CreateMissionRunWithContinuity(ctx context.Context,
 	if _, err := insertRunEventTx(ctx, tx, event); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return nil
 }
 
 type continuityScanner interface {

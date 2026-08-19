@@ -270,8 +270,8 @@ func TestSchemaV116PreservesAgentCodeAuthorityAndAdmitsCommandRuntime(t *testing
 		t.Fatal(err)
 	}
 	defer upgraded.Close()
-	if version, err := upgraded.SchemaVersion(ctx); err != nil || version != 116 {
-		t.Fatalf("schema version=%d want=116 err=%v", version, err)
+	if version, err := upgraded.SchemaVersion(ctx); err != nil || version != LatestSchemaVersion {
+		t.Fatalf("schema version=%d want=%d err=%v", version, LatestSchemaVersion, err)
 	}
 	if _, err := upgraded.db.ExecContext(ctx, `INSERT INTO run_supervisor_tool_calls
 		(run_id, turn, attempt_id, round, position, model_attempt, call_id, tool_name,

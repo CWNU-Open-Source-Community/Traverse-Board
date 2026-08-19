@@ -1,6 +1,6 @@
 //go:build linux || darwin
 
-package workspace
+package workspaceidentity
 
 import (
 	"fmt"
@@ -8,7 +8,7 @@ import (
 	"syscall"
 )
 
-func agentCodeRootIdentity(_ string, info os.FileInfo) (string, error) {
+func rootIdentity(_ string, info os.FileInfo) (string, error) {
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok || stat == nil {
 		return "", fmt.Errorf("workspace root file identity is unavailable")
