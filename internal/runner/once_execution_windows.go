@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 	"unsafe"
 
@@ -118,6 +120,13 @@ func (windowsOnceStarter) Start(ctx context.Context, spec OnceStartSpec) (OnceSt
 	go readControlledOutput(stderrRead, stderrChannel, outputErrorChannel)
 
 	code, waitErr := waitControlledProcess(ctx, process.Process, time.Hour)
+	// The direct process can exit successfully while descendants remain in the
+	// Job. Terminate the Job before collecting pipe EOF so no background child
+	// survives the one-shot authority or keeps an inherited handle open.
+	if terminateErr := windows.TerminateJobObject(job, 0); terminateErr != nil &&
+		!errors.Is(terminateErr, windows.ERROR_ACCESS_DENIED) && waitErr == nil {
+		waitErr = terminateErr
+	}
 	started.CompletedAt = time.Now().UTC()
 	started.ExitCode = code
 	started.TreeReaped = true
@@ -126,20 +135,23 @@ func (windowsOnceStarter) Start(ctx context.Context, spec OnceStartSpec) (OnceSt
 	} else if ctx.Err() != nil {
 		started.Cancelled = true
 	}
-	started.Stdout = onceCaptureFromControlled(<-stdoutChannel)
-	started.Stderr = onceCaptureFromControlled(<-stderrChannel)
+	stdoutResult := <-stdoutChannel
+	stderrResult := <-stderrChannel
+	started.Stdout = onceCaptureFromControlled(stdoutResult)
+	started.Stderr = onceCaptureFromControlled(stderrResult)
+	if waitErr == nil && (stdoutResult.err != nil || stderrResult.err != nil) {
+		waitErr = errors.Join(stdoutResult.err, stderrResult.err)
+	}
 	return started, waitErr
 }
 
 func onceCaptureFromControlled(result controlledOutputResult) OnceOutputCapture {
-	if result.err != nil {
-		return OnceOutputCapture{Truncated: true}
-	}
 	buffer := &boundedOnceBuffer{}
 	_, _ = buffer.Write(result.output.Data)
 	capture := buffer.Capture()
 	capture.ObservedBytes = int(result.output.ObservedBytes)
-	capture.Truncated = result.output.Truncated
+	capture.ObservedSHA256 = result.observedSHA256
+	capture.Truncated = result.output.Truncated || result.err != nil
 	return capture
 }
 
@@ -152,9 +164,15 @@ func onceExecutableExtensionAllowed(base string) bool {
 // onceEnvironmentBlock builds a full replacement environment block from the
 // allowlisted entries only; the agent process environment is never inherited.
 func onceEnvironmentBlock(values []string) []uint16 {
+	values = append([]string(nil), values...)
+	// CreateProcess requires a case-insensitively sorted environment block.
+	sort.Slice(values, func(left, right int) bool {
+		return strings.ToUpper(values[left]) < strings.ToUpper(values[right])
+	})
 	block := make([]uint16, 0, 512)
 	for _, value := range values {
-		block = append(block, windows.StringToUTF16(value)...)
+		encoded := windows.StringToUTF16(value)
+		block = append(block, encoded[:len(encoded)-1]...)
 		block = append(block, 0)
 	}
 	return append(block, 0)

@@ -68,6 +68,8 @@ export function ConnectionGate() {
 		verificationEvidenceEnabled: bootstrap.verification_evidence_enabled,
 		embeddedAnalyzerExecutionEnabled: bootstrap.embedded_analyzer_execution_enabled,
 		workspaceCheckpointControlEnabled: bootstrap.workspace_checkpoint_control_enabled,
+		batchDeliveryControlEnabled: bootstrap.batch_delivery_control_enabled,
+		batchDeliveryHostValidationEnabled: bootstrap.batch_delivery_host_validation_enabled,
 		dockerExecutionEnabled: bootstrap.docker_execution_enabled,
 		agentCodeToolsEnabled: bootstrap.agent_code_tools_enabled,
       });

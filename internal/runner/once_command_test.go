@@ -101,6 +101,22 @@ func TestValidateOnceCommandSpecRejectsSymlinkWorkingDirectory(t *testing.T) {
 	}
 }
 
+func TestBoundedOnceBufferHashesTheCompleteObservedStream(t *testing.T) {
+	prefix := strings.Repeat("p", MaxOnceOutputBytes)
+	left := &boundedOnceBuffer{}
+	right := &boundedOnceBuffer{}
+	_, _ = left.Write([]byte(prefix + "left-tail"))
+	_, _ = right.Write([]byte(prefix + "right-tail"))
+	leftCapture, rightCapture := left.Capture(), right.Capture()
+	if leftCapture.CapturedPrefixSHA256 != rightCapture.CapturedPrefixSHA256 ||
+		leftCapture.ObservedSHA256 == rightCapture.ObservedSHA256 ||
+		len(leftCapture.ObservedSHA256) != 64 || len(rightCapture.ObservedSHA256) != 64 ||
+		!leftCapture.Truncated || !rightCapture.Truncated {
+		t.Fatalf("complete stream digests are not distinct: left=%#v right=%#v",
+			leftCapture, rightCapture)
+	}
+}
+
 func TestOnceExecutorRunsCommandWithBoundedOutput(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("unix echo fixture")
@@ -184,5 +200,55 @@ func TestOnceExecutorTimeoutKillsProcess(t *testing.T) {
 	}
 	if time.Since(start) > 5*time.Second {
 		t.Fatal("timeout did not terminate the process promptly")
+	}
+}
+
+func TestOnceProcessHelper(t *testing.T) {
+	switch os.Getenv("CYBERAGENT_ONCE_HELPER") {
+	case "parent":
+		marker := os.Getenv("CYBERAGENT_ONCE_MARKER")
+		command := exec.Command(os.Args[0], "-test.run=^TestOnceProcessHelper$")
+		command.Env = append([]string(nil),
+			"CYBERAGENT_ONCE_HELPER=child",
+			"CYBERAGENT_ONCE_MARKER="+marker,
+			"SystemRoot="+os.Getenv("SystemRoot"),
+		)
+		if err := command.Start(); err != nil {
+			_ = os.WriteFile(marker+".start-error", []byte(err.Error()), 0o600)
+		}
+	case "child":
+		time.Sleep(1200 * time.Millisecond)
+		_ = os.WriteFile(os.Getenv("CYBERAGENT_ONCE_MARKER"), []byte("escaped"), 0o600)
+	}
+}
+
+func TestPlatformOnceStarterReapsDescendantsAfterSuccessfulParentExit(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "descendant-survived")
+	starter := NewPlatformOnceProcessStarter()
+	if starter == nil || !starter.Available() {
+		t.Skip("platform once starter is unavailable")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	result, err := starter.Start(ctx, OnceStartSpec{
+		RequestFingerprint: strings.Repeat("a", 64),
+		ExecutablePath:     testExecutable(t),
+		Argv:               []string{"-test.run=^TestOnceProcessHelper$"},
+		WorkingDirectory:   t.TempDir(),
+		Environment: []string{
+			"CYBERAGENT_ONCE_HELPER=parent",
+			"CYBERAGENT_ONCE_MARKER=" + marker,
+			"SystemRoot=" + os.Getenv("SystemRoot"),
+		},
+	})
+	if err != nil || result.ExitCode != 0 || !result.TreeReaped || !result.StdinClosed {
+		t.Fatalf("starter result=%#v err=%v", result, err)
+	}
+	if data, readErr := os.ReadFile(marker + ".start-error"); readErr == nil {
+		t.Fatalf("helper could not start descendant: %s", data)
+	}
+	time.Sleep(1600 * time.Millisecond)
+	if _, statErr := os.Stat(marker); !os.IsNotExist(statErr) {
+		t.Fatalf("background descendant escaped one-shot authority: %v", statErr)
 	}
 }

@@ -86,6 +86,8 @@ type ControlPlaneConfig struct {
 	EvidenceAttachmentEnabled               bool
 	VerificationEvidenceEnabled             bool
 	EmbeddedAnalyzerExecutionEnabled        bool
+	BatchDeliveryControlEnabled             bool
+	BatchDeliveryHostValidationEnabled      bool
 	UserTerminalEnabled                     bool
 	DockerExecutionEnabled                  bool
 	AppVersion                              string
@@ -104,6 +106,14 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 			!config.ExecutionPermissionCapabilities.OperatorApprovalEnabled) {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop Docker execution requires operator approval permission control")
+	}
+	if config.BatchDeliveryHostValidationEnabled &&
+		(!config.ExecutionPermissionControlEnabled ||
+			!config.ExecutionPermissionCapabilities.OperatorApprovalEnabled ||
+			!config.ExecutionPermissionCapabilities.DangerFullAccessEnabled ||
+			!config.BatchDeliveryControlEnabled || config.ControlToken == "") {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"desktop batch validation requires control, permission control, and danger-full-access")
 	}
 	stateStore, err := store.Open(config.DatabasePath)
 	if err != nil {
@@ -153,6 +163,14 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		_ = stateStore.Close()
 		return nil, apperror.Wrap(apperror.CodeUnavailable,
 			"desktop Workspace checkpoint startup reconciliation failed", err)
+	}
+	batchDelivery := application.NewBatchDeliveryService(stateStore).
+		WithHostValidationExecution(config.BatchDeliveryHostValidationEnabled,
+			config.ExecutionPermissionCapabilities)
+	if _, err := batchDelivery.ReconcileStartup(context.Background(), 256); err != nil {
+		_ = stateStore.Close()
+		return nil, apperror.Wrap(apperror.CodeUnavailable,
+			"desktop batch delivery startup reconciliation failed", err)
 	}
 	dockerSandbox, err := newDesktopDockerSandboxService(context.Background(),
 		stateStore, home, config.DockerExecutionEnabled,
@@ -342,6 +360,8 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		VerificationEvidenceEnabled:             config.VerificationEvidenceEnabled,
 		EmbeddedAnalyzerExecutionEnabled:        config.EmbeddedAnalyzerExecutionEnabled,
 		WorkspaceCheckpointControlEnabled:       config.ControlToken != "",
+		BatchDeliveryControlEnabled:             config.BatchDeliveryControlEnabled,
+		BatchDeliveryHostValidationEnabled:      config.BatchDeliveryHostValidationEnabled,
 		RunLifecycleController:                  lifecycleControl,
 		RunExecutionController:                  executionControl,
 		PublicModelStreamSource:                 executionControl,
@@ -364,6 +384,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		SkillInstallationController:         skillInstaller,
 		EmbeddedAnalyzerExecutionController: embeddedAnalyzerExecution,
 		WorkspaceCheckpointController:       workspaceCheckpoints,
+		BatchDeliveryController:             batchDelivery,
 		DockerSandboxController:             dockerSandbox,
 		ModelRegistry:                       models,
 		AppVersion:                          config.AppVersion, UIHandler: config.UIHandler,

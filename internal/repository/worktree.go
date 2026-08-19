@@ -63,6 +63,9 @@ func CreateWorktree(ctx context.Context, sourceRoot, destinationRoot, branch,
 	if err != nil {
 		return "", fmt.Errorf("git binary is unavailable: %w", err)
 	}
+	if err := validateHardenedGitRepository(ctx, gitPath, source); err != nil {
+		return "", err
+	}
 	commandCtx, cancel := context.WithTimeout(ctx, MaxGitDuration)
 	defer cancel()
 	command := exec.CommandContext(commandCtx, gitPath, "-C", source,
@@ -81,7 +84,113 @@ func CreateWorktree(ctx context.Context, sourceRoot, destinationRoot, branch,
 			destination, branch)
 		return "", errors.Join(err, cleanupErr)
 	}
+	if err := verifyWorktreeCommonDirectory(commandCtx, gitPath, source, destination); err != nil {
+		return "", err
+	}
 	return destination, nil
+}
+
+// RestoreExistingWorktree rematerializes a missing worktree from an exact
+// durable branch/head binding. Unlike CreateWorktree it never creates or
+// rewrites the branch, so restart recovery cannot discard reviewed commits.
+func RestoreExistingWorktree(ctx context.Context, sourceRoot, destinationRoot,
+	branch, expectedHead string,
+) (string, error) {
+	if ctx == nil || ctx.Err() != nil {
+		return "", errors.New("git worktree restore context is unavailable")
+	}
+	branch, expectedHead = strings.TrimSpace(branch), strings.TrimSpace(expectedHead)
+	if err := ValidateBranchName(branch); err != nil || !validWorktreeCommit(expectedHead) {
+		return "", errors.New("git worktree restore identity is invalid")
+	}
+	source, err := canonicalExistingRepositoryRoot(sourceRoot)
+	if err != nil {
+		return "", err
+	}
+	destination, err := canonicalAbsentWorktreeRoot(destinationRoot)
+	if err != nil {
+		return "", err
+	}
+	if pathsOverlap(source, destination) {
+		return "", errors.New("git worktree restore destination overlaps the source repository")
+	}
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		return "", fmt.Errorf("git binary is unavailable: %w", err)
+	}
+	if err := validateHardenedGitRepository(ctx, gitPath, source); err != nil {
+		return "", err
+	}
+	commandCtx, cancel := context.WithTimeout(ctx, MaxGitDuration)
+	defer cancel()
+	ref := "refs/heads/" + branch
+	show := exec.CommandContext(commandCtx, gitPath, "-C", source,
+		"--no-optional-locks", "show-ref", "--verify", "--hash", ref)
+	show.Env, show.Dir = hardenedGitEnvironment(), source
+	var stdout, stderr boundedBuffer
+	show.Stdout, show.Stderr = &stdout, &stderr
+	if err := show.Run(); err != nil {
+		return "", fmt.Errorf("restore Git worktree branch binding changed: %w: %s",
+			err, strings.TrimSpace(stderr.String()))
+	}
+	if observed := strings.TrimSpace(stdout.String()); observed != expectedHead {
+		return "", fmt.Errorf("restore Git worktree branch binding changed: got %q, want %q",
+			observed, expectedHead)
+	}
+	add := exec.CommandContext(commandCtx, gitPath, "-C", source,
+		"--no-optional-locks", "worktree", "add", destination, branch)
+	add.Env, add.Dir = hardenedGitEnvironment(), source
+	var addStdout, addStderr boundedBuffer
+	add.Stdout, add.Stderr = &addStdout, &addStderr
+	if err := add.Run(); err != nil {
+		return "", fmt.Errorf("restore Git worktree: %w: %s", err,
+			strings.TrimSpace(addStderr.String()))
+	}
+	if err := verifyCreatedWorktree(commandCtx, gitPath, destination, branch,
+		expectedHead); err != nil {
+		remove := exec.CommandContext(context.WithoutCancel(ctx), gitPath, "-C", source,
+			"--no-optional-locks", "worktree", "remove", "--force", destination)
+		remove.Env, remove.Dir = hardenedGitEnvironment(), source
+		_ = remove.Run()
+		return "", err
+	}
+	if err := verifyWorktreeCommonDirectory(commandCtx, gitPath, source, destination); err != nil {
+		return "", err
+	}
+	return destination, nil
+}
+
+// BranchFullHead reads an exact local branch ref without resolving arbitrary
+// revision syntax supplied by a caller.
+func BranchFullHead(ctx context.Context, sourceRoot, branch string) (string, error) {
+	if ctx == nil || ctx.Err() != nil || ValidateBranchName(branch) != nil {
+		return "", errors.New("git branch inspection identity is invalid")
+	}
+	source, err := canonicalExistingRepositoryRoot(sourceRoot)
+	if err != nil {
+		return "", err
+	}
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		return "", err
+	}
+	commandCtx, cancel := context.WithTimeout(ctx, MaxGitDuration)
+	defer cancel()
+	command := exec.CommandContext(commandCtx, gitPath, "-C", source,
+		"--no-optional-locks", "show-ref", "--verify", "--hash",
+		"refs/heads/"+strings.TrimSpace(branch))
+	command.Env, command.Dir = hardenedGitEnvironment(), source
+	var stdout, stderr boundedBuffer
+	command.Stdout, command.Stderr = &stdout, &stderr
+	if err := command.Run(); err != nil {
+		return "", fmt.Errorf("inspect Git branch: %w: %s", err,
+			strings.TrimSpace(stderr.String()))
+	}
+	head := strings.TrimSpace(stdout.String())
+	if !validWorktreeCommit(head) {
+		return "", errors.New("Git branch did not resolve to a full commit")
+	}
+	return head, nil
 }
 
 // RemoveCreatedWorktree removes only an exact registered worktree and its
@@ -100,13 +209,19 @@ func RemoveCreatedWorktree(ctx context.Context, sourceRoot, destinationRoot,
 	if err != nil {
 		return err
 	}
-	destination, err := filepath.Abs(strings.TrimSpace(destinationRoot))
+	destination, err := canonicalExistingRepositoryRoot(destinationRoot)
 	if err != nil || pathsOverlap(source, destination) {
 		return errors.New("git worktree cleanup destination is invalid")
 	}
 	gitPath, err := exec.LookPath("git")
 	if err != nil {
 		return err
+	}
+	if err := verifyWorktreeCommonDirectory(ctx, gitPath, source, destination); err != nil {
+		return err
+	}
+	if current, branchErr := CurrentBranch(ctx, destination); branchErr != nil || current != branch {
+		return errors.New("git worktree cleanup branch identity changed")
 	}
 	commandCtx, cancel := context.WithTimeout(ctx, MaxGitDuration)
 	defer cancel()
@@ -171,6 +286,9 @@ func CleanupInterruptedWorktree(ctx context.Context, sourceRoot, destinationRoot
 		verifyCtx, cancel := context.WithTimeout(ctx, MaxGitDuration)
 		verifyErr := verifyCreatedWorktree(verifyCtx, gitPath, destination, branch,
 			expectedCommit)
+		if verifyErr == nil {
+			verifyErr = verifyWorktreeCommonDirectory(verifyCtx, gitPath, source, destination)
+		}
 		cancel()
 		if verifyErr != nil {
 			return verifyErr
@@ -189,9 +307,16 @@ func canonicalExistingRepositoryRoot(root string) (string, error) {
 	if err != nil || root == "" || strings.ContainsRune(root, 0) {
 		return "", errors.New("repository root is invalid")
 	}
+	info, err := os.Lstat(abs)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return "", errors.New("repository root is not a real directory")
+	}
 	resolved, err := filepath.EvalSymlinks(abs)
 	if err != nil {
 		return "", fmt.Errorf("resolve repository root: %w", err)
+	}
+	if !sameFilesystemPath(abs, resolved) {
+		return "", errors.New("repository root identity changed through a link or reparse point")
 	}
 	if _, err := os.Stat(filepath.Join(resolved, ".git")); err != nil {
 		return "", errors.New("repository root does not contain Git metadata")
@@ -240,6 +365,9 @@ func canonicalWorktreeRoot(root string) (string, error) {
 		if resolveErr != nil {
 			return "", fmt.Errorf("resolve Git worktree destination: %w", resolveErr)
 		}
+		if !sameFilesystemPath(abs, resolved) {
+			return "", errors.New("git worktree destination identity changed")
+		}
 		return filepath.Clean(resolved), nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {
@@ -278,8 +406,10 @@ func removeInterruptedWorktreeBranch(ctx context.Context, source, branch,
 	show.Stdout, show.Stderr = &stdout, &stderr
 	if err := show.Run(); err != nil {
 		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 &&
-			strings.TrimSpace(stdout.String()) == "" {
+		missingRef := strings.Contains(stderr.String(), "not a valid ref") ||
+			strings.Contains(stderr.String(), "not a valid reference")
+		if errors.As(err, &exitErr) && (exitErr.ExitCode() == 1 ||
+			(exitErr.ExitCode() == 128 && missingRef)) && strings.TrimSpace(stdout.String()) == "" {
 			return nil
 		}
 		return fmt.Errorf("inspect interrupted Git worktree branch: %w: %s", err,
@@ -322,6 +452,11 @@ func validWorktreeCommit(value string) bool {
 }
 
 func verifyCreatedWorktree(ctx context.Context, gitPath, root, branch, commit string) error {
+	canonical, err := canonicalExistingRepositoryRoot(root)
+	if err != nil || !sameFilesystemPath(canonical, root) {
+		return errors.New("Git worktree root identity changed")
+	}
+	root = canonical
 	for _, check := range []struct {
 		args []string
 		want string
@@ -342,6 +477,44 @@ func verifyCreatedWorktree(ctx context.Context, gitPath, root, branch, commit st
 			return fmt.Errorf("verify Git worktree %s: got %q, want %q",
 				check.args[0], got, check.want)
 		}
+	}
+	return nil
+}
+
+func verifyWorktreeCommonDirectory(ctx context.Context, gitPath, source,
+	destination string,
+) error {
+	read := func(root string) (string, error) {
+		canonical, err := canonicalExistingRepositoryRoot(root)
+		if err != nil {
+			return "", err
+		}
+		command := exec.CommandContext(ctx, gitPath, "-C", canonical,
+			"--no-optional-locks", "rev-parse", "--path-format=absolute", "--git-common-dir")
+		command.Env, command.Dir = hardenedGitEnvironment(), canonical
+		var stdout, stderr boundedBuffer
+		command.Stdout, command.Stderr = &stdout, &stderr
+		if err := command.Run(); err != nil {
+			return "", fmt.Errorf("inspect Git common directory: %w: %s", err,
+				strings.TrimSpace(stderr.String()))
+		}
+		common := strings.TrimSpace(stdout.String())
+		common, err = filepath.EvalSymlinks(common)
+		if err != nil {
+			return "", fmt.Errorf("resolve Git common directory: %w", err)
+		}
+		return filepath.Clean(common), nil
+	}
+	sourceCommon, err := read(source)
+	if err != nil {
+		return err
+	}
+	destinationCommon, err := read(destination)
+	if err != nil {
+		return err
+	}
+	if !sameFilesystemPath(sourceCommon, destinationCommon) {
+		return errors.New("Git worktree common repository identity changed")
 	}
 	return nil
 }

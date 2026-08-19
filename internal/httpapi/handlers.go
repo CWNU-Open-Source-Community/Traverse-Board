@@ -60,6 +60,9 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 		if a.dockerSandboxController != nil {
 			resources = append(resources, "docker-sandbox-readiness", "docker-sandbox-status")
 		}
+		if a.batchDeliveryController != nil {
+			resources = append(resources, "batch-deliveries")
+		}
 		if a.dockerSandboxControlEnabled {
 			resources = append(resources, "docker-sandbox-admission-control",
 				"docker-sandbox-start-control", "docker-sandbox-cancel-control")
@@ -69,6 +72,9 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 				"specialist-model-cancellation-control", "execution-profile-control",
 				"context-memory-control", "project-instruction-refresh-control",
 				"continuity-checkpoint-control", "continuity-branch-control")
+		}
+		if a.batchDeliveryControlEnabled {
+			resources = append(resources, "batch-delivery-control")
 		}
 		if a.executionPermissionControlEnabled {
 			resources = append(resources, "execution-permission-control")
@@ -452,6 +458,8 @@ func (a *API) routeRuns(request *http.Request, segments []string) (any, *Page, e
 			return a.listFanoutExecutions(request, segments[1])
 		case "child-task-proposals":
 			return a.listChildTaskProposals(request, segments[1])
+		case "batch-deliveries":
+			return a.listBatchDeliveries(request, segments[1])
 		case "reports":
 			return a.runFindingReports(request, segments[1])
 		case "events":
@@ -496,6 +504,9 @@ func (a *API) routeRuns(request *http.Request, segments []string) (any, *Page, e
 			return a.runProjectInstructions(request, segments[1])
 		}
 	case 4:
+		if segments[2] == "batch-deliveries" {
+			return a.getBatchDelivery(request, segments[1], segments[3])
+		}
 		if segments[2] == "code-handoff" && segments[3] == "export" {
 			return a.runCodeHandoffExport(request, segments[1])
 		}

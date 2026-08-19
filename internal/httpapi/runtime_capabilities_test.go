@@ -41,7 +41,8 @@ func TestRuntimeCapabilitiesAreReadOnlyAndDefaultClosed(t *testing.T) {
 		view.RunWakeWorkerEnabled ||
 		!view.AgentCodeToolsEnabled ||
 		view.CommandRuntimeEnabled || view.ProcessExecutionEnabled || view.ShellExecutionEnabled ||
-		view.DockerExecutionEnabled || view.WakeWorker.Enabled ||
+		view.DockerExecutionEnabled || view.BatchDeliveryHostValidationEnabled ||
+		view.WakeWorker.Enabled ||
 		view.WakeWorker.State != "disabled" || view.WakeWorker.Active ||
 		view.WakeWorker.RuntimeEnableSupported || view.WakeWorker.PersistentService ||
 		view.WakeWorker.Concurrency != 1 || view.WakeWorker.MaxSteps != 1 {
@@ -50,6 +51,49 @@ func TestRuntimeCapabilitiesAreReadOnlyAndDefaultClosed(t *testing.T) {
 	assertAPIError(t, performSessionMessageRequest(t, fixture.api, http.MethodGet,
 		"/api/v1/capabilities", testControlToken, "", "", nil),
 		http.StatusUnauthorized, "POLICY_DENIED")
+}
+
+func TestRuntimeCapabilitiesProjectExplicitBatchHostValidation(t *testing.T) {
+	fixture := newAPIFixture(t)
+	api, err := New(fixture.store, Config{
+		AccessToken: testAccessToken, ControlToken: testControlToken,
+		BatchDeliveryControlEnabled:        true,
+		BatchDeliveryController:            application.NewBatchDeliveryService(fixture.store),
+		BatchDeliveryHostValidationEnabled: true,
+		ExecutionPermissionControlEnabled:  true,
+		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
+			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+		},
+		AppVersion: "batch-host-validation-capability-test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := performSessionMessageRequest(t, api, http.MethodGet,
+		"/api/v1/capabilities", testAccessToken, "", "", nil)
+	var view RuntimeCapabilitiesView
+	decodeDataStatus(t, response, http.StatusOK, &view)
+	if !view.BatchDeliveryControlEnabled || !view.BatchDeliveryHostValidationEnabled {
+		t.Fatalf("batch host validation capability projection is invalid: %#v", view)
+	}
+}
+
+func TestRuntimeCapabilitiesRejectBatchHostValidationWithoutFullAccess(t *testing.T) {
+	fixture := newAPIFixture(t)
+	_, err := New(fixture.store, Config{
+		AccessToken: testAccessToken, ControlToken: testControlToken,
+		BatchDeliveryControlEnabled:        true,
+		BatchDeliveryController:            application.NewBatchDeliveryService(fixture.store),
+		BatchDeliveryHostValidationEnabled: true,
+		ExecutionPermissionControlEnabled:  true,
+		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
+			OperatorApprovalEnabled: true,
+		},
+		AppVersion: "batch-host-validation-rejection-test",
+	})
+	if err == nil || apperror.CodeOf(err) != apperror.CodeInvalidArgument {
+		t.Fatalf("batch host validation without full access error=%v", err)
+	}
 }
 
 func TestRuntimeCapabilitiesEnableCommandRuntimeOnlyForFullAccessExecution(t *testing.T) {

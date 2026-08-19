@@ -14,6 +14,7 @@ This directory separates user-facing documentation, current engineering state, a
 | [产品范围 / Product Scope](PRODUCT_SCOPE.md) | 当前核心范围、可选附加能力和扩展接口 |
 | [使用手册 / Usage](usage.md) | CLI、Provider、Workspace、Run、审批和操作者工作流 |
 | [Workspace Checkpoints](workspace-checkpoints.md) | 检查点时间线、预览、Undo/Redo/Rewind、独立 Fork 与故障处理 |
+| [可交付多代理 / Deliverable Batches](batch-delivery.md) | child Worktree、缩权工具、邮箱、交付收据、复核、合并与恢复 |
 | [Windows Desktop 计划](DESKTOP_PLAN.md) | 桌面架构、发布门和仍未开放的能力 |
 | [Skill 包计划](SKILL_PACKAGE_PLAN.md) | 惰性 Skill 导入、校验和未来分发边界 |
 
@@ -26,6 +27,7 @@ This directory separates user-facing documentation, current engineering state, a
 | [OpenAPI](openapi.json) | 由 Go 生成并受测试保护的机器可读合同 |
 | [错误模型 / Errors](errors.md) | 稳定错误类别、CLI 退出码和 HTTP 映射 |
 | [ADR 0118 / Workspace Checkpoints](adr/0118-transactional-workspace-checkpoints.md) | 事务边界、内容寻址、三方恢复、崩溃收敛与权限模型 |
+| [ADR 0119 / Deliverable Batch Agents](adr/0119-deliverable-batch-agents.md) | child 所有权、一次性 authority、提交 WAL、独立复核与本地合并队列 |
 | [ADR 索引](adr/) | 权限、持久化、执行、浏览器、Desktop 等架构决策 |
 
 ## 当前工程上下文 / Current Engineering Context

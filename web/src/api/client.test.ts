@@ -29,6 +29,8 @@ function runtimeCapabilitiesData(overrides: Record<string, unknown> = {}) {
     verification_evidence_enabled: true,
     embedded_analyzer_execution_enabled: true,
 	workspace_checkpoint_control_enabled: true,
+    batch_delivery_control_enabled: true,
+    batch_delivery_host_validation_enabled: true,
     process_execution_enabled: true, shell_execution_enabled: true,
     docker_execution_enabled: false,
     wake_worker: { protocol_version: "run_wake_worker_health.v1", enabled: true,
@@ -179,6 +181,8 @@ describe("CyberAgentClient", () => {
       verification_evidence_enabled: true,
       embedded_analyzer_execution_enabled: true,
 	  workspace_checkpoint_control_enabled: true,
+      batch_delivery_control_enabled: true,
+      batch_delivery_host_validation_enabled: true,
       process_execution_enabled: true, shell_execution_enabled: true,
       docker_execution_enabled: false,
       wake_worker: { protocol_version: "run_wake_worker_health.v1", enabled: true,
@@ -202,6 +206,8 @@ describe("CyberAgentClient", () => {
       verificationEvidenceEnabled: true,
       embeddedAnalyzerExecutionEnabled: true,
 	  workspaceCheckpointControlEnabled: true,
+      batchDeliveryControlEnabled: true,
+      batchDeliveryHostValidationEnabled: true,
     });
   });
 
@@ -215,6 +221,71 @@ describe("CyberAgentClient", () => {
     expect(clientCapabilitiesFromRuntime(view)).toMatchObject({
       dockerExecutionEnabled: true,
     });
+  });
+
+  it("accepts bounded batch delivery projections and rejects private child authority fields", async () => {
+    const gitObject = "a".repeat(64);
+    const toolProfile = {
+      version: "batch-delivery-tools.v1",
+      workspace_list: true, workspace_read: true, workspace_search: true,
+      workspace_change: true, workspace_apply: true, git_status: true,
+      git_diff: true, git_commit: true, workspace_delete: false, shell: false,
+      process: false, network: false, credentials: false, debug_terminal: false,
+      approvals: false, spawn_children: false,
+    };
+    const snapshot = {
+      protocol_version: "batch-delivery.v1",
+      plan: {
+        id: "batch-1", run_id: "run-1", proposal_id: "proposal-1",
+        root_agent_id: "agent-root", workspace_id: "workspace-1", status: "active",
+        spec: {
+          version: "batch-delivery.v1",
+          tasks: [{ ordinal: 1,
+            ownership_hints: [{ path: "internal/parser", kind: "directory" }],
+            dependency_ordinals: [],
+            budget: { turn_limit: 3, token_limit: 2_048, timeout_millis: 120_000 },
+            validations: [{ id: "diff", kind: "git_diff_check", scope: "." }],
+            expected_artifacts: [{ path_hint: "internal/parser", kind: "code" }],
+          }],
+          contract: { require_clean: true, require_independent_review: true,
+            require_all_validations: true, max_changed_files: 32,
+            max_diff_bytes: 1024 * 1024 },
+        },
+        base_commit: gitObject, source_branch: "main", created_by: "operator",
+        created_at: "2026-08-20T00:00:00Z", updated_at: "2026-08-20T00:00:01Z",
+      },
+      children: [{
+        workspace: {
+          plan_id: "batch-1", ordinal: 1, agent_id: "agent-child", generation: 1,
+          status: "dispatched", branch: "codex/batch/task-1", base_commit: gitObject,
+          tool_profile: toolProfile, lease_expires_at: "2026-08-20T01:00:00Z",
+          last_heartbeat_at: "2026-08-20T00:00:01Z",
+          created_at: "2026-08-20T00:00:00Z", updated_at: "2026-08-20T00:00:01Z",
+        },
+        mailbox: [{ id: "message-1", ordinal: 1, generation: 1, sequence: 1,
+          kind: "dispatch", actor: "agent-root", summary: "worktree dispatched",
+          evidence_refs: [], created_at: "2026-08-20T00:00:01Z" }],
+      }],
+      merge_steps: [],
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-batch", data: snapshot }), { status: 200,
+        headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-batch-private", data: { ...snapshot, children: [{
+          ...snapshot.children[0], workspace: { ...snapshot.children[0].workspace,
+            worktree_root: "C:/private/worktree" },
+        }] } }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret");
+
+    await expect(client.getRunBatchDelivery("run-1", "batch-1"))
+      .resolves.toMatchObject({ plan: { base_commit: gitObject }, children: [{
+        workspace: { tool_profile: { network: false, spawn_children: false } },
+      }] });
+    await expect(client.getRunBatchDelivery("run-1", "batch-1"))
+      .rejects.toThrow("Batch delivery snapshot is invalid");
   });
 
   it("rejects Docker execution capability without permission control", async () => {

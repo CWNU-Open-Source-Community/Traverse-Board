@@ -1,8 +1,8 @@
 # 本地 HTTP API / Local HTTP API
 
-CyberAgent Workbench 提供由 Go 控制的本地 `api.v1`，用于检查 SQLite 持久状态并投影可恢复 Run events。独立 capability 允许受控 Run/Session/Plan/审批、固定命令提案审阅、Provider 诊断/路由/系统凭证、FileEdit 提案/只读恢复/审阅/apply、wake 意图/前台消费、不可变操作者验证、metadata-only 快照回执及其不授权复核、惰性 Skill 安装、schema v116 的 Run-owned 普通命令运行时、schema v117 的 Workspace Checkpoint 时间线/恢复/Fork，以及 schema v99 默认关闭的精确 Docker Sandbox 产品执行。只读面还提供 capability/worker health、exact-root Repository 状态与脱敏 Diff、非原子的多文件 FileEdit 汇总、逐验证项确定性快照下载/回执历史和带有界复核元数据的可重建 Code Handoff。API 不直接接受 Shell/argv/stdin 或 Job mutation endpoint；命令只能由认证 Run execution 内的 root Supervisor 通过同一 Tool Gateway/Application 服务发起，仍受 Code/Local/Deliver/full-access、当前租约、Policy、无网络/无凭证与进程启动 capability 约束。
+CyberAgent Workbench 提供由 Go 控制的本地 `api.v1`，用于检查 SQLite 持久状态并投影可恢复 Run events。独立 capability 允许受控 Run/Session/Plan/审批、固定命令提案审阅、Provider 诊断/路由/系统凭证、FileEdit 提案/只读恢复/审阅/apply、wake 意图/前台消费、不可变操作者验证、metadata-only 快照回执及其不授权复核、惰性 Skill 安装、schema v116 的 Run-owned 普通命令运行时、schema v117 的 Workspace Checkpoint 时间线/恢复/Fork、schema v118 的可交付 child Worktree/复核/本地合并，以及 schema v99 默认关闭的精确 Docker Sandbox 产品执行。只读面还提供 capability/worker health、exact-root Repository 状态与脱敏 Diff、非原子的多文件 FileEdit 汇总、逐验证项确定性快照下载/回执历史和带有界复核元数据的可重建 Code Handoff。API 不直接接受 Shell/argv/stdin 或 Job mutation endpoint；命令只能由认证 Run execution 内的 root Supervisor 通过同一 Tool Gateway/Application 服务发起，仍受 Code/Local/Deliver/full-access、当前租约、Policy、无网络/无凭证与进程启动 capability 约束。
 
-CyberAgent Workbench exposes a Go-controlled local `api.v1` for durable SQLite state and resumable Run-event projections. Independent capabilities permit controlled Run/Session/Plan/approval operations, fixed-command proposal review, Provider diagnostics/routes/system credentials, operator price-snapshot import and listing, FileEdit propose/read-only recovery/review/apply, wake intent/foreground consumption, immutable operator verification, metadata-only snapshot receipts and their non-authorizing review, inert Skill installation, the schema-v116 Run-owned ordinary command runtime, schema-v117 Workspace Checkpoint timeline/restore/Fork operations, and schema-v99 exact Docker Sandbox execution that is disabled by default. Read-only surfaces also expose capabilities/worker health, exact-root Repository state and redacted Diffs, non-atomic multi-file FileEdit summaries, deterministic per-check verification snapshot downloads/receipt history, and a regenerable Code handoff with bounded review metadata. There is no direct HTTP Shell/argv/stdin or Job-mutation endpoint: only an authenticated Run execution may let its root Supervisor call the same Tool Gateway/Application service under Code/Local/Deliver/full-access, current-lease, Policy, no-network/no-credential, and process-startup gates.
+CyberAgent Workbench exposes a Go-controlled local `api.v1` for durable SQLite state and resumable Run-event projections. Independent capabilities permit controlled Run/Session/Plan/approval operations, fixed-command proposal review, Provider diagnostics/routes/system credentials, operator price-snapshot import and listing, FileEdit propose/read-only recovery/review/apply, wake intent/foreground consumption, immutable operator verification, metadata-only snapshot receipts and their non-authorizing review, inert Skill installation, the schema-v116 Run-owned ordinary command runtime, schema-v117 Workspace Checkpoint timeline/restore/Fork operations, schema-v118 deliverable-child worktree/review/local-merge operations, and schema-v99 exact Docker Sandbox execution that is disabled by default. Read-only surfaces also expose capabilities/worker health, exact-root Repository state and redacted Diffs, non-atomic multi-file FileEdit summaries, deterministic per-check verification snapshot downloads/receipt history, and a regenerable Code handoff with bounded review metadata. There is no direct HTTP Shell/argv/stdin or Job-mutation endpoint: only an authenticated Run execution may let its root Supervisor call the same Tool Gateway/Application service under Code/Local/Deliver/full-access, current-lease, Policy, no-network/no-credential, and process-startup gates.
 
 ## 启动 / Start
 
@@ -357,6 +357,41 @@ Workspace 和 operation key 确定性生成同级 `prayu-fork-<digest-prefix>` w
 正文。精确请求/响应 schema 见 `docs/openapi.json`，操作流程见
 [Workspace Checkpoints](workspace-checkpoints.md)。
 
+## Batch Delivery API
+
+Schema v118 exposes durable `batch-delivery.v1` plans through the read bearer and keeps
+all mutations behind the distinct control bearer. Prepare binds an approved/admitted
+core child-task proposal, a clean source commit, the unchanged DAG/budgets/artifacts,
+and a normalized non-overlapping ownership/validation contract. It creates independent
+child branches/worktrees but never accepts a host path from HTTP.
+
+`POST /runs/{run_id}/batch-deliveries` returns each raw owner token exactly once. An
+idempotent replay returns the same plan with an empty authority list rather than
+recovering plaintext. `renew-owner` uses `expected_generation` CAS and returns one new
+token; the previous generation is fenced. List/detail and Desktop responses exclude
+worktree/integration roots, token digests, operation/request fingerprints, and private
+tool-profile fingerprints.
+
+Review recalculates the exact receipt head's full merge-base diff, call-chain digest,
+changed paths, and tests; acceptance additionally requires all three explicit reviewer
+attestations. Merge uses a separate local integration branch/worktree, requires every
+current-generation delivery to be accepted, validates DAG order, detects changed-file
+overlap, and stops on base drift until `confirm_replay` is explicitly set. It reruns
+focused checks after each step and rolls back only the failing integration step. No
+route pushes, opens a PR, chooses a conflict side, or mutates a remote.
+
+Prepare/review/merge/cancel use `Idempotency-Key`. Owner renewal deliberately uses
+generation CAS instead of an idempotency key; reconcile is intrinsically convergent.
+All JSON bodies are bounded and strict, URL Run ownership is rechecked before mutation,
+and control tokens cannot authorize GET.
+
+`batch_delivery_host_validation_enabled` is an explicit runtime capability. It is true
+only when batch control, permission control, operator approval, danger-full-access, and
+`--enable-batch-validation-execution` all hold. Without it a spec containing `go_test`
+or `npm_test` fails before materialization. This is honest host code execution, not an
+OS network-sandbox claim. Full lifecycle and threat-model details are in
+[Deliverable Multi-Agent Batches](batch-delivery.md).
+
 ## Endpoints
 
 | Method | Path | Result / Filters |
@@ -397,6 +432,14 @@ Workspace 和 operation key 确定性生成同级 `prayu-fork-<digest-prefix>` w
 | `GET` | `/api/v1/runs` | Creation-ordered Runs; `status`, `mission_id`, stable keyset pagination |
 | `POST` | `/api/v1/runs` | Idempotently create one closed Mission/Run/Session in a registered Workspace |
 | `GET` | `/api/v1/runs/{run_id}` | Run, Mission, immutable execution-mode/profile snapshots, read-only Plan/checkpoint/external-Skill metadata, tool usage, token-free lease summary, and the `agent-code-tools.v1` generation with per-tool availability/refusal |
+| `GET` | `/api/v1/runs/{run_id}/batch-deliveries` | Bounded durable delivery plans; no worktree roots, owner tokens/digests, or operation fingerprints |
+| `POST` | `/api/v1/runs/{run_id}/batch-deliveries` | Confirmed, idempotent materialization of an admitted core-child DAG; raw narrowed owner tokens returned once |
+| `GET` | `/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}` | Child/mailbox/receipt/review/merge projection with private filesystem and authority fields omitted |
+| `POST` | `/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}/children/{ordinal}/review` | Recomputed full-diff/call-chain/test review with explicit independent attestation |
+| `POST` | `/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}/children/{ordinal}/renew-owner` | Exact-generation retry/owner rotation; fences the old token and returns one replacement |
+| `POST` | `/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}/merge` | Confirmed DAG-valid local integration queue; no source/remote mutation |
+| `POST` | `/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}/cancel` | Fence generations and remove only exact clean worktrees; preserve uncertain evidence |
+| `POST` | `/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}/reconcile` | Converge durable worktree/merge intent without restoring tokens or authority |
 | `GET` | `/api/v1/runs/{run_id}/project-instructions` | Pinned/live hierarchical sources, hashes, why-effective/conflict details, history, and non-mutating drift diff |
 | `POST` | `/api/v1/runs/{run_id}/project-instructions/refresh` | Pinned-and-reviewed-live dual-fingerprint confirmation that appends a new immutable instruction revision |
 | `POST` | `/api/v1/runs/{run_id}/continuity-checkpoints` | Capture one bounded, redacted, provenance-bearing, all-false-authority context checkpoint |
@@ -586,9 +629,9 @@ cyberagent api openapi
 cyberagent api openapi --output docs/openapi.json
 ```
 
-运行时的 `/api/v1/openapi.json` 返回同一份原始文档，仍要求 loopback 与 read Bearer 认证，不接受 query 或 body。它使用 `application/vnd.oai.openapi+json`，不套普通 `api.v1` envelope。当前契约有 111 个 path、123 个 operation 和 274 个 schema。测试逐条命中公开 handler，并确认普通 DTO 不包含 Workspace root、Artifact/Skill/Session 正文、模型输出、工具参数、私有 lifecycle、operation/fencing/lease owner、API key、Provider Base URL 或环境变量名。CDP 权限响应只投影固定能力布尔值、当前进程闸门和四项 false authority，不包含 endpoint、browser path、Profile、Cookie、请求正文或 CDP payload。
+运行时的 `/api/v1/openapi.json` 返回同一份原始文档，仍要求 loopback 与 read Bearer 认证，不接受 query 或 body。它使用 `application/vnd.oai.openapi+json`，不套普通 `api.v1` envelope。当前契约有 124 个 path、138 个 operation 和 325 个 schema。测试逐条命中公开 handler，并确认普通 DTO 不包含 Workspace root、Artifact/Skill/Session 正文、模型输出、工具参数、私有 lifecycle、operation/fencing/lease owner、API key、Provider Base URL 或环境变量名。batch delivery DTO 还明确排除 child/integration root、owner-token digest 与 operation/request fingerprint；明文 owner token 只在 Prepare/rotation control 响应中返回一次。
 
-The runtime `/api/v1/openapi.json` returns the same raw document under the loopback and read-bearer boundary and accepts neither a query nor a body. It uses `application/vnd.oai.openapi+json` rather than the ordinary `api.v1` envelope. The contract contains 117 paths, 130 operations, and 293 schemas. Tests exercise every handler and verify that ordinary DTOs omit Workspace roots, Artifact/Skill/Session bodies, model output, Tool arguments, private lifecycle, operation/fencing/lease-owner identities, API keys, Provider base URLs, and environment-variable names. CDP permission responses expose only closed capability booleans, current process gates, and four false authority fields; they contain no endpoint, browser path, Profile, Cookie, request body, or CDP payload.
+The runtime `/api/v1/openapi.json` returns the same raw document under the loopback and read-bearer boundary and accepts neither a query nor a body. It uses `application/vnd.oai.openapi+json` rather than the ordinary `api.v1` envelope. The contract contains 124 paths, 138 operations, and 325 schemas. Tests exercise every handler and verify that ordinary DTOs omit Workspace roots, Artifact/Skill/Session bodies, model output, Tool arguments, private lifecycle, operation/fencing/lease-owner identities, API keys, Provider base URLs, and environment-variable names. Batch-delivery DTOs additionally omit child/integration roots, owner-token digests, and operation/request fingerprints; a plaintext owner token appears only once in a prepare/rotation control response.
 
 ## 主动取消 / Active-Call Cancellation
 
@@ -821,7 +864,7 @@ Most pagination is a bounded live SQLite projection, not a multi-request snapsho
 
 ## 当前限制 / Current Limits
 
-- No general filesystem mutation, install-time Skill execution, runtime worker enable endpoint, or user-visible model-text stream. One exact approved FileEdit can be applied through its dedicated Go capability; one package can be registered inertly; Windows may store/delete one exact Provider credential without readback; an explicitly started worker may consume one due intent/one step at a time. Steering edit/reorder and general host/container execution remain absent; schema v99 exposes only the exact, explicitly enabled network-none Docker product profile above.
+- No general unscoped filesystem mutation, install-time Skill execution, runtime worker enable endpoint, or user-visible model-text stream. One exact approved FileEdit can be applied through its dedicated Go capability; a schema-v118 delivery child can mutate only its owned isolated worktree through its closed tools; one package can be registered inertly; Windows may store/delete one exact Provider credential without readback; an explicitly started worker may consume one due intent/one step at a time. Steering edit/reorder and general host/container execution remain absent; schema v99 exposes only the exact, explicitly enabled network-none Docker product profile above.
 - Execution-lease rows coordinate workers, but the API exposes neither `lease_id` nor any operation that accepts a fencing token.
 - No Artifact content route. Use the authenticated local CLI `artifact read` when content is explicitly required.
 - No real general Shell or LocalSandbox execution. Docker execution is limited to schema v99 admissions over an already-compiled exact plan, fresh process-local capability, exact per-call approval, current Policy/permission/budget/readiness, and network none. There is no arbitrary Docker request, scoped egress, pull/build/exec/TTY, daemon endpoint, mount override, host fallback, or renderer-issued capability.

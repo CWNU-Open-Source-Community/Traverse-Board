@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"path/filepath"
 	"strings"
 	"time"
@@ -22,6 +23,7 @@ type OnceOutputCapture struct {
 	CapturedBytes        int
 	CapturedPrefix       string
 	CapturedPrefixSHA256 string
+	ObservedSHA256       string
 	Truncated            bool
 }
 
@@ -71,6 +73,13 @@ type OnceStartResult struct {
 	TreeReaped  bool
 	StdinClosed bool
 }
+
+// NewPlatformOnceProcessStarter exposes the same whole-process-tree primitive
+// used by OnceExecutor to other Go-owned fixed command families. Callers remain
+// responsible for validating their closed executable/argv/cwd contract before
+// invoking Start; the starter owns stdin closure, bounded output, cancellation,
+// and descendant reaping.
+func NewPlatformOnceProcessStarter() OnceStarter { return newPlatformOnceStarter() }
 
 // OnceExecutor executes validated one-shot requests. It never inspects or
 // persists raw output; the starter returns only bounded redacted projections.
@@ -159,9 +168,14 @@ type boundedOnceBuffer struct {
 	observed    int
 	truncated   bool
 	invalidUTF8 bool
+	digest      hash.Hash
 }
 
 func (b *boundedOnceBuffer) Write(value []byte) (int, error) {
+	if b.digest == nil {
+		b.digest = sha256.New()
+	}
+	_, _ = b.digest.Write(value)
 	b.observed += len(value)
 	if len(b.captured) >= MaxOnceOutputBytes {
 		b.truncated = true
@@ -185,6 +199,12 @@ func (b *boundedOnceBuffer) Capture() OnceOutputCapture {
 	capture := OnceOutputCapture{
 		ObservedBytes: b.observed, CapturedBytes: len(b.captured),
 		CapturedPrefix: string(b.captured), Truncated: b.truncated || b.invalidUTF8,
+	}
+	if b.digest == nil {
+		empty := sha256.Sum256(nil)
+		capture.ObservedSHA256 = hex.EncodeToString(empty[:])
+	} else {
+		capture.ObservedSHA256 = hex.EncodeToString(b.digest.Sum(nil))
 	}
 	if len(b.captured) > 0 {
 		digest := sha256.Sum256(b.captured)

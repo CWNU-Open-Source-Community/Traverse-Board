@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"os/exec"
 	"syscall"
 	"time"
@@ -31,23 +32,40 @@ func (unixOnceStarter) Start(ctx context.Context, spec OnceStartSpec) (OnceStart
 	command.Env = spec.Environment
 	command.Stdin = nil
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	stdout := &boundedOnceBuffer{}
-	stderr := &boundedOnceBuffer{}
-	command.Stdout = stdout
-	command.Stderr = stderr
+	stdoutRead, stdoutWrite, err := os.Pipe()
+	if err != nil {
+		return started, err
+	}
+	defer stdoutRead.Close()
+	defer stdoutWrite.Close()
+	stderrRead, stderrWrite, err := os.Pipe()
+	if err != nil {
+		return started, err
+	}
+	defer stderrRead.Close()
+	defer stderrWrite.Close()
+	command.Stdout = stdoutWrite
+	command.Stderr = stderrWrite
 	if err := command.Start(); err != nil {
 		return started, err
 	}
+	// The parent must not retain writer handles: pipe EOF must reflect only the
+	// controlled process group. Because Cmd receives *os.File writers, Wait does
+	// not wait on output-copy goroutines before we can terminate descendants.
+	_ = stdoutWrite.Close()
+	_ = stderrWrite.Close()
+	stdoutChannel := captureOncePipe(stdoutRead)
+	stderrChannel := captureOncePipe(stderrRead)
 	group := -command.Process.Pid
 	waitErr := command.Wait()
-	if ctx.Err() != nil && waitErr != nil {
-		// Ensure the whole group is gone before reporting termination.
-		_ = syscall.Kill(group, syscall.SIGKILL)
-		_ = command.Process.Kill()
-	}
+	// A successful direct process may still have background descendants. Reap
+	// the complete group on every return, not only after timeout/cancellation.
+	// ESRCH simply means the group already exited.
+	_ = syscall.Kill(group, syscall.SIGKILL)
+	_ = command.Process.Kill()
 	started.CompletedAt = time.Now().UTC()
-	started.Stdout = stdout.Capture()
-	started.Stderr = stderr.Capture()
+	started.Stdout = waitOncePipeCapture(stdoutRead, stdoutChannel)
+	started.Stderr = waitOncePipeCapture(stderrRead, stderrChannel)
 	started.TreeReaped = true
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		started.TimedOut = true
@@ -69,4 +87,28 @@ func (unixOnceStarter) Start(ctx context.Context, spec OnceStartSpec) (OnceStart
 	return started, waitErr
 }
 
-var _ = io.Discard
+func captureOncePipe(reader *os.File) <-chan OnceOutputCapture {
+	result := make(chan OnceOutputCapture, 1)
+	go func() {
+		buffer := &boundedOnceBuffer{}
+		_, _ = io.Copy(buffer, reader)
+		result <- buffer.Capture()
+	}()
+	return result
+}
+
+func waitOncePipeCapture(reader *os.File,
+	result <-chan OnceOutputCapture,
+) OnceOutputCapture {
+	select {
+	case capture := <-result:
+		return capture
+	case <-time.After(2 * time.Second):
+		// A descendant that deliberately escaped the process group must never
+		// hold the caller hostage through an inherited output handle.
+		_ = reader.Close()
+		capture := <-result
+		capture.Truncated = true
+		return capture
+	}
+}

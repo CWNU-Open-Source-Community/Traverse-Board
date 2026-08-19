@@ -344,6 +344,7 @@ func migrationPlan() []migration {
 		{Version: 115, Name: "model-callable agent code tools and guarded file mutations", Statements: agentCodeToolStatements},
 		{Version: 116, Name: "Run-owned command runtime jobs", Statements: commandRuntimeStatements},
 		{Version: 117, Name: "content-addressed reversible Workspace checkpoints", Statements: workspaceCheckpointStatements},
+		{Version: 118, Name: "isolated child worktrees and reviewed batch delivery", Statements: batchDeliveryStatements},
 	}
 }
 

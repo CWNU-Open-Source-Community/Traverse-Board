@@ -2,9 +2,38 @@
 
 > Scope checkpoint (2026-08-13): continue only the general-purpose Agent Harness and Code workflow. CTF-specific solving/offensive automation is an optional add-on with no active slices; retain generic extension seams only. Historical Cyber percentages are not current planning metrics. See [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md).
 
-Last updated: 2026-08-19
+Last updated: 2026-08-20
 
-## Current Single-Slice Checkpoint: Transactional Workspace Checkpoints / Issue #101
+## Current Single-Slice Checkpoint: Deliverable Batch Agents / Issue #103
+
+2026-08-20 的 issue #103 落地 `batch-delivery.v1`（ADR 0119，schema v118）。该合同只消费
+已审批/admission 的 core child proposal，精确复核 Agent、DAG、预算与 expected artifacts，
+再为最多两个 child 创建独立 branch/worktree、generation lease、一次性 owner token 与关闭
+工具 profile。旧 SpecialistRunner 仍是 no-tool；可交付工具只允许 owned Scope 内的有界
+list/read/search、人工提案式 create/replace 与固定 Git status/diff/commit，不允许 delete/
+rename、Shell、任意 process、network、credential、Debug、审批或派生 child。
+
+plan/workspace/mailbox/receipt/review/merge queue/step 和 operation facts 全部持久化。commit 先写
+intent，崩溃恢复只接受 prior HEAD 的一个直属非 merge 提交；Submit 与 Review 各自重算完整
+merge-base diff、call-chain digest、changed paths 和验证，并在验证后重证 exact clean state。
+dirty/state drift、作者摘要、stale generation 或越界路径不能变成交付。独立 integration
+worktree 按 DAG 顺序逐项合并并累积重跑已合并 task 的全部验证，再重证 source、确定性 merge
+commit、integration 与所有 child receipt；base drift 需第二次确认，overlap、state drift、
+文本/语义冲突和测试失败 block。只有 exact state 下的失败才回滚当前 step，不污染 source/
+child；崩溃恢复不接受任意 descendant。最终只产生本地 integration branch/head，不 push 或开 PR。
+
+默认验证只有 `git_diff_check`。`go_test`/`npm_test` 会运行 child-authored code，必须显式开启
+permission-control + danger-full-access + `--enable-batch-validation-execution`，且 Run 每次仍是
+running + current full_access（或显式更高的 debug）；Desktop batch mutation 另有
+`--enable-batch-delivery-control`。
+验证不使用 Go test cache，以 Windows Job / Unix process-group 边界回收 inherited 后代，只
+持久化完整观察流 output digest；offline/去凭证环境不是 OS sandbox，POSIX 主动 daemonize
+脱组仍是残余风险。owner token 明文不持久化，遗失后需 CAS 轮换 generation。取消只
+清理 exact clean identity，dirty/committed/drifted 成果保留；启动 reconciliation 在非 running
+Run 上不产生文件/Git 副作用，也不恢复 token、进程或旧 authority。完整边界见
+`docs/batch-delivery.md` 与 ADR 0119。
+
+## Previous Single-Slice Checkpoint: Transactional Workspace Checkpoints / Issue #101
 
 2026-08-19 的 issue #101 落地 `workspace-checkpoint.v1`（ADR 0118，schema v117）。每个
 检查点不可变绑定 Run/Mission/Session/Workspace、attempt/capability generation、触发收据、

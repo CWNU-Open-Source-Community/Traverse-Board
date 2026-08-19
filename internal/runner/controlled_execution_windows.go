@@ -46,8 +46,9 @@ type controlledWaitResult struct {
 }
 
 type controlledOutputResult struct {
-	output ControlledOutput
-	err    error
+	output         ControlledOutput
+	observedSHA256 string
+	err            error
 }
 
 type jobBasicAccountingInformation struct {
@@ -620,11 +621,13 @@ func readControlledOutput(handle windows.Handle,
 	}
 	buffer := make([]byte, 32*1024)
 	captured := make([]byte, 0, MaxControlledOutputCaptureBytes)
+	observedDigest := sha256.New()
 	var observed int64
 	var readErr error
 	for {
 		count, err := file.Read(buffer)
 		if count > 0 {
+			_, _ = observedDigest.Write(buffer[:count])
 			remaining := MaxControlledOutputCaptureBytes - len(captured)
 			if remaining > count {
 				remaining = count
@@ -656,7 +659,7 @@ func readControlledOutput(handle windows.Handle,
 		Data: captured, ObservedBytes: observed, CapturedBytes: len(captured),
 		CapturedPrefixSHA256: hex.EncodeToString(digest[:]),
 		Truncated:            observed > int64(len(captured)),
-	}, err: readErr}
+	}, observedSHA256: hex.EncodeToString(observedDigest.Sum(nil)), err: readErr}
 	if readErr != nil {
 		select {
 		case errorChannel <- readErr:

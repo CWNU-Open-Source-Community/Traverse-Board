@@ -72,6 +72,7 @@ Budget, events, sandbox sessions, and reports are Run-scoped rather than embedde
 | `Mission` | Stable user goal, workspace, profile, and authorization scope | Mission Store |
 | `Run` | One resumable execution attempt with config snapshot, budget, and status | Run Store |
 | `AgentNode` | Addressable root or specialist worker inside a run | Coordinator Store |
+| `BatchDelivery` | Admitted child DAG, isolated worktrees, mailbox, receipts, reviews, and local integration queue | Batch Delivery Store |
 | `WorkItem` | Structured unit of planned work with dependency and completion state | Work Board Store |
 | `Note` | Durable observation or reasoning aid, scoped to run and optional agent | Memory Store |
 | `Finding` | Structured, evidence-backed result awaiting validation/acceptance | Finding Store |
@@ -1215,3 +1216,60 @@ ordinary interrupted boundaries close with explicit partial evidence, restores r
 only under the same live identity, and a registered Fork finishes its existing Run
 instead of creating a duplicate. Desktop, CLI, and OpenAPI are thin projections over
 this single service. Operational details are in [Workspace Checkpoints](workspace-checkpoints.md).
+
+## Deliverable Batch Agents
+
+ADR 0119 and schema v118 add `batch-delivery.v1` beside, rather than inside,
+the existing no-tool Specialist runtime. Preparation consumes only an approved and
+admitted core `child_task_proposal.v1`; Agent identities, ordinal/DAG, budgets, and
+expected artifacts must exactly match admission. A clean branch-backed source HEAD is
+frozen as the batch base, then each of at most two children receives a separate
+branch/worktree, generation lease, digest-only owner-token record, and the exact closed
+`batch-delivery-tools.v1` profile. Ordinary projections omit worktree/integration roots,
+owner-token digests, and operation fingerprints. Plaintext authority is returned once
+at preparation or exact-generation rotation and is never reconstructed after restart.
+
+The child profile permits only owned-scope list/read/glob/grep, reviewed create/replace
+application, fixed Git status/diff, and a fixed local commit. It structurally denies
+delete/rename, Shell, arbitrary process, network, credentials, Debug, approval, and
+recursive delegation. Every call rebinds Agent, plan, generation, token digest, lease,
+dependency state, root/branch/base identity, tool-profile fingerprint, and normalized
+file/directory ownership. Cross-task ownership overlap rejects the plan before any
+worktree is created.
+
+Mailbox facts are generation-scoped, monotonic, immutable, and operation-keyed.
+Commit uses a write-ahead intent: after a crash, recovery accepts only one clean direct
+non-merge commit from the recorded prior HEAD, with fixed author/message and no
+delete/rename/copy. Submit and independent review each recompute the full merge-base
+diff, function-context call-chain digest, changed paths, and declared validations, then
+re-attest the exact branch/HEAD/diff/clean state after validation. A receipt binds
+base/head, diff/call-chain hashes, diffstat, test-output hashes, evidence, and limitations;
+dirty or post-validation-drifted worktrees cannot submit. Acceptance requires explicit
+reviewer attestation to the complete diff, call chain, and tests.
+
+An ordered queue creates another isolated integration worktree at the latest explicitly
+confirmed source base. Changed-file overlap blocks before merge; base drift requires a
+separate replay confirmation. Each DAG-valid step applies one accepted head, persists
+pre/post HEAD, reruns cumulative validation for the complete merged prefix, and re-attests
+the exact source, deterministic merge, integration, and every child receipt. State drift
+blocks and preserves evidence; an exactly attested text or semantic/test failure rolls
+back only that integration step, leaving prior steps and every child worktree untouched.
+Recovery accepts only the expected two-parent merge tree/metadata, not an arbitrary
+descendant. Completion produces a local integration branch/head only; it does not mutate
+the source branch, push, open a PR, or merge a remote.
+
+Only fixed `git diff --check` is enabled by default. Go/npm validation executes
+child-authored code and therefore requires permission control, danger-full-access, the
+distinct process-start flag `--enable-batch-validation-execution`, and a currently running
+Run whose live permission remains `full_access` or the explicitly higher `debug` mode. Desktop mutation separately requires
+`--enable-batch-delivery-control`. Fixed argv, cache-bypassed Go tests, Windows Job /
+Unix inherited-process-group termination, offline environment, temporary HOME/cache,
+credential stripping, timeout, and complete-stream digest-only output reduce exposure
+but do not constitute an OS filesystem, network, or POSIX daemon-containment sandbox.
+
+Cancellation fences generations before cleanup and removes only an exact clean
+worktree. Dirty, committed, missing, or identity-drifted evidence is preserved as a
+branch or `orphaned` directory. Startup reconciliation converges durable materialization,
+commit, expiry, and merge intents without restoring tokens, processes, or authority; a
+non-running Run is reported for operator attention before any filesystem or Git effect.
+Operational details are in [Deliverable Multi-Agent Batches](batch-delivery.md).

@@ -498,6 +498,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	fixture.api.fanoutExecutionController = application.NewReadOnlyFanoutExecutionService(
 		fixture.store, llm.NewDefaultRouter(), policy.NewDefaultChecker())
 	fixture.api.childTaskControlController = application.NewChildTaskControlService(fixture.store)
+	fixture.api.batchDeliveryControlEnabled = true
+	fixture.api.batchDeliveryController = application.NewBatchDeliveryService(fixture.store)
 	credentialStore := credential.NewMemoryStore()
 	fixture.api.providerCredentialController = application.NewProviderCredentialService(
 		credentialStore)
@@ -602,26 +604,27 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		t.Fatal(err)
 	}
 	replacements := map[string]string{
-		"{run_id}":       fixture.run.ID,
-		"{workspace_id}": fixture.workspace.ID,
-		"{agent_id}":     child.ID,
-		"{session_id}":   fixture.run.SessionID,
-		"{message_id}":   steering.Message.ID,
-		"{work_item_id}": fixture.workItems[0].ID,
-		"{note_id}":      fixture.notes[0].ID,
-		"{artifact_id}":  fixture.artifactID,
-		"{report_id}":    "report-openapi-missing-0001",
-		"{execution_id}": "fanout-execution-openapi-missing-0001",
-		"{approval_id}":  approvalRecord.ID,
-		"{proposal_id}":  "controlled-command-proposal-openapi",
-		"{edit_id}":      fileEditRecord.ID,
-		"{object_id}":    strings.Repeat("a", 40),
-		"{plan_id}":      verificationPlan.Plan.ID,
-		"{ordinal}":      "1",
-		"{route}":        "code",
-		"{provider}":     "mimo",
-		"{memory_id}":    openAPIMemory.ID,
-		"{node_id}":      openAPICheckpoint.ID,
+		"{run_id}":            fixture.run.ID,
+		"{workspace_id}":      fixture.workspace.ID,
+		"{agent_id}":          child.ID,
+		"{session_id}":        fixture.run.SessionID,
+		"{message_id}":        steering.Message.ID,
+		"{work_item_id}":      fixture.workItems[0].ID,
+		"{note_id}":           fixture.notes[0].ID,
+		"{artifact_id}":       fixture.artifactID,
+		"{report_id}":         "report-openapi-missing-0001",
+		"{execution_id}":      "fanout-execution-openapi-missing-0001",
+		"{approval_id}":       approvalRecord.ID,
+		"{proposal_id}":       "controlled-command-proposal-openapi",
+		"{batch_delivery_id}": "batch-openapi-missing-0001",
+		"{edit_id}":           fileEditRecord.ID,
+		"{object_id}":         strings.Repeat("a", 40),
+		"{plan_id}":           verificationPlan.Plan.ID,
+		"{ordinal}":           "1",
+		"{route}":             "code",
+		"{provider}":          "mimo",
+		"{memory_id}":         openAPIMemory.ID,
+		"{node_id}":           openAPICheckpoint.ID,
 	}
 	for _, spec := range openAPIOperationSpecs() {
 		requestPath := spec.Path
@@ -684,7 +687,9 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				expectedStatus = http.StatusNotFound
 			} else if spec.OperationID == "cancelRunFanoutExecution" ||
 				spec.OperationID == "reviewRunChildTaskProposal" ||
-				spec.OperationID == "admitRunChildTaskProposal" {
+				spec.OperationID == "admitRunChildTaskProposal" ||
+				strings.Contains(spec.OperationID, "RunBatchDelivery") ||
+				spec.OperationID == "prepareRunBatchDelivery" {
 				expectedStatus = http.StatusNotFound
 			} else if spec.OperationID == "getWorkspaceRepositoryCommitFilePreview" {
 				expectedStatus = http.StatusPreconditionFailed
@@ -805,6 +810,35 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 					body = `{"version":"child_task_review.v1","action":"deny","reviewer":"openapi_test","fanout_tier":"2","confirm_review":true}`
 				} else if spec.Path == ChildTaskProposalAdmitPathTemplate {
 					body = `{"version":"child_task_admit.v1","confirm_admit":true}`
+				} else if spec.Path == BatchDeliveriesPathTemplate {
+					body = `{"version":"batch_delivery_prepare.v1",` +
+						`"proposal_id":"child-task-proposal-openapi-missing",` +
+						`"spec":{"version":"batch-delivery.v1","tasks":[{` +
+						`"ordinal":1,"ownership_hints":[{"path":"internal/openapi",` +
+						`"kind":"directory"}],"dependency_ordinals":[],` +
+						`"budget":{"turn_limit":1,"token_limit":1,"timeout_millis":1000},` +
+						`"validations":[{"id":"diff","kind":"git_diff_check",` +
+						`"scope":"."}],"expected_artifacts":[]}],` +
+						`"contract":{"require_clean":true,` +
+						`"require_independent_review":true,"require_all_validations":true,` +
+						`"max_changed_files":8,"max_diff_bytes":65536}},"confirm":true}`
+				} else if spec.Path == BatchDeliveryReviewPathTemplate {
+					body = `{"version":"batch_delivery_review_control.v1",` +
+						`"generation":1,"reviewer":"openapi-reviewer",` +
+						`"verdict":"accepted","summary":"reviewed",` +
+						`"full_diff_reviewed":true,"call_chain_reviewed":true,` +
+						`"tests_reviewed":true}`
+				} else if spec.Path == BatchDeliveryRenewPathTemplate {
+					body = `{"version":"batch_delivery_renew_owner.v1",` +
+						`"expected_generation":1,"retry":false,"confirm":true}`
+				} else if spec.Path == BatchDeliveryMergePathTemplate {
+					body = `{"version":"batch_delivery_merge.v1",` +
+						`"ordered_ordinals":[1],"confirm_replay":false,"confirm":true}`
+				} else if spec.Path == BatchDeliveryCancelPathTemplate {
+					body = `{"version":"batch_delivery_cancel.v1",` +
+						`"reason":"OpenAPI route probe","confirm":true}`
+				} else if spec.Path == BatchDeliveryRecoverPathTemplate {
+					body = `{"version":"batch_delivery_reconcile.v1","confirm":true}`
 				} else if spec.Path == PriceSnapshotsPath {
 					encoded, marshalErr := json.Marshal(PriceSnapshotImportRequestView{
 						Version:  pricing.ProtocolVersion,
@@ -912,7 +946,9 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				}
 				if spec.OperationID != "cancelRunFanoutExecution" &&
 					spec.OperationID != "reviewRunChildTaskProposal" &&
-					spec.OperationID != "admitRunChildTaskProposal" {
+					spec.OperationID != "admitRunChildTaskProposal" &&
+					!strings.Contains(spec.OperationID, "RunBatchDelivery") &&
+					spec.OperationID != "prepareRunBatchDelivery" {
 					expectedStatus, statusErr = strconv.Atoi(status)
 					if statusErr != nil {
 						t.Fatal(statusErr)

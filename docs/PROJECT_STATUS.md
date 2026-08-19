@@ -1,13 +1,56 @@
 # Project Status
 
-Last updated: 2026-08-19
+Last updated: 2026-08-20
 
 > **Scope authority:** active mainline work targets the general-purpose Agent Harness and Code workflow. CTF-specific solving and offensive automation are optional add-ons and have no active implementation schedule. Historical references and percentages below remain audit history, not queued work. See [Product Scope](PRODUCT_SCOPE.md).
 
 ## Resume Context
 
-当前检查点是 issue #101 / schema v117 的事务化 Workspace Checkpoint、恢复与独立
-Fork。`workspace-checkpoint.v1` 固定 Run/Workspace/root、base commit、branch、原始 Git
+当前检查点是 issue #103 / schema v118 的可交付多代理、Worktree 隔离与独立合并复核。
+`batch-delivery.v1` 只绑定已审批/admission 的 core child proposal，并复核相同 Agent、DAG、
+预算和 expected artifacts；最多两个 child 各自使用独立 branch/worktree、generation lease、
+一次性 owner token 与关闭的 `batch-delivery-tools.v1`。工具仅覆盖 owned Scope 内的有界
+list/read/glob/grep、人工提案式 create/replace、Git status/diff/commit；delete/rename、Shell、
+任意 process、network、credential、Debug、审批和派生 child 均关闭。旧 SpecialistRunner
+保持 no-tool，不因本协议隐式扩权。
+
+schema v118 持久化 plan、child workspace、generation mailbox、receipt、independent review、
+merge queue/step 与幂等 operation facts。Git commit 在 mutation 前记录 durable intent；崩溃
+恢复只接纳 prior HEAD 的单个直属非 merge 提交，并复核固定 author/message、owned paths、
+clean state 与无 delete/rename/copy。Submit/Review 都重新计算 merge-base 完整 diff、
+function-context call-chain digest、changed paths 和声明验证，并在验证后重新证明 exact
+branch/HEAD/diff/clean state；dirty、state drift 或作者完成文字不能形成 receipt。Desktop 要求
+Reviewer 显式确认 full diff、call chain 与 tests，普通投影不含 worktree/integration root、
+owner-token digest 或 operation/request fingerprint。
+
+merge queue 在独立 integration worktree 上从最新显式确认 base 逐项应用；每步累积重跑已经
+合并前缀的全部验证，再证明 source、确定性 merge commit、integration 与所有 child receipt。
+changed-file overlap、base drift、state drift、文本冲突或语义/测试失败都会 block；只有状态仍
+精确时才回滚当前失败 step，不会污染 source 或其他 child。结果只是本地 integration branch/
+head，不 push、开 PR 或远端 merge。取消先 fence generation，只清理 exact clean identity；
+dirty/committed/drifted 证据保留为 branch/orphan。启动 reconciliation 收敛 worktree、commit、
+lease 与 merge intent，但非 running Run 在任何副作用前停止，不恢复 token、进程或旧 authority。
+
+默认仅允许不执行仓库代码的 `git_diff_check`。`go_test`/`npm_test` 必须由操作者同时开启
+permission control、danger-full-access 与 `--enable-batch-validation-execution`，且每次执行时
+Run 仍为 running + current full_access（或显式更高的 debug）；Desktop mutation 另需
+`--enable-batch-delivery-control`。
+验证禁用 Go test cache、关闭 stdin、使用 Windows Job / Unix process-group 边界并只持久化
+完整观察流 output digest；固定 offline/去凭证环境仍是降险而不是 OS sandbox，POSIX 主动
+daemonize 脱组仍是残余风险。发布前 `go test -p 2 -count=1 -timeout 30m ./...` 全仓通过，
+其中 Application 422.773 秒、HTTP API 138.928 秒、Store 的 v1-v118 完整迁移/恢复矩阵
+1006.877 秒；静态检查随后发现并修复工具绑定的 nil 检查顺序，修复后的全部 Batch Delivery
+Application 回归、Application/Store 定向 race、正确 Desktop 平台标签测试与
+`SA*`/`S1*`/`QF*` staticcheck 均通过。`go vet`、module verify/tidy、确定性
+OpenAPI/TypeScript、strict TypeScript、61 个前端文件/251 项测试、production build 与
+`npm audit --audit-level=high` 也通过。安全 diff 扫描发现的 1 项 medium 与 6 项 low 已逐项
+修复并补回归；额外 `govulncheck` 如实命中本机 Go 1.26.5 标准库的 5 项已知问题，均由
+Go 1.26.6 修复，并非本次仓库依赖引入或零发现结论。
+协议与残余风险见 ADR 0119 和 `docs/batch-delivery.md`。
+
+前一检查点是 issue #101 / schema v117 的事务化 Workspace Checkpoint、恢复与独立 Fork。
+
+`workspace-checkpoint.v1` 固定 Run/Workspace/root、base commit、branch、原始 Git
 index、稳定 manifest、内容哈希、触发收据、attempt/capability generation 和恢复等级；
 普通内容以 SHA-256 去重，SQLite seal/refcount/quota trigger 保证不可变引用和 2 GiB 全局
 blob 硬上限，并将 checkpoint/manifest entry/transaction 元数据分别限制为
