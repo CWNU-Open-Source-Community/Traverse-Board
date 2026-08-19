@@ -59,7 +59,7 @@ CLI / TUI / React / Windows Desktop / CI
 |---|---|
 | Agent 运行时 | Mission/Run、可恢复 Supervisor、严格生命周期、检查点、取消、重试、预算和执行租约 |
 | 模型与上下文 | Mock、Anthropic-compatible、OpenAI-compatible 与 loopback-only Ollama Provider、模型路由、资格校验、能力探测、流式响应、上下文压缩、层级项目指令、显式 user/project 长期记忆与 Session 恢复树 |
-| 计划与协作 | Plan/Delivery、工作项、备注、最多两个核心 child、1/2/4/6 档只读 Fan-out、共享预算与取消扇出 |
+| 计划与协作 | Plan/Delivery、工作项、备注、最多两个核心 child、`batch-delivery.v1` 独立 Worktree/分支/邮箱/交付复核/顺序合并，以及 1/2/4/6 档只读 Fan-out |
 | 工具与权限 | Tool Gateway、JSON Schema 校验、Policy、Scope、人工审批、四档宿主权限、受控固定命令、普通模式 Run-owned 命令运行时、逐条审批 PowerShell/Git Bash，以及限时 Debug 终端输入 |
 | 代码工作流 | 系统目录选择与 Workspace 导入、工作区浏览、仓库状态、提交历史、Diff 审阅、文件编辑提案、事务化 Workspace Checkpoint、Undo/Redo/Rewind、独立 Fork、验证计划、Code Journey 与 Handoff |
 | 可观测性 | 追加式 Run 事件、Live Activity、公开模型进度、Harness 事实、Artifact、Finding/Evidence/Report、SARIF |
@@ -85,6 +85,14 @@ Schema v117 的 `workspace-checkpoint.v1` 在文件工具、Run-owned 命令批�
 
 Desktop 的 **工作区检查点 / Checkpoints**、CLI 的 `cyberagent workspace checkpoint ...` 和认证 OpenAPI 共用同一个 Application 服务。Rewind、Undo、Redo 先做 live/current/target 三方预览，再以精确 cursor CAS 和当前权限确认写入；恢复本身是一次新的追加式写操作，不改写旧历史、不调用 `git reset --hard`、不批量清理 untracked 文件。Fork 从历史检查点建立独立 Git worktree、Workspace、Mission/Run/Session，且不继承审批、凭据、capability、lease、进程或网络授权；HTTP/Desktop 不接受或返回绝对 worktree 路径，由 Go 从受信源 Workspace 确定性生成同级目标。完整操作说明见 [Workspace Checkpoints](docs/workspace-checkpoints.md)，设计与失败语义见 [ADR 0118](docs/adr/0118-transactional-workspace-checkpoints.md)。
 
+### 可交付 child 与隔离合并
+
+Schema v118 的 `batch-delivery.v1` 将一个已经审批并 admission 的核心 child DAG 物化为最多两个独立 Git worktree/branch。每个 child 只获得绑定 Agent、generation、过期时间与一次性 owner token 的关闭工具集：owned Scope 内的 list/read/glob/grep、人工提案式 change/apply，以及固定 status/diff/commit；delete/rename、Shell、任意 process、network、credential、Debug、审批和继续派生 child 始终为 false。旧 Specialist 运行时仍保持 no-tool；它不会因为存在此协议而隐式扩权。
+
+child 只有在 worktree clean、HEAD 是 base 的后代、全部 changed path 属于声明 Scope、固定验证通过且交付包含 base/head、完整 diff/call-chain 摘要、测试收据、evidence 与已知限制时，才能进入 `ready_for_review`。Submit 与 Reviewer 都会在验证结束后重新证明 exact branch/HEAD/diff/clean 状态；Reviewer 还必须独立确认完整 merge-base diff、调用链与验证，Desktop 不把作者摘要当证据。顺序 merge queue 在独立 integration worktree 上从最新已确认 base 逐项应用，每步重跑截至当前步骤的全部累积验证并重新证明 source、integration 与所有 child receipt；重叠、base drift、状态漂移、文本/语义冲突或测试失败都会阻止队列，不会自动选一方覆盖，也不会 push、开 PR 或修改远端。
+
+默认验证只执行不会运行仓库代码的 `git diff --check`。`go_test`/`npm_test` 会执行 child 提交的代码，因此只有操作者启用相应控制能力，且当前 Run 仍为 `running` 并持有 `full_access`（或显式更高的 `debug`）时才可在宿主运行；Desktop 还需显式 `--enable-batch-delivery-control`，宿主校验另需 permission control、danger-full-access 与 `--enable-batch-validation-execution`。验证进程使用 Windows Job Object / Unix process-group 生命周期边界，Go 测试禁用缓存，持久层只记录完整输出流摘要；其离线/去凭证环境仍只是降险措施，不是 OS 网络或文件系统沙箱，POSIX 主动脱离 inherited process group 也仍是显式宿主权限的残余风险。完整操作与恢复说明见[可交付多代理](docs/batch-delivery.md)，设计决策见 [ADR 0119](docs/adr/0119-deliverable-batch-agents.md)。
+
 ### 真实 Git、PowerShell 与 Bash
 
 Prayu 调用真实的 Git 和操作系统 Shell，不是命令模拟器；但它也不会给模型一个永久、无审阅的裸终端。当前 Code 工作流按风险拆成以下入口：
@@ -106,6 +114,7 @@ Prayu 调用真实的 Git 和操作系统 Shell，不是命令模拟器；但它
 - 不公开 Provider 私有 thinking、原始 Prompt、raw delta、工具参数、工具原始输出或 API key。
 - 项目指令、长期记忆和对话 Checkpoint 始终是不可信、非授权上下文；Workspace Checkpoint 只保存有界文件/index 状态。两类 Fork/Resume 都不恢复审批、capability、凭据、网络、进程、终端租约或执行档位。详见[双语上下文/威胁模型与删除说明](docs/context-continuity.md)、[Workspace Checkpoints](docs/workspace-checkpoints.md)、[ADR 0115](docs/adr/0115-non-authorizing-durable-context-continuity.md)和 [ADR 0118](docs/adr/0118-transactional-workspace-checkpoints.md)。
 - 文件编辑、宿主命令、浏览器 CDP、终端输入和 Sandbox 是彼此独立的授权面。
+- 可交付 child 的 owner token 只在创建或 generation 轮换响应中返回一次，SQLite 和普通 HTTP/Desktop 投影仅保留摘要；丢失后必须 CAS 轮换 generation，旧 token 立即失效。
 - 普通命令运行时只接受 `network=disabled` 与 `credentials=none`，清空 credential helper/Profile/高风险环境入口并拒绝显式网络意图；它不是可证明的 OS 网络沙箱，`full_access` 仍是宿主执行能力，需要联网的命令必须改走独立逐次审阅路径。
 - 受控命令默认使用 Go 固定模板；PowerShell/Bash 只通过 Code/Deliver/root + `full_access` 的 Run-owned runtime、逐条审批，或可撤销 Debug 租约三条独立路径开放。通用宿主执行与 Debug 能力不会因模型、Skill 或仓库文档而自动开启。
 - Docker Sandbox 产品入口默认关闭。显式进程 capability、当前 `docker` Profile、匹配权限档、精确 per-call 审批、Policy、预算与 30 秒 readiness 必须同时成立；数据库记录不能在重启后恢复 start authority。
@@ -328,7 +337,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 完整逐切片原始记录保留在 [`PROGRESS_BOOK.md`](docs/PROGRESS_BOOK.md)，当前检查点与验收证据保留在 [`PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)，恢复上下文见 [`PROJECT_MEMORY.md`](docs/PROJECT_MEMORY.md)。这些账本是历史记录，不应被当作待重新执行的任务列表。
 
 <details>
-<summary><strong>SQLite Schema v1-v117 迁移审计表 / Migration ledger</strong></summary>
+<summary><strong>SQLite Schema v1-v118 迁移审计表 / Migration ledger</strong></summary>
 
 此表是 Store 防漏迁移测试使用的审计合同。新增 schema 时必须按顺序追加，不得改写或删除既有行。
 
@@ -451,6 +460,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 | v115 | 模型可调用的工作区工具与哈希保护文件变更 | model-callable workspace tools and hash-guarded file mutations |
 | v116 | 增加 Run-owned command-runtime.v2 Job 与 Supervisor 调用账本 | add Run-owned command-runtime.v2 jobs and Supervisor call ledger support |
 | v117 | 增加事务化 workspace-checkpoint.v1、恢复/Fork 账本与内容寻址 blob | add transactional workspace-checkpoint.v1, restore/Fork ledger, and content-addressed blobs |
+| v118 | 增加 batch-delivery.v1、child Worktree/邮箱/交付复核与顺序合并队列 | add batch-delivery.v1, child worktrees/mailbox, delivery review, and ordered merge queues |
 
 </details>
 

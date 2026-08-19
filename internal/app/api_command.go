@@ -62,13 +62,15 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		"enable highly sensitive complete CDP debugging selection")
 	dockerExecution := fs.Bool("enable-docker-execution", false,
 		"enable the process-local Docker Sandbox execution capability")
+	batchValidationExecution := fs.Bool("enable-batch-validation-execution", false,
+		"enable fixed offline go/npm checks for confirmed batch deliveries")
 	if err := fs.Parse(reorderFlags(args, map[string]bool{"listen": true, "ui-dir": true,
 		"enable-file-edit-proposals": false, "enable-provider-credentials": false,
 		"enable-wake-worker": false, "enable-permission-control": false,
 		"enable-host-command-proposals": false,
 		"enable-danger-full-access":     false, "enable-debug-maximum-access": false,
 		"enable-browser-cdp-control": false, "enable-full-cdp-debug": false,
-		"enable-docker-execution": false})); err != nil {
+		"enable-docker-execution": false, "enable-batch-validation-execution": false})); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 {
@@ -105,9 +107,15 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		return apperror.New(apperror.CodeInvalidArgument,
 			"--enable-docker-execution requires --enable-permission-control")
 	}
+	if *batchValidationExecution &&
+		(!permissionCapabilities.OperatorApprovalEnabled ||
+			!permissionCapabilities.DangerFullAccessEnabled) {
+		return apperror.New(apperror.CodeInvalidArgument,
+			"--enable-batch-validation-execution requires permission control and danger-full-access")
+	}
 	if (*fileEditProposals || *providerCredentials || *wakeWorker ||
 		*permissionControl || *hostCommandProposals || *browserCDPControl ||
-		*dockerExecution) && controlToken == "" {
+		*dockerExecution || *batchValidationExecution) && controlToken == "" {
 		return apperror.New(apperror.CodeInvalidArgument,
 			"interactive proposals, Provider credentials, the wake worker, and execution permission control require CYBERAGENT_API_CONTROL_TOKEN")
 	}
@@ -138,6 +146,12 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	if _, err := workspaceCheckpoints.Reconcile(ctx); err != nil {
 		return apperror.Wrap(apperror.CodeUnavailable,
 			"Workspace checkpoint startup reconciliation failed", err)
+	}
+	batchDelivery := application.NewBatchDeliveryService(a.store).
+		WithHostValidationExecution(*batchValidationExecution, permissionCapabilities)
+	if _, err := batchDelivery.ReconcileStartup(ctx, 256); err != nil {
+		return apperror.Wrap(apperror.CodeUnavailable,
+			"batch delivery startup reconciliation failed", err)
 	}
 	dockerSandbox, err := a.newDockerSandboxService(*dockerExecution,
 		permissionCapabilities)
@@ -260,6 +274,8 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		VerificationEvidenceEnabled:             controlToken != "",
 		EmbeddedAnalyzerExecutionEnabled:        controlToken != "",
 		WorkspaceCheckpointControlEnabled:       controlToken != "",
+		BatchDeliveryControlEnabled:             controlToken != "",
+		BatchDeliveryHostValidationEnabled:      *batchValidationExecution,
 		RunLifecycleController:                  lifecycleControl,
 		RunExecutionController:                  executionControl,
 		PublicModelStreamSource:                 executionControl,
@@ -282,6 +298,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		SkillInstallationController:         skillInstallation,
 		EmbeddedAnalyzerExecutionController: embeddedAnalyzerExecution,
 		WorkspaceCheckpointController:       workspaceCheckpoints,
+		BatchDeliveryController:             batchDelivery,
 		DockerSandboxController:             dockerSandbox,
 		ModelRegistry:                       a.models,
 		AppVersion:                          Version,
@@ -355,6 +372,8 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	fmt.Fprintf(a.out, "browser_cdp_permission_control_enabled: %t\nfull_cdp_debug_enabled: %t\n",
 		*browserCDPControl, browserCDPCapabilities.FullDebugEnabled)
 	fmt.Fprintf(a.out, "docker_execution_enabled: %t\n", *dockerExecution)
+	fmt.Fprintf(a.out, "batch_delivery_host_validation_enabled: %t\n",
+		*batchValidationExecution)
 	fmt.Fprintln(a.out, "note: the API is loopback-only; control is separately authorized and tokens are not persisted")
 	return server.Serve(ctx, listener)
 }

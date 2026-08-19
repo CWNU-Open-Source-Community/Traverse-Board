@@ -251,6 +251,8 @@ type Config struct {
 	VerificationEvidenceEnabled             bool
 	EmbeddedAnalyzerExecutionEnabled        bool
 	WorkspaceCheckpointControlEnabled       bool
+	BatchDeliveryControlEnabled             bool
+	BatchDeliveryHostValidationEnabled      bool
 	ExecutionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
 	BrowserCDPPermissionCapabilities        domain.BrowserCDPPermissionRuntimeCapabilities
 	RunLifecycleController                  RunLifecycleController
@@ -274,6 +276,7 @@ type Config struct {
 	SkillInstallationController             SkillInstallationController
 	EmbeddedAnalyzerExecutionController     EmbeddedAnalyzerExecutionController
 	WorkspaceCheckpointController           WorkspaceCheckpointController
+	BatchDeliveryController                 BatchDeliveryController
 	DockerSandboxController                 DockerSandboxController
 	ModelRegistry                           *modelregistry.Registry
 	AppVersion                              string
@@ -310,6 +313,8 @@ type API struct {
 	verificationEvidenceEnabled             bool
 	embeddedAnalyzerExecutionEnabled        bool
 	workspaceCheckpointControlEnabled       bool
+	batchDeliveryControlEnabled             bool
+	batchDeliveryHostValidationEnabled      bool
 	dockerSandboxControlEnabled             bool
 	dockerExecutionEnabled                  bool
 	executionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
@@ -335,6 +340,7 @@ type API struct {
 	skillInstallationController             SkillInstallationController
 	embeddedAnalyzerExecutionController     EmbeddedAnalyzerExecutionController
 	workspaceCheckpointController           WorkspaceCheckpointController
+	batchDeliveryController                 BatchDeliveryController
 	dockerSandboxController                 DockerSandboxController
 	modelRegistry                           *modelregistry.Registry
 	appVersion                              string
@@ -381,7 +387,7 @@ func New(store Store, config Config) (*API, error) {
 		config.RunWakeWorkerEnabled ||
 		config.SkillInstallationEnabled || config.EvidenceAttachmentEnabled ||
 		config.VerificationEvidenceEnabled || config.EmbeddedAnalyzerExecutionEnabled ||
-		config.WorkspaceCheckpointControlEnabled) &&
+		config.WorkspaceCheckpointControlEnabled || config.BatchDeliveryControlEnabled) &&
 		!controlTokenPresent {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API control capabilities require a control token")
@@ -462,6 +468,17 @@ func New(store Store, config Config) (*API, error) {
 		config.WorkspaceCheckpointController == nil {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API Workspace checkpoint controller is required when enabled")
+	}
+	if config.BatchDeliveryControlEnabled && config.BatchDeliveryController == nil {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"HTTP API batch delivery controller is required when enabled")
+	}
+	if config.BatchDeliveryHostValidationEnabled &&
+		(!config.BatchDeliveryControlEnabled || !config.ExecutionPermissionControlEnabled ||
+			!config.ExecutionPermissionCapabilities.OperatorApprovalEnabled ||
+			!config.ExecutionPermissionCapabilities.DangerFullAccessEnabled) {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"HTTP API batch delivery host validation requires batch control, permission control, operator approval, and danger-full-access")
 	}
 	dockerExecutionEnabled := false
 	if config.DockerSandboxController != nil {
@@ -554,6 +571,9 @@ func New(store Store, config Config) (*API, error) {
 		verificationEvidenceEnabled:       controlTokenPresent && config.VerificationEvidenceEnabled,
 		embeddedAnalyzerExecutionEnabled:  controlTokenPresent && config.EmbeddedAnalyzerExecutionEnabled,
 		workspaceCheckpointControlEnabled: controlTokenPresent && config.WorkspaceCheckpointControlEnabled,
+		batchDeliveryControlEnabled:       controlTokenPresent && config.BatchDeliveryControlEnabled,
+		batchDeliveryHostValidationEnabled: controlTokenPresent &&
+			config.BatchDeliveryHostValidationEnabled,
 		dockerSandboxControlEnabled: config.DockerSandboxController != nil &&
 			controlTokenPresent && config.ExecutionPermissionControlEnabled,
 		dockerExecutionEnabled:              dockerExecutionEnabled,
@@ -580,6 +600,7 @@ func New(store Store, config Config) (*API, error) {
 		skillInstallationController:         config.SkillInstallationController,
 		embeddedAnalyzerExecutionController: config.EmbeddedAnalyzerExecutionController,
 		workspaceCheckpointController:       config.WorkspaceCheckpointController,
+		batchDeliveryController:             config.BatchDeliveryController,
 		dockerSandboxController:             config.DockerSandboxController,
 		modelRegistry:                       modelRegistry,
 		openAPI:                             document, eventStream: eventStream,
@@ -865,6 +886,14 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	if runID, proposalID, matched := matchChildTaskProposalAdmitPath(request.URL.Path); matched {
 		a.serveChildTaskProposalAdmit(tracked, request, requestID, runID, proposalID)
 		return
+	}
+	if request.Method != http.MethodGet {
+		if runID, planID, action, ordinal, matched :=
+			matchBatchDeliveryMutationPath(request.URL.Path); matched {
+			a.serveBatchDeliveryControl(tracked, request, requestID,
+				runID, planID, action, ordinal)
+			return
+		}
 	}
 	if !a.authorized(request, a.tokenHash) {
 		tracked.Header().Set("WWW-Authenticate", `Bearer realm="CyberAgent API"`)

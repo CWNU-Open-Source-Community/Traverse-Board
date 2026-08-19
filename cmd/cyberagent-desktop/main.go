@@ -62,6 +62,8 @@ type desktopOptions struct {
 	evidenceAttachment     bool
 	verificationEvidence   bool
 	embeddedAnalyzer       bool
+	batchDeliveryControl   bool
+	batchValidation        bool
 	userTerminal           bool
 	dockerExecution        bool
 	version                bool
@@ -268,6 +270,10 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		"enable immutable operator verification evidence recording")
 	embeddedAnalyzer := fs.Bool("enable-embedded-analyzer", false,
 		"enable the fixed bounded embedded Rust/WASI analyzer")
+	batchDeliveryControl := fs.Bool("enable-batch-delivery-control", false,
+		"enable confirmed batch delivery preparation, review, merge, cancellation, and recovery")
+	batchValidation := fs.Bool("enable-batch-validation-execution", false,
+		"enable fixed offline go/npm checks for confirmed batch deliveries")
 	userTerminal := fs.Bool("enable-user-terminal", false,
 		"enable the user-owned Debug ConPTY terminal")
 	dockerExecution := fs.Bool("enable-docker-execution", false,
@@ -303,6 +309,7 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		*evidenceAttachment = true
 		*verificationEvidence = true
 		*embeddedAnalyzer = true
+		*batchDeliveryControl = true
 	}
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled:   *permissionControl,
@@ -323,6 +330,10 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 	if *dockerExecution && !*permissionControl {
 		return desktopOptions{}, errors.New(
 			"Docker execution requires --enable-permission-control")
+	}
+	if *batchValidation && (!*batchDeliveryControl || !*permissionControl || !*dangerFullAccess) {
+		return desktopOptions{}, errors.New(
+			"batch validation execution requires --enable-batch-delivery-control, --enable-permission-control, and --enable-danger-full-access")
 	}
 	if *fullCDPDebug && (!*browserCDPControl || !*debugMaximumAccess) {
 		return desktopOptions{}, errors.New(
@@ -354,6 +365,8 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		evidenceAttachment:     *evidenceAttachment,
 		verificationEvidence:   *verificationEvidence,
 		embeddedAnalyzer:       *embeddedAnalyzer,
+		batchDeliveryControl:   *batchDeliveryControl,
+		batchValidation:        *batchValidation,
 		userTerminal:           *userTerminal,
 		dockerExecution:        *dockerExecution,
 		version:                *version}, nil
@@ -384,7 +397,7 @@ func runDesktop(config desktopOptions) error {
 		config.fileEditApply || config.runWakeExecution || config.runWakeWorker ||
 		config.skillInstallation || config.evidenceAttachment ||
 		config.verificationEvidence || config.embeddedAnalyzer || config.userTerminal ||
-		config.dockerExecution {
+		config.dockerExecution || config.batchDeliveryControl || config.batchValidation {
 		controlToken, err = httpapi.GenerateAccessToken()
 		if err != nil {
 			return err
@@ -428,6 +441,8 @@ func runDesktop(config desktopOptions) error {
 		EvidenceAttachmentEnabled:               config.evidenceAttachment,
 		VerificationEvidenceEnabled:             config.verificationEvidence,
 		EmbeddedAnalyzerExecutionEnabled:        config.embeddedAnalyzer,
+		BatchDeliveryControlEnabled:             config.batchDeliveryControl,
+		BatchDeliveryHostValidationEnabled:      config.batchValidation,
 		UserTerminalEnabled:                     config.userTerminal,
 		DockerExecutionEnabled:                  config.dockerExecution,
 		AppVersion:                              app.Version, UIHandler: bundle,
@@ -486,6 +501,8 @@ func runDesktop(config desktopOptions) error {
 		EvidenceAttachmentEnabled:               config.evidenceAttachment,
 		VerificationEvidenceEnabled:             config.verificationEvidence,
 		EmbeddedAnalyzerExecutionEnabled:        config.embeddedAnalyzer,
+		BatchDeliveryControlEnabled:             config.batchDeliveryControl,
+		BatchDeliveryHostValidationEnabled:      config.batchValidation,
 		UserTerminalEnabled:                     config.userTerminal,
 		DockerExecutionEnabled:                  dockerExecutionEnabled,
 		AppVersion:                              app.Version, UIDigest: bundle.Digest(), Selector: selector,

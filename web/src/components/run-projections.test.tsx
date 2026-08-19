@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { CyberAgentClient } from "../api/client";
-import type { AgentGraphView, ExternalSkillProjectionView, FindingReportView } from "../api/types";
-import { AgentGraphPanel, DelegationsPanel, ExternalSkillsPanel, FanoutPanel, FindingsPanel } from "./run-projections";
+import type { AgentGraphView, BatchDeliverySnapshotView, ExternalSkillProjectionView, FindingReportView } from "../api/types";
+import { AgentGraphPanel, BatchDeliveriesPanel, DelegationsPanel, ExternalSkillsPanel, FanoutPanel, FindingsPanel } from "./run-projections";
 
 function provider(children: React.ReactNode) {
   return <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{children}</QueryClientProvider>;
@@ -63,6 +64,67 @@ describe("Run projection panels", () => {
     expect(await screen.findByText("Reviewed the parser boundary")).toBeInTheDocument();
     expect(screen.getByText("agent-root")).toBeInTheDocument();
     expect(screen.getByText("agent-child")).toBeInTheDocument();
+  });
+
+  it("shows narrowed batch child authority and requires an explicit independent-review attestation", async () => {
+    const base = "a".repeat(40);
+    const plan = {
+      id: "batch-1", run_id: "run-1", proposal_id: "proposal-1",
+      root_agent_id: "agent-root", workspace_id: "workspace-1", status: "reviewing",
+      spec: { version: "batch-delivery.v1", tasks: [{ ordinal: 1,
+        ownership_hints: [{ path: "internal/parser", kind: "directory" }],
+        dependency_ordinals: [], budget: { turn_limit: 2, token_limit: 1_024,
+          timeout_millis: 120_000 },
+        validations: [{ id: "diff", kind: "git_diff_check", scope: "." }],
+        expected_artifacts: [],
+      }], contract: { require_clean: true, require_independent_review: true,
+        require_all_validations: true, max_changed_files: 32, max_diff_bytes: 1_048_576 } },
+      base_commit: base, source_branch: "main", created_by: "operator",
+      created_at: "2026-08-20T00:00:00Z", updated_at: "2026-08-20T00:01:00Z",
+    } as const;
+    const snapshot = {
+      protocol_version: "batch-delivery.v1", plan,
+      children: [{ workspace: { plan_id: "batch-1", ordinal: 1,
+        agent_id: "agent-child", generation: 1, status: "ready_for_review",
+        branch: "codex/batch/task-1", base_commit: base, head_commit: "b".repeat(40),
+        tool_profile: { version: "batch-delivery-tools.v1", workspace_list: true,
+          workspace_read: true, workspace_search: true, workspace_change: true,
+          workspace_apply: true, git_status: true, git_diff: true, git_commit: true,
+          workspace_delete: false, shell: false, process: false, network: false,
+          credentials: false, debug_terminal: false, approvals: false,
+          spawn_children: false }, lease_expires_at: "2026-08-20T01:00:00Z",
+        last_heartbeat_at: "2026-08-20T00:01:00Z",
+        created_at: "2026-08-20T00:00:00Z", updated_at: "2026-08-20T00:01:00Z" },
+        mailbox: [],
+        receipt: { id: "receipt-1", ordinal: 1, generation: 1,
+          protocol_version: "batch-delivery-receipt.v1", base_commit: base,
+          head_commit: "b".repeat(40), diff_sha256: "c".repeat(64),
+          call_chain_sha256: "d".repeat(64), diff_bytes: 128,
+          diff_stat: "1 file changed, 1 insertion(+)", changed_files: ["internal/parser/a.go"],
+          test_receipts: [{ requirement_id: "diff", kind: "git_diff_check", scope: ".",
+            exit_code: 0, output_sha256: "e".repeat(64), duration_millis: 10,
+            completed_at: "2026-08-20T00:01:00Z" }], evidence_refs: [], limitations: [],
+          created_at: "2026-08-20T00:01:00Z" },
+      }], merge_steps: [],
+    } as unknown as BatchDeliverySnapshotView;
+    const client = { hasBatchDeliveryControl: true,
+      getRunBatchDeliveries: vi.fn().mockResolvedValue({
+        protocol_version: "batch-deliveries-list.v1", items: [plan],
+      }),
+      getRunBatchDelivery: vi.fn().mockResolvedValue(snapshot),
+    } as unknown as CyberAgentClient;
+    const user = userEvent.setup();
+    const { container } = render(provider(<BatchDeliveriesPanel client={client} runID="run-1" />));
+
+    expect(await screen.findByText(/Forced closed: delete/)).toBeInTheDocument();
+    const accept = screen.getByRole("button", { name: "Accept" });
+    expect(accept).toBeDisabled();
+    await user.type(screen.getByLabelText("Independent review summary"), "Reviewed exact diff");
+    expect(accept).toBeDisabled();
+    await user.click(screen.getByLabelText(/independently reviewed the full merge-base diff/));
+    expect(accept).toBeEnabled();
+    expect(container.textContent).not.toContain("owner_token");
+    expect(container.textContent).not.toContain("worktree_root");
   });
 
   it("renders delegation, Fan-out, and Finding projections from read-only pages", async () => {

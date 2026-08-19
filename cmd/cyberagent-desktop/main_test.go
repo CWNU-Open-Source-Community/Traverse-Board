@@ -98,6 +98,7 @@ func TestDesktopOptionsDefaultToReadOnlyAndRequireExplicitCapabilities(t *testin
 		{flag: "--enable-skill-installation", want: desktopOptions{skillInstallation: true}},
 		{flag: "--enable-evidence-attachments", want: desktopOptions{evidenceAttachment: true}},
 		{flag: "--enable-verification-evidence", want: desktopOptions{verificationEvidence: true}},
+		{flag: "--enable-batch-delivery-control", want: desktopOptions{batchDeliveryControl: true}},
 	} {
 		parsed, err := parseDesktopOptions([]string{current.flag})
 		if err != nil {
@@ -130,6 +131,23 @@ func TestDesktopOptionsDefaultToReadOnlyAndRequireExplicitCapabilities(t *testin
 		"--enable-host-command-proposals",
 	}); err == nil {
 		t.Fatal("host command proposals without permission control were accepted")
+	}
+	if _, err := parseDesktopOptions([]string{
+		"--enable-batch-validation-execution",
+	}); err == nil {
+		t.Fatal("batch host validation without permission/full access was accepted")
+	}
+	batchValidation, err := parseDesktopOptions([]string{
+		"--enable-permission-control", "--enable-danger-full-access",
+		"--enable-batch-delivery-control",
+		"--enable-batch-validation-execution",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !batchValidation.permissionControl || !batchValidation.dangerFullAccess ||
+		!batchValidation.batchDeliveryControl || !batchValidation.batchValidation {
+		t.Fatalf("batch host validation capability set is incomplete: %+v", batchValidation)
 	}
 	hostProposals, err := parseDesktopOptions([]string{
 		"--enable-permission-control", "--enable-host-command-proposals",
@@ -169,11 +187,12 @@ func TestDesktopOperatorPreviewEnablesTheSafeProductBundleOnly(t *testing.T) {
 		!preview.fileEditProposals || !preview.runWakeControl || !preview.fileEditApply ||
 		!preview.runWakeExecution || !preview.skillInstallation ||
 		!preview.evidenceAttachment || !preview.verificationEvidence ||
-		!preview.embeddedAnalyzer {
+		!preview.embeddedAnalyzer || !preview.batchDeliveryControl {
 		t.Fatalf("operator preview capability bundle is incomplete: %+v", preview)
 	}
 	if preview.dangerFullAccess || preview.debugMaximumAccess || preview.fullCDPDebug ||
-		preview.runWakeWorker || preview.userTerminal || preview.dockerExecution {
+		preview.runWakeWorker || preview.userTerminal || preview.dockerExecution ||
+		preview.batchValidation {
 		t.Fatalf("operator preview silently enabled a high-risk capability: %+v", preview)
 	}
 }

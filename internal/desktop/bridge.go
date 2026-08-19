@@ -72,6 +72,8 @@ type ConnectionBootstrap struct {
 	VerificationEvidenceEnabled             bool   `json:"verification_evidence_enabled"`
 	EmbeddedAnalyzerExecutionEnabled        bool   `json:"embedded_analyzer_execution_enabled"`
 	WorkspaceCheckpointControlEnabled       bool   `json:"workspace_checkpoint_control_enabled"`
+	BatchDeliveryControlEnabled             bool   `json:"batch_delivery_control_enabled"`
+	BatchDeliveryHostValidationEnabled      bool   `json:"batch_delivery_host_validation_enabled"`
 	UserTerminalEnabled                     bool   `json:"user_terminal_enabled"`
 	AgentTerminalInputDefault               bool   `json:"agent_terminal_input_default"`
 	WorkspaceOpenEnabled                    bool   `json:"workspace_open_enabled"`
@@ -166,6 +168,8 @@ type DesktopBridgeConfig struct {
 	EvidenceAttachmentEnabled               bool
 	VerificationEvidenceEnabled             bool
 	EmbeddedAnalyzerExecutionEnabled        bool
+	BatchDeliveryControlEnabled             bool
+	BatchDeliveryHostValidationEnabled      bool
 	UserTerminalEnabled                     bool
 	DockerExecutionEnabled                  bool
 	APIVersion                              string
@@ -228,7 +232,7 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 		config.SkillInstallationEnabled ||
 		config.EvidenceAttachmentEnabled || config.VerificationEvidenceEnabled ||
 		config.EmbeddedAnalyzerExecutionEnabled ||
-		config.ControlToken != "" ||
+		config.BatchDeliveryControlEnabled || config.ControlToken != "" ||
 		config.UserTerminalEnabled || config.DockerExecutionEnabled
 	if controlEnabled && config.ControlToken == "" {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
@@ -281,6 +285,13 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 		(!config.ExecutionPermissionControlEnabled || !config.OperatorApprovalEnabled) {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop Docker execution requires operator approval permission control")
+	}
+	if config.BatchDeliveryHostValidationEnabled &&
+		(!config.ExecutionPermissionControlEnabled || !config.OperatorApprovalEnabled ||
+			!config.DangerFullAccessEnabled || !config.BatchDeliveryControlEnabled ||
+			config.ControlToken == "") {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"desktop batch validation requires control, permission control, and danger-full-access")
 	}
 	commandRuntimeEnabled := config.RunExecutionEnabled &&
 		permissionCapabilities.Allows(domain.RunExecutionPermissionFullAccess)
@@ -360,6 +371,8 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 			VerificationEvidenceEnabled:             config.VerificationEvidenceEnabled,
 			EmbeddedAnalyzerExecutionEnabled:        config.EmbeddedAnalyzerExecutionEnabled,
 			WorkspaceCheckpointControlEnabled:       config.ControlToken != "",
+			BatchDeliveryControlEnabled:             config.BatchDeliveryControlEnabled,
+			BatchDeliveryHostValidationEnabled:      config.BatchDeliveryHostValidationEnabled,
 			UserTerminalEnabled:                     config.UserTerminalEnabled,
 			AgentTerminalInputDefault:               false,
 			WorkspaceOpenEnabled:                    config.WorkspaceResolver != nil,

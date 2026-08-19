@@ -3281,6 +3281,943 @@
         "x-cyberagent-read-only": true
       }
     },
+    "/api/v1/runs/{run_id}/batch-deliveries": {
+      "get": {
+        "operationId": "listRunBatchDeliveries",
+        "summary": "List durable batch deliveries",
+        "description": "Lists bounded batch-delivery.v1 plans without local worktree roots, owner-token digests, operation digests, or request fingerprints.",
+        "tags": [
+          "Agents"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum batch delivery plans",
+            "schema": {
+              "default": 50,
+              "maximum": 64,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/BatchDeliveriesListView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      },
+      "post": {
+        "operationId": "prepareRunBatchDelivery",
+        "summary": "Prepare isolated delivery worktrees",
+        "description": "Materializes the confirmed batch-delivery.v1 DAG into independent branch-backed worktrees and returns raw owner tokens exactly once. Replays never recover discarded tokens; rotate the affected owner generation instead.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque batch delivery retry key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Resource created or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/BatchDeliveryPrepareView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchDeliveryPrepareRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}": {
+      "get": {
+        "operationId": "getRunBatchDelivery",
+        "summary": "Inspect one batch delivery",
+        "description": "Returns the plan, closed child tool profiles, mailbox, receipts, independent reviews, and ordered merge state while omitting filesystem roots and private operation identities.",
+        "tags": [
+          "Agents"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "batch_delivery_id",
+            "in": "path",
+            "description": "Batch delivery identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/BatchDeliverySnapshotView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}/cancel": {
+      "post": {
+        "operationId": "cancelRunBatchDelivery",
+        "summary": "Cancel one batch delivery",
+        "description": "Fences active generations and cleans only exact clean worktrees; dirty, committed, or identity-drifted evidence is preserved and reported for operator recovery.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "batch_delivery_id",
+            "in": "path",
+            "description": "Batch delivery identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque batch delivery retry key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/BatchDeliveryCancelView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchDeliveryCancelRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}/children/{ordinal}/renew-owner": {
+      "post": {
+        "operationId": "renewRunBatchDeliveryChildOwner",
+        "summary": "Rotate or retry one child owner",
+        "description": "CAS-rotates the expected generation, fences the previous token, and returns one replacement narrowed owner authority. A retry generation retains committed evidence while refusing stale writers.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "batch_delivery_id",
+            "in": "path",
+            "description": "Batch delivery identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "ordinal",
+            "in": "path",
+            "description": "Batch delivery child ordinal",
+            "required": true,
+            "schema": {
+              "maximum": 2,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/BatchDeliveryRenewView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchDeliveryRenewRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}/children/{ordinal}/review": {
+      "post": {
+        "operationId": "reviewRunBatchDeliveryChild",
+        "summary": "Review one complete child delivery",
+        "description": "Re-inspects the exact merge-base diff, call-chain digest, lifecycle state, and required tests before recording an independent accepted or changes-requested verdict.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "batch_delivery_id",
+            "in": "path",
+            "description": "Batch delivery identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "ordinal",
+            "in": "path",
+            "description": "Batch delivery child ordinal",
+            "required": true,
+            "schema": {
+              "maximum": 2,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque batch delivery retry key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/BatchDeliveryReviewControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchDeliveryReviewRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}/merge": {
+      "post": {
+        "operationId": "mergeRunBatchDelivery",
+        "summary": "Run the ordered local merge queue",
+        "description": "Replays every accepted child onto the latest confirmed base in declared order, blocks overlap or drift, runs focused validation after each step, and never pushes, opens a PR, or selects conflicts automatically.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "batch_delivery_id",
+            "in": "path",
+            "description": "Batch delivery identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque batch delivery retry key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/BatchDeliveryMergeControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchDeliveryMergeRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}/reconcile": {
+      "post": {
+        "operationId": "reconcileRunBatchDelivery",
+        "summary": "Reconcile one interrupted batch delivery",
+        "description": "Converges durable worktree and merge-queue intent after restart without minting tokens, trusting completion text, or deleting uncertain state.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "batch_delivery_id",
+            "in": "path",
+            "description": "Batch delivery identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/BatchDeliveryReconcileView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchDeliveryReconcileRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/runs/{run_id}/browser-cdp-permission": {
       "post": {
         "operationId": "selectRunBrowserCDPPermission",
@@ -13557,6 +14494,1183 @@
         ],
         "type": "object"
       },
+      "BatchDeliveriesListView": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BatchDeliveryPlanView"
+            },
+            "type": "array"
+          },
+          "protocol_version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "items"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryAuthorityView": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "lease_expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "ordinal": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "owner_token": {
+            "type": "string"
+          },
+          "tool_profile": {
+            "$ref": "#/components/schemas/BatchDeliveryToolProfile"
+          }
+        },
+        "required": [
+          "ordinal",
+          "agent_id",
+          "generation",
+          "owner_token",
+          "branch",
+          "lease_expires_at",
+          "tool_profile"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryBudget": {
+        "additionalProperties": false,
+        "properties": {
+          "timeout_millis": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "token_limit": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "turn_limit": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "turn_limit",
+          "token_limit",
+          "timeout_millis"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryCancelRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "reason",
+          "confirm"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryCancelView": {
+        "additionalProperties": false,
+        "properties": {
+          "integration_preserved": {
+            "type": "boolean"
+          },
+          "preserved_ordinals": {
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/BatchDeliverySnapshotView"
+          }
+        },
+        "required": [
+          "snapshot",
+          "preserved_ordinals",
+          "integration_preserved",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryChildView": {
+        "additionalProperties": false,
+        "properties": {
+          "mailbox": {
+            "items": {
+              "$ref": "#/components/schemas/BatchDeliveryMailboxView"
+            },
+            "type": "array"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/BatchDeliveryReceiptView"
+          },
+          "review": {
+            "$ref": "#/components/schemas/BatchDeliveryReviewView"
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/BatchDeliveryWorkspaceView"
+          }
+        },
+        "required": [
+          "workspace",
+          "mailbox"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryContract": {
+        "additionalProperties": false,
+        "properties": {
+          "max_changed_files": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "max_diff_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "require_all_validations": {
+            "type": "boolean"
+          },
+          "require_clean": {
+            "type": "boolean"
+          },
+          "require_independent_review": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "require_clean",
+          "require_independent_review",
+          "require_all_validations",
+          "max_changed_files",
+          "max_diff_bytes"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryMailboxView": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "evidence_refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "ordinal": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "ordinal",
+          "generation",
+          "sequence",
+          "kind",
+          "actor",
+          "summary",
+          "evidence_refs",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryMergeControlView": {
+        "additionalProperties": false,
+        "properties": {
+          "base_drifted": {
+            "type": "boolean"
+          },
+          "queue": {
+            "$ref": "#/components/schemas/BatchDeliveryMergeQueueView"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/BatchDeliveryMergeStepView"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "queue",
+          "steps",
+          "base_drifted",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryMergeQueueView": {
+        "additionalProperties": false,
+        "properties": {
+          "base_commit": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "failure_code": {
+            "type": "string"
+          },
+          "failure_summary": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "integration_branch": {
+            "type": "string"
+          },
+          "integration_head": {
+            "type": "string"
+          },
+          "latest_base_commit": {
+            "type": "string"
+          },
+          "next_index": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "ordered_ordinals": {
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "plan_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "plan_id",
+          "protocol_version",
+          "status",
+          "base_commit",
+          "latest_base_commit",
+          "integration_branch",
+          "ordered_ordinals",
+          "next_index",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryMergeRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "type": "boolean"
+          },
+          "confirm_replay": {
+            "type": "boolean"
+          },
+          "ordered_ordinals": {
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "ordered_ordinals",
+          "confirm_replay",
+          "confirm"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryMergeStepView": {
+        "additionalProperties": false,
+        "properties": {
+          "completed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "failure_code": {
+            "type": "string"
+          },
+          "input_head": {
+            "type": "string"
+          },
+          "ordinal": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "post_merge_head": {
+            "type": "string"
+          },
+          "pre_merge_head": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "step_index": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "step_index",
+          "ordinal",
+          "input_head",
+          "pre_merge_head",
+          "status",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryOwnershipHint": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryPlanView": {
+        "additionalProperties": false,
+        "properties": {
+          "base_commit": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "proposal_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "root_agent_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_branch": {
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/BatchDeliverySpec"
+          },
+          "status": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "run_id",
+          "proposal_id",
+          "root_agent_id",
+          "workspace_id",
+          "status",
+          "spec",
+          "base_commit",
+          "source_branch",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryPrepareRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "type": "boolean"
+          },
+          "proposal_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/BatchDeliverySpec"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "proposal_id",
+          "spec",
+          "confirm"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryPrepareView": {
+        "additionalProperties": false,
+        "properties": {
+          "authorities": {
+            "items": {
+              "$ref": "#/components/schemas/BatchDeliveryAuthorityView"
+            },
+            "type": "array"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/BatchDeliverySnapshotView"
+          }
+        },
+        "required": [
+          "snapshot",
+          "authorities",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryReceiptView": {
+        "additionalProperties": false,
+        "properties": {
+          "base_commit": {
+            "type": "string"
+          },
+          "call_chain_sha256": {
+            "type": "string"
+          },
+          "changed_files": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "diff_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "diff_sha256": {
+            "type": "string"
+          },
+          "diff_stat": {
+            "type": "string"
+          },
+          "evidence_refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "head_commit": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ordinal": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "test_receipts": {
+            "items": {
+              "$ref": "#/components/schemas/BatchDeliveryTestReceipt"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "ordinal",
+          "generation",
+          "protocol_version",
+          "base_commit",
+          "head_commit",
+          "diff_sha256",
+          "call_chain_sha256",
+          "diff_bytes",
+          "diff_stat",
+          "changed_files",
+          "test_receipts",
+          "evidence_refs",
+          "limitations",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryReconcileRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "confirm"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryReconcileView": {
+        "additionalProperties": false,
+        "properties": {
+          "expired": {
+            "type": "boolean"
+          },
+          "materialized_worktrees": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "merge_completed": {
+            "type": "boolean"
+          },
+          "merge_resumed": {
+            "type": "boolean"
+          },
+          "needs_operator_attention": {
+            "type": "boolean"
+          },
+          "plan_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "recovered_worktrees": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "plan_id",
+          "materialized_worktrees",
+          "recovered_worktrees",
+          "expired",
+          "merge_resumed",
+          "merge_completed",
+          "needs_operator_attention"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryRenewRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "type": "boolean"
+          },
+          "expected_generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "retry": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "expected_generation",
+          "retry",
+          "confirm"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryRenewView": {
+        "additionalProperties": false,
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/BatchDeliveryAuthorityView"
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/BatchDeliveryWorkspaceView"
+          }
+        },
+        "required": [
+          "workspace",
+          "authority"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryReviewControlView": {
+        "additionalProperties": false,
+        "properties": {
+          "replayed": {
+            "type": "boolean"
+          },
+          "review": {
+            "$ref": "#/components/schemas/BatchDeliveryReviewView"
+          }
+        },
+        "required": [
+          "review",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryReviewRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "call_chain_reviewed": {
+            "type": "boolean"
+          },
+          "full_diff_reviewed": {
+            "type": "boolean"
+          },
+          "generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "reviewer": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "tests_reviewed": {
+            "type": "boolean"
+          },
+          "verdict": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "generation",
+          "reviewer",
+          "verdict",
+          "summary",
+          "full_diff_reviewed",
+          "call_chain_reviewed",
+          "tests_reviewed"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryReviewView": {
+        "additionalProperties": false,
+        "properties": {
+          "base_commit": {
+            "type": "string"
+          },
+          "call_chain_reviewed": {
+            "type": "boolean"
+          },
+          "call_chain_sha256": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "diff_sha256": {
+            "type": "string"
+          },
+          "full_diff_reviewed": {
+            "type": "boolean"
+          },
+          "generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "head_commit": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "ordinal": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "receipt_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "reviewer": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "tests_reviewed": {
+            "type": "boolean"
+          },
+          "verdict": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "ordinal",
+          "generation",
+          "protocol_version",
+          "receipt_id",
+          "reviewer",
+          "verdict",
+          "summary",
+          "base_commit",
+          "head_commit",
+          "diff_sha256",
+          "call_chain_sha256",
+          "full_diff_reviewed",
+          "call_chain_reviewed",
+          "tests_reviewed",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "BatchDeliverySnapshotView": {
+        "additionalProperties": false,
+        "properties": {
+          "children": {
+            "items": {
+              "$ref": "#/components/schemas/BatchDeliveryChildView"
+            },
+            "type": "array"
+          },
+          "merge_queue": {
+            "$ref": "#/components/schemas/BatchDeliveryMergeQueueView"
+          },
+          "merge_steps": {
+            "items": {
+              "$ref": "#/components/schemas/BatchDeliveryMergeStepView"
+            },
+            "type": "array"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/BatchDeliveryPlanView"
+          },
+          "protocol_version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "plan",
+          "children",
+          "merge_steps"
+        ],
+        "type": "object"
+      },
+      "BatchDeliverySpec": {
+        "additionalProperties": false,
+        "properties": {
+          "contract": {
+            "$ref": "#/components/schemas/BatchDeliveryContract"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/BatchDeliveryTaskSpec"
+            },
+            "type": "array"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "tasks",
+          "contract"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryTaskSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "budget": {
+            "$ref": "#/components/schemas/BatchDeliveryBudget"
+          },
+          "dependency_ordinals": {
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "expected_artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/ChildTaskExpectedArtifact"
+            },
+            "type": "array"
+          },
+          "ordinal": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "ownership_hints": {
+            "items": {
+              "$ref": "#/components/schemas/BatchDeliveryOwnershipHint"
+            },
+            "type": "array"
+          },
+          "validations": {
+            "items": {
+              "$ref": "#/components/schemas/BatchDeliveryValidationRequirement"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "ordinal",
+          "ownership_hints",
+          "dependency_ordinals",
+          "budget",
+          "validations",
+          "expected_artifacts"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryTestReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "completed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "duration_millis": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "exit_code": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "output_sha256": {
+            "type": "string"
+          },
+          "requirement_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "requirement_id",
+          "kind",
+          "scope",
+          "exit_code",
+          "output_sha256",
+          "duration_millis",
+          "completed_at"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryToolProfile": {
+        "additionalProperties": false,
+        "properties": {
+          "approvals": {
+            "type": "boolean"
+          },
+          "credentials": {
+            "type": "boolean"
+          },
+          "debug_terminal": {
+            "type": "boolean"
+          },
+          "git_commit": {
+            "type": "boolean"
+          },
+          "git_diff": {
+            "type": "boolean"
+          },
+          "git_status": {
+            "type": "boolean"
+          },
+          "network": {
+            "type": "boolean"
+          },
+          "process": {
+            "type": "boolean"
+          },
+          "shell": {
+            "type": "boolean"
+          },
+          "spawn_children": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          },
+          "workspace_apply": {
+            "type": "boolean"
+          },
+          "workspace_change": {
+            "type": "boolean"
+          },
+          "workspace_delete": {
+            "type": "boolean"
+          },
+          "workspace_list": {
+            "type": "boolean"
+          },
+          "workspace_read": {
+            "type": "boolean"
+          },
+          "workspace_search": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "version",
+          "workspace_list",
+          "workspace_read",
+          "workspace_search",
+          "workspace_change",
+          "workspace_apply",
+          "git_status",
+          "git_diff",
+          "git_commit",
+          "workspace_delete",
+          "shell",
+          "process",
+          "network",
+          "credentials",
+          "debug_terminal",
+          "approvals",
+          "spawn_children"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryValidationRequirement": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "scope"
+        ],
+        "type": "object"
+      },
+      "BatchDeliveryWorkspaceView": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "base_commit": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "head_commit": {
+            "type": "string"
+          },
+          "last_heartbeat_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "lease_expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "ordinal": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "plan_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tool_profile": {
+            "$ref": "#/components/schemas/BatchDeliveryToolProfile"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan_id",
+          "ordinal",
+          "agent_id",
+          "generation",
+          "status",
+          "branch",
+          "base_commit",
+          "tool_profile",
+          "lease_expires_at",
+          "last_heartbeat_at",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
       "BrowserCDPPermissionRuntimeView": {
         "additionalProperties": false,
         "properties": {
@@ -13949,6 +16063,22 @@
           "turn_limit",
           "token_limit",
           "timeout_millis"
+        ],
+        "type": "object"
+      },
+      "ChildTaskExpectedArtifact": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "path_hint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path_hint",
+          "kind"
         ],
         "type": "object"
       },
@@ -24688,6 +26818,12 @@
           "approval_control_enabled": {
             "type": "boolean"
           },
+          "batch_delivery_control_enabled": {
+            "type": "boolean"
+          },
+          "batch_delivery_host_validation_enabled": {
+            "type": "boolean"
+          },
           "browser_cdp_permission_control_enabled": {
             "type": "boolean"
           },
@@ -24826,6 +26962,8 @@
           "verification_evidence_enabled",
           "embedded_analyzer_execution_enabled",
           "workspace_checkpoint_control_enabled",
+          "batch_delivery_control_enabled",
+          "batch_delivery_host_validation_enabled",
           "process_execution_enabled",
           "shell_execution_enabled",
           "docker_execution_enabled",

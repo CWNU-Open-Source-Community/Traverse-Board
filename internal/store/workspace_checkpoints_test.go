@@ -269,14 +269,14 @@ func TestWorkspaceCheckpointMetadataQuotaRollsBackCandidateBlobs(t *testing.T) {
 // migration tests all flow through removeSchemaV116ForTestStatements, so this
 // helper must remain the first link in that downgrade chain.
 func removeSchemaV117ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV118ForTestStatements(), []string{
 		`DROP TABLE workspace_checkpoint_run_state`,
 		`DROP TABLE workspace_checkpoint_transactions`,
 		`DROP TABLE workspace_checkpoint_entries`,
 		`DROP TABLE workspace_checkpoints`,
 		`DROP TABLE workspace_checkpoint_blobs`,
 		`DELETE FROM schema_migrations WHERE version = 117`,
-	}
+	}...)
 }
 
 func newWorkspaceCheckpointStoreFixture(t *testing.T) (*SQLiteStore, domain.Run,

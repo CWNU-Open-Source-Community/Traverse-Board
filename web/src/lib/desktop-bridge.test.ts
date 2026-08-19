@@ -45,6 +45,8 @@ const bootstrap = {
   verification_evidence_enabled: false,
   embedded_analyzer_execution_enabled: false,
   workspace_checkpoint_control_enabled: false,
+  batch_delivery_control_enabled: false,
+  batch_delivery_host_validation_enabled: false,
   user_terminal_enabled: false,
   agent_terminal_input_default: false,
   workspace_open_enabled: false,

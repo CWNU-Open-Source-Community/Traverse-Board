@@ -58,6 +58,8 @@ type RuntimeCapabilitiesView struct {
 	VerificationEvidenceEnabled        bool                    `json:"verification_evidence_enabled"`
 	EmbeddedAnalyzerExecutionEnabled   bool                    `json:"embedded_analyzer_execution_enabled"`
 	WorkspaceCheckpointControlEnabled  bool                    `json:"workspace_checkpoint_control_enabled"`
+	BatchDeliveryControlEnabled        bool                    `json:"batch_delivery_control_enabled"`
+	BatchDeliveryHostValidationEnabled bool                    `json:"batch_delivery_host_validation_enabled"`
 	ProcessExecutionEnabled            bool                    `json:"process_execution_enabled"`
 	ShellExecutionEnabled              bool                    `json:"shell_execution_enabled"`
 	DockerExecutionEnabled             bool                    `json:"docker_execution_enabled"`
@@ -112,26 +114,28 @@ func (a *API) runtimeCapabilities(request *http.Request) (any, *Page, error) {
 		SessionMessageEnabled:              a.sessionMessageEnabled,
 		SessionSteeringControlEnabled:      a.sessionSteeringControlEnabled,
 		RunLifecycleEnabled:                a.runLifecycleEnabled, RunExecutionEnabled: a.runExecutionEnabled,
-		PlanDeliveryControlEnabled:        a.planDeliveryControlEnabled,
-		ApprovalControlEnabled:            a.approvalControlEnabled,
-		ControlledCommandProposalEnabled:  a.controlledCommandProposalControlEnabled,
-		HostCommandProposalEnabled:        a.hostCommandProposalControlEnabled,
-		ModelControlEnabled:               a.modelControlEnabled,
-		ProviderCredentialEnabled:         a.providerCredentialEnabled,
-		FileEditReviewEnabled:             a.fileEditReviewEnabled,
-		FileEditProposalEnabled:           a.fileEditProposalEnabled,
-		FileEditApplyEnabled:              a.fileEditApplyEnabled,
-		RunWakeControlEnabled:             a.runWakeControlEnabled,
-		RunWakeExecutionEnabled:           a.runWakeExecutionEnabled,
-		RunWakeWorkerEnabled:              a.runWakeWorkerEnabled,
-		SkillInstallationEnabled:          a.skillInstallationEnabled,
-		EvidenceAttachmentEnabled:         a.evidenceAttachmentEnabled,
-		VerificationEvidenceEnabled:       a.verificationEvidenceEnabled,
-		EmbeddedAnalyzerExecutionEnabled:  a.embeddedAnalyzerExecutionEnabled,
-		WorkspaceCheckpointControlEnabled: a.workspaceCheckpointControlEnabled,
-		ProcessExecutionEnabled:           commandRuntimeEnabled,
-		ShellExecutionEnabled:             commandRuntimeEnabled,
-		DockerExecutionEnabled:            a.dockerExecutionEnabled, AgentCodeToolsEnabled: true,
+		PlanDeliveryControlEnabled:         a.planDeliveryControlEnabled,
+		ApprovalControlEnabled:             a.approvalControlEnabled,
+		ControlledCommandProposalEnabled:   a.controlledCommandProposalControlEnabled,
+		HostCommandProposalEnabled:         a.hostCommandProposalControlEnabled,
+		ModelControlEnabled:                a.modelControlEnabled,
+		ProviderCredentialEnabled:          a.providerCredentialEnabled,
+		FileEditReviewEnabled:              a.fileEditReviewEnabled,
+		FileEditProposalEnabled:            a.fileEditProposalEnabled,
+		FileEditApplyEnabled:               a.fileEditApplyEnabled,
+		RunWakeControlEnabled:              a.runWakeControlEnabled,
+		RunWakeExecutionEnabled:            a.runWakeExecutionEnabled,
+		RunWakeWorkerEnabled:               a.runWakeWorkerEnabled,
+		SkillInstallationEnabled:           a.skillInstallationEnabled,
+		EvidenceAttachmentEnabled:          a.evidenceAttachmentEnabled,
+		VerificationEvidenceEnabled:        a.verificationEvidenceEnabled,
+		EmbeddedAnalyzerExecutionEnabled:   a.embeddedAnalyzerExecutionEnabled,
+		WorkspaceCheckpointControlEnabled:  a.workspaceCheckpointControlEnabled,
+		BatchDeliveryControlEnabled:        a.batchDeliveryControlEnabled,
+		BatchDeliveryHostValidationEnabled: a.batchDeliveryHostValidationEnabled,
+		ProcessExecutionEnabled:            commandRuntimeEnabled,
+		ShellExecutionEnabled:              commandRuntimeEnabled,
+		DockerExecutionEnabled:             a.dockerExecutionEnabled, AgentCodeToolsEnabled: true,
 		WakeWorker: worker,
 	}, nil, nil
 }

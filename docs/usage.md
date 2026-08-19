@@ -942,6 +942,59 @@ See [Workspace Checkpoints](workspace-checkpoints.md) for CLI, HTTP, Desktop, qu
 conflict, and recovery details, and [ADR 0118](adr/0118-transactional-workspace-checkpoints.md)
 for the protocol and threat model.
 
+### Deliverable child batches
+
+Schema v118 adds a separate `batch-delivery.v1` path for an operator-approved and
+admitted core child-task proposal. It does not grant tools to the existing no-tool
+Specialist scheduler. A confirmed preparation creates at most two independent child
+branches/worktrees and returns each narrowed owner token once. The token is not stored
+by Desktop or recoverable from SQLite; if it is lost, rotate the exact expected
+generation from the child-delivery panel and hand the replacement to the trusted child
+worker.
+
+The batch spec must copy each admitted task's ordinal, dependencies, turn/token/timeout
+budget, and expected artifacts exactly, then add non-overlapping file/directory
+ownership and validations. `git_diff_check` is mandatory. The narrowed worker may
+list/read/search, propose and apply create/replace changes, inspect Git, and create one
+fixed local commit only inside its owned Scope. It cannot delete/rename, invoke Shell or
+an arbitrary process, use network/credentials/Debug/approval, or spawn another child.
+
+Use the Desktop Run tab **Child tasks & deliveries** to inspect mailbox progress,
+receipt hashes, test receipts, limitations, review, and merge state. Before accepting a
+delivery, inspect the exact local child branch with Git and independently review its
+complete merge-base diff and call chain; enter a summary and check the explicit full
+review attestation. The author summary alone is not evidence. If source base has moved,
+the first merge attempt stops; inspect the new base, then explicitly confirm replay.
+Text/semantic conflict, overlap, or test failure blocks the queue and preserves the
+child worktrees.
+
+By default only `git_diff_check` is admitted. To declare `go_test` or `npm_test`, the API
+operator must explicitly accept host code execution, and the bound Run must still be
+running with its current permission set to `full_access` (or the explicitly higher
+`debug` mode) whenever a check starts:
+
+```powershell
+$env:CYBERAGENT_API_CONTROL_TOKEN = "<different-random-control-token>"
+cyberagent api serve `
+  --enable-permission-control `
+  --enable-danger-full-access `
+  --enable-batch-validation-execution
+```
+
+For Desktop, batch mutation is an independent capability: add
+`--enable-batch-delivery-control`; executable checks additionally require the three flags
+above. Merely enabling an unrelated Desktop control surface does not enable batch
+Prepare/Review/Merge/Cancel/Reconcile.
+
+The test process receives a fixed offline and credential-stripped environment, bypasses
+the Go test cache, and uses a Windows Job Object or Unix inherited process group for
+lifecycle termination. Only complete-stream output digests are persisted. It still runs
+child-authored code on the host and is not OS-sandboxed; deliberate POSIX daemonization
+outside the inherited group remains a host-execution residual. Leave executable validations
+out of untrusted batches until a separately contained validation backend is available.
+See [Deliverable Multi-Agent Batches](batch-delivery.md) and
+[ADR 0119](adr/0119-deliverable-batch-agents.md).
+
 ## Script Mode
 
 ```powershell

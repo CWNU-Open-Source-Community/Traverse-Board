@@ -185,6 +185,8 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		bootstrap.UserTerminalEnabled ||
 		bootstrap.AgentTerminalInputDefault ||
 		!bootstrap.WorkspaceCheckpointControlEnabled ||
+		bootstrap.BatchDeliveryControlEnabled ||
+		bootstrap.BatchDeliveryHostValidationEnabled ||
 		bootstrap.WorkspaceOpenEnabled ||
 		bootstrap.WorkspaceImportEnabled ||
 		bootstrap.RendererPathInputSupported {
@@ -217,6 +219,7 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		"user_terminal_enabled",
 		"agent_terminal_input_default", "ui_digest",
 		"workspace_checkpoint_control_enabled",
+		"batch_delivery_control_enabled", "batch_delivery_host_validation_enabled",
 		"workspace_import_enabled",
 		"workspace_open_enabled",
 	})
@@ -245,6 +248,36 @@ func TestDesktopBridgeProjectsRunOwnedCommandRuntimeSeparatelyFromUserTerminal(t
 		bootstrap.AgentTerminalInputDefault || bootstrap.DebugMaximumAccessEnabled ||
 		bootstrap.DockerExecutionEnabled {
 		t.Fatalf("command runtime ownership projection is wrong: %#v", bootstrap)
+	}
+}
+
+func TestDesktopBridgeProjectsBatchValidationOnlyWithExplicitFullAccess(t *testing.T) {
+	selector, preview := NewSkillPackagePreviewBoundary()
+	base := DesktopBridgeConfig{
+		ContextProvider: func() context.Context { return context.Background() },
+		FilePicker:      &testSkillPackagePicker{}, ReadToken: testDesktopReadToken,
+		ControlToken:                      testDesktopControlToken,
+		ExecutionPermissionControlEnabled: true, OperatorApprovalEnabled: true,
+		BatchDeliveryControlEnabled:        true,
+		BatchDeliveryHostValidationEnabled: true,
+		APIVersion:                         "api.v1", AppVersion: "test", UIDigest: testDesktopUIDigest,
+		Selector: selector, PreviewBridge: preview,
+	}
+	if _, err := NewDesktopBridge(base); apperror.CodeOf(err) != apperror.CodeInvalidArgument {
+		t.Fatalf("batch validation without danger-full-access error=%v", err)
+	}
+	base.DangerFullAccessEnabled = true
+	bridge, err := NewDesktopBridge(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap, err := bridge.Bootstrap()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bootstrap.BatchDeliveryControlEnabled ||
+		!bootstrap.BatchDeliveryHostValidationEnabled {
+		t.Fatalf("batch validation bootstrap projection is wrong: %#v", bootstrap)
 	}
 }
 

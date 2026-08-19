@@ -464,19 +464,19 @@ func normalizeRepositoryRoot(root string) (string, error) {
 // pager, editor, external diff, credential helpers, and LFS filters disabled,
 // and never inherits the agent process environment.
 func hardenedGitEnvironment() []string {
-	hooksDir := os.TempDir()
 	return []string{
 		"GIT_CONFIG_NOSYSTEM=1",
 		"GIT_CONFIG_GLOBAL=" + os.DevNull,
+		"GIT_ATTR_NOSYSTEM=1",
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_ASKPASS=false",
 		"GIT_EDITOR=false",
 		"GIT_PAGER=cat",
 		"GIT_OPTIONAL_LOCKS=0",
 		"GIT_LFS_SKIP_SMUDGE=1",
-		"GIT_CONFIG_COUNT=6",
+		"GIT_CONFIG_COUNT=7",
 		"GIT_CONFIG_KEY_0=core.hooksPath",
-		"GIT_CONFIG_VALUE_0=" + hooksDir,
+		"GIT_CONFIG_VALUE_0=" + os.DevNull,
 		"GIT_CONFIG_KEY_1=core.fsmonitor",
 		"GIT_CONFIG_VALUE_1=false",
 		"GIT_CONFIG_KEY_2=credential.helper",
@@ -487,8 +487,45 @@ func hardenedGitEnvironment() []string {
 		"GIT_CONFIG_VALUE_4=false",
 		"GIT_CONFIG_KEY_5=core.pager",
 		"GIT_CONFIG_VALUE_5=cat",
+		"GIT_CONFIG_KEY_6=core.attributesFile",
+		"GIT_CONFIG_VALUE_6=" + os.DevNull,
 		"SystemRoot=" + os.Getenv("SystemRoot"),
 	}
+}
+
+// validateHardenedGitRepository rejects repository-local executable Git
+// drivers before a Go-owned checkout, merge, reset, add, or commit. Remote
+// repository content can select drivers through .gitattributes; allowing a
+// local clean/smudge/process, diff textconv/command, or merge driver would turn
+// an otherwise typed Git mutation into implicit host code execution.
+func validateHardenedGitRepository(ctx context.Context, gitPath, root string) error {
+	if ctx == nil || ctx.Err() != nil {
+		return errors.New("hardened Git configuration context is unavailable")
+	}
+	commandCtx, cancel := context.WithTimeout(ctx, MaxGitDuration)
+	defer cancel()
+	command := exec.CommandContext(commandCtx, gitPath, "-C", root,
+		"--no-optional-locks", "config", "--local", "--null", "--get-regexp",
+		`^(filter|diff|merge)\..*\.(clean|smudge|process|required|command|textconv|driver)$`)
+	command.Dir, command.Env = root, hardenedGitEnvironment()
+	var stdout, stderr boundedBuffer
+	command.Stdout, command.Stderr = &stdout, &stderr
+	err := command.Run()
+	if err == nil {
+		if stdout.buf.Len() != 0 {
+			return errors.New("repository-local executable Git drivers are not allowed")
+		}
+		return nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 && commandCtx.Err() == nil {
+		return nil // git config uses exit 1 when no key matches.
+	}
+	if commandCtx.Err() != nil {
+		return commandCtx.Err()
+	}
+	return fmt.Errorf("inspect repository-local Git drivers: %w: %s", err,
+		strings.TrimSpace(stderr.String()))
 }
 
 type boundedBuffer struct{ buf bytes.Buffer }

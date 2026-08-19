@@ -644,6 +644,150 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/batch-deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List durable batch deliveries
+         * @description Lists bounded batch-delivery.v1 plans without local worktree roots, owner-token digests, operation digests, or request fingerprints.
+         */
+        get: operations["listRunBatchDeliveries"];
+        put?: never;
+        /**
+         * Prepare isolated delivery worktrees
+         * @description Materializes the confirmed batch-delivery.v1 DAG into independent branch-backed worktrees and returns raw owner tokens exactly once. Replays never recover discarded tokens; rotate the affected owner generation instead.
+         */
+        post: operations["prepareRunBatchDelivery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect one batch delivery
+         * @description Returns the plan, closed child tool profiles, mailbox, receipts, independent reviews, and ordered merge state while omitting filesystem roots and private operation identities.
+         */
+        get: operations["getRunBatchDelivery"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel one batch delivery
+         * @description Fences active generations and cleans only exact clean worktrees; dirty, committed, or identity-drifted evidence is preserved and reported for operator recovery.
+         */
+        post: operations["cancelRunBatchDelivery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}/children/{ordinal}/renew-owner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rotate or retry one child owner
+         * @description CAS-rotates the expected generation, fences the previous token, and returns one replacement narrowed owner authority. A retry generation retains committed evidence while refusing stale writers.
+         */
+        post: operations["renewRunBatchDeliveryChildOwner"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}/children/{ordinal}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Review one complete child delivery
+         * @description Re-inspects the exact merge-base diff, call-chain digest, lifecycle state, and required tests before recording an independent accepted or changes-requested verdict.
+         */
+        post: operations["reviewRunBatchDeliveryChild"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run the ordered local merge queue
+         * @description Replays every accepted child onto the latest confirmed base in declared order, blocks overlap or drift, runs focused validation after each step, and never pushes, opens a PR, or selects conflicts automatically.
+         */
+        post: operations["mergeRunBatchDelivery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reconcile one interrupted batch delivery
+         * @description Converges durable worktree and merge-queue intent after restart without minting tokens, trusting completion text, or deleting uncertain state.
+         */
+        post: operations["reconcileRunBatchDelivery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/browser-cdp-permission": {
         parameters: {
             query?: never;
@@ -2584,6 +2728,310 @@ export interface components {
             tool_name: string;
             workspace_id?: string;
         };
+        BatchDeliveriesListView: {
+            items: components["schemas"]["BatchDeliveryPlanView"][];
+            protocol_version: string;
+        };
+        BatchDeliveryAuthorityView: {
+            agent_id: string;
+            branch: string;
+            /** Format: int64 */
+            generation: number;
+            /** Format: date-time */
+            lease_expires_at: string;
+            /** Format: int32 */
+            ordinal: number;
+            owner_token: string;
+            tool_profile: components["schemas"]["BatchDeliveryToolProfile"];
+        };
+        BatchDeliveryBudget: {
+            /** Format: int64 */
+            timeout_millis: number;
+            /** Format: int64 */
+            token_limit: number;
+            /** Format: int64 */
+            turn_limit: number;
+        };
+        BatchDeliveryCancelRequestView: {
+            confirm: boolean;
+            reason: string;
+            version: string;
+        };
+        BatchDeliveryCancelView: {
+            integration_preserved: boolean;
+            preserved_ordinals: number[];
+            replayed: boolean;
+            snapshot: components["schemas"]["BatchDeliverySnapshotView"];
+        };
+        BatchDeliveryChildView: {
+            mailbox: components["schemas"]["BatchDeliveryMailboxView"][];
+            receipt?: components["schemas"]["BatchDeliveryReceiptView"];
+            review?: components["schemas"]["BatchDeliveryReviewView"];
+            workspace: components["schemas"]["BatchDeliveryWorkspaceView"];
+        };
+        BatchDeliveryContract: {
+            /** Format: int32 */
+            max_changed_files: number;
+            /** Format: int64 */
+            max_diff_bytes: number;
+            require_all_validations: boolean;
+            require_clean: boolean;
+            require_independent_review: boolean;
+        };
+        BatchDeliveryMailboxView: {
+            actor: string;
+            /** Format: date-time */
+            created_at: string;
+            evidence_refs: string[];
+            /** Format: int64 */
+            generation: number;
+            id: string;
+            kind: string;
+            /** Format: int32 */
+            ordinal: number;
+            /** Format: int64 */
+            sequence: number;
+            summary: string;
+        };
+        BatchDeliveryMergeControlView: {
+            base_drifted: boolean;
+            queue: components["schemas"]["BatchDeliveryMergeQueueView"];
+            replayed: boolean;
+            steps: components["schemas"]["BatchDeliveryMergeStepView"][];
+        };
+        BatchDeliveryMergeQueueView: {
+            base_commit: string;
+            /** Format: date-time */
+            created_at: string;
+            failure_code?: string;
+            failure_summary?: string;
+            id: string;
+            integration_branch: string;
+            integration_head?: string;
+            latest_base_commit: string;
+            /** Format: int32 */
+            next_index: number;
+            ordered_ordinals: number[];
+            plan_id: string;
+            protocol_version: string;
+            status: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        BatchDeliveryMergeRequestView: {
+            confirm: boolean;
+            confirm_replay: boolean;
+            ordered_ordinals: number[];
+            version: string;
+        };
+        BatchDeliveryMergeStepView: {
+            /** Format: date-time */
+            completed_at?: string;
+            /** Format: date-time */
+            created_at: string;
+            failure_code?: string;
+            input_head: string;
+            /** Format: int32 */
+            ordinal: number;
+            post_merge_head?: string;
+            pre_merge_head: string;
+            status: string;
+            /** Format: int32 */
+            step_index: number;
+        };
+        BatchDeliveryOwnershipHint: {
+            kind: string;
+            path: string;
+        };
+        BatchDeliveryPlanView: {
+            base_commit: string;
+            /** Format: date-time */
+            created_at: string;
+            created_by: string;
+            id: string;
+            proposal_id: string;
+            root_agent_id: string;
+            run_id: string;
+            source_branch: string;
+            spec: components["schemas"]["BatchDeliverySpec"];
+            status: string;
+            /** Format: date-time */
+            updated_at: string;
+            workspace_id: string;
+        };
+        BatchDeliveryPrepareRequestView: {
+            confirm: boolean;
+            proposal_id: string;
+            spec: components["schemas"]["BatchDeliverySpec"];
+            version: string;
+        };
+        BatchDeliveryPrepareView: {
+            authorities: components["schemas"]["BatchDeliveryAuthorityView"][];
+            replayed: boolean;
+            snapshot: components["schemas"]["BatchDeliverySnapshotView"];
+        };
+        BatchDeliveryReceiptView: {
+            base_commit: string;
+            call_chain_sha256: string;
+            changed_files: string[];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int64 */
+            diff_bytes: number;
+            diff_sha256: string;
+            diff_stat: string;
+            evidence_refs: string[];
+            /** Format: int64 */
+            generation: number;
+            head_commit: string;
+            id: string;
+            limitations: string[];
+            /** Format: int32 */
+            ordinal: number;
+            protocol_version: string;
+            test_receipts: components["schemas"]["BatchDeliveryTestReceipt"][];
+        };
+        BatchDeliveryReconcileRequestView: {
+            confirm: boolean;
+            version: string;
+        };
+        BatchDeliveryReconcileView: {
+            expired: boolean;
+            /** Format: int32 */
+            materialized_worktrees: number;
+            merge_completed: boolean;
+            merge_resumed: boolean;
+            needs_operator_attention: boolean;
+            plan_id: string;
+            protocol_version: string;
+            /** Format: int32 */
+            recovered_worktrees: number;
+        };
+        BatchDeliveryRenewRequestView: {
+            confirm: boolean;
+            /** Format: int64 */
+            expected_generation: number;
+            retry: boolean;
+            version: string;
+        };
+        BatchDeliveryRenewView: {
+            authority: components["schemas"]["BatchDeliveryAuthorityView"];
+            workspace: components["schemas"]["BatchDeliveryWorkspaceView"];
+        };
+        BatchDeliveryReviewControlView: {
+            replayed: boolean;
+            review: components["schemas"]["BatchDeliveryReviewView"];
+        };
+        BatchDeliveryReviewRequestView: {
+            call_chain_reviewed: boolean;
+            full_diff_reviewed: boolean;
+            /** Format: int64 */
+            generation: number;
+            reviewer: string;
+            summary: string;
+            tests_reviewed: boolean;
+            verdict: string;
+            version: string;
+        };
+        BatchDeliveryReviewView: {
+            base_commit: string;
+            call_chain_reviewed: boolean;
+            call_chain_sha256: string;
+            /** Format: date-time */
+            created_at: string;
+            diff_sha256: string;
+            full_diff_reviewed: boolean;
+            /** Format: int64 */
+            generation: number;
+            head_commit: string;
+            id: string;
+            /** Format: int32 */
+            ordinal: number;
+            protocol_version: string;
+            receipt_id: string;
+            reviewer: string;
+            summary: string;
+            tests_reviewed: boolean;
+            verdict: string;
+        };
+        BatchDeliverySnapshotView: {
+            children: components["schemas"]["BatchDeliveryChildView"][];
+            merge_queue?: components["schemas"]["BatchDeliveryMergeQueueView"];
+            merge_steps: components["schemas"]["BatchDeliveryMergeStepView"][];
+            plan: components["schemas"]["BatchDeliveryPlanView"];
+            protocol_version: string;
+        };
+        BatchDeliverySpec: {
+            contract: components["schemas"]["BatchDeliveryContract"];
+            tasks: components["schemas"]["BatchDeliveryTaskSpec"][];
+            version: string;
+        };
+        BatchDeliveryTaskSpec: {
+            budget: components["schemas"]["BatchDeliveryBudget"];
+            dependency_ordinals: number[];
+            expected_artifacts: components["schemas"]["ChildTaskExpectedArtifact"][];
+            /** Format: int32 */
+            ordinal: number;
+            ownership_hints: components["schemas"]["BatchDeliveryOwnershipHint"][];
+            validations: components["schemas"]["BatchDeliveryValidationRequirement"][];
+        };
+        BatchDeliveryTestReceipt: {
+            /** Format: date-time */
+            completed_at: string;
+            /** Format: int64 */
+            duration_millis: number;
+            /** Format: int32 */
+            exit_code: number;
+            kind: string;
+            output_sha256: string;
+            requirement_id: string;
+            scope: string;
+        };
+        BatchDeliveryToolProfile: {
+            approvals: boolean;
+            credentials: boolean;
+            debug_terminal: boolean;
+            git_commit: boolean;
+            git_diff: boolean;
+            git_status: boolean;
+            network: boolean;
+            process: boolean;
+            shell: boolean;
+            spawn_children: boolean;
+            version: string;
+            workspace_apply: boolean;
+            workspace_change: boolean;
+            workspace_delete: boolean;
+            workspace_list: boolean;
+            workspace_read: boolean;
+            workspace_search: boolean;
+        };
+        BatchDeliveryValidationRequirement: {
+            id: string;
+            kind: string;
+            scope: string;
+        };
+        BatchDeliveryWorkspaceView: {
+            agent_id: string;
+            base_commit: string;
+            branch: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int64 */
+            generation: number;
+            head_commit?: string;
+            /** Format: date-time */
+            last_heartbeat_at: string;
+            /** Format: date-time */
+            lease_expires_at: string;
+            /** Format: int32 */
+            ordinal: number;
+            plan_id: string;
+            status: string;
+            tool_profile: components["schemas"]["BatchDeliveryToolProfile"];
+            /** Format: date-time */
+            updated_at: string;
+        };
         BrowserCDPPermissionRuntimeView: {
             control_enabled: boolean;
             execution_debug_selected: boolean;
@@ -2688,6 +3136,10 @@ export interface components {
             token_limit: number;
             /** Format: int64 */
             turn_limit: number;
+        };
+        ChildTaskExpectedArtifact: {
+            kind: string;
+            path_hint: string;
         };
         ChildTaskProposalView: {
             assignments: components["schemas"]["ChildTaskAssignmentView"][];
@@ -5415,6 +5867,8 @@ export interface components {
         RuntimeCapabilitiesView: {
             agent_code_tools_enabled: boolean;
             approval_control_enabled: boolean;
+            batch_delivery_control_enabled: boolean;
+            batch_delivery_host_validation_enabled: boolean;
             browser_cdp_permission_control_enabled: boolean;
             command_runtime_enabled: boolean;
             controlled_command_proposal_control_enabled: boolean;
@@ -7958,6 +8412,365 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listRunBatchDeliveries: {
+        parameters: {
+            query?: {
+                /** @description Maximum batch delivery plans */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["BatchDeliveriesListView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    prepareRunBatchDelivery: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque batch delivery retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchDeliveryPrepareRequestView"];
+            };
+        };
+        responses: {
+            /** @description Resource created or idempotently replayed */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["BatchDeliveryPrepareView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getRunBatchDelivery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+                /** @description Batch delivery identity */
+                batch_delivery_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["BatchDeliverySnapshotView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    cancelRunBatchDelivery: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque batch delivery retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Run identity */
+                run_id: string;
+                /** @description Batch delivery identity */
+                batch_delivery_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchDeliveryCancelRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["BatchDeliveryCancelView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    renewRunBatchDeliveryChildOwner: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+                /** @description Batch delivery identity */
+                batch_delivery_id: string;
+                /** @description Batch delivery child ordinal */
+                ordinal: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchDeliveryRenewRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["BatchDeliveryRenewView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    reviewRunBatchDeliveryChild: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque batch delivery retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Run identity */
+                run_id: string;
+                /** @description Batch delivery identity */
+                batch_delivery_id: string;
+                /** @description Batch delivery child ordinal */
+                ordinal: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchDeliveryReviewRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["BatchDeliveryReviewControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    mergeRunBatchDelivery: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque batch delivery retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Run identity */
+                run_id: string;
+                /** @description Batch delivery identity */
+                batch_delivery_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchDeliveryMergeRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["BatchDeliveryMergeControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    reconcileRunBatchDelivery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+                /** @description Batch delivery identity */
+                batch_delivery_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchDeliveryReconcileRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["BatchDeliveryReconcileView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
         };

@@ -121,6 +121,7 @@ func TestAPIServeCLIStartsAuthenticatedLoopbackServerWithoutPersistingToken(t *t
 			"--enable-debug-maximum-access",
 			"--enable-host-command-proposals",
 			"--enable-browser-cdp-control", "--enable-full-cdp-debug",
+			"--enable-batch-validation-execution",
 		}, &stdout, &stderr)
 	}()
 
@@ -143,7 +144,8 @@ func TestAPIServeCLIStartsAuthenticatedLoopbackServerWithoutPersistingToken(t *t
 		!strings.Contains(output, "danger_full_access_enabled: true") ||
 		!strings.Contains(output, "debug_maximum_access_enabled: true") ||
 		!strings.Contains(output, "browser_cdp_permission_control_enabled: true") ||
-		!strings.Contains(output, "full_cdp_debug_enabled: true") {
+		!strings.Contains(output, "full_cdp_debug_enabled: true") ||
+		!strings.Contains(output, "batch_delivery_host_validation_enabled: true") {
 		t.Fatalf("environment token reporting is unsafe or incomplete: %s", output)
 	}
 
@@ -184,7 +186,9 @@ func TestAPIServeCLIStartsAuthenticatedLoopbackServerWithoutPersistingToken(t *t
 			[]byte(`"debug_maximum_access_enabled":true`)) ||
 		!bytes.Contains(capabilityBody,
 			[]byte(`"browser_cdp_permission_control_enabled":true`)) ||
-		!bytes.Contains(capabilityBody, []byte(`"full_cdp_debug_enabled":true`)) {
+		!bytes.Contains(capabilityBody, []byte(`"full_cdp_debug_enabled":true`)) ||
+		!bytes.Contains(capabilityBody,
+			[]byte(`"batch_delivery_host_validation_enabled":true`)) {
 		t.Fatalf("execution permission capability is not wired by api serve: status=%d body=%s err=%v",
 			capabilityResponse.StatusCode, capabilityBody, readErr)
 	}
@@ -268,6 +272,28 @@ func TestAPIServeCLIRejectsInvalidExecutionPermissionStartupGates(t *testing.T) 
 	if code != 2 || !strings.Contains(stderr.String(),
 		"host command proposals require --enable-permission-control") {
 		t.Fatalf("invalid host command hierarchy stdout=%q stderr=%q code=%d",
+			stdout.String(), stderr.String(), code)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	code = ExecuteContext(context.Background(), []string{
+		"api", "serve", "--enable-batch-validation-execution",
+	}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(),
+		"requires permission control and danger-full-access") {
+		t.Fatalf("invalid batch validation hierarchy stdout=%q stderr=%q code=%d",
+			stdout.String(), stderr.String(), code)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	t.Setenv(apiControlTokenEnvironment, "batch-validation-control-token-0123456789")
+	code = ExecuteContext(context.Background(), []string{
+		"api", "serve", "--enable-permission-control",
+		"--enable-batch-validation-execution",
+	}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(),
+		"requires permission control and danger-full-access") {
+		t.Fatalf("batch validation without danger full access stdout=%q stderr=%q code=%d",
 			stdout.String(), stderr.String(), code)
 	}
 }

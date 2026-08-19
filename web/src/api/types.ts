@@ -27,6 +27,23 @@ export type ChildTaskProposalsListView = components["schemas"]["ChildTaskProposa
 export type ChildTaskProposalView = components["schemas"]["ChildTaskProposalView"];
 export type ChildTaskReviewRequestView = components["schemas"]["ChildTaskReviewRequestView"];
 export type ChildTaskAdmitRequestView = components["schemas"]["ChildTaskAdmitRequestView"];
+export type BatchDeliveriesListView = components["schemas"]["BatchDeliveriesListView"];
+export type BatchDeliverySnapshotView = components["schemas"]["BatchDeliverySnapshotView"];
+export type BatchDeliveryReviewRequestView =
+  components["schemas"]["BatchDeliveryReviewRequestView"];
+export type BatchDeliveryReviewControlView =
+  components["schemas"]["BatchDeliveryReviewControlView"];
+export type BatchDeliveryMergeRequestView =
+  components["schemas"]["BatchDeliveryMergeRequestView"];
+export type BatchDeliveryMergeControlView =
+  components["schemas"]["BatchDeliveryMergeControlView"];
+export type BatchDeliveryCancelRequestView =
+  components["schemas"]["BatchDeliveryCancelRequestView"];
+export type BatchDeliveryCancelView = components["schemas"]["BatchDeliveryCancelView"];
+export type BatchDeliveryReconcileRequestView =
+  components["schemas"]["BatchDeliveryReconcileRequestView"];
+export type BatchDeliveryReconcileView =
+  components["schemas"]["BatchDeliveryReconcileView"];
 export type PriceSnapshotListView = components["schemas"]["PriceSnapshotListView"];
 export type PriceSnapshotImportRequestView = components["schemas"]["PriceSnapshotImportRequestView"];
 export type PriceSnapshotImportView = components["schemas"]["PriceSnapshotImportView"];

@@ -5,6 +5,7 @@ import type { CyberAgentClient } from "../api/client";
 import type {
   AgentGraphView,
   AgentNodeView,
+  BatchDeliverySnapshotView,
   DelegationView,
   ExternalSkillProjectionView,
   FanoutPlanView,
@@ -401,6 +402,205 @@ export function ChildTasksPanel({ client, runID }: ProjectionProps) {
         </article>
       ))}
     </div>
+  );
+}
+
+export function BatchDeliveriesPanel({ client, runID }: ProjectionProps) {
+  const { t } = useLocale();
+  const query = useQuery({
+    queryKey: ["run", runID, "batch-deliveries"],
+    queryFn: ({ signal }) => client.getRunBatchDeliveries(runID, signal),
+  });
+  if (query.isLoading) return <LoadingState label={t("加载批量交付", "Loading batch deliveries")} />;
+  if (query.isError || !query.data) return <ErrorState error={query.error} />;
+  return (
+    <section className="detail-section" aria-label={t("可交付子智能体", "Deliverable children")}>
+      <div className="section-heading">
+        <h2><GitBranch aria-hidden="true" size={15} />{t("批量交付", "Batch delivery")}</h2>
+        <span>{t(`${formatNumber(query.data.items.length)} 个计划`, `${formatNumber(query.data.items.length)} plans`)}</span>
+      </div>
+      <p className="projection-placeholder">{client.hasBatchDeliveryHostValidation
+        ? t("宿主 Go/npm 验证已由操作者以 full-access 显式启用；它不是 OS 沙箱。",
+          "Host Go/npm validation was explicitly enabled with full access; it is not an OS sandbox.")
+        : t("仅允许不执行仓库代码的 Git diff 检查；Go/npm 验证失败关闭。",
+          "Only non-executing Git diff checks are available; Go/npm validation fails closed.")}</p>
+      {query.data.items.length === 0 ?
+        <EmptyState>{t("暂无 batch-delivery.v1 计划", "No batch-delivery.v1 plans")}</EmptyState> :
+        <div className="projection-stack">
+          {query.data.items.map((plan) =>
+            <BatchDeliveryDetail client={client} key={plan.id} planID={plan.id} runID={runID} />)}
+        </div>}
+    </section>
+  );
+}
+
+function BatchDeliveryDetail({ client, runID, planID }: ProjectionProps & { planID: string }) {
+  const { t } = useLocale();
+  const queryClient = useQueryClient();
+  const [reviewSummary, setReviewSummary] = useState("");
+  const [reviewConfirmed, setReviewConfirmed] = useState(false);
+  const [baseReplayConfirmed, setBaseReplayConfirmed] = useState(false);
+  const [busy, setBusy] = useState("");
+  const query = useQuery({
+    queryKey: ["run", runID, "batch-delivery", planID],
+    queryFn: ({ signal }) => client.getRunBatchDelivery(runID, planID, signal),
+  });
+  const action = useMutation({
+    mutationFn: async (command: { kind: "accept" | "changes" | "merge" | "cancel" | "reconcile";
+      child?: BatchDeliverySnapshotView["children"][number] }) => {
+      const operation = `web-batch-${command.kind}-${globalThis.crypto.randomUUID()}`;
+      switch (command.kind) {
+        case "accept":
+        case "changes": {
+          const child = command.child;
+          if (!child) throw new Error("A child delivery is required");
+          return client.reviewRunBatchDeliveryChild(runID, planID,
+            child.workspace.ordinal, {
+              version: "batch_delivery_review_control.v1",
+              generation: child.workspace.generation,
+              reviewer: "web_batch_delivery_reviewer",
+              verdict: command.kind === "accept" ? "accepted" : "changes_requested",
+              summary: reviewSummary.trim(), full_diff_reviewed: true,
+              call_chain_reviewed: true, tests_reviewed: true,
+            }, operation);
+        }
+        case "merge":
+          return client.mergeRunBatchDelivery(runID, planID, {
+            version: "batch_delivery_merge.v1",
+            ordered_ordinals: query.data?.plan.spec.tasks.map((task) => task.ordinal) ?? [],
+            confirm_replay: baseReplayConfirmed, confirm: true,
+          }, operation);
+        case "cancel":
+          return client.cancelRunBatchDelivery(runID, planID, {
+            version: "batch_delivery_cancel.v1",
+            reason: "operator cancelled from the Desktop batch delivery panel",
+            confirm: true,
+          }, operation);
+        case "reconcile":
+          return client.reconcileRunBatchDelivery(runID, planID, {
+            version: "batch_delivery_reconcile.v1", confirm: true,
+          });
+      }
+    },
+    onSuccess: () => {
+      setReviewSummary("");
+      setReviewConfirmed(false);
+      setBaseReplayConfirmed(false);
+      void queryClient.invalidateQueries({ queryKey: ["run", runID, "batch-deliveries"] });
+      void queryClient.invalidateQueries({ queryKey: ["run", runID, "batch-delivery", planID] });
+      void queryClient.invalidateQueries({ queryKey: ["run", runID, "agent-graph"] });
+    },
+  });
+  if (query.isLoading) return <LoadingState label={t("加载交付详情", "Loading delivery details")} />;
+  if (query.isError || !query.data) return <ErrorState error={query.error} />;
+  const snapshot = query.data;
+  const accepted = snapshot.children.length > 0 &&
+    snapshot.children.every((child) => child.workspace.status === "accepted" ||
+      child.workspace.status === "merged");
+  const terminal = snapshot.plan.status === "completed" || snapshot.plan.status === "aborted";
+  return (
+    <article className="delegation-item">
+      <header className="projection-header">
+        <div><span className="projection-kicker"><GitBranch aria-hidden="true" size={14} />
+          {shortID(snapshot.plan.id)}</span><strong>{t("隔离 Worktree 交付", "Isolated worktree delivery")}</strong></div>
+        <div className="status-line"><StatusBadge status={snapshot.plan.status} />
+          <code>{snapshot.plan.base_commit.slice(0, 10)}</code></div>
+      </header>
+      <dl className="projection-metrics">
+        <Metric label={t("源分支", "Source branch")} value={snapshot.plan.source_branch} />
+        <Metric label={t("子任务", "Children")} value={formatNumber(snapshot.children.length)} />
+        <Metric label={t("合并进度", "Merge progress")} value={snapshot.merge_queue ?
+          `${formatNumber(snapshot.merge_queue.next_index)}/${formatNumber(snapshot.merge_queue.ordered_ordinals.length)}` : "-"} />
+      </dl>
+      <div className="assignment-list">
+        {snapshot.children.map((child) => {
+          const profile = child.workspace.tool_profile;
+          return <section key={child.workspace.ordinal}>
+            <header><span>#{child.workspace.ordinal}</span>
+              <strong>{shortID(child.workspace.agent_id)}</strong>
+              <StatusBadge status={child.workspace.status} /></header>
+            <p><code>{child.workspace.branch}</code> · {t("代次", "generation")} {formatNumber(child.workspace.generation)} · {t("租约至", "lease until")} {formatDate(child.workspace.lease_expires_at)}</p>
+            <footer>
+              <span>{t("开放", "Allowed")}: {[
+                profile.workspace_list && "List", profile.workspace_read && "Read",
+                profile.workspace_search && "Search", profile.workspace_change && "Change",
+                profile.workspace_apply && "Apply", profile.git_status && "Git status",
+                profile.git_diff && "Git diff", profile.git_commit && "Git commit",
+              ].filter(Boolean).join(" · ")}</span>
+              <span>{t("强制关闭：删除 / Shell / 进程 / 网络 / 凭证 / 调试终端 / 子派生",
+                "Forced closed: delete / shell / process / network / credentials / debug terminal / spawning")}</span>
+            </footer>
+            {child.receipt && <div className="projection-placeholder">
+              <strong>{t("交付收据", "Delivery receipt")}</strong> · {child.receipt.diff_stat} ·
+              {` ${formatBytes(child.receipt.diff_bytes)}`}<br />
+              {child.receipt.changed_files.map((path) => <code key={path}>{path} </code>)}<br />
+              {t("验证", "Validation")}: {child.receipt.test_receipts.map((test) =>
+                `${test.requirement_id}:${test.exit_code === 0 ? "pass" : "fail"}`).join(" · ")}
+            </div>}
+            {child.review && <div className="projection-placeholder">
+              <StatusBadge status={child.review.verdict} /> {child.review.summary} · {shortID(child.review.reviewer)}
+            </div>}
+            {child.mailbox.length > 0 && <ol className="projection-placeholder">
+              {child.mailbox.slice(-8).map((message) => <li key={message.id}>
+                <StatusBadge status={message.kind} /> {message.summary} · {formatDate(message.created_at)}
+              </li>)}
+            </ol>}
+            {client.hasBatchDeliveryControl && child.workspace.status === "ready_for_review" &&
+              <div className="run-execution-control">
+                <label htmlFor={`batch-review-${planID}-${child.workspace.ordinal}`}>
+                  {t("独立审阅摘要", "Independent review summary")}</label>
+                <input id={`batch-review-${planID}-${child.workspace.ordinal}`}
+                  className="batch-review-input"
+                  onChange={(event) => setReviewSummary(event.target.value)}
+                  placeholder={t("必填", "Required")} value={reviewSummary} />
+                <label className="checkbox-row"><input checked={reviewConfirmed}
+                  onChange={(event) => setReviewConfirmed(event.target.checked)} type="checkbox" />
+                  {t("我已独立核对完整 merge-base 差异、调用链和测试收据",
+                    "I independently reviewed the full merge-base diff, call chain, and test receipts")}
+                </label>
+                <button className="command-button" disabled={action.isPending ||
+                  !reviewSummary.trim() || !reviewConfirmed}
+                  onClick={() => { setBusy(`accept-${child.workspace.ordinal}`); action.mutate({ kind: "accept", child }); }} type="button">
+                  {t("接受", "Accept")}</button>
+                <button className="command-button danger" disabled={action.isPending ||
+                  !reviewSummary.trim() || !reviewConfirmed}
+                  onClick={() => { setBusy(`changes-${child.workspace.ordinal}`); action.mutate({ kind: "changes", child }); }} type="button">
+                  {t("要求修改", "Request changes")}</button>
+              </div>}
+            {busy.endsWith(`-${child.workspace.ordinal}`) && action.isPending &&
+              <span className="projection-placeholder">{t("正在重新检查完整差异与测试", "Rechecking full diff and tests")}</span>}
+          </section>;
+        })}
+      </div>
+      {snapshot.merge_queue && <div className="projection-placeholder">
+        <StatusBadge status={snapshot.merge_queue.status} /> {t("合并队列", "Merge queue")}
+        {snapshot.merge_queue.failure_code && <> · <strong>{snapshot.merge_queue.failure_code}</strong>
+          {snapshot.merge_queue.failure_summary ? `: ${snapshot.merge_queue.failure_summary}` : ""}</>}
+      </div>}
+      {client.hasBatchDeliveryControl && !terminal && <div className="run-execution-control">
+        {accepted && <>
+          <label className="checkbox-row"><input checked={baseReplayConfirmed}
+            onChange={(event) => setBaseReplayConfirmed(event.target.checked)} type="checkbox" />
+            {t("若源分支已前进，确认将已复核交付重放到最新 base",
+              "If the source advanced, confirm replaying reviewed deliveries onto the latest base")}
+          </label>
+          <button className="command-button" disabled={action.isPending}
+            onClick={() => { setBusy("merge"); action.mutate({ kind: "merge" }); }} type="button">
+            {t("按 DAG 顺序合并", "Merge in DAG order")}</button>
+        </>}
+        <button className="command-button" disabled={action.isPending}
+          onClick={() => { setBusy("reconcile"); action.mutate({ kind: "reconcile" }); }} type="button">
+          {t("恢复检查", "Reconcile")}</button>
+        <button className="command-button danger" disabled={action.isPending}
+          onClick={() => { setBusy("cancel"); action.mutate({ kind: "cancel" }); }} type="button">
+          {t("取消并保留不确定现场", "Cancel and preserve uncertain state")}</button>
+      </div>}
+      {action.isPending && !busy.includes("-") && <span className="projection-placeholder">
+        <LoaderCircle aria-hidden="true" className="spin" size={15} /> {t("处理中", "Working")}</span>}
+      {action.isError && <div className="inline-warning" role="alert">
+        {action.error instanceof Error ? action.error.message : t("批量交付操作失败", "Batch delivery operation failed")}
+      </div>}
+    </article>
   );
 }
 
