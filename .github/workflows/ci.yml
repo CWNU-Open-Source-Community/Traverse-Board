@@ -225,9 +225,51 @@ jobs:
         run: |
           $artifactDirectory = Join-Path $env:RUNNER_TEMP "ui-evidence-smoke"
           New-Item -ItemType Directory -Path $artifactDirectory -Force | Out-Null
-          $env:CYBERAGENT_UI_EVIDENCE_SMOKE = "1"
-          $env:CYBERAGENT_UI_EVIDENCE_ARTIFACT_DIR = $artifactDirectory
-          go test -v -timeout 3m -count=1 ./internal/browserruntime -run '^TestInstalledEdgeUIEvidenceHeadlessMatrixAndRegression$'
+          if ($env:GITHUB_RUN_ID -notmatch '^\d+$' -or $env:GITHUB_RUN_ATTEMPT -notmatch '^\d+$') {
+            throw "GitHub run identity is unavailable"
+          }
+          # Hosted Windows RUNNER_TEMP is reparse-backed, while the production
+          # browser boundary intentionally rejects indirect Profile ancestors.
+          $volumeRoot = [System.IO.Path]::GetFullPath($env:SystemDrive + "\")
+          $directTempName = "cyberagent-ui-evidence-$($env:GITHUB_RUN_ID)-$($env:GITHUB_RUN_ATTEMPT)"
+          $directTempRoot = Join-Path $volumeRoot $directTempName
+          $directTempParent = [System.IO.Path]::GetFullPath((Split-Path -Parent $directTempRoot))
+          if (-not [string]::Equals(
+              $directTempParent.TrimEnd('\'),
+              $volumeRoot.TrimEnd('\'),
+              [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "UI evidence direct temp root escaped the system volume root"
+          }
+          if (Test-Path -LiteralPath $directTempRoot) {
+            throw "UI evidence direct temp root already exists"
+          }
+          $directTempItem = New-Item -ItemType Directory -Path $directTempRoot
+          if (($directTempItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "UI evidence direct temp root is indirect"
+          }
+          $previousTemp = $env:TEMP
+          $previousTmp = $env:TMP
+          try {
+            $env:TEMP = $directTempRoot
+            $env:TMP = $directTempRoot
+            $env:CYBERAGENT_UI_EVIDENCE_SMOKE = "1"
+            $env:CYBERAGENT_UI_EVIDENCE_ARTIFACT_DIR = $artifactDirectory
+            go test -v -timeout 3m -count=1 ./internal/browserruntime -run '^TestInstalledEdgeUIEvidenceHeadlessMatrixAndRegression$'
+            if ($LASTEXITCODE -ne 0) {
+              throw "real Edge UI evidence verification failed with exit code $LASTEXITCODE"
+            }
+          }
+          finally {
+            $env:TEMP = $previousTemp
+            $env:TMP = $previousTmp
+            if (Test-Path -LiteralPath $directTempRoot) {
+              $remaining = @(Get-ChildItem -LiteralPath $directTempRoot -Force)
+              if ($remaining.Count -ne 0) {
+                throw "UI evidence direct temp root was not cleaned"
+              }
+              Remove-Item -LiteralPath $directTempRoot -Force
+            }
+          }
       - name: Upload real Edge UI evidence receipt
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
