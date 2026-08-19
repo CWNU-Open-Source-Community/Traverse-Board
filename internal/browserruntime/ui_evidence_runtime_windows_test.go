@@ -411,13 +411,7 @@ func startUIEvidenceSmokeEdge(t *testing.T, identity BrowserExecutableIdentity,
 		windows.CloseHandle(job)
 		t.Fatal(err)
 	}
-	arguments := []string{
-		"--headless=new", "--remote-debugging-port=0", "--user-data-dir=" + profilePath,
-		"--no-first-run", "--no-default-browser-check", "--disable-background-networking",
-		"--disable-component-update", "--disable-default-apps", "--disable-extensions",
-		"--disable-sync", "--disable-breakpad", "--metrics-recording-only",
-		"--no-proxy-server", "--enable-automation", "about:blank",
-	}
+	arguments := fixedRestrictedBrowserArguments(profilePath)
 	applicationName, err := windows.UTF16PtrFromString(identity.CanonicalPath)
 	if err != nil {
 		windows.CloseHandle(job)

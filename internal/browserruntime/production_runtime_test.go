@@ -288,6 +288,23 @@ func TestDisposableProfileMaterializeReleaseCleanupAndRecovery(t *testing.T) {
 	}
 }
 
+func TestFixedRestrictedBrowserArgumentsDefaultDenyExceptLiteralLoopback(t *testing.T) {
+	arguments := fixedRestrictedBrowserArguments(filepath.Join("direct", "profile"))
+	want := "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE ::1"
+	count := 0
+	for _, argument := range arguments {
+		if strings.HasPrefix(argument, "--host-resolver-rules=") {
+			count++
+			if argument != want {
+				t.Fatalf("resolver rule=%q, want exact loopback-only rule", argument)
+			}
+		}
+	}
+	if count != 1 {
+		t.Fatalf("resolver rule count=%d, want 1", count)
+	}
+}
+
 func TestRemoveProfileTreeBoundedRetriesTransientWindowsStyleSharingFailure(t *testing.T) {
 	profile := filepath.Join(t.TempDir(), "owned-profile")
 	if err := os.Mkdir(profile, 0o700); err != nil {
