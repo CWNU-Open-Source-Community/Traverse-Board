@@ -220,6 +220,31 @@ jobs:
           npm run build
       - name: Test Desktop boundaries
         run: go test -tags "desktop,wv2runtime.error" -count=1 ./cmd/cyberagent-desktop ./internal/desktop ./internal/webui
+      - name: Verify cross-platform Runner receipt vectors
+        run: go test -count=1 ./internal/runner -run 'TestEvidenceSetReceipt(Golden|Compatibility).*Vectors'
+      - name: Verify Windows command runtime transports
+        run: go test -v -count=1 ./internal/runner -run '^TestCommandRuntime(Platform(ShellSmoke|CancelReapsOwnedProcessTree)|WindowsPowerShell5PowerShell7AndGitBashSmoke)$'
+      - name: Verify Windows analyzer conformance boundaries
+        shell: pwsh
+        run: |
+          $env:CYBERAGENT_ANALYZER_CONFORMANCE_BINARY = Join-Path $env:GITHUB_WORKSPACE "analyzers\target\debug\cyberagent-analyzer-fixture.exe"
+          go test -v -count=1 ./internal/analyzer -run '^Test(SubprocessConformance|AnalyzerResultStaging|AnalyzerSandboxEnforcementConformance|Analyzer(ImmutableHandleHandoff|DedicatedLowPrivilegeIdentity|ReadOnlyFilesystemPrivateStaging)Conformance)'
+      - name: Build and verify portable Desktop shell
+        shell: pwsh
+        run: ./scripts/build-desktop.ps1 -SkipFrontend -VerifyReproducible
+
+  ui-evidence-windows:
+    name: Real Edge UI evidence (Windows 2022)
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up current Go 1.25 patch
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25.x'
+          check-latest: true
+          cache: true
       - name: Verify real Edge UI evidence matrix and regression detection
         shell: pwsh
         run: |
@@ -288,15 +313,3 @@ jobs:
           path: ${{ runner.temp }}/ui-evidence-smoke
           if-no-files-found: warn
           retention-days: 5
-      - name: Verify cross-platform Runner receipt vectors
-        run: go test -count=1 ./internal/runner -run 'TestEvidenceSetReceipt(Golden|Compatibility).*Vectors'
-      - name: Verify Windows command runtime transports
-        run: go test -v -count=1 ./internal/runner -run '^TestCommandRuntime(Platform(ShellSmoke|CancelReapsOwnedProcessTree)|WindowsPowerShell5PowerShell7AndGitBashSmoke)$'
-      - name: Verify Windows analyzer conformance boundaries
-        shell: pwsh
-        run: |
-          $env:CYBERAGENT_ANALYZER_CONFORMANCE_BINARY = Join-Path $env:GITHUB_WORKSPACE "analyzers\target\debug\cyberagent-analyzer-fixture.exe"
-          go test -v -count=1 ./internal/analyzer -run '^Test(SubprocessConformance|AnalyzerResultStaging|AnalyzerSandboxEnforcementConformance|Analyzer(ImmutableHandleHandoff|DedicatedLowPrivilegeIdentity|ReadOnlyFilesystemPrivateStaging)Conformance)'
-      - name: Build and verify portable Desktop shell
-        shell: pwsh
-        run: ./scripts/build-desktop.ps1 -SkipFrontend -VerifyReproducible
