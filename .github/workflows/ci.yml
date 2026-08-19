@@ -230,15 +230,25 @@ jobs:
           }
           # Hosted Windows RUNNER_TEMP is reparse-backed, while the production
           # browser boundary intentionally rejects indirect Profile ancestors.
-          $volumeRoot = [System.IO.Path]::GetFullPath($env:SystemDrive + "\")
+          # LOCALAPPDATA remains direct and gives Edge the expected user ACLs.
+          if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA) -or
+              -not [System.IO.Path]::IsPathFullyQualified($env:LOCALAPPDATA)) {
+            throw "Windows user-local application data root is unavailable"
+          }
+          $directTempParent = [System.IO.Path]::GetFullPath($env:LOCALAPPDATA)
+          $directTempParentItem = Get-Item -LiteralPath $directTempParent -Force
+          if (-not $directTempParentItem.PSIsContainer -or
+              ($directTempParentItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Windows user-local application data root is indirect"
+          }
           $directTempName = "cyberagent-ui-evidence-$($env:GITHUB_RUN_ID)-$($env:GITHUB_RUN_ATTEMPT)"
-          $directTempRoot = Join-Path $volumeRoot $directTempName
-          $directTempParent = [System.IO.Path]::GetFullPath((Split-Path -Parent $directTempRoot))
+          $directTempRoot = Join-Path $directTempParent $directTempName
+          $resolvedTempParent = [System.IO.Path]::GetFullPath((Split-Path -Parent $directTempRoot))
           if (-not [string]::Equals(
+              $resolvedTempParent.TrimEnd('\'),
               $directTempParent.TrimEnd('\'),
-              $volumeRoot.TrimEnd('\'),
               [System.StringComparison]::OrdinalIgnoreCase)) {
-            throw "UI evidence direct temp root escaped the system volume root"
+            throw "UI evidence direct temp root escaped the user-local application data root"
           }
           if (Test-Path -LiteralPath $directTempRoot) {
             throw "UI evidence direct temp root already exists"

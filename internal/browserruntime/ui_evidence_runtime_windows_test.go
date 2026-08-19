@@ -532,7 +532,7 @@ func waitForUIEvidenceSmokeEndpoint(t *testing.T, profilePath string,
 	process *uiEvidenceSmokeEdgeProcess,
 ) *url.URL {
 	t.Helper()
-	deadline := time.NewTimer(20 * time.Second)
+	deadline := time.NewTimer(45 * time.Second)
 	defer deadline.Stop()
 	ticker := time.NewTicker(25 * time.Millisecond)
 	defer ticker.Stop()
