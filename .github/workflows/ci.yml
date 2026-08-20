@@ -235,3 +235,234 @@ jobs:
       - name: Build and verify portable Desktop shell
         shell: pwsh
         run: ./scripts/build-desktop.ps1 -SkipFrontend -VerifyReproducible
+
+  ui-evidence-windows:
+    name: Real Edge UI evidence (standard user, Windows 2022)
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up current Go 1.25 patch
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25.x'
+          check-latest: true
+          cache: true
+      - name: Verify real Edge UI evidence matrix and regression detection
+        shell: pwsh
+        run: |
+          $artifactDirectory = Join-Path $env:RUNNER_TEMP "ui-evidence-smoke"
+          New-Item -ItemType Directory -Path $artifactDirectory -Force | Out-Null
+          if ($env:GITHUB_RUN_ID -notmatch '^\d+$' -or $env:GITHUB_RUN_ATTEMPT -notmatch '^\d+$') {
+            throw "GitHub run identity is unavailable"
+          }
+          # Hosted Windows RUNNER_TEMP is reparse-backed, and runneradmin's
+          # LOCALAPPDATA is not traversable by the disposable standard user.
+          # Use one exact child of the direct system volume root, then grant
+          # that child (never the root) only to the temporary SID below.
+          if ([string]::IsNullOrWhiteSpace($env:SystemRoot) -or
+              -not [System.IO.Path]::IsPathFullyQualified($env:SystemRoot)) {
+            throw "Windows system root is unavailable"
+          }
+          $directTempParent = [System.IO.Path]::GetPathRoot(
+            [System.IO.Path]::GetFullPath($env:SystemRoot))
+          $directTempParentItem = Get-Item -LiteralPath $directTempParent -Force
+          if (-not $directTempParentItem.PSIsContainer -or
+              ($directTempParentItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Windows system volume root is indirect"
+          }
+          $directTempName = "cyberagent-ui-evidence-$($env:GITHUB_RUN_ID)-$($env:GITHUB_RUN_ATTEMPT)"
+          $directTempRoot = Join-Path $directTempParent $directTempName
+          $resolvedTempParent = [System.IO.Path]::GetFullPath((Split-Path -Parent $directTempRoot))
+          if (-not [string]::Equals(
+              $resolvedTempParent.TrimEnd('\'),
+              $directTempParent.TrimEnd('\'),
+              [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "UI evidence direct temp root escaped the system volume root"
+          }
+          if (Test-Path -LiteralPath $directTempRoot) {
+            throw "UI evidence direct temp root already exists"
+          }
+          $directTempItem = New-Item -ItemType Directory -Path $directTempRoot
+          if (($directTempItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "UI evidence direct temp root is indirect"
+          }
+          $directArtifactDirectory = Join-Path $directTempRoot "artifacts"
+          $testBinary = Join-Path $directTempRoot "browserruntime.test.exe"
+          $userHome = Join-Path $directTempRoot "home"
+          $userLocalAppData = Join-Path $userHome "AppData\Local"
+          $userRoamingAppData = Join-Path $userHome "AppData\Roaming"
+          foreach ($directory in @($directArtifactDirectory, $userLocalAppData, $userRoamingAppData)) {
+            New-Item -ItemType Directory -Path $directory -Force | Out-Null
+          }
+
+          $runSuffix = $env:GITHUB_RUN_ID.Substring(
+            [Math]::Max(0, $env:GITHUB_RUN_ID.Length - 8))
+          $standardUserName = "cyberui$runSuffix$($env:GITHUB_RUN_ATTEMPT)"
+          if ($standardUserName -notmatch '^cyberui\d{1,12}$' -or
+              $standardUserName.Length -gt 20) {
+            throw "derived UI evidence standard-user name is invalid"
+          }
+          if (Get-LocalUser -Name $standardUserName -ErrorAction SilentlyContinue) {
+            throw "UI evidence standard user already exists"
+          }
+          $standardUserCreated = $false
+          $workspaceGrantAdded = $false
+          $standardUserSID = $null
+          $process = $null
+          $securePassword = $null
+          $cleanupFailure = $null
+          try {
+            go test -c -o $testBinary ./internal/browserruntime
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $testBinary)) {
+              throw "compile real Edge UI evidence test binary failed"
+            }
+
+            $plainPassword = "Aa1!$([guid]::NewGuid().ToString('N'))zZ9!"
+            $securePassword = ConvertTo-SecureString $plainPassword -AsPlainText -Force
+            New-LocalUser -Name $standardUserName -Password $securePassword `
+              -AccountNeverExpires -PasswordNeverExpires -UserMayNotChangePassword | Out-Null
+            $standardUserCreated = $true
+            $usersGroup = Get-LocalGroup -SID "S-1-5-32-545"
+            Add-LocalGroupMember -Group $usersGroup -Member $standardUserName
+            $standardUserSID = (Get-LocalUser -Name $standardUserName).SID.Value
+            if ($standardUserSID -notmatch '^S-1-5-21-(\d+-){3}\d+$') {
+              throw "UI evidence standard-user SID is invalid"
+            }
+
+            & icacls.exe $env:GITHUB_WORKSPACE /grant:r `
+              ("*{0}:(OI)(CI)RX" -f $standardUserSID) /Q | Out-Host
+            if ($LASTEXITCODE -ne 0) {
+              throw "grant standard-user workspace read access failed"
+            }
+            $workspaceGrantAdded = $true
+            & icacls.exe $directTempRoot /grant:r `
+              ("*{0}:(OI)(CI)M" -f $standardUserSID) /Q | Out-Host
+            if ($LASTEXITCODE -ne 0) {
+              throw "grant standard-user temporary-root access failed"
+            }
+
+            $start = [System.Diagnostics.ProcessStartInfo]::new()
+            $start.FileName = $testBinary
+            $start.WorkingDirectory = $env:GITHUB_WORKSPACE
+            $start.UseShellExecute = $false
+            $start.CreateNoWindow = $true
+            $start.RedirectStandardOutput = $true
+            $start.RedirectStandardError = $true
+            $start.Domain = $env:COMPUTERNAME
+            $start.UserName = $standardUserName
+            $start.Password = $securePassword
+            # Edge requires the disposable account's HKCU hive during browser
+            # initialization. The exact profile is removed by SID below.
+            $start.LoadUserProfile = $true
+            $start.ArgumentList.Add("-test.v")
+            $start.ArgumentList.Add("-test.timeout=3m")
+            $start.ArgumentList.Add(
+              "-test.run=^TestInstalledEdgeUIEvidenceHeadlessMatrixAndRegression$")
+            $start.Environment.Clear()
+            $processEnvironment = [ordered]@{
+              APPDATA = $userRoamingAppData
+              CYBERAGENT_UI_EVIDENCE_ARTIFACT_DIR = $directArtifactDirectory
+              CYBERAGENT_UI_EVIDENCE_SMOKE = "1"
+              GITHUB_ACTIONS = "true"
+              GIT_CONFIG_COUNT = "1"
+              GIT_CONFIG_GLOBAL = "NUL"
+              GIT_CONFIG_KEY_0 = "safe.directory"
+              GIT_CONFIG_NOSYSTEM = "1"
+              GIT_CONFIG_VALUE_0 = $env:GITHUB_WORKSPACE
+              GIT_OPTIONAL_LOCKS = "0"
+              GIT_TERMINAL_PROMPT = "0"
+              HOME = $userHome
+              LOCALAPPDATA = $userLocalAppData
+              PATH = "C:\Program Files\Git\cmd;$env:SystemRoot\System32;$env:SystemRoot"
+              PATHEXT = ".COM;.EXE;.BAT;.CMD"
+              SystemRoot = $env:SystemRoot
+              TEMP = $directTempRoot
+              TMP = $directTempRoot
+              USERPROFILE = $userHome
+              WINDIR = $env:WINDIR
+            }
+            foreach ($entry in $processEnvironment.GetEnumerator()) {
+              $start.Environment[$entry.Key] = $entry.Value
+            }
+
+            $process = [System.Diagnostics.Process]::new()
+            $process.StartInfo = $start
+            if (-not $process.Start()) {
+              throw "start real Edge UI evidence as a standard user failed"
+            }
+            $plainPassword = $null
+            $stdout = $process.StandardOutput.ReadToEndAsync()
+            $stderr = $process.StandardError.ReadToEndAsync()
+            if (-not $process.WaitForExit(240000)) {
+              $process.Kill($true)
+              $process.WaitForExit()
+              throw "real Edge UI evidence standard-user process timed out"
+            }
+            $stdout.Result | Write-Host
+            $stderr.Result | Write-Host
+
+            if (Test-Path -LiteralPath $directArtifactDirectory) {
+              Get-ChildItem -LiteralPath $directArtifactDirectory -File | ForEach-Object {
+                Copy-Item -LiteralPath $_.FullName -Destination $artifactDirectory -Force
+              }
+            }
+            if ($process.ExitCode -ne 0) {
+              throw "real Edge UI evidence verification failed with exit code $($process.ExitCode)"
+            }
+            if (-not (Test-Path -LiteralPath (Join-Path $artifactDirectory "receipt.json"))) {
+              throw "real Edge UI evidence receipt was not produced"
+            }
+          }
+          finally {
+            if ($null -ne $process) {
+              $process.Dispose()
+            }
+            if ($null -ne $securePassword) {
+              $securePassword.Dispose()
+            }
+            if ($workspaceGrantAdded -and $null -ne $standardUserSID) {
+              & icacls.exe $env:GITHUB_WORKSPACE /remove:g `
+                ("*{0}" -f $standardUserSID) /Q | Out-Host
+              if ($LASTEXITCODE -ne 0) {
+                $cleanupFailure = "remove standard-user workspace grant failed"
+              }
+            }
+            if ($standardUserCreated) {
+              $profileDeadline = (Get-Date).AddSeconds(5)
+              do {
+                $loadedProfile = Get-CimInstance -ClassName Win32_UserProfile |
+                  Where-Object { $_.SID -eq $standardUserSID }
+                if ($null -eq $loadedProfile -or -not $loadedProfile.Loaded) {
+                  break
+                }
+                Start-Sleep -Milliseconds 250
+              } while ((Get-Date) -lt $profileDeadline)
+              if ($null -ne $loadedProfile) {
+                if ($loadedProfile.Special -or $loadedProfile.Loaded) {
+                  $cleanupFailure = "UI evidence standard-user profile is not removable"
+                }
+                else {
+                  $loadedProfile | Remove-CimInstance
+                }
+              }
+              Remove-LocalUser -Name $standardUserName
+            }
+            if (Test-Path -LiteralPath $directTempRoot) {
+              Remove-Item -LiteralPath $directTempRoot -Recurse -Force
+            }
+            if (Test-Path -LiteralPath $directTempRoot) {
+              throw "UI evidence direct temp root was not cleaned"
+            }
+            if ($null -ne $cleanupFailure) {
+              throw $cleanupFailure
+            }
+          }
+      - name: Upload real Edge UI evidence receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ui-evidence-edge-smoke
+          path: ${{ runner.temp }}/ui-evidence-smoke
+          if-no-files-found: warn
+          retention-days: 5

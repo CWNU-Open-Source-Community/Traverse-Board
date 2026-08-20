@@ -69,6 +69,10 @@ export type ExtensionPluginInstallationView =
   components["schemas"]["ExtensionPluginInstallationView"];
 export type ExtensionPluginReviewRequestView =
   components["schemas"]["ExtensionPluginReviewRequestView"];
+export type UIEvidenceArtifactMetadata = components["schemas"]["UIEvidenceArtifactMetadata"];
+export type UIEvidenceAttempt = components["schemas"]["UIEvidenceAttempt"];
+export type UIEvidenceBundle = components["schemas"]["UIEvidenceBundle"];
+export type UIEvidenceStartView = components["schemas"]["uiEvidenceStartView"];
 export type EmbeddedAnalyzerExecutionRequestView =
   components["schemas"]["EmbeddedAnalyzerExecutionRequestView"];
 export type EmbeddedAnalyzerExecutionControlView =

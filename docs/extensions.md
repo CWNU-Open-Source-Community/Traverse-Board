@@ -1,6 +1,6 @@
 # MCP Client、Plugin 与受限生命周期 Hooks
 
-本文说明 schema v119-v120 的低信任扩展运行时。英文说明见下半部分。
+本文说明 schema v120-v121 的低信任扩展运行时。英文说明见下半部分。
 
 ## 安全模型
 
@@ -109,7 +109,7 @@ Desktop 设置页的“**MCP 与 Plugin**”按选定 Run/Workspace 展示来源
 
 # MCP Client, Plugins, and restricted lifecycle hooks
 
-Schemas v119-v120 add a low-trust extension runtime without creating a second control plane. Go still owns state, credentials, tool registration, schemas, Policy, budgets, scope, and final invocation authority.
+Schemas v120-v121 add a low-trust extension runtime without creating a second control plane. Go still owns state, credentials, tool registration, schemas, Policy, budgets, scope, and final invocation authority.
 
 ## Trust and execution boundaries
 

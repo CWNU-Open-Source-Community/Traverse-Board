@@ -230,7 +230,7 @@ func TestCommonCapabilitySkillBodiesPreserveEvidenceAndAuthorityBoundaries(t *te
 	contracts := map[string][]string{
 		"doctor":          {"PASS, WARN, FAIL, or UNKNOWN", "Never turn a diagnosis into an automatic repair"},
 		"debug":           {"model, tool, permission, application, or infrastructure", "In Deliver"},
-		"run-verify":      {"Extension: ui-evidence", "fixed commit/worktree fingerprint", "admitted local sandbox"},
+		"run-verify":      {"Extension: ui-evidence", "ui-evidence.v1", "not_run", "PR verification receipt"},
 		"review":          {"merge-base", "concurrent or durable code", "confirmed, inferred, or unverified"},
 		"focused-checks":  {"smallest credible set", "must never be reported as passed"},
 		"simplify":        {"call-site evidence", "generated code, reflection, registration, build tags"},

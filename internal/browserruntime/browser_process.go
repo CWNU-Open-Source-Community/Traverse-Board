@@ -381,7 +381,7 @@ func fixedRestrictedBrowserArguments(profilePath string) []string {
 		"--metrics-recording-only",
 		"--password-store=basic",
 		"--no-proxy-server",
-		"--host-resolver-rules=MAP * ~NOTFOUND",
+		"--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE ::1",
 		"about:blank",
 	}
 }

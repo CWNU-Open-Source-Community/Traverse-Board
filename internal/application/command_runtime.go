@@ -234,6 +234,86 @@ func (s *CommandRuntimeService) ExecuteCommandRuntime(ctx context.Context,
 	}
 }
 
+// cleanupUIEvidenceJob is a cleanup-only capability for a Job that this
+// process started for one sealed UI-evidence Attempt. It intentionally does
+// not consult the current Run lease: expiry, cancellation, and revocation are
+// precisely the states in which the Attempt must still be able to reap its own
+// process tree. The full durable identity is checked before Stop, so this path
+// cannot start, adopt, read, write to, or stop any other Job.
+func (s *CommandRuntimeService) cleanupUIEvidenceJob(ctx context.Context,
+	binding uiEvidenceCommandCleanupBinding,
+) (runner.CommandRuntimeJobSnapshot, error) {
+	if s == nil || s.store == nil || s.manager == nil || ctx == nil ||
+		ctx.Err() != nil || binding.Validate() != nil {
+		return runner.CommandRuntimeJobSnapshot{}, apperror.New(
+			apperror.CodeInvalidArgument, "UI evidence command cleanup binding is invalid")
+	}
+	record, err := s.store.GetCommandRuntimeJob(ctx, binding.JobID)
+	if err != nil {
+		return runner.CommandRuntimeJobSnapshot{}, commandRuntimeError(err)
+	}
+	if !uiEvidenceCommandCleanupMatches(record, binding) {
+		return runner.CommandRuntimeJobSnapshot{}, apperror.New(
+			apperror.CodeConflict, "UI evidence command cleanup binding is stale")
+	}
+	if record.State.Terminal() {
+		if !record.TreeReaped {
+			return runner.ProjectCommandRuntimeJob(record), apperror.New(
+				apperror.CodeConflict, "UI evidence command process tree is not reaped")
+		}
+		if err := s.completeCommandRuntimeJobBoundary(ctx, record); err != nil {
+			return runner.ProjectCommandRuntimeJob(record), err
+		}
+		return runner.ProjectCommandRuntimeJob(record), nil
+	}
+	if !s.manager.OwnsActiveJob(record) {
+		return runner.ProjectCommandRuntimeJob(record), apperror.New(
+			apperror.CodeConflict, "UI evidence command ownership is stale")
+	}
+	_, stopErr := s.manager.Stop(ctx, record.ID, true, 0)
+	for {
+		job, _, waitErr := s.manager.Wait(ctx, record.ID, 100*time.Millisecond,
+			math.MaxUint64, runner.MinCommandRuntimeOutputRead)
+		if waitErr != nil {
+			return job, errors.Join(commandRuntimeError(stopErr),
+				commandRuntimeError(waitErr))
+		}
+		if !job.State.Terminal() {
+			continue
+		}
+		if !job.TreeReaped {
+			return job, apperror.New(apperror.CodeConflict,
+				"UI evidence command process tree is not reaped")
+		}
+		record, err = s.store.GetCommandRuntimeJob(ctx, binding.JobID)
+		if err != nil {
+			return job, commandRuntimeError(err)
+		}
+		if !uiEvidenceCommandCleanupMatches(record, binding) ||
+			!record.State.Terminal() || !record.TreeReaped {
+			return job, apperror.New(apperror.CodeConflict,
+				"UI evidence command cleanup proof is stale")
+		}
+		if err := s.completeCommandRuntimeJobBoundary(ctx, record); err != nil {
+			return runner.ProjectCommandRuntimeJob(record), err
+		}
+		return runner.ProjectCommandRuntimeJob(record), nil
+	}
+}
+
+func uiEvidenceCommandCleanupMatches(job runner.CommandRuntimeJob,
+	binding uiEvidenceCommandCleanupBinding,
+) bool {
+	expectedDigest, expectedID := runner.CommandRuntimeOperationIdentity(
+		binding.RunID, binding.OperationKey)
+	return binding.JobID == expectedID && job.ID == expectedID &&
+		job.OperationDigest == expectedDigest &&
+		job.InvocationID == binding.InvocationID && job.RunID == binding.RunID &&
+		job.MissionID == binding.MissionID && job.SessionID == binding.SessionID &&
+		job.WorkspaceID == binding.WorkspaceID && job.RootAgentID == binding.RootAgentID &&
+		job.LeaseID == binding.LeaseID && job.LeaseGeneration == binding.LeaseGeneration
+}
+
 func (s *CommandRuntimeService) runForeground(ctx context.Context,
 	scope toolgateway.CommandRuntimeContext, input toolgateway.CommandRuntimeInput,
 	bindings commandRuntimeBindings, result toolgateway.CommandRuntimeExecutionResult,

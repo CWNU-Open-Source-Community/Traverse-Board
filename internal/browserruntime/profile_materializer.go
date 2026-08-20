@@ -18,6 +18,8 @@ const (
 	ProfileMarkerProtocolVersion       = "browser_profile_marker.v1"
 	ProfileRuntimeLeaseProtocolVersion = "browser_profile_runtime_lease.v1"
 	MaxProfileMarkerBytes              = 16 * 1024
+	profileCleanupRetryTimeout         = 5 * time.Second
+	profileCleanupRetryInterval        = 25 * time.Millisecond
 )
 
 var profileEnvironmentDirectoryNames = [...]string{"Temp", "LocalAppData", "RoamingAppData"}
@@ -260,13 +262,41 @@ func CleanupReleasedProfile(authorization BrowserStartAuthorization,
 		_ = os.Rename(quarantinePath, ownership.DirectoryPath)
 		return errors.New("renamed browser Profile became an indirect path")
 	}
-	if err := os.RemoveAll(quarantinePath); err != nil {
+	if err := removeProfileTreeBounded(quarantinePath, profileCleanupRetryTimeout,
+		os.RemoveAll); err != nil {
 		return fmt.Errorf("remove exact released browser Profile: %w", err)
 	}
-	if _, err := os.Lstat(quarantinePath); !errors.Is(err, os.ErrNotExist) {
-		return errors.New("released browser Profile cleanup did not remove the exact directory")
-	}
 	return nil
+}
+
+func removeProfileTreeBounded(path string, timeout time.Duration,
+	remove func(string) error,
+) error {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path || filepath.Dir(path) == path ||
+		timeout <= 0 || remove == nil {
+		return errors.New("browser Profile cleanup retry target is invalid")
+	}
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(profileCleanupRetryInterval)
+	defer ticker.Stop()
+	var lastErr error
+	for {
+		if err := remove(path); err != nil {
+			lastErr = err
+		} else if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+			return nil
+		} else if err != nil {
+			lastErr = err
+		} else {
+			lastErr = errors.New("browser Profile cleanup left the exact directory present")
+		}
+		select {
+		case <-deadline.C:
+			return errors.Join(errors.New("browser Profile cleanup retry limit exhausted"), lastErr)
+		case <-ticker.C:
+		}
+	}
 }
 
 func newProfileOwnerMarker(ownership ProfileOwnershipPlan, now time.Time) ProfileOwnerMarker {

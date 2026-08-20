@@ -66,6 +66,7 @@ export function ConnectionGate() {
 		skillInstallationEnabled: bootstrap.skill_installation_enabled,
 		evidenceAttachmentEnabled: bootstrap.evidence_attachment_enabled,
 		verificationEvidenceEnabled: bootstrap.verification_evidence_enabled,
+		uiEvidenceControlEnabled: bootstrap.ui_evidence_control_enabled,
 		embeddedAnalyzerExecutionEnabled: bootstrap.embedded_analyzer_execution_enabled,
 		workspaceCheckpointControlEnabled: bootstrap.workspace_checkpoint_control_enabled,
 		batchDeliveryControlEnabled: bootstrap.batch_delivery_control_enabled,

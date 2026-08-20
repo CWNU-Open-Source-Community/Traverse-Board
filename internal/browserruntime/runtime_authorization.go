@@ -73,9 +73,10 @@ type BrowserStartAuthorization struct {
 	Fingerprint                   string    `json:"fingerprint"`
 }
 
-// RestrictedCDPAuthorization narrows a start authorization to three fixed
-// operations. It does not authorize request capture, mutation, replay,
-// cookies, arbitrary methods, or browser-content instructions.
+// RestrictedCDPAuthorization narrows a start authorization to fixed,
+// product-owned operations. UIEvidenceAuthorized may additionally enable the
+// closed UI evidence method set; it still does not authorize arbitrary script,
+// cookies, request mutation/replay, or browser-content instructions.
 type RestrictedCDPAuthorization struct {
 	ProtocolVersion               string    `json:"protocol_version"`
 	StartAuthorizationFingerprint string    `json:"start_authorization_fingerprint"`
@@ -85,6 +86,7 @@ type RestrictedCDPAuthorization struct {
 	NavigateAuthorized            bool      `json:"navigate_authorized"`
 	DOMMetadataAuthorized         bool      `json:"dom_metadata_authorized"`
 	ScreenshotAuthorized          bool      `json:"screenshot_authorized"`
+	UIEvidenceAuthorized          bool      `json:"ui_evidence_authorized"`
 	RequestCaptureAuthorized      bool      `json:"request_capture_authorized"`
 	RequestMutationAuthorized     bool      `json:"request_mutation_authorized"`
 	RequestReplayAuthorized       bool      `json:"request_replay_authorized"`
@@ -94,6 +96,35 @@ type RestrictedCDPAuthorization struct {
 	IssuedAt                      time.Time `json:"issued_at"`
 	ExpiresAt                     time.Time `json:"expires_at"`
 	Fingerprint                   string    `json:"fingerprint"`
+}
+
+// AuthorizeUIEvidenceCDP derives the same short-lived restricted session as
+// AuthorizeRestrictedCDP and narrows it to the fixed UI evidence driver. This
+// is a process-local capability and cannot be reconstructed from persisted
+// evidence.
+func AuthorizeUIEvidenceCDP(start BrowserStartAuthorization,
+	session SessionPlan, identity BrowserExecutableIdentity,
+	acceptance BrowserAcceptanceCandidate, ownership ProfileOwnershipPlan,
+	attempt BrowserLaunchAttempt, lease BrowserLaunchLease, review BrowserLaunchReview,
+	networkEvidence BrowserNetworkContainmentEvidence,
+	networkReview BrowserNetworkContainmentReview,
+	networkPlan BrowserNetworkContainmentPlan,
+	permission domain.RunBrowserCDPPermissionSnapshot,
+	runtimeCapabilities ProductionRuntimeCapabilities, now time.Time,
+) (RestrictedCDPAuthorization, error) {
+	authorization, err := AuthorizeRestrictedCDP(start, session, identity,
+		acceptance, ownership, attempt, lease, review, networkEvidence,
+		networkReview, networkPlan, permission, runtimeCapabilities, now)
+	if err != nil {
+		return RestrictedCDPAuthorization{}, err
+	}
+	authorization.UIEvidenceAuthorized = true
+	authorization.Fingerprint = browserRuntimeFingerprint(authorization)
+	if err := ValidateUIEvidenceCDPAuthorization(authorization, start, session,
+		permission); err != nil {
+		return RestrictedCDPAuthorization{}, err
+	}
+	return authorization, nil
 }
 
 func AuthorizeSafeWebStart(session SessionPlan, identity BrowserExecutableIdentity,
@@ -284,6 +315,22 @@ func ValidateRestrictedCDPAuthorization(authorization RestrictedCDPAuthorization
 	start BrowserStartAuthorization, session SessionPlan,
 	permission domain.RunBrowserCDPPermissionSnapshot,
 ) error {
+	return validateRestrictedCDPAuthorization(authorization, start, session,
+		permission, false)
+}
+
+func ValidateUIEvidenceCDPAuthorization(authorization RestrictedCDPAuthorization,
+	start BrowserStartAuthorization, session SessionPlan,
+	permission domain.RunBrowserCDPPermissionSnapshot,
+) error {
+	return validateRestrictedCDPAuthorization(authorization, start, session,
+		permission, true)
+}
+
+func validateRestrictedCDPAuthorization(authorization RestrictedCDPAuthorization,
+	start BrowserStartAuthorization, session SessionPlan,
+	permission domain.RunBrowserCDPPermissionSnapshot, uiEvidence bool,
+) error {
 	if err := permission.Validate(); err != nil {
 		return err
 	}
@@ -297,7 +344,8 @@ func ValidateRestrictedCDPAuthorization(authorization RestrictedCDPAuthorization
 		authorization.ScopeFingerprint != session.Scope.Fingerprint ||
 		permission.Mode != domain.RunBrowserCDPPermissionRestricted ||
 		!authorization.NavigateAuthorized || !authorization.DOMMetadataAuthorized ||
-		!authorization.ScreenshotAuthorized || authorization.RequestCaptureAuthorized ||
+		!authorization.ScreenshotAuthorized || authorization.UIEvidenceAuthorized != uiEvidence ||
+		authorization.RequestCaptureAuthorized ||
 		authorization.RequestMutationAuthorized || authorization.RequestReplayAuthorized ||
 		authorization.CookieAccessAuthorized || authorization.ArbitraryMethodAuthorized ||
 		authorization.InstructionAuthorized || authorization.IssuedAt.IsZero() ||

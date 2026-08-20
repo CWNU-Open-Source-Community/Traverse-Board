@@ -91,10 +91,11 @@ import { EmbeddedAnalyzerPanel } from "./embedded-analyzer-panel";
 import { DockerSandboxPanel } from "./docker-sandbox-panel";
 import { ContextContinuityPanel } from "./context-continuity-panel";
 import { WorkspaceCheckpointPanel } from "./workspace-checkpoint-panel";
+import { UIEvidencePanel } from "./ui-evidence-panel";
 
 export type RunTab = "activity" | "overview" | "journey" | "actions" | "approvals" | "diffs" | "repository" | "files" | "evidence" | "verify" | "handoff" |
   "receipts" | "agents" | "delegations" | "fanout" | "findings" | "events" | "work" |
-  "context" | "checkpoints" | "notes" | "artifacts" | "tools" | "analyzer" | "child-tasks" | "sandbox";
+  "context" | "checkpoints" | "notes" | "artifacts" | "tools" | "analyzer" | "child-tasks" | "sandbox" | "ui-evidence";
 
 const tabs: Array<{ id: RunTab; label: [string, string]; icon: typeof Activity }> = [
   { id: "activity", label: ["活动", "Activity"], icon: MessageSquareText },
@@ -107,6 +108,7 @@ const tabs: Array<{ id: RunTab; label: [string, string]; icon: typeof Activity }
   { id: "files", label: ["文件", "Files"], icon: FolderOpen },
   { id: "evidence", label: ["证据", "Evidence"], icon: Paperclip },
   { id: "verify", label: ["验证", "Verify"], icon: ClipboardCheck },
+  { id: "ui-evidence", label: ["UI 证据", "UI evidence"], icon: View },
   { id: "handoff", label: ["交接", "Handoff"], icon: BookOpenCheck },
   { id: "receipts", label: ["操作收据", "Receipts"], icon: History },
   { id: "checkpoints", label: ["工作区检查点", "Checkpoints"], icon: History },
@@ -381,6 +383,7 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
           <div className="projection-stack"><VerificationPlan client={client} runID={runID}
             receiptReviewTarget={receiptReviewTarget ?? undefined} />
             <VerificationEvidence client={client} runID={runID} /></div>}
+        {tab === "ui-evidence" && <UIEvidencePanel client={client} runID={runID} />}
         {tab === "handoff" && detail.mode.surface === "code" &&
           <CodeHandoffPanel client={client} runID={runID}
             onOpenReceiptReview={openReceiptReview} />}

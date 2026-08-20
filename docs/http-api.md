@@ -1,8 +1,8 @@
 # 本地 HTTP API / Local HTTP API
 
-CyberAgent Workbench 提供由 Go 控制的本地 `api.v1`，用于检查 SQLite 持久状态并投影可恢复 Run events。独立 capability 允许受控 Run/Session/Plan/审批、固定命令提案审阅、Provider 诊断/路由/系统凭证、FileEdit 提案/只读恢复/审阅/apply、wake 意图/前台消费、不可变操作者验证、metadata-only 快照回执及其不授权复核、惰性 Skill 安装、schema v116 的 Run-owned 普通命令运行时、schema v117 的 Workspace Checkpoint 时间线/恢复/Fork、schema v118 的可交付 child Worktree/复核/本地合并、schema v119-v120 的脱敏 MCP/Plugin 控制面，以及 schema v99 默认关闭的精确 Docker Sandbox 产品执行。只读面还提供 capability/worker health、exact-root Repository 状态与脱敏 Diff、非原子的多文件 FileEdit 汇总、逐验证项确定性快照下载/回执历史和带有界复核元数据的可重建 Code Handoff。API 不直接接受 Shell/argv/stdin 或 Job mutation endpoint；命令只能由认证 Run execution 内的 root Supervisor 通过同一 Tool Gateway/Application 服务发起，仍受 Code/Local/Deliver/full-access、当前租约、Policy、无网络/无凭证与进程启动 capability 约束。
+CyberAgent Workbench 提供由 Go 控制的本地 `api.v1`，用于检查 SQLite 持久状态并投影可恢复 Run events。独立 capability 允许受控 Run/Session/Plan/审批、固定命令提案审阅、Provider 诊断/路由/系统凭证、FileEdit 提案/只读恢复/审阅/apply、wake 意图/前台消费、不可变操作者验证、metadata-only 快照回执及其不授权复核、惰性 Skill 安装、schema v116 的 Run-owned 普通命令运行时、schema v117 的 Workspace Checkpoint 时间线/恢复/Fork、schema v118 的可交付 child Worktree/复核/本地合并、schema v119 的来源绑定真实浏览器 UI 证据，以及 schema v120-v121 的脱敏 MCP/Plugin 控制面。schema v99 的精确 Docker Sandbox 产品执行仍默认关闭。只读面还提供 capability/worker health、exact-root Repository 状态与脱敏 Diff、非原子的多文件 FileEdit 汇总、逐验证项确定性快照下载/回执历史和带有界复核元数据的可重建 Code Handoff。API 不直接接受通用 Shell/argv/stdin 或 Job mutation endpoint；UI 证据启动只接受完整受审阅的有界 recipe/fixture/step 合同。命令和 UI 验证均由认证 Run execution 内的同一 Tool Gateway/Application 服务发起，并分别重新检查适用的 Code/Local/Deliver/full-access、当前租约、Policy、无外部网络/无凭证、restricted CDP 与进程启动 capability。
 
-CyberAgent Workbench exposes a Go-controlled local `api.v1` for durable SQLite state and resumable Run-event projections. Independent capabilities permit controlled Run/Session/Plan/approval operations, fixed-command proposal review, Provider diagnostics/routes/system credentials, operator price-snapshot import and listing, FileEdit propose/read-only recovery/review/apply, wake intent/foreground consumption, immutable operator verification, metadata-only snapshot receipts and their non-authorizing review, inert Skill installation, the schema-v116 Run-owned ordinary command runtime, schema-v117 Workspace Checkpoint timeline/restore/Fork operations, schema-v118 deliverable-child worktree/review/local-merge operations, the redacted schema-v119-v120 MCP/Plugin control plane, and schema-v99 exact Docker Sandbox execution that is disabled by default. Read-only surfaces also expose capabilities/worker health, exact-root Repository state and redacted Diffs, non-atomic multi-file FileEdit summaries, deterministic per-check verification snapshot downloads/receipt history, and a regenerable Code handoff with bounded review metadata. There is no direct HTTP Shell/argv/stdin or Job-mutation endpoint: only an authenticated Run execution may let its root Supervisor call the same Tool Gateway/Application service under Code/Local/Deliver/full-access, current-lease, Policy, no-network/no-credential, and process-startup gates.
+CyberAgent Workbench exposes a Go-controlled local `api.v1` for durable SQLite state and resumable Run-event projections. Independent capabilities permit controlled Run/Session/Plan/approval operations, fixed-command proposal review, Provider diagnostics/routes/system credentials, operator price-snapshot import and listing, FileEdit propose/read-only recovery/review/apply, wake intent/foreground consumption, immutable operator verification, metadata-only snapshot receipts and their non-authorizing review, inert Skill installation, the schema-v116 Run-owned ordinary command runtime, schema-v117 Workspace Checkpoint timeline/restore/Fork operations, schema-v118 deliverable-child worktree/review/local-merge operations, schema-v119 source-bound real-browser UI evidence, and the redacted schema-v120-v121 MCP/Plugin control plane. Schema-v99 exact Docker Sandbox execution remains disabled by default. Read-only surfaces also expose capabilities/worker health, exact-root Repository state and redacted Diffs, non-atomic multi-file FileEdit summaries, deterministic per-check verification snapshot downloads/receipt history, and a regenerable Code handoff with bounded review metadata. There is no direct generic HTTP Shell/argv/stdin or Job-mutation endpoint. UI evidence start accepts only the complete reviewed bounded recipe/fixture/step contract, and the same Tool Gateway/Application service rechecks the applicable Code/Local/Deliver/full-access, current lease, Policy, no-external-network/no-credential, restricted-CDP, and process-startup gates.
 
 ## 启动 / Start
 
@@ -394,7 +394,7 @@ OS network-sandbox claim. Full lifecycle and threat-model details are in
 
 ## Extension control API
 
-Schemas v119-v120 expose `GET /api/v1/extensions` through the read bearer. An optional
+Schemas v120-v121 expose `GET /api/v1/extensions` through the read bearer. An optional
 `run_id` resolves the exact Run/Workspace scope; the response contains bounded server
 health, approved capability fingerprints, metadata-only call audits, and inert Plugin
 installation state. It omits bearer values, MCP arguments/results, Plugin archives,
@@ -407,6 +407,24 @@ current descriptor/package fingerprint and Plugin generation, so a stale Desktop
 cannot disable a replacement by accident. Discovery and capability enablement remain
 separate MCP reviews; Plugin MCP contributions still enter the independent MCP staging
 state. Full state machines and CLI examples are in [Extensions](extensions.md).
+
+## UI Evidence API
+
+Schema v119 的 UI evidence 读取使用 read bearer；启动和取消使用不同的 control
+bearer，并且只在 ControlPlane 安装了 UI-evidence controller 时存在。Windows Desktop
+默认总会安装只读 controller，因此关闭执行 capability 后仍能查看历史；只有同时启用
+Run execution、permission control、danger-full-access、restricted browser CDP 和
+`--enable-ui-evidence` 时才设置 `ui_evidence_control_enabled=true`。独立
+`cyberagent api serve` 不构造浏览器、Profile 或进程 authority，因此不提供这些路由。
+
+Start body 是最多 512 KiB 的严格单一 JSON 对象；未知字段、重复字段、外部 URL、非
+literal-loopback origin、视频、非 fail-closed policy、未绑定 type input、网络客户端
+recipe 和不确定 fixture 都被拒绝。成功只返回 `202 Accepted` 与已持久化的 `not_run`
+Attempt；实际运行在 service-owned 30 分钟 context 中进行，HTTP 断开不会遗留浏览器。
+取消必须提交 `{"confirm":true}`。读取 Attempt 返回 manifest、step receipts 和 artifact
+metadata；原始 artifact 下载额外返回 `no-store`、ETag、精确 SHA-256 和
+`X-CyberAgent-Evidence-Untrusted: true`，不使用普通 JSON envelope。字段和完整模板见
+[Real-browser UI Evidence](ui-evidence.md)。
 
 ## Endpoints
 
@@ -470,6 +488,11 @@ state. Full state machines and CLI examples are in [Extensions](extensions.md).
 | `POST` | `/api/v1/runs/{run_id}/workspace-checkpoints/undo` | Explicitly confirmed undo of the current terminal mutation boundary |
 | `POST` | `/api/v1/runs/{run_id}/workspace-checkpoints/redo` | Explicitly confirmed redo available only after the matching Undo terminal state |
 | `POST` | `/api/v1/runs/{run_id}/workspace-checkpoints/fork` | Explicitly confirmed independent Git worktree/Workspace/Mission/Run/Session Fork; no authority inheritance |
+| `GET` | `/api/v1/runs/{run_id}/ui-evidence?status={status}&limit={limit}` | Up to 100 source-bound attempts; `not_run` remains neutral and no result is inferred |
+| `POST` | `/api/v1/runs/{run_id}/ui-evidence` | Control-bearer asynchronous real-browser attempt from one strict reviewed manifest request; returns `202 not_run` |
+| `GET` | `/api/v1/ui-evidence/{attempt_id}` | Exact immutable manifest, ordered step receipts, diagnostics/cleanup, and artifact metadata |
+| `POST` | `/api/v1/ui-evidence/{attempt_id}/cancel` | Control-bearer explicit `{confirm:true}` cancellation and owned-resource cleanup wait |
+| `GET` | `/api/v1/ui-evidence/{attempt_id}/artifacts/{artifact_id}` | Hash-verified raw untrusted bytes with no-store, MIME, length, ETag, and SHA-256 headers |
 | `GET` | `/api/v1/runs/{run_id}/external-skills` | Bounded external-Skill provenance and root/Specialist delivery counts; no content, paths, digests, or private identities |
 | `GET` | `/api/v1/runs/{run_id}/activity` | Chronological public model updates plus allowlisted Harness facts; redacted/bounded, no private reasoning, raw payload, Prompt, Tool arguments, or Tool output |
 | `GET` | `/api/v1/runs/{run_id}/events` | Ordered Run events; pagination |
