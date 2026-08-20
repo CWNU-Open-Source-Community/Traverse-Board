@@ -293,7 +293,8 @@ func (a *API) serveContinuityCheckpoint(writer http.ResponseWriter, request *htt
 		a.writeError(writer, requestID, err, 0)
 		return
 	}
-	node, err := application.NewContextContinuityService(store).Checkpoint(request.Context(),
+	node, err := application.NewContextContinuityService(store).
+		WithLifecycleHooks(a.lifecycleHooks).Checkpoint(request.Context(),
 		application.CreateContinuityCheckpointRequest{RunID: runID, Title: view.Title,
 			Summary: view.Summary, RequestedBy: "http_control"})
 	if err != nil {
@@ -327,7 +328,8 @@ func (a *API) serveContinuityBranch(writer http.ResponseWriter, request *http.Re
 	if action == "resume" {
 		kind = contextmgr.ContinuityNodeResume
 	}
-	result, err := application.NewContextContinuityService(store).Branch(request.Context(),
+	result, err := application.NewContextContinuityService(store).
+		WithLifecycleHooks(a.lifecycleHooks).Branch(request.Context(),
 		application.BranchContinuityRequest{SourceNodeID: sourceNodeID, Kind: kind,
 			Goal: view.Goal, RequestedBy: "http_control"})
 	if err != nil {

@@ -10,6 +10,7 @@ import (
 
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/contextmgr"
+	"cyberagent-workbench/internal/hooks"
 	"cyberagent-workbench/internal/projectconfig"
 	"cyberagent-workbench/internal/workspace"
 )
@@ -420,7 +421,19 @@ func (a *App) contextCompact(ctx context.Context, args []string) error {
 	for _, raw := range rawMessages {
 		messages = append(messages, contextmgr.ParseMessage(raw))
 	}
-	manager := contextmgr.NewManager(a.store, contextmgr.DefaultConfig())
+	engine := a.newLifecycleHookEngine()
+	manager := contextmgr.NewManager(a.store, contextmgr.DefaultConfig()).
+		WithBeforeCompactGuard(func(ctx context.Context, taskID, workspaceID string,
+			sourceMessages, preservedMessages int,
+		) error {
+			_, err := hooks.ExecuteBoundary(ctx, engine, hooks.Input{
+				Event: hooks.Compaction, WorkspaceID: workspaceID,
+			}, map[string]any{
+				"task_id": taskID, "source_messages": sourceMessages,
+				"preserved_messages": preservedMessages, "source": "context_cli",
+			})
+			return err
+		})
 	result, err := manager.Compact(ctx, *taskID, workspaceID, messages)
 	if err != nil {
 		return err

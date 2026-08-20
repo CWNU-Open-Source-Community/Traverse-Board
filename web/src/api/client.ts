@@ -38,6 +38,11 @@ import type {
   HostCommandProposalReviewRequestView,
   HostCommandProposalView,
   ErrorEnvelope,
+  ExtensionInventoryView,
+  ExtensionMCPReviewRequestView,
+  ExtensionMCPServerView,
+  ExtensionPluginInstallationView,
+  ExtensionPluginReviewRequestView,
   EvidenceAttachmentRequestView,
   EvidenceAttachmentView,
   EvidenceInventoryView,
@@ -172,6 +177,7 @@ export interface ClientCapabilities {
   workspaceCheckpointControlEnabled?: boolean;
   batchDeliveryControlEnabled?: boolean;
   batchDeliveryHostValidationEnabled?: boolean;
+  extensionControlEnabled?: boolean;
   dockerExecutionEnabled?: boolean;
   agentCodeToolsEnabled?: boolean;
 }
@@ -3390,6 +3396,89 @@ function safeBoundedCount(value: unknown, maximum: number): value is number {
     value >= 0 && value <= maximum;
 }
 
+function boundedStringArray(value: unknown, maximumItems: number,
+  maximumBytes = 4_096): value is string[] {
+  return Array.isArray(value) && value.length <= maximumItems &&
+    value.every((item) => typeof item === "string" && item.length <= maximumBytes &&
+      item.trim() === item);
+}
+
+function containsForbiddenExtensionField(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsForbiddenExtensionField);
+  if (!isRecord(value)) return false;
+  const forbidden = new Set(["credential", "credential_value", "secret", "token",
+    "authorization", "arguments", "result", "publisher_public_key", "archive_bytes", "raw"]);
+  return Object.entries(value).some(([key, child]) =>
+    forbidden.has(key.toLocaleLowerCase()) || containsForbiddenExtensionField(child));
+}
+
+function parseExtensionInventory(value: unknown): ExtensionInventoryView {
+  if (!isRecord(value) || value.protocol_version !== "extension-inventory.v1" ||
+    containsForbiddenExtensionField(value) ||
+    !Array.isArray(value.mcp_servers) || value.mcp_servers.length > 64 ||
+    !Array.isArray(value.mcp_calls) || value.mcp_calls.length > 200 ||
+    !Array.isArray(value.plugins) || value.plugins.length > 1_000 ||
+    (value.run_id !== undefined && !boundedIdentity(value.run_id)) ||
+    (value.workspace_id !== undefined && !boundedIdentity(value.workspace_id))) {
+    throw new APIRequestError("Extension inventory response is invalid", "INVALID_RESPONSE", 502);
+  }
+  for (const item of value.mcp_servers) {
+    if (!isRecord(item) || item.protocol_version !== "mcp-client-server.v1" ||
+      !boundedIdentity(item.id) || !boundedText(item.name, 256) ||
+      (item.transport !== "stdio" && item.transport !== "streamable_http") ||
+      !boundedText(item.target, 4_096) || !boundedIdentity(item.workspace_id) ||
+      !isSHA256(item.descriptor_fingerprint) || !safePositiveInteger(item.generation) ||
+      !validDate(item.created_at) || !validDate(item.updated_at) ||
+      !boundedStringArray(item.declared_capabilities, 3, 32) ||
+      !isRecord(item.capabilities) ||
+      !boundedStringArray(item.capabilities.negotiated, 3, 32) ||
+      !boundedStringArray(item.capabilities.tools, 256, 256) ||
+      !boundedStringArray(item.capabilities.resources, 256) ||
+      !boundedStringArray(item.capabilities.prompts, 128, 256) ||
+      !isRecord(item.source) || !boundedText(item.source.kind, 32) ||
+      !boundedText(item.source.uri, 4_096)) {
+      throw new APIRequestError("MCP server projection is invalid", "INVALID_RESPONSE", 502);
+    }
+  }
+  for (const item of value.mcp_calls) {
+    if (!isRecord(item) || !boundedIdentity(item.id) || !boundedIdentity(item.run_id) ||
+      !boundedIdentity(item.workspace_id) || !boundedIdentity(item.server_id) ||
+      !boundedText(item.tool_name, 256) || !isSHA256(item.capability_fingerprint) ||
+      !isSHA256(item.arguments_sha256) || !safeBoundedCount(item.result_bytes, 128 * 1_024) ||
+      typeof item.truncated !== "boolean" || !validDate(item.started_at) ||
+      !validDate(item.completed_at)) {
+      throw new APIRequestError("MCP call audit projection is invalid", "INVALID_RESPONSE", 502);
+    }
+  }
+  for (const item of value.plugins) {
+    if (!isRecord(item) || item.protocol_version !== "plugin-installation.v1" ||
+      !boundedIdentity(item.id) || !isSHA256(item.archive_sha256) ||
+      !isSHA256(item.package_fingerprint) || !safePositiveInteger(item.generation) ||
+      typeof item.signature_present !== "boolean" || typeof item.signature_valid !== "boolean" ||
+      !boundedStringArray(item.enabled_capabilities, 4, 32) ||
+      !boundedIdentity(item.staged_by) ||
+      !validDate(item.created_at) || !validDate(item.updated_at) ||
+      !isRecord(item.manifest) || !boundedIdentity(item.manifest.id) ||
+      !boundedText(item.manifest.name, 256) || !boundedText(item.manifest.publisher, 256) ||
+      !boundedStringArray(item.manifest.capabilities, 4, 32) ||
+      !isRecord(item.source) || !boundedText(item.source.kind, 32) ||
+      !boundedText(item.source.uri, 4_096)) {
+      throw new APIRequestError("Plugin installation projection is invalid", "INVALID_RESPONSE", 502);
+    }
+  }
+  return value as unknown as ExtensionInventoryView;
+}
+
+function parseExtensionMCPServer(value: unknown): ExtensionMCPServerView {
+  return parseExtensionInventory({ protocol_version: "extension-inventory.v1",
+    mcp_servers: [value], mcp_calls: [], plugins: [] }).mcp_servers[0];
+}
+
+function parseExtensionPlugin(value: unknown): ExtensionPluginInstallationView {
+  return parseExtensionInventory({ protocol_version: "extension-inventory.v1",
+    mcp_servers: [], mcp_calls: [], plugins: [value] }).plugins[0];
+}
+
 export class CyberAgentClient {
   readonly baseURL: string;
   readonly hasControl: boolean;
@@ -3420,6 +3509,7 @@ export class CyberAgentClient {
   readonly hasWorkspaceCheckpointControl: boolean;
   readonly hasBatchDeliveryControl: boolean;
   readonly hasBatchDeliveryHostValidation: boolean;
+  readonly hasExtensionControl: boolean;
 
   constructor(
     private readonly token: string,
@@ -3478,6 +3568,8 @@ export class CyberAgentClient {
       (capabilities.operatorApprovalEnabled ?? false) &&
       (capabilities.dangerFullAccessEnabled ?? false) &&
       (capabilities.batchDeliveryHostValidationEnabled ?? false);
+    this.hasExtensionControl = controlPresent &&
+      (capabilities.extensionControlEnabled ?? true);
   }
 
   async health(signal?: AbortSignal): Promise<HealthView> {
@@ -3486,6 +3578,53 @@ export class CyberAgentClient {
 
   async runtimeCapabilities(signal?: AbortSignal): Promise<RuntimeCapabilitiesView> {
     return parseRuntimeCapabilities(await this.get<unknown>("/capabilities", {}, signal));
+  }
+
+  async extensionInventory(runID = "", signal?: AbortSignal): Promise<ExtensionInventoryView> {
+    if (runID !== "" && (!boundedIdentity(runID) || runID.trim() !== runID)) {
+      throw new Error("A normalized Run identity is required");
+    }
+    return parseExtensionInventory(await this.get<unknown>(
+      "/extensions", { run_id: runID || undefined }, signal,
+    ));
+  }
+
+  async reviewMCPServer(serverID: string, body: ExtensionMCPReviewRequestView,
+    signal?: AbortSignal): Promise<ExtensionMCPServerView> {
+    if (!this.hasExtensionControl || !boundedIdentity(serverID) ||
+      body.version !== "extension-control.v1" || !isSHA256(body.expected_descriptor_fingerprint) ||
+      (body.expected_capability_fingerprint !== undefined &&
+        !isSHA256(body.expected_capability_fingerprint))) {
+      throw new Error("An exact MCP review request and extension control are required");
+    }
+    return parseExtensionMCPServer(await this.sendControlRequest<unknown>(
+      `/extensions/mcp/${encodeURIComponent(serverID)}/review`, body, signal,
+    ));
+  }
+
+  async refreshMCPServer(serverID: string,
+    signal?: AbortSignal): Promise<ExtensionMCPServerView> {
+    if (!this.hasExtensionControl || !boundedIdentity(serverID)) {
+      throw new Error("A normalized MCP server and extension control are required");
+    }
+    return parseExtensionMCPServer(await this.sendControlRequest<unknown>(
+      `/extensions/mcp/${encodeURIComponent(serverID)}/refresh`,
+      { version: "extension-control.v1" }, signal,
+    ));
+  }
+
+  async reviewPluginInstallation(installationID: string,
+    body: ExtensionPluginReviewRequestView,
+    signal?: AbortSignal): Promise<ExtensionPluginInstallationView> {
+    if (!this.hasExtensionControl || !boundedIdentity(installationID) ||
+      body.version !== "extension-control.v1" ||
+      !isSHA256(body.expected_package_fingerprint) ||
+      !safePositiveInteger(body.expected_generation)) {
+      throw new Error("An exact Plugin review request and extension control are required");
+    }
+    return parseExtensionPlugin(await this.sendControlRequest<unknown>(
+      `/extensions/plugins/${encodeURIComponent(installationID)}/review`, body, signal,
+    ));
   }
 
   async safeWebReadiness(product: string, signal?: AbortSignal): Promise<BrowserSafeWebReadiness> {

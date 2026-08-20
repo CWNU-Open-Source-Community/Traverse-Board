@@ -1,8 +1,8 @@
 # 本地 HTTP API / Local HTTP API
 
-CyberAgent Workbench 提供由 Go 控制的本地 `api.v1`，用于检查 SQLite 持久状态并投影可恢复 Run events。独立 capability 允许受控 Run/Session/Plan/审批、固定命令提案审阅、Provider 诊断/路由/系统凭证、FileEdit 提案/只读恢复/审阅/apply、wake 意图/前台消费、不可变操作者验证、metadata-only 快照回执及其不授权复核、惰性 Skill 安装、schema v116 的 Run-owned 普通命令运行时、schema v117 的 Workspace Checkpoint 时间线/恢复/Fork、schema v118 的可交付 child Worktree/复核/本地合并，以及 schema v99 默认关闭的精确 Docker Sandbox 产品执行。只读面还提供 capability/worker health、exact-root Repository 状态与脱敏 Diff、非原子的多文件 FileEdit 汇总、逐验证项确定性快照下载/回执历史和带有界复核元数据的可重建 Code Handoff。API 不直接接受 Shell/argv/stdin 或 Job mutation endpoint；命令只能由认证 Run execution 内的 root Supervisor 通过同一 Tool Gateway/Application 服务发起，仍受 Code/Local/Deliver/full-access、当前租约、Policy、无网络/无凭证与进程启动 capability 约束。
+CyberAgent Workbench 提供由 Go 控制的本地 `api.v1`，用于检查 SQLite 持久状态并投影可恢复 Run events。独立 capability 允许受控 Run/Session/Plan/审批、固定命令提案审阅、Provider 诊断/路由/系统凭证、FileEdit 提案/只读恢复/审阅/apply、wake 意图/前台消费、不可变操作者验证、metadata-only 快照回执及其不授权复核、惰性 Skill 安装、schema v116 的 Run-owned 普通命令运行时、schema v117 的 Workspace Checkpoint 时间线/恢复/Fork、schema v118 的可交付 child Worktree/复核/本地合并、schema v119-v120 的脱敏 MCP/Plugin 控制面，以及 schema v99 默认关闭的精确 Docker Sandbox 产品执行。只读面还提供 capability/worker health、exact-root Repository 状态与脱敏 Diff、非原子的多文件 FileEdit 汇总、逐验证项确定性快照下载/回执历史和带有界复核元数据的可重建 Code Handoff。API 不直接接受 Shell/argv/stdin 或 Job mutation endpoint；命令只能由认证 Run execution 内的 root Supervisor 通过同一 Tool Gateway/Application 服务发起，仍受 Code/Local/Deliver/full-access、当前租约、Policy、无网络/无凭证与进程启动 capability 约束。
 
-CyberAgent Workbench exposes a Go-controlled local `api.v1` for durable SQLite state and resumable Run-event projections. Independent capabilities permit controlled Run/Session/Plan/approval operations, fixed-command proposal review, Provider diagnostics/routes/system credentials, operator price-snapshot import and listing, FileEdit propose/read-only recovery/review/apply, wake intent/foreground consumption, immutable operator verification, metadata-only snapshot receipts and their non-authorizing review, inert Skill installation, the schema-v116 Run-owned ordinary command runtime, schema-v117 Workspace Checkpoint timeline/restore/Fork operations, schema-v118 deliverable-child worktree/review/local-merge operations, and schema-v99 exact Docker Sandbox execution that is disabled by default. Read-only surfaces also expose capabilities/worker health, exact-root Repository state and redacted Diffs, non-atomic multi-file FileEdit summaries, deterministic per-check verification snapshot downloads/receipt history, and a regenerable Code handoff with bounded review metadata. There is no direct HTTP Shell/argv/stdin or Job-mutation endpoint: only an authenticated Run execution may let its root Supervisor call the same Tool Gateway/Application service under Code/Local/Deliver/full-access, current-lease, Policy, no-network/no-credential, and process-startup gates.
+CyberAgent Workbench exposes a Go-controlled local `api.v1` for durable SQLite state and resumable Run-event projections. Independent capabilities permit controlled Run/Session/Plan/approval operations, fixed-command proposal review, Provider diagnostics/routes/system credentials, operator price-snapshot import and listing, FileEdit propose/read-only recovery/review/apply, wake intent/foreground consumption, immutable operator verification, metadata-only snapshot receipts and their non-authorizing review, inert Skill installation, the schema-v116 Run-owned ordinary command runtime, schema-v117 Workspace Checkpoint timeline/restore/Fork operations, schema-v118 deliverable-child worktree/review/local-merge operations, the redacted schema-v119-v120 MCP/Plugin control plane, and schema-v99 exact Docker Sandbox execution that is disabled by default. Read-only surfaces also expose capabilities/worker health, exact-root Repository state and redacted Diffs, non-atomic multi-file FileEdit summaries, deterministic per-check verification snapshot downloads/receipt history, and a regenerable Code handoff with bounded review metadata. There is no direct HTTP Shell/argv/stdin or Job-mutation endpoint: only an authenticated Run execution may let its root Supervisor call the same Tool Gateway/Application service under Code/Local/Deliver/full-access, current-lease, Policy, no-network/no-credential, and process-startup gates.
 
 ## 启动 / Start
 
@@ -392,6 +392,22 @@ or `npm_test` fails before materialization. This is honest host code execution, 
 OS network-sandbox claim. Full lifecycle and threat-model details are in
 [Deliverable Multi-Agent Batches](batch-delivery.md).
 
+## Extension control API
+
+Schemas v119-v120 expose `GET /api/v1/extensions` through the read bearer. An optional
+`run_id` resolves the exact Run/Workspace scope; the response contains bounded server
+health, approved capability fingerprints, metadata-only call audits, and inert Plugin
+installation state. It omits bearer values, MCP arguments/results, Plugin archives,
+Hook payloads, and publisher public keys.
+
+The control bearer may call `POST /api/v1/extensions/mcp/{server_id}/review`,
+`POST /api/v1/extensions/mcp/{server_id}/refresh`, and
+`POST /api/v1/extensions/plugins/{installation_id}/review`. Disable actions bind the
+current descriptor/package fingerprint and Plugin generation, so a stale Desktop card
+cannot disable a replacement by accident. Discovery and capability enablement remain
+separate MCP reviews; Plugin MCP contributions still enter the independent MCP staging
+state. Full state machines and CLI examples are in [Extensions](extensions.md).
+
 ## Endpoints
 
 | Method | Path | Result / Filters |
@@ -400,6 +416,10 @@ OS network-sandbox claim. Full lifecycle and threat-model details are in
 | `GET` | `/api/v1/health` | Health and SQLite schema version |
 | `GET` | `/api/v1/capabilities` | Exact Go capability flags, including `agent_code_tools_enabled`, plus metadata-only bounded worker health; no runtime enablement/token/owner/lease/private error |
 | `GET` | `/api/v1/openapi.json` | Raw deterministic OpenAPI 3.1 JSON document |
+| `GET` | `/api/v1/extensions?run_id={run_id}` | Scoped, redacted MCP/Plugin inventory and metadata-only call audits |
+| `POST` | `/api/v1/extensions/mcp/{server_id}/review` | Control-bearer two-stage review or exact-fingerprint disable/revoke |
+| `POST` | `/api/v1/extensions/mcp/{server_id}/refresh` | Control-bearer bounded discovery; drift quarantines before use |
+| `POST` | `/api/v1/extensions/plugins/{installation_id}/review` | Control-bearer capability review or exact-generation disable/quarantine/revoke |
 | `POST` | `/api/v1/sandbox/docker/readiness` | Read-bearer, strict exact-plan readiness; no mutation or long-lived authority |
 | `POST` | `/api/v1/sandbox/docker/admissions` | Control-bearer, idempotent exact Docker Sandbox product admission |
 | `POST` | `/api/v1/sandbox/docker/starts` | Control-bearer, synchronous exact admitted execution and cleanup |

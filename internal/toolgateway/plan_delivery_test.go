@@ -34,7 +34,7 @@ const gatewayPlanDeliveryPayload = `{"version":"plan_delivery.v1","directions":[
 	`{"title":"C","summary":"C","tradeoffs":["C"],"modules":[{"title":"C","objective":"C","acceptance_criteria":["C"],"dependencies":[]}]}]}`
 
 func TestPlanDeliveryDefinitionIsPlanOnlyAndPayloadIsStrict(t *testing.T) {
-	if len(SupervisorToolDefinitions()) != 11 || len(PlanPhaseSupervisorToolDefinitions()) != 11 {
+	if len(SupervisorToolDefinitions()) != 12 || len(PlanPhaseSupervisorToolDefinitions()) != 12 {
 		t.Fatal("phase-specific Supervisor tool definitions have an unexpected size")
 	}
 	for _, current := range SupervisorToolDefinitions() {

@@ -11,6 +11,7 @@ import (
 	"cyberagent-workbench/internal/contextmgr"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
+	"cyberagent-workbench/internal/hooks"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/projectconfig"
 	"cyberagent-workbench/internal/redact"
@@ -35,7 +36,8 @@ type RunStore interface {
 }
 
 type RunService struct {
-	store RunStore
+	store          RunStore
+	lifecycleHooks *hooks.Engine
 }
 
 type CreateRunRequest struct {
@@ -63,6 +65,13 @@ type CreateRunRequest struct {
 
 func NewRunService(store RunStore) *RunService {
 	return &RunService{store: store}
+}
+
+func (s *RunService) WithLifecycleHooks(engine *hooks.Engine) *RunService {
+	if s != nil {
+		s.lifecycleHooks = engine
+	}
+	return s
 }
 
 type preparedRun struct {
@@ -149,6 +158,14 @@ func (s *RunService) Create(ctx context.Context, req CreateRunRequest) (domain.M
 	prepared, err := s.prepare(ctx, req)
 	if err != nil {
 		return domain.Mission{}, domain.Run{}, err
+	}
+	if prepared.CreateSession {
+		if err := executeLifecycleBoundary(ctx, s.lifecycleHooks, hooks.SessionOpened,
+			prepared.Run.ID, prepared.Mission.WorkspaceID, map[string]any{
+				"session_id": prepared.Session.ID, "source": "run_create",
+			}); err != nil {
+			return domain.Mission{}, domain.Run{}, err
+		}
 	}
 	if err := s.store.CreateMissionRun(ctx, prepared.Mission, prepared.Run, prepared.Mode, prepared.Session,
 		prepared.CreateSession, prepared.InitialEvents); err != nil {
@@ -337,6 +354,17 @@ func (s *RunService) Start(ctx context.Context, id string) (domain.Run, error) {
 		return run, nil
 	}
 	if run.Status == domain.RunCreated {
+		mission, missionErr := s.store.GetMission(ctx, run.MissionID)
+		if missionErr != nil {
+			return domain.Run{}, missionErr
+		}
+		if hookErr := executeLifecycleBoundary(ctx, s.lifecycleHooks, hooks.RunStarted,
+			run.ID, mission.WorkspaceID, map[string]any{
+				"session_id": run.SessionID, "from": run.Status,
+				"to": domain.RunRunning, "source": "run_service",
+			}); hookErr != nil {
+			return domain.Run{}, hookErr
+		}
 		run, err = s.transition(ctx, run, domain.RunPreparing, "start requested")
 		if err != nil {
 			return domain.Run{}, err
@@ -422,6 +450,20 @@ func (s *RunService) transition(ctx context.Context, run domain.Run, target doma
 	expected := run.Status
 	if expected == target {
 		return run, nil
+	}
+	if target == domain.RunCancelled || target == domain.RunCompleted ||
+		target == domain.RunFailed {
+		mission, err := s.store.GetMission(ctx, run.MissionID)
+		if err != nil {
+			return domain.Run{}, err
+		}
+		if err := executeLifecycleBoundary(ctx, s.lifecycleHooks, hooks.RunCompleted,
+			run.ID, mission.WorkspaceID, map[string]any{
+				"session_id": run.SessionID, "from": expected, "to": target,
+				"source": "run_service",
+			}); err != nil {
+			return domain.Run{}, err
+		}
 	}
 	if err := run.Transition(target, time.Now().UTC()); err != nil {
 		return domain.Run{}, err

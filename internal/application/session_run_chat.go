@@ -7,6 +7,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/hooks"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/policy"
@@ -35,6 +36,18 @@ func NewSessionRunChatExecutor(store SessionRunStore, router *llm.Router, checke
 func (e *SessionRunChatExecutor) WithActiveCalls(registry *ActiveCallRegistry) *SessionRunChatExecutor {
 	if e != nil && e.supervisor != nil {
 		e.supervisor.WithActiveCalls(registry)
+	}
+	return e
+}
+
+func (e *SessionRunChatExecutor) WithLifecycleHooks(engine *hooks.Engine) *SessionRunChatExecutor {
+	if e != nil {
+		if e.runs != nil {
+			e.runs.WithLifecycleHooks(engine)
+		}
+		if e.supervisor != nil {
+			e.supervisor.WithLifecycleHooks(engine)
+		}
 	}
 	return e
 }

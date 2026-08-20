@@ -61,6 +61,35 @@ func TestControlPlaneResolvesOnlyRegisteredWorkspaceRoots(t *testing.T) {
 	}
 }
 
+func TestControlPlanePublishesExtensionInventoryToDesktopRenderer(t *testing.T) {
+	plane, err := OpenControlPlane(ControlPlaneConfig{
+		DatabasePath: filepath.Join(t.TempDir(), "desktop-extensions.db"),
+		ReadToken:    desktopControlPlaneTestToken, ControlToken: desktopControlPlaneControlToken,
+		AppVersion: "desktop-extension-test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = plane.Close() })
+	response := desktopAPIRequest(plane.Handler(), httpapi.ExtensionInventoryPath)
+	if response.Code != http.StatusOK {
+		t.Fatalf("extension inventory status=%d body=%s", response.Code,
+			response.Body.String())
+	}
+	var envelope desktopAPIEnvelope
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	var inventory httpapi.ExtensionInventoryView
+	if err := json.Unmarshal(envelope.Data, &inventory); err != nil {
+		t.Fatal(err)
+	}
+	if inventory.ProtocolVersion != application.ExtensionInventoryProtocolVersion ||
+		len(inventory.MCPServers) != 0 || len(inventory.Plugins) != 0 {
+		t.Fatalf("unexpected Desktop extension inventory: %#v", inventory)
+	}
+}
+
 func TestControlPlaneRegistersAnExistingWorkspaceDirectoryWithoutModifyingIt(t *testing.T) {
 	home := t.TempDir()
 	selected := filepath.Join(t.TempDir(), "selected-project")

@@ -63,7 +63,7 @@ The allowed direction is always `TypeScript -> Go -> LLM/Rust/Docker`. TypeScrip
 | Tools and permissions | Tool Gateway, JSON Schema validation, Policy, Scope, human approval, four host-permission tiers, fixed commands, an ordinary-mode Run-owned command runtime, per-command PowerShell/Git Bash approval, and time-bound Debug terminal input |
 | Code workflows | Native folder selection and Workspace import, workspace browsing, repository state/history, diff review, file-edit proposals, transactional Workspace Checkpoints, Undo/Redo/Rewind, independent Forks, verification plans, Code Journey, and Handoff |
 | Observability | Append-only Run events, Live Activity, public model commentary, Harness facts, Artifacts, Findings/Evidence/Reports, and SARIF |
-| Extension seams | Mode-aware inert Skill packages, human-reviewed generated candidates, Provider and Tool interfaces, Go/Rust JSON protocol, embedded WASI Analyzer, Sandbox contracts, and a network-none Docker product execution that is disabled by default |
+| Extension seams | Mode-aware inert Skill packages, human-reviewed generated candidates, a two-stage MCP Client, signed `plugin.v1`, restricted lifecycle hooks, Provider and Tool interfaces, an embedded WASI Analyzer, and network-none Docker product execution disabled by default |
 | Clients | `cyberagent` CLI, Bubble Tea TUI, authenticated HTTP/OpenAPI, React/Vite, and Windows/macOS Desktop portable preview |
 
 ### Model-callable workspace tools
@@ -92,6 +92,12 @@ Schema v118 `batch-delivery.v1` materializes an already approved and admitted co
 A child reaches `ready_for_review` only with a clean worktree, a HEAD descending from the assigned base, owned changed paths, successful required checks, and a receipt binding base/head, full-diff and call-chain digests, validation receipts, evidence, and known limitations. Submit and Review both re-attest the exact branch/HEAD/diff/clean state after validation; the reviewer also independently attests to the full merge-base diff, call chain, and tests, and the Desktop never treats the author summary as evidence. An ordered queue applies each accepted head to a separate integration worktree on the latest confirmed base, reruns every cumulative validation declared by the merged prefix, and re-attests the source, integration, and every child receipt after each step. Overlap, base drift, state drift, textual/semantic conflict, or failed validation blocks the queue; it never selects a side, pushes, opens a PR, or changes a remote.
 
 By default the only executable check is `git diff --check`, which does not run repository code. Because `go_test` and `npm_test` execute child-authored code on the host, the relevant control capability must be enabled and the current Run must still be running with `full_access` (or the explicitly higher `debug` mode); Desktop also requires explicit `--enable-batch-delivery-control`, while host validation additionally requires permission control, danger-full-access, and `--enable-batch-validation-execution`. Validation uses a Windows Job Object or Unix process-group lifecycle boundary, bypasses the Go test cache, and persists only complete-stream output digests. The stripped/offline environment still is not an OS network or filesystem sandbox, and deliberate POSIX daemonization outside the inherited process group remains an explicit host-execution residual. See [Deliverable Multi-Agent Batches](docs/batch-delivery.md) and [ADR 0119](docs/adr/0119-deliverable-batch-agents.md).
+
+### MCP Client, plugins, and restricted hooks
+
+Schemas v119-v120 add a Go-owned MCP Client and inert `plugin.v1` packages. A server descriptor first receives discovery approval, then the actual tools/resources/prompts capability fingerprint is reviewed separately. Only an exact `Code/Deliver/root/full_access` Run sees an enabled tool, and every call rediscovers capabilities so drift is quarantined before execution. Remote HTTPS bearer values are injected by reference from the system credential store and stdio/HTTP output remains untrusted evidence. Models and ordinary UI projections never see plaintext credentials, while the dedicated MCP audit stores metadata only. The Supervisor recovery ledger retains only schema-validated, redacted, bounded canonical calls/results, never bearer values or raw transport bytes. Plugin archives support redirect-free SHA-256-pinned HTTPS and exact-commit bare Git import; upgrade/rollback atomically switch the sole enabled version, and explicit publisher revocation cannot be bypassed by untrusted confirmation.
+
+A Plugin ZIP may contribute only declarative Skills, MCP descriptors, UI metadata, and hooks. Staging validates a strict file allowlist, hashes, bounds, formats, and an optional Ed25519 signature; installations are disabled by default and enabled capability by capability after human review. Hooks now execute at real Go-owned Tool, Run, Session, Compaction, Specialist, and Checkpoint transaction boundaries and can only deny, annotate, record, or remove top-level `pre_tool` fields. The Desktop settings view shows scoped health, provenance, review state, and metadata-only call audits, and disables an exact server/plugin fingerprint and generation immediately. See [MCP Client, Plugins, and Restricted Hooks](docs/extensions.md) for commands, state machines, and residual host risks.
 
 ### Real Git, PowerShell, and Bash
 
@@ -246,6 +252,7 @@ See the [Usage Guide](docs/usage.md) for more commands and boundaries.
 
 - [Documentation Index](docs/README.md)
 - [Product Scope and Optional Extensions](docs/PRODUCT_SCOPE.md)
+- [MCP Client, Plugins, and Restricted Hooks](docs/extensions.md)
 - [Architecture](docs/architecture.md)
 - [Usage Guide](docs/usage.md)
 - [Current Project Status](docs/PROJECT_STATUS.md)

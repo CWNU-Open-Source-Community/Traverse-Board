@@ -60,6 +60,15 @@ export type FindingReportSummaryView = components["schemas"]["FindingReportSumma
 export type FindingReportView = components["schemas"]["FindingReportView"];
 export type HealthView = components["schemas"]["HealthView"];
 export type RuntimeCapabilitiesView = components["schemas"]["RuntimeCapabilitiesView"];
+export type ExtensionInventoryView = components["schemas"]["ExtensionInventoryView"];
+export type ExtensionMCPServerView = components["schemas"]["ExtensionMCPServerView"];
+export type ExtensionMCPReviewRequestView =
+  components["schemas"]["ExtensionMCPReviewRequestView"];
+export type ExtensionRefreshRequestView = components["schemas"]["ExtensionRefreshRequestView"];
+export type ExtensionPluginInstallationView =
+  components["schemas"]["ExtensionPluginInstallationView"];
+export type ExtensionPluginReviewRequestView =
+  components["schemas"]["ExtensionPluginReviewRequestView"];
 export type EmbeddedAnalyzerExecutionRequestView =
   components["schemas"]["EmbeddedAnalyzerExecutionRequestView"];
 export type EmbeddedAnalyzerExecutionControlView =

@@ -81,7 +81,11 @@ func (a *App) newWorkspaceCheckpointService(
 	if err := a.ensureStore(); err != nil {
 		return nil, err
 	}
-	return application.NewWorkspaceCheckpointService(a.store, capabilities)
+	service, err := application.NewWorkspaceCheckpointService(a.store, capabilities)
+	if err != nil {
+		return nil, err
+	}
+	return service.WithLifecycleHooks(a.newLifecycleHookEngine()), nil
 }
 
 func (a *App) workspaceCheckpointTimeline(ctx context.Context, args []string) error {

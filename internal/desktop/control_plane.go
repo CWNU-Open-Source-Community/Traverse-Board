@@ -15,9 +15,12 @@ import (
 	"cyberagent-workbench/internal/credential"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/executionauth"
+	"cyberagent-workbench/internal/hooks"
 	"cyberagent-workbench/internal/httpapi"
 	"cyberagent-workbench/internal/idgen"
+	"cyberagent-workbench/internal/mcp"
 	"cyberagent-workbench/internal/modelregistry"
+	"cyberagent-workbench/internal/plugins"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/skills"
@@ -152,6 +155,28 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		_ = stateStore.Close()
 		return nil, err
 	}
+	mcpClient, err := mcp.NewClientManager(stateStore, credentialStore, mcp.ManagerOptions{})
+	if err != nil {
+		_ = stateStore.Close()
+		return nil, err
+	}
+	if _, err := mcpClient.ReconcileStartup(context.Background()); err != nil {
+		_ = stateStore.Close()
+		return nil, apperror.Wrap(apperror.CodeUnavailable,
+			"desktop MCP Client startup reconciliation failed", err)
+	}
+	pluginService, err := plugins.NewService(stateStore)
+	if err != nil {
+		_ = stateStore.Close()
+		return nil, err
+	}
+	hookEngine := hooks.NewEngine(stateStore).WithLoader(pluginService.ActiveHooks)
+	extensionControl, err := application.NewExtensionControlService(stateStore,
+		mcpClient, pluginService)
+	if err != nil {
+		_ = stateStore.Close()
+		return nil, err
+	}
 	checker := policy.NewDefaultChecker()
 	workspaceCheckpoints, err := application.NewWorkspaceCheckpointService(stateStore,
 		config.ExecutionPermissionCapabilities)
@@ -159,6 +184,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		_ = stateStore.Close()
 		return nil, err
 	}
+	workspaceCheckpoints.WithLifecycleHooks(hookEngine)
 	if _, err := workspaceCheckpoints.Reconcile(context.Background()); err != nil {
 		_ = stateStore.Close()
 		return nil, apperror.Wrap(apperror.CodeUnavailable,
@@ -180,10 +206,12 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		return nil, apperror.Wrap(apperror.CodeFailedPrecondition,
 			"desktop Docker Sandbox startup recovery failed", err)
 	}
-	lifecycleControl := application.NewRunLifecycleControlService(stateStore)
+	lifecycleControl := application.NewRunLifecycleControlService(stateStore).
+		WithLifecycleHooks(hookEngine)
 	executionControl := application.NewRunExecutionHandoffService(stateStore,
 		models.Router(), checker).WithActiveCalls(
-		application.NewActiveCallRegistry())
+		application.NewActiveCallRegistry()).WithMCPClient(mcpClient).
+		WithLifecycleHooks(hookEngine)
 	commandManager, err := runner.NewPlatformCommandRuntimeManager(stateStore,
 		idgen.New("command-runtime-owner"))
 	if err != nil {
@@ -220,9 +248,17 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	}
 	executionControl.WithDockerSandboxProposalExecutor(dockerProposalExecutor)
 	planDeliveryControl := application.NewPlanDeliveryControlService(stateStore)
+	approvalGateway := toolgateway.New(stateStore, checker).
+		WithDockerSandboxProposalExecutor(dockerProposalExecutor).
+		WithLifecycleHooks(hookEngine)
+	mcpExecutor, err := application.NewMCPClientToolExecutor(mcpClient)
+	if err != nil {
+		_ = stateStore.Close()
+		return nil, err
+	}
+	approvalGateway.WithMCPExecutor(mcpExecutor)
 	approvalControl := application.NewApprovalControlService(stateStore,
-		toolgateway.New(stateStore, checker).
-			WithDockerSandboxProposalExecutor(dockerProposalExecutor), checker)
+		approvalGateway, checker)
 	modelControl := application.NewModelControlService(models, stateStore)
 	providerCredentialControl := application.NewProviderCredentialService(credentialStore).
 		WithRegistryReload(models, stateStore)
@@ -362,6 +398,8 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		WorkspaceCheckpointControlEnabled:       config.ControlToken != "",
 		BatchDeliveryControlEnabled:             config.BatchDeliveryControlEnabled,
 		BatchDeliveryHostValidationEnabled:      config.BatchDeliveryHostValidationEnabled,
+		ExtensionControlEnabled:                 config.ControlToken != "",
+		LifecycleHooks:                          hookEngine,
 		RunLifecycleController:                  lifecycleControl,
 		RunExecutionController:                  executionControl,
 		PublicModelStreamSource:                 executionControl,
@@ -385,6 +423,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		EmbeddedAnalyzerExecutionController: embeddedAnalyzerExecution,
 		WorkspaceCheckpointController:       workspaceCheckpoints,
 		BatchDeliveryController:             batchDelivery,
+		ExtensionController:                 extensionControl,
 		DockerSandboxController:             dockerSandbox,
 		ModelRegistry:                       models,
 		AppVersion:                          config.AppVersion, UIHandler: config.UIHandler,

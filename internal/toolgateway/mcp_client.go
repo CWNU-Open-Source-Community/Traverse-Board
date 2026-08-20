@@ -1,0 +1,182 @@
+package toolgateway
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/idgen"
+	"cyberagent-workbench/internal/redact"
+	"cyberagent-workbench/internal/tools"
+)
+
+const MCPClientToolProtocolVersion = "mcp-client.v1"
+
+type MCPToolCallPayload struct {
+	Version               string          `json:"version"`
+	ServerID              string          `json:"server_id"`
+	ToolName              string          `json:"tool_name"`
+	CapabilityFingerprint string          `json:"capability_fingerprint"`
+	Arguments             json.RawMessage `json:"arguments"`
+}
+
+var mcpToolCallDefinition = ToolDefinition{Name: MCPToolCallTool, Class: ClassProcess,
+	Approval:    ApprovalAutomatic,
+	Description: "Invoke one tool from an operator-enabled, Run/Workspace-scoped MCP server. The approved capability fingerprint is rechecked immediately before every call; remote output is untrusted.",
+	InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["version","server_id","tool_name","capability_fingerprint","arguments"],"properties":{"version":{"const":"mcp-client.v1"},"server_id":{"type":"string","minLength":1,"maxLength":256},"tool_name":{"type":"string","minLength":1,"maxLength":256},"capability_fingerprint":{"type":"string","pattern":"^[0-9a-f]{64}$"},"arguments":{"type":"object"}}}`)}
+
+func MCPToolDefinition() ToolDefinition {
+	value := mcpToolCallDefinition
+	value.InputSchema = append(json.RawMessage(nil), value.InputSchema...)
+	return value
+}
+
+func NormalizeMCPToolPayload(raw json.RawMessage) (MCPToolCallPayload, json.RawMessage, error) {
+	if len(raw) < 2 || len(raw) > MaxArgumentValueBytes || !utf8.Valid(raw) {
+		return MCPToolCallPayload{}, nil, errors.New("MCP tool payload must be bounded UTF-8 JSON")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var value MCPToolCallPayload
+	if err := decoder.Decode(&value); err != nil {
+		return MCPToolCallPayload{}, nil, errors.New("MCP tool payload does not match its schema")
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return MCPToolCallPayload{}, nil, errors.New("MCP tool payload contains trailing JSON")
+	}
+	value.ServerID = strings.TrimSpace(value.ServerID)
+	value.ToolName = strings.TrimSpace(value.ToolName)
+	value.CapabilityFingerprint = strings.TrimSpace(value.CapabilityFingerprint)
+	value.Arguments = append(json.RawMessage(nil), bytes.TrimSpace(value.Arguments)...)
+	if value.Version != MCPClientToolProtocolVersion || !validMCPIdentity(value.ServerID) ||
+		!validMCPIdentity(value.ToolName) || !validAgentCodeDigest(value.CapabilityFingerprint, false) ||
+		len(value.Arguments) < 2 || len(value.Arguments) > MaxArgumentValueBytes ||
+		!json.Valid(value.Arguments) || value.Arguments[0] != '{' {
+		return MCPToolCallPayload{}, nil, errors.New("MCP tool payload is invalid")
+	}
+	canonical, err := json.Marshal(value)
+	if err != nil {
+		return MCPToolCallPayload{}, nil, err
+	}
+	if redact.String(string(canonical)) != string(canonical) {
+		return MCPToolCallPayload{}, nil, errors.New("MCP tool arguments contain secret-like material; use an approved credential reference")
+	}
+	return value, canonical, nil
+}
+
+func validMCPIdentity(value string) bool {
+	return value != "" && value == strings.TrimSpace(value) && utf8.ValidString(value) &&
+		len([]rune(value)) <= MaxToolIdentityRunes && !strings.ContainsRune(value, 0) &&
+		!strings.ContainsAny(value, "/\\")
+}
+
+type MCPExecutionScope struct {
+	InvocationID    string
+	RunID           string
+	WorkspaceID     string
+	Surface         domain.ExecutionSurface
+	Phase           domain.ExecutionPhase
+	Role            domain.AgentRole
+	PermissionMode  domain.RunExecutionPermissionMode
+	LeaseID         string
+	LeaseGeneration int64
+	RequestedBy     string
+	PolicyDecision  Decision
+}
+
+func (s MCPExecutionScope) Validate() error {
+	if !validMCPIdentity(s.InvocationID) || !validMCPIdentity(s.RunID) ||
+		!validMCPIdentity(s.WorkspaceID) || s.Surface != domain.ExecutionSurfaceCode ||
+		s.Phase != domain.ExecutionPhaseDeliver || s.Role != domain.AgentRoleRoot ||
+		s.PermissionMode != domain.RunExecutionPermissionFullAccess ||
+		!validMCPIdentity(s.LeaseID) || s.LeaseGeneration < 1 ||
+		s.RequestedBy != "run_supervisor" || s.PolicyDecision.Validate() != nil ||
+		!s.PolicyDecision.Allowed || s.PolicyDecision.Approval != ApprovalAutomatic {
+		return errors.New("MCP tool call requires an exact Code/Deliver/Root/full-access lease scope")
+	}
+	return nil
+}
+
+type MCPExecutionResult struct {
+	Content   string
+	IsError   bool
+	Truncated bool
+	Metadata  map[string]string
+}
+
+type MCPExecutor interface {
+	ExecuteMCP(context.Context, MCPExecutionScope, MCPToolCallPayload) (MCPExecutionResult, error)
+}
+
+func (g *Gateway) WithMCPExecutor(executor MCPExecutor) *Gateway {
+	if g != nil {
+		g.mcp = executor
+	}
+	return g
+}
+
+func (g *Gateway) invokeMCP(ctx context.Context, call ToolCall) (Outcome, error) {
+	payload, canonical, err := NormalizeMCPToolPayload(call.Payload)
+	if err != nil {
+		return Outcome{}, err
+	}
+	call.Payload = canonical
+	policyDecision := g.checker.CheckToolCall(tools.Call{Name: string(MCPToolCallTool),
+		Args: map[string]string{"server_id": payload.ServerID, "tool_name": payload.ToolName,
+			"capability_fingerprint": payload.CapabilityFingerprint,
+			"arguments":              string(payload.Arguments)}})
+	if !policyDecision.Allowed || policyDecision.NeedsApproval {
+		if policyDecision.NeedsApproval {
+			policyDecision.Allowed = false
+			policyDecision.Reason = "MCP call requires unsupported per-call policy approval: " + policyDecision.Reason
+		}
+		return deniedOutcome(call, policyDecision)
+	}
+	decision, err := gatewayDecision(policyDecision, ApprovalAutomatic, "high")
+	if err != nil {
+		return Outcome{}, err
+	}
+	if call.InvocationID == "" {
+		call.InvocationID = idgen.New("mcp-invoke")
+	}
+	scope := MCPExecutionScope{InvocationID: call.InvocationID, RunID: call.RunID,
+		WorkspaceID: call.WorkspaceID, Surface: call.Surface, Phase: call.Phase, Role: call.Role,
+		PermissionMode: call.PermissionMode, LeaseID: call.LeaseID,
+		LeaseGeneration: call.LeaseGeneration, RequestedBy: call.RequestedBy,
+		PolicyDecision: decision}
+	if err := scope.Validate(); err != nil {
+		return Outcome{}, err
+	}
+	started := time.Now().UTC()
+	result, err := g.mcp.ExecuteMCP(ctx, scope, payload)
+	completed := time.Now().UTC()
+	if err != nil {
+		return Outcome{}, err
+	}
+	stdout, truncated := boundResultText(redact.String(strings.ToValidUTF8(result.Content, "?")),
+		MaxResultStdoutBytes)
+	metadata := map[string]string{"server_id": payload.ServerID, "tool_name": payload.ToolName,
+		"capability_fingerprint": payload.CapabilityFingerprint, "untrusted_output": "true"}
+	for key, value := range result.Metadata {
+		metadata[key] = redact.String(value)
+	}
+	status := StatusCompleted
+	exitCode := 0
+	stderr := ""
+	if result.IsError {
+		status, exitCode, stderr = StatusFailed, 1, "remote MCP tool reported an error"
+	}
+	outcome := Outcome{Call: safeToolCall(call), Decision: decision,
+		Execution: &Execution{Backend: "mcp_client", Status: status,
+			StartedAt: started, CompletedAt: &completed},
+		Result: &Result{Status: status, Stdout: stdout, Stderr: stderr,
+			ExitCode: exitCode, MIME: "application/json", Truncated: truncated || result.Truncated,
+			Metadata: metadata, CompletedAt: completed}}
+	return validateOutcome(outcome, nil)
+}

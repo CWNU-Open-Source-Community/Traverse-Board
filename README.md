@@ -63,7 +63,7 @@ CLI / TUI / React / Windows Desktop / CI
 | 工具与权限 | Tool Gateway、JSON Schema 校验、Policy、Scope、人工审批、四档宿主权限、受控固定命令、普通模式 Run-owned 命令运行时、逐条审批 PowerShell/Git Bash，以及限时 Debug 终端输入 |
 | 代码工作流 | 系统目录选择与 Workspace 导入、工作区浏览、仓库状态、提交历史、Diff 审阅、文件编辑提案、事务化 Workspace Checkpoint、Undo/Redo/Rewind、独立 Fork、验证计划、Code Journey 与 Handoff |
 | 可观测性 | 追加式 Run 事件、Live Activity、公开模型进度、Harness 事实、Artifact、Finding/Evidence/Report、SARIF |
-| 扩展 | 模式感知的惰性 Skill 包、生成候选人工审查、Provider/Tool 接口、Go/Rust JSON 协议、内嵌 WASI Analyzer、Sandbox 合同与默认关闭的 network-none Docker 产品执行 |
+| 扩展 | 模式感知的惰性 Skill 包、生成候选人工审查、两阶段 MCP Client、签名 `plugin.v1`、受限生命周期 Hooks、Provider/Tool 接口、内嵌 WASI Analyzer 与默认关闭的 network-none Docker 产品执行 |
 | 客户端 | `cyberagent` CLI、Bubble Tea TUI、认证 HTTP/OpenAPI、React/Vite、Windows/macOS Desktop 便携预览 |
 
 ### 模型可调用的工作区工具
@@ -92,6 +92,12 @@ Schema v118 的 `batch-delivery.v1` 将一个已经审批并 admission 的核心
 child 只有在 worktree clean、HEAD 是 base 的后代、全部 changed path 属于声明 Scope、固定验证通过且交付包含 base/head、完整 diff/call-chain 摘要、测试收据、evidence 与已知限制时，才能进入 `ready_for_review`。Submit 与 Reviewer 都会在验证结束后重新证明 exact branch/HEAD/diff/clean 状态；Reviewer 还必须独立确认完整 merge-base diff、调用链与验证，Desktop 不把作者摘要当证据。顺序 merge queue 在独立 integration worktree 上从最新已确认 base 逐项应用，每步重跑截至当前步骤的全部累积验证并重新证明 source、integration 与所有 child receipt；重叠、base drift、状态漂移、文本/语义冲突或测试失败都会阻止队列，不会自动选一方覆盖，也不会 push、开 PR 或修改远端。
 
 默认验证只执行不会运行仓库代码的 `git diff --check`。`go_test`/`npm_test` 会执行 child 提交的代码，因此只有操作者启用相应控制能力，且当前 Run 仍为 `running` 并持有 `full_access`（或显式更高的 `debug`）时才可在宿主运行；Desktop 还需显式 `--enable-batch-delivery-control`，宿主校验另需 permission control、danger-full-access 与 `--enable-batch-validation-execution`。验证进程使用 Windows Job Object / Unix process-group 生命周期边界，Go 测试禁用缓存，持久层只记录完整输出流摘要；其离线/去凭证环境仍只是降险措施，不是 OS 网络或文件系统沙箱，POSIX 主动脱离 inherited process group 也仍是显式宿主权限的残余风险。完整操作与恢复说明见[可交付多代理](docs/batch-delivery.md)，设计决策见 [ADR 0119](docs/adr/0119-deliverable-batch-agents.md)。
+
+### MCP Client、Plugin 与受限 Hooks
+
+Schema v119-v120 增加 Go-owned MCP Client 和惰性 `plugin.v1` 包。MCP descriptor 先审查是否允许 discovery，再对真实协商得到的 tools/resources/prompts capability fingerprint 单独审查；只有精确 `Code/Deliver/root/full_access` Run 能看到已启用工具，每次调用都会重新发现并在漂移时隔离。远程 HTTPS bearer 仅按引用从系统凭证存储注入，stdio/HTTP 返回值始终作为不可信证据清洗；模型和普通 UI 永远看不到明文凭证，专用 MCP 审计只保存摘要。Supervisor 恢复账本只持久化经过 schema 校验、脱敏和大小限制的规范化调用/结果，不保存 bearer 或 transport 原始字节。
+
+Plugin ZIP 只允许声明式 Skills、MCP descriptors、UI metadata 和 Hooks；严格文件白名单、摘要、大小、格式与可选 Ed25519 签名在 staging 时验证，默认禁用并逐能力人工启用。外部包可由固定 SHA-256 的无 redirect HTTPS 或固定 commit 的 bare Git 导入；升级/回滚原子切换唯一 enabled 版本，publisher revoke 不能由 `confirm-untrusted` 绕过。Hook 已接到 Tool、Run、Session、Compaction、Specialist 和 Checkpoint 的真实 Go 事务边界，只能拒绝、注释、记录或在 `pre_tool` 删除顶层字段。Desktop 设置页可按当前 Run/Workspace 查看健康、来源、审查和 metadata-only 调用审计，并用精确 fingerprint/generation 立即禁用。完整命令、状态机与残余宿主风险见 [MCP Client、Plugin 与受限 Hooks](docs/extensions.md)。
 
 ### 真实 Git、PowerShell 与 Bash
 
@@ -299,6 +305,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 
 - [文档导航](docs/README.md)
 - [产品范围与可选扩展](docs/PRODUCT_SCOPE.md)
+- [MCP Client、Plugin 与受限 Hooks](docs/extensions.md)
 - [架构说明](docs/architecture.md)
 - [使用手册](docs/usage.md)
 - [当前项目状态](docs/PROJECT_STATUS.md)
@@ -337,7 +344,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 完整逐切片原始记录保留在 [`PROGRESS_BOOK.md`](docs/PROGRESS_BOOK.md)，当前检查点与验收证据保留在 [`PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)，恢复上下文见 [`PROJECT_MEMORY.md`](docs/PROJECT_MEMORY.md)。这些账本是历史记录，不应被当作待重新执行的任务列表。
 
 <details>
-<summary><strong>SQLite Schema v1-v118 迁移审计表 / Migration ledger</strong></summary>
+<summary><strong>SQLite Schema v1-v120 迁移审计表 / Migration ledger</strong></summary>
 
 此表是 Store 防漏迁移测试使用的审计合同。新增 schema 时必须按顺序追加，不得改写或删除既有行。
 
@@ -461,6 +468,8 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 | v116 | 增加 Run-owned command-runtime.v2 Job 与 Supervisor 调用账本 | add Run-owned command-runtime.v2 jobs and Supervisor call ledger support |
 | v117 | 增加事务化 workspace-checkpoint.v1、恢复/Fork 账本与内容寻址 blob | add transactional workspace-checkpoint.v1, restore/Fork ledger, and content-addressed blobs |
 | v118 | 增加 batch-delivery.v1、child Worktree/邮箱/交付复核与顺序合并队列 | add batch-delivery.v1, child worktrees/mailbox, delivery review, and ordered merge queues |
+| v119 | 增加两阶段 MCP Client Server、能力快照与 metadata-only 调用账本 | add two-stage MCP Client servers, capability snapshots, and metadata-only call audits |
+| v120 | 增加签名 plugin.v1 安装、publisher 信任/撤销、回滚与受限 Hook 审计 | add signed plugin.v1 installs, publisher trust/revocation, rollback, and restricted-Hook audits |
 
 </details>
 

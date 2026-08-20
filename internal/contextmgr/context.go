@@ -57,12 +57,25 @@ type SummaryStore interface {
 }
 
 type Manager struct {
-	store  SummaryStore
-	config Config
+	store              SummaryStore
+	config             Config
+	beforeCompactGuard func(context.Context, string, string, int, int) error
 }
 
 func NewManager(store SummaryStore, config Config) *Manager {
 	return &Manager{store: store, config: config.withDefaults()}
+}
+
+// WithBeforeCompactGuard installs a Go-owned, fail-closed boundary immediately
+// before an actual compaction. It is not called when MaybeCompact decides no
+// work is needed.
+func (m *Manager) WithBeforeCompactGuard(
+	guard func(context.Context, string, string, int, int) error,
+) *Manager {
+	if m != nil {
+		m.beforeCompactGuard = guard
+	}
+	return m
 }
 
 func DefaultConfig() Config {
@@ -123,6 +136,12 @@ func (m *Manager) Compact(ctx context.Context, taskID string, workspaceID string
 	}
 	if preserveCount == len(messages) && len(messages) > 0 {
 		preserveCount = len(messages) - 1
+	}
+	if m.beforeCompactGuard != nil {
+		if err := m.beforeCompactGuard(ctx, taskID, strings.TrimSpace(workspaceID),
+			len(messages), preserveCount); err != nil {
+			return Result{}, err
+		}
 	}
 	removeCount := len(messages) - preserveCount
 	older := messages[:removeCount]

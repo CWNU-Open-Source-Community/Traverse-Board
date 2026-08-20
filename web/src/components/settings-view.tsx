@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState, type CSSProperties,
+  type ReactNode } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  Ban,
   CircleUserRound,
   Cpu,
   Info,
@@ -12,6 +14,8 @@ import {
   Moon,
   PackageSearch,
   Palette,
+  PlugZap,
+  RefreshCw,
   Search,
   Settings,
   ShieldCheck,
@@ -19,7 +23,8 @@ import {
   Sun,
 } from "lucide-react";
 import type { CyberAgentClient } from "../api/client";
-import type { HealthView } from "../api/types";
+import type { ExtensionMCPServerView, ExtensionPluginInstallationView,
+  HealthView } from "../api/types";
 import { applyPrayuTheme, readPrayuTheme, type PrayuTheme } from "../lib/appearance";
 import { useLocale } from "../lib/locale";
 import { applyRunNavigationMode, readRunNavigationMode,
@@ -35,7 +40,8 @@ export type SettingsCapability = {
   enabled: boolean;
 };
 
-type SettingsSection = "profile" | "general" | "permissions" | "appearance" | "workspace" | "shortcuts" | "about";
+type SettingsSection = "profile" | "general" | "permissions" | "appearance" |
+  "workspace" | "shortcuts" | "extensions" | "about";
 type Density = "comfortable" | "compact";
 
 const densityStorageKey = "prayu.ui-density";
@@ -135,6 +141,9 @@ export function SettingsView({
     { id: "shortcuts", label: t("键盘快捷键", "Keyboard shortcuts"), icon: Keyboard },
     { id: "about", label: t("关于", "About"), icon: Info },
   ];
+  const extensionNavigation = {
+    id: "extensions" as const, label: t("MCP 与 Plugin", "MCP and Plugins"), icon: PlugZap,
+  };
   const [section, setSection] = useState<SettingsSection>("general");
   const [query, setQuery] = useState("");
   const [density, setDensity] = useState<Density>(readDensity);
@@ -194,6 +203,11 @@ export function SettingsView({
         </nav>
         <span className="settings-group-label">{t("集成", "Integrations")}</span>
         <nav aria-label={t("Prayu 集成", "Prayu integrations")}>
+          <button className={section === "extensions" ? "active" : ""}
+            onClick={() => setSection("extensions")} type="button">
+            <PlugZap aria-hidden="true" size={16} />
+            <span>{extensionNavigation.label}</span>
+          </button>
           <button onClick={onOpenModels} type="button">
             <Cpu aria-hidden="true" size={16} /><span>{t("模型与配置", "Models and providers")}</span>
           </button>
@@ -206,7 +220,8 @@ export function SettingsView({
       <SidebarResizeHandle onChange={resizeSidebar} value={sidebarWidth} />
       <main className="settings-main">
         <header className="settings-header">
-          <strong>{navigation.find((item) => item.id === section)?.label}</strong>
+          <strong>{section === "extensions" ? extensionNavigation.label :
+            navigation.find((item) => item.id === section)?.label}</strong>
           <div>
             <button className="settings-action" onClick={onOpenModels} type="button">
               <Cpu aria-hidden="true" size={15} />{t("模型", "Models")}
@@ -228,6 +243,8 @@ export function SettingsView({
           {section === "workspace" && <WorkbenchSettings mode={runNavigationMode}
             onModeChange={setRunNavigationMode} />}
           {section === "shortcuts" && <ShortcutSettings />}
+          {section === "extensions" && <ExtensionSettings client={client}
+            selectedRunID={selectedRunID} />}
           {section === "about" && <AboutSettings desktop={desktop} health={health} />}
         </div>
       </main>
@@ -406,4 +423,168 @@ function AboutSettings({ desktop, health }: { desktop: boolean; health: HealthVi
       <div><dt>{t("运行界面", "Surface")}</dt><dd>{desktop ? t("桌面端", "Desktop") : t("网页端", "Web")}</dd></div>
     </dl>
   </section>;
+}
+
+type ExtensionAction =
+  | { kind: "refresh-mcp"; server: ExtensionMCPServerView }
+  | { kind: "disable-mcp"; server: ExtensionMCPServerView }
+  | { kind: "disable-plugin"; installation: ExtensionPluginInstallationView };
+
+function ExtensionSettings({ client, selectedRunID }: {
+  client: CyberAgentClient;
+  selectedRunID: string;
+}) {
+  const { t } = useLocale();
+  const queryClient = useQueryClient();
+  const inventory = useQuery({
+    queryKey: ["extensions", selectedRunID],
+    queryFn: ({ signal }) => client.extensionInventory(selectedRunID, signal),
+  });
+  const action = useMutation<unknown, Error, ExtensionAction>({
+    mutationFn: (value: ExtensionAction) => {
+      if (value.kind === "refresh-mcp") {
+        return client.refreshMCPServer(value.server.id);
+      }
+      if (value.kind === "disable-mcp") {
+        return client.reviewMCPServer(value.server.id, {
+          version: "extension-control.v1", action: "disable",
+          expected_descriptor_fingerprint: value.server.descriptor_fingerprint,
+        });
+      }
+      return client.reviewPluginInstallation(value.installation.id, {
+        version: "extension-control.v1", action: "disable",
+        expected_package_fingerprint: value.installation.package_fingerprint,
+        expected_generation: value.installation.generation,
+        confirm_untrusted: false,
+      });
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["extensions"] }),
+  });
+  return <section className="settings-page-section extension-settings">
+    <header className="extension-heading">
+      <div>
+        <h1>{t("MCP 与 Plugin", "MCP and Plugins")}</h1>
+        <p>{t("查看真实运行状态、固定能力指纹，并可立即关闭扩展。凭据只显示引用名。",
+          "Inspect live state and pinned capability fingerprints, or disable an extension immediately. Credentials are shown by reference only.")}</p>
+      </div>
+      <button className="settings-action" disabled={inventory.isFetching}
+        onClick={() => void inventory.refetch()} type="button">
+        <RefreshCw aria-hidden="true" className={inventory.isFetching ? "spin" : ""} size={15} />
+        {t("刷新", "Refresh")}
+      </button>
+    </header>
+    {inventory.error && <p className="inline-warning">{inventory.error instanceof Error ?
+      inventory.error.message : t("扩展状态读取失败", "Failed to read extension state")}</p>}
+    {action.error && <p className="inline-warning">{action.error instanceof Error ?
+      action.error.message : t("扩展操作失败", "Extension action failed")}</p>}
+    <ExtensionCollection title="MCP Client" count={inventory.data?.mcp_servers.length ?? 0}>
+      {inventory.data?.mcp_servers.map((server) => <MCPServerCard action={action}
+        client={client} key={server.id} server={server} />)}
+      {inventory.data && inventory.data.mcp_servers.length === 0 &&
+        <ExtensionEmpty>{selectedRunID ?
+          t("当前 Run / Workspace 没有 MCP Server。", "No MCP server is scoped to this Run / Workspace.") :
+          t("选择一个 Run 以查看其 MCP Server。", "Select a Run to inspect its MCP servers.")}</ExtensionEmpty>}
+    </ExtensionCollection>
+    <ExtensionCollection title="Plugin" count={inventory.data?.plugins.length ?? 0}>
+      {inventory.data?.plugins.map((installation) => <PluginCard action={action}
+        client={client} installation={installation} key={installation.id} />)}
+      {inventory.data && inventory.data.plugins.length === 0 &&
+        <ExtensionEmpty>{t("尚未安装 Plugin。", "No Plugin is installed.")}</ExtensionEmpty>}
+    </ExtensionCollection>
+  </section>;
+}
+
+function ExtensionCollection({ title, count, children }: {
+  title: string; count: number; children: ReactNode;
+}) {
+  return <section className="extension-collection">
+    <header><h2>{title}</h2><span>{count}</span></header>
+    <div className="extension-card-list">{children}</div>
+  </section>;
+}
+
+function MCPServerCard({ action, client, server }: {
+  action: { isPending: boolean; mutate: (value: ExtensionAction) => void };
+  client: CyberAgentClient;
+  server: ExtensionMCPServerView;
+}) {
+  const { t } = useLocale();
+  const refreshable = ["discovery_approved", "capabilities_pending", "enabled",
+    "quarantined"].includes(server.state);
+  const disableable = !["disabled", "revoked"].includes(server.state);
+  return <article className="extension-card">
+    <header><div><PlugZap aria-hidden="true" size={17} />
+      <div><strong>{server.name}</strong><span>{server.id}</span></div></div>
+      <ExtensionState state={server.state} /></header>
+    <dl className="extension-facts">
+      <div><dt>{t("传输", "Transport")}</dt><dd>{server.transport}</dd></div>
+      <div><dt>{t("健康", "Health")}</dt><dd>{server.health}</dd></div>
+      <div><dt>{t("范围", "Scope")}</dt><dd>{server.scope}</dd></div>
+      <div><dt>{t("工具", "Tools")}</dt><dd>{server.capabilities.tools.length}</dd></div>
+      <div><dt>{t("凭据引用", "Credential ref")}</dt><dd>{server.credential_ref || "—"}</dd></div>
+      <div><dt>{t("来源", "Source")}</dt><dd>{server.source.kind}</dd></div>
+    </dl>
+    <p className="extension-target" title={server.target}>{server.target}</p>
+    <Fingerprint label={t("能力指纹", "Capability fingerprint")}
+      value={server.capabilities.fingerprint || server.descriptor_fingerprint} />
+    <div className="extension-actions">
+      <button className="settings-action" disabled={!client.hasExtensionControl ||
+        !refreshable || action.isPending}
+        onClick={() => action.mutate({ kind: "refresh-mcp", server })} type="button">
+        <RefreshCw aria-hidden="true" size={14} />{t("重新发现", "Rediscover")}
+      </button>
+      <button className="settings-action danger" disabled={!client.hasExtensionControl ||
+        !disableable || action.isPending}
+        onClick={() => action.mutate({ kind: "disable-mcp", server })} type="button">
+        <Ban aria-hidden="true" size={14} />{t("立即关闭", "Disable now")}
+      </button>
+    </div>
+  </article>;
+}
+
+function PluginCard({ action, client, installation }: {
+  action: { isPending: boolean; mutate: (value: ExtensionAction) => void };
+  client: CyberAgentClient;
+  installation: ExtensionPluginInstallationView;
+}) {
+  const { t } = useLocale();
+  const disableable = !["disabled", "revoked", "rolled_back"].includes(installation.state);
+  return <article className="extension-card">
+    <header><div><PackageSearch aria-hidden="true" size={17} />
+      <div><strong>{installation.manifest.name}</strong>
+        <span>{installation.manifest.publisher} · v{installation.manifest.version}</span></div></div>
+      <ExtensionState state={installation.state} /></header>
+    <dl className="extension-facts">
+      <div><dt>{t("签名", "Signature")}</dt><dd>{installation.signature_valid ?
+        t("有效", "Valid") : installation.signature_present ? t("无效", "Invalid") :
+          t("未签名", "Unsigned")}</dd></div>
+      <div><dt>{t("来源", "Source")}</dt><dd>{installation.source.kind}</dd></div>
+      <div><dt>{t("已启用", "Enabled")}</dt>
+        <dd>{installation.enabled_capabilities.join(", ") || "—"}</dd></div>
+      <div><dt>{t("代次", "Generation")}</dt><dd>{installation.generation}</dd></div>
+    </dl>
+    <p className="extension-target" title={installation.source.uri}>{installation.source.uri}</p>
+    <Fingerprint label={t("包指纹", "Package fingerprint")}
+      value={installation.package_fingerprint} />
+    <div className="extension-actions">
+      <button className="settings-action danger" disabled={!client.hasExtensionControl ||
+        !disableable || action.isPending}
+        onClick={() => action.mutate({ kind: "disable-plugin", installation })} type="button">
+        <Ban aria-hidden="true" size={14} />{t("立即关闭", "Disable now")}
+      </button>
+    </div>
+  </article>;
+}
+
+function ExtensionState({ state }: { state: string }) {
+  return <span className={`extension-state state-${state}`}>{state.replaceAll("_", " ")}</span>;
+}
+
+function Fingerprint({ label, value }: { label: string; value: string }) {
+  return <div className="extension-fingerprint"><span>{label}</span>
+    <code title={value}>{value ? `${value.slice(0, 12)}…${value.slice(-8)}` : "—"}</code></div>;
+}
+
+function ExtensionEmpty({ children }: { children: ReactNode }) {
+  return <p className="extension-empty">{children}</p>;
 }
