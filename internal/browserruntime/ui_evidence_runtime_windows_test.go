@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image/png"
 	"io"
@@ -20,8 +21,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unsafe"
 
 	"cyberagent-workbench/internal/uievidence"
+	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 )
 
 const uiEvidenceRuntimeSmokeEnvironment = "CYBERAGENT_UI_EVIDENCE_SMOKE"
@@ -77,6 +81,24 @@ type uiEvidenceSmokeLaunchReceipt struct {
 	CapturedAt       time.Time      `json:"captured_at"`
 }
 
+type uiEvidenceSmokeStartupDiagnostic struct {
+	ProtocolVersion         string            `json:"protocol_version"`
+	Reason                  string            `json:"reason"`
+	ProcessAdapter          string            `json:"process_adapter"`
+	PID                     int               `json:"pid"`
+	MainProcessActive       bool              `json:"main_process_active"`
+	MainProcessExitCode     uint32            `json:"main_process_exit_code"`
+	JobTotalProcesses       uint32            `json:"job_total_processes"`
+	JobActiveProcesses      uint32            `json:"job_active_processes"`
+	JobTerminatedProcesses  uint32            `json:"job_terminated_processes"`
+	ProcessQueryError       string            `json:"process_query_error,omitempty"`
+	JobQueryError           string            `json:"job_query_error,omitempty"`
+	ProfileEntries          []string          `json:"profile_entries"`
+	ProfileReadError        string            `json:"profile_read_error,omitempty"`
+	RemoteDebuggingPolicies map[string]string `json:"remote_debugging_policies"`
+	CapturedAt              time.Time         `json:"captured_at"`
+}
+
 // TestInstalledEdgeUIEvidenceHeadlessMatrixAndRegression is opt-in because it
 // starts the real, fixed-location Edge binary. Unit tests cover every
 // authorization/lifecycle boundary; this test deliberately exercises the same
@@ -119,7 +141,8 @@ func TestInstalledEdgeUIEvidenceHeadlessMatrixAndRegression(t *testing.T) {
 	process := startUIEvidenceSmokeEdge(t, identity, profilePath)
 	defer process.Stop(t)
 
-	endpoint := waitForUIEvidenceSmokeEndpoint(t, profilePath, process)
+	endpoint := waitForUIEvidenceSmokeEndpoint(t, profilePath, process,
+		artifactDirectory)
 	connection, err := dialRestrictedCDP(t.Context(), endpoint)
 	if err != nil {
 		t.Fatal(err)
@@ -486,7 +509,7 @@ func uiEvidenceSmokePortReleased(t *testing.T, endpoint *url.URL) bool {
 }
 
 func waitForUIEvidenceSmokeEndpoint(t *testing.T, profilePath string,
-	process *uiEvidenceSmokeEdgeProcess,
+	process *uiEvidenceSmokeEdgeProcess, artifactDirectory string,
 ) *url.URL {
 	t.Helper()
 	deadline := time.NewTimer(45 * time.Second)
@@ -507,10 +530,142 @@ func waitForUIEvidenceSmokeEndpoint(t *testing.T, profilePath string,
 		}
 		select {
 		case <-deadline.C:
+			diagnostic := collectUIEvidenceSmokeStartupDiagnostic(profilePath, process)
+			raw, marshalErr := json.MarshalIndent(diagnostic, "", "  ")
+			if marshalErr != nil {
+				t.Fatalf("marshal real Edge startup diagnostic: %v", marshalErr)
+			}
+			writeUIEvidenceSmokeArtifact(t, artifactDirectory,
+				"startup-failure.json", append(raw, '\n'))
 			t.Fatal("timed out waiting for real Edge DevTools endpoint")
 		case <-ticker.C:
 		}
 	}
+}
+
+func collectUIEvidenceSmokeStartupDiagnostic(profilePath string,
+	process *uiEvidenceSmokeEdgeProcess,
+) uiEvidenceSmokeStartupDiagnostic {
+	diagnostic := uiEvidenceSmokeStartupDiagnostic{
+		ProtocolVersion: "ui-evidence-ci-startup-diagnostic.v1",
+		Reason:          "devtools_endpoint_timeout", ProcessAdapter: WindowsBrowserProcessAdapterName,
+		RemoteDebuggingPolicies: readUIEvidenceSmokeRemoteDebuggingPolicies(),
+		CapturedAt:              time.Now().UTC(),
+	}
+	if process != nil {
+		diagnostic.PID = process.platform.PID()
+		if platform, ok := process.platform.(*windowsBrowserProcess); ok {
+			platform.mu.Lock()
+			if platform.process != 0 {
+				var exitCode uint32
+				if err := windows.GetExitCodeProcess(platform.process, &exitCode); err != nil {
+					diagnostic.ProcessQueryError = err.Error()
+				} else {
+					diagnostic.MainProcessExitCode = exitCode
+					diagnostic.MainProcessActive = exitCode == 259
+				}
+			}
+			if platform.job != 0 {
+				accounting := struct {
+					TotalUserTime             int64
+					TotalKernelTime           int64
+					ThisPeriodTotalUserTime   int64
+					ThisPeriodTotalKernelTime int64
+					TotalPageFaultCount       uint32
+					TotalProcesses            uint32
+					ActiveProcesses           uint32
+					TotalTerminatedProcesses  uint32
+				}{}
+				if err := windows.QueryInformationJobObject(platform.job,
+					windows.JobObjectBasicAccountingInformation,
+					uintptr(unsafe.Pointer(&accounting)),
+					uint32(unsafe.Sizeof(accounting)), nil); err != nil {
+					diagnostic.JobQueryError = err.Error()
+				} else {
+					diagnostic.JobTotalProcesses = accounting.TotalProcesses
+					diagnostic.JobActiveProcesses = accounting.ActiveProcesses
+					diagnostic.JobTerminatedProcesses = accounting.TotalTerminatedProcesses
+				}
+			}
+			platform.mu.Unlock()
+		}
+	}
+	diagnostic.ProfileEntries, diagnostic.ProfileReadError =
+		readUIEvidenceSmokeProfileEntries(profilePath)
+	return diagnostic
+}
+
+func readUIEvidenceSmokeProfileEntries(profilePath string) ([]string, string) {
+	entries, err := os.ReadDir(profilePath)
+	if err != nil {
+		return nil, err.Error()
+	}
+	result := make([]string, 0, 64)
+	appendEntry := func(prefix string, entry os.DirEntry) {
+		if len(result) >= 64 {
+			return
+		}
+		kind := "file"
+		if entry.IsDir() {
+			kind = "directory"
+		}
+		size := int64(0)
+		if info, infoErr := entry.Info(); infoErr == nil && !entry.IsDir() {
+			size = info.Size()
+		}
+		result = append(result, fmt.Sprintf("%s:%s%s:%d", kind, prefix,
+			entry.Name(), size))
+	}
+	for _, entry := range entries {
+		appendEntry("", entry)
+		if !entry.IsDir() || len(result) >= 64 {
+			continue
+		}
+		children, childErr := os.ReadDir(filepath.Join(profilePath, entry.Name()))
+		if childErr != nil {
+			result = append(result, fmt.Sprintf("error:%s:%v", entry.Name(), childErr))
+			continue
+		}
+		for _, child := range children {
+			appendEntry(entry.Name()+"/", child)
+		}
+	}
+	return result, ""
+}
+
+func readUIEvidenceSmokeRemoteDebuggingPolicies() map[string]string {
+	result := map[string]string{}
+	for _, item := range []struct {
+		name string
+		root registry.Key
+		view uint32
+	}{
+		{name: "hklm_64", root: registry.LOCAL_MACHINE, view: registry.WOW64_64KEY},
+		{name: "hklm_32", root: registry.LOCAL_MACHINE, view: registry.WOW64_32KEY},
+		{name: "hkcu_64", root: registry.CURRENT_USER, view: registry.WOW64_64KEY},
+		{name: "hkcu_32", root: registry.CURRENT_USER, view: registry.WOW64_32KEY},
+	} {
+		key, err := registry.OpenKey(item.root, `SOFTWARE\Policies\Microsoft\Edge`,
+			registry.QUERY_VALUE|item.view)
+		if err != nil {
+			if errors.Is(err, windows.ERROR_FILE_NOT_FOUND) {
+				result[item.name] = "unset"
+			} else {
+				result[item.name] = "unreadable:" + err.Error()
+			}
+			continue
+		}
+		value, _, valueErr := key.GetIntegerValue("RemoteDebuggingAllowed")
+		_ = key.Close()
+		if errors.Is(valueErr, windows.ERROR_FILE_NOT_FOUND) {
+			result[item.name] = "unset"
+		} else if valueErr != nil {
+			result[item.name] = "unreadable:" + valueErr.Error()
+		} else {
+			result[item.name] = fmt.Sprintf("%d", value)
+		}
+	}
+	return result
 }
 
 func configureUIEvidenceSmoke(t *testing.T, client *restrictedCDPClient,
