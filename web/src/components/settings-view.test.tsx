@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ComponentProps } from "react";
 import { CyberAgentClient } from "../api/client";
@@ -96,5 +96,57 @@ describe("SettingsView", () => {
       onBack: vi.fn(), onOpenModels: vi.fn(), onOpenSkills: vi.fn() })).not.toThrow();
     fireEvent.click(screen.getByRole("button", { name: "外观" }));
     expect(screen.getByRole("button", { name: "舒展" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("shows scoped extension evidence and uses pinned facts for immediate disable", async () => {
+    const controlClient = new CyberAgentClient("read-token", "/api/v1", "control-token",
+      { extensionControlEnabled: true });
+    const digestA = "a".repeat(64);
+    const digestB = "b".repeat(64);
+    vi.spyOn(controlClient, "extensionInventory").mockResolvedValue({
+      protocol_version: "extension-inventory.v1", run_id: "run-extensions",
+      workspace_id: "workspace-extensions", mcp_calls: [],
+      mcp_servers: [{ protocol_version: "mcp-client-server.v1", id: "mcp-local",
+        name: "Local tools", transport: "stdio", target: "C:\\tools\\mcp.exe",
+        credential_ref: "", declared_capabilities: ["tools"], scope: "run",
+        run_id: "run-extensions", workspace_id: "workspace-extensions",
+        source: { kind: "manual", uri: "operator" }, descriptor_fingerprint: digestA,
+        state: "enabled", capabilities: { negotiated: ["tools"], tools: ["inspect"],
+          resources: [], prompts: [], fingerprint: digestB },
+        approved_capability_fingerprint: digestB, health: "healthy", generation: 4,
+        created_at: "2026-08-20T01:00:00Z", updated_at: "2026-08-20T01:01:00Z" }],
+      plugins: [{ protocol_version: "plugin-installation.v1", id: "plugin-local",
+        manifest: { id: "review-pack", name: "Review Pack", version: "1.0.0",
+          publisher: "local", description: "review", capabilities: ["hooks"] },
+        source: { kind: "local_file", uri: "C:\\plugins\\review.zip", sha256: digestA },
+        archive_sha256: digestA, package_fingerprint: digestB,
+        signature_present: false, signature_valid: false, state: "enabled",
+        enabled_capabilities: ["hooks"], generation: 3, staged_by: "cli_operator",
+        created_at: "2026-08-20T01:00:00Z", updated_at: "2026-08-20T01:01:00Z" }],
+    });
+    const disableMCP = vi.spyOn(controlClient, "reviewMCPServer").mockResolvedValue({} as never);
+    const disablePlugin = vi.spyOn(controlClient, "reviewPluginInstallation")
+      .mockResolvedValue({} as never);
+
+    renderSettings({ capabilities, client: controlClient, desktop: true, health,
+      selectedRunID: "run-extensions", onBack: vi.fn(), onOpenModels: vi.fn(),
+      onOpenSkills: vi.fn() });
+    fireEvent.click(screen.getByRole("button", { name: "MCP 与 Plugin" }));
+
+    expect(await screen.findByText("Local tools")).toBeInTheDocument();
+    expect(screen.getByText("Review Pack")).toBeInTheDocument();
+    expect(screen.queryByText("extension-test-token")).not.toBeInTheDocument();
+    const disableButtons = screen.getAllByRole("button", { name: "立即关闭" });
+    fireEvent.click(disableButtons[0]);
+    await waitFor(() => expect(disableMCP).toHaveBeenCalledWith("mcp-local", {
+      version: "extension-control.v1", action: "disable",
+      expected_descriptor_fingerprint: digestA,
+    }));
+    fireEvent.click(disableButtons[1]);
+    await waitFor(() => expect(disablePlugin).toHaveBeenCalledWith("plugin-local", {
+      version: "extension-control.v1", action: "disable",
+      expected_package_fingerprint: digestB, expected_generation: 3,
+      confirm_untrusted: false,
+    }));
   });
 });

@@ -12,6 +12,7 @@ import (
 	"cyberagent-workbench/internal/artifact"
 	"cyberagent-workbench/internal/contextmgr"
 	"cyberagent-workbench/internal/fileedit"
+	"cyberagent-workbench/internal/hooks"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/policy"
@@ -118,14 +119,15 @@ type Store interface {
 }
 
 type Manager struct {
-	store      Store
-	router     *llm.Router
-	checker    policy.Checker
-	runChat    RunChatExecutor
-	contextMgr *contextmgr.Manager
-	gateway    *toolgateway.Gateway
-	fileEdits  *toolgateway.FileEditAdapter
-	toolRuns   *toolgateway.ToolRunAdapter
+	store          Store
+	router         *llm.Router
+	checker        policy.Checker
+	runChat        RunChatExecutor
+	contextMgr     *contextmgr.Manager
+	gateway        *toolgateway.Gateway
+	fileEdits      *toolgateway.FileEditAdapter
+	toolRuns       *toolgateway.ToolRunAdapter
+	lifecycleHooks *hooks.Engine
 }
 
 type SendResult struct {
@@ -207,12 +209,57 @@ func (m *Manager) WithRunChatExecutor(executor RunChatExecutor) *Manager {
 	return m
 }
 
+func (m *Manager) WithLifecycleHooks(engine *hooks.Engine) *Manager {
+	if m == nil {
+		return m
+	}
+	m.lifecycleHooks = engine
+	if m.gateway != nil && engine != nil {
+		m.gateway.WithLifecycleHooks(engine)
+	}
+	if m.contextMgr != nil {
+		m.contextMgr.WithBeforeCompactGuard(func(ctx context.Context, taskID,
+			workspaceID string, sourceMessages, preservedMessages int,
+		) error {
+			return executeSessionLifecycleBoundary(ctx, engine, hooks.Compaction,
+				"", workspaceID, map[string]any{
+					"task_id": taskID, "source_messages": sourceMessages,
+					"preserved_messages": preservedMessages,
+				})
+		})
+	}
+	return m
+}
+
 func (m *Manager) Create(ctx context.Context, workspaceID string, title string, route string) (Session, error) {
 	session := New(workspaceID, title, route)
+	if err := executeSessionLifecycleBoundary(ctx, m.lifecycleHooks, hooks.SessionOpened,
+		"", session.WorkspaceID, map[string]any{
+			"session_id": session.ID, "source": "session_manager",
+		}); err != nil {
+		return Session{}, err
+	}
 	if err := m.store.SaveSession(ctx, session); err != nil {
 		return Session{}, err
 	}
 	return session, nil
+}
+
+func executeSessionLifecycleBoundary(ctx context.Context, engine *hooks.Engine,
+	event hooks.Event, runID, workspaceID string, payload any,
+) error {
+	_, err := hooks.ExecuteBoundary(ctx, engine, hooks.Input{Event: event,
+		RunID: runID, WorkspaceID: workspaceID}, payload)
+	if err == nil {
+		return nil
+	}
+	var denied hooks.DeniedError
+	if errors.As(err, &denied) {
+		return apperror.New(apperror.CodePolicyDenied,
+			"restricted lifecycle hook denied the operation")
+	}
+	return apperror.Wrap(apperror.CodeUnavailable,
+		"restricted lifecycle hooks are unavailable", err)
 }
 
 func (m *Manager) Send(ctx context.Context, sessionID string, input string) (SendResult, error) {

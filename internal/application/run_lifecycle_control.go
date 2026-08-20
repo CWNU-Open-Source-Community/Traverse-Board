@@ -7,18 +7,21 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/hooks"
 	"cyberagent-workbench/internal/runmutation"
 )
 
 type RunLifecycleControlStore interface {
 	GetRun(context.Context, string) (domain.Run, error)
+	GetMission(context.Context, string) (domain.Mission, error)
 	GetRunLifecycleOperation(context.Context, string) (domain.RunLifecycleOperation, bool, error)
 	TransitionRunWithLifecycleOperation(context.Context, domain.RunLifecycleOperation) (
 		domain.RunLifecycleOperation, domain.Run, bool, error)
 }
 
 type RunLifecycleControlService struct {
-	store RunLifecycleControlStore
+	store          RunLifecycleControlStore
+	lifecycleHooks *hooks.Engine
 }
 
 type ControlRunLifecycleRequest struct {
@@ -41,6 +44,15 @@ func NewRunLifecycleControlService(
 	return &RunLifecycleControlService{store: store}
 }
 
+func (s *RunLifecycleControlService) WithLifecycleHooks(
+	engine *hooks.Engine,
+) *RunLifecycleControlService {
+	if s != nil {
+		s.lifecycleHooks = engine
+	}
+	return s
+}
+
 func (s *RunLifecycleControlService) Apply(ctx context.Context,
 	request ControlRunLifecycleRequest,
 ) (ControlRunLifecycleResult, error) {
@@ -60,8 +72,22 @@ func (s *RunLifecycleControlService) Apply(ctx context.Context,
 		normalized, expected, applied); err != nil || found {
 		return replay, err
 	}
-	if _, err := s.store.GetRun(ctx, normalized.RunID); err != nil {
+	run, err := s.store.GetRun(ctx, normalized.RunID)
+	if err != nil {
 		return ControlRunLifecycleResult{}, apperror.Normalize(err)
+	}
+	if normalized.Action == domain.RunLifecycleStart {
+		mission, missionErr := s.store.GetMission(ctx, run.MissionID)
+		if missionErr != nil {
+			return ControlRunLifecycleResult{}, apperror.Normalize(missionErr)
+		}
+		if hookErr := executeLifecycleBoundary(ctx, s.lifecycleHooks, hooks.RunStarted,
+			run.ID, mission.WorkspaceID, map[string]any{
+				"session_id": run.SessionID, "from": expected, "to": applied,
+				"source": "run_lifecycle_control",
+			}); hookErr != nil {
+			return ControlRunLifecycleResult{}, hookErr
+		}
 	}
 	operation := domain.RunLifecycleOperation{
 		ProtocolVersion: domain.RunLifecycleControlProtocolVersion,

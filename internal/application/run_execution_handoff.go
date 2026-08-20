@@ -7,8 +7,10 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/hooks"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/llm"
+	"cyberagent-workbench/internal/mcp"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/toolgateway"
@@ -83,6 +85,24 @@ func (s *RunExecutionHandoffService) WithCommandRuntime(
 ) *RunExecutionHandoffService {
 	if s != nil && s.supervisor != nil {
 		s.supervisor.WithCommandRuntime(executor)
+	}
+	return s
+}
+
+func (s *RunExecutionHandoffService) WithMCPClient(
+	manager *mcp.Manager,
+) *RunExecutionHandoffService {
+	if s != nil && s.supervisor != nil {
+		s.supervisor.WithMCPClient(manager)
+	}
+	return s
+}
+
+func (s *RunExecutionHandoffService) WithLifecycleHooks(
+	engine *hooks.Engine,
+) *RunExecutionHandoffService {
+	if s != nil && s.supervisor != nil {
+		s.supervisor.WithLifecycleHooks(engine)
 	}
 	return s
 }

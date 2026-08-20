@@ -31,7 +31,10 @@ jobs:
         run: go mod tidy -diff
       - name: Verify Go analyzer compatibility vectors
         run: go test -count=1 ./internal/analyzer -run 'Test(AnalyzerProtocol|ArchiveInventory)SharedGoldenVectors'
-      - run: go test -timeout 20m -count=1 ./...
+      - name: Run complete Go suite
+        # The migration-heavy Store package can exceed 20 minutes on a shared
+        # Linux runner. Keep the complete uncached suite with a bounded deadline.
+        run: go test -timeout 30m -count=1 ./...
       - run: go vet ./...
       - name: Install pinned govulncheck
         env:

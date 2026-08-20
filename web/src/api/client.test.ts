@@ -2795,6 +2795,69 @@ describe("CyberAgentClient", () => {
       .resolves.toEqual(recovery);
   });
 
+  it("keeps extension reads scoped and sends pinned disable controls without secrets", async () => {
+    const digestA = "a".repeat(64);
+    const digestB = "b".repeat(64);
+    const server = { protocol_version: "mcp-client-server.v1", id: "mcp-local",
+      name: "Local MCP", transport: "stdio", target: "C:\\tools\\mcp.exe",
+      credential_ref: "", declared_capabilities: ["tools"], scope: "run",
+      run_id: "run-1", workspace_id: "workspace-1",
+      source: { kind: "manual", uri: "operator" }, descriptor_fingerprint: digestA,
+      state: "enabled", capabilities: { negotiated: ["tools"], tools: ["inspect"],
+        resources: [], prompts: [], fingerprint: digestB },
+      approved_capability_fingerprint: digestB, health: "healthy", generation: 2,
+      created_at: "2026-08-20T01:00:00Z", updated_at: "2026-08-20T01:01:00Z" };
+    const plugin = { protocol_version: "plugin-installation.v1", id: "plugin-local",
+      manifest: { id: "review", name: "Review", version: "1.0.0", publisher: "local",
+        description: "review", capabilities: ["hooks"] },
+      source: { kind: "local_file", uri: "C:\\plugins\\review.zip", sha256: digestA },
+      archive_sha256: digestA, package_fingerprint: digestB, signature_present: false,
+      signature_valid: false, state: "enabled", enabled_capabilities: ["hooks"],
+      generation: 4, staged_by: "cli_operator", created_at: "2026-08-20T01:00:00Z",
+      updated_at: "2026-08-20T01:01:00Z" };
+    const envelope = (requestID: string, data: unknown) => new Response(JSON.stringify({
+      version: "api.v1", request_id: requestID, data,
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope("req-extensions", { protocol_version: "extension-inventory.v1",
+        run_id: "run-1", workspace_id: "workspace-1", mcp_servers: [server],
+        mcp_calls: [], plugins: [plugin] }))
+      .mockResolvedValueOnce(envelope("req-disable-mcp", { ...server, state: "disabled" }))
+      .mockResolvedValueOnce(envelope("req-disable-plugin", { ...plugin, state: "disabled",
+        enabled_capabilities: [], generation: 5 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret",
+      { extensionControlEnabled: true });
+
+    await expect(client.extensionInventory("run-1")).resolves.toMatchObject({
+      run_id: "run-1", mcp_servers: [{ id: "mcp-local" }], plugins: [{ id: "plugin-local" }],
+    });
+    await client.reviewMCPServer("mcp-local", { version: "extension-control.v1",
+      action: "disable", expected_descriptor_fingerprint: digestA });
+    await client.reviewPluginInstallation("plugin-local", { version: "extension-control.v1",
+      action: "disable", expected_package_fingerprint: digestB, expected_generation: 4,
+      confirm_untrusted: false });
+
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/extensions?run_id=run-1");
+    for (const call of fetchMock.mock.calls.slice(1)) {
+      const [url, init] = call as [string, RequestInit];
+      expect(url).not.toContain("control-secret");
+      expect(init.headers).toMatchObject({ Authorization: "Bearer control-secret" });
+      expect(String(init.body)).not.toMatch(/credential|secret|token|arguments|result/);
+    }
+  });
+
+  it("rejects secret-bearing extension projections", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-extension-secret", data: {
+        protocol_version: "extension-inventory.v1", mcp_servers: [], mcp_calls: [],
+        plugins: [], secret: "must-not-cross-the-boundary",
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    await expect(new CyberAgentClient("read-secret").extensionInventory())
+      .rejects.toThrow("invalid");
+  });
+
   it("executes the embedded analyzer through the control token and validates its redacted receipt", async () => {
     const data = {
       version: "embedded_analyzer_execution_control.v1",

@@ -19,9 +19,12 @@ import (
 	"cyberagent-workbench/internal/buildinfo"
 	"cyberagent-workbench/internal/credential"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/hooks"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/llm"
+	"cyberagent-workbench/internal/mcp"
 	"cyberagent-workbench/internal/modelregistry"
+	"cyberagent-workbench/internal/plugins"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/pricing"
 	"cyberagent-workbench/internal/redact"
@@ -120,6 +123,12 @@ func (a *App) newRunSupervisor() *application.RunSupervisor {
 	if executor := a.newDockerSandboxProposalExecutor(); executor != nil {
 		supervisor.WithDockerSandboxProposalExecutor(executor)
 	}
+	if client := a.newMCPClientManager(); client != nil {
+		supervisor.WithMCPClient(client)
+	}
+	if engine := a.newLifecycleHookEngine(); engine != nil {
+		supervisor.WithLifecycleHooks(engine)
+	}
 	return supervisor
 }
 
@@ -144,7 +153,37 @@ func (a *App) newToolGateway() *toolgateway.Gateway {
 	if executor := a.newDockerSandboxProposalExecutor(); executor != nil {
 		gateway.WithDockerSandboxProposalExecutor(executor)
 	}
+	if client := a.newMCPClientManager(); client != nil {
+		if executor, err := application.NewMCPClientToolExecutor(client); err == nil {
+			gateway.WithMCPExecutor(executor)
+		}
+	}
+	if engine := a.newLifecycleHookEngine(); engine != nil {
+		gateway.WithLifecycleHooks(engine)
+	}
 	return gateway
+}
+
+func (a *App) newMCPClientManager() *mcp.Manager {
+	if a == nil || a.store == nil {
+		return nil
+	}
+	manager, err := mcp.NewClientManager(a.store, a.credentials, mcp.ManagerOptions{})
+	if err != nil {
+		return nil
+	}
+	return manager
+}
+
+func (a *App) newLifecycleHookEngine() *hooks.Engine {
+	if a == nil || a.store == nil {
+		return nil
+	}
+	service, err := plugins.NewService(a.store)
+	if err != nil {
+		return nil
+	}
+	return hooks.NewEngine(a.store).WithLoader(service.ActiveHooks)
 }
 
 func (a *App) newDockerSandboxProposalExecutor() *application.DockerSandboxProposalExecutor {
@@ -227,6 +266,8 @@ func (a *App) dispatch(ctx context.Context, args []string) error {
 		return a.apiCommand(ctx, args[1:])
 	case "mcp":
 		return a.mcpCommand(ctx, args[1:])
+	case "plugin":
+		return a.pluginCommand(ctx, args[1:])
 	case "project-config":
 		return a.projectConfigCommand(ctx, args[1:])
 	case "once-command":
@@ -277,6 +318,8 @@ func (a *App) printHelp() {
 	fmt.Fprintln(a.out, "  cyberagent report show|finding|check")
 	fmt.Fprintln(a.out, "  cyberagent report finding attach|validate|reject|accept|remediation|fix|verify")
 	fmt.Fprintln(a.out, "  cyberagent api serve|openapi")
+	fmt.Fprintln(a.out, "  cyberagent mcp serve|client|credential")
+	fmt.Fprintln(a.out, "  cyberagent plugin stage|list|show|review|rollback|trust-publisher|revoke-publisher|stage-mcp")
 	fmt.Fprintln(a.out, "  cyberagent headless events")
 	fmt.Fprintln(a.out, "  cyberagent run create|adapt-task|list|show|mode|phase|execution-profile|execution-interaction|execution-permission|command-plan|command-execute|host-execute|events|usage|start|step|execute|checkpoint|graph|lease|finish|fail|pause|resume|cancel|delegations|delegation|plans|plan|delivery|steer|fanouts|fanout|sandbox|wake")
 	fmt.Fprintln(a.out, "  cyberagent run plan show|choose|selection")

@@ -315,12 +315,12 @@ func TestSchemaV119UpgradeAddsUIEvidenceWithoutRewritingV118State(t *testing.T) 
 // tests call this through removeSchemaV118ForTestStatements so the downgrade
 // chain always removes the newest schema first.
 func removeSchemaV119ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV120ForTestStatements(), []string{
 		`DROP TABLE ui_evidence_artifacts`,
 		`DROP TABLE ui_evidence_steps`,
 		`DROP TABLE ui_evidence_attempts`,
 		`DELETE FROM schema_migrations WHERE version = 119`,
-	}
+	}...)
 }
 
 func storeUIEvidenceManifest(t *testing.T, runID, missionID, sessionID,

@@ -15,6 +15,7 @@ import (
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/httpapi"
 	"cyberagent-workbench/internal/idgen"
+	"cyberagent-workbench/internal/plugins"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/skills"
 	"cyberagent-workbench/internal/webui"
@@ -138,11 +139,31 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	if err := a.ensureStore(); err != nil {
 		return err
 	}
+	mcpClient := a.newMCPClientManager()
+	if mcpClient == nil {
+		return apperror.New(apperror.CodeInternal,
+			"initialize MCP Client control service")
+	}
+	if _, err := mcpClient.ReconcileStartup(ctx); err != nil {
+		return apperror.Wrap(apperror.CodeUnavailable,
+			"MCP Client startup reconciliation failed", err)
+	}
+	pluginService, err := plugins.NewService(a.store)
+	if err != nil {
+		return err
+	}
+	extensionControl, err := application.NewExtensionControlService(a.store,
+		mcpClient, pluginService)
+	if err != nil {
+		return err
+	}
+	hookEngine := a.newLifecycleHookEngine()
 	workspaceCheckpoints, err := application.NewWorkspaceCheckpointService(a.store,
 		permissionCapabilities)
 	if err != nil {
 		return err
 	}
+	workspaceCheckpoints.WithLifecycleHooks(hookEngine)
 	if _, err := workspaceCheckpoints.Reconcile(ctx); err != nil {
 		return apperror.Wrap(apperror.CodeUnavailable,
 			"Workspace checkpoint startup reconciliation failed", err)
@@ -162,9 +183,11 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		return apperror.Wrap(apperror.CodeUnavailable,
 			"Docker Sandbox startup recovery failed", err)
 	}
-	lifecycleControl := application.NewRunLifecycleControlService(a.store)
+	lifecycleControl := application.NewRunLifecycleControlService(a.store).
+		WithLifecycleHooks(hookEngine)
 	executionControl := application.NewRunExecutionHandoffService(a.store, a.router,
-		a.checker).WithActiveCalls(a.calls)
+		a.checker).WithActiveCalls(a.calls).WithMCPClient(mcpClient).
+		WithLifecycleHooks(hookEngine)
 	commandManager, err := runner.NewPlatformCommandRuntimeManager(a.store,
 		idgen.New("command-runtime-owner"))
 	if err != nil {
@@ -276,6 +299,8 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		WorkspaceCheckpointControlEnabled:       controlToken != "",
 		BatchDeliveryControlEnabled:             controlToken != "",
 		BatchDeliveryHostValidationEnabled:      *batchValidationExecution,
+		ExtensionControlEnabled:                 controlToken != "",
+		LifecycleHooks:                          hookEngine,
 		RunLifecycleController:                  lifecycleControl,
 		RunExecutionController:                  executionControl,
 		PublicModelStreamSource:                 executionControl,
@@ -299,6 +324,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		EmbeddedAnalyzerExecutionController: embeddedAnalyzerExecution,
 		WorkspaceCheckpointController:       workspaceCheckpoints,
 		BatchDeliveryController:             batchDelivery,
+		ExtensionController:                 extensionControl,
 		DockerSandboxController:             dockerSandbox,
 		ModelRegistry:                       a.models,
 		AppVersion:                          Version,

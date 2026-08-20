@@ -101,7 +101,8 @@ func (a *API) serveRunCreationControl(writer http.ResponseWriter,
 		a.writeError(writer, requestID, err, 0)
 		return
 	}
-	result, err := application.NewControlledRunCreationService(a.store).Create(
+	result, err := application.NewControlledRunCreationService(a.store).
+		WithLifecycleHooks(a.lifecycleHooks).Create(
 		request.Context(), application.ControlledRunCreationRequest{
 			Version: view.Version, Goal: view.Goal, WorkspaceID: view.WorkspaceID,
 			Profile: view.Profile, Surface: view.Surface, Phase: view.Phase,

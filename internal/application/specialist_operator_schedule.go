@@ -11,6 +11,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/hooks"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/policy"
@@ -59,6 +60,15 @@ func NewSpecialistOperatorScheduleService(store SpecialistOperatorScheduleStore,
 		store: store, checker: checker, scheduler: NewSpecialistScheduler(runner),
 		pollInterval: defaultSpecialistOperatorSchedulePollInterval,
 	}
+}
+
+func (s *SpecialistOperatorScheduleService) WithLifecycleHooks(
+	engine *hooks.Engine,
+) *SpecialistOperatorScheduleService {
+	if s != nil && s.scheduler != nil {
+		s.scheduler.WithLifecycleHooks(engine)
+	}
+	return s
 }
 
 type ExecuteSpecialistOperatorScheduleRequest struct {

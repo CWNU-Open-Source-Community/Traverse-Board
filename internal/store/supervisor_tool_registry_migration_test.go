@@ -160,7 +160,7 @@ func TestSchemaV113PreservesCallsAndAdmitsDebugTerminal(t *testing.T) {
 	}
 }
 
-func TestSchemaV116PreservesAgentCodeAuthorityAndAdmitsCommandRuntime(t *testing.T) {
+func TestSchemaV116AndV120PreserveAuthorityAndAdmitRuntimeTools(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v115-supervisor-tools.db")
 	db, err := sql.Open("sqlite3", sqliteDSN(path))
@@ -283,13 +283,25 @@ func TestSchemaV116PreservesAgentCodeAuthorityAndAdmitsCommandRuntime(t *testing
 		domain.SupervisorToolPending, ts(time.Now().UTC())); err != nil {
 		t.Fatalf("insert command_runtime after v116 migration: %v", err)
 	}
+	if _, err := upgraded.db.ExecContext(ctx, `INSERT INTO run_supervisor_tool_calls
+		(run_id, turn, attempt_id, round, position, model_attempt, call_id, tool_name,
+		 payload_json, authority_json, status, result_json, error_code, created_at, completed_at)
+		VALUES (?, ?, ?, 1, 3, 1, ?, ?, ?, '', ?, '', '', ?, NULL)`, checkpoint.RunID,
+		checkpoint.NextTurn, checkpoint.AttemptID, "mcp-tool-v120",
+		string(toolgateway.MCPToolCallTool),
+		`{"version":"mcp-client.v1","server_id":"fixture","tool_name":"lookup","capability_fingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","arguments":{}}`,
+		domain.SupervisorToolPending, ts(time.Now().UTC())); err != nil {
+		t.Fatalf("insert mcp_tool_call after v120 migration: %v", err)
+	}
 	rounds, err := upgraded.ListSupervisorToolRounds(ctx, checkpoint)
-	if err != nil || len(rounds) != 1 || len(rounds[0].Calls) != 2 {
-		t.Fatalf("v116 Supervisor calls=%#v err=%v", rounds, err)
+	if err != nil || len(rounds) != 1 || len(rounds[0].Calls) != 3 {
+		t.Fatalf("v116/v120 Supervisor calls=%#v err=%v", rounds, err)
 	}
 	if rounds[0].Calls[0].AuthorityJSON != string(encodedAuthority) ||
 		rounds[0].Calls[1].ToolName != string(toolgateway.CommandRuntimeTool) ||
-		rounds[0].Calls[1].AuthorityJSON != "" {
-		t.Fatalf("v116 authority preservation failed: %#v", rounds[0].Calls)
+		rounds[0].Calls[1].AuthorityJSON != "" ||
+		rounds[0].Calls[2].ToolName != string(toolgateway.MCPToolCallTool) ||
+		rounds[0].Calls[2].AuthorityJSON != "" {
+		t.Fatalf("v116/v120 authority preservation failed: %#v", rounds[0].Calls)
 	}
 }

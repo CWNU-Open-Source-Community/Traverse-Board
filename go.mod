@@ -12,6 +12,7 @@ require (
 	github.com/go-git/go-git/v5 v5.19.2
 	github.com/gorilla/websocket v1.5.3
 	github.com/mattn/go-sqlite3 v1.14.49
+	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/tetratelabs/wazero v1.12.0
 	github.com/wailsapp/go-webview2 v1.0.23
 	github.com/wailsapp/wails/v2 v2.14.0

@@ -346,6 +346,8 @@ func migrationPlan() []migration {
 		{Version: 117, Name: "content-addressed reversible Workspace checkpoints", Statements: workspaceCheckpointStatements},
 		{Version: 118, Name: "isolated child worktrees and reviewed batch delivery", Statements: batchDeliveryStatements},
 		{Version: 119, Name: "source-bound real-browser UI evidence", Statements: uiEvidenceStatements},
+		{Version: 120, Name: "review-gated MCP client extension runtime", Statements: extensionRuntimeStatements},
+		{Version: 121, Name: "signed inert plugins and restricted lifecycle hooks", Statements: pluginRuntimeStatements},
 	}
 }
 

@@ -3892,6 +3892,221 @@ summary:focus-visible {
   font-size: 11px;
 }
 
+.extension-settings {
+  display: grid;
+  gap: 22px;
+}
+
+.extension-heading,
+.extension-collection > header,
+.extension-card > header,
+.extension-card > header > div,
+.extension-actions,
+.extension-fingerprint {
+  display: flex;
+  align-items: center;
+}
+
+.extension-heading {
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.extension-heading h1 {
+  margin: 0 0 6px;
+  font-size: 24px;
+}
+
+.extension-heading p {
+  max-width: 620px;
+  margin: 0;
+  color: var(--prayu-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.extension-collection {
+  display: grid;
+  gap: 10px;
+}
+
+.extension-collection > header {
+  justify-content: space-between;
+  padding: 0 2px;
+}
+
+.extension-collection h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.extension-collection > header > span,
+.extension-state {
+  border: 1px solid var(--prayu-border);
+  border-radius: 999px;
+  color: var(--prayu-muted);
+  background: var(--prayu-control);
+}
+
+.extension-collection > header > span {
+  min-width: 26px;
+  padding: 2px 8px;
+  font: 600 10px/1.4 var(--prayu-font-mono);
+  text-align: center;
+}
+
+.extension-card-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr));
+  gap: 12px;
+}
+
+.extension-card,
+.extension-empty {
+  border: 1px solid var(--prayu-border);
+  border-radius: 17px;
+  background: var(--prayu-glass-fill);
+  box-shadow:
+    0 14px 38px var(--prayu-glass-shadow),
+    inset 0 1px 0 var(--prayu-glass-highlight);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  backdrop-filter: blur(24px) saturate(160%);
+}
+
+.extension-card {
+  min-width: 0;
+  padding: 15px;
+}
+
+.extension-card > header {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.extension-card > header > div {
+  min-width: 0;
+  gap: 9px;
+}
+
+.extension-card > header svg {
+  flex: 0 0 auto;
+  color: var(--prayu-accent);
+}
+
+.extension-card > header > div > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.extension-card > header strong,
+.extension-card > header span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.extension-card > header strong { font-size: 13px; }
+.extension-card > header > div span { color: var(--prayu-muted); font-size: 10px; }
+
+.extension-state {
+  max-width: 145px;
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  font: 600 9px/1.4 var(--prayu-font-mono);
+  text-transform: uppercase;
+}
+
+.extension-state.state-enabled,
+.extension-state.state-healthy {
+  border-color: color-mix(in srgb, var(--prayu-accent) 52%, transparent);
+  color: var(--prayu-accent);
+}
+
+.extension-state.state-quarantined,
+.extension-state.state-revoked {
+  border-color: color-mix(in srgb, #e24d55 52%, transparent);
+  color: #e24d55;
+}
+
+.extension-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 14px 0 10px;
+}
+
+.extension-facts > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.extension-facts dt,
+.extension-fingerprint span {
+  color: var(--prayu-muted);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .045em;
+}
+
+.extension-facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.extension-target {
+  margin: 0 0 9px;
+  overflow: hidden;
+  color: var(--prayu-muted);
+  font: 10px/1.45 var(--prayu-font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.extension-fingerprint {
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--prayu-border);
+}
+
+.extension-fingerprint code {
+  color: var(--prayu-text);
+  font: 9px/1.4 var(--prayu-font-mono);
+}
+
+.extension-actions {
+  justify-content: flex-end;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.settings-action.danger:not(:disabled) { color: #e24d55; }
+.settings-action.danger:hover:not(:disabled) {
+  border-color: color-mix(in srgb, #e24d55 52%, transparent);
+  background: color-mix(in srgb, #e24d55 9%, var(--prayu-control));
+}
+
+.extension-empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 24px;
+  color: var(--prayu-muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+@media (max-width: 680px) {
+  .extension-heading { align-items: flex-start; flex-direction: column; }
+  .extension-facts { grid-template-columns: 1fr; }
+}
+
 /* P13-H: independently implemented liquid-glass workbench controls. */
 .prayu-shell,
 .settings-shell {

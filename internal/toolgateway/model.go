@@ -48,6 +48,7 @@ const (
 	HostCommandProposeTool          ToolName = "host_command_propose"
 	DebugTerminalTool               ToolName = "debug_terminal"
 	CommandRuntimeTool              ToolName = "command_runtime"
+	MCPToolCallTool                 ToolName = "mcp_tool_call"
 	OneShotCommandProposeTool       ToolName = "one_shot_command_propose"
 	DockerSandboxRunProposeTool     ToolName = "sandbox_docker_run_propose"
 	SkillCandidateProposeTool       ToolName = "skill_candidate_propose"
@@ -69,6 +70,7 @@ func TypedActionIDs() map[string]struct{} {
 		string(ControlledCommandProposeTool):    {},
 		string(OneShotCommandProposeTool):       {},
 		string(DockerSandboxRunProposeTool):     {},
+		string(MCPToolCallTool):                 {},
 	}
 	for _, name := range agentCodeToolNames() {
 		out[string(name)] = struct{}{}
@@ -86,6 +88,8 @@ func (n ToolName) Valid() bool {
 		SpecialistDelegationProposeTool, ChildTaskProposeTool, ControlledCommandProposeTool,
 		OneShotCommandProposeTool, DockerSandboxRunProposeTool,
 		SkillCandidateProposeTool, DebugTerminalTool, CommandRuntimeTool:
+		return true
+	case MCPToolCallTool:
 		return true
 	case HostCommandProposeTool:
 		// Host commands remain proposals at this layer; execution is owned by
@@ -133,6 +137,8 @@ func ClassForTool(name ToolName) (ActionClass, bool) {
 	case CommandRuntimeTool:
 		return ClassProcess, true
 	case ScriptProcessTool:
+		return ClassProcess, true
+	case MCPToolCallTool:
 		return ClassProcess, true
 	case WorkItemCreateTool, NoteCreateTool:
 		return ClassRunMemory, true

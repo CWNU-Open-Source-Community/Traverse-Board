@@ -59,6 +59,7 @@ func TestSupervisorToolCallAcceptsEveryDurableToolName(t *testing.T) {
 		"host_command_propose",
 		"debug_terminal",
 		"command_runtime",
+		"mcp_tool_call",
 		"workspace_list",
 		"workspace_read",
 		"workspace_glob",
