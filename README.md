@@ -93,6 +93,12 @@ child 只有在 worktree clean、HEAD 是 base 的后代、全部 changed path �
 
 默认验证只执行不会运行仓库代码的 `git diff --check`。`go_test`/`npm_test` 会执行 child 提交的代码，因此只有操作者启用相应控制能力，且当前 Run 仍为 `running` 并持有 `full_access`（或显式更高的 `debug`）时才可在宿主运行；Desktop 还需显式 `--enable-batch-delivery-control`，宿主校验另需 permission control、danger-full-access 与 `--enable-batch-validation-execution`。验证进程使用 Windows Job Object / Unix process-group 生命周期边界，Go 测试禁用缓存，持久层只记录完整输出流摘要；其离线/去凭证环境仍只是降险措施，不是 OS 网络或文件系统沙箱，POSIX 主动脱离 inherited process group 也仍是显式宿主权限的残余风险。完整操作与恢复说明见[可交付多代理](docs/batch-delivery.md)，设计决策见 [ADR 0119](docs/adr/0119-deliverable-batch-agents.md)。
 
+### 源码绑定的真实浏览器 UI 证据
+
+Schema v119 的 `ui-evidence.v1` 把真实页面验证绑定到 commit/dirty digest/index/worktree manifest、精确 build/start recipe、固定浏览器 version/可执行文件 SHA-256、literal loopback URL/route、viewport/DPR、locale/theme/reduced motion、deterministic fixture/seed/page state、步骤与 capture policy。Application 在 build 前、readiness 后、浏览器断言后以及 owned process cleanup 完成后重新核对源码；拒绝已占用端口，不收养既有服务或个人 Browser Profile。Windows Desktop 的执行入口默认关闭，只有 Run execution、`full_access`、danger-full-access、restricted CDP 与 `--enable-ui-evidence` 同时成立才开放。
+
+Desktop、认证 OpenAPI 与只读/导出 CLI 共用同一份不可变 Attempt、step 和 artifact 语义。PNG、DOM、accessibility、console/page error、network/HTTP 与 performance 产物都保存 SHA-256/MIME/尺寸/viewport/source step/commit/Run/Attempt/redaction/retention policy，且 PNG 尺寸必须匹配 `viewport × DPR`；页面和产物始终不可信、不授权。`not_run` 明确保持中性，只有 exact `passed` 才算通过。Windows CI 用 creation-time Job Object、临时 Profile 和 deterministic loopback fixture 跑真实 Edge 的 desktop/mobile、theme/locale/reduced-motion 矩阵，并证明缺失 click handler 的回归只能被真实页面交互断言捕获。详见 [UI Evidence 操作手册](docs/ui-evidence.md)与 [ADR 0120](docs/adr/0120-source-bound-real-browser-ui-evidence.md)。
+
 ### 真实 Git、PowerShell 与 Bash
 
 Prayu 调用真实的 Git 和操作系统 Shell，不是命令模拟器；但它也不会给模型一个永久、无审阅的裸终端。当前 Code 工作流按风险拆成以下入口：
@@ -119,7 +125,7 @@ Prayu 调用真实的 Git 和操作系统 Shell，不是命令模拟器；但它
 - 受控命令默认使用 Go 固定模板；PowerShell/Bash 只通过 Code/Deliver/root + `full_access` 的 Run-owned runtime、逐条审批，或可撤销 Debug 租约三条独立路径开放。通用宿主执行与 Debug 能力不会因模型、Skill 或仓库文档而自动开启。
 - Docker Sandbox 产品入口默认关闭。显式进程 capability、当前 `docker` Profile、匹配权限档、精确 per-call 审批、Policy、预算与 30 秒 readiness 必须同时成立；数据库记录不能在重启后恢复 start authority。
 - 当前产品执行只接受 environment-free、secret-free 的 `network=disabled` Manifest，并在 Docker create/inspect 两侧固定 `network none`。allowlist/scoped egress 仍缺少 Go-owned host/port/protocol guard，因此一律以 `managed_egress_unavailable` 失败关闭；Docker 不可用时没有宿主 fallback。
-- 内置浏览器仍没有产品入口：受限运行时核心存在，但独立 OS/容器网络隔离证据尚未完成。
+- Windows Desktop 只在显式 `--enable-ui-evidence` 及其 Run execution/danger-full-access/restricted-CDP 前置条件同时成立时开放 loopback-only 真实浏览器证据；macOS 与普通 CLI 保持只读，Full CDP 仍是独立且默认关闭的 Debug 权限面。
 - Windows/macOS Desktop 当前都是未签名的开发者/操作者便携预览，不是正式安装包；macOS 产物只有 ad-hoc 签名且未公证。
 
 ### Docker Sandbox 产品入口（默认关闭）
@@ -330,14 +336,14 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 | P6-P8 | Sandbox 证据合同、非授权 Docker 生命周期探针、Skill Registry、Finding/Evidence/Report、SARIF 与 CI 投影 |
 | P9 / Desktop D0-D1 | HTTP/OpenAPI、React/TUI/Desktop、仓库/Diff/编辑/验证/Handoff 与液态玻璃工作台 |
 | P10-A 至 P10-M | Go/Rust Analyzer 协议、共享向量、内嵌 WASI 执行、一次性能力与产品接入 |
-| P11-A 至 P11-C | 浏览器权限、Profile、CDP 与 WFP 证据链；产品入口仍关闭 |
+| P11-A 至 P11-C / schema v119 | 浏览器权限、Profile、CDP/WFP 证据链与显式门禁的源码绑定 UI-evidence 产品路径 |
 | P12-A 至 P12-E | 交互模型、受控 Windows Runner、用户终端、四档权限、固定命令审批与宿主执行账本 |
 | P13-A 至 P13-H | Run Activity、公开模型流、连续对话、Markdown、Diff 审阅、Live Activity 与桌面视觉收口 |
 
 完整逐切片原始记录保留在 [`PROGRESS_BOOK.md`](docs/PROGRESS_BOOK.md)，当前检查点与验收证据保留在 [`PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)，恢复上下文见 [`PROJECT_MEMORY.md`](docs/PROJECT_MEMORY.md)。这些账本是历史记录，不应被当作待重新执行的任务列表。
 
 <details>
-<summary><strong>SQLite Schema v1-v118 迁移审计表 / Migration ledger</strong></summary>
+<summary><strong>SQLite Schema v1-v119 迁移审计表 / Migration ledger</strong></summary>
 
 此表是 Store 防漏迁移测试使用的审计合同。新增 schema 时必须按顺序追加，不得改写或删除既有行。
 
@@ -461,6 +467,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 | v116 | 增加 Run-owned command-runtime.v2 Job 与 Supervisor 调用账本 | add Run-owned command-runtime.v2 jobs and Supervisor call ledger support |
 | v117 | 增加事务化 workspace-checkpoint.v1、恢复/Fork 账本与内容寻址 blob | add transactional workspace-checkpoint.v1, restore/Fork ledger, and content-addressed blobs |
 | v118 | 增加 batch-delivery.v1、child Worktree/邮箱/交付复核与顺序合并队列 | add batch-delivery.v1, child worktrees/mailbox, delivery review, and ordered merge queues |
+| v119 | 增加源码绑定的 ui-evidence.v1 Attempt、步骤与内容寻址真实浏览器产物 | add source-bound ui-evidence.v1 attempts, steps, and content-addressed real-browser artifacts |
 
 </details>
 

@@ -93,6 +93,12 @@ A child reaches `ready_for_review` only with a clean worktree, a HEAD descending
 
 By default the only executable check is `git diff --check`, which does not run repository code. Because `go_test` and `npm_test` execute child-authored code on the host, the relevant control capability must be enabled and the current Run must still be running with `full_access` (or the explicitly higher `debug` mode); Desktop also requires explicit `--enable-batch-delivery-control`, while host validation additionally requires permission control, danger-full-access, and `--enable-batch-validation-execution`. Validation uses a Windows Job Object or Unix process-group lifecycle boundary, bypasses the Go test cache, and persists only complete-stream output digests. The stripped/offline environment still is not an OS network or filesystem sandbox, and deliberate POSIX daemonization outside the inherited process group remains an explicit host-execution residual. See [Deliverable Multi-Agent Batches](docs/batch-delivery.md) and [ADR 0119](docs/adr/0119-deliverable-batch-agents.md).
 
+### Source-bound real-browser UI evidence
+
+Schema v119 `ui-evidence.v1` binds real-page verification to the commit/dirty digest/index/worktree manifest, exact build/start recipes, fixed browser version and executable SHA-256, literal loopback URL/route, viewport/DPR, locale/theme/reduced motion, deterministic fixture/seed/page state, steps, and capture policy. Application revalidates source before build, after readiness, after browser assertions, and again after owned-process cleanup before terminal completion. It refuses an occupied port and never adopts an existing service or personal browser Profile. Windows Desktop execution is off by default and appears only when Run execution, `full_access`, danger-full-access, restricted CDP, and `--enable-ui-evidence` all hold.
+
+Desktop, authenticated OpenAPI, and the read/export-only CLI share immutable Attempt, step, and artifact semantics. PNG, DOM, accessibility, console/page-error, network/HTTP, and performance evidence retain SHA-256, MIME, dimensions, viewport, source step/commit, Run/Attempt, redaction provenance, and the retention policy; PNG dimensions must match `viewport × DPR`. Page content and artifacts remain untrusted and non-authorizing. `not_run` is always neutral; only exact `passed` is success. Windows CI runs real Edge in a creation-time Job Object and temporary Profile across desktop/mobile, theme/locale/reduced-motion cells, and proves a missing click handler is detected only by a real-page interaction assertion. See the [UI Evidence guide](docs/ui-evidence.md) and [ADR 0120](docs/adr/0120-source-bound-real-browser-ui-evidence.md).
+
 ### Real Git, PowerShell, and Bash
 
 Prayu invokes real Git and operating-system shells; it is not a command emulator. It deliberately does not give the model a permanent, unreviewed raw terminal. The Code workflow separates execution by risk:
@@ -119,7 +125,7 @@ Every `debug_terminal` write still passes Shell Policy; commands that require se
 - Conservative commands use Go-owned fixed templates. PowerShell/Bash is available only through one of three independent paths: the Code/Deliver/root + `full_access` Run-owned runtime, per-command approval, or a revocable Debug lease. General host execution and Debug authority cannot be enabled by a model, Skill, or repository document.
 - The Docker Sandbox product entry is disabled by default. An explicit process capability, the current `docker` Profile, a matching permission tier, an exact per-call approval, Policy, budgets, and a 30-second readiness check must all hold at once; database records can never restore start authority after a restart.
 - Product execution currently accepts only environment-free, secret-free `network=disabled` Manifests and pins `network none` on both the Docker create and inspect sides. Allowlist/scoped egress still lacks a Go-owned host/port/protocol guard, so it always fails closed with `managed_egress_unavailable`; there is no host fallback when Docker is unavailable.
-- The built-in browser has no product entry point yet. A restricted runtime core exists, but independent OS/container network-containment evidence is incomplete.
+- Windows Desktop exposes loopback-only real-browser evidence only when explicit `--enable-ui-evidence` and its Run-execution/danger-full-access/restricted-CDP prerequisites all hold. macOS and the ordinary CLI remain read-only; Full CDP is still a separate, default-off Debug authority surface.
 - Windows/macOS Desktop are currently unsigned developer/operator portable previews, not released installers; the macOS artifact is only ad-hoc signed and not notarized.
 
 ### Docker Sandbox product entry (disabled by default)
@@ -277,7 +283,7 @@ At **2026-08-13 / schema v96 / P13-H1 through P13-H3**, the old task book estima
 | P6-P8 | Sandbox evidence contracts, Skill Registry, Finding/Evidence/Report, SARIF, and CI projection |
 | P9 / Desktop D0-D1 | HTTP/OpenAPI, React/TUI/Desktop, repository/diff/editor/verification/Handoff, and liquid-glass workbench |
 | P10-A through P10-M | Go/Rust Analyzer protocol, vectors, embedded WASI execution, one-shot capability, and product integration |
-| P11-A through P11-C | Browser permissions, Profiles, CDP, and WFP evidence; product entry remains closed |
+| P11-A through P11-C / schema v119 | Browser permissions, Profiles, CDP/WFP evidence, and the gated source-bound UI-evidence product path |
 | P12-A through P12-E | Interaction models, controlled Windows Runner, user terminal, four permission tiers, command approval, and host-execution ledger |
 | P13-A through P13-H | Run Activity, public model stream, continuous chat, Markdown, diff review, Live Activity, and desktop visual consolidation |
 

@@ -63,6 +63,10 @@
       "description": "Content-free Artifact descriptors."
     },
     {
+      "name": "UI Evidence",
+      "description": "Source-bound real-browser manifests, fail-closed receipts, and untrusted captured artifacts."
+    },
+    {
       "name": "Sandbox",
       "description": "Docker Sandbox readiness, admission, bounded execution, cancellation, and status."
     },
@@ -9027,6 +9031,219 @@
         "x-cyberagent-read-only": true
       }
     },
+    "/api/v1/runs/{run_id}/ui-evidence": {
+      "get": {
+        "operationId": "listRunUIEvidence",
+        "summary": "List source-bound UI evidence attempts",
+        "description": "Returns immutable manifests and fail-closed outcomes. not_run is unknown and never a passing result.",
+        "tags": [
+          "UI Evidence"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Optional exact attempt status",
+            "schema": {
+              "enum": [
+                "not_run",
+                "running",
+                "passed",
+                "failed",
+                "cancelled",
+                "timed_out",
+                "interrupted"
+              ],
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum attempts",
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/UIEvidenceAttempt"
+                      },
+                      "type": "array"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      },
+      "post": {
+        "operationId": "startRunUIEvidence",
+        "summary": "Start real-browser UI evidence",
+        "description": "Persists not_run before asynchronously executing the exact source-bound build/start recipe in a Run-owned process tree, a temporary browser Profile, and a loopback-only reviewed Safe Web runtime.",
+        "tags": [
+          "UI Evidence"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/UIEvidenceAttempt"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/uiEvidenceStartView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/runs/{run_id}/verification-evidence": {
       "get": {
         "operationId": "listRunVerificationEvidence",
@@ -12775,6 +12992,272 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/SkillPackageInstallRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/ui-evidence/{attempt_id}": {
+      "get": {
+        "operationId": "getUIEvidence",
+        "summary": "Inspect one UI evidence bundle",
+        "description": "Returns the exact manifest, step receipts, and artifact metadata without binary content.",
+        "tags": [
+          "UI Evidence"
+        ],
+        "parameters": [
+          {
+            "name": "attempt_id",
+            "in": "path",
+            "description": "UI evidence attempt identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/UIEvidenceBundle"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/ui-evidence/{attempt_id}/artifacts/{artifact_id}": {
+      "get": {
+        "operationId": "downloadUIEvidenceArtifact",
+        "summary": "Download one verified UI evidence artifact",
+        "description": "Returns exact hash-verified untrusted bytes with MIME, ETag, source digest, and no-store headers.",
+        "tags": [
+          "UI Evidence"
+        ],
+        "parameters": [
+          {
+            "name": "attempt_id",
+            "in": "path",
+            "description": "UI evidence attempt identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "description": "Artifact identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Hash-verified untrusted evidence bytes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/ui-evidence/{attempt_id}/cancel": {
+      "post": {
+        "operationId": "cancelUIEvidence",
+        "summary": "Cancel one UI evidence attempt",
+        "description": "Cancels the service-owned context and waits for bounded process-tree, Profile, network, and port cleanup.",
+        "tags": [
+          "UI Evidence"
+        ],
+        "parameters": [
+          {
+            "name": "attempt_id",
+            "in": "path",
+            "description": "UI evidence attempt identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/UIEvidenceAttempt"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/uiEvidenceCancelView"
               }
             }
           }
@@ -17211,6 +17694,111 @@
         ],
         "type": "object"
       },
+      "CommandRuntimeEnvironment": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ],
+        "type": "object"
+      },
+      "CommandRuntimeOutputPolicy": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_bytes": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "inline_bytes": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "inline_bytes",
+          "artifact_bytes"
+        ],
+        "type": "object"
+      },
+      "CommandRuntimeSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "arguments": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "close_initial_stdin": {
+            "type": "boolean"
+          },
+          "credentials": {
+            "type": "string"
+          },
+          "environment": {
+            "items": {
+              "$ref": "#/components/schemas/CommandRuntimeEnvironment"
+            },
+            "type": "array"
+          },
+          "executable": {
+            "type": "string"
+          },
+          "initial_stdin": {
+            "type": "string"
+          },
+          "network": {
+            "type": "string"
+          },
+          "output": {
+            "$ref": "#/components/schemas/CommandRuntimeOutputPolicy"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "script": {
+            "type": "string"
+          },
+          "stdin_policy": {
+            "type": "string"
+          },
+          "timeout_milliseconds": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "version": {
+            "type": "string"
+          },
+          "working_directory": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "profile",
+          "working_directory",
+          "environment",
+          "stdin_policy",
+          "close_initial_stdin",
+          "timeout_milliseconds",
+          "output",
+          "network",
+          "credentials",
+          "purpose"
+        ],
+        "type": "object"
+      },
       "CommandSpec": {
         "additionalProperties": false,
         "properties": {
@@ -21289,6 +21877,9 @@
             "$ref": "#/components/schemas/OutputSpec"
           },
           "protocol_version": {
+            "enum": [
+              "ui-evidence.v1"
+            ],
             "type": "string"
           },
           "resources": {
@@ -26920,6 +27511,9 @@
           "skill_installation_enabled": {
             "type": "boolean"
           },
+          "ui_evidence_control_enabled": {
+            "type": "boolean"
+          },
           "verification_evidence_enabled": {
             "type": "boolean"
           },
@@ -26964,6 +27558,7 @@
           "workspace_checkpoint_control_enabled",
           "batch_delivery_control_enabled",
           "batch_delivery_host_validation_enabled",
+          "ui_evidence_control_enabled",
           "process_execution_enabled",
           "shell_execution_enabled",
           "docker_execution_enabled",
@@ -27922,6 +28517,967 @@
           "recovery_level",
           "created_at",
           "updated_at"
+        ],
+        "type": "object"
+      },
+      "UIEvidenceArtifactMetadata": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "height": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "screenshot",
+              "dom",
+              "accessibility",
+              "console",
+              "network",
+              "performance"
+            ],
+            "type": "string"
+          },
+          "mime": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "enum": [
+              "ui-evidence-artifact.v1"
+            ],
+            "type": "string"
+          },
+          "redacted": {
+            "type": "boolean"
+          },
+          "retention_policy": {
+            "enum": [
+              "run_history"
+            ],
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "source_commit": {
+            "type": "string"
+          },
+          "step_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "untrusted": {
+            "type": "boolean"
+          },
+          "viewport": {
+            "$ref": "#/components/schemas/UIEvidenceViewport"
+          },
+          "width": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "id",
+          "attempt_id",
+          "run_id",
+          "step_id",
+          "kind",
+          "mime",
+          "sha256",
+          "bytes",
+          "viewport",
+          "source_commit",
+          "retention_policy",
+          "redacted",
+          "untrusted",
+          "created_at",
+          "fingerprint"
+        ],
+        "type": "object"
+      },
+      "UIEvidenceAttempt": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "artifact_count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "cleanup": {
+            "$ref": "#/components/schemas/UIEvidenceCleanupReceipt"
+          },
+          "completed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "diagnostics": {
+            "$ref": "#/components/schemas/UIEvidenceDiagnosticsSummary"
+          },
+          "failure_code": {
+            "type": "string"
+          },
+          "failure_message": {
+            "type": "string"
+          },
+          "failure_stage": {
+            "enum": [
+              "none",
+              "build",
+              "launch",
+              "readiness",
+              "navigation",
+              "selector",
+              "assertion",
+              "console",
+              "network",
+              "capture",
+              "cleanup"
+            ],
+            "type": "string"
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/UIEvidenceManifest"
+          },
+          "operation_digest": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "enum": [
+              "ui-evidence-attempt.v1"
+            ],
+            "type": "string"
+          },
+          "request_fingerprint": {
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "not_run",
+              "running",
+              "passed",
+              "failed",
+              "cancelled",
+              "timed_out",
+              "interrupted"
+            ],
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "manifest",
+          "operation_digest",
+          "request_fingerprint",
+          "status",
+          "failure_stage",
+          "diagnostics",
+          "cleanup",
+          "artifact_count",
+          "artifact_bytes",
+          "version",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "UIEvidenceBrowserIdentity": {
+        "additionalProperties": false,
+        "properties": {
+          "driver_protocol": {
+            "enum": [
+              "restricted-cdp-ui-evidence.v1"
+            ],
+            "type": "string"
+          },
+          "executable_sha256": {
+            "type": "string"
+          },
+          "headless": {
+            "type": "boolean"
+          },
+          "product": {
+            "enum": [
+              "chrome",
+              "edge"
+            ],
+            "type": "string"
+          },
+          "temporary_profile": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "product",
+          "version",
+          "executable_sha256",
+          "driver_protocol",
+          "headless",
+          "temporary_profile"
+        ],
+        "type": "object"
+      },
+      "UIEvidenceBrowserSelection": {
+        "additionalProperties": false,
+        "properties": {
+          "channel": {
+            "enum": [
+              "stable",
+              "beta",
+              "dev",
+              "canary"
+            ],
+            "type": "string"
+          },
+          "product": {
+            "enum": [
+              "chrome",
+              "edge"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "product",
+          "channel"
+        ],
+        "type": "object"
+      },
+      "UIEvidenceBundle": {
+        "additionalProperties": false,
+        "properties": {
+          "artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/UIEvidenceArtifactMetadata"
+            },
+            "type": "array"
+          },
+          "attempt": {
+            "$ref": "#/components/schemas/UIEvidenceAttempt"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/UIEvidenceStepReceipt"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "attempt",
+          "steps",
+          "artifacts"
+        ],
+        "type": "object"
+      },
+      "UIEvidenceCapturePolicy": {
+        "additionalProperties": false,
+        "properties": {
+          "accessibility": {
+            "type": "boolean"
+          },
+          "console": {
+            "type": "boolean"
+          },
+          "dom": {
+            "type": "boolean"
+          },
+          "mask_selectors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "network": {
+            "type": "boolean"
+          },
+          "performance": {
+            "type": "boolean"
+          },
+          "screenshot": {
+            "type": "boolean"
+          },
+          "video": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "screenshot",
+          "dom",
+          "accessibility",
+          "console",
+          "network",
+          "performance",
+          "video",
+          "mask_selectors"
+        ],
+        "type": "object"
+      },
+      "UIEvidenceCleanupReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "application_tree_reaped": {
+            "type": "boolean"
+          },
+          "browser_tree_reaped": {
+            "type": "boolean"
+          },
+          "network_released": {
+            "type": "boolean"
+          },
+          "port_released": {
+            "type": "boolean"
+          },
+          "profile_removed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "browser_tree_reaped",
+          "application_tree_reaped",
+          "profile_removed",
+          "network_released",
+          "port_released"
+        ],
+        "type": "object"
+      },
+      "UIEvidenceCommandRecipe": {
+        "additionalProperties": false,
+        "properties": {
+          "canonical_argv": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "credentials": {
+            "enum": [
+              "none"
+            ],
+            "type": "string"
+          },
+          "environment_names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "environment_sha256": {
+            "type": "string"
+          },
+          "executable_name": {
+            "type": "string"
+          },
+          "executable_path_sha256": {
+            "type": "string"
+          },
+          "executable_sha256": {
+            "type": "string"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "network": {
+            "enum": [
+              "disabled"
+            ],
+            "type": "string"
+          },
+          "profile": {
+            "enum": [
+              "powershell",
+              "bash",
+              "process"
+            ],
+            "type": "string"
+          },
+          "protocol_version": {
+            "enum": [
+              "command-runtime.v2"
+            ],
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "timeout_milliseconds": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "working_directory": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "profile",
+          "executable_name",
+          "executable_path_sha256",
+          "executable_sha256",
+          "canonical_argv",
+          "working_directory",
+          "environment_names",
+          "environment_sha256",
+          "timeout_milliseconds",
+          "network",
+          "credentials",
+          "purpose",
+          "fingerprint"
+        ],
+        "type": "object"
+      },
+      "UIEvidenceDiagnosticsSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_requests": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "blocked_requests": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "console_errors": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "console_warnings": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "failed_requests": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "http_failures": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "page_errors": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "console_warnings",
+          "console_errors",
+          "page_errors",
+          "failed_requests",
+          "http_failures",
+          "allowed_requests",
+          "blocked_requests"
+        ],
+        "type": "object"
+      },
+      "UIEvidenceEnvironment": {
+        "additionalProperties": false,
+        "properties": {
+          "locale": {
+            "type": "string"
+          },
+          "reduced_motion": {
+            "type": "boolean"
+          },
+          "theme": {
+            "enum": [
+              "light",
+              "dark"
+            ],
+            "type": "string"
+          },
+          "viewport": {
+            "$ref": "#/components/schemas/UIEvidenceViewport"
+          }
+        },
+        "required": [
+          "viewport",
+          "locale",
+          "theme",
+          "reduced_motion"
+        ],
+        "type": "object"
+      },
+      "UIEvidenceEvidenceAuthority": {
+        "additionalProperties": false,
+        "properties": {
+          "credential_access": {
+            "type": "boolean"
+          },
+          "network_access": {
+            "type": "boolean"
+          },
+          "personal_profile": {
+            "type": "boolean"
+          },
+          "process_start": {
+            "type": "boolean"
+          },
+          "request_mutation": {
+            "type": "boolean"
+          },
+          "verification_pass": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "process_start",
+          "network_access",
+          "credential_access",
+          "personal_profile",
+          "request_mutation",
+          "verification_pass"
+        ],
+        "type": "object"
+      },
+      "UIEvidenceFailurePolicy": {
+        "additionalProperties": false,
+        "properties": {
+          "fail_on_console_error": {
+            "type": "boolean"
+          },
+          "fail_on_http_status": {
+            "type": "boolean"
+          },
+          "fail_on_page_error": {
+            "type": "boolean"
+          },
+          "fail_on_request_error": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "fail_on_console_error",
+          "fail_on_page_error",
+          "fail_on_request_error",
+          "fail_on_http_status"
+        ],
+        "type": "object"
+      },
+      "UIEvidenceFixture": {
+        "additionalProperties": false,
+        "properties": {
+          "data_sha256": {
+            "type": "string"
+          },
+          "deterministic": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "page_state": {
+            "type": "string"
+          },
+          "seed": {
+            "type": "string"
+          },
+          "synthetic": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "seed",
+          "page_state",
+          "data_sha256",
+          "deterministic",
+          "synthetic"
+        ],
+        "type": "object"
+      },
+      "UIEvidenceManifest": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "authority": {
+            "$ref": "#/components/schemas/UIEvidenceEvidenceAuthority"
+          },
+          "browser": {
+            "$ref": "#/components/schemas/UIEvidenceBrowserIdentity"
+          },
+          "build": {
+            "$ref": "#/components/schemas/UIEvidenceCommandRecipe"
+          },
+          "capture": {
+            "$ref": "#/components/schemas/UIEvidenceCapturePolicy"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "environment": {
+            "$ref": "#/components/schemas/UIEvidenceEnvironment"
+          },
+          "failure_policy": {
+            "$ref": "#/components/schemas/UIEvidenceFailurePolicy"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "fixture": {
+            "$ref": "#/components/schemas/UIEvidenceFixture"
+          },
+          "mission_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "protocol_version": {
+            "enum": [
+              "ui-evidence.v1"
+            ],
+            "type": "string"
+          },
+          "readiness": {
+            "$ref": "#/components/schemas/UIEvidenceReadiness"
+          },
+          "route": {
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/UIEvidenceSourceBinding"
+          },
+          "start": {
+            "$ref": "#/components/schemas/UIEvidenceCommandRecipe"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/UIEvidenceStep"
+            },
+            "type": "array"
+          },
+          "url": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "attempt_id",
+          "run_id",
+          "mission_id",
+          "session_id",
+          "workspace_id",
+          "source",
+          "start",
+          "readiness",
+          "browser",
+          "url",
+          "route",
+          "environment",
+          "fixture",
+          "steps",
+          "capture",
+          "failure_policy",
+          "authority",
+          "created_at",
+          "fingerprint"
+        ],
+        "type": "object"
+      },
+      "UIEvidenceReadiness": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_status": {
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "interval_milliseconds": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "method": {
+            "type": "string"
+          },
+          "timeout_milliseconds": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "method",
+          "expected_status",
+          "timeout_milliseconds",
+          "interval_milliseconds"
+        ],
+        "type": "object"
+      },
+      "UIEvidenceRuntimeStep": {
+        "additionalProperties": false,
+        "properties": {
+          "input": {
+            "type": "string"
+          },
+          "step": {
+            "$ref": "#/components/schemas/UIEvidenceStep"
+          }
+        },
+        "required": [
+          "step"
+        ],
+        "type": "object"
+      },
+      "UIEvidenceSourceBinding": {
+        "additionalProperties": false,
+        "properties": {
+          "branch": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "dirty": {
+            "type": "boolean"
+          },
+          "dirty_digest": {
+            "type": "string"
+          },
+          "index_sha256": {
+            "type": "string"
+          },
+          "manifest_sha256": {
+            "type": "string"
+          },
+          "repository_kind": {
+            "enum": [
+              "git",
+              "non_git"
+            ],
+            "type": "string"
+          },
+          "root_fingerprint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "repository_kind",
+          "commit",
+          "dirty",
+          "dirty_digest",
+          "root_fingerprint",
+          "index_sha256",
+          "manifest_sha256"
+        ],
+        "type": "object"
+      },
+      "UIEvidenceStep": {
+        "additionalProperties": false,
+        "properties": {
+          "capture_after": {
+            "type": "boolean"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "input_sha256": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "navigate",
+              "click",
+              "type",
+              "assert_present",
+              "assert_absent",
+              "capture"
+            ],
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "capture_after"
+        ],
+        "type": "object"
+      },
+      "UIEvidenceStepReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "completed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "failure_stage": {
+            "enum": [
+              "none",
+              "build",
+              "launch",
+              "readiness",
+              "navigation",
+              "selector",
+              "assertion",
+              "console",
+              "network",
+              "capture",
+              "cleanup"
+            ],
+            "type": "string"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "navigate",
+              "click",
+              "type",
+              "assert_present",
+              "assert_absent",
+              "capture"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "enum": [
+              "ui-evidence-step.v1"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "passed",
+              "failed",
+              "cancelled",
+              "timed_out"
+            ],
+            "type": "string"
+          },
+          "step_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "attempt_id",
+          "step_id",
+          "sequence",
+          "kind",
+          "status",
+          "failure_stage",
+          "started_at",
+          "completed_at",
+          "fingerprint"
+        ],
+        "type": "object"
+      },
+      "UIEvidenceViewport": {
+        "additionalProperties": false,
+        "properties": {
+          "dpr": {
+            "format": "double",
+            "type": "number"
+          },
+          "height": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "width": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "width",
+          "height",
+          "dpr"
         ],
         "type": "object"
       },
@@ -30864,6 +32420,76 @@
           "expected_fingerprint",
           "expected_live_fingerprint",
           "confirm"
+        ],
+        "type": "object"
+      },
+      "uiEvidenceCancelView": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "confirm"
+        ],
+        "type": "object"
+      },
+      "uiEvidenceStartView": {
+        "additionalProperties": false,
+        "properties": {
+          "browser": {
+            "$ref": "#/components/schemas/UIEvidenceBrowserSelection"
+          },
+          "build": {
+            "$ref": "#/components/schemas/CommandRuntimeSpec"
+          },
+          "capture": {
+            "$ref": "#/components/schemas/UIEvidenceCapturePolicy"
+          },
+          "environment": {
+            "$ref": "#/components/schemas/UIEvidenceEnvironment"
+          },
+          "failure_policy": {
+            "$ref": "#/components/schemas/UIEvidenceFailurePolicy"
+          },
+          "fixture": {
+            "$ref": "#/components/schemas/UIEvidenceFixture"
+          },
+          "operation_key": {
+            "type": "string"
+          },
+          "readiness": {
+            "$ref": "#/components/schemas/UIEvidenceReadiness"
+          },
+          "route": {
+            "type": "string"
+          },
+          "start": {
+            "$ref": "#/components/schemas/CommandRuntimeSpec"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/UIEvidenceRuntimeStep"
+            },
+            "type": "array"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_key",
+          "start",
+          "readiness",
+          "url",
+          "route",
+          "browser",
+          "environment",
+          "fixture",
+          "steps",
+          "capture",
+          "failure_policy"
         ],
         "type": "object"
       },

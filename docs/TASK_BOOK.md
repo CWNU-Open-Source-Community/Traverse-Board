@@ -1,6 +1,6 @@
 # Prayu V2 任务书
 
-更新时间：2026-08-15
+更新时间：2026-08-20
 
 ## 目标
 
@@ -9,6 +9,18 @@
 当前任务书只推进通用 Agent Harness 与 Code 工作流。CTF 专用求解、自动化渗透和攻防工具链已经移出活跃路线图，不再排队开发；仓库仅保留 Run、Provider、Tool、Skill、Analyzer、Sandbox、Finding/Evidence/Report 等通用扩展接口，供未来经过独立 ADR 和安全复核的附加包接入。范围权威见 [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md)。
 
 ## 当前基线
+
+来源绑定真实浏览器 UI 证据（Issue #102）已随 schema v119 落地（ADR 0120）：
+`ui-evidence.v1` 把 fresh source checkpoint、受审阅 build/start recipe、固定浏览器
+version/executable hash、literal-loopback URL/route、viewport/DPR、locale/theme/
+reduced-motion、deterministic fixture/seed/page state、有序交互断言、capture/mask 与
+fail-closed diagnostics 封存到同一 Attempt。Application 拒绝预存服务，跨 build、readiness
+和最终判定重验源码，通过 v116 command runtime 与 Safe Web exact-owned 浏览器生命周期
+负责 app/browser/Profile/network/port 清理。`not_run` 永不通过；console/page/request/HTTP、
+source drift 和 cleanup failure 有稳定阶段。SQLite 持久化不可变 manifest/steps/hash-addressed
+artifacts；Desktop/OpenAPI/只读 CLI 与 `run-verify@1.1.0` 使用同一语义，Windows CI 以真实
+Edge 跑呈现矩阵并证明缺失 click handler 只能由真实页面交互断言发现。个人 Profile、cookie、
+Full CDP、外部网络、任意 JS 和历史 authority 保持不可达。
 
 Ollama 本地 Provider（Issue #48）已落地（ADR 0100）：无凭证 loopback-only 适配器只连接显式配置的 `http://127.0.0.1:11434` 类端点，拒绝非 loopback/HTTPS/redirect/代理绕过；`/api/tags` 模型列表、`/api/chat` 同步与 NDJSON 流式、usage 估算与稳定错误映射齐全；`/api/show` 能力探测把 tools/vision/JSON/context 按“未知即不支持”失败关闭，no-tool 模型绝不收到 Tool schema；能力探测在路由选择、qualification 与 diagnostic 前 best-effort 执行，探测到的 context window 进入真实预算规划。Registry kind `ollama` 与 transport `ollama_chat` 已接入 CLI/HTTP/OpenAPI/Desktop/Web；credential 枚举保持四位（Ollama 无凭证）。本机未安装 Ollama，真实 smoke 为 usage 文档化的可选人工步骤；fake-server 离线测试覆盖 list/chat/stream/取消/不可达/redirect/代理/no-tool 与探测语义。
 
@@ -598,6 +610,9 @@ schema v65 已增加不可变 `sandbox_docker_production_evidence.v1`：Go 固�
 - [x] P11-C8B / schema v92：完成可恢复 runtime lifecycle 编排、只追加 checkpoint/receipt、恢复投影、审计事件，以及进程退出到 WFP/Profile release/cleanup 的精确对账；未增加模型 Tool。
 - [x] P11-C8A/C8B 功能门与组合审计：全仓 Go 约 435 秒、vet/staticcheck、browserruntime 普通/race 和 Linux 无 CGO 交叉编译通过；修复 WFP x64 ABI 对齐、Profile 删除后复核和并发 Finalize 唯一收据，未启动真实浏览器。
 - [ ] P11-C8C：仅在 C8A/C8B 独立接纳后增加操作者专用的 Restricted Safe Web 产品入口；完整 CDP、个人 Profile 和模型控制继续分离。
+- [x] P11-C9A / schema v119：定义并封存 `ui-evidence.v1` source/recipe/runtime/presentation/fixture/step/capture/failure 合同、严格状态机、稳定失败阶段和不可变 SQLite Attempt/step/content-addressed artifact 账本；历史迁移不回填证据，`not_run` 永不通过。
+- [x] P11-C9B：以 v116 Run-owned command runtime 和 exact-owned Safe Web browser 组合受审阅应用启动、readiness、来源重验、真实 navigate/click/type/selector 与 PNG/DOM/a11y/console/page/network/HTTP/performance 采集；拒绝预存服务、外部 origin、个人 Profile/cookie、Full CDP、任意 JS、request body/mutation/replay，并在 success/failure/timeout/cancel/shutdown 后等待清理。
+- [x] P11-C9C：接入 Desktop 审阅/执行/历史面板、认证 OpenAPI、read-only/hash-verified CLI、`run-verify@1.1.0`、README/guide/ADR；Windows CI 真实 Edge 矩阵覆盖 desktop/mobile、theme/locale/reduced-motion，并用缺失 click handler 的页面证明真实交互证据可捕获 source/build-only 检查不能证明的回归。
 - [ ] P11-D：CTF Lab 抓包/改包/重放、Cookie 与代理；所有请求继续绑定 exact scope、预算和事件审计。
 - [ ] P11-E：仅容器内开放 Instrumented 安全放宽并强制证据标记，默认档永久保持浏览器原生安全。
 - [ ] 在 Profiles/Skills/Finding/Sandbox 稳定后实现 CTF Mission Profile。

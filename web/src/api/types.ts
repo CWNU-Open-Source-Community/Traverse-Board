@@ -60,6 +60,10 @@ export type FindingReportSummaryView = components["schemas"]["FindingReportSumma
 export type FindingReportView = components["schemas"]["FindingReportView"];
 export type HealthView = components["schemas"]["HealthView"];
 export type RuntimeCapabilitiesView = components["schemas"]["RuntimeCapabilitiesView"];
+export type UIEvidenceArtifactMetadata = components["schemas"]["UIEvidenceArtifactMetadata"];
+export type UIEvidenceAttempt = components["schemas"]["UIEvidenceAttempt"];
+export type UIEvidenceBundle = components["schemas"]["UIEvidenceBundle"];
+export type UIEvidenceStartView = components["schemas"]["uiEvidenceStartView"];
 export type EmbeddedAnalyzerExecutionRequestView =
   components["schemas"]["EmbeddedAnalyzerExecutionRequestView"];
 export type EmbeddedAnalyzerExecutionControlView =

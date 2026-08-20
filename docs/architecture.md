@@ -659,7 +659,7 @@ The same Go adapter owns read projections for the bounded Agent graph, operator-
 
 ## Persistence
 
-SQLite remains the local source of truth. Schema migration `v1` records the legacy baseline, `v2`-`v18` establish the Run/Supervisor/memory/tool/Artifact/lease control plane, `v19`-`v38` add bounded Agent coordination, reviewed delegation, read-only Fan-out, Findings, and operator scheduling, and `v39`-`v47` add immutable Skill selection/context, Run modes, Plan/Delivery, provenance, checkpoints, steering, and Specialist minimization. Schemas `v48`-`v63` build the still-disabled Sandbox evidence and recovery chain; `v64`-`v68` add non-authorizing execution-profile and Docker production-evidence decisions; `v69`-`v71` add the inert user Skill Registry, exact Run selection/context, and read-only provenance; `v72`-`v113` continue the audited Run, Desktop, Provider, browser, Analyzer, Docker, dependency, MCP, project-config, Git, external-Skill, and Debug-terminal control planes; `v114` adds explicit long-term memory plus immutable instruction/continuity ledgers without authority restoration; `v115` adds model-callable workspace tools and hash-guarded file mutations; and `v116` adds the Run-owned ordinary command runtime and its Supervisor call ledger. Non-schema D1-B1 exposes the existing v69 Registry through inert HTTP/Desktop confirmation and adds no migration. Migrations are ordered, checksummed, transactional, and safe to apply repeatedly; legacy databases are upgraded without deleting their data or fabricating new operator decisions.
+SQLite remains the local source of truth. Schema migration `v1` records the legacy baseline, `v2`-`v18` establish the Run/Supervisor/memory/tool/Artifact/lease control plane, `v19`-`v38` add bounded Agent coordination, reviewed delegation, read-only Fan-out, Findings, and operator scheduling, and `v39`-`v47` add immutable Skill selection/context, Run modes, Plan/Delivery, provenance, checkpoints, steering, and Specialist minimization. Schemas `v48`-`v63` build the still-disabled Sandbox evidence and recovery chain; `v64`-`v68` add non-authorizing execution-profile and Docker production-evidence decisions; `v69`-`v71` add the inert user Skill Registry, exact Run selection/context, and read-only provenance; `v72`-`v113` continue the audited Run, Desktop, Provider, browser, Analyzer, Docker, dependency, MCP, project-config, Git, external-Skill, and Debug-terminal control planes; `v114` adds explicit long-term memory plus immutable instruction/continuity ledgers without authority restoration; `v115` adds model-callable workspace tools and hash-guarded file mutations; `v116` adds the Run-owned ordinary command runtime and its Supervisor call ledger; `v117` adds content-addressed transactional Workspace checkpoints; and `v118` adds source-bound real-browser UI-evidence attempts, steps, and artifacts. Non-schema D1-B1 exposes the existing v69 Registry through inert HTTP/Desktop confirmation and adds no migration. Migrations are ordered, checksummed, transactional, and safe to apply repeatedly; legacy databases are upgraded without deleting their data or fabricating new operator decisions.
 
 ```text
 missions
@@ -1273,3 +1273,54 @@ branch or `orphaned` directory. Startup reconciliation converges durable materia
 commit, expiry, and merge intents without restoring tokens, processes, or authority; a
 non-running Run is reported for operator attention before any filesystem or Git effect.
 Operational details are in [Deliverable Multi-Agent Batches](batch-delivery.md).
+
+## Source-Bound Real-Browser UI Evidence
+
+ADR 0120 and schema v119 add `ui-evidence.v1` above the v116 command runtime and
+the existing Safe Web lifecycle. The immutable manifest is the join point between
+one Run/Mission/Session/Workspace, a fresh source checkpoint, optional build and
+required start `command-runtime.v2` recipes, readiness, an executable/version/hash-
+pinned browser, literal loopback URL and route, viewport/DPR, locale/theme/reduced
+motion, deterministic fixture/seed/page state, ordered steps, masks, and a mandatory
+fail-closed diagnostic policy. Source identity is captured before persistence and
+revalidated before build, after readiness, and immediately before pass. Build or
+application mutation of tracked/untracked/index/commit/branch/root identity therefore
+cannot be hidden by a successful screenshot.
+
+The lifecycle is `not_run -> running -> passed|failed|cancelled|timed_out`; startup
+reconciliation maps a stranded `running` row to `interrupted/cleanup` without reviving
+authority. `not_run` never satisfies `Passed()`. Stable failure stages are build,
+launch, readiness, navigation, selector, assertion, console, network, capture, and
+cleanup. Every terminal pass requires zero console/page/request/HTTP failures and a
+complete browser-tree/application-tree/Profile/network/port cleanup receipt. SQLite
+seals the manifest, append-only step receipts, and content-addressed artifacts while
+enforcing 32-MiB artifact, 128-MiB attempt, and 2-GiB store limits.
+
+Execution is scoped ownership, not browser adoption. The Application service probes
+the exact readiness port before start and refuses an existing listener. It runs the
+reviewed application through the Run-owned command manager, launches a newly verified
+fixed-location Edge/Chrome executable in an attempt-private Profile, and binds the
+browser tree at creation to Safe Web network containment and a kill-on-close Job.
+Cancellation and service shutdown use a context independent of the HTTP request and
+wait for owned cleanup. A restart may reconcile SQLite state but never adopts a PID,
+port, browser, Profile, cookie store, or old capability.
+
+`restricted-cdp-ui-evidence.v1` is a separate method allowlist for viewport/emulation,
+navigation, click/type through fixed DOM methods, selector assertions, screenshot,
+DOM/accessibility, performance, and bounded diagnostics. It excludes
+`Runtime.evaluate`, cookies, credentials, response bodies, request mutation/replay,
+and `Fetch.fulfillRequest`; all observed page data stays untrusted and non-authorizing.
+Network evidence retains only bounded redacted origin/path metadata, method, resource
+type, status, MIME, and failure summaries. Screenshots require every declared dynamic
+mask to resolve before capture.
+
+Windows Desktop installs a read-only service unconditionally and upgrades it to the
+execution service only when Run execution, permission control, danger-full-access,
+restricted browser CDP, and the dedicated UI-evidence process gate all hold. React and
+OpenAPI are projections over the same Application service; the CLI deliberately offers
+only list/show/hash-verified exclusive export. CI exercises the production restricted
+driver against a deterministic loopback fixture with desktop/mobile, theme, locale,
+and reduced-motion cells and writes a source/browser/artifact receipt. Its deliberate
+missing-click-handler route establishes that real interaction evidence catches a
+regression that source/build checks alone do not prove. Operational details are in
+[Real-browser UI Evidence](ui-evidence.md).

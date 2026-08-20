@@ -31,6 +31,7 @@ import (
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/skills"
 	"cyberagent-workbench/internal/toolgateway"
+	"cyberagent-workbench/internal/uievidence"
 	"cyberagent-workbench/internal/verification"
 )
 
@@ -515,6 +516,28 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		application.NewEmbeddedAnalyzerExecutionService(fixture.store)
 	fixture.api.workspaceCheckpointControlEnabled = true
 	fixture.api.workspaceCheckpointController = &workspaceCheckpointControllerStub{}
+	uiAttemptID := "ui-attempt-openapi-0001"
+	uiArtifact, err := uievidence.SealArtifact(uievidence.ArtifactMetadata{
+		ID: fixture.artifactID, AttemptID: uiAttemptID, RunID: fixture.run.ID,
+		StepID: "navigate", Kind: uievidence.ArtifactDOM, MIME: "application/octet-stream",
+		Viewport:     uievidence.Viewport{Width: 1440, Height: 900, DPR: 1},
+		SourceCommit: "non-git", RetentionPolicy: uievidence.ArtifactRetentionRunHistory,
+		Untrusted: true, CreatedAt: time.Now().UTC(),
+	}, []byte("evidence"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.api.uiEvidenceControlEnabled = true
+	fixture.api.uiEvidenceController = &uiEvidenceControllerStub{
+		attempt: uievidence.Attempt{ProtocolVersion: uievidence.AttemptProtocolVersion,
+			Manifest: uievidence.Manifest{AttemptID: uiAttemptID, RunID: fixture.run.ID},
+			Status:   uievidence.StatusNotRun, FailureStage: uievidence.FailureNone},
+		bundle: application.UIEvidenceBundle{Steps: []uievidence.StepReceipt{},
+			Artifacts: []uievidence.ArtifactMetadata{}},
+		artifact: uiArtifact,
+	}
+	uiStub := fixture.api.uiEvidenceController.(*uiEvidenceControllerStub)
+	uiStub.bundle.Attempt = uiStub.attempt
 	fixture.api.skillInstallationController = application.NewSkillPackageRegistryService(
 		fixture.store, objects, builtins)
 	steering, err := fixture.store.EnqueueOperatorSteering(t.Context(),
@@ -617,6 +640,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		"{approval_id}":       approvalRecord.ID,
 		"{proposal_id}":       "controlled-command-proposal-openapi",
 		"{batch_delivery_id}": "batch-openapi-missing-0001",
+		"{attempt_id}":        uiAttemptID,
 		"{edit_id}":           fileEditRecord.ID,
 		"{object_id}":         strings.Repeat("a", 40),
 		"{plan_id}":           verificationPlan.Plan.ID,
@@ -737,6 +761,10 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				} else if spec.OperationID == "createWorkspaceCheckpoint" {
 					body = `{"operation_key":"openapi-workspace-checkpoint-create-0001",` +
 						`"title":"OpenAPI Workspace checkpoint"}`
+				} else if spec.OperationID == "startRunUIEvidence" {
+					body = `{}`
+				} else if spec.OperationID == "cancelUIEvidence" {
+					body = `{"confirm":true}`
 				} else if spec.OperationID == "previewWorkspaceRewind" {
 					body = `{"target_checkpoint_id":"checkpoint-target",` +
 						`"expected_current_checkpoint_id":"checkpoint-current"}`
@@ -980,6 +1008,12 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				if !strings.HasPrefix(contentType, openAPIContentType) ||
 					!bytes.Contains(response.Body.Bytes(), []byte(`"openapi": "3.1.0"`)) {
 					t.Fatalf("raw OpenAPI response is invalid: content-type=%q body=%s", contentType, response.Body.String())
+				}
+			} else if spec.RawArtifact {
+				if !strings.HasPrefix(contentType, "application/octet-stream") ||
+					response.Body.String() != "evidence" {
+					t.Fatalf("raw UI evidence artifact is invalid: content-type=%q body=%q",
+						contentType, response.Body.String())
 				}
 			} else if !strings.HasPrefix(contentType, "application/json") || !json.Valid(response.Body.Bytes()) {
 				t.Fatalf("API envelope has wrong content type %q", contentType)

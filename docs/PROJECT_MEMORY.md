@@ -4,7 +4,7 @@
 
 Last updated: 2026-08-20
 
-## Current Single-Slice Checkpoint: Deliverable Batch Agents / Issue #103
+## Upstream Checkpoint: Deliverable Batch Agents / Issue #103
 
 2026-08-20 的 issue #103 落地 `batch-delivery.v1`（ADR 0119，schema v118）。该合同只消费
 已审批/admission 的 core child proposal，精确复核 Agent、DAG、预算与 expected artifacts，
@@ -32,6 +32,56 @@ running + current full_access（或显式更高的 debug）；Desktop batch muta
 清理 exact clean identity，dirty/committed/drifted 成果保留；启动 reconciliation 在非 running
 Run 上不产生文件/Git 副作用，也不恢复 token、进程或旧 authority。完整边界见
 `docs/batch-delivery.md` 与 ADR 0119。
+## Current Single-Slice Checkpoint: Source-Bound Real-Browser UI Evidence / Issue #102
+
+2026-08-20 的 issue #102 落地 `ui-evidence.v1`（ADR 0120，schema v119）。不可变
+manifest 把 Run/Mission/Session/Workspace 与 fresh source checkpoint、可选 build/必需 start
+`command-runtime.v2` recipe、readiness、固定浏览器 executable/version/SHA-256、literal
+loopback URL/route、viewport/DPR、locale/theme/reduced-motion、deterministic fixture/seed/page
+state、有序交互/断言、capture/mask 和 fail-closed diagnostics 绑定。Application 在 build
+前、readiness 后、浏览器断言后和 owned process cleanup 后重捕获 source；commit/branch/index/tracked/untracked/root
+漂移失败关闭。已占用 readiness 端口返回 `launch/preexisting_service`，不会收养或停止外部
+服务。
+
+应用由 v116 Run-owned command runtime 持有，浏览器沿用 Safe Web 的固定安装验证、创建时
+Job Object/WFP 绑定与 attempt-private Profile，但使用独立
+`restricted-cdp-ui-evidence.v1` 方法白名单。允许真实 navigate/click/type/selector、PNG、
+DOM、accessibility、performance 和 bounded console/page/network/HTTP diagnostics；拒绝
+`Runtime.evaluate`、cookie、response body、request mutation/replay、Full CDP 和个人 Profile。
+取消、超时与 Desktop shutdown 等待 browser/application tree、Profile、network guard 和端口
+清理；启动/读取仍要求 live lease，清理只能凭本 Attempt 的 durable Job/operation/Run/lease
+绑定回收当前 manager 精确持有的 Job。重启只把残留 `running` 收敛为
+`interrupted/cleanup`，不恢复启动 authority。
+
+状态闭集为 `not_run|running|passed|failed|cancelled|timed_out|interrupted`，只有 `passed`
+可通过；失败阶段固定 build/launch/readiness/navigation/selector/assertion/console/network/
+capture/cleanup。SQLite v119 封存 manifest、append-only steps 与内容寻址 artifacts，限制
+32 MiB/artifact、128 MiB/attempt、2 GiB/store。每个 artifact 绑定 source commit、Run/
+Attempt/step、MIME、bytes、SHA-256、viewport/dimensions、capture time、redaction 和
+`untrusted=true`；文本、URL 和动态 screenshot 区域按统一规则脱敏。
+
+Desktop 默认保留历史只读面，只有 Run execution + permission control + danger-full-access +
+restricted browser CDP + `--enable-ui-evidence` 同时启用时允许启动/取消。认证 OpenAPI 与
+Desktop 共用异步 Application service；CLI 仅 list/show/hash-verified exclusive export。
+`run-verify` 升级为 1.1.0，并要求与 `focused-checks`/PR receipt 对齐。Windows CI 用真实
+Edge、临时 Profile、创建时 Job 和 deterministic loopback fixture 覆盖 desktop/mobile、
+light/dark、en-US/zh-CN、full/reduced motion；`receipt.json` 固定 clean commit、浏览器
+version/hash、matrix 和 artifact hash/尺寸，并由缺失 click handler 的回归页证明真实交互
+断言能发现源码/build 检查无法单独证明的错误。完整操作边界见 `docs/ui-evidence.md`。
+
+最终本地门：完整 Go 套件通过（Application 611.312 秒、HTTP 229.102 秒、Store v1→v119
+974.372 秒），受影响路径 race/vet/staticcheck、模块完整性、OpenAPI/TypeScript 确定性生成、
+62 个前端文件/266 项测试、build/npm audit、Rust fmt/test/clippy、CI YAML 和 Windows Desktop
+可复现双构建均通过。真实 Edge 151.0.4129.93 的最终 source-bound receipt 由 PR/CI 报告；
+regression caught 与 browser tree/port/Profile/fixture cleanup 全为 true。本次真实运行还修复了 Windows Profile
+sharing-lock 的 exact-owner 5 秒有界清理重试，并把 screenshot pixel surface/dimensions 在
+domain/SQLite/React 三层绑定到 viewport×DPR、在完整 PNG 解码前限制 header dimensions。
+diagnostic URL 会重新通过 exact TargetScope，越界 scheme 只保留 `[blocked-url]`；React 还
+复核 step/artifact chronology。连续真实运行的三张 PNG 逐字节一致，Desktop 可复现 EXE
+的最终 source-bound SHA-256 由 PR/CI 报告。
+最终本地与 CI receipt 均在 clean checkout 强制 source identity。Go 1.26.5 的 govulncheck
+5 项可达结果均来自标准库且修复于
+1.26.6，没有新增模块依赖问题。
 
 ## Previous Single-Slice Checkpoint: Transactional Workspace Checkpoints / Issue #101
 
@@ -750,8 +800,8 @@ Read in this order after a long context break:
 - Generic coding-agent workflow usability: about 98%.
 - Cyber autonomous-workflow usability: about 20%.
 - These are engineering estimates based on tested roadmap slices, not performance benchmarks. Do not reuse the retired single-axis "overall product vision" percentage.
-- Database schema: v98.
-- `README.md` carries the canonical bilingual schema timeline in strict `v1 -> v98` order. `internal/store/readme_history_test.go` binds its row count and ordering to `LatestSchemaVersion`, so a future migration cannot silently leave the public history missing or out of sequence.
+- Database schema: v118.
+- `README.md` carries the canonical bilingual schema timeline in strict `v1 -> v118` order. `internal/store/readme_history_test.go` binds its row count and ordering to `LatestSchemaVersion`, so a future migration cannot silently leave the public history missing or out of sequence.
 - Main languages: Go control plane, TypeScript React/Vite local console, and deterministic Rust 1.97.1 digest/ZIP protocol functions. Rust has no Agent, LLM, config, key, persistence, network, filesystem, subprocess, or product-lifecycle ownership.
 - Analyzer status: P10-A through P10-K define and validate the Go/Rust protocol and embedded-WASI boundary. P10-L/schema v94-v95 adds real fixed-module execution, one-shot exact-bound authorization, atomic consumption, redacted execution, metadata-only Artifact content, and Run events. P10-M exposes only this embedded module through CLI/control-token HTTP/Desktop/React; callers cannot provide WebAssembly, imports, mount, network, command, argv, environment, or native process. See ADR 0062, ADR 0063, ADR 0090, ADR 0091, and `analyzers/README.md`.
 - Model Harness status: non-schema A1/A2/A3 adds `model_harness.v1` exact transport/tool/JSON/streaming profiles, Go preflight for Root/Specialist/read-only Fan-out, and `model_harness_qualification.v1` at-most-two-call synthetic qualification. Mock is trusted offline; Anthropic-compatible models require explicit qualification. Qualification stores only exact binding digest, capability booleans, and seven-day expiry in existing Provider settings; the synthetic Tool is never executed, availability remains no-probe, and qualification grants no Tool/Shell/file/browser/Docker authority. P13-A adds the durable public-activity read projection; P13-B adds a separate process-local safe public assistant stream with exact cancellation and no raw Provider persistence; P13-C adds the Root-only, independently reviewed `approval` host-command proposal Tool without granting the model execution authority. P10-M2 proves the production Anthropic-compatible route and durable chat path against deterministic local SSE, while P13-B3 verifies one configured real DeepSeek path. Current OpenAPI is 88 paths / 96 operations / 212 schemas. See ADR 0074, ADR 0080, ADR 0091, ADR 0092, and ADR 0093.

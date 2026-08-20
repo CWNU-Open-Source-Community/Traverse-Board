@@ -6,7 +6,7 @@ Last updated: 2026-08-20
 
 ## Resume Context
 
-当前检查点是 issue #103 / schema v118 的可交付多代理、Worktree 隔离与独立合并复核。
+当前分支所基于的上游检查点是 issue #103 / schema v118 的可交付多代理、Worktree 隔离与独立合并复核。
 `batch-delivery.v1` 只绑定已审批/admission 的 core child proposal，并复核相同 Agent、DAG、
 预算和 expected artifacts；最多两个 child 各自使用独立 branch/worktree、generation lease、
 一次性 owner token 与关闭的 `batch-delivery-tools.v1`。工具仅覆盖 owned Scope 内的有界
@@ -51,6 +51,66 @@ Go 1.26.6 修复，并非本次仓库依赖引入或零发现结论。
 前一检查点是 issue #101 / schema v117 的事务化 Workspace Checkpoint、恢复与独立 Fork。
 
 `workspace-checkpoint.v1` 固定 Run/Workspace/root、base commit、branch、原始 Git
+
+当前检查点是 issue #102 / schema v119 的来源绑定真实浏览器 UI 证据。`ui-evidence.v1`
+不可变绑定 Run/Mission/Session/Workspace、fresh source checkpoint、可选 build/必需 start
+recipe、readiness、固定浏览器 version/executable hash、literal-loopback URL/route、
+viewport/DPR、locale/theme/reduced-motion、deterministic fixture/seed/page state、有序
+navigate/click/type/assert/capture 步骤、mask 与 fail-closed diagnostics。源码在 build 前、
+readiness 后、浏览器断言后和 owned process cleanup 完成后重捕获；外部服务端口、源码漂移、
+console/page error、failed/
+blocked request、HTTP failure、capture 或 cleanup 不完整都会以稳定阶段失败。只有 `passed`
+为成功，`not_run` 保持中性。
+
+应用进程由 v116 command runtime 持有；真实 Edge/Chrome 使用固定安装复核、新的一次性
+Profile、创建时 Job Object 与 Safe Web 网络 guard，并只开放独立
+`restricted-cdp-ui-evidence.v1` 方法集合。页面、DOM/a11y/log/network/artifact 全部不可信且
+不授权；cookie、登录态、个人 Profile、Full CDP、任意 JS、response body 和 request
+mutation/replay 不可达。SQLite 封存 manifest、append-only steps 和 hash-addressed artifacts，
+并在 Go/trigger 两层约束状态、来源、大小和配额。取消、timeout、Desktop shutdown 与
+restart reconciliation 均不收养历史 PID/端口/Profile/authority。
+
+Desktop 默认可只读查看历史；执行需显式 `--enable-ui-evidence` 以及 Run execution、
+permission control、danger-full-access 和 restricted browser CDP 全部成立。OpenAPI 与
+Desktop 共用异步 Application service，CLI 仅 list/show/hash-verified exclusive export。
+`run-verify@1.1.0`、`focused-checks` 与 PR receipt 使用相同状态和来源字段。Windows CI
+以真实 headless Edge 跑 desktop/mobile、light/dark、en-US/zh-CN 和 reduced-motion 矩阵，
+上传截图与 receipt，并通过仅缺失 click handler 的 fixture 证明真实交互证据能发现源码/
+build 检查无法单独证明的回归。边界见 ADR 0120 与 `docs/ui-evidence.md`。
+
+Issue #102 的最终本地门已通过 `go test -count=1 -timeout 25m ./...`：Application
+611.312 秒、HTTP API 229.102 秒、Store 完整 v1→v119 迁移链 974.372 秒。UI-evidence、
+browserruntime、Application、Store 与 HTTP 新路径的定向 `-race` 均通过；`go vet`、受影响包
+`SA*`/`S1*`/`QF*` staticcheck、`go mod verify`、`go mod tidy -diff`、OpenAPI golden、strict
+TypeScript、62 个前端
+文件/266 项测试、production build、npm audit（0 vulnerability）、Rust fmt/test/clippy、CI YAML
+解析和 Windows Desktop 可复现双构建全部通过。Desktop EXE 的最终 source-bound SHA-256
+由 PR/CI 报告。
+
+本机 Edge 151.0.4129.93（executable SHA-256
+`486c0e70f7c66a3288f3b00acf25452b69e08c2cb1f361937d8f6e720ee01ece`）完成两组矩阵和故意
+interaction regression；最终 source-bound receipt SHA-256 由 PR/CI 对最终提交报告，三张 PNG 的 SHA-256
+分别为 `f215d70b144e3116838e3bc6fb579e42385927d03ac316cee19d2522ac3be337`、
+`deb11ce9f55258066d7902bd7857d873007e484380454bb3332231b186c9fbf3` 和
+`d8e58eac08a8dc1e81e8799721e29f462b2137d67b54e1990186268bb1d5723d`。连续两次运行的三张
+PNG 逐字节一致；CI fixture 显式固定了 native control 的 hover/focus/caret 绘制。首次真实
+运行捕获了
+Windows Profile 数据库短暂 sharing lock；exact-owner quarantine 删除现采用 5 秒有界重试，
+重跑证明 browser tree、DevTools port、Profile 与 fixture 均被回收。像素面与 PNG dimensions
+也在 domain/SQLite/React 三层绑定到 viewport×DPR。最终本地与 CI receipt 均在固定 clean
+checkout 上强制 source identity。`govulncheck@v1.6.0` 如实报告本机 Go 1.26.5
+标准库 5 项可达问题，均修复于 Go 1.26.6；没有新增模块依赖问题，CI 仍以 latest Go 1.25
+patch 的扫描结果作为合并门。
+
+最终安全审计还关闭了四个跨层窗口：命令启动/读/等仍要求 live lease，但取消、timeout 或撤权
+后的清理只能凭 Attempt 封存的 durable Job/operation/Run/lease identity 回收精确的进程内 owned
+Job；通过判定在全部 owned resource 回收后再次重验 source；diagnostic URL 必须重新通过 exact
+TargetScope，越界 scheme 只保留 `[blocked-url]`；PNG 在完整解码前先限制 header dimensions。
+React 同时拒绝落在 Attempt 时间窗外的 step/artifact。对应普通、race、真实 Edge 与 strict
+response-parser 回归均通过。
+
+前一检查点是 issue #101 / schema v117 的事务化 Workspace Checkpoint、恢复与独立
+Fork。`workspace-checkpoint.v1` 固定 Run/Workspace/root、base commit、branch、原始 Git
 index、稳定 manifest、内容哈希、触发收据、attempt/capability generation 和恢复等级；
 普通内容以 SHA-256 去重，SQLite seal/refcount/quota trigger 保证不可变引用和 2 GiB 全局
 blob 硬上限，并将 checkpoint/manifest entry/transaction 元数据分别限制为

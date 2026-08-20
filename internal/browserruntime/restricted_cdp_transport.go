@@ -66,6 +66,28 @@ var restrictedCDPMethods = map[string]restrictedCDPMethodScope{
 	"Page.captureScreenshot":         restrictedCDPTargetMethod,
 }
 
+// uiEvidenceCDPMethods is an additional closed set admitted only by an
+// AuthorizeUIEvidenceCDP-derived session. In particular it contains no script
+// evaluation, cookie, response-body, request mutation, or request replay API.
+var uiEvidenceCDPMethods = map[string]restrictedCDPMethodScope{
+	"Accessibility.enable":               restrictedCDPTargetMethod,
+	"Accessibility.getFullAXTree":        restrictedCDPTargetMethod,
+	"DOM.focus":                          restrictedCDPTargetMethod,
+	"DOM.getBoxModel":                    restrictedCDPTargetMethod,
+	"DOM.getOuterHTML":                   restrictedCDPTargetMethod,
+	"DOM.querySelector":                  restrictedCDPTargetMethod,
+	"DOM.scrollIntoViewIfNeeded":         restrictedCDPTargetMethod,
+	"Emulation.setDeviceMetricsOverride": restrictedCDPTargetMethod,
+	"Emulation.setEmulatedMedia":         restrictedCDPTargetMethod,
+	"Emulation.setLocaleOverride":        restrictedCDPTargetMethod,
+	"Input.dispatchMouseEvent":           restrictedCDPTargetMethod,
+	"Input.insertText":                   restrictedCDPTargetMethod,
+	"Log.enable":                         restrictedCDPTargetMethod,
+	"Performance.enable":                 restrictedCDPTargetMethod,
+	"Performance.getMetrics":             restrictedCDPTargetMethod,
+	"Runtime.enable":                     restrictedCDPTargetMethod,
+}
+
 // fullCDPMethods is the additional, highly-sensitive CDP method set admitted
 // only under a confirmed FullCDPAuthorization. It never includes methods that
 // disable browser security.
@@ -150,7 +172,12 @@ type restrictedCDPClient struct {
 	blockedDocument  bool
 	budgetErr        error
 	capturedRequests []capturedRequestMetadata
+	consoleEntries   []UIEvidenceConsoleEntry
+	pageErrors       []UIEvidencePageError
+	networkEntries   []UIEvidenceNetworkEntry
+	networkPending   map[string]struct{}
 	fullCDP          bool
+	uiEvidence       bool
 }
 
 // capturedRequestMetadata is bounded request metadata only. It never retains
@@ -186,7 +213,7 @@ func OpenRestrictedBrowserSession(ctx context.Context,
 	permission domain.RunBrowserCDPPermissionSnapshot,
 	profileLease ProfileRuntimeLease, process *BrowserProcess,
 ) (*RestrictedBrowserSession, error) {
-	if err := ValidateRestrictedCDPAuthorization(authorization, start, session,
+	if err := validateRestrictedCDPSessionAuthorization(authorization, start, session,
 		permission); err != nil {
 		return nil, err
 	}
@@ -228,7 +255,7 @@ func OpenRestrictedBrowserSession(ctx context.Context,
 		return nil, err
 	}
 	client := &restrictedCDPClient{conn: connection, scope: session.Scope,
-		maxRequests: attempt.MaxRequests}
+		maxRequests: attempt.MaxRequests, uiEvidence: authorization.UIEvidenceAuthorized}
 	if err := client.initialize(openContext); err != nil {
 		_ = connection.Close()
 		return nil, err
@@ -407,7 +434,7 @@ func (runtime *RestrictedBrowserSession) Close(ctx context.Context) error {
 
 func (runtime *RestrictedBrowserSession) beginOperation(ctx context.Context,
 ) (func(), context.Context, context.CancelFunc, error) {
-	if err := ValidateRestrictedCDPAuthorization(runtime.authorization, runtime.start,
+	if err := validateRestrictedCDPSessionAuthorization(runtime.authorization, runtime.start,
 		runtime.session, runtime.permission); err != nil {
 		return nil, nil, nil, err
 	}
@@ -436,6 +463,16 @@ func (runtime *RestrictedBrowserSession) beginOperation(ctx context.Context,
 		}
 	}
 	return release, operationContext, cancel, nil
+}
+
+func validateRestrictedCDPSessionAuthorization(authorization RestrictedCDPAuthorization,
+	start BrowserStartAuthorization, session SessionPlan,
+	permission domain.RunBrowserCDPPermissionSnapshot,
+) error {
+	if authorization.UIEvidenceAuthorized {
+		return ValidateUIEvidenceCDPAuthorization(authorization, start, session, permission)
+	}
+	return ValidateRestrictedCDPAuthorization(authorization, start, session, permission)
 }
 
 func (runtime *RestrictedBrowserSession) closeWhenProcessExits() {
@@ -507,6 +544,15 @@ func (client *restrictedCDPClient) initialize(ctx context.Context) error {
 			return err
 		}
 	}
+	if client.uiEvidence {
+		for _, method := range []string{"Runtime.enable", "Log.enable",
+			"Performance.enable", "Accessibility.enable"} {
+			if err := client.call(ctx, client.sessionID, method, map[string]any{},
+				&struct{}{}); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
@@ -573,6 +619,9 @@ func (client *restrictedCDPClient) methodSessionAllowed(method string,
 	sessionID string,
 ) bool {
 	scope, ok := restrictedCDPMethods[method]
+	if !ok && client.uiEvidence {
+		scope, ok = uiEvidenceCDPMethods[method]
+	}
 	if !ok {
 		if client.fullCDP {
 			scope, ok = fullCDPMethods[method]
@@ -657,6 +706,20 @@ func (client *restrictedCDPClient) handleEvent(ctx context.Context,
 		_, err := client.writeCommand(ctx, client.sessionID, "Fetch.failRequest",
 			map[string]any{"requestId": paused.RequestID, "errorReason": "BlockedByClient"})
 		return err
+	case "Runtime.consoleAPICalled":
+		return client.captureConsoleAPICalled(message.Params)
+	case "Runtime.exceptionThrown":
+		return client.capturePageException(message.Params)
+	case "Log.entryAdded":
+		return client.captureLogEntry(message.Params)
+	case "Network.requestWillBeSent":
+		return client.captureNetworkRequest(message.Params)
+	case "Network.responseReceived":
+		return client.captureNetworkResponse(message.Params)
+	case "Network.loadingFailed":
+		return client.captureNetworkFailure(message.Params)
+	case "Network.loadingFinished":
+		return client.captureNetworkFinished(message.Params)
 	default:
 		return nil
 	}
@@ -786,9 +849,16 @@ func readDevToolsEndpoint(profilePath string) (*url.URL, bool, error) {
 		return nil, true, nil
 	}
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 ||
-		info.Size() <= 0 || info.Size() > MaxDevToolsActivePortBytes ||
+		info.Size() < 0 || info.Size() > MaxDevToolsActivePortBytes ||
 		!profilePathHasNoIndirection(path) {
 		return nil, false, errors.New("DevTools endpoint file is unavailable or indirect")
+	}
+	// Chromium creates this direct regular file before publishing its two-line
+	// payload. Keep the bounded startup wait pending during that zero-length
+	// window; indirection, oversized data, malformed content, process exit, and
+	// the caller's deadline remain fail-closed.
+	if info.Size() == 0 {
+		return nil, true, nil
 	}
 	file, err := os.Open(path)
 	if err != nil {
@@ -796,9 +866,12 @@ func readDevToolsEndpoint(profilePath string) (*url.URL, bool, error) {
 	}
 	raw, readErr := io.ReadAll(io.LimitReader(file, MaxDevToolsActivePortBytes+1))
 	closeErr := file.Close()
-	if readErr != nil || closeErr != nil || len(raw) == 0 ||
+	if readErr != nil || closeErr != nil ||
 		len(raw) > MaxDevToolsActivePortBytes || !utf8.Valid(raw) {
 		return nil, false, errors.New("DevTools endpoint file is malformed")
+	}
+	if len(raw) == 0 {
+		return nil, true, nil
 	}
 	lines := strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n")
 	if len(lines) != 2 || strings.HasSuffix(lines[0], "\r") ||

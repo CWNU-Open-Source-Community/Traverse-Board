@@ -502,6 +502,85 @@ func TestCommandRuntimeBackgroundJobSurvivesSupervisorLeaseTurnover(t *testing.T
 	}
 }
 
+func TestCommandRuntimeUIEvidenceCleanupReapsExactJobAfterLeaseRelease(t *testing.T) {
+	ctx := context.Background()
+	state, runRecord, root, lease, capabilities := newCommandRuntimeTestRuntime(t, ctx)
+	manager, err := runner.NewPlatformCommandRuntimeManager(state,
+		idgen.New("command-runtime-ui-cleanup-owner"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := manager.Shutdown(shutdownCtx); err != nil {
+			t.Errorf("shutdown command runtime: %v", err)
+		}
+	}()
+	service, err := NewCommandRuntimeService(state, manager, capabilities)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := runner.CommandRuntimeBash
+	script := `IFS= read -r line; printf 'unexpected:%s\n' "$line"`
+	if runtime.GOOS == "windows" {
+		profile = runner.CommandRuntimePowerShell
+		script = `$line = [Console]::In.ReadLine(); [Console]::Out.WriteLine("unexpected:$line")`
+	}
+	identity := "ui-attempt-cleanup-test:application"
+	scope := commandRuntimeTestScope(runRecord, root, lease, identity)
+	scope.InvocationID = identity
+	started, err := service.ExecuteCommandRuntime(ctx, scope,
+		toolgateway.CommandRuntimeInput{Version: toolgateway.CommandRuntimeToolProtocolVersion,
+			Action: toolgateway.CommandRuntimeActionStart,
+			Commands: []runner.CommandRuntimeSpec{{
+				Version: runner.CommandRuntimeProtocolVersion, Profile: profile, Script: script,
+				WorkingDirectory: ".", Environment: []runner.CommandRuntimeEnvironment{},
+				StdinPolicy: runner.CommandRuntimeStdinPipe, CloseInitialStdin: false,
+				TimeoutMilliseconds: 10000,
+				Output: runner.CommandRuntimeOutputPolicy{InlineBytes: 4096,
+					ArtifactBytes: 4096},
+				Network:     runner.CommandRuntimeNetworkDisabled,
+				Credentials: runner.CommandRuntimeCredentialsNone,
+				Purpose:     "prove exact UI evidence cleanup survives lease release",
+			}}})
+	if errors.Is(err, runner.ErrCommandRuntimeUnavailable) {
+		t.Skipf("%s is unavailable: %v", profile, err)
+	}
+	if err != nil || len(started.Jobs) != 1 ||
+		started.Jobs[0].State != runner.CommandRuntimeJobRunning {
+		t.Fatalf("UI cleanup Job start=%#v err=%v", started, err)
+	}
+	jobID := started.Jobs[0].ID
+	if _, _, err := state.ReleaseRunExecutionLease(ctx, lease); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ExecuteCommandRuntime(ctx, scope,
+		toolgateway.CommandRuntimeInput{Version: toolgateway.CommandRuntimeToolProtocolVersion,
+			Action: toolgateway.CommandRuntimeActionKill, JobID: jobID}); err == nil {
+		t.Fatal("ordinary command authority killed a Job after its Run lease was released")
+	}
+	binding := uiEvidenceCommandCleanupBinding{JobID: jobID,
+		InvocationID: identity, OperationKey: identity, RunID: runRecord.ID,
+		MissionID: runRecord.MissionID, SessionID: runRecord.SessionID,
+		WorkspaceID: "workspace-command-runtime-app", RootAgentID: root.ID,
+		LeaseID: lease.LeaseID, LeaseGeneration: lease.Generation}
+	wrong := binding
+	wrong.OperationKey = identity + "-other"
+	if _, err := service.cleanupUIEvidenceJob(ctx, wrong); err == nil {
+		t.Fatal("cleanup-only authority accepted a different operation identity")
+	}
+	active, err := manager.Get(ctx, jobID)
+	if err != nil || active.State != runner.CommandRuntimeJobRunning {
+		t.Fatalf("mismatched cleanup disturbed Job=%#v err=%v", active, err)
+	}
+	cleaned, err := service.cleanupUIEvidenceJob(ctx, binding)
+	if err != nil || cleaned.State != runner.CommandRuntimeJobKilled ||
+		!cleaned.TreeReaped {
+		t.Fatalf("exact UI cleanup Job=%#v err=%v", cleaned, err)
+	}
+}
+
 func commandRuntimeTestScope(runRecord domain.Run, root domain.AgentNode,
 	lease domain.RunExecutionLease, operationKey string,
 ) toolgateway.CommandRuntimeContext {

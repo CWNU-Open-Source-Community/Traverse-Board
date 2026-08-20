@@ -1,8 +1,8 @@
 {
   "protocol": "skill.v1",
   "name": "run-verify",
-  "version": "1.0.0",
-  "description": "Real runtime verification with fixed launch provenance and a UI evidence extension.",
+  "version": "1.1.0",
+  "description": "Real runtime verification with source-bound, fail-closed UI evidence and PR receipts.",
   "profiles": ["code", "script"],
   "surfaces": ["code", "cyber"],
   "phases": ["deliver"],
@@ -12,7 +12,7 @@
   "explicit_only": false,
   "tool_dependencies": ["list_workspace", "read_file"],
   "content_path": "SKILL.md",
-  "content_sha256": "39d42f2d3aacf962f636c5534da6e5325b816167b5b16d3d9bca0a19483f0ae9",
-  "content_bytes": 1725,
-  "content_token_upper_bound": 1725
+  "content_sha256": "93a5ccb961c1169f7f08e419514a1ab957f1d6a410440acd766e35b45aefbd6a",
+  "content_bytes": 3002,
+  "content_token_upper_bound": 3002
 }

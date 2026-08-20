@@ -153,17 +153,21 @@ func (windowsBrowserProcessStarter) Start(ctx context.Context,
 		windows.CloseHandle(job)
 		return nil, browserProcessStartStageFailure("command_prepare", ErrBrowserRuntimeBoundary)
 	}
-	environment, err := browserEnvironmentBlock(spec.ProfilePath)
-	if err != nil {
-		windows.CloseHandle(job)
-		return nil, browserProcessStartStageFailure("environment_prepare", err)
-	}
 	launchAuthority, err := acquireWindowsBrowserLaunchAuthority()
 	if err != nil {
 		windows.CloseHandle(job)
 		return nil, browserProcessStartStageFailure("authority_acquire", err)
 	}
 	defer launchAuthority.Close()
+	environmentToken := windows.GetCurrentProcessToken()
+	if launchAuthority.asUser {
+		environmentToken = launchAuthority.token
+	}
+	environment, err := browserEnvironmentBlock(spec.ProfilePath, environmentToken)
+	if err != nil {
+		windows.CloseHandle(job)
+		return nil, browserProcessStartStageFailure("environment_prepare", err)
+	}
 	startup := windows.StartupInfoEx{
 		StartupInfo:             windows.StartupInfo{Cb: uint32(unsafe.Sizeof(windows.StartupInfoEx{}))},
 		ProcThreadAttributeList: attributes.List(),
@@ -643,30 +647,101 @@ func validateBrowserEnvironmentDirectories(profilePath string) error {
 	return nil
 }
 
-func browserEnvironmentBlock(profilePath string) ([]uint16, error) {
+func browserEnvironmentBlock(profilePath string, token windows.Token) ([]uint16, error) {
 	systemRoot := strings.TrimSpace(os.Getenv("SystemRoot"))
 	if systemRoot == "" || !filepath.IsAbs(systemRoot) || !profilePathHasNoIndirection(systemRoot) {
 		return nil, errors.New("windows system root is unavailable")
 	}
-	values := []string{
-		"APPDATA=" + filepath.Join(profilePath, "RoamingAppData"),
-		"HOME=" + profilePath,
-		"LOCALAPPDATA=" + filepath.Join(profilePath, "LocalAppData"),
-		"SystemRoot=" + systemRoot,
-		"TEMP=" + filepath.Join(profilePath, "Temp"),
-		"TMP=" + filepath.Join(profilePath, "Temp"),
-		"USERPROFILE=" + profilePath,
-		"WINDIR=" + systemRoot,
+	// Windows known-folder resolution depends on the environment associated
+	// with the launch token. Replacing USERPROFILE/APPDATA/LOCALAPPDATA with
+	// arbitrary directories makes PathService treat the user-data directory as
+	// unknown, which Chromium deliberately handles as the default profile and
+	// therefore refuses for remote debugging. Start from CreateEnvironmentBlock
+	// without inheriting the caller, then retain only non-secret structural
+	// variables. The browser data and temporary directories remain disposable.
+	tokenEnvironment, err := token.Environ(false)
+	if err != nil {
+		return nil, err
 	}
-	sort.Slice(values, func(left int, right int) bool {
-		return strings.ToLower(values[left]) < strings.ToLower(values[right])
-	})
-	block := make([]uint16, 0, 1024)
+	values, err := restrictedBrowserEnvironmentValues(profilePath, systemRoot,
+		tokenEnvironment)
+	if err != nil {
+		return nil, err
+	}
+	block := make([]uint16, 0, 2048)
 	for _, value := range values {
 		block = append(block, utf16.Encode([]rune(value))...)
 		block = append(block, 0)
 	}
 	return append(block, 0), nil
+}
+
+func restrictedBrowserEnvironmentValues(profilePath string, systemRoot string,
+	tokenEnvironment []string,
+) ([]string, error) {
+	valuesByName := make(map[string]string)
+	for _, entry := range tokenEnvironment {
+		separator := strings.IndexByte(entry, '=')
+		if separator <= 0 {
+			continue
+		}
+		name := strings.ToUpper(entry[:separator])
+		if !browserStructuralEnvironmentNameAllowed(name) {
+			continue
+		}
+		value := entry[separator+1:]
+		if value == "" || strings.ContainsRune(value, 0) {
+			continue
+		}
+		if _, duplicate := valuesByName[name]; duplicate {
+			return nil, errors.New("windows user environment contains a duplicate structural variable")
+		}
+		valuesByName[name] = value
+	}
+	for _, name := range []string{"APPDATA", "LOCALAPPDATA", "USERPROFILE"} {
+		value := valuesByName[name]
+		if value == "" || !filepath.IsAbs(value) {
+			return nil, errors.New("windows user environment is missing a known-folder variable")
+		}
+	}
+	if systemRoot == "" || !filepath.IsAbs(systemRoot) || strings.ContainsRune(systemRoot, 0) ||
+		profilePath == "" || !filepath.IsAbs(profilePath) || strings.ContainsRune(profilePath, 0) {
+		return nil, ErrBrowserRuntimeBoundary
+	}
+	system32 := filepath.Join(systemRoot, "System32")
+	temporaryDirectory := filepath.Join(profilePath, "Temp")
+	valuesByName["COMSPEC"] = filepath.Join(system32, "cmd.exe")
+	valuesByName["HOME"] = profilePath
+	valuesByName["PATH"] = system32 + ";" + systemRoot
+	valuesByName["PATHEXT"] = ".COM;.EXE;.BAT;.CMD"
+	valuesByName["SYSTEMROOT"] = systemRoot
+	valuesByName["TEMP"] = temporaryDirectory
+	valuesByName["TMP"] = temporaryDirectory
+	valuesByName["WINDIR"] = systemRoot
+	values := make([]string, 0, len(valuesByName))
+	for name, value := range valuesByName {
+		values = append(values, name+"="+value)
+	}
+	sort.Slice(values, func(left int, right int) bool {
+		return strings.ToLower(values[left]) < strings.ToLower(values[right])
+	})
+	return values, nil
+}
+
+func browserStructuralEnvironmentNameAllowed(name string) bool {
+	switch name {
+	case "ALLUSERSPROFILE", "APPDATA", "COMMONPROGRAMFILES",
+		"COMMONPROGRAMFILES(X86)", "COMMONPROGRAMW6432", "COMPUTERNAME",
+		"DRIVERDATA", "HOMEDRIVE", "HOMEPATH", "LOCALAPPDATA",
+		"NUMBER_OF_PROCESSORS", "OS", "PROCESSOR_ARCHITECTURE",
+		"PROCESSOR_IDENTIFIER", "PROCESSOR_LEVEL", "PROCESSOR_REVISION",
+		"PROGRAMDATA", "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432",
+		"PUBLIC", "SYSTEMDRIVE", "USERDOMAIN", "USERDOMAIN_ROAMINGPROFILE",
+		"USERNAME", "USERPROFILE":
+		return true
+	default:
+		return false
+	}
 }
 
 func waitBrowserJobReaped(job windows.Handle, maximum time.Duration) bool {
