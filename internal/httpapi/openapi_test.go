@@ -470,6 +470,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	fixture.api.evidenceAttachmentEnabled = true
 	fixture.api.verificationEvidenceEnabled = true
 	fixture.api.embeddedAnalyzerExecutionEnabled = true
+	fixture.api.extensionControlEnabled = true
+	fixture.api.extensionController = &extensionControllerStub{}
 	fixture.api.dockerSandboxControlEnabled = true
 	fixture.api.dockerSandboxController = &dockerSandboxControllerStub{}
 	fixture.api.runLifecycleController = application.NewRunLifecycleControlService(fixture.store)
@@ -675,6 +677,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		"{ordinal}":           "1",
 		"{route}":             "code",
 		"{provider}":          "mimo",
+		"{server_id}":         "mcp-openapi",
+		"{installation_id}":   "plugin-openapi",
 		"{memory_id}":         openAPIMemory.ID,
 		"{node_id}":           openAPICheckpoint.ID,
 	}
@@ -917,6 +921,15 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				} else if spec.Path == ProviderCredentialPathTemplate {
 					body = `{"version":"provider_credential.v1","action":"set",` +
 						`"secret":"temporary-openapi-key","confirm":true}`
+				} else if spec.Path == ExtensionMCPReviewPath {
+					body = `{"version":"extension-control.v1","action":"disable",` +
+						`"expected_descriptor_fingerprint":"` + strings.Repeat("a", 64) + `"}`
+				} else if spec.Path == ExtensionMCPRefreshPath {
+					body = `{"version":"extension-control.v1"}`
+				} else if spec.Path == ExtensionPluginReviewPath {
+					body = `{"version":"extension-control.v1","action":"disable",` +
+						`"expected_package_fingerprint":"` + strings.Repeat("b", 64) + `",` +
+						`"expected_generation":1,"confirm_untrusted":false}`
 				} else if spec.Path == FileEditProposalPathTemplate {
 					body = `{"version":"file_edit_proposal.v1","source_handle":"` +
 						proposalSource.Handle + `","proposed_text":"OpenAPI proposal\\n"}`

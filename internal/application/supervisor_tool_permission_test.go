@@ -3,11 +3,13 @@ package application
 import (
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/llm"
+	"cyberagent-workbench/internal/mcp"
 	"cyberagent-workbench/internal/toolgateway"
 )
 
@@ -278,5 +280,72 @@ func TestSupervisorCommandRuntimeRequiresCodeDeliverFullAccessAndRuntime(t *test
 	if !recoverableSupervisorToolError(toolgateway.CommandRuntimeTool,
 		apperror.CodeFailedPrecondition) {
 		t.Fatal("command runtime lifecycle conflict was not model-recoverable")
+	}
+}
+
+func TestSupervisorMCPRequiresReviewedSnapshotAndExactRuntimeScope(t *testing.T) {
+	fingerprint := strings.Repeat("a", 64)
+	capabilities := mcp.ScopedCapabilities{ProtocolVersion: mcp.ClientProtocolVersion,
+		Generation: strings.Repeat("b", 64), Servers: []mcp.ScopedServerCapability{{
+			ServerID: "docs", Name: "Documentation", CapabilityFingerprint: fingerprint,
+			Tools: []mcp.RemoteTool{{Name: "lookup", Description: "Look up a document.",
+				InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["query"],"properties":{"query":{"type":"string"}}}`)}},
+		}}}
+	options := supervisorToolOptions{MCP: capabilities}
+	visible := func(surface domain.ExecutionSurface, phase domain.ExecutionPhase,
+		permission domain.RunExecutionPermissionMode, configured supervisorToolOptions,
+	) (bool, json.RawMessage) {
+		for _, spec := range supervisorStructuredToolSpecs(surface, phase, permission,
+			false, false, configured) {
+			if spec.Name == string(toolgateway.MCPToolCallTool) {
+				return true, spec.Parameters
+			}
+		}
+		return false, nil
+	}
+	found, schema := visible(domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
+		domain.RunExecutionPermissionFullAccess, options)
+	if !found || !json.Valid(schema) || !strings.Contains(string(schema), `"const":"docs"`) ||
+		!strings.Contains(string(schema), `"const":"lookup"`) ||
+		!strings.Contains(string(schema), `"const":"`+fingerprint+`"`) {
+		t.Fatalf("reviewed MCP capability was not encoded exactly: %s", schema)
+	}
+	for _, test := range []struct {
+		surface    domain.ExecutionSurface
+		phase      domain.ExecutionPhase
+		permission domain.RunExecutionPermissionMode
+		options    supervisorToolOptions
+	}{
+		{domain.ExecutionSurfaceCyber, domain.ExecutionPhaseDeliver,
+			domain.RunExecutionPermissionFullAccess, options},
+		{domain.ExecutionSurfaceCode, domain.ExecutionPhasePlan,
+			domain.RunExecutionPermissionFullAccess, options},
+		{domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
+			domain.RunExecutionPermissionApproval, options},
+		{domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
+			domain.RunExecutionPermissionFullAccess, supervisorToolOptions{}},
+	} {
+		if found, _ := visible(test.surface, test.phase, test.permission, test.options); found {
+			t.Fatal("MCP tool leaked outside the exact reviewed runtime scope")
+		}
+	}
+	payload := json.RawMessage(`{"version":"mcp-client.v1","server_id":"docs","tool_name":"lookup","capability_fingerprint":"` + fingerprint + `","arguments":{"query":"bounded"}}`)
+	calls := []llm.ToolCall{{ID: "provider-mcp", Name: string(toolgateway.MCPToolCallTool),
+		Arguments: payload}}
+	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
+		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
+		domain.RunExecutionPermissionFullAccess, false, false, options); err != nil {
+		t.Fatalf("exact reviewed MCP call was rejected: %v", err)
+	}
+	forged := options
+	forged.MCP.Servers[0].CapabilityFingerprint = strings.Repeat("c", 64)
+	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
+		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
+		domain.RunExecutionPermissionFullAccess, false, false, forged); err == nil {
+		t.Fatal("stale MCP capability fingerprint was accepted")
+	}
+	if !recoverableSupervisorToolError(toolgateway.MCPToolCallTool,
+		apperror.CodeFailedPrecondition) {
+		t.Fatal("MCP lifecycle conflict was not model-recoverable")
 	}
 }

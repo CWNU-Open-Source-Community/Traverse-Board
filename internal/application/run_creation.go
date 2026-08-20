@@ -9,6 +9,7 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
+	"cyberagent-workbench/internal/hooks"
 	"cyberagent-workbench/internal/projectconfig"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/runmutation"
@@ -28,7 +29,8 @@ type ControlledRunCreationStore interface {
 }
 
 type ControlledRunCreationService struct {
-	store ControlledRunCreationStore
+	store          ControlledRunCreationStore
+	lifecycleHooks *hooks.Engine
 }
 
 type ControlledRunCreationRequest struct {
@@ -62,6 +64,15 @@ type normalizedControlledRunCreationRequest struct {
 
 func NewControlledRunCreationService(store ControlledRunCreationStore) *ControlledRunCreationService {
 	return &ControlledRunCreationService{store: store}
+}
+
+func (s *ControlledRunCreationService) WithLifecycleHooks(
+	engine *hooks.Engine,
+) *ControlledRunCreationService {
+	if s != nil {
+		s.lifecycleHooks = engine
+	}
+	return s
 }
 
 func (s *ControlledRunCreationService) Create(ctx context.Context,
@@ -121,6 +132,12 @@ func (s *ControlledRunCreationService) Create(ctx context.Context,
 		MissionID: prepared.Mission.ID, RunID: prepared.Run.ID,
 		SessionID: prepared.Session.ID, WorkspaceID: normalized.WorkspaceID,
 		RequestedBy: normalized.RequestedBy, CreatedAt: prepared.Run.CreatedAt,
+	}
+	if err := executeLifecycleBoundary(ctx, s.lifecycleHooks, hooks.SessionOpened,
+		prepared.Run.ID, prepared.Mission.WorkspaceID, map[string]any{
+			"session_id": prepared.Session.ID, "source": "controlled_run_create",
+		}); err != nil {
+		return ControlledRunCreationResult{}, err
 	}
 	stored, replayed, err := s.store.CreateMissionRunWithOperation(ctx,
 		prepared.Mission, prepared.Run, prepared.Mode, prepared.Session,

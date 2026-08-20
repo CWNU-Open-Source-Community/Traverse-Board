@@ -15,6 +15,7 @@ import (
 	"cyberagent-workbench/internal/contextmgr"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
+	"cyberagent-workbench/internal/hooks"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/runmutation"
@@ -75,9 +76,19 @@ type WorkspaceCheckpointForkStore interface {
 }
 
 type WorkspaceCheckpointService struct {
-	store        WorkspaceCheckpointStore
-	capabilities domain.ExecutionPermissionRuntimeCapabilities
-	now          func() time.Time
+	store          WorkspaceCheckpointStore
+	capabilities   domain.ExecutionPermissionRuntimeCapabilities
+	now            func() time.Time
+	lifecycleHooks *hooks.Engine
+}
+
+func (s *WorkspaceCheckpointService) WithLifecycleHooks(
+	engine *hooks.Engine,
+) *WorkspaceCheckpointService {
+	if s != nil {
+		s.lifecycleHooks = engine
+	}
+	return s
 }
 
 func NewWorkspaceCheckpointService(store WorkspaceCheckpointStore,
@@ -247,6 +258,13 @@ func (s *WorkspaceCheckpointService) Capture(ctx context.Context,
 	parentID := ""
 	if found {
 		parentID = state.CurrentCheckpointID
+	}
+	if err := executeLifecycleBoundary(ctx, s.lifecycleHooks, hooks.Checkpoint,
+		binding.run.ID, binding.workspace.ID, map[string]any{
+			"session_id": binding.session.ID, "checkpoint_id": checkpointID,
+			"kind": workspacecheckpoint.TriggerManual, "source": "workspace_checkpoint",
+		}); err != nil {
+		return workspacecheckpoint.Checkpoint{}, false, err
 	}
 	snapshot, replayed, err := s.capture(ctx, binding, workspacecheckpoint.CaptureRequest{
 		ID:      checkpointID,

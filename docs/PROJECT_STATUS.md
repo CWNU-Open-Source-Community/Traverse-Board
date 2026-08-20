@@ -6,7 +6,7 @@ Last updated: 2026-08-20
 
 ## Resume Context
 
-当前检查点是 issue #105 / schema v120 的持久化计划任务、`loop-monitor` 与结构化诊断。
+当前检查点是 issue #105 / schema v122 的持久化计划任务、`loop-monitor` 与结构化诊断。
 `scheduled-job.v1` 绑定显式 owner/target Run 和 root，支持 once/periodic、UTC anchor + IANA
 timezone、next wake、deadline、stop-on-terminal、轮次/模型/耗时预算、重试退避、misfire 与
 通知。SQLite claim 以 occurrence/attempt/generation/owner digest/fence digest/expiry 原子绑定，
@@ -23,14 +23,21 @@ withheld/redacted。Desktop “自动定时”可创建有界只读任务、暂�
 last result/通知并导出经 renderer 再验证的诊断包。内置 `loop-monitor` 仅 user explicit、
 Root、Plan/Deliver，model 不能自行激活且不授予工具或执行 authority。
 
-最终代码的拆分验证矩阵已通过：Store、Application、HTTP API、Desktop 与 CLI App 全量测试
-分别为 `695.010s`、`432.329s`、`170.926s`、`24.312s` 与 `116.850s`；最终诊断字段加固另有普通/race 定向回归；计划任务普通/race、
+最终代码的拆分验证矩阵已通过：首次上游同步后的 Store、Application、HTTP API、Desktop 与
+CLI App 全量测试分别为 `695.010s`、`432.329s`、`170.926s`、`24.312s` 与
+`116.850s`；最终诊断字段加固另有普通/race 定向回归；计划任务普通/race、
 两 Store 并发 create/claim、崩溃 fencing、DST、长睡眠/misfire、真实短周期 smoke 与 Desktop
 tagged 生命周期测试均通过。Go 全仓编译、`go vet`、受影响包 staticcheck、module verify/tidy
-diff、Web strict typecheck、63 文件/271 测试、production build 和 npm audit 均通过。
-OpenAPI 连续两次稳定为 135 paths / 151 operations / 379 schemas，JSON/TypeScript SHA-256 分别为
-`5b62c71f4ff39bc716773b815f57b4f9b83300f7fd196d63e88b37427009ad19` 与
-`8f8b701b2cf145dfe95a7356e216bc6101837e513857eddac35fd2891123c723`。隔离 CLI smoke 创建
+diff、Web strict typecheck、production build 和 npm audit 均通过。
+
+再次同步 schema v120-v121 的 MCP/Plugin/Hook 上游后，scheduled diagnostics 顺延到 v122；
+v119→v122 定向升级链、全仓编译、`go vet`、module verify/tidy diff、正确 Windows Desktop
+tags 以及受影响 Go 包无缓存集成矩阵重新通过，其中 Application `465.777s`、HTTP API
+`187.034s`、CLI App `134.439s`、Desktop `38.061s`。Web 为 63 文件/274 测试，strict
+typecheck、production build、生成漂移和 npm audit（0 vulnerability）均通过。OpenAPI 为
+139 paths / 155 operations / 389 schemas，JSON/TypeScript SHA-256 分别为
+`e3621910dc3bf1b6bc6f18b40fd413603e6b32d246170a4731eca0762bcacaef` 与
+`762d6431b16f6a8e05cee451327c1fe40df8881e96551ef7455cb9d1beb67c3e`。隔离 CLI smoke 创建
 Run 与一次性任务、执行一个 foreground tick，并以 `once_completed`、一轮、零模型调用收敛，
 随后成功读取 doctor/debug/bundle。完整 repair executor 仍依赖普通命令生命周期适配器；当前
 生产 Worker 没有隐式 executor，发生变化的 repair 轮次按设计失败关闭。

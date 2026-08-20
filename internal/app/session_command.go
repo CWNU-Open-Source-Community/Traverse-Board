@@ -49,7 +49,8 @@ func (a *App) sessionTree(ctx context.Context, args []string) error {
 	if fs.NArg() != 1 {
 		return errors.New("usage: cyberagent session tree <session-id> [--json]")
 	}
-	tree, err := application.NewContextContinuityService(a.store).Tree(ctx, fs.Arg(0))
+	tree, err := application.NewContextContinuityService(a.store).
+		WithLifecycleHooks(a.newLifecycleHookEngine()).Tree(ctx, fs.Arg(0))
 	if err != nil {
 		return err
 	}
@@ -88,7 +89,8 @@ func (a *App) sessionContinuityCheckpoint(ctx context.Context, args []string) er
 	if fs.NArg() != 1 {
 		return errors.New("usage: cyberagent session checkpoint <run-id> [--title <text>] [--summary <text>] [--operator <id>] [--json]")
 	}
-	node, err := application.NewContextContinuityService(a.store).Checkpoint(ctx,
+	node, err := application.NewContextContinuityService(a.store).
+		WithLifecycleHooks(a.newLifecycleHookEngine()).Checkpoint(ctx,
 		application.CreateContinuityCheckpointRequest{RunID: fs.Arg(0), Title: *title,
 			Summary: *summary, RequestedBy: *operator})
 	if err != nil {
@@ -120,7 +122,8 @@ func (a *App) sessionContinuityBranch(ctx context.Context, action string, args [
 	if action == "resume" {
 		kind = contextmgr.ContinuityNodeResume
 	}
-	result, err := application.NewContextContinuityService(a.store).Branch(ctx,
+	result, err := application.NewContextContinuityService(a.store).
+		WithLifecycleHooks(a.newLifecycleHookEngine()).Branch(ctx,
 		application.BranchContinuityRequest{SourceNodeID: fs.Arg(0), Kind: kind,
 			Goal: *goal, RequestedBy: *operator})
 	if err != nil {
@@ -137,8 +140,11 @@ func (a *App) sessionContinuityBranch(ctx context.Context, action string, args [
 }
 
 func (a *App) newSessionManager() *session.Manager {
-	executor := application.NewSessionRunChatExecutor(a.store, a.router, a.checker).WithActiveCalls(a.calls)
-	return session.NewManager(a.store, a.router, a.checker).WithRunChatExecutor(executor)
+	engine := a.newLifecycleHookEngine()
+	executor := application.NewSessionRunChatExecutor(a.store, a.router, a.checker).
+		WithActiveCalls(a.calls).WithLifecycleHooks(engine)
+	return session.NewManager(a.store, a.router, a.checker).
+		WithRunChatExecutor(executor).WithLifecycleHooks(engine)
 }
 
 func (a *App) sessionCreate(ctx context.Context, manager *session.Manager, args []string) error {

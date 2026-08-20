@@ -5,29 +5,29 @@ import (
 	"testing"
 )
 
-// removeSchemaV120ForTestStatements restores a v119 database. Every historical
+// removeSchemaV122ForTestStatements restores a v121 database. Every historical
 // downgrade helper eventually reaches removeSchemaV118ForTestStatements, so the
 // newest schema must remain the first link in that chain.
-func removeSchemaV120ForTestStatements() []string {
+func removeSchemaV122ForTestStatements() []string {
 	return []string{
 		`DROP TABLE scheduled_job_notifications`,
 		`DROP TABLE scheduled_job_rounds`,
 		`DROP TABLE scheduled_job_operations`,
 		`DROP TABLE scheduled_job_authorizations`,
 		`DROP TABLE scheduled_jobs`,
-		`DELETE FROM schema_migrations WHERE version = 120`,
+		`DELETE FROM schema_migrations WHERE version = 122`,
 	}
 }
 
-func TestSchemaV120UpgradesV119Database(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "scheduled-jobs-v119.db")
+func TestSchemaV122UpgradesV121Database(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "scheduled-jobs-v121.db")
 	state, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV120ForTestStatements() {
+	for _, statement := range removeSchemaV122ForTestStatements() {
 		if _, err := state.db.ExecContext(t.Context(), statement); err != nil {
-			t.Fatalf("downgrade v120 with %q: %v", statement, err)
+			t.Fatalf("downgrade v122 with %q: %v", statement, err)
 		}
 	}
 	if err := state.Close(); err != nil {

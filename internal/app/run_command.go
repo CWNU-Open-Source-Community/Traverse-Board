@@ -50,7 +50,8 @@ func (a *App) runCommand(ctx context.Context, args []string) error {
 	if err := a.ensureStore(); err != nil {
 		return err
 	}
-	service := application.NewRunService(a.store)
+	service := application.NewRunService(a.store).
+		WithLifecycleHooks(a.newLifecycleHookEngine())
 	switch args[0] {
 	case "create":
 		return a.runCreate(ctx, service, args[1:])
@@ -1143,7 +1144,8 @@ func (a *App) runDelegationSchedule(ctx context.Context, action string, args []s
 		return fmt.Errorf("usage: cyberagent run delegation %s <proposal-id> --operation-key <key> [--operator <id>] [--max-rounds <n>] [--agent <id>]", action)
 	}
 	result, err := application.NewSpecialistOperatorScheduleService(
-		a.store, a.router, a.checker).Execute(ctx,
+		a.store, a.router, a.checker).
+		WithLifecycleHooks(a.newLifecycleHookEngine()).Execute(ctx,
 		application.ExecuteSpecialistOperatorScheduleRequest{
 			ProposalID: fs.Arg(0), AgentIDs: agentIDs.values, MaxRounds: *maxRounds,
 			OperationKey: *operationKey, RequestedBy: *operator,

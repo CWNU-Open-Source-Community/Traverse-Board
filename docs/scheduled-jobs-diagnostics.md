@@ -1,10 +1,10 @@
 # 计划任务与结构化诊断 / Scheduled Jobs and Structured Diagnostics
 
-Schema v120 adds a durable, bounded monitor for an explicit Run and three metadata-only
+Schema v122 adds a durable, bounded monitor for an explicit Run and three metadata-only
 diagnostic protocols. It does not add an indefinite autonomous agent, arbitrary cron
 Shell, OS service, autostart entry, or remote control plane.
 
-Schema v120 为显式指定的 Run 增加持久化、有边界的监控器，以及三种仅元数据诊断协议；
+Schema v122 为显式指定的 Run 增加持久化、有边界的监控器，以及三种仅元数据诊断协议；
 它不增加无限自治 Agent、任意 cron Shell、操作系统服务、开机启动项或远程控制平面。
 
 ## Safety defaults / 安全默认值

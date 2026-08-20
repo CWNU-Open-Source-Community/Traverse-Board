@@ -116,7 +116,9 @@ func SupervisorToolDefinitions() []ToolDefinition {
 	commandRuntime := commandRuntimeDefinition
 	commandRuntime.InputSchema = append(json.RawMessage(nil),
 		commandRuntime.InputSchema...)
-	return append(definitions, commandRuntime)
+	definitions = append(definitions, commandRuntime)
+	mcpCall := MCPToolDefinition()
+	return append(definitions, mcpCall)
 }
 
 func SupervisorToolDefinition(name ToolName) (ToolDefinition, bool) {
@@ -163,6 +165,9 @@ func SupervisorToolDefinition(name ToolName) (ToolDefinition, bool) {
 		definition.InputSchema = append(json.RawMessage(nil),
 			definition.InputSchema...)
 		return definition, true
+	}
+	if name == MCPToolCallTool {
+		return MCPToolDefinition(), true
 	}
 	if name == ChildTaskProposeTool {
 		definition := childTaskProposeDefinition
@@ -224,6 +229,10 @@ func NormalizeSupervisorToolPayload(name ToolName, payload json.RawMessage) (jso
 	}
 	if name == CommandRuntimeTool {
 		_, canonical, err := normalizeCommandRuntimePayload(payload)
+		return canonical, err
+	}
+	if name == MCPToolCallTool {
+		_, canonical, err := NormalizeMCPToolPayload(payload)
 		return canonical, err
 	}
 	return NormalizeStructuredMemoryPayload(name, payload)

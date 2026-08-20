@@ -14,6 +14,7 @@ import (
 	"cyberagent-workbench/internal/contextmgr"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
+	"cyberagent-workbench/internal/hooks"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/projectconfig"
 	"cyberagent-workbench/internal/redact"
@@ -43,7 +44,8 @@ type ContextContinuityStore interface {
 }
 
 type ContextContinuityService struct {
-	store ContextContinuityStore
+	store          ContextContinuityStore
+	lifecycleHooks *hooks.Engine
 }
 
 type CreateContinuityCheckpointRequest struct {
@@ -74,6 +76,15 @@ type ContinuityBranchResult struct {
 
 func NewContextContinuityService(store ContextContinuityStore) *ContextContinuityService {
 	return &ContextContinuityService{store: store}
+}
+
+func (s *ContextContinuityService) WithLifecycleHooks(
+	engine *hooks.Engine,
+) *ContextContinuityService {
+	if s != nil {
+		s.lifecycleHooks = engine
+	}
+	return s
 }
 
 func (s *ContextContinuityService) Checkpoint(ctx context.Context,
@@ -126,6 +137,13 @@ func (s *ContextContinuityService) Checkpoint(ctx context.Context,
 	if err != nil {
 		return contextmgr.ContinuityNode{}, err
 	}
+	if err := executeLifecycleBoundary(ctx, s.lifecycleHooks, hooks.Checkpoint,
+		run.ID, mission.WorkspaceID, map[string]any{
+			"session_id": run.SessionID, "checkpoint_id": node.ID,
+			"kind": node.Kind, "source": "context_continuity",
+		}); err != nil {
+		return contextmgr.ContinuityNode{}, err
+	}
 	if err := s.store.CreateSessionContinuityNode(ctx, node); err != nil {
 		return contextmgr.ContinuityNode{}, err
 	}
@@ -138,6 +156,14 @@ func (s *ContextContinuityService) Branch(ctx context.Context,
 	prepared, node, result, err := s.prepareBranch(ctx, request)
 	if err != nil {
 		return ContinuityBranchResult{}, err
+	}
+	if prepared.CreateSession {
+		if err := executeLifecycleBoundary(ctx, s.lifecycleHooks, hooks.SessionOpened,
+			prepared.Run.ID, prepared.Mission.WorkspaceID, map[string]any{
+				"session_id": prepared.Session.ID, "source": "context_branch",
+			}); err != nil {
+			return ContinuityBranchResult{}, err
+		}
 	}
 	if err := s.store.CreateMissionRunWithContinuity(ctx, prepared.Mission, prepared.Run,
 		prepared.Mode, prepared.Session, prepared.CreateSession, prepared.InitialEvents, node); err != nil {

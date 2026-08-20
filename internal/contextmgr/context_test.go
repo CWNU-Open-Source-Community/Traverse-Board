@@ -224,6 +224,31 @@ func TestMaybeCompactSkipsBelowThreshold(t *testing.T) {
 	}
 }
 
+func TestCompactionGuardRunsOnlyAtAnActualBoundary(t *testing.T) {
+	calls := 0
+	manager := NewManager(nil, Config{MaxMessagesBeforeCompact: 2,
+		PreserveRecentMessages: 1}).WithBeforeCompactGuard(
+		func(_ context.Context, taskID, workspaceID string,
+			sourceMessages, preservedMessages int,
+		) error {
+			calls++
+			if taskID != "task-guard" || workspaceID != "workspace-1" ||
+				sourceMessages != 3 || preservedMessages != 1 {
+				t.Fatalf("unexpected compaction boundary facts")
+			}
+			return fmt.Errorf("compaction denied")
+		})
+	if _, err := manager.MaybeCompact(context.Background(), "task-guard", "workspace-1",
+		[]Message{{Role: "user", Content: "one"}}); err != nil || calls != 0 {
+		t.Fatalf("guard ran below threshold: calls=%d err=%v", calls, err)
+	}
+	if _, err := manager.MaybeCompact(context.Background(), "task-guard", "workspace-1",
+		[]Message{{Role: "user", Content: "one"}, {Role: "assistant", Content: "two"},
+			{Role: "user", Content: "three"}}); err == nil || calls != 1 {
+		t.Fatalf("actual compaction did not fail closed: calls=%d err=%v", calls, err)
+	}
+}
+
 func TestConfigClampsHandoffStorageBounds(t *testing.T) {
 	manager := NewManager(nil, Config{
 		MaxMessagesBeforeCompact: 2, PreserveRecentMessages: 1,

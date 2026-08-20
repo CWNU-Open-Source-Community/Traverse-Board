@@ -15,6 +15,7 @@ This directory separates user-facing documentation, current engineering state, a
 | [使用手册 / Usage](usage.md) | CLI、Provider、Workspace、Run、审批和操作者工作流 |
 | [Workspace Checkpoints](workspace-checkpoints.md) | 检查点时间线、预览、Undo/Redo/Rewind、独立 Fork 与故障处理 |
 | [可交付多代理 / Deliverable Batches](batch-delivery.md) | child Worktree、缩权工具、邮箱、交付收据、复核、合并与恢复 |
+| [MCP Client、Plugin 与 Hooks / Extensions](extensions.md) | 两阶段 MCP、签名 Plugin、凭证引用、受限 Hook、Desktop/HTTP 控制与残余风险 |
 | [真实浏览器 UI 证据 / UI Evidence](ui-evidence.md) | 源码/配方绑定、真实 Edge 矩阵、产物、失败语义与操作手册 |
 | [Windows Desktop 计划](DESKTOP_PLAN.md) | 桌面架构、发布门和仍未开放的能力 |
 | [Skill 包计划](SKILL_PACKAGE_PLAN.md) | 惰性 Skill 导入、校验和未来分发边界 |

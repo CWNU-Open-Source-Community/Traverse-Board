@@ -10,6 +10,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/hooks"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/waitgraph"
 )
@@ -68,8 +69,18 @@ type SpecialistScheduleStore interface {
 // remain internal; the operator CLI reaches it only through an immutable,
 // application-bound schedule request. Models and ordinary tools have no path.
 type SpecialistScheduler struct {
-	runner    *SpecialistRunner
-	waitGraph *waitgraph.Graph
+	runner         *SpecialistRunner
+	waitGraph      *waitgraph.Graph
+	lifecycleHooks *hooks.Engine
+}
+
+func (s *SpecialistScheduler) WithLifecycleHooks(
+	engine *hooks.Engine,
+) *SpecialistScheduler {
+	if s != nil {
+		s.lifecycleHooks = engine
+	}
+	return s
 }
 
 func NewSpecialistScheduler(runner *SpecialistRunner) *SpecialistScheduler {
@@ -108,8 +119,20 @@ func (s *SpecialistScheduler) Execute(ctx context.Context,
 		return result, apperror.New(apperror.CodeFailedPrecondition,
 			fmt.Sprintf("run %s is %s; Specialist scheduling requires running", run.ID, run.Status))
 	}
+	mission, err := s.runner.store.GetMission(ctx, run.MissionID)
+	if err != nil {
+		return result, apperror.Normalize(err)
+	}
 	err = withRunExecutionLease(ctx, s.runner.store, run.ID, s.runner.leaseOwner,
 		s.runner.leasePolicy, func(leaseCtx context.Context, lease domain.RunExecutionLease) error {
+			if err := executeLifecycleBoundary(leaseCtx, s.lifecycleHooks, hooks.Subagent,
+				run.ID, mission.WorkspaceID, map[string]any{
+					"agent_count": len(result.AgentIDs), "max_rounds": request.MaxRounds,
+					"operator_request": strings.TrimSpace(request.OperatorRequestID) != "",
+					"source":           "specialist_scheduler",
+				}); err != nil {
+				return err
+			}
 			return s.executeWithLease(leaseCtx, lease, request.MaxRounds, scheduleStore, &result)
 		})
 	if err != nil && result.StopReason == "" &&

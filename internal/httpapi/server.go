@@ -27,6 +27,7 @@ import (
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/fileedit"
+	"cyberagent-workbench/internal/hooks"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/modelregistry"
 	"cyberagent-workbench/internal/operationreceipt"
@@ -276,6 +277,8 @@ type Config struct {
 	WorkspaceCheckpointControlEnabled       bool
 	BatchDeliveryControlEnabled             bool
 	BatchDeliveryHostValidationEnabled      bool
+	ExtensionControlEnabled                 bool
+	LifecycleHooks                          *hooks.Engine
 	UIEvidenceControlEnabled                bool
 	ExecutionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
 	BrowserCDPPermissionCapabilities        domain.BrowserCDPPermissionRuntimeCapabilities
@@ -303,6 +306,7 @@ type Config struct {
 	EmbeddedAnalyzerExecutionController     EmbeddedAnalyzerExecutionController
 	WorkspaceCheckpointController           WorkspaceCheckpointController
 	BatchDeliveryController                 BatchDeliveryController
+	ExtensionController                     ExtensionController
 	UIEvidenceController                    UIEvidenceController
 	DockerSandboxController                 DockerSandboxController
 	ModelRegistry                           *modelregistry.Registry
@@ -344,6 +348,8 @@ type API struct {
 	workspaceCheckpointControlEnabled       bool
 	batchDeliveryControlEnabled             bool
 	batchDeliveryHostValidationEnabled      bool
+	extensionControlEnabled                 bool
+	lifecycleHooks                          *hooks.Engine
 	uiEvidenceControlEnabled                bool
 	dockerSandboxControlEnabled             bool
 	dockerExecutionEnabled                  bool
@@ -374,6 +380,7 @@ type API struct {
 	embeddedAnalyzerExecutionController     EmbeddedAnalyzerExecutionController
 	workspaceCheckpointController           WorkspaceCheckpointController
 	batchDeliveryController                 BatchDeliveryController
+	extensionController                     ExtensionController
 	uiEvidenceController                    UIEvidenceController
 	dockerSandboxController                 DockerSandboxController
 	modelRegistry                           *modelregistry.Registry
@@ -423,7 +430,7 @@ func New(store Store, config Config) (*API, error) {
 		config.SkillInstallationEnabled || config.EvidenceAttachmentEnabled ||
 		config.VerificationEvidenceEnabled || config.EmbeddedAnalyzerExecutionEnabled ||
 		config.WorkspaceCheckpointControlEnabled || config.BatchDeliveryControlEnabled ||
-		config.UIEvidenceControlEnabled) &&
+		config.ExtensionControlEnabled || config.UIEvidenceControlEnabled) &&
 		!controlTokenPresent {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API control capabilities require a control token")
@@ -516,6 +523,10 @@ func New(store Store, config Config) (*API, error) {
 	if config.BatchDeliveryControlEnabled && config.BatchDeliveryController == nil {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API batch delivery controller is required when enabled")
+	}
+	if config.ExtensionControlEnabled && config.ExtensionController == nil {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"HTTP API extension controller is required when enabled")
 	}
 	if config.BatchDeliveryHostValidationEnabled &&
 		(!config.BatchDeliveryControlEnabled || !config.ExecutionPermissionControlEnabled ||
@@ -624,6 +635,8 @@ func New(store Store, config Config) (*API, error) {
 		batchDeliveryControlEnabled:       controlTokenPresent && config.BatchDeliveryControlEnabled,
 		batchDeliveryHostValidationEnabled: controlTokenPresent &&
 			config.BatchDeliveryHostValidationEnabled,
+		extensionControlEnabled:  controlTokenPresent && config.ExtensionControlEnabled,
+		lifecycleHooks:           config.LifecycleHooks,
 		uiEvidenceControlEnabled: controlTokenPresent && config.UIEvidenceControlEnabled,
 		dockerSandboxControlEnabled: config.DockerSandboxController != nil &&
 			controlTokenPresent && config.ExecutionPermissionControlEnabled,
@@ -655,6 +668,7 @@ func New(store Store, config Config) (*API, error) {
 		embeddedAnalyzerExecutionController: config.EmbeddedAnalyzerExecutionController,
 		workspaceCheckpointController:       config.WorkspaceCheckpointController,
 		batchDeliveryController:             config.BatchDeliveryController,
+		extensionController:                 config.ExtensionController,
 		uiEvidenceController:                config.UIEvidenceController,
 		dockerSandboxController:             config.DockerSandboxController,
 		modelRegistry:                       modelRegistry,
@@ -785,6 +799,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if request.Method != http.MethodGet && isContextContinuityMutationPath(request.URL.Path) {
 		a.serveContextContinuityMutation(tracked, request, requestID)
+		return
+	}
+	if identity, kind, matched := matchExtensionMutationPath(request.URL.Path); matched {
+		a.serveExtensionMutation(tracked, request, requestID, identity, kind)
 		return
 	}
 	if request.URL.Path == "/api/v1/runs" && request.Method != http.MethodGet {

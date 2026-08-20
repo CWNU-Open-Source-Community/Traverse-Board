@@ -964,6 +964,395 @@
         "x-cyberagent-read-only": true
       }
     },
+    "/api/v1/extensions": {
+      "get": {
+        "operationId": "getExtensionInventory",
+        "summary": "Inspect MCP Client and Plugin state",
+        "description": "Returns bounded MCP server health, capability fingerprints, metadata-only call audits, and Plugin installation state. Credential plaintext, MCP arguments and results, and package bytes are never returned.",
+        "tags": [
+          "Extensions"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "query",
+            "description": "Optional Run used to resolve exact Run and Workspace MCP scope",
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ExtensionInventoryView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/extensions/mcp/{server_id}/refresh": {
+      "post": {
+        "operationId": "refreshMCPServer",
+        "summary": "Rediscover one MCP server",
+        "description": "Performs bounded MCP initialization and discovery. Capability drift is fail-closed and moves the server out of enabled state until reviewed.",
+        "tags": [
+          "Extensions"
+        ],
+        "parameters": [
+          {
+            "name": "server_id",
+            "in": "path",
+            "description": "MCP server identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ExtensionMCPServerView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtensionRefreshRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/extensions/mcp/{server_id}/review": {
+      "post": {
+        "operationId": "reviewMCPServer",
+        "summary": "Review or disable one MCP server",
+        "description": "Applies an explicit two-stage descriptor or capability review, or immediately disables or revokes one server using pinned fingerprints.",
+        "tags": [
+          "Extensions"
+        ],
+        "parameters": [
+          {
+            "name": "server_id",
+            "in": "path",
+            "description": "MCP server identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ExtensionMCPServerView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtensionMCPReviewRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/extensions/plugins/{installation_id}/review": {
+      "post": {
+        "operationId": "reviewPluginInstallation",
+        "summary": "Review or disable one Plugin",
+        "description": "Applies an explicit capability review or immediately disables, quarantines, or revokes one inert Plugin installation using a pinned package fingerprint and generation.",
+        "tags": [
+          "Extensions"
+        ],
+        "parameters": [
+          {
+            "name": "installation_id",
+            "in": "path",
+            "description": "Plugin installation identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ExtensionPluginInstallationView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtensionPluginReviewRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/health": {
       "get": {
         "operationId": "getHealth",
@@ -20999,6 +21388,482 @@
           "operator_approval_enabled",
           "danger_full_access_enabled",
           "debug_maximum_access_enabled"
+        ],
+        "type": "object"
+      },
+      "ExtensionInventoryView": {
+        "additionalProperties": false,
+        "properties": {
+          "mcp_calls": {
+            "items": {
+              "$ref": "#/components/schemas/ExtensionMCPCallAuditView"
+            },
+            "type": "array"
+          },
+          "mcp_servers": {
+            "items": {
+              "$ref": "#/components/schemas/ExtensionMCPServerView"
+            },
+            "type": "array"
+          },
+          "plugins": {
+            "items": {
+              "$ref": "#/components/schemas/ExtensionPluginInstallationView"
+            },
+            "type": "array"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "mcp_servers",
+          "mcp_calls",
+          "plugins"
+        ],
+        "type": "object"
+      },
+      "ExtensionMCPCallAuditView": {
+        "additionalProperties": false,
+        "properties": {
+          "arguments_sha256": {
+            "type": "string"
+          },
+          "capability_fingerprint": {
+            "type": "string"
+          },
+          "completed_at": {
+            "type": "string"
+          },
+          "error_code": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "result_bytes": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "server_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "started_at": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tool_name": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "run_id",
+          "workspace_id",
+          "server_id",
+          "tool_name",
+          "capability_fingerprint",
+          "arguments_sha256",
+          "status",
+          "result_bytes",
+          "truncated",
+          "started_at",
+          "completed_at"
+        ],
+        "type": "object"
+      },
+      "ExtensionMCPCapabilityView": {
+        "additionalProperties": false,
+        "properties": {
+          "discovered_at": {
+            "type": "string"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "negotiated": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "prompts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "resources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "server_name": {
+            "type": "string"
+          },
+          "server_version": {
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "negotiated",
+          "tools",
+          "resources",
+          "prompts"
+        ],
+        "type": "object"
+      },
+      "ExtensionMCPReviewRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "expected_capability_fingerprint": {
+            "type": "string"
+          },
+          "expected_descriptor_fingerprint": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "action",
+          "expected_descriptor_fingerprint"
+        ],
+        "type": "object"
+      },
+      "ExtensionMCPServerView": {
+        "additionalProperties": false,
+        "properties": {
+          "approved_capability_fingerprint": {
+            "type": "string"
+          },
+          "capabilities": {
+            "$ref": "#/components/schemas/ExtensionMCPCapabilityView"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "credential_ref": {
+            "type": "string"
+          },
+          "declared_capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "descriptor_fingerprint": {
+            "type": "string"
+          },
+          "generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "health": {
+            "type": "string"
+          },
+          "health_message": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "reviewed_at": {
+            "type": "string"
+          },
+          "reviewed_by": {
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ExtensionSourceView"
+          },
+          "state": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "transport": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "id",
+          "name",
+          "transport",
+          "target",
+          "declared_capabilities",
+          "scope",
+          "workspace_id",
+          "source",
+          "descriptor_fingerprint",
+          "state",
+          "capabilities",
+          "health",
+          "generation",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "ExtensionPluginInstallationView": {
+        "additionalProperties": false,
+        "properties": {
+          "archive_sha256": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "enabled_capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/ExtensionPluginManifestView"
+          },
+          "package_fingerprint": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "publisher_fingerprint": {
+            "type": "string"
+          },
+          "reviewed_at": {
+            "type": "string"
+          },
+          "reviewed_by": {
+            "type": "string"
+          },
+          "signature_present": {
+            "type": "boolean"
+          },
+          "signature_valid": {
+            "type": "boolean"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ExtensionSourceView"
+          },
+          "staged_by": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "id",
+          "manifest",
+          "source",
+          "archive_sha256",
+          "package_fingerprint",
+          "signature_present",
+          "signature_valid",
+          "state",
+          "enabled_capabilities",
+          "generation",
+          "staged_by",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "ExtensionPluginManifestView": {
+        "additionalProperties": false,
+        "properties": {
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "publisher": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "version",
+          "publisher",
+          "description",
+          "capabilities"
+        ],
+        "type": "object"
+      },
+      "ExtensionPluginReviewRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "confirm_untrusted": {
+            "type": "boolean"
+          },
+          "expected_generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "expected_package_fingerprint": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "action",
+          "expected_package_fingerprint",
+          "expected_generation",
+          "confirm_untrusted"
+        ],
+        "type": "object"
+      },
+      "ExtensionRefreshRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      },
+      "ExtensionSourceView": {
+        "additionalProperties": false,
+        "properties": {
+          "commit": {
+            "type": "string"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "publisher": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "uri": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "uri"
         ],
         "type": "object"
       },

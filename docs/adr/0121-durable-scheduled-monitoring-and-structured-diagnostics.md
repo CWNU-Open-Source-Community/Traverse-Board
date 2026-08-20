@@ -4,10 +4,10 @@ Date: 2026-08-20
 
 ## Status / 状态
 
-Accepted for schema v120, `scheduled-job.v1`, `doctor-snapshot.v1`, and
+Accepted for schema v122, `scheduled-job.v1`, `doctor-snapshot.v1`, and
 `debug-query.v1`.
 
-已接受，用于 schema v120、`scheduled-job.v1`、`doctor-snapshot.v1` 与
+已接受，用于 schema v122、`scheduled-job.v1`、`doctor-snapshot.v1` 与
 `debug-query.v1`。
 
 ## Context / 背景
@@ -27,7 +27,7 @@ fencing 与权限证据；把原始 prompt、终端输入或事件 payload 写�
 
 ### 1. A scheduled job is a bounded durable state machine
 
-Schema v120 stores one-shot or elapsed-period schedules, UTC anchor plus IANA display
+Schema v122 stores one-shot or elapsed-period schedules, UTC anchor plus IANA display
 timezone, next wake, hard deadline, stop-on-target-terminal, maximum rounds/model calls/
 elapsed seconds, retry/backoff, notification policy, and owner Run/root. SQLite is the
 source of truth. The scheduler has an injectable clock, fixed concurrency one, and an

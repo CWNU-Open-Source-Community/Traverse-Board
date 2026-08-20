@@ -3,12 +3,14 @@ package httpapi
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"cyberagent-workbench/internal/apperror"
+	"cyberagent-workbench/internal/hooks"
 	"cyberagent-workbench/internal/session"
 )
 
@@ -114,6 +116,19 @@ func (a *API) serveSessionArchiveControl(writer http.ResponseWriter,
 	}
 	replayed := record.Status == session.StatusArchived
 	if !replayed {
+		if _, hookErr := hooks.ExecuteBoundary(request.Context(), a.lifecycleHooks,
+			hooks.Input{Event: hooks.SessionClosed, WorkspaceID: record.WorkspaceID},
+			map[string]any{"session_id": record.ID, "source": "http_archive"}); hookErr != nil {
+			var denied hooks.DeniedError
+			code := apperror.CodeUnavailable
+			message := "restricted lifecycle hooks are unavailable"
+			if errors.As(hookErr, &denied) {
+				code = apperror.CodePolicyDenied
+				message = "restricted lifecycle hook denied Session archive"
+			}
+			a.writeError(writer, requestID, apperror.Wrap(code, message, hookErr), 0)
+			return
+		}
 		record.Status = session.StatusArchived
 		record.UpdatedAt = time.Now().UTC()
 		if err := a.store.SaveSession(request.Context(), record); err != nil {

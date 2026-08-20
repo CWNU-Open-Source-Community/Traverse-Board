@@ -184,6 +184,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/extensions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect MCP Client and Plugin state
+         * @description Returns bounded MCP server health, capability fingerprints, metadata-only call audits, and Plugin installation state. Credential plaintext, MCP arguments and results, and package bytes are never returned.
+         */
+        get: operations["getExtensionInventory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/extensions/mcp/{server_id}/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rediscover one MCP server
+         * @description Performs bounded MCP initialization and discovery. Capability drift is fail-closed and moves the server out of enabled state until reviewed.
+         */
+        post: operations["refreshMCPServer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/extensions/mcp/{server_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Review or disable one MCP server
+         * @description Applies an explicit two-stage descriptor or capability review, or immediately disables or revokes one server using pinned fingerprints.
+         */
+        post: operations["reviewMCPServer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/extensions/plugins/{installation_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Review or disable one Plugin
+         * @description Applies an explicit capability review or immediately disables, quarantines, or revokes one inert Plugin installation using a pinned package fingerprint and generation.
+         */
+        post: operations["reviewPluginInstallation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -4268,6 +4348,120 @@ export interface components {
             debug_maximum_access_enabled: boolean;
             operator_approval_enabled: boolean;
         };
+        ExtensionInventoryView: {
+            mcp_calls: components["schemas"]["ExtensionMCPCallAuditView"][];
+            mcp_servers: components["schemas"]["ExtensionMCPServerView"][];
+            plugins: components["schemas"]["ExtensionPluginInstallationView"][];
+            protocol_version: string;
+            run_id?: string;
+            workspace_id?: string;
+        };
+        ExtensionMCPCallAuditView: {
+            arguments_sha256: string;
+            capability_fingerprint: string;
+            completed_at: string;
+            error_code?: string;
+            id: string;
+            /** Format: int32 */
+            result_bytes: number;
+            run_id: string;
+            server_id: string;
+            started_at: string;
+            status: string;
+            tool_name: string;
+            truncated: boolean;
+            workspace_id: string;
+        };
+        ExtensionMCPCapabilityView: {
+            discovered_at?: string;
+            fingerprint?: string;
+            negotiated: string[];
+            prompts: string[];
+            resources: string[];
+            server_name?: string;
+            server_version?: string;
+            tools: string[];
+        };
+        ExtensionMCPReviewRequestView: {
+            action: string;
+            expected_capability_fingerprint?: string;
+            expected_descriptor_fingerprint: string;
+            version: string;
+        };
+        ExtensionMCPServerView: {
+            approved_capability_fingerprint?: string;
+            capabilities: components["schemas"]["ExtensionMCPCapabilityView"];
+            created_at: string;
+            credential_ref?: string;
+            declared_capabilities: string[];
+            descriptor_fingerprint: string;
+            /** Format: int64 */
+            generation: number;
+            health: string;
+            health_message?: string;
+            id: string;
+            name: string;
+            protocol_version: string;
+            reviewed_at?: string;
+            reviewed_by?: string;
+            run_id?: string;
+            scope: string;
+            source: components["schemas"]["ExtensionSourceView"];
+            state: string;
+            target: string;
+            transport: string;
+            updated_at: string;
+            workspace_id: string;
+        };
+        ExtensionPluginInstallationView: {
+            archive_sha256: string;
+            created_at: string;
+            enabled_capabilities: string[];
+            /** Format: int64 */
+            generation: number;
+            id: string;
+            manifest: components["schemas"]["ExtensionPluginManifestView"];
+            package_fingerprint: string;
+            protocol_version: string;
+            publisher_fingerprint?: string;
+            reviewed_at?: string;
+            reviewed_by?: string;
+            signature_present: boolean;
+            signature_valid: boolean;
+            source: components["schemas"]["ExtensionSourceView"];
+            staged_by: string;
+            state: string;
+            updated_at: string;
+        };
+        ExtensionPluginManifestView: {
+            capabilities: string[];
+            description: string;
+            id: string;
+            name: string;
+            publisher: string;
+            version: string;
+        };
+        ExtensionPluginReviewRequestView: {
+            action: string;
+            capabilities?: string[];
+            confirm_untrusted: boolean;
+            /** Format: int64 */
+            expected_generation: number;
+            expected_package_fingerprint: string;
+            version: string;
+        };
+        ExtensionRefreshRequestView: {
+            version: string;
+        };
+        ExtensionSourceView: {
+            commit?: string;
+            fingerprint?: string;
+            kind: string;
+            publisher?: string;
+            sha256?: string;
+            uri: string;
+            version?: string;
+        };
         ExternalSkillDeliveryView: {
             /** Format: int32 */
             committed: number;
@@ -8293,6 +8487,169 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getExtensionInventory: {
+        parameters: {
+            query?: {
+                /** @description Optional Run used to resolve exact Run and Workspace MCP scope */
+                run_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ExtensionInventoryView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    refreshMCPServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description MCP server identity */
+                server_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExtensionRefreshRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ExtensionMCPServerView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    reviewMCPServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description MCP server identity */
+                server_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExtensionMCPReviewRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ExtensionMCPServerView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    reviewPluginInstallation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Plugin installation identity */
+                installation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExtensionPluginReviewRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ExtensionPluginInstallationView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
         };

@@ -67,6 +67,9 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 		if a.batchDeliveryController != nil {
 			resources = append(resources, "batch-deliveries")
 		}
+		if a.extensionController != nil {
+			resources = append(resources, "extensions")
+		}
 		if a.dockerSandboxControlEnabled {
 			resources = append(resources, "docker-sandbox-admission-control",
 				"docker-sandbox-start-control", "docker-sandbox-cancel-control")
@@ -135,6 +138,9 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 		if a.evidenceAttachmentEnabled {
 			resources = append(resources, "evidence-attachment-control")
 		}
+		if a.extensionControlEnabled {
+			resources = append(resources, "extension-control")
+		}
 		return IndexView{APIVersion: Version, AppVersion: a.appVersion, Resources: resources}, nil, nil
 	case "/api/v1/health":
 		if err := rejectQuery(request.URL.Query()); err != nil {
@@ -143,6 +149,8 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 		return a.health(request)
 	case "/api/v1/capabilities":
 		return a.runtimeCapabilities(request)
+	case ExtensionInventoryPath:
+		return a.extensionInventory(request)
 	case "/api/v1/browser/safe-web-readiness":
 		return a.browserSafeWebReadiness(request)
 	case "/api/v1/operation-receipts":
