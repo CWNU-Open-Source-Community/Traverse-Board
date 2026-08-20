@@ -279,6 +279,8 @@ func TestOpenAPIGoldenDocumentMatchesGoDTOs(t *testing.T) {
 func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	fixture := newAPIFixture(t)
 	fixture.api.eventStream = testEventStreamConfig(1, 100*time.Millisecond)
+	fixture.api.gitAdvancedController = &gitAdvancedControllerStub{}
+	fixture.api.gitAdvancedControlEnabled = true
 	childRun, child, childAttempt, childModel :=
 		prepareOpenAPISpecialistCancellationTarget(t, fixture)
 	_, profileRun, err := application.NewRunService(fixture.store).Create(t.Context(),
@@ -756,7 +758,18 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 			} else if spec.OperationID == "getWorkspaceRepositoryCommitFilePreview" {
 				expectedStatus = http.StatusPreconditionFailed
 			}
-			if spec.Path == DockerSandboxReadinessPath {
+			if spec.OperationID == "discoverGitAdvancedHunks" {
+				body := `{"spec":{"protocol_version":"git-advanced.v1",` +
+					`"operation":"hunk_stage","paths":["README.md"]}}`
+				request := httptest.NewRequest(http.MethodPost,
+					"http://127.0.0.1"+requestPath, strings.NewReader(body))
+				request.Host = "127.0.0.1:8765"
+				request.RemoteAddr = "127.0.0.1:45000"
+				request.Header.Set("Authorization", "Bearer "+testAccessToken)
+				request.Header.Set("Content-Type", "application/json")
+				response = httptest.NewRecorder()
+				fixture.api.ServeHTTP(response, request)
+			} else if spec.Path == DockerSandboxReadinessPath {
 				body, marshalErr := json.Marshal(DockerSandboxReadinessRequestView{
 					PlanID: "sandbox-docker-plan-openapi", Manifest: dockerSandboxHTTPTestManifest(),
 				})
@@ -794,6 +807,16 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 						t.Fatal(marshalErr)
 					}
 					body = string(encoded)
+				} else if spec.OperationID == "reviewGitAdvancedOperation" {
+					body = `{"operation_key":"openapi-git-advanced-review",` +
+						`"scope":{"capability_generation":"` + strings.Repeat("a", 64) + `",` +
+						`"lease_generation":1},"spec":{"protocol_version":"git-advanced.v1",` +
+						`"operation":"stash_create","message":"OpenAPI preview"}}`
+				} else if spec.OperationID == "executeGitAdvancedOperation" {
+					body = `{"operation_id":"git-advanced-operation-openapi",` +
+						`"approval_id":"approval-openapi","scope":{` +
+						`"capability_generation":"` + strings.Repeat("a", 64) + `",` +
+						`"lease_generation":1}}`
 				} else if spec.OperationID == "createContinuityCheckpoint" {
 					body = `{"title":"OpenAPI live checkpoint"}`
 				} else if spec.OperationID == "createWorkspaceCheckpoint" {

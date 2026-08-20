@@ -1356,6 +1356,73 @@ cyberagent git-op switch-branch --run <run-id> --branch work --operation-key <ke
 Operations are limited to stage/unstage/commit/create-branch/switch-branch; destructive or history-rewriting git commands cannot be expressed. Every execution binds to the exact reviewed repository state (HEAD + branch + index bytes + sorted status + untracked-content digests); any drift after review fails closed and demands a fresh review. Commits use pathspecs limited to the reviewed paths. The git binary runs with a fully replaced environment: system/global config ignored, hooks pointed at an empty directory, pager/editor/external diff/credential helpers/filters disabled, no agent environment inheritance. Receipts (commit id, conflict/clean flags, bounded stderr) land in `git_mutation_operations` (schema v106) plus a metadata-only `git.mutation_completed` Run event; operation keys make retries idempotent.
 
 
+## Advanced Git / 高级 Git
+
+Schema v123 adds the separate, default-off `git-advanced.v1` lifecycle. It does not widen
+`git-op` and never accepts raw Git arguments. Start a CLI invocation with the exact active
+Run, the two process gates, and optionally a dedicated managed-worktree root:
+
+```powershell
+cyberagent git-advanced status --run <run-id> `
+  --enable-git-advanced --enable-permission-control --json
+
+cyberagent git-advanced discover-hunks hunk_revert --run <run-id> `
+  --path internal/example.go --enable-git-advanced --enable-permission-control --json
+
+# Without --confirm this is a non-authorizing preview and creates no Approval.
+cyberagent git-advanced run hunk_revert --run <run-id> --hunk <sha256> `
+  --operation-key <stable-key> --enable-git-advanced --enable-permission-control
+
+# --confirm re-renders the evidence, approves that exact proposal, checkpoints, and executes.
+cyberagent git-advanced run hunk_revert --run <run-id> --hunk <sha256> `
+  --operation-key <stable-key> --enable-git-advanced --enable-permission-control --confirm
+```
+
+`status` lists the current repository/conflict state, exact stash parent roles, active durable
+sequence, redacted managed-worktree registry, authority generations, and immutable operations.
+`discover-hunks` is read-only. `preview` renders any closed operation without creating an
+Approval. `run` is also preview-only until `--confirm`; a confirmed invocation performs a
+read-only in-process inspection, creates the exact proposal, then re-renders and compares that
+same inspection before Approval and execution. The confirmed result prints the reviewed
+preview together with the Approval and receipt; any drift inside the invocation is rejected.
+
+The closed operation and flag mapping is:
+
+| Operations | Typed flags |
+|---|---|
+| `hunk_stage`, `hunk_unstage`, `hunk_revert` | repeat `--path`; execute with repeat `--hunk <sha256>` from discovery |
+| `stash_create` | `--message`, optional `--include-untracked`, `--keep-index` |
+| `stash_apply`, `stash_pop` | `--stash <full-oid>`, optional `--restore-index` |
+| `stash_drop` | `--stash <full-oid>` |
+| `rebase_start` | `--upstream <full-oid> --onto <full-oid>` |
+| rebase/cherry-pick continue, skip, abort | `--sequence <durable-id>` |
+| `cherry_pick_start` | repeat `--commit <full-oid>`; merge commits are rejected |
+| `bisect_start` | `--good <full-oid> --bad <full-oid>` |
+| `bisect_good`, `bisect_bad`, `bisect_skip` | `--sequence ... --expected-current <full-oid>` |
+| `bisect_run` | preceding flags plus `--recipe go_test|npm_test --max-steps N --timeout-seconds N` |
+| `bisect_reset` | `--sequence <durable-id>` |
+| `worktree_create` | `--worktree-name <safe-name> --branch <new-branch> --commit <full-oid>` |
+| `worktree_lock` | `--worktree-id ... --worktree-name ... [--lock-reason ...]` |
+| `worktree_unlock`, `worktree_remove` | `--worktree-id ... --worktree-name ...` |
+| `worktree_prune` | no caller path; only exact registered missing entries are eligible |
+
+Every mutation requires current Code/Local/Deliver authority, a non-conservative permission,
+active Workspace execution lease, process capability generation, exact one-time Approval,
+and Workspace Checkpoint. Repository/common-dir, HEAD/branch, raw index, worktree/status,
+stash, sequencer, upstream, permission revision, and lease generation are rechecked immediately
+before Git. Operation-key CAS ensures only one concurrent caller invokes Git. A process restart
+terminalizes but never replays `running` work; exact paused sequences remain available through a
+fresh continue/skip/abort, and a provably exact created worktree can be recovered into the
+registry while the interrupted receipt still fails closed.
+
+Desktop/API hosts must additionally compose all of Git-advanced control, permission control,
+operator approval, Approval control, and Workspace Checkpoint control. The Desktop panel uses
+the same service and never receives private lease IDs or managed host paths. Full hunk/stash/
+sequence/worktree semantics, protection rules, recovery limitations, HTTP endpoints, and
+examples are in [Advanced Git Workflows](git-advanced.md); the architecture decision is
+[ADR 0122](adr/0122-go-owned-advanced-git-lifecycle.md).
+
+
 ## Debug Terminal and Time-Bound Agent Input
 
 The persistent Debug terminal is user-owned by default and default-off at process startup. Enable the complete runtime boundary explicitly:

@@ -2,7 +2,7 @@
   "protocol": "skill.v1",
   "name": "focused-checks",
   "version": "1.1.0",
-  "description": "Change-mapped minimal credible tests, builds, snapshots, documentation, and security checks.",
+  "description": "Full-diff, semantic-evidence, and repository-state mapped tests, builds, recovery, documentation, and security checks.",
   "profiles": ["code", "review", "script"],
   "surfaces": ["code", "cyber"],
   "phases": ["deliver"],
@@ -12,7 +12,7 @@
   "explicit_only": false,
   "tool_dependencies": ["list_workspace", "read_file"],
   "content_path": "SKILL.md",
-  "content_sha256": "ce117d1b906e7eba1cbda8e3a0c9eadb7df206a12240e214ea5e2adc616a28af",
-  "content_bytes": 1675,
-  "content_token_upper_bound": 1675
+  "content_sha256": "f5a6de08275e074efae00749bc2404a925fbc6a88ec25f37fcd1e9d8c69df28c",
+  "content_bytes": 2451,
+  "content_token_upper_bound": 2451
 }

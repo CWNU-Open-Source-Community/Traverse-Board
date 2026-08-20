@@ -7,6 +7,7 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/gitadvanced"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/scriptprocess"
 	"cyberagent-workbench/internal/toolgateway"
@@ -37,6 +38,11 @@ type ApprovalControlStore interface {
 
 type ApprovalReviewer interface {
 	Review(context.Context, toolgateway.ReviewRequest) (toolgateway.Outcome, error)
+}
+
+type gitAdvancedApprovalControlStore interface {
+	GetGitAdvancedOperation(context.Context, string) (gitadvanced.OperationRecord, bool, error)
+	DecideApproval(context.Context, approval.DecisionRequest) (approval.DecisionResult, error)
 }
 
 type ApprovalControlService struct {
@@ -119,11 +125,27 @@ func (s *ApprovalControlService) Decide(ctx context.Context,
 			"approval action is not available through this control surface")
 	}
 	replayed := record.Status == expected
-	_, err = s.reviewer.Review(ctx, toolgateway.ReviewRequest{
-		Action: reviewAction, Tool: toolgateway.ToolName(record.ToolName),
-		ProposalID: record.ProposalID, IdempotencyKey: request.OperationKey,
-		ReviewedBy: request.ReviewedBy, Reason: request.Reason,
-	})
+	if record.ToolName == gitadvanced.ApprovalToolName {
+		advancedStore, ok := s.store.(gitAdvancedApprovalControlStore)
+		if !ok {
+			return DecideApprovalControlResult{}, apperror.New(apperror.CodeFailedPrecondition,
+				"Git advanced approval control is unavailable")
+		}
+		action := approval.ActionDeny
+		if request.Action == ApprovalControlApproveOnce {
+			action = approval.ActionApprove
+		}
+		_, err = advancedStore.DecideApproval(ctx, approval.DecisionRequest{
+			ProposalID: record.ProposalID, IdempotencyKey: request.OperationKey,
+			Action: action, Reason: request.Reason, ReviewedBy: request.ReviewedBy,
+		})
+	} else {
+		_, err = s.reviewer.Review(ctx, toolgateway.ReviewRequest{
+			Action: reviewAction, Tool: toolgateway.ToolName(record.ToolName),
+			ProposalID: record.ProposalID, IdempotencyKey: request.OperationKey,
+			ReviewedBy: request.ReviewedBy, Reason: request.Reason,
+		})
+	}
 	if err != nil {
 		return DecideApprovalControlResult{}, apperror.Normalize(err)
 	}
@@ -177,6 +199,25 @@ func (s *ApprovalControlService) recheckApprovalSource(ctx context.Context,
 		}
 		decision = s.checker.CheckToolCall(tools.Call{Name: string(toolgateway.ScriptProcessTool),
 			Args: map[string]string{"proposal": payload}})
+	case gitadvanced.ApprovalToolName:
+		advancedStore, ok := s.store.(gitAdvancedApprovalControlStore)
+		if !ok {
+			return apperror.New(apperror.CodeFailedPrecondition,
+				"Git advanced approval source is unavailable")
+		}
+		proposal, found, err := advancedStore.GetGitAdvancedOperation(ctx, record.ProposalID)
+		if err != nil {
+			return apperror.Normalize(err)
+		}
+		if !found || proposal.ID != record.ProposalID || proposal.RunID != record.RunID ||
+			proposal.SessionID != record.SessionID || proposal.WorkspaceID != record.WorkspaceID ||
+			proposal.Status != gitadvanced.OperationProposed ||
+			proposal.ApprovalFingerprint != record.RequestFingerprint ||
+			proposal.ApprovalID != "" {
+			return apperror.New(apperror.CodeFailedPrecondition,
+				"Git advanced approval source changed or is no longer pending")
+		}
+		return nil // Execution rechecks capability, permission, lease, and repository drift.
 	default:
 		return apperror.New(apperror.CodeFailedPrecondition,
 			"approve-once is limited to dry-run Shell and ScriptProcess proposals")
@@ -194,7 +235,8 @@ func ApprovalDecisionActions(record approval.Record, runTerminal bool) []Approva
 		return []ApprovalControlAction{}
 	}
 	switch record.ToolName {
-	case string(toolgateway.ShellTool), string(toolgateway.ScriptProcessTool):
+	case string(toolgateway.ShellTool), string(toolgateway.ScriptProcessTool),
+		gitadvanced.ApprovalToolName:
 		return []ApprovalControlAction{ApprovalControlApproveOnce, ApprovalControlDeny}
 	case string(toolgateway.ReplaceFileTool):
 		return []ApprovalControlAction{ApprovalControlDeny}
@@ -212,7 +254,8 @@ func approvalActionSupported(record approval.Record, action ApprovalControlActio
 	// Idempotent replay is still constrained to the same tool classes.
 	if record.Status != approval.StatusPending {
 		switch record.ToolName {
-		case string(toolgateway.ShellTool), string(toolgateway.ScriptProcessTool):
+		case string(toolgateway.ShellTool), string(toolgateway.ScriptProcessTool),
+			gitadvanced.ApprovalToolName:
 			return action == ApprovalControlApproveOnce || action == ApprovalControlDeny
 		case string(toolgateway.ReplaceFileTool):
 			return action == ApprovalControlDeny

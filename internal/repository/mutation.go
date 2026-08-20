@@ -461,8 +461,10 @@ func normalizeRepositoryRoot(root string) (string, error) {
 }
 
 // hardenedGitEnvironment runs git with system/global config ignored, hooks,
-// pager, editor, external diff, credential helpers, and LFS filters disabled,
-// and never inherits the agent process environment.
+// pager, interactive sequence editor, external diff, credential helpers, and
+// LFS filters disabled, and never inherits the agent process environment. The
+// ordinary editor is the no-op `true` command so a reviewed rebase continuation
+// can reuse Git's existing commit message without invoking a user editor.
 func hardenedGitEnvironment() []string {
 	return []string{
 		"GIT_CONFIG_NOSYSTEM=1",
@@ -470,11 +472,12 @@ func hardenedGitEnvironment() []string {
 		"GIT_ATTR_NOSYSTEM=1",
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_ASKPASS=false",
-		"GIT_EDITOR=false",
+		"GIT_EDITOR=true",
+		"GIT_SEQUENCE_EDITOR=false",
 		"GIT_PAGER=cat",
 		"GIT_OPTIONAL_LOCKS=0",
 		"GIT_LFS_SKIP_SMUDGE=1",
-		"GIT_CONFIG_COUNT=7",
+		"GIT_CONFIG_COUNT=8",
 		"GIT_CONFIG_KEY_0=core.hooksPath",
 		"GIT_CONFIG_VALUE_0=" + os.DevNull,
 		"GIT_CONFIG_KEY_1=core.fsmonitor",
@@ -489,6 +492,10 @@ func hardenedGitEnvironment() []string {
 		"GIT_CONFIG_VALUE_5=cat",
 		"GIT_CONFIG_KEY_6=core.attributesFile",
 		"GIT_CONFIG_VALUE_6=" + os.DevNull,
+		"GIT_CONFIG_KEY_7=commit.gpgSign",
+		"GIT_CONFIG_VALUE_7=false",
+		"LC_ALL=C",
+		"LANG=C",
 		"SystemRoot=" + os.Getenv("SystemRoot"),
 	}
 }

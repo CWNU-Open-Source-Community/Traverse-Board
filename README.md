@@ -61,7 +61,7 @@ CLI / TUI / React / Windows Desktop / CI
 | 模型与上下文 | Mock、Anthropic-compatible、OpenAI-compatible 与 loopback-only Ollama Provider、模型路由、资格校验、能力探测、流式响应、上下文压缩、层级项目指令、显式 user/project 长期记忆与 Session 恢复树 |
 | 计划与协作 | Plan/Delivery、工作项、备注、最多两个核心 child、`batch-delivery.v1` 独立 Worktree/分支/邮箱/交付复核/顺序合并，以及 1/2/4/6 档只读 Fan-out |
 | 工具与权限 | Tool Gateway、JSON Schema 校验、Policy、Scope、人工审批、四档宿主权限、受控固定命令、普通模式 Run-owned 命令运行时、逐条审批 PowerShell/Git Bash，以及限时 Debug 终端输入 |
-| 代码工作流 | 系统目录选择与 Workspace 导入、工作区浏览、仓库状态、提交历史、Diff 审阅、文件编辑提案、只读 `code-intel-lsp.v1` 语义工具、事务化 Workspace Checkpoint、Undo/Redo/Rewind、独立 Fork、验证计划、Code Journey 与 Handoff |
+| 代码工作流 | 系统目录选择与 Workspace 导入、工作区浏览、仓库状态、提交历史、Diff 审阅、文件编辑提案、只读 `code-intel-lsp.v1` 语义工具、事务化 Workspace Checkpoint、稳定 hunk、stash/rebase/cherry-pick/bisect、受管 worktree、Undo/Redo/Rewind、独立 Fork、验证计划、Code Journey 与 Handoff |
 | 可观测性 | 追加式 Run 事件、Live Activity、公开模型进度、Harness 事实、Artifact、Finding/Evidence/Report、SARIF、持久化有界计划任务与脱敏结构化诊断包 |
 | 扩展 | 模式感知的惰性 Skill 包、生成候选人工审查、两阶段 MCP Client、签名 `plugin.v1`、受限生命周期 Hooks、Provider/Tool 接口、Go/Rust JSON 协议、内嵌 WASI Analyzer、Sandbox 合同与默认关闭的 network-none Docker 产品执行 |
 | 客户端 | `cyberagent` CLI、Bubble Tea TUI、认证 HTTP/OpenAPI、React/Vite、Windows/macOS Desktop 便携预览 |
@@ -91,6 +91,12 @@ Schema v117 的 `workspace-checkpoint.v1` 在文件工具、Run-owned 命令批�
 
 Desktop 的 **工作区检查点 / Checkpoints**、CLI 的 `cyberagent workspace checkpoint ...` 和认证 OpenAPI 共用同一个 Application 服务。Rewind、Undo、Redo 先做 live/current/target 三方预览，再以精确 cursor CAS 和当前权限确认写入；恢复本身是一次新的追加式写操作，不改写旧历史、不调用 `git reset --hard`、不批量清理 untracked 文件。Fork 从历史检查点建立独立 Git worktree、Workspace、Mission/Run/Session，且不继承审批、凭据、capability、lease、进程或网络授权；HTTP/Desktop 不接受或返回绝对 worktree 路径，由 Go 从受信源 Workspace 确定性生成同级目标。完整操作说明见 [Workspace Checkpoints](docs/workspace-checkpoints.md)，设计与失败语义见 [ADR 0118](docs/adr/0118-transactional-workspace-checkpoints.md)。
 
+### 审批式高级 Git
+
+Schema v123 的 `git-advanced.v1` 以默认关闭的 Go-owned 控制面提供稳定内容指纹 hunk stage/unstage/revert、明确 base/index/worktree/untracked 角色的 stash、可持续恢复的 rebase/cherry-pick/bisect 状态机，以及只能位于产品管理根内的 worktree create/lock/unlock/remove/prune。每次写入都固定 repository/common-dir、HEAD/branch、index/worktree/stash/sequencer/upstream、permission、capability generation 与 Workspace lease，先展示完整 preview，再创建一次性 Approval 与 Checkpoint；执行前全部重算，任一漂移都会失败关闭。终态收据、冲突 base/ours/theirs、序列 generation 和 worktree 注册表均持久且不可变。
+
+高级 Git 不接受 raw argv、Shell、host path、任意 ref/pathspec 或 bisect 命令；Git 运行时关闭 hook、credential helper、外部 diff、filter/merge driver 和交互入口。保护分支、配置 upstream 的共享 rebase、detached 历史改写、force push、reset-hard、clean-force、脏/外部 worktree 删除都不能表达。重启只观察并终结 `running` 操作，不重放；已精确创建但尚未登记的 worktree 可在全量身份匹配后保守纳入注册表，但原操作仍标记 `interrupted`。Desktop、`cyberagent git-advanced` 与认证 OpenAPI 共用同一 Application 服务；完整命令、限制和恢复流程见[高级 Git 工作流](docs/git-advanced.md)，设计见 [ADR 0122](docs/adr/0122-go-owned-advanced-git-lifecycle.md)。
+
 ### 可交付 child 与隔离合并
 
 Schema v118 的 `batch-delivery.v1` 将一个已经审批并 admission 的核心 child DAG 物化为最多两个独立 Git worktree/branch。每个 child 只获得绑定 Agent、generation、过期时间与一次性 owner token 的关闭工具集：owned Scope 内的 list/read/glob/grep、人工提案式 change/apply，以及固定 status/diff/commit；delete/rename、Shell、任意 process、network、credential、Debug、审批和继续派生 child 始终为 false。旧 Specialist 运行时仍保持 no-tool；它不会因为存在此协议而隐式扩权。
@@ -116,7 +122,7 @@ Prayu 调用真实的 Git 和操作系统 Shell，不是命令模拟器；但它
 
 | 入口 | 实际执行 | 权限与限制 |
 |---|---|---|
-| 类型化 Git | 真实 `git` 进程；覆盖本地 stage/unstage/commit/分支切换，以及独立授权的 fetch、fast-forward pull、push branch、创建/更新 PR | 参数由 Go 合成，固定仓库状态、禁用 hook/外部 diff/凭证继承；破坏历史的任意 Git argv 不在此入口开放 |
+| 类型化 Git | 真实 `git` 进程；覆盖本地整文件与稳定 hunk 操作、stash、rebase/cherry-pick/bisect、受管 worktree，以及独立授权的 fetch、fast-forward pull、push branch、创建/更新 PR | 参数由 Go 合成，固定仓库/权限/lease 状态并先审批与 Checkpoint；禁用 hook/外部 diff/凭证/自定义 driver，raw argv、force push 与共享历史改写不开放 |
 | Run-owned 命令运行时 | 真实 PowerShell/Bash 或绝对路径原生进程；支持有序批次、cursor 输出、受限 stdin 与后台 Job | 仅 Code/Local/Deliver/root + `full_access`，且进程必须显式开启 permission-control/danger-full-access；固定无 Profile 解释器、受限环境、`network=disabled`/`credentials=none`，每次 Tool 调用重新校验当前 Run 租约与 Policy |
 | Approval 一次性 Shell | Windows 上的真实 PowerShell 或同一 Git for Windows 发行版中的 Git Bash；命令被固定成无 Profile、非交互的一次性 argv | 仅 Code/Local/Controlled/Approval；模型只能提出一行命令，操作者必须核对解释器哈希、完整 argv、cwd 与宿主网络风险并逐条批准；不支持持久或后台所有权 |
 | Debug 持久终端 | Windows 使用 PowerShell + ConPTY + creation-time Job Object；macOS 使用 Bash + PTY + 独立进程组 | 仅 Code/Local/Deliver/Debug；用户先启动终端，再显式授予 15 秒至 15 分钟的进程内 Agent 输入租约，可随时撤销。普通后台 job 随终端清理；主动 POSIX daemonize 仍是宿主残余风险 |
@@ -371,7 +377,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 完整逐切片原始记录保留在 [`PROGRESS_BOOK.md`](docs/PROGRESS_BOOK.md)，当前检查点与验收证据保留在 [`PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)，恢复上下文见 [`PROJECT_MEMORY.md`](docs/PROJECT_MEMORY.md)。这些账本是历史记录，不应被当作待重新执行的任务列表。
 
 <details>
-<summary><strong>SQLite Schema v1-v122 迁移审计表 / Migration ledger</strong></summary>
+<summary><strong>SQLite Schema v1-v123 迁移审计表 / Migration ledger</strong></summary>
 
 此表是 Store 防漏迁移测试使用的审计合同。新增 schema 时必须按顺序追加，不得改写或删除既有行。
 
@@ -499,6 +505,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 | v120 | 增加两阶段 MCP Client Server、能力快照与 metadata-only 调用账本 | add two-stage MCP Client servers, capability snapshots, and metadata-only call audits |
 | v121 | 增加签名 plugin.v1 安装、publisher 信任/撤销、回滚与受限 Hook 审计 | add signed plugin.v1 installs, publisher trust/revocation, rollback, and restricted-Hook audits |
 | v122 | 增加 scheduled-job.v1、单实例租约/fencing、轮次与通知账本 | add scheduled-job.v1, singleton lease/fencing, round, and notification ledgers |
+| v123 | 增加 git-advanced.v1 操作/序列审计与产品受管 worktree 注册表 | add git-advanced.v1 operation/sequence audits and the product-managed worktree registry |
 
 </details>
 

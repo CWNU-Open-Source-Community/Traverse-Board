@@ -2,11 +2,50 @@
 
 > 本文件是按时间追加的历史开发账本，不是待办列表。当前产品范围以 [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md) 为准；CTF 专用求解和攻防自动化已移出活跃路线图，本文中的旧 Cyber 百分比仅保留为历史快照。
 
-更新时间：2026-08-20
+更新时间：2026-08-21
 
 ## 一、当前阶段
 
-2026-08-20 单切片 `来源绑定真实浏览器 UI 证据（Issue #102）` 推进到 SQLite v119。
+2026-08-20—21 单切片 `高级 Git 恢复与受管 Worktree（Issue #117）` 推进到 SQLite v123。
+`git-advanced.v1` 以严格字段 union 和 Go-owned command templates 覆盖稳定 hunk、stash、
+rebase/cherry-pick/bisect sequence 与受管 worktree；raw argv/Shell/host path/任意 ref 或 recipe
+不可达。preview/approval 固定 repo/common-dir/HEAD/branch/index/worktree/status/stash/sequencer/
+upstream、permission/capability/lease；hunk 额外固定 base/index/worktree/context/patch。每项 mutation
+使用一次性 Approval、Workspace Checkpoint、operation-key 与 `proposed -> running` CAS，只有
+唯一胜者执行，terminal receipt/events 不可变。
+
+rebase/cherry/bisect sequence 持久保存 original/current ref、targets、sequencer digest、conflicts
+和 generation；重启观察而不重放。stash exact OID/parent roles 和 conflict-retained pop、bounded
+bisect Go/npm recipe/step/timeout/whole-tree reap、protected/shared/detached rewrite default deny 均有
+真实 Git fixture。worktree destination 由 managed root/common-dir/name 派生，父级也拒绝 Windows
+junction/POSIX symlink；registry/head/branch/common-dir/tracked/untracked/ignored/lock/prunable
+状态在删除前复核。stash apply/pop 与历史状态机在 preview 和命令前都会拒绝可能被 Git
+静默覆盖的 ignored file/directory collision。create 后登记前 crash 可保守登记 exact clean
+target，但收据保持 interrupted。
+
+CLI、OpenAPI、React/Desktop 与 startup reconciliation 已接同一 Application service；public DTO
+不含 private lease、host path 或 raw persistence JSON。review/focused-checks 新版本使用完整
+merge-base diff、stable hunk、base/ours/theirs、worktree/recovery evidence，旧 bytes exact archive。
+README/Usage/HTTP/Architecture/Desktop matrix、独立 guide 与 ADR 0122 已同步。定向功能、并发、
+故障注入、真实 Git、OpenAPI 与 Web 回归通过。重放主线后的最终
+`go test -p 2 -count=1 -timeout 30m ./...` 全仓通过：Store 748.018s、Application 499.105s、
+HTTP 133.862s、CLI App 98.970s、repository 101.197s；Advanced Git/LSP race、普通/
+Desktop-tag vet、新增代码 scoped staticcheck、module verify/tidy、Linux no-CGO 58 binaries、
+Web 65 files/288 tests/typecheck/build/npm audit、Rust fmt/test/clippy 与 1217-advisory 缓存 audit
+均通过。OpenAPI/TS 连续生成保持 144/160/419 与稳定 hash。
+
+无过滤全仓 `SA*/S1*/QF*` staticcheck 如实保留 8 项 `origin/main` 原样且不在本 diff 的既有
+告警。默认并发首次全仓运行和一次 Application 复验分别触发 main 原样的 command-runtime
+取消测试与 500ms UI-evidence deadline 测试；前者隔离普通 20/race 5 次通过，后者普通 20 次
+通过，最终 `-p 2` 全仓门通过。本机 Go 1.26.5 的 govulncheck 仍报告 5 项由 1.26.6 修复的
+可达标准库 advisory；本切片未增加 Go module 依赖，不冒充零漏洞。
+
+本切片最终重放到 `origin/main@715591a`，保留 Issue #116 的 Go-owned 只读
+`code-intel-lsp.v1`、CLI/OpenAPI/Desktop 投影和模型工具；合并后的 review/focused-checks
+同时绑定 LSP 来源证据与高级 Git 的完整 diff/hunk/conflict/recovery 证据。Issue #116 未增加
+SQLite 迁移，承接的数据库版本仍为 v122。
+
+再前一审计阶段：2026-08-20 单切片 `来源绑定真实浏览器 UI 证据（Issue #102）` 推进到 SQLite v119。
 `ui-evidence.v1` 封存 Run/Mission/Session/Workspace、fresh source checkpoint、可选 build/
 必需 start recipe、readiness、固定浏览器 version/executable SHA-256、literal-loopback
 URL/route、viewport/DPR、locale/theme/reduced-motion、deterministic fixture/seed/page state、

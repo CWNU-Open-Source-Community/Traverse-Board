@@ -146,6 +146,45 @@ func TestCaptureKeepsAMissingGitIndexAsAnExactState(t *testing.T) {
 	}
 }
 
+func TestCaptureKeepsUnmergedIndexExactAndMarksProjectionPartial(t *testing.T) {
+	root := newCheckpointRepository(t)
+	mustCheckpointWrite(t, filepath.Join(root, "conflict.txt"), []byte("base\n"))
+	runCheckpointGit(t, root, "add", "conflict.txt")
+	runCheckpointGit(t, root, "commit", "-m", "conflict base")
+	baseBranch := runCheckpointGit(t, root, "branch", "--show-current")
+	runCheckpointGit(t, root, "switch", "-q", "-c", "conflict-other")
+	mustCheckpointWrite(t, filepath.Join(root, "conflict.txt"), []byte("other\n"))
+	runCheckpointGit(t, root, "add", "conflict.txt")
+	runCheckpointGit(t, root, "commit", "-m", "other side")
+	runCheckpointGit(t, root, "switch", "-q", baseBranch)
+	mustCheckpointWrite(t, filepath.Join(root, "conflict.txt"), []byte("ours\n"))
+	runCheckpointGit(t, root, "add", "conflict.txt")
+	runCheckpointGit(t, root, "commit", "-m", "our side")
+	command := exec.Command("git", "-C", root, "merge", "--no-edit", "conflict-other")
+	command.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0")
+	if output, err := command.CombinedOutput(); err == nil {
+		t.Fatalf("fixture merge unexpectedly succeeded: %s", output)
+	}
+
+	snapshot, err := Capture(t.Context(), validCaptureRequest(root, time.Now().UTC()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Checkpoint.RecoveryLevel != RecoveryPartial ||
+		snapshot.Checkpoint.IndexBlobSHA256 == "" ||
+		!strings.Contains(strings.Join(snapshot.Checkpoint.IncompleteReasons, "\n"),
+			"unmerged stages") {
+		t.Fatalf("unmerged index recovery evidence is incomplete: %+v", snapshot.Checkpoint)
+	}
+	entry := checkpointEntriesByPath(snapshot.Entries)["conflict.txt"]
+	if !entry.Tracked || entry.IndexOID == "" || entry.BlobSHA256 == "" {
+		t.Fatalf("unmerged path lost its bounded ours projection: %+v", entry)
+	}
+	if err := snapshot.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCaptureRejectsLinkedWorkspaceRoot(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("creating a directory symlink may require elevation on Windows")

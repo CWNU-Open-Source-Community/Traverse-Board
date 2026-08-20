@@ -24,6 +24,7 @@ import (
 	"cyberagent-workbench/internal/modelregistry"
 	"cyberagent-workbench/internal/plugins"
 	"cyberagent-workbench/internal/policy"
+	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/scheduler"
 	"cyberagent-workbench/internal/skills"
@@ -106,6 +107,8 @@ type ControlPlaneConfig struct {
 	UserTerminalEnabled                     bool
 	DockerExecutionEnabled                  bool
 	CodeIntelConfigPath                     string
+	GitAdvancedControlEnabled               bool
+	GitManagedWorktreeRoot                  string
 	AppVersion                              string
 	UIHandler                               http.Handler
 	CredentialStore                         credential.Store
@@ -123,6 +126,18 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 			!config.ExecutionPermissionCapabilities.OperatorApprovalEnabled) {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop Docker execution requires operator approval permission control")
+	}
+	if config.GitAdvancedControlEnabled &&
+		(!config.ExecutionPermissionControlEnabled ||
+			!config.ExecutionPermissionCapabilities.OperatorApprovalEnabled ||
+			config.ControlToken == "") {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"desktop Git advanced control requires operator approval permission control")
+	}
+	if strings.TrimSpace(config.GitManagedWorktreeRoot) != "" &&
+		!config.GitAdvancedControlEnabled {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"desktop managed Git worktree root requires Git advanced control")
 	}
 	if config.BatchDeliveryHostValidationEnabled &&
 		(!config.ExecutionPermissionControlEnabled ||
@@ -236,6 +251,29 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		_ = stateStore.Close()
 		return nil, apperror.Wrap(apperror.CodeUnavailable,
 			"desktop Workspace checkpoint startup reconciliation failed", err)
+	}
+	var gitAdvanced *application.GitAdvancedService
+	if config.GitAdvancedControlEnabled {
+		managedRoot := strings.TrimSpace(config.GitManagedWorktreeRoot)
+		if managedRoot == "" {
+			managedRoot = filepath.Join(home, "worktrees")
+		}
+		gitExecutor, gitErr := repository.NewAdvancedExecutor(managedRoot, true)
+		if gitErr != nil {
+			_ = stateStore.Close()
+			return nil, gitErr
+		}
+		gitAdvanced, gitErr = application.NewGitAdvancedService(stateStore, gitExecutor,
+			config.ExecutionPermissionCapabilities, workspaceCheckpoints)
+		if gitErr != nil {
+			_ = stateStore.Close()
+			return nil, gitErr
+		}
+		if _, gitErr = gitAdvanced.ReconcileStartup(context.Background(), 500); gitErr != nil {
+			_ = stateStore.Close()
+			return nil, apperror.Wrap(apperror.CodeUnavailable,
+				"desktop Git advanced startup reconciliation failed", gitErr)
+		}
 	}
 	batchDelivery := application.NewBatchDeliveryService(stateStore).
 		WithHostValidationExecution(config.BatchDeliveryHostValidationEnabled,
@@ -510,6 +548,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		VerificationEvidenceEnabled:             config.VerificationEvidenceEnabled,
 		EmbeddedAnalyzerExecutionEnabled:        config.EmbeddedAnalyzerExecutionEnabled,
 		WorkspaceCheckpointControlEnabled:       config.ControlToken != "",
+		GitAdvancedControlEnabled:               config.GitAdvancedControlEnabled,
 		BatchDeliveryControlEnabled:             config.BatchDeliveryControlEnabled,
 		BatchDeliveryHostValidationEnabled:      config.BatchDeliveryHostValidationEnabled,
 		ExtensionControlEnabled:                 config.ControlToken != "",
@@ -539,6 +578,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		SkillInstallationController:         skillInstaller,
 		EmbeddedAnalyzerExecutionController: embeddedAnalyzerExecution,
 		WorkspaceCheckpointController:       workspaceCheckpoints,
+		GitAdvancedController:               gitAdvanced,
 		BatchDeliveryController:             batchDelivery,
 		ExtensionController:                 extensionControl,
 		CodeIntelSource:                     codeIntelManager,

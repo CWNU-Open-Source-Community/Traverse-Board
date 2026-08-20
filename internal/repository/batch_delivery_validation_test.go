@@ -112,11 +112,13 @@ func TestHardenedGitEnvironmentDisablesHooksAndAttributeDrivers(t *testing.T) {
 			values[key] = value
 		}
 	}
-	if values["GIT_ATTR_NOSYSTEM"] != "1" || values["GIT_CONFIG_COUNT"] != "7" ||
+	if values["GIT_ATTR_NOSYSTEM"] != "1" || values["GIT_CONFIG_COUNT"] != "8" ||
 		values["GIT_CONFIG_KEY_0"] != "core.hooksPath" ||
 		values["GIT_CONFIG_VALUE_0"] != os.DevNull ||
 		values["GIT_CONFIG_KEY_6"] != "core.attributesFile" ||
-		values["GIT_CONFIG_VALUE_6"] != os.DevNull {
+		values["GIT_CONFIG_VALUE_6"] != os.DevNull ||
+		values["GIT_CONFIG_KEY_7"] != "commit.gpgSign" ||
+		values["GIT_CONFIG_VALUE_7"] != "false" {
 		t.Fatalf("hardened Git environment is incomplete: %#v", values)
 	}
 }

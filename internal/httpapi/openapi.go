@@ -209,6 +209,7 @@ func GenerateOpenAPI() ([]byte, error) {
 			{Name: "System", Description: "API discovery, health, and contract metadata."},
 			{Name: "Models", Description: "Redacted Go-owned Provider and model-route availability."},
 			{Name: "Runs", Description: "Durable Run state and Run-scoped projections."},
+			{Name: "Git", Description: "Approval-gated, preview-bound advanced Git operations and durable recovery state."},
 			{Name: "Agents", Description: "Bounded Agent graph and operator-gated delegation projections."},
 			{Name: "Analysis", Description: "Read-only Fan-out plans and execution summaries."},
 			{Name: "Reports", Description: "Finding reports and redacted lifecycle evidence summaries."},
@@ -399,6 +400,31 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			DataType:    reflect.TypeOf(workspaceCheckpointForkResultView{}),
 			RequestType: reflect.TypeOf(workspaceCheckpointForkView{}), Control: true,
 			NotFound: true, Parameters: []openAPIParameter{runID}, SuccessStatus: http.StatusCreated},
+		{Path: "/api/v1/runs/{run_id}/git-advanced",
+			OperationID: "getGitAdvancedProjection", Summary: "Inspect advanced Git state",
+			Tag: "Git", Description: "Returns the current repository binding, process capability generation, conflict stages, durable sequence recovery, managed worktrees, and recent immutable operation receipts without exposing filesystem roots.",
+			DataType: reflect.TypeOf(application.GitAdvancedProjection{}), NotFound: true,
+			Parameters: []openAPIParameter{runID, {Name: "limit", In: "query",
+				Description: "Maximum operation receipts", Schema: map[string]any{
+					"type": "integer", "minimum": 1, "maximum": 500, "default": 100}}}},
+		{Path: "/api/v1/runs/{run_id}/git-advanced/discover-hunks", Method: http.MethodPost,
+			OperationID: "discoverGitAdvancedHunks", Summary: "Discover stable Git hunk identities",
+			Tag: "Git", Description: "Reads one exact repository/index/worktree snapshot and returns stable hunk identities and patches. Discovery never creates an Approval and selected identities must be reviewed again before mutation.",
+			DataType:    reflect.TypeOf(application.GitAdvancedReviewResult{}),
+			RequestType: reflect.TypeOf(gitAdvancedDiscoverView{}), NotFound: true,
+			Parameters: []openAPIParameter{runID}, SuccessStatus: http.StatusOK},
+		{Path: "/api/v1/runs/{run_id}/git-advanced/review", Method: http.MethodPost,
+			OperationID: "reviewGitAdvancedOperation", Summary: "Review an exact advanced Git mutation",
+			Tag: "Git", Description: "Revalidates the active Run permission, lease generation, process capability, repository binding, target objects, selected hunks, conflicts, file impact, and recovery plan, then persists an immutable pending Approval source.",
+			DataType:    reflect.TypeOf(application.GitAdvancedReviewResult{}),
+			RequestType: reflect.TypeOf(gitAdvancedReviewView{}), Control: true,
+			NotFound: true, Parameters: []openAPIParameter{runID}, SuccessStatus: http.StatusCreated},
+		{Path: "/api/v1/runs/{run_id}/git-advanced/execute", Method: http.MethodPost,
+			OperationID: "executeGitAdvancedOperation", Summary: "Execute an approved advanced Git mutation",
+			Tag: "Git", Description: "Consumes one exact approved preview after revalidating capability, permission, lease, repository, index, worktree, upstream, hunk, sequence, and worktree-registry state. Every mutation is bracketed by Workspace checkpoints and yields a durable receipt.",
+			DataType:    reflect.TypeOf(application.GitAdvancedExecuteResult{}),
+			RequestType: reflect.TypeOf(gitAdvancedExecuteView{}), Control: true,
+			NotFound: true, Parameters: []openAPIParameter{runID}, SuccessStatus: http.StatusOK},
 		{Path: "/api/v1/runs/{run_id}/ui-evidence", OperationID: "listRunUIEvidence",
 			Summary: "List source-bound UI evidence attempts", Tag: "UI Evidence",
 			Description: "Returns immutable manifests and fail-closed outcomes. not_run is unknown and never a passing result.",
@@ -1699,6 +1725,9 @@ func (r *openAPISchemaRegistry) ref(valueType reflect.Type) map[string]any {
 	name := valueType.Name()
 	if strings.HasSuffix(valueType.PkgPath(), "/uievidence") {
 		name = "UIEvidence" + name
+	}
+	if strings.HasSuffix(valueType.PkgPath(), "/gitadvanced") {
+		name = "GitAdvanced" + name
 	}
 	return r.refNamed(name, valueType)
 }

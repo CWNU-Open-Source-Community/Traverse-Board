@@ -75,6 +75,8 @@ Budget, events, sandbox sessions, and reports are Run-scoped rather than embedde
 | `Run` | One resumable execution attempt with config snapshot, budget, and status | Run Store |
 | `AgentNode` | Addressable root or specialist worker inside a run | Coordinator Store |
 | `BatchDelivery` | Admitted child DAG, isolated worktrees, mailbox, receipts, reviews, and local integration queue | Batch Delivery Store |
+| `GitAdvancedOperation` | Immutable exact preview/Approval/Checkpoint/receipt for one closed advanced Git mutation | Git Advanced Store |
+| `GitAdvancedSequence` / `ManagedWorktree` | Durable conflict sequence generations and product-owned worktree identities | Git Advanced Store |
 | `WorkItem` | Structured unit of planned work with dependency and completion state | Work Board Store |
 | `Note` | Durable observation or reasoning aid, scoped to run and optional agent | Memory Store |
 | `Finding` | Structured, evidence-backed result awaiting validation/acceptance | Finding Store |
@@ -661,7 +663,7 @@ The same Go adapter owns read projections for the bounded Agent graph, operator-
 
 ## Persistence
 
-SQLite remains the local source of truth. Schema migration `v1` records the legacy baseline, `v2`-`v18` establish the Run/Supervisor/memory/tool/Artifact/lease control plane, `v19`-`v38` add bounded Agent coordination, reviewed delegation, read-only Fan-out, Findings, and operator scheduling, and `v39`-`v47` add immutable Skill selection/context, Run modes, Plan/Delivery, provenance, checkpoints, steering, and Specialist minimization. Schemas `v48`-`v63` build the still-disabled Sandbox evidence and recovery chain; `v64`-`v68` add non-authorizing execution-profile and Docker production-evidence decisions; `v69`-`v71` add the inert user Skill Registry, exact Run selection/context, and read-only provenance; `v72`-`v113` continue the audited Run, Desktop, Provider, browser, Analyzer, Docker, dependency, MCP, project-config, Git, external-Skill, and Debug-terminal control planes; `v114` adds explicit long-term memory plus immutable instruction/continuity ledgers without authority restoration; `v115` adds model-callable workspace tools and hash-guarded file mutations; `v116` adds the Run-owned ordinary command runtime and its Supervisor call ledger; `v117` adds content-addressed transactional Workspace Checkpoints; `v118` adds isolated batch delivery; `v119` adds source-bound real-browser UI-evidence attempts, steps, and artifacts; `v120` adds the reviewed MCP Client ledger; and `v121` adds inert Plugin installation, publisher trust, rollback, and restricted-Hook audits. Non-schema D1-B1 exposes the existing v69 Registry through inert HTTP/Desktop confirmation and adds no migration. Migrations are ordered, checksummed, transactional, and safe to apply repeatedly; legacy databases are upgraded without deleting their data or fabricating new operator decisions.
+SQLite remains the local source of truth. Schema migration `v1` records the legacy baseline, `v2`-`v18` establish the Run/Supervisor/memory/tool/Artifact/lease control plane, `v19`-`v38` add bounded Agent coordination, reviewed delegation, read-only Fan-out, Findings, and operator scheduling, and `v39`-`v47` add immutable Skill selection/context, Run modes, Plan/Delivery, provenance, checkpoints, steering, and Specialist minimization. Schemas `v48`-`v63` build the still-disabled Sandbox evidence and recovery chain; `v64`-`v68` add non-authorizing execution-profile and Docker production-evidence decisions; `v69`-`v71` add the inert user Skill Registry, exact Run selection/context, and read-only provenance; `v72`-`v113` continue the audited Run, Desktop, Provider, browser, Analyzer, Docker, dependency, MCP, project-config, Git, external-Skill, and Debug-terminal control planes; `v114` adds explicit long-term memory plus immutable instruction/continuity ledgers without authority restoration; `v115` adds model-callable workspace tools and hash-guarded file mutations; `v116` adds the Run-owned ordinary command runtime and its Supervisor call ledger; `v117` adds content-addressed transactional Workspace Checkpoints; `v118` adds isolated batch delivery; `v119` adds source-bound real-browser UI-evidence attempts, steps, and artifacts; `v120` adds the reviewed MCP Client ledger; `v121` adds inert Plugin installation, publisher trust, rollback, and restricted-Hook audits; `v122` adds durable bounded scheduled monitoring and structured-diagnostics records; and `v123` adds immutable advanced-Git operations/sequences plus the managed-worktree registry. Non-schema D1-B1 exposes the existing v69 Registry through inert HTTP/Desktop confirmation and adds no migration. Migrations are ordered, checksummed, transactional, and safe to apply repeatedly; legacy databases are upgraded without deleting their data or fabricating new operator decisions.
 
 ```text
 missions
@@ -1218,6 +1220,54 @@ ordinary interrupted boundaries close with explicit partial evidence, restores r
 only under the same live identity, and a registered Fork finishes its existing Run
 instead of creating a duplicate. Desktop, CLI, and OpenAPI are thin projections over
 this single service. Operational details are in [Workspace Checkpoints](workspace-checkpoints.md).
+
+## Go-Owned Advanced Git Lifecycle
+
+ADR 0122 and schema v123 add `git-advanced.v1` beside the existing whole-file local Git and
+network-scoped remote Git services. The protocol is a strict union of hunk, stash,
+rebase/cherry-pick/bisect, and managed-worktree operations. It contains exact object IDs,
+stable hunk IDs, bounded recipe choices, and safe logical names, but no raw argv, shell text,
+ref expression, host path, executable, environment, or arbitrary validation command.
+
+`repository.AdvancedExecutor` owns all command templates. Its preview binding covers the
+canonical repository and common Git directory, HEAD/branch, raw index, worktree/status,
+stash, sequencer, upstream, and object format. Hunk identity additionally includes base/index
+blobs, whole-file worktree content, context, and patch. Every Git invocation uses literal
+pathspecs and a replaced environment; executable repository-local filter/diff/merge drivers,
+hooks, helpers, prompts, editors, pagers, external diff, fsmonitor, system attributes, and
+LFS smudge are disabled or rejected. Binary/combined hunks, symlink/submodule paths, ambiguous
+index stages, detached/protected history changes, shared-upstream rebase, and force-style
+operations are outside the closed contract.
+
+Application review binds the executor preview to current permission revision, private
+Workspace lease, and process-random capability generation, then stores immutable spec/preview
+JSON and a one-time `git.advanced` Approval. Execute re-renders the repository, revalidates
+durable sequence/worktree targets, opens a Workspace Checkpoint boundary, and CAS-transitions
+`proposed -> running`; only that winner calls Git. Receipt validation, terminal immutability,
+append-only events, and idempotency prevent a second caller or restart from duplicating the
+mutation.
+
+Rebase, cherry-pick, and bisect use a separate generation-fenced durable sequence containing
+original HEAD/branch, exact targets, current HEAD, sequencer digest, and base/ours/theirs
+conflicts. Continue/skip/abort/mark/reset requires the same live digest. Bisect automation is
+limited to fixed Go/npm recipes with step/timeout budgets, an offline stripped environment,
+closed stdin, and mandatory whole-process-tree reap evidence. Protected original branches may
+be restored by bisect reset, but cannot be selected for rebase/cherry-pick start.
+
+Managed worktree paths are derived below one startup-configured real root from common-dir
+identity and a safe name. Registry rows bind path digest, source repository/common-dir,
+branch/commit, Run/Workspace, and creating operation; names are never reused. Parent and target
+symlink/junction identity, Git registration, stored/live HEAD and branch, lock, and tracked plus
+untracked cleanliness are checked before removal. Prune accepts only missing administrative
+entries that are already in the product registry. Public projections blank host paths and
+private lease IDs.
+
+Startup reconciliation observes every `running` operation and never invokes Git. A matching
+active sequence is persisted as interrupted/conflicted for a fresh explicit control action. A
+provably exact created worktree may be recovered into the registry, while its old operation
+remains failed/interrupted so uncertain execution is never represented as success. Desktop,
+CLI, and authenticated OpenAPI are projections over this one service. See
+[Advanced Git Workflows](git-advanced.md) for operations and residual recovery limits.
 
 ## Deliverable Batch Agents
 

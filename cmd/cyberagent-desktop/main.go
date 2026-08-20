@@ -71,6 +71,8 @@ type desktopOptions struct {
 	userTerminal           bool
 	dockerExecution        bool
 	codeIntelConfig        string
+	gitAdvanced            bool
+	gitWorktreeRoot        string
 	version                bool
 }
 
@@ -291,6 +293,10 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		"enable product Docker Sandbox admission and execution on the fixed local daemon")
 	codeIntelConfig := fs.String("code-intel-config", "",
 		"absolute operator-reviewed code-intel config")
+	gitAdvanced := fs.Bool("enable-git-advanced", false,
+		"enable approval-gated git-advanced.v1 mutations")
+	gitWorktreeRoot := fs.String("git-worktree-root", "",
+		"product-managed Git worktree root; defaults below CYBERAGENT_HOME")
 	version := fs.Bool("version", false, "print version and exit")
 	if err := fs.Parse(args); err != nil {
 		return desktopOptions{}, err
@@ -325,6 +331,7 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		*verificationEvidence = true
 		*embeddedAnalyzer = true
 		*batchDeliveryControl = true
+		*gitAdvanced = true
 	}
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled:   *permissionControl,
@@ -345,6 +352,14 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 	if *dockerExecution && !*permissionControl {
 		return desktopOptions{}, errors.New(
 			"Docker execution requires --enable-permission-control")
+	}
+	if *gitAdvanced && !*permissionControl {
+		return desktopOptions{}, errors.New(
+			"Git advanced control requires --enable-permission-control")
+	}
+	if strings.TrimSpace(*gitWorktreeRoot) != "" && !*gitAdvanced {
+		return desktopOptions{}, errors.New(
+			"--git-worktree-root requires --enable-git-advanced")
 	}
 	if *batchValidation && (!*batchDeliveryControl || !*permissionControl || !*dangerFullAccess) {
 		return desktopOptions{}, errors.New(
@@ -396,6 +411,8 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		userTerminal:           *userTerminal,
 		dockerExecution:        *dockerExecution,
 		codeIntelConfig:        strings.TrimSpace(*codeIntelConfig),
+		gitAdvanced:            *gitAdvanced,
+		gitWorktreeRoot:        strings.TrimSpace(*gitWorktreeRoot),
 		version:                *version}, nil
 }
 
@@ -426,7 +443,7 @@ func runDesktop(config desktopOptions) error {
 		config.skillInstallation || config.evidenceAttachment ||
 		config.verificationEvidence || config.embeddedAnalyzer || config.userTerminal ||
 		config.dockerExecution || config.batchDeliveryControl || config.batchValidation ||
-		config.uiEvidence {
+		config.uiEvidence || config.gitAdvanced {
 		controlToken, err = httpapi.GenerateAccessToken()
 		if err != nil {
 			return err
@@ -479,10 +496,12 @@ func runDesktop(config desktopOptions) error {
 			SafeWebStartEnabled: true, DisposableProfileEnabled: true,
 			NetworkContainmentEnabled: true, RestrictedCDPEnabled: true,
 		},
-		UserTerminalEnabled:    config.userTerminal,
-		DockerExecutionEnabled: config.dockerExecution,
-		CodeIntelConfigPath:    config.codeIntelConfig,
-		AppVersion:             app.Version, UIHandler: bundle,
+		UserTerminalEnabled:       config.userTerminal,
+		DockerExecutionEnabled:    config.dockerExecution,
+		CodeIntelConfigPath:       config.codeIntelConfig,
+		GitAdvancedControlEnabled: config.gitAdvanced,
+		GitManagedWorktreeRoot:    config.gitWorktreeRoot,
+		AppVersion:                app.Version, UIHandler: bundle,
 		OnWakeWorkerError: func(runErr error) {
 			fmt.Fprintln(os.Stderr, "wake-worker:", runErr)
 		},
@@ -549,6 +568,7 @@ func runDesktop(config desktopOptions) error {
 		UserTerminalEnabled:                     config.userTerminal,
 		DockerExecutionEnabled:                  dockerExecutionEnabled,
 		CodeIntelEnabled:                        controlPlane.CodeIntelEnabled(),
+		GitAdvancedControlEnabled:               config.gitAdvanced,
 		AppVersion:                              app.Version, UIDigest: bundle.Digest(), Selector: selector,
 		PreviewBridge: preview, SkillInstaller: controlPlane.SkillInstaller(),
 		WorkspaceResolver: controlPlane, WorkspaceLauncher: newNativeWorkspaceLauncher(),

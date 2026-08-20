@@ -33,6 +33,7 @@ function runtimeCapabilitiesData(overrides: Record<string, unknown> = {}) {
     ui_evidence_control_enabled: true,
     embedded_analyzer_execution_enabled: true,
 	workspace_checkpoint_control_enabled: true,
+    git_advanced_control_enabled: true,
     batch_delivery_control_enabled: true,
     batch_delivery_host_validation_enabled: true,
     process_execution_enabled: true, shell_execution_enabled: true,
@@ -385,6 +386,7 @@ describe("CyberAgentClient", () => {
       ui_evidence_control_enabled: true,
       embedded_analyzer_execution_enabled: true,
 	  workspace_checkpoint_control_enabled: true,
+      git_advanced_control_enabled: true,
       batch_delivery_control_enabled: true,
       batch_delivery_host_validation_enabled: true,
       process_execution_enabled: true, shell_execution_enabled: true,
@@ -415,6 +417,7 @@ describe("CyberAgentClient", () => {
       uiEvidenceControlEnabled: true,
       embeddedAnalyzerExecutionEnabled: true,
 	  workspaceCheckpointControlEnabled: true,
+      gitAdvancedControlEnabled: true,
       batchDeliveryControlEnabled: true,
       batchDeliveryHostValidationEnabled: true,
     });

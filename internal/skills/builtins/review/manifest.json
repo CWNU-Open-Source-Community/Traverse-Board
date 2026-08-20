@@ -2,7 +2,7 @@
   "protocol": "skill.v1",
   "name": "review",
   "version": "1.4.0",
-  "description": "Evidence-graded merge-base, full-diff, lifecycle, concurrency, recovery, and test-strength review.",
+  "description": "Evidence-graded full merge-base, semantic trace, stable-hunk, conflict, worktree, lifecycle, recovery, and test-strength review.",
   "profiles": ["code", "review"],
   "surfaces": ["code"],
   "phases": ["plan", "deliver"],
@@ -12,7 +12,7 @@
   "explicit_only": false,
   "tool_dependencies": ["list_workspace", "read_file"],
   "content_path": "SKILL.md",
-  "content_sha256": "99df6a4609917026162f8fc74ecd9528412c0e2141dd931686ea1ab35a3f5b5b",
-  "content_bytes": 2136,
-  "content_token_upper_bound": 2136
+  "content_sha256": "9248f38a13048894382b0b79a9188ac1eb14d05f908f22b5f63a46a1c2feb07a",
+  "content_bytes": 3005,
+  "content_token_upper_bound": 3005
 }

@@ -247,8 +247,8 @@ func TestCommonCapabilitySkillBodiesPreserveEvidenceAndAuthorityBoundaries(t *te
 		"debug":           {"model, tool, policy, application, or infrastructure", "next_after_sequence", "In Deliver"},
 		"loop-monitor":    {"explicit target Run", "unchanged round without calling a model or tool", "approved_repair"},
 		"run-verify":      {"Extension: ui-evidence", "ui-evidence.v1", "not_run", "PR verification receipt"},
-		"review":          {"merge-base", "concurrent or durable code", "confirmed, inferred, or unverified"},
-		"focused-checks":  {"smallest credible set", "must never be reported as passed"},
+		"review":          {"complete merge-base diff", "stable hunk graph", "base/ours/theirs object IDs", "unexpected worktrees", "retry, skip, abort, restart", "confirmed, inferred, or unverified"},
+		"focused-checks":  {"complete merge-base diff", "stable hunk identity", "continue/skip/abort", "bounded bisect", "checkpoint or recovery receipt", "must never be reported as passed"},
 		"simplify":        {"call-site evidence", "generated code, reflection, registration, build tags"},
 		"security-review": {"read-only by default", "authentication and authorization", "sensitive persistent or logged data"},
 	}
