@@ -306,6 +306,9 @@ jobs:
           $standardUserCreated = $false
           $workspaceGrantAdded = $false
           $standardUserSID = $null
+          $process = $null
+          $securePassword = $null
+          $cleanupFailure = $null
           try {
             go test -c -o $testBinary ./internal/browserruntime
             if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $testBinary)) {
@@ -346,7 +349,9 @@ jobs:
             $start.Domain = $env:COMPUTERNAME
             $start.UserName = $standardUserName
             $start.Password = $securePassword
-            $start.LoadUserProfile = $false
+            # Edge requires the disposable account's HKCU hive during browser
+            # initialization. The exact profile is removed by SID below.
+            $start.LoadUserProfile = $true
             $start.ArgumentList.Add("-test.v")
             $start.ArgumentList.Add("-test.timeout=3m")
             $start.ArgumentList.Add(
@@ -407,14 +412,37 @@ jobs:
             }
           }
           finally {
+            if ($null -ne $process) {
+              $process.Dispose()
+            }
+            if ($null -ne $securePassword) {
+              $securePassword.Dispose()
+            }
             if ($workspaceGrantAdded -and $null -ne $standardUserSID) {
               & icacls.exe $env:GITHUB_WORKSPACE /remove:g `
                 ("*{0}" -f $standardUserSID) /Q | Out-Host
               if ($LASTEXITCODE -ne 0) {
-                Write-Error "remove standard-user workspace grant failed"
+                $cleanupFailure = "remove standard-user workspace grant failed"
               }
             }
             if ($standardUserCreated) {
+              $profileDeadline = (Get-Date).AddSeconds(5)
+              do {
+                $loadedProfile = Get-CimInstance -ClassName Win32_UserProfile |
+                  Where-Object { $_.SID -eq $standardUserSID }
+                if ($null -eq $loadedProfile -or -not $loadedProfile.Loaded) {
+                  break
+                }
+                Start-Sleep -Milliseconds 250
+              } while ((Get-Date) -lt $profileDeadline)
+              if ($null -ne $loadedProfile) {
+                if ($loadedProfile.Special -or $loadedProfile.Loaded) {
+                  $cleanupFailure = "UI evidence standard-user profile is not removable"
+                }
+                else {
+                  $loadedProfile | Remove-CimInstance
+                }
+              }
               Remove-LocalUser -Name $standardUserName
             }
             if (Test-Path -LiteralPath $directTempRoot) {
@@ -422,6 +450,9 @@ jobs:
             }
             if (Test-Path -LiteralPath $directTempRoot) {
               throw "UI evidence direct temp root was not cleaned"
+            }
+            if ($null -ne $cleanupFailure) {
+              throw $cleanupFailure
             }
           }
       - name: Upload real Edge UI evidence receipt
