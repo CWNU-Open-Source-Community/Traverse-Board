@@ -849,9 +849,16 @@ func readDevToolsEndpoint(profilePath string) (*url.URL, bool, error) {
 		return nil, true, nil
 	}
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 ||
-		info.Size() <= 0 || info.Size() > MaxDevToolsActivePortBytes ||
+		info.Size() < 0 || info.Size() > MaxDevToolsActivePortBytes ||
 		!profilePathHasNoIndirection(path) {
 		return nil, false, errors.New("DevTools endpoint file is unavailable or indirect")
+	}
+	// Chromium creates this direct regular file before publishing its two-line
+	// payload. Keep the bounded startup wait pending during that zero-length
+	// window; indirection, oversized data, malformed content, process exit, and
+	// the caller's deadline remain fail-closed.
+	if info.Size() == 0 {
+		return nil, true, nil
 	}
 	file, err := os.Open(path)
 	if err != nil {
@@ -859,9 +866,12 @@ func readDevToolsEndpoint(profilePath string) (*url.URL, bool, error) {
 	}
 	raw, readErr := io.ReadAll(io.LimitReader(file, MaxDevToolsActivePortBytes+1))
 	closeErr := file.Close()
-	if readErr != nil || closeErr != nil || len(raw) == 0 ||
+	if readErr != nil || closeErr != nil ||
 		len(raw) > MaxDevToolsActivePortBytes || !utf8.Valid(raw) {
 		return nil, false, errors.New("DevTools endpoint file is malformed")
+	}
+	if len(raw) == 0 {
+		return nil, true, nil
 	}
 	lines := strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n")
 	if len(lines) != 2 || strings.HasSuffix(lines[0], "\r") ||

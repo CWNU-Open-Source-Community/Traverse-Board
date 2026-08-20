@@ -140,6 +140,23 @@ func TestRestrictedCDPRejectsMalformedEndpointFile(t *testing.T) {
 	}
 }
 
+func TestReadDevToolsEndpointTreatsEmptyDirectFileAsPending(t *testing.T) {
+	facts := newLoopbackBrowserRuntimeFacts(t)
+	profileLease := facts.materialize(t)
+	path := filepath.Join(profileLease.DirectoryPath, DevToolsActivePortFileName)
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	endpoint, pending, err := readDevToolsEndpoint(profileLease.DirectoryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if endpoint != nil || !pending {
+		t.Fatalf("empty direct endpoint file returned endpoint=%v pending=%t",
+			endpoint, pending)
+	}
+}
+
 func TestRestrictedCDPRejectsIndirectEndpointFile(t *testing.T) {
 	facts := newLoopbackBrowserRuntimeFacts(t)
 	profileLease := facts.materialize(t)
