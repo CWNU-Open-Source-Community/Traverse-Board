@@ -31,7 +31,10 @@ jobs:
         run: go mod tidy -diff
       - name: Verify Go analyzer compatibility vectors
         run: go test -count=1 ./internal/analyzer -run 'Test(AnalyzerProtocol|ArchiveInventory)SharedGoldenVectors'
-      - run: go test -timeout 20m -count=1 ./...
+      # The store package intentionally replays the complete immutable migration
+      # ledger across hundreds of isolated databases; keep the package timeout
+      # above its measured 20-minute boundary while preserving uncached execution.
+      - run: go test -timeout 30m -count=1 ./...
       - run: go vet ./...
       - name: Install pinned govulncheck
         env:
