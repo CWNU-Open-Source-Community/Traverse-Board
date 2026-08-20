@@ -142,14 +142,9 @@ func (s *CommandRuntimeService) ExecuteCommandRuntime(ctx context.Context,
 		result.Jobs = jobs
 		return result, commandRuntimeError(err)
 	case toolgateway.CommandRuntimeActionRead, toolgateway.CommandRuntimeActionWait:
-		record, err := s.authorizeJob(ctx, input.JobID, bindings)
+		record, err := s.authorizeReadableJob(ctx, input.JobID, bindings)
 		if err != nil {
 			return result, err
-		}
-		if !record.State.Terminal() {
-			if record, err = s.authorizeActiveJob(ctx, input.JobID, bindings); err != nil {
-				return result, err
-			}
 		}
 		job, page, err := s.manager.Wait(ctx, input.JobID,
 			time.Duration(*input.WaitMilliseconds)*time.Millisecond,
@@ -617,6 +612,28 @@ func (s *CommandRuntimeService) authorizeActiveJob(ctx context.Context, jobID st
 			"command runtime job ownership is stale")
 	}
 	return job, nil
+}
+
+// authorizeReadableJob closes the race between observing an active durable Job
+// and verifying its process-local owner. A short-lived command may complete in
+// that interval; terminal output remains readable after its Run identity is
+// authorized, while a still-active Job must retain exact process ownership.
+func (s *CommandRuntimeService) authorizeReadableJob(ctx context.Context, jobID string,
+	bindings commandRuntimeBindings,
+) (runner.CommandRuntimeJob, error) {
+	job, err := s.authorizeJob(ctx, jobID, bindings)
+	if err != nil || job.State.Terminal() {
+		return job, err
+	}
+	active, activeErr := s.authorizeActiveJob(ctx, jobID, bindings)
+	if activeErr == nil {
+		return active, nil
+	}
+	refreshed, refreshErr := s.authorizeJob(ctx, jobID, bindings)
+	if refreshErr == nil && refreshed.State.Terminal() {
+		return refreshed, nil
+	}
+	return runner.CommandRuntimeJob{}, activeErr
 }
 
 func (s *CommandRuntimeService) Reconcile(ctx context.Context) (int, error) {

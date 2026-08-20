@@ -502,6 +502,44 @@ func TestCommandRuntimeBackgroundJobSurvivesSupervisorLeaseTurnover(t *testing.T
 	}
 }
 
+type commandRuntimeTerminalTransitionStore struct {
+	CommandRuntimeStore
+	running  runner.CommandRuntimeJob
+	terminal runner.CommandRuntimeJob
+	calls    int
+}
+
+func (s *commandRuntimeTerminalTransitionStore) GetCommandRuntimeJob(
+	context.Context, string,
+) (runner.CommandRuntimeJob, error) {
+	s.calls++
+	if s.calls == 1 {
+		return s.running, nil
+	}
+	return s.terminal, nil
+}
+
+func TestCommandRuntimeReadableAuthorizationAllowsTerminalOwnershipTransition(t *testing.T) {
+	running := runner.CommandRuntimeJob{ID: "command-runtime-terminal-transition",
+		RunID: "run-terminal-transition", MissionID: "mission-terminal-transition",
+		SessionID: "session-terminal-transition", WorkspaceID: "workspace-terminal-transition",
+		RootAgentID: "agent-terminal-transition", State: runner.CommandRuntimeJobRunning}
+	terminal := running
+	terminal.State = runner.CommandRuntimeJobCompleted
+	state := &commandRuntimeTerminalTransitionStore{running: running, terminal: terminal}
+	service := &CommandRuntimeService{store: state}
+	bindings := commandRuntimeBindings{
+		run:       domain.Run{ID: running.RunID, SessionID: running.SessionID},
+		mission:   domain.Mission{ID: running.MissionID},
+		workspace: store.WorkspaceRecord{ID: running.WorkspaceID},
+		root:      domain.AgentNode{ID: running.RootAgentID},
+	}
+	result, err := service.authorizeReadableJob(context.Background(), running.ID, bindings)
+	if err != nil || result.State != runner.CommandRuntimeJobCompleted || state.calls != 3 {
+		t.Fatalf("terminal transition authorization=%#v calls=%d err=%v", result, state.calls, err)
+	}
+}
+
 func TestCommandRuntimeUIEvidenceCleanupReapsExactJobAfterLeaseRelease(t *testing.T) {
 	ctx := context.Background()
 	state, runRecord, root, lease, capabilities := newCommandRuntimeTestRuntime(t, ctx)
