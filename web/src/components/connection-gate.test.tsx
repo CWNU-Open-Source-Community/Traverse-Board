@@ -83,6 +83,8 @@ describe("ConnectionGate", () => {
       file_edit_apply_enabled: false,
       run_wake_execution_enabled: false,
       run_wake_worker_enabled: false,
+      scheduled_job_control_enabled: false,
+      scheduled_job_worker_enabled: false,
       read_only_default: true,
       process_execution_enabled: false,
       shell_execution_enabled: false,
@@ -138,7 +140,8 @@ function runtimeCapabilities() {
     provider_credential_enabled: true, file_edit_review_enabled: true,
     file_edit_proposal_enabled: true, file_edit_apply_enabled: true,
     run_wake_control_enabled: true, run_wake_execution_enabled: true,
-    run_wake_worker_enabled: false, skill_installation_enabled: true,
+    run_wake_worker_enabled: false, scheduled_job_control_enabled: true,
+    scheduled_job_worker_enabled: false, skill_installation_enabled: true,
     evidence_attachment_enabled: true, process_execution_enabled: true,
     verification_evidence_enabled: true, embedded_analyzer_execution_enabled: true,
 	workspace_checkpoint_control_enabled: true,
@@ -148,5 +151,8 @@ function runtimeCapabilities() {
     wake_worker: { protocol_version: "run_wake_worker_health.v1", enabled: false,
       state: "disabled", active: false, poll_interval_ms: 0, concurrency: 1,
       max_steps: 1, runtime_enable_supported: false, persistent_service: false },
+    scheduled_job_worker: { protocol_version: "scheduled-job-worker-health.v1", enabled: false,
+      state: "disabled", active: false, poll_interval_ms: 0, concurrency: 1,
+      runtime_enable_supported: false, persistent_service: false, authority_escalation: false },
   };
 }

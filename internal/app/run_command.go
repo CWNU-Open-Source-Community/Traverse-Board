@@ -110,6 +110,8 @@ func (a *App) runCommand(ctx context.Context, args []string) error {
 		return a.runSandboxManifest(ctx, args[1:])
 	case "wake":
 		return a.runWake(ctx, args[1:])
+	case "schedule":
+		return a.runSchedule(ctx, args[1:])
 	case "lease":
 		return a.runExecutionLease(ctx, service, args[1:])
 	case "usage":

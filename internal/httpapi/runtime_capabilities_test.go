@@ -10,6 +10,7 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/scheduler"
 )
 
 type wakeWorkerHealthFake struct {
@@ -17,6 +18,10 @@ type wakeWorkerHealthFake struct {
 }
 
 func (f wakeWorkerHealthFake) Health() application.RunWakeWorkerHealth { return f.health }
+
+type scheduledWorkerHealthFake struct{ health scheduler.WorkerHealth }
+
+func (f scheduledWorkerHealthFake) Health() scheduler.WorkerHealth { return f.health }
 
 type runExecutionControllerFake struct{}
 
@@ -38,19 +43,61 @@ func TestRuntimeCapabilitiesAreReadOnlyAndDefaultClosed(t *testing.T) {
 		view.ControlledCommandProposalEnabled ||
 		view.HostCommandProposalEnabled ||
 		view.FileEditProposalEnabled || view.ProviderCredentialEnabled ||
-		view.RunWakeWorkerEnabled ||
+		view.RunWakeWorkerEnabled || view.ScheduledJobControlEnabled ||
+		view.ScheduledJobWorkerEnabled ||
 		!view.AgentCodeToolsEnabled ||
 		view.CommandRuntimeEnabled || view.ProcessExecutionEnabled || view.ShellExecutionEnabled ||
 		view.DockerExecutionEnabled || view.BatchDeliveryHostValidationEnabled ||
 		view.WakeWorker.Enabled ||
 		view.WakeWorker.State != "disabled" || view.WakeWorker.Active ||
 		view.WakeWorker.RuntimeEnableSupported || view.WakeWorker.PersistentService ||
-		view.WakeWorker.Concurrency != 1 || view.WakeWorker.MaxSteps != 1 {
+		view.WakeWorker.Concurrency != 1 || view.WakeWorker.MaxSteps != 1 ||
+		view.ScheduledJobWorker.Enabled || view.ScheduledJobWorker.State != "disabled" ||
+		view.ScheduledJobWorker.Active || view.ScheduledJobWorker.PersistentService ||
+		view.ScheduledJobWorker.RuntimeEnableSupported ||
+		view.ScheduledJobWorker.AuthorityEscalation ||
+		view.ScheduledJobWorker.Concurrency != scheduler.WorkerConcurrency {
 		t.Fatalf("default capability projection widened authority: %#v", view)
 	}
 	assertAPIError(t, performSessionMessageRequest(t, fixture.api, http.MethodGet,
 		"/api/v1/capabilities", testControlToken, "", "", nil),
 		http.StatusUnauthorized, "POLICY_DENIED")
+}
+
+func TestRuntimeCapabilitiesProjectScheduledWorkerWithoutRuntimeAuthority(t *testing.T) {
+	fixture := newAPIFixture(t)
+	service := application.NewScheduledJobService(fixture.store)
+	source := scheduledWorkerHealthFake{health: scheduler.WorkerHealth{
+		ProtocolVersion: scheduler.WorkerHealthProtocolVersion,
+		State:           scheduler.WorkerRunning, Active: false,
+		PollIntervalMillis: scheduler.DefaultPollInterval.Milliseconds(),
+		Concurrency:        scheduler.WorkerConcurrency,
+	}}
+	api, err := New(fixture.store, Config{AccessToken: testAccessToken,
+		ControlToken: testControlToken, ScheduledJobControlEnabled: true,
+		ScheduledJobWorkerEnabled: true, ScheduledJobController: service,
+		ScheduledJobWorkerHealthSource: source, AppVersion: "scheduled-worker-health-test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := performSessionMessageRequest(t, api, http.MethodGet,
+		"/api/v1/capabilities", testAccessToken, "", "", nil)
+	var view RuntimeCapabilitiesView
+	decodeDataStatus(t, response, http.StatusOK, &view)
+	worker := view.ScheduledJobWorker
+	if !view.ScheduledJobControlEnabled || !view.ScheduledJobWorkerEnabled ||
+		!worker.Enabled || worker.State != string(scheduler.WorkerRunning) ||
+		worker.Active || worker.PollIntervalMillis != 2000 ||
+		worker.Concurrency != scheduler.WorkerConcurrency || worker.PersistentService ||
+		worker.RuntimeEnableSupported || worker.AuthorityEscalation {
+		t.Fatalf("scheduled worker projection widened authority: %#v", view)
+	}
+	raw := strings.ToLower(response.Body.String())
+	for _, forbidden := range []string{"owner_id", "fence_token", "operation_key", "private_error"} {
+		if strings.Contains(raw, forbidden) {
+			t.Fatalf("scheduled worker capability projection exposed %q: %s", forbidden, raw)
+		}
+	}
 }
 
 func TestRuntimeCapabilitiesProjectExplicitBatchHostValidation(t *testing.T) {
@@ -202,5 +249,13 @@ func TestRuntimeCapabilitiesRejectMismatchedWorkerConfiguration(t *testing.T) {
 	if _, err := New(fixture.store, Config{AccessToken: testAccessToken,
 		RunWakeWorkerHealthSource: wakeWorkerHealthFake{}}); err == nil {
 		t.Fatal("disabled worker retained a health source")
+	}
+	if _, err := New(fixture.store, Config{AccessToken: testAccessToken,
+		ScheduledJobWorkerEnabled: true}); err == nil {
+		t.Fatal("enabled scheduled worker without health source was accepted")
+	}
+	if _, err := New(fixture.store, Config{AccessToken: testAccessToken,
+		ScheduledJobWorkerHealthSource: scheduledWorkerHealthFake{}}); err == nil {
+		t.Fatal("disabled scheduled worker retained a health source")
 	}
 }

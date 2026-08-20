@@ -58,6 +58,8 @@ type desktopOptions struct {
 	fileEditApply          bool
 	runWakeExecution       bool
 	runWakeWorker          bool
+	scheduledJobControl    bool
+	scheduledJobWorker     bool
 	skillInstallation      bool
 	evidenceAttachment     bool
 	verificationEvidence   bool
@@ -262,6 +264,10 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		"enable explicitly launched foreground wake execution")
 	runWakeWorker := fs.Bool("enable-wake-worker", false,
 		"enable the bounded single-owner Run wake worker")
+	scheduledJobControl := fs.Bool("enable-scheduled-jobs", false,
+		"enable durable scheduled job creation and lifecycle control")
+	scheduledJobWorker := fs.Bool("enable-scheduled-job-worker", false,
+		"enable the process-local single-concurrency scheduled job worker")
 	skillInstallation := fs.Bool("enable-skill-installation", false,
 		"enable confirmed inert Skill package installation")
 	evidenceAttachment := fs.Bool("enable-evidence-attachments", false,
@@ -305,6 +311,8 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		*runWakeControl = true
 		*fileEditApply = true
 		*runWakeExecution = true
+		*scheduledJobControl = true
+		*scheduledJobWorker = true
 		*skillInstallation = true
 		*evidenceAttachment = true
 		*verificationEvidence = true
@@ -339,6 +347,10 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		return desktopOptions{}, errors.New(
 			"full CDP debug requires --enable-browser-cdp-control and --enable-debug-maximum-access")
 	}
+	if *scheduledJobWorker && !*scheduledJobControl {
+		return desktopOptions{}, errors.New(
+			"scheduled job worker requires --enable-scheduled-jobs")
+	}
 	return desktopOptions{operatorPreview: *operatorPreview,
 		profileControl: *profileControl, runCreation: *runCreation,
 		permissionControl: *permissionControl, dangerFullAccess: *dangerFullAccess,
@@ -361,6 +373,8 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		fileEditApply:          *fileEditApply,
 		runWakeExecution:       *runWakeExecution,
 		runWakeWorker:          *runWakeWorker,
+		scheduledJobControl:    *scheduledJobControl,
+		scheduledJobWorker:     *scheduledJobWorker,
 		skillInstallation:      *skillInstallation,
 		evidenceAttachment:     *evidenceAttachment,
 		verificationEvidence:   *verificationEvidence,
@@ -395,6 +409,7 @@ func runDesktop(config desktopOptions) error {
 		config.hostCommandProposals || config.providerCredentials ||
 		config.fileEditReview || config.fileEditProposals || config.runWakeControl ||
 		config.fileEditApply || config.runWakeExecution || config.runWakeWorker ||
+		config.scheduledJobControl || config.scheduledJobWorker ||
 		config.skillInstallation || config.evidenceAttachment ||
 		config.verificationEvidence || config.embeddedAnalyzer || config.userTerminal ||
 		config.dockerExecution || config.batchDeliveryControl || config.batchValidation {
@@ -437,6 +452,8 @@ func runDesktop(config desktopOptions) error {
 		FileEditApplyEnabled:                    config.fileEditApply,
 		RunWakeExecutionEnabled:                 config.runWakeExecution,
 		RunWakeWorkerEnabled:                    config.runWakeWorker,
+		ScheduledJobControlEnabled:              config.scheduledJobControl,
+		ScheduledJobWorkerEnabled:               config.scheduledJobWorker,
 		SkillInstallationEnabled:                config.skillInstallation,
 		EvidenceAttachmentEnabled:               config.evidenceAttachment,
 		VerificationEvidenceEnabled:             config.verificationEvidence,
@@ -448,6 +465,9 @@ func runDesktop(config desktopOptions) error {
 		AppVersion:                              app.Version, UIHandler: bundle,
 		OnWakeWorkerError: func(runErr error) {
 			fmt.Fprintln(os.Stderr, "wake-worker:", runErr)
+		},
+		OnScheduledJobWorkerError: func(runErr error) {
+			fmt.Fprintln(os.Stderr, "scheduled-job-worker:", runErr)
 		},
 	})
 	if err != nil {
@@ -497,6 +517,8 @@ func runDesktop(config desktopOptions) error {
 		FileEditApplyEnabled:                    config.fileEditApply,
 		RunWakeExecutionEnabled:                 config.runWakeExecution,
 		RunWakeWorkerEnabled:                    config.runWakeWorker,
+		ScheduledJobControlEnabled:              config.scheduledJobControl,
+		ScheduledJobWorkerEnabled:               config.scheduledJobWorker,
 		SkillInstallationEnabled:                config.skillInstallation,
 		EvidenceAttachmentEnabled:               config.evidenceAttachment,
 		VerificationEvidenceEnabled:             config.verificationEvidence,

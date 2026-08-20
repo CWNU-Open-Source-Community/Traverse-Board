@@ -60,6 +60,17 @@ export type FindingReportSummaryView = components["schemas"]["FindingReportSumma
 export type FindingReportView = components["schemas"]["FindingReportView"];
 export type HealthView = components["schemas"]["HealthView"];
 export type RuntimeCapabilitiesView = components["schemas"]["RuntimeCapabilitiesView"];
+export type ScheduledJobView = components["schemas"]["ScheduledJob"];
+export type ScheduledJobCreateRequestView =
+  components["schemas"]["ScheduledJobCreateRequestView"];
+export type ScheduledJobTransitionRequestView =
+  components["schemas"]["ScheduledJobTransitionRequestView"];
+export type ScheduledJobControlView = components["schemas"]["ScheduledJobControlView"];
+export type ScheduledJobListView = components["schemas"]["ScheduledJobListView"];
+export type ScheduledJobDetailView = components["schemas"]["ScheduledJobDetailView"];
+export type DoctorSnapshotView = components["schemas"]["DoctorSnapshot"];
+export type DebugQueryResultView = components["schemas"]["DebugQueryResult"];
+export type DiagnosticBundleView = components["schemas"]["DiagnosticBundle"];
 export type EmbeddedAnalyzerExecutionRequestView =
   components["schemas"]["EmbeddedAnalyzerExecutionRequestView"];
 export type EmbeddedAnalyzerExecutionControlView =

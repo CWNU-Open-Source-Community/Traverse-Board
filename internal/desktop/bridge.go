@@ -62,6 +62,8 @@ type ConnectionBootstrap struct {
 	FileEditApplyEnabled                    bool   `json:"file_edit_apply_enabled"`
 	RunWakeExecutionEnabled                 bool   `json:"run_wake_execution_enabled"`
 	RunWakeWorkerEnabled                    bool   `json:"run_wake_worker_enabled"`
+	ScheduledJobControlEnabled              bool   `json:"scheduled_job_control_enabled"`
+	ScheduledJobWorkerEnabled               bool   `json:"scheduled_job_worker_enabled"`
 	ReadOnlyDefault                         bool   `json:"read_only_default"`
 	ProcessExecutionEnabled                 bool   `json:"process_execution_enabled"`
 	ShellExecutionEnabled                   bool   `json:"shell_execution_enabled"`
@@ -164,6 +166,8 @@ type DesktopBridgeConfig struct {
 	FileEditApplyEnabled                    bool
 	RunWakeExecutionEnabled                 bool
 	RunWakeWorkerEnabled                    bool
+	ScheduledJobControlEnabled              bool
+	ScheduledJobWorkerEnabled               bool
 	SkillInstallationEnabled                bool
 	EvidenceAttachmentEnabled               bool
 	VerificationEvidenceEnabled             bool
@@ -226,9 +230,11 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 		config.ControlledCommandProposalControlEnabled ||
 		config.HostCommandProposalControlEnabled ||
 		config.ProviderCredentialEnabled || config.FileEditReviewEnabled ||
-		config.FileEditProposalEnabled || config.RunWakeControlEnabled
+		config.FileEditProposalEnabled || config.RunWakeControlEnabled ||
+		config.ScheduledJobControlEnabled
 	controlEnabled = controlEnabled || config.FileEditApplyEnabled ||
 		config.RunWakeExecutionEnabled || config.RunWakeWorkerEnabled ||
+		config.ScheduledJobWorkerEnabled ||
 		config.SkillInstallationEnabled ||
 		config.EvidenceAttachmentEnabled || config.VerificationEvidenceEnabled ||
 		config.EmbeddedAnalyzerExecutionEnabled ||
@@ -361,6 +367,8 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 			FileEditApplyEnabled:                    config.FileEditApplyEnabled,
 			RunWakeExecutionEnabled:                 config.RunWakeExecutionEnabled,
 			RunWakeWorkerEnabled:                    config.RunWakeWorkerEnabled,
+			ScheduledJobControlEnabled:              config.ScheduledJobControlEnabled,
+			ScheduledJobWorkerEnabled:               config.ScheduledJobWorkerEnabled,
 			ReadOnlyDefault:                         !controlEnabled,
 			ProcessExecutionEnabled:                 config.UserTerminalEnabled || commandRuntimeEnabled,
 			ShellExecutionEnabled:                   config.UserTerminalEnabled || commandRuntimeEnabled,

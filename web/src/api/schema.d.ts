@@ -124,6 +124,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/debug": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Query a bounded redacted debug timeline
+         * @description Returns monotonic persisted event-envelope evidence with payloads withheld. The query is limited to seven days, 100 results, and 500 scanned events and cannot return secrets, prompts, terminal input, or command arguments.
+         */
+        get: operations["queryDebugTimeline"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/diagnostic-bundle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export a bounded diagnostic bundle
+         * @description Combines one structured doctor snapshot and one redacted debug page under the same hard cursor, window, scan, and content-withholding boundaries.
+         */
+        get: operations["exportDiagnosticBundle"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/doctor": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a structured doctor snapshot
+         * @description Reports versioned Provider, model Harness, Run, Workspace, network, tool, sandbox, browser, and plugin readiness metadata. It performs no mutation, installation, process start, network probe, or model call.
+         */
+        get: operations["getDoctorSnapshot"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -1672,6 +1732,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/scheduled-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List one Run's scheduled jobs
+         * @description Returns the bounded scheduled-job projection for one exact owner and target Run.
+         */
+        get: operations["listRunScheduledJobs"];
+        put?: never;
+        /**
+         * Create a bounded scheduled job
+         * @description Creates one exact Run-bound once or periodic job. Time arrival grants only a fenced recheck; read-only jobs require Code/Plan and repair jobs require a current Code/Deliver permission snapshot plus exact operator confirmation. Creation starts no process or model call.
+         */
+        post: operations["createRunScheduledJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/scheduled-jobs/{job_id}/{action}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pause, resume, or cancel a scheduled job
+         * @description Applies one optimistic, idempotent lifecycle transition. Pause and cancel revoke the current lease; resume schedules an immediate bounded recheck without restoring stale repair authority.
+         */
+        post: operations["transitionRunScheduledJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/tool-rounds": {
         parameters: {
             query?: never;
@@ -2168,6 +2272,46 @@ export interface paths {
          * @description Returns the content-free admission, launch, terminal outcome, cleanup, and artifact-count projection.
          */
         get: operations["getDockerSandboxStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scheduled-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List durable scheduled jobs
+         * @description Returns a bounded metadata-only projection. Lease fence tokens, operation keys, event payloads, prompts, terminal input, and command arguments are never returned.
+         */
+        get: operations["listScheduledJobs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scheduled-jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect a scheduled job
+         * @description Returns one job with bounded recent rounds, notifications, and an optional immutable authorization snapshot. Raw observation content is withheld.
+         */
+        get: operations["getScheduledJob"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3087,6 +3231,11 @@ export interface components {
             recoverable: boolean;
             to_sha256: string;
         };
+        Check: {
+            detail: string;
+            id: string;
+            status: string;
+        };
         Checkpoint: {
             attempt_id?: string;
             base_commit: string;
@@ -3614,6 +3763,44 @@ export interface components {
             untrusted_evidence?: string;
             workspace_id: string;
         };
+        DebugQueryResult: {
+            /** Format: int64 */
+            after_sequence: number;
+            /** Format: date-time */
+            from: string;
+            has_more: boolean;
+            items: components["schemas"]["DebugTimelineItem"][];
+            /** Format: int32 */
+            limit: number;
+            /** Format: int64 */
+            next_after_sequence: number;
+            /** @enum {string} */
+            protocol_version: "debug-query.v1";
+            redaction: components["schemas"]["DiagnosticRedaction"];
+            run_id: string;
+            /** Format: int32 */
+            scanned: number;
+            /** Format: date-time */
+            to: string;
+        };
+        DebugTimelineItem: {
+            /** @enum {string} */
+            category: "model" | "tool" | "policy" | "application" | "infrastructure";
+            /** @enum {string} */
+            evidence: "persisted_event";
+            /** Format: date-time */
+            observed_at: string;
+            /** Format: date-time */
+            occurred_at: string;
+            /** @enum {string} */
+            payload_state: "withheld";
+            /** Format: int64 */
+            sequence: number;
+            source: string;
+            subject_id: string;
+            timestamp_adjusted: boolean;
+            type: string;
+        };
         DelegationApplicationView: {
             /** Format: int32 */
             assignment_count: number;
@@ -3708,6 +3895,34 @@ export interface components {
             /** Format: int64 */
             work_item_version: number;
         };
+        Diagnostic: {
+            checks: components["schemas"]["Check"][];
+            protocol_version: string;
+            release: components["schemas"]["ReleaseMetadata"];
+            release_ready: boolean;
+        };
+        DiagnosticBundle: {
+            debug: components["schemas"]["DebugQueryResult"];
+            doctor: components["schemas"]["DoctorSnapshot"];
+            /** Format: date-time */
+            generated_at: string;
+            /** @enum {string} */
+            protocol_version: "diagnostic-bundle.v1";
+        };
+        DiagnosticCheck: {
+            component: string;
+            detail_code: string;
+            evidence: string;
+            /** @enum {string} */
+            status: "ready" | "degraded" | "not_configured" | "not_probed";
+        };
+        DiagnosticRedaction: {
+            command_input: string;
+            event_payloads: string;
+            prompts: string;
+            secrets: string;
+            terminal_input: string;
+        };
         DockerSandboxAdmissionRequestView: {
             manifest: components["schemas"]["Manifest"];
             plan_id: string;
@@ -3797,6 +4012,37 @@ export interface components {
             run_id: string;
             /** @enum {string} */
             state: "admitted" | "launched" | "terminal";
+        };
+        DoctorRunSnapshot: {
+            /** Format: int32 */
+            allowed_network_target_count: number;
+            execution_permission: string;
+            model_route: string;
+            network_mode: string;
+            phase: string;
+            process_capability_granted: boolean;
+            profile: string;
+            read_only_tools_eligible: boolean;
+            repair_tools_eligible: boolean;
+            root_agent_id: string;
+            run_id: string;
+            status: string;
+            surface: string;
+            workspace_id?: string;
+        };
+        DoctorSnapshot: {
+            build: components["schemas"]["Diagnostic"];
+            checks: components["schemas"]["DiagnosticCheck"][];
+            /** Format: date-time */
+            generated_at: string;
+            models: components["schemas"]["Snapshot"];
+            /** @enum {string} */
+            protocol_version: "doctor-snapshot.v1";
+            ready: boolean;
+            redaction: components["schemas"]["DiagnosticRedaction"];
+            run?: components["schemas"]["DoctorRunSnapshot"];
+            /** Format: int32 */
+            schema_version: number;
         };
         EmbeddedAnalyzerExecutionControlView: {
             analyzer: string;
@@ -4282,6 +4528,25 @@ export interface components {
             /** @enum {string} */
             status: "draft" | "validated" | "accepted" | "fixed" | "rejected";
             title: string;
+        };
+        HarnessAvailability: {
+            ExpiresAt: string;
+            JSONStrategy: string;
+            LatestQualificationStatus: string;
+            Model: string;
+            ProtocolVersion: string;
+            QualificationCheckedAt: string;
+            QualificationSource: string;
+            QualificationStatus: string;
+            QualifiedAt: string;
+            RootEligible: boolean;
+            StreamingQualified: boolean;
+            StrictJSONQualified: boolean;
+            StructuredJSONEligible: boolean;
+            ToolCallsQualified: boolean;
+            ToolResultsQualified: boolean;
+            ToolStrategy: string;
+            TransportProtocol: string;
         };
         HealthView: {
             /** @enum {string} */
@@ -4952,6 +5217,16 @@ export interface components {
             stale: boolean;
             workspace_id: string;
         };
+        ProviderAvailability: {
+            ConfigurationError: boolean;
+            CredentialSource: string;
+            Harnesses: components["schemas"]["HarnessAvailability"][];
+            Kind: string;
+            Models: string[];
+            Name: string;
+            NetworkRequired: boolean;
+            Status: string;
+        };
         ProviderAvailabilityView: {
             configuration_error: boolean;
             /** @enum {string} */
@@ -5031,6 +5306,26 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
             version: string;
+        };
+        ReleaseMetadata: {
+            app_version: string;
+            auto_update_enabled: boolean;
+            build_fingerprint: string;
+            cgo_enabled: string;
+            go_version: string;
+            installer_included: boolean;
+            manual_windows_10_matrix_required: boolean;
+            modified: boolean;
+            modified_known: boolean;
+            module_path: string;
+            registry_writes: boolean;
+            revision: string;
+            source_date: string;
+            /** Format: int64 */
+            source_date_epoch: number;
+            target_arch: string;
+            target_os: string;
+            trimpath: boolean;
         };
         RepositoryChangeView: {
             path: string;
@@ -5359,6 +5654,13 @@ export interface components {
             memory_bytes: number;
             /** Format: int32 */
             pids: number;
+        };
+        RouteAvailability: {
+            Available: boolean;
+            HarnessReady: boolean;
+            Model: string;
+            Name: string;
+            Provider: string;
         };
         RunActivityItemView: {
             attempt_id?: string;
@@ -5897,6 +6199,9 @@ export interface components {
             run_wake_control_enabled: boolean;
             run_wake_execution_enabled: boolean;
             run_wake_worker_enabled: boolean;
+            scheduled_job_control_enabled: boolean;
+            scheduled_job_worker: components["schemas"]["ScheduledJobWorkerHealthView"];
+            scheduled_job_worker_enabled: boolean;
             session_message_enabled: boolean;
             session_steering_control_enabled: boolean;
             shell_execution_enabled: boolean;
@@ -5904,6 +6209,217 @@ export interface components {
             verification_evidence_enabled: boolean;
             wake_worker: components["schemas"]["RunWakeWorkerHealthView"];
             workspace_checkpoint_control_enabled: boolean;
+        };
+        ScheduledJob: {
+            /** Format: date-time */
+            active_lease_expires_at?: string;
+            /** Format: int64 */
+            active_lease_generation: number;
+            /** Format: date-time */
+            completed_at?: string;
+            /** Format: int32 */
+            consecutive_unchanged: number;
+            /** Format: date-time */
+            created_at: string;
+            created_by: string;
+            id: string;
+            last_error_code?: string;
+            /** Format: int64 */
+            last_event_sequence: number;
+            last_observation_sha256?: string;
+            last_result?: string;
+            /** Format: int32 */
+            model_calls: number;
+            /** Format: date-time */
+            next_wake_at?: string;
+            owner_root_agent_id: string;
+            owner_run_id: string;
+            /** Format: date-time */
+            pending_occurrence_at?: string;
+            /** Format: int64 */
+            revision: number;
+            /** Format: int32 */
+            rounds_completed: number;
+            spec: components["schemas"]["ScheduledJobSpec"];
+            /** @enum {string} */
+            status: "active" | "paused" | "completed" | "failed" | "cancelled" | "exhausted";
+            /** @enum {string} */
+            stop_reason?: "" | "once_completed" | "target_terminal" | "deadline" | "round_budget" | "model_budget" | "elapsed_budget" | "retry_exhausted" | "authorization_stale" | "cancelled";
+            /** Format: date-time */
+            updated_at: string;
+        };
+        ScheduledJobAuthorization: {
+            approval_bypass: boolean;
+            /** Format: date-time */
+            authorized_at: string;
+            authorized_by: string;
+            execution_bypass: boolean;
+            /** Format: date-time */
+            expires_at: string;
+            job_id: string;
+            /** Format: int64 */
+            mode_revision: number;
+            mode_snapshot_id: string;
+            network_bypass: boolean;
+            /** Format: int64 */
+            permission_revision: number;
+            permission_snapshot_id: string;
+            /** @enum {string} */
+            protocol_version: "scheduled-job-authorization.v1";
+            run_id: string;
+        };
+        ScheduledJobControlView: {
+            /** @enum {string} */
+            action: "create" | "pause" | "resume" | "cancel";
+            authority_bypass: boolean;
+            execution_started: boolean;
+            job: components["schemas"]["ScheduledJob"];
+            /** @enum {string} */
+            protocol_version: "scheduled-job-control.v1";
+            replayed: boolean;
+        };
+        ScheduledJobCreateRequestView: {
+            confirm_repair: boolean;
+            /** Format: date-time */
+            deadline_at: string;
+            /** @enum {string} */
+            execution_mode: "read_only" | "approved_repair";
+            /** Format: int64 */
+            max_elapsed_seconds: number;
+            /** Format: int32 */
+            max_model_calls: number;
+            /** Format: int32 */
+            max_rounds: number;
+            /** @enum {string} */
+            notification: "silent" | "on_change" | "on_failure" | "all";
+            retry: components["schemas"]["ScheduledJobRetryPolicy"];
+            schedule: components["schemas"]["ScheduledJobScheduleRequestView"];
+            stop_on_target_terminal: boolean;
+            /** @enum {string} */
+            version: "scheduled-job.v1";
+        };
+        ScheduledJobDetailView: {
+            /** @enum {string} */
+            protocol_version: "scheduled-job.v1";
+            snapshot: components["schemas"]["ScheduledJobSnapshot"];
+        };
+        ScheduledJobListView: {
+            items: components["schemas"]["ScheduledJob"][];
+            /** @enum {string} */
+            protocol_version: "scheduled-job.v1";
+        };
+        ScheduledJobNotification: {
+            /** Format: date-time */
+            created_at: string;
+            id: string;
+            job_id: string;
+            /** @enum {string} */
+            kind: "change" | "failure" | "recovery" | "completed";
+            summary: string;
+        };
+        ScheduledJobRetryPolicy: {
+            /** Format: int32 */
+            initial_backoff_seconds: number;
+            /** Format: int32 */
+            max_attempts: number;
+            /** Format: int32 */
+            max_backoff_seconds: number;
+        };
+        ScheduledJobRound: {
+            /** Format: int32 */
+            attempt: number;
+            changed: boolean;
+            /** Format: int64 */
+            claim_generation: number;
+            /** Format: date-time */
+            completed_at?: string;
+            error_code?: string;
+            /** Format: int64 */
+            event_sequence: number;
+            job_id: string;
+            model_called: boolean;
+            observation_sha256?: string;
+            /** Format: date-time */
+            occurrence_at: string;
+            /** Format: int32 */
+            ordinal: number;
+            /** @enum {string} */
+            protocol_version: "scheduled-job-round.v1";
+            result?: string;
+            /** Format: date-time */
+            started_at: string;
+            /** @enum {string} */
+            status: "claimed" | "retry_wait" | "unchanged" | "completed" | "failed" | "skipped";
+            tool_called: boolean;
+        };
+        ScheduledJobSchedule: {
+            /** Format: date-time */
+            anchor_at: string;
+            /** Format: int64 */
+            interval_seconds?: number;
+            /** @enum {string} */
+            kind: "once" | "periodic";
+            /** @enum {string} */
+            misfire_policy: "run_once" | "skip";
+            timezone: string;
+        };
+        ScheduledJobScheduleRequestView: {
+            /** Format: date-time */
+            anchor_at: string;
+            /** Format: int64 */
+            interval_seconds?: number;
+            /** @enum {string} */
+            kind: "once" | "periodic";
+            /** @enum {string} */
+            misfire_policy: "run_once" | "skip";
+            timezone: string;
+        };
+        ScheduledJobSnapshot: {
+            authorization?: components["schemas"]["ScheduledJobAuthorization"];
+            job: components["schemas"]["ScheduledJob"];
+            notifications: components["schemas"]["ScheduledJobNotification"][];
+            rounds: components["schemas"]["ScheduledJobRound"][];
+        };
+        ScheduledJobSpec: {
+            /** Format: date-time */
+            deadline_at: string;
+            /** @enum {string} */
+            execution_mode: "read_only" | "approved_repair";
+            /** Format: int64 */
+            max_elapsed_seconds: number;
+            /** Format: int32 */
+            max_model_calls: number;
+            /** Format: int32 */
+            max_rounds: number;
+            /** @enum {string} */
+            notification: "silent" | "on_change" | "on_failure" | "all";
+            retry: components["schemas"]["ScheduledJobRetryPolicy"];
+            schedule: components["schemas"]["ScheduledJobSchedule"];
+            stop_on_target_terminal: boolean;
+            target_run_id: string;
+            /** @enum {string} */
+            version: "scheduled-job.v1";
+        };
+        ScheduledJobTransitionRequestView: {
+            /** Format: int64 */
+            expected_revision: number;
+            /** @enum {string} */
+            version: "scheduled-job-control.v1";
+        };
+        ScheduledJobWorkerHealthView: {
+            active: boolean;
+            authority_escalation: boolean;
+            /** Format: int32 */
+            concurrency: number;
+            enabled: boolean;
+            persistent_service: boolean;
+            /** Format: int64 */
+            poll_interval_ms: number;
+            /** @enum {string} */
+            protocol_version: "scheduled-job-worker-health.v1";
+            runtime_enable_supported: boolean;
+            /** @enum {string} */
+            state: "disabled" | "ready" | "running" | "draining" | "stopped";
         };
         ScopeView: {
             allowed_targets?: string[];
@@ -6038,6 +6554,13 @@ export interface components {
             trust_class: "operator_installed_untrusted";
             user_invocable: boolean;
             version: string;
+        };
+        Snapshot: {
+            /** Format: int64 */
+            Generation: number;
+            ProtocolVersion: string;
+            Providers: components["schemas"]["ProviderAvailability"][];
+            Routes: components["schemas"]["RouteAvailability"][];
         };
         SpecialistModelCancellationView: {
             agent_id: string;
@@ -7260,6 +7783,140 @@ export interface operations {
             413: components["responses"]["RequestEntityTooLarge"];
             414: components["responses"]["RequestTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    queryDebugTimeline: {
+        parameters: {
+            query: {
+                /** @description Exact Run diagnostic scope */
+                run_id: string;
+                /** @description Exclusive durable event-sequence cursor */
+                after_sequence?: number;
+                /** @description Inclusive RFC3339 lower time bound */
+                from?: string;
+                /** @description Inclusive RFC3339 upper time bound */
+                to?: string;
+                /** @description Maximum returned timeline items */
+                limit?: number;
+                /** @description Optional exact correlation dimension */
+                correlation_kind?: "run" | "attempt" | "tool" | "process" | "request";
+                /** @description Exact correlation identity paired with correlation_kind */
+                correlation_id?: string;
+                /** @description Optional event type prefix */
+                type_prefix?: string;
+                /** @description Optional event source prefix */
+                source_prefix?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DebugQueryResult"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    exportDiagnosticBundle: {
+        parameters: {
+            query: {
+                /** @description Exact Run diagnostic scope */
+                run_id: string;
+                /** @description Exclusive durable event-sequence cursor */
+                after_sequence?: number;
+                /** @description Inclusive RFC3339 lower time bound */
+                from?: string;
+                /** @description Inclusive RFC3339 upper time bound */
+                to?: string;
+                /** @description Maximum returned timeline items */
+                limit?: number;
+                /** @description Optional exact correlation dimension */
+                correlation_kind?: "run" | "attempt" | "tool" | "process" | "request";
+                /** @description Exact correlation identity paired with correlation_kind */
+                correlation_id?: string;
+                /** @description Optional event type prefix */
+                type_prefix?: string;
+                /** @description Optional event source prefix */
+                source_prefix?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DiagnosticBundle"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getDoctorSnapshot: {
+        parameters: {
+            query?: {
+                /** @description Optional exact Run diagnostic scope */
+                run_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DoctorSnapshot"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
         };
@@ -10643,6 +11300,139 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
+    listRunScheduledJobs: {
+        parameters: {
+            query?: {
+                /** @description Maximum scheduled jobs */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ScheduledJobListView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    createRunScheduledJob: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduledJobCreateRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ScheduledJobControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    transitionRunScheduledJob: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Run identity */
+                run_id: string;
+                /** @description Scheduled job identity */
+                job_id: string;
+                /** @description Scheduled job lifecycle action */
+                action: "pause" | "resume" | "cancel";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduledJobTransitionRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ScheduledJobControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     listRunToolRounds: {
         parameters: {
             query?: {
@@ -11870,6 +12660,82 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["DockerSandboxStatusView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listScheduledJobs: {
+        parameters: {
+            query?: {
+                /** @description Optional exact owner Run filter */
+                run_id?: string;
+                /** @description Maximum scheduled jobs */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ScheduledJobListView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getScheduledJob: {
+        parameters: {
+            query?: {
+                /** @description Maximum recent rounds */
+                round_limit?: number;
+                /** @description Maximum recent notifications */
+                notification_limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Scheduled job identity */
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ScheduledJobDetailView"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";

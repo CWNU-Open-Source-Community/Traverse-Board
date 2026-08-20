@@ -2641,6 +2641,67 @@ body { background: transparent; }
 }
 .utility-empty-state strong { font-size: 13px; }
 
+.scheduled-tasks-workspace { height: 100%; overflow: auto; }
+.scheduled-tasks-workspace > header > div { min-width: 0; display: grid; gap: 3px; }
+.scheduled-tasks-workspace > header > div small { color: var(--muted); font-size: 10px; }
+.scheduled-tasks-workspace > header > button { margin-left: auto; }
+.scheduled-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 18px 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-subtle);
+}
+.scheduled-summary span { display: grid; gap: 5px; padding: 12px 14px; border-right: 1px solid var(--border); color: var(--muted); font-size: 10px; }
+.scheduled-summary span:last-child { border-right: 0; }
+.scheduled-summary strong { color: var(--ink); font-size: 14px; }
+.scheduled-create-form {
+  display: grid;
+  grid-template-columns: minmax(190px, 1.4fr) repeat(5, minmax(105px, .75fr)) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-subtle);
+}
+.scheduled-form-heading { grid-column: 1 / -1; display: flex; align-items: center; gap: 7px; font-size: 12px; }
+.scheduled-create-form label { min-width: 0; display: grid; gap: 5px; color: var(--muted); font-size: 9px; text-transform: uppercase; }
+.scheduled-create-form input, .scheduled-create-form select {
+  min-width: 0;
+  min-height: 34px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  text-transform: none;
+}
+.scheduled-task-layout { min-height: 390px; display: grid; grid-template-columns: minmax(260px, .8fr) minmax(330px, 1.2fr); gap: 14px; margin-top: 18px; }
+.scheduled-task-list, .scheduled-task-detail { min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-subtle); }
+.scheduled-task-list { display: flex; flex-direction: column; }
+.scheduled-task-list > button { display: grid; gap: 6px; padding: 12px 14px; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.scheduled-task-list > button:hover, .scheduled-task-list > button.selected { background: var(--accent-soft); }
+.scheduled-task-list > button > span { min-width: 0; display: flex; justify-content: space-between; gap: 8px; }
+.scheduled-task-list > button strong, .scheduled-task-list > button small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scheduled-task-list > button small { color: var(--muted); font-size: 10px; }
+.scheduled-task-list .utility-empty-state, .scheduled-task-detail .utility-empty-state { min-height: 300px; }
+.scheduled-task-detail { padding: 16px; }
+.scheduled-task-detail > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.scheduled-task-detail > header > div { min-width: 0; display: grid; gap: 5px; }
+.scheduled-task-detail > header strong, .scheduled-task-detail > header small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scheduled-task-detail > header small { color: var(--muted); font-size: 10px; }
+.scheduled-task-detail dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; margin: 16px 0; border: 1px solid var(--border); background: var(--border); }
+.scheduled-task-detail dl > div { min-width: 0; padding: 11px; background: var(--surface); }
+.scheduled-task-detail dt { margin-bottom: 5px; color: var(--muted); font-size: 9px; text-transform: uppercase; }
+.scheduled-task-detail dd { margin: 0; overflow-wrap: anywhere; font-size: 11px; }
+.scheduled-task-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.scheduled-notifications { display: grid; gap: 8px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+.scheduled-notifications > strong { font-size: 11px; }
+.scheduled-notifications p { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); font-size: 10px; }
+
 .model-control-workspace {
   height: 100%;
   overflow: auto;
@@ -2743,6 +2804,12 @@ body { background: transparent; }
   .prayu-shell .session-composer { width: calc(100% - 24px); }
   .public-model-stream { width: calc(100% - 24px); }
   .utility-workspace { padding: 20px 16px; }
+  .scheduled-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .scheduled-summary span:nth-child(2) { border-right: 0; }
+  .scheduled-summary span:nth-child(-n+2) { border-bottom: 1px solid var(--border); }
+  .scheduled-create-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .scheduled-create-form > button, .scheduled-create-form label:first-of-type { grid-column: 1 / -1; }
+  .scheduled-task-layout { grid-template-columns: 1fr; }
   .model-control-workspace > header,
   .model-control-workspace .model-availability-body { padding-right: 16px; padding-left: 16px; }
 }

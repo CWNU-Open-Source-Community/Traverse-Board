@@ -6,6 +6,38 @@ Last updated: 2026-08-20
 
 ## Resume Context
 
+当前检查点是 issue #105 / schema v119 的持久化计划任务、`loop-monitor` 与结构化诊断。
+`scheduled-job.v1` 绑定显式 owner/target Run 和 root，支持 once/periodic、UTC anchor + IANA
+timezone、next wake、deadline、stop-on-terminal、轮次/模型/耗时预算、重试退避、misfire 与
+通知。SQLite claim 以 occurrence/attempt/generation/owner digest/fence digest/expiry 原子绑定，
+Worker 固定并发度 1、进程内且只能由启动参数开启；重启只收敛精确过期 claim，不按持久状态
+恢复 authority。默认 read-only/零模型预算，不变 observation 只记录 unchanged，不调用模型
+或工具；approved repair 另需 Code/Deliver/root、operator-confirmed permission 与精确未过期
+mode/permission snapshot authorization，任何漂移失败关闭。
+
+`doctor-snapshot.v1`、`debug-query.v1`、`diagnostic-bundle.v1` 已接入 CLI、read-bearer HTTP/
+OpenAPI 与 Desktop。Debug 以 Run 为必需边界，最多返回 100、扫描 500、窗口 7 天，支持单调
+cursor、type/source prefix 与 Run/attempt/tool/process/request 精确关联，分类为 model/tool/
+policy/application/infrastructure；payload、prompt、terminal/command input 与 secret 恒为
+withheld/redacted。Desktop “自动定时”可创建有界只读任务、暂停/恢复/取消、显示 next wake/
+last result/通知并导出经 renderer 再验证的诊断包。内置 `loop-monitor` 仅 user explicit、
+Root、Plan/Deliver，model 不能自行激活且不授予工具或执行 authority。
+
+最终代码的拆分验证矩阵已通过：Store 全量测试 `1230.296s`；Application、HTTP API、Desktop
+与 CLI App 全量包测试分别通过，最终诊断字段加固另有普通/race 定向回归；计划任务普通/race、
+两 Store 并发 create/claim、崩溃 fencing、DST、长睡眠/misfire、真实短周期 smoke 与 Desktop
+tagged 生命周期测试均通过。Go 全仓编译、`go vet`、受影响包 staticcheck、module verify/tidy
+diff、Web strict typecheck、62 文件/256 测试、production build 和 high-level npm audit 均通过。
+OpenAPI 连续两次稳定为 131 paths / 146 operations / 354 schemas，JSON/TypeScript SHA-256 分别为
+`efdba2358d42b4840a3e1ef1767ff05c33af4c0d51579e0a86ea1a025779bf5e` 与
+`cce30ec47190228a8db86cc63b184adc6c68b2f3455b927ba173f15f72875d9f`。隔离 CLI smoke 创建
+Run 与一次性任务、执行一个 foreground tick，并以 `once_completed`、一轮、零模型调用收敛，
+随后成功读取 doctor/debug/bundle。完整 repair executor 仍依赖普通命令生命周期适配器；当前
+生产 Worker 没有隐式 executor，发生变化的 repair 轮次按设计失败关闭。
+
+设计与运维入口见 `docs/scheduled-jobs-diagnostics.md` 和 ADR 0120。以下 issue #103 内容保留为
+上一 schema checkpoint 的审计历史。
+
 当前检查点是 issue #103 / schema v118 的可交付多代理、Worktree 隔离与独立合并复核。
 `batch-delivery.v1` 只绑定已审批/admission 的 core child proposal，并复核相同 Agent、DAG、
 预算和 expected artifacts；最多两个 child 各自使用独立 branch/worktree、generation lease、

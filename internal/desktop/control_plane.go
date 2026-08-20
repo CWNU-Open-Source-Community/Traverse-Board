@@ -20,6 +20,7 @@ import (
 	"cyberagent-workbench/internal/modelregistry"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/runner"
+	"cyberagent-workbench/internal/scheduler"
 	"cyberagent-workbench/internal/skills"
 	"cyberagent-workbench/internal/store"
 	terminalruntime "cyberagent-workbench/internal/terminal"
@@ -49,9 +50,12 @@ type ControlPlane struct {
 	terminalCancel        context.CancelFunc
 	terminalDone          chan struct{}
 	wakeWorker            *application.RunWakeWorker
+	scheduledJobWorker    *scheduler.Worker
 	workerMu              sync.Mutex
 	workerCancel          context.CancelFunc
 	workerDone            chan struct{}
+	scheduledWorkerCancel context.CancelFunc
+	scheduledWorkerDone   chan struct{}
 	closed                bool
 }
 
@@ -82,6 +86,8 @@ type ControlPlaneConfig struct {
 	FileEditApplyEnabled                    bool
 	RunWakeExecutionEnabled                 bool
 	RunWakeWorkerEnabled                    bool
+	ScheduledJobControlEnabled              bool
+	ScheduledJobWorkerEnabled               bool
 	SkillInstallationEnabled                bool
 	EvidenceAttachmentEnabled               bool
 	VerificationEvidenceEnabled             bool
@@ -94,6 +100,7 @@ type ControlPlaneConfig struct {
 	UIHandler                               http.Handler
 	CredentialStore                         credential.Store
 	OnWakeWorkerError                       func(error)
+	OnScheduledJobWorkerError               func(error)
 }
 
 func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
@@ -247,6 +254,21 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	if wakeWorker != nil {
 		workerHealth = wakeWorker
 	}
+	scheduledJobs := application.NewScheduledJobService(stateStore)
+	var scheduledJobWorker *scheduler.Worker
+	if config.ScheduledJobWorkerEnabled {
+		scheduledJobWorker, err = scheduler.NewWorker(scheduledJobs, scheduler.WorkerConfig{
+			OnError: config.OnScheduledJobWorkerError,
+		})
+		if err != nil {
+			_ = stateStore.Close()
+			return nil, err
+		}
+	}
+	var scheduledWorkerHealth httpapi.ScheduledJobWorkerHealthSource
+	if scheduledJobWorker != nil {
+		scheduledWorkerHealth = scheduledJobWorker
+	}
 	var skillInstaller *application.SkillPackageRegistryService
 	if config.SkillInstallationEnabled {
 		objects, objectErr := skills.NewLocalPackageObjectStore(home)
@@ -355,6 +377,8 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		FileEditApplyEnabled:                    config.FileEditApplyEnabled,
 		RunWakeExecutionEnabled:                 config.RunWakeExecutionEnabled,
 		RunWakeWorkerEnabled:                    config.RunWakeWorkerEnabled,
+		ScheduledJobControlEnabled:              config.ScheduledJobControlEnabled,
+		ScheduledJobWorkerEnabled:               config.ScheduledJobWorkerEnabled,
 		SkillInstallationEnabled:                config.SkillInstallationEnabled,
 		EvidenceAttachmentEnabled:               config.EvidenceAttachmentEnabled,
 		VerificationEvidenceEnabled:             config.VerificationEvidenceEnabled,
@@ -381,6 +405,8 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		FileEditApplyController:             fileEditApply,
 		RunWakeExecutionController:          runWakeExecution,
 		RunWakeWorkerHealthSource:           workerHealth,
+		ScheduledJobController:              scheduledJobs,
+		ScheduledJobWorkerHealthSource:      scheduledWorkerHealth,
 		SkillInstallationController:         skillInstaller,
 		EmbeddedAnalyzerExecutionController: embeddedAnalyzerExecution,
 		WorkspaceCheckpointController:       workspaceCheckpoints,
@@ -403,7 +429,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		debugAgentInput: debugAgentInput,
 		commandRuntime:  commandRuntime, commandRuntimeManager: commandManager,
 		terminalManager: terminalManager, boundaryMonitor: boundaryMonitor,
-		wakeWorker: wakeWorker}, nil
+		wakeWorker: wakeWorker, scheduledJobWorker: scheduledJobWorker}, nil
 }
 
 // RegisterWorkspaceDirectory keeps the selected host path entirely within Go
@@ -498,19 +524,30 @@ func (c *ControlPlane) StartWakeWorker(parent context.Context) error {
 	if c.closed {
 		return errors.New("desktop control plane is closed")
 	}
-	if c.wakeWorker == nil {
+	if c.wakeWorker == nil && c.scheduledJobWorker == nil {
 		return nil
 	}
-	if c.workerDone != nil {
-		return errors.New("desktop wake worker is already started")
+	if c.workerDone != nil || c.scheduledWorkerDone != nil {
+		return errors.New("desktop background worker is already started")
 	}
-	ctx, cancel := context.WithCancel(parent)
-	c.workerCancel = cancel
-	c.workerDone = make(chan struct{})
-	go func(done chan struct{}) {
-		defer close(done)
-		_ = c.wakeWorker.Run(ctx)
-	}(c.workerDone)
+	if c.wakeWorker != nil {
+		ctx, cancel := context.WithCancel(parent)
+		c.workerCancel = cancel
+		c.workerDone = make(chan struct{})
+		go func(done chan struct{}) {
+			defer close(done)
+			_ = c.wakeWorker.Run(ctx)
+		}(c.workerDone)
+	}
+	if c.scheduledJobWorker != nil {
+		ctx, cancel := context.WithCancel(parent)
+		c.scheduledWorkerCancel = cancel
+		c.scheduledWorkerDone = make(chan struct{})
+		go func(done chan struct{}) {
+			defer close(done)
+			_ = c.scheduledJobWorker.Run(ctx)
+		}(c.scheduledWorkerDone)
+	}
 	return nil
 }
 
@@ -608,14 +645,23 @@ func (c *ControlPlane) Close() error {
 		c.workerMu.Lock()
 		c.closed = true
 		cancel, done := c.workerCancel, c.workerDone
+		scheduledCancel, scheduledDone := c.scheduledWorkerCancel, c.scheduledWorkerDone
 		c.workerCancel = nil
 		c.workerDone = nil
+		c.scheduledWorkerCancel = nil
+		c.scheduledWorkerDone = nil
 		c.workerMu.Unlock()
 		if cancel != nil {
 			cancel()
 		}
 		if done != nil {
 			<-done
+		}
+		if scheduledCancel != nil {
+			scheduledCancel()
+		}
+		if scheduledDone != nil {
+			<-scheduledDone
 		}
 		c.terminalWorkerMu.Lock()
 		terminalCancel, terminalDone := c.terminalCancel, c.terminalDone

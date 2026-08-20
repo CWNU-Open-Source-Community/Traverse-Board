@@ -56,7 +56,11 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 			"project-instructions", "long-term-memories", "session-tree",
 			"repository-state", "repository-diff", "repository-history", "repository-file-history", "repository-commit-detail", "repository-commit-comparison", "repository-commit-file-preview", "verification-evidence", "verification-plan", "verification-plan-coverage", "verification-snapshot-export", "verification-snapshot-receipts", "code-handoff", "code-handoff-export",
 			"operation-receipts", "operator-actions", "evidence-inventory",
-			"run-activity", "event-stream", "event-poll", "capabilities", "openapi"}
+			"run-activity", "event-stream", "event-poll", "capabilities", "openapi",
+			"doctor", "debug", "diagnostic-bundle"}
+		if a.scheduledJobController != nil {
+			resources = append(resources, "scheduled-jobs")
+		}
 		if a.dockerSandboxController != nil {
 			resources = append(resources, "docker-sandbox-readiness", "docker-sandbox-status")
 		}
@@ -122,6 +126,9 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 		if a.runWakeExecutionEnabled {
 			resources = append(resources, "run-wake-execution-control")
 		}
+		if a.scheduledJobControlEnabled {
+			resources = append(resources, "scheduled-job-control")
+		}
 		if a.skillInstallationEnabled {
 			resources = append(resources, "skill-installation-control")
 		}
@@ -140,6 +147,14 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 		return a.browserSafeWebReadiness(request)
 	case "/api/v1/operation-receipts":
 		return a.operationReceiptHistory(request)
+	case ScheduledJobsPath:
+		return a.scheduledJobs(request, "")
+	case DoctorSnapshotPath:
+		return a.doctorSnapshot(request)
+	case DebugQueryPath:
+		return a.debugQuery(request)
+	case DiagnosticBundlePath:
+		return a.diagnosticBundle(request)
 	}
 	if !strings.HasPrefix(requestPath, "/api/v1/") {
 		return nil, nil, apperror.New(apperror.CodeNotFound, "HTTP API endpoint was not found")
@@ -151,6 +166,10 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 		}
 	}
 	switch segments[0] {
+	case "scheduled-jobs":
+		if len(segments) == 2 {
+			return a.scheduledJob(request, segments[1])
+		}
 	case "models":
 		if len(segments) == 1 {
 			return a.modelAvailability(request)
@@ -484,6 +503,8 @@ func (a *API) routeRuns(request *http.Request, segments []string) (any, *Page, e
 			return a.runFileEditProposalSource(request, segments[1])
 		case "wake-intent":
 			return a.runWakeIntent(request, segments[1])
+		case "scheduled-jobs":
+			return a.scheduledJobs(request, segments[1])
 		case "operator-actions":
 			return a.runOperatorActions(request, segments[1])
 		case "evidence-attachments":

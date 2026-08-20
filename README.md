@@ -62,7 +62,7 @@ CLI / TUI / React / Windows Desktop / CI
 | 计划与协作 | Plan/Delivery、工作项、备注、最多两个核心 child、`batch-delivery.v1` 独立 Worktree/分支/邮箱/交付复核/顺序合并，以及 1/2/4/6 档只读 Fan-out |
 | 工具与权限 | Tool Gateway、JSON Schema 校验、Policy、Scope、人工审批、四档宿主权限、受控固定命令、普通模式 Run-owned 命令运行时、逐条审批 PowerShell/Git Bash，以及限时 Debug 终端输入 |
 | 代码工作流 | 系统目录选择与 Workspace 导入、工作区浏览、仓库状态、提交历史、Diff 审阅、文件编辑提案、事务化 Workspace Checkpoint、Undo/Redo/Rewind、独立 Fork、验证计划、Code Journey 与 Handoff |
-| 可观测性 | 追加式 Run 事件、Live Activity、公开模型进度、Harness 事实、Artifact、Finding/Evidence/Report、SARIF |
+| 可观测性 | 追加式 Run 事件、Live Activity、公开模型进度、Harness 事实、Artifact、Finding/Evidence/Report、SARIF、持久化有界计划任务与脱敏结构化诊断包 |
 | 扩展 | 模式感知的惰性 Skill 包、生成候选人工审查、Provider/Tool 接口、Go/Rust JSON 协议、内嵌 WASI Analyzer、Sandbox 合同与默认关闭的 network-none Docker 产品执行 |
 | 客户端 | `cyberagent` CLI、Bubble Tea TUI、认证 HTTP/OpenAPI、React/Vite、Windows/macOS Desktop 便携预览 |
 
@@ -146,7 +146,7 @@ cyberagent run sandbox docker-admit <plan-id> --manifest-file <manifest.json> `
 
 ### 模式感知 Skill 与生成候选
 
-当前 12 个内置 Skill 使用 `profiles × surfaces × phases × roles` 四维兼容矩阵，并把
+当前 13 个内置 Skill 使用 `profiles × surfaces × phases × roles` 四维兼容矩阵，并把
 `user_invocable`、`model_invocable` 与 `explicit_only` 作为独立调用策略。schema v111
 让外部 Skill 安装账本也完整保存这些字段；legacy 包保持原指纹和“仅操作者显式调用”
 策略。安装始终是惰性的，不等于选择、正文注入或能力授权。
@@ -169,6 +169,21 @@ cyberagent skill candidate import <candidate-id> `
 
 完整模式矩阵、候选限制和失败恢复语义见[使用手册](docs/usage.md)与
 [ADR 0113](docs/adr/0113-mode-aware-external-skill-ledger-and-generated-candidate-review.md)。
+
+### 持久化有界监控与结构化诊断
+
+Schema v119 的 `scheduled-job.v1` 可为一个显式 Run 建立单次或固定间隔监控，并持久化
+timezone、next wake、deadline、停止条件、轮次/模型/耗时预算、重试退避、通知和 owner。
+进程内 Worker 固定并发度 1，只能通过启动参数开启；租约 generation 与私有 fence 防止
+重启、并发 worker 或迟到完成造成重复执行。默认 `read_only` 且模型预算为零，目标状态
+没有变化时只记录 `unchanged`，不会调用模型或工具。
+
+`doctor-snapshot.v1`、`debug-query.v1` 和 `diagnostic-bundle.v1` 提供 provider/model harness、
+Run/Workspace/权限/网络/工具 readiness 与有界单调事件时间线。事件 payload、prompt、终端
+输入、命令输入和 secret 始终 withheld/redacted。CLI、认证 HTTP/OpenAPI、React 与 Desktop
+复用同一 Application 服务；Desktop 支持创建、暂停、恢复、取消、查看下次唤醒/最近结果/
+通知及导出诊断包。完整说明见[计划任务与结构化诊断](docs/scheduled-jobs-diagnostics.md)和
+[ADR 0120](docs/adr/0120-durable-scheduled-monitoring-and-structured-diagnostics.md)。
 
 ## 快速开始
 
@@ -337,7 +352,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 完整逐切片原始记录保留在 [`PROGRESS_BOOK.md`](docs/PROGRESS_BOOK.md)，当前检查点与验收证据保留在 [`PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)，恢复上下文见 [`PROJECT_MEMORY.md`](docs/PROJECT_MEMORY.md)。这些账本是历史记录，不应被当作待重新执行的任务列表。
 
 <details>
-<summary><strong>SQLite Schema v1-v118 迁移审计表 / Migration ledger</strong></summary>
+<summary><strong>SQLite Schema v1-v119 迁移审计表 / Migration ledger</strong></summary>
 
 此表是 Store 防漏迁移测试使用的审计合同。新增 schema 时必须按顺序追加，不得改写或删除既有行。
 
@@ -461,6 +476,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 | v116 | 增加 Run-owned command-runtime.v2 Job 与 Supervisor 调用账本 | add Run-owned command-runtime.v2 jobs and Supervisor call ledger support |
 | v117 | 增加事务化 workspace-checkpoint.v1、恢复/Fork 账本与内容寻址 blob | add transactional workspace-checkpoint.v1, restore/Fork ledger, and content-addressed blobs |
 | v118 | 增加 batch-delivery.v1、child Worktree/邮箱/交付复核与顺序合并队列 | add batch-delivery.v1, child worktrees/mailbox, delivery review, and ordered merge queues |
+| v119 | 增加 scheduled-job.v1、单实例租约/fencing、轮次与通知账本 | add scheduled-job.v1, singleton lease/fencing, round, and notification ledgers |
 
 </details>
 

@@ -629,9 +629,9 @@ cyberagent api openapi
 cyberagent api openapi --output docs/openapi.json
 ```
 
-运行时的 `/api/v1/openapi.json` 返回同一份原始文档，仍要求 loopback 与 read Bearer 认证，不接受 query 或 body。它使用 `application/vnd.oai.openapi+json`，不套普通 `api.v1` envelope。当前契约有 124 个 path、138 个 operation 和 325 个 schema。测试逐条命中公开 handler，并确认普通 DTO 不包含 Workspace root、Artifact/Skill/Session 正文、模型输出、工具参数、私有 lifecycle、operation/fencing/lease owner、API key、Provider Base URL 或环境变量名。batch delivery DTO 还明确排除 child/integration root、owner-token digest 与 operation/request fingerprint；明文 owner token 只在 Prepare/rotation control 响应中返回一次。
+运行时的 `/api/v1/openapi.json` 返回同一份原始文档，仍要求 loopback 与 read Bearer 认证，不接受 query 或 body。它使用 `application/vnd.oai.openapi+json`，不套普通 `api.v1` envelope。当前契约有 131 个 path、146 个 operation 和 354 个 schema。测试逐条命中公开 handler，并确认普通 DTO 不包含 Workspace root、Artifact/Skill/Session 正文、模型输出、工具参数、私有 lifecycle、operation/fencing/lease owner、API key、Provider Base URL 或环境变量名。batch delivery DTO 还明确排除 child/integration root、owner-token digest 与 operation/request fingerprint；明文 owner token 只在 Prepare/rotation control 响应中返回一次。
 
-The runtime `/api/v1/openapi.json` returns the same raw document under the loopback and read-bearer boundary and accepts neither a query nor a body. It uses `application/vnd.oai.openapi+json` rather than the ordinary `api.v1` envelope. The contract contains 124 paths, 138 operations, and 325 schemas. Tests exercise every handler and verify that ordinary DTOs omit Workspace roots, Artifact/Skill/Session bodies, model output, Tool arguments, private lifecycle, operation/fencing/lease-owner identities, API keys, Provider base URLs, and environment-variable names. Batch-delivery DTOs additionally omit child/integration roots, owner-token digests, and operation/request fingerprints; a plaintext owner token appears only once in a prepare/rotation control response.
+The runtime `/api/v1/openapi.json` returns the same raw document under the loopback and read-bearer boundary and accepts neither a query nor a body. It uses `application/vnd.oai.openapi+json` rather than the ordinary `api.v1` envelope. The contract contains 131 paths, 146 operations, and 354 schemas. Tests exercise every handler and verify that ordinary DTOs omit Workspace roots, Artifact/Skill/Session bodies, model output, Tool arguments, private lifecycle, operation/fencing/lease-owner identities, API keys, Provider base URLs, and environment-variable names. Batch-delivery DTOs additionally omit child/integration roots, owner-token digests, and operation/request fingerprints; a plaintext owner token appears only once in a prepare/rotation control response.
 
 ## 主动取消 / Active-Call Cancellation
 
@@ -822,6 +822,30 @@ read-only, and non-authorizing to true and content/private body/reviewer inclusi
 snapshot/result acceptance or inference, rewrite, approval, authority, and execution
 to false. `metadata_confirmed` therefore confirms only the retained metadata binding;
 it is not a verification pass, release approval, or execution grant.
+
+## Scheduled Jobs and Structured Diagnostics
+
+Schema v119 adds read-bearer projections for `/scheduled-jobs`, `/doctor`, `/debug`, and
+`/diagnostic-bundle`. The global schedule list accepts an optional exact `run_id`; the
+per-Run list fixes that identity in the path. Detail accepts only bounded round and
+notification limits. Debug and bundle queries require one Run, accept an exclusive
+sequence cursor, at most 100 returned items, at most a seven-day RFC3339 window, optional
+type/source prefixes, and one exact Run/attempt/tool/process/request correlation.
+
+Scheduled mutation routes live under
+`POST /api/v1/runs/{run_id}/scheduled-jobs...` and require the separate control bearer,
+strict JSON, and a normalized `Idempotency-Key`. Create returns `202 Accepted` without
+executing a round. Pause/resume/cancel require `scheduled-job-control.v1` plus the current
+revision. Reads remain available with the read bearer. Unknown or duplicate query fields
+and unknown JSON fields are rejected.
+
+Public DTOs expose next wake, budgets, stop reason, round/notification metadata, and
+process-local worker health. They never expose raw lease owner/fence values, event payload
+JSON, prompts, command or terminal input, or secrets. Runtime capabilities fix worker
+concurrency to one and state `runtime_enable_supported=false`,
+`persistent_service=false`, and `authority_escalation=false`. See
+[Scheduled Jobs and Structured Diagnostics](scheduled-jobs-diagnostics.md) for route and
+restart examples.
 
 ## Envelopes
 

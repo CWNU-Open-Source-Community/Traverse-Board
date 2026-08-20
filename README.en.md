@@ -93,6 +93,14 @@ A child reaches `ready_for_review` only with a clean worktree, a HEAD descending
 
 By default the only executable check is `git diff --check`, which does not run repository code. Because `go_test` and `npm_test` execute child-authored code on the host, the relevant control capability must be enabled and the current Run must still be running with `full_access` (or the explicitly higher `debug` mode); Desktop also requires explicit `--enable-batch-delivery-control`, while host validation additionally requires permission control, danger-full-access, and `--enable-batch-validation-execution`. Validation uses a Windows Job Object or Unix process-group lifecycle boundary, bypasses the Go test cache, and persists only complete-stream output digests. The stripped/offline environment still is not an OS network or filesystem sandbox, and deliberate POSIX daemonization outside the inherited process group remains an explicit host-execution residual. See [Deliverable Multi-Agent Batches](docs/batch-delivery.md) and [ADR 0119](docs/adr/0119-deliverable-batch-agents.md).
 
+### Durable scheduled monitoring and structured diagnostics
+
+Schema v119 `scheduled-job.v1` provides one-shot and fixed elapsed-period monitoring for an explicit Run. It persists the IANA display timezone, UTC anchor, next wake, hard deadline, stop-on-terminal behavior, round/model/elapsed budgets, retry/backoff, misfire policy, notifications, and owner. The process-local worker has fixed concurrency one and is enabled only at process startup. Atomic occurrence/attempt/generation claims and private fence digests prevent concurrent workers, restart recovery, or late completion from authoritatively executing the same round twice.
+
+The default is Plan/root `read_only` with a zero model-call budget. A metadata digest excludes the monitor's own events, and an unchanged state records an `unchanged` round without calling a model or tool. `approved_repair` is available only as an exact Code/Deliver, operator-confirmed mode/permission contract that is revalidated before every handoff; production scheduling does not invent a repair executor or bypass the ordinary Policy and approval path.
+
+`doctor-snapshot.v1`, `debug-query.v1`, and `diagnostic-bundle.v1` expose Provider/model Harness, Run, Workspace, permission, network, tool, sandbox, browser, and plugin readiness plus a bounded monotonic event timeline. Debug requires a Run, scans at most 500 events, returns at most 100 items in a seven-day window, supports cursor and exact correlation filters, and always withholds event payloads, prompts, terminal/command input, and secrets. CLI, authenticated HTTP/OpenAPI, React, and Desktop share the same Application contracts; Desktop can create, pause, resume, cancel, inspect, and export redacted bundles. No arbitrary cron Shell, OS service/autostart, remote scheduling plane, or indefinite unattended Agent is added. See [Scheduled Jobs and Structured Diagnostics](docs/scheduled-jobs-diagnostics.md) and [ADR 0120](docs/adr/0120-durable-scheduled-monitoring-and-structured-diagnostics.md).
+
 ### Real Git, PowerShell, and Bash
 
 Prayu invokes real Git and operating-system shells; it is not a command emulator. It deliberately does not give the model a permanent, unreviewed raw terminal. The Code workflow separates execution by risk:
@@ -148,7 +156,7 @@ Ordinary Code workflows still do not require Docker.
 
 ### Mode-aware Skills and generated candidates
 
-The 12 built-in Skills use a `profiles × surfaces × phases × roles` compatibility
+The 13 built-in Skills use a `profiles × surfaces × phases × roles` compatibility
 matrix, with `user_invocable`, `model_invocable`, and `explicit_only` as a
 separate invocation policy. Schema v111 preserves the same metadata in the
 external-Skill installation ledger. Legacy packages retain their exact

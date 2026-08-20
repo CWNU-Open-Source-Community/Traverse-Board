@@ -15,11 +15,15 @@ import (
 
 func (a *App) doctorCommand(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: cyberagent doctor <portable|browser-network-probe|browser-network-review|browser-readiness>")
+		return errors.New("usage: cyberagent doctor <portable|snapshot|bundle|browser-network-probe|browser-network-review|browser-readiness>")
 	}
 	switch args[0] {
 	case "portable":
 		return a.doctorPortableCommand(args[1:])
+	case "snapshot":
+		return a.doctorSnapshotCommand(ctx, args[1:])
+	case "bundle":
+		return a.doctorBundleCommand(ctx, args[1:])
 	case "browser-network-probe":
 		return a.doctorBrowserNetworkProbeCommand(ctx, args[1:])
 	case "browser-network-review":
@@ -27,8 +31,91 @@ func (a *App) doctorCommand(ctx context.Context, args []string) error {
 	case "browser-readiness":
 		return a.doctorBrowserReadinessCommand(ctx, args[1:])
 	default:
-		return errors.New("usage: cyberagent doctor <portable|browser-network-probe|browser-network-review|browser-readiness>")
+		return errors.New("usage: cyberagent doctor <portable|snapshot|bundle|browser-network-probe|browser-network-review|browser-readiness>")
 	}
+}
+
+func (a *App) doctorSnapshotCommand(ctx context.Context, args []string) error {
+	flags := newFlagSet("doctor snapshot", a.errOut)
+	runID := flags.String("run", "", "optional Run identity")
+	jsonOutput := flags.Bool("json", false, "print the structured snapshot as JSON")
+	if err := flags.Parse(reorderFlags(args, map[string]bool{
+		"run": true, "json": false,
+	})); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("usage: cyberagent doctor snapshot [--run <run-id>] [--json]")
+	}
+	if err := a.ensureStore(); err != nil {
+		return err
+	}
+	snapshot, err := application.NewDiagnosticsService(a.store, a.models).
+		Doctor(ctx, strings.TrimSpace(*runID))
+	if err != nil {
+		return err
+	}
+	if *jsonOutput {
+		encoder := json.NewEncoder(a.out)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(snapshot)
+	}
+	fmt.Fprintf(a.out, "protocol: %s\nready: %t\nschema: %d\ngenerated_at: %s\n",
+		snapshot.ProtocolVersion, snapshot.Ready, snapshot.SchemaVersion,
+		snapshot.GeneratedAt.Format(time.RFC3339Nano))
+	if snapshot.Run != nil {
+		fmt.Fprintf(a.out, "run: %s\nstatus: %s\nroute: %s\nsurface: %s\nphase: %s\npermission: %s\n",
+			snapshot.Run.RunID, snapshot.Run.Status, snapshot.Run.ModelRoute,
+			snapshot.Run.Surface, snapshot.Run.Phase,
+			snapshot.Run.ExecutionPermission)
+	}
+	for _, check := range snapshot.Checks {
+		fmt.Fprintf(a.out, "- %s: %s (%s; %s)\n", check.Component,
+			check.Status, check.DetailCode, check.Evidence)
+	}
+	return nil
+}
+
+func (a *App) doctorBundleCommand(ctx context.Context, args []string) error {
+	flags := newFlagSet("doctor bundle", a.errOut)
+	runID := flags.String("run", "", "Run identity")
+	after := flags.Int64("after", 0, "exclusive event-sequence cursor")
+	limit := flags.Int("limit", 100, "maximum returned timeline items")
+	fromText := flags.String("from", "", "RFC3339 lower time bound")
+	toText := flags.String("to", "", "RFC3339 upper time bound")
+	typePrefix := flags.String("type-prefix", "", "event type prefix")
+	sourcePrefix := flags.String("source-prefix", "", "event source prefix")
+	if err := flags.Parse(reorderFlags(args, map[string]bool{
+		"run": true, "after": true, "limit": true, "from": true, "to": true,
+		"type-prefix": true, "source-prefix": true,
+	})); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 || strings.TrimSpace(*runID) == "" {
+		return errors.New("usage: cyberagent doctor bundle --run <run-id> [--after <sequence>] [--limit <1..100>] [--from <RFC3339>] [--to <RFC3339>]")
+	}
+	from, err := parseOptionalDiagnosticTime(*fromText)
+	if err != nil {
+		return err
+	}
+	to, err := parseOptionalDiagnosticTime(*toText)
+	if err != nil {
+		return err
+	}
+	if err := a.ensureStore(); err != nil {
+		return err
+	}
+	service := application.NewDiagnosticsService(a.store, a.models)
+	bundle, err := service.Bundle(ctx, strings.TrimSpace(*runID),
+		application.DebugQueryRequest{Version: application.DebugQueryProtocolVersion,
+			RunID: strings.TrimSpace(*runID), AfterSequence: *after, Limit: *limit,
+			From: from, To: to, TypePrefix: *typePrefix, SourcePrefix: *sourcePrefix})
+	if err != nil {
+		return err
+	}
+	encoder := json.NewEncoder(a.out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(bundle)
 }
 
 func (a *App) doctorPortableCommand(args []string) error {

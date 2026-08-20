@@ -138,6 +138,24 @@ func RunWakeCancelRequestFingerprint(runID string, requestedBy string) string {
 	return Fingerprint("run_wake_cancel_request.v1", runID, requestedBy)
 }
 
+func ScheduledJobOperationDigest(runID string, operationKey string) string {
+	return Fingerprint("scheduled_job_operation.v1", runID, operationKey)
+}
+
+func ScheduledJobCreateRequestFingerprint(runID string, specJSON string,
+	requestedBy string, repairConfirmed bool,
+) string {
+	return Fingerprint("scheduled_job_create_request.v1", runID, specJSON,
+		requestedBy, strconv.FormatBool(repairConfirmed))
+}
+
+func ScheduledJobTransitionRequestFingerprint(runID string, jobID string,
+	action string, expectedRevision int64, requestedBy string,
+) string {
+	return Fingerprint("scheduled_job_transition_request.v1", runID, jobID,
+		action, strconv.FormatInt(expectedRevision, 10), requestedBy)
+}
+
 func RunWakeConsumptionOperationKey(intentID string, generation int) string {
 	return "wake-consume-" + Fingerprint("run_wake_consumption_handoff.v1",
 		intentID, strconv.Itoa(generation))

@@ -1,0 +1,18 @@
+{
+  "protocol": "skill.v1",
+  "name": "loop-monitor",
+  "version": "1.0.0",
+  "description": "Explicit-target durable once or periodic monitoring with hard stop budgets and no unchanged-state model calls.",
+  "profiles": ["code", "learn", "review", "script"],
+  "surfaces": ["code", "cyber"],
+  "phases": ["plan", "deliver"],
+  "roles": ["root"],
+  "user_invocable": true,
+  "model_invocable": false,
+  "explicit_only": true,
+  "tool_dependencies": [],
+  "content_path": "SKILL.md",
+  "content_sha256": "0a176f199090d92a0e2e045980955dd24e659567ab488098c81912cad000b6cc",
+  "content_bytes": 2136,
+  "content_token_upper_bound": 2136
+}

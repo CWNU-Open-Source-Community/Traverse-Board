@@ -1444,6 +1444,27 @@ cyberagent once-command run --run <run-id> --executable <abs-path> --approved --
 The protocol is structured (`once_command.v1`): executable + literal argv + cwd + allowlisted env, never a shell string. The executable must be a native binary outside the Workspace (shell interpreters like cmd/powershell/bash and script targets like .bat/.cmd are rejected); the working directory must resolve inside the Workspace (symlink/junction escapes are rejected); the environment only accepts SystemRoot/WINDIR/TEMP/TMP and never loads PowerShell/Bash profiles. Output is capped at 64 KiB, UTF-8-repaired, and secret-redacted; the Run event `once_command.executed` records metadata only. Tier behavior: conservative denies, approval requires `--approved` per command, full access runs with audit (requires `--enable-danger-full-access`), debug never opens a persistent shell. Windows termination uses a kill-on-close Job Object bound at process creation, so timeout/cancel reaps the whole process tree.
 
 
+## Scheduled Jobs and Diagnostics
+
+Use `cyberagent run schedule create` for a durable one-shot or elapsed-period monitor of
+one explicit Run. `--at`, `--deadline`, and `--operation-key` are mandatory; budgets,
+retry/backoff, misfire behavior, notification policy, and stop-on-terminal are bounded
+flags. The default is `read_only` with zero model calls. List/show/pause/resume/cancel use
+the durable revision, and `run schedule tick` executes at most one foreground due step.
+
+`cyberagent doctor snapshot --run <run-id> --json` reports structured readiness without
+turning missing probes into success. `cyberagent debug query --run <run-id> --limit 100
+--json` reads a bounded metadata-only timeline; continue with `next_after_sequence`.
+`cyberagent doctor bundle --run <run-id>` combines both while withholding raw event
+payloads, prompts, terminal/command input, and secrets.
+
+The API worker requires `--enable-scheduled-job-worker` plus control auth; Desktop uses
+`--enable-scheduled-jobs` and `--enable-scheduled-job-worker`. Neither surface offers a
+runtime enable switch or installs a service. Full CLI, HTTP, Desktop, repair-authorization,
+misfire, DST, and crash-recovery details are in
+[Scheduled Jobs and Structured Diagnostics](scheduled-jobs-diagnostics.md) and
+[ADR 0120](adr/0120-durable-scheduled-monitoring-and-structured-diagnostics.md).
+
 ## MCP Server
 
 `cyberagent mcp serve` runs a Model Context Protocol server over stdio

@@ -16,6 +16,7 @@ import (
 	"cyberagent-workbench/internal/httpapi"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/runner"
+	"cyberagent-workbench/internal/scheduler"
 	"cyberagent-workbench/internal/skills"
 	"cyberagent-workbench/internal/webui"
 )
@@ -48,6 +49,8 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		"enable OS-owned Provider credential changes")
 	wakeWorker := fs.Bool("enable-wake-worker", false,
 		"enable the bounded single-owner Run wake worker")
+	scheduledJobWorker := fs.Bool("enable-scheduled-job-worker", false,
+		"enable the process-local single-concurrency scheduled job worker")
 	permissionControl := fs.Bool("enable-permission-control", false,
 		"enable operator-selected Run execution permissions")
 	hostCommandProposals := fs.Bool("enable-host-command-proposals", false,
@@ -66,7 +69,8 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		"enable fixed offline go/npm checks for confirmed batch deliveries")
 	if err := fs.Parse(reorderFlags(args, map[string]bool{"listen": true, "ui-dir": true,
 		"enable-file-edit-proposals": false, "enable-provider-credentials": false,
-		"enable-wake-worker": false, "enable-permission-control": false,
+		"enable-wake-worker": false, "enable-scheduled-job-worker": false,
+		"enable-permission-control":     false,
 		"enable-host-command-proposals": false,
 		"enable-danger-full-access":     false, "enable-debug-maximum-access": false,
 		"enable-browser-cdp-control": false, "enable-full-cdp-debug": false,
@@ -113,7 +117,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		return apperror.New(apperror.CodeInvalidArgument,
 			"--enable-batch-validation-execution requires permission control and danger-full-access")
 	}
-	if (*fileEditProposals || *providerCredentials || *wakeWorker ||
+	if (*fileEditProposals || *providerCredentials || *wakeWorker || *scheduledJobWorker ||
 		*permissionControl || *hostCommandProposals || *browserCDPControl ||
 		*dockerExecution || *batchValidationExecution) && controlToken == "" {
 		return apperror.New(apperror.CodeInvalidArgument,
@@ -221,6 +225,22 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	if worker != nil {
 		workerHealth = worker
 	}
+	scheduledJobs := application.NewScheduledJobService(a.store)
+	var scheduleWorker *scheduler.Worker
+	if *scheduledJobWorker {
+		scheduleWorker, err = scheduler.NewWorker(scheduledJobs, scheduler.WorkerConfig{
+			OnError: func(runErr error) {
+				fmt.Fprintln(a.errOut, "scheduled-job-worker:", runErr)
+			},
+		})
+		if err != nil {
+			return err
+		}
+	}
+	var scheduleWorkerHealth httpapi.ScheduledJobWorkerHealthSource
+	if scheduleWorker != nil {
+		scheduleWorkerHealth = scheduleWorker
+	}
 	builtinSkills, err := skills.BuiltinRegistry()
 	if err != nil {
 		return err
@@ -265,6 +285,8 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		FileEditApplyEnabled:                    controlToken != "",
 		RunWakeExecutionEnabled:                 controlToken != "",
 		RunWakeWorkerEnabled:                    *wakeWorker,
+		ScheduledJobControlEnabled:              controlToken != "",
+		ScheduledJobWorkerEnabled:               *scheduledJobWorker,
 		ExecutionPermissionControlEnabled:       *permissionControl,
 		ExecutionPermissionCapabilities:         permissionCapabilities,
 		BrowserCDPPermissionControlEnabled:      *browserCDPControl,
@@ -295,6 +317,8 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		FileEditApplyController:             fileEditApply,
 		RunWakeExecutionController:          runWakeExecution,
 		RunWakeWorkerHealthSource:           workerHealth,
+		ScheduledJobController:              scheduledJobs,
+		ScheduledJobWorkerHealthSource:      scheduleWorkerHealth,
 		SkillInstallationController:         skillInstallation,
 		EmbeddedAnalyzerExecutionController: embeddedAnalyzerExecution,
 		WorkspaceCheckpointController:       workspaceCheckpoints,
@@ -361,9 +385,28 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 			<-workerDone
 		}()
 	}
+	var scheduleWorkerCancel context.CancelFunc
+	var scheduleWorkerDone chan struct{}
+	if scheduleWorker != nil {
+		workerCtx, cancel := context.WithCancel(ctx)
+		scheduleWorkerCancel = cancel
+		scheduleWorkerDone = make(chan struct{})
+		go func() {
+			defer close(scheduleWorkerDone)
+			_ = scheduleWorker.Run(workerCtx)
+		}()
+	}
+	if scheduleWorkerCancel != nil {
+		defer func() {
+			scheduleWorkerCancel()
+			<-scheduleWorkerDone
+		}()
+	}
 	fmt.Fprintf(a.out, "file_edit_proposals_enabled: %t\nprovider_credentials_enabled: %t\nwake_worker_enabled: %t\nwake_worker_concurrency: %d\nwake_worker_max_steps: %d\n",
 		*fileEditProposals, *providerCredentials, *wakeWorker,
 		application.RunWakeWorkerConcurrency, application.RunWakeWorkerMaxSteps)
+	fmt.Fprintf(a.out, "scheduled_job_control_enabled: %t\nscheduled_job_worker_enabled: %t\nscheduled_job_worker_concurrency: %d\nscheduled_job_persistent_service: false\n",
+		controlToken != "", *scheduledJobWorker, scheduler.WorkerConcurrency)
 	fmt.Fprintf(a.out, "execution_permission_control_enabled: %t\noperator_approval_enabled: %t\nhost_command_proposal_control_enabled: %t\ndanger_full_access_enabled: %t\ndebug_maximum_access_enabled: %t\ncommand_runtime_enabled: %t\n",
 		*permissionControl, permissionCapabilities.OperatorApprovalEnabled,
 		*hostCommandProposals,

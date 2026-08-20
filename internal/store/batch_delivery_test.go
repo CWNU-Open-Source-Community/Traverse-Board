@@ -17,7 +17,7 @@ import (
 )
 
 func removeSchemaV118ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV119ForTestStatements(), []string{
 		`DROP TABLE batch_delivery_merge_steps`,
 		`DROP TABLE batch_delivery_merge_queues`,
 		`DROP TABLE batch_delivery_reviews`,
@@ -26,7 +26,7 @@ func removeSchemaV118ForTestStatements() []string {
 		`DROP TABLE batch_delivery_workspaces`,
 		`DROP TABLE batch_delivery_plans`,
 		`DELETE FROM schema_migrations WHERE version = 118`,
-	}
+	}...)
 }
 
 func TestSchemaV118UpgradesV117Database(t *testing.T) {
