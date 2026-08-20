@@ -58,6 +58,7 @@ type BrowserRuntimeLaunchRequest struct {
 type BrowserRuntimeHandle struct {
 	RuntimeID   string
 	Coordinator *browserruntime.BrowserRuntimeLifecycleCoordinator
+	UIEvidence  *browserruntime.RestrictedBrowserSession
 }
 
 // BrowserRuntimeService orchestrates the Safe Web operator flow
@@ -66,9 +67,9 @@ type BrowserRuntimeHandle struct {
 // gate, durable review, disposable Profile, and network containment all remain
 // mandatory and fail closed.
 type BrowserRuntimeService struct {
-	store                BrowserRuntimeStore
-	controller           *browserruntime.BrowserProcessController
-	runtimeCapabilities  browserruntime.ProductionRuntimeCapabilities
+	store                  BrowserRuntimeStore
+	controller             *browserruntime.BrowserProcessController
+	runtimeCapabilities    browserruntime.ProductionRuntimeCapabilities
 	permissionCapabilities domain.BrowserCDPPermissionRuntimeCapabilities
 }
 
@@ -78,7 +79,7 @@ func NewBrowserRuntimeService(store BrowserRuntimeStore,
 	permissionCapabilities domain.BrowserCDPPermissionRuntimeCapabilities,
 ) *BrowserRuntimeService {
 	return &BrowserRuntimeService{store: store, controller: controller,
-		runtimeCapabilities: runtimeCapabilities,
+		runtimeCapabilities:    runtimeCapabilities,
 		permissionCapabilities: permissionCapabilities}
 }
 
@@ -89,6 +90,21 @@ func NewBrowserRuntimeService(store BrowserRuntimeStore,
 // handle whose process is not yet bound to the restricted Job.
 func (s *BrowserRuntimeService) Launch(ctx context.Context,
 	request BrowserRuntimeLaunchRequest,
+) (*BrowserRuntimeHandle, error) {
+	return s.launch(ctx, request, false)
+}
+
+// LaunchUIEvidence runs the same reviewed Safe Web launch path and then opens
+// the separately authorized fixed-method UI evidence CDP session. It never
+// adopts a pre-existing browser or user Profile.
+func (s *BrowserRuntimeService) LaunchUIEvidence(ctx context.Context,
+	request BrowserRuntimeLaunchRequest,
+) (*BrowserRuntimeHandle, error) {
+	return s.launch(ctx, request, true)
+}
+
+func (s *BrowserRuntimeService) launch(ctx context.Context,
+	request BrowserRuntimeLaunchRequest, uiEvidence bool,
 ) (*BrowserRuntimeHandle, error) {
 	if s == nil || s.store == nil || s.controller == nil {
 		return nil, errors.New("browser runtime service is not fully configured")
@@ -199,13 +215,53 @@ func (s *BrowserRuntimeService) Launch(ctx context.Context,
 		return nil, err
 	}
 	runtimeID := idgen.New("browser_runtime")
+	var restricted *browserruntime.RestrictedBrowserSession
+	if uiEvidence {
+		cdpAuthorization, authorizeErr := browserruntime.AuthorizeUIEvidenceCDP(
+			authorization, session, request.Identity, request.Acceptance, ownership,
+			launchAttempt, launchLease, launchReview, evidence, review, networkPlan,
+			permission, s.runtimeCapabilities, time.Now().UTC())
+		if authorizeErr == nil {
+			restricted, authorizeErr = browserruntime.OpenRestrictedBrowserSession(ctx,
+				cdpAuthorization, authorization, session, request.Identity,
+				request.Acceptance, ownership, launchAttempt, launchLease, launchReview,
+				evidence, review, networkPlan, permission, profileLease, process)
+		}
+		if authorizeErr != nil {
+			cleanupErr := s.cleanupFailedBrowserLaunch(runtimeID, launchAttempt,
+				authorization, ownership, profileLease, process, now)
+			return nil, errors.Join(authorizeErr, cleanupErr)
+		}
+	}
 	coordinator, err := browserruntime.NewBrowserRuntimeLifecycleCoordinator(runtimeID,
-		launchAttempt, authorization, ownership, profileLease, process, nil, s.store, now)
+		launchAttempt, authorization, ownership, profileLease, process, restricted, s.store, now)
+	if err != nil {
+		if restricted != nil {
+			_ = restricted.Close(context.Background())
+		}
+		cleanupErr := s.cleanupFailedBrowserLaunch(runtimeID, launchAttempt,
+			authorization, ownership, profileLease, process, now)
+		return nil, errors.Join(err, cleanupErr)
+	}
+	return &BrowserRuntimeHandle{RuntimeID: runtimeID, Coordinator: coordinator,
+		UIEvidence: restricted}, nil
+}
+
+func (s *BrowserRuntimeService) cleanupFailedBrowserLaunch(runtimeID string,
+	attempt browserruntime.BrowserLaunchAttempt,
+	authorization browserruntime.BrowserStartAuthorization,
+	ownership browserruntime.ProfileOwnershipPlan,
+	profileLease browserruntime.ProfileRuntimeLease,
+	process *browserruntime.BrowserProcess, startedAt time.Time,
+) error {
+	coordinator, err := browserruntime.NewBrowserRuntimeLifecycleCoordinator(runtimeID,
+		attempt, authorization, ownership, profileLease, process, nil, s.store, startedAt)
 	if err != nil {
 		_ = process.Stop(context.Background())
-		return nil, err
+		return err
 	}
-	return &BrowserRuntimeHandle{RuntimeID: runtimeID, Coordinator: coordinator}, nil
+	_, err = coordinator.Finalize(context.Background())
+	return err
 }
 
 // Close finalizes a running browser session: it stops the process tree, verifies

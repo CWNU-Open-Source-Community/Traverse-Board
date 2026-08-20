@@ -188,6 +188,7 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		!bootstrap.WorkspaceCheckpointControlEnabled ||
 		bootstrap.BatchDeliveryControlEnabled ||
 		bootstrap.BatchDeliveryHostValidationEnabled ||
+		bootstrap.UIEvidenceControlEnabled ||
 		bootstrap.WorkspaceOpenEnabled ||
 		bootstrap.WorkspaceImportEnabled ||
 		bootstrap.RendererPathInputSupported {
@@ -222,6 +223,7 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		"agent_terminal_input_default", "ui_digest",
 		"workspace_checkpoint_control_enabled",
 		"batch_delivery_control_enabled", "batch_delivery_host_validation_enabled",
+		"ui_evidence_control_enabled",
 		"workspace_import_enabled",
 		"workspace_open_enabled",
 	})

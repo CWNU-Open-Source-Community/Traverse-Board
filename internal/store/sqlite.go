@@ -345,7 +345,8 @@ func migrationPlan() []migration {
 		{Version: 116, Name: "Run-owned command runtime jobs", Statements: commandRuntimeStatements},
 		{Version: 117, Name: "content-addressed reversible Workspace checkpoints", Statements: workspaceCheckpointStatements},
 		{Version: 118, Name: "isolated child worktrees and reviewed batch delivery", Statements: batchDeliveryStatements},
-		{Version: 119, Name: "durable scheduled jobs and bounded diagnostics", Statements: scheduledJobStatements},
+		{Version: 119, Name: "source-bound real-browser UI evidence", Statements: uiEvidenceStatements},
+		{Version: 120, Name: "durable scheduled jobs and bounded diagnostics", Statements: scheduledJobStatements},
 	}
 }
 

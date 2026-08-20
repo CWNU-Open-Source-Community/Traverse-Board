@@ -73,6 +73,9 @@ cyberagent run command-proposal review <proposal-id> deny --operation-key <stabl
 cyberagent run pause <run-id>
 cyberagent run resume <run-id>
 cyberagent run cancel <run-id>
+cyberagent ui-evidence list --run <run-id> [--status <status>] [--limit <n>]
+cyberagent ui-evidence show <attempt-id>
+cyberagent ui-evidence artifact <attempt-id> <artifact-id> --output <new-path>
 ```
 
 Schema v115 exposes `agent-code-tools.v1` to the root Supervisor during ordinary
@@ -114,6 +117,38 @@ Schema v86 separates execution interaction intent from general runtime authority
 Schema v88 adds an orthogonal `conservative|approval|full_access|debug` permission selector. `conservative` is the default and drives the fixed-template executor. Schema v96 gives `approval` a durable model-proposal/operator-review path; the current extension accepts either an exact native process or one canonical PowerShell/Git Bash command envelope on Windows. `full_access` has an operator-only, dual-confirmed, non-sandboxed Windows CLI one-shot executor; it has no HTTP/Desktop/model route. `debug` has a short process-local lease over a user-started terminal; Desktop can now grant/revoke that lease and the root Supervisor can use it only in Code/Deliver. Elevated selection requires exact confirmation plus process-local startup gates. Persisted snapshots never grant authority and each operation rechecks the current process.
 
 Schema v91 adds the independent `restricted|full_debug` browser-CDP selector described above. It does not inherit Shell authority from v88, and v88 does not inherit CDP authority from v91. A future concrete browser operation must recheck both its exact method/scope contract and the current process gates.
+
+Schema v119 supplies that concrete operation only for source-bound local UI
+verification. `ui-evidence.v1` seals the exact Git/non-Git source state, reviewed
+build/start recipe, fixed browser executable and version, literal loopback URL,
+viewport/DPR, locale/theme/reduced-motion state, fixture/seed, ordered steps,
+capture policy, and fail-closed diagnostic policy before execution. It rejects an
+occupied readiness port instead of adopting another service, revalidates source
+before build, after readiness, and before pass, and owns the application process,
+browser Job, disposable Profile, network guard, port, and cleanup receipt. Only
+`passed` is success; `not_run` is deliberately neutral.
+
+Execution is currently a Windows Desktop capability. Build the Desktop and launch
+it with all five independent gates:
+
+```powershell
+.\build\desktop\cyberagent-desktop.exe `
+  --enable-permission-control `
+  --enable-danger-full-access `
+  --enable-run-execution `
+  --enable-browser-cdp-control `
+  --enable-ui-evidence
+```
+
+The selected Run must also be Code/Local/Deliver with current `full_access`, an
+active root execution lease, and current `restricted` browser-CDP permission.
+The Desktop panel requires review of the complete JSON request before start and
+shows the manifest, steps, diagnostics, cleanup, and content-addressed artifacts.
+Disabling control later leaves historical evidence readable. The standalone CLI
+intentionally supports only list/show/hash-verified export and cannot start or
+cancel a browser. Export creates a new `0600` file exclusively and labels its
+contents untrusted. Full request examples, artifact rules, and CI receipt fields
+are documented in [Real-browser UI Evidence](ui-evidence.md).
 
 Debug Agent terminal input is a separate process-local lease bound to one Workspace, Code Run, terminal session, exact interaction snapshot ID/revision, and Local profile. The opaque bearer is never persisted or returned to the renderer/model, lasts at most 15 minutes, can be revoked immediately, and becomes invalid on restart. Active leases and revoked-token summaries are bounded. Host lock/disconnect/logoff, sleep/resume, Run termination, Workspace or interaction rebinding, terminal replacement, and shutdown revoke affected leases. A selected mode is not a lease, and a lease is not process authority. The Desktop bridge exposes only explicit grant/query/revoke; the root Supervisor receives only a token-free active binding and can write/read through Go after every scope, permission, phase, policy, and expiry check. Cyber terminal input remains unavailable.
 
@@ -213,13 +248,13 @@ Invocation policy is separate from delivery compatibility. `user_invocable` perm
 | `plan-delivery` | 1.2.0 | all | code, cyber | plan, deliver | root | explicit user only |
 | `doctor` | 1.0.0 | all | code, cyber | plan | root | user + model eligible |
 | `debug` | 1.0.0 | all | code, cyber | plan, deliver | root | user + model eligible |
-| `run-verify` | 1.0.0 | code, script | code, cyber | deliver | root | user + model eligible |
+| `run-verify` | 1.1.0 | code, script | code, cyber | deliver | root | user + model eligible |
 | `focused-checks` | 1.0.0 | code, review, script | code, cyber | deliver | root | user + model eligible |
 | `simplify` | 1.0.0 | code | code | deliver | root | user + model eligible |
 | `security-review` | 1.0.0 | code, review, script | code, cyber | plan, deliver | root | user + model eligible |
 | `run-skill-generator` | 1.0.0 | code | code | deliver | root | explicit user only |
 
-`doctor` reports provider, harness, workspace, sandbox, network-scope, tool, and Skill compatibility without repairing it. `debug` builds a bounded evidence timeline and permits repair only in Deliver. `run-verify` records and executes an authorized real launch recipe; on Cyber it is restricted by guidance to an admitted local sandbox. Its first `ui-evidence` extension binds screenshots or GIFs to the source revision, launch recipe, viewport, route/page state, theme, fixture, timestamp, console findings, and request failures. `focused-checks` maps changes to the smallest credible checks, `simplify` requires call-site evidence before deletion, and `security-review` remains read-only unless a separate Deliver authorization exists.
+`doctor` reports provider, harness, workspace, sandbox, network-scope, tool, and Skill compatibility without repairing it. `debug` builds a bounded evidence timeline and permits repair only in Deliver. `run-verify@1.1.0` requires an exact `ui-evidence.v1` source/recipe/runtime binding, real interaction assertions, content-addressed artifact inventory, cleanup receipt, focused-check mapping, and a PR-ready verification receipt; `not_run` and missing matrix cells must remain explicit non-passes. It does not grant browser, process, network, Profile, or credential authority, and on Cyber remains restricted by guidance to an admitted local sandbox. `focused-checks` maps changes to the smallest credible checks, `simplify` requires call-site evidence before deletion, and `security-review` remains read-only unless a separate Deliver authorization exists.
 
 `run-skill-generator` does not create a trusted Skill. When it is explicitly selected and actually delivered to a Code/Deliver root turn, Go exposes `skill_candidate_propose`; otherwise the tool is omitted and forged calls are rejected. A successful call stores at most 4096 bytes of validated, secret-screened Markdown as an inert `proposed` candidate bound to the real tool invocation, Run/Session/Workspace/root, deterministic package, and exact fingerprints. The ordinary tool result and candidate list never expose the body; `skill candidate show --show-content` uses explicit untrusted-content delimiters for human inspection.
 
@@ -1463,7 +1498,7 @@ The API worker requires `--enable-scheduled-job-worker` plus control auth; Deskt
 runtime enable switch or installs a service. Full CLI, HTTP, Desktop, repair-authorization,
 misfire, DST, and crash-recovery details are in
 [Scheduled Jobs and Structured Diagnostics](scheduled-jobs-diagnostics.md) and
-[ADR 0120](adr/0120-durable-scheduled-monitoring-and-structured-diagnostics.md).
+[ADR 0121](adr/0121-durable-scheduled-monitoring-and-structured-diagnostics.md).
 
 ## MCP Server
 

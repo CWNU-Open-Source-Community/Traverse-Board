@@ -30,7 +30,7 @@ func TestSkillCLIListsShowsAndValidatesBuiltinsWithoutRuntimeState(t *testing.T)
 		!strings.Contains(listed, "doctor@1.1.0") ||
 		!strings.Contains(listed, "debug@1.1.0") ||
 		!strings.Contains(listed, "loop-monitor@1.0.0") ||
-		!strings.Contains(listed, "run-verify@1.0.0") ||
+		!strings.Contains(listed, "run-verify@1.1.0") ||
 		!strings.Contains(listed, "run-skill-generator@1.0.0") ||
 		!strings.Contains(listed, "focused-checks@1.0.0") ||
 		!strings.Contains(listed, "simplify@1.0.0") ||

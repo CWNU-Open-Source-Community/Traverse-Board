@@ -12,7 +12,7 @@
   "explicit_only": false,
   "tool_dependencies": ["list_workspace", "read_file"],
   "content_path": "SKILL.md",
-  "content_sha256": "46e10c84e50c4e4de8ed3838f9c5ff222613fdabd4fdeead9651f3b732030421",
-  "content_bytes": 1244,
-  "content_token_upper_bound": 1244
+  "content_sha256": "664ea5ebaa053f03951419bc64f2fd64434a5f6b56d45c8997bbbfd5fc0d35f1",
+  "content_bytes": 1046,
+  "content_token_upper_bound": 1046
 }

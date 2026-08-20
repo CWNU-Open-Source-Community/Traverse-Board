@@ -76,6 +76,7 @@ type ConnectionBootstrap struct {
 	WorkspaceCheckpointControlEnabled       bool   `json:"workspace_checkpoint_control_enabled"`
 	BatchDeliveryControlEnabled             bool   `json:"batch_delivery_control_enabled"`
 	BatchDeliveryHostValidationEnabled      bool   `json:"batch_delivery_host_validation_enabled"`
+	UIEvidenceControlEnabled                bool   `json:"ui_evidence_control_enabled"`
 	UserTerminalEnabled                     bool   `json:"user_terminal_enabled"`
 	AgentTerminalInputDefault               bool   `json:"agent_terminal_input_default"`
 	WorkspaceOpenEnabled                    bool   `json:"workspace_open_enabled"`
@@ -174,6 +175,7 @@ type DesktopBridgeConfig struct {
 	EmbeddedAnalyzerExecutionEnabled        bool
 	BatchDeliveryControlEnabled             bool
 	BatchDeliveryHostValidationEnabled      bool
+	UIEvidenceControlEnabled                bool
 	UserTerminalEnabled                     bool
 	DockerExecutionEnabled                  bool
 	APIVersion                              string
@@ -238,7 +240,8 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 		config.SkillInstallationEnabled ||
 		config.EvidenceAttachmentEnabled || config.VerificationEvidenceEnabled ||
 		config.EmbeddedAnalyzerExecutionEnabled ||
-		config.BatchDeliveryControlEnabled || config.ControlToken != "" ||
+		config.BatchDeliveryControlEnabled || config.UIEvidenceControlEnabled ||
+		config.ControlToken != "" ||
 		config.UserTerminalEnabled || config.DockerExecutionEnabled
 	if controlEnabled && config.ControlToken == "" {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
@@ -313,6 +316,11 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop full CDP debug requires maximum Debug execution capability")
 	}
+	if config.UIEvidenceControlEnabled &&
+		(!commandRuntimeEnabled || !config.BrowserCDPPermissionControlEnabled) {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"desktop UI evidence requires command runtime and restricted browser CDP control")
+	}
 	readHash := sha256.Sum256([]byte(config.ReadToken))
 	controlHash := sha256.Sum256([]byte(config.ControlToken))
 	if config.ControlToken != "" && subtle.ConstantTimeCompare(readHash[:], controlHash[:]) == 1 {
@@ -381,6 +389,7 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 			WorkspaceCheckpointControlEnabled:       config.ControlToken != "",
 			BatchDeliveryControlEnabled:             config.BatchDeliveryControlEnabled,
 			BatchDeliveryHostValidationEnabled:      config.BatchDeliveryHostValidationEnabled,
+			UIEvidenceControlEnabled:                config.UIEvidenceControlEnabled,
 			UserTerminalEnabled:                     config.UserTerminalEnabled,
 			AgentTerminalInputDefault:               false,
 			WorkspaceOpenEnabled:                    config.WorkspaceResolver != nil,

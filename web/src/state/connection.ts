@@ -41,6 +41,7 @@ interface ConnectionState {
   skillInstallationEnabled: boolean;
   evidenceAttachmentEnabled: boolean;
   verificationEvidenceEnabled: boolean;
+  uiEvidenceControlEnabled: boolean;
   embeddedAnalyzerExecutionEnabled: boolean;
   dockerExecutionEnabled: boolean;
   agentCodeToolsEnabled: boolean;
@@ -94,6 +95,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   skillInstallationEnabled: false,
   evidenceAttachmentEnabled: false,
   verificationEvidenceEnabled: false,
+  uiEvidenceControlEnabled: false,
   embeddedAnalyzerExecutionEnabled: false,
   dockerExecutionEnabled: false,
   agentCodeToolsEnabled: false,
@@ -142,6 +144,8 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
 	  evidenceAttachmentEnabled: present && (capabilities.evidenceAttachmentEnabled ?? true),
 	  verificationEvidenceEnabled: present &&
 	    (capabilities.verificationEvidenceEnabled ?? false),
+	  uiEvidenceControlEnabled: present &&
+	    (capabilities.uiEvidenceControlEnabled ?? false),
 	  embeddedAnalyzerExecutionEnabled: present &&
 	    (capabilities.embeddedAnalyzerExecutionEnabled ?? false),
 	  dockerExecutionEnabled: present &&
@@ -168,6 +172,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
 	skillInstallationEnabled: false,
 	evidenceAttachmentEnabled: false,
 	verificationEvidenceEnabled: false,
+	uiEvidenceControlEnabled: false,
 	embeddedAnalyzerExecutionEnabled: false,
 	dockerExecutionEnabled: false,
 	agentCodeToolsEnabled: false,

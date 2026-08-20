@@ -80,6 +80,8 @@ export default function App() {
   const evidenceAttachmentEnabled = useConnectionStore((state) => state.evidenceAttachmentEnabled);
   const verificationEvidenceEnabled = useConnectionStore(
     (state) => state.verificationEvidenceEnabled);
+  const uiEvidenceControlEnabled = useConnectionStore(
+    (state) => state.uiEvidenceControlEnabled);
   const embeddedAnalyzerExecutionEnabled = useConnectionStore(
     (state) => state.embeddedAnalyzerExecutionEnabled);
   const dockerExecutionEnabled = useConnectionStore(
@@ -116,6 +118,7 @@ export default function App() {
     skillInstallationEnabled={skillInstallationEnabled}
     evidenceAttachmentEnabled={evidenceAttachmentEnabled}
     verificationEvidenceEnabled={verificationEvidenceEnabled}
+    uiEvidenceControlEnabled={uiEvidenceControlEnabled}
     embeddedAnalyzerExecutionEnabled={embeddedAnalyzerExecutionEnabled}
     dockerExecutionEnabled={dockerExecutionEnabled}
     agentCodeToolsEnabled={agentCodeToolsEnabled} />;
@@ -133,7 +136,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   fileEditProposalEnabled, fileEditApplyEnabled, runWakeControlEnabled,
   runWakeExecutionEnabled, runWakeWorkerEnabled, skillInstallationEnabled,
   scheduledJobControlEnabled, scheduledJobWorkerEnabled,
-  evidenceAttachmentEnabled, verificationEvidenceEnabled,
+  evidenceAttachmentEnabled, verificationEvidenceEnabled, uiEvidenceControlEnabled,
   embeddedAnalyzerExecutionEnabled, dockerExecutionEnabled, agentCodeToolsEnabled }: {
   token: string;
   controlToken: string;
@@ -167,6 +170,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   skillInstallationEnabled: boolean;
   evidenceAttachmentEnabled: boolean;
   verificationEvidenceEnabled: boolean;
+  uiEvidenceControlEnabled: boolean;
   embeddedAnalyzerExecutionEnabled: boolean;
   dockerExecutionEnabled: boolean;
   agentCodeToolsEnabled: boolean;
@@ -197,7 +201,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     fileEditApplyEnabled, runWakeControlEnabled, runWakeExecutionEnabled,
     runWakeWorkerEnabled, scheduledJobControlEnabled, scheduledJobWorkerEnabled,
     skillInstallationEnabled, evidenceAttachmentEnabled,
-    verificationEvidenceEnabled,
+    verificationEvidenceEnabled, uiEvidenceControlEnabled,
     embeddedAnalyzerExecutionEnabled,
     dockerExecutionEnabled,
     agentCodeToolsEnabled,
@@ -213,7 +217,8 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     fileEditApplyEnabled, runWakeControlEnabled, runWakeExecutionEnabled,
     runWakeWorkerEnabled, scheduledJobControlEnabled, scheduledJobWorkerEnabled,
     skillInstallationEnabled, evidenceAttachmentEnabled,
-    verificationEvidenceEnabled, embeddedAnalyzerExecutionEnabled, dockerExecutionEnabled,
+    verificationEvidenceEnabled, uiEvidenceControlEnabled,
+    embeddedAnalyzerExecutionEnabled, dockerExecutionEnabled,
     agentCodeToolsEnabled]);
   const queryClient = useQueryClient();
   const health = useConnectionStore((state) => state.health);
@@ -257,6 +262,8 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     { id: "skill-install", label: t("Skill 安装", "Skill installation"), enabled: skillInstallationEnabled },
     { id: "evidence", label: t("证据挂载", "Evidence attachment"), enabled: evidenceAttachmentEnabled },
     { id: "verification", label: t("验证证据", "Verification evidence"), enabled: verificationEvidenceEnabled },
+    { id: "ui-evidence", label: t("真实浏览器 UI 证据", "Real-browser UI evidence"),
+      enabled: uiEvidenceControlEnabled },
     { id: "embedded-analyzer", label: t("内置分析器", "Embedded analyzer"), enabled: embeddedAnalyzerExecutionEnabled },
     { id: "docker-execution", label: t("Docker 沙箱", "Docker sandbox"), enabled: dockerExecutionEnabled },
     { id: "agent-code-tools", label: t("模型工作区工具", "Model workspace tools"), enabled: agentCodeToolsEnabled },
@@ -269,7 +276,8 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     runCreationEnabled, runExecutionEnabled, runLifecycleEnabled,
     runWakeControlEnabled, runWakeExecutionEnabled, runWakeWorkerEnabled,
     sessionMessageEnabled, sessionSteeringControlEnabled, skillInstallationEnabled,
-    verificationEvidenceEnabled, embeddedAnalyzerExecutionEnabled, dockerExecutionEnabled,
+    verificationEvidenceEnabled, uiEvidenceControlEnabled,
+    embeddedAnalyzerExecutionEnabled, dockerExecutionEnabled,
     agentCodeToolsEnabled, t]);
 
   useEffect(() => {

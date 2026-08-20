@@ -69,6 +69,7 @@ export interface DesktopConnectionBootstrap {
   workspace_checkpoint_control_enabled: boolean;
   batch_delivery_control_enabled: boolean;
   batch_delivery_host_validation_enabled: boolean;
+  ui_evidence_control_enabled: boolean;
   user_terminal_enabled: boolean;
   agent_terminal_input_default: false;
   workspace_open_enabled: boolean;
@@ -706,7 +707,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     "evidence_attachment_enabled",
 	"verification_evidence_enabled", "embedded_analyzer_execution_enabled",
 	"workspace_checkpoint_control_enabled", "batch_delivery_control_enabled",
-	"batch_delivery_host_validation_enabled",
+	"batch_delivery_host_validation_enabled", "ui_evidence_control_enabled",
     "user_terminal_enabled", "agent_terminal_input_default",
     "file_edit_proposal_enabled", "file_edit_review_enabled", "model_control_enabled",
     "provider_credential_enabled", "process_execution_enabled",
@@ -761,6 +762,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     typeof value.workspace_checkpoint_control_enabled === "boolean" &&
     typeof value.batch_delivery_control_enabled === "boolean" &&
     typeof value.batch_delivery_host_validation_enabled === "boolean" &&
+    typeof value.ui_evidence_control_enabled === "boolean" &&
     typeof value.docker_execution_enabled === "boolean" &&
     typeof value.user_terminal_enabled === "boolean" &&
     value.agent_terminal_input_default === false &&
@@ -783,6 +785,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
       value.evidence_attachment_enabled || value.verification_evidence_enabled ||
 	  value.embedded_analyzer_execution_enabled || value.workspace_checkpoint_control_enabled ||
 	  value.batch_delivery_control_enabled || value.batch_delivery_host_validation_enabled ||
+	  value.ui_evidence_control_enabled ||
 	  value.docker_execution_enabled ||
       value.user_terminal_enabled) &&
     (value.control_token === "" || validToken(value.control_token)) &&
@@ -800,6 +803,9 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
         value.danger_full_access_enabled)) &&
     (!value.full_cdp_debug_enabled ||
       (value.browser_cdp_permission_control_enabled && value.debug_maximum_access_enabled)) &&
+    (!value.ui_evidence_control_enabled ||
+      (value.command_runtime_enabled && value.browser_cdp_permission_control_enabled &&
+        value.run_execution_enabled)) &&
     value.command_runtime_enabled ===
       (value.run_execution_enabled && value.danger_full_access_enabled) &&
     value.read_only_default === !(value.control_enabled || value.run_creation_enabled ||
@@ -819,6 +825,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
       value.evidence_attachment_enabled || value.verification_evidence_enabled ||
 	  value.embedded_analyzer_execution_enabled || value.workspace_checkpoint_control_enabled ||
 	  value.batch_delivery_control_enabled || value.batch_delivery_host_validation_enabled ||
+	  value.ui_evidence_control_enabled ||
 	  value.docker_execution_enabled ||
       value.user_terminal_enabled) &&
     value.process_execution_enabled ===

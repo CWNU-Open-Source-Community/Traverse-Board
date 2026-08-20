@@ -2,9 +2,48 @@
 
 > 本文件是按时间追加的历史开发账本，不是待办列表。当前产品范围以 [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md) 为准；CTF 专用求解和攻防自动化已移出活跃路线图，本文中的旧 Cyber 百分比仅保留为历史快照。
 
-更新时间：2026-08-14
+更新时间：2026-08-20
 
 ## 一、当前阶段
+
+2026-08-20 单切片 `来源绑定真实浏览器 UI 证据（Issue #102）` 推进到 SQLite v119。
+`ui-evidence.v1` 封存 Run/Mission/Session/Workspace、fresh source checkpoint、可选 build/
+必需 start recipe、readiness、固定浏览器 version/executable SHA-256、literal-loopback
+URL/route、viewport/DPR、locale/theme/reduced-motion、deterministic fixture/seed/page state、
+有序交互/断言、capture/mask 和全开启 diagnostics failure policy。Application 在 build 前、
+readiness 后、浏览器断言后与 owned process cleanup 后重验来源，拒绝已占用端口，使用 v116
+Run-owned command runtime
+和 Safe Web exact-owned browser/Profile/Job/network lifecycle；真实受限 CDP 可导航、点击、
+输入、断言和采集 PNG/DOM/a11y/performance/console/page/network/HTTP，不开放个人 Profile、
+cookie、任意 JS、response body、request mutation/replay 或 Full CDP。状态、失败阶段、step
+receipts、artifact hash/MIME/dimensions/source/Run/Attempt/redaction 与清理回执均持久化；
+`not_run` 不通过，启动恢复只收敛为 `interrupted` 而不收养 PID/端口/authority。
+
+Desktop 默认保留历史只读 UI，显式五项启动 gate 后才能执行；OpenAPI 使用独立 read/control
+bearer，CLI 只 list/show/hash-verified exclusive export。`run-verify` 升级为 1.1.0，README、
+usage、HTTP、architecture、ADR 与独立 guide 统一 receipt 语义。Windows CI 新增真实 Edge
+headless matrix：1440×900/light/en-US/full-motion 与 390×844/dark/zh-CN/reduced-motion，
+采集 screenshots/receipt.json 并用仅缺失 click handler 的 regression route 证明真实页面
+断言能捕获源码/build-only 检查无法单独证明的错误。
+
+最终审计进一步把 screenshot 像素面和 dimensions 在 domain/SQLite/React 三层绑定到
+`viewport × DPR`，在完整 PNG 解码前验证 header 尺寸，并由真实 Edge 暴露、修复 Windows
+Profile sharing-lock 清理竞态：只对
+exact-owner quarantine 做 5 秒有界重试，超限仍是 cleanup failure。真实 Edge
+151.0.4129.93 的两组矩阵、故意回归与全部资源回收通过；最终 source-bound receipt SHA-256
+由 PR/CI 对最终提交报告。CI fixture 固定 native control 状态后，连续真实运行的三张 PNG
+逐字节一致。全仓 Go（含 v1→v119
+Store 迁移链）、受影响路径 race/vet/staticcheck、OpenAPI/TypeScript 确定性生成、62 个前端
+文件/266 项测试、production build、npm audit、Rust fmt/test/clippy、CI YAML 与 Windows
+Desktop 可复现双构建均通过。本机 Go 1.26.5 的 govulncheck 仍报告 5 项标准库问题，均由
+1.26.6 修复，未把该结果误写为 zero finding。
+
+同轮审计新增 cleanup-only 精确 durable Job binding，使 Run lease 在取消、timeout 或撤权后失效时
+仍只能回收本 Attempt 自己启动且由当前 manager 持有的进程树；普通 command Kill 在 lease
+释放后继续被拒绝。最终 source checkpoint 移到清理证明之后，diagnostic URL 重新过 exact
+TargetScope，越界 scheme 固定为 `[blocked-url]`，React 复核 step/artifact 时间窗。对应定向
+普通与 race 回归以及全量 Go 套件均通过；本轮 Application/HTTP/Store 分别为 611.312/229.102/
+974.372 秒，Desktop 可复现 EXE 的最终 source-bound SHA-256 由 PR/CI 报告。
 
 2026-08-14 单切片 `Docker 容器 I/O 合同（新增标签，对应 Issue #39）` 推进到 SQLite v98，仍未接入任何产品入口或执行授权。只读输入投影 `sandbox_docker_input_projection.v1` 把规范化相对路径、SHA-256、大小与媒体类型封印到生命周期 attempt/generation、Plan、Observation、Run/Mission/Workspace 与 Spec 指纹上，输入挂载固定 `/run/cyberagent/inputs` 只读，并新增真实 inspect Mounts 隔离校验（唯一可写挂载必须是专用输出挂载，输入与工作区树必须只读）。日志捕获 `sandbox_docker_log_capture.v1` 只走 `POST containers/{id}/attach?logs=1&stderr=1&stdout=1&stream=0`：解复用器按流限制 256 KiB/4096 行与墙钟时限，拒绝畸形/超大帧，替换非法 UTF-8 并计数，脱敏 Secret，只落库元数据与摘要回执。输出暂存 `sandbox_docker_output_staging.v1` 只导出专用输出挂载的 `GET containers/{id}/archive`，tar 走查在 Windows/Linux 同一路径规则下拒绝绝对/穿越/反斜杠/盘符路径、symlink/hardlink/设备节点、重复项，并限制 64 文件/单文件 4 MiB/总量 16 MiB，文本文件按媒体类型识别与脱敏后写入进程内暂存目录；被拒归档不带任何受信清单。原子提交 `sandbox_docker_output_commit.v1` 要求接受清单与已完成暂存回执逐项精确一致，从暂存目录重读并复哈希后在同一 SQLite 事务中写入回执与全部条目，operation key 幂等，失败不残留半提交行。HTTP 白名单只开放上述两个端点，应用服务不接 CLI/HTTP/Desktop，新增 15 个事件类型记录 prepared/acquired/taken-over/failed/completed。域/黄金向量/对抗路径/传输/Store/应用定向测试在 macOS 通过；Windows 与 Linux CI 将跑同一路径矩阵。边界见 ADR 0098 与 Issue #39；产品准入（Policy/Approval/Budget/Network 与 CLI/HTTP/Desktop 接线）仍是下一个 Docker 切片。
 

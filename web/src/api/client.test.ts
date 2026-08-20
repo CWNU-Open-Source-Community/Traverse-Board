@@ -1,6 +1,6 @@
 import { CyberAgentClient, clientCapabilitiesFromRuntime } from "./client";
 import type { RunEventStreamView, RunLifecycleControlView,
-  ScheduledJobCreateRequestView } from "./types";
+  ScheduledJobCreateRequestView, UIEvidenceArtifactMetadata } from "./types";
 
 const healthEnvelope = {
   version: "api.v1",
@@ -29,6 +29,7 @@ function runtimeCapabilitiesData(overrides: Record<string, unknown> = {}) {
     scheduled_job_control_enabled: true, scheduled_job_worker_enabled: true,
     skill_installation_enabled: true, evidence_attachment_enabled: true,
     verification_evidence_enabled: true,
+    ui_evidence_control_enabled: true,
     embedded_analyzer_execution_enabled: true,
 	workspace_checkpoint_control_enabled: true,
     batch_delivery_control_enabled: true,
@@ -151,6 +152,80 @@ const specialistModelCancellationData = {
   model_attempt: 2, status: "observed", requested_at: "2026-07-18T00:00:00Z", replayed: false,
 };
 
+function uiEvidencePassedAttemptData() {
+  return {
+    protocol_version: "ui-evidence-attempt.v1",
+    manifest: {
+      protocol_version: "ui-evidence.v1", attempt_id: "ui-attempt-1", run_id: "run-1",
+      mission_id: "mission-1", session_id: "session-1", workspace_id: "workspace-1",
+      source: { repository_kind: "git", commit: "a".repeat(40), branch: "codex/test",
+        dirty: false, dirty_digest: "b".repeat(64), root_fingerprint: "c".repeat(64),
+        index_sha256: "d".repeat(64), manifest_sha256: "e".repeat(64) },
+      start: { protocol_version: "command-runtime.v2", profile: "powershell",
+        executable_name: "powershell.exe", executable_path_sha256: "1".repeat(64),
+        executable_sha256: "2".repeat(64), canonical_argv: ["powershell.exe", "-Command",
+          "npm run dev"], working_directory: "web", environment_names: [],
+        environment_sha256: "3".repeat(64), timeout_milliseconds: 60_000,
+        network: "disabled", credentials: "none", purpose: "UI evidence",
+        fingerprint: "4".repeat(64) },
+      readiness: { url: "http://127.0.0.1:4173/", method: "GET", expected_status: [200],
+        timeout_milliseconds: 60_000, interval_milliseconds: 250 },
+      browser: { product: "edge", version: "140.0.0.0",
+        executable_sha256: "5".repeat(64),
+        driver_protocol: "restricted-cdp-ui-evidence.v1", headless: true,
+        temporary_profile: true },
+      url: "http://127.0.0.1:4173/", route: "/", environment: {
+        viewport: { width: 1440, height: 900, dpr: 1 }, locale: "en-US",
+        theme: "light", reduced_motion: false,
+      },
+      fixture: { name: "fixture", seed: "seed", page_state: "{}",
+        data_sha256: "6".repeat(64), deterministic: true, synthetic: true },
+      steps: [{ id: "navigate", kind: "navigate", capture_after: true }],
+      capture: { screenshot: true, dom: true, accessibility: true, console: true,
+        network: true, performance: true, video: false, mask_selectors: [] },
+      failure_policy: { fail_on_console_error: true, fail_on_page_error: true,
+        fail_on_request_error: true, fail_on_http_status: true },
+      authority: { process_start: false, network_access: false, credential_access: false,
+        personal_profile: false, request_mutation: false, verification_pass: false },
+      created_at: "2026-08-20T00:00:00Z", fingerprint: "7".repeat(64),
+    },
+    operation_digest: "8".repeat(64), request_fingerprint: "7".repeat(64), status: "passed",
+    failure_stage: "none", diagnostics: { console_warnings: 0, console_errors: 0,
+      page_errors: 0, failed_requests: 0, http_failures: 0, allowed_requests: 1,
+      blocked_requests: 0 }, cleanup: { browser_tree_reaped: true,
+      application_tree_reaped: true, profile_removed: true, network_released: true,
+      port_released: true }, artifact_count: 6, artifact_bytes: 1_024, version: 3,
+    created_at: "2026-08-20T00:00:00Z", started_at: "2026-08-20T00:00:01Z",
+    completed_at: "2026-08-20T00:00:02Z", updated_at: "2026-08-20T00:00:02Z",
+  };
+}
+
+function uiEvidencePassedBundleData() {
+  const attempt = uiEvidencePassedAttemptData();
+  const kinds = ["screenshot", "dom", "accessibility", "console", "network",
+    "performance"] as const;
+  const sizes = [500, 100, 100, 100, 100, 124];
+  return {
+    attempt,
+    artifacts: kinds.map((kind, index) => ({
+      protocol_version: "ui-evidence-artifact.v1", id: `ui-artifact-${kind}`,
+      attempt_id: attempt.manifest.attempt_id, run_id: attempt.manifest.run_id,
+      step_id: "navigate", kind, mime: kind === "screenshot" ? "image/png" : "application/json",
+      sha256: String(index + 1).repeat(64), bytes: sizes[index],
+      ...(kind === "screenshot" ? { width: 1440, height: 900 } : {}),
+      viewport: { width: 1440, height: 900, dpr: 1 },
+      source_commit: attempt.manifest.source.commit, retention_policy: "run_history",
+      redacted: true, untrusted: true, created_at: "2026-08-20T00:00:01Z",
+      fingerprint: String(index + 2).repeat(64),
+    })),
+    steps: [{ protocol_version: "ui-evidence-step.v1",
+      attempt_id: attempt.manifest.attempt_id, step_id: "navigate", sequence: 1,
+      kind: "navigate", status: "passed", failure_stage: "none",
+      started_at: "2026-08-20T00:00:01Z", completed_at: "2026-08-20T00:00:02Z",
+      fingerprint: "f".repeat(64) }],
+  };
+}
+
 describe("CyberAgentClient", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -172,6 +247,109 @@ describe("CyberAgentClient", () => {
     expect(url).not.toContain("read-secret");
     expect(init.headers).toMatchObject({ Authorization: "Bearer read-secret" });
     expect(init.credentials).toBe("omit");
+  });
+
+  it.each([
+    ["blocked request", (attempt: ReturnType<typeof uiEvidencePassedAttemptData>) => {
+      attempt.diagnostics.blocked_requests = 1;
+    }],
+    ["missing core capture", (attempt: ReturnType<typeof uiEvidencePassedAttemptData>) => {
+      attempt.manifest.capture.accessibility = false;
+    }],
+    ["forged lifecycle version", (attempt: ReturnType<typeof uiEvidencePassedAttemptData>) => {
+      attempt.version = 2;
+    }],
+    ["nested manifest extension", (attempt: ReturnType<typeof uiEvidencePassedAttemptData>) => {
+      (attempt.manifest.source as Record<string, unknown>).unreviewed_path = "C:\\secret";
+    }],
+    ["network-enabled start recipe", (attempt: ReturnType<typeof uiEvidencePassedAttemptData>) => {
+      attempt.manifest.start.network = "enabled";
+    }],
+    ["non-loopback browser target", (attempt: ReturnType<typeof uiEvidencePassedAttemptData>) => {
+      attempt.manifest.url = "https://example.com:443/";
+    }],
+    ["duplicate manifest step", (attempt: ReturnType<typeof uiEvidencePassedAttemptData>) => {
+      attempt.manifest.steps.push({ ...attempt.manifest.steps[0] });
+    }],
+  ])("rejects passed UI evidence with a %s", async (_label, mutate) => {
+    const attempt = uiEvidencePassedAttemptData();
+    mutate(attempt);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-ui-evidence", data: [attempt],
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+
+    await expect(new CyberAgentClient("read-secret").uiEvidence("run-1"))
+      .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+  });
+
+  it("rejects a terminal UI evidence bundle whose artifact totals are incomplete", async () => {
+    const bundle = uiEvidencePassedBundleData();
+    bundle.artifacts.pop();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-ui-evidence-bundle", data: bundle,
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+
+    await expect(new CyberAgentClient("read-secret").uiEvidenceBundle("ui-attempt-1"))
+      .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+  });
+
+  it("rejects screenshot dimensions that do not match the sealed viewport and DPR", async () => {
+    const bundle = uiEvidencePassedBundleData();
+    bundle.artifacts[0].width = 1;
+    bundle.artifacts[0].height = 1;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-ui-evidence-dimensions", data: bundle,
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+
+    await expect(new CyberAgentClient("read-secret").uiEvidenceBundle("ui-attempt-1"))
+      .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+  });
+
+  it.each([
+    ["artifact after completion", (bundle: ReturnType<typeof uiEvidencePassedBundleData>) => {
+      bundle.artifacts[0].created_at = "2026-08-20T00:00:03Z";
+    }],
+    ["step before attempt start", (bundle: ReturnType<typeof uiEvidencePassedBundleData>) => {
+      bundle.steps[0].started_at = "2026-08-20T00:00:00Z";
+    }],
+  ])("rejects UI evidence chronology with %s", async (_label, mutate) => {
+    const bundle = uiEvidencePassedBundleData();
+    mutate(bundle);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-ui-evidence-chronology", data: bundle,
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+
+    await expect(new CyberAgentClient("read-secret").uiEvidenceBundle("ui-attempt-1"))
+      .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+  });
+
+  it("accepts a complete source-bound UI evidence bundle with explicit retention", async () => {
+    const bundle = uiEvidencePassedBundleData();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-ui-evidence-complete", data: bundle,
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+
+    await expect(new CyberAgentClient("read-secret").uiEvidenceBundle("ui-attempt-1"))
+      .resolves.toEqual(bundle);
+  });
+
+  it("streams an exact hash-bound artifact and rejects bytes beyond the sealed size", async () => {
+    const content = new TextEncoder().encode("bounded evidence");
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", content));
+    const sha256 = [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    const metadata = { ...uiEvidencePassedBundleData().artifacts[1],
+      bytes: content.byteLength, sha256 } as UIEvidenceArtifactMetadata;
+    const headers = { "Content-Type": metadata.mime, ETag: `"${sha256}"`,
+      "X-CyberAgent-Content-SHA256": sha256, "X-CyberAgent-Evidence-Untrusted": "true" };
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(content, { headers }))
+      .mockResolvedValueOnce(new Response(new Uint8Array([...content, 1]), { headers }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret");
+
+    await expect(client.downloadUIEvidenceArtifact("ui-attempt-1", metadata))
+      .resolves.toMatchObject({ size: content.byteLength, type: metadata.mime });
+    await expect(client.downloadUIEvidenceArtifact("ui-attempt-1", metadata))
+      .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
   it("rejects a cross-origin API base before issuing a request", () => {
@@ -202,6 +380,7 @@ describe("CyberAgentClient", () => {
       scheduled_job_control_enabled: true, scheduled_job_worker_enabled: true,
       skill_installation_enabled: true, evidence_attachment_enabled: true,
       verification_evidence_enabled: true,
+      ui_evidence_control_enabled: true,
       embedded_analyzer_execution_enabled: true,
 	  workspace_checkpoint_control_enabled: true,
       batch_delivery_control_enabled: true,
@@ -230,6 +409,7 @@ describe("CyberAgentClient", () => {
       fileEditProposalEnabled: true, providerCredentialEnabled: true,
       runWakeWorkerEnabled: true,
       verificationEvidenceEnabled: true,
+      uiEvidenceControlEnabled: true,
       embeddedAnalyzerExecutionEnabled: true,
 	  workspaceCheckpointControlEnabled: true,
       batchDeliveryControlEnabled: true,

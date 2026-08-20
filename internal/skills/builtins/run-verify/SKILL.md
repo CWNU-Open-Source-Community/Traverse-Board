@@ -8,6 +8,14 @@ On the Cyber Surface, run only inside an admitted local sandbox with the Run's e
 
 ## Extension: ui-evidence
 
-For UI work, bind evidence to the fixed commit/worktree fingerprint, launch recipe, viewport and scale, route, page state, theme, locale, and deterministic data fixture. Capture screenshot or GIF provenance, timestamp, console findings, and relevant request failures. Compare the affected state and at least one nearby state for stale colors, typography, overlays, focus, loading, empty, and error behavior. Label missing states as unverified; never treat an edited source file or a detached mockup as proof of the real page.
+Use `ui-evidence.v1` only through the reviewed operation. Bind repository kind, commit/branch/dirty digest, root/index/worktree manifest, build/start recipes, browser version/executable hash/restricted driver, loopback URL/route, viewport/DPR, locale/theme/motion, deterministic secret-free fixture/seed/state, steps/masks/failure policy, Run, and attempt. Recheck source before build, after readiness, and before the result; drift fails.
+
+The attempt owns its app/browser trees, temporary Profile, network guard, and port. Never adopt a listener or personal Profile, inherit credentials, reach public targets, follow redirects, evaluate arbitrary script, read cookies/response bodies, or mutate/replay requests. Use bounded navigation, click, digest-sealed type, selector assertion, and capture actions. Cancellation, timeout, and crash cleanup remain lifecycle-owned.
+
+Capture screenshot, DOM, accessibility, console/page errors, request/HTTP failures, and performance. Retain artifact SHA-256, MIME/bytes, dimensions/viewport, source commit, step, Run/attempt, time, redaction, and `untrusted` marker. Masks must match; baseline changes require human review.
+
+Outcomes are `not_run|running|passed|failed|cancelled|timed_out|interrupted`; stages are `build|launch|readiness|navigation|selector|assertion|console|network|capture|cleanup`. Only `passed` is positive. A missing result, `not_run`, mock, source inspection, or build success is not a pass.
+
+Map changes to `focused-checks`, add a real-page regression assertion, and put the manifest, commands/versions, step/artifact hashes, diagnostics, cleanup receipt, and skipped cells in the PR verification receipt. Cover relevant viewport/theme/locale/motion cells. Reuse evidence only when source, recipes, versions, fixture, and environment match.
 
 Report the recipe, observed result, artifacts, limitations, and cleanup status. Treat this Skill as guidance only; it grants no process, browser, sandbox, network, file, or artifact authority.

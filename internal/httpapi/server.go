@@ -276,6 +276,7 @@ type Config struct {
 	WorkspaceCheckpointControlEnabled       bool
 	BatchDeliveryControlEnabled             bool
 	BatchDeliveryHostValidationEnabled      bool
+	UIEvidenceControlEnabled                bool
 	ExecutionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
 	BrowserCDPPermissionCapabilities        domain.BrowserCDPPermissionRuntimeCapabilities
 	RunLifecycleController                  RunLifecycleController
@@ -302,6 +303,7 @@ type Config struct {
 	EmbeddedAnalyzerExecutionController     EmbeddedAnalyzerExecutionController
 	WorkspaceCheckpointController           WorkspaceCheckpointController
 	BatchDeliveryController                 BatchDeliveryController
+	UIEvidenceController                    UIEvidenceController
 	DockerSandboxController                 DockerSandboxController
 	ModelRegistry                           *modelregistry.Registry
 	AppVersion                              string
@@ -342,6 +344,7 @@ type API struct {
 	workspaceCheckpointControlEnabled       bool
 	batchDeliveryControlEnabled             bool
 	batchDeliveryHostValidationEnabled      bool
+	uiEvidenceControlEnabled                bool
 	dockerSandboxControlEnabled             bool
 	dockerExecutionEnabled                  bool
 	executionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
@@ -371,6 +374,7 @@ type API struct {
 	embeddedAnalyzerExecutionController     EmbeddedAnalyzerExecutionController
 	workspaceCheckpointController           WorkspaceCheckpointController
 	batchDeliveryController                 BatchDeliveryController
+	uiEvidenceController                    UIEvidenceController
 	dockerSandboxController                 DockerSandboxController
 	modelRegistry                           *modelregistry.Registry
 	appVersion                              string
@@ -418,7 +422,8 @@ func New(store Store, config Config) (*API, error) {
 		config.ScheduledJobControlEnabled || config.ScheduledJobWorkerEnabled ||
 		config.SkillInstallationEnabled || config.EvidenceAttachmentEnabled ||
 		config.VerificationEvidenceEnabled || config.EmbeddedAnalyzerExecutionEnabled ||
-		config.WorkspaceCheckpointControlEnabled || config.BatchDeliveryControlEnabled) &&
+		config.WorkspaceCheckpointControlEnabled || config.BatchDeliveryControlEnabled ||
+		config.UIEvidenceControlEnabled) &&
 		!controlTokenPresent {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API control capabilities require a control token")
@@ -519,6 +524,10 @@ func New(store Store, config Config) (*API, error) {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API batch delivery host validation requires batch control, permission control, operator approval, and danger-full-access")
 	}
+	if config.UIEvidenceControlEnabled && config.UIEvidenceController == nil {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"HTTP API UI evidence controller is required when enabled")
+	}
 	dockerExecutionEnabled := false
 	if config.DockerSandboxController != nil {
 		capabilities, epochFingerprint, err :=
@@ -615,6 +624,7 @@ func New(store Store, config Config) (*API, error) {
 		batchDeliveryControlEnabled:       controlTokenPresent && config.BatchDeliveryControlEnabled,
 		batchDeliveryHostValidationEnabled: controlTokenPresent &&
 			config.BatchDeliveryHostValidationEnabled,
+		uiEvidenceControlEnabled: controlTokenPresent && config.UIEvidenceControlEnabled,
 		dockerSandboxControlEnabled: config.DockerSandboxController != nil &&
 			controlTokenPresent && config.ExecutionPermissionControlEnabled,
 		dockerExecutionEnabled:              dockerExecutionEnabled,
@@ -645,6 +655,7 @@ func New(store Store, config Config) (*API, error) {
 		embeddedAnalyzerExecutionController: config.EmbeddedAnalyzerExecutionController,
 		workspaceCheckpointController:       config.WorkspaceCheckpointController,
 		batchDeliveryController:             config.BatchDeliveryController,
+		uiEvidenceController:                config.UIEvidenceController,
 		dockerSandboxController:             config.DockerSandboxController,
 		modelRegistry:                       modelRegistry,
 		openAPI:                             document, eventStream: eventStream,
@@ -762,6 +773,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if isDockerSandboxPath(request.URL.Path) {
 		a.serveDockerSandbox(tracked, request, requestID)
+		return
+	}
+	if route, matched := matchUIEvidencePath(request.URL.Path); matched {
+		a.serveUIEvidence(tracked, request, requestID, route)
 		return
 	}
 	if runID, action, matched := matchWorkspaceCheckpointPath(request.URL.Path); matched {

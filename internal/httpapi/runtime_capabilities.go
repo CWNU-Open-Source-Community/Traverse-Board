@@ -79,6 +79,7 @@ type RuntimeCapabilitiesView struct {
 	WorkspaceCheckpointControlEnabled  bool                         `json:"workspace_checkpoint_control_enabled"`
 	BatchDeliveryControlEnabled        bool                         `json:"batch_delivery_control_enabled"`
 	BatchDeliveryHostValidationEnabled bool                         `json:"batch_delivery_host_validation_enabled"`
+	UIEvidenceControlEnabled           bool                         `json:"ui_evidence_control_enabled"`
 	ProcessExecutionEnabled            bool                         `json:"process_execution_enabled"`
 	ShellExecutionEnabled              bool                         `json:"shell_execution_enabled"`
 	DockerExecutionEnabled             bool                         `json:"docker_execution_enabled"`
@@ -180,6 +181,7 @@ func (a *API) runtimeCapabilities(request *http.Request) (any, *Page, error) {
 		WorkspaceCheckpointControlEnabled:  a.workspaceCheckpointControlEnabled,
 		BatchDeliveryControlEnabled:        a.batchDeliveryControlEnabled,
 		BatchDeliveryHostValidationEnabled: a.batchDeliveryHostValidationEnabled,
+		UIEvidenceControlEnabled:           a.uiEvidenceControlEnabled,
 		ProcessExecutionEnabled:            commandRuntimeEnabled,
 		ShellExecutionEnabled:              commandRuntimeEnabled,
 		DockerExecutionEnabled:             a.dockerExecutionEnabled, AgentCodeToolsEnabled: true,

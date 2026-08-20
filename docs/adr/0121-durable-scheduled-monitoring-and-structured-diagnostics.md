@@ -1,13 +1,13 @@
-# ADR 0120: 持久化有界监控与结构化诊断 / Durable Bounded Monitoring and Structured Diagnostics
+# ADR 0121: 持久化有界监控与结构化诊断 / Durable Bounded Monitoring and Structured Diagnostics
 
 Date: 2026-08-20
 
 ## Status / 状态
 
-Accepted for schema v119, `scheduled-job.v1`, `doctor-snapshot.v1`, and
+Accepted for schema v120, `scheduled-job.v1`, `doctor-snapshot.v1`, and
 `debug-query.v1`.
 
-已接受，用于 schema v119、`scheduled-job.v1`、`doctor-snapshot.v1` 与
+已接受，用于 schema v120、`scheduled-job.v1`、`doctor-snapshot.v1` 与
 `debug-query.v1`。
 
 ## Context / 背景
@@ -27,7 +27,7 @@ fencing 与权限证据；把原始 prompt、终端输入或事件 payload 写�
 
 ### 1. A scheduled job is a bounded durable state machine
 
-Schema v119 stores one-shot or elapsed-period schedules, UTC anchor plus IANA display
+Schema v120 stores one-shot or elapsed-period schedules, UTC anchor plus IANA display
 timezone, next wake, hard deadline, stop-on-target-terminal, maximum rounds/model calls/
 elapsed seconds, retry/backoff, notification policy, and owner Run/root. SQLite is the
 source of truth. The scheduler has an injectable clock, fixed concurrency one, and an

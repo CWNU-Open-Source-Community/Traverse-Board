@@ -45,6 +45,7 @@ const bootstrap = {
   skill_installation_enabled: false,
   evidence_attachment_enabled: false,
   verification_evidence_enabled: false,
+  ui_evidence_control_enabled: false,
   embedded_analyzer_execution_enabled: false,
   workspace_checkpoint_control_enabled: false,
   batch_delivery_control_enabled: false,

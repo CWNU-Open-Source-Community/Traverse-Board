@@ -71,6 +71,10 @@ export type ScheduledJobDetailView = components["schemas"]["ScheduledJobDetailVi
 export type DoctorSnapshotView = components["schemas"]["DoctorSnapshot"];
 export type DebugQueryResultView = components["schemas"]["DebugQueryResult"];
 export type DiagnosticBundleView = components["schemas"]["DiagnosticBundle"];
+export type UIEvidenceArtifactMetadata = components["schemas"]["UIEvidenceArtifactMetadata"];
+export type UIEvidenceAttempt = components["schemas"]["UIEvidenceAttempt"];
+export type UIEvidenceBundle = components["schemas"]["UIEvidenceBundle"];
+export type UIEvidenceStartView = components["schemas"]["uiEvidenceStartView"];
 export type EmbeddedAnalyzerExecutionRequestView =
   components["schemas"]["EmbeddedAnalyzerExecutionRequestView"];
 export type EmbeddedAnalyzerExecutionControlView =

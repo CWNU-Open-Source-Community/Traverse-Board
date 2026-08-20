@@ -14,6 +14,7 @@ import (
 
 	"cyberagent-workbench/internal/app"
 	"cyberagent-workbench/internal/apperror"
+	"cyberagent-workbench/internal/browserruntime"
 	"cyberagent-workbench/internal/desktop"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/httpapi"
@@ -66,6 +67,7 @@ type desktopOptions struct {
 	embeddedAnalyzer       bool
 	batchDeliveryControl   bool
 	batchValidation        bool
+	uiEvidence             bool
 	userTerminal           bool
 	dockerExecution        bool
 	version                bool
@@ -280,6 +282,8 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		"enable confirmed batch delivery preparation, review, merge, cancellation, and recovery")
 	batchValidation := fs.Bool("enable-batch-validation-execution", false,
 		"enable fixed offline go/npm checks for confirmed batch deliveries")
+	uiEvidence := fs.Bool("enable-ui-evidence", false,
+		"enable source-bound real-browser UI evidence for explicitly authorized Runs")
 	userTerminal := fs.Bool("enable-user-terminal", false,
 		"enable the user-owned Debug ConPTY terminal")
 	dockerExecution := fs.Bool("enable-docker-execution", false,
@@ -351,6 +355,10 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		return desktopOptions{}, errors.New(
 			"scheduled job worker requires --enable-scheduled-jobs")
 	}
+	if *uiEvidence && (!*runExecution || !*dangerFullAccess || !*browserCDPControl) {
+		return desktopOptions{}, errors.New(
+			"UI evidence requires --enable-run-execution, --enable-danger-full-access, and --enable-browser-cdp-control")
+	}
 	return desktopOptions{operatorPreview: *operatorPreview,
 		profileControl: *profileControl, runCreation: *runCreation,
 		permissionControl: *permissionControl, dangerFullAccess: *dangerFullAccess,
@@ -381,6 +389,7 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		embeddedAnalyzer:       *embeddedAnalyzer,
 		batchDeliveryControl:   *batchDeliveryControl,
 		batchValidation:        *batchValidation,
+		uiEvidence:             *uiEvidence,
 		userTerminal:           *userTerminal,
 		dockerExecution:        *dockerExecution,
 		version:                *version}, nil
@@ -412,7 +421,8 @@ func runDesktop(config desktopOptions) error {
 		config.scheduledJobControl || config.scheduledJobWorker ||
 		config.skillInstallation || config.evidenceAttachment ||
 		config.verificationEvidence || config.embeddedAnalyzer || config.userTerminal ||
-		config.dockerExecution || config.batchDeliveryControl || config.batchValidation {
+		config.dockerExecution || config.batchDeliveryControl || config.batchValidation ||
+		config.uiEvidence {
 		controlToken, err = httpapi.GenerateAccessToken()
 		if err != nil {
 			return err
@@ -460,9 +470,14 @@ func runDesktop(config desktopOptions) error {
 		EmbeddedAnalyzerExecutionEnabled:        config.embeddedAnalyzer,
 		BatchDeliveryControlEnabled:             config.batchDeliveryControl,
 		BatchDeliveryHostValidationEnabled:      config.batchValidation,
-		UserTerminalEnabled:                     config.userTerminal,
-		DockerExecutionEnabled:                  config.dockerExecution,
-		AppVersion:                              app.Version, UIHandler: bundle,
+		UIEvidenceControlEnabled:                config.uiEvidence,
+		BrowserRuntimeCapabilities: browserruntime.ProductionRuntimeCapabilities{
+			SafeWebStartEnabled: true, DisposableProfileEnabled: true,
+			NetworkContainmentEnabled: true, RestrictedCDPEnabled: true,
+		},
+		UserTerminalEnabled:    config.userTerminal,
+		DockerExecutionEnabled: config.dockerExecution,
+		AppVersion:             app.Version, UIHandler: bundle,
 		OnWakeWorkerError: func(runErr error) {
 			fmt.Fprintln(os.Stderr, "wake-worker:", runErr)
 		},
@@ -525,6 +540,7 @@ func runDesktop(config desktopOptions) error {
 		EmbeddedAnalyzerExecutionEnabled:        config.embeddedAnalyzer,
 		BatchDeliveryControlEnabled:             config.batchDeliveryControl,
 		BatchDeliveryHostValidationEnabled:      config.batchValidation,
+		UIEvidenceControlEnabled:                config.uiEvidence,
 		UserTerminalEnabled:                     config.userTerminal,
 		DockerExecutionEnabled:                  dockerExecutionEnabled,
 		AppVersion:                              app.Version, UIDigest: bundle.Digest(), Selector: selector,

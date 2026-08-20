@@ -25,11 +25,13 @@ import (
 	"cyberagent-workbench/internal/operatoraction"
 	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/runactivity"
+	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/sandbox"
 	"cyberagent-workbench/internal/scheduler"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/skills"
 	"cyberagent-workbench/internal/toolgateway"
+	"cyberagent-workbench/internal/uievidence"
 	"cyberagent-workbench/internal/verification"
 	"cyberagent-workbench/internal/workspace"
 	"cyberagent-workbench/internal/workspacecheckpoint"
@@ -144,6 +146,7 @@ type openAPIOperationSpec struct {
 	Paginated     bool
 	NotFound      bool
 	RawDocument   bool
+	RawArtifact   bool
 	Streaming     bool
 	Parameters    []openAPIParameter
 	RequestType   reflect.Type
@@ -213,6 +216,7 @@ func GenerateOpenAPI() ([]byte, error) {
 			{Name: "Workspaces", Description: "Registered Workspace identities without local root paths."},
 			{Name: "Memory", Description: "Structured WorkItems and Notes."},
 			{Name: "Artifacts", Description: "Content-free Artifact descriptors."},
+			{Name: "UI Evidence", Description: "Source-bound real-browser manifests, fail-closed receipts, and untrusted captured artifacts."},
 			{Name: "Sandbox", Description: "Docker Sandbox readiness, admission, bounded execution, cancellation, and status."},
 			{Name: "Automation", Description: "Durable, bounded, explicitly targeted scheduled observation jobs."},
 			{Name: "Diagnostics", Description: "Read-only structured readiness and redacted event timelines."},
@@ -258,6 +262,7 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 	workItemID := pathIdentityParameter("work_item_id", "WorkItem identity")
 	noteID := pathIdentityParameter("note_id", "Note identity")
 	artifactID := pathIdentityParameter("artifact_id", "Artifact identity")
+	uiEvidenceAttemptID := pathIdentityParameter("attempt_id", "UI evidence attempt identity")
 	memoryID := pathIdentityParameter("memory_id", "Long-term memory identity")
 	continuityNodeID := pathIdentityParameter("node_id", "Continuity checkpoint identity")
 	reportID := pathIdentityParameter("report_id", "Finding Report identity")
@@ -394,6 +399,35 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			DataType:    reflect.TypeOf(workspaceCheckpointForkResultView{}),
 			RequestType: reflect.TypeOf(workspaceCheckpointForkView{}), Control: true,
 			NotFound: true, Parameters: []openAPIParameter{runID}, SuccessStatus: http.StatusCreated},
+		{Path: "/api/v1/runs/{run_id}/ui-evidence", OperationID: "listRunUIEvidence",
+			Summary: "List source-bound UI evidence attempts", Tag: "UI Evidence",
+			Description: "Returns immutable manifests and fail-closed outcomes. not_run is unknown and never a passing result.",
+			DataType:    reflect.TypeOf(uievidence.Attempt{}), Collection: true, NotFound: true,
+			Parameters: []openAPIParameter{runID,
+				stringQueryParameter("status", "Optional exact attempt status", []string{
+					"not_run", "running", "passed", "failed", "cancelled", "timed_out", "interrupted"}),
+				{Name: "limit", In: "query", Description: "Maximum attempts", Schema: map[string]any{
+					"type": "integer", "minimum": 1, "maximum": 500, "default": 100}}}},
+		{Path: "/api/v1/runs/{run_id}/ui-evidence", Method: http.MethodPost,
+			OperationID: "startRunUIEvidence", Summary: "Start real-browser UI evidence",
+			Tag: "UI Evidence", Description: "Persists not_run before asynchronously executing the exact source-bound build/start recipe in a Run-owned process tree, a temporary browser Profile, and a loopback-only reviewed Safe Web runtime.",
+			DataType: reflect.TypeOf(uievidence.Attempt{}), RequestType: reflect.TypeOf(uiEvidenceStartView{}),
+			Control: true, NotFound: true, Parameters: []openAPIParameter{runID}, SuccessStatus: http.StatusAccepted},
+		{Path: "/api/v1/ui-evidence/{attempt_id}", OperationID: "getUIEvidence",
+			Summary: "Inspect one UI evidence bundle", Tag: "UI Evidence",
+			Description: "Returns the exact manifest, step receipts, and artifact metadata without binary content.",
+			DataType:    reflect.TypeOf(application.UIEvidenceBundle{}), NotFound: true,
+			Parameters: []openAPIParameter{uiEvidenceAttemptID}},
+		{Path: "/api/v1/ui-evidence/{attempt_id}/cancel", Method: http.MethodPost,
+			OperationID: "cancelUIEvidence", Summary: "Cancel one UI evidence attempt",
+			Tag: "UI Evidence", Description: "Cancels the service-owned context and waits for bounded process-tree, Profile, network, and port cleanup.",
+			DataType: reflect.TypeOf(uievidence.Attempt{}), RequestType: reflect.TypeOf(uiEvidenceCancelView{}),
+			Control: true, NotFound: true, Parameters: []openAPIParameter{uiEvidenceAttemptID}, SuccessStatus: http.StatusOK},
+		{Path: "/api/v1/ui-evidence/{attempt_id}/artifacts/{artifact_id}",
+			OperationID: "downloadUIEvidenceArtifact", Summary: "Download one verified UI evidence artifact",
+			Tag: "UI Evidence", Description: "Returns exact hash-verified untrusted bytes with MIME, ETag, source digest, and no-store headers.",
+			RawArtifact: true, NotFound: true,
+			Parameters: []openAPIParameter{uiEvidenceAttemptID, artifactID}},
 		{Path: "/api/v1/continuity-nodes/{node_id}/fork", Method: http.MethodPost,
 			OperationID: "forkContinuityNode", Summary: "Fork a new Run from a checkpoint",
 			Tag: "Control", Description: "Creates a new Run and Session with the exact bounded context snapshot while resetting approvals, capabilities, credentials, processes, leases, network authorization, and execution profiles.",
@@ -1408,6 +1442,12 @@ func buildOpenAPIOperation(spec openAPIOperationSpec, registry *openAPISchemaReg
 		responses[successStatus] = openAPIResponse{Description: "OpenAPI 3.1 document", Content: map[string]openAPIMediaType{
 			openAPIContentType: {Schema: map[string]any{"type": "object", "additionalProperties": true}},
 		}}
+	} else if spec.RawArtifact {
+		responses[successStatus] = openAPIResponse{Description: "Hash-verified untrusted evidence bytes", Content: map[string]openAPIMediaType{
+			"application/octet-stream": {Schema: map[string]any{"type": "string", "format": "binary"}},
+			"image/png":                {Schema: map[string]any{"type": "string", "format": "binary"}},
+			"application/json":         {Schema: map[string]any{"type": "string", "format": "binary"}},
+		}}
 	} else {
 		if spec.DataType == nil {
 			return openAPIOperation{}, fmt.Errorf("OpenAPI path %q has no response DTO", spec.Path)
@@ -1621,7 +1661,11 @@ func (r *openAPISchemaRegistry) ref(valueType reflect.Type) map[string]any {
 	if valueType.Kind() != reflect.Struct {
 		return r.schema(valueType)
 	}
-	return r.refNamed(valueType.Name(), valueType)
+	name := valueType.Name()
+	if strings.HasSuffix(valueType.PkgPath(), "/uievidence") {
+		name = "UIEvidence" + name
+	}
+	return r.refNamed(name, valueType)
 }
 
 func (r *openAPISchemaRegistry) refNamed(name string, valueType reflect.Type) map[string]any {
@@ -2188,6 +2232,28 @@ var openAPIFieldEnums = map[string][]string{
 	"NoteView.status":                                          noteStatusesOpenAPI(),
 	"ArtifactView.stream":                                      artifactStreams(),
 	"ArtifactView.encoding":                                    {artifact.EncodingUTF8},
+	"Manifest.protocol_version":                                {uievidence.ProtocolVersion},
+	"SourceBinding.repository_kind":                            {"git", "non_git"},
+	"CommandRecipe.protocol_version":                           {runner.CommandRuntimeProtocolVersion},
+	"CommandRecipe.profile":                                    {string(runner.CommandRuntimePowerShell), string(runner.CommandRuntimeBash), string(runner.CommandRuntimeProcess)},
+	"CommandRecipe.network":                                    {string(runner.CommandRuntimeNetworkDisabled)},
+	"CommandRecipe.credentials":                                {string(runner.CommandRuntimeCredentialsNone)},
+	"Step.kind":                                                uiEvidenceStepKinds(),
+	"Attempt.protocol_version":                                 {uievidence.AttemptProtocolVersion},
+	"Attempt.status":                                           {string(uievidence.StatusNotRun), string(uievidence.StatusRunning), string(uievidence.StatusPassed), string(uievidence.StatusFailed), string(uievidence.StatusCancelled), string(uievidence.StatusTimedOut), string(uievidence.StatusInterrupted)},
+	"Attempt.failure_stage":                                    uiEvidenceFailureStages(),
+	"StepReceipt.protocol_version":                             {uievidence.StepProtocolVersion},
+	"StepReceipt.kind":                                         uiEvidenceStepKinds(),
+	"StepReceipt.status":                                       {string(uievidence.StatusPassed), string(uievidence.StatusFailed), string(uievidence.StatusCancelled), string(uievidence.StatusTimedOut)},
+	"StepReceipt.failure_stage":                                uiEvidenceFailureStages(),
+	"ArtifactMetadata.protocol_version":                        {uievidence.ArtifactProtocolVersion},
+	"ArtifactMetadata.kind":                                    uiEvidenceArtifactKinds(),
+	"ArtifactMetadata.retention_policy":                        {string(uievidence.ArtifactRetentionRunHistory)},
+	"BrowserIdentity.driver_protocol":                          {uievidence.DriverProtocolVersion},
+	"BrowserIdentity.product":                                  {string(browserruntime.BrowserProductChrome), string(browserruntime.BrowserProductEdge)},
+	"UIEvidenceBrowserSelection.product":                       {string(browserruntime.BrowserProductChrome), string(browserruntime.BrowserProductEdge)},
+	"UIEvidenceBrowserSelection.channel":                       {string(browserruntime.BrowserChannelStable), string(browserruntime.BrowserChannelBeta), string(browserruntime.BrowserChannelDev), string(browserruntime.BrowserChannelCanary)},
+	"Environment.theme":                                        {string(uievidence.ThemeLight), string(uievidence.ThemeDark)},
 	"SupervisorToolCallView.status":                            {"pending", "completed", "denied", "failed"},
 	"RunEventStreamView.version":                               {RunEventStreamVersion},
 	"RunEventPollView.version":                                 {RunEventPollVersion},
@@ -2749,6 +2815,27 @@ func noteVisibilitiesOpenAPI() []string {
 
 func artifactStreams() []string {
 	return []string{string(artifact.StreamStdout), string(artifact.StreamStderr)}
+}
+
+func uiEvidenceFailureStages() []string {
+	return []string{string(uievidence.FailureNone), string(uievidence.FailureBuild),
+		string(uievidence.FailureLaunch), string(uievidence.FailureReadiness),
+		string(uievidence.FailureNavigation), string(uievidence.FailureSelector),
+		string(uievidence.FailureAssertion), string(uievidence.FailureConsole),
+		string(uievidence.FailureNetwork), string(uievidence.FailureCapture),
+		string(uievidence.FailureCleanup)}
+}
+
+func uiEvidenceStepKinds() []string {
+	return []string{string(uievidence.StepNavigate), string(uievidence.StepClick),
+		string(uievidence.StepType), string(uievidence.StepAssertPresent),
+		string(uievidence.StepAssertAbsent), string(uievidence.StepCapture)}
+}
+
+func uiEvidenceArtifactKinds() []string {
+	return []string{string(uievidence.ArtifactScreenshot), string(uievidence.ArtifactDOM),
+		string(uievidence.ArtifactAccessibility), string(uievidence.ArtifactConsole),
+		string(uievidence.ArtifactNetwork), string(uievidence.ArtifactPerformance)}
 }
 
 func sortedOpenAPIPaths() []string {

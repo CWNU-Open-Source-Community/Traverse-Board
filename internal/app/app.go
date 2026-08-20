@@ -219,6 +219,8 @@ func (a *App) dispatch(ctx context.Context, args []string) error {
 		return a.sandboxCommand(ctx, args[1:])
 	case "artifact":
 		return a.artifactCommand(ctx, args[1:])
+	case "ui-evidence":
+		return a.uiEvidenceCommand(ctx, args[1:])
 	case "analyzer":
 		return a.analyzerCommand(ctx, args[1:])
 	case "report":
@@ -275,6 +277,7 @@ func (a *App) printHelp() {
 	fmt.Fprintln(a.out, "  cyberagent approval list|show|grant")
 	fmt.Fprintln(a.out, "  cyberagent sandbox validate|template")
 	fmt.Fprintln(a.out, "  cyberagent artifact list|show|read|verify")
+	fmt.Fprintln(a.out, "  cyberagent ui-evidence list|show|artifact")
 	fmt.Fprintln(a.out, "  cyberagent analyzer execute")
 	fmt.Fprintln(a.out, "  cyberagent report show|finding|check")
 	fmt.Fprintln(a.out, "  cyberagent report finding attach|validate|reject|accept|remediation|fix|verify")

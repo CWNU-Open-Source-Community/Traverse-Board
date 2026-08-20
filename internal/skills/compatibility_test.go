@@ -246,7 +246,7 @@ func TestCommonCapabilitySkillBodiesPreserveEvidenceAndAuthorityBoundaries(t *te
 		"doctor":          {"doctor snapshot", "not_configured", "Never turn a diagnosis into an automatic repair"},
 		"debug":           {"model, tool, policy, application, or infrastructure", "next_after_sequence", "In Deliver"},
 		"loop-monitor":    {"explicit target Run", "unchanged round without calling a model or tool", "approved_repair"},
-		"run-verify":      {"Extension: ui-evidence", "fixed commit/worktree fingerprint", "admitted local sandbox"},
+		"run-verify":      {"Extension: ui-evidence", "ui-evidence.v1", "not_run", "PR verification receipt"},
 		"review":          {"merge-base", "concurrent or durable code", "confirmed, inferred, or unverified"},
 		"focused-checks":  {"smallest credible set", "must never be reported as passed"},
 		"simplify":        {"call-site evidence", "generated code, reflection, registration, build tags"},
