@@ -151,7 +151,7 @@ code, pre { font-family: var(--prayu-font-mono); }
 .stream-live { color: #147d58; }
 .stream-reconnecting { color: var(--warning); }
 .workspace-tabs { min-height: 43px; display: flex; align-items: stretch; gap: 2px; padding: 0 24px; overflow-x: auto; border-bottom: 1px solid var(--border); background: var(--surface-subtle); }
-.workspace-tabs button { min-width: 74px; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.workspace-tabs button { flex: 0 0 auto; min-width: 74px; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); cursor: pointer; white-space: nowrap; }
 .workspace-tabs button.active { border-bottom-color: var(--accent); color: var(--ink); font-weight: 600; }
 .workspace-content { max-width: 1280px; padding: 22px 28px 36px; }
 .overview-layout { display: grid; gap: 26px; }

@@ -17,7 +17,10 @@ vi.mock("./components/resource-sidebar", () => ({
 }));
 vi.mock("./components/run-workspace", () => ({
   RunWorkspace: ({ client, runID }: {
-    client: { hasVerificationEvidence: boolean };
+    client: {
+      hasVerificationEvidence: boolean;
+      hasWorkspaceCheckpointControl: boolean;
+    };
     runID: string;
   }) => {
     const [draft, setDraft] = useState("");
@@ -25,6 +28,9 @@ vi.mock("./components/run-workspace", () => ({
     return <div>
       <div data-testid="verification-capability">
         {String(client.hasVerificationEvidence)}
+      </div>
+      <div data-testid="workspace-checkpoint-capability">
+        {String(client.hasWorkspaceCheckpointControl)}
       </div>
       <div data-testid="run-identity">{runID}</div>
       <div data-testid="run-operation-state">{operationState}</div>
@@ -77,6 +83,7 @@ describe("App capability wiring", () => {
       schema_version: 78,
     }, "control-token", {
       verificationEvidenceEnabled: true,
+      workspaceCheckpointControlEnabled: true,
     });
     useConnectionStore.getState().selectRun("run-test");
   });
@@ -91,6 +98,7 @@ describe("App capability wiring", () => {
     render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
 
     expect(screen.getByTestId("verification-capability")).toHaveTextContent("true");
+    expect(screen.getByTestId("workspace-checkpoint-capability")).toHaveTextContent("true");
     expect(document.querySelector(".prayu-shell.workspace-mode")).toBeInTheDocument();
     expect(document.querySelector(".prayu-conversation-panel")).toBeInTheDocument();
 
