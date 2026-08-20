@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -138,7 +139,7 @@ func (c credentialReaderFake) Get(context.Context, string) (string, bool, error)
 func TestServerDescriptorRejectsPersistedStdioSecrets(t *testing.T) {
 	descriptor := ServerDescriptor{ProtocolVersion: ClientProtocolVersion,
 		ID: "stdio-fixture", Name: "stdio-fixture", Transport: TransportStdio,
-		Target: `C:\\tools\\fixture.exe`, Arguments: []string{"--api-key=plaintext"},
+		Target: filepath.Join(t.TempDir(), "fixture"), Arguments: []string{"--api-key=plaintext"},
 		DeclaredCapabilities: []CapabilityKind{CapabilityTools}, Scope: ScopeWorkspace,
 		WorkspaceID: "workspace-1", Source: Source{Kind: "manual", URI: "operator"},
 		CallTimeoutMillis: 1_000, MaxResultBytes: 4_096}
