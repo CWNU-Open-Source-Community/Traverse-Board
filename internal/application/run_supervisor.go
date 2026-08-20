@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"cyberagent-workbench/internal/apperror"
+	"cyberagent-workbench/internal/codeintel"
 	"cyberagent-workbench/internal/contextmgr"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/hooks"
@@ -198,6 +199,7 @@ type RunSupervisor struct {
 	debugTerminalEnabled     bool
 	commandRuntimeEnabled    bool
 	mcpClient                SupervisorMCPClient
+	codeIntel                *codeintel.Manager
 	lifecycleHooks           *hooks.Engine
 }
 
@@ -296,6 +298,22 @@ func (s *RunSupervisor) WithMCPClient(client SupervisorMCPClient) *RunSupervisor
 	}
 	s.mcpClient = client
 	s.tools.WithMCPExecutor(executor)
+	return s
+}
+
+// WithCodeIntel exposes only read-only semantic tools and reuses the Agent
+// Code Root/Workspace/Phase authority. Server execution remains owned by the
+// process-injected manager and cannot be configured by Workspace content.
+func (s *RunSupervisor) WithCodeIntel(manager *codeintel.Manager) *RunSupervisor {
+	if s == nil || s.tools == nil || manager == nil {
+		return s
+	}
+	store, ok := s.store.(AgentCodeToolStore)
+	if !ok {
+		return s
+	}
+	s.codeIntel = manager
+	s.tools.WithCodeIntelExecutor(NewCodeIntelToolExecutor(store, s.checker, manager))
 	return s
 }
 
@@ -584,6 +602,11 @@ func (s *RunSupervisor) stepWithLeaseMode(ctx context.Context, lease domain.RunE
 		failure := s.recordFailure(ctx, &result, err, 0)
 		return result, failure
 	}
+	codeIntelCapabilities, err := s.supervisorCodeIntelCapabilities(ctx, turn)
+	if err != nil {
+		failure := s.recordFailure(ctx, &result, err, 0)
+		return result, failure
+	}
 	mcpCapabilities, err := s.supervisorMCPCapabilities(ctx, turn, executionPermission)
 	if err != nil {
 		failure := s.recordFailure(ctx, &result, err, 0)
@@ -599,6 +622,8 @@ func (s *RunSupervisor) stepWithLeaseMode(ctx context.Context, lease domain.RunE
 			executionPermission.Mode, skillCandidateEnabled, s.debugTerminalEnabled,
 			supervisorToolOptions{CommandRuntimeEnabled: s.commandRuntimeEnabled,
 				AgentCode: supervisorAgentCodeTools{Capabilities: agentCodeCapabilities,
+					Authority: agentCodeAuthority},
+				CodeIntel: supervisorCodeIntelTools{Capabilities: codeIntelCapabilities,
 					Authority: agentCodeAuthority}, MCP: mcpCapabilities}),
 		JSONMode: true,
 		Metadata: map[string]string{
@@ -777,6 +802,8 @@ func (s *RunSupervisor) stepWithLeaseMode(ctx context.Context, lease domain.RunE
 					skillCandidateEnabled, s.debugTerminalEnabled,
 					supervisorToolOptions{CommandRuntimeEnabled: s.commandRuntimeEnabled,
 						AgentCode: supervisorAgentCodeTools{Capabilities: agentCodeCapabilities,
+							Authority: agentCodeAuthority},
+						CodeIntel: supervisorCodeIntelTools{Capabilities: codeIntelCapabilities,
 							Authority: agentCodeAuthority}, MCP: mcpCapabilities})
 			}
 			if parseErr == nil {

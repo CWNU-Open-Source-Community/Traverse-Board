@@ -12,6 +12,7 @@ function runtimeCapabilitiesData(overrides: Record<string, unknown> = {}) {
   return {
     protocol_version: "runtime_capabilities.v1",
     agent_code_tools_enabled: true,
+    code_intel_enabled: true,
     execution_permission_control_enabled: true, operator_approval_enabled: true,
     danger_full_access_enabled: true, debug_maximum_access_enabled: true,
     command_runtime_enabled: true,
@@ -363,6 +364,7 @@ describe("CyberAgentClient", () => {
     const data = {
       protocol_version: "runtime_capabilities.v1",
       agent_code_tools_enabled: true,
+      code_intel_enabled: true,
       execution_permission_control_enabled: true, operator_approval_enabled: true,
       danger_full_access_enabled: true, debug_maximum_access_enabled: true,
       command_runtime_enabled: true,
@@ -404,6 +406,7 @@ describe("CyberAgentClient", () => {
       dangerFullAccessEnabled: true, debugMaximumAccessEnabled: true,
       commandRuntimeEnabled: true,
       agentCodeToolsEnabled: true,
+      codeIntelEnabled: true,
       browserCDPPermissionControlEnabled: true, fullCDPDebugEnabled: true,
       controlledCommandProposalControlEnabled: true,
       fileEditProposalEnabled: true, providerCredentialEnabled: true,
@@ -2895,6 +2898,71 @@ describe("CyberAgentClient", () => {
     await expect(client.recoverFileEditProposal("run-1", "edit-new"))
       .resolves.toEqual(recovery);
   });
+
+  it("accepts bounded Code Intel health without exposing process launch details", async () => {
+    const capabilities = { workspace_symbols: true, document_symbols: true,
+      definition: true, references: true, implementation: true, hover: true,
+      signature_help: true, diagnostics: true, call_hierarchy: true,
+      type_hierarchy: true };
+    const data = { protocol_version: "code-intel-lsp.v1", enabled: true,
+      servers: [{ protocol_version: "code-intel-lsp.v1", server_id: "gopls",
+        server_name: "gopls", workspace_id: "workspace-1", languages: ["go"],
+        source_kind: "operator_config", source_label: "code-intel.json",
+        source_sha256: "a".repeat(64), descriptor_fingerprint: "b".repeat(64),
+        capability_fingerprint: "c".repeat(64), generation: "d".repeat(64),
+        health: "healthy", capabilities, model_visible_tools: [
+          "code_workspace_symbols", "code_document_symbols", "code_definition",
+          "code_references", "code_implementation", "code_hover",
+          "code_signature_help", "code_diagnostics", "code_call_hierarchy",
+          "code_type_hierarchy"], server_version: "v0.20.0", process_owned: true,
+        read_only: true, network_access_granted: false, credentials_granted: false,
+        shell_profile_loaded: false, qualified_at: "2026-08-20T01:00:00Z" }],
+      qualifications: [{ protocol_version: "code-intel-lsp.v1", server_id: "gopls",
+        workspace_id: "workspace-1", eligible: true, health: "configured",
+        descriptor_fingerprint: "b".repeat(64), executable_hash_matched: true,
+        reviewed: true, process_owned: true, minimal_environment: true,
+        network_access_granted: false, credentials_granted: false,
+        shell_profile_loaded: false }] };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-code-intel", data,
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(new CyberAgentClient("read-secret").codeIntelInventory("workspace-1"))
+      .resolves.toEqual(data);
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/code-intel?workspace_id=workspace-1");
+    expect(JSON.stringify(data)).not.toMatch(
+      /"(?:executable|arguments|argv|environment|credential|token)"\s*:/i,
+    );
+
+    const unsortedLanguages = structuredClone(data);
+    unsortedLanguages.servers[0].languages = ["typescript", "go"];
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-code-intel-unsorted", data: unsortedLanguages,
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    await expect(new CyberAgentClient("read-secret").codeIntelInventory("workspace-1"))
+      .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+
+    const contradictoryQualification = { ...structuredClone(data),
+      qualifications: data.qualifications.map((item) => ({ ...item, reason: "unexpected" })) };
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-code-intel-qualification",
+      data: contradictoryQualification,
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    await expect(new CyberAgentClient("read-secret").codeIntelInventory("workspace-1"))
+      .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+  });
+
+  it.each(["executable", "environment", "token"])(
+    "rejects a Code Intel projection containing forbidden %s metadata", async (field) => {
+      const data = { protocol_version: "code-intel-lsp.v1", enabled: true,
+        servers: [], qualifications: [], [field]: "must-not-cross" };
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-code-intel-invalid", data,
+      }), { status: 200, headers: { "Content-Type": "application/json" } })));
+      await expect(new CyberAgentClient("read-secret").codeIntelInventory())
+        .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+    });
 
   it("keeps extension reads scoped and sends pinned disable controls without secrets", async () => {
     const digestA = "a".repeat(64);

@@ -17,6 +17,7 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/buildinfo"
+	"cyberagent-workbench/internal/codeintel"
 	"cyberagent-workbench/internal/credential"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/hooks"
@@ -41,31 +42,37 @@ const Name = buildinfo.ProductName
 
 const defaultDeepSeekModel = modelregistry.DefaultDeepSeekModel
 
+const codeIntelConfigEnvironment = "CYBERAGENT_CODE_INTEL_CONFIG"
+
 type App struct {
-	home                 string
-	out                  io.Writer
-	errOut               io.Writer
-	store                *store.SQLiteStore
-	router               *llm.Router
-	models               *modelregistry.Registry
-	credentials          credential.Store
-	checker              policy.Checker
-	kernel               *agent.Kernel
-	calls                *application.ActiveCallRegistry
-	dockerObserver       sandbox.DockerProductionObserver
-	dockerWriteTransport sandbox.DockerContainerWriteTransport
-	dockerReadinessProbe sandbox.ReadinessProbe
-	dockerLifecycle      sandbox.DockerContainerLifecycleTransport
-	dockerIO             sandbox.DockerContainerOwnedIOTransport
-	dockerSandbox        *application.DockerSandboxService
-	hostInputStager      sandbox.DockerHostInputStager
-	hostInputHandoff     sandbox.DockerHostInputHandoffTransport
-	runtimeInputApply    sandbox.DockerRuntimeInputApplicationTransport
-	runtimeResourceRead  sandbox.DockerRuntimeInputResourceInspector
-	runtimeResourceClean sandbox.DockerRuntimeInputResourceCleanupTransport
-	productionEvidence   sandbox.DockerProductionEvidenceCollector
-	controlledCommands   controlledCommandExecutor
-	hostCommands         hostCommandExecutor
+	home                  string
+	out                   io.Writer
+	errOut                io.Writer
+	store                 *store.SQLiteStore
+	router                *llm.Router
+	models                *modelregistry.Registry
+	credentials           credential.Store
+	checker               policy.Checker
+	kernel                *agent.Kernel
+	calls                 *application.ActiveCallRegistry
+	dockerObserver        sandbox.DockerProductionObserver
+	dockerWriteTransport  sandbox.DockerContainerWriteTransport
+	dockerReadinessProbe  sandbox.ReadinessProbe
+	dockerLifecycle       sandbox.DockerContainerLifecycleTransport
+	dockerIO              sandbox.DockerContainerOwnedIOTransport
+	dockerSandbox         *application.DockerSandboxService
+	hostInputStager       sandbox.DockerHostInputStager
+	hostInputHandoff      sandbox.DockerHostInputHandoffTransport
+	runtimeInputApply     sandbox.DockerRuntimeInputApplicationTransport
+	runtimeResourceRead   sandbox.DockerRuntimeInputResourceInspector
+	runtimeResourceClean  sandbox.DockerRuntimeInputResourceCleanupTransport
+	productionEvidence    sandbox.DockerProductionEvidenceCollector
+	controlledCommands    controlledCommandExecutor
+	hostCommands          hostCommandExecutor
+	codeIntel             *codeintel.Manager
+	codeIntelConfigPath   string
+	codeIntelConfigDigest string
+	codeIntelConfigLoaded bool
 }
 
 func Execute(args []string, out io.Writer, errOut io.Writer) int {
@@ -94,14 +101,15 @@ func executeContextWithConfig(ctx context.Context, args []string, out io.Writer,
 		}
 	}
 	app := &App{
-		home:        DefaultHome(),
-		out:         out,
-		errOut:      errOut,
-		router:      models.Router(),
-		models:      models,
-		credentials: credentials,
-		checker:     policy.NewDefaultChecker(),
-		calls:       application.NewActiveCallRegistry(),
+		home:                DefaultHome(),
+		out:                 out,
+		errOut:              errOut,
+		router:              models.Router(),
+		models:              models,
+		credentials:         credentials,
+		checker:             policy.NewDefaultChecker(),
+		calls:               application.NewActiveCallRegistry(),
+		codeIntelConfigPath: strings.TrimSpace(os.Getenv(codeIntelConfigEnvironment)),
 	}
 	if configure != nil {
 		configure(app)
@@ -129,6 +137,9 @@ func (a *App) newRunSupervisor() *application.RunSupervisor {
 	if engine := a.newLifecycleHookEngine(); engine != nil {
 		supervisor.WithLifecycleHooks(engine)
 	}
+	if a.codeIntel != nil {
+		supervisor.WithCodeIntel(a.codeIntel)
+	}
 	return supervisor
 }
 
@@ -150,6 +161,10 @@ func (a *App) newToolGateway() *toolgateway.Gateway {
 			return rec.RootPath, err
 		})
 	gateway.WithAgentCodeExecutor(application.NewAgentCodeToolExecutor(a.store, a.checker))
+	if a.codeIntel != nil {
+		gateway.WithCodeIntelExecutor(application.NewCodeIntelToolExecutor(
+			a.store, a.checker, a.codeIntel))
+	}
 	if executor := a.newDockerSandboxProposalExecutor(); executor != nil {
 		gateway.WithDockerSandboxProposalExecutor(executor)
 	}
@@ -209,6 +224,12 @@ func DefaultHome() string {
 }
 
 func (a *App) Close() {
+	if a.codeIntel != nil {
+		ctx, cancel := context.WithTimeout(context.Background(),
+			codeintel.MaximumShutdownGracePeriod)
+		_ = a.codeIntel.Close(ctx)
+		cancel()
+	}
 	if a.store != nil {
 		_ = a.store.Close()
 	}
@@ -270,6 +291,8 @@ func (a *App) dispatch(ctx context.Context, args []string) error {
 		return a.mcpCommand(ctx, args[1:])
 	case "plugin":
 		return a.pluginCommand(ctx, args[1:])
+	case "code-intel":
+		return a.codeIntelCommand(ctx, args[1:])
 	case "project-config":
 		return a.projectConfigCommand(ctx, args[1:])
 	case "once-command":
@@ -325,6 +348,7 @@ func (a *App) printHelp() {
 	fmt.Fprintln(a.out, "  cyberagent api serve|openapi")
 	fmt.Fprintln(a.out, "  cyberagent mcp serve|client|credential")
 	fmt.Fprintln(a.out, "  cyberagent plugin stage|list|show|review|rollback|trust-publisher|revoke-publisher|stage-mcp")
+	fmt.Fprintln(a.out, "  cyberagent code-intel status|qualify")
 	fmt.Fprintln(a.out, "  cyberagent headless events")
 	fmt.Fprintln(a.out, "  cyberagent run create|adapt-task|list|show|mode|phase|execution-profile|execution-interaction|execution-permission|command-plan|command-execute|host-execute|events|usage|start|step|execute|checkpoint|graph|lease|finish|fail|pause|resume|cancel|delegations|delegation|plans|plan|delivery|steer|fanouts|fanout|sandbox|wake|schedule")
 	fmt.Fprintln(a.out, "  cyberagent run plan show|choose|selection")
@@ -352,6 +376,30 @@ func (a *App) ensureStore() error {
 		return err
 	}
 	a.kernel = agent.NewKernel(st, a.router, a.checker)
+	if err := a.ensureCodeIntel(); err != nil {
+		a.store = nil
+		_ = st.Close()
+		return err
+	}
+	return nil
+}
+
+func (a *App) ensureCodeIntel() error {
+	if a == nil || a.codeIntelConfigLoaded {
+		return nil
+	}
+	a.codeIntelConfigLoaded = true
+	path := strings.TrimSpace(a.codeIntelConfigPath)
+	if path == "" {
+		return nil
+	}
+	manager, digest, err := codeintel.NewManagerFromConfig(path)
+	if err != nil {
+		return apperror.Wrap(apperror.CodeFailedPrecondition,
+			"load explicit code-intel configuration", err)
+	}
+	a.codeIntel = manager
+	a.codeIntelConfigDigest = digest
 	return nil
 }
 

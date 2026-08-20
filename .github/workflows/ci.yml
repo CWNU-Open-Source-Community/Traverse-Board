@@ -47,6 +47,60 @@ jobs:
           "$GOVULNCHECK" -version
           "$GOVULNCHECK" ./...
 
+  code-intel-lsp:
+    name: Real LSP (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up current Go 1.25 patch
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25.x'
+          check-latest: true
+          cache: true
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Install reviewed real language servers
+        shell: pwsh
+        run: |
+          $goBin = Join-Path $env:RUNNER_TEMP "prayu-gopls"
+          $tsRoot = Join-Path $env:RUNNER_TEMP "prayu-typescript-lsp"
+          New-Item -ItemType Directory -Path $goBin -Force | Out-Null
+          $env:GOBIN = $goBin
+          go install golang.org/x/tools/gopls@v0.21.1
+          npm install --prefix $tsRoot --ignore-scripts --no-audit --no-fund `
+            --package-lock=false typescript-language-server@6.0.0 typescript@5.9.3
+
+          $suffix = if ($IsWindows) { ".exe" } else { "" }
+          $gopls = Join-Path $goBin "gopls$suffix"
+          $node = (Get-Command node).Source
+          $typescriptServer = Join-Path $tsRoot `
+            "node_modules/typescript-language-server/lib/cli.mjs"
+          foreach ($path in @($gopls, $node, $typescriptServer)) {
+            if (-not [System.IO.Path]::IsPathFullyQualified($path) -or
+                -not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "reviewed real LSP dependency is unavailable: $path"
+            }
+          }
+          "CYBERAGENT_GOPLS_SMOKE_BINARY=$gopls" | Out-File `
+            -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CYBERAGENT_TYPESCRIPT_LSP_SMOKE_NODE=$node" | Out-File `
+            -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CYBERAGENT_TYPESCRIPT_LSP_SMOKE_CLI=$typescriptServer" | Out-File `
+            -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Exercise reviewed gopls and TypeScript LSP tool sets
+        run: >-
+          go test -v -count=1 -timeout 5m ./internal/codeintel
+          -run '^TestReal(Gopls|TypeScriptLanguageServer)ReadOnlySemanticToolSmoke$'
+      - name: Run code-intel race and fault suite
+        if: runner.os == 'Linux'
+        run: go test -race -count=1 -timeout 5m ./internal/codeintel
+
   web:
     name: TypeScript console
     runs-on: ubuntu-latest

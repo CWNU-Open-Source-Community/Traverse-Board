@@ -1,8 +1,8 @@
 # 本地 HTTP API / Local HTTP API
 
-CyberAgent Workbench 提供由 Go 控制的本地 `api.v1`，用于检查 SQLite 持久状态并投影可恢复 Run events。独立 capability 允许受控 Run/Session/Plan/审批、固定命令提案审阅、Provider 诊断/路由/系统凭证、FileEdit 提案/只读恢复/审阅/apply、wake 意图/前台消费、不可变操作者验证、metadata-only 快照回执及其不授权复核、惰性 Skill 安装、schema v116 的 Run-owned 普通命令运行时、schema v117 的 Workspace Checkpoint 时间线/恢复/Fork、schema v118 的可交付 child Worktree/复核/本地合并、schema v119 的来源绑定真实浏览器 UI 证据，以及 schema v120-v121 的脱敏 MCP/Plugin 控制面。schema v99 的精确 Docker Sandbox 产品执行仍默认关闭。只读面还提供 capability/worker health、exact-root Repository 状态与脱敏 Diff、非原子的多文件 FileEdit 汇总、逐验证项确定性快照下载/回执历史和带有界复核元数据的可重建 Code Handoff。API 不直接接受通用 Shell/argv/stdin 或 Job mutation endpoint；UI 证据启动只接受完整受审阅的有界 recipe/fixture/step 合同。命令和 UI 验证均由认证 Run execution 内的同一 Tool Gateway/Application 服务发起，并分别重新检查适用的 Code/Local/Deliver/full-access、当前租约、Policy、无外部网络/无凭证、restricted CDP 与进程启动 capability。
+CyberAgent Workbench 提供由 Go 控制的本地 `api.v1`，用于检查 SQLite 持久状态并投影可恢复 Run events。独立 capability 允许受控 Run/Session/Plan/审批、固定命令提案审阅、Provider 诊断/路由/系统凭证、FileEdit 提案/只读恢复/审阅/apply、wake 意图/前台消费、不可变操作者验证、metadata-only 快照回执及其不授权复核、惰性 Skill 安装、schema v116 的 Run-owned 普通命令运行时、schema v117 的 Workspace Checkpoint 时间线/恢复/Fork、schema v118 的可交付 child Worktree/复核/本地合并、schema v119 的来源绑定真实浏览器 UI 证据，以及 schema v120-v121 的脱敏 MCP/Plugin 控制面。进程级只读 `code-intel-lsp.v1` 投影只显示显式审查 Server 的 metadata 和资格，不新增 SQLite schema。schema v99 的精确 Docker Sandbox 产品执行仍默认关闭。只读面还提供 capability/worker health、exact-root Repository 状态与脱敏 Diff、非原子的多文件 FileEdit 汇总、逐验证项确定性快照下载/回执历史和带有界复核元数据的可重建 Code Handoff。API 不直接接受通用 Shell/argv/stdin 或 Job mutation endpoint；UI 证据启动只接受完整受审阅的有界 recipe/fixture/step 合同。命令和 UI 验证均由认证 Run execution 内的同一 Tool Gateway/Application 服务发起，并分别重新检查适用的 Code/Local/Deliver/full-access、当前租约、Policy、无外部网络/无凭证、restricted CDP 与进程启动 capability。
 
-CyberAgent Workbench exposes a Go-controlled local `api.v1` for durable SQLite state and resumable Run-event projections. Independent capabilities permit controlled Run/Session/Plan/approval operations, fixed-command proposal review, Provider diagnostics/routes/system credentials, operator price-snapshot import and listing, FileEdit propose/read-only recovery/review/apply, wake intent/foreground consumption, immutable operator verification, metadata-only snapshot receipts and their non-authorizing review, inert Skill installation, the schema-v116 Run-owned ordinary command runtime, schema-v117 Workspace Checkpoint timeline/restore/Fork operations, schema-v118 deliverable-child worktree/review/local-merge operations, schema-v119 source-bound real-browser UI evidence, and the redacted schema-v120-v121 MCP/Plugin control plane. Schema-v99 exact Docker Sandbox execution remains disabled by default. Read-only surfaces also expose capabilities/worker health, exact-root Repository state and redacted Diffs, non-atomic multi-file FileEdit summaries, deterministic per-check verification snapshot downloads/receipt history, and a regenerable Code handoff with bounded review metadata. There is no direct generic HTTP Shell/argv/stdin or Job-mutation endpoint. UI evidence start accepts only the complete reviewed bounded recipe/fixture/step contract, and the same Tool Gateway/Application service rechecks the applicable Code/Local/Deliver/full-access, current lease, Policy, no-external-network/no-credential, restricted-CDP, and process-startup gates.
+CyberAgent Workbench exposes a Go-controlled local `api.v1` for durable SQLite state and resumable Run-event projections. Independent capabilities permit controlled Run/Session/Plan/approval operations, fixed-command proposal review, Provider diagnostics/routes/system credentials, operator price-snapshot import and listing, FileEdit propose/read-only recovery/review/apply, wake intent/foreground consumption, immutable operator verification, metadata-only snapshot receipts and their non-authorizing review, inert Skill installation, the schema-v116 Run-owned ordinary command runtime, schema-v117 Workspace Checkpoint timeline/restore/Fork operations, schema-v118 deliverable-child worktree/review/local-merge operations, schema-v119 source-bound real-browser UI evidence, and the redacted schema-v120-v121 MCP/Plugin control plane. A process-local read-only `code-intel-lsp.v1` projection exposes only reviewed-server metadata and qualification and adds no SQLite schema. Schema-v99 exact Docker Sandbox execution remains disabled by default. Read-only surfaces also expose capabilities/worker health, exact-root Repository state and redacted Diffs, non-atomic multi-file FileEdit summaries, deterministic per-check verification snapshot downloads/receipt history, and a regenerable Code handoff with bounded review metadata. There is no direct generic HTTP Shell/argv/stdin or Job-mutation endpoint. UI evidence start accepts only the complete reviewed bounded recipe/fixture/step contract, and the same Tool Gateway/Application service rechecks the applicable Code/Local/Deliver/full-access, current lease, Policy, no-external-network/no-credential, restricted-CDP, and process-startup gates.
 
 ## 启动 / Start
 
@@ -102,6 +102,23 @@ is compiled in, while `GET /api/v1/runs/{run_id}` carries the authoritative
 Run-specific generation and per-tool availability/refusal snapshot. The latter is
 derived by Go from persisted scope and current Workspace state; it is informational
 and cannot itself authorize a model call or file mutation.
+
+### Code Intelligence metadata
+
+`GET /api/v1/code-intel` returns an empty disabled inventory unless the process loaded
+an explicit `code-intel-config.v1`. Optional exact `workspace_id` adds a current
+qualification check for the registered Workspace and filters the Server inventory to
+that exact Workspace; duplicate, unknown, or empty query fields fail closed. The
+endpoint is read-bearer only and never starts a Server.
+
+Each Server view contains only configuration source label/hash, languages, health,
+version, negotiated capabilities, model-visible tools, generation, capability and
+descriptor fingerprints, bounded error, and the fixed read-only/no-network/no-
+credential/no-Shell booleans. Qualification adds reviewed/hash-match/eligibility
+booleans. Executable, argv, initialization options, environment, credentials, raw
+logs, semantic output, and Workspace content are absent. `code_intel_enabled` in
+`GET /api/v1/capabilities` is informational and non-authorizing. See
+[Code Intelligence](code-intelligence.md).
 
 ### Windows Desktop 进程内传输 / Windows Desktop In-Process Transport
 

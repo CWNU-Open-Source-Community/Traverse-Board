@@ -103,6 +103,31 @@ available in `GET /api/v1/runs/{run_id}` and the Desktop Run overview. Runs crea
 without a registered Workspace retain compatibility, but their snapshot marks all
 seven tools unavailable and the Supervisor does not advertise them.
 
+### Read-only LSP code intelligence
+
+Select an absolute operator-reviewed `code-intel-config.v1` file with
+`CYBERAGENT_CODE_INTEL_CONFIG`, `cyberagent code-intel ... --config`,
+`api serve --code-intel-config`, or Desktop `--code-intel-config`. A status read does
+not start a server; `qualify --workspace <name> --start=false` rechecks the Workspace,
+review fields, and executable SHA-256, while the default `qualify` also initializes the
+server and records its negotiated capability fingerprint and process generation.
+
+Only a Code-surface root in Plan or Deliver can receive the negotiated
+`code_workspace_symbols`, `code_document_symbols`, `code_definition`,
+`code_references`, `code_implementation`, `code_hover`, `code_signature_help`,
+`code_diagnostics`, `code_call_hierarchy`, and `code_type_hierarchy` definitions.
+They reuse the exact `agent-code-tools.v1` read authority and its invocation, result,
+refusal, budget, paging, and Artifact ledger. Cyber and Specialist are denied even if
+a stale or forged capability payload reaches the Gateway.
+
+Results label semantic evidence `current|partial|stale|unavailable` and bind the
+Workspace/root, repository commit/branch/dirty state, document URI/hash/version,
+server generation/capability fingerprint, and query/page. `review@1.4.0` and
+`focused-checks@1.1.0` preserve those bindings and never treat an LSP answer as proof.
+Configuration examples, API/Desktop metadata, real gopls/TypeScript coverage, and the
+explicit non-sandbox trust boundary are documented in
+[Code Intelligence](code-intelligence.md).
+
 `browser-cdp-permission` 与宿主执行权限正交。`restricted` 只记录未来导航、DOM
 和截图的能力上限；`full_debug` 还包含请求改写/重放、Cookie 和任意 CDP 方法，
 属于“高度敏感权限”。当前两档都固定
@@ -242,19 +267,19 @@ Invocation policy is separate from delivery compatibility. `user_invocable` perm
 | Built-in | Version | Profiles | Surfaces | Phases | Roles | Invocation |
 | --- | --- | --- | --- | --- | --- | --- |
 | `code` | 1.2.0 | code | code | plan, deliver | root, specialist | user + model eligible |
-| `review` | 1.3.0 | code, review | code | plan, deliver | root, specialist | user + model eligible |
+| `review` | 1.4.0 | code, review | code | plan, deliver | root, specialist | user + model eligible |
 | `learn` | 1.2.0 | learn | code | plan, deliver | root, specialist | user + model eligible |
 | `script` | 1.2.0 | script | code, cyber | plan, deliver | root, specialist | user + model eligible |
 | `plan-delivery` | 1.2.0 | all | code, cyber | plan, deliver | root | explicit user only |
 | `doctor` | 1.0.0 | all | code, cyber | plan | root | user + model eligible |
 | `debug` | 1.0.0 | all | code, cyber | plan, deliver | root | user + model eligible |
 | `run-verify` | 1.1.0 | code, script | code, cyber | deliver | root | user + model eligible |
-| `focused-checks` | 1.0.0 | code, review, script | code, cyber | deliver | root | user + model eligible |
+| `focused-checks` | 1.1.0 | code, review, script | code, cyber | deliver | root | user + model eligible |
 | `simplify` | 1.0.0 | code | code | deliver | root | user + model eligible |
 | `security-review` | 1.0.0 | code, review, script | code, cyber | plan, deliver | root | user + model eligible |
 | `run-skill-generator` | 1.0.0 | code | code | deliver | root | explicit user only |
 
-`doctor` reports provider, harness, workspace, sandbox, network-scope, tool, and Skill compatibility without repairing it. `debug` builds a bounded evidence timeline and permits repair only in Deliver. `run-verify@1.1.0` requires an exact `ui-evidence.v1` source/recipe/runtime binding, real interaction assertions, content-addressed artifact inventory, cleanup receipt, focused-check mapping, and a PR-ready verification receipt; `not_run` and missing matrix cells must remain explicit non-passes. It does not grant browser, process, network, Profile, or credential authority, and on Cyber remains restricted by guidance to an admitted local sandbox. `focused-checks` maps changes to the smallest credible checks, `simplify` requires call-site evidence before deletion, and `security-review` remains read-only unless a separate Deliver authorization exists.
+`doctor` reports provider, harness, workspace, sandbox, network-scope, tool, and Skill compatibility without repairing it. `debug` builds a bounded evidence timeline and permits repair only in Deliver. `run-verify@1.1.0` requires an exact `ui-evidence.v1` source/recipe/runtime binding, real interaction assertions, content-addressed artifact inventory, cleanup receipt, focused-check mapping, and a PR-ready verification receipt; `not_run` and missing matrix cells must remain explicit non-passes. It does not grant browser, process, network, Profile, or credential authority, and on Cyber remains restricted by guidance to an admitted local sandbox. `review@1.4.0` and `focused-checks@1.1.0` consume current `code-intel-lsp.v1` evidence when available, preserve its source and freshness bindings, and keep partial, stale, or unavailable semantic evidence explicit instead of treating it as proof. `simplify` requires call-site evidence before deletion, and `security-review` remains read-only unless a separate Deliver authorization exists.
 
 `run-skill-generator` does not create a trusted Skill. When it is explicitly selected and actually delivered to a Code/Deliver root turn, Go exposes `skill_candidate_propose`; otherwise the tool is omitted and forged calls are rejected. A successful call stores at most 4096 bytes of validated, secret-screened Markdown as an inert `proposed` candidate bound to the real tool invocation, Run/Session/Workspace/root, deterministic package, and exact fingerprints. The ordinary tool result and candidate list never expose the body; `skill candidate show --show-content` uses explicit untrusted-content delimiters for human inspection.
 
@@ -270,7 +295,7 @@ Schema v69 adds the inert local user Registry. `skill import` requires an explic
 
 Schema v112 keeps generated-candidate status append-only: a candidate starts `proposed`, receives one exact-fingerprint human `approve` or `reject`, and only an approved candidate can receive one import receipt. Rejection is terminal. Model/Agent/Skill/Supervisor identities are reserved and cannot review or import; approval and import need separate stable operation keys, and import additionally requires `--confirm-untrusted-skill`. Import reconstructs the deterministic ZIP and reuses the v69/v111 Registry service, so a crash after package installation but before the candidate receipt is recovered by retrying the same key. `imported` still means only “installed into the inert Registry”; it never means selected. The ledger is bounded to four candidates per Run and 64 total. See ADR 0113.
 
-Schema v40 loads the mode-compatible selected set for root Supervisor turns, and schema v110 binds phase-specific subsets to the exact mode snapshot. Before every Provider call, Go reconstructs `skill_context.v1` from the persisted tuples and embedded Registry, rechecks exact version/hash/bytes/Profile, filters by the active Surface/Phase/root role, redacts it, and enforces a separate deterministic token budget. New selection sees only current manifests; a hard-bounded embedded history resolves existing `1.0.0`, `1.1.0`, and the archived `review@1.2.0` exactly and is not a user-controlled load path. Legacy manifests retain their old fingerprint and conservative explicit-user behavior. A metadata-only preparation, including an explicit empty subset when applicable, is committed with the first model-start event and safely replays after restart; neither SQLite nor Run events contain Skill text, paths, names, or hashes. A selected Skill never authorizes its declared tool dependencies.
+Schema v40 loads the mode-compatible selected set for root Supervisor turns, and schema v110 binds phase-specific subsets to the exact mode snapshot. Before every Provider call, Go reconstructs `skill_context.v1` from the persisted tuples and embedded Registry, rechecks exact version/hash/bytes/Profile, filters by the active Surface/Phase/root role, redacts it, and enforces a separate deterministic token budget. New selection sees only current manifests; a hard-bounded embedded history resolves the archived versions, including `review@1.2.0`, `review@1.3.0`, and `focused-checks@1.0.0`, exactly and is not a user-controlled load path. Legacy manifests retain their old fingerprint and conservative explicit-user behavior. A metadata-only preparation, including an explicit empty subset when applicable, is committed with the first model-start event and safely replays after restart; neither SQLite nor Run events contain Skill text, paths, names, or hashes. A selected Skill never authorizes its declared tool dependencies.
 
 Schema v47 derives `specialist_skill_context.v1` for each active child Attempt. Go reloads the child after Attempt start, binds the current immutable Run mode and parent selection, requires delegated `model.chat`, and selects at most one already-pinned guide by that exact manifest version's Surface/Phase/Profile/Specialist metadata. This replaces the active hard-coded built-in name table: Code-only guides cannot enter Cyber, `script` explicitly supports both surfaces, and `plan-delivery` is root-only. The default child budget is 1,024 conservative tokens with a 2,048 hard maximum. Preparation is idempotent across concurrent Store callers and commits atomically with the first Specialist model start; a selected Run cannot start that call without preparation. Child assignment text, model output, HTTP, Tool Gateway, and external directories cannot select Skills. The body remains in the current Go Provider request only, while SQLite and events store aggregate metadata and fingerprints.
 

@@ -4136,6 +4136,21 @@ summary:focus-visible {
   white-space: nowrap;
 }
 
+.code-intel-tools,
+.code-intel-error {
+  margin: 9px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.code-intel-tools {
+  max-height: 3em;
+  overflow: hidden;
+  color: var(--prayu-muted);
+  font-family: var(--prayu-font-mono);
+}
+
 .extension-fingerprint {
   justify-content: space-between;
   gap: 10px;

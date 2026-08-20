@@ -61,7 +61,7 @@ CLI / TUI / React / Windows Desktop / CI
 | 模型与上下文 | Mock、Anthropic-compatible、OpenAI-compatible 与 loopback-only Ollama Provider、模型路由、资格校验、能力探测、流式响应、上下文压缩、层级项目指令、显式 user/project 长期记忆与 Session 恢复树 |
 | 计划与协作 | Plan/Delivery、工作项、备注、最多两个核心 child、`batch-delivery.v1` 独立 Worktree/分支/邮箱/交付复核/顺序合并，以及 1/2/4/6 档只读 Fan-out |
 | 工具与权限 | Tool Gateway、JSON Schema 校验、Policy、Scope、人工审批、四档宿主权限、受控固定命令、普通模式 Run-owned 命令运行时、逐条审批 PowerShell/Git Bash，以及限时 Debug 终端输入 |
-| 代码工作流 | 系统目录选择与 Workspace 导入、工作区浏览、仓库状态、提交历史、Diff 审阅、文件编辑提案、事务化 Workspace Checkpoint、Undo/Redo/Rewind、独立 Fork、验证计划、Code Journey 与 Handoff |
+| 代码工作流 | 系统目录选择与 Workspace 导入、工作区浏览、仓库状态、提交历史、Diff 审阅、文件编辑提案、只读 `code-intel-lsp.v1` 语义工具、事务化 Workspace Checkpoint、Undo/Redo/Rewind、独立 Fork、验证计划、Code Journey 与 Handoff |
 | 可观测性 | 追加式 Run 事件、Live Activity、公开模型进度、Harness 事实、Artifact、Finding/Evidence/Report、SARIF、持久化有界计划任务与脱敏结构化诊断包 |
 | 扩展 | 模式感知的惰性 Skill 包、生成候选人工审查、两阶段 MCP Client、签名 `plugin.v1`、受限生命周期 Hooks、Provider/Tool 接口、Go/Rust JSON 协议、内嵌 WASI Analyzer、Sandbox 合同与默认关闭的 network-none Docker 产品执行 |
 | 客户端 | `cyberagent` CLI、Bubble Tea TUI、认证 HTTP/OpenAPI、React/Vite、Windows/macOS Desktop 便携预览 |
@@ -78,6 +78,12 @@ Schema v115 引入 `agent-code-tools.v1`，让 root Supervisor 能在真实 Work
 | Cyber Surface 或 Specialist | 不公开任何 `agent-code-tools.v1` 工具，并在 capability 快照中说明拒绝原因 |
 
 只读结果稳定排序、分页且有界，并拒绝根目录逃逸、大小写别名、未列入 Go allowlist 的隐藏项（仅 `.github` 作为代码证据开放）、忽略项、链接或重解析点、二进制、非 UTF-8 与超限文件。`workspace_change` 只创建 replace/create/move 提案；`workspace_delete` 是独立、需精确确认的删除提案；`workspace_apply` 只能应用已经批准的精确版本，并重新检查原文件与目标文件哈希，避免审阅后内容漂移。每次调用、结果/拒绝、authority 快照、预算消耗与有界 Artifact 都进入可恢复 Supervisor 账本。`cyberagent run show <run-id>`、Run Detail API 和 Desktop Run 页面可查看当前 generation、逐工具可用性与拒绝原因。该协议不授予 Shell、Git、网络或 Sandbox 权限；完整设计见[使用手册](docs/usage.md)和 [ADR 0116](docs/adr/0116-model-callable-workspace-tools.md)。
+
+### 只读 LSP 语义代码智能
+
+`code-intel-lsp.v1` 只启动操作者显式配置、审查并以 executable SHA-256 固定的本地 Language Server。Go 拥有 initialize、文档同步、请求取消/超时、崩溃重启和进程树清理；模型只在 Code Surface 的 root Plan/Deliver 回合看到 Server 实际协商成功的 workspace/document symbol、definition、references、implementation、hover、signature、diagnostics、call/type hierarchy 工具。Cyber、Specialist、rename、code action 和 format 均不开放。
+
+每份语义结果绑定 Workspace/root、commit/branch/dirty digest、document URI/hash/version、Server generation/capability fingerprint 和 query/page。编辑、切换分支、换根目录或 Server 重启会让旧证据显式变为 stale；越界 URI、远程 link、secret/control 文本和超限结果会被拒绝、清洗或标记 partial。CLI 提供 `code-intel status|qualify`，认证 OpenAPI 和 Desktop 设置页只显示来源、语言、健康、capability、generation、有界错误与模型工具，永不返回 executable、argv、环境或凭证。最小环境和“不授予网络”不是 OS Sandbox；Server 本身必须受信任。配置、真实 gopls/TypeScript 兼容矩阵和残余风险见 [LSP 语义代码智能](docs/code-intelligence.md)。
 
 ### 事务化 Workspace Checkpoint
 
@@ -326,6 +332,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 - [文档导航](docs/README.md)
 - [产品范围与可选扩展](docs/PRODUCT_SCOPE.md)
 - [MCP Client、Plugin 与受限 Hooks](docs/extensions.md)
+- [LSP 语义代码智能](docs/code-intelligence.md)
 - [架构说明](docs/architecture.md)
 - [使用手册](docs/usage.md)
 - [当前项目状态](docs/PROJECT_STATUS.md)

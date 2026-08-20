@@ -75,6 +75,7 @@ export function ConnectionGate() {
 		batchDeliveryHostValidationEnabled: bootstrap.batch_delivery_host_validation_enabled,
 		dockerExecutionEnabled: bootstrap.docker_execution_enabled,
 		agentCodeToolsEnabled: bootstrap.agent_code_tools_enabled,
+		codeIntelEnabled: bootstrap.code_intel_enabled,
       });
     }).catch((caught: unknown) => {
       if (active) {

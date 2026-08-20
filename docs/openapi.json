@@ -360,6 +360,80 @@
         "x-cyberagent-read-only": true
       }
     },
+    "/api/v1/code-intel": {
+      "get": {
+        "operationId": "getCodeIntelInventory",
+        "summary": "Inspect reviewed language-server state",
+        "description": "Returns code-intel-lsp.v1 server source, language, health, capabilities, generation, recent bounded error, and model-visible read-only tools. Executable paths, argv, environment, credentials, server output, and Workspace content are never returned.",
+        "tags": [
+          "System"
+        ],
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "query",
+            "description": "Optional Workspace used for static executable-hash and review qualification",
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/CodeIntelInventoryView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
     "/api/v1/continuity-nodes/{node_id}/fork": {
       "post": {
         "operationId": "forkContinuityNode",
@@ -19036,6 +19110,252 @@
         ],
         "type": "object"
       },
+      "CodeIntelCapabilitiesView": {
+        "additionalProperties": false,
+        "properties": {
+          "call_hierarchy": {
+            "type": "boolean"
+          },
+          "definition": {
+            "type": "boolean"
+          },
+          "diagnostics": {
+            "type": "boolean"
+          },
+          "document_symbols": {
+            "type": "boolean"
+          },
+          "hover": {
+            "type": "boolean"
+          },
+          "implementation": {
+            "type": "boolean"
+          },
+          "references": {
+            "type": "boolean"
+          },
+          "signature_help": {
+            "type": "boolean"
+          },
+          "type_hierarchy": {
+            "type": "boolean"
+          },
+          "workspace_symbols": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "workspace_symbols",
+          "document_symbols",
+          "definition",
+          "references",
+          "implementation",
+          "hover",
+          "signature_help",
+          "diagnostics",
+          "call_hierarchy",
+          "type_hierarchy"
+        ],
+        "type": "object"
+      },
+      "CodeIntelInventoryView": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "qualifications": {
+            "items": {
+              "$ref": "#/components/schemas/CodeIntelQualificationView"
+            },
+            "type": "array"
+          },
+          "servers": {
+            "items": {
+              "$ref": "#/components/schemas/CodeIntelServerView"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "enabled",
+          "servers",
+          "qualifications"
+        ],
+        "type": "object"
+      },
+      "CodeIntelQualificationView": {
+        "additionalProperties": false,
+        "properties": {
+          "credentials_granted": {
+            "type": "boolean"
+          },
+          "descriptor_fingerprint": {
+            "type": "string"
+          },
+          "eligible": {
+            "type": "boolean"
+          },
+          "executable_hash_matched": {
+            "type": "boolean"
+          },
+          "health": {
+            "type": "string"
+          },
+          "minimal_environment": {
+            "type": "boolean"
+          },
+          "network_access_granted": {
+            "type": "boolean"
+          },
+          "process_owned": {
+            "type": "boolean"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "reviewed": {
+            "type": "boolean"
+          },
+          "server_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "shell_profile_loaded": {
+            "type": "boolean"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "server_id",
+          "workspace_id",
+          "eligible",
+          "health",
+          "descriptor_fingerprint",
+          "executable_hash_matched",
+          "reviewed",
+          "process_owned",
+          "minimal_environment",
+          "network_access_granted",
+          "credentials_granted",
+          "shell_profile_loaded"
+        ],
+        "type": "object"
+      },
+      "CodeIntelServerView": {
+        "additionalProperties": false,
+        "properties": {
+          "capabilities": {
+            "$ref": "#/components/schemas/CodeIntelCapabilitiesView"
+          },
+          "capability_fingerprint": {
+            "type": "string"
+          },
+          "credentials_granted": {
+            "type": "boolean"
+          },
+          "descriptor_fingerprint": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "string"
+          },
+          "health": {
+            "type": "string"
+          },
+          "languages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "last_error": {
+            "type": "string"
+          },
+          "model_visible_tools": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "network_access_granted": {
+            "type": "boolean"
+          },
+          "process_owned": {
+            "type": "boolean"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "qualified_at": {
+            "type": "string"
+          },
+          "read_only": {
+            "type": "boolean"
+          },
+          "server_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "server_name": {
+            "type": "string"
+          },
+          "server_version": {
+            "type": "string"
+          },
+          "shell_profile_loaded": {
+            "type": "boolean"
+          },
+          "source_kind": {
+            "type": "string"
+          },
+          "source_label": {
+            "type": "string"
+          },
+          "source_sha256": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "server_id",
+          "server_name",
+          "workspace_id",
+          "languages",
+          "source_kind",
+          "source_label",
+          "source_sha256",
+          "descriptor_fingerprint",
+          "health",
+          "capabilities",
+          "model_visible_tools",
+          "process_owned",
+          "read_only",
+          "network_access_granted",
+          "credentials_granted",
+          "shell_profile_loaded"
+        ],
+        "type": "object"
+      },
       "CommandRuntimeEnvironment": {
         "additionalProperties": false,
         "properties": {
@@ -29838,6 +30158,9 @@
           "browser_cdp_permission_control_enabled": {
             "type": "boolean"
           },
+          "code_intel_enabled": {
+            "type": "boolean"
+          },
           "command_runtime_enabled": {
             "type": "boolean"
           },
@@ -29994,6 +30317,7 @@
           "shell_execution_enabled",
           "docker_execution_enabled",
           "agent_code_tools_enabled",
+          "code_intel_enabled",
           "wake_worker",
           "scheduled_job_worker"
         ],

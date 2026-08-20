@@ -61,7 +61,7 @@ The allowed direction is always `TypeScript -> Go -> LLM/Rust/Docker`. TypeScrip
 | Models and context | Mock, Anthropic-compatible, OpenAI-compatible, and loopback-only Ollama providers, routing, qualification, capability probing, streaming, compaction, hierarchical project instructions, explicit user/project memory, and Session continuity trees |
 | Planning and collaboration | Plan/Delivery, work items, notes, up to two core children, `batch-delivery.v1` isolated worktrees/branches/mailboxes/review/ordered merge, and 1/2/4/6 read-only fan-out tiers |
 | Tools and permissions | Tool Gateway, JSON Schema validation, Policy, Scope, human approval, four host-permission tiers, fixed commands, an ordinary-mode Run-owned command runtime, per-command PowerShell/Git Bash approval, and time-bound Debug terminal input |
-| Code workflows | Native folder selection and Workspace import, workspace browsing, repository state/history, diff review, file-edit proposals, transactional Workspace Checkpoints, Undo/Redo/Rewind, independent Forks, verification plans, Code Journey, and Handoff |
+| Code workflows | Native folder selection and Workspace import, workspace browsing, repository state/history, diff review, file-edit proposals, read-only `code-intel-lsp.v1` semantic tools, transactional Workspace Checkpoints, Undo/Redo/Rewind, independent Forks, verification plans, Code Journey, and Handoff |
 | Observability | Append-only Run events, Live Activity, public model commentary, Harness facts, Artifacts, Findings/Evidence/Reports, and SARIF |
 | Extension seams | Mode-aware inert Skill packages, human-reviewed generated candidates, a two-stage MCP Client, signed `plugin.v1`, restricted lifecycle hooks, Provider and Tool interfaces, an embedded WASI Analyzer, and network-none Docker product execution disabled by default |
 | Clients | `cyberagent` CLI, Bubble Tea TUI, authenticated HTTP/OpenAPI, React/Vite, and Windows/macOS Desktop portable preview |
@@ -78,6 +78,12 @@ Schema v115 introduces `agent-code-tools.v1`, allowing the root Supervisor to co
 | Cyber Surface or Specialist | No `agent-code-tools.v1` tools are advertised; the capability snapshot records the refusal reason |
 
 Read results are deterministically ordered, paginated, and bounded. Root escape, casing aliases, hidden entries outside the Go allowlist (`.github` is the sole code-evidence exception), ignored entries, links or reparse points, binary/non-UTF-8 data, and oversized files fail closed. `workspace_change` creates replace/create/move proposals only; `workspace_delete` is a separate exactly confirmed deletion proposal; `workspace_apply` can apply only an approved exact revision and rechecks source and destination hashes to detect review-time drift. Calls, results or refusals, authority snapshots, budget charges, and bounded Artifacts enter the resumable Supervisor ledger. `cyberagent run show <run-id>`, the Run Detail API, and the Desktop Run page expose the current generation and per-tool availability. This protocol grants no Shell, Git, network, or Sandbox authority. See the [Usage Guide](docs/usage.md) and [ADR 0116](docs/adr/0116-model-callable-workspace-tools.md).
+
+### Read-only LSP code intelligence
+
+`code-intel-lsp.v1` starts only local language servers selected through an explicit operator-reviewed configuration and pinned executable SHA-256. Go owns initialization, document synchronization, cancellation/timeouts, crash restart, and process-tree cleanup. During Code-surface root Plan/Deliver turns, the model sees only capabilities actually negotiated by the server: workspace/document symbols, definition, references, implementation, hover, signature help, diagnostics, and call/type hierarchy. Cyber, Specialist, rename, code actions, and formatting remain unavailable.
+
+Every semantic result binds the Workspace/root, commit/branch/dirty digest, document URI/hash/version, server generation/capability fingerprint, and query/page. Edits, branch changes, root changes, and server restarts make old evidence explicitly stale; escaping URIs, remote links, secret/control text, and oversized results are rejected, sanitized, or marked partial. `code-intel status|qualify`, authenticated OpenAPI, and Desktop settings expose only source, language, health, capabilities, generation, bounded errors, and model-visible tools—never executable, argv, environment, or credentials. A minimal environment and “no network grant” are not an OS sandbox; the configured server must be trusted. See [LSP Code Intelligence](docs/code-intelligence.md) for configuration, the real gopls/TypeScript matrix, and residual risks.
 
 ### Transactional Workspace Checkpoints
 
@@ -266,6 +272,7 @@ See the [Usage Guide](docs/usage.md) for more commands and boundaries.
 - [Documentation Index](docs/README.md)
 - [Product Scope and Optional Extensions](docs/PRODUCT_SCOPE.md)
 - [MCP Client, Plugins, and Restricted Hooks](docs/extensions.md)
+- [LSP Code Intelligence](docs/code-intelligence.md)
 - [Architecture](docs/architecture.md)
 - [Usage Guide](docs/usage.md)
 - [Current Project Status](docs/PROJECT_STATUS.md)

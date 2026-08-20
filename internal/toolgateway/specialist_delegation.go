@@ -188,6 +188,10 @@ func SupervisorToolDefinition(name ToolName) (ToolDefinition, bool) {
 }
 
 func NormalizeSupervisorToolPayload(name ToolName, payload json.RawMessage) (json.RawMessage, error) {
+	if IsCodeIntelTool(name) {
+		_, canonical, err := NormalizeCodeIntelPayload(name, payload)
+		return canonical, err
+	}
 	if isAgentCodeTool(name) {
 		return NormalizeAgentCodePayload(name, payload)
 	}

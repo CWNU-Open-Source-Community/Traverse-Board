@@ -62,6 +62,7 @@ export interface DesktopConnectionBootstrap {
   shell_execution_enabled: boolean;
   docker_execution_enabled: boolean;
   agent_code_tools_enabled: true;
+  code_intel_enabled: boolean;
   skill_installation_enabled: boolean;
   evidence_attachment_enabled: boolean;
   verification_evidence_enabled: boolean;
@@ -697,6 +698,7 @@ function getDebugTerminalAgentInputBridge(): NativeDebugTerminalAgentInputBridge
 function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
   if (!hasExactKeys(value, [
     "agent_code_tools_enabled", "api_base_url", "api_version", "app_version",
+    "code_intel_enabled",
     "approval_control_enabled", "command_runtime_enabled",
     "controlled_command_proposal_control_enabled",
     "host_command_proposal_control_enabled",
@@ -726,6 +728,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
   }
   return value.protocol_version === desktopConnectionProtocol && value.api_base_url === "/api/v1" &&
     value.agent_code_tools_enabled === true &&
+    typeof value.code_intel_enabled === "boolean" &&
     value.api_version === "api.v1" && boundedText(value.app_version, 1, 64) &&
     isSHA256(value.ui_digest) && validToken(value.read_token) &&
     typeof value.control_token === "string" && typeof value.control_enabled === "boolean" &&

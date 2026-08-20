@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"cyberagent-workbench/internal/apperror"
+	"cyberagent-workbench/internal/codeintel"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/hooks"
 	"cyberagent-workbench/internal/idgen"
@@ -36,6 +37,13 @@ func NewSessionRunChatExecutor(store SessionRunStore, router *llm.Router, checke
 func (e *SessionRunChatExecutor) WithActiveCalls(registry *ActiveCallRegistry) *SessionRunChatExecutor {
 	if e != nil && e.supervisor != nil {
 		e.supervisor.WithActiveCalls(registry)
+	}
+	return e
+}
+
+func (e *SessionRunChatExecutor) WithCodeIntel(manager *codeintel.Manager) *SessionRunChatExecutor {
+	if e != nil && e.supervisor != nil {
+		e.supervisor.WithCodeIntel(manager)
 	}
 	return e
 }

@@ -180,7 +180,7 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		bootstrap.ScheduledJobControlEnabled || bootstrap.ScheduledJobWorkerEnabled ||
 		bootstrap.ReadOnlyDefault || bootstrap.ProcessExecutionEnabled ||
 		bootstrap.ShellExecutionEnabled || bootstrap.DockerExecutionEnabled ||
-		!bootstrap.AgentCodeToolsEnabled ||
+		!bootstrap.AgentCodeToolsEnabled || bootstrap.CodeIntelEnabled ||
 		bootstrap.SkillInstallationEnabled || bootstrap.EvidenceAttachmentEnabled ||
 		bootstrap.VerificationEvidenceEnabled || bootstrap.EmbeddedAnalyzerExecutionEnabled ||
 		bootstrap.UserTerminalEnabled ||
@@ -200,6 +200,7 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 	}
 	assertExactJSONKeys(t, string(raw), []string{
 		"agent_code_tools_enabled", "api_base_url", "api_version", "app_version", "approval_control_enabled",
+		"code_intel_enabled",
 		"control_enabled", "control_token",
 		"controlled_command_proposal_control_enabled",
 		"host_command_proposal_control_enabled",

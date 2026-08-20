@@ -68,7 +68,10 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		"enable the process-local Docker Sandbox execution capability")
 	batchValidationExecution := fs.Bool("enable-batch-validation-execution", false,
 		"enable fixed offline go/npm checks for confirmed batch deliveries")
+	codeIntelConfig := fs.String("code-intel-config", "",
+		"absolute operator-reviewed code-intel config")
 	if err := fs.Parse(reorderFlags(args, map[string]bool{"listen": true, "ui-dir": true,
+		"code-intel-config":          true,
 		"enable-file-edit-proposals": false, "enable-provider-credentials": false,
 		"enable-wake-worker": false, "enable-scheduled-job-worker": false,
 		"enable-permission-control":     false,
@@ -80,6 +83,17 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	}
 	if fs.NArg() != 0 {
 		return errors.New("usage: cyberagent api serve [--listen <loopback-host:port>] [--ui-dir <built-web-directory>] [explicit capability flags]")
+	}
+	if strings.TrimSpace(*codeIntelConfig) != "" {
+		if a.codeIntelConfigLoaded || a.codeIntel != nil {
+			return apperror.New(apperror.CodeFailedPrecondition,
+				"code-intel config was already initialized")
+		}
+		absolute, err := filepath.Abs(strings.TrimSpace(*codeIntelConfig))
+		if err != nil {
+			return err
+		}
+		a.codeIntelConfigPath = filepath.Clean(absolute)
 	}
 
 	accessToken := os.Getenv(apiTokenEnvironment)
@@ -192,6 +206,9 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	executionControl := application.NewRunExecutionHandoffService(a.store, a.router,
 		a.checker).WithActiveCalls(a.calls).WithMCPClient(mcpClient).
 		WithLifecycleHooks(hookEngine)
+	if a.codeIntel != nil {
+		executionControl.WithCodeIntel(a.codeIntel)
+	}
 	commandManager, err := runner.NewPlatformCommandRuntimeManager(a.store,
 		idgen.New("command-runtime-owner"))
 	if err != nil {
@@ -349,6 +366,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		WorkspaceCheckpointController:       workspaceCheckpoints,
 		BatchDeliveryController:             batchDelivery,
 		ExtensionController:                 extensionControl,
+		CodeIntelSource:                     a.codeIntel,
 		DockerSandboxController:             dockerSandbox,
 		ModelRegistry:                       a.models,
 		AppVersion:                          Version,
@@ -443,6 +461,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	fmt.Fprintf(a.out, "docker_execution_enabled: %t\n", *dockerExecution)
 	fmt.Fprintf(a.out, "batch_delivery_host_validation_enabled: %t\n",
 		*batchValidationExecution)
+	fmt.Fprintf(a.out, "code_intel_enabled: %t\n", a.codeIntel != nil)
 	fmt.Fprintln(a.out, "note: the API is loopback-only; control is separately authorized and tokens are not persisted")
 	return server.Serve(ctx, listener)
 }

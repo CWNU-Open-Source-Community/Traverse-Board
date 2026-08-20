@@ -88,6 +88,7 @@ export default function App() {
     (state) => state.dockerExecutionEnabled);
   const agentCodeToolsEnabled = useConnectionStore(
     (state) => state.agentCodeToolsEnabled);
+  const codeIntelEnabled = useConnectionStore((state) => state.codeIntelEnabled);
   if (!token) {
     return <ConnectionGate />;
   }
@@ -121,7 +122,7 @@ export default function App() {
     uiEvidenceControlEnabled={uiEvidenceControlEnabled}
     embeddedAnalyzerExecutionEnabled={embeddedAnalyzerExecutionEnabled}
     dockerExecutionEnabled={dockerExecutionEnabled}
-    agentCodeToolsEnabled={agentCodeToolsEnabled} />;
+    agentCodeToolsEnabled={agentCodeToolsEnabled} codeIntelEnabled={codeIntelEnabled} />;
 }
 
 function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreationEnabled,
@@ -137,7 +138,8 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   runWakeExecutionEnabled, runWakeWorkerEnabled, skillInstallationEnabled,
   scheduledJobControlEnabled, scheduledJobWorkerEnabled,
   evidenceAttachmentEnabled, verificationEvidenceEnabled, uiEvidenceControlEnabled,
-  embeddedAnalyzerExecutionEnabled, dockerExecutionEnabled, agentCodeToolsEnabled }: {
+  embeddedAnalyzerExecutionEnabled, dockerExecutionEnabled, agentCodeToolsEnabled,
+  codeIntelEnabled }: {
   token: string;
   controlToken: string;
   runControlEnabled: boolean;
@@ -174,6 +176,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   embeddedAnalyzerExecutionEnabled: boolean;
   dockerExecutionEnabled: boolean;
   agentCodeToolsEnabled: boolean;
+  codeIntelEnabled: boolean;
 }) {
   const { t } = useLocale();
   const [surface, setSurface] = useState<"workspace" | "settings">("workspace");
@@ -205,6 +208,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     embeddedAnalyzerExecutionEnabled,
     dockerExecutionEnabled,
     agentCodeToolsEnabled,
+    codeIntelEnabled,
   }), [token, controlToken, runControlEnabled, runCreationEnabled,
     executionPermissionControlEnabled, operatorApprovalEnabled,
     dangerFullAccessEnabled, debugMaximumAccessEnabled, commandRuntimeEnabled,
@@ -219,7 +223,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     skillInstallationEnabled, evidenceAttachmentEnabled,
     verificationEvidenceEnabled, uiEvidenceControlEnabled,
     embeddedAnalyzerExecutionEnabled, dockerExecutionEnabled,
-    agentCodeToolsEnabled]);
+    agentCodeToolsEnabled, codeIntelEnabled]);
   const queryClient = useQueryClient();
   const health = useConnectionStore((state) => state.health);
   const setHealth = useConnectionStore((state) => state.setHealth);
@@ -267,6 +271,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     { id: "embedded-analyzer", label: t("内置分析器", "Embedded analyzer"), enabled: embeddedAnalyzerExecutionEnabled },
     { id: "docker-execution", label: t("Docker 沙箱", "Docker sandbox"), enabled: dockerExecutionEnabled },
     { id: "agent-code-tools", label: t("模型工作区工具", "Model workspace tools"), enabled: agentCodeToolsEnabled },
+    { id: "code-intel", label: t("只读语义工具", "Read-only semantic tools"), enabled: codeIntelEnabled },
   ], [approvalControlEnabled, controlledCommandProposalControlEnabled,
     hostCommandProposalControlEnabled,
     commandRuntimeEnabled, dangerFullAccessEnabled, debugMaximumAccessEnabled,
@@ -278,7 +283,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     sessionMessageEnabled, sessionSteeringControlEnabled, skillInstallationEnabled,
     verificationEvidenceEnabled, uiEvidenceControlEnabled,
     embeddedAnalyzerExecutionEnabled, dockerExecutionEnabled,
-    agentCodeToolsEnabled, t]);
+    agentCodeToolsEnabled, codeIntelEnabled, t]);
 
   useEffect(() => {
     if (healthQuery.data) {

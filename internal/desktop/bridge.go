@@ -69,6 +69,7 @@ type ConnectionBootstrap struct {
 	ShellExecutionEnabled                   bool   `json:"shell_execution_enabled"`
 	DockerExecutionEnabled                  bool   `json:"docker_execution_enabled"`
 	AgentCodeToolsEnabled                   bool   `json:"agent_code_tools_enabled"`
+	CodeIntelEnabled                        bool   `json:"code_intel_enabled"`
 	SkillInstallationEnabled                bool   `json:"skill_installation_enabled"`
 	EvidenceAttachmentEnabled               bool   `json:"evidence_attachment_enabled"`
 	VerificationEvidenceEnabled             bool   `json:"verification_evidence_enabled"`
@@ -178,6 +179,7 @@ type DesktopBridgeConfig struct {
 	UIEvidenceControlEnabled                bool
 	UserTerminalEnabled                     bool
 	DockerExecutionEnabled                  bool
+	CodeIntelEnabled                        bool
 	APIVersion                              string
 	AppVersion                              string
 	UIDigest                                string
@@ -382,6 +384,7 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 			ShellExecutionEnabled:                   config.UserTerminalEnabled || commandRuntimeEnabled,
 			DockerExecutionEnabled:                  config.DockerExecutionEnabled,
 			AgentCodeToolsEnabled:                   true,
+			CodeIntelEnabled:                        config.CodeIntelEnabled,
 			SkillInstallationEnabled:                config.SkillInstallationEnabled,
 			EvidenceAttachmentEnabled:               config.EvidenceAttachmentEnabled,
 			VerificationEvidenceEnabled:             config.VerificationEvidenceEnabled,

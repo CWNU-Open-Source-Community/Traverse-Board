@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"cyberagent-workbench/internal/apperror"
+	"cyberagent-workbench/internal/codeintel"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/mcp"
@@ -28,9 +29,15 @@ type supervisorAgentCodeTools struct {
 	Authority    json.RawMessage
 }
 
+type supervisorCodeIntelTools struct {
+	Capabilities toolgateway.CodeIntelCapabilitySnapshot
+	Authority    json.RawMessage
+}
+
 type supervisorToolOptions struct {
 	CommandRuntimeEnabled bool
 	AgentCode             supervisorAgentCodeTools
+	CodeIntel             supervisorCodeIntelTools
 	MCP                   mcp.ScopedCapabilities
 }
 
@@ -108,6 +115,14 @@ func supervisorStructuredToolSpecs(surface domain.ExecutionSurface,
 			Description: definition.Description,
 			Parameters:  append(json.RawMessage(nil), definition.InputSchema...)})
 	}
+	if surface == domain.ExecutionSurfaceCode &&
+		(phase == domain.ExecutionPhasePlan || phase == domain.ExecutionPhaseDeliver) {
+		for _, definition := range configured.CodeIntel.Capabilities.VisibleDefinitions() {
+			out = append(out, llm.ToolSpec{Name: string(definition.Name),
+				Description: definition.Description,
+				Parameters:  append(json.RawMessage(nil), definition.InputSchema...)})
+		}
+	}
 	return out
 }
 
@@ -125,9 +140,13 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 	runtimeEnabled := configured.CommandRuntimeEnabled
 	agentCode := toolgateway.AgentCodeCapabilitySnapshot{}
 	var agentCodeAuthority json.RawMessage
+	codeIntel := toolgateway.CodeIntelCapabilitySnapshot{}
+	var codeIntelAuthority json.RawMessage
 	if len(options) > 0 {
 		agentCode = configured.AgentCode.Capabilities
 		agentCodeAuthority = configured.AgentCode.Authority
+		codeIntel = configured.CodeIntel.Capabilities
+		codeIntelAuthority = configured.CodeIntel.Authority
 	}
 	if len(calls) == 0 || len(calls) > domain.MaxSupervisorToolCallsPerRound {
 		return nil, fmt.Errorf("supervisor tool batch must contain 1 to %d calls",
@@ -152,7 +171,7 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 			name != toolgateway.SkillCandidateProposeTool &&
 			name != toolgateway.DebugTerminalTool &&
 			name != toolgateway.CommandRuntimeTool && name != toolgateway.MCPToolCallTool &&
-			!toolgateway.IsAgentCodeTool(name) {
+			!toolgateway.IsAgentCodeTool(name) && !toolgateway.IsCodeIntelTool(name) {
 			return nil, fmt.Errorf("provider requested unsupported supervisor tool %q", call.Name)
 		}
 		if toolgateway.IsAgentCodeTool(name) {
@@ -166,6 +185,11 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 			if !available || len(agentCodeAuthority) == 0 {
 				return nil, fmt.Errorf("provider requested unavailable agent code tool %q", call.Name)
 			}
+		}
+		if toolgateway.IsCodeIntelTool(name) && (len(codeIntelAuthority) == 0 ||
+			surface != domain.ExecutionSurfaceCode ||
+			(phase != domain.ExecutionPhasePlan && phase != domain.ExecutionPhaseDeliver)) {
+			return nil, fmt.Errorf("provider requested unavailable code-intel tool %q", call.Name)
 		}
 		if name == toolgateway.PlanDeliveryProposeTool && phase != domain.ExecutionPhasePlan {
 			return nil, errors.New("provider requested Plan/Delivery proposal outside Plan phase")
@@ -207,6 +231,13 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 		if err != nil {
 			return nil, err
 		}
+		if toolgateway.IsCodeIntelTool(name) {
+			input, _, _ := toolgateway.NormalizeCodeIntelPayload(name, payload)
+			if !codeIntel.Available(name, input) {
+				return nil, errors.New(
+					"provider requested code-intel capability absent from the current reviewed snapshot")
+			}
+		}
 		if name == toolgateway.MCPToolCallTool {
 			request, _, _ := toolgateway.NormalizeMCPToolPayload(payload)
 			if !supervisorMCPToolAvailable(configured.MCP, request) {
@@ -226,6 +257,9 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 		out[index] = llm.ToolCall{ID: callID, Name: string(name), Arguments: payload}
 		if toolgateway.IsAgentCodeTool(name) {
 			out[index].Authority = append(json.RawMessage(nil), agentCodeAuthority...)
+		}
+		if toolgateway.IsCodeIntelTool(name) {
+			out[index].Authority = append(json.RawMessage(nil), codeIntelAuthority...)
 		}
 	}
 	return out, nil
@@ -371,6 +405,49 @@ func (s *RunSupervisor) supervisorAgentCodeCapabilities(ctx context.Context,
 	return snapshot, encoded, nil
 }
 
+func (s *RunSupervisor) supervisorCodeIntelCapabilities(ctx context.Context,
+	turn domain.SupervisorTurn,
+) (toolgateway.CodeIntelCapabilitySnapshot, error) {
+	result := toolgateway.CodeIntelCapabilitySnapshot{ProtocolVersion: codeintel.ProtocolVersion,
+		Servers: []toolgateway.CodeIntelServerCapability{}, Refusals: map[string]string{}}
+	available, _ := toolgateway.CodeIntelScopeEligibility(toolgateway.AgentCodeCapabilityContext{
+		Surface: turn.Mode.Surface, Phase: turn.Mode.Phase, Role: turn.Agent.Role,
+		Profile: turn.Mode.Profile})
+	if s.codeIntel == nil || !available || strings.TrimSpace(turn.Mission.WorkspaceID) == "" {
+		return result, nil
+	}
+	store, ok := s.store.(AgentCodeToolStore)
+	if !ok {
+		return result, nil
+	}
+	registered, err := store.GetWorkspaceInfo(ctx, turn.Mission.WorkspaceID)
+	if err != nil {
+		return result, apperror.Normalize(err)
+	}
+	for _, snapshot := range s.codeIntel.Capabilities(ctx, registered.ID, registered.RootPath) {
+		if snapshot.Health != codeintel.HealthHealthy {
+			reason := string(snapshot.Health)
+			if snapshot.LastError != "" {
+				reason += ": " + snapshot.LastError
+			}
+			result.Refusals[snapshot.ServerID] = reason
+			continue
+		}
+		server := toolgateway.CodeIntelServerCapability{ServerID: snapshot.ServerID,
+			ServerName: snapshot.ServerName, Languages: append([]string(nil), snapshot.Languages...),
+			Generation:            snapshot.Generation,
+			CapabilityFingerprint: snapshot.CapabilityFingerprint}
+		for _, name := range snapshot.ModelVisibleTools {
+			tool := toolgateway.ToolName(name)
+			if toolgateway.IsCodeIntelTool(tool) {
+				server.Tools = append(server.Tools, tool)
+			}
+		}
+		result.Servers = append(result.Servers, server)
+	}
+	return result, nil
+}
+
 func supervisorToolOperationKey(runID string, turn int, name toolgateway.ToolName,
 	payload json.RawMessage,
 ) string {
@@ -409,7 +486,7 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		LeaseID:     turn.Checkpoint.LeaseID, LeaseGeneration: turn.Checkpoint.LeaseGeneration,
 		RequestedBy: "run_supervisor",
 	}
-	if toolgateway.IsAgentCodeTool(name) {
+	if toolgateway.IsAgentCodeTool(name) || toolgateway.IsCodeIntelTool(name) {
 		authority, authorityErr := toolgateway.DecodeAgentCodeCallAuthority(
 			json.RawMessage(call.AuthorityJSON))
 		if authorityErr != nil || authority.RunID != call.RunID ||
@@ -498,7 +575,7 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 	}
 	if name == toolgateway.DebugTerminalTool || name == toolgateway.CommandRuntimeTool ||
 		name == toolgateway.MCPToolCallTool ||
-		toolgateway.IsAgentCodeTool(name) {
+		toolgateway.IsAgentCodeTool(name) || toolgateway.IsCodeIntelTool(name) {
 		envelope.Stdout = redact.String(outcome.Result.Stdout)
 		envelope.Stderr = redact.String(outcome.Result.Stderr)
 		envelope.Truncated = outcome.Result.Truncated
@@ -522,7 +599,10 @@ func recoverableSupervisorToolError(name toolgateway.ToolName,
 		return true
 	case apperror.CodeFailedPrecondition, apperror.CodeNotFound, apperror.CodePolicyDenied:
 		return name == toolgateway.DebugTerminalTool || name == toolgateway.CommandRuntimeTool ||
-			name == toolgateway.MCPToolCallTool || toolgateway.IsAgentCodeTool(name)
+			name == toolgateway.MCPToolCallTool || toolgateway.IsAgentCodeTool(name) ||
+			toolgateway.IsCodeIntelTool(name)
+	case apperror.CodeUnavailable:
+		return toolgateway.IsCodeIntelTool(name)
 	default:
 		return false
 	}
