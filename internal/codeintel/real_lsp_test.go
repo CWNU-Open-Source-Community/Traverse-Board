@@ -26,7 +26,7 @@ func TestRealGoplsReadOnlySemanticToolSmoke(t *testing.T) {
 	if executable == "" {
 		t.Skip(goplsSmokeBinaryEnvironment + " is not set")
 	}
-	root := t.TempDir()
+	root := canonicalRealSmokeTempDir(t)
 	writeSmokeFile(t, root, "go.mod", "module example.invalid/codeintel\n\ngo 1.25\n")
 	writeSmokeFile(t, root, "sample.go", `package sample
 
@@ -82,7 +82,7 @@ func TestRealTypeScriptLanguageServerReadOnlySemanticToolSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := t.TempDir()
+	root := canonicalRealSmokeTempDir(t)
 	writeSmokeFile(t, root, "tsconfig.json", `{"compilerOptions":{"strict":true,"noEmit":true},"include":["index.ts"]}`)
 	writeSmokeFile(t, root, "index.ts", `interface Runner {
   run(value: string): string;
@@ -232,4 +232,18 @@ func writeSmokeFile(t *testing.T, root, relative, content string) {
 	if err := os.WriteFile(target, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func canonicalRealSmokeTempDir(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatalf("resolve real LSP smoke root: %v", err)
+	}
+	absolute, err := filepath.Abs(resolved)
+	if err != nil {
+		t.Fatalf("make real LSP smoke root absolute: %v", err)
+	}
+	return filepath.Clean(absolute)
 }
