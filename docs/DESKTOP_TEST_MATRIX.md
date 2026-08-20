@@ -53,10 +53,19 @@
 - [ ] Markdown 渲染
 - [ ] Live Activity / 事件流
 - [ ] 工作区检查点：时间线来源/恢复等级、Rewind 三方预览、冲突禁用、显式确认、Fork 后切换独立 Run
+- [ ] 高级 Git：capability/permission/lease generation、仓库/分支/upstream、Checkpoint 限制均可见且不显示 host path/private lease
+- [ ] Hunk：发现 patch、逐项勾选、漂移后旧 hunk 禁用；revert 必须明显标为 destructive
+- [ ] Stash：tracked/index/untracked 角色、exact OID、apply/pop/drop、冲突时原 stash 保留
+- [ ] Rebase/cherry-pick：base/ours/theirs 文件、continue/skip/abort 与持久 sequence ID；保护/共享分支显示明确拒绝
+- [ ] Bisect：exact current commit、good/bad/skip、固定 recipe/step/timeout、reset 恢复原引用
+- [ ] 受管 Worktree：create/lock/unlock/remove/prune 只显示逻辑名称/ID；locked、dirty 或 head drift 禁止删除
+- [ ] Approval/审计：preview 不授权，review 后 pending Approval 可见；成功/冲突/中断 receipt 与 Checkpoint 可回读
 - [ ] 审批队列
 - [ ] 设置页（含"高度敏感权限"Full CDP 标签）
 
 每次人工勾选必须同时记录候选 `sha256`、OS build、WebView2 版本、各显示器分辨率/DPI、窗口尺寸和证据文件名。未实际执行的项写 `not_run`，不得留空或按自动测试结果推断为通过。
+
+高级 Git 项还必须分别用 capability 关闭和完整开启的两个隔离数据目录验证：关闭时面板与 mutation endpoint 不可用；开启时若 permission control、operator Approval、Approval control 或 Workspace Checkpoint control 任一缺失，Desktop 必须在组合阶段失败关闭。强制 kill 场景应停在已经 CAS 为 `running` 的冲突序列或 worktree create 后，重开只允许观察并生成 `interrupted|conflicted` 收据，不得重复应用提交；若精确 worktree 被保守登记，旧操作仍不得显示为成功。截图和 JSON 不得包含绝对受管路径、private lease ID、raw spec/preview/receipt JSON 或 Git argv。
 
 ## 证据状态 / Evidence status
 

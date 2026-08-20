@@ -70,6 +70,7 @@ export function ConnectionGate() {
 		verificationEvidenceEnabled: bootstrap.verification_evidence_enabled,
 		uiEvidenceControlEnabled: bootstrap.ui_evidence_control_enabled,
 		embeddedAnalyzerExecutionEnabled: bootstrap.embedded_analyzer_execution_enabled,
+		gitAdvancedControlEnabled: bootstrap.git_advanced_control_enabled,
 		workspaceCheckpointControlEnabled: bootstrap.workspace_checkpoint_control_enabled,
 		batchDeliveryControlEnabled: bootstrap.batch_delivery_control_enabled,
 		batchDeliveryHostValidationEnabled: bootstrap.batch_delivery_host_validation_enabled,

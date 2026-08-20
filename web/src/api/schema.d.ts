@@ -1572,6 +1572,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/git-advanced": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect advanced Git state
+         * @description Returns the current repository binding, process capability generation, conflict stages, durable sequence recovery, managed worktrees, and recent immutable operation receipts without exposing filesystem roots.
+         */
+        get: operations["getGitAdvancedProjection"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/git-advanced/discover-hunks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Discover stable Git hunk identities
+         * @description Reads one exact repository/index/worktree snapshot and returns stable hunk identities and patches. Discovery never creates an Approval and selected identities must be reviewed again before mutation.
+         */
+        post: operations["discoverGitAdvancedHunks"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/git-advanced/execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Execute an approved advanced Git mutation
+         * @description Consumes one exact approved preview after revalidating capability, permission, lease, repository, index, worktree, upstream, hunk, sequence, and worktree-registry state. Every mutation is bracketed by Workspace checkpoints and yields a durable receipt.
+         */
+        post: operations["executeGitAdvancedOperation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/git-advanced/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Review an exact advanced Git mutation
+         * @description Revalidates the active Run permission, lease generation, process capability, repository binding, target objects, selected hunks, conflicts, file impact, and recovery plan, then persists an immutable pending Approval source.
+         */
+        post: operations["reviewGitAdvancedOperation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/host-command-proposals": {
         parameters: {
             query?: never;
@@ -4913,6 +4993,322 @@ export interface components {
             status: "draft" | "validated" | "accepted" | "fixed" | "rejected";
             title: string;
         };
+        GitAdvancedAuthorityView: {
+            executable: boolean;
+            lease_active: boolean;
+            /** Format: date-time */
+            lease_expires_at?: string;
+            /** Format: int64 */
+            permission_revision: number;
+            permission_snapshot_id: string;
+            protocol_version: string;
+            scope: components["schemas"]["GitAdvancedScope"];
+        };
+        GitAdvancedBisectRecipe: {
+            /** Format: int32 */
+            max_steps: number;
+            name: string;
+            /** Format: int32 */
+            timeout_seconds: number;
+        };
+        GitAdvancedCapabilitySnapshot: {
+            /** Format: date-time */
+            captured_at: string;
+            enabled: boolean;
+            generation: string;
+            managed_root_sha256: string;
+            /** Format: int32 */
+            max_commits: number;
+            /** Format: int32 */
+            max_hunks: number;
+            /** Format: int32 */
+            max_paths: number;
+            operations: string[];
+            protocol_version: string;
+        };
+        GitAdvancedConflictFile: {
+            base_oid?: string;
+            ours_oid?: string;
+            path: string;
+            theirs_oid?: string;
+        };
+        GitAdvancedConflictState: {
+            active: boolean;
+            can_abort: boolean;
+            can_continue: boolean;
+            can_skip: boolean;
+            files: components["schemas"]["GitAdvancedConflictFile"][];
+            kind?: string;
+        };
+        GitAdvancedExecuteResult: {
+            boundary: components["schemas"]["WorkspaceMutationBoundary"];
+            operation: components["schemas"]["GitAdvancedOperationRecord"];
+            protocol_version: string;
+            receipt: components["schemas"]["GitAdvancedReceipt"];
+            replayed: boolean;
+            sequence?: components["schemas"]["GitAdvancedSequence"];
+            worktree?: components["schemas"]["GitAdvancedManagedWorktree"];
+        };
+        GitAdvancedFileImpact: {
+            after_sha256?: string;
+            before_sha256?: string;
+            change: string;
+            destructive: boolean;
+            path: string;
+        };
+        GitAdvancedHunk: {
+            base_blob?: string;
+            context_sha256: string;
+            destructive: boolean;
+            id: string;
+            index_blob?: string;
+            /** Format: int32 */
+            new_lines: number;
+            /** Format: int32 */
+            new_start: number;
+            /** Format: int32 */
+            old_lines: number;
+            /** Format: int32 */
+            old_start: number;
+            patch: string;
+            patch_sha256: string;
+            path: string;
+            worktree_sha256?: string;
+        };
+        GitAdvancedManagedWorktree: {
+            branch: string;
+            common_dir_sha256: string;
+            /** Format: date-time */
+            created_at: string;
+            created_operation_id: string;
+            /** Format: int64 */
+            generation: number;
+            head: string;
+            id: string;
+            last_operation_id: string;
+            lock_reason?: string;
+            locked: boolean;
+            name: string;
+            path_sha256: string;
+            present: boolean;
+            protocol_version: string;
+            /** Format: date-time */
+            removed_at?: string;
+            repository_sha256: string;
+            run_id: string;
+            /** Format: date-time */
+            updated_at: string;
+            workspace_id: string;
+        };
+        GitAdvancedOperationRecord: {
+            approval_fingerprint: string;
+            approval_id?: string;
+            capability_generation: string;
+            common_dir_sha256: string;
+            /** Format: date-time */
+            completed_at?: string;
+            /** Format: date-time */
+            created_at: string;
+            error_code?: string;
+            id: string;
+            /** Format: int64 */
+            lease_generation: number;
+            operation: string;
+            operation_key_sha256: string;
+            /** Format: int64 */
+            permission_revision: number;
+            permission_snapshot_id: string;
+            preview_id: string;
+            protocol_version: string;
+            repository_sha256: string;
+            request_fingerprint: string;
+            run_id: string;
+            session_id: string;
+            /** Format: date-time */
+            started_at?: string;
+            status: string;
+            workspace_id: string;
+        };
+        GitAdvancedOperationView: {
+            approval_fingerprint: string;
+            approval_id?: string;
+            capability_generation: string;
+            common_dir_sha256: string;
+            /** Format: date-time */
+            completed_at?: string;
+            /** Format: date-time */
+            created_at: string;
+            error_code?: string;
+            id: string;
+            /** Format: int64 */
+            lease_generation: number;
+            operation: string;
+            operation_key_sha256: string;
+            /** Format: int64 */
+            permission_revision: number;
+            permission_snapshot_id: string;
+            preview: components["schemas"]["GitAdvancedPreview"];
+            preview_id: string;
+            protocol_version: string;
+            receipt?: components["schemas"]["GitAdvancedReceipt"];
+            repository_sha256: string;
+            request_fingerprint: string;
+            /** Format: date-time */
+            started_at?: string;
+            status: string;
+        };
+        GitAdvancedPreview: {
+            approval_fingerprint: string;
+            binding: components["schemas"]["GitAdvancedRepositoryBinding"];
+            blocked_reasons: string[];
+            capability: components["schemas"]["GitAdvancedCapabilitySnapshot"];
+            conflict: components["schemas"]["GitAdvancedConflictState"];
+            /** Format: date-time */
+            created_at: string;
+            files: components["schemas"]["GitAdvancedFileImpact"][];
+            hunks: components["schemas"]["GitAdvancedHunk"][];
+            id: string;
+            /** Format: int64 */
+            lease_generation?: number;
+            operation: string;
+            /** Format: int64 */
+            permission_revision?: number;
+            permission_snapshot_id?: string;
+            protocol_version: string;
+            recovery: components["schemas"]["GitAdvancedRecoveryPlan"];
+            spec: components["schemas"]["GitAdvancedSpec"];
+            summary: string;
+            target?: string;
+        };
+        GitAdvancedProjection: {
+            authority: components["schemas"]["GitAdvancedAuthorityView"];
+            binding: components["schemas"]["GitAdvancedRepositoryBinding"];
+            capability: components["schemas"]["GitAdvancedCapabilitySnapshot"];
+            conflict: components["schemas"]["GitAdvancedConflictState"];
+            operations: components["schemas"]["GitAdvancedOperationView"][];
+            protocol_version: string;
+            run_id: string;
+            sequence?: components["schemas"]["GitAdvancedSequence"];
+            stashes: components["schemas"]["GitAdvancedStashEntry"][];
+            workspace_id: string;
+            worktrees: components["schemas"]["GitAdvancedManagedWorktree"][];
+        };
+        GitAdvancedReceipt: {
+            checkpoint_id?: string;
+            /** Format: date-time */
+            completed_at: string;
+            conflict: components["schemas"]["GitAdvancedConflictState"];
+            error_code?: string;
+            error_summary?: string;
+            id: string;
+            /** Format: int32 */
+            observed_bytes: number;
+            operation: string;
+            post_binding: components["schemas"]["GitAdvancedRepositoryBinding"];
+            pre_binding: components["schemas"]["GitAdvancedRepositoryBinding"];
+            preview_id: string;
+            protocol_version: string;
+            sequence_id?: string;
+            /** Format: date-time */
+            started_at: string;
+            status: string;
+            target_oid?: string;
+            worktree_id?: string;
+        };
+        GitAdvancedRecoveryPlan: {
+            checkpoint_id?: string;
+            checkpoint_level?: string;
+            incomplete_reasons: string[];
+            required: boolean;
+            restore_action?: string;
+        };
+        GitAdvancedRepositoryBinding: {
+            branch: string;
+            /** Format: date-time */
+            captured_at: string;
+            common_dir_sha256: string;
+            detached: boolean;
+            head: string;
+            index_sha256: string;
+            object_format: string;
+            protocol_version: string;
+            repository_sha256: string;
+            sequence_sha256: string;
+            stash_sha256: string;
+            status_sha256: string;
+            upstream_oid?: string;
+            upstream_ref?: string;
+            worktree_sha256: string;
+        };
+        GitAdvancedReviewResult: {
+            approval?: components["schemas"]["Record"];
+            operation?: components["schemas"]["GitAdvancedOperationRecord"];
+            preview: components["schemas"]["GitAdvancedPreview"];
+            protocol_version: string;
+            replayed: boolean;
+            run_id: string;
+            workspace_id: string;
+        };
+        GitAdvancedScope: {
+            capability_generation: string;
+            /** Format: int64 */
+            lease_generation: number;
+        };
+        GitAdvancedSequence: {
+            /** Format: date-time */
+            completed_at?: string;
+            /** Format: date-time */
+            created_at: string;
+            current_head: string;
+            /** Format: int64 */
+            generation: number;
+            id: string;
+            kind: string;
+            last_operation_id: string;
+            original_branch: string;
+            original_head: string;
+            protocol_version: string;
+            repository_sha256: string;
+            run_id: string;
+            sequencer_sha256: string;
+            started_operation_id: string;
+            status: string;
+            /** Format: date-time */
+            updated_at: string;
+            workspace_id: string;
+        };
+        GitAdvancedSpec: {
+            bad_commit?: string;
+            branch?: string;
+            commit?: string;
+            commits?: string[];
+            expected_current?: string;
+            good_commit?: string;
+            hunk_ids?: string[];
+            include_untracked?: boolean;
+            keep_index?: boolean;
+            lock_reason?: string;
+            message?: string;
+            onto_oid?: string;
+            operation: string;
+            paths?: string[];
+            protocol_version: string;
+            recipe?: components["schemas"]["GitAdvancedBisectRecipe"];
+            restore_index?: boolean;
+            sequence_id?: string;
+            stash_oid?: string;
+            upstream_oid?: string;
+            worktree_id?: string;
+            worktree_name?: string;
+        };
+        GitAdvancedStashEntry: {
+            base_commit: string;
+            files: components["schemas"]["GitAdvancedFileImpact"][];
+            index_commit: string;
+            oid: string;
+            subject: string;
+            untracked_commit?: string;
+        };
         HarnessAvailability: {
             ExpiresAt: string;
             JSONStrategy: string;
@@ -5691,6 +6087,31 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
             version: string;
+        };
+        Record: {
+            ActionClass: string;
+            /** Format: date-time */
+            CreatedAt: string;
+            /** Format: date-time */
+            DecidedAt: string;
+            DecisionReason: string;
+            GrantID: string;
+            ID: string;
+            IdempotencyKey: string;
+            Mode: string;
+            ProposalID: string;
+            RequestFingerprint: string;
+            RequestedBy: string;
+            ReviewedBy: string;
+            RunID: string;
+            SessionID: string;
+            Status: string;
+            ToolName: string;
+            /** Format: date-time */
+            UpdatedAt: string;
+            /** Format: int64 */
+            Version: number;
+            WorkspaceID: string;
         };
         ReleaseMetadata: {
             app_version: string;
@@ -6570,6 +6991,7 @@ export interface components {
             file_edit_proposal_enabled: boolean;
             file_edit_review_enabled: boolean;
             full_cdp_debug_enabled: boolean;
+            git_advanced_control_enabled: boolean;
             host_command_proposal_control_enabled: boolean;
             model_control_enabled: boolean;
             operator_approval_enabled: boolean;
@@ -7930,6 +8352,12 @@ export interface components {
             truncated: boolean;
             workspace_id: string;
         };
+        WorkspaceMutationBoundary: {
+            after?: components["schemas"]["Checkpoint"];
+            before: components["schemas"]["Checkpoint"];
+            replayed: boolean;
+            transaction: components["schemas"]["Transaction"];
+        };
         WorkspaceRestoreResult: {
             after?: components["schemas"]["Checkpoint"];
             before: components["schemas"]["Checkpoint"];
@@ -8014,6 +8442,19 @@ export interface components {
         continuityCheckpointRequestView: {
             summary?: string;
             title?: string;
+        };
+        gitAdvancedDiscoverView: {
+            spec: components["schemas"]["GitAdvancedSpec"];
+        };
+        gitAdvancedExecuteView: {
+            approval_id: string;
+            operation_id: string;
+            scope: components["schemas"]["GitAdvancedScope"];
+        };
+        gitAdvancedReviewView: {
+            operation_key: string;
+            scope: components["schemas"]["GitAdvancedScope"];
+            spec: components["schemas"]["GitAdvancedSpec"];
         };
         projectInstructionRefreshRequestView: {
             confirm: boolean;
@@ -11571,6 +12012,169 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["FileEditReviewView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getGitAdvancedProjection: {
+        parameters: {
+            query?: {
+                /** @description Maximum operation receipts */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["GitAdvancedProjection"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    discoverGitAdvancedHunks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["gitAdvancedDiscoverView"];
+            };
+        };
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["GitAdvancedReviewResult"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    executeGitAdvancedOperation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["gitAdvancedExecuteView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["GitAdvancedExecuteResult"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    reviewGitAdvancedOperation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["gitAdvancedReviewView"];
+            };
+        };
+        responses: {
+            /** @description Resource created or idempotently replayed */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["GitAdvancedReviewResult"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";

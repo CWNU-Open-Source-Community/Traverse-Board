@@ -1,12 +1,68 @@
 # Project Status
 
-Last updated: 2026-08-20
+Last updated: 2026-08-21
 
 > **Scope authority:** active mainline work targets the general-purpose Agent Harness and Code workflow. CTF-specific solving and offensive automation are optional add-ons and have no active implementation schedule. Historical references and percentages below remain audit history, not queued work. See [Product Scope](PRODUCT_SCOPE.md).
 
 ## Resume Context
 
-当前检查点是 issue #105 / schema v122 的持久化计划任务、`loop-monitor` 与结构化诊断。
+当前检查点是 issue #117 / schema v123 的审批式高级 Git、冲突恢复与受管 worktree。
+`git-advanced.v1` 已定义严格 operation union、capability/preview/typed error/conflict/receipt，
+并将 hunk stage/unstage/revert、stash create/list/show/apply/pop/drop、rebase/cherry-pick
+start/continue/skip/abort、有界 bisect 与 worktree create/lock/unlock/remove/prune 接到同一
+Go-owned executor。hunk identity 固定 base/index blob、整文件 worktree hash、上下文和 patch；
+所有 caller path 使用 literal pathspec，二进制/combined、symlink、submodule、歧义 index stage
+与漂移 preview 均失败关闭。stash 以 exact OID 和父提交角色投影，冲突 pop 保留原 stash。
+
+Application 在 review/execute 时固定 repository/common-dir、HEAD/branch、index/worktree/status、
+stash/sequencer/upstream、permission revision、process capability generation 与 private Workspace
+lease；每项 mutation 都建立一次性 `git.advanced` Approval 与 schema v117 Checkpoint。SQLite
+v123 以 immutable operation、generation-CAS sequence、never-reused managed-worktree registry
+和 append-only events 持久化；并发执行只有 `proposed -> running` CAS 胜者能调用 Git。
+重启观察但不重放 running 命令，rebase/cherry 冲突序列可继续恢复；精确创建但登记前崩溃的
+clean worktree 只在 path/common-dir/branch/commit 全匹配时保守登记，旧收据仍为
+`failed/interrupted`。终态 receipt 现强校验 typed failure、时间、binding 与 Checkpoint。
+
+bisect 自动运行只接受固定 `go test -count=1 ./...` 或 offline npm recipe、1-128 step 与
+1-900 秒超时，使用现有 whole-process-tree runner 并要求 closed stdin/tree reaped 证据。
+受管路径由 Go 从 startup root + common-dir 指纹 + safe name 派生；根和仓库子目录均拒绝
+symlink/Windows junction，remove 无 force 且同时复核 registry/live HEAD/branch/common-dir、
+tracked/untracked/ignored clean，prune 只接受产品登记的 missing entry。stash 与历史状态机还会
+在 preview 与命令前复核阶段拒绝可能被 Git 静默覆盖的 ignored path；自动 bisect 还会在
+每次测试后、切换 commit 前再次复核。保护分支、shared-upstream rebase、detached rewrite、
+force/reset-hard/clean-force、hook/helper/custom driver/raw argv 默认不可达。
+
+CLI `cyberagent git-advanced`、read/control bearer OpenAPI、React/Desktop 高级 Git 面板与
+startup reconciliation 共用一个 Application 服务；公共 DTO 隐藏 lease ID、host path 和 raw
+持久 JSON。`review` 1.4.0 与 `focused-checks` 1.1.0 已消费完整 merge-base diff、stable hunk、
+base/ours/theirs、worktree 与 recovery evidence，旧 1.3.0/1.0.0 exact bytes 已归档。协议、操作
+和限制见 `docs/git-advanced.md` 与 ADR 0122。重放主线后的最终发布门
+`go test -p 2 -count=1 -timeout 30m ./...` 全仓通过：Store 748.018s、Application 499.105s、
+HTTP 133.862s、CLI App 98.970s、repository 101.197s。Advanced Git/LSP 定向 race 与小包
+整包 race、普通/Desktop-tag vet、新增代码 scoped staticcheck、Go module verify/tidy、
+Linux/amd64 no-CGO 58 个测试二进制编译均通过。Web 65 files/288 tests、strict TypeScript、
+production build、0-vulnerability npm audit 通过；Rust fmt、7+2 tests、Clippy、重放前在线
+RustSec audit 与最终 1217-advisory 缓存 audit 均通过，且 Cargo.lock 未变。OpenAPI/TypeScript
+连续生成字节一致，为 144 paths / 160 operations / 419 schemas，SHA-256
+分别为 `116952142fb55bae2cfbe9b13f7e5742f16d14760989d0618acd0e6a43e240f8` 与
+`2cb61016a393b5160bf6c37a2751f5d80bff5b5184aaddbd35290af860b284a4`。
+
+无过滤全仓 `SA*/S1*/QF*` staticcheck 仍报告 8 项 main 既有 empty-branch/deprecation/
+ineffective-code/style 债务，涉及的 6 个文件均与 `origin/main` 完全一致且不在本 PR diff；本记录
+不把它误报为零告警。首次默认并发全仓运行曾在 main 原样的 command-runtime 取消测试中出现
+一次负载敏感超时，隔离普通 20 次、race 5 次均通过；Application 复验又在 main 原样且只有
+500ms 总 deadline 的 UI-evidence 测试中提前耗尽 source revalidation，隔离普通 20 次通过，
+最终 `-p 2` 全仓门通过。本机 Go 1.26.5 的 `govulncheck ./...` 如实报告 5 项可达标准库
+advisory，均标注由 Go 1.26.6 修复；本切片未新增 Go module 依赖，CI 的固定工具链结果仍以
+PR checks 为准。
+
+本切片已重放到 `origin/main` 提交 `715591a`，保留 issue #116 新增的只读
+`code-intel-lsp.v1` 运行时、CLI/OpenAPI/Desktop 投影和模型工具；合并后的 `review` 与
+`focused-checks` 同时要求 LSP 来源证据和高级 Git 的完整 diff/hunk/conflict/recovery 证据。
+
+上一功能检查点是 issue #116 的 Go-owned 只读 LSP 语义代码智能；该切片不增加 SQLite
+迁移，数据库仍为 schema v122。再前一数据库检查点是 issue #105 / schema v122 的持久化
+计划任务、`loop-monitor` 与结构化诊断。
 `scheduled-job.v1` 绑定显式 owner/target Run 和 root，支持 once/periodic、UTC anchor + IANA
 timezone、next wake、deadline、stop-on-terminal、轮次/模型/耗时预算、重试退避、misfire 与
 通知。SQLite claim 以 occurrence/attempt/generation/owner digest/fence digest/expiry 原子绑定，

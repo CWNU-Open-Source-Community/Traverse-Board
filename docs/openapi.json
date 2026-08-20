@@ -35,6 +35,10 @@
       "description": "Durable Run state and Run-scoped projections."
     },
     {
+      "name": "Git",
+      "description": "Approval-gated, preview-bound advanced Git operations and durable recovery state."
+    },
+    {
       "name": "Agents",
       "description": "Bounded Agent graph and operator-gated delegation projections."
     },
@@ -8320,6 +8324,393 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/FileEditReviewRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/git-advanced": {
+      "get": {
+        "operationId": "getGitAdvancedProjection",
+        "summary": "Inspect advanced Git state",
+        "description": "Returns the current repository binding, process capability generation, conflict stages, durable sequence recovery, managed worktrees, and recent immutable operation receipts without exposing filesystem roots.",
+        "tags": [
+          "Git"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum operation receipts",
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GitAdvancedProjection"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/runs/{run_id}/git-advanced/discover-hunks": {
+      "post": {
+        "operationId": "discoverGitAdvancedHunks",
+        "summary": "Discover stable Git hunk identities",
+        "description": "Reads one exact repository/index/worktree snapshot and returns stable hunk identities and patches. Discovery never creates an Approval and selected identities must be reviewed again before mutation.",
+        "tags": [
+          "Git"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GitAdvancedReviewResult"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/gitAdvancedDiscoverView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/runs/{run_id}/git-advanced/execute": {
+      "post": {
+        "operationId": "executeGitAdvancedOperation",
+        "summary": "Execute an approved advanced Git mutation",
+        "description": "Consumes one exact approved preview after revalidating capability, permission, lease, repository, index, worktree, upstream, hunk, sequence, and worktree-registry state. Every mutation is bracketed by Workspace checkpoints and yields a durable receipt.",
+        "tags": [
+          "Git"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GitAdvancedExecuteResult"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/gitAdvancedExecuteView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/git-advanced/review": {
+      "post": {
+        "operationId": "reviewGitAdvancedOperation",
+        "summary": "Review an exact advanced Git mutation",
+        "description": "Revalidates the active Run permission, lease generation, process capability, repository binding, target objects, selected hunks, conflicts, file impact, and recovery plan, then persists an immutable pending Approval source.",
+        "tags": [
+          "Git"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Resource created or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GitAdvancedReviewResult"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/gitAdvancedReviewView"
               }
             }
           }
@@ -23616,6 +24007,1206 @@
         ],
         "type": "object"
       },
+      "GitAdvancedAuthorityView": {
+        "additionalProperties": false,
+        "properties": {
+          "executable": {
+            "type": "boolean"
+          },
+          "lease_active": {
+            "type": "boolean"
+          },
+          "lease_expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "permission_revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "permission_snapshot_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/GitAdvancedScope"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "scope",
+          "permission_snapshot_id",
+          "permission_revision",
+          "lease_active",
+          "executable"
+        ],
+        "type": "object"
+      },
+      "GitAdvancedBisectRecipe": {
+        "additionalProperties": false,
+        "properties": {
+          "max_steps": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "timeout_seconds": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "max_steps",
+          "timeout_seconds"
+        ],
+        "type": "object"
+      },
+      "GitAdvancedCapabilitySnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "captured_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "generation": {
+            "type": "string"
+          },
+          "managed_root_sha256": {
+            "type": "string"
+          },
+          "max_commits": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "max_hunks": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "max_paths": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "operations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "protocol_version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "enabled",
+          "generation",
+          "managed_root_sha256",
+          "operations",
+          "max_hunks",
+          "max_paths",
+          "max_commits",
+          "captured_at"
+        ],
+        "type": "object"
+      },
+      "GitAdvancedConflictFile": {
+        "additionalProperties": false,
+        "properties": {
+          "base_oid": {
+            "type": "string"
+          },
+          "ours_oid": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "theirs_oid": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "GitAdvancedConflictState": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "can_abort": {
+            "type": "boolean"
+          },
+          "can_continue": {
+            "type": "boolean"
+          },
+          "can_skip": {
+            "type": "boolean"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/GitAdvancedConflictFile"
+            },
+            "type": "array"
+          },
+          "kind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "active",
+          "files",
+          "can_continue",
+          "can_skip",
+          "can_abort"
+        ],
+        "type": "object"
+      },
+      "GitAdvancedExecuteResult": {
+        "additionalProperties": false,
+        "properties": {
+          "boundary": {
+            "$ref": "#/components/schemas/WorkspaceMutationBoundary"
+          },
+          "operation": {
+            "$ref": "#/components/schemas/GitAdvancedOperationRecord"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/GitAdvancedReceipt"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "sequence": {
+            "$ref": "#/components/schemas/GitAdvancedSequence"
+          },
+          "worktree": {
+            "$ref": "#/components/schemas/GitAdvancedManagedWorktree"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "operation",
+          "receipt",
+          "boundary",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "GitAdvancedFileImpact": {
+        "additionalProperties": false,
+        "properties": {
+          "after_sha256": {
+            "type": "string"
+          },
+          "before_sha256": {
+            "type": "string"
+          },
+          "change": {
+            "type": "string"
+          },
+          "destructive": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "change",
+          "destructive"
+        ],
+        "type": "object"
+      },
+      "GitAdvancedHunk": {
+        "additionalProperties": false,
+        "properties": {
+          "base_blob": {
+            "type": "string"
+          },
+          "context_sha256": {
+            "type": "string"
+          },
+          "destructive": {
+            "type": "boolean"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "index_blob": {
+            "type": "string"
+          },
+          "new_lines": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "new_start": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "old_lines": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "old_start": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "patch": {
+            "type": "string"
+          },
+          "patch_sha256": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "worktree_sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "path",
+          "old_start",
+          "old_lines",
+          "new_start",
+          "new_lines",
+          "context_sha256",
+          "patch_sha256",
+          "patch",
+          "destructive"
+        ],
+        "type": "object"
+      },
+      "GitAdvancedManagedWorktree": {
+        "additionalProperties": false,
+        "properties": {
+          "branch": {
+            "type": "string"
+          },
+          "common_dir_sha256": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_operation_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "head": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "last_operation_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "lock_reason": {
+            "type": "string"
+          },
+          "locked": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "path_sha256": {
+            "type": "string"
+          },
+          "present": {
+            "type": "boolean"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "removed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "repository_sha256": {
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "protocol_version",
+          "run_id",
+          "workspace_id",
+          "repository_sha256",
+          "common_dir_sha256",
+          "name",
+          "path_sha256",
+          "branch",
+          "head",
+          "locked",
+          "present",
+          "generation",
+          "created_operation_id",
+          "last_operation_id",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "GitAdvancedOperationRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "approval_fingerprint": {
+            "type": "string"
+          },
+          "approval_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "capability_generation": {
+            "type": "string"
+          },
+          "common_dir_sha256": {
+            "type": "string"
+          },
+          "completed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "error_code": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "lease_generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "operation_key_sha256": {
+            "type": "string"
+          },
+          "permission_revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "permission_snapshot_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "preview_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "repository_sha256": {
+            "type": "string"
+          },
+          "request_fingerprint": {
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "protocol_version",
+          "operation_key_sha256",
+          "request_fingerprint",
+          "preview_id",
+          "approval_fingerprint",
+          "run_id",
+          "session_id",
+          "workspace_id",
+          "operation",
+          "repository_sha256",
+          "common_dir_sha256",
+          "permission_snapshot_id",
+          "permission_revision",
+          "capability_generation",
+          "lease_generation",
+          "status",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "GitAdvancedOperationView": {
+        "additionalProperties": false,
+        "properties": {
+          "approval_fingerprint": {
+            "type": "string"
+          },
+          "approval_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "capability_generation": {
+            "type": "string"
+          },
+          "common_dir_sha256": {
+            "type": "string"
+          },
+          "completed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "error_code": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "lease_generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "operation_key_sha256": {
+            "type": "string"
+          },
+          "permission_revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "permission_snapshot_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "preview": {
+            "$ref": "#/components/schemas/GitAdvancedPreview"
+          },
+          "preview_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/GitAdvancedReceipt"
+          },
+          "repository_sha256": {
+            "type": "string"
+          },
+          "request_fingerprint": {
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "protocol_version",
+          "operation_key_sha256",
+          "request_fingerprint",
+          "preview_id",
+          "approval_fingerprint",
+          "operation",
+          "preview",
+          "repository_sha256",
+          "common_dir_sha256",
+          "permission_snapshot_id",
+          "permission_revision",
+          "capability_generation",
+          "lease_generation",
+          "status",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "GitAdvancedPreview": {
+        "additionalProperties": false,
+        "properties": {
+          "approval_fingerprint": {
+            "type": "string"
+          },
+          "binding": {
+            "$ref": "#/components/schemas/GitAdvancedRepositoryBinding"
+          },
+          "blocked_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "capability": {
+            "$ref": "#/components/schemas/GitAdvancedCapabilitySnapshot"
+          },
+          "conflict": {
+            "$ref": "#/components/schemas/GitAdvancedConflictState"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/GitAdvancedFileImpact"
+            },
+            "type": "array"
+          },
+          "hunks": {
+            "items": {
+              "$ref": "#/components/schemas/GitAdvancedHunk"
+            },
+            "type": "array"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "lease_generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "permission_revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "permission_snapshot_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "recovery": {
+            "$ref": "#/components/schemas/GitAdvancedRecoveryPlan"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/GitAdvancedSpec"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "id",
+          "operation",
+          "spec",
+          "binding",
+          "capability",
+          "hunks",
+          "files",
+          "conflict",
+          "recovery",
+          "summary",
+          "blocked_reasons",
+          "approval_fingerprint",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "GitAdvancedProjection": {
+        "additionalProperties": false,
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/GitAdvancedAuthorityView"
+          },
+          "binding": {
+            "$ref": "#/components/schemas/GitAdvancedRepositoryBinding"
+          },
+          "capability": {
+            "$ref": "#/components/schemas/GitAdvancedCapabilitySnapshot"
+          },
+          "conflict": {
+            "$ref": "#/components/schemas/GitAdvancedConflictState"
+          },
+          "operations": {
+            "items": {
+              "$ref": "#/components/schemas/GitAdvancedOperationView"
+            },
+            "type": "array"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "sequence": {
+            "$ref": "#/components/schemas/GitAdvancedSequence"
+          },
+          "stashes": {
+            "items": {
+              "$ref": "#/components/schemas/GitAdvancedStashEntry"
+            },
+            "type": "array"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "worktrees": {
+            "items": {
+              "$ref": "#/components/schemas/GitAdvancedManagedWorktree"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "run_id",
+          "workspace_id",
+          "authority",
+          "capability",
+          "binding",
+          "conflict",
+          "stashes",
+          "worktrees",
+          "operations"
+        ],
+        "type": "object"
+      },
+      "GitAdvancedReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "checkpoint_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "completed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "conflict": {
+            "$ref": "#/components/schemas/GitAdvancedConflictState"
+          },
+          "error_code": {
+            "type": "string"
+          },
+          "error_summary": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "observed_bytes": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "post_binding": {
+            "$ref": "#/components/schemas/GitAdvancedRepositoryBinding"
+          },
+          "pre_binding": {
+            "$ref": "#/components/schemas/GitAdvancedRepositoryBinding"
+          },
+          "preview_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "sequence_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "target_oid": {
+            "type": "string"
+          },
+          "worktree_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "id",
+          "preview_id",
+          "operation",
+          "status",
+          "pre_binding",
+          "post_binding",
+          "conflict",
+          "observed_bytes",
+          "started_at",
+          "completed_at"
+        ],
+        "type": "object"
+      },
+      "GitAdvancedRecoveryPlan": {
+        "additionalProperties": false,
+        "properties": {
+          "checkpoint_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "checkpoint_level": {
+            "type": "string"
+          },
+          "incomplete_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "restore_action": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "required",
+          "incomplete_reasons"
+        ],
+        "type": "object"
+      },
+      "GitAdvancedRepositoryBinding": {
+        "additionalProperties": false,
+        "properties": {
+          "branch": {
+            "type": "string"
+          },
+          "captured_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "common_dir_sha256": {
+            "type": "string"
+          },
+          "detached": {
+            "type": "boolean"
+          },
+          "head": {
+            "type": "string"
+          },
+          "index_sha256": {
+            "type": "string"
+          },
+          "object_format": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "repository_sha256": {
+            "type": "string"
+          },
+          "sequence_sha256": {
+            "type": "string"
+          },
+          "stash_sha256": {
+            "type": "string"
+          },
+          "status_sha256": {
+            "type": "string"
+          },
+          "upstream_oid": {
+            "type": "string"
+          },
+          "upstream_ref": {
+            "type": "string"
+          },
+          "worktree_sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "repository_sha256",
+          "common_dir_sha256",
+          "head",
+          "branch",
+          "index_sha256",
+          "worktree_sha256",
+          "status_sha256",
+          "stash_sha256",
+          "sequence_sha256",
+          "detached",
+          "object_format",
+          "captured_at"
+        ],
+        "type": "object"
+      },
+      "GitAdvancedReviewResult": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "$ref": "#/components/schemas/Record"
+          },
+          "operation": {
+            "$ref": "#/components/schemas/GitAdvancedOperationRecord"
+          },
+          "preview": {
+            "$ref": "#/components/schemas/GitAdvancedPreview"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "run_id",
+          "workspace_id",
+          "preview",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "GitAdvancedScope": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_generation": {
+            "type": "string"
+          },
+          "lease_generation": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "capability_generation",
+          "lease_generation"
+        ],
+        "type": "object"
+      },
+      "GitAdvancedSequence": {
+        "additionalProperties": false,
+        "properties": {
+          "completed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "current_head": {
+            "type": "string"
+          },
+          "generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "last_operation_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "original_branch": {
+            "type": "string"
+          },
+          "original_head": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "repository_sha256": {
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "sequencer_sha256": {
+            "type": "string"
+          },
+          "started_operation_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "protocol_version",
+          "run_id",
+          "workspace_id",
+          "kind",
+          "status",
+          "repository_sha256",
+          "original_head",
+          "original_branch",
+          "sequencer_sha256",
+          "current_head",
+          "generation",
+          "started_operation_id",
+          "last_operation_id",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "GitAdvancedSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "bad_commit": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "commits": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "expected_current": {
+            "type": "string"
+          },
+          "good_commit": {
+            "type": "string"
+          },
+          "hunk_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "include_untracked": {
+            "type": "boolean"
+          },
+          "keep_index": {
+            "type": "boolean"
+          },
+          "lock_reason": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "onto_oid": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "recipe": {
+            "$ref": "#/components/schemas/GitAdvancedBisectRecipe"
+          },
+          "restore_index": {
+            "type": "boolean"
+          },
+          "sequence_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "stash_oid": {
+            "type": "string"
+          },
+          "upstream_oid": {
+            "type": "string"
+          },
+          "worktree_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "worktree_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "operation"
+        ],
+        "type": "object"
+      },
+      "GitAdvancedStashEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "base_commit": {
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/GitAdvancedFileImpact"
+            },
+            "type": "array"
+          },
+          "index_commit": {
+            "type": "string"
+          },
+          "oid": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "untracked_commit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "oid",
+          "base_commit",
+          "index_commit",
+          "subject",
+          "files"
+        ],
+        "type": "object"
+      },
       "HarnessAvailability": {
         "additionalProperties": false,
         "properties": {
@@ -26772,6 +28363,94 @@
           "message_complete",
           "provisional",
           "updated_at"
+        ],
+        "type": "object"
+      },
+      "Record": {
+        "additionalProperties": false,
+        "properties": {
+          "ActionClass": {
+            "type": "string"
+          },
+          "CreatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "DecidedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "DecisionReason": {
+            "type": "string"
+          },
+          "GrantID": {
+            "type": "string"
+          },
+          "ID": {
+            "type": "string"
+          },
+          "IdempotencyKey": {
+            "type": "string"
+          },
+          "Mode": {
+            "type": "string"
+          },
+          "ProposalID": {
+            "type": "string"
+          },
+          "RequestFingerprint": {
+            "type": "string"
+          },
+          "RequestedBy": {
+            "type": "string"
+          },
+          "ReviewedBy": {
+            "type": "string"
+          },
+          "RunID": {
+            "type": "string"
+          },
+          "SessionID": {
+            "type": "string"
+          },
+          "Status": {
+            "type": "string"
+          },
+          "ToolName": {
+            "type": "string"
+          },
+          "UpdatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "Version": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "WorkspaceID": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ID",
+          "IdempotencyKey",
+          "ProposalID",
+          "GrantID",
+          "RunID",
+          "SessionID",
+          "WorkspaceID",
+          "ToolName",
+          "ActionClass",
+          "Mode",
+          "Status",
+          "RequestFingerprint",
+          "DecisionReason",
+          "RequestedBy",
+          "ReviewedBy",
+          "Version",
+          "CreatedAt",
+          "UpdatedAt",
+          "DecidedAt"
         ],
         "type": "object"
       },
@@ -30197,6 +31876,9 @@
           "full_cdp_debug_enabled": {
             "type": "boolean"
           },
+          "git_advanced_control_enabled": {
+            "type": "boolean"
+          },
           "host_command_proposal_control_enabled": {
             "type": "boolean"
           },
@@ -30310,6 +31992,7 @@
           "verification_evidence_enabled",
           "embedded_analyzer_execution_enabled",
           "workspace_checkpoint_control_enabled",
+          "git_advanced_control_enabled",
           "batch_delivery_control_enabled",
           "batch_delivery_host_validation_enabled",
           "ui_evidence_control_enabled",
@@ -35646,6 +37329,29 @@
         ],
         "type": "object"
       },
+      "WorkspaceMutationBoundary": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "$ref": "#/components/schemas/Checkpoint"
+          },
+          "before": {
+            "$ref": "#/components/schemas/Checkpoint"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "transaction": {
+            "$ref": "#/components/schemas/Transaction"
+          }
+        },
+        "required": [
+          "transaction",
+          "before",
+          "replayed"
+        ],
+        "type": "object"
+      },
       "WorkspaceRestoreResult": {
         "additionalProperties": false,
         "properties": {
@@ -35971,6 +37677,62 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "gitAdvancedDiscoverView": {
+        "additionalProperties": false,
+        "properties": {
+          "spec": {
+            "$ref": "#/components/schemas/GitAdvancedSpec"
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "type": "object"
+      },
+      "gitAdvancedExecuteView": {
+        "additionalProperties": false,
+        "properties": {
+          "approval_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "operation_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/GitAdvancedScope"
+          }
+        },
+        "required": [
+          "operation_id",
+          "approval_id",
+          "scope"
+        ],
+        "type": "object"
+      },
+      "gitAdvancedReviewView": {
+        "additionalProperties": false,
+        "properties": {
+          "operation_key": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/GitAdvancedScope"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/GitAdvancedSpec"
+          }
+        },
+        "required": [
+          "operation_key",
+          "scope",
+          "spec"
+        ],
         "type": "object"
       },
       "projectInstructionRefreshRequestView": {

@@ -4,6 +4,32 @@
 
 Last updated: 2026-08-20
 
+## Current Single-Slice Checkpoint: Advanced Git Recovery and Managed Worktrees / Issue #117
+
+2026-08-20 的 issue #117 落地 `git-advanced.v1`（ADR 0122，schema v123）。严格 union 只允许
+hunk stage/unstage/revert、stash、rebase/cherry-pick/bisect 和受管 worktree 的 Go-owned
+模板，不接受 raw Git argv、Shell、host path、任意 ref/pathspec 或 bisect 命令。preview 固定
+repository/common-dir、HEAD/branch、index/worktree/status/stash/sequencer/upstream；hunk 再固定
+base/index blob、whole-file worktree hash、context 与 patch。execution 重新渲染全部证据并绑定
+当前 permission revision、process-random capability generation、private lease 和一次性 Approval，
+每次 mutation 均开闭 Workspace Checkpoint。
+
+operation 写前以 CAS 获取唯一执行权，terminal receipt/事件不可变；rebase/cherry/bisect 另有
+original ref、target、current HEAD、sequencer digest、conflict 与 generation 的 durable sequence。
+重启只观察并 terminalize，不重放；active/conflicted sequence 保持显式 continue/skip/abort。
+worktree 目标由 managed root/common-dir fingerprint/safe name 派生，永久登记 repo/common-dir/
+branch/commit/Run/Workspace/path hash；symlink/junction、复用、locked/dirty/head drift、外部或
+未登记 prune 默认拒绝。create 后登记前崩溃只能在全身份和 clean 状态精确匹配时纳入 registry，
+旧 operation 仍是 interrupted，不能伪装 success。
+
+Git 环境关闭 system/global config、hook、credential helper、prompt、editor/pager、external diff、
+fsmonitor、LFS smudge 与 executable local filter/diff/merge driver；所有 caller path 固定 literal
+pathspec。保护/共享/detached history、force push/reset-hard/clean-force 不可表达。bisect run 只有
+Go/npm 固定 offline recipe、step/timeout budget 与 whole-process-tree reap。CLI、OpenAPI、Desktop
+和 startup recovery 共用 Application；公开投影不含 private lease、host path、raw JSON/argv。
+`review` 1.4.0、`focused-checks` 1.1.0 与 exact archives 已同步。恢复入口见
+`docs/git-advanced.md`，禁止在后续 compaction 中退回通用 Git/Shell 实现或重放 running row。
+
 ## Upstream Checkpoint: Deliverable Batch Agents / Issue #103
 
 2026-08-20 的 issue #103 落地 `batch-delivery.v1`（ADR 0119，schema v118）。该合同只消费

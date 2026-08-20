@@ -13,6 +13,7 @@ import (
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/fileedit"
+	"cyberagent-workbench/internal/gitadvanced"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/scriptprocess"
@@ -330,6 +331,22 @@ func validateApprovalProposalSourceTx(ctx context.Context, tx *sql.Tx, proposal 
 			runStatus == string(domain.RunCompleted) || runStatus == string(domain.RunFailed) ||
 			runStatus == string(domain.RunCancelled) {
 			return errors.New("approval request does not match the stored sandbox Manifest preparation")
+		}
+	case gitadvanced.ApprovalToolName:
+		var sessionID, workspaceID, approvalFingerprint, operationStatus string
+		var approvalID sql.NullString
+		if err := tx.QueryRowContext(ctx, `SELECT session_id, workspace_id,
+			approval_fingerprint, status, approval_id FROM git_advanced_operations
+			WHERE id = ?`, proposal.ProposalID).Scan(&sessionID, &workspaceID,
+			&approvalFingerprint, &operationStatus, &approvalID); err != nil {
+			return err
+		}
+		if proposal.SessionID != sessionID || proposal.WorkspaceID != workspaceID ||
+			proposal.ActionClass != gitadvanced.ApprovalActionClass ||
+			proposal.Mode != "per_call" || proposal.Status != approval.StatusPending ||
+			proposal.RequestFingerprint != approvalFingerprint ||
+			operationStatus != string(gitadvanced.OperationProposed) || approvalID.Valid {
+			return errors.New("approval request does not match the stored Git advanced preview")
 		}
 	default:
 		return fmt.Errorf("unsupported approval tool %q", proposal.ToolName)

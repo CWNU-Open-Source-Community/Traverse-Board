@@ -102,6 +102,16 @@ func TestBuiltinRegistryRetainsArchivedPinnedContext(t *testing.T) {
 			"b8e55af0094db9844cd47fa4db459897a8200ec9f39fe9f31aa74316113563c3" {
 		t.Fatal("previous review version was not retained for exact resumption")
 	}
+	if archivedReview, found := registry.version("review", "1.3.0"); !found ||
+		archivedReview.manifest.ContentSHA256 !=
+			"0e0b45f5ea9499721dbff485e502ae332a96ed781e11c5a9b652776f3360f9a4" {
+		t.Fatal("previous full-diff review version was not retained for exact resumption")
+	}
+	if archivedChecks, found := registry.version("focused-checks", "1.0.0"); !found ||
+		archivedChecks.manifest.ContentSHA256 !=
+			"fdc0172a255a40c71884acebbad58b41dcb86f1cf8fa7662aec1c6588460c335" {
+		t.Fatal("previous focused-checks version was not retained for exact resumption")
+	}
 }
 
 func TestRegistryRedactsSkillContextBeforeBudgeting(t *testing.T) {

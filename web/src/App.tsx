@@ -84,6 +84,8 @@ export default function App() {
     (state) => state.uiEvidenceControlEnabled);
   const embeddedAnalyzerExecutionEnabled = useConnectionStore(
     (state) => state.embeddedAnalyzerExecutionEnabled);
+  const gitAdvancedControlEnabled = useConnectionStore(
+    (state) => state.gitAdvancedControlEnabled);
   const dockerExecutionEnabled = useConnectionStore(
     (state) => state.dockerExecutionEnabled);
   const agentCodeToolsEnabled = useConnectionStore(
@@ -121,6 +123,7 @@ export default function App() {
     verificationEvidenceEnabled={verificationEvidenceEnabled}
     uiEvidenceControlEnabled={uiEvidenceControlEnabled}
     embeddedAnalyzerExecutionEnabled={embeddedAnalyzerExecutionEnabled}
+    gitAdvancedControlEnabled={gitAdvancedControlEnabled}
     dockerExecutionEnabled={dockerExecutionEnabled}
     agentCodeToolsEnabled={agentCodeToolsEnabled} codeIntelEnabled={codeIntelEnabled} />;
 }
@@ -138,8 +141,8 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   runWakeExecutionEnabled, runWakeWorkerEnabled, skillInstallationEnabled,
   scheduledJobControlEnabled, scheduledJobWorkerEnabled,
   evidenceAttachmentEnabled, verificationEvidenceEnabled, uiEvidenceControlEnabled,
-  embeddedAnalyzerExecutionEnabled, dockerExecutionEnabled, agentCodeToolsEnabled,
-  codeIntelEnabled }: {
+  embeddedAnalyzerExecutionEnabled, gitAdvancedControlEnabled,
+  dockerExecutionEnabled, agentCodeToolsEnabled, codeIntelEnabled }: {
   token: string;
   controlToken: string;
   runControlEnabled: boolean;
@@ -174,6 +177,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   verificationEvidenceEnabled: boolean;
   uiEvidenceControlEnabled: boolean;
   embeddedAnalyzerExecutionEnabled: boolean;
+  gitAdvancedControlEnabled: boolean;
   dockerExecutionEnabled: boolean;
   agentCodeToolsEnabled: boolean;
   codeIntelEnabled: boolean;
@@ -206,6 +210,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     skillInstallationEnabled, evidenceAttachmentEnabled,
     verificationEvidenceEnabled, uiEvidenceControlEnabled,
     embeddedAnalyzerExecutionEnabled,
+    gitAdvancedControlEnabled,
     dockerExecutionEnabled,
     agentCodeToolsEnabled,
     codeIntelEnabled,
@@ -222,7 +227,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     runWakeWorkerEnabled, scheduledJobControlEnabled, scheduledJobWorkerEnabled,
     skillInstallationEnabled, evidenceAttachmentEnabled,
     verificationEvidenceEnabled, uiEvidenceControlEnabled,
-    embeddedAnalyzerExecutionEnabled, dockerExecutionEnabled,
+    embeddedAnalyzerExecutionEnabled, gitAdvancedControlEnabled, dockerExecutionEnabled,
     agentCodeToolsEnabled, codeIntelEnabled]);
   const queryClient = useQueryClient();
   const health = useConnectionStore((state) => state.health);
@@ -269,6 +274,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     { id: "ui-evidence", label: t("真实浏览器 UI 证据", "Real-browser UI evidence"),
       enabled: uiEvidenceControlEnabled },
     { id: "embedded-analyzer", label: t("内置分析器", "Embedded analyzer"), enabled: embeddedAnalyzerExecutionEnabled },
+    { id: "git-advanced", label: t("高级 Git 操作", "Advanced Git operations"), enabled: gitAdvancedControlEnabled },
     { id: "docker-execution", label: t("Docker 沙箱", "Docker sandbox"), enabled: dockerExecutionEnabled },
     { id: "agent-code-tools", label: t("模型工作区工具", "Model workspace tools"), enabled: agentCodeToolsEnabled },
     { id: "code-intel", label: t("只读语义工具", "Read-only semantic tools"), enabled: codeIntelEnabled },
@@ -282,7 +288,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     runWakeControlEnabled, runWakeExecutionEnabled, runWakeWorkerEnabled,
     sessionMessageEnabled, sessionSteeringControlEnabled, skillInstallationEnabled,
     verificationEvidenceEnabled, uiEvidenceControlEnabled,
-    embeddedAnalyzerExecutionEnabled, dockerExecutionEnabled,
+    embeddedAnalyzerExecutionEnabled, gitAdvancedControlEnabled, dockerExecutionEnabled,
     agentCodeToolsEnabled, codeIntelEnabled, t]);
 
   useEffect(() => {

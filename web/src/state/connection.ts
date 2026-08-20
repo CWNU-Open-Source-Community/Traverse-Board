@@ -43,6 +43,7 @@ interface ConnectionState {
   verificationEvidenceEnabled: boolean;
   uiEvidenceControlEnabled: boolean;
   embeddedAnalyzerExecutionEnabled: boolean;
+  gitAdvancedControlEnabled: boolean;
   dockerExecutionEnabled: boolean;
   agentCodeToolsEnabled: boolean;
   codeIntelEnabled: boolean;
@@ -98,6 +99,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   verificationEvidenceEnabled: false,
   uiEvidenceControlEnabled: false,
   embeddedAnalyzerExecutionEnabled: false,
+  gitAdvancedControlEnabled: false,
   dockerExecutionEnabled: false,
   agentCodeToolsEnabled: false,
   codeIntelEnabled: false,
@@ -150,6 +152,8 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
 	    (capabilities.uiEvidenceControlEnabled ?? false),
 	  embeddedAnalyzerExecutionEnabled: present &&
 	    (capabilities.embeddedAnalyzerExecutionEnabled ?? false),
+	  gitAdvancedControlEnabled: present &&
+	    (capabilities.gitAdvancedControlEnabled ?? false),
 	  dockerExecutionEnabled: present &&
 	    (capabilities.dockerExecutionEnabled ?? false),
 	  agentCodeToolsEnabled: present &&
@@ -177,6 +181,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
 	verificationEvidenceEnabled: false,
 	uiEvidenceControlEnabled: false,
 	embeddedAnalyzerExecutionEnabled: false,
+	gitAdvancedControlEnabled: false,
 	dockerExecutionEnabled: false,
 	agentCodeToolsEnabled: false,
 	codeIntelEnabled: false,

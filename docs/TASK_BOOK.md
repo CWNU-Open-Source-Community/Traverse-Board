@@ -10,7 +10,14 @@
 
 ## 当前基线
 
-来源绑定真实浏览器 UI 证据（Issue #102）已随 schema v119 落地（ADR 0120）：
+审批式高级 Git（Issue #117）已随 schema v123 落地（ADR 0122）：严格 `git-advanced.v1`
+operation、稳定 hunk、stash 角色、rebase/cherry-pick/bisect durable sequence 与产品受管 worktree
+全部绑定 exact repository/HEAD/index/worktree/upstream、permission/capability/lease、一次性 Approval
+和 Workspace Checkpoint。运行中断只观察不重放；raw argv、force/shared rewrite、外部路径、hook/
+helper/custom driver 与任意 bisect recipe 默认不可达。CLI/OpenAPI/Desktop、恢复、测试与双语文档
+共用同一 Application 合同；详见 `docs/git-advanced.md` 与 ADR 0122。
+
+上一基线为来源绑定真实浏览器 UI 证据（Issue #102），随 schema v119 落地（ADR 0120）：
 `ui-evidence.v1` 把 fresh source checkpoint、受审阅 build/start recipe、固定浏览器
 version/executable hash、literal-loopback URL/route、viewport/DPR、locale/theme/
 reduced-motion、deterministic fixture/seed/page state、有序交互断言、capture/mask 与

@@ -49,6 +49,7 @@ const bootstrap = {
   ui_evidence_control_enabled: false,
   embedded_analyzer_execution_enabled: false,
   workspace_checkpoint_control_enabled: false,
+  git_advanced_control_enabled: false,
   batch_delivery_control_enabled: false,
   batch_delivery_host_validation_enabled: false,
   user_terminal_enabled: false,
@@ -223,6 +224,28 @@ describe("desktop native bridge", () => {
     installBridge({ Bootstrap: vi.fn().mockResolvedValue(dockerEnabled) });
     const module = await import("./desktop-bridge");
     await expect(module.loadDesktopBootstrap()).resolves.toEqual(dockerEnabled);
+  });
+
+  it("accepts Advanced Git only with permission, approval, and checkpoint gates", async () => {
+    const enabled = {
+      ...bootstrap,
+      control_token: "control-token-0123456789abcdefghijkl",
+      execution_permission_control_enabled: true,
+      operator_approval_enabled: true,
+      workspace_checkpoint_control_enabled: true,
+      git_advanced_control_enabled: true,
+      read_only_default: false,
+    };
+    installBridge({ Bootstrap: vi.fn().mockResolvedValue(enabled) });
+    let module = await import("./desktop-bridge");
+    await expect(module.loadDesktopBootstrap()).resolves.toEqual(enabled);
+
+    vi.resetModules();
+    installBridge({ Bootstrap: vi.fn().mockResolvedValue({
+      ...enabled, workspace_checkpoint_control_enabled: false,
+    }) });
+    module = await import("./desktop-bridge");
+    await expect(module.loadDesktopBootstrap()).rejects.toThrow("rejected");
   });
 
   it("rejects Docker execution authority without permission control", async () => {

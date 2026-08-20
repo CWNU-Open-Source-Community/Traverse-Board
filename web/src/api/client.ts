@@ -1,4 +1,10 @@
 import { consumeSSE } from "./sse";
+import {
+  isGitAdvancedExecuteResult,
+  isGitAdvancedProjection,
+  isGitAdvancedReviewResult,
+  validGitAdvancedSpec,
+} from "./git-advanced";
 import type {
   ApprovalDecisionControlRequestView,
   ChildTaskAdmitRequestView,
@@ -59,6 +65,11 @@ import type {
   FileEditReviewRequestView,
   FileEditReviewView,
   HealthView,
+  GitAdvancedExecuteResultView,
+  GitAdvancedProjectionView,
+  GitAdvancedReviewResultView,
+  GitAdvancedScopeView,
+  GitAdvancedSpecView,
   ModelAvailabilityView,
   ModelHarnessAvailabilityView,
   ModelHarnessQualificationRequestView,
@@ -190,6 +201,7 @@ export interface ClientCapabilities {
   uiEvidenceControlEnabled?: boolean;
   embeddedAnalyzerExecutionEnabled?: boolean;
   workspaceCheckpointControlEnabled?: boolean;
+  gitAdvancedControlEnabled?: boolean;
   batchDeliveryControlEnabled?: boolean;
   batchDeliveryHostValidationEnabled?: boolean;
   extensionControlEnabled?: boolean;
@@ -1511,6 +1523,7 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
     "danger_full_access_enabled", "debug_maximum_access_enabled",
     "evidence_attachment_enabled", "verification_evidence_enabled",
     "embedded_analyzer_execution_enabled", "workspace_checkpoint_control_enabled",
+    "git_advanced_control_enabled",
     "batch_delivery_control_enabled", "batch_delivery_host_validation_enabled",
     "ui_evidence_control_enabled",
     "file_edit_apply_enabled", "file_edit_proposal_enabled",
@@ -1573,7 +1586,10 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
       (value.run_execution_enabled && value.danger_full_access_enabled) ||
     value.process_execution_enabled !== value.command_runtime_enabled ||
     value.shell_execution_enabled !== value.command_runtime_enabled ||
-    (value.docker_execution_enabled && !value.execution_permission_control_enabled)) {
+    (value.docker_execution_enabled && !value.execution_permission_control_enabled) ||
+    (value.git_advanced_control_enabled &&
+      (!value.execution_permission_control_enabled || !value.operator_approval_enabled ||
+        !value.workspace_checkpoint_control_enabled))) {
     throw new APIRequestError("Run wake worker capability response is invalid",
       "INVALID_RESPONSE", 502);
   }
@@ -1676,6 +1692,7 @@ export function clientCapabilitiesFromRuntime(value: RuntimeCapabilitiesView): C
     verificationEvidenceEnabled: value.verification_evidence_enabled,
     embeddedAnalyzerExecutionEnabled: value.embedded_analyzer_execution_enabled,
     workspaceCheckpointControlEnabled: value.workspace_checkpoint_control_enabled,
+    gitAdvancedControlEnabled: value.git_advanced_control_enabled,
     batchDeliveryControlEnabled: value.batch_delivery_control_enabled,
     batchDeliveryHostValidationEnabled: value.batch_delivery_host_validation_enabled,
     uiEvidenceControlEnabled: value.ui_evidence_control_enabled,
@@ -4233,6 +4250,7 @@ export class CyberAgentClient {
   readonly hasVerificationEvidence: boolean;
   readonly hasEmbeddedAnalyzerExecution: boolean;
   readonly hasWorkspaceCheckpointControl: boolean;
+  readonly hasGitAdvancedControl: boolean;
   readonly hasBatchDeliveryControl: boolean;
   readonly hasBatchDeliveryHostValidation: boolean;
   readonly hasExtensionControl: boolean;
@@ -4292,6 +4310,11 @@ export class CyberAgentClient {
       (capabilities.embeddedAnalyzerExecutionEnabled ?? false);
     this.hasWorkspaceCheckpointControl = controlPresent &&
       (capabilities.workspaceCheckpointControlEnabled ?? false);
+    this.hasGitAdvancedControl = controlPresent &&
+      (capabilities.gitAdvancedControlEnabled ?? false) &&
+      this.hasExecutionPermissionControl &&
+      (capabilities.operatorApprovalEnabled ?? false) &&
+      this.hasWorkspaceCheckpointControl;
     this.hasBatchDeliveryControl = controlPresent &&
       (capabilities.batchDeliveryControlEnabled ?? false);
     this.hasBatchDeliveryHostValidation = this.hasBatchDeliveryControl &&
@@ -4322,6 +4345,75 @@ export class CyberAgentClient {
     return parseCodeIntelInventory(await this.get<unknown>(
       "/code-intel", { workspace_id: workspaceID || undefined }, signal,
     ));
+  }
+
+  async gitAdvancedProjection(runID: string,
+    signal?: AbortSignal): Promise<GitAdvancedProjectionView> {
+    if (!boundedIdentity(runID) || runID.trim() !== runID) {
+      throw new Error("A normalized Run identity is required");
+    }
+    const value = await this.get<unknown>(
+      `/runs/${encodeURIComponent(runID)}/git-advanced`, { limit: 100 }, signal,
+    );
+    if (!isGitAdvancedProjection(value, runID)) {
+      throw new APIRequestError("Git advanced projection is invalid", "INVALID_RESPONSE", 502);
+    }
+    return value;
+  }
+
+  async discoverGitAdvancedHunks(runID: string, spec: GitAdvancedSpecView,
+    signal?: AbortSignal): Promise<GitAdvancedReviewResultView> {
+    if (!this.hasGitAdvancedControl || !boundedIdentity(runID) || runID.trim() !== runID ||
+      !validGitAdvancedSpec(spec) || !["hunk_stage", "hunk_unstage", "hunk_revert"]
+        .includes(spec.operation) || (spec.hunk_ids?.length ?? 0) !== 0) {
+      throw new Error("Git advanced hunk discovery requires an enabled capability and closed hunk spec");
+    }
+    const value = await this.sendReadRequest<unknown>(
+      `/runs/${encodeURIComponent(runID)}/git-advanced/discover-hunks`, { spec }, signal,
+    );
+    if (!isGitAdvancedReviewResult(value, runID, true)) {
+      throw new APIRequestError("Git advanced hunk discovery is invalid", "INVALID_RESPONSE", 502);
+    }
+    return value;
+  }
+
+  async reviewGitAdvanced(runID: string, body: {
+    operation_key: string;
+    scope: GitAdvancedScopeView;
+    spec: GitAdvancedSpecView;
+  }, signal?: AbortSignal): Promise<GitAdvancedReviewResultView> {
+    if (!this.hasGitAdvancedControl || !boundedIdentity(runID) || runID.trim() !== runID ||
+      !boundedText(body.operation_key, 256) || body.operation_key.length < 16 ||
+      !isSHA256(body.scope.capability_generation) || !safePositiveInteger(body.scope.lease_generation) ||
+      !validGitAdvancedSpec(body.spec)) {
+      throw new Error("Git advanced review requires exact capability, lease, and operation inputs");
+    }
+    const value = await this.sendControlRequest<unknown>(
+      `/runs/${encodeURIComponent(runID)}/git-advanced/review`, body, signal,
+    );
+    if (!isGitAdvancedReviewResult(value, runID, false)) {
+      throw new APIRequestError("Git advanced review is invalid", "INVALID_RESPONSE", 502);
+    }
+    return value;
+  }
+
+  async executeGitAdvanced(runID: string, body: {
+    operation_id: string;
+    approval_id: string;
+    scope: GitAdvancedScopeView;
+  }, signal?: AbortSignal): Promise<GitAdvancedExecuteResultView> {
+    if (!this.hasGitAdvancedControl || !boundedIdentity(runID) || runID.trim() !== runID ||
+      !boundedIdentity(body.operation_id) || !boundedIdentity(body.approval_id) ||
+      !isSHA256(body.scope.capability_generation) || !safePositiveInteger(body.scope.lease_generation)) {
+      throw new Error("Git advanced execution requires exact approved operation authority");
+    }
+    const value = await this.sendControlRequest<unknown>(
+      `/runs/${encodeURIComponent(runID)}/git-advanced/execute`, body, signal,
+    );
+    if (!isGitAdvancedExecuteResult(value, body.operation_id)) {
+      throw new APIRequestError("Git advanced execution result is invalid", "INVALID_RESPONSE", 502);
+    }
+    return value;
   }
 
   async extensionInventory(runID = "", signal?: AbortSignal): Promise<ExtensionInventoryView> {
@@ -5731,6 +5823,33 @@ export class CyberAgentClient {
       throw new Error("A normalized idempotency key is required");
     }
     return this.sendControlRequest<T>(path, body, signal, idempotencyKey);
+  }
+
+  private async sendReadRequest<T>(path: string, body: unknown,
+    signal?: AbortSignal): Promise<T> {
+    const response = await fetch(this.url(path), {
+      method: "POST",
+      headers: { ...this.headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+      cache: "no-store",
+      credentials: "omit",
+      referrerPolicy: "no-referrer",
+    });
+    const payload = await this.readJSON(response);
+    if (!response.ok) {
+      if (isErrorEnvelope(payload)) {
+        throw new APIRequestError(payload.error.message, payload.error.code, response.status,
+          payload.request_id);
+      }
+      throw new APIRequestError("CyberAgent read request failed", "INVALID_RESPONSE", response.status,
+        response.headers.get("x-request-id") || "");
+    }
+    if (!isSuccessEnvelope<T>(payload)) {
+      throw new APIRequestError("CyberAgent API returned an invalid read envelope", "INVALID_RESPONSE",
+        response.status, response.headers.get("x-request-id") || "");
+    }
+    return payload.data;
   }
 
   private async sendControlRequest<T>(path: string, body: unknown, signal?: AbortSignal,

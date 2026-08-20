@@ -540,6 +540,36 @@ td code { font-size: 11px; }
 .repository-change-list code { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .repository-change-list span { color: var(--muted); }
 .projection-stack { display: grid; gap: 26px; }
+.git-advanced-panel { display: grid; gap: 0; }
+.git-advanced-panel h3 { display: flex; align-items: center; gap: 7px; margin: 0 0 10px; font-size: 12px; }
+.git-advanced-authority { flex-wrap: wrap; padding: 8px 0; }
+.git-advanced-authority > div { display: grid; gap: 2px; min-width: 110px; }
+.git-advanced-authority dt { color: var(--muted); font-size: 9px; text-transform: uppercase; }
+.git-advanced-authority dd { margin: 0; font: 10px/1.4 var(--prayu-font-mono); }
+.git-advanced-evidence, .git-advanced-section, .git-advanced-preview,
+.git-advanced-conflicts, .git-advanced-approval { min-width: 0; padding: 12px 2px; border-bottom: 1px solid var(--border); }
+.git-advanced-evidence summary, .git-advanced-panel details > summary { cursor: pointer; font-size: 11px; }
+.git-advanced-evidence code, .git-advanced-evidence small, .git-advanced-stash code,
+.git-advanced-stash small, .git-advanced-worktree small, .git-advanced-receipt small,
+.git-advanced-preview > code, .git-advanced-preview > small { display: block; margin-top: 5px; overflow-wrap: anywhere; color: var(--muted); font: 9px/1.45 var(--prayu-font-mono); }
+.git-advanced-form-row, .git-advanced-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.git-advanced-form-row input, .git-advanced-form-row select { min-width: 150px; min-height: 32px; padding: 5px 8px; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--surface); color: var(--text); }
+.git-advanced-form-row input:not([type="checkbox"]) { flex: 1 1 190px; }
+.git-advanced-form-row label { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 10px; }
+.git-advanced-form-row button, .git-advanced-actions button, .git-advanced-section > button,
+.git-advanced-hunks > button { min-height: 30px; padding: 5px 9px; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--surface-raised); color: var(--text); font-size: 10px; }
+.git-advanced-form-row button:disabled, .git-advanced-actions button:disabled,
+.git-advanced-hunks > button:disabled { opacity: .45; }
+.git-advanced-hunks, .git-advanced-sequence-starts { display: grid; gap: 9px; margin-top: 10px; }
+.git-advanced-hunks > label { min-width: 0; display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 4px 7px; align-items: center; font-size: 10px; }
+.git-advanced-hunks pre, .git-advanced-preview pre { grid-column: 2; max-height: 360px; margin: 0; padding: 9px; overflow: auto; border: 1px solid var(--border); border-radius: 5px; background: var(--surface-subtle); font: 10px/1.5 var(--prayu-font-mono); white-space: pre; }
+.git-advanced-stash, .git-advanced-worktree, .git-advanced-conflicts article { min-width: 0; display: grid; gap: 3px; padding: 9px 0; border-top: 1px solid var(--border); font-size: 10px; }
+.git-advanced-stash ul, .git-advanced-preview ul { margin: 5px 0; padding-left: 20px; }
+.git-advanced-conflicts article small { overflow-wrap: anywhere; color: var(--muted); font: 9px/1.45 var(--prayu-font-mono); }
+.git-advanced-approval { border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border)); border-radius: 8px; background: color-mix(in srgb, var(--accent) 5%, var(--surface)); padding: 12px; }
+.git-advanced-approval p { margin: 0 0 8px; color: var(--muted); font-size: 10px; }
+.git-advanced-approval code { display: block; margin-bottom: 9px; overflow-wrap: anywhere; font-size: 9px; }
+.git-advanced-receipt { display: grid; gap: 2px; padding: 8px 0; }
 .repository-diff-panel, .repository-history-panel, .verification-plan, .verification-evidence, .code-handoff-panel { min-width: 0; }
 .repository-diff-panel > header, .repository-history-panel > header, .verification-plan > header, .verification-evidence > header, .code-handoff-panel > header { min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border); }
 .repository-diff-panel > header > div, .repository-history-panel > header > div, .verification-plan > header > div, .verification-evidence > header > div, .code-handoff-panel > header > div { display: flex; align-items: center; gap: 8px; }

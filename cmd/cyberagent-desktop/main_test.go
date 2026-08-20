@@ -138,6 +138,21 @@ func TestDesktopOptionsDefaultToReadOnlyAndRequireExplicitCapabilities(t *testin
 	}); err == nil {
 		t.Fatal("batch host validation without permission/full access was accepted")
 	}
+	if _, err := parseDesktopOptions([]string{"--enable-git-advanced"}); err == nil ||
+		!strings.Contains(err.Error(), "--enable-permission-control") {
+		t.Fatalf("Git advanced control without permission control was accepted: %v", err)
+	}
+	gitAdvanced, err := parseDesktopOptions([]string{
+		"--enable-permission-control", "--enable-git-advanced",
+		"--git-worktree-root", `D:\PrayuManagedWorktrees`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !gitAdvanced.permissionControl || !gitAdvanced.gitAdvanced ||
+		gitAdvanced.gitWorktreeRoot != `D:\PrayuManagedWorktrees` {
+		t.Fatalf("Git advanced capability set is incomplete: %+v", gitAdvanced)
+	}
 	if _, err := parseDesktopOptions([]string{
 		"--enable-scheduled-job-worker",
 	}); err == nil || !strings.Contains(err.Error(), "--enable-scheduled-jobs") {
@@ -203,7 +218,7 @@ func TestDesktopOperatorPreviewEnablesTheSafeProductBundleOnly(t *testing.T) {
 		!preview.runWakeExecution || !preview.skillInstallation ||
 		!preview.scheduledJobControl || !preview.scheduledJobWorker ||
 		!preview.evidenceAttachment || !preview.verificationEvidence ||
-		!preview.embeddedAnalyzer || !preview.batchDeliveryControl {
+		!preview.embeddedAnalyzer || !preview.batchDeliveryControl || !preview.gitAdvanced {
 		t.Fatalf("operator preview capability bundle is incomplete: %+v", preview)
 	}
 	if preview.dangerFullAccess || preview.debugMaximumAccess || preview.fullCDPDebug ||

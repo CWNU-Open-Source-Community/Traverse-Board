@@ -16,6 +16,7 @@ import (
 	"cyberagent-workbench/internal/httpapi"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/plugins"
+	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/scheduler"
 	"cyberagent-workbench/internal/skills"
@@ -70,6 +71,10 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		"enable fixed offline go/npm checks for confirmed batch deliveries")
 	codeIntelConfig := fs.String("code-intel-config", "",
 		"absolute operator-reviewed code-intel config")
+	gitAdvancedEnabled := fs.Bool("enable-git-advanced", false,
+		"enable approval-gated git-advanced.v1 mutations")
+	gitWorktreeRoot := fs.String("git-worktree-root", "",
+		"product-managed worktree root; defaults below CYBERAGENT_HOME")
 	if err := fs.Parse(reorderFlags(args, map[string]bool{"listen": true, "ui-dir": true,
 		"code-intel-config":          true,
 		"enable-file-edit-proposals": false, "enable-provider-credentials": false,
@@ -78,7 +83,8 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		"enable-host-command-proposals": false,
 		"enable-danger-full-access":     false, "enable-debug-maximum-access": false,
 		"enable-browser-cdp-control": false, "enable-full-cdp-debug": false,
-		"enable-docker-execution": false, "enable-batch-validation-execution": false})); err != nil {
+		"enable-docker-execution": false, "enable-batch-validation-execution": false,
+		"enable-git-advanced": false, "git-worktree-root": true})); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 {
@@ -126,6 +132,14 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		return apperror.New(apperror.CodeInvalidArgument,
 			"--enable-docker-execution requires --enable-permission-control")
 	}
+	if *gitAdvancedEnabled && !permissionCapabilities.OperatorApprovalEnabled {
+		return apperror.New(apperror.CodeInvalidArgument,
+			"--enable-git-advanced requires --enable-permission-control")
+	}
+	if strings.TrimSpace(*gitWorktreeRoot) != "" && !*gitAdvancedEnabled {
+		return apperror.New(apperror.CodeInvalidArgument,
+			"--git-worktree-root requires --enable-git-advanced")
+	}
 	if *batchValidationExecution &&
 		(!permissionCapabilities.OperatorApprovalEnabled ||
 			!permissionCapabilities.DangerFullAccessEnabled) {
@@ -134,7 +148,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	}
 	if (*fileEditProposals || *providerCredentials || *wakeWorker || *scheduledJobWorker ||
 		*permissionControl || *hostCommandProposals || *browserCDPControl ||
-		*dockerExecution || *batchValidationExecution) && controlToken == "" {
+		*dockerExecution || *batchValidationExecution || *gitAdvancedEnabled) && controlToken == "" {
 		return apperror.New(apperror.CodeInvalidArgument,
 			"interactive proposals, Provider credentials, the wake worker, and execution permission control require CYBERAGENT_API_CONTROL_TOKEN")
 	}
@@ -185,6 +199,26 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	if _, err := workspaceCheckpoints.Reconcile(ctx); err != nil {
 		return apperror.Wrap(apperror.CodeUnavailable,
 			"Workspace checkpoint startup reconciliation failed", err)
+	}
+	var gitAdvancedService *application.GitAdvancedService
+	if *gitAdvancedEnabled {
+		managedRoot := strings.TrimSpace(*gitWorktreeRoot)
+		if managedRoot == "" {
+			managedRoot = filepath.Join(a.home, "worktrees")
+		}
+		gitExecutor, executorErr := repository.NewAdvancedExecutor(managedRoot, true)
+		if executorErr != nil {
+			return executorErr
+		}
+		gitAdvancedService, err = application.NewGitAdvancedService(a.store,
+			gitExecutor, permissionCapabilities, workspaceCheckpoints)
+		if err != nil {
+			return err
+		}
+		if _, err := gitAdvancedService.ReconcileStartup(ctx, 500); err != nil {
+			return apperror.Wrap(apperror.CodeUnavailable,
+				"Git advanced startup reconciliation failed", err)
+		}
 	}
 	batchDelivery := application.NewBatchDeliveryService(a.store).
 		WithHostValidationExecution(*batchValidationExecution, permissionCapabilities)
@@ -336,6 +370,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		VerificationEvidenceEnabled:             controlToken != "",
 		EmbeddedAnalyzerExecutionEnabled:        controlToken != "",
 		WorkspaceCheckpointControlEnabled:       controlToken != "",
+		GitAdvancedControlEnabled:               *gitAdvancedEnabled,
 		BatchDeliveryControlEnabled:             controlToken != "",
 		BatchDeliveryHostValidationEnabled:      *batchValidationExecution,
 		ExtensionControlEnabled:                 controlToken != "",
@@ -364,6 +399,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		SkillInstallationController:         skillInstallation,
 		EmbeddedAnalyzerExecutionController: embeddedAnalyzerExecution,
 		WorkspaceCheckpointController:       workspaceCheckpoints,
+		GitAdvancedController:               gitAdvancedService,
 		BatchDeliveryController:             batchDelivery,
 		ExtensionController:                 extensionControl,
 		CodeIntelSource:                     a.codeIntel,
@@ -462,6 +498,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	fmt.Fprintf(a.out, "batch_delivery_host_validation_enabled: %t\n",
 		*batchValidationExecution)
 	fmt.Fprintf(a.out, "code_intel_enabled: %t\n", a.codeIntel != nil)
+	fmt.Fprintf(a.out, "git_advanced_control_enabled: %t\n", *gitAdvancedEnabled)
 	fmt.Fprintln(a.out, "note: the API is loopback-only; control is separately authorized and tokens are not persisted")
 	return server.Serve(ctx, listener)
 }

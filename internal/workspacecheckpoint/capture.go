@@ -26,8 +26,9 @@ import (
 const maxGitCaptureOutputBytes = 32 * 1024 * 1024
 
 type gitIndexEntry struct {
-	OID  string
-	Mode string
+	OID   string
+	Mode  string
+	Stage string
 }
 
 type captureInventory struct {
@@ -39,6 +40,7 @@ type captureInventory struct {
 	ignored    map[string]struct{}
 	staged     map[string]struct{}
 	git        bool
+	unmerged   bool
 	truncated  bool
 }
 
@@ -83,6 +85,12 @@ func Capture(ctx context.Context, request CaptureRequest) (Snapshot, error) {
 		level = RecoveryUnavailable
 		reasons["workspace manifest exceeds the entry limit"] = struct{}{}
 	}
+	if inventory.unmerged {
+		if level == RecoveryComplete {
+			level = RecoveryPartial
+		}
+		reasons["Git index contains unmerged stages; the raw index remains exact but manifest index metadata projects ours"] = struct{}{}
+	}
 
 	blobByDigest := make(map[string]Blob)
 	storedBytes := int64(0)
@@ -102,7 +110,9 @@ func Capture(ctx context.Context, request CaptureRequest) (Snapshot, error) {
 			indexBlobSHA = addCaptureBlob(blobByDigest, indexRaw, request.CreatedAt)
 			storedBytes = captureBlobBytes(blobByDigest)
 		} else {
-			level = RecoveryPartial
+			if level == RecoveryComplete {
+				level = RecoveryPartial
+			}
 			reasons["Git index exceeds the checkpoint limit"] = struct{}{}
 		}
 	}
@@ -322,10 +332,23 @@ func inspectCaptureInventory(ctx context.Context, root string) (captureInventory
 		}
 		fields := strings.Fields(raw[:tab])
 		path, pathErr := normalizeCapturePath(raw[tab+1:])
-		if len(fields) != 3 || pathErr != nil || fields[2] != "0" {
+		if len(fields) != 3 || pathErr != nil ||
+			(fields[2] != "0" && fields[2] != "1" && fields[2] != "2" && fields[2] != "3") {
 			return result, errors.New("git index contains an unsupported or unsafe entry")
 		}
-		result.tracked[path] = gitIndexEntry{Mode: fields[0], OID: fields[1]}
+		candidate := gitIndexEntry{Mode: fields[0], OID: fields[1], Stage: fields[2]}
+		if fields[2] == "0" {
+			result.tracked[path] = candidate
+		} else {
+			result.unmerged = true
+			// The raw index blob is the restoration authority. For the bounded
+			// manifest projection prefer stage 2 (ours), then base/theirs when
+			// ours is absent, so each path remains unique and inspectable.
+			current, exists := result.tracked[path]
+			if !exists || fields[2] == "2" || current.Stage == "1" && fields[2] == "3" {
+				result.tracked[path] = candidate
+			}
+		}
 		if len(result.tracked) > MaxEntries {
 			result.truncated = true
 			break
