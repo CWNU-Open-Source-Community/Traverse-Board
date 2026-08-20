@@ -1,0 +1,191 @@
+{
+  "schema": "issue85_mixed_dpi_development_evidence.v1",
+  "generated_at": "2026-08-20T19:01:01Z",
+  "issue": 85,
+  "environment": {
+    "os": "Windows 11 Pro build 26200",
+    "architecture": "x64",
+    "webview2_runtime": "151.0.4129.93",
+    "display_mode": "extend",
+    "test_layout": [
+      {
+        "display": 1,
+        "primary": true,
+        "physical_resolution": "2560x1600",
+        "dpi_percent": 150,
+        "logical_bounds": "0,0 1707x1067"
+      },
+      {
+        "display": 2,
+        "primary": false,
+        "physical_resolution": "3840x2160",
+        "dpi_percent": 200,
+        "logical_bounds": "1707,0 1920x1080"
+      }
+    ]
+  },
+  "clean_candidate_r1": {
+    "app_version": "v0.1.0-issue85-r1",
+    "revision": "715591a015fd12506e1b1459effcf49a30e909cd",
+    "sha256": "f7c3b43d2ef67c03566bb3817efb74bb14f4c4d139c1e7f14ade9a97b966bfe6",
+    "size_bytes": 57781760,
+    "modified": false,
+    "reproducible": true,
+    "automated_status": "pass",
+    "automated_report": "desktop-test-matrix-windows11-mixed-dpi-issue85-r1.json",
+    "manual_status": "fail",
+    "failure": "The desktop bootstrap advertised workspace_checkpoint_control_enabled=true, but the frontend connection store and CyberAgentClient dropped the capability, leaving Checkpoint controls in browse-only mode."
+  },
+  "development_candidates": [
+    {
+      "app_version": "v0.1.0-issue85-r2-dev",
+      "revision": "715591a015fd12506e1b1459effcf49a30e909cd",
+      "sha256": "fdcb24743b8cf9fda297325cb3954472d2b9716a03bfe751e68a1ae9664d55bc",
+      "modified": true,
+      "reproducible": true,
+      "purpose": "Verify the workspace checkpoint capability propagation fix and the complete Checkpoint write workflow.",
+      "status": "development_pass",
+      "formal_candidate": false
+    },
+    {
+      "app_version": "v0.1.0-issue85-r3-dev",
+      "revision": "715591a015fd12506e1b1459effcf49a30e909cd",
+      "sha256": "8860c164f29d64d5e688e923bda79bae8ab0d47454a97479150080319ae03454",
+      "size_bytes": 57782272,
+      "modified": true,
+      "reproducible": true,
+      "purpose": "Verify non-shrinking, horizontally scrollable Run tabs at 150% and 200% after the mixed-DPI visual pass exposed label overlap.",
+      "status": "development_pass",
+      "formal_candidate": false
+    }
+  ],
+  "manual_results": [
+    {
+      "id": "theme_light_dark_acrylic",
+      "r1": "pass",
+      "r2_dev": "not_run",
+      "r3_dev": "not_run",
+      "formal_status": "needs_clean_candidate_rerun"
+    },
+    {
+      "id": "language_zh_en",
+      "r1": "pass",
+      "r2_dev": "not_run",
+      "r3_dev": "not_run",
+      "formal_status": "needs_clean_candidate_rerun"
+    },
+    {
+      "id": "sidebar_resize_collapse",
+      "r1": "pass",
+      "r2_dev": "not_run",
+      "r3_dev": "not_run",
+      "formal_status": "needs_clean_candidate_rerun"
+    },
+    {
+      "id": "agent_input",
+      "r1": "pass",
+      "r2_dev": "not_run",
+      "r3_dev": "not_run",
+      "formal_status": "needs_clean_candidate_rerun"
+    },
+    {
+      "id": "long_conversation_scroll",
+      "r1": "pass",
+      "r2_dev": "not_run",
+      "r3_dev": "not_run",
+      "formal_status": "needs_clean_candidate_rerun"
+    },
+    {
+      "id": "markdown_rendering",
+      "r1": "pass",
+      "r2_dev": "not_run",
+      "r3_dev": "not_run",
+      "formal_status": "needs_clean_candidate_rerun"
+    },
+    {
+      "id": "live_activity",
+      "r1": "pass",
+      "r2_dev": "not_run",
+      "r3_dev": "not_run",
+      "formal_status": "needs_clean_candidate_rerun"
+    },
+    {
+      "id": "workspace_checkpoints",
+      "r1": "fail",
+      "r2_dev": "pass",
+      "r3_dev": "persisted_state_pass",
+      "formal_status": "needs_clean_candidate_rerun",
+      "facts": {
+        "source_and_recovery": "manual/standalone COMPLETE at Git commit 576c73a1d970b241871ffdea966b08cc97ef83fe",
+        "rewind_preview": "main.go modify, RECOVERABLE",
+        "external_conflict": "live Workspace content differs from both expected and target checkpoints; Confirm Rewind disabled",
+        "explicit_confirmation": "native confirmation accepted; immutable timeline appended rewind_preflight and rewind_result",
+        "rewind_result": "main.go restored from issue-85-after-change to issue-85-baseline",
+        "fork_run": "run-20260820182315",
+        "fork_checkpoint": "wcp-8eef323a98cb523f5e80552e0edde469",
+        "fork_branch": "codex/issue85-checkpoint-fork",
+        "fork_status": "new independent Run selected; fork checkpoint COMPLETE"
+      }
+    },
+    {
+      "id": "approval_queue",
+      "r1": "pass",
+      "r2_dev": "not_run",
+      "r3_dev": "not_run",
+      "formal_status": "needs_clean_candidate_rerun"
+    },
+    {
+      "id": "settings_full_cdp_sensitive_label",
+      "r1": "pass",
+      "r2_dev": "not_run",
+      "r3_dev": "not_run",
+      "formal_status": "needs_clean_candidate_rerun"
+    },
+    {
+      "id": "mixed_dpi_cross_monitor_layout",
+      "r1": "pass_with_later_diagnostic_navigation_defect",
+      "r2_dev": "fail_run_tab_labels_overlap",
+      "r3_dev": "pass_at_150_and_200_percent",
+      "formal_status": "needs_clean_candidate_rerun",
+      "facts": {
+        "r1_cross_monitor": "Window moved between the 150% and 200% displays without focus loss, blanking, or shell scaling failure.",
+        "r2_defect": "The expanded diagnostic Run tab set shrank labels below their content width, causing visible overlap at 200%.",
+        "r3_fix": "Run tab buttons use flex: 0 0 auto; horizontal scrolling preserves complete labels and the selected Checkpoints tab."
+      }
+    }
+  ],
+  "verification": {
+    "targeted_tests": "2 files, 6 tests passed",
+    "full_frontend_tests": "63 files, 278 tests passed",
+    "production_frontend_build": "pass",
+    "go_desktop_and_webui_tests": "pass",
+    "reproducible_build": "pass",
+    "git_diff_check": "pass"
+  },
+  "environment_cleanup": {
+    "display_mode": "extend",
+    "display_1_primary": true,
+    "display_1_dpi_percent": 150,
+    "display_2_primary": false,
+    "display_2_dpi_percent": 150,
+    "logical_bounds": [
+      "0,0 1707x1067",
+      "1707,0 2560x1440"
+    ],
+    "candidate_processes_stopped": true,
+    "settings_process_stopped": true
+  },
+  "evidence_sanitization": {
+    "status": "pass",
+    "detail": "Synthetic Run content only. Unrelated desktop notification overlays were removed from retained screenshots with an explicit sanitization mask; raw captures are kept only under ignored .tmp state."
+  },
+  "online_actions": {
+    "commits": 0,
+    "pushes": 0,
+    "pull_requests": 0,
+    "issue_comments_or_state_changes": 0
+  },
+  "overall_status": "needs_clean_candidate",
+  "release_ready": false,
+  "remaining_gate": "After explicit authorization, commit the fix, build one clean reproducible candidate from that revision, rerun every manual row against that single SHA-256, and only then update issues #85 and #55."
+}

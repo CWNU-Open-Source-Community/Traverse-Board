@@ -1,0 +1,218 @@
+{
+  "schema": "issue85_mixed_dpi_formal_evidence.v1",
+  "generated_at": "2026-08-20T22:14:16Z",
+  "issue": 85,
+  "scope": "Issue #85 original mixed-DPI and interactive desktop UI acceptance scope",
+  "candidate": {
+    "app_version": "v0.1.0-issue85-r4",
+    "revision": "c531bd2ed96b9c9f5210ab86358c15d647b5e984",
+    "parent_revision": "015c858e93371d1317202990fa8b2c68182a0770",
+    "sha256": "9b42e3e57b85954d3add54aa18d8a795738253b60f1c2370594956a9fe957dce",
+    "size_bytes": 58385920,
+    "source_date_epoch": 1787255287,
+    "modified": false,
+    "reproducible": true
+  },
+  "environment": {
+    "os": "Windows 11 Pro build 26200",
+    "architecture": "x64",
+    "webview2_runtime": "151.0.4129.93",
+    "display_mode": "extend",
+    "test_layout": [
+      {
+        "display": 1,
+        "primary": true,
+        "physical_resolution": "2560x1600",
+        "dpi_percent": 150,
+        "logical_bounds": "0,0 1707x1067"
+      },
+      {
+        "display": 2,
+        "primary": false,
+        "physical_resolution": "3840x2160",
+        "dpi_percent": 200,
+        "logical_bounds": "1707,0 1920x1080"
+      }
+    ],
+    "compact_capture": {
+      "display": 1,
+      "dpi_percent": 150,
+      "window_logical_size": "1024x768",
+      "measurement": "WindowState screenshot width and height in logical pixels after an explicit native Windows Size operation",
+      "criterion": "exact 1024x768 compact-window target"
+    }
+  },
+  "automated_verification": {
+    "status": "pass",
+    "report": "desktop-test-matrix-windows11-mixed-dpi-issue85-r4.json",
+    "results": {
+      "candidate_provenance": "pass",
+      "cold_start": "pass",
+      "second_instance": "pass",
+      "normal_exit": "pass",
+      "kill_reopen": "pass"
+    },
+    "build_and_test": {
+      "npm_audit": "pass, 0 vulnerabilities",
+      "frontend_tests": "pass, 65 files and 288 tests",
+      "frontend_production_build": "pass",
+      "go_desktop_webui_cmd_tests": "pass",
+      "windows_compatibility_check": "pass",
+      "reproducible_build": "pass"
+    }
+  },
+  "manual_results": [
+    {
+      "id": "theme_light_dark_acrylic",
+      "status": "pass",
+      "evidence": [
+        "win11-26200-screen1-150dpi-1024x768-issue85-r4-appearance-light-zh.jpg",
+        "win11-26200-screen1-150dpi-1024x768-issue85-r4-appearance-dark-zh.jpg",
+        "win11-26200-screen1-150dpi-1024x768-issue85-r4-appearance-acrylic-zh.jpg",
+        "win11-26200-screen1-150dpi-issue85-r4-appearance-light-zh.jpg",
+        "win11-26200-screen1-150dpi-issue85-r4-appearance-dark-zh.jpg",
+        "win11-26200-screen1-150dpi-issue85-r4-appearance-acrylic-zh.jpg"
+      ]
+    },
+    {
+      "id": "language_zh_en",
+      "status": "pass",
+      "evidence": [
+        "win11-26200-screen1-150dpi-1024x768-issue85-r4-settings-general-acrylic-zh.jpg",
+        "win11-26200-screen1-150dpi-issue85-r4-settings-general-dark-zh.jpg",
+        "win11-26200-screen1-150dpi-issue85-r4-tabs-dark-en.jpg"
+      ]
+    },
+    {
+      "id": "sidebar_resize_collapse",
+      "status": "pass",
+      "evidence": [
+        "win11-26200-screen1-150dpi-1024x768-issue85-r4-sidebar-resized-acrylic-en.jpg",
+        "win11-26200-screen1-150dpi-1024x768-issue85-r4-sidebar-collapsed-acrylic-en.jpg",
+        "win11-26200-screen1-150dpi-issue85-r4-sidebar-resized-acrylic-en.jpg",
+        "win11-26200-screen1-150dpi-issue85-r4-sidebar-collapsed-acrylic-en.jpg"
+      ]
+    },
+    {
+      "id": "agent_input_and_focus",
+      "status": "pass",
+      "facts": {
+        "input_at_200_percent": "synthetic text remained visible and focused",
+        "crossback_to_150_percent": "focus and visible draft survived the monitor transition",
+        "exact_1024x768_at_150_percent": "a synthetic draft was visibly entered without submission, captured, and cleared"
+      },
+      "evidence": [
+        "win11-26200-screen1-150dpi-1024x768-issue85-r4-session-input-focused-acrylic-en.jpg",
+        "win11-26200-screen2-200dpi-issue85-r4-input-visible-focused-acrylic-en.jpg",
+        "win11-26200-screen1-150dpi-issue85-r4-crossback-input-focused-acrylic-en.jpg"
+      ]
+    },
+    {
+      "id": "long_conversation_scroll_and_markdown",
+      "status": "pass",
+      "facts": {
+        "content": "synthetic headings, list, block quote, table, and Go code block",
+        "displays": "reviewed at 150 and 200 percent"
+      },
+      "evidence": [
+        "win11-26200-screen1-150dpi-1024x768-issue85-r4-long-conversation-markdown-acrylic-zh.jpg",
+        "win11-26200-screen1-150dpi-issue85-r4-long-conversation-markdown-dark-en.jpg",
+        "win11-26200-screen2-200dpi-issue85-r4-long-conversation-markdown-acrylic-en.jpg"
+      ]
+    },
+    {
+      "id": "live_activity",
+      "status": "pass",
+      "evidence": [
+        "win11-26200-screen1-150dpi-1024x768-issue85-r4-live-activity-acrylic-en.jpg",
+        "win11-26200-screen1-150dpi-issue85-r4-live-activity-acrylic-en.jpg",
+        "win11-26200-screen2-200dpi-issue85-r4-live-activity-acrylic-en.jpg"
+      ]
+    },
+    {
+      "id": "approval_queue",
+      "status": "pass",
+      "facts": "pending, fixed, and host sections remained readable",
+      "evidence": [
+        "win11-26200-screen1-150dpi-1024x768-issue85-r4-approvals-acrylic-en.jpg",
+        "win11-26200-screen1-150dpi-issue85-r4-approval-queue-acrylic-en.jpg",
+        "win11-26200-screen2-200dpi-issue85-r4-approval-queue-acrylic-en.jpg"
+      ]
+    },
+    {
+      "id": "settings_and_full_cdp_sensitive_label",
+      "status": "pass",
+      "facts": "Full CDP remained visibly high-risk and disabled",
+      "evidence": [
+        "win11-26200-screen1-150dpi-1024x768-issue85-r4-settings-full-cdp-acrylic-en.jpg",
+        "win11-26200-screen1-150dpi-issue85-r4-settings-full-cdp-acrylic-zh.jpg",
+        "win11-26200-screen2-200dpi-issue85-r4-settings-general-acrylic-en.jpg",
+        "win11-26200-screen1-150dpi-issue85-r4-crossback-settings-acrylic-en.jpg"
+      ]
+    },
+    {
+      "id": "workspace_checkpoints",
+      "status": "pass",
+      "facts": {
+        "timeline": "COMPLETE manual checkpoints were visible with source and recovery metadata",
+        "rewind_preview": "one recoverable main.go modification",
+        "rewind_confirmation": "native explicit confirmation was accepted",
+        "rewind_preflight_checkpoint": "wcp-d5280694e1b4d3044d3e67f1b70346db",
+        "rewind_result_checkpoint": "wcp-f731272ee55e472e83ef4235148a35f9",
+        "rewind_result": "main.go restored to issue-85-baseline and the synthetic Git worktree was clean",
+        "fork_workspace_name": "issue85-formal-r4-fork",
+        "fork_branch": "codex/issue85-formal-r4-fork",
+        "fork_run": "run-20260820204825-6b078c5a2eff",
+        "fork_checkpoint": "wcp-3770c1d251447940dd274654095be7e8"
+      },
+      "evidence": [
+        "win11-26200-screen1-150dpi-1024x768-issue85-r4-checkpoint-rewind-complete-acrylic-en.jpg",
+        "win11-26200-screen1-150dpi-issue85-r4-checkpoint-timeline-acrylic-en.jpg",
+        "win11-26200-screen1-150dpi-issue85-r4-checkpoint-rewind-preview-acrylic-en.jpg",
+        "win11-26200-screen1-150dpi-issue85-r4-checkpoint-rewind-confirmation-acrylic-en.jpg",
+        "win11-26200-screen1-150dpi-issue85-r4-checkpoint-rewind-complete-acrylic-en.jpg",
+        "win11-26200-screen1-150dpi-issue85-r4-checkpoint-fork-form-acrylic-en.jpg",
+        "win11-26200-screen1-150dpi-issue85-r4-checkpoint-fork-created-acrylic-en.jpg"
+      ]
+    },
+    {
+      "id": "mixed_dpi_cross_monitor_layout",
+      "status": "pass",
+      "facts": {
+        "path": "150 percent primary to 200 percent secondary and back to 150 percent",
+        "window_restart": false,
+        "focus_loss": false,
+        "blanking": false,
+        "overlap_or_truncation": false,
+        "abnormal_scaling": false,
+        "run_tabs": "intrinsic label width preserved with horizontal scrolling"
+      },
+      "evidence": [
+        "win11-26200-screen2-200dpi-issue85-r4-checkpoint-layout-acrylic-en.jpg",
+        "win11-26200-screen1-150dpi-issue85-r4-crossback-settings-acrylic-en.jpg"
+      ]
+    }
+  ],
+  "scope_note": {
+    "advanced_git_rows": "not claimed by this result; they were added after issue #85 was filed and are independently tracked and implemented by issue #117 / PR #120",
+    "broader_release_matrix": "this host result does not replace the separate Windows 10 and WebView2 fault-injection evidence already owned by issue #55"
+  },
+  "environment_cleanup": {
+    "display_mode": "extend",
+    "display_1_primary": true,
+    "display_1_dpi_percent": 150,
+    "display_2_primary": false,
+    "display_2_dpi_percent": 150,
+    "candidate_processes_stopped": true,
+    "settings_window_closed": true
+  },
+  "evidence_sanitization": {
+    "status": "pass",
+    "detail": "Only synthetic in-app content is retained; unrelated transient overlays and raw captures remain under ignored .tmp state."
+  },
+  "automated_status": "pass",
+  "manual_status": "pass",
+  "issue85_acceptance_status": "pass",
+  "overall_status": "pass",
+  "release_ready_scope": "issue_85"
+}

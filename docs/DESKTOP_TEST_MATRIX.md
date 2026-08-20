@@ -2,7 +2,7 @@
 
 版本 / Version: desktop-test-matrix.v2
 
-状态 / Status: r4 单屏自动/核心可视证据完成；双屏与完整交互签字由 #85 跟踪 / r4 single-monitor automation and core visual evidence complete; mixed-display and full interaction sign-off tracked by #85
+状态 / Status: #85 已用同一 clean r4 SHA 完成 Windows 11 双屏混合 DPI 与原始交互范围签字；更广的 Windows/高级 Git 矩阵仍按各自 Issue 跟踪 / issue #85 passed its original Windows 11 mixed-DPI and interactive scope against one clean r4 SHA; the broader Windows and Advanced Git matrix remains tracked separately
 
 对应 Issue / Issue: #55
 
@@ -67,14 +67,36 @@
 
 高级 Git 项还必须分别用 capability 关闭和完整开启的两个隔离数据目录验证：关闭时面板与 mutation endpoint 不可用；开启时若 permission control、operator Approval、Approval control 或 Workspace Checkpoint control 任一缺失，Desktop 必须在组合阶段失败关闭。强制 kill 场景应停在已经 CAS 为 `running` 的冲突序列或 worktree create 后，重开只允许观察并生成 `interrupted|conflicted` 收据，不得重复应用提交；若精确 worktree 被保守登记，旧操作仍不得显示为成功。截图和 JSON 不得包含绝对受管路径、private lease ID、raw spec/preview/receipt JSON 或 Git argv。
 
+### #85 本机正式签字 / Local #85 formal sign-off
+
+环境：Windows 11 Pro build `26200`、WebView2 `151.0.4129.93`、Extend；主屏 2560×1600 / 150%，外接屏 3840×2160 / 200%。正式候选为 clean revision `c531bd2ed96b9c9f5210ab86358c15d647b5e984`，版本 `v0.1.0-issue85-r4`，SHA-256 `9b42e3e57b85954d3add54aa18d8a795738253b60f1c2370594956a9fe957dce`，`modified=false`，可复现构建。完整机器可读结论见 `docs/evidence/issue85/result-r4.json`。
+
+在 150% 主屏上通过 Windows 原生“大小”操作把候选窗口精确调整为 1024×768 logical pixels，并在该尺寸下逐项复核主题、语言、侧栏、输入框、长对话/Markdown、Live Activity、Approvals、设置与 Checkpoints。另一次连续会话把窗口从 150% 主屏移动到 200% 外接屏，再返回 150% 主屏，全程未重启候选。
+
+| #85 原始人工项 | r4 clean | 证据摘要 |
+|---|---|---|
+| 主题（浅/深）与 Acrylic | `pass` | 三种外观均实际切换并截图 |
+| 语言切换（中/英） | `pass` | 中英文界面均实际观察 |
+| 侧栏拖拽/折叠 | `pass` | resized 与 collapsed 状态均无覆盖 |
+| Agent 输入框 | `pass` | 200% 输入可见；跨回 150% 后焦点与草稿仍在；精确 1024×768 下输入未提交草稿后清空 |
+| 长对话滚动与 Markdown | `pass` | 标题、列表、引用、表格与 Go 代码块在两屏均正常 |
+| Live Activity / 事件流 | `pass` | 150%、200% 与精确 1024×768 均正常 |
+| Workspace Checkpoints | `pass` | COMPLETE 时间线、Rewind 预览/显式确认/结果、独立 Fork Run 均完成，1024×768 下页签可横向滚动且结果可读 |
+| 审批队列 | `pass` | pending、fixed 与 host 分区均可读 |
+| 设置页与 Full CDP 高敏标签 | `pass` | 150%/200%/跨回布局正常，Full CDP 保持高风险禁用 |
+| 混合 DPI / 跨屏布局 | `pass` | 150% → 200% → 150%，无重叠、截断、失焦、空白或异常缩放 |
+
+Issue #85 创建时未包含后来由 #117 / PR #120 加入的高级 Git 行；本段不对那些独立范围作重复签字。测试结束后保留 Extend，Display 1 仍为主屏，两块屏幕均恢复 150%，候选与 Settings 窗口已退出。
+
 ## 证据状态 / Evidence status
 
 - `docs/desktop-test-matrix-windows11-evidence.json` 是 PR #79 的历史 v1 证据，只证明 Windows 11 / 150% / 单屏上的四个自动场景。
 - `docs/desktop-test-matrix-windows11-v2-evidence.json` 绑定 clean commit、候选 SHA-256 和逐屏 DPI；当前记录在 Windows 11 / 150% / 单屏上通过 provenance 与四项自动场景，但 `overall_status` 仍为 `needs_manual_evidence`。
 - `docs/evidence/issue55/result-r4.json` 是最终 r4 候选清单；同目录四份自动报告覆盖 Windows 10 的 100/125/200% 与 Windows 11 的 150%，并绑定 clean revision、SHA-256 和 WebView2 `151.0.4129.86`。
+- `docs/evidence/issue85/result-dev.json` 保留 #85 的 r1/r2-dev/r3-dev 调查历史；`docs/evidence/issue85/result-r4.json` 绑定同一 clean r4 revision、候选 SHA、自动矩阵与全部 #85 原始人工项，并给出正式 `pass`。
 - r4 脱敏截图覆盖 1024×768 的 100/200% 单屏 shell、离线启动，以及 WebView2 缺失、`93.0.1.0` 过旧和 malformed-DLL 损坏诊断。所有场景均使用同一 r4 SHA-256。
 - v2 自动报告仍把人工项写成 `not_run`；候选清单只把实际观察到的核心 shell 与异常场景记为 `pass`。
-- 多显示器混合 DPI 与完整交互式 UI checklist 受当前单显示器/输入条件限制，明确保留为 `blocked`/`not_run`，并由 #85 跟踪；不能用 Playwright、CSS 缩放或单屏结果替代。
+- 原先受单显示器/输入条件限制的 #85 场景已在双物理屏上实际执行；r4 结果没有拼接 r1/r2-dev/r3-dev 的跨 SHA 结果。
 - 所有必需单元格为 `pass` 且无未关闭 blocker 后，才可把 Issue #55 判定为完成。
 
 ## 脱敏 / Sanitization
