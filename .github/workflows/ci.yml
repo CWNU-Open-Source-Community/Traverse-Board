@@ -399,6 +399,94 @@ jobs:
             $stdout.Result | Write-Host
             $stderr.Result | Write-Host
 
+            if ($process.ExitCode -ne 0) {
+              # Chromium prints the exact remote-debugging refusal reason only
+              # to the browser process's stderr. The production launcher does
+              # not inherit parent handles, so run one bounded, diagnostic-only
+              # direct launch as the same disposable user. This probe cannot
+              # make the production-adapter smoke pass.
+              $edgeExecutable = @(
+                "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+                "C:\Program Files\Microsoft\Edge\Application\msedge.exe"
+              ) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+                Select-Object -First 1
+              if ($null -eq $edgeExecutable) {
+                throw "installed Edge executable is unavailable for startup diagnostics"
+              }
+              $edgeDiagnosticProfile = Join-Path $directTempRoot "edge-direct-diagnostic"
+              New-Item -ItemType Directory -Path $edgeDiagnosticProfile | Out-Null
+              $edgeDiagnosticStart = [System.Diagnostics.ProcessStartInfo]::new()
+              $edgeDiagnosticStart.FileName = $edgeExecutable
+              $edgeDiagnosticStart.WorkingDirectory = Split-Path -Parent $edgeExecutable
+              $edgeDiagnosticStart.UseShellExecute = $false
+              $edgeDiagnosticStart.CreateNoWindow = $true
+              $edgeDiagnosticStart.RedirectStandardOutput = $true
+              $edgeDiagnosticStart.RedirectStandardError = $true
+              $edgeDiagnosticStart.Domain = $env:COMPUTERNAME
+              $edgeDiagnosticStart.UserName = $standardUserName
+              $edgeDiagnosticStart.Password = $securePassword
+              $edgeDiagnosticStart.LoadUserProfile = $true
+              foreach ($argument in @(
+                  "--headless=new",
+                  "--remote-debugging-address=127.0.0.1",
+                  "--remote-debugging-port=0",
+                  "--user-data-dir=$edgeDiagnosticProfile",
+                  "--no-first-run",
+                  "--no-default-browser-check",
+                  "about:blank")) {
+                $edgeDiagnosticStart.ArgumentList.Add($argument)
+              }
+              $edgeDiagnosticStart.Environment.Clear()
+              foreach ($entry in $processEnvironment.GetEnumerator()) {
+                $edgeDiagnosticStart.Environment[$entry.Key] = $entry.Value
+              }
+              $edgeDiagnosticProcess = [System.Diagnostics.Process]::new()
+              try {
+                $edgeDiagnosticProcess.StartInfo = $edgeDiagnosticStart
+                if (-not $edgeDiagnosticProcess.Start()) {
+                  throw "start direct Edge diagnostic failed"
+                }
+                $edgeDiagnosticOutput = $edgeDiagnosticProcess.StandardOutput.ReadToEndAsync()
+                $edgeDiagnosticError = $edgeDiagnosticProcess.StandardError.ReadToEndAsync()
+                $edgeDiagnosticProcess.WaitForExit(8000) | Out-Null
+                $edgeDiagnosticEndpointWritten = Test-Path -LiteralPath `
+                  (Join-Path $edgeDiagnosticProfile "DevToolsActivePort") -PathType Leaf
+                $edgeDiagnosticActive = -not $edgeDiagnosticProcess.HasExited
+                if ($edgeDiagnosticActive) {
+                  $edgeDiagnosticProcess.Kill($true)
+                  $edgeDiagnosticProcess.WaitForExit()
+                }
+                $edgeDiagnosticOutput.Result | Out-Null
+                $edgeDiagnosticText = $edgeDiagnosticError.Result
+                $edgeDiagnosticText = $edgeDiagnosticText.Replace(
+                  $directTempRoot, "[disposable-temp]")
+                $edgeDiagnosticText = $edgeDiagnosticText.Replace(
+                  $env:GITHUB_WORKSPACE, "[workspace]")
+                $edgeDiagnosticText = $edgeDiagnosticText.Replace(
+                  $standardUserName, "[disposable-user]")
+                $edgeDiagnosticText = $edgeDiagnosticText.Replace(
+                  $env:COMPUTERNAME, "[runner]")
+                if ($edgeDiagnosticText.Length -gt 65536) {
+                  $edgeDiagnosticText = $edgeDiagnosticText.Substring(0, 65536)
+                }
+                $edgeDiagnosticReport = [ordered]@{
+                  protocol_version = "ui-evidence-ci-edge-stderr.v1"
+                  endpoint_written = $edgeDiagnosticEndpointWritten
+                  process_active_before_stop = $edgeDiagnosticActive
+                  stderr = $edgeDiagnosticText
+                }
+                $edgeDiagnosticJSON = $edgeDiagnosticReport |
+                  ConvertTo-Json -Depth 3
+                [System.IO.File]::WriteAllText(
+                  (Join-Path $directArtifactDirectory "edge-stderr.json"),
+                  "$edgeDiagnosticJSON`n",
+                  [System.Text.UTF8Encoding]::new($false))
+              }
+              finally {
+                $edgeDiagnosticProcess.Dispose()
+              }
+            }
+
             if (Test-Path -LiteralPath $directArtifactDirectory) {
               Get-ChildItem -LiteralPath $directArtifactDirectory -File | ForEach-Object {
                 Copy-Item -LiteralPath $_.FullName -Destination $artifactDirectory -Force
