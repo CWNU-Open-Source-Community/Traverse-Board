@@ -59,6 +59,8 @@ TypeScript -> Go -> LLM
 
 TypeScript and Rust never bypass Go for secrets, persistence, policy, workspace permissions, shell execution, network scope, or Docker. See [ADR 0001](adr/0001-go-control-plane.md).
 
+`code-intel-lsp.v1` adds one more Go-owned process boundary without changing that direction. An explicitly reviewed local language server communicates only through bounded stdio JSON-RPC. Go owns qualification, executable hashing, minimal environment, initialize/document synchronization, timeout/cancellation, restart, and process-tree cleanup; Tool Gateway reuses the exact `agent-code-tools.v1` Workspace-read authority. Server output is untrusted evidence and every returned URI is resolved again below the Workspace root. Capability inventory is process-local and metadata-only, so this feature adds no SQLite migration and no renderer-owned authority. The configured Server remains a real local process rather than an OS sandbox; see [Code Intelligence](code-intelligence.md).
+
 The production React bundle is built by Vite but hosted only when Go receives an explicit `--ui-dir`. Go validates and snapshots the static tree before serving it from the same loopback origin as `api.v1`; `/api` remains a reserved authenticated namespace. Vite's loopback proxy is a development adapter, not a second control plane.
 
 ## Core Domain

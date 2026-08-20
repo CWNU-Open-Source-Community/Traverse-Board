@@ -23,8 +23,8 @@ import {
   Sun,
 } from "lucide-react";
 import type { CyberAgentClient } from "../api/client";
-import type { ExtensionMCPServerView, ExtensionPluginInstallationView,
-  HealthView } from "../api/types";
+import type { CodeIntelQualificationView, CodeIntelServerView, ExtensionMCPServerView,
+  ExtensionPluginInstallationView, HealthView } from "../api/types";
 import { applyPrayuTheme, readPrayuTheme, type PrayuTheme } from "../lib/appearance";
 import { useLocale } from "../lib/locale";
 import { applyRunNavigationMode, readRunNavigationMode,
@@ -142,7 +142,8 @@ export function SettingsView({
     { id: "about", label: t("关于", "About"), icon: Info },
   ];
   const extensionNavigation = {
-    id: "extensions" as const, label: t("MCP 与 Plugin", "MCP and Plugins"), icon: PlugZap,
+    id: "extensions" as const,
+    label: t("Code Intel、MCP 与 Plugin", "Code Intel, MCP and Plugins"), icon: PlugZap,
   };
   const [section, setSection] = useState<SettingsSection>("general");
   const [query, setQuery] = useState("");
@@ -440,6 +441,12 @@ function ExtensionSettings({ client, selectedRunID }: {
     queryKey: ["extensions", selectedRunID],
     queryFn: ({ signal }) => client.extensionInventory(selectedRunID, signal),
   });
+  const codeIntelWorkspaceID = selectedRunID ? (inventory.data?.workspace_id ?? "") : "";
+  const codeIntel = useQuery({
+    queryKey: ["code-intel", codeIntelWorkspaceID],
+    queryFn: ({ signal }) => client.codeIntelInventory(codeIntelWorkspaceID, signal),
+    enabled: selectedRunID === "" || codeIntelWorkspaceID !== "",
+  });
   const action = useMutation<unknown, Error, ExtensionAction>({
     mutationFn: (value: ExtensionAction) => {
       if (value.kind === "refresh-mcp") {
@@ -460,16 +467,21 @@ function ExtensionSettings({ client, selectedRunID }: {
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["extensions"] }),
   });
+  const qualificationOnly = codeIntel.data?.qualifications.filter((qualification) =>
+    !codeIntel.data.servers.some((server) => server.workspace_id === qualification.workspace_id &&
+      server.server_id === qualification.server_id)) ?? [];
+  const codeIntelCount = (codeIntel.data?.servers.length ?? 0) + qualificationOnly.length;
   return <section className="settings-page-section extension-settings">
     <header className="extension-heading">
       <div>
-        <h1>{t("MCP 与 Plugin", "MCP and Plugins")}</h1>
-        <p>{t("查看真实运行状态、固定能力指纹，并可立即关闭扩展。凭据只显示引用名。",
-          "Inspect live state and pinned capability fingerprints, or disable an extension immediately. Credentials are shown by reference only.")}</p>
+        <h1>{t("Code Intel、MCP 与 Plugin", "Code Intel, MCP and Plugins")}</h1>
+        <p>{t("查看语言服务器与扩展的真实运行状态和固定能力指纹。不会显示语言服务器命令、环境或凭据。",
+          "Inspect live language-server and extension state with pinned capability fingerprints. Language-server commands, environment, and credentials are never shown.")}</p>
       </div>
-      <button className="settings-action" disabled={inventory.isFetching}
-        onClick={() => void inventory.refetch()} type="button">
-        <RefreshCw aria-hidden="true" className={inventory.isFetching ? "spin" : ""} size={15} />
+      <button className="settings-action" disabled={inventory.isFetching || codeIntel.isFetching}
+        onClick={() => { void inventory.refetch(); void codeIntel.refetch(); }} type="button">
+        <RefreshCw aria-hidden="true"
+          className={inventory.isFetching || codeIntel.isFetching ? "spin" : ""} size={15} />
         {t("刷新", "Refresh")}
       </button>
     </header>
@@ -477,6 +489,20 @@ function ExtensionSettings({ client, selectedRunID }: {
       inventory.error.message : t("扩展状态读取失败", "Failed to read extension state")}</p>}
     {action.error && <p className="inline-warning">{action.error instanceof Error ?
       action.error.message : t("扩展操作失败", "Extension action failed")}</p>}
+    {codeIntel.error && <p className="inline-warning">{codeIntel.error instanceof Error ?
+      codeIntel.error.message : t("语言服务器状态读取失败", "Failed to read language-server state")}</p>}
+    <ExtensionCollection title="Code Intel / LSP" count={codeIntelCount}>
+      {codeIntel.data?.servers.map((server) => <CodeIntelServerCard
+        key={`${server.workspace_id}/${server.server_id}`} server={server}
+        qualification={codeIntel.data.qualifications.find((item) =>
+          item.workspace_id === server.workspace_id && item.server_id === server.server_id)} />)}
+      {qualificationOnly.map((qualification) => <CodeIntelQualificationCard
+        key={`${qualification.workspace_id}/${qualification.server_id}/qualification`}
+        qualification={qualification} />)}
+      {codeIntel.data && codeIntel.data.servers.length === 0 &&
+        <ExtensionEmpty>{t("尚未配置经审查的本地语言服务器。",
+          "No reviewed local language server is configured.")}</ExtensionEmpty>}
+    </ExtensionCollection>
     <ExtensionCollection title="MCP Client" count={inventory.data?.mcp_servers.length ?? 0}>
       {inventory.data?.mcp_servers.map((server) => <MCPServerCard action={action}
         client={client} key={server.id} server={server} />)}
@@ -492,6 +518,72 @@ function ExtensionSettings({ client, selectedRunID }: {
         <ExtensionEmpty>{t("尚未安装 Plugin。", "No Plugin is installed.")}</ExtensionEmpty>}
     </ExtensionCollection>
   </section>;
+}
+
+function CodeIntelQualificationCard({ qualification }: {
+  qualification: CodeIntelQualificationView;
+}) {
+  const { t } = useLocale();
+  return <article className="extension-card code-intel-card">
+    <header><div><Cpu aria-hidden="true" size={17} />
+      <div><strong>{qualification.server_id}</strong>
+        <span>{qualification.workspace_id}</span></div></div>
+      <ExtensionState state={qualification.health} /></header>
+    <dl className="extension-facts">
+      <div><dt>{t("资格", "Qualification")}</dt><dd>{qualification.eligible ?
+        t("已通过", "Eligible") : t("未通过", "Ineligible")}</dd></div>
+      <div><dt>{t("人工审查", "Human review")}</dt><dd>{qualification.reviewed ?
+        t("已完成", "Reviewed") : t("未完成", "Pending")}</dd></div>
+      <div><dt>{t("可执行文件哈希", "Executable hash")}</dt>
+        <dd>{qualification.executable_hash_matched ?
+          t("匹配", "Matched") : t("不匹配", "Mismatch")}</dd></div>
+      <div><dt>{t("最小环境", "Minimal environment")}</dt>
+        <dd>{qualification.minimal_environment ? t("是", "Yes") : t("否", "No")}</dd></div>
+    </dl>
+    <Fingerprint label={t("描述符指纹", "Descriptor fingerprint")}
+      value={qualification.descriptor_fingerprint} />
+    {qualification.reason && <p className="inline-warning code-intel-error">
+      {qualification.reason}</p>}
+  </article>;
+}
+
+function CodeIntelServerCard({ qualification, server }: {
+  qualification?: CodeIntelQualificationView;
+  server: CodeIntelServerView;
+}) {
+  const { t } = useLocale();
+  const enabledCapabilities = Object.values(server.capabilities)
+    .filter((enabled) => enabled).length;
+  return <article className="extension-card code-intel-card">
+    <header><div><Cpu aria-hidden="true" size={17} />
+      <div><strong>{server.server_name}</strong>
+        <span>{server.workspace_id} · {server.server_id}</span></div></div>
+      <ExtensionState state={server.health} /></header>
+    <dl className="extension-facts">
+      <div><dt>{t("语言", "Languages")}</dt><dd>{server.languages.join(", ")}</dd></div>
+      <div><dt>{t("能力", "Capabilities")}</dt><dd>{enabledCapabilities} / 10</dd></div>
+      <div><dt>{t("来源", "Source")}</dt><dd>{server.source_kind}</dd></div>
+      <div><dt>{t("版本", "Version")}</dt><dd>{server.server_version || "—"}</dd></div>
+      <div><dt>{t("代次", "Generation")}</dt>
+        <dd>{server.generation ? server.generation.slice(0, 12) : "—"}</dd></div>
+      <div><dt>{t("模型工具", "Model tools")}</dt>
+        <dd>{server.model_visible_tools.length}</dd></div>
+      <div><dt>{t("资格", "Qualification")}</dt><dd>{qualification ?
+        (qualification.eligible ? t("已通过", "Eligible") : t("未通过", "Ineligible")) :
+        t("未检查", "Not checked")}</dd></div>
+      {qualification && <div><dt>{t("审查与哈希", "Review and hash")}</dt>
+        <dd>{qualification.reviewed && qualification.executable_hash_matched ?
+          t("已固定", "Pinned") : t("不完整", "Incomplete")}</dd></div>}
+    </dl>
+    <p className="extension-target" title={server.source_label}>{server.source_label}</p>
+    <Fingerprint label={t("能力指纹", "Capability fingerprint")}
+      value={server.capability_fingerprint || server.descriptor_fingerprint} />
+    {server.model_visible_tools.length > 0 && <p className="code-intel-tools"
+      title={server.model_visible_tools.join(", ")}>{server.model_visible_tools.join(", ")}</p>}
+    {server.last_error && <p className="inline-warning code-intel-error">{server.last_error}</p>}
+    {qualification?.reason && <p className="inline-warning code-intel-error">
+      {qualification.reason}</p>}
+  </article>;
 }
 
 function ExtensionCollection({ title, count, children }: {

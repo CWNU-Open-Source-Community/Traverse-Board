@@ -490,6 +490,13 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			Parameters: []openAPIParameter{
 				identityQueryParameter("run_id", "Optional Run used to resolve exact Run and Workspace MCP scope"),
 			}},
+		{Path: CodeIntelInventoryPath, OperationID: "getCodeIntelInventory",
+			Summary: "Inspect reviewed language-server state", Tag: "System",
+			Description: "Returns code-intel-lsp.v1 server source, language, health, capabilities, generation, recent bounded error, and model-visible read-only tools. Executable paths, argv, environment, credentials, server output, and Workspace content are never returned.",
+			DataType:    reflect.TypeOf(CodeIntelInventoryView{}),
+			Parameters: []openAPIParameter{
+				identityQueryParameter("workspace_id", "Optional Workspace used for static executable-hash and review qualification"),
+			}},
 		{Path: ExtensionMCPReviewPath, Method: http.MethodPost,
 			OperationID: "reviewMCPServer", Summary: "Review or disable one MCP server",
 			Tag: "Extensions", Control: true, NotFound: true,

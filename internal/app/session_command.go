@@ -143,6 +143,9 @@ func (a *App) newSessionManager() *session.Manager {
 	engine := a.newLifecycleHookEngine()
 	executor := application.NewSessionRunChatExecutor(a.store, a.router, a.checker).
 		WithActiveCalls(a.calls).WithLifecycleHooks(engine)
+	if a.codeIntel != nil {
+		executor.WithCodeIntel(a.codeIntel)
+	}
 	return session.NewManager(a.store, a.router, a.checker).
 		WithRunChatExecutor(executor).WithLifecycleHooks(engine)
 }

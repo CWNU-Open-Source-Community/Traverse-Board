@@ -80,6 +80,10 @@ export type ExtensionPluginInstallationView =
   components["schemas"]["ExtensionPluginInstallationView"];
 export type ExtensionPluginReviewRequestView =
   components["schemas"]["ExtensionPluginReviewRequestView"];
+export type CodeIntelInventoryView = components["schemas"]["CodeIntelInventoryView"];
+export type CodeIntelServerView = components["schemas"]["CodeIntelServerView"];
+export type CodeIntelQualificationView =
+  components["schemas"]["CodeIntelQualificationView"];
 export type UIEvidenceArtifactMetadata = components["schemas"]["UIEvidenceArtifactMetadata"];
 export type UIEvidenceAttempt = components["schemas"]["UIEvidenceAttempt"];
 export type UIEvidenceBundle = components["schemas"]["UIEvidenceBundle"];

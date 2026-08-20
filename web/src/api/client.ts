@@ -33,6 +33,7 @@ import type {
   BrowserSafeWebReadiness,
   CodeHandoffView,
   CodeHandoffExportView,
+  CodeIntelInventoryView,
   ControlledCommandProposalReviewRequestView,
   ControlledCommandProposalView,
   HostCommandProposalReviewRequestView,
@@ -194,6 +195,7 @@ export interface ClientCapabilities {
   extensionControlEnabled?: boolean;
   dockerExecutionEnabled?: boolean;
   agentCodeToolsEnabled?: boolean;
+  codeIntelEnabled?: boolean;
 }
 
 export class APIRequestError extends Error {
@@ -1501,6 +1503,7 @@ function parseUIEvidenceBundle(value: unknown, attemptID: string): UIEvidenceBun
 function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
   const capabilityKeys = ["agent_code_tools_enabled", "approval_control_enabled",
     "command_runtime_enabled", "docker_execution_enabled",
+    "code_intel_enabled",
     "browser_cdp_permission_control_enabled", "full_cdp_debug_enabled",
     "controlled_command_proposal_control_enabled",
     "host_command_proposal_control_enabled",
@@ -1678,6 +1681,7 @@ export function clientCapabilitiesFromRuntime(value: RuntimeCapabilitiesView): C
     uiEvidenceControlEnabled: value.ui_evidence_control_enabled,
     dockerExecutionEnabled: value.docker_execution_enabled,
     agentCodeToolsEnabled: value.agent_code_tools_enabled,
+    codeIntelEnabled: value.code_intel_enabled,
   };
 }
 
@@ -4006,6 +4010,132 @@ function containsForbiddenExtensionField(value: unknown): boolean {
     forbidden.has(key.toLocaleLowerCase()) || containsForbiddenExtensionField(child));
 }
 
+const codeIntelTools = ["code_workspace_symbols", "code_document_symbols",
+  "code_definition", "code_references", "code_implementation", "code_hover",
+  "code_signature_help", "code_diagnostics", "code_call_hierarchy",
+  "code_type_hierarchy"] as const;
+const codeIntelCapabilityKeys = ["workspace_symbols", "document_symbols", "definition",
+  "references", "implementation", "hover", "signature_help", "diagnostics",
+  "call_hierarchy", "type_hierarchy"] as const;
+const codeIntelHealthStates = ["configured", "starting", "healthy", "unavailable",
+  "crashed", "timed_out", "protocol_error", "stopped"];
+
+function strictCodeIntelIdentity(value: unknown): boolean {
+  return boundedIdentity(value) !== "" &&
+    !/[\s\u0000-\u001f\u007f]/u.test(String(value));
+}
+
+function containsForbiddenCodeIntelField(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsForbiddenCodeIntelField);
+  if (!isRecord(value)) return false;
+  const forbidden = new Set(["argument", "arguments", "argv", "command", "credential",
+    "credentials", "environment", "executable", "home", "password", "raw", "secret",
+    "stderr", "stdout", "token"]);
+  return Object.entries(value).some(([key, child]) =>
+    forbidden.has(key.toLocaleLowerCase()) || containsForbiddenCodeIntelField(child));
+}
+
+function parseCodeIntelInventory(value: unknown): CodeIntelInventoryView {
+  if (!hasExactKeys(value, ["enabled", "protocol_version", "qualifications", "servers"]) ||
+    value.protocol_version !== "code-intel-lsp.v1" || typeof value.enabled !== "boolean" ||
+    containsForbiddenCodeIntelField(value) || !Array.isArray(value.servers) ||
+    value.servers.length > 32 || !Array.isArray(value.qualifications) ||
+    value.qualifications.length > 32) {
+    throw new APIRequestError("Code intelligence inventory is invalid", "INVALID_RESPONSE", 502);
+  }
+  const serverIdentities = new Set<string>();
+  for (const server of value.servers) {
+    const required = ["capabilities", "credentials_granted", "descriptor_fingerprint",
+      "health", "languages", "model_visible_tools", "network_access_granted",
+      "process_owned", "protocol_version", "read_only", "server_id", "server_name",
+      "shell_profile_loaded", "source_kind", "source_label", "source_sha256",
+      "workspace_id"];
+    const optional = ["capability_fingerprint", "generation", "last_error", "qualified_at",
+      "server_version"];
+    const capabilities = isRecord(server) && isRecord(server.capabilities)
+      ? server.capabilities : null;
+    if (!isRecord(server) || !hasOnlyKeys(server, [...required, ...optional]) ||
+      required.some((key) => !Object.prototype.hasOwnProperty.call(server, key)) ||
+      server.protocol_version !== "code-intel-lsp.v1" ||
+      !strictCodeIntelIdentity(server.server_id) || !strictCodeIntelIdentity(server.workspace_id) ||
+      !boundedText(server.server_name, 256) || server.source_kind !== "operator_config" ||
+      !boundedText(server.source_label, 256) || !isSHA256(server.source_sha256) ||
+      !isSHA256(server.descriptor_fingerprint) ||
+      !codeIntelHealthStates.includes(String(server.health)) ||
+      server.process_owned !== true || server.read_only !== true ||
+      server.network_access_granted !== false || server.credentials_granted !== false ||
+      server.shell_profile_loaded !== false || !Array.isArray(server.languages) ||
+      server.languages.length < 1 || server.languages.length > 16 ||
+      server.languages.some((language) => !strictCodeIntelIdentity(language)) ||
+      new Set(server.languages).size !== server.languages.length ||
+      server.languages.join("\u0000") !== [...server.languages].sort().join("\u0000") ||
+      capabilities === null || !hasExactKeys(capabilities, [...codeIntelCapabilityKeys]) ||
+      codeIntelCapabilityKeys.some((key) => typeof capabilities[key] !== "boolean") ||
+      !boundedStringArray(server.model_visible_tools, codeIntelTools.length, 64) ||
+      new Set(server.model_visible_tools).size !== server.model_visible_tools.length ||
+      server.model_visible_tools.some((tool) => !codeIntelTools.includes(
+        tool as typeof codeIntelTools[number])) ||
+      (server.capability_fingerprint !== undefined &&
+        !isSHA256(server.capability_fingerprint)) ||
+      (server.generation !== undefined && !isSHA256(server.generation)) ||
+      (server.last_error !== undefined && !boundedText(server.last_error, 2_048)) ||
+      (server.server_version !== undefined && !boundedText(server.server_version, 256)) ||
+      (server.qualified_at !== undefined && !validDate(server.qualified_at)) ||
+      (server.health === "healthy" && (!isSHA256(server.capability_fingerprint) ||
+        !isSHA256(server.generation) || !validDate(server.qualified_at)))) {
+      throw new APIRequestError("Code intelligence server projection is invalid",
+        "INVALID_RESPONSE", 502);
+    }
+    const expectedTools = codeIntelCapabilityKeys.flatMap((key, index) =>
+      capabilities[key] ? [codeIntelTools[index]] : []);
+    if (expectedTools.join("\u0000") !== server.model_visible_tools.join("\u0000")) {
+      throw new APIRequestError("Code intelligence tools do not match negotiated capabilities",
+        "INVALID_RESPONSE", 502);
+    }
+    const identity = `${String(server.workspace_id)}\u0000${String(server.server_id)}`;
+    if (serverIdentities.has(identity)) {
+      throw new APIRequestError("Code intelligence inventory repeats a server",
+        "INVALID_RESPONSE", 502);
+    }
+    serverIdentities.add(identity);
+  }
+  const qualificationIdentities = new Set<string>();
+  for (const qualification of value.qualifications) {
+    const required = ["credentials_granted", "descriptor_fingerprint", "eligible",
+      "executable_hash_matched", "health", "minimal_environment", "network_access_granted",
+      "process_owned", "protocol_version", "reviewed", "server_id", "shell_profile_loaded",
+      "workspace_id"];
+    if (!isRecord(qualification) || !hasOnlyKeys(qualification, [...required, "reason"]) ||
+      required.some((key) => !Object.prototype.hasOwnProperty.call(qualification, key)) ||
+      qualification.protocol_version !== "code-intel-lsp.v1" ||
+      !strictCodeIntelIdentity(qualification.server_id) ||
+      !strictCodeIntelIdentity(qualification.workspace_id) ||
+      !isSHA256(qualification.descriptor_fingerprint) ||
+      !codeIntelHealthStates.includes(String(qualification.health)) ||
+      typeof qualification.eligible !== "boolean" ||
+      typeof qualification.executable_hash_matched !== "boolean" ||
+      typeof qualification.reviewed !== "boolean" || qualification.process_owned !== true ||
+      qualification.minimal_environment !== true ||
+      qualification.network_access_granted !== false ||
+      qualification.credentials_granted !== false ||
+      qualification.shell_profile_loaded !== false ||
+      (qualification.reason !== undefined && !boundedText(qualification.reason, 2_048)) ||
+      (qualification.eligible && (!qualification.executable_hash_matched ||
+        !qualification.reviewed || qualification.health !== "configured" ||
+        qualification.reason !== undefined))) {
+      throw new APIRequestError("Code intelligence qualification is invalid",
+        "INVALID_RESPONSE", 502);
+    }
+    const identity = `${String(qualification.workspace_id)}\u0000${String(qualification.server_id)}`;
+    if (qualificationIdentities.has(identity)) {
+      throw new APIRequestError("Code intelligence inventory repeats a qualification",
+        "INVALID_RESPONSE", 502);
+    }
+    qualificationIdentities.add(identity);
+  }
+  return value as unknown as CodeIntelInventoryView;
+}
+
 function parseExtensionInventory(value: unknown): ExtensionInventoryView {
   if (!isRecord(value) || value.protocol_version !== "extension-inventory.v1" ||
     containsForbiddenExtensionField(value) ||
@@ -4181,6 +4311,17 @@ export class CyberAgentClient {
 
   async runtimeCapabilities(signal?: AbortSignal): Promise<RuntimeCapabilitiesView> {
     return parseRuntimeCapabilities(await this.get<unknown>("/capabilities", {}, signal));
+  }
+
+  async codeIntelInventory(workspaceID = "", signal?: AbortSignal):
+    Promise<CodeIntelInventoryView> {
+    if (workspaceID !== "" && (!strictCodeIntelIdentity(workspaceID) ||
+      workspaceID.trim() !== workspaceID)) {
+      throw new Error("A normalized Workspace identity is required");
+    }
+    return parseCodeIntelInventory(await this.get<unknown>(
+      "/code-intel", { workspace_id: workspaceID || undefined }, signal,
+    ));
   }
 
   async extensionInventory(runID = "", signal?: AbortSignal): Promise<ExtensionInventoryView> {

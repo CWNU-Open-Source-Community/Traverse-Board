@@ -127,12 +127,45 @@ describe("SettingsView", () => {
     const disableMCP = vi.spyOn(controlClient, "reviewMCPServer").mockResolvedValue({} as never);
     const disablePlugin = vi.spyOn(controlClient, "reviewPluginInstallation")
       .mockResolvedValue({} as never);
+    const codeIntelInventory = vi.spyOn(controlClient, "codeIntelInventory").mockResolvedValue({
+      protocol_version: "code-intel-lsp.v1", enabled: true,
+      qualifications: [{ protocol_version: "code-intel-lsp.v1", server_id: "gopls",
+        workspace_id: "workspace-extensions", eligible: true, health: "configured",
+        descriptor_fingerprint: digestA, executable_hash_matched: true, reviewed: true,
+        process_owned: true, minimal_environment: true, network_access_granted: false,
+        credentials_granted: false, shell_profile_loaded: false },
+      { protocol_version: "code-intel-lsp.v1", server_id: "typescript-language-server",
+        workspace_id: "workspace-extensions", eligible: false, health: "unavailable",
+        descriptor_fingerprint: digestB, executable_hash_matched: false, reviewed: true,
+        process_owned: true, minimal_environment: true, network_access_granted: false,
+        credentials_granted: false, shell_profile_loaded: false,
+        reason: "TypeScript server hash mismatch" }],
+      servers: [{ protocol_version: "code-intel-lsp.v1", server_id: "gopls",
+        server_name: "gopls", workspace_id: "workspace-extensions", languages: ["go"],
+        source_kind: "operator_config", source_label: "code-intel.json",
+        source_sha256: digestA, descriptor_fingerprint: digestA,
+        capability_fingerprint: digestB, generation: digestB, health: "healthy",
+        capabilities: { workspace_symbols: true, document_symbols: true, definition: true,
+          references: true, implementation: true, hover: true, signature_help: true,
+          diagnostics: true, call_hierarchy: true, type_hierarchy: true },
+        model_visible_tools: ["code_workspace_symbols", "code_document_symbols",
+          "code_definition", "code_references", "code_implementation", "code_hover",
+          "code_signature_help", "code_diagnostics", "code_call_hierarchy",
+          "code_type_hierarchy"], server_version: "v0.20.0", process_owned: true,
+        read_only: true, network_access_granted: false, credentials_granted: false,
+        shell_profile_loaded: false, qualified_at: "2026-08-20T01:00:00Z" }],
+    });
 
     renderSettings({ capabilities, client: controlClient, desktop: true, health,
       selectedRunID: "run-extensions", onBack: vi.fn(), onOpenModels: vi.fn(),
       onOpenSkills: vi.fn() });
-    fireEvent.click(screen.getByRole("button", { name: "MCP 与 Plugin" }));
+    fireEvent.click(screen.getByRole("button", { name: "Code Intel、MCP 与 Plugin" }));
 
+    expect(await screen.findByText("gopls")).toBeInTheDocument();
+    expect(await screen.findByText("已通过")).toBeInTheDocument();
+    expect(await screen.findByText("typescript-language-server")).toBeInTheDocument();
+    expect(screen.getByText("TypeScript server hash mismatch")).toBeInTheDocument();
+    expect(codeIntelInventory).toHaveBeenCalledWith("workspace-extensions", expect.any(AbortSignal));
     expect(await screen.findByText("Local tools")).toBeInTheDocument();
     expect(screen.getByText("Review Pack")).toBeInTheDocument();
     expect(screen.queryByText("extension-test-token")).not.toBeInTheDocument();

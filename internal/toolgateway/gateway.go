@@ -69,6 +69,7 @@ type Gateway struct {
 	debugTerminal              DebugTerminalExecutor
 	commandRuntime             CommandRuntimeExecutor
 	agentCode                  AgentCodeExecutor
+	codeIntel                  CodeIntelExecutor
 	mcp                        MCPExecutor
 	lifecycleHooks             *hooks.Engine
 	waitGraph                  *waitgraph.Graph
@@ -236,6 +237,9 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (outcome Outcome, r
 	if isAgentCodeTool(normalized.Name) && g.agentCode == nil {
 		return Outcome{}, errors.New("agent code tool executor is required")
 	}
+	if IsCodeIntelTool(normalized.Name) && g.codeIntel == nil {
+		return Outcome{}, errors.New("code-intel tool executor is required")
+	}
 	fallback := waitgraph.External(normalized.RequestedBy)
 	if normalized.AgentID != "" {
 		fallback = waitgraph.Agent(normalized.AgentID)
@@ -266,6 +270,11 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (outcome Outcome, r
 	case WorkspaceListTool, WorkspaceReadTool, WorkspaceGlobTool, WorkspaceGrepTool,
 		WorkspaceChangeTool, WorkspaceApplyTool, WorkspaceDeleteTool:
 		return g.invokeAgentCode(ctx, normalized)
+	case CodeWorkspaceSymbolsTool, CodeDocumentSymbolsTool, CodeDefinitionTool,
+		CodeReferencesTool, CodeImplementationTool, CodeHoverTool,
+		CodeSignatureHelpTool, CodeDiagnosticsTool, CodeCallHierarchyTool,
+		CodeTypeHierarchyTool:
+		return g.invokeCodeIntel(ctx, normalized)
 	case ReadFileTool, ListWorkspaceTool:
 		return g.invokeWorkspaceRead(ctx, normalized)
 	case ShellTool:
@@ -833,6 +842,16 @@ func gatewayDecision(source policy.Decision, mode ApprovalMode, fallbackRisk str
 }
 
 func validateToolArguments(call ToolCall) error {
+	if IsCodeIntelTool(call.Name) {
+		if len(call.Arguments) != 0 || call.RunID == "" || call.MissionID == "" ||
+			call.AgentID == "" || call.SessionID == "" || call.WorkspaceID == "" ||
+			call.RequestedBy != "run_supervisor" || call.OperationKey == "" ||
+			call.LeaseID == "" {
+			return errors.New("code-intel tools require a structured fenced root Supervisor scope")
+		}
+		_, _, err := NormalizeCodeIntelPayload(call.Name, call.Payload)
+		return err
+	}
 	if isAgentCodeTool(call.Name) {
 		if len(call.Arguments) != 0 || call.RunID == "" || call.MissionID == "" ||
 			call.AgentID == "" || call.SessionID == "" || call.WorkspaceID == "" ||

@@ -75,11 +75,14 @@ func TypedActionIDs() map[string]struct{} {
 	for _, name := range agentCodeToolNames() {
 		out[string(name)] = struct{}{}
 	}
+	for _, name := range codeIntelToolNames() {
+		out[string(name)] = struct{}{}
+	}
 	return out
 }
 
 func (n ToolName) Valid() bool {
-	if isAgentCodeTool(n) {
+	if isAgentCodeTool(n) || IsCodeIntelTool(n) {
 		return true
 	}
 	switch n {
@@ -123,6 +126,9 @@ func (c ActionClass) Valid() bool {
 
 func ClassForTool(name ToolName) (ActionClass, bool) {
 	if definition, found := AgentCodeToolDefinition(name); found {
+		return definition.Class, true
+	}
+	if definition, found := CodeIntelToolDefinition(name); found {
 		return definition.Class, true
 	}
 	switch name {
@@ -258,7 +264,8 @@ func NormalizeToolCall(call ToolCall) (ToolCall, error) {
 	if call.ModeRevision < 0 || call.PermissionRevision < 0 {
 		return ToolCall{}, errors.New("tool capability revisions cannot be negative")
 	}
-	if isAgentCodeTool(call.Name) || call.Name == CommandRuntimeTool {
+	if isAgentCodeTool(call.Name) || IsCodeIntelTool(call.Name) ||
+		call.Name == CommandRuntimeTool {
 		if !call.Surface.Valid() || !call.Phase.Valid() || !domain.ValidAgentRole(call.Role) ||
 			!call.PermissionMode.Valid() || call.ModeRevision <= 0 ||
 			call.PermissionRevision <= 0 || !validAgentCodeDigest(call.CapabilityGeneration, false) {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"cyberagent-workbench/internal/apperror"
+	"cyberagent-workbench/internal/codeintel"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/hooks"
 	"cyberagent-workbench/internal/idgen"
@@ -94,6 +95,15 @@ func (s *RunExecutionHandoffService) WithMCPClient(
 ) *RunExecutionHandoffService {
 	if s != nil && s.supervisor != nil {
 		s.supervisor.WithMCPClient(manager)
+	}
+	return s
+}
+
+func (s *RunExecutionHandoffService) WithCodeIntel(
+	manager *codeintel.Manager,
+) *RunExecutionHandoffService {
+	if s != nil && s.supervisor != nil {
+		s.supervisor.WithCodeIntel(manager)
 	}
 	return s
 }

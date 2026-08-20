@@ -307,6 +307,7 @@ type Config struct {
 	WorkspaceCheckpointController           WorkspaceCheckpointController
 	BatchDeliveryController                 BatchDeliveryController
 	ExtensionController                     ExtensionController
+	CodeIntelSource                         CodeIntelSource
 	UIEvidenceController                    UIEvidenceController
 	DockerSandboxController                 DockerSandboxController
 	ModelRegistry                           *modelregistry.Registry
@@ -381,6 +382,7 @@ type API struct {
 	workspaceCheckpointController           WorkspaceCheckpointController
 	batchDeliveryController                 BatchDeliveryController
 	extensionController                     ExtensionController
+	codeIntelSource                         CodeIntelSource
 	uiEvidenceController                    UIEvidenceController
 	dockerSandboxController                 DockerSandboxController
 	modelRegistry                           *modelregistry.Registry
@@ -669,6 +671,7 @@ func New(store Store, config Config) (*API, error) {
 		workspaceCheckpointController:       config.WorkspaceCheckpointController,
 		batchDeliveryController:             config.BatchDeliveryController,
 		extensionController:                 config.ExtensionController,
+		codeIntelSource:                     config.CodeIntelSource,
 		uiEvidenceController:                config.UIEvidenceController,
 		dockerSandboxController:             config.DockerSandboxController,
 		modelRegistry:                       modelRegistry,

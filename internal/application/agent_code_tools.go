@@ -251,6 +251,20 @@ func (e *AgentCodeToolExecutor) validateScope(ctx context.Context,
 		return apperror.New(apperror.CodeConflict,
 			"agent code capability generation changed before execution")
 	}
+	// code-intel tools deliberately reuse the exact Agent Code authority and
+	// fencing checks above. Their reviewed server generation and capability
+	// fingerprint are independently validated by the Go-owned LSP manager.
+	if toolgateway.IsCodeIntelTool(name) {
+		if available, reason := toolgateway.CodeIntelScopeEligibility(
+			toolgateway.AgentCodeCapabilityContext{RunID: run.ID, MissionID: mission.ID,
+				RootAgentID: agent.ID, WorkspaceID: registered.ID,
+				RootFingerprint: rootFingerprint, Surface: mode.Surface, Phase: mode.Phase,
+				Role: agent.Role, Profile: agent.Profile, PermissionMode: permission.Mode,
+				ModeRevision: mode.Revision, PermissionRevision: permission.Revision}); !available {
+			return apperror.New(apperror.CodePolicyDenied, reason)
+		}
+		return nil
+	}
 	for _, item := range capabilities.Tools {
 		if item.Name == name {
 			if !item.Available {

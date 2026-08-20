@@ -13,6 +13,7 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/browserruntime"
+	"cyberagent-workbench/internal/codeintel"
 	"cyberagent-workbench/internal/credential"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/executionauth"
@@ -49,6 +50,7 @@ type ControlPlane struct {
 	commandRuntime        *application.CommandRuntimeService
 	uiEvidence            *application.UIEvidenceService
 	commandRuntimeManager *runner.CommandRuntimeManager
+	codeIntelManager      *codeintel.Manager
 	terminalManager       *terminalruntime.Manager
 	boundaryMonitor       *terminalruntime.HostBoundaryMonitor
 	terminalWorkerMu      sync.Mutex
@@ -103,6 +105,7 @@ type ControlPlaneConfig struct {
 	BrowserRuntimeCapabilities              browserruntime.ProductionRuntimeCapabilities
 	UserTerminalEnabled                     bool
 	DockerExecutionEnabled                  bool
+	CodeIntelConfigPath                     string
 	AppVersion                              string
 	UIHandler                               http.Handler
 	CredentialStore                         credential.Store
@@ -156,6 +159,25 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	if err != nil {
 		_ = stateStore.Close()
 		return nil, err
+	}
+	var codeIntelManager *codeintel.Manager
+	codeIntelTransferred := false
+	defer func() {
+		if codeIntelManager != nil && !codeIntelTransferred {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(),
+				codeintel.MaximumShutdownGracePeriod)
+			_ = codeIntelManager.Close(shutdownCtx)
+			cancel()
+		}
+	}()
+	if strings.TrimSpace(config.CodeIntelConfigPath) != "" {
+		codeIntelManager, _, err = codeintel.NewManagerFromConfig(
+			filepath.Clean(config.CodeIntelConfigPath))
+		if err != nil {
+			_ = stateStore.Close()
+			return nil, apperror.Wrap(apperror.CodeFailedPrecondition,
+				"load Desktop code-intel configuration", err)
+		}
 	}
 	if len(registeredWorkspaces) == 0 {
 		if _, err := workspaceManager.Ensure(
@@ -237,6 +259,9 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		models.Router(), checker).WithActiveCalls(
 		application.NewActiveCallRegistry()).WithMCPClient(mcpClient).
 		WithLifecycleHooks(hookEngine)
+	if codeIntelManager != nil {
+		executionControl.WithCodeIntel(codeIntelManager)
+	}
 	commandManager, err := runner.NewPlatformCommandRuntimeManager(stateStore,
 		idgen.New("command-runtime-owner"))
 	if err != nil {
@@ -516,6 +541,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		WorkspaceCheckpointController:       workspaceCheckpoints,
 		BatchDeliveryController:             batchDelivery,
 		ExtensionController:                 extensionControl,
+		CodeIntelSource:                     codeIntelManager,
 		UIEvidenceController:                uiEvidence,
 		DockerSandboxController:             dockerSandbox,
 		ModelRegistry:                       models,
@@ -528,6 +554,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		_ = stateStore.Close()
 		return nil, err
 	}
+	codeIntelTransferred = true
 	return &ControlPlane{stateStore: stateStore, workspaceManager: workspaceManager,
 		handler:        api.Handler(),
 		skillInstaller: skillInstaller, dockerSandbox: dockerSandbox,
@@ -535,6 +562,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		debugAgentInput: debugAgentInput,
 		commandRuntime:  commandRuntime, uiEvidence: uiEvidence,
 		commandRuntimeManager: commandManager,
+		codeIntelManager:      codeIntelManager,
 		terminalManager:       terminalManager, boundaryMonitor: boundaryMonitor,
 		wakeWorker: wakeWorker, scheduledJobWorker: scheduledJobWorker}, nil
 }
@@ -591,6 +619,12 @@ func (c *ControlPlane) DebugTerminalAgentInputController() application.DebugTerm
 		return nil
 	}
 	return c.debugAgentInput
+}
+
+// CodeIntelEnabled reports whether this process loaded an explicit reviewed
+// language-server configuration. It grants no renderer process authority.
+func (c *ControlPlane) CodeIntelEnabled() bool {
+	return c != nil && c.codeIntelManager != nil
 }
 
 // ResolveWorkspace keeps the registered root inside the Go control plane. The
@@ -798,6 +832,12 @@ func (c *ControlPlane) Close() error {
 				context.Background(), 7*time.Second)
 			c.closeErr = errors.Join(c.closeErr,
 				c.commandRuntimeManager.Shutdown(shutdownContext))
+			shutdownCancel()
+		}
+		if c.codeIntelManager != nil {
+			shutdownContext, shutdownCancel := context.WithTimeout(
+				context.Background(), codeintel.MaximumShutdownGracePeriod)
+			c.closeErr = errors.Join(c.closeErr, c.codeIntelManager.Close(shutdownContext))
 			shutdownCancel()
 		}
 		if c.stateStore == nil {

@@ -349,3 +349,79 @@ func TestSupervisorMCPRequiresReviewedSnapshotAndExactRuntimeScope(t *testing.T)
 		t.Fatal("MCP lifecycle conflict was not model-recoverable")
 	}
 }
+
+func TestSupervisorCodeIntelRequiresPinnedSnapshotAuthorityAndCodeScope(t *testing.T) {
+	generation := strings.Repeat("a", 64)
+	fingerprint := strings.Repeat("b", 64)
+	capabilities := toolgateway.CodeIntelCapabilitySnapshot{
+		ProtocolVersion: toolgateway.CodeIntelProtocolVersion,
+		Servers: []toolgateway.CodeIntelServerCapability{{
+			ServerID: "gopls", ServerName: "gopls", Languages: []string{"go"},
+			Generation: generation, CapabilityFingerprint: fingerprint,
+			Tools: []toolgateway.ToolName{toolgateway.CodeWorkspaceSymbolsTool},
+		}},
+	}
+	options := supervisorToolOptions{CodeIntel: supervisorCodeIntelTools{
+		Capabilities: capabilities, Authority: json.RawMessage(`{"bound":true}`),
+	}}
+	find := func(surface domain.ExecutionSurface, phase domain.ExecutionPhase,
+	) (bool, json.RawMessage) {
+		for _, spec := range supervisorStructuredToolSpecs(surface, phase,
+			domain.RunExecutionPermissionConservative, false, false, options) {
+			if spec.Name == string(toolgateway.CodeWorkspaceSymbolsTool) {
+				return true, spec.Parameters
+			}
+		}
+		return false, nil
+	}
+	for _, phase := range []domain.ExecutionPhase{
+		domain.ExecutionPhasePlan, domain.ExecutionPhaseDeliver,
+	} {
+		found, schema := find(domain.ExecutionSurfaceCode, phase)
+		if !found || !json.Valid(schema) ||
+			!strings.Contains(string(schema), `"const":"gopls"`) ||
+			!strings.Contains(string(schema), `"const":"`+generation+`"`) ||
+			!strings.Contains(string(schema), `"const":"`+fingerprint+`"`) {
+			t.Fatalf("pinned Code Intel schema was not exposed in %s: %s", phase, schema)
+		}
+	}
+	if found, _ := find(domain.ExecutionSurfaceCyber, domain.ExecutionPhasePlan); found {
+		t.Fatal("Code Intel tool leaked onto the Cyber surface")
+	}
+	payload := json.RawMessage(`{"version":"code-intel-lsp.v1","server_id":"gopls","server_generation":"` +
+		generation + `","capability_fingerprint":"` + fingerprint +
+		`","query":"Manager","limit":20}`)
+	calls := []llm.ToolCall{{ID: "provider-code-intel",
+		Name: string(toolgateway.CodeWorkspaceSymbolsTool), Arguments: payload}}
+	prepared, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
+		domain.ExecutionSurfaceCode, domain.ExecutionPhasePlan,
+		domain.RunExecutionPermissionConservative, false, false, options)
+	if err != nil || len(prepared) != 1 || len(prepared[0].Authority) == 0 {
+		t.Fatalf("exact Code Intel call was rejected or lost authority: %#v, %v", prepared, err)
+	}
+	forged := options
+	forged.CodeIntel.Capabilities.Servers[0].Generation = strings.Repeat("c", 64)
+	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
+		domain.ExecutionSurfaceCode, domain.ExecutionPhasePlan,
+		domain.RunExecutionPermissionConservative, false, false, forged); err == nil {
+		t.Fatal("stale Code Intel generation was accepted")
+	}
+	withoutAuthority := options
+	withoutAuthority.CodeIntel.Authority = nil
+	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
+		domain.ExecutionSurfaceCode, domain.ExecutionPhasePlan,
+		domain.RunExecutionPermissionConservative, false, false, withoutAuthority); err == nil {
+		t.Fatal("Code Intel call without Go-issued authority was accepted")
+	}
+	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
+		domain.ExecutionSurfaceCyber, domain.ExecutionPhasePlan,
+		domain.RunExecutionPermissionConservative, false, false, options); err == nil {
+		t.Fatal("Code Intel call was accepted on the Cyber surface")
+	}
+	for _, code := range []apperror.Code{apperror.CodeConflict,
+		apperror.CodeFailedPrecondition, apperror.CodeUnavailable} {
+		if !recoverableSupervisorToolError(toolgateway.CodeWorkspaceSymbolsTool, code) {
+			t.Fatalf("Code Intel lifecycle error %s was not model-recoverable", code)
+		}
+	}
+}

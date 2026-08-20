@@ -6,7 +6,7 @@
 
 现有 Go `skill.v1` 已严格定义名称、语义版本、描述、兼容 Profile、工具前置声明、Markdown 内容路径、UTF-8 字节数、保守 token 上界和 SHA-256。当前内置 Manifest 还显式声明 `surfaces`（Code/Cyber）、`phases`（Plan/Deliver）、`roles`（root/Specialist）以及 `user_invocable`、`model_invocable`、`explicit_only` 调用策略；四维兼容必须同时命中，调用许可与正文交付分别判断，任何字段都不授予能力。`internal/skills.LoadFS` 可以从受控 `fs.FS` 构造不可变 Registry，当前编译进二进制的十二项为 `code`、`review`、`learn`、`script`、`plan-delivery`、`doctor`、`debug`、`run-verify`、`focused-checks`、`simplify`、`security-review` 和 `run-skill-generator`，另支持测试夹具。
 
-Profile Skill 中 `code/learn` 仅支持 Code，增强后的 `review@1.3.0` 支持 Code 与 Review Profile，`script` 支持 Code 与 Cyber；它们支持 Plan/Deliver、root/Specialist 和 user/model 来源。`plan-delivery` 跨全部 Profile 与 Surface，但仅支持 root 且必须由操作者显式选择。六项新增通用能力均为 root 可组合指导：`doctor` 仅 Plan，`run-verify`、`focused-checks` 和 `simplify` 仅 Deliver，`debug` 与 `security-review` 跨两阶段。schema v110 按当前 mode 固定每轮兼容子集并允许审计空交付。schema v111 让外部安装账本保存同一模式字段且保持 legacy 指纹；schema v112 的 `run-skill-generator` 只在 Code/Deliver/root 显式选择后开放候选提案，生成、人工审批、惰性安装与 Run 选择互不替代。当前产品仍无模型自主选择入口，`model_invocable` 只为未来受控选择器声明准入。
+Profile Skill 中 `code/learn` 仅支持 Code，增强后的 `review@1.4.0` 支持 Code 与 Review Profile，`script` 支持 Code 与 Cyber；它们支持 Plan/Deliver、root/Specialist 和 user/model 来源。`plan-delivery` 跨全部 Profile 与 Surface，但仅支持 root 且必须由操作者显式选择。六项新增通用能力均为 root 可组合指导：`doctor` 仅 Plan，`run-verify`、`focused-checks` 和 `simplify` 仅 Deliver，`debug` 与 `security-review` 跨两阶段。`review@1.4.0` 和 `focused-checks@1.1.0` 可消费当前 `code-intel-lsp.v1` 证据但不会把语义结果当成能力授权；旧版已进入有界内嵌归档以保持既有 Run 可恢复。schema v110 按当前 mode 固定每轮兼容子集并允许审计空交付。schema v111 让外部安装账本保存同一模式字段且保持 legacy 指纹；schema v112 的 `run-skill-generator` 只在 Code/Deliver/root 显式选择后开放候选提案，生成、人工审批、惰性安装与 Run 选择互不替代。当前产品仍无模型自主选择入口，`model_invocable` 只为未来受控选择器声明准入。
 
 当前产品入口包括：
 

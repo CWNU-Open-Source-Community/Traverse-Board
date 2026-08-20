@@ -84,6 +84,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/code-intel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect reviewed language-server state
+         * @description Returns code-intel-lsp.v1 server source, language, health, capabilities, generation, recent bounded error, and model-visible read-only tools. Executable paths, argv, environment, credentials, server output, and Workspace content are never returned.
+         */
+        get: operations["getCodeIntelInventory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/continuity-nodes/{node_id}/fork": {
         parameters: {
             query?: never;
@@ -3740,6 +3760,64 @@ export interface components {
             verification_snapshot_receipt_reviews: components["schemas"]["CodeHandoffSnapshotReceiptReviewsView"];
             workspace_id: string;
         };
+        CodeIntelCapabilitiesView: {
+            call_hierarchy: boolean;
+            definition: boolean;
+            diagnostics: boolean;
+            document_symbols: boolean;
+            hover: boolean;
+            implementation: boolean;
+            references: boolean;
+            signature_help: boolean;
+            type_hierarchy: boolean;
+            workspace_symbols: boolean;
+        };
+        CodeIntelInventoryView: {
+            enabled: boolean;
+            protocol_version: string;
+            qualifications: components["schemas"]["CodeIntelQualificationView"][];
+            servers: components["schemas"]["CodeIntelServerView"][];
+        };
+        CodeIntelQualificationView: {
+            credentials_granted: boolean;
+            descriptor_fingerprint: string;
+            eligible: boolean;
+            executable_hash_matched: boolean;
+            health: string;
+            minimal_environment: boolean;
+            network_access_granted: boolean;
+            process_owned: boolean;
+            protocol_version: string;
+            reason?: string;
+            reviewed: boolean;
+            server_id: string;
+            shell_profile_loaded: boolean;
+            workspace_id: string;
+        };
+        CodeIntelServerView: {
+            capabilities: components["schemas"]["CodeIntelCapabilitiesView"];
+            capability_fingerprint?: string;
+            credentials_granted: boolean;
+            descriptor_fingerprint: string;
+            generation?: string;
+            health: string;
+            languages: string[];
+            last_error?: string;
+            model_visible_tools: string[];
+            network_access_granted: boolean;
+            process_owned: boolean;
+            protocol_version: string;
+            qualified_at?: string;
+            read_only: boolean;
+            server_id: string;
+            server_name: string;
+            server_version?: string;
+            shell_profile_loaded: boolean;
+            source_kind: string;
+            source_label: string;
+            source_sha256: string;
+            workspace_id: string;
+        };
         CommandRuntimeEnvironment: {
             name: string;
             value: string;
@@ -6479,6 +6557,7 @@ export interface components {
             batch_delivery_control_enabled: boolean;
             batch_delivery_host_validation_enabled: boolean;
             browser_cdp_permission_control_enabled: boolean;
+            code_intel_enabled: boolean;
             command_runtime_enabled: boolean;
             controlled_command_proposal_control_enabled: boolean;
             danger_full_access_enabled: boolean;
@@ -8257,6 +8336,40 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["RuntimeCapabilitiesView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getCodeIntelInventory: {
+        parameters: {
+            query?: {
+                /** @description Optional Workspace used for static executable-hash and review qualification */
+                workspace_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CodeIntelInventoryView"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";

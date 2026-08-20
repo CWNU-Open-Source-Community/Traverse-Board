@@ -25,6 +25,7 @@ This directory separates user-facing documentation, current engineering state, a
 | 文档 | 用途 |
 |---|---|
 | [架构说明 / Architecture](architecture.md) | Go 单一控制平面、Run-centric 领域和跨语言边界 |
+| [LSP 语义代码智能 / Code Intelligence](code-intelligence.md) | 审查配置、十项只读工具、进程生命周期、证据失效与真实 Server 验证 |
 | [HTTP API](http-api.md) | 认证 API 行为与 DTO 边界 |
 | [OpenAPI](openapi.json) | 由 Go 生成并受测试保护的机器可读合同 |
 | [错误模型 / Errors](errors.md) | 稳定错误类别、CLI 退出码和 HTTP 映射 |

@@ -70,6 +70,7 @@ type desktopOptions struct {
 	uiEvidence             bool
 	userTerminal           bool
 	dockerExecution        bool
+	codeIntelConfig        string
 	version                bool
 }
 
@@ -288,6 +289,8 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		"enable the user-owned Debug ConPTY terminal")
 	dockerExecution := fs.Bool("enable-docker-execution", false,
 		"enable product Docker Sandbox admission and execution on the fixed local daemon")
+	codeIntelConfig := fs.String("code-intel-config", "",
+		"absolute operator-reviewed code-intel config")
 	version := fs.Bool("version", false, "print version and exit")
 	if err := fs.Parse(args); err != nil {
 		return desktopOptions{}, err
@@ -392,6 +395,7 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		uiEvidence:             *uiEvidence,
 		userTerminal:           *userTerminal,
 		dockerExecution:        *dockerExecution,
+		codeIntelConfig:        strings.TrimSpace(*codeIntelConfig),
 		version:                *version}, nil
 }
 
@@ -477,6 +481,7 @@ func runDesktop(config desktopOptions) error {
 		},
 		UserTerminalEnabled:    config.userTerminal,
 		DockerExecutionEnabled: config.dockerExecution,
+		CodeIntelConfigPath:    config.codeIntelConfig,
 		AppVersion:             app.Version, UIHandler: bundle,
 		OnWakeWorkerError: func(runErr error) {
 			fmt.Fprintln(os.Stderr, "wake-worker:", runErr)
@@ -543,6 +548,7 @@ func runDesktop(config desktopOptions) error {
 		UIEvidenceControlEnabled:                config.uiEvidence,
 		UserTerminalEnabled:                     config.userTerminal,
 		DockerExecutionEnabled:                  dockerExecutionEnabled,
+		CodeIntelEnabled:                        controlPlane.CodeIntelEnabled(),
 		AppVersion:                              app.Version, UIDigest: bundle.Digest(), Selector: selector,
 		PreviewBridge: preview, SkillInstaller: controlPlane.SkillInstaller(),
 		WorkspaceResolver: controlPlane, WorkspaceLauncher: newNativeWorkspaceLauncher(),

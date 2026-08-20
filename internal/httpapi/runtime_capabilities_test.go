@@ -45,7 +45,7 @@ func TestRuntimeCapabilitiesAreReadOnlyAndDefaultClosed(t *testing.T) {
 		view.FileEditProposalEnabled || view.ProviderCredentialEnabled ||
 		view.RunWakeWorkerEnabled || view.ScheduledJobControlEnabled ||
 		view.ScheduledJobWorkerEnabled ||
-		!view.AgentCodeToolsEnabled ||
+		!view.AgentCodeToolsEnabled || view.CodeIntelEnabled ||
 		view.CommandRuntimeEnabled || view.ProcessExecutionEnabled || view.ShellExecutionEnabled ||
 		view.DockerExecutionEnabled || view.BatchDeliveryHostValidationEnabled ||
 		view.WakeWorker.Enabled ||

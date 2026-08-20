@@ -22,7 +22,7 @@ Accepted for the embedded Registry and schema-v110 root context ledger.
   model/tool/permission/application/infrastructure，只有 Deliver 可实施修复。
 - `run-verify`: Code/Script Profile、双 Surface、root、Deliver-only；固定启动来源并
   验证真实 UI/CLI/工具路径，Cyber 只允许既有 Policy 下的本地 admitted sandbox。
-- `review@1.3.0`: Code/Review Profile；增加 merge-base、完整 diff、调用链、生命周期、
+- `review@1.3.0`（当前 `1.4.0`）: Code/Review Profile；增加 merge-base、完整 diff、调用链、生命周期、
   并发、恢复、测试强度与 confirmed/inferred/unverified 证据分级。
 - `focused-checks`: Code/Review/Script Profile、双 Surface、root、Deliver-only；按改动
   映射最小可信测试、构建、快照、文档、安全与恢复检查，并定义扩大回归的触发条件。
@@ -48,7 +48,9 @@ selection 总数、交付数与摘要。空子集是合法且可审计的事实�
 ## 后果 / Consequences
 
 - 本决策把 Registry 从五项增至十一项；ADR 0113 随后加入第十二项
-  `run-skill-generator`。`review` 升为 `1.3.0`，原 `1.2.0` 被内嵌归档。
+  `run-skill-generator`。`review` 当时升为 `1.3.0`，原 `1.2.0` 被内嵌归档；
+  `code-intel-lsp.v1` 接入后又升为 `1.4.0`，`review@1.3.0` 与
+  `focused-checks@1.0.0` 继续作为只读历史版本保留。
 - 六个新增名称成为内置保留名；历史同名外部 selection 仍可按原 operation key 精确
   回放，但新的外部 selection 会冲突拒绝，避免内置与外部来源混淆。
 - 所有正文仍是 guidance-only；工具声明不授权，真实启动、截图、修复或删除仍需
