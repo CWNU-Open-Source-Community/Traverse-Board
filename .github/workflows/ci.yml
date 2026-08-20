@@ -253,18 +253,20 @@ jobs:
           if ($env:GITHUB_RUN_ID -notmatch '^\d+$' -or $env:GITHUB_RUN_ATTEMPT -notmatch '^\d+$') {
             throw "GitHub run identity is unavailable"
           }
-          # Hosted Windows RUNNER_TEMP is reparse-backed, while the production
-          # browser boundary intentionally rejects indirect Profile ancestors.
-          # LOCALAPPDATA remains direct and gives Edge the expected user ACLs.
-          if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA) -or
-              -not [System.IO.Path]::IsPathFullyQualified($env:LOCALAPPDATA)) {
-            throw "Windows user-local application data root is unavailable"
+          # Hosted Windows RUNNER_TEMP is reparse-backed, and runneradmin's
+          # LOCALAPPDATA is not traversable by the disposable standard user.
+          # Use one exact child of the direct system volume root, then grant
+          # that child (never the root) only to the temporary SID below.
+          if ([string]::IsNullOrWhiteSpace($env:SystemRoot) -or
+              -not [System.IO.Path]::IsPathFullyQualified($env:SystemRoot)) {
+            throw "Windows system root is unavailable"
           }
-          $directTempParent = [System.IO.Path]::GetFullPath($env:LOCALAPPDATA)
+          $directTempParent = [System.IO.Path]::GetPathRoot(
+            [System.IO.Path]::GetFullPath($env:SystemRoot))
           $directTempParentItem = Get-Item -LiteralPath $directTempParent -Force
           if (-not $directTempParentItem.PSIsContainer -or
               ($directTempParentItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-            throw "Windows user-local application data root is indirect"
+            throw "Windows system volume root is indirect"
           }
           $directTempName = "cyberagent-ui-evidence-$($env:GITHUB_RUN_ID)-$($env:GITHUB_RUN_ATTEMPT)"
           $directTempRoot = Join-Path $directTempParent $directTempName
@@ -273,7 +275,7 @@ jobs:
               $resolvedTempParent.TrimEnd('\'),
               $directTempParent.TrimEnd('\'),
               [System.StringComparison]::OrdinalIgnoreCase)) {
-            throw "UI evidence direct temp root escaped the user-local application data root"
+            throw "UI evidence direct temp root escaped the system volume root"
           }
           if (Test-Path -LiteralPath $directTempRoot) {
             throw "UI evidence direct temp root already exists"
