@@ -107,10 +107,18 @@ func TestBuiltinRegistryRetainsArchivedPinnedContext(t *testing.T) {
 			"0e0b45f5ea9499721dbff485e502ae332a96ed781e11c5a9b652776f3360f9a4" {
 		t.Fatal("previous full-diff review version was not retained for exact resumption")
 	}
+	if archivedReview, found := registry.version("review", "1.4.0"); !found ||
+		archivedReview.manifest.Version != "1.4.0" {
+		t.Fatalf("archived review 1.4.0 is unavailable: found=%t value=%#v", found, archivedReview)
+	}
 	if archivedChecks, found := registry.version("focused-checks", "1.0.0"); !found ||
 		archivedChecks.manifest.ContentSHA256 !=
 			"fdc0172a255a40c71884acebbad58b41dcb86f1cf8fa7662aec1c6588460c335" {
 		t.Fatal("previous focused-checks version was not retained for exact resumption")
+	}
+	if archivedChecks, found := registry.version("focused-checks", "1.1.0"); !found ||
+		archivedChecks.manifest.Version != "1.1.0" {
+		t.Fatalf("archived focused-checks 1.1.0 is unavailable: found=%t value=%#v", found, archivedChecks)
 	}
 }
 

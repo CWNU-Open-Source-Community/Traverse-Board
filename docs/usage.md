@@ -122,8 +122,8 @@ a stale or forged capability payload reaches the Gateway.
 
 Results label semantic evidence `current|partial|stale|unavailable` and bind the
 Workspace/root, repository commit/branch/dirty state, document URI/hash/version,
-server generation/capability fingerprint, and query/page. `review@1.4.0` and
-`focused-checks@1.1.0` preserve those bindings and never treat an LSP answer as proof.
+server generation/capability fingerprint, and query/page. `review@1.5.0` and
+`focused-checks@1.2.0` preserve those bindings and never treat an LSP answer as proof.
 Configuration examples, API/Desktop metadata, real gopls/TypeScript coverage, and the
 explicit non-sandbox trust boundary are documented in
 [Code Intelligence](code-intelligence.md).
@@ -267,7 +267,7 @@ Invocation policy is separate from delivery compatibility. `user_invocable` perm
 | Built-in | Version | Profiles | Surfaces | Phases | Roles | Invocation |
 | --- | --- | --- | --- | --- | --- | --- |
 | `code` | 1.2.0 | code | code | plan, deliver | root, specialist | user + model eligible |
-| `review` | 1.4.0 | code, review | code | plan, deliver | root, specialist | user + model eligible |
+| `review` | 1.5.0 | code, review | code | plan, deliver | root, specialist | user + model eligible |
 | `learn` | 1.2.0 | learn | code | plan, deliver | root, specialist | user + model eligible |
 | `script` | 1.2.0 | script | code, cyber | plan, deliver | root, specialist | user + model eligible |
 | `plan-delivery` | 1.2.0 | all | code, cyber | plan, deliver | root | explicit user only |
@@ -279,7 +279,7 @@ Invocation policy is separate from delivery compatibility. `user_invocable` perm
 | `security-review` | 1.0.0 | code, review, script | code, cyber | plan, deliver | root | user + model eligible |
 | `run-skill-generator` | 1.0.0 | code | code | deliver | root | explicit user only |
 
-`doctor` reports provider, harness, workspace, sandbox, network-scope, tool, and Skill compatibility without repairing it. `debug` builds a bounded evidence timeline and permits repair only in Deliver. `run-verify@1.1.0` requires an exact `ui-evidence.v1` source/recipe/runtime binding, real interaction assertions, content-addressed artifact inventory, cleanup receipt, focused-check mapping, and a PR-ready verification receipt; `not_run` and missing matrix cells must remain explicit non-passes. It does not grant browser, process, network, Profile, or credential authority, and on Cyber remains restricted by guidance to an admitted local sandbox. `review@1.4.0` and `focused-checks@1.1.0` consume current `code-intel-lsp.v1` evidence when available, preserve its source and freshness bindings, and keep partial, stale, or unavailable semantic evidence explicit instead of treating it as proof. `simplify` requires call-site evidence before deletion, and `security-review` remains read-only unless a separate Deliver authorization exists.
+`doctor` reports provider, harness, workspace, sandbox, network-scope, tool, and Skill compatibility without repairing it. `debug` builds a bounded evidence timeline and permits repair only in Deliver. `run-verify@1.1.0` requires an exact `ui-evidence.v1` source/recipe/runtime binding, real interaction assertions, content-addressed artifact inventory, cleanup receipt, focused-check mapping, and a PR-ready verification receipt; `not_run` and missing matrix cells must remain explicit non-passes. It does not grant browser, process, network, Profile, or credential authority, and on Cyber remains restricted by guidance to an admitted local sandbox. `review@1.5.0` and `focused-checks@1.2.0` consume current `code-intel-lsp.v1` plus GitHub PR/CI evidence when available, preserve source and freshness bindings, and keep partial, stale, unavailable, or not-run evidence explicit instead of treating it as proof. `simplify` requires call-site evidence before deletion, and `security-review` remains read-only unless a separate Deliver authorization exists.
 
 `run-skill-generator` does not create a trusted Skill. When it is explicitly selected and actually delivered to a Code/Deliver root turn, Go exposes `skill_candidate_propose`; otherwise the tool is omitted and forged calls are rejected. A successful call stores at most 4096 bytes of validated, secret-screened Markdown as an inert `proposed` candidate bound to the real tool invocation, Run/Session/Workspace/root, deterministic package, and exact fingerprints. The ordinary tool result and candidate list never expose the body; `skill candidate show --show-content` uses explicit untrusted-content delimiters for human inspection.
 
@@ -1421,6 +1421,10 @@ the same service and never receives private lease IDs or managed host paths. Ful
 sequence/worktree semantics, protection rules, recovery limitations, HTTP endpoints, and
 examples are in [Advanced Git Workflows](git-advanced.md); the architecture decision is
 [ADR 0122](adr/0122-go-owned-advanced-git-lifecycle.md).
+
+## GitHub Review Provider / GitHub 审阅集成
+
+Schema v124 adds a separate default-off GitHub App review workflow. Start it with `--enable-github-review` and permission control, configure an `owner/name` connection, complete Device Flow, qualify/fetch an exact PR, and bind the immutable snapshot to a Code Run before relying on it. Remote content remains untrusted and evidence states remain `verified`, `partial`, `stale`, `unavailable`, or `not_run`. Model tools are local read-only projections; remote write-back always requires a separate exact Approval. Commands, OpenAPI routes, minimum App permissions, recovery and real-smoke guidance are in [GitHub Review Provider](github-review.md); the decision is [ADR 0123](adr/0123-go-owned-github-review-provider.md).
 
 
 ## Debug Terminal and Time-Bound Agent Input

@@ -276,6 +276,7 @@ type Config struct {
 	EmbeddedAnalyzerExecutionEnabled        bool
 	WorkspaceCheckpointControlEnabled       bool
 	GitAdvancedControlEnabled               bool
+	GitHubReviewControlEnabled              bool
 	BatchDeliveryControlEnabled             bool
 	BatchDeliveryHostValidationEnabled      bool
 	ExtensionControlEnabled                 bool
@@ -307,6 +308,7 @@ type Config struct {
 	EmbeddedAnalyzerExecutionController     EmbeddedAnalyzerExecutionController
 	WorkspaceCheckpointController           WorkspaceCheckpointController
 	GitAdvancedController                   GitAdvancedController
+	GitHubReviewController                  GitHubReviewController
 	BatchDeliveryController                 BatchDeliveryController
 	ExtensionController                     ExtensionController
 	CodeIntelSource                         CodeIntelSource
@@ -350,6 +352,7 @@ type API struct {
 	embeddedAnalyzerExecutionEnabled        bool
 	workspaceCheckpointControlEnabled       bool
 	gitAdvancedControlEnabled               bool
+	githubReviewControlEnabled              bool
 	batchDeliveryControlEnabled             bool
 	batchDeliveryHostValidationEnabled      bool
 	extensionControlEnabled                 bool
@@ -384,6 +387,7 @@ type API struct {
 	embeddedAnalyzerExecutionController     EmbeddedAnalyzerExecutionController
 	workspaceCheckpointController           WorkspaceCheckpointController
 	gitAdvancedController                   GitAdvancedController
+	githubReviewController                  GitHubReviewController
 	batchDeliveryController                 BatchDeliveryController
 	extensionController                     ExtensionController
 	codeIntelSource                         CodeIntelSource
@@ -436,7 +440,7 @@ func New(store Store, config Config) (*API, error) {
 		config.SkillInstallationEnabled || config.EvidenceAttachmentEnabled ||
 		config.VerificationEvidenceEnabled || config.EmbeddedAnalyzerExecutionEnabled ||
 		config.WorkspaceCheckpointControlEnabled || config.BatchDeliveryControlEnabled ||
-		config.GitAdvancedControlEnabled ||
+		config.GitAdvancedControlEnabled || config.GitHubReviewControlEnabled ||
 		config.ExtensionControlEnabled || config.UIEvidenceControlEnabled) &&
 		!controlTokenPresent {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
@@ -530,6 +534,17 @@ func New(store Store, config Config) (*API, error) {
 	if config.GitAdvancedControlEnabled && config.GitAdvancedController == nil {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API Git advanced controller is required when enabled")
+	}
+	if config.GitHubReviewControlEnabled && config.GitHubReviewController == nil {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"HTTP API GitHub review controller is required when enabled")
+	}
+	if config.GitHubReviewControlEnabled &&
+		(!config.ExecutionPermissionControlEnabled ||
+			!config.ExecutionPermissionCapabilities.OperatorApprovalEnabled ||
+			!config.ApprovalControlEnabled) {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"HTTP API GitHub review control requires permission control, operator approval, and approval control")
 	}
 	if config.GitAdvancedControlEnabled &&
 		(!config.ExecutionPermissionControlEnabled ||
@@ -652,6 +667,7 @@ func New(store Store, config Config) (*API, error) {
 		embeddedAnalyzerExecutionEnabled:  controlTokenPresent && config.EmbeddedAnalyzerExecutionEnabled,
 		workspaceCheckpointControlEnabled: controlTokenPresent && config.WorkspaceCheckpointControlEnabled,
 		gitAdvancedControlEnabled:         controlTokenPresent && config.GitAdvancedControlEnabled,
+		githubReviewControlEnabled:        controlTokenPresent && config.GitHubReviewControlEnabled,
 		batchDeliveryControlEnabled:       controlTokenPresent && config.BatchDeliveryControlEnabled,
 		batchDeliveryHostValidationEnabled: controlTokenPresent &&
 			config.BatchDeliveryHostValidationEnabled,
@@ -688,6 +704,7 @@ func New(store Store, config Config) (*API, error) {
 		embeddedAnalyzerExecutionController: config.EmbeddedAnalyzerExecutionController,
 		workspaceCheckpointController:       config.WorkspaceCheckpointController,
 		gitAdvancedController:               config.GitAdvancedController,
+		githubReviewController:              config.GitHubReviewController,
 		batchDeliveryController:             config.BatchDeliveryController,
 		extensionController:                 config.ExtensionController,
 		codeIntelSource:                     config.CodeIntelSource,
@@ -821,6 +838,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if runID, action, matched := matchGitAdvancedPath(request.URL.Path); matched {
 		a.serveGitAdvanced(tracked, request, requestID, runID, action)
+		return
+	}
+	if route, matched := matchGitHubReviewPath(request.URL.Path); matched {
+		a.serveGitHubReview(tracked, request, requestID, route)
 		return
 	}
 	if request.Method != http.MethodGet && isContextContinuityMutationPath(request.URL.Path) {

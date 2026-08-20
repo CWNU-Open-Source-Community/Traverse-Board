@@ -14,6 +14,7 @@ import (
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/fileedit"
 	"cyberagent-workbench/internal/gitadvanced"
+	"cyberagent-workbench/internal/githubreview"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/scriptprocess"
@@ -347,6 +348,22 @@ func validateApprovalProposalSourceTx(ctx context.Context, tx *sql.Tx, proposal 
 			proposal.RequestFingerprint != approvalFingerprint ||
 			operationStatus != string(gitadvanced.OperationProposed) || approvalID.Valid {
 			return errors.New("approval request does not match the stored Git advanced preview")
+		}
+	case githubreview.ApprovalToolName:
+		var sessionID, workspaceID, approvalFingerprint, operationStatus string
+		var approvalID sql.NullString
+		if err := tx.QueryRowContext(ctx, `SELECT session_id, workspace_id,
+			approval_fingerprint, status, approval_id FROM github_review_write_operations
+			WHERE id = ?`, proposal.ProposalID).Scan(&sessionID, &workspaceID,
+			&approvalFingerprint, &operationStatus, &approvalID); err != nil {
+			return err
+		}
+		if proposal.SessionID != sessionID || proposal.WorkspaceID != workspaceID ||
+			proposal.ActionClass != githubreview.ApprovalActionClass ||
+			proposal.Mode != "per_call" || proposal.Status != approval.StatusPending ||
+			proposal.RequestFingerprint != approvalFingerprint ||
+			operationStatus != string(githubreview.OperationProposed) || approvalID.Valid {
+			return errors.New("approval request does not match the stored GitHub review write preview")
 		}
 	default:
 		return fmt.Errorf("unsupported approval tool %q", proposal.ToolName)

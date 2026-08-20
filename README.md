@@ -61,7 +61,7 @@ CLI / TUI / React / Windows Desktop / CI
 | 模型与上下文 | Mock、Anthropic-compatible、OpenAI-compatible 与 loopback-only Ollama Provider、模型路由、资格校验、能力探测、流式响应、上下文压缩、层级项目指令、显式 user/project 长期记忆与 Session 恢复树 |
 | 计划与协作 | Plan/Delivery、工作项、备注、最多两个核心 child、`batch-delivery.v1` 独立 Worktree/分支/邮箱/交付复核/顺序合并，以及 1/2/4/6 档只读 Fan-out |
 | 工具与权限 | Tool Gateway、JSON Schema 校验、Policy、Scope、人工审批、四档宿主权限、受控固定命令、普通模式 Run-owned 命令运行时、逐条审批 PowerShell/Git Bash，以及限时 Debug 终端输入 |
-| 代码工作流 | 系统目录选择与 Workspace 导入、工作区浏览、仓库状态、提交历史、Diff 审阅、文件编辑提案、只读 `code-intel-lsp.v1` 语义工具、事务化 Workspace Checkpoint、稳定 hunk、stash/rebase/cherry-pick/bisect、受管 worktree、Undo/Redo/Rewind、独立 Fork、验证计划、Code Journey 与 Handoff |
+| 代码工作流 | 系统目录选择与 Workspace 导入、工作区浏览、仓库状态、提交历史、Diff 审阅、文件编辑提案、只读 `code-intel-lsp.v1` 语义工具、事务化 Workspace Checkpoint、稳定 hunk、stash/rebase/cherry-pick/bisect、受管 worktree、GitHub App PR/CI 证据与审批回写、Undo/Redo/Rewind、独立 Fork、验证计划、Code Journey 与 Handoff |
 | 可观测性 | 追加式 Run 事件、Live Activity、公开模型进度、Harness 事实、Artifact、Finding/Evidence/Report、SARIF、持久化有界计划任务与脱敏结构化诊断包 |
 | 扩展 | 模式感知的惰性 Skill 包、生成候选人工审查、两阶段 MCP Client、签名 `plugin.v1`、受限生命周期 Hooks、Provider/Tool 接口、Go/Rust JSON 协议、内嵌 WASI Analyzer、Sandbox 合同与默认关闭的 network-none Docker 产品执行 |
 | 客户端 | `cyberagent` CLI、Bubble Tea TUI、认证 HTTP/OpenAPI、React/Vite、Windows/macOS Desktop 便携预览 |
@@ -72,7 +72,7 @@ Schema v115 引入 `agent-code-tools.v1`，让 root Supervisor 能在真实 Work
 
 | 模式 | 可用工具 |
 |---|---|
-| Code / Plan / root | `workspace_list`、`workspace_read`、`workspace_glob`、`workspace_grep` |
+| Code / Plan / root | `workspace_list`、`workspace_read`、`workspace_glob`、`workspace_grep`；存在当前 Run 的 GitHub 证据时还可用 `github_review_evidence_list/read` |
 | Code / Deliver / root（Code 或 Script Profile） | 上述只读工具，加 `workspace_change`、`workspace_apply`、`workspace_delete` |
 | Code / Deliver / root（Review 或 Learn Profile） | 仅上述只读工具 |
 | Cyber Surface 或 Specialist | 不公开任何 `agent-code-tools.v1` 工具，并在 capability 快照中说明拒绝原因 |
@@ -96,6 +96,12 @@ Desktop 的 **工作区检查点 / Checkpoints**、CLI 的 `cyberagent workspace
 Schema v123 的 `git-advanced.v1` 以默认关闭的 Go-owned 控制面提供稳定内容指纹 hunk stage/unstage/revert、明确 base/index/worktree/untracked 角色的 stash、可持续恢复的 rebase/cherry-pick/bisect 状态机，以及只能位于产品管理根内的 worktree create/lock/unlock/remove/prune。每次写入都固定 repository/common-dir、HEAD/branch、index/worktree/stash/sequencer/upstream、permission、capability generation 与 Workspace lease，先展示完整 preview，再创建一次性 Approval 与 Checkpoint；执行前全部重算，任一漂移都会失败关闭。终态收据、冲突 base/ours/theirs、序列 generation 和 worktree 注册表均持久且不可变。
 
 高级 Git 不接受 raw argv、Shell、host path、任意 ref/pathspec 或 bisect 命令；Git 运行时关闭 hook、credential helper、外部 diff、filter/merge driver 和交互入口。保护分支、配置 upstream 的共享 rebase、detached 历史改写、force push、reset-hard、clean-force、脏/外部 worktree 删除都不能表达。重启只观察并终结 `running` 操作，不重放；已精确创建但尚未登记的 worktree 可在全量身份匹配后保守纳入注册表，但原操作仍标记 `interrupted`。Desktop、`cyberagent git-advanced` 与认证 OpenAPI 共用同一 Application 服务；完整命令、限制和恢复流程见[高级 Git 工作流](docs/git-advanced.md)，设计见 [ADR 0122](docs/adr/0122-go-owned-advanced-git-lifecycle.md)。
+
+### GitHub App 审阅集成
+
+Schema v124 的 `github-review-provider.v1` 把 GitHub PR 元数据、完整有界 changed-file 分页、reviews/threads/comments、checks/jobs、失败日志摘录和 Artifact 元数据保存为不可变、已清洗的不可信快照，再与本地精确 merge-base/HEAD、完整 diff、稳定 hunk、文件哈希、冲突及可选 LSP 证据组成 `verified/partial/stale/unavailable/not_run` 证据图。Code/root 模型只获得绑定当前 Run 的本地只读 `github_review_evidence_list/read`；它不能自行联网或回写。
+
+产品优先使用开启 Device Flow 的 GitHub App，device code 仅驻留内存，access/refresh token 只进入操作系统凭据库。连接默认只读；Reply、Resolve/Unresolve、Submit Review 与 Request Reviewer 还需显式连接级写回开关、精确预览和一次性 Approval，执行前重查 Code/Deliver、网络权限、App installation/SSO、能力 generation 与 PR/base/head/merge-base。OAuth/PAT 在 v1 只作为无法扩大到写回的只读迁移路径；重启恢复只观察幂等 marker，绝不猜测重放。API/Desktop 必须显式启用 `--enable-github-review`。配置、最小权限、CLI/OpenAPI、真实联调和 GitHub Developer Program 申请门见 [GitHub Review Provider](docs/github-review.md)，设计见 [ADR 0123](docs/adr/0123-go-owned-github-review-provider.md)。
 
 ### 可交付 child 与隔离合并
 
@@ -506,6 +512,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 | v121 | 增加签名 plugin.v1 安装、publisher 信任/撤销、回滚与受限 Hook 审计 | add signed plugin.v1 installs, publisher trust/revocation, rollback, and restricted-Hook audits |
 | v122 | 增加 scheduled-job.v1、单实例租约/fencing、轮次与通知账本 | add scheduled-job.v1, singleton lease/fencing, round, and notification ledgers |
 | v123 | 增加 git-advanced.v1 操作/序列审计与产品受管 worktree 注册表 | add git-advanced.v1 operation/sequence audits and the product-managed worktree registry |
+| v124 | 增加 GitHub connection、PR/CI 快照、本地证据图及审批回写/恢复账本 | add GitHub connections, PR/CI snapshots, local evidence graphs, and approved write/recovery ledgers |
 
 </details>
 

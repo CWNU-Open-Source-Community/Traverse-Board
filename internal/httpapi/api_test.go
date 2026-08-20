@@ -380,7 +380,7 @@ func TestReadAPIExposesDurableStateWithoutArtifactContentOrCheckpointInput(t *te
 		runDetail.ExternalSkills.ItemCount != 1 || len(runDetail.ExternalSkills.Items) != 1 ||
 		runDetail.ExternalSkills.Items[0].Name != "api-projection-review" ||
 		runDetail.AgentCodeTools.ProtocolVersion != toolgateway.AgentCodeRegistryVersion ||
-		runDetail.AgentCodeTools.Generation == "" || len(runDetail.AgentCodeTools.Tools) != 7 {
+		runDetail.AgentCodeTools.Generation == "" || len(runDetail.AgentCodeTools.Tools) != 9 {
 		t.Fatalf("unexpected Run detail: %#v", runDetail)
 	}
 	agentCodeAvailability := make(map[string]bool, len(runDetail.AgentCodeTools.Tools))
@@ -388,6 +388,8 @@ func TestReadAPIExposesDurableStateWithoutArtifactContentOrCheckpointInput(t *te
 		agentCodeAvailability[capability.Name] = capability.Available
 	}
 	if !agentCodeAvailability[string(toolgateway.WorkspaceReadTool)] ||
+		!agentCodeAvailability[string(toolgateway.GitHubEvidenceListTool)] ||
+		!agentCodeAvailability[string(toolgateway.GitHubEvidenceReadTool)] ||
 		agentCodeAvailability[string(toolgateway.WorkspaceChangeTool)] {
 		t.Fatalf("unexpected Review profile workspace tool matrix: %#v", runDetail.AgentCodeTools)
 	}

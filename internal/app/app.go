@@ -303,6 +303,8 @@ func (a *App) dispatch(ctx context.Context, args []string) error {
 		return a.gitRemoteCommand(ctx, args[1:])
 	case "git-advanced":
 		return a.gitAdvancedCommand(ctx, args[1:])
+	case "github-review":
+		return a.githubReviewCommand(ctx, args[1:])
 	case "headless":
 		return a.headlessCommand(ctx, args[1:])
 	case "run":
@@ -349,6 +351,7 @@ func (a *App) printHelp() {
 	fmt.Fprintln(a.out, "  cyberagent report finding attach|validate|reject|accept|remediation|fix|verify")
 	fmt.Fprintln(a.out, "  cyberagent api serve|openapi")
 	fmt.Fprintln(a.out, "  cyberagent git-advanced status|discover-hunks|preview|run")
+	fmt.Fprintln(a.out, "  cyberagent github-review configure|credential|login|qualify|fetch|evidence|status|write|recover")
 	fmt.Fprintln(a.out, "  cyberagent mcp serve|client|credential")
 	fmt.Fprintln(a.out, "  cyberagent plugin stage|list|show|review|rollback|trust-publisher|revoke-publisher|stage-mcp")
 	fmt.Fprintln(a.out, "  cyberagent code-intel status|qualify")

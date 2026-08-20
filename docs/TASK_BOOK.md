@@ -1,6 +1,6 @@
 # Prayu V2 任务书
 
-更新时间：2026-08-20
+更新时间：2026-08-21
 
 ## 目标
 
@@ -9,6 +9,13 @@
 当前任务书只推进通用 Agent Harness 与 Code 工作流。CTF 专用求解、自动化渗透和攻防工具链已经移出活跃路线图，不再排队开发；仓库仅保留 Run、Provider、Tool、Skill、Analyzer、Sandbox、Finding/Evidence/Report 等通用扩展接口，供未来经过独立 ADR 和安全复核的附加包接入。范围权威见 [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md)。
 
 ## 当前基线
+
+GitHub Review Provider（Issue #118）随 schema v124 落地（ADR 0123）：首选 GitHub App
+Device Flow 与 OS credential store，精确诊断 installation/repository/permission/SSO/rate limit，
+并以固定版本 REST/GraphQL 读取有界 PR、thread、check、job、失败日志及 Artifact metadata。
+不可信远端快照与 exact merge-base/diff/hunk/worktree/LSP 组成 Run 隔离 evidence graph；模型仅能
+读当前 Run 的本地证据。reply/resolve/review/reviewer request 先审阅、单次批准、再复核漂移，
+恢复只观察不重放。CLI/OpenAPI/Desktop/Skills 与双语运维文档共用 Go Application。
 
 审批式高级 Git（Issue #117）已随 schema v123 落地（ADR 0122）：严格 `git-advanced.v1`
 operation、稳定 hunk、stash 角色、rebase/cherry-pick/bisect durable sequence 与产品受管 worktree

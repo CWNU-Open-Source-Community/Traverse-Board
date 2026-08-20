@@ -350,6 +350,7 @@ func migrationPlan() []migration {
 		{Version: 121, Name: "signed inert plugins and restricted lifecycle hooks", Statements: pluginRuntimeStatements},
 		{Version: 122, Name: "durable scheduled jobs and bounded diagnostics", Statements: scheduledJobStatements},
 		{Version: 123, Name: "approval-gated advanced Git recovery and managed worktrees", Statements: gitAdvancedStatements},
+		{Version: 124, Name: "GitHub review evidence and approval-gated write receipts", Statements: githubReviewStatements},
 	}
 }
 

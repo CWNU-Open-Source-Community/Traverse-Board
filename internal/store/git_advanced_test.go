@@ -18,12 +18,12 @@ import (
 // downgrade fixtures form one cumulative chain, so every older migration test
 // must remove the newest Git advanced objects before deleting its target row.
 func removeSchemaV123ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV124ForTestStatements(), []string{
 		`DROP TABLE git_managed_worktrees`,
 		`DROP TABLE git_advanced_sequences`,
 		`DROP TABLE git_advanced_operations`,
 		`DELETE FROM schema_migrations WHERE version = 123`,
-	}
+	}...)
 }
 
 func TestSchemaV123UpgradesV122Database(t *testing.T) {

@@ -43,6 +43,7 @@ import type {
   ArtifactView,
   EventView,
   GitAdvancedReviewResultView,
+  GitHubReviewWriteReviewResultView,
   NoteView,
   MessageView,
   ModelCancellationRequestView,
@@ -82,6 +83,7 @@ import { RepositoryStatePanel } from "./repository-state-panel";
 import { RepositoryDiffPanel } from "./repository-diff-panel";
 import { RepositoryHistoryPanel } from "./repository-history-panel";
 import { GitAdvancedPanel } from "./git-advanced-panel";
+import { GitHubReviewPanel } from "./github-review-panel";
 import { VerificationEvidence } from "./verification-evidence";
 import { VerificationPlan } from "./verification-plan";
 import type { ReceiptReviewNavigationTarget } from "./receipt-review-navigation";
@@ -204,6 +206,8 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
     useState<ReceiptReviewNavigationTarget | null>(null);
   const [gitAdvancedReview, setGitAdvancedReview] =
     useState<GitAdvancedReviewResultView | null>(null);
+  const [gitHubReview, setGitHubReview] =
+    useState<GitHubReviewWriteReviewResultView | null>(null);
   const queryClient = useQueryClient();
   const detailQuery = useQuery({
     queryKey: ["run", runID],
@@ -245,6 +249,8 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
 
   useEffect(() => {
     setReceiptReviewTarget(null);
+    setGitAdvancedReview(null);
+    setGitHubReview(null);
   }, [runID]);
 
   useEffect(() => subscribeRunNavigationMode(setNavigationMode), []);
@@ -373,6 +379,9 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
           <RepositoryStatePanel client={client} workspaceID={detail.mission.workspace_id ?? ""} />
           <GitAdvancedPanel client={client} onOpenApprovals={() => setTab("approvals")}
             onRetainedReviewChange={setGitAdvancedReview} retainedReview={gitAdvancedReview}
+            runID={runID} />
+          <GitHubReviewPanel client={client} onOpenApprovals={() => setTab("approvals")}
+            onRetainedReviewChange={setGitHubReview} retainedReview={gitHubReview}
             runID={runID} />
           <RepositoryHistoryPanel client={client} workspaceID={detail.mission.workspace_id ?? ""} />
           <RepositoryDiffPanel client={client} workspaceID={detail.mission.workspace_id ?? ""} />

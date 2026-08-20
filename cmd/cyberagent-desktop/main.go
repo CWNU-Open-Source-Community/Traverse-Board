@@ -72,6 +72,7 @@ type desktopOptions struct {
 	dockerExecution        bool
 	codeIntelConfig        string
 	gitAdvanced            bool
+	githubReview           bool
 	gitWorktreeRoot        string
 	version                bool
 }
@@ -295,6 +296,8 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		"absolute operator-reviewed code-intel config")
 	gitAdvanced := fs.Bool("enable-git-advanced", false,
 		"enable approval-gated git-advanced.v1 mutations")
+	githubReview := fs.Bool("enable-github-review", false,
+		"enable GitHub App review evidence and approval-gated write-back")
 	gitWorktreeRoot := fs.String("git-worktree-root", "",
 		"product-managed Git worktree root; defaults below CYBERAGENT_HOME")
 	version := fs.Bool("version", false, "print version and exit")
@@ -332,6 +335,7 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		*embeddedAnalyzer = true
 		*batchDeliveryControl = true
 		*gitAdvanced = true
+		*githubReview = true
 	}
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled:   *permissionControl,
@@ -357,9 +361,13 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		return desktopOptions{}, errors.New(
 			"Git advanced control requires --enable-permission-control")
 	}
-	if strings.TrimSpace(*gitWorktreeRoot) != "" && !*gitAdvanced {
+	if *githubReview && !*permissionControl {
 		return desktopOptions{}, errors.New(
-			"--git-worktree-root requires --enable-git-advanced")
+			"GitHub review control requires --enable-permission-control")
+	}
+	if strings.TrimSpace(*gitWorktreeRoot) != "" && !*gitAdvanced && !*githubReview {
+		return desktopOptions{}, errors.New(
+			"--git-worktree-root requires --enable-git-advanced or --enable-github-review")
 	}
 	if *batchValidation && (!*batchDeliveryControl || !*permissionControl || !*dangerFullAccess) {
 		return desktopOptions{}, errors.New(
@@ -412,6 +420,7 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		dockerExecution:        *dockerExecution,
 		codeIntelConfig:        strings.TrimSpace(*codeIntelConfig),
 		gitAdvanced:            *gitAdvanced,
+		githubReview:           *githubReview,
 		gitWorktreeRoot:        strings.TrimSpace(*gitWorktreeRoot),
 		version:                *version}, nil
 }
@@ -443,7 +452,7 @@ func runDesktop(config desktopOptions) error {
 		config.skillInstallation || config.evidenceAttachment ||
 		config.verificationEvidence || config.embeddedAnalyzer || config.userTerminal ||
 		config.dockerExecution || config.batchDeliveryControl || config.batchValidation ||
-		config.uiEvidence || config.gitAdvanced {
+		config.uiEvidence || config.gitAdvanced || config.githubReview {
 		controlToken, err = httpapi.GenerateAccessToken()
 		if err != nil {
 			return err
@@ -496,12 +505,13 @@ func runDesktop(config desktopOptions) error {
 			SafeWebStartEnabled: true, DisposableProfileEnabled: true,
 			NetworkContainmentEnabled: true, RestrictedCDPEnabled: true,
 		},
-		UserTerminalEnabled:       config.userTerminal,
-		DockerExecutionEnabled:    config.dockerExecution,
-		CodeIntelConfigPath:       config.codeIntelConfig,
-		GitAdvancedControlEnabled: config.gitAdvanced,
-		GitManagedWorktreeRoot:    config.gitWorktreeRoot,
-		AppVersion:                app.Version, UIHandler: bundle,
+		UserTerminalEnabled:        config.userTerminal,
+		DockerExecutionEnabled:     config.dockerExecution,
+		CodeIntelConfigPath:        config.codeIntelConfig,
+		GitAdvancedControlEnabled:  config.gitAdvanced,
+		GitHubReviewControlEnabled: config.githubReview,
+		GitManagedWorktreeRoot:     config.gitWorktreeRoot,
+		AppVersion:                 app.Version, UIHandler: bundle,
 		OnWakeWorkerError: func(runErr error) {
 			fmt.Fprintln(os.Stderr, "wake-worker:", runErr)
 		},
@@ -569,6 +579,7 @@ func runDesktop(config desktopOptions) error {
 		DockerExecutionEnabled:                  dockerExecutionEnabled,
 		CodeIntelEnabled:                        controlPlane.CodeIntelEnabled(),
 		GitAdvancedControlEnabled:               config.gitAdvanced,
+		GitHubReviewControlEnabled:              config.githubReview,
 		AppVersion:                              app.Version, UIDigest: bundle.Digest(), Selector: selector,
 		PreviewBridge: preview, SkillInstaller: controlPlane.SkillInstaller(),
 		WorkspaceResolver: controlPlane, WorkspaceLauncher: newNativeWorkspaceLauncher(),

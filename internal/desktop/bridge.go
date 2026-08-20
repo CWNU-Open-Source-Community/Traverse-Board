@@ -76,6 +76,7 @@ type ConnectionBootstrap struct {
 	EmbeddedAnalyzerExecutionEnabled        bool   `json:"embedded_analyzer_execution_enabled"`
 	WorkspaceCheckpointControlEnabled       bool   `json:"workspace_checkpoint_control_enabled"`
 	GitAdvancedControlEnabled               bool   `json:"git_advanced_control_enabled"`
+	GitHubReviewControlEnabled              bool   `json:"github_review_control_enabled"`
 	BatchDeliveryControlEnabled             bool   `json:"batch_delivery_control_enabled"`
 	BatchDeliveryHostValidationEnabled      bool   `json:"batch_delivery_host_validation_enabled"`
 	UIEvidenceControlEnabled                bool   `json:"ui_evidence_control_enabled"`
@@ -182,6 +183,7 @@ type DesktopBridgeConfig struct {
 	DockerExecutionEnabled                  bool
 	CodeIntelEnabled                        bool
 	GitAdvancedControlEnabled               bool
+	GitHubReviewControlEnabled              bool
 	APIVersion                              string
 	AppVersion                              string
 	UIDigest                                string
@@ -247,7 +249,7 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 		config.BatchDeliveryControlEnabled || config.UIEvidenceControlEnabled ||
 		config.ControlToken != "" ||
 		config.UserTerminalEnabled || config.DockerExecutionEnabled ||
-		config.GitAdvancedControlEnabled
+		config.GitAdvancedControlEnabled || config.GitHubReviewControlEnabled
 	if controlEnabled && config.ControlToken == "" {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop control capabilities require a control token")
@@ -304,6 +306,11 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 		(!config.ExecutionPermissionControlEnabled || !config.OperatorApprovalEnabled) {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop Git advanced control requires operator approval permission control")
+	}
+	if config.GitHubReviewControlEnabled &&
+		(!config.ExecutionPermissionControlEnabled || !config.OperatorApprovalEnabled) {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"desktop GitHub review control requires operator approval permission control")
 	}
 	if config.BatchDeliveryHostValidationEnabled &&
 		(!config.ExecutionPermissionControlEnabled || !config.OperatorApprovalEnabled ||
@@ -399,6 +406,7 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 			EmbeddedAnalyzerExecutionEnabled:        config.EmbeddedAnalyzerExecutionEnabled,
 			WorkspaceCheckpointControlEnabled:       config.ControlToken != "",
 			GitAdvancedControlEnabled:               config.GitAdvancedControlEnabled,
+			GitHubReviewControlEnabled:              config.GitHubReviewControlEnabled,
 			BatchDeliveryControlEnabled:             config.BatchDeliveryControlEnabled,
 			BatchDeliveryHostValidationEnabled:      config.BatchDeliveryHostValidationEnabled,
 			UIEvidenceControlEnabled:                config.UIEvidenceControlEnabled,

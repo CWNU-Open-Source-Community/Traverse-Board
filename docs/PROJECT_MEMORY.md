@@ -2,9 +2,27 @@
 
 > Scope checkpoint (2026-08-13): continue only the general-purpose Agent Harness and Code workflow. CTF-specific solving/offensive automation is an optional add-on with no active slices; retain generic extension seams only. Historical Cyber percentages are not current planning metrics. See [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md).
 
-Last updated: 2026-08-20
+Last updated: 2026-08-21
 
-## Current Single-Slice Checkpoint: Advanced Git Recovery and Managed Worktrees / Issue #117
+## Current Single-Slice Checkpoint: GitHub Review Provider / Issue #118
+
+2026-08-21 的 issue #118 推进到 `github-review-provider.v1`（ADR 0123，schema v124）。
+GitHub App Device Flow 是首选生产路径：公开 client ID 可持久化，device code 仅在进程内，
+access/refresh token 只进入 OS credential store。qualification 精确验证 account、App
+installation 内的目标 repository、细粒度权限、SSO、rate limit、固定 API 版本与网络范围；
+REST/GraphQL 只连接 `github.com`/`api.github.com`，Actions 日志跳转还需逐 host allowlist。
+
+PR metadata、完整有界 changed files、reviews、threads/comments、checks、jobs、失败日志摘录与
+Artifact metadata 以不可变、已清洗、不可信快照保存，再绑定本地 exact merge-base/HEAD、完整
+diff、stable hunk、index/worktree/status/file hashes、冲突与可选 LSP 证据。相同内容的 evidence
+仍按 Run/Workspace 单独登记，避免跨 Run authority 混淆；Code/root 模型只可读取当前 Run 已落库
+的 evidence，不能自行联网。reply、resolve/unresolve、submit review、request reviewer 各自需要
+精确 preview、一次性 Approval、当前 Code/Deliver 网络权限与执行前 capability/PR drift 复核；
+重启恢复只观察 marker/state，绝不重放不确定写入。CLI、认证 OpenAPI、Desktop Repository 面板
+与 Skill `review@1.5.0` / `focused-checks@1.2.0` 共用该 Application 服务。操作边界见
+`docs/github-review.md`，不得在后续压缩中把 GitHub token、通用 HTTP 或远端 mutation 暴露给模型。
+
+## Previous Single-Slice Checkpoint: Advanced Git Recovery and Managed Worktrees / Issue #117
 
 2026-08-20 的 issue #117 落地 `git-advanced.v1`（ADR 0122，schema v123）。严格 union 只允许
 hunk stage/unstage/revert、stash、rebase/cherry-pick/bisect 和受管 worktree 的 Go-owned

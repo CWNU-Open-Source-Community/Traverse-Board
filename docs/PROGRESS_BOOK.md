@@ -6,6 +6,28 @@
 
 ## 一、当前阶段
 
+2026-08-21 单切片 `GitHub Review Provider、CI 证据与修复闭环（Issue #118）` 推进到 SQLite
+v124。`github-review-provider.v1` 首选 GitHub App Device Flow，token 仅驻 OS credential store；
+qualification 逐页确认 App installation 中的 exact repository 与 permissions，并固定 GitHub API
+版本、host、SSO/rate-limit/network diagnostics。PR/files/reviews/threads/comments/checks/jobs/失败
+日志/Artifact metadata 经严格界限和清洗后持久化，再与本地 merge-base/HEAD、diff、hunk、
+worktree/conflict 及可选 LSP 组成 Run/Workspace 隔离 evidence graph。Code/root 模型仅获得本地
+只读 evidence list/read。
+
+远端 reply、resolve/unresolve、COMMENT/APPROVE/REQUEST_CHANGES 和 reviewer request 均使用 exact
+preview、一次性 Approval、Code/Deliver 网络权限与 capability/PR identity 再验证；启动恢复只
+观察 idempotency marker/state，不重放 mutation。CLI、OpenAPI、Desktop Repository 面板、
+`review@1.5.0` 与 `focused-checks@1.2.0` 已接同一服务；操作、权限、真实 smoke 与 GitHub
+Developer Program/Marketplace 区分见 `docs/github-review.md` 和 ADR 0123。
+
+最终拆分门已通过：Store/Application/HTTP/CLI App 全量分别为 994.677/565.790/188.155/
+128.640 秒；GitHub Review、migration/ledger/race、Desktop-tag、vet 与 module verify 通过；Web
+66 files/289 tests、typecheck、production build 和 production npm audit 通过。OpenAPI/TypeScript
+确定性结果为 155 paths / 172 operations / 469 schemas，hash 为
+`d876d249996d3f296a12fd768eb9ed5fb9c253a781131455c9eed82f0545cf20` /
+`313de1b90dd4c586d8b3711442f9dc1b3cf5be6047911b417d310c2374b83ca2`。专用测试 GitHub App
+与一次性仓库的真实外部 smoke 尚未执行，保持为发布门，不用 mock/fixture 结果替代。
+
 2026-08-20—21 单切片 `高级 Git 恢复与受管 Worktree（Issue #117）` 推进到 SQLite v123。
 `git-advanced.v1` 以严格字段 union 和 Go-owned command templates 覆盖稳定 hunk、stash、
 rebase/cherry-pick/bisect sequence 与受管 worktree；raw argv/Shell/host path/任意 ref 或 recipe

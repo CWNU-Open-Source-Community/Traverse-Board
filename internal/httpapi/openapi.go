@@ -19,6 +19,7 @@ import (
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/fileedit"
+	"cyberagent-workbench/internal/githubreview"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/modelregistry"
 	"cyberagent-workbench/internal/operationreceipt"
@@ -210,6 +211,7 @@ func GenerateOpenAPI() ([]byte, error) {
 			{Name: "Models", Description: "Redacted Go-owned Provider and model-route availability."},
 			{Name: "Runs", Description: "Durable Run state and Run-scoped projections."},
 			{Name: "Git", Description: "Approval-gated, preview-bound advanced Git operations and durable recovery state."},
+			{Name: "GitHub Review", Description: "GitHub App authentication, sanitized PR/CI evidence, local mappings, and approval-gated review write-back."},
 			{Name: "Agents", Description: "Bounded Agent graph and operator-gated delegation projections."},
 			{Name: "Analysis", Description: "Read-only Fan-out plans and execution summaries."},
 			{Name: "Reports", Description: "Finding reports and redacted lifecycle evidence summaries."},
@@ -268,6 +270,8 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 	continuityNodeID := pathIdentityParameter("node_id", "Continuity checkpoint identity")
 	reportID := pathIdentityParameter("report_id", "Finding Report identity")
 	approvalID := pathIdentityParameter("approval_id", "Approval identity")
+	githubReviewConnectionID := pathIdentityParameter("connection_id",
+		"GitHub review connection identity")
 	proposalID := pathIdentityParameter("proposal_id",
 		"Controlled command proposal identity")
 	editID := pathIdentityParameter("edit_id", "File edit identity")
@@ -424,6 +428,88 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			Tag: "Git", Description: "Consumes one exact approved preview after revalidating capability, permission, lease, repository, index, worktree, upstream, hunk, sequence, and worktree-registry state. Every mutation is bracketed by Workspace checkpoints and yields a durable receipt.",
 			DataType:    reflect.TypeOf(application.GitAdvancedExecuteResult{}),
 			RequestType: reflect.TypeOf(gitAdvancedExecuteView{}), Control: true,
+			NotFound: true, Parameters: []openAPIParameter{runID}, SuccessStatus: http.StatusOK},
+		{Path: "/api/v1/github-review/connections",
+			OperationID: "listGitHubReviewConnections", Summary: "List GitHub review connections",
+			Tag: "GitHub Review", Description: "Returns repository, credential reference, fixed network scope, generation, and credential-store status. No token or secret value crosses the API boundary.",
+			DataType: reflect.TypeOf(application.GitHubReviewCredentialView{}), Collection: true,
+			Parameters: []openAPIParameter{{Name: "enabled_only", In: "query",
+				Description: "Return only enabled connections", Schema: map[string]any{
+					"type": "boolean", "default": false}}}},
+		{Path: "/api/v1/github-review/connections", Method: http.MethodPost,
+			OperationID: "configureGitHubReviewConnection", Summary: "Configure a GitHub review connection",
+			Tag: "GitHub Review", Description: "Creates or compare-and-swap updates one github.com repository binding. GitHub App Device Flow is preferred; only a credential reference and public client ID are persisted.",
+			DataType:    reflect.TypeOf(application.GitHubReviewConfigureResult{}),
+			RequestType: reflect.TypeOf(githubReviewConfigureView{}), Control: true,
+			SuccessStatus: http.StatusCreated},
+		{Path: "/api/v1/github-review/connections/{connection_id}",
+			OperationID: "getGitHubReviewConnection", Summary: "Inspect a GitHub review connection",
+			Tag: "GitHub Review", Description: "Returns the non-secret connection and OS credential-store status without resolving the token into the response.",
+			DataType: reflect.TypeOf(application.GitHubReviewCredentialView{}), NotFound: true,
+			Parameters: []openAPIParameter{githubReviewConnectionID}},
+		{Path: "/api/v1/github-review/connections/{connection_id}/device", Method: http.MethodPost,
+			OperationID: "beginGitHubReviewDeviceFlow", Summary: "Begin GitHub App Device Flow",
+			Tag: "GitHub Review", Description: "Returns a GitHub verification URI and short-lived user code. The device code remains process memory only.",
+			DataType:    reflect.TypeOf(githubreview.DeviceAuthorization{}),
+			RequestType: reflect.TypeOf(githubReviewEmptyView{}), Control: true,
+			NotFound: true, Parameters: []openAPIParameter{githubReviewConnectionID},
+			SuccessStatus: http.StatusCreated},
+		{Path: "/api/v1/github-review/connections/{connection_id}/device-poll", Method: http.MethodPost,
+			OperationID: "pollGitHubReviewDeviceFlow", Summary: "Poll GitHub App Device Flow",
+			Tag: "GitHub Review", Description: "Polls one in-memory authorization session and writes the resulting access/refresh bundle only to the OS credential store.",
+			DataType:    reflect.TypeOf(githubreview.DevicePollResult{}),
+			RequestType: reflect.TypeOf(githubReviewDevicePollView{}), Control: true,
+			NotFound: true, Parameters: []openAPIParameter{githubReviewConnectionID},
+			SuccessStatus: http.StatusOK},
+		{Path: "/api/v1/github-review/connections/{connection_id}/disconnect", Method: http.MethodPost,
+			OperationID: "disconnectGitHubReviewCredential", Summary: "Delete a GitHub review credential",
+			Tag: "GitHub Review", Description: "Deletes only the referenced OS credential-store entry; the durable repository configuration remains reusable.",
+			DataType:    reflect.TypeOf(application.GitHubReviewCredentialView{}),
+			RequestType: reflect.TypeOf(githubReviewEmptyView{}), Control: true,
+			NotFound: true, Parameters: []openAPIParameter{githubReviewConnectionID},
+			SuccessStatus: http.StatusOK},
+		{Path: "/api/v1/github-review/connections/{connection_id}/qualify", Method: http.MethodPost,
+			OperationID: "qualifyGitHubReviewConnection", Summary: "Diagnose GitHub review eligibility",
+			Tag: "GitHub Review", Description: "Checks account, App installation, repository, PR, permissions, SSO, fixed API version, rate limit, and network scope with stable diagnostics.",
+			DataType:    reflect.TypeOf(application.GitHubReviewQualificationResult{}),
+			RequestType: reflect.TypeOf(githubReviewPullRequestView{}), Control: true,
+			NotFound: true, Parameters: []openAPIParameter{githubReviewConnectionID},
+			SuccessStatus: http.StatusOK},
+		{Path: "/api/v1/github-review/connections/{connection_id}/fetch", Method: http.MethodPost,
+			OperationID: "fetchGitHubReviewSnapshot", Summary: "Fetch bounded PR and CI evidence",
+			Tag: "GitHub Review", Description: "Fetches and immutably stores sanitized PR metadata, bounded complete changed-file pagination, review threads, comments, checks, jobs, failed log excerpts, and Artifact metadata.",
+			DataType:    reflect.TypeOf(application.GitHubReviewFetchResult{}),
+			RequestType: reflect.TypeOf(githubReviewPullRequestView{}), Control: true,
+			NotFound: true, Parameters: []openAPIParameter{githubReviewConnectionID},
+			SuccessStatus: http.StatusCreated},
+		{Path: "/api/v1/runs/{run_id}/github-review",
+			OperationID: "getGitHubReviewProjection", Summary: "Inspect GitHub review evidence and receipts",
+			Tag: "GitHub Review", Description: "Returns immutable sanitized snapshots, local evidence graphs, pending writes, and terminal receipts for one Code Surface Run.",
+			DataType: reflect.TypeOf(application.GitHubReviewProjection{}), NotFound: true,
+			Parameters: []openAPIParameter{runID,
+				{Name: "connection_id", In: "query", Description: "Exact connection identity",
+					Required: true, Schema: map[string]any{"type": "string", "minLength": 1, "maxLength": 256}},
+				{Name: "pull_request", In: "query", Description: "Optional PR number",
+					Schema: map[string]any{"type": "integer", "minimum": 0, "default": 0}},
+				{Name: "limit", In: "query", Description: "Maximum records",
+					Schema: map[string]any{"type": "integer", "minimum": 1, "maximum": 200, "default": 100}}}},
+		{Path: "/api/v1/runs/{run_id}/github-review/evidence", Method: http.MethodPost,
+			OperationID: "buildGitHubReviewEvidence", Summary: "Bind a GitHub snapshot to local Git evidence",
+			Tag: "GitHub Review", Description: "Binds exact repo/PR/base/head/merge-base, changed files, stable hunks, worktree hashes, conflicts, and optional trusted LSP evidence. Drift becomes stale rather than current.",
+			DataType:    reflect.TypeOf(application.GitHubReviewEvidenceResult{}),
+			RequestType: reflect.TypeOf(githubReviewEvidenceView{}), Control: true,
+			NotFound: true, Parameters: []openAPIParameter{runID}, SuccessStatus: http.StatusCreated},
+		{Path: "/api/v1/runs/{run_id}/github-review/review", Method: http.MethodPost,
+			OperationID: "reviewGitHubReviewWrite", Summary: "Review one exact GitHub write-back",
+			Tag: "GitHub Review", Description: "Requalifies capability and persists an exact reply, thread state, review, or reviewer request preview plus a separate one-time Approval.",
+			DataType:    reflect.TypeOf(application.GitHubReviewWriteReviewResult{}),
+			RequestType: reflect.TypeOf(githubReviewWriteReviewView{}), Control: true,
+			NotFound: true, Parameters: []openAPIParameter{runID}, SuccessStatus: http.StatusCreated},
+		{Path: "/api/v1/runs/{run_id}/github-review/execute", Method: http.MethodPost,
+			OperationID: "executeGitHubReviewWrite", Summary: "Execute one approved GitHub write-back",
+			Tag: "GitHub Review", Description: "Rechecks Run phase, network permission, credential/capability generation, PR identity and remote state; hidden idempotency markers and recovery receipts prevent duplicate effects.",
+			DataType:    reflect.TypeOf(application.GitHubReviewWriteExecuteResult{}),
+			RequestType: reflect.TypeOf(githubReviewWriteExecuteView{}), Control: true,
 			NotFound: true, Parameters: []openAPIParameter{runID}, SuccessStatus: http.StatusOK},
 		{Path: "/api/v1/runs/{run_id}/ui-evidence", OperationID: "listRunUIEvidence",
 			Summary: "List source-bound UI evidence attempts", Tag: "UI Evidence",
@@ -1728,6 +1814,9 @@ func (r *openAPISchemaRegistry) ref(valueType reflect.Type) map[string]any {
 	}
 	if strings.HasSuffix(valueType.PkgPath(), "/gitadvanced") {
 		name = "GitAdvanced" + name
+	}
+	if strings.HasSuffix(valueType.PkgPath(), "/githubreview") {
+		name = "GitHubReview" + name
 	}
 	return r.refNamed(name, valueType)
 }
