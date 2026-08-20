@@ -498,7 +498,15 @@ func (s *ScheduledJobService) observe(ctx context.Context,
 	if err != nil {
 		return scheduledJobObservation{}, err
 	}
-	truncated := latest-job.LastEventSequence > int64(len(values))
+	// Advance only through the final envelope that this bounded observation
+	// actually inspected. Using the pre-read global latest value here would
+	// permanently skip the unread tail whenever the backlog exceeds the page
+	// limit.
+	observedSequence := job.LastEventSequence
+	if len(values) > 0 {
+		observedSequence = values[len(values)-1].Sequence
+	}
+	truncated := observedSequence < latest
 	relevant := make([]events.Event, 0, len(values))
 	kinds := make(map[string]struct{})
 	for _, value := range values {
@@ -514,15 +522,15 @@ func (s *ScheduledJobService) observe(ctx context.Context,
 	}
 	sort.Strings(typeNames)
 	parts := []string{"scheduled_job_observation.v1", run.ID, string(run.Status),
-		strconv.FormatInt(latest, 10), strconv.FormatBool(truncated),
+		strconv.FormatInt(observedSequence, 10), strconv.FormatBool(truncated),
 		strings.Join(typeNames, ",")}
 	for _, value := range relevant {
 		parts = append(parts, strconv.FormatInt(value.Sequence, 10), value.Type,
 			value.Source, value.SubjectID)
 	}
 	digest := runmutation.Fingerprint(parts...)
-	changed := job.LastObservationSHA256 == "" || truncated || len(relevant) > 0
-	return scheduledJobObservation{digest: digest, sequence: latest,
+	changed := job.LastObservationSHA256 == "" || len(relevant) > 0
+	return scheduledJobObservation{digest: digest, sequence: observedSequence,
 		relevant: len(relevant), changed: changed, truncated: truncated}, nil
 }
 

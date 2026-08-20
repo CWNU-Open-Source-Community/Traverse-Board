@@ -284,6 +284,59 @@ func TestScheduledJobRetainsEventsAppendedDuringExecutorForNextRound(t *testing.
 	}
 }
 
+func TestScheduledJobRetainsTruncatedBacklogForNextRound(t *testing.T) {
+	ctx := context.Background()
+	state, run := newScheduledJobApplicationFixture(t)
+	defer state.Close()
+	anchor := time.Now().UTC().Add(time.Second).Truncate(time.Millisecond)
+	clock := &scheduledStaticClock{now: anchor}
+	executor := &scheduledExecutorStub{}
+	service := application.NewScheduledJobService(state).WithClock(clock).
+		WithRoundExecutor(executor)
+	request := scheduledReadOnlyRequest(run.ID, anchor,
+		"scheduled-truncated-watermark-operation-0001")
+	request.MaxRounds = 3
+	request.MaxModelCalls = 3
+	created, err := service.Create(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs := application.NewRunService(state)
+	for index := 0; index < 55; index++ {
+		if _, err := runs.Pause(ctx, run.ID); err != nil {
+			t.Fatalf("pause %d: %v", index, err)
+		}
+		if _, err := runs.Resume(ctx, run.ID); err != nil {
+			t.Fatalf("resume %d: %v", index, err)
+		}
+	}
+	if handled, err := service.RunDue(ctx, "scheduled-truncated-worker", anchor); err != nil ||
+		!handled || executor.Count() != 1 {
+		t.Fatalf("first handled=%t calls=%d err=%v", handled, executor.Count(), err)
+	}
+	firstRequest := executor.Last()
+	if !firstRequest.ObservationWasTruncated || firstRequest.RelevantEventCount == 0 {
+		t.Fatalf("first request did not preserve bounded overflow: %#v", firstRequest)
+	}
+	first, err := service.Get(ctx, created.Job.ID, 10, 10)
+	if err != nil || first.Job.NextWakeAt == nil {
+		t.Fatalf("first snapshot=%#v err=%v", first, err)
+	}
+	secondAt := *first.Job.NextWakeAt
+	clock.Set(secondAt)
+	if handled, err := service.RunDue(ctx, "scheduled-truncated-worker", secondAt); err != nil ||
+		!handled || executor.Count() != 2 {
+		t.Fatalf("unread backlog tail was skipped: handled=%t calls=%d err=%v",
+			handled, executor.Count(), err)
+	}
+	secondRequest := executor.Last()
+	if secondRequest.EventSequence <= firstRequest.EventSequence ||
+		secondRequest.RelevantEventCount == 0 {
+		t.Fatalf("second request did not consume the retained tail: first=%#v second=%#v",
+			firstRequest, secondRequest)
+	}
+}
+
 func TestScheduledApprovedRepairFailsClosedWithoutExecutor(t *testing.T) {
 	ctx := context.Background()
 	state, run := newScheduledRepairApplicationFixture(t)
