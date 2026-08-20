@@ -365,7 +365,6 @@ func validateBrowserStartSpec(spec BrowserStartSpec,
 func fixedRestrictedBrowserArguments(profilePath string) []string {
 	return []string{
 		"--headless=new",
-		"--enable-automation",
 		"--remote-debugging-address=127.0.0.1",
 		"--remote-debugging-port=0",
 		"--user-data-dir=" + profilePath,

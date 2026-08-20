@@ -288,17 +288,13 @@ func TestDisposableProfileMaterializeReleaseCleanupAndRecovery(t *testing.T) {
 	}
 }
 
-func TestFixedRestrictedBrowserArgumentsAutomationAndDefaultDenyExceptLiteralLoopback(
+func TestFixedRestrictedBrowserArgumentsDefaultDenyExceptLiteralLoopback(
 	t *testing.T,
 ) {
 	arguments := fixedRestrictedBrowserArguments(filepath.Join("direct", "profile"))
 	want := "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE ::1"
 	count := 0
-	automationCount := 0
 	for _, argument := range arguments {
-		if argument == "--enable-automation" {
-			automationCount++
-		}
 		if strings.HasPrefix(argument, "--host-resolver-rules=") {
 			count++
 			if argument != want {
@@ -308,9 +304,6 @@ func TestFixedRestrictedBrowserArgumentsAutomationAndDefaultDenyExceptLiteralLoo
 	}
 	if count != 1 {
 		t.Fatalf("resolver rule count=%d, want 1", count)
-	}
-	if automationCount != 1 {
-		t.Fatalf("automation argument count=%d, want 1", automationCount)
 	}
 }
 

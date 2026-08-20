@@ -99,21 +99,6 @@ type uiEvidenceSmokeStartupDiagnostic struct {
 	CapturedAt              time.Time         `json:"captured_at"`
 }
 
-type uiEvidenceSmokeStartupVariant struct {
-	Name          string        `json:"name"`
-	EndpointReady bool          `json:"endpoint_ready"`
-	ProcessActive bool          `json:"process_active_before_stop"`
-	ProbeError    string        `json:"probe_error,omitempty"`
-	Elapsed       time.Duration `json:"elapsed"`
-	ProfileFiles  []string      `json:"profile_entries"`
-}
-
-type uiEvidenceSmokeStartupVariantReport struct {
-	ProtocolVersion string                          `json:"protocol_version"`
-	Variants        []uiEvidenceSmokeStartupVariant `json:"variants"`
-	CapturedAt      time.Time                       `json:"captured_at"`
-}
-
 // TestInstalledEdgeUIEvidenceHeadlessMatrixAndRegression is opt-in because it
 // starts the real, fixed-location Edge binary. Unit tests cover every
 // authorization/lifecycle boundary; this test deliberately exercises the same
@@ -156,8 +141,8 @@ func TestInstalledEdgeUIEvidenceHeadlessMatrixAndRegression(t *testing.T) {
 	process := startUIEvidenceSmokeEdge(t, identity, profilePath)
 	defer process.Stop(t)
 
-	endpoint := waitForUIEvidenceSmokeEndpoint(t, identity, profilePath,
-		process, artifactDirectory)
+	endpoint := waitForUIEvidenceSmokeEndpoint(t, profilePath, process,
+		artifactDirectory)
 	connection, err := dialRestrictedCDP(t.Context(), endpoint)
 	if err != nil {
 		t.Fatal(err)
@@ -437,15 +422,6 @@ func startUIEvidenceSmokeEdge(t *testing.T, identity BrowserExecutableIdentity,
 	profilePath string,
 ) *uiEvidenceSmokeEdgeProcess {
 	t.Helper()
-	return startUIEvidenceSmokeEdgeWithArguments(t, identity, profilePath,
-		fixedRestrictedBrowserArguments(profilePath), 0)
-}
-
-func startUIEvidenceSmokeEdgeWithArguments(t *testing.T,
-	identity BrowserExecutableIdentity, profilePath string, arguments []string,
-	remoteDebuggingPort int,
-) *uiEvidenceSmokeEdgeProcess {
-	t.Helper()
 	for _, name := range profileEnvironmentDirectoryNames {
 		path := filepath.Join(profilePath, name)
 		if !pathWithinRoot(profilePath, path) {
@@ -458,13 +434,14 @@ func startUIEvidenceSmokeEdgeWithArguments(t *testing.T,
 	if err := validateBrowserEnvironmentDirectories(profilePath); err != nil {
 		t.Fatal(err)
 	}
+	arguments := fixedRestrictedBrowserArguments(profilePath)
 	now := time.Now().UTC()
 	spec := BrowserStartSpec{
 		ProtocolVersion:               BrowserStartSpecProtocolVersion,
 		ExecutableIdentityFingerprint: identity.Fingerprint,
 		ExecutablePath:                identity.CanonicalPath, ExecutableSHA256: identity.ExecutableSHA256,
 		ProfilePath: profilePath, Arguments: arguments, InitialURL: "about:blank",
-		RemoteDebuggingAddress: "127.0.0.1", RemoteDebuggingPort: remoteDebuggingPort,
+		RemoteDebuggingAddress: "127.0.0.1", RemoteDebuggingPort: 0,
 		ActiveProcessLimit: MaxBrowserProcessCount, JobMemoryLimitBytes: MaxBrowserJobMemoryBytes,
 		LoopbackNavigationRequired: true, HostNameResolutionDisabled: true,
 		NetworkDefaultDeny: true, CreatedAt: now, RuntimeDeadline: now.Add(2 * time.Minute),
@@ -531,8 +508,7 @@ func uiEvidenceSmokePortReleased(t *testing.T, endpoint *url.URL) bool {
 	}
 }
 
-func waitForUIEvidenceSmokeEndpoint(t *testing.T,
-	identity BrowserExecutableIdentity, profilePath string,
+func waitForUIEvidenceSmokeEndpoint(t *testing.T, profilePath string,
 	process *uiEvidenceSmokeEdgeProcess, artifactDirectory string,
 ) *url.URL {
 	t.Helper()
@@ -561,151 +537,10 @@ func waitForUIEvidenceSmokeEndpoint(t *testing.T,
 			}
 			writeUIEvidenceSmokeArtifact(t, artifactDirectory,
 				"startup-failure.json", append(raw, '\n'))
-			process.Stop(t)
-			runUIEvidenceSmokeStartupVariants(t, identity, artifactDirectory)
 			t.Fatal("timed out waiting for real Edge DevTools endpoint")
 		case <-ticker.C:
 		}
 	}
-}
-
-func runUIEvidenceSmokeStartupVariants(t *testing.T,
-	identity BrowserExecutableIdentity, artifactDirectory string,
-) {
-	t.Helper()
-	type variant struct {
-		name      string
-		fixedPort bool
-		arguments func(string, int) []string
-	}
-	minimalArguments := func(profilePath string, port int) []string {
-		return []string{
-			"--headless=new",
-			"--enable-automation",
-			"--remote-debugging-address=127.0.0.1",
-			fmt.Sprintf("--remote-debugging-port=%d", port),
-			"--user-data-dir=" + profilePath,
-			"--no-first-run",
-			"--no-default-browser-check",
-			"about:blank",
-		}
-	}
-	variants := []variant{
-		{
-			name: "restricted-disable-gpu",
-			arguments: func(profilePath string, _ int) []string {
-				arguments := fixedRestrictedBrowserArguments(profilePath)
-				return append(append(arguments[:len(arguments)-1:len(arguments)-1],
-					"--disable-gpu"), arguments[len(arguments)-1])
-			},
-		},
-		{
-			name: "restricted-without-host-resolver-rules",
-			arguments: func(profilePath string, _ int) []string {
-				arguments := fixedRestrictedBrowserArguments(profilePath)
-				filtered := make([]string, 0, len(arguments)-1)
-				for _, argument := range arguments {
-					if !strings.HasPrefix(argument, "--host-resolver-rules=") {
-						filtered = append(filtered, argument)
-					}
-				}
-				return filtered
-			},
-		},
-		{
-			name: "minimal-ephemeral-port",
-			arguments: func(profilePath string, _ int) []string {
-				return minimalArguments(profilePath, 0)
-			},
-		},
-		{
-			name: "minimal-disable-gpu",
-			arguments: func(profilePath string, _ int) []string {
-				arguments := minimalArguments(profilePath, 0)
-				return append(append(arguments[:len(arguments)-1:len(arguments)-1],
-					"--disable-gpu"), arguments[len(arguments)-1])
-			},
-		},
-		{
-			name: "minimal-fixed-port", fixedPort: true,
-			arguments: func(profilePath string, port int) []string {
-				return minimalArguments(profilePath, port)
-			},
-		},
-	}
-	report := uiEvidenceSmokeStartupVariantReport{
-		ProtocolVersion: "ui-evidence-ci-startup-variants.v1",
-		Variants:        make([]uiEvidenceSmokeStartupVariant, 0, len(variants)),
-		CapturedAt:      time.Now().UTC(),
-	}
-	for _, item := range variants {
-		result := uiEvidenceSmokeStartupVariant{Name: item.name}
-		t.Run("startup-diagnostic/"+item.name, func(t *testing.T) {
-			profileRoot := t.TempDir()
-			profilePath := filepath.Join(profileRoot, "edge-profile")
-			if err := os.Mkdir(profilePath, 0o700); err != nil {
-				t.Fatal(err)
-			}
-			port := 0
-			if item.fixedPort {
-				listener, err := net.Listen("tcp4", "127.0.0.1:0")
-				if err != nil {
-					t.Fatal(err)
-				}
-				port = listener.Addr().(*net.TCPAddr).Port
-				if err := listener.Close(); err != nil {
-					t.Fatal(err)
-				}
-			}
-			startedAt := time.Now()
-			variantProcess := startUIEvidenceSmokeEdgeWithArguments(t, identity,
-				profilePath, item.arguments(profilePath, port), port)
-			defer variantProcess.Stop(t)
-			result.EndpointReady, result.ProbeError =
-				probeUIEvidenceSmokeStartup(profilePath, variantProcess, port,
-					5*time.Second)
-			result.Elapsed = time.Since(startedAt)
-			result.ProcessActive = variantProcess.Active()
-			variantProcess.Stop(t)
-			result.ProfileFiles, _ = readUIEvidenceSmokeProfileEntries(profilePath)
-		})
-		report.Variants = append(report.Variants, result)
-	}
-	raw, err := json.MarshalIndent(report, "", "  ")
-	if err != nil {
-		t.Fatalf("marshal real Edge startup variant report: %v", err)
-	}
-	writeUIEvidenceSmokeArtifact(t, artifactDirectory,
-		"startup-variants.json", append(raw, '\n'))
-}
-
-func probeUIEvidenceSmokeStartup(profilePath string,
-	process *uiEvidenceSmokeEdgeProcess, fixedPort int, maximum time.Duration,
-) (bool, string) {
-	deadline := time.Now().Add(maximum)
-	for time.Now().Before(deadline) {
-		if !process.Active() {
-			return false, "browser process exited"
-		}
-		if fixedPort == 0 {
-			_, pending, err := readDevToolsEndpoint(profilePath)
-			if err != nil {
-				return false, err.Error()
-			}
-			if !pending {
-				return true, ""
-			}
-		} else {
-			address := net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", fixedPort))
-			connection, err := net.DialTimeout("tcp4", address, 100*time.Millisecond)
-			if err == nil {
-				_ = connection.Close()
-				return true, ""
-			}
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
-	return false, "endpoint unavailable before diagnostic deadline"
 }
 
 func collectUIEvidenceSmokeStartupDiagnostic(profilePath string,
