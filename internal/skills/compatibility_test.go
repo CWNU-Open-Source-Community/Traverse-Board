@@ -53,6 +53,21 @@ func TestBuiltinModeAndInvocationPoliciesAreExplicit(t *testing.T) {
 	}) {
 		t.Fatal("doctor Plan-only policy drifted")
 	}
+	loopMonitor, _ := registry.Get("loop-monitor")
+	if !loopMonitor.SupportsContext(ExecutionContext{
+		Surface: domain.ExecutionSurfaceCyber, Phase: domain.ExecutionPhasePlan,
+		Profile: domain.ProfileLearn, Role: domain.AgentRoleRoot,
+	}) || !loopMonitor.SupportsContext(ExecutionContext{
+		Surface: domain.ExecutionSurfaceCode, Phase: domain.ExecutionPhaseDeliver,
+		Profile: domain.ProfileCode, Role: domain.AgentRoleRoot,
+	}) || loopMonitor.SupportsContext(ExecutionContext{
+		Surface: domain.ExecutionSurfaceCode, Phase: domain.ExecutionPhasePlan,
+		Profile: domain.ProfileCode, Role: domain.AgentRoleSpecialist,
+	}) || !loopMonitor.AllowsInvocation(InvocationSourceUser, true) ||
+		loopMonitor.AllowsInvocation(InvocationSourceUser, false) ||
+		loopMonitor.AllowsInvocation(InvocationSourceModel, true) {
+		t.Fatal("loop-monitor root/explicit-only policy drifted")
+	}
 	runVerify, _ := registry.Get("run-verify")
 	if !runVerify.SupportsContext(ExecutionContext{
 		Surface: domain.ExecutionSurfaceCyber, Phase: domain.ExecutionPhaseDeliver,
@@ -112,7 +127,7 @@ func TestListForContextFiltersModeAndInvocationTogether(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"debug", "doctor", "plan-delivery", "security-review"}; !equalManifestNames(listed, want) {
+	if want := []string{"debug", "doctor", "loop-monitor", "plan-delivery", "security-review"}; !equalManifestNames(listed, want) {
 		t.Fatalf("Cyber explicit-user list = %#v", listed)
 	}
 	listed, err = registry.ListForContext(context, InvocationSourceModel, false)
@@ -228,8 +243,9 @@ func TestCommonCapabilitySkillBodiesPreserveEvidenceAndAuthorityBoundaries(t *te
 		t.Fatal(err)
 	}
 	contracts := map[string][]string{
-		"doctor":          {"PASS, WARN, FAIL, or UNKNOWN", "Never turn a diagnosis into an automatic repair"},
-		"debug":           {"model, tool, permission, application, or infrastructure", "In Deliver"},
+		"doctor":          {"doctor snapshot", "not_configured", "Never turn a diagnosis into an automatic repair"},
+		"debug":           {"model, tool, policy, application, or infrastructure", "next_after_sequence", "In Deliver"},
+		"loop-monitor":    {"explicit target Run", "unchanged round without calling a model or tool", "approved_repair"},
 		"run-verify":      {"Extension: ui-evidence", "ui-evidence.v1", "not_run", "PR verification receipt"},
 		"review":          {"merge-base", "concurrent or durable code", "confirmed, inferred, or unverified"},
 		"focused-checks":  {"smallest credible set", "must never be reported as passed"},

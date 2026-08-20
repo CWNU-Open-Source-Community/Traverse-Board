@@ -1,7 +1,7 @@
 {
   "protocol": "skill.v1",
   "name": "debug",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Root-first bounded evidence timelines and layered fault isolation with Deliver-only repair.",
   "profiles": ["code", "learn", "review", "script"],
   "surfaces": ["code", "cyber"],
@@ -12,7 +12,7 @@
   "explicit_only": false,
   "tool_dependencies": ["list_workspace", "read_file"],
   "content_path": "SKILL.md",
-  "content_sha256": "cf9635fba5ee31263a92dd57dabd8a3647269ee81f11e30e2084413cdb8000fc",
-  "content_bytes": 1222,
-  "content_token_upper_bound": 1222
+  "content_sha256": "79c76c381d8b271aae01e43e7395c1a87d50fbe4ddfbdfcf7411f91938092b59",
+  "content_bytes": 1530,
+  "content_token_upper_bound": 1530
 }

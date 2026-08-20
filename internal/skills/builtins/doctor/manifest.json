@@ -1,7 +1,7 @@
 {
   "protocol": "skill.v1",
   "name": "doctor",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Read-only Plan diagnostics for providers, harnesses, workspaces, sandboxes, scopes, tools, and Skills.",
   "profiles": ["code", "learn", "review", "script"],
   "surfaces": ["code", "cyber"],
@@ -12,7 +12,7 @@
   "explicit_only": false,
   "tool_dependencies": ["list_workspace", "read_file"],
   "content_path": "SKILL.md",
-  "content_sha256": "8a80ba430bc7f499747d9b2a6eb428eb865810cd4d8a44ad36fc89fb8d7e0be7",
-  "content_bytes": 1011,
-  "content_token_upper_bound": 1011
+  "content_sha256": "664ea5ebaa053f03951419bc64f2fd64434a5f6b56d45c8997bbbfd5fc0d35f1",
+  "content_bytes": 1046,
+  "content_token_upper_bound": 1046
 }

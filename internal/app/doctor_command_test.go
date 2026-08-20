@@ -48,6 +48,33 @@ func TestDoctorPortableTextIncludesManualMatrixBoundary(t *testing.T) {
 	}
 }
 
+func TestDoctorSnapshotIsStructuredAndContentFree(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CYBERAGENT_HOME", home)
+	var stdout, stderr bytes.Buffer
+	code := Execute([]string{"doctor", "snapshot", "--json"}, &stdout, &stderr)
+	if code != 0 || stderr.Len() != 0 {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	var snapshot struct {
+		ProtocolVersion string `json:"protocol_version"`
+		SchemaVersion   int    `json:"schema_version"`
+		Redaction       struct {
+			Prompts       string `json:"prompts"`
+			TerminalInput string `json:"terminal_input"`
+		} `json:"redaction"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.ProtocolVersion != "doctor-snapshot.v1" || snapshot.SchemaVersion == 0 ||
+		snapshot.Redaction.Prompts != "withheld" ||
+		snapshot.Redaction.TerminalInput != "withheld" ||
+		strings.Contains(stdout.String(), home) {
+		t.Fatalf("snapshot=%#v output=%s", snapshot, stdout.String())
+	}
+}
+
 func TestDoctorBrowserNetworkProbeFailsBeforeDiscoveryWithoutExactConfirmation(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := Execute([]string{"doctor", "browser-network-probe", "--product", "edge",

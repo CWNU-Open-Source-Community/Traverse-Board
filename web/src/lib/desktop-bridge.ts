@@ -55,6 +55,8 @@ export interface DesktopConnectionBootstrap {
   file_edit_apply_enabled: boolean;
   run_wake_execution_enabled: boolean;
   run_wake_worker_enabled: boolean;
+  scheduled_job_control_enabled: boolean;
+  scheduled_job_worker_enabled: boolean;
   read_only_default: boolean;
   process_execution_enabled: boolean;
   shell_execution_enabled: boolean;
@@ -712,8 +714,9 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     "protocol_version", "read_only_default",
     "plan_delivery_control_enabled", "read_token", "renderer_path_input_supported",
     "run_creation_enabled", "shell_execution_enabled",
-	"run_execution_enabled", "run_lifecycle_enabled", "run_wake_control_enabled",
+    "run_execution_enabled", "run_lifecycle_enabled", "run_wake_control_enabled",
     "run_wake_execution_enabled", "run_wake_worker_enabled",
+    "scheduled_job_control_enabled", "scheduled_job_worker_enabled",
     "session_message_enabled", "skill_installation_enabled", "ui_digest",
     "session_steering_control_enabled",
     "workspace_import_enabled",
@@ -750,6 +753,8 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     typeof value.file_edit_apply_enabled === "boolean" &&
     typeof value.run_wake_execution_enabled === "boolean" &&
     typeof value.run_wake_worker_enabled === "boolean" &&
+    typeof value.scheduled_job_control_enabled === "boolean" &&
+    typeof value.scheduled_job_worker_enabled === "boolean" &&
     typeof value.skill_installation_enabled === "boolean" &&
     typeof value.evidence_attachment_enabled === "boolean" &&
     typeof value.verification_evidence_enabled === "boolean" &&
@@ -775,6 +780,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
 	  value.file_edit_review_enabled || value.file_edit_proposal_enabled ||
 	  value.run_wake_control_enabled || value.file_edit_apply_enabled ||
       value.run_wake_execution_enabled || value.run_wake_worker_enabled ||
+      value.scheduled_job_control_enabled || value.scheduled_job_worker_enabled ||
       value.skill_installation_enabled ||
       value.evidence_attachment_enabled || value.verification_evidence_enabled ||
 	  value.embedded_analyzer_execution_enabled || value.workspace_checkpoint_control_enabled ||
@@ -814,6 +820,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
 	  value.file_edit_review_enabled || value.file_edit_proposal_enabled ||
 	  value.run_wake_control_enabled || value.file_edit_apply_enabled ||
       value.run_wake_execution_enabled || value.run_wake_worker_enabled ||
+      value.scheduled_job_control_enabled || value.scheduled_job_worker_enabled ||
       value.skill_installation_enabled ||
       value.evidence_attachment_enabled || value.verification_evidence_enabled ||
 	  value.embedded_analyzer_execution_enabled || value.workspace_checkpoint_control_enabled ||

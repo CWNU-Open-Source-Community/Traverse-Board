@@ -177,6 +177,7 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		bootstrap.FileEditReviewEnabled || bootstrap.FileEditProposalEnabled ||
 		bootstrap.RunWakeControlEnabled || bootstrap.FileEditApplyEnabled ||
 		bootstrap.RunWakeExecutionEnabled || bootstrap.RunWakeWorkerEnabled ||
+		bootstrap.ScheduledJobControlEnabled || bootstrap.ScheduledJobWorkerEnabled ||
 		bootstrap.ReadOnlyDefault || bootstrap.ProcessExecutionEnabled ||
 		bootstrap.ShellExecutionEnabled || bootstrap.DockerExecutionEnabled ||
 		!bootstrap.AgentCodeToolsEnabled ||
@@ -214,6 +215,7 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		"run_creation_enabled", "shell_execution_enabled",
 		"run_execution_enabled", "run_lifecycle_enabled", "run_wake_control_enabled",
 		"run_wake_execution_enabled", "run_wake_worker_enabled",
+		"scheduled_job_control_enabled", "scheduled_job_worker_enabled",
 		"session_message_enabled", "session_steering_control_enabled",
 		"skill_installation_enabled", "evidence_attachment_enabled",
 		"verification_evidence_enabled", "embedded_analyzer_execution_enabled",

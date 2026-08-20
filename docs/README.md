@@ -31,6 +31,7 @@ This directory separates user-facing documentation, current engineering state, a
 | [ADR 0118 / Workspace Checkpoints](adr/0118-transactional-workspace-checkpoints.md) | 事务边界、内容寻址、三方恢复、崩溃收敛与权限模型 |
 | [ADR 0119 / Deliverable Batch Agents](adr/0119-deliverable-batch-agents.md) | child 所有权、一次性 authority、提交 WAL、独立复核与本地合并队列 |
 | [ADR 0120 / UI Evidence](adr/0120-source-bound-real-browser-ui-evidence.md) | 真实浏览器所有权、受限 CDP、来源绑定、脱敏与 CI 决策 |
+| [ADR 0121 / Scheduled Monitoring](adr/0121-durable-scheduled-monitoring-and-structured-diagnostics.md) | 持久任务、租约 fencing、预算、权限快照与结构化诊断边界 |
 | [ADR 索引](adr/) | 权限、持久化、执行、浏览器、Desktop 等架构决策 |
 
 ## 当前工程上下文 / Current Engineering Context

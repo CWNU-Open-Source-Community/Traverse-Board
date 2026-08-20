@@ -36,6 +36,8 @@ interface ConnectionState {
   runWakeControlEnabled: boolean;
   runWakeExecutionEnabled: boolean;
   runWakeWorkerEnabled: boolean;
+  scheduledJobControlEnabled: boolean;
+  scheduledJobWorkerEnabled: boolean;
   skillInstallationEnabled: boolean;
   evidenceAttachmentEnabled: boolean;
   verificationEvidenceEnabled: boolean;
@@ -88,6 +90,8 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   runWakeControlEnabled: false,
   runWakeExecutionEnabled: false,
   runWakeWorkerEnabled: false,
+  scheduledJobControlEnabled: false,
+  scheduledJobWorkerEnabled: false,
   skillInstallationEnabled: false,
   evidenceAttachmentEnabled: false,
   verificationEvidenceEnabled: false,
@@ -132,6 +136,10 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
 	  runWakeControlEnabled: present && (capabilities.runWakeControlEnabled ?? true),
 	  runWakeExecutionEnabled: present && (capabilities.runWakeExecutionEnabled ?? true),
 	  runWakeWorkerEnabled: present && (capabilities.runWakeWorkerEnabled ?? false),
+	  scheduledJobControlEnabled: present &&
+	    (capabilities.scheduledJobControlEnabled ?? false),
+	  scheduledJobWorkerEnabled: present &&
+	    (capabilities.scheduledJobWorkerEnabled ?? false),
 	  skillInstallationEnabled: present && (capabilities.skillInstallationEnabled ?? true),
 	  evidenceAttachmentEnabled: present && (capabilities.evidenceAttachmentEnabled ?? true),
 	  verificationEvidenceEnabled: present &&
@@ -160,6 +168,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
 	modelControlEnabled: false, providerCredentialEnabled: false,
 	fileEditReviewEnabled: false, fileEditProposalEnabled: false, fileEditApplyEnabled: false,
 	runWakeControlEnabled: false, runWakeExecutionEnabled: false, runWakeWorkerEnabled: false,
+	scheduledJobControlEnabled: false, scheduledJobWorkerEnabled: false,
 	skillInstallationEnabled: false,
 	evidenceAttachmentEnabled: false,
 	verificationEvidenceEnabled: false,

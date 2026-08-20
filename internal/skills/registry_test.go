@@ -31,14 +31,14 @@ func TestBuiltinRegistryIsDeterministicBoundedAndReadOnly(t *testing.T) {
 		}
 	}
 	if want := []string{
-		"code", "debug", "doctor", "focused-checks", "learn", "plan-delivery",
+		"code", "debug", "doctor", "focused-checks", "learn", "loop-monitor", "plan-delivery",
 		"review", "run-skill-generator", "run-verify", "script", "security-review", "simplify",
 	}; !reflect.DeepEqual(names, want) {
 		t.Fatalf("built-in order = %v, want %v", names, want)
 	}
 	review := registry.List(domain.ProfileReview)
 	if want := []string{
-		"debug", "doctor", "focused-checks", "plan-delivery", "review", "security-review",
+		"debug", "doctor", "focused-checks", "loop-monitor", "plan-delivery", "review", "security-review",
 	}; !reflect.DeepEqual(manifestNames(review), want) {
 		t.Fatalf("review profile projection = %#v", review)
 	}

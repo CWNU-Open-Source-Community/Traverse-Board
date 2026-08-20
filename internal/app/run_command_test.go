@@ -70,6 +70,35 @@ func TestCLIHelpListsRunGraphAndLease(t *testing.T) {
 	}
 }
 
+func TestScheduledJobCLIStartsReadOnlyAndSupportsStructuredShow(t *testing.T) {
+	t.Setenv("CYBERAGENT_HOME", t.TempDir())
+	created, stderr, code := executeTestCommand(t, "run", "create",
+		"schedule a bounded monitor", "--profile", "code", "--surface", "code",
+		"--phase", "plan", "--max-turns", "4")
+	if code != 0 || stderr != "" {
+		t.Fatalf("create stdout=%s stderr=%s code=%d", created, stderr, code)
+	}
+	runID := runIDPattern.FindString(created)
+	if runID == "" {
+		t.Fatalf("missing Run id in %s", created)
+	}
+	if _, stderr, code = executeTestCommand(t, "run", "start", runID); code != 0 {
+		t.Fatalf("start stderr=%s code=%d", stderr, code)
+	}
+	anchor := time.Now().UTC().Add(time.Minute).Truncate(time.Second)
+	deadline := anchor.Add(time.Hour)
+	output, stderr, code := executeTestCommand(t, "run", "schedule", "create", runID,
+		"--at", anchor.Format(time.RFC3339), "--every", "1m",
+		"--deadline", deadline.Format(time.RFC3339),
+		"--operation-key", "scheduled-cli-create-operation-0001")
+	if code != 0 || stderr != "" ||
+		!strings.Contains(output, `"version": "scheduled-job.v1"`) ||
+		!strings.Contains(output, `"execution_mode": "read_only"`) ||
+		!strings.Contains(output, `"replayed": false`) {
+		t.Fatalf("schedule stdout=%s stderr=%s code=%d", output, stderr, code)
+	}
+}
+
 func TestRunModeCLISelectsShowsAndChangesPhase(t *testing.T) {
 	t.Setenv("CYBERAGENT_HOME", t.TempDir())
 	created, stderr, code := executeTestCommand(t, "run", "create",

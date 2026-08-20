@@ -1,6 +1,6 @@
 import { CyberAgentClient, clientCapabilitiesFromRuntime } from "./client";
 import type { RunEventStreamView, RunLifecycleControlView,
-  UIEvidenceArtifactMetadata } from "./types";
+  ScheduledJobCreateRequestView, UIEvidenceArtifactMetadata } from "./types";
 
 const healthEnvelope = {
   version: "api.v1",
@@ -26,6 +26,7 @@ function runtimeCapabilitiesData(overrides: Record<string, unknown> = {}) {
     file_edit_review_enabled: true, file_edit_proposal_enabled: true,
     file_edit_apply_enabled: true, run_wake_control_enabled: true,
     run_wake_execution_enabled: true, run_wake_worker_enabled: true,
+    scheduled_job_control_enabled: true, scheduled_job_worker_enabled: true,
     skill_installation_enabled: true, evidence_attachment_enabled: true,
     verification_evidence_enabled: true,
     ui_evidence_control_enabled: true,
@@ -36,8 +37,28 @@ function runtimeCapabilitiesData(overrides: Record<string, unknown> = {}) {
     process_execution_enabled: true, shell_execution_enabled: true,
     docker_execution_enabled: false,
     wake_worker: { protocol_version: "run_wake_worker_health.v1", enabled: true,
-      state: "running", active: true, poll_interval_ms: 2000, concurrency: 1,
+      state: "running", active: false, poll_interval_ms: 2000, concurrency: 1,
       max_steps: 1, runtime_enable_supported: false, persistent_service: false },
+    scheduled_job_worker: { protocol_version: "scheduled-job-worker-health.v1", enabled: true,
+      state: "running", active: false, poll_interval_ms: 2000, concurrency: 1,
+      runtime_enable_supported: false, persistent_service: false, authority_escalation: false },
+    ...overrides,
+  };
+}
+
+function scheduledJobData(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "scheduled-job-1", owner_run_id: "run-1", owner_root_agent_id: "agent-root",
+    status: "active", revision: 1, active_lease_generation: 0, rounds_completed: 0,
+    consecutive_unchanged: 0, model_calls: 0, last_event_sequence: 0,
+    next_wake_at: "2026-08-20T11:00:00Z", created_by: "http_control",
+    created_at: "2026-08-20T10:00:00Z", updated_at: "2026-08-20T10:00:00Z",
+    spec: { version: "scheduled-job.v1", target_run_id: "run-1", execution_mode: "read_only",
+      schedule: { kind: "once", timezone: "UTC", anchor_at: "2026-08-20T11:00:00Z",
+        misfire_policy: "run_once" }, deadline_at: "2026-08-20T12:00:00Z",
+      stop_on_target_terminal: true, max_rounds: 1, max_model_calls: 0,
+      max_elapsed_seconds: 3600, retry: { max_attempts: 3, initial_backoff_seconds: 5,
+        max_backoff_seconds: 60 }, notification: "on_change" },
     ...overrides,
   };
 }
@@ -356,6 +377,7 @@ describe("CyberAgentClient", () => {
       file_edit_review_enabled: true, file_edit_proposal_enabled: true,
       file_edit_apply_enabled: true, run_wake_control_enabled: true,
       run_wake_execution_enabled: true, run_wake_worker_enabled: true,
+      scheduled_job_control_enabled: true, scheduled_job_worker_enabled: true,
       skill_installation_enabled: true, evidence_attachment_enabled: true,
       verification_evidence_enabled: true,
       ui_evidence_control_enabled: true,
@@ -366,8 +388,11 @@ describe("CyberAgentClient", () => {
       process_execution_enabled: true, shell_execution_enabled: true,
       docker_execution_enabled: false,
       wake_worker: { protocol_version: "run_wake_worker_health.v1", enabled: true,
-        state: "running", active: true, poll_interval_ms: 2000, concurrency: 1,
+        state: "running", active: false, poll_interval_ms: 2000, concurrency: 1,
         max_steps: 1, runtime_enable_supported: false, persistent_service: false },
+      scheduled_job_worker: { protocol_version: "scheduled-job-worker-health.v1", enabled: true,
+        state: "running", active: false, poll_interval_ms: 2000, concurrency: 1,
+        runtime_enable_supported: false, persistent_service: false, authority_escalation: false },
     } as const;
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-capabilities", data,
@@ -392,6 +417,22 @@ describe("CyberAgentClient", () => {
     });
   });
 
+  it("rejects worker health that reports activity before the loop is running", async () => {
+    const data = runtimeCapabilitiesData({
+      scheduled_job_worker: {
+        protocol_version: "scheduled-job-worker-health.v1", enabled: true,
+        state: "ready", active: true, poll_interval_ms: 2000, concurrency: 1,
+        runtime_enable_supported: false, persistent_service: false,
+        authority_escalation: false,
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-invalid-worker-health", data,
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    await expect(new CyberAgentClient("read-secret").runtimeCapabilities())
+      .rejects.toThrow("Run wake worker capability response is invalid");
+  });
+
   it("accepts Docker execution capability only with permission control", async () => {
     const data = runtimeCapabilitiesData({ docker_execution_enabled: true });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
@@ -402,6 +443,66 @@ describe("CyberAgentClient", () => {
     expect(clientCapabilitiesFromRuntime(view)).toMatchObject({
       dockerExecutionEnabled: true,
     });
+  });
+
+  it("creates scheduled jobs through the control bearer and validates closed authority", async () => {
+    const job = scheduledJobData();
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-scheduled-create", data: {
+        protocol_version: "scheduled-job-control.v1", action: "create", job,
+        replayed: false, execution_started: false, authority_bypass: false,
+      },
+    }), { status: 202, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+      scheduledJobControlEnabled: true,
+    });
+    const body = { ...job.spec, confirm_repair: false } as unknown as
+      ScheduledJobCreateRequestView & { target_run_id?: string };
+    delete (body as Partial<typeof body>).target_run_id;
+    await expect(client.createScheduledJob("run-1", body,
+      "scheduled-client-operation-0001")).resolves.toMatchObject({ job });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/runs/run-1/scheduled-jobs");
+    expect(init.headers).toMatchObject({ Authorization: "Bearer control-secret",
+      "Idempotency-Key": "scheduled-client-operation-0001" });
+  });
+
+  it("rejects private fencing fields and unredacted diagnostic timeline data", async () => {
+    const job = scheduledJobData();
+    const detail = { protocol_version: "scheduled-job.v1", snapshot: { job,
+      notifications: [], rounds: [{ protocol_version: "scheduled-job-round.v1",
+        job_id: job.id, occurrence_at: "2026-08-20T11:00:00Z", ordinal: 1, attempt: 1,
+        claim_generation: 1, status: "completed", event_sequence: 2,
+        changed: true, model_called: false, tool_called: false,
+        started_at: "2026-08-20T11:00:00Z", completed_at: "2026-08-20T11:00:01Z",
+        fence_token: "private" }] } };
+    const redaction = { command_input: "withheld", event_payloads: "withheld",
+      prompts: "withheld", secrets: "redacted", terminal_input: "withheld" };
+    const bundle = { protocol_version: "diagnostic-bundle.v1",
+      generated_at: "2026-08-20T11:00:00Z",
+      doctor: { protocol_version: "doctor-snapshot.v1",
+        generated_at: "2026-08-20T11:00:00Z", ready: true, schema_version: 119,
+        build: {}, models: {}, checks: [], redaction },
+      debug: { protocol_version: "debug-query.v1", run_id: "run-1",
+        from: "2026-08-20T10:00:00Z", to: "2026-08-20T11:00:00Z",
+        after_sequence: 0, next_after_sequence: 1, limit: 100, scanned: 1,
+        has_more: false, redaction, items: [{ sequence: 1, type: "run.started",
+          source: "test", subject_id: "run-1", category: "application",
+          occurred_at: "2026-08-20T10:30:00Z", observed_at: "2026-08-20T10:30:00Z",
+          timestamp_adjusted: false, evidence: "persisted_event", payload_state: "withheld",
+          payload: "private" }] } };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-scheduled-detail", data: detail }), { status: 200,
+        headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: "api.v1",
+        request_id: "req-diagnostic-bundle", data: bundle }), { status: 200,
+        headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret");
+    await expect(client.getScheduledJob("scheduled-job-1")).rejects.toThrow("exposed payload");
+    await expect(client.diagnosticBundle("run-1")).rejects.toThrow("redaction contract");
   });
 
   it("accepts bounded batch delivery projections and rejects private child authority fields", async () => {

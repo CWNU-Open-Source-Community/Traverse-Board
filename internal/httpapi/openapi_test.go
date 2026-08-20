@@ -428,6 +428,30 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, scheduledCreated, err := application.NewRunService(fixture.store).Create(t.Context(),
+		application.CreateRunRequest{Goal: "OpenAPI scheduled observation target", Profile: "code",
+			Surface: "code", Phase: "plan", WorkspaceID: fixture.workspace.ID,
+			Budget: domain.Budget{MaxTurns: 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	scheduledJobs := application.NewScheduledJobService(fixture.store)
+	scheduledAnchor := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
+	scheduledSeed, err := scheduledJobs.Create(t.Context(), application.CreateScheduledJobRequest{
+		Version: domain.ScheduledJobProtocolVersion, RunID: scheduledCreated.ID,
+		TargetRunID: scheduledCreated.ID,
+		Schedule: domain.ScheduledJobSchedule{Kind: domain.ScheduledJobOnce, Timezone: "UTC",
+			AnchorAt: scheduledAnchor, MisfirePolicy: domain.ScheduledJobMisfireRunOnce},
+		DeadlineAt: scheduledAnchor.Add(time.Hour), StopOnTargetTerminal: true,
+		MaxRounds: 1, MaxModelCalls: 0, MaxElapsedSeconds: 3600,
+		Retry: domain.ScheduledJobRetryPolicy{MaxAttempts: 2,
+			InitialBackoffSeconds: 1, MaxBackoffSeconds: 10},
+		Notification: domain.ScheduledJobNotifyAll, ExecutionMode: domain.ScheduledJobReadOnly,
+		OperationKey: "openapi-scheduled-seed-0001", RequestedBy: "openapi_test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	fixture.api.runLifecycleEnabled = true
 	fixture.api.runExecutionEnabled = true
 	fixture.api.planDeliveryControlEnabled = true
@@ -441,6 +465,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	fixture.api.runWakeControlEnabled = true
 	fixture.api.fileEditApplyEnabled = true
 	fixture.api.runWakeExecutionEnabled = true
+	fixture.api.scheduledJobControlEnabled = true
 	fixture.api.skillInstallationEnabled = true
 	fixture.api.evidenceAttachmentEnabled = true
 	fixture.api.verificationEvidenceEnabled = true
@@ -514,6 +539,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	fixture.api.fileEditApplyController = application.NewFileEditApplyService(fixture.store, checker)
 	fixture.api.runWakeExecutionController = application.NewForegroundRunWakeConsumer(
 		fixture.store, executionController)
+	fixture.api.scheduledJobController = scheduledJobs
 	fixture.api.embeddedAnalyzerExecutionController =
 		application.NewEmbeddedAnalyzerExecutionService(fixture.store)
 	fixture.api.workspaceCheckpointControlEnabled = true
@@ -644,6 +670,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		"{batch_delivery_id}": "batch-openapi-missing-0001",
 		"{attempt_id}":        uiAttemptID,
 		"{edit_id}":           fileEditRecord.ID,
+		"{job_id}":            scheduledSeed.Job.ID,
+		"{action}":            string(domain.ScheduledJobPause),
 		"{object_id}":         strings.Repeat("a", 40),
 		"{plan_id}":           verificationPlan.Plan.ID,
 		"{ordinal}":           "1",
@@ -684,6 +712,9 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", wakeRun.ID)
 		} else if spec.Path == RunWakeExecutionPathTemplate {
 			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", wakeExecutionRun.ID)
+		} else if spec.Path == RunScheduledJobsPathTemplate ||
+			spec.Path == ScheduledJobActionPathTemplate {
+			requestPath = strings.ReplaceAll(requestPath, fixture.run.ID, scheduledCreated.ID)
 		} else if spec.Path == FileEditProposalRecoveryPathTemplate {
 			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", fixture.run.ID)
 			requestPath = strings.ReplaceAll(requestPath, "{edit_id}", recoveryProposal.Edit.ID)
@@ -707,6 +738,9 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 			requestPath += "?admission_id=docker-sandbox-admission-openapi"
 		} else if spec.OperationID == "listRunFanoutExecutions" {
 			requestPath += "?plan_id=plan-openapi-fanout"
+		} else if spec.OperationID == "queryDebugTimeline" ||
+			spec.OperationID == "exportDiagnosticBundle" {
+			requestPath += "?run_id=" + fixture.run.ID
 		}
 		t.Run(spec.OperationID, func(t *testing.T) {
 			var response *httptest.ResponseRecorder
@@ -911,6 +945,20 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 					body = `{"version":"run_wake_control.v1"}`
 				} else if spec.Path == RunWakeExecutionPathTemplate {
 					body = `{"version":"run_wake_consumer.v1","max_steps":1}`
+				} else if spec.Path == RunScheduledJobsPathTemplate {
+					body = `{"version":"scheduled-job.v1","schedule":{"kind":"once",` +
+						`"timezone":"UTC","anchor_at":"` +
+						scheduledAnchor.Add(time.Minute).Format(time.RFC3339) + `",` +
+						`"misfire_policy":"run_once"},"deadline_at":"` +
+						scheduledAnchor.Add(2*time.Hour).Format(time.RFC3339) + `",` +
+						`"stop_on_target_terminal":true,"max_rounds":1,"max_model_calls":0,` +
+						`"max_elapsed_seconds":3600,"retry":{"max_attempts":2,` +
+						`"initial_backoff_seconds":1,"max_backoff_seconds":10},` +
+						`"notification":"all","execution_mode":"read_only",` +
+						`"confirm_repair":false}`
+				} else if spec.Path == ScheduledJobActionPathTemplate {
+					body = `{"version":"scheduled-job-control.v1","expected_revision":` +
+						fmt.Sprint(scheduledSeed.Job.Revision) + `}`
 				} else if spec.Path == SkillPackageInstallPath {
 					body = `{"version":"skill_package_installation.v1","archive_base64":"` +
 						base64.StdEncoding.EncodeToString(skillArchive) +

@@ -20,6 +20,7 @@ import (
 	"unicode/utf8"
 
 	"cyberagent-workbench/internal/apperror"
+	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/artifact"
 	"cyberagent-workbench/internal/browserruntime"
@@ -52,6 +53,7 @@ type Store interface {
 	SchemaVersion(ctx context.Context) (int, error)
 	GetMission(ctx context.Context, id string) (domain.Mission, error)
 	GetRun(ctx context.Context, id string) (domain.Run, error)
+	GetRootAgent(ctx context.Context, runID string) (domain.AgentNode, bool, error)
 	GetRunMode(ctx context.Context, runID string) (domain.RunModeSnapshot, error)
 	GetRunCreationOperation(ctx context.Context,
 		keyDigest string) (domain.RunCreationOperation, bool, error)
@@ -110,6 +112,25 @@ type Store interface {
 	ListRunEventsPage(ctx context.Context, runID string, offset int, limit int) ([]events.Event, error)
 	ListRunEventsAfterSequence(ctx context.Context, runID string, afterSequence int64, limit int) ([]events.Event, error)
 	LatestRunEventSequence(ctx context.Context, runID string) (int64, error)
+	GetScheduledJob(context.Context, string) (domain.ScheduledJob, error)
+	ListScheduledJobs(context.Context, string, int) ([]domain.ScheduledJob, error)
+	GetScheduledJobOperation(context.Context, string) (domain.ScheduledJobOperation, bool, error)
+	GetScheduledJobAuthorization(context.Context, string) (domain.ScheduledJobAuthorization, bool, error)
+	CreateScheduledJob(context.Context, domain.ScheduledJob, *domain.ScheduledJobAuthorization,
+		domain.ScheduledJobOperation) (domain.ScheduledJob, bool, error)
+	TransitionScheduledJob(context.Context, string, domain.ScheduledJobAction, int64,
+		time.Time, domain.ScheduledJobOperation) (domain.ScheduledJob, bool, error)
+	ListScheduledJobRounds(context.Context, string, int) ([]domain.ScheduledJobRound, error)
+	ListScheduledJobNotifications(context.Context, string, int) ([]domain.ScheduledJobNotification, error)
+	ClaimDueScheduledJob(context.Context, string, time.Time) (domain.ScheduledJob,
+		domain.ScheduledJobLease, bool, error)
+	CompleteScheduledJobRound(context.Context, domain.ScheduledJobLease,
+		domain.ScheduledJobRoundOutcome, time.Time) (domain.ScheduledJob,
+		domain.ScheduledJobRound, *domain.ScheduledJobNotification, error)
+	FailScheduledJobRound(context.Context, domain.ScheduledJobLease,
+		domain.ScheduledJobRoundFailure, time.Time) (domain.ScheduledJob,
+		domain.ScheduledJobRound, *domain.ScheduledJobNotification, error)
+	ReconcileScheduledJobs(context.Context, time.Time, int) (int, error)
 	GetSupervisorCheckpoint(ctx context.Context, runID string) (domain.SupervisorCheckpoint, bool, error)
 	GetRunExecutionLease(ctx context.Context, runID string) (domain.RunExecutionLease, bool, error)
 	ListOperatorSteering(ctx context.Context, runID string,
@@ -247,6 +268,8 @@ type Config struct {
 	FileEditApplyEnabled                    bool
 	RunWakeExecutionEnabled                 bool
 	RunWakeWorkerEnabled                    bool
+	ScheduledJobControlEnabled              bool
+	ScheduledJobWorkerEnabled               bool
 	SkillInstallationEnabled                bool
 	EvidenceAttachmentEnabled               bool
 	VerificationEvidenceEnabled             bool
@@ -277,6 +300,8 @@ type Config struct {
 	FileEditApplyController                 FileEditApplyController
 	RunWakeExecutionController              RunWakeExecutionController
 	RunWakeWorkerHealthSource               RunWakeWorkerHealthSource
+	ScheduledJobController                  ScheduledJobController
+	ScheduledJobWorkerHealthSource          ScheduledJobWorkerHealthSource
 	SkillInstallationController             SkillInstallationController
 	EmbeddedAnalyzerExecutionController     EmbeddedAnalyzerExecutionController
 	WorkspaceCheckpointController           WorkspaceCheckpointController
@@ -314,6 +339,8 @@ type API struct {
 	fileEditApplyEnabled                    bool
 	runWakeExecutionEnabled                 bool
 	runWakeWorkerEnabled                    bool
+	scheduledJobControlEnabled              bool
+	scheduledJobWorkerEnabled               bool
 	skillInstallationEnabled                bool
 	evidenceAttachmentEnabled               bool
 	verificationEvidenceEnabled             bool
@@ -346,6 +373,9 @@ type API struct {
 	fileEditApplyController                 FileEditApplyController
 	runWakeExecutionController              RunWakeExecutionController
 	runWakeWorkerHealthSource               RunWakeWorkerHealthSource
+	scheduledJobController                  ScheduledJobController
+	scheduledJobWorkerHealthSource          ScheduledJobWorkerHealthSource
+	diagnostics                             *application.DiagnosticsService
 	skillInstallationController             SkillInstallationController
 	embeddedAnalyzerExecutionController     EmbeddedAnalyzerExecutionController
 	workspaceCheckpointController           WorkspaceCheckpointController
@@ -396,6 +426,7 @@ func New(store Store, config Config) (*API, error) {
 		config.RunWakeControlEnabled ||
 		config.FileEditApplyEnabled || config.RunWakeExecutionEnabled ||
 		config.RunWakeWorkerEnabled ||
+		config.ScheduledJobControlEnabled || config.ScheduledJobWorkerEnabled ||
 		config.SkillInstallationEnabled || config.EvidenceAttachmentEnabled ||
 		config.VerificationEvidenceEnabled || config.EmbeddedAnalyzerExecutionEnabled ||
 		config.WorkspaceCheckpointControlEnabled || config.BatchDeliveryControlEnabled ||
@@ -466,6 +497,14 @@ func New(store Store, config Config) (*API, error) {
 	if config.RunWakeWorkerEnabled != (config.RunWakeWorkerHealthSource != nil) {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API Run wake worker health source must exactly match enablement")
+	}
+	if config.ScheduledJobControlEnabled && config.ScheduledJobController == nil {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"HTTP API scheduled job controller is required when enabled")
+	}
+	if config.ScheduledJobWorkerEnabled != (config.ScheduledJobWorkerHealthSource != nil) {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"HTTP API scheduled job worker health source must exactly match enablement")
 	}
 	if config.SkillInstallationEnabled && config.SkillInstallationController == nil {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
@@ -586,6 +625,8 @@ func New(store Store, config Config) (*API, error) {
 		fileEditApplyEnabled:              controlTokenPresent && config.FileEditApplyEnabled,
 		runWakeExecutionEnabled:           controlTokenPresent && config.RunWakeExecutionEnabled,
 		runWakeWorkerEnabled:              controlTokenPresent && config.RunWakeWorkerEnabled,
+		scheduledJobControlEnabled:        controlTokenPresent && config.ScheduledJobControlEnabled,
+		scheduledJobWorkerEnabled:         controlTokenPresent && config.ScheduledJobWorkerEnabled,
 		skillInstallationEnabled:          controlTokenPresent && config.SkillInstallationEnabled,
 		evidenceAttachmentEnabled:         controlTokenPresent && config.EvidenceAttachmentEnabled,
 		verificationEvidenceEnabled:       controlTokenPresent && config.VerificationEvidenceEnabled,
@@ -620,6 +661,9 @@ func New(store Store, config Config) (*API, error) {
 		fileEditApplyController:             config.FileEditApplyController,
 		runWakeExecutionController:          config.RunWakeExecutionController,
 		runWakeWorkerHealthSource:           config.RunWakeWorkerHealthSource,
+		scheduledJobController:              config.ScheduledJobController,
+		scheduledJobWorkerHealthSource:      config.ScheduledJobWorkerHealthSource,
+		diagnostics:                         application.NewDiagnosticsService(store, modelRegistry),
 		skillInstallationController:         config.SkillInstallationController,
 		embeddedAnalyzerExecutionController: config.EmbeddedAnalyzerExecutionController,
 		workspaceCheckpointController:       config.WorkspaceCheckpointController,
@@ -838,6 +882,12 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		request.Method != http.MethodGet {
 		a.serveRunWakeControl(tracked, request, requestID, runID, cancel)
 		return
+	}
+	if request.Method != http.MethodGet {
+		if runID, jobID, action, matched := matchScheduledJobMutationPath(request.URL.Path); matched {
+			a.serveScheduledJobControl(tracked, request, requestID, runID, jobID, action)
+			return
+		}
 	}
 	if runID, matched := matchRunWakeExecutionPath(request.URL.Path); matched {
 		a.serveRunWakeExecutionControl(tracked, request, requestID, runID)

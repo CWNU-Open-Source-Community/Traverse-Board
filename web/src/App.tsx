@@ -19,6 +19,7 @@ import { RunCreationDialog } from "./components/run-creation-dialog";
 import { ResourceSidebar, type WorkbenchSection } from "./components/resource-sidebar";
 import { RunWorkspace } from "./components/run-workspace";
 import { SessionWorkspace } from "./components/session-workspace";
+import { ScheduledTasksWorkspace } from "./components/scheduled-tasks-workspace";
 import { SettingsView, type SettingsCapability } from "./components/settings-view";
 import { EmptyConversation, SidebarResizeHandle, UtilityWorkspace,
   WorkbenchFrame, clampSidebarWidth, defaultSidebarWidth,
@@ -71,6 +72,10 @@ export default function App() {
   const runWakeControlEnabled = useConnectionStore((state) => state.runWakeControlEnabled);
   const runWakeExecutionEnabled = useConnectionStore((state) => state.runWakeExecutionEnabled);
   const runWakeWorkerEnabled = useConnectionStore((state) => state.runWakeWorkerEnabled);
+  const scheduledJobControlEnabled = useConnectionStore(
+    (state) => state.scheduledJobControlEnabled);
+  const scheduledJobWorkerEnabled = useConnectionStore(
+    (state) => state.scheduledJobWorkerEnabled);
   const skillInstallationEnabled = useConnectionStore((state) => state.skillInstallationEnabled);
   const evidenceAttachmentEnabled = useConnectionStore((state) => state.evidenceAttachmentEnabled);
   const verificationEvidenceEnabled = useConnectionStore(
@@ -108,6 +113,8 @@ export default function App() {
     runWakeControlEnabled={runWakeControlEnabled}
     runWakeExecutionEnabled={runWakeExecutionEnabled}
     runWakeWorkerEnabled={runWakeWorkerEnabled}
+    scheduledJobControlEnabled={scheduledJobControlEnabled}
+    scheduledJobWorkerEnabled={scheduledJobWorkerEnabled}
     skillInstallationEnabled={skillInstallationEnabled}
     evidenceAttachmentEnabled={evidenceAttachmentEnabled}
     verificationEvidenceEnabled={verificationEvidenceEnabled}
@@ -128,6 +135,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   modelControlEnabled, providerCredentialEnabled, fileEditReviewEnabled,
   fileEditProposalEnabled, fileEditApplyEnabled, runWakeControlEnabled,
   runWakeExecutionEnabled, runWakeWorkerEnabled, skillInstallationEnabled,
+  scheduledJobControlEnabled, scheduledJobWorkerEnabled,
   evidenceAttachmentEnabled, verificationEvidenceEnabled, uiEvidenceControlEnabled,
   embeddedAnalyzerExecutionEnabled, dockerExecutionEnabled, agentCodeToolsEnabled }: {
   token: string;
@@ -157,6 +165,8 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   runWakeControlEnabled: boolean;
   runWakeExecutionEnabled: boolean;
   runWakeWorkerEnabled: boolean;
+  scheduledJobControlEnabled: boolean;
+  scheduledJobWorkerEnabled: boolean;
   skillInstallationEnabled: boolean;
   evidenceAttachmentEnabled: boolean;
   verificationEvidenceEnabled: boolean;
@@ -189,7 +199,8 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     hostCommandProposalControlEnabled,
     providerCredentialEnabled, fileEditReviewEnabled, fileEditProposalEnabled,
     fileEditApplyEnabled, runWakeControlEnabled, runWakeExecutionEnabled,
-    runWakeWorkerEnabled, skillInstallationEnabled, evidenceAttachmentEnabled,
+    runWakeWorkerEnabled, scheduledJobControlEnabled, scheduledJobWorkerEnabled,
+    skillInstallationEnabled, evidenceAttachmentEnabled,
     verificationEvidenceEnabled, uiEvidenceControlEnabled,
     embeddedAnalyzerExecutionEnabled,
     dockerExecutionEnabled,
@@ -204,7 +215,8 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     hostCommandProposalControlEnabled,
     providerCredentialEnabled, fileEditReviewEnabled, fileEditProposalEnabled,
     fileEditApplyEnabled, runWakeControlEnabled, runWakeExecutionEnabled,
-    runWakeWorkerEnabled, skillInstallationEnabled, evidenceAttachmentEnabled,
+    runWakeWorkerEnabled, scheduledJobControlEnabled, scheduledJobWorkerEnabled,
+    skillInstallationEnabled, evidenceAttachmentEnabled,
     verificationEvidenceEnabled, uiEvidenceControlEnabled,
     embeddedAnalyzerExecutionEnabled, dockerExecutionEnabled,
     agentCodeToolsEnabled]);
@@ -332,8 +344,9 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
 
   const workspaceContent = workspaceSection === "models"
     ? <ModelAvailabilityWorkspace client={client} />
-    : workspaceSection === "pull-requests" || workspaceSection === "schedule" ||
-      workspaceSection === "plugins"
+    : workspaceSection === "schedule"
+      ? <ScheduledTasksWorkspace client={client} initialRunID={selectedRunID} />
+    : workspaceSection === "pull-requests" || workspaceSection === "plugins"
       ? <UtilityWorkspace kind={workspaceSection}
         onOpenPlugins={desktop ? () => setSkillPreviewOpen(true) : undefined} />
       : selectedResourceID

@@ -5,7 +5,7 @@ package store
 // it. Keep extension-runtime objects at the front of that chain so those tests
 // continue to exercise the migration they name instead of encountering a gap.
 func removeSchemaV121ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV122ForTestStatements(), []string{
 		`DROP TABLE plugin_hook_audits`,
 		`DROP TABLE plugin_publisher_reviews`,
 		`DROP TABLE plugin_publishers`,
@@ -13,7 +13,7 @@ func removeSchemaV121ForTestStatements() []string {
 		`DROP TABLE plugin_installations`,
 		`DROP TABLE plugin_objects`,
 		`DELETE FROM schema_migrations WHERE version = 121`,
-	}
+	}...)
 }
 
 func removeSchemaV120ForTestStatements() []string {

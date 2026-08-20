@@ -547,6 +547,55 @@ func TestControlPlaneWakeWorkerStopsOnceAndCannotRestartAfterClose(t *testing.T)
 	}
 }
 
+func TestControlPlaneScheduledWorkerIsExplicitSingleInstanceAndStopsOnClose(t *testing.T) {
+	plane, err := OpenControlPlane(ControlPlaneConfig{
+		DatabasePath: filepath.Join(t.TempDir(), "scheduled-worker.db"),
+		ReadToken:    desktopControlPlaneTestToken, ControlToken: desktopControlPlaneControlToken,
+		ScheduledJobControlEnabled: true, ScheduledJobWorkerEnabled: true,
+		AppVersion: "desktop-scheduled-worker-test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := desktopAPIRequest(plane.Handler(), "/api/v1/capabilities")
+	if response.Code != http.StatusOK {
+		t.Fatalf("runtime capability status=%d body=%s", response.Code, response.Body.String())
+	}
+	var envelope desktopAPIEnvelope
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	var capabilities httpapi.RuntimeCapabilitiesView
+	if err := json.Unmarshal(envelope.Data, &capabilities); err != nil {
+		t.Fatal(err)
+	}
+	worker := capabilities.ScheduledJobWorker
+	if !capabilities.ScheduledJobControlEnabled || !capabilities.ScheduledJobWorkerEnabled ||
+		!worker.Enabled || worker.Concurrency != 1 || worker.PersistentService ||
+		worker.RuntimeEnableSupported || worker.AuthorityEscalation {
+		t.Fatalf("scheduled worker capability widened authority: %#v", capabilities)
+	}
+	if err := plane.StartWakeWorker(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := plane.StartWakeWorker(t.Context()); err == nil {
+		t.Fatal("a second desktop scheduled worker was started")
+	}
+	closed := make(chan error, 1)
+	go func() { closed <- plane.Close() }()
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("desktop scheduled worker did not stop during close")
+	}
+	if err := plane.StartWakeWorker(t.Context()); err == nil {
+		t.Fatal("closed desktop control plane restarted its scheduled worker")
+	}
+}
+
 func desktopControlRequest(handler http.Handler, method string, path string,
 	key string, body string,
 ) *httptest.ResponseRecorder {

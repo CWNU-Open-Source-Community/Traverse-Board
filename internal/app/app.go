@@ -228,6 +228,8 @@ func (a *App) dispatch(ctx context.Context, args []string) error {
 		return nil
 	case "doctor":
 		return a.doctorCommand(ctx, args[1:])
+	case "debug":
+		return a.debugCommand(ctx, args[1:])
 	case "workspace":
 		return a.workspaceCommand(ctx, args[1:])
 	case "script":
@@ -297,6 +299,9 @@ func (a *App) printHelp() {
 	fmt.Fprintln(a.out, "Usage:")
 	fmt.Fprintln(a.out, "  cyberagent version")
 	fmt.Fprintln(a.out, "  cyberagent doctor portable [--json]")
+	fmt.Fprintln(a.out, "  cyberagent doctor snapshot [--run <run-id>] [--json]")
+	fmt.Fprintln(a.out, "  cyberagent doctor bundle --run <run-id> [bounded debug filters]")
+	fmt.Fprintln(a.out, "  cyberagent debug query --run <run-id> [bounded filters] [--json]")
 	fmt.Fprintln(a.out, "  cyberagent doctor browser-readiness --product <edge|chrome|chromium> [--json]")
 	fmt.Fprintln(a.out, "  cyberagent workspace init|list|show|tree|read|checkpoint")
 	fmt.Fprintln(a.out, "  cyberagent script new|run")
@@ -321,7 +326,7 @@ func (a *App) printHelp() {
 	fmt.Fprintln(a.out, "  cyberagent mcp serve|client|credential")
 	fmt.Fprintln(a.out, "  cyberagent plugin stage|list|show|review|rollback|trust-publisher|revoke-publisher|stage-mcp")
 	fmt.Fprintln(a.out, "  cyberagent headless events")
-	fmt.Fprintln(a.out, "  cyberagent run create|adapt-task|list|show|mode|phase|execution-profile|execution-interaction|execution-permission|command-plan|command-execute|host-execute|events|usage|start|step|execute|checkpoint|graph|lease|finish|fail|pause|resume|cancel|delegations|delegation|plans|plan|delivery|steer|fanouts|fanout|sandbox|wake")
+	fmt.Fprintln(a.out, "  cyberagent run create|adapt-task|list|show|mode|phase|execution-profile|execution-interaction|execution-permission|command-plan|command-execute|host-execute|events|usage|start|step|execute|checkpoint|graph|lease|finish|fail|pause|resume|cancel|delegations|delegation|plans|plan|delivery|steer|fanouts|fanout|sandbox|wake|schedule")
 	fmt.Fprintln(a.out, "  cyberagent run plan show|choose|selection")
 	fmt.Fprintln(a.out, "  cyberagent run sandbox docker-readiness|docker-admit|docker-start|docker-cancel|docker-status")
 	fmt.Fprintln(a.out, "  cyberagent run delivery checkpoint|list|show")

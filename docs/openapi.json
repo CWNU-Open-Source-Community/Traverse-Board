@@ -71,6 +71,14 @@
       "description": "Docker Sandbox readiness, admission, bounded execution, cancellation, and status."
     },
     {
+      "name": "Automation",
+      "description": "Durable, bounded, explicitly targeted scheduled observation jobs."
+    },
+    {
+      "name": "Diagnostics",
+      "description": "Read-only structured readiness and redacted event timelines."
+    },
+    {
       "name": "Control",
       "description": "Separately authorized, audit-first control operations."
     }
@@ -560,6 +568,400 @@
           }
         },
         "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/debug": {
+      "get": {
+        "operationId": "queryDebugTimeline",
+        "summary": "Query a bounded redacted debug timeline",
+        "description": "Returns monotonic persisted event-envelope evidence with payloads withheld. The query is limited to seven days, 100 results, and 500 scanned events and cannot return secrets, prompts, terminal input, or command arguments.",
+        "tags": [
+          "Diagnostics"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "query",
+            "description": "Exact Run diagnostic scope",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "after_sequence",
+            "in": "query",
+            "description": "Exclusive durable event-sequence cursor",
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "description": "Inclusive RFC3339 lower time bound",
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "Inclusive RFC3339 upper time bound",
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum returned timeline items",
+            "schema": {
+              "default": 100,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "correlation_kind",
+            "in": "query",
+            "description": "Optional exact correlation dimension",
+            "schema": {
+              "enum": [
+                "run",
+                "attempt",
+                "tool",
+                "process",
+                "request"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "correlation_id",
+            "in": "query",
+            "description": "Exact correlation identity paired with correlation_kind",
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "type_prefix",
+            "in": "query",
+            "description": "Optional event type prefix",
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "name": "source_prefix",
+            "in": "query",
+            "description": "Optional event source prefix",
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/DebugQueryResult"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/diagnostic-bundle": {
+      "get": {
+        "operationId": "exportDiagnosticBundle",
+        "summary": "Export a bounded diagnostic bundle",
+        "description": "Combines one structured doctor snapshot and one redacted debug page under the same hard cursor, window, scan, and content-withholding boundaries.",
+        "tags": [
+          "Diagnostics"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "query",
+            "description": "Exact Run diagnostic scope",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "after_sequence",
+            "in": "query",
+            "description": "Exclusive durable event-sequence cursor",
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "description": "Inclusive RFC3339 lower time bound",
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "Inclusive RFC3339 upper time bound",
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum returned timeline items",
+            "schema": {
+              "default": 100,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "correlation_kind",
+            "in": "query",
+            "description": "Optional exact correlation dimension",
+            "schema": {
+              "enum": [
+                "run",
+                "attempt",
+                "tool",
+                "process",
+                "request"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "correlation_id",
+            "in": "query",
+            "description": "Exact correlation identity paired with correlation_kind",
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "type_prefix",
+            "in": "query",
+            "description": "Optional event type prefix",
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "name": "source_prefix",
+            "in": "query",
+            "description": "Optional event source prefix",
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/DiagnosticBundle"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/doctor": {
+      "get": {
+        "operationId": "getDoctorSnapshot",
+        "summary": "Read a structured doctor snapshot",
+        "description": "Reports versioned Provider, model Harness, Run, Workspace, network, tool, sandbox, browser, and plugin readiness metadata. It performs no mutation, installation, process start, network probe, or model call.",
+        "tags": [
+          "Diagnostics"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "query",
+            "description": "Optional exact Run diagnostic scope",
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/DoctorSnapshot"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
       }
     },
     "/api/v1/extensions": {
@@ -9314,6 +9716,350 @@
         "x-cyberagent-read-only": true
       }
     },
+    "/api/v1/runs/{run_id}/scheduled-jobs": {
+      "get": {
+        "operationId": "listRunScheduledJobs",
+        "summary": "List one Run's scheduled jobs",
+        "description": "Returns the bounded scheduled-job projection for one exact owner and target Run.",
+        "tags": [
+          "Automation"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum scheduled jobs",
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ScheduledJobListView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      },
+      "post": {
+        "operationId": "createRunScheduledJob",
+        "summary": "Create a bounded scheduled job",
+        "description": "Creates one exact Run-bound once or periodic job. Time arrival grants only a fenced recheck; read-only jobs require Code/Plan and repair jobs require a current Code/Deliver permission snapshot plus exact operator confirmation. Creation starts no process or model call.",
+        "tags": [
+          "Automation"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque retry key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ScheduledJobControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduledJobCreateRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/scheduled-jobs/{job_id}/{action}": {
+      "post": {
+        "operationId": "transitionRunScheduledJob",
+        "summary": "Pause, resume, or cancel a scheduled job",
+        "description": "Applies one optimistic, idempotent lifecycle transition. Pause and cancel revoke the current lease; resume schedules an immediate bounded recheck without restoring stale repair authority.",
+        "tags": [
+          "Automation"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "job_id",
+            "in": "path",
+            "description": "Scheduled job identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "action",
+            "in": "path",
+            "description": "Scheduled job lifecycle action",
+            "required": true,
+            "schema": {
+              "enum": [
+                "pause",
+                "resume",
+                "cancel"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque retry key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ScheduledJobControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduledJobTransitionRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/runs/{run_id}/tool-rounds": {
       "get": {
         "operationId": "listRunToolRounds",
@@ -12530,6 +13276,191 @@
                   "properties": {
                     "data": {
                       "$ref": "#/components/schemas/DockerSandboxStatusView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/scheduled-jobs": {
+      "get": {
+        "operationId": "listScheduledJobs",
+        "summary": "List durable scheduled jobs",
+        "description": "Returns a bounded metadata-only projection. Lease fence tokens, operation keys, event payloads, prompts, terminal input, and command arguments are never returned.",
+        "tags": [
+          "Automation"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "query",
+            "description": "Optional exact owner Run filter",
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum scheduled jobs",
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ScheduledJobListView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/scheduled-jobs/{job_id}": {
+      "get": {
+        "operationId": "getScheduledJob",
+        "summary": "Inspect a scheduled job",
+        "description": "Returns one job with bounded recent rounds, notifications, and an optional immutable authorization snapshot. Raw observation content is withheld.",
+        "tags": [
+          "Automation"
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "description": "Scheduled job identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "round_limit",
+            "in": "query",
+            "description": "Maximum recent rounds",
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "notification_limit",
+            "in": "query",
+            "description": "Maximum recent notifications",
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ScheduledJobDetailView"
                     },
                     "request_id": {
                       "maxLength": 256,
@@ -16744,6 +17675,28 @@
         ],
         "type": "object"
       },
+      "Check": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "detail"
+        ],
+        "type": "object"
+      },
       "Checkpoint": {
         "additionalProperties": false,
         "properties": {
@@ -18922,6 +19875,146 @@
         ],
         "type": "object"
       },
+      "DebugQueryResult": {
+        "additionalProperties": false,
+        "properties": {
+          "after_sequence": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DebugTimelineItem"
+            },
+            "maxItems": 100,
+            "type": "array"
+          },
+          "limit": {
+            "format": "int32",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "next_after_sequence": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "protocol_version": {
+            "enum": [
+              "debug-query.v1"
+            ],
+            "type": "string"
+          },
+          "redaction": {
+            "$ref": "#/components/schemas/DiagnosticRedaction"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "scanned": {
+            "format": "int32",
+            "maximum": 500,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "run_id",
+          "from",
+          "to",
+          "after_sequence",
+          "next_after_sequence",
+          "limit",
+          "scanned",
+          "has_more",
+          "items",
+          "redaction"
+        ],
+        "type": "object"
+      },
+      "DebugTimelineItem": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "enum": [
+              "model",
+              "tool",
+              "policy",
+              "application",
+              "infrastructure"
+            ],
+            "type": "string"
+          },
+          "evidence": {
+            "enum": [
+              "persisted_event"
+            ],
+            "type": "string"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "payload_state": {
+            "enum": [
+              "withheld"
+            ],
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "source": {
+            "type": "string"
+          },
+          "subject_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "timestamp_adjusted": {
+            "type": "boolean"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence",
+          "type",
+          "source",
+          "subject_id",
+          "category",
+          "occurred_at",
+          "observed_at",
+          "timestamp_adjusted",
+          "evidence",
+          "payload_state"
+        ],
+        "type": "object"
+      },
       "DelegationApplicationView": {
         "additionalProperties": false,
         "properties": {
@@ -19236,6 +20329,119 @@
           "handoff_note_id",
           "gate_ready",
           "created_at"
+        ],
+        "type": "object"
+      },
+      "Diagnostic": {
+        "additionalProperties": false,
+        "properties": {
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/Check"
+            },
+            "type": "array"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "release": {
+            "$ref": "#/components/schemas/ReleaseMetadata"
+          },
+          "release_ready": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "release",
+          "checks",
+          "release_ready"
+        ],
+        "type": "object"
+      },
+      "DiagnosticBundle": {
+        "additionalProperties": false,
+        "properties": {
+          "debug": {
+            "$ref": "#/components/schemas/DebugQueryResult"
+          },
+          "doctor": {
+            "$ref": "#/components/schemas/DoctorSnapshot"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "protocol_version": {
+            "enum": [
+              "diagnostic-bundle.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "generated_at",
+          "doctor",
+          "debug"
+        ],
+        "type": "object"
+      },
+      "DiagnosticCheck": {
+        "additionalProperties": false,
+        "properties": {
+          "component": {
+            "type": "string"
+          },
+          "detail_code": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ready",
+              "degraded",
+              "not_configured",
+              "not_probed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "component",
+          "status",
+          "detail_code",
+          "evidence"
+        ],
+        "type": "object"
+      },
+      "DiagnosticRedaction": {
+        "additionalProperties": false,
+        "properties": {
+          "command_input": {
+            "type": "string"
+          },
+          "event_payloads": {
+            "type": "string"
+          },
+          "prompts": {
+            "type": "string"
+          },
+          "secrets": {
+            "type": "string"
+          },
+          "terminal_input": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_payloads",
+          "prompts",
+          "terminal_input",
+          "command_input",
+          "secrets"
         ],
         "type": "object"
       },
@@ -19588,6 +20794,128 @@
           "artifact_count",
           "created_at",
           "replayed"
+        ],
+        "type": "object"
+      },
+      "DoctorRunSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_network_target_count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "execution_permission": {
+            "type": "string"
+          },
+          "model_route": {
+            "type": "string"
+          },
+          "network_mode": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "process_capability_granted": {
+            "type": "boolean"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "read_only_tools_eligible": {
+            "type": "boolean"
+          },
+          "repair_tools_eligible": {
+            "type": "boolean"
+          },
+          "root_agent_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "status",
+          "profile",
+          "model_route",
+          "root_agent_id",
+          "surface",
+          "phase",
+          "execution_permission",
+          "network_mode",
+          "allowed_network_target_count",
+          "read_only_tools_eligible",
+          "repair_tools_eligible",
+          "process_capability_granted"
+        ],
+        "type": "object"
+      },
+      "DoctorSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "build": {
+            "$ref": "#/components/schemas/Diagnostic"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/DiagnosticCheck"
+            },
+            "type": "array"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "models": {
+            "$ref": "#/components/schemas/Snapshot"
+          },
+          "protocol_version": {
+            "enum": [
+              "doctor-snapshot.v1"
+            ],
+            "type": "string"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "redaction": {
+            "$ref": "#/components/schemas/DiagnosticRedaction"
+          },
+          "run": {
+            "$ref": "#/components/schemas/DoctorRunSnapshot"
+          },
+          "schema_version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "generated_at",
+          "ready",
+          "schema_version",
+          "build",
+          "models",
+          "checks",
+          "redaction"
         ],
         "type": "object"
       },
@@ -21965,6 +23293,82 @@
           "artifact_evidence",
           "remediation_evidence",
           "lifecycle"
+        ],
+        "type": "object"
+      },
+      "HarnessAvailability": {
+        "additionalProperties": false,
+        "properties": {
+          "ExpiresAt": {
+            "type": "string"
+          },
+          "JSONStrategy": {
+            "type": "string"
+          },
+          "LatestQualificationStatus": {
+            "type": "string"
+          },
+          "Model": {
+            "type": "string"
+          },
+          "ProtocolVersion": {
+            "type": "string"
+          },
+          "QualificationCheckedAt": {
+            "type": "string"
+          },
+          "QualificationSource": {
+            "type": "string"
+          },
+          "QualificationStatus": {
+            "type": "string"
+          },
+          "QualifiedAt": {
+            "type": "string"
+          },
+          "RootEligible": {
+            "type": "boolean"
+          },
+          "StreamingQualified": {
+            "type": "boolean"
+          },
+          "StrictJSONQualified": {
+            "type": "boolean"
+          },
+          "StructuredJSONEligible": {
+            "type": "boolean"
+          },
+          "ToolCallsQualified": {
+            "type": "boolean"
+          },
+          "ToolResultsQualified": {
+            "type": "boolean"
+          },
+          "ToolStrategy": {
+            "type": "string"
+          },
+          "TransportProtocol": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ProtocolVersion",
+          "Model",
+          "TransportProtocol",
+          "ToolStrategy",
+          "JSONStrategy",
+          "QualificationStatus",
+          "ToolCallsQualified",
+          "ToolResultsQualified",
+          "StrictJSONQualified",
+          "StreamingQualified",
+          "RootEligible",
+          "StructuredJSONEligible",
+          "LatestQualificationStatus",
+          "QualificationCheckedAt",
+          "QualificationSource",
+          "QualifiedAt",
+          "ExpiresAt"
         ],
         "type": "object"
       },
@@ -24666,6 +26070,52 @@
         ],
         "type": "object"
       },
+      "ProviderAvailability": {
+        "additionalProperties": false,
+        "properties": {
+          "ConfigurationError": {
+            "type": "boolean"
+          },
+          "CredentialSource": {
+            "type": "string"
+          },
+          "Harnesses": {
+            "items": {
+              "$ref": "#/components/schemas/HarnessAvailability"
+            },
+            "type": "array"
+          },
+          "Kind": {
+            "type": "string"
+          },
+          "Models": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "Name": {
+            "type": "string"
+          },
+          "NetworkRequired": {
+            "type": "boolean"
+          },
+          "Status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "Name",
+          "Kind",
+          "Status",
+          "Models",
+          "Harnesses",
+          "CredentialSource",
+          "NetworkRequired",
+          "ConfigurationError"
+        ],
+        "type": "object"
+      },
       "ProviderAvailabilityView": {
         "additionalProperties": false,
         "properties": {
@@ -25002,6 +26452,83 @@
           "message_complete",
           "provisional",
           "updated_at"
+        ],
+        "type": "object"
+      },
+      "ReleaseMetadata": {
+        "additionalProperties": false,
+        "properties": {
+          "app_version": {
+            "type": "string"
+          },
+          "auto_update_enabled": {
+            "type": "boolean"
+          },
+          "build_fingerprint": {
+            "type": "string"
+          },
+          "cgo_enabled": {
+            "type": "string"
+          },
+          "go_version": {
+            "type": "string"
+          },
+          "installer_included": {
+            "type": "boolean"
+          },
+          "manual_windows_10_matrix_required": {
+            "type": "boolean"
+          },
+          "modified": {
+            "type": "boolean"
+          },
+          "modified_known": {
+            "type": "boolean"
+          },
+          "module_path": {
+            "type": "string"
+          },
+          "registry_writes": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "source_date": {
+            "type": "string"
+          },
+          "source_date_epoch": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "target_arch": {
+            "type": "string"
+          },
+          "target_os": {
+            "type": "string"
+          },
+          "trimpath": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "app_version",
+          "revision",
+          "source_date_epoch",
+          "source_date",
+          "modified",
+          "modified_known",
+          "go_version",
+          "target_os",
+          "target_arch",
+          "cgo_enabled",
+          "trimpath",
+          "module_path",
+          "build_fingerprint",
+          "installer_included",
+          "registry_writes",
+          "auto_update_enabled",
+          "manual_windows_10_matrix_required"
         ],
         "type": "object"
       },
@@ -26329,6 +27856,34 @@
           "memory_bytes",
           "pids",
           "max_output_bytes"
+        ],
+        "type": "object"
+      },
+      "RouteAvailability": {
+        "additionalProperties": false,
+        "properties": {
+          "Available": {
+            "type": "boolean"
+          },
+          "HarnessReady": {
+            "type": "boolean"
+          },
+          "Model": {
+            "type": "string"
+          },
+          "Name": {
+            "type": "string"
+          },
+          "Provider": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "Name",
+          "Provider",
+          "Model",
+          "Available",
+          "HarnessReady"
         ],
         "type": "object"
       },
@@ -28364,6 +29919,15 @@
           "run_wake_worker_enabled": {
             "type": "boolean"
           },
+          "scheduled_job_control_enabled": {
+            "type": "boolean"
+          },
+          "scheduled_job_worker": {
+            "$ref": "#/components/schemas/ScheduledJobWorkerHealthView"
+          },
+          "scheduled_job_worker_enabled": {
+            "type": "boolean"
+          },
           "session_message_enabled": {
             "type": "boolean"
           },
@@ -28416,6 +29980,8 @@
           "run_wake_control_enabled",
           "run_wake_execution_enabled",
           "run_wake_worker_enabled",
+          "scheduled_job_control_enabled",
+          "scheduled_job_worker_enabled",
           "skill_installation_enabled",
           "evidence_attachment_enabled",
           "verification_evidence_enabled",
@@ -28428,7 +29994,794 @@
           "shell_execution_enabled",
           "docker_execution_enabled",
           "agent_code_tools_enabled",
-          "wake_worker"
+          "wake_worker",
+          "scheduled_job_worker"
+        ],
+        "type": "object"
+      },
+      "ScheduledJob": {
+        "additionalProperties": false,
+        "properties": {
+          "active_lease_expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "active_lease_generation": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "completed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "consecutive_unchanged": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "last_error_code": {
+            "type": "string"
+          },
+          "last_event_sequence": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "last_observation_sha256": {
+            "type": "string"
+          },
+          "last_result": {
+            "type": "string"
+          },
+          "model_calls": {
+            "format": "int32",
+            "maximum": 10000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "next_wake_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "owner_root_agent_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "owner_run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "pending_occurrence_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "revision": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "rounds_completed": {
+            "format": "int32",
+            "maximum": 10000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/ScheduledJobSpec"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "paused",
+              "completed",
+              "failed",
+              "cancelled",
+              "exhausted"
+            ],
+            "type": "string"
+          },
+          "stop_reason": {
+            "enum": [
+              "",
+              "once_completed",
+              "target_terminal",
+              "deadline",
+              "round_budget",
+              "model_budget",
+              "elapsed_budget",
+              "retry_exhausted",
+              "authorization_stale",
+              "cancelled"
+            ],
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "spec",
+          "owner_run_id",
+          "owner_root_agent_id",
+          "status",
+          "revision",
+          "rounds_completed",
+          "model_calls",
+          "consecutive_unchanged",
+          "last_event_sequence",
+          "active_lease_generation",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "ScheduledJobAuthorization": {
+        "additionalProperties": false,
+        "properties": {
+          "approval_bypass": {
+            "type": "boolean"
+          },
+          "authorized_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "authorized_by": {
+            "type": "string"
+          },
+          "execution_bypass": {
+            "type": "boolean"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "job_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "mode_revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "mode_snapshot_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "network_bypass": {
+            "type": "boolean"
+          },
+          "permission_revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "permission_snapshot_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "protocol_version": {
+            "enum": [
+              "scheduled-job-authorization.v1"
+            ],
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "job_id",
+          "run_id",
+          "mode_snapshot_id",
+          "mode_revision",
+          "permission_snapshot_id",
+          "permission_revision",
+          "authorized_by",
+          "authorized_at",
+          "expires_at",
+          "execution_bypass",
+          "network_bypass",
+          "approval_bypass"
+        ],
+        "type": "object"
+      },
+      "ScheduledJobControlView": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "create",
+              "pause",
+              "resume",
+              "cancel"
+            ],
+            "type": "string"
+          },
+          "authority_bypass": {
+            "type": "boolean"
+          },
+          "execution_started": {
+            "type": "boolean"
+          },
+          "job": {
+            "$ref": "#/components/schemas/ScheduledJob"
+          },
+          "protocol_version": {
+            "enum": [
+              "scheduled-job-control.v1"
+            ],
+            "type": "string"
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "action",
+          "job",
+          "replayed",
+          "execution_started",
+          "authority_bypass"
+        ],
+        "type": "object"
+      },
+      "ScheduledJobCreateRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm_repair": {
+            "type": "boolean"
+          },
+          "deadline_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "execution_mode": {
+            "enum": [
+              "read_only",
+              "approved_repair"
+            ],
+            "type": "string"
+          },
+          "max_elapsed_seconds": {
+            "format": "int64",
+            "maximum": 7776000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "max_model_calls": {
+            "format": "int32",
+            "maximum": 10000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_rounds": {
+            "format": "int32",
+            "maximum": 10000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "notification": {
+            "enum": [
+              "silent",
+              "on_change",
+              "on_failure",
+              "all"
+            ],
+            "type": "string"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/ScheduledJobRetryPolicy"
+          },
+          "schedule": {
+            "$ref": "#/components/schemas/ScheduledJobScheduleRequestView"
+          },
+          "stop_on_target_terminal": {
+            "type": "boolean"
+          },
+          "version": {
+            "enum": [
+              "scheduled-job.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "schedule",
+          "deadline_at",
+          "stop_on_target_terminal",
+          "max_rounds",
+          "max_model_calls",
+          "max_elapsed_seconds",
+          "retry",
+          "notification",
+          "execution_mode",
+          "confirm_repair"
+        ],
+        "type": "object"
+      },
+      "ScheduledJobDetailView": {
+        "additionalProperties": false,
+        "properties": {
+          "protocol_version": {
+            "enum": [
+              "scheduled-job.v1"
+            ],
+            "type": "string"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/ScheduledJobSnapshot"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "snapshot"
+        ],
+        "type": "object"
+      },
+      "ScheduledJobListView": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduledJob"
+            },
+            "maxItems": 100,
+            "type": "array"
+          },
+          "protocol_version": {
+            "enum": [
+              "scheduled-job.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "items"
+        ],
+        "type": "object"
+      },
+      "ScheduledJobNotification": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "job_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "change",
+              "failure",
+              "recovery",
+              "completed"
+            ],
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "job_id",
+          "kind",
+          "summary",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "ScheduledJobRetryPolicy": {
+        "additionalProperties": false,
+        "properties": {
+          "initial_backoff_seconds": {
+            "format": "int32",
+            "maximum": 21600,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "max_attempts": {
+            "format": "int32",
+            "maximum": 8,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "max_backoff_seconds": {
+            "format": "int32",
+            "maximum": 21600,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "max_attempts",
+          "initial_backoff_seconds",
+          "max_backoff_seconds"
+        ],
+        "type": "object"
+      },
+      "ScheduledJobRound": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt": {
+            "format": "int32",
+            "maximum": 8,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "changed": {
+            "type": "boolean"
+          },
+          "claim_generation": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "completed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "error_code": {
+            "type": "string"
+          },
+          "event_sequence": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "job_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "model_called": {
+            "type": "boolean"
+          },
+          "observation_sha256": {
+            "type": "string"
+          },
+          "occurrence_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "ordinal": {
+            "format": "int32",
+            "maximum": 10000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "protocol_version": {
+            "enum": [
+              "scheduled-job-round.v1"
+            ],
+            "type": "string"
+          },
+          "result": {
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "claimed",
+              "retry_wait",
+              "unchanged",
+              "completed",
+              "failed",
+              "skipped"
+            ],
+            "type": "string"
+          },
+          "tool_called": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "job_id",
+          "occurrence_at",
+          "ordinal",
+          "attempt",
+          "claim_generation",
+          "status",
+          "event_sequence",
+          "changed",
+          "model_called",
+          "tool_called",
+          "started_at"
+        ],
+        "type": "object"
+      },
+      "ScheduledJobSchedule": {
+        "additionalProperties": false,
+        "properties": {
+          "anchor_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "interval_seconds": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "once",
+              "periodic"
+            ],
+            "type": "string"
+          },
+          "misfire_policy": {
+            "enum": [
+              "run_once",
+              "skip"
+            ],
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "timezone",
+          "anchor_at",
+          "misfire_policy"
+        ],
+        "type": "object"
+      },
+      "ScheduledJobScheduleRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "anchor_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "interval_seconds": {
+            "format": "int64",
+            "maximum": 2592000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "once",
+              "periodic"
+            ],
+            "type": "string"
+          },
+          "misfire_policy": {
+            "enum": [
+              "run_once",
+              "skip"
+            ],
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "timezone",
+          "anchor_at",
+          "misfire_policy"
+        ],
+        "type": "object"
+      },
+      "ScheduledJobSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "authorization": {
+            "$ref": "#/components/schemas/ScheduledJobAuthorization"
+          },
+          "job": {
+            "$ref": "#/components/schemas/ScheduledJob"
+          },
+          "notifications": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduledJobNotification"
+            },
+            "maxItems": 100,
+            "type": "array"
+          },
+          "rounds": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduledJobRound"
+            },
+            "maxItems": 100,
+            "type": "array"
+          }
+        },
+        "required": [
+          "job",
+          "rounds",
+          "notifications"
+        ],
+        "type": "object"
+      },
+      "ScheduledJobSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "deadline_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "execution_mode": {
+            "enum": [
+              "read_only",
+              "approved_repair"
+            ],
+            "type": "string"
+          },
+          "max_elapsed_seconds": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "max_model_calls": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "max_rounds": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "notification": {
+            "enum": [
+              "silent",
+              "on_change",
+              "on_failure",
+              "all"
+            ],
+            "type": "string"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/ScheduledJobRetryPolicy"
+          },
+          "schedule": {
+            "$ref": "#/components/schemas/ScheduledJobSchedule"
+          },
+          "stop_on_target_terminal": {
+            "type": "boolean"
+          },
+          "target_run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              "scheduled-job.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "schedule",
+          "target_run_id",
+          "deadline_at",
+          "stop_on_target_terminal",
+          "max_rounds",
+          "max_model_calls",
+          "max_elapsed_seconds",
+          "retry",
+          "notification",
+          "execution_mode"
+        ],
+        "type": "object"
+      },
+      "ScheduledJobTransitionRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "version": {
+            "enum": [
+              "scheduled-job-control.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "expected_revision"
+        ],
+        "type": "object"
+      },
+      "ScheduledJobWorkerHealthView": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "authority_escalation": {
+            "type": "boolean"
+          },
+          "concurrency": {
+            "format": "int32",
+            "maximum": 1,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "persistent_service": {
+            "type": "boolean"
+          },
+          "poll_interval_ms": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "protocol_version": {
+            "enum": [
+              "scheduled-job-worker-health.v1"
+            ],
+            "type": "string"
+          },
+          "runtime_enable_supported": {
+            "type": "boolean"
+          },
+          "state": {
+            "enum": [
+              "disabled",
+              "ready",
+              "running",
+              "draining",
+              "stopped"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "enabled",
+          "state",
+          "active",
+          "poll_interval_ms",
+          "concurrency",
+          "runtime_enable_supported",
+          "persistent_service",
+          "authority_escalation"
         ],
         "type": "object"
       },
@@ -28989,6 +31342,37 @@
           "run_selection_authorized",
           "context_injection_authorized",
           "receipt"
+        ],
+        "type": "object"
+      },
+      "Snapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "Generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "ProtocolVersion": {
+            "type": "string"
+          },
+          "Providers": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderAvailability"
+            },
+            "type": "array"
+          },
+          "Routes": {
+            "items": {
+              "$ref": "#/components/schemas/RouteAvailability"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "ProtocolVersion",
+          "Generation",
+          "Providers",
+          "Routes"
         ],
         "type": "object"
       },

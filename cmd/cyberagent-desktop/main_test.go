@@ -95,6 +95,7 @@ func TestDesktopOptionsDefaultToReadOnlyAndRequireExplicitCapabilities(t *testin
 		{flag: "--enable-file-edit-apply", want: desktopOptions{fileEditApply: true}},
 		{flag: "--enable-run-wake-execution", want: desktopOptions{runWakeExecution: true}},
 		{flag: "--enable-wake-worker", want: desktopOptions{runWakeWorker: true}},
+		{flag: "--enable-scheduled-jobs", want: desktopOptions{scheduledJobControl: true}},
 		{flag: "--enable-skill-installation", want: desktopOptions{skillInstallation: true}},
 		{flag: "--enable-evidence-attachments", want: desktopOptions{evidenceAttachment: true}},
 		{flag: "--enable-verification-evidence", want: desktopOptions{verificationEvidence: true}},
@@ -136,6 +137,20 @@ func TestDesktopOptionsDefaultToReadOnlyAndRequireExplicitCapabilities(t *testin
 		"--enable-batch-validation-execution",
 	}); err == nil {
 		t.Fatal("batch host validation without permission/full access was accepted")
+	}
+	if _, err := parseDesktopOptions([]string{
+		"--enable-scheduled-job-worker",
+	}); err == nil || !strings.Contains(err.Error(), "--enable-scheduled-jobs") {
+		t.Fatalf("scheduled worker without its control capability was accepted: %v", err)
+	}
+	scheduled, err := parseDesktopOptions([]string{
+		"--enable-scheduled-jobs", "--enable-scheduled-job-worker",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !scheduled.scheduledJobControl || !scheduled.scheduledJobWorker {
+		t.Fatalf("scheduled job capability set is incomplete: %+v", scheduled)
 	}
 	batchValidation, err := parseDesktopOptions([]string{
 		"--enable-permission-control", "--enable-danger-full-access",
@@ -186,6 +201,7 @@ func TestDesktopOperatorPreviewEnablesTheSafeProductBundleOnly(t *testing.T) {
 		!preview.providerCredentials || !preview.fileEditReview ||
 		!preview.fileEditProposals || !preview.runWakeControl || !preview.fileEditApply ||
 		!preview.runWakeExecution || !preview.skillInstallation ||
+		!preview.scheduledJobControl || !preview.scheduledJobWorker ||
 		!preview.evidenceAttachment || !preview.verificationEvidence ||
 		!preview.embeddedAnalyzer || !preview.batchDeliveryControl {
 		t.Fatalf("operator preview capability bundle is incomplete: %+v", preview)

@@ -36,6 +36,8 @@ const bootstrap = {
   file_edit_apply_enabled: false,
   run_wake_execution_enabled: false,
   run_wake_worker_enabled: false,
+  scheduled_job_control_enabled: false,
+  scheduled_job_worker_enabled: false,
   read_only_default: true,
   process_execution_enabled: false,
   shell_execution_enabled: false,

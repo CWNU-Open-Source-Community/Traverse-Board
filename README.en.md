@@ -104,6 +104,14 @@ Schema v119 `ui-evidence.v1` binds real-page verification to the commit/dirty di
 
 Desktop, authenticated OpenAPI, and the read/export-only CLI share immutable Attempt, step, and artifact semantics. PNG, DOM, accessibility, console/page-error, network/HTTP, and performance evidence retain SHA-256, MIME, dimensions, viewport, source step/commit, Run/Attempt, redaction provenance, and the retention policy; PNG dimensions must match `viewport × DPR`. Page content and artifacts remain untrusted and non-authorizing. `not_run` is always neutral; only exact `passed` is success. Windows CI runs real Edge in a creation-time Job Object and temporary Profile across desktop/mobile, theme/locale/reduced-motion cells, and proves a missing click handler is detected only by a real-page interaction assertion. See the [UI Evidence guide](docs/ui-evidence.md) and [ADR 0120](docs/adr/0120-source-bound-real-browser-ui-evidence.md).
 
+### Durable scheduled monitoring and structured diagnostics
+
+Schema v122 `scheduled-job.v1` provides one-shot and fixed elapsed-period monitoring for an explicit Run. It persists the IANA display timezone, UTC anchor, next wake, hard deadline, stop-on-terminal behavior, round/model/elapsed budgets, retry/backoff, misfire policy, notifications, and owner. The process-local worker has fixed concurrency one and is enabled only at process startup. Atomic occurrence/attempt/generation claims and private fence digests prevent concurrent workers, restart recovery, or late completion from authoritatively executing the same round twice.
+
+The default is Plan/root `read_only` with a zero model-call budget. A metadata digest excludes the monitor's own events, and an unchanged state records an `unchanged` round without calling a model or tool. `approved_repair` is available only as an exact Code/Deliver, operator-confirmed mode/permission contract that is revalidated before every handoff; production scheduling does not invent a repair executor or bypass the ordinary Policy and approval path.
+
+`doctor-snapshot.v1`, `debug-query.v1`, and `diagnostic-bundle.v1` expose Provider/model Harness, Run, Workspace, permission, network, tool, sandbox, browser, and plugin readiness plus a bounded monotonic event timeline. Debug requires a Run, scans at most 500 events, returns at most 100 items in a seven-day window, supports cursor and exact correlation filters, and always withholds event payloads, prompts, terminal/command input, and secrets. CLI, authenticated HTTP/OpenAPI, React, and Desktop share the same Application contracts; Desktop can create, pause, resume, cancel, inspect, and export redacted bundles. No arbitrary cron Shell, OS service/autostart, remote scheduling plane, or indefinite unattended Agent is added. See [Scheduled Jobs and Structured Diagnostics](docs/scheduled-jobs-diagnostics.md) and [ADR 0121](docs/adr/0121-durable-scheduled-monitoring-and-structured-diagnostics.md).
+
 ### Real Git, PowerShell, and Bash
 
 Prayu invokes real Git and operating-system shells; it is not a command emulator. It deliberately does not give the model a permanent, unreviewed raw terminal. The Code workflow separates execution by risk:
@@ -159,7 +167,7 @@ Ordinary Code workflows still do not require Docker.
 
 ### Mode-aware Skills and generated candidates
 
-The 12 built-in Skills use a `profiles × surfaces × phases × roles` compatibility
+The 13 built-in Skills use a `profiles × surfaces × phases × roles` compatibility
 matrix, with `user_invocable`, `model_invocable`, and `explicit_only` as a
 separate invocation policy. Schema v111 preserves the same metadata in the
 external-Skill installation ledger. Legacy packages retain their exact

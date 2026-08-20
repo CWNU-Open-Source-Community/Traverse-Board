@@ -63,6 +63,8 @@ export function ConnectionGate() {
 		runWakeControlEnabled: bootstrap.run_wake_control_enabled,
 		runWakeExecutionEnabled: bootstrap.run_wake_execution_enabled,
 		runWakeWorkerEnabled: bootstrap.run_wake_worker_enabled,
+		scheduledJobControlEnabled: bootstrap.scheduled_job_control_enabled,
+		scheduledJobWorkerEnabled: bootstrap.scheduled_job_worker_enabled,
 		skillInstallationEnabled: bootstrap.skill_installation_enabled,
 		evidenceAttachmentEnabled: bootstrap.evidence_attachment_enabled,
 		verificationEvidenceEnabled: bootstrap.verification_evidence_enabled,
