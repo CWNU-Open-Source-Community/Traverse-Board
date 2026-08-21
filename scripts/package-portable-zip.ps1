@@ -22,7 +22,7 @@ under a fixed toolchain and source revision.
 $ErrorActionPreference = "Stop"
 $repositoryRoot = [System.IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 $outputRoot = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $OutputDirectory))
-$binaryPath = Join-Path $outputRoot "cyberagent-desktop.exe"
+$binaryPath = Join-Path $outputRoot "TraverseBoard.exe"
 $metadataPath = Join-Path $outputRoot "release-metadata.json"
 $launcherPath = Join-Path $outputRoot "Start-Prayu-Operator-Preview.cmd"
 $guidePath = Join-Path $outputRoot "LOCAL-TEST-GUIDE.txt"
@@ -63,7 +63,7 @@ $noticePath = Join-Path $outputRoot "NOTICE"
 $staging = Join-Path $outputRoot (".portable-staging-" + [guid]::NewGuid().ToString("N"))
 [System.IO.Directory]::CreateDirectory($staging) | Out-Null
 try {
-    Copy-Item -LiteralPath $binaryPath -Destination (Join-Path $staging "cyberagent-desktop.exe")
+    Copy-Item -LiteralPath $binaryPath -Destination (Join-Path $staging "TraverseBoard.exe")
     Copy-Item -LiteralPath $launcherPath -Destination (Join-Path $staging (Split-Path -Leaf $launcherPath))
     Copy-Item -LiteralPath $guidePath -Destination (Join-Path $staging (Split-Path -Leaf $guidePath))
     Copy-Item -LiteralPath $licensePath -Destination (Join-Path $staging "LICENSE")
@@ -73,7 +73,7 @@ try {
     Copy-Item -LiteralPath $metadataPath -Destination (Join-Path $staging "release-metadata.json")
 
     $contents = @(
-        "cyberagent-desktop.exe", "Start-Prayu-Operator-Preview.cmd",
+        "TraverseBoard.exe", "Start-Prayu-Operator-Preview.cmd",
         "LOCAL-TEST-GUIDE.txt", "LICENSE", "README.md", "NOTICE",
         "sbom.json", "release-metadata.json"
     )
@@ -139,7 +139,7 @@ try {
     $manifestHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $manifestPath).Hash.ToLowerInvariant()
     $sumsPath = Join-Path $outputRoot "SHA256SUMS"
     $sums = @(
-        "$binaryHash  cyberagent-desktop.exe",
+        "$binaryHash  TraverseBoard.exe",
         "$zipHash  $zipName",
         "$sbomHash  sbom.json",
         "$noticeHash  NOTICE",

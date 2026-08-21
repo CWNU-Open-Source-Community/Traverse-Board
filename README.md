@@ -15,7 +15,7 @@
   </p>
 </div>
 
-> **命名说明：** 产品与界面名称是 **Traverse Board · 针路簿**，GitHub 仓库是 `Qiyuanqiii/Traverse-Board`。`cyberagent` CLI、Go module、`.prayu` 配置、数据目录、环境变量、安装 identity 和现有发布件文件名继续作为兼容标识保留；它们不是第二套产品。完整边界见 [ADR 0124](docs/adr/0124-traverse-board-branding-migration.md)。
+> **命名说明：** 产品与界面名称是 **Traverse Board · 针路簿**，GitHub 仓库是 `Qiyuanqiii/Traverse-Board`。`cyberagent` CLI、Go module、`.prayu` 配置、数据目录、环境变量、安装 identity 和现有发布件文件名继续作为兼容标识保留；它们不是第二套产品。Windows 对外主程序从 `v0.1.0-rc.2` 起使用 `TraverseBoard.exe`。完整边界见 [ADR 0124](docs/adr/0124-traverse-board-branding-migration.md) 与 [ADR 0125](docs/adr/0125-traverse-board-windows-executable-name.md)。
 
 ## 针路簿是什么
 
@@ -259,7 +259,7 @@ loopback `http`，默认 `http://127.0.0.1:11434`）与 `CYBERAGENT_OLLAMA_MODEL
 ./build/desktop/Start-Prayu-Operator-Preview.cmd
 ```
 
-请使用操作者预览启动器。直接双击裸 `cyberagent-desktop.exe` 会按设计以最保守权限启动。完整人工测试步骤见 [`packaging/windows/LOCAL-TEST-GUIDE.txt`](packaging/windows/LOCAL-TEST-GUIDE.txt)。
+请使用操作者预览启动器。直接双击裸 `TraverseBoard.exe` 会按设计以最保守权限启动。完整人工测试步骤见 [`packaging/windows/LOCAL-TEST-GUIDE.txt`](packaging/windows/LOCAL-TEST-GUIDE.txt)。
 
 在 Windows Desktop 中点击“新建任务”会直接打开系统文件夹选择器，并按“选择目录 -> 注册 Workspace -> 创建 Run”完成创建；无需先通过 CLI 或设置页注册工作区。取消选择不会创建 Workspace 或 Run，所选绝对路径不会返回 React。
 
@@ -276,21 +276,27 @@ open build/desktop/Prayu.app
 
 ### 便携 ZIP 下载与验证 / Portable ZIP download and verification
 
-发布候选是未签名的便携 ZIP（`Prayu-portable-<version>-windows-amd64.zip`），包含 `cyberagent-desktop.exe`、操作者预览启动器、`LOCAL-TEST-GUIDE.txt`、`LICENSE`、第三方 `NOTICE`、CycloneDX `sbom.json` 与 `release-metadata.json`。发布件不带 API key、用户数据、缓存、调试日志或源映射。
+发布候选是未签名的便携 ZIP（`Prayu-portable-<version>-windows-amd64.zip`），包含 `TraverseBoard.exe`、操作者预览启动器、`LOCAL-TEST-GUIDE.txt`、`LICENSE`、第三方 `NOTICE`、CycloneDX `sbom.json` 与 `release-metadata.json`。正式 GitHub Release 也直接附带同一份 `TraverseBoard.exe`。发布件不带 API key、用户数据、缓存、调试日志或源映射。
 
-The release candidate is an unsigned portable ZIP (`Prayu-portable-<version>-windows-amd64.zip`) containing `cyberagent-desktop.exe`, the operator-preview launcher, `LOCAL-TEST-GUIDE.txt`, `LICENSE`, a third-party `NOTICE`, the CycloneDX `sbom.json`, and `release-metadata.json`. It carries no API key, user data, cache, debug log, or source map.
+The release candidate is an unsigned portable ZIP (`Prayu-portable-<version>-windows-amd64.zip`) containing `TraverseBoard.exe`, the operator-preview launcher, `LOCAL-TEST-GUIDE.txt`, `LICENSE`, a third-party `NOTICE`, the CycloneDX `sbom.json`, and `release-metadata.json`. The tagged GitHub Release also attaches the same `TraverseBoard.exe` directly. It carries no API key, user data, cache, debug log, or source map.
 
 **下载后校验 / Verify after download**（PowerShell）：
 
 ```powershell
 # 从 GitHub Release 下载 ZIP 与伴随证明文件 / download the ZIP and companions
-gh release download v0.1.0-rc.1 --pattern 'Prayu-portable-*' --pattern 'SHA256SUMS'
+gh release download v0.1.0-rc.2 --pattern 'TraverseBoard.exe' --pattern 'Prayu-portable-*' --pattern 'SHA256SUMS'
 
 # 与 SHA256SUMS 精确比对 / compare exactly against SHA256SUMS
-$zip = 'Prayu-portable-v0.1.0-rc.1-windows-amd64.zip'
+$zip = 'Prayu-portable-v0.1.0-rc.2-windows-amd64.zip'
 $expected = ((Get-Content .\SHA256SUMS | Where-Object { $_ -match "  $([regex]::Escape($zip))$" }) -split '\s+')[0]
 $actual = (Get-FileHash ".\$zip" -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($actual -cne $expected) { throw 'portable ZIP checksum mismatch' }
+
+# 同时校验可直接下载的 EXE / verify the directly downloadable EXE too
+$exe = 'TraverseBoard.exe'
+$expectedExe = ((Get-Content .\SHA256SUMS | Where-Object { $_ -match "  $([regex]::Escape($exe))$" }) -split '\s+')[0]
+$actualExe = (Get-FileHash ".\$exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actualExe -cne $expectedExe) { throw 'executable checksum mismatch' }
 
 # 解压后使用启动器，不要直接双击裸 EXE / extract and use the launcher
 Expand-Archive ".\$zip" -DestinationPath .\Prayu-portable
@@ -300,7 +306,7 @@ Expand-Archive ".\$zip" -DestinationPath .\Prayu-portable
 维护者从 clean checkout 生成同一套 ZIP、SBOM、NOTICE、校验和与清单只需一条命令：
 
 ```powershell
-pwsh -NoProfile -File scripts/release-desktop.ps1 -Version v0.1.0-rc.1
+pwsh -NoProfile -File scripts/release-desktop.ps1 -Version v0.1.0-rc.2
 ```
 
 Canonical release CI pins Go 1.25.12, Node 24.16.0 (including its bundled npm), and Rust 1.97.1; `release-metadata.json` additionally binds those observed versions plus the Go, npm, Cargo, and embedded-analyzer hashes. 本地命令会记录实际工具链，正式 GitHub Release 只采用上述 CI 固定版本。

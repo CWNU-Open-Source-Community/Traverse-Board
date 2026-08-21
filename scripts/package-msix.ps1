@@ -25,7 +25,7 @@ if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
 }
 $repositoryRoot = [System.IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 $outputRoot = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $OutputDirectory))
-$binaryPath = Join-Path $outputRoot "cyberagent-desktop.exe"
+$binaryPath = Join-Path $outputRoot "TraverseBoard.exe"
 $manifestPath = Join-Path $repositoryRoot "packaging/windows/AppxManifest.xml"
 $assetRoot = Join-Path $repositoryRoot "packaging/windows/Assets"
 $msixPath = Join-Path $outputRoot "PrayuDesktop.msix"
@@ -59,7 +59,7 @@ function Find-SDKTool {
 $staging = Join-Path $outputRoot (".msix-staging-" + [guid]::NewGuid().ToString("N"))
 [System.IO.Directory]::CreateDirectory((Join-Path $staging "Assets")) | Out-Null
 try {
-    Copy-Item -LiteralPath $binaryPath -Destination (Join-Path $staging "cyberagent-desktop.exe")
+    Copy-Item -LiteralPath $binaryPath -Destination (Join-Path $staging "TraverseBoard.exe")
     $stagedManifest = Join-Path $staging "AppxManifest.xml"
     $manifestContent = [System.IO.File]::ReadAllText($manifestPath)
     $manifestContent = $manifestContent.Replace('Version="0.1.0.0"', "Version=`"$Version`"")

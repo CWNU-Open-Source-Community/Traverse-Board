@@ -120,6 +120,6 @@ Issue #85 创建时未包含后来由 #117 / PR #120 加入的高级 Git 行；�
 ## 复现 / Reproduction
 
 1. 从待发布 commit 构建候选 EXE：`pwsh -File scripts/build-desktop.ps1 -Version <semver> -VerifyReproducible`。
-2. 运行自动矩阵：`pwsh -File scripts/desktop-test-matrix.ps1 -BinaryPath build/desktop/cyberagent-desktop.exe`；确认 `automated_status=pass`，并保留 `overall_status=needs_manual_evidence` 直到人工项完成。
+2. 运行自动矩阵：`pwsh -File scripts/desktop-test-matrix.ps1 -BinaryPath build/desktop/TraverseBoard.exe`；确认 `automated_status=pass`，并保留 `overall_status=needs_manual_evidence` 直到人工项完成。
 3. 按 UI checklist 在 100/200% DPI、单/多显示器上人工核验并附脱敏截图；在隔离 VM 中执行 WebView2 异常和离线场景。
 4. 把每台主机的 JSON、脱敏截图和结果表附到 Issue；证据中的 SHA-256 必须与候选产物一致。

@@ -15,7 +15,7 @@
   </p>
 </div>
 
-> **Naming:** The product and interface are named **Traverse Board · 针路簿**, and the GitHub repository is `Qiyuanqiii/Traverse-Board`. The `cyberagent` CLI, Go module, `.prayu` configuration, data directory, environment variables, installation identities, and existing artifact filenames remain compatibility identifiers; they are not a second product. See [ADR 0124](docs/adr/0124-traverse-board-branding-migration.md).
+> **Naming:** The product and interface are named **Traverse Board · 针路簿**, and the GitHub repository is `Qiyuanqiii/Traverse-Board`. The `cyberagent` CLI, Go module, `.prayu` configuration, data directory, environment variables, installation identities, and existing artifact filenames remain compatibility identifiers; they are not a second product. The public Windows executable is `TraverseBoard.exe` beginning with `v0.1.0-rc.2`. See [ADR 0124](docs/adr/0124-traverse-board-branding-migration.md) and [ADR 0125](docs/adr/0125-traverse-board-windows-executable-name.md).
 
 ## What is Traverse Board?
 
@@ -252,7 +252,7 @@ Local Ollama is the only keyless Provider and enables only when `CYBERAGENT_OLLA
 ./build/desktop/Start-Prayu-Operator-Preview.cmd
 ```
 
-Use the operator-preview launcher. Opening the bare `cyberagent-desktop.exe` intentionally starts with the most conservative permissions. See [`packaging/windows/LOCAL-TEST-GUIDE.txt`](packaging/windows/LOCAL-TEST-GUIDE.txt) for the full manual test flow.
+Use the operator-preview launcher. Opening the bare `TraverseBoard.exe` intentionally starts with the most conservative permissions. See [`packaging/windows/LOCAL-TEST-GUIDE.txt`](packaging/windows/LOCAL-TEST-GUIDE.txt) for the full manual test flow.
 
 In Windows Desktop, **New Task** opens the native folder picker and completes `select directory -> register Workspace -> create Run`; no CLI or settings-page pre-registration is required. Cancelling creates neither a Workspace nor a Run, and the selected absolute path is never returned to React.
 

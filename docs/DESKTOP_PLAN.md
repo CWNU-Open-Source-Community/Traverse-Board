@@ -72,7 +72,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build-desktop.ps1 -VerifyReprod
 go run ./cmd/cyberagent doctor portable --json
 ```
 
-输出位于 `build/desktop/cyberagent-desktop.exe`，默认不开放 control token。构建目录必须留在仓库且不能穿过 child reparse point；双构建会输出忽略的 release/compatibility JSON。该文件是未签名开发/便携测试产物，不是正式发行包。机器需要 Windows 10/11 和 WebView2 Evergreen Runtime `94.0.992.31` 或更新版本；缺失时应用只给出本机指导，不会隐式安装。测试其他数据目录时，可在启动前设置 `CYBERAGENT_HOME`；桌面渲染层无法读取或更改这个路径。自动检查通过后 `release_ready` 仍为 false，直到 Windows 10/WebView2 人工矩阵完成。
+输出位于 `build/desktop/TraverseBoard.exe`，默认不开放 control token。构建目录必须留在仓库且不能穿过 child reparse point；双构建会输出忽略的 release/compatibility JSON。该文件是未签名开发/便携测试产物，不是正式发行包。机器需要 Windows 10/11 和 WebView2 Evergreen Runtime `94.0.992.31` 或更新版本；缺失时应用只给出本机指导，不会隐式安装。测试其他数据目录时，可在启动前设置 `CYBERAGENT_HOME`；桌面渲染层无法读取或更改这个路径。自动检查通过后 `release_ready` 仍为 false，直到 Windows 10/WebView2 人工矩阵完成。
 
 macOS 本地构建（D0-Mac）：
 
@@ -88,10 +88,10 @@ open build/desktop/Prayu.app
 显式启用受控 Run 创建：
 
 ```powershell
-.\build\desktop\cyberagent-desktop.exe --enable-run-creation
+.\build\desktop\TraverseBoard.exe --enable-run-creation
 
 # 可与非授权档位选择共同启用。
-.\build\desktop\cyberagent-desktop.exe --enable-run-creation --enable-profile-control
+.\build\desktop\TraverseBoard.exe --enable-run-creation --enable-profile-control
 ```
 
 创建只接受已注册 Workspace，并固定默认预算、禁用网络/目标和 `preview/noop` 执行档位；它不会自动发送 Session 消息、调用模型、取得 execution lease 或启动进程。
@@ -99,10 +99,10 @@ open build/desktop/Prayu.app
 显式启用 Session 消息排队：
 
 ```powershell
-.\build\desktop\cyberagent-desktop.exe --enable-session-messages
+.\build\desktop\TraverseBoard.exe --enable-session-messages
 
 # 三项 capability 可组合，但仍不授予执行权。
-.\build\desktop\cyberagent-desktop.exe --enable-run-creation --enable-profile-control --enable-session-messages
+.\build\desktop\TraverseBoard.exe --enable-run-creation --enable-profile-control --enable-session-messages
 ```
 
 消息提交只接受精确绑定到 running/paused Run 的现有 Session，按既有 v45-v46 规则脱敏、持久化和幂等重放。它不会启动 created Run、恢复 paused Run、drain 队列、调用模型/工具或取得 lease。
@@ -110,9 +110,9 @@ open build/desktop/Prayu.app
 显式启用队列取消、Run 生命周期和有界执行：
 
 ```powershell
-.\build\desktop\cyberagent-desktop.exe --enable-session-steering-control
-.\build\desktop\cyberagent-desktop.exe --enable-run-lifecycle
-.\build\desktop\cyberagent-desktop.exe --enable-run-execution
+.\build\desktop\TraverseBoard.exe --enable-session-steering-control
+.\build\desktop\TraverseBoard.exe --enable-run-lifecycle
+.\build\desktop\TraverseBoard.exe --enable-run-execution
 ```
 
 取消只适用于未 prepared 的 pending 项。生命周期只执行严格 start/pause/resume。执行入口冻结最多八条 pending 身份，并通过现有 RunSupervisor、Policy、预算、模型/工具账本和私有 lease 消费；它不是 Desktop-native worker，也不能启动 Shell、Local 或 Docker 进程。
@@ -120,8 +120,8 @@ open build/desktop/Prayu.app
 显式启用 Plan/Deliver 与审批决策：
 
 ```powershell
-.\build\desktop\cyberagent-desktop.exe --enable-plan-delivery
-.\build\desktop\cyberagent-desktop.exe --enable-approvals
+.\build\desktop\TraverseBoard.exe --enable-plan-delivery
+.\build\desktop\TraverseBoard.exe --enable-approvals
 ```
 
 Plan 选择只消费已持久化的三方向提案并创建既有 WorkItem/Note 事实，进入 Deliver 必须第二次显式操作。审批队列不返回命令、路径、文件内容、指纹或原因；approve-once 会重检 Policy，且只能得到 dry-run Shell 或 process-disabled ScriptProcess 结果。文件替换不能通过该入口批准，永久拒绝不能覆盖，所有进程/文件写入/Grant 权限仍为 false。
@@ -129,7 +129,7 @@ Plan 选择只消费已持久化的三方向提案并创建既有 WorkItem/Note 
 显式启用 Agent 固定命令提案审阅：
 
 ```powershell
-.\build\desktop\cyberagent-desktop.exe --enable-command-proposals
+.\build\desktop\TraverseBoard.exe --enable-command-proposals
 ```
 
 该开关只让 Approvals 页读取、批准或拒绝 schema-v89 提案。Agent 只能申请四种
@@ -143,7 +143,7 @@ permission startup flags 启动。
 permission control 与 danger-full-access：
 
 ```powershell
-.\build\desktop\cyberagent-desktop.exe `
+.\build\desktop\TraverseBoard.exe `
   --enable-run-execution `
   --enable-permission-control `
   --enable-danger-full-access
@@ -159,11 +159,11 @@ Shell/argv/stdin/Job API。只有 Code/Local/Deliver/root、当前 `full_access`
 
 ```powershell
 # 受限 CDP：只开放策略选择，不启动浏览器或 transport。
-.\build\desktop\cyberagent-desktop.exe `
+.\build\desktop\TraverseBoard.exe `
   --enable-browser-cdp-control
 
 # 完整 CDP（调试）：高度敏感权限，必须同时开启完整 Debug 权限链。
-.\build\desktop\cyberagent-desktop.exe `
+.\build\desktop\TraverseBoard.exe `
   --enable-permission-control --enable-danger-full-access `
   --enable-debug-maximum-access --enable-user-terminal `
   --enable-browser-cdp-control --enable-full-cdp-debug
@@ -177,9 +177,9 @@ transport、runtime authority 和 capability grant 为 false。
 显式启用 Diff apply、一次前台 wake 消费或惰性 Skill 安装：
 
 ```powershell
-.\build\desktop\cyberagent-desktop.exe --enable-file-edit-apply
-.\build\desktop\cyberagent-desktop.exe --enable-run-wake-execution
-.\build\desktop\cyberagent-desktop.exe --enable-skill-installation
+.\build\desktop\TraverseBoard.exe --enable-file-edit-apply
+.\build\desktop\TraverseBoard.exe --enable-run-wake-execution
+.\build\desktop\TraverseBoard.exe --enable-skill-installation
 ```
 
 三项能力彼此独立，也独立于 Diff review、wake intent 和 Skill preview。Apply 只写已精确批准且当前 hash/Policy 仍匹配的 Workspace 文件；wake 只在点击后通过既有 RunSupervisor 消费一条到期 intent；Skill 安装只把已预览包登记为 `operator_installed_untrusted`，不执行或自动选择它。任何一项都不会启动后台 worker 或通用宿主/容器进程。
@@ -187,7 +187,7 @@ transport、runtime authority 和 capability grant 为 false。
 显式启用非授权 Workspace evidence 附加：
 
 ```powershell
-.\build\desktop\cyberagent-desktop.exe --enable-evidence-attachments
+.\build\desktop\TraverseBoard.exe --enable-evidence-attachments
 ```
 
 该 flag 只开放一个精确 Run/Session/Workspace/hash 绑定的附件 route。Workspace 搜索和回执历史仍是 read token 能力；附件文本以 tool-role 持久化，但投影给模型时固定为 untrusted user evidence，不能授权工具、进程、网络或文件写入。
@@ -195,9 +195,9 @@ transport、runtime authority 和 capability grant 为 false。
 显式启用 FileEdit 提案、系统凭证或有界 wake worker：
 
 ```powershell
-.\build\desktop\cyberagent-desktop.exe --enable-file-edit-proposals
-.\build\desktop\cyberagent-desktop.exe --enable-provider-credentials
-.\build\desktop\cyberagent-desktop.exe --enable-wake-worker
+.\build\desktop\TraverseBoard.exe --enable-file-edit-proposals
+.\build\desktop\TraverseBoard.exe --enable-provider-credentials
+.\build\desktop\TraverseBoard.exe --enable-wake-worker
 ```
 
 三项能力彼此独立。编辑器只创建待审 proposal；系统凭证只在 Windows Credential Manager 保存且不回读；worker 只消费已存在的到期 intent，固定 concurrency 1、`max_steps=1`。它们均不能启动真实宿主/容器进程。

@@ -179,7 +179,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           path: |
-            build/desktop/cyberagent-desktop.exe
+            build/desktop/TraverseBoard.exe
             build/desktop/Prayu-portable-*.zip
             build/desktop/PrayuDesktop.msix
             build/desktop/SHA256SUMS
@@ -250,6 +250,7 @@ jobs:
           RELEASE_VERSION: ${{ needs.portable-zip.outputs.version }}
         run: |
           $assets = @(
+            "build/desktop/TraverseBoard.exe",
             "build/desktop/Prayu-portable-$env:RELEASE_VERSION-windows-amd64.zip",
             "build/desktop/SHA256SUMS",
             "build/desktop/portable-zip-manifest.json",

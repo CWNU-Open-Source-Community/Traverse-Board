@@ -157,7 +157,7 @@ Execution is currently a Windows Desktop capability. Build the Desktop and launc
 it with all five independent gates:
 
 ```powershell
-.\build\desktop\cyberagent-desktop.exe `
+.\build\desktop\TraverseBoard.exe `
   --enable-permission-control `
   --enable-danger-full-access `
   --enable-run-execution `
@@ -197,10 +197,10 @@ execution is never retried automatically.
 The Windows Desktop user terminal is default-off. Build normally, then launch it explicitly:
 
 ```powershell
-.\build\desktop\cyberagent-desktop.exe --enable-user-terminal
+.\build\desktop\TraverseBoard.exe --enable-user-terminal
 
 # Expose the fixed-proposal review queue and one-shot restricted execution.
-.\build\desktop\cyberagent-desktop.exe --enable-command-proposals
+.\build\desktop\TraverseBoard.exe --enable-command-proposals
 ```
 
 The selected Run must have exact Code/Local/Debug bindings and a trusted Workspace. The user must click Start and remains the only default input source. Traverse Board starts Windows PowerShell with `-NoLogo -NoProfile` in a ConPTY assigned to a creation-time Job Object, keeps at most eight process-local sessions and 4 MiB of rolling raw output per session, and closes the session if its durable binding changes or its Run terminates. A second explicit grant can let the root Supervisor submit policy-checked commands for 15 seconds to 15 minutes during Deliver; revoke is immediate. Raw user input, raw PTY output, environment, process identity, and the bearer are not written to SQLite. Model-authored command text and its sanitized bounded result are durable Supervisor evidence. This is not an always-authorized Agent Shell and not a Cyber Docker terminal.
@@ -329,7 +329,7 @@ Build the unsigned development/portable-test shell from the repository root:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/build-desktop.ps1
-.\build\desktop\cyberagent-desktop.exe
+.\build\desktop\TraverseBoard.exe
 ```
 
 The build script installs the locked frontend dependencies, checks the generated API contract, runs frontend and focused Go tests, builds the production renderer, and then compiles the Windows GUI binary with the mandatory `desktop,production,wv2runtime.error` tags. The machine needs Windows 10/11 and WebView2 Evergreen Runtime `94.0.992.31` or newer. The binary checks that prerequisite before opening SQLite and never downloads or installs it. `web/dist` is generated and ignored by Git; a direct Desktop build intentionally fails if the production bundle or secure WebView2 strategy tag is absent.
@@ -341,63 +341,63 @@ The shell opens the same `$CYBERAGENT_HOME/cyberagent.db` as the CLI and default
 To expose only the existing schema-v64 profile selector, launch explicitly:
 
 ```powershell
-.\build\desktop\cyberagent-desktop.exe --enable-profile-control
+.\build\desktop\TraverseBoard.exe --enable-profile-control
 ```
 
 To expose only schema-v72 controlled Run creation, or both narrow capabilities:
 
 ```powershell
-.\build\desktop\cyberagent-desktop.exe --enable-run-creation
-.\build\desktop\cyberagent-desktop.exe --enable-run-creation --enable-profile-control
+.\build\desktop\TraverseBoard.exe --enable-run-creation
+.\build\desktop\TraverseBoard.exe --enable-run-creation --enable-profile-control
 ```
 
 To expose only Session message queuing:
 
 ```powershell
-.\build\desktop\cyberagent-desktop.exe --enable-session-messages
+.\build\desktop\TraverseBoard.exe --enable-session-messages
 ```
 
 To expose pending cancellation, Run lifecycle, or explicit bounded execution:
 
 ```powershell
-.\build\desktop\cyberagent-desktop.exe --enable-session-steering-control
-.\build\desktop\cyberagent-desktop.exe --enable-run-lifecycle
-.\build\desktop\cyberagent-desktop.exe --enable-run-execution
+.\build\desktop\TraverseBoard.exe --enable-session-steering-control
+.\build\desktop\TraverseBoard.exe --enable-run-lifecycle
+.\build\desktop\TraverseBoard.exe --enable-run-execution
 ```
 
 To expose Plan/Deliver control or constrained approval decisions:
 
 ```powershell
-.\build\desktop\cyberagent-desktop.exe --enable-plan-delivery
-.\build\desktop\cyberagent-desktop.exe --enable-approvals
+.\build\desktop\TraverseBoard.exe --enable-plan-delivery
+.\build\desktop\TraverseBoard.exe --enable-approvals
 ```
 
 To expose explicit Provider diagnostics and route selection, review-only Diff decisions,
 or durable wake intent independently:
 
 ```powershell
-.\build\desktop\cyberagent-desktop.exe --enable-model-control
-.\build\desktop\cyberagent-desktop.exe --enable-file-edit-review
-.\build\desktop\cyberagent-desktop.exe --enable-run-wake
+.\build\desktop\TraverseBoard.exe --enable-model-control
+.\build\desktop\TraverseBoard.exe --enable-file-edit-review
+.\build\desktop\TraverseBoard.exe --enable-run-wake
 ```
 
 To expose the separately authorized FileEdit apply, one foreground wake consume, or
 inert Skill installation:
 
 ```powershell
-.\build\desktop\cyberagent-desktop.exe --enable-file-edit-apply
-.\build\desktop\cyberagent-desktop.exe --enable-run-wake-execution
-.\build\desktop\cyberagent-desktop.exe --enable-skill-installation
+.\build\desktop\TraverseBoard.exe --enable-file-edit-apply
+.\build\desktop\TraverseBoard.exe --enable-run-wake-execution
+.\build\desktop\TraverseBoard.exe --enable-skill-installation
 ```
 
 To expose Go-issued FileEdit proposals, Windows system credentials, or the bounded
 process-start wake worker independently:
 
 ```powershell
-.\build\desktop\cyberagent-desktop.exe --enable-file-edit-proposals
-.\build\desktop\cyberagent-desktop.exe --enable-provider-credentials
-.\build\desktop\cyberagent-desktop.exe --enable-wake-worker
-.\build\desktop\cyberagent-desktop.exe --enable-user-terminal
+.\build\desktop\TraverseBoard.exe --enable-file-edit-proposals
+.\build\desktop\TraverseBoard.exe --enable-provider-credentials
+.\build\desktop\TraverseBoard.exe --enable-wake-worker
+.\build\desktop\TraverseBoard.exe --enable-user-terminal
 ```
 
 Most flags create distinct in-memory control capabilities, while the terminal flag enables only the native user-terminal bridge. Profile selection by itself does not enable a backend. Run creation makes a default-budget, network-disabled `preview/noop` graph. Session submission, lifecycle, Plan/Deliver, approvals, FileEdit, credentials, and wake retain their existing independent boundaries. The optional wake worker remains capped at one due intent and one step. The optional user terminal is user-owned and Debug-bound; it is not a Tool Runner. There is no general Agent LocalRunner, Docker start, arbitrary Shell process, install-time execution, persistent service, startup entry, updater, or installer.
@@ -1432,7 +1432,7 @@ Schema v124 adds a separate default-off GitHub App review workflow. Start it wit
 The persistent Debug terminal is user-owned by default and default-off at process startup. Enable the complete runtime boundary explicitly:
 
 ```powershell
-.\build\desktop\cyberagent-desktop.exe `
+.\build\desktop\TraverseBoard.exe `
   --enable-permission-control `
   --enable-danger-full-access `
   --enable-debug-maximum-access `
@@ -1455,7 +1455,7 @@ on danger-full-access.
 
 ```powershell
 # Desktop: the Settings capability row will show “命令运行时 / Command runtime”.
-.\build\desktop\cyberagent-desktop.exe `
+.\build\desktop\TraverseBoard.exe `
   --enable-run-execution `
   --enable-permission-control `
   --enable-danger-full-access

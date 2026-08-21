@@ -40,7 +40,7 @@ function Get-SHA256 {
 $manifestPath = Join-Path $outputRoot "portable-zip-manifest.json"
 $metadataPath = Join-Path $outputRoot "release-metadata.json"
 $sumsPath = Join-Path $outputRoot "SHA256SUMS"
-$binaryPath = Join-Path $outputRoot "cyberagent-desktop.exe"
+$binaryPath = Join-Path $outputRoot "TraverseBoard.exe"
 $sbomPath = Join-Path $outputRoot "sbom.json"
 $noticePath = Join-Path $outputRoot "NOTICE"
 foreach ($required in @($manifestPath, $metadataPath, $sumsPath, $binaryPath, $sbomPath, $noticePath)) {
@@ -94,7 +94,7 @@ Assert-ReleaseCondition (Test-Path -LiteralPath $zipPath -PathType Leaf) `
     "Portable ZIP is missing: $zipName"
 
 $allowedContents = @(
-    "cyberagent-desktop.exe", "Start-Prayu-Operator-Preview.cmd",
+    "TraverseBoard.exe", "Start-Prayu-Operator-Preview.cmd",
     "LOCAL-TEST-GUIDE.txt", "LICENSE", "README.md", "NOTICE",
     "sbom.json", "release-metadata.json"
 )
@@ -160,7 +160,7 @@ Assert-ReleaseCondition ($manifest.zip_sha256 -ceq $zipHash -and
     $manifest.sbom_sha256 -ceq $sbomHash -and
     $manifest.notice_sha256 -ceq $noticeHash -and
     $metadata.sha256 -ceq $binaryHash) "Portable top-level hashes differ"
-Assert-ReleaseCondition ($actual["cyberagent-desktop.exe"].sha256 -ceq $binaryHash -and
+Assert-ReleaseCondition ($actual["TraverseBoard.exe"].sha256 -ceq $binaryHash -and
     $actual["sbom.json"].sha256 -ceq $sbomHash -and
     $actual["NOTICE"].sha256 -ceq $noticeHash -and
     $actual["release-metadata.json"].sha256 -ceq $metadataHash) `
@@ -168,7 +168,7 @@ Assert-ReleaseCondition ($actual["cyberagent-desktop.exe"].sha256 -ceq $binaryHa
 
 $expectedSums = [System.Collections.Generic.Dictionary[string, string]]::new(
     [System.StringComparer]::Ordinal)
-$expectedSums.Add("cyberagent-desktop.exe", $binaryHash)
+$expectedSums.Add("TraverseBoard.exe", $binaryHash)
 $expectedSums.Add($zipName, $zipHash)
 $expectedSums.Add("sbom.json", $sbomHash)
 $expectedSums.Add("NOTICE", $noticeHash)
@@ -196,7 +196,7 @@ if ($SmokeTest) {
     try {
         [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $smokeRoot)
         & (Join-Path $PSScriptRoot "smoke-desktop-operator-preview.ps1") `
-            -BinaryPath (Join-Path $smokeRoot "cyberagent-desktop.exe")
+            -BinaryPath (Join-Path $smokeRoot "TraverseBoard.exe")
     }
     finally {
         $resolvedSmoke = [System.IO.Path]::GetFullPath($smokeRoot)
