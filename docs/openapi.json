@@ -39,6 +39,10 @@
       "description": "Approval-gated, preview-bound advanced Git operations and durable recovery state."
     },
     {
+      "name": "GitHub Review",
+      "description": "GitHub App authentication, sanitized PR/CI evidence, local mappings, and approval-gated review write-back."
+    },
+    {
       "name": "Agents",
       "description": "Bounded Agent graph and operator-gated delegation projections."
     },
@@ -1424,6 +1428,770 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ExtensionPluginReviewRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/github-review/connections": {
+      "get": {
+        "operationId": "listGitHubReviewConnections",
+        "summary": "List GitHub review connections",
+        "description": "Returns repository, credential reference, fixed network scope, generation, and credential-store status. No token or secret value crosses the API boundary.",
+        "tags": [
+          "GitHub Review"
+        ],
+        "parameters": [
+          {
+            "name": "enabled_only",
+            "in": "query",
+            "description": "Return only enabled connections",
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/GitHubReviewCredentialView"
+                      },
+                      "type": "array"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      },
+      "post": {
+        "operationId": "configureGitHubReviewConnection",
+        "summary": "Configure a GitHub review connection",
+        "description": "Creates or compare-and-swap updates one github.com repository binding. GitHub App Device Flow is preferred; only a credential reference and public client ID are persisted.",
+        "tags": [
+          "GitHub Review"
+        ],
+        "responses": {
+          "201": {
+            "description": "Resource created or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GitHubReviewConfigureResult"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/githubReviewConfigureView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/github-review/connections/{connection_id}": {
+      "get": {
+        "operationId": "getGitHubReviewConnection",
+        "summary": "Inspect a GitHub review connection",
+        "description": "Returns the non-secret connection and OS credential-store status without resolving the token into the response.",
+        "tags": [
+          "GitHub Review"
+        ],
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "description": "GitHub review connection identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GitHubReviewCredentialView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/github-review/connections/{connection_id}/device": {
+      "post": {
+        "operationId": "beginGitHubReviewDeviceFlow",
+        "summary": "Begin GitHub App Device Flow",
+        "description": "Returns a GitHub verification URI and short-lived user code. The device code remains process memory only.",
+        "tags": [
+          "GitHub Review"
+        ],
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "description": "GitHub review connection identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Resource created or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GitHubReviewDeviceAuthorization"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/githubReviewEmptyView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/github-review/connections/{connection_id}/device-poll": {
+      "post": {
+        "operationId": "pollGitHubReviewDeviceFlow",
+        "summary": "Poll GitHub App Device Flow",
+        "description": "Polls one in-memory authorization session and writes the resulting access/refresh bundle only to the OS credential store.",
+        "tags": [
+          "GitHub Review"
+        ],
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "description": "GitHub review connection identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GitHubReviewDevicePollResult"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/githubReviewDevicePollView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/github-review/connections/{connection_id}/disconnect": {
+      "post": {
+        "operationId": "disconnectGitHubReviewCredential",
+        "summary": "Delete a GitHub review credential",
+        "description": "Deletes only the referenced OS credential-store entry; the durable repository configuration remains reusable.",
+        "tags": [
+          "GitHub Review"
+        ],
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "description": "GitHub review connection identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GitHubReviewCredentialView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/githubReviewEmptyView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/github-review/connections/{connection_id}/fetch": {
+      "post": {
+        "operationId": "fetchGitHubReviewSnapshot",
+        "summary": "Fetch bounded PR and CI evidence",
+        "description": "Fetches and immutably stores sanitized PR metadata, bounded complete changed-file pagination, review threads, comments, checks, jobs, failed log excerpts, and Artifact metadata.",
+        "tags": [
+          "GitHub Review"
+        ],
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "description": "GitHub review connection identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Resource created or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GitHubReviewFetchResult"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/githubReviewPullRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/github-review/connections/{connection_id}/qualify": {
+      "post": {
+        "operationId": "qualifyGitHubReviewConnection",
+        "summary": "Diagnose GitHub review eligibility",
+        "description": "Checks account, App installation, repository, PR, permissions, SSO, fixed API version, rate limit, and network scope with stable diagnostics.",
+        "tags": [
+          "GitHub Review"
+        ],
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "description": "GitHub review connection identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GitHubReviewQualificationResult"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/githubReviewPullRequestView"
               }
             }
           }
@@ -8711,6 +9479,431 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/gitAdvancedReviewView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/github-review": {
+      "get": {
+        "operationId": "getGitHubReviewProjection",
+        "summary": "Inspect GitHub review evidence and receipts",
+        "description": "Returns immutable sanitized snapshots, local evidence graphs, pending writes, and terminal receipts for one Code Surface Run.",
+        "tags": [
+          "GitHub Review"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "connection_id",
+            "in": "query",
+            "description": "Exact connection identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "name": "pull_request",
+            "in": "query",
+            "description": "Optional PR number",
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum records",
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GitHubReviewProjection"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/runs/{run_id}/github-review/evidence": {
+      "post": {
+        "operationId": "buildGitHubReviewEvidence",
+        "summary": "Bind a GitHub snapshot to local Git evidence",
+        "description": "Binds exact repo/PR/base/head/merge-base, changed files, stable hunks, worktree hashes, conflicts, and optional trusted LSP evidence. Drift becomes stale rather than current.",
+        "tags": [
+          "GitHub Review"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Resource created or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GitHubReviewEvidenceResult"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/githubReviewEvidenceView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/github-review/execute": {
+      "post": {
+        "operationId": "executeGitHubReviewWrite",
+        "summary": "Execute one approved GitHub write-back",
+        "description": "Rechecks Run phase, network permission, credential/capability generation, PR identity and remote state; hidden idempotency markers and recovery receipts prevent duplicate effects.",
+        "tags": [
+          "GitHub Review"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GitHubReviewWriteExecuteResult"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/githubReviewWriteExecuteView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/github-review/review": {
+      "post": {
+        "operationId": "reviewGitHubReviewWrite",
+        "summary": "Review one exact GitHub write-back",
+        "description": "Requalifies capability and persists an exact reply, thread state, review, or reviewer request preview plus a separate one-time Approval.",
+        "tags": [
+          "GitHub Review"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Resource created or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/GitHubReviewWriteReviewResult"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/githubReviewWriteReviewView"
               }
             }
           }
@@ -25207,6 +26400,1992 @@
         ],
         "type": "object"
       },
+      "GitHubReviewArtifactMetadata": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "expired": {
+            "type": "boolean"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "size_bytes",
+          "expired"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewCapabilitySnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "account_login": {
+            "type": "string"
+          },
+          "api_host": {
+            "type": "string"
+          },
+          "api_version": {
+            "type": "string"
+          },
+          "captured_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "credential": {
+            "$ref": "#/components/schemas/GitHubReviewCredentialReference"
+          },
+          "generation": {
+            "type": "string"
+          },
+          "installation_id": {
+            "format": "int64",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "integer"
+          },
+          "logs": {
+            "type": "boolean"
+          },
+          "permissions": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "push": {
+            "type": "boolean"
+          },
+          "read": {
+            "type": "boolean"
+          },
+          "reply": {
+            "type": "boolean"
+          },
+          "repository": {
+            "$ref": "#/components/schemas/GitHubReviewRepositoryIdentity"
+          },
+          "request_reviewer": {
+            "type": "boolean"
+          },
+          "resolve": {
+            "type": "boolean"
+          },
+          "review": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "generation",
+          "api_host",
+          "api_version",
+          "account_login",
+          "repository",
+          "credential",
+          "permissions",
+          "read",
+          "reply",
+          "resolve",
+          "review",
+          "request_reviewer",
+          "push",
+          "logs",
+          "captured_at"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewChangedFile": {
+        "additionalProperties": false,
+        "properties": {
+          "additions": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "blob_url": {
+            "type": "string"
+          },
+          "changes": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "deletions": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "patch": {
+            "$ref": "#/components/schemas/GitHubReviewTextEvidence"
+          },
+          "path": {
+            "type": "string"
+          },
+          "previous_path": {
+            "type": "string"
+          },
+          "raw_url": {
+            "type": "string"
+          },
+          "sha": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "status",
+          "sha",
+          "additions",
+          "deletions",
+          "changes",
+          "patch"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewCheckRun": {
+        "additionalProperties": false,
+        "properties": {
+          "completed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "conclusion": {
+            "type": "string"
+          },
+          "details_url": {
+            "type": "string"
+          },
+          "head_sha": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "node_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/GitHubReviewTextEvidence"
+          },
+          "text": {
+            "$ref": "#/components/schemas/GitHubReviewTextEvidence"
+          },
+          "title": {
+            "$ref": "#/components/schemas/GitHubReviewTextEvidence"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "status",
+          "head_sha",
+          "title",
+          "summary",
+          "text"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewCheckSuite": {
+        "additionalProperties": false,
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "conclusion": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "head_sha": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "integer"
+          },
+          "node_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "head_sha"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewComment": {
+        "additionalProperties": false,
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "body": {
+            "$ref": "#/components/schemas/GitHubReviewTextEvidence"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "integer"
+          },
+          "node_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "position": {
+            "$ref": "#/components/schemas/GitHubReviewPosition"
+          },
+          "thread_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "node_id",
+          "author",
+          "body",
+          "position",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewConfigureResult": {
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/components/schemas/GitHubReviewConnection"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "connection",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewConnection": {
+        "additionalProperties": false,
+        "properties": {
+          "client_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "credential": {
+            "$ref": "#/components/schemas/GitHubReviewCredentialReference"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "network": {
+            "$ref": "#/components/schemas/GitHubReviewNetworkScope"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "repository": {
+            "$ref": "#/components/schemas/GitHubReviewRepositoryIdentity"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "id",
+          "repository",
+          "credential",
+          "network",
+          "enabled",
+          "generation",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewCredentialReference": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewCredentialStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "configured": {
+            "type": "boolean"
+          },
+          "credential": {
+            "$ref": "#/components/schemas/GitHubReviewCredentialReference"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "refresh_expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "refreshable": {
+            "type": "boolean"
+          },
+          "store_available": {
+            "type": "boolean"
+          },
+          "store_kind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "credential",
+          "store_kind",
+          "store_available",
+          "configured",
+          "refreshable"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewCredentialView": {
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/components/schemas/GitHubReviewConnection"
+          },
+          "credential": {
+            "$ref": "#/components/schemas/GitHubReviewCredentialStatus"
+          },
+          "protocol_version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "connection",
+          "credential"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewDeviceAuthorization": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "poll_interval_ms": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "user_code": {
+            "type": "string"
+          },
+          "verification_uri": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "session_id",
+          "user_code",
+          "verification_uri",
+          "expires_at",
+          "poll_interval_ms"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewDevicePollResult": {
+        "additionalProperties": false,
+        "properties": {
+          "configured": {
+            "type": "boolean"
+          },
+          "credential": {
+            "$ref": "#/components/schemas/GitHubReviewCredentialReference"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "next_poll_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "session_id",
+          "state",
+          "credential",
+          "configured"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewDiagnostic": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "level": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "remediation": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "level",
+          "message"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewEvidenceGraph": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "git": {
+            "$ref": "#/components/schemas/GitHubReviewGitEvidence"
+          },
+          "local": {
+            "$ref": "#/components/schemas/GitHubReviewLocalBinding"
+          },
+          "mappings": {
+            "items": {
+              "$ref": "#/components/schemas/GitHubReviewPositionMapping"
+            },
+            "type": "array"
+          },
+          "omissions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "snapshot_fingerprint": {
+            "type": "string"
+          },
+          "snapshot_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "snapshot_id",
+          "snapshot_fingerprint",
+          "local",
+          "git",
+          "state",
+          "mappings",
+          "omissions",
+          "fingerprint",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewEvidenceRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "graph": {
+            "$ref": "#/components/schemas/GitHubReviewEvidenceGraph"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "run_id",
+          "workspace_id",
+          "graph"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewEvidenceResult": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence": {
+            "$ref": "#/components/schemas/GitHubReviewEvidenceRecord"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "evidence",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewFetchResult": {
+        "additionalProperties": false,
+        "properties": {
+          "protocol_version": {
+            "type": "string"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/GitHubReviewSnapshot"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "snapshot",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewGitEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "call_chain_sha256": {
+            "type": "string"
+          },
+          "changed_files": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "conflict_active": {
+            "type": "boolean"
+          },
+          "diff_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "diff_sha256": {
+            "type": "string"
+          },
+          "diff_stat": {
+            "type": "string"
+          },
+          "hunk_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "omissions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "protocol_version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "diff_sha256",
+          "call_chain_sha256",
+          "diff_bytes",
+          "diff_stat",
+          "changed_files",
+          "hunk_ids",
+          "conflict_active",
+          "complete",
+          "omissions"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewJobStep": {
+        "additionalProperties": false,
+        "properties": {
+          "completed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "conclusion": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "number": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "name",
+          "status"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewLocalBinding": {
+        "additionalProperties": false,
+        "properties": {
+          "captured_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "file_sha256": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "head_sha": {
+            "type": "string"
+          },
+          "index_sha256": {
+            "type": "string"
+          },
+          "merge_base_sha": {
+            "type": "string"
+          },
+          "repository_sha256": {
+            "type": "string"
+          },
+          "status_sha256": {
+            "type": "string"
+          },
+          "worktree_sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "repository_sha256",
+          "head_sha",
+          "merge_base_sha",
+          "index_sha256",
+          "worktree_sha256",
+          "status_sha256",
+          "file_sha256",
+          "captured_at"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewNetworkScope": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_log_hosts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "api_host": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "oauth_host": {
+            "type": "string"
+          },
+          "read_enabled": {
+            "type": "boolean"
+          },
+          "write_enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "host",
+          "api_host",
+          "oauth_host",
+          "allowed_log_hosts",
+          "read_enabled",
+          "write_enabled"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewPageEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "complete": {
+            "type": "boolean"
+          },
+          "items_read": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "next_cursor_hash": {
+            "type": "string"
+          },
+          "omitted_reason": {
+            "type": "string"
+          },
+          "pages_read": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "resource": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "resource",
+          "pages_read",
+          "items_read",
+          "complete"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewPosition": {
+        "additionalProperties": false,
+        "properties": {
+          "commit_sha": {
+            "type": "string"
+          },
+          "line": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "original_commit_sha": {
+            "type": "string"
+          },
+          "original_line": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "original_position": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "side": {
+            "type": "string"
+          },
+          "start_line": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "start_side": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "commit_sha"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewPositionMapping": {
+        "additionalProperties": false,
+        "properties": {
+          "comment_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "hunk_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "line": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "local_file_sha256": {
+            "type": "string"
+          },
+          "original_line": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "remote_commit_sha": {
+            "type": "string"
+          },
+          "semantic": {
+            "$ref": "#/components/schemas/GitHubReviewSemanticEvidence"
+          },
+          "side": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "thread_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "comment_id",
+          "path",
+          "remote_commit_sha",
+          "state",
+          "reasons",
+          "semantic"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewProjection": {
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/components/schemas/GitHubReviewConnection"
+          },
+          "credential": {
+            "$ref": "#/components/schemas/GitHubReviewCredentialStatus"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/GitHubReviewEvidenceRecord"
+            },
+            "type": "array"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "snapshots": {
+            "items": {
+              "$ref": "#/components/schemas/GitHubReviewSnapshot"
+            },
+            "type": "array"
+          },
+          "writes": {
+            "items": {
+              "$ref": "#/components/schemas/GitHubReviewWriteRecord"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "run_id",
+          "connection",
+          "credential",
+          "snapshots",
+          "evidence",
+          "writes"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewPullRequestIdentity": {
+        "additionalProperties": false,
+        "properties": {
+          "base_ref": {
+            "type": "string"
+          },
+          "base_sha": {
+            "type": "string"
+          },
+          "draft": {
+            "type": "boolean"
+          },
+          "fork": {
+            "type": "boolean"
+          },
+          "head_ref": {
+            "type": "string"
+          },
+          "head_sha": {
+            "type": "string"
+          },
+          "merge_base_sha": {
+            "type": "string"
+          },
+          "merged": {
+            "type": "boolean"
+          },
+          "node_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "number": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "repository": {
+            "$ref": "#/components/schemas/GitHubReviewRepositoryIdentity"
+          },
+          "state": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repository",
+          "number",
+          "node_id",
+          "state",
+          "draft",
+          "merged",
+          "fork",
+          "base_ref",
+          "base_sha",
+          "head_ref",
+          "head_sha",
+          "merge_base_sha",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewQualification": {
+        "additionalProperties": false,
+        "properties": {
+          "authenticated": {
+            "type": "boolean"
+          },
+          "capability": {
+            "$ref": "#/components/schemas/GitHubReviewCapabilitySnapshot"
+          },
+          "checked_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "credential_configured": {
+            "type": "boolean"
+          },
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/GitHubReviewDiagnostic"
+            },
+            "type": "array"
+          },
+          "eligible": {
+            "type": "boolean"
+          },
+          "host_reachable": {
+            "type": "boolean"
+          },
+          "network_allowed": {
+            "type": "boolean"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "pull_request_accessible": {
+            "type": "boolean"
+          },
+          "rate_limit": {
+            "$ref": "#/components/schemas/GitHubReviewRateLimit"
+          },
+          "repository_accessible": {
+            "type": "boolean"
+          },
+          "sso_authorized": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "eligible",
+          "host_reachable",
+          "credential_configured",
+          "authenticated",
+          "sso_authorized",
+          "repository_accessible",
+          "pull_request_accessible",
+          "network_allowed",
+          "capability",
+          "rate_limit",
+          "diagnostics",
+          "checked_at"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewQualificationResult": {
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "$ref": "#/components/schemas/GitHubReviewConnection"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "qualification": {
+            "$ref": "#/components/schemas/GitHubReviewQualification"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "connection",
+          "qualification"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewRateLimit": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "remaining": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "reset_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "resource": {
+            "type": "string"
+          },
+          "retry_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "used": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "limit",
+          "remaining",
+          "used",
+          "reset_at"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewRepositoryIdentity": {
+        "additionalProperties": false,
+        "properties": {
+          "full_name": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "node_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "private": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "host",
+          "owner",
+          "name",
+          "full_name",
+          "private"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewReview": {
+        "additionalProperties": false,
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "body": {
+            "$ref": "#/components/schemas/GitHubReviewTextEvidence"
+          },
+          "commit_sha": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "integer"
+          },
+          "node_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "submitted_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "node_id",
+          "author",
+          "state",
+          "body"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewReviewThread": {
+        "additionalProperties": false,
+        "properties": {
+          "comments": {
+            "items": {
+              "$ref": "#/components/schemas/GitHubReviewComment"
+            },
+            "type": "array"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "line": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "outdated": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          },
+          "resolved": {
+            "type": "boolean"
+          },
+          "side": {
+            "type": "string"
+          },
+          "start_line": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "start_side": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "resolved",
+          "outdated",
+          "path",
+          "comments"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewSemanticEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "callees": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "callers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "capability_fingerprint": {
+            "type": "string"
+          },
+          "definitions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "diagnostics": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "omissions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "query_fingerprints": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "references": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "server_generation": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "query_fingerprints",
+          "definitions",
+          "references",
+          "callers",
+          "callees",
+          "diagnostics",
+          "omissions"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/GitHubReviewArtifactMetadata"
+            },
+            "type": "array"
+          },
+          "author": {
+            "type": "string"
+          },
+          "body": {
+            "$ref": "#/components/schemas/GitHubReviewTextEvidence"
+          },
+          "capability": {
+            "$ref": "#/components/schemas/GitHubReviewCapabilitySnapshot"
+          },
+          "check_runs": {
+            "items": {
+              "$ref": "#/components/schemas/GitHubReviewCheckRun"
+            },
+            "type": "array"
+          },
+          "check_suites": {
+            "items": {
+              "$ref": "#/components/schemas/GitHubReviewCheckSuite"
+            },
+            "type": "array"
+          },
+          "fetched_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/GitHubReviewChangedFile"
+            },
+            "type": "array"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "identity": {
+            "$ref": "#/components/schemas/GitHubReviewPullRequestIdentity"
+          },
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/GitHubReviewWorkflowJob"
+            },
+            "type": "array"
+          },
+          "loose_comments": {
+            "items": {
+              "$ref": "#/components/schemas/GitHubReviewComment"
+            },
+            "type": "array"
+          },
+          "omissions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "pagination": {
+            "items": {
+              "$ref": "#/components/schemas/GitHubReviewPageEvidence"
+            },
+            "type": "array"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "rate_limit": {
+            "$ref": "#/components/schemas/GitHubReviewRateLimit"
+          },
+          "requested_reviewers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reviews": {
+            "items": {
+              "$ref": "#/components/schemas/GitHubReviewReview"
+            },
+            "type": "array"
+          },
+          "state": {
+            "type": "string"
+          },
+          "threads": {
+            "items": {
+              "$ref": "#/components/schemas/GitHubReviewReviewThread"
+            },
+            "type": "array"
+          },
+          "title": {
+            "$ref": "#/components/schemas/GitHubReviewTextEvidence"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "id",
+          "identity",
+          "capability",
+          "title",
+          "body",
+          "author",
+          "requested_reviewers",
+          "files",
+          "reviews",
+          "threads",
+          "loose_comments",
+          "check_suites",
+          "check_runs",
+          "jobs",
+          "artifacts",
+          "pagination",
+          "rate_limit",
+          "state",
+          "omissions",
+          "fingerprint",
+          "fetched_at"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewTextEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "original_bytes": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "redacted": {
+            "type": "boolean"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "stored_bytes": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "text": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "untrusted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "text",
+          "sha256",
+          "original_bytes",
+          "stored_bytes",
+          "truncated",
+          "redacted",
+          "untrusted"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewWorkflowJob": {
+        "additionalProperties": false,
+        "properties": {
+          "completed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "conclusion": {
+            "type": "string"
+          },
+          "failed_log": {
+            "$ref": "#/components/schemas/GitHubReviewTextEvidence"
+          },
+          "head_sha": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "integer"
+          },
+          "log_reason": {
+            "type": "string"
+          },
+          "log_state": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "run_id": {
+            "format": "int64",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/GitHubReviewJobStep"
+            },
+            "type": "array"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "run_id",
+          "name",
+          "status",
+          "head_sha",
+          "steps",
+          "failed_log",
+          "log_state"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewWriteExecuteResult": {
+        "additionalProperties": false,
+        "properties": {
+          "operation": {
+            "$ref": "#/components/schemas/GitHubReviewWriteRecord"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/GitHubReviewWriteReceipt"
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "operation",
+          "receipt",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewWritePreview": {
+        "additionalProperties": false,
+        "properties": {
+          "approval_fingerprint": {
+            "type": "string"
+          },
+          "body_sha256": {
+            "type": "string"
+          },
+          "body_summary": {
+            "type": "string"
+          },
+          "capability_generation": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "credential": {
+            "$ref": "#/components/schemas/GitHubReviewCredentialReference"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "idempotency_marker": {
+            "type": "string"
+          },
+          "identity": {
+            "$ref": "#/components/schemas/GitHubReviewPullRequestIdentity"
+          },
+          "local_change_summary": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "review_event": {
+            "type": "string"
+          },
+          "reviewers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "target_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "validation_summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "id",
+          "operation",
+          "identity",
+          "credential",
+          "capability_generation",
+          "reviewers",
+          "idempotency_marker",
+          "approval_fingerprint",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewWriteReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "completed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "error_code": {
+            "type": "string"
+          },
+          "error_summary": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "idempotency_marker": {
+            "type": "string"
+          },
+          "identity": {
+            "$ref": "#/components/schemas/GitHubReviewPullRequestIdentity"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "preview_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "recovered": {
+            "type": "boolean"
+          },
+          "result_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "result_url": {
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "target_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "id",
+          "preview_id",
+          "operation",
+          "status",
+          "identity",
+          "idempotency_marker",
+          "recovered",
+          "started_at",
+          "completed_at"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewWriteRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "approval_fingerprint": {
+            "type": "string"
+          },
+          "approval_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "completed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "connection_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "error_code": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "operation_key_sha256": {
+            "type": "string"
+          },
+          "preview": {
+            "$ref": "#/components/schemas/GitHubReviewWritePreview"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/GitHubReviewWriteReceipt"
+          },
+          "request_fingerprint": {
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "protocol_version",
+          "operation_key_sha256",
+          "request_fingerprint",
+          "approval_fingerprint",
+          "run_id",
+          "session_id",
+          "workspace_id",
+          "connection_id",
+          "preview",
+          "status",
+          "receipt",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewWriteReviewResult": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "$ref": "#/components/schemas/Record"
+          },
+          "operation": {
+            "$ref": "#/components/schemas/GitHubReviewWriteRecord"
+          },
+          "preview": {
+            "$ref": "#/components/schemas/GitHubReviewWritePreview"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "preview",
+          "operation",
+          "approval",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "GitHubReviewWriteSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "capability_generation": {
+            "type": "string"
+          },
+          "credential": {
+            "$ref": "#/components/schemas/GitHubReviewCredentialReference"
+          },
+          "identity": {
+            "$ref": "#/components/schemas/GitHubReviewPullRequestIdentity"
+          },
+          "local_change_summary": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "review_event": {
+            "type": "string"
+          },
+          "reviewers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "target_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "validation_summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "operation",
+          "identity",
+          "credential",
+          "capability_generation",
+          "reviewers"
+        ],
+        "type": "object"
+      },
       "HarnessAvailability": {
         "additionalProperties": false,
         "properties": {
@@ -31879,6 +35058,9 @@
           "git_advanced_control_enabled": {
             "type": "boolean"
           },
+          "github_review_control_enabled": {
+            "type": "boolean"
+          },
           "host_command_proposal_control_enabled": {
             "type": "boolean"
           },
@@ -31993,6 +35175,7 @@
           "embedded_analyzer_execution_enabled",
           "workspace_checkpoint_control_enabled",
           "git_advanced_control_enabled",
+          "github_review_control_enabled",
           "batch_delivery_control_enabled",
           "batch_delivery_host_validation_enabled",
           "ui_evidence_control_enabled",
@@ -37731,6 +40914,146 @@
         "required": [
           "operation_key",
           "scope",
+          "spec"
+        ],
+        "type": "object"
+      },
+      "githubReviewConfigureView": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_log_hosts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "client_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "connection_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "credential": {
+            "$ref": "#/components/schemas/GitHubReviewCredentialReference"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "expected_generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "repository": {
+            "$ref": "#/components/schemas/GitHubReviewRepositoryIdentity"
+          },
+          "write_enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "repository",
+          "credential",
+          "allowed_log_hosts",
+          "write_enabled",
+          "enabled",
+          "expected_generation"
+        ],
+        "type": "object"
+      },
+      "githubReviewDevicePollView": {
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "type": "object"
+      },
+      "githubReviewEmptyView": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "githubReviewEvidenceView": {
+        "additionalProperties": false,
+        "properties": {
+          "snapshot_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "snapshot_id"
+        ],
+        "type": "object"
+      },
+      "githubReviewPullRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "pull_request": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "pull_request"
+        ],
+        "type": "object"
+      },
+      "githubReviewWriteExecuteView": {
+        "additionalProperties": false,
+        "properties": {
+          "approval_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "operation_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "approval_id"
+        ],
+        "type": "object"
+      },
+      "githubReviewWriteReviewView": {
+        "additionalProperties": false,
+        "properties": {
+          "connection_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "operation_key": {
+            "type": "string"
+          },
+          "snapshot_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/GitHubReviewWriteSpec"
+          }
+        },
+        "required": [
+          "connection_id",
+          "snapshot_id",
+          "operation_key",
           "spec"
         ],
         "type": "object"

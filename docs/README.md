@@ -15,6 +15,7 @@ This directory separates user-facing documentation, current engineering state, a
 | [使用手册 / Usage](usage.md) | CLI、Provider、Workspace、Run、审批和操作者工作流 |
 | [Workspace Checkpoints](workspace-checkpoints.md) | 检查点时间线、预览、Undo/Redo/Rewind、独立 Fork 与故障处理 |
 | [高级 Git 工作流 / Advanced Git](git-advanced.md) | 稳定 hunk、stash、rebase/cherry-pick/bisect、受管 worktree、审批与恢复 |
+| [GitHub Review Provider](github-review.md) | GitHub App Device Flow、PR/CI 证据、本地映射、审批回写与恢复 |
 | [可交付多代理 / Deliverable Batches](batch-delivery.md) | child Worktree、缩权工具、邮箱、交付收据、复核、合并与恢复 |
 | [MCP Client、Plugin 与 Hooks / Extensions](extensions.md) | 两阶段 MCP、签名 Plugin、凭证引用、受限 Hook、Desktop/HTTP 控制与残余风险 |
 | [真实浏览器 UI 证据 / UI Evidence](ui-evidence.md) | 源码/配方绑定、真实 Edge 矩阵、产物、失败语义与操作手册 |
@@ -35,6 +36,7 @@ This directory separates user-facing documentation, current engineering state, a
 | [ADR 0120 / UI Evidence](adr/0120-source-bound-real-browser-ui-evidence.md) | 真实浏览器所有权、受限 CDP、来源绑定、脱敏与 CI 决策 |
 | [ADR 0121 / Scheduled Monitoring](adr/0121-durable-scheduled-monitoring-and-structured-diagnostics.md) | 持久任务、租约 fencing、预算、权限快照与结构化诊断边界 |
 | [ADR 0122 / Advanced Git](adr/0122-go-owned-advanced-git-lifecycle.md) | Go-owned 高级 Git 合同、状态机、Checkpoint、worktree 所有权与默认拒绝边界 |
+| [ADR 0123 / GitHub Review](adr/0123-go-owned-github-review-provider.md) | GitHub 凭据、证据图、远端写审批、幂等恢复与默认拒绝边界 |
 | [ADR 索引](adr/) | 权限、持久化、执行、浏览器、Desktop 等架构决策 |
 
 ## 当前工程上下文 / Current Engineering Context

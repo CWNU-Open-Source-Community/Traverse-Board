@@ -50,6 +50,7 @@ const bootstrap = {
   embedded_analyzer_execution_enabled: false,
   workspace_checkpoint_control_enabled: false,
   git_advanced_control_enabled: false,
+  github_review_control_enabled: false,
   batch_delivery_control_enabled: false,
   batch_delivery_host_validation_enabled: false,
   user_terminal_enabled: false,
@@ -234,6 +235,7 @@ describe("desktop native bridge", () => {
       operator_approval_enabled: true,
       workspace_checkpoint_control_enabled: true,
       git_advanced_control_enabled: true,
+      github_review_control_enabled: true,
       read_only_default: false,
     };
     installBridge({ Bootstrap: vi.fn().mockResolvedValue(enabled) });

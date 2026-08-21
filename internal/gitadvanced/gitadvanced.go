@@ -22,16 +22,18 @@ const (
 	ReceiptProtocolVersion    = "git-advanced-receipt.v1"
 	SequenceProtocolVersion   = "git-advanced-sequence.v1"
 	WorktreeProtocolVersion   = "git-managed-worktree.v1"
+	ReviewDiffProtocolVersion = "git-review-diff-evidence.v1"
 
 	ApprovalToolName    = "git.advanced"
 	ApprovalActionClass = "git_advanced_write"
 
-	MaxHunks             = 200
-	MaxPaths             = 200
-	MaxCommits           = 128
-	MaxMessageRunes      = 4096
-	MaxPreviewPatchBytes = 1024 * 1024
-	MaxSpecJSONBytes     = 64 * 1024
+	MaxHunks              = 200
+	MaxPaths              = 200
+	MaxReviewChangedFiles = 3000
+	MaxCommits            = 128
+	MaxMessageRunes       = 4096
+	MaxPreviewPatchBytes  = 1024 * 1024
+	MaxSpecJSONBytes      = 64 * 1024
 )
 
 // Operation is deliberately closed. There is no raw Git argv escape hatch.
@@ -474,6 +476,53 @@ type Hunk struct {
 	PatchSHA256    string `json:"patch_sha256"`
 	Patch          string `json:"patch"`
 	Destructive    bool   `json:"destructive"`
+}
+
+// ReviewDiffEvidence is a read-only, exact merge-base view for review
+// providers. It reuses the repository identity and stable hunk model from the
+// advanced Git runtime without granting any mutation authority.
+type ReviewDiffEvidence struct {
+	ProtocolVersion string            `json:"protocol_version"`
+	Binding         RepositoryBinding `json:"binding"`
+	BaseSHA         string            `json:"base_sha"`
+	HeadSHA         string            `json:"head_sha"`
+	MergeBaseSHA    string            `json:"merge_base_sha"`
+	DiffSHA256      string            `json:"diff_sha256"`
+	CallChainSHA256 string            `json:"call_chain_sha256"`
+	DiffBytes       int64             `json:"diff_bytes"`
+	DiffStat        string            `json:"diff_stat"`
+	ChangedFiles    []string          `json:"changed_files"`
+	Hunks           []Hunk            `json:"hunks"`
+	Conflict        ConflictState     `json:"conflict"`
+	Complete        bool              `json:"complete"`
+	Omissions       []string          `json:"omissions"`
+	CapturedAt      time.Time         `json:"captured_at"`
+}
+
+func (e ReviewDiffEvidence) Validate() error {
+	if e.ProtocolVersion != ReviewDiffProtocolVersion ||
+		!validRepositoryBinding(e.Binding) || !ValidObjectID(e.BaseSHA) ||
+		!ValidObjectID(e.HeadSHA) || !ValidObjectID(e.MergeBaseSHA) ||
+		!ValidDigest(e.DiffSHA256) || !ValidDigest(e.CallChainSHA256) ||
+		e.DiffBytes < 0 || e.DiffBytes > 16*1024*1024 ||
+		len(e.ChangedFiles) > MaxReviewChangedFiles || len(e.Hunks) > MaxHunks ||
+		len(e.Conflict.Files) > MaxPaths || e.CapturedAt.IsZero() ||
+		len(e.Omissions) > 32 || (e.Complete && len(e.Omissions) != 0) {
+		return errors.New("Git review diff evidence is invalid")
+	}
+	for _, path := range e.ChangedFiles {
+		if !validRelativePath(path) {
+			return errors.New("Git review diff evidence contains an invalid path")
+		}
+	}
+	for _, hunk := range e.Hunks {
+		if !ValidDigest(hunk.ID) || !validRelativePath(hunk.Path) ||
+			!ValidDigest(hunk.ContextSHA256) || !ValidDigest(hunk.PatchSHA256) ||
+			len(hunk.Patch) > MaxPreviewPatchBytes {
+			return errors.New("Git review diff evidence contains an invalid hunk")
+		}
+	}
+	return nil
 }
 
 type FileImpact struct {

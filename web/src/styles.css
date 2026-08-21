@@ -570,6 +570,22 @@ td code { font-size: 11px; }
 .git-advanced-approval p { margin: 0 0 8px; color: var(--muted); font-size: 10px; }
 .git-advanced-approval code { display: block; margin-bottom: 9px; overflow-wrap: anywhere; font-size: 9px; }
 .git-advanced-receipt { display: grid; gap: 2px; padding: 8px 0; }
+.github-review-panel { display: grid; gap: 0; }
+.github-review-section { display: grid; gap: 9px; min-width: 0; padding: 12px 2px; border-bottom: 1px solid var(--border); }
+.github-review-section h3 { margin: 0; font-size: 12px; }
+.github-review-form, .github-review-actions, .github-review-device, .github-review-approval { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.github-review-form input, .github-review-form select, .github-review-form textarea { min-width: 150px; min-height: 32px; padding: 5px 8px; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--surface); color: var(--text); }
+.github-review-form input, .github-review-form textarea { flex: 1 1 190px; }
+.github-review-form textarea { min-height: 72px; resize: vertical; }
+.github-review-form button, .github-review-actions button, .github-review-device button, .github-review-approval button { min-height: 30px; padding: 5px 9px; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--surface-raised); color: var(--text); font-size: 10px; }
+.github-review-form button:disabled, .github-review-actions button:disabled { opacity: .45; }
+.github-review-device, .github-review-approval { padding: 9px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); border-radius: 7px; background: color-mix(in srgb, var(--accent) 5%, var(--surface)); }
+.github-review-device a { display: inline-flex; align-items: center; gap: 4px; }
+.github-review-device code, .github-review-approval code { overflow-wrap: anywhere; font: 10px/1.4 var(--prayu-font-mono); }
+.github-review-stats { flex-wrap: wrap; }
+.github-review-row { display: grid; grid-template-columns: auto minmax(100px, .35fr) minmax(0, 1fr); align-items: start; gap: 7px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 10px; }
+.github-review-row small { min-width: 0; overflow-wrap: anywhere; color: var(--muted); white-space: pre-wrap; }
+.github-review-diagnostics { display: grid; gap: 5px; }
 .repository-diff-panel, .repository-history-panel, .verification-plan, .verification-evidence, .code-handoff-panel { min-width: 0; }
 .repository-diff-panel > header, .repository-history-panel > header, .verification-plan > header, .verification-evidence > header, .code-handoff-panel > header { min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border); }
 .repository-diff-panel > header > div, .repository-history-panel > header > div, .verification-plan > header > div, .verification-evidence > header > div, .code-handoff-panel > header > div { display: flex; align-items: center; gap: 8px; }

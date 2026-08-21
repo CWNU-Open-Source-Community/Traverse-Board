@@ -281,6 +281,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	fixture.api.eventStream = testEventStreamConfig(1, 100*time.Millisecond)
 	fixture.api.gitAdvancedController = &gitAdvancedControllerStub{}
 	fixture.api.gitAdvancedControlEnabled = true
+	fixture.api.githubReviewController = &githubReviewControllerStub{}
+	fixture.api.githubReviewControlEnabled = true
 	childRun, child, childAttempt, childModel :=
 		prepareOpenAPISpecialistCancellationTarget(t, fixture)
 	_, profileRun, err := application.NewRunService(fixture.store).Create(t.Context(),
@@ -670,6 +672,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		"{approval_id}":       approvalRecord.ID,
 		"{proposal_id}":       "controlled-command-proposal-openapi",
 		"{batch_delivery_id}": "batch-openapi-missing-0001",
+		"{connection_id}":     "github-connection-openapi",
 		"{attempt_id}":        uiAttemptID,
 		"{edit_id}":           fileEditRecord.ID,
 		"{job_id}":            scheduledSeed.Job.ID,
@@ -743,6 +746,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		} else if spec.OperationID == "queryDebugTimeline" ||
 			spec.OperationID == "exportDiagnosticBundle" {
 			requestPath += "?run_id=" + fixture.run.ID
+		} else if spec.OperationID == "getGitHubReviewProjection" {
+			requestPath += "?connection_id=github-connection-openapi"
 		}
 		t.Run(spec.OperationID, func(t *testing.T) {
 			var response *httptest.ResponseRecorder
@@ -817,6 +822,41 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 						`"approval_id":"approval-openapi","scope":{` +
 						`"capability_generation":"` + strings.Repeat("a", 64) + `",` +
 						`"lease_generation":1}}`
+				} else if spec.OperationID == "configureGitHubReviewConnection" {
+					body = `{"repository":{"host":"github.com","owner":"openai",` +
+						`"name":"prayu","full_name":"openai/prayu","private":false},` +
+						`"credential":{"name":"github-review-openapi",` +
+						`"kind":"fine_grained_pat"},"allowed_log_hosts":[],` +
+						`"write_enabled":false,"enabled":true,"expected_generation":0}`
+				} else if spec.OperationID == "beginGitHubReviewDeviceFlow" ||
+					spec.OperationID == "disconnectGitHubReviewCredential" {
+					body = `{}`
+				} else if spec.OperationID == "pollGitHubReviewDeviceFlow" {
+					body = `{"session_id":"github-device-openapi"}`
+				} else if spec.OperationID == "qualifyGitHubReviewConnection" ||
+					spec.OperationID == "fetchGitHubReviewSnapshot" {
+					body = `{"pull_request":118}`
+				} else if spec.OperationID == "buildGitHubReviewEvidence" {
+					body = `{"snapshot_id":"github-snapshot-openapi"}`
+				} else if spec.OperationID == "reviewGitHubReviewWrite" {
+					body = `{"connection_id":"github-connection-openapi",` +
+						`"snapshot_id":"github-snapshot-openapi",` +
+						`"operation_key":"github-write-openapi",` +
+						`"spec":{"protocol_version":"github-review-write.v1",` +
+						`"operation":"reply","identity":{"repository":{"host":"github.com",` +
+						`"owner":"openai","name":"prayu","full_name":"openai/prayu",` +
+						`"private":false},"number":118,"node_id":"PR_openapi",` +
+						`"state":"open","draft":false,"merged":false,"fork":false,` +
+						`"base_ref":"main","base_sha":"` + strings.Repeat("a", 40) + `",` +
+						`"head_ref":"feature","head_sha":"` + strings.Repeat("b", 40) + `",` +
+						`"merge_base_sha":"` + strings.Repeat("a", 40) + `",` +
+						`"updated_at":"2026-08-20T00:00:00Z"},` +
+						`"credential":{"name":"github-review-openapi",` +
+						`"kind":"fine_grained_pat"},"capability_generation":"` +
+						strings.Repeat("c", 64) + `","body":"review reply"}}`
+				} else if spec.OperationID == "executeGitHubReviewWrite" {
+					body = `{"operation_id":"github-write-openapi",` +
+						`"approval_id":"github-approval-openapi"}`
 				} else if spec.OperationID == "createContinuityCheckpoint" {
 					body = `{"title":"OpenAPI live checkpoint"}`
 				} else if spec.OperationID == "createWorkspaceCheckpoint" {

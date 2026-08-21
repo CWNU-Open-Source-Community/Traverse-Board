@@ -146,7 +146,7 @@ Desktop 设置页使用同一 API 显示 Server 和资格状态，不增加原�
 
 编辑文件、切换 branch/commit、改变 dirty 集合、换 Workspace root、重启或崩溃恢复 Server、改变协商 capability，都会使旧证据成为 `stale`。Server 不健康或运行时不存在时为 `unavailable`；Server 返回了被丢弃的越界项、fallback diagnostics、截断页或其他 warning 时为 `partial`。只有所有绑定仍相同才是 `current`。
 
-`review@1.4.0` 和 `focused-checks@1.1.0` 会消费这些状态，但语义 Server 结果始终只是 `semantic_language_server` 级证据，不是代码正确性证明、测试通过、审阅批准或写入授权。
+`review@1.5.0` 和 `focused-checks@1.2.0` 会消费这些状态及 GitHub Review evidence graph，但语义 Server 结果始终只是 `semantic_language_server` 级证据，不是代码正确性证明、测试通过、审阅批准或写入授权。
 
 ## 生命周期与安全边界 / Lifecycle and trust boundary
 

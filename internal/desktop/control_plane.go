@@ -108,6 +108,7 @@ type ControlPlaneConfig struct {
 	DockerExecutionEnabled                  bool
 	CodeIntelConfigPath                     string
 	GitAdvancedControlEnabled               bool
+	GitHubReviewControlEnabled              bool
 	GitManagedWorktreeRoot                  string
 	AppVersion                              string
 	UIHandler                               http.Handler
@@ -134,10 +135,17 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop Git advanced control requires operator approval permission control")
 	}
-	if strings.TrimSpace(config.GitManagedWorktreeRoot) != "" &&
-		!config.GitAdvancedControlEnabled {
+	if config.GitHubReviewControlEnabled &&
+		(!config.ExecutionPermissionControlEnabled ||
+			!config.ExecutionPermissionCapabilities.OperatorApprovalEnabled ||
+			config.ControlToken == "") {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
-			"desktop managed Git worktree root requires Git advanced control")
+			"desktop GitHub review control requires operator approval permission control")
+	}
+	if strings.TrimSpace(config.GitManagedWorktreeRoot) != "" &&
+		!config.GitAdvancedControlEnabled && !config.GitHubReviewControlEnabled {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"desktop managed Git worktree root requires Git advanced or GitHub review control")
 	}
 	if config.BatchDeliveryHostValidationEnabled &&
 		(!config.ExecutionPermissionControlEnabled ||
@@ -253,7 +261,8 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 			"desktop Workspace checkpoint startup reconciliation failed", err)
 	}
 	var gitAdvanced *application.GitAdvancedService
-	if config.GitAdvancedControlEnabled {
+	var githubReview *application.GitHubReviewService
+	if config.GitAdvancedControlEnabled || config.GitHubReviewControlEnabled {
 		managedRoot := strings.TrimSpace(config.GitManagedWorktreeRoot)
 		if managedRoot == "" {
 			managedRoot = filepath.Join(home, "worktrees")
@@ -263,16 +272,31 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 			_ = stateStore.Close()
 			return nil, gitErr
 		}
-		gitAdvanced, gitErr = application.NewGitAdvancedService(stateStore, gitExecutor,
-			config.ExecutionPermissionCapabilities, workspaceCheckpoints)
-		if gitErr != nil {
-			_ = stateStore.Close()
-			return nil, gitErr
+		if config.GitAdvancedControlEnabled {
+			gitAdvanced, gitErr = application.NewGitAdvancedService(stateStore, gitExecutor,
+				config.ExecutionPermissionCapabilities, workspaceCheckpoints)
+			if gitErr != nil {
+				_ = stateStore.Close()
+				return nil, gitErr
+			}
+			if _, gitErr = gitAdvanced.ReconcileStartup(context.Background(), 500); gitErr != nil {
+				_ = stateStore.Close()
+				return nil, apperror.Wrap(apperror.CodeUnavailable,
+					"desktop Git advanced startup reconciliation failed", gitErr)
+			}
 		}
-		if _, gitErr = gitAdvanced.ReconcileStartup(context.Background(), 500); gitErr != nil {
-			_ = stateStore.Close()
-			return nil, apperror.Wrap(apperror.CodeUnavailable,
-				"desktop Git advanced startup reconciliation failed", gitErr)
+		if config.GitHubReviewControlEnabled {
+			githubReview, gitErr = application.NewGitHubReviewService(stateStore,
+				credentialStore, gitExecutor, config.ExecutionPermissionCapabilities)
+			if gitErr != nil {
+				_ = stateStore.Close()
+				return nil, gitErr
+			}
+			if _, gitErr = githubReview.ReconcileStartup(context.Background(), 500); gitErr != nil {
+				_ = stateStore.Close()
+				return nil, apperror.Wrap(apperror.CodeUnavailable,
+					"desktop GitHub review startup reconciliation failed", gitErr)
+			}
 		}
 	}
 	batchDelivery := application.NewBatchDeliveryService(stateStore).
@@ -549,6 +573,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		EmbeddedAnalyzerExecutionEnabled:        config.EmbeddedAnalyzerExecutionEnabled,
 		WorkspaceCheckpointControlEnabled:       config.ControlToken != "",
 		GitAdvancedControlEnabled:               config.GitAdvancedControlEnabled,
+		GitHubReviewControlEnabled:              config.GitHubReviewControlEnabled,
 		BatchDeliveryControlEnabled:             config.BatchDeliveryControlEnabled,
 		BatchDeliveryHostValidationEnabled:      config.BatchDeliveryHostValidationEnabled,
 		ExtensionControlEnabled:                 config.ControlToken != "",
@@ -579,6 +604,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		EmbeddedAnalyzerExecutionController: embeddedAnalyzerExecution,
 		WorkspaceCheckpointController:       workspaceCheckpoints,
 		GitAdvancedController:               gitAdvanced,
+		GitHubReviewController:              githubReview,
 		BatchDeliveryController:             batchDelivery,
 		ExtensionController:                 extensionControl,
 		CodeIntelSource:                     codeIntelManager,

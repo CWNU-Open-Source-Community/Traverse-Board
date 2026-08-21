@@ -6,7 +6,31 @@ Last updated: 2026-08-21
 
 ## Resume Context
 
-当前检查点是 issue #117 / schema v123 的审批式高级 Git、冲突恢复与受管 worktree。
+当前检查点是 issue #118 / schema v124 的 GitHub Review Provider。默认关闭的
+`github-review-provider.v1` 使用 GitHub App Device Flow、OS credential reference、固定
+`X-GitHub-Api-Version: 2026-03-10` 与 exact installation/repository permission qualification。
+远端 PR/CI 内容经字节、分页、日志压缩包、Markdown/链接和 secret-shaped 清洗后形成不可变快照，
+再与 #116 LSP 及 #117 merge-base/diff/hunk/worktree/conflict 证据组成 Run/Workspace 隔离的
+`verified|partial|stale|unavailable|not_run` graph。模型仅有本地只读 list/read 工具。
+
+远端 reply、thread state、review 和 reviewer request 使用独立 preview、一次性 Approval、
+Code/Deliver 网络权限、capability generation 与 base/head/merge-base CAS；operation 在网络 I/O
+前持久化 running，恢复只观察 idempotency marker 或 exact target state，不重放。CLI、OpenAPI、
+Desktop 与 startup reconciliation 共用 Go Application；typed push/PR create/update 保留既有
+Repository authority。文档见 `docs/github-review.md` 与 ADR 0123。
+
+本切片最终拆分验证通过：Store、Application、HTTP API 与 CLI App 全量测试分别为
+`994.677s`、`565.790s`、`188.155s` 与 `128.640s`；GitHub Review 定向包、Store ledger/
+migration/race、Desktop-tag、`go vet` 与 module verify 通过。Web 为 66 files/289 tests，strict
+TypeScript、production build 与 0-vulnerability production npm audit 通过。OpenAPI 与 TypeScript
+连续生成字节稳定，当前为 155 paths / 172 operations / 469 schemas，SHA-256 分别为
+`d876d249996d3f296a12fd768eb9ed5fb9c253a781131455c9eed82f0545cf20` 与
+`313de1b90dd4c586d8b3711442f9dc1b3cf5be6047911b417d310c2374b83ca2`。尚未在一次性测试仓库以
+专用 GitHub App 做真实外部 smoke，发布准入仍要求把最终提交、installation/repository、权限、
+PR/CI 快照、一次写操作及恢复收据固定在同一验证记录中；本地测试不冒充该外部证据。
+
+上一检查点为 issue #117 / schema v123 的审批式高级 Git、冲突恢复与受管 worktree。
+
 `git-advanced.v1` 已定义严格 operation union、capability/preview/typed error/conflict/receipt，
 并将 hunk stage/unstage/revert、stash create/list/show/apply/pop/drop、rebase/cherry-pick
 start/continue/skip/abort、有界 bisect 与 worktree create/lock/unlock/remove/prune 接到同一

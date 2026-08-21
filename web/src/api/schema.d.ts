@@ -284,6 +284,150 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/github-review/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List GitHub review connections
+         * @description Returns repository, credential reference, fixed network scope, generation, and credential-store status. No token or secret value crosses the API boundary.
+         */
+        get: operations["listGitHubReviewConnections"];
+        put?: never;
+        /**
+         * Configure a GitHub review connection
+         * @description Creates or compare-and-swap updates one github.com repository binding. GitHub App Device Flow is preferred; only a credential reference and public client ID are persisted.
+         */
+        post: operations["configureGitHubReviewConnection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/github-review/connections/{connection_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect a GitHub review connection
+         * @description Returns the non-secret connection and OS credential-store status without resolving the token into the response.
+         */
+        get: operations["getGitHubReviewConnection"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/github-review/connections/{connection_id}/device": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Begin GitHub App Device Flow
+         * @description Returns a GitHub verification URI and short-lived user code. The device code remains process memory only.
+         */
+        post: operations["beginGitHubReviewDeviceFlow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/github-review/connections/{connection_id}/device-poll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Poll GitHub App Device Flow
+         * @description Polls one in-memory authorization session and writes the resulting access/refresh bundle only to the OS credential store.
+         */
+        post: operations["pollGitHubReviewDeviceFlow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/github-review/connections/{connection_id}/disconnect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete a GitHub review credential
+         * @description Deletes only the referenced OS credential-store entry; the durable repository configuration remains reusable.
+         */
+        post: operations["disconnectGitHubReviewCredential"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/github-review/connections/{connection_id}/fetch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fetch bounded PR and CI evidence
+         * @description Fetches and immutably stores sanitized PR metadata, bounded complete changed-file pagination, review threads, comments, checks, jobs, failed log excerpts, and Artifact metadata.
+         */
+        post: operations["fetchGitHubReviewSnapshot"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/github-review/connections/{connection_id}/qualify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Diagnose GitHub review eligibility
+         * @description Checks account, App installation, repository, PR, permissions, SSO, fixed API version, rate limit, and network scope with stable diagnostics.
+         */
+        post: operations["qualifyGitHubReviewConnection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -1646,6 +1790,86 @@ export interface paths {
          * @description Revalidates the active Run permission, lease generation, process capability, repository binding, target objects, selected hunks, conflicts, file impact, and recovery plan, then persists an immutable pending Approval source.
          */
         post: operations["reviewGitAdvancedOperation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/github-review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect GitHub review evidence and receipts
+         * @description Returns immutable sanitized snapshots, local evidence graphs, pending writes, and terminal receipts for one Code Surface Run.
+         */
+        get: operations["getGitHubReviewProjection"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/github-review/evidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bind a GitHub snapshot to local Git evidence
+         * @description Binds exact repo/PR/base/head/merge-base, changed files, stable hunks, worktree hashes, conflicts, and optional trusted LSP evidence. Drift becomes stale rather than current.
+         */
+        post: operations["buildGitHubReviewEvidence"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/github-review/execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Execute one approved GitHub write-back
+         * @description Rechecks Run phase, network permission, credential/capability generation, PR identity and remote state; hidden idempotency markers and recovery receipts prevent duplicate effects.
+         */
+        post: operations["executeGitHubReviewWrite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/github-review/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Review one exact GitHub write-back
+         * @description Requalifies capability and persists an exact reply, thread state, review, or reviewer request preview plus a separate one-time Approval.
+         */
+        post: operations["reviewGitHubReviewWrite"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5309,6 +5533,529 @@ export interface components {
             subject: string;
             untracked_commit?: string;
         };
+        GitHubReviewArtifactMetadata: {
+            /** Format: date-time */
+            created_at?: string;
+            digest?: string;
+            expired: boolean;
+            /** Format: date-time */
+            expires_at?: string;
+            /** Format: int64 */
+            id: number;
+            name: string;
+            /** Format: int64 */
+            size_bytes: number;
+        };
+        GitHubReviewCapabilitySnapshot: {
+            account_login: string;
+            api_host: string;
+            api_version: string;
+            /** Format: date-time */
+            captured_at: string;
+            credential: components["schemas"]["GitHubReviewCredentialReference"];
+            generation: string;
+            /** Format: int64 */
+            installation_id?: number;
+            logs: boolean;
+            permissions: {
+                [key: string]: string;
+            };
+            protocol_version: string;
+            push: boolean;
+            read: boolean;
+            reply: boolean;
+            repository: components["schemas"]["GitHubReviewRepositoryIdentity"];
+            request_reviewer: boolean;
+            resolve: boolean;
+            review: boolean;
+        };
+        GitHubReviewChangedFile: {
+            /** Format: int32 */
+            additions: number;
+            blob_url?: string;
+            /** Format: int32 */
+            changes: number;
+            /** Format: int32 */
+            deletions: number;
+            patch: components["schemas"]["GitHubReviewTextEvidence"];
+            path: string;
+            previous_path?: string;
+            raw_url?: string;
+            sha: string;
+            status: string;
+        };
+        GitHubReviewCheckRun: {
+            /** Format: date-time */
+            completed_at?: string;
+            conclusion?: string;
+            details_url?: string;
+            head_sha: string;
+            /** Format: int64 */
+            id: number;
+            name: string;
+            node_id?: string;
+            /** Format: date-time */
+            started_at?: string;
+            status: string;
+            summary: components["schemas"]["GitHubReviewTextEvidence"];
+            text: components["schemas"]["GitHubReviewTextEvidence"];
+            title: components["schemas"]["GitHubReviewTextEvidence"];
+        };
+        GitHubReviewCheckSuite: {
+            app?: string;
+            conclusion?: string;
+            /** Format: date-time */
+            created_at?: string;
+            head_sha: string;
+            /** Format: int64 */
+            id: number;
+            node_id?: string;
+            status: string;
+            /** Format: date-time */
+            updated_at?: string;
+        };
+        GitHubReviewComment: {
+            author: string;
+            body: components["schemas"]["GitHubReviewTextEvidence"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int64 */
+            id?: number;
+            node_id: string;
+            position: components["schemas"]["GitHubReviewPosition"];
+            thread_id?: string;
+            /** Format: date-time */
+            updated_at: string;
+            url?: string;
+        };
+        GitHubReviewConfigureResult: {
+            connection: components["schemas"]["GitHubReviewConnection"];
+            protocol_version: string;
+            replayed: boolean;
+        };
+        GitHubReviewConnection: {
+            client_id?: string;
+            /** Format: date-time */
+            created_at: string;
+            credential: components["schemas"]["GitHubReviewCredentialReference"];
+            enabled: boolean;
+            /** Format: int64 */
+            generation: number;
+            id: string;
+            network: components["schemas"]["GitHubReviewNetworkScope"];
+            protocol_version: string;
+            repository: components["schemas"]["GitHubReviewRepositoryIdentity"];
+            /** Format: date-time */
+            updated_at: string;
+        };
+        GitHubReviewCredentialReference: {
+            kind: string;
+            name: string;
+        };
+        GitHubReviewCredentialStatus: {
+            configured: boolean;
+            credential: components["schemas"]["GitHubReviewCredentialReference"];
+            /** Format: date-time */
+            expires_at?: string;
+            protocol_version: string;
+            /** Format: date-time */
+            refresh_expires_at?: string;
+            refreshable: boolean;
+            store_available: boolean;
+            store_kind: string;
+        };
+        GitHubReviewCredentialView: {
+            connection: components["schemas"]["GitHubReviewConnection"];
+            credential: components["schemas"]["GitHubReviewCredentialStatus"];
+            protocol_version: string;
+        };
+        GitHubReviewDeviceAuthorization: {
+            /** Format: date-time */
+            expires_at: string;
+            /** Format: int64 */
+            poll_interval_ms: number;
+            protocol_version: string;
+            session_id: string;
+            user_code: string;
+            verification_uri: string;
+        };
+        GitHubReviewDevicePollResult: {
+            configured: boolean;
+            credential: components["schemas"]["GitHubReviewCredentialReference"];
+            /** Format: date-time */
+            expires_at?: string;
+            /** Format: date-time */
+            next_poll_at?: string;
+            protocol_version: string;
+            session_id: string;
+            state: string;
+        };
+        GitHubReviewDiagnostic: {
+            code: string;
+            level: string;
+            message: string;
+            remediation?: string;
+        };
+        GitHubReviewEvidenceGraph: {
+            /** Format: date-time */
+            created_at: string;
+            fingerprint: string;
+            git: components["schemas"]["GitHubReviewGitEvidence"];
+            local: components["schemas"]["GitHubReviewLocalBinding"];
+            mappings: components["schemas"]["GitHubReviewPositionMapping"][];
+            omissions: string[];
+            protocol_version: string;
+            snapshot_fingerprint: string;
+            snapshot_id: string;
+            state: string;
+        };
+        GitHubReviewEvidenceRecord: {
+            graph: components["schemas"]["GitHubReviewEvidenceGraph"];
+            id: string;
+            run_id: string;
+            workspace_id: string;
+        };
+        GitHubReviewEvidenceResult: {
+            evidence: components["schemas"]["GitHubReviewEvidenceRecord"];
+            protocol_version: string;
+            replayed: boolean;
+        };
+        GitHubReviewFetchResult: {
+            protocol_version: string;
+            replayed: boolean;
+            snapshot: components["schemas"]["GitHubReviewSnapshot"];
+        };
+        GitHubReviewGitEvidence: {
+            call_chain_sha256: string;
+            changed_files: string[];
+            complete: boolean;
+            conflict_active: boolean;
+            /** Format: int64 */
+            diff_bytes: number;
+            diff_sha256: string;
+            diff_stat: string;
+            hunk_ids: string[];
+            omissions: string[];
+            protocol_version: string;
+        };
+        GitHubReviewJobStep: {
+            /** Format: date-time */
+            completed_at?: string;
+            conclusion?: string;
+            name: string;
+            /** Format: int32 */
+            number: number;
+            /** Format: date-time */
+            started_at?: string;
+            status: string;
+        };
+        GitHubReviewLocalBinding: {
+            /** Format: date-time */
+            captured_at: string;
+            file_sha256: {
+                [key: string]: string;
+            };
+            head_sha: string;
+            index_sha256: string;
+            merge_base_sha: string;
+            repository_sha256: string;
+            status_sha256: string;
+            worktree_sha256: string;
+        };
+        GitHubReviewNetworkScope: {
+            allowed_log_hosts: string[];
+            api_host: string;
+            host: string;
+            oauth_host: string;
+            read_enabled: boolean;
+            write_enabled: boolean;
+        };
+        GitHubReviewPageEvidence: {
+            complete: boolean;
+            /** Format: int32 */
+            items_read: number;
+            next_cursor_hash?: string;
+            omitted_reason?: string;
+            /** Format: int32 */
+            pages_read: number;
+            resource: string;
+        };
+        GitHubReviewPosition: {
+            commit_sha: string;
+            /** Format: int32 */
+            line?: number;
+            original_commit_sha?: string;
+            /** Format: int32 */
+            original_line?: number;
+            /** Format: int32 */
+            original_position?: number;
+            path: string;
+            side?: string;
+            /** Format: int32 */
+            start_line?: number;
+            start_side?: string;
+        };
+        GitHubReviewPositionMapping: {
+            comment_id: string;
+            hunk_id?: string;
+            /** Format: int32 */
+            line?: number;
+            local_file_sha256?: string;
+            /** Format: int32 */
+            original_line?: number;
+            path: string;
+            reasons: string[];
+            remote_commit_sha: string;
+            semantic: components["schemas"]["GitHubReviewSemanticEvidence"];
+            side?: string;
+            state: string;
+            thread_id?: string;
+        };
+        GitHubReviewProjection: {
+            connection: components["schemas"]["GitHubReviewConnection"];
+            credential: components["schemas"]["GitHubReviewCredentialStatus"];
+            evidence: components["schemas"]["GitHubReviewEvidenceRecord"][];
+            protocol_version: string;
+            run_id: string;
+            snapshots: components["schemas"]["GitHubReviewSnapshot"][];
+            writes: components["schemas"]["GitHubReviewWriteRecord"][];
+        };
+        GitHubReviewPullRequestIdentity: {
+            base_ref: string;
+            base_sha: string;
+            draft: boolean;
+            fork: boolean;
+            head_ref: string;
+            head_sha: string;
+            merge_base_sha: string;
+            merged: boolean;
+            node_id: string;
+            /** Format: int64 */
+            number: number;
+            repository: components["schemas"]["GitHubReviewRepositoryIdentity"];
+            state: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        GitHubReviewQualification: {
+            authenticated: boolean;
+            capability: components["schemas"]["GitHubReviewCapabilitySnapshot"];
+            /** Format: date-time */
+            checked_at: string;
+            credential_configured: boolean;
+            diagnostics: components["schemas"]["GitHubReviewDiagnostic"][];
+            eligible: boolean;
+            host_reachable: boolean;
+            network_allowed: boolean;
+            protocol_version: string;
+            pull_request_accessible: boolean;
+            rate_limit: components["schemas"]["GitHubReviewRateLimit"];
+            repository_accessible: boolean;
+            sso_authorized: boolean;
+        };
+        GitHubReviewQualificationResult: {
+            connection: components["schemas"]["GitHubReviewConnection"];
+            protocol_version: string;
+            qualification: components["schemas"]["GitHubReviewQualification"];
+        };
+        GitHubReviewRateLimit: {
+            /** Format: int32 */
+            limit: number;
+            /** Format: int32 */
+            remaining: number;
+            /** Format: date-time */
+            reset_at: string;
+            resource?: string;
+            /** Format: date-time */
+            retry_at?: string;
+            /** Format: int32 */
+            used: number;
+        };
+        GitHubReviewRepositoryIdentity: {
+            full_name: string;
+            host: string;
+            name: string;
+            node_id?: string;
+            owner: string;
+            private: boolean;
+        };
+        GitHubReviewReview: {
+            author: string;
+            body: components["schemas"]["GitHubReviewTextEvidence"];
+            commit_sha?: string;
+            /** Format: int64 */
+            id?: number;
+            node_id: string;
+            state: string;
+            /** Format: date-time */
+            submitted_at?: string;
+        };
+        GitHubReviewReviewThread: {
+            comments: components["schemas"]["GitHubReviewComment"][];
+            id: string;
+            /** Format: int32 */
+            line?: number;
+            outdated: boolean;
+            path: string;
+            resolved: boolean;
+            side?: string;
+            /** Format: int32 */
+            start_line?: number;
+            start_side?: string;
+        };
+        GitHubReviewSemanticEvidence: {
+            callees: string[];
+            callers: string[];
+            capability_fingerprint?: string;
+            definitions: string[];
+            diagnostics: string[];
+            omissions: string[];
+            query_fingerprints: string[];
+            references: string[];
+            server_generation?: string;
+            state: string;
+        };
+        GitHubReviewSnapshot: {
+            artifacts: components["schemas"]["GitHubReviewArtifactMetadata"][];
+            author: string;
+            body: components["schemas"]["GitHubReviewTextEvidence"];
+            capability: components["schemas"]["GitHubReviewCapabilitySnapshot"];
+            check_runs: components["schemas"]["GitHubReviewCheckRun"][];
+            check_suites: components["schemas"]["GitHubReviewCheckSuite"][];
+            /** Format: date-time */
+            fetched_at: string;
+            files: components["schemas"]["GitHubReviewChangedFile"][];
+            fingerprint: string;
+            id: string;
+            identity: components["schemas"]["GitHubReviewPullRequestIdentity"];
+            jobs: components["schemas"]["GitHubReviewWorkflowJob"][];
+            loose_comments: components["schemas"]["GitHubReviewComment"][];
+            omissions: string[];
+            pagination: components["schemas"]["GitHubReviewPageEvidence"][];
+            protocol_version: string;
+            rate_limit: components["schemas"]["GitHubReviewRateLimit"];
+            requested_reviewers: string[];
+            reviews: components["schemas"]["GitHubReviewReview"][];
+            state: string;
+            threads: components["schemas"]["GitHubReviewReviewThread"][];
+            title: components["schemas"]["GitHubReviewTextEvidence"];
+        };
+        GitHubReviewTextEvidence: {
+            /** Format: int32 */
+            original_bytes: number;
+            redacted: boolean;
+            sha256: string;
+            /** Format: int32 */
+            stored_bytes: number;
+            text: string;
+            truncated: boolean;
+            untrusted: boolean;
+        };
+        GitHubReviewWorkflowJob: {
+            /** Format: date-time */
+            completed_at?: string;
+            conclusion?: string;
+            failed_log: components["schemas"]["GitHubReviewTextEvidence"];
+            head_sha: string;
+            /** Format: int64 */
+            id: number;
+            log_reason?: string;
+            log_state: string;
+            name: string;
+            /** Format: int64 */
+            run_id: number;
+            /** Format: date-time */
+            started_at?: string;
+            status: string;
+            steps: components["schemas"]["GitHubReviewJobStep"][];
+            url?: string;
+        };
+        GitHubReviewWriteExecuteResult: {
+            operation: components["schemas"]["GitHubReviewWriteRecord"];
+            protocol_version: string;
+            receipt: components["schemas"]["GitHubReviewWriteReceipt"];
+            replayed: boolean;
+        };
+        GitHubReviewWritePreview: {
+            approval_fingerprint: string;
+            body_sha256?: string;
+            body_summary?: string;
+            capability_generation: string;
+            /** Format: date-time */
+            created_at: string;
+            credential: components["schemas"]["GitHubReviewCredentialReference"];
+            id: string;
+            idempotency_marker: string;
+            identity: components["schemas"]["GitHubReviewPullRequestIdentity"];
+            local_change_summary?: string;
+            operation: string;
+            protocol_version: string;
+            review_event?: string;
+            reviewers: string[];
+            target_id?: string;
+            validation_summary?: string;
+        };
+        GitHubReviewWriteReceipt: {
+            /** Format: date-time */
+            completed_at: string;
+            error_code?: string;
+            error_summary?: string;
+            id: string;
+            idempotency_marker: string;
+            identity: components["schemas"]["GitHubReviewPullRequestIdentity"];
+            operation: string;
+            preview_id: string;
+            protocol_version: string;
+            recovered: boolean;
+            result_id?: string;
+            result_url?: string;
+            /** Format: date-time */
+            started_at: string;
+            status: string;
+            target_id?: string;
+        };
+        GitHubReviewWriteRecord: {
+            approval_fingerprint: string;
+            approval_id?: string;
+            /** Format: date-time */
+            completed_at?: string;
+            connection_id: string;
+            /** Format: date-time */
+            created_at: string;
+            error_code?: string;
+            id: string;
+            operation_key_sha256: string;
+            preview: components["schemas"]["GitHubReviewWritePreview"];
+            protocol_version: string;
+            receipt: components["schemas"]["GitHubReviewWriteReceipt"];
+            request_fingerprint: string;
+            run_id: string;
+            session_id: string;
+            /** Format: date-time */
+            started_at?: string;
+            status: string;
+            workspace_id: string;
+        };
+        GitHubReviewWriteReviewResult: {
+            approval: components["schemas"]["Record"];
+            operation: components["schemas"]["GitHubReviewWriteRecord"];
+            preview: components["schemas"]["GitHubReviewWritePreview"];
+            protocol_version: string;
+            replayed: boolean;
+        };
+        GitHubReviewWriteSpec: {
+            body?: string;
+            capability_generation: string;
+            credential: components["schemas"]["GitHubReviewCredentialReference"];
+            identity: components["schemas"]["GitHubReviewPullRequestIdentity"];
+            local_change_summary?: string;
+            operation: string;
+            protocol_version: string;
+            review_event?: string;
+            reviewers: string[];
+            target_id?: string;
+            validation_summary?: string;
+        };
         HarnessAvailability: {
             ExpiresAt: string;
             JSONStrategy: string;
@@ -6992,6 +7739,7 @@ export interface components {
             file_edit_review_enabled: boolean;
             full_cdp_debug_enabled: boolean;
             git_advanced_control_enabled: boolean;
+            github_review_control_enabled: boolean;
             host_command_proposal_control_enabled: boolean;
             model_control_enabled: boolean;
             operator_approval_enabled: boolean;
@@ -8456,6 +9204,38 @@ export interface components {
             scope: components["schemas"]["GitAdvancedScope"];
             spec: components["schemas"]["GitAdvancedSpec"];
         };
+        githubReviewConfigureView: {
+            allowed_log_hosts: string[];
+            client_id?: string;
+            connection_id?: string;
+            credential: components["schemas"]["GitHubReviewCredentialReference"];
+            enabled: boolean;
+            /** Format: int64 */
+            expected_generation: number;
+            repository: components["schemas"]["GitHubReviewRepositoryIdentity"];
+            write_enabled: boolean;
+        };
+        githubReviewDevicePollView: {
+            session_id: string;
+        };
+        githubReviewEmptyView: Record<string, never>;
+        githubReviewEvidenceView: {
+            snapshot_id: string;
+        };
+        githubReviewPullRequestView: {
+            /** Format: int64 */
+            pull_request: number;
+        };
+        githubReviewWriteExecuteView: {
+            approval_id: string;
+            operation_id: string;
+        };
+        githubReviewWriteReviewView: {
+            connection_id: string;
+            operation_key: string;
+            snapshot_id: string;
+            spec: components["schemas"]["GitHubReviewWriteSpec"];
+        };
         projectInstructionRefreshRequestView: {
             confirm: boolean;
             expected_fingerprint: string;
@@ -9189,6 +9969,329 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["ExtensionPluginInstallationView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listGitHubReviewConnections: {
+        parameters: {
+            query?: {
+                /** @description Return only enabled connections */
+                enabled_only?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["GitHubReviewCredentialView"][];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    configureGitHubReviewConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["githubReviewConfigureView"];
+            };
+        };
+        responses: {
+            /** @description Resource created or idempotently replayed */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["GitHubReviewConfigureResult"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getGitHubReviewConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description GitHub review connection identity */
+                connection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["GitHubReviewCredentialView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    beginGitHubReviewDeviceFlow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description GitHub review connection identity */
+                connection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["githubReviewEmptyView"];
+            };
+        };
+        responses: {
+            /** @description Resource created or idempotently replayed */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["GitHubReviewDeviceAuthorization"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    pollGitHubReviewDeviceFlow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description GitHub review connection identity */
+                connection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["githubReviewDevicePollView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["GitHubReviewDevicePollResult"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    disconnectGitHubReviewCredential: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description GitHub review connection identity */
+                connection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["githubReviewEmptyView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["GitHubReviewCredentialView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    fetchGitHubReviewSnapshot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description GitHub review connection identity */
+                connection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["githubReviewPullRequestView"];
+            };
+        };
+        responses: {
+            /** @description Resource created or idempotently replayed */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["GitHubReviewFetchResult"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    qualifyGitHubReviewConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description GitHub review connection identity */
+                connection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["githubReviewPullRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["GitHubReviewQualificationResult"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";
@@ -12175,6 +13278,177 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["GitAdvancedReviewResult"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getGitHubReviewProjection: {
+        parameters: {
+            query: {
+                /** @description Exact connection identity */
+                connection_id: string;
+                /** @description Optional PR number */
+                pull_request?: number;
+                /** @description Maximum records */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["GitHubReviewProjection"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    buildGitHubReviewEvidence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["githubReviewEvidenceView"];
+            };
+        };
+        responses: {
+            /** @description Resource created or idempotently replayed */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["GitHubReviewEvidenceResult"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    executeGitHubReviewWrite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["githubReviewWriteExecuteView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["GitHubReviewWriteExecuteResult"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    reviewGitHubReviewWrite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["githubReviewWriteReviewView"];
+            };
+        };
+        responses: {
+            /** @description Resource created or idempotently replayed */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["GitHubReviewWriteReviewResult"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";

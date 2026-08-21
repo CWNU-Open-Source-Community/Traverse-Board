@@ -12,6 +12,7 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/fileedit"
+	"cyberagent-workbench/internal/githubreview"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/session"
@@ -32,6 +33,11 @@ type AgentCodeToolExecutor struct {
 	store   AgentCodeToolStore
 	manager *fileedit.Manager
 	apply   *FileEditApplyService
+}
+
+type agentCodeGitHubEvidenceStore interface {
+	ListGitHubReviewEvidence(context.Context, string, int) ([]githubreview.EvidenceRecord, error)
+	GetGitHubReviewEvidence(context.Context, string) (githubreview.EvidenceRecord, bool, error)
 }
 
 func NewAgentCodeToolExecutor(store AgentCodeToolStore,
@@ -111,6 +117,44 @@ func (e *AgentCodeToolExecutor) ExecuteAgentCode(ctx context.Context,
 		value = result
 		metadata["result_count"] = fmt.Sprint(len(result.Matches))
 		metadata["truncated"] = fmt.Sprint(result.Truncated)
+	case toolgateway.GitHubEvidenceListTool:
+		var input toolgateway.GitHubEvidenceListPayload
+		if err := json.Unmarshal(payload, &input); err != nil {
+			return toolgateway.AgentCodeExecutionResult{}, err
+		}
+		githubStore, ok := e.store.(agentCodeGitHubEvidenceStore)
+		if !ok {
+			return toolgateway.AgentCodeExecutionResult{}, apperror.New(
+				apperror.CodeFailedPrecondition, "GitHub review evidence store is unavailable")
+		}
+		result, err := githubStore.ListGitHubReviewEvidence(ctx, scope.RunID, input.Limit)
+		if err != nil {
+			return toolgateway.AgentCodeExecutionResult{}, apperror.Normalize(err)
+		}
+		value = result
+		metadata["result_count"] = fmt.Sprint(len(result))
+		metadata["trust"] = "untrusted_remote_data"
+	case toolgateway.GitHubEvidenceReadTool:
+		var input toolgateway.GitHubEvidenceReadPayload
+		if err := json.Unmarshal(payload, &input); err != nil {
+			return toolgateway.AgentCodeExecutionResult{}, err
+		}
+		githubStore, ok := e.store.(agentCodeGitHubEvidenceStore)
+		if !ok {
+			return toolgateway.AgentCodeExecutionResult{}, apperror.New(
+				apperror.CodeFailedPrecondition, "GitHub review evidence store is unavailable")
+		}
+		result, found, err := githubStore.GetGitHubReviewEvidence(ctx, input.EvidenceID)
+		if err != nil {
+			return toolgateway.AgentCodeExecutionResult{}, apperror.Normalize(err)
+		}
+		if !found || result.RunID != scope.RunID || result.WorkspaceID != scope.WorkspaceID {
+			return toolgateway.AgentCodeExecutionResult{}, apperror.New(
+				apperror.CodeNotFound, "GitHub review evidence was not found for this Run")
+		}
+		value = result
+		metadata["evidence_id"] = result.ID
+		metadata["trust"] = "untrusted_remote_data"
 	case toolgateway.WorkspaceChangeTool:
 		var input toolgateway.WorkspaceChangePayload
 		if err := json.Unmarshal(payload, &input); err != nil {

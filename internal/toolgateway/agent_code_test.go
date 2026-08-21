@@ -18,8 +18,8 @@ func TestAgentCodeCapabilityMatrix(t *testing.T) {
 		ModeRevision: 1, PermissionRevision: 1}
 
 	plan := AgentCodeCapabilities(base)
-	if availableAgentCodeCount(plan) != 4 {
-		t.Fatalf("Code/Plan must expose exactly four read tools: %#v", plan)
+	if availableAgentCodeCount(plan) != 6 {
+		t.Fatalf("Code/Plan must expose exactly six bounded read tools: %#v", plan)
 	}
 	for _, tool := range plan.Tools {
 		if tool.ReadOnly != tool.Available {
@@ -37,7 +37,7 @@ func TestAgentCodeCapabilityMatrix(t *testing.T) {
 
 	reviewScope := deliverScope
 	reviewScope.Profile = domain.ProfileReview
-	if availableAgentCodeCount(AgentCodeCapabilities(reviewScope)) != 4 {
+	if availableAgentCodeCount(AgentCodeCapabilities(reviewScope)) != 6 {
 		t.Fatal("Review profile received workspace mutation tools")
 	}
 	cyberScope := deliverScope
@@ -113,6 +113,14 @@ func TestAgentCodePayloadsAreStrictAndBounded(t *testing.T) {
 	if _, err := NormalizeAgentCodePayload(WorkspaceGrepTool,
 		json.RawMessage(secretQuery)); err == nil {
 		t.Fatal("secret-shaped read argument was accepted for durable persistence")
+	}
+	if _, err := NormalizeAgentCodePayload(GitHubEvidenceListTool,
+		json.RawMessage(`{"version":"agent-code-tools.v1","limit":51}`)); err == nil {
+		t.Fatal("oversized GitHub evidence list was accepted")
+	}
+	if _, err := NormalizeAgentCodePayload(GitHubEvidenceReadTool,
+		json.RawMessage(`{"version":"agent-code-tools.v1","evidence_id":"ghg-1","token":"secret"}`)); err == nil {
+		t.Fatal("unknown GitHub evidence argument was accepted")
 	}
 }
 

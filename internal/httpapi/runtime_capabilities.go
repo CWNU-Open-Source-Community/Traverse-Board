@@ -78,6 +78,7 @@ type RuntimeCapabilitiesView struct {
 	EmbeddedAnalyzerExecutionEnabled   bool                         `json:"embedded_analyzer_execution_enabled"`
 	WorkspaceCheckpointControlEnabled  bool                         `json:"workspace_checkpoint_control_enabled"`
 	GitAdvancedControlEnabled          bool                         `json:"git_advanced_control_enabled"`
+	GitHubReviewControlEnabled         bool                         `json:"github_review_control_enabled"`
 	BatchDeliveryControlEnabled        bool                         `json:"batch_delivery_control_enabled"`
 	BatchDeliveryHostValidationEnabled bool                         `json:"batch_delivery_host_validation_enabled"`
 	UIEvidenceControlEnabled           bool                         `json:"ui_evidence_control_enabled"`
@@ -182,6 +183,7 @@ func (a *API) runtimeCapabilities(request *http.Request) (any, *Page, error) {
 		EmbeddedAnalyzerExecutionEnabled:   a.embeddedAnalyzerExecutionEnabled,
 		WorkspaceCheckpointControlEnabled:  a.workspaceCheckpointControlEnabled,
 		GitAdvancedControlEnabled:          a.gitAdvancedControlEnabled,
+		GitHubReviewControlEnabled:         a.githubReviewControlEnabled,
 		BatchDeliveryControlEnabled:        a.batchDeliveryControlEnabled,
 		BatchDeliveryHostValidationEnabled: a.batchDeliveryHostValidationEnabled,
 		UIEvidenceControlEnabled:           a.uiEvidenceControlEnabled,

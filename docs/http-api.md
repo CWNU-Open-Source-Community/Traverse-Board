@@ -407,6 +407,10 @@ concurrent start, conflict, protected/shared history, unsafe repository, or inte
 execution is a typed non-success response and is never silently retried. Operational examples
 and recovery limitations are in [Advanced Git Workflows](git-advanced.md).
 
+## GitHub Review API / GitHub 审阅 API
+
+Schema v124 adds default-off `/api/v1/github-review/connections...` and `/api/v1/runs/{run_id}/github-review...` routes. GET routes use the read bearer and expose only non-secret connection status plus sanitized immutable evidence/receipts. Configure, Device Flow, disconnect, qualify/fetch, evidence binding, write preview and execution require the control bearer and `--enable-github-review`; writes additionally require an exact one-time Approval and current Code/Deliver network permission. Request bodies are closed, duplicate-key rejecting and bounded. The generated [OpenAPI document](openapi.json) is the canonical field/response contract; setup and recovery are in [GitHub Review Provider](github-review.md).
+
 ## Batch Delivery API
 
 Schema v118 exposes durable `batch-delivery.v1` plans through the read bearer and keeps
@@ -726,9 +730,9 @@ cyberagent api openapi
 cyberagent api openapi --output docs/openapi.json
 ```
 
-运行时的 `/api/v1/openapi.json` 返回同一份原始文档，仍要求 loopback 与 read Bearer 认证，不接受 query 或 body。它使用 `application/vnd.oai.openapi+json`，不套普通 `api.v1` envelope。当前契约有 144 个 path、160 个 operation 和 419 个 schema。测试逐条命中公开 handler，并确认普通 DTO 不包含 Workspace root、Artifact/Skill/Session 正文、模型输出、工具参数、私有 lifecycle、operation/fencing/lease owner、API key、Provider Base URL 或环境变量名。batch delivery DTO 还明确排除 child/integration root、owner-token digest 与 operation/request fingerprint；明文 owner token 只在 Prepare/rotation control 响应中返回一次。
+运行时的 `/api/v1/openapi.json` 返回同一份原始文档，仍要求 loopback 与 read Bearer 认证，不接受 query 或 body。它使用 `application/vnd.oai.openapi+json`，不套普通 `api.v1` envelope。当前契约有 155 个 path、172 个 operation 和 469 个 schema。测试逐条命中公开 handler，并确认普通 DTO 不包含 Workspace root、Artifact/Skill/Session 正文、模型输出、工具参数、私有 lifecycle、operation/fencing/lease owner、API key、Provider Base URL 或环境变量名。batch delivery DTO 还明确排除 child/integration root、owner-token digest 与 operation/request fingerprint；明文 owner token 只在 Prepare/rotation control 响应中返回一次。
 
-The runtime `/api/v1/openapi.json` returns the same raw document under the loopback and read-bearer boundary and accepts neither a query nor a body. It uses `application/vnd.oai.openapi+json` rather than the ordinary `api.v1` envelope. The contract contains 144 paths, 160 operations, and 419 schemas. Tests exercise every handler and verify that ordinary DTOs omit Workspace roots, Artifact/Skill/Session bodies, model output, Tool arguments, private lifecycle, operation/fencing/lease-owner identities, API keys, Provider base URLs, and environment-variable names. Batch-delivery DTOs additionally omit child/integration roots, owner-token digests, and operation/request fingerprints; a plaintext owner token appears only once in a prepare/rotation control response.
+The runtime `/api/v1/openapi.json` returns the same raw document under the loopback and read-bearer boundary and accepts neither a query nor a body. It uses `application/vnd.oai.openapi+json` rather than the ordinary `api.v1` envelope. The contract contains 155 paths, 172 operations, and 469 schemas. Tests exercise every handler and verify that ordinary DTOs omit Workspace roots, Artifact/Skill/Session bodies, model output, Tool arguments, private lifecycle, operation/fencing/lease-owner identities, API keys, Provider base URLs, and environment-variable names. Batch-delivery DTOs additionally omit child/integration roots, owner-token digests, and operation/request fingerprints; a plaintext owner token appears only once in a prepare/rotation control response.
 
 ## 主动取消 / Active-Call Cancellation
 

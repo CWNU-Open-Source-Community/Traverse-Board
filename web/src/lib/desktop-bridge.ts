@@ -69,6 +69,7 @@ export interface DesktopConnectionBootstrap {
   embedded_analyzer_execution_enabled: boolean;
   workspace_checkpoint_control_enabled: boolean;
   git_advanced_control_enabled: boolean;
+  github_review_control_enabled: boolean;
   batch_delivery_control_enabled: boolean;
   batch_delivery_host_validation_enabled: boolean;
   ui_evidence_control_enabled: boolean;
@@ -710,6 +711,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     "evidence_attachment_enabled",
 	"verification_evidence_enabled", "embedded_analyzer_execution_enabled",
 	"workspace_checkpoint_control_enabled", "git_advanced_control_enabled",
+	"github_review_control_enabled",
 	"batch_delivery_control_enabled",
 	"batch_delivery_host_validation_enabled", "ui_evidence_control_enabled",
     "user_terminal_enabled", "agent_terminal_input_default",
@@ -766,6 +768,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     typeof value.embedded_analyzer_execution_enabled === "boolean" &&
     typeof value.workspace_checkpoint_control_enabled === "boolean" &&
     typeof value.git_advanced_control_enabled === "boolean" &&
+    typeof value.github_review_control_enabled === "boolean" &&
     typeof value.batch_delivery_control_enabled === "boolean" &&
     typeof value.batch_delivery_host_validation_enabled === "boolean" &&
     typeof value.ui_evidence_control_enabled === "boolean" &&
@@ -790,7 +793,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
       value.skill_installation_enabled ||
       value.evidence_attachment_enabled || value.verification_evidence_enabled ||
 	  value.embedded_analyzer_execution_enabled || value.workspace_checkpoint_control_enabled ||
-	  value.git_advanced_control_enabled ||
+	  value.git_advanced_control_enabled || value.github_review_control_enabled ||
 	  value.batch_delivery_control_enabled || value.batch_delivery_host_validation_enabled ||
 	  value.ui_evidence_control_enabled ||
 	  value.docker_execution_enabled ||
@@ -811,6 +814,8 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     (!value.git_advanced_control_enabled ||
       (value.execution_permission_control_enabled && value.operator_approval_enabled &&
         value.workspace_checkpoint_control_enabled)) &&
+    (!value.github_review_control_enabled ||
+      (value.execution_permission_control_enabled && value.operator_approval_enabled)) &&
     (!value.full_cdp_debug_enabled ||
       (value.browser_cdp_permission_control_enabled && value.debug_maximum_access_enabled)) &&
     (!value.ui_evidence_control_enabled ||
@@ -834,7 +839,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
       value.skill_installation_enabled ||
       value.evidence_attachment_enabled || value.verification_evidence_enabled ||
 	  value.embedded_analyzer_execution_enabled || value.workspace_checkpoint_control_enabled ||
-	  value.git_advanced_control_enabled ||
+	  value.git_advanced_control_enabled || value.github_review_control_enabled ||
 	  value.batch_delivery_control_enabled || value.batch_delivery_host_validation_enabled ||
 	  value.ui_evidence_control_enabled ||
 	  value.docker_execution_enabled ||

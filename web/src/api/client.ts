@@ -5,6 +5,19 @@ import {
   isGitAdvancedReviewResult,
   validGitAdvancedSpec,
 } from "./git-advanced";
+import {
+  parseGitHubDeviceAuthorization,
+  parseGitHubDevicePoll,
+  parseGitHubEvidence,
+  parseGitHubFetch,
+  parseGitHubProjection,
+  parseGitHubQualification,
+  parseGitHubReviewConfigure,
+  parseGitHubReviewConnections,
+  parseGitHubReviewCredential,
+  parseGitHubWriteExecute,
+  parseGitHubWriteReview,
+} from "./github-review";
 import type {
   ApprovalDecisionControlRequestView,
   ChildTaskAdmitRequestView,
@@ -70,6 +83,17 @@ import type {
   GitAdvancedReviewResultView,
   GitAdvancedScopeView,
   GitAdvancedSpecView,
+  GitHubReviewConfigureResultView,
+  GitHubReviewCredentialView,
+  GitHubReviewDeviceAuthorizationView,
+  GitHubReviewDevicePollResultView,
+  GitHubReviewEvidenceResultView,
+  GitHubReviewFetchResultView,
+  GitHubReviewProjectionView,
+  GitHubReviewQualificationResultView,
+  GitHubReviewWriteExecuteResultView,
+  GitHubReviewWriteReviewResultView,
+  GitHubReviewWriteSpecView,
   ModelAvailabilityView,
   ModelHarnessAvailabilityView,
   ModelHarnessQualificationRequestView,
@@ -202,6 +226,7 @@ export interface ClientCapabilities {
   embeddedAnalyzerExecutionEnabled?: boolean;
   workspaceCheckpointControlEnabled?: boolean;
   gitAdvancedControlEnabled?: boolean;
+  githubReviewControlEnabled?: boolean;
   batchDeliveryControlEnabled?: boolean;
   batchDeliveryHostValidationEnabled?: boolean;
   extensionControlEnabled?: boolean;
@@ -1523,7 +1548,7 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
     "danger_full_access_enabled", "debug_maximum_access_enabled",
     "evidence_attachment_enabled", "verification_evidence_enabled",
     "embedded_analyzer_execution_enabled", "workspace_checkpoint_control_enabled",
-    "git_advanced_control_enabled",
+    "git_advanced_control_enabled", "github_review_control_enabled",
     "batch_delivery_control_enabled", "batch_delivery_host_validation_enabled",
     "ui_evidence_control_enabled",
     "file_edit_apply_enabled", "file_edit_proposal_enabled",
@@ -1589,7 +1614,9 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
     (value.docker_execution_enabled && !value.execution_permission_control_enabled) ||
     (value.git_advanced_control_enabled &&
       (!value.execution_permission_control_enabled || !value.operator_approval_enabled ||
-        !value.workspace_checkpoint_control_enabled))) {
+        !value.workspace_checkpoint_control_enabled)) ||
+    (value.github_review_control_enabled &&
+      (!value.execution_permission_control_enabled || !value.operator_approval_enabled))) {
     throw new APIRequestError("Run wake worker capability response is invalid",
       "INVALID_RESPONSE", 502);
   }
@@ -1693,6 +1720,7 @@ export function clientCapabilitiesFromRuntime(value: RuntimeCapabilitiesView): C
     embeddedAnalyzerExecutionEnabled: value.embedded_analyzer_execution_enabled,
     workspaceCheckpointControlEnabled: value.workspace_checkpoint_control_enabled,
     gitAdvancedControlEnabled: value.git_advanced_control_enabled,
+    githubReviewControlEnabled: value.github_review_control_enabled,
     batchDeliveryControlEnabled: value.batch_delivery_control_enabled,
     batchDeliveryHostValidationEnabled: value.batch_delivery_host_validation_enabled,
     uiEvidenceControlEnabled: value.ui_evidence_control_enabled,
@@ -4251,6 +4279,7 @@ export class CyberAgentClient {
   readonly hasEmbeddedAnalyzerExecution: boolean;
   readonly hasWorkspaceCheckpointControl: boolean;
   readonly hasGitAdvancedControl: boolean;
+  readonly hasGitHubReviewControl: boolean;
   readonly hasBatchDeliveryControl: boolean;
   readonly hasBatchDeliveryHostValidation: boolean;
   readonly hasExtensionControl: boolean;
@@ -4315,6 +4344,10 @@ export class CyberAgentClient {
       this.hasExecutionPermissionControl &&
       (capabilities.operatorApprovalEnabled ?? false) &&
       this.hasWorkspaceCheckpointControl;
+    this.hasGitHubReviewControl = controlPresent &&
+      (capabilities.githubReviewControlEnabled ?? false) &&
+      this.hasExecutionPermissionControl &&
+      (capabilities.operatorApprovalEnabled ?? false);
     this.hasBatchDeliveryControl = controlPresent &&
       (capabilities.batchDeliveryControlEnabled ?? false);
     this.hasBatchDeliveryHostValidation = this.hasBatchDeliveryControl &&
@@ -4414,6 +4447,138 @@ export class CyberAgentClient {
       throw new APIRequestError("Git advanced execution result is invalid", "INVALID_RESPONSE", 502);
     }
     return value;
+  }
+
+  async githubReviewConnections(enabledOnly = false,
+    signal?: AbortSignal): Promise<GitHubReviewCredentialView[]> {
+    return parseGitHubReviewConnections(await this.get<unknown>(
+      "/github-review/connections", { enabled_only: enabledOnly ? "true" : undefined }, signal,
+    ));
+  }
+
+  async githubReviewCredential(connectionID: string,
+    signal?: AbortSignal): Promise<GitHubReviewCredentialView> {
+    if (!boundedIdentity(connectionID)) throw new Error("A normalized GitHub connection is required");
+    return parseGitHubReviewCredential(await this.get<unknown>(
+      `/github-review/connections/${encodeURIComponent(connectionID)}`, {}, signal,
+    ));
+  }
+
+  async configureGitHubReview(body: {
+    connection_id?: string;
+    repository: { host: "github.com"; owner: string; name: string; full_name: string; private: boolean };
+    credential: { name: string; kind: "github_app_device" | "oauth_user" | "fine_grained_pat" };
+    client_id?: string;
+    allowed_log_hosts: string[];
+    write_enabled: boolean;
+    enabled: boolean;
+    expected_generation: number;
+  }, signal?: AbortSignal): Promise<GitHubReviewConfigureResultView> {
+    if (!this.hasGitHubReviewControl || !boundedIdentity(body.repository.owner) ||
+      !boundedIdentity(body.repository.name) || body.repository.full_name !==
+      `${body.repository.owner}/${body.repository.name}` || !boundedIdentity(body.credential.name) ||
+      typeof body.write_enabled !== "boolean" || !Number.isSafeInteger(body.expected_generation) ||
+      body.expected_generation < 0) {
+      throw new Error("A bounded GitHub repository configuration is required");
+    }
+    return parseGitHubReviewConfigure(await this.sendControlRequest<unknown>(
+      "/github-review/connections", body, signal,
+    ));
+  }
+
+  async beginGitHubReviewDeviceFlow(connectionID: string,
+    signal?: AbortSignal): Promise<GitHubReviewDeviceAuthorizationView> {
+    if (!this.hasGitHubReviewControl || !boundedIdentity(connectionID)) {
+      throw new Error("GitHub review control and a connection are required");
+    }
+    return parseGitHubDeviceAuthorization(await this.sendControlRequest<unknown>(
+      `/github-review/connections/${encodeURIComponent(connectionID)}/device`, {}, signal,
+    ));
+  }
+
+  async pollGitHubReviewDeviceFlow(connectionID: string, sessionID: string,
+    signal?: AbortSignal): Promise<GitHubReviewDevicePollResultView> {
+    if (!this.hasGitHubReviewControl || !boundedIdentity(connectionID) ||
+      !boundedIdentity(sessionID)) throw new Error("A GitHub Device Flow session is required");
+    return parseGitHubDevicePoll(await this.sendControlRequest<unknown>(
+      `/github-review/connections/${encodeURIComponent(connectionID)}/device-poll`,
+      { session_id: sessionID }, signal,
+    ));
+  }
+
+  async disconnectGitHubReview(connectionID: string,
+    signal?: AbortSignal): Promise<GitHubReviewCredentialView> {
+    if (!this.hasGitHubReviewControl || !boundedIdentity(connectionID)) {
+      throw new Error("GitHub review control and a connection are required");
+    }
+    return parseGitHubReviewCredential(await this.sendControlRequest<unknown>(
+      `/github-review/connections/${encodeURIComponent(connectionID)}/disconnect`, {}, signal,
+    ));
+  }
+
+  async qualifyGitHubReview(connectionID: string, pullRequest: number,
+    signal?: AbortSignal): Promise<GitHubReviewQualificationResultView> {
+    if (!this.hasGitHubReviewControl || !boundedIdentity(connectionID) ||
+      !Number.isSafeInteger(pullRequest) || pullRequest < 1) throw new Error("A valid PR is required");
+    return parseGitHubQualification(await this.sendControlRequest<unknown>(
+      `/github-review/connections/${encodeURIComponent(connectionID)}/qualify`,
+      { pull_request: pullRequest }, signal,
+    ));
+  }
+
+  async fetchGitHubReview(connectionID: string, pullRequest: number,
+    signal?: AbortSignal): Promise<GitHubReviewFetchResultView> {
+    if (!this.hasGitHubReviewControl || !boundedIdentity(connectionID) ||
+      !Number.isSafeInteger(pullRequest) || pullRequest < 1) throw new Error("A valid PR is required");
+    return parseGitHubFetch(await this.sendControlRequest<unknown>(
+      `/github-review/connections/${encodeURIComponent(connectionID)}/fetch`,
+      { pull_request: pullRequest }, signal,
+    ));
+  }
+
+  async githubReviewProjection(runID: string, connectionID: string, pullRequest = 0,
+    signal?: AbortSignal): Promise<GitHubReviewProjectionView> {
+    if (!boundedIdentity(runID) || !boundedIdentity(connectionID) ||
+      !Number.isSafeInteger(pullRequest) || pullRequest < 0) throw new Error("Invalid GitHub projection scope");
+    return parseGitHubProjection(await this.get<unknown>(
+      `/runs/${encodeURIComponent(runID)}/github-review`, {
+        connection_id: connectionID, pull_request: pullRequest || undefined, limit: 100,
+      }, signal,
+    ), runID);
+  }
+
+  async buildGitHubReviewEvidence(runID: string, snapshotID: string,
+    signal?: AbortSignal): Promise<GitHubReviewEvidenceResultView> {
+    if (!this.hasGitHubReviewControl || !boundedIdentity(runID) || !boundedIdentity(snapshotID)) {
+      throw new Error("A Run and immutable GitHub snapshot are required");
+    }
+    return parseGitHubEvidence(await this.sendControlRequest<unknown>(
+      `/runs/${encodeURIComponent(runID)}/github-review/evidence`,
+      { snapshot_id: snapshotID }, signal,
+    ));
+  }
+
+  async reviewGitHubWrite(runID: string, body: { connection_id: string; snapshot_id: string;
+    operation_key: string; spec: GitHubReviewWriteSpecView },
+  signal?: AbortSignal): Promise<GitHubReviewWriteReviewResultView> {
+    if (!this.hasGitHubReviewControl || !boundedIdentity(runID) ||
+      !boundedIdentity(body.connection_id) || !boundedIdentity(body.snapshot_id) ||
+      !boundedIdentity(body.operation_key)) throw new Error("An exact GitHub write preview is required");
+    return parseGitHubWriteReview(await this.sendControlRequest<unknown>(
+      `/runs/${encodeURIComponent(runID)}/github-review/review`, body, signal,
+    ));
+  }
+
+  async executeGitHubWrite(runID: string, operationID: string, approvalID: string,
+    signal?: AbortSignal): Promise<GitHubReviewWriteExecuteResultView> {
+    if (!this.hasGitHubReviewControl || !boundedIdentity(runID) ||
+      !boundedIdentity(operationID) || !boundedIdentity(approvalID)) {
+      throw new Error("An approved GitHub write operation is required");
+    }
+    return parseGitHubWriteExecute(await this.sendControlRequest<unknown>(
+      `/runs/${encodeURIComponent(runID)}/github-review/execute`,
+      { operation_id: operationID, approval_id: approvalID }, signal,
+    ));
   }
 
   async extensionInventory(runID = "", signal?: AbortSignal): Promise<ExtensionInventoryView> {
