@@ -1,5 +1,5 @@
 name: Bug report / 缺陷报告
-description: Report a reproducible problem in Prayu / 报告可复现的 Prayu 问题
+description: Report a reproducible problem in Traverse Board / 报告可复现的针路簿问题
 title: "[Bug]: "
 labels:
   - bug
@@ -7,14 +7,14 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for helping improve Prayu. Please search existing issues before filing a new report.
+        Thanks for helping improve Traverse Board. Please search existing issues before filing a new report.
 
-        **Security and privacy:** do not include credentials, API keys, personal data, private prompts, provider payloads, raw tool arguments or output, or unredacted host paths. If the report contains exploitable details or other sensitive material, stop and use the repository's [Security page](https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench/security) instead of opening a public issue.
+        **Security and privacy:** do not include credentials, API keys, personal data, private prompts, provider payloads, raw tool arguments or output, or unredacted host paths. If the report contains exploitable details or other sensitive material, stop and use the repository's [Security page](https://github.com/Qiyuanqiii/Traverse-Board/security) instead of opening a public issue.
 
   - type: input
     id: version
     attributes:
-      label: Prayu version or commit
+      label: Traverse Board version or commit
       description: Provide a release version, build identifier, or full Git commit SHA.
       placeholder: "Commit 0123456789abcdef..."
     validations:
@@ -64,7 +64,7 @@ body:
       label: Reproduction steps
       description: Give the smallest deterministic sequence that reproduces the problem. Use mock or non-sensitive data where possible.
       placeholder: |
-        1. Start Prayu with ...
+        1. Start Traverse Board with ...
         2. Create or open ...
         3. Select ...
         4. Observe ...

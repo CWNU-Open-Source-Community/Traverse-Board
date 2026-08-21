@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Per-user MSIX manifest for Prayu Desktop. Identity.Name and
+  Per-user MSIX manifest for Traverse Board Desktop. Identity.Name and
   Identity.Publisher are the stable package identity; Publisher must match the
   code-signing certificate subject. Version is Major.Minor.Build.Revision.
   WebView2 Evergreen Runtime is a framework dependency, and the desktop app
@@ -14,8 +14,8 @@
             Publisher="CN=Prayu"
             Version="0.1.0.0" />
   <Properties>
-    <DisplayName>Prayu</DisplayName>
-    <PublisherDisplayName>Prayu</PublisherDisplayName>
+    <DisplayName>Traverse Board</DisplayName>
+    <PublisherDisplayName>Traverse Board</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
   <Dependencies>
@@ -26,7 +26,7 @@
   </Resources>
   <Applications>
     <Application Id="Prayu" Executable="cyberagent-desktop.exe" EntryPoint="Windows.FullTrustApplication">
-      <uap:VisualElements DisplayName="Prayu" Description="Local-first, recoverable, auditable AI agent workbench"
+      <uap:VisualElements DisplayName="Traverse Board" Description="Local-first, recoverable, auditable AI agent workbench"
                           Square150x150Logo="Assets\Square150x150Logo.png"
                           Square44x44Logo="Assets\Square44x44Logo.png"
                           BackgroundColor="transparent" />

@@ -1,0 +1,292 @@
+version: traverse-board-naming.v2
+status: accepted
+non_authorizing_compatibility_migrations: true
+
+brand:
+  english: Traverse Board
+  chinese: 针路簿
+  full: Traverse Board · 针路簿
+  approval_status: owner_approved_with_recorded_residual_name_risk
+  tagline_en: The model navigates. The runtime keeps the truth.
+  tagline_zh: 针有所向，路有所记；牵星知位，行有所据。
+  legacy_display_name: Prayu
+
+repository:
+  previous: Qiyuanqiii/CTF-CyberAgent-Workbench
+  canonical: Qiyuanqiii/Traverse-Board
+  slug: Traverse-Board
+  slug_status: approved_for_migration
+  full_bilingual_name_is_not_a_valid_slug: true
+
+rules:
+  presentation_only_by_default: true
+  rename_protocols: false
+  rename_database_schema: false
+  rename_go_packages: false
+  rename_openapi_fields: false
+  rename_cli_in_first_phase: false
+  rename_data_directories_in_first_phase: false
+  rename_package_identity_in_first_phase: false
+  first_use_requires_technical_subtitle: true
+  max_prominent_theme_modules_per_screen: 6
+  rewrite_historical_adrs: false
+
+v1_corrections:
+  diff_alias:
+    old: Wake · 航迹
+    new: Change Track · 变更航迹
+    reason: wake_is_an_existing_run_protocol_and_control_message_semantic
+  run_fix:
+    name: Kamal · 牵星板
+    status: conceptual_reserved_until_a_trusted_projection_exists
+  embedded_analyzer_wording:
+    avoid: Rust Analyzer
+    use: Rust-implemented deterministic WASI Analyzer guest
+
+components:
+  - id: product
+    english: Traverse Board
+    chinese: 针路簿
+    technical_targets: [product, runtime, workbench]
+    exposure: hero_product
+    status: accepted
+
+  - id: desktop
+    english: Quarterdeck
+    chinese: 后甲板
+    technical_targets: [desktop_native_shell, operator_surface]
+    exposure: optional_presentation
+    status: provisional
+
+  - id: react
+    english: Binnacle
+    chinese: 罗经柜
+    technical_targets: [react_ui, vite_renderer, dashboard]
+    exposure: optional_presentation
+    status: provisional
+
+  - id: review_ui
+    english: Chartroom
+    chinese: 海图室
+    technical_targets: [review_ui, diff_ui, evidence_ui, report_ui]
+    exposure: optional_presentation
+    status: provisional
+
+  - id: supervisor
+    english: Helm
+    chinese: 舵
+    technical_targets: [RunSupervisor, bounded_dispatch, lifecycle]
+    exposure: architecture_selected_ui
+    status: provisional
+
+  - id: plan
+    english: Rutter
+    chinese: 针经
+    technical_targets: [Mission, Plan, WorkItem, project_instructions]
+    exposure: architecture_selected_ui
+    status: provisional
+
+  - id: run_fix
+    english: Kamal
+    chinese: 牵星板
+    technical_targets: [future_trusted_run_state_summary]
+    exposure: none_today
+    status: conceptual_reserved
+
+  - id: memory
+    english: Almanac
+    chinese: 星历
+    technical_targets: [user_memory, project_memory, durable_reference]
+    exposure: architecture
+    status: provisional
+
+  - id: capability_topology
+    english: Portolan
+    chinese: 海道图
+    technical_targets: [provider_registry, tool_registry, mcp_topology]
+    exposure: architecture
+    status: provisional
+
+  - id: routing
+    english: Compass
+    chinese: 罗盘
+    technical_targets: [provider_router, model_route_selection]
+    exposure: optional_ui
+    status: provisional
+
+  - id: lsp
+    english: Astrolabe
+    chinese: 星盘
+    technical_targets: [code-intel-lsp.v1, semantic_code_intelligence]
+    exposure: ui_with_technical_subtitle
+    status: provisional
+
+  - id: semantic_relations
+    english: Armillary
+    chinese: 浑仪
+    technical_targets: [future_semantic_relation_visualization]
+    exposure: none_today
+    status: reserved
+
+  - id: validation
+    english: Sounding
+    chinese: 打水
+    technical_targets: [validation, harness_facts, deterministic_observation]
+    exposure: ui_with_technical_subtitle
+    status: provisional
+
+  - id: embedded_analyzer
+    english: Lead
+    chinese: 测深铅
+    technical_targets: [rust_implemented_deterministic_wasi_analyzer_guest, analyzer_protocol.v1]
+    parent: validation
+    exposure: developer_docs
+    status: provisional
+
+  - id: wazero
+    english: Diving Bell
+    chinese: 潜水钟
+    technical_targets: [wazero, wasi_analyzer_runtime]
+    parent: validation
+    exposure: developer_docs
+    status: provisional
+
+  - id: integration_validation
+    english: Sea Trial
+    chinese: 试航
+    technical_targets: [post_change_validation, integration_validation]
+    parent: validation
+    exposure: ui_docs
+    status: provisional
+
+  - id: authority
+    english: Kleithron
+    chinese: 水关
+    technical_targets: [Policy, Approval, authority_enforcement]
+    exposure: ui_with_explicit_reason
+    status: provisional
+
+  - id: scope
+    english: Horizon
+    chinese: 地平
+    technical_targets: [Scope]
+    parent: authority
+    exposure: optional_ui
+    status: provisional
+
+  - id: capability
+    english: Clearance
+    chinese: 通关
+    technical_targets: [Capability, ApprovalGrant]
+    parent: authority
+    exposure: optional_ui
+    status: provisional
+
+  - id: lease
+    english: Watch
+    chinese: 值更
+    technical_targets: [Lease, generation, execution_ownership]
+    parent: authority
+    exposure: developer_advanced_ui
+    status: provisional
+
+  - id: workspace
+    english: Dockyard
+    chinese: 船坞
+    technical_targets: [Workspace, ToolGateway, git_execution_domain]
+    exposure: architecture
+    status: provisional
+
+  - id: git_worktree
+    english: Drydock
+    chinese: 干船坞
+    technical_targets: [git_worktree, child_worktree, integration_worktree]
+    parent: workspace
+    exposure: ui_docs_with_not_a_sandbox_warning
+    status: provisional
+
+  - id: docker_sandbox
+    english: Lazaretto
+    chinese: 检疫所
+    technical_targets: [DockerSandboxService, sandbox_backend]
+    exposure: ui_docs_with_verified_guarantees
+    status: provisional
+
+  - id: multi_agent
+    english: Flotilla
+    chinese: 船队
+    technical_targets: [child_agents, readonly_fanout, batch_delivery]
+    exposure: optional_ui
+    status: provisional
+
+  - id: mailbox
+    english: Signal Flags
+    chinese: 旗语
+    technical_targets: [durable_mailbox, child_handoff]
+    parent: multi_agent
+    exposure: architecture
+    status: provisional
+
+  - id: change_track
+    english: Change Track
+    chinese: 变更航迹
+    technical_targets: [diff, code_journey, handoff_trail]
+    exposure: review_ui
+    status: provisional
+
+  - id: checkpoint
+    english: Anchorage
+    chinese: 锚地
+    technical_targets: [workspace_checkpoint, resume, rewind, fork]
+    exposure: ui_with_technical_subtitle
+    status: provisional
+
+  - id: sqlite
+    english: Keel
+    chinese: 龙骨
+    technical_targets: [SQLite, event_state_store]
+    exposure: developer_docs
+    status: provisional
+
+  - id: events
+    english: Deck Log
+    chinese: 航海实录
+    technical_targets: [run_events, append_only_event_ledger, audit_timeline]
+    exposure: ui_developer_docs
+    status: provisional
+
+  - id: receipts
+    english: Bell Book
+    chinese: 钟令簿
+    technical_targets: [receipts, executed_order_evidence]
+    exposure: ui_developer_docs
+    status: provisional
+
+  - id: timing
+    english: Sandglass
+    chinese: 香漏
+    technical_targets: [budget, timeout, ttl, deadline, retry, lease_timing]
+    exposure: optional_ui
+    status: provisional
+
+  - id: monitoring
+    english: Lookout
+    chinese: 瞭望
+    technical_targets: [scheduled_job, loop_monitor, diagnostics]
+    exposure: ui_with_technical_subtitle
+    status: provisional
+
+  - id: mcp_client
+    english: Pilotage
+    chinese: 引航
+    technical_targets: [mcp_client, discovery, review, negotiation, invocation]
+    exposure: ui_with_technical_subtitle
+    status: provisional
+
+  - id: mcp_server
+    english: Port
+    chinese: 港口
+    technical_targets: [mcp_server]
+    parent: mcp_client
+    exposure: optional_ui
+    status: provisional

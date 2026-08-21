@@ -1,17 +1,17 @@
 # Security Policy / 安全政策
 
-Prayu is a local-first, recoverable, and auditable Agent runtime. Its security
+Traverse Board is a local-first, recoverable, and auditable Agent runtime. Its security
 model depends on keeping model output, repository content, Skills, Analyzer
 results, and tool output untrusted until the Go control plane has applied the
 relevant scope, policy, approval, budget, and execution gates.
 
-Prayu 是一个本地优先、可恢复、可审计的 Agent 运行时。它的安全模型要求模型输出、
+针路簿是一个本地优先、可恢复、可审计的 Agent 运行时。它的安全模型要求模型输出、
 仓库内容、Skill、Analyzer 结果和工具输出始终是不可信证据，直到 Go 控制平面完成
 Scope、Policy、人工审批、预算和执行门禁检查。
 
 ## Supported versions / 受支持版本
 
-Prayu has not made a stable release. There are currently no supported release
+Traverse Board has not made a stable release. There are currently no supported release
 lines or guaranteed backports, and the Windows desktop artifact is an unsigned
 development/portable-test build with `release_ready=false`.
 
@@ -21,7 +21,7 @@ maintained by this project. When reporting a problem, identify the exact commit
 and build you tested so the maintainers can determine whether current `main` is
 affected.
 
-Prayu 尚未发布稳定版本，目前没有承诺维护的发行分支或回移计划。Windows 桌面产物
+针路簿尚未发布稳定版本，目前没有承诺维护的发行分支或回移计划。Windows 桌面产物
 仍是未签名的开发/便携测试构建，且 `release_ready=false`。安全修复以当前 `main`
 分支为目标；项目不维护历史提交、本地修改构建、Fork 或第三方打包。报告时请提供实际
 测试的提交和构建标识。
@@ -36,7 +36,7 @@ repository, so a private advisory submission form is not presently available.
 Check the repository's [Security page][security-page]; if a **Report a
 vulnerability** button is available when you report, use that private form.
 Otherwise, email the maintainer at [qiiiqiyuan@gmail.com][security-email] with
-the subject `Prayu security report`. If you cannot safely send the details by
+the subject `Traverse Board security report`. If you cannot safely send the details by
 email, send only a request to establish a safer private channel.
 
 请**不要**通过公开 Issue、Discussion、Pull Request 或社交媒体披露疑似漏洞。
@@ -44,7 +44,7 @@ email, send only a request to establish a safer private channel.
 本仓库当前未启用 GitHub Private Vulnerability Reporting，因此暂无可用的私密
 Advisory 提交表单。报告时请先检查仓库 [Security 页面][security-page]；如果已出现
 **Report a vulnerability** 按钮，请优先使用该私密表单。否则，请以
-`Prayu security report` 为主题发送邮件至 [qiiiqiyuan@gmail.com][security-email]。
+`Traverse Board security report` 为主题发送邮件至 [qiiiqiyuan@gmail.com][security-email]。
 如果不适合通过邮件安全传送细节，请只发送建立更安全私密沟通渠道的请求。
 
 Include, where available:
@@ -92,7 +92,7 @@ test fixture, commit, or pull request. In particular, do not share:
 
 - API keys, bearer/control tokens, passwords, cookies, session tokens, private
   keys, environment values, or Windows Credential Manager contents;
-- Prayu SQLite databases or their `-wal`/`-shm` files;
+- Traverse Board SQLite databases or their `-wal`/`-shm` files;
 - absolute local paths, usernames, home/data-directory names, repository
   contents, customer data, target data, or personal information; or
 - raw Provider requests, responses, streaming events, prompts, model thinking,
@@ -102,7 +102,7 @@ test fixture, commit, or pull request. In particular, do not share:
 
 - API Key、Bearer/Control Token、密码、Cookie、Session Token、私钥、环境变量值或
   Windows Credential Manager 内容；
-- Prayu SQLite 数据库及其 `-wal`/`-shm` 文件；
+- 针路簿 SQLite 数据库及其 `-wal`/`-shm` 文件；
 - 本地绝对路径、用户名、Home/数据目录名、仓库内容、客户数据、目标数据或个人信息；
 - Provider 的原始请求、响应、流事件、Prompt、模型 Thinking、Tool 参数/输出或原始
   Provider 错误 Payload。
@@ -148,6 +148,6 @@ sensitive data. If you are unsure, use the private security route.
 文档已明确说明尚未实现或默认关闭的能力，通常属于普通 Bug。完成彻底脱敏后，可通过
 [GitHub Issues][issues] 公开报告。如果无法判断，请使用私密安全渠道。
 
-[security-page]: https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench/security
+[security-page]: https://github.com/Qiyuanqiii/Traverse-Board/security
 [security-email]: mailto:qiiiqiyuan@gmail.com
-[issues]: https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench/issues
+[issues]: https://github.com/Qiyuanqiii/Traverse-Board/issues

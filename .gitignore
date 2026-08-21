@@ -28,6 +28,10 @@ web/coverage/
 web/.vite/
 *.tsbuildinfo
 
+# Local UI automation artifacts
+.playwright-cli/
+output/playwright/
+
 # CyberAgent runtime data must stay local
 .cyberagent-workbench/
 cyberagent.db

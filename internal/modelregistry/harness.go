@@ -245,7 +245,7 @@ func (r *Registry) probeHarness(ctx context.Context, ref llm.ModelRef,
 		Parameters:  schema}
 	first := llm.ChatRequest{
 		Messages: []llm.Message{
-			{Role: "system", Content: "Prayu model Harness qualification. Use only the supplied synthetic tool. Do not answer with text."},
+			{Role: "system", Content: "Traverse Board model Harness qualification. Use only the supplied synthetic tool. Do not answer with text."},
 			{Role: "user", Content: "Call prayu_harness_echo exactly once with nonce " + nonce + "."},
 		},
 		Tools: []llm.ToolSpec{tool}, MaxTokens: harnessProbeMaxTokens,

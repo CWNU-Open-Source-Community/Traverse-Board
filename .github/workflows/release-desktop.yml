@@ -274,7 +274,7 @@ jobs:
             "--repo", $env:GITHUB_REPOSITORY,
             "--verify-tag",
             "--generate-notes",
-            "--title", "Prayu Desktop $env:RELEASE_VERSION"
+            "--title", "Traverse Board Desktop $env:RELEASE_VERSION"
           )
           if ($env:RELEASE_VERSION.Contains("-")) { $arguments += "--prerelease" }
           & gh @arguments

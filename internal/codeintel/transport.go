@@ -282,7 +282,7 @@ func (t *transport) handleServerRequest(request rpcEnvelope) {
 		result = nil
 	case "workspace/applyEdit":
 		result = map[string]any{"applied": false,
-			"failureReason": "Prayu code-intel runtime is read-only"}
+			"failureReason": "Traverse Board code-intel runtime is read-only"}
 	default:
 		responseErr = &rpcError{Code: -32601, Message: "method not supported by read-only client"}
 	}

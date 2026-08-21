@@ -1,8 +1,8 @@
-# 为 Prayu 贡献 / Contributing to Prayu
+# 为 Traverse Board · 针路簿贡献 / Contributing to Traverse Board
 
-感谢你参与 Prayu。这个仓库把“可恢复、可审计、默认关闭高权限能力”视为产品合同，而不只是实现细节。请优先提交范围清晰、可以独立验证的纵向切片；涉及执行权、凭证、网络、持久化或信任边界的改动，应先把威胁模型和失败语义写清楚。
+感谢你参与针路簿。这个仓库把“可恢复、可审计、默认关闭高权限能力”视为产品合同，而不只是实现细节。请优先提交范围清晰、可以独立验证的纵向切片；涉及执行权、凭证、网络、持久化或信任边界的改动，应先把威胁模型和失败语义写清楚。
 
-Thank you for contributing to Prayu. Resumability, auditability, and fail-closed authority are product contracts here. Prefer small, independently verifiable vertical slices. Changes involving execution, credentials, networking, persistence, or trust boundaries need an explicit threat model and failure semantics.
+Thank you for contributing to Traverse Board. Resumability, auditability, and fail-closed authority are product contracts here. Prefer small, independently verifiable vertical slices. Changes involving execution, credentials, networking, persistence, or trust boundaries need an explicit threat model and failure semantics.
 
 ## 开始之前 / Before you start
 

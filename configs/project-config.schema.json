@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Prayu project config (project_config.v1)",
+  "title": "Traverse Board project config (project_config.v1)",
   "description": "Narrowing-only project file at <workspace>/.prayu/config.yaml. Every field can only reduce operator/process/policy limits; widening attempts are rejected fail-closed.",
   "type": "object",
   "additionalProperties": false,

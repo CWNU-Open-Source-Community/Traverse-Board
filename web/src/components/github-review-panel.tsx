@@ -100,7 +100,7 @@ export function GitHubReviewPanel({ client, runID, onOpenApprovals,
         identity: snapshot.identity, credential: projection.data!.connection.credential,
         capability_generation: snapshot.capability.generation, body: reviewBody,
         review_event: reviewEvent, reviewers: [],
-        validation_summary: "Operator-reviewed Prayu evidence graph",
+        validation_summary: "Operator-reviewed Traverse Board evidence graph",
       };
       return client.reviewGitHubWrite(runID, { connection_id: connectionID,
         snapshot_id: snapshot.id, operation_key: operationKey(), spec });

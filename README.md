@@ -1,30 +1,30 @@
 <div align="center">
-  <h1>Prayu</h1>
+  <h1>Traverse Board · 针路簿</h1>
   <p><strong>本地优先、可恢复、可审计的通用 AI Agent 工作台</strong></p>
   <p>
     <a href="README.md">简体中文</a> |
     <a href="README.en.md">English</a>
   </p>
   <p>
-    <a href="https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/Qiyuanqiii/CTF-CyberAgent-Workbench/ci.yml?branch=main&style=flat-square"></a>
-    <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/Qiyuanqiii/CTF-CyberAgent-Workbench?style=flat-square"></a>
+    <a href="https://github.com/Qiyuanqiii/Traverse-Board/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/Qiyuanqiii/Traverse-Board/ci.yml?branch=main&style=flat-square"></a>
+    <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/Qiyuanqiii/Traverse-Board?style=flat-square"></a>
     <img alt="Go" src="https://img.shields.io/badge/control%20plane-Go-00ADD8?style=flat-square">
     <img alt="Desktop" src="https://img.shields.io/badge/desktop-Windows-0078D4?style=flat-square">
     <img alt="Desktop macOS" src="https://img.shields.io/badge/desktop-macOS-555555?style=flat-square">
   </p>
 </div>
 
-> **命名说明：** 产品与界面名称是 **Prayu**。为保持既有活动记录、收藏和外部链接有效，GitHub 仓库地址暂时保留为 `Qiyuanqiii/CTF-CyberAgent-Workbench`。`cyberagent` CLI、Go module、数据目录和环境变量也暂不迁移；它们是兼容标识，不是第二套产品。
+> **命名说明：** 产品与界面名称是 **Traverse Board · 针路簿**，GitHub 仓库是 `Qiyuanqiii/Traverse-Board`。`cyberagent` CLI、Go module、`.prayu` 配置、数据目录、环境变量、安装 identity 和现有发布件文件名继续作为兼容标识保留；它们不是第二套产品。完整边界见 [ADR 0124](docs/adr/0124-traverse-board-branding-migration.md)。
 
-## Prayu 是什么
+## 针路簿是什么
 
-Prayu 是一个由 Go 主控的本地 AI Agent 工作台。它把模型路由、长任务恢复、工作区、工具调用、审批、预算、记忆和审计事件统一到一个 Run-centric 运行时中，并通过 CLI、TUI、HTTP API、React 控制台和 Windows/macOS Desktop 提供同一套能力。
+针路簿是一个由 Go 主控的本地 AI Agent 工作台。它把模型路由、长任务恢复、工作区、工具调用、审批、预算、记忆和审计事件统一到一个 Run-centric 运行时中，并通过 CLI、TUI、HTTP API、React 控制台和 Windows/macOS Desktop 提供同一套能力。
 
 用户的长期目标是 `Mission`，一次可恢复的执行尝试是 `Run`。模型可以规划和提出动作，但 Go 始终拥有状态机、凭证、权限、持久化与执行边界。仓库文件、网页、模型文字和工具输出都只是不可信证据，不能自行升级为指令或权限。
 
 当前产品重点是**通用 Code Agent 工作流**。CTF/专项网络安全求解已调整为可选附加能力，暂不进入活跃开发计划；仓库只保留通用的 Skill、Tool、Analyzer、Sandbox、Provider 和 Report 扩展接口，供未来独立插件接入。详见[产品范围](docs/PRODUCT_SCOPE.md)。
 
-## 为什么选择 Prayu
+## 为什么选择针路簿
 
 通用 Agent 的难点不只是“让模型调用工具”，而是让长任务在失败、重启、审批和多人协作条件下仍然可恢复、可解释、可约束。
 
@@ -124,7 +124,7 @@ Desktop、认证 OpenAPI 与只读/导出 CLI 共用同一份不可变 Attempt�
 
 ### 真实 Git、PowerShell 与 Bash
 
-Prayu 调用真实的 Git 和操作系统 Shell，不是命令模拟器；但它也不会给模型一个永久、无审阅的裸终端。当前 Code 工作流按风险拆成以下入口：
+针路簿调用真实的 Git 和操作系统 Shell，不是命令模拟器；但它也不会给模型一个永久、无审阅的裸终端。当前 Code 工作流按风险拆成以下入口：
 
 | 入口 | 实际执行 | 权限与限制 |
 |---|---|---|
@@ -229,8 +229,8 @@ Run/Workspace/权限/网络/工具 readiness 与有界单调事件时间线。�
 ### 从源码运行
 
 ```powershell
-git clone https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench.git
-cd "CTF-CyberAgent-Workbench"
+git clone https://github.com/Qiyuanqiii/Traverse-Board.git
+cd "Traverse-Board"
 
 go run ./cmd/cyberagent version
 go run ./cmd/cyberagent provider list

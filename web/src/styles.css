@@ -3333,8 +3333,22 @@ summary:focus-visible {
 }
 
 .prayu-brand-hero .prayu-brand-glyph { font-size: 39px; }
-.prayu-brand-hero .prayu-brand-copy strong { font-size: 28px; }
+.prayu-brand-hero .prayu-brand-copy strong {
+  display: grid;
+  gap: 1px;
+  overflow: visible;
+  font-size: 26px;
+  line-height: 1.12;
+  text-overflow: clip;
+  white-space: normal;
+}
 .prayu-brand-hero .prayu-brand-copy small { font-size: 11px; }
+
+@media (max-width: 480px) {
+  .connection-brand.prayu-brand-hero { gap: 12px; }
+  .connection-brand.prayu-brand-hero .prayu-brand-icon { width: 64px; }
+  .connection-brand.prayu-brand-hero .prayu-brand-copy strong { font-size: 22px; }
+}
 
 .prayu-sidebar .sidebar-brand {
   height: 88px;
@@ -3344,7 +3358,10 @@ summary:focus-visible {
 
 .prayu-sidebar .sidebar-brand .prayu-brand {
   width: 100%;
+  gap: 10px;
 }
+
+.prayu-sidebar .prayu-brand-copy strong { font-size: 17px; }
 
 .profile-avatar.prayu-brand,
 .about-mark.prayu-brand {

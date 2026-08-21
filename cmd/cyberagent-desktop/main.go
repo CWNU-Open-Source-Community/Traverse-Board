@@ -112,9 +112,9 @@ func (nativeSkillPackagePicker) OpenSkillPackage(ctx context.Context) (string, e
 		return "", errors.New("desktop lifecycle is unavailable")
 	}
 	return runtime.OpenFileDialog(ctx, runtime.OpenDialogOptions{
-		Title: "Select Prayu Skill package",
+		Title: "Select Traverse Board Skill package",
 		Filters: []runtime.FileFilter{
-			{DisplayName: "Prayu Skill package (*.zip)", Pattern: "*.zip"},
+			{DisplayName: "Traverse Board Skill package (*.zip)", Pattern: "*.zip"},
 		},
 		ShowHiddenFiles:      false,
 		CanCreateDirectories: false,
@@ -127,7 +127,7 @@ func (nativeWorkspaceDirectoryPicker) OpenWorkspaceDirectory(ctx context.Context
 		return "", errors.New("desktop lifecycle is unavailable")
 	}
 	return runtime.OpenDirectoryDialog(ctx, runtime.OpenDialogOptions{
-		Title:                "Select Prayu workspace folder",
+		Title:                "Select Traverse Board workspace folder",
 		ShowHiddenFiles:      true,
 		CanCreateDirectories: false,
 		ResolvesAliases:      true,

@@ -127,7 +127,7 @@ func renderSARIF(value domain.FindingReport) ([]byte, error) {
 		Runs: []sarifRun{{
 			Tool: sarifTool{Driver: sarifDriver{
 				Name:           "CyberAgent Workbench",
-				InformationURI: "https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench",
+				InformationURI: "https://github.com/Qiyuanqiii/Traverse-Board",
 				Rules:          rules,
 			}},
 			AutomationDetails: sarifAutomationDetails{ID: "cyberagent/" + value.ID},

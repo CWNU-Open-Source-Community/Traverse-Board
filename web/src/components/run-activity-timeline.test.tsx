@@ -46,7 +46,7 @@ describe("RunActivityTimeline", () => {
     renderTimeline(<RunActivityTimeline activity={value} />);
 
     expect(screen.getByText(/活动投影已拒绝/u)).toBeInTheDocument();
-    expect(screen.queryByText("Prayu 更新")).not.toBeInTheDocument();
+    expect(screen.queryByText("针路簿更新")).not.toBeInTheDocument();
   });
 
   it("shows provisional public commentary as live Activity", () => {
@@ -54,7 +54,7 @@ describe("RunActivityTimeline", () => {
     renderTimeline(<RunActivityTimeline activity={value}
       liveCommentary={publicSnapshot()} liveStatus="live" />);
 
-    expect(screen.getByText("Prayu")).toBeInTheDocument();
+    expect(screen.getByText("Traverse Board")).toBeInTheDocument();
     expect(screen.getByText("正在检查差异，下一步运行测试。")).toBeInTheDocument();
     expect(screen.getByText("临时")).toBeInTheDocument();
     expect(screen.getByText(/不会写入对话历史/u)).toBeInTheDocument();
@@ -67,7 +67,7 @@ describe("RunActivityTimeline", () => {
       sequence: 13,
       kind: "model_update",
       source: "model",
-      title: "Prayu 进度",
+      title: "针路簿进度",
       detail: "持久化后的公开进度。",
       verifiable: false,
       instruction_authorized: false,
@@ -141,7 +141,7 @@ function activity(): RunActivityView {
         sequence: 11,
         kind: "model_update",
         source: "model",
-        title: "Prayu 更新",
+        title: "针路簿更新",
         detail: "我会先核对工作区，再运行测试。",
         verifiable: false,
         instruction_authorized: false,

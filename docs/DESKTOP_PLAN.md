@@ -1,4 +1,4 @@
-# Prayu Desktop Plan
+# Traverse Board · 针路簿 Desktop Plan
 
 状态：Desktop D0-A、D0-B、D1-R1 至 D1-G13/V12 与 D1-UX11 自动化核心已完成，数据库 schema 为 v119。Wails v2.13.0 Windows 壳、嵌入式 React bundle、进程内 Go API、同库恢复、高水位事件续传、WebView2 失败关闭、内存令牌、原生 `.zip` 对话框、路径隔离 Skill、受控 Run/Session/Plan/审批、安全恢复的 Monaco FileEdit、只读 Repository/脱敏 Diff/本地历史/精确提交预览/可导航精确文件历史/精确提交比较与键盘可访问的成对 base/head 预览、多文件独立审阅、不可变操作者验证、snapshot-keyset 逐检查项下钻/快照下载/record-only 回执历史/不授权复核、可恢复 Code Handoff、Code Journey、generation-safe Windows Credential Manager Provider reload、默认关闭的有界 wake worker、用户所有的可选 ConPTY/xterm、四档宿主权限、两档 CDP 权限、独立权限设置页和固定命令提案审批面板已经落地。R10 仍只在内部 `NonProductOnly` 测试边界固定接受信封的 bytes/SHA；P11-C5-C7 的通用浏览器产品入口仍关闭，schema v119 只开放来源绑定、literal-loopback、restricted-CDP 的 UI-evidence exact subset。Windows 10 实机矩阵、Agent-owned Debug 终端、可操作通用内置浏览器、完整 CDP、安装包、签名正式发行、注册表、自启动和更新仍未实现。macOS 便携构建（D0-Mac）已落地：同一控制平面在 darwin 构建标签下编译，WKWebView 无需运行时预检，启动失败走有界 osascript 对话框，工作区启动器只通过固定 /usr/bin/open 打开已验证的 .app，脚本产出 ad-hoc 签名的未公证 `Prayu.app` 并复用双构建 SHA-256 校验；签名、公证与人工 macOS 矩阵仍未实现，边界见 ADR 0097。
 
@@ -8,7 +8,7 @@ D1-UX1 至 D1-UX10 已把用户可见名称统一为 Prayu，并落地艺术字�
 
 ## 目标
 
-在保留 `cyberagent` CLI 为一等入口的同时，提供面向日常使用的 Prayu Windows 桌面端。桌面端参考成熟 Coding Agent 的项目/任务线程、活动流、Diff 审查、审批队列和多 Agent 观察体验，但使用 Prayu 自己的 Code/Cyber、Plan/Deliver、Run、Policy、Skill 和 Sandbox 模型。当前视觉资产来自用户明确提供或批准的 Prayu 素材，不包含第三方闭源代码或私有实现。
+在保留 `cyberagent` CLI 为一等入口的同时，提供面向日常使用的 Traverse Board · 针路簿 Windows 桌面端。桌面端参考成熟 Coding Agent 的项目/任务线程、活动流、Diff 审查、审批队列和多 Agent 观察体验，但使用针路簿自己的 Code/Cyber、Plan/Deliver、Run、Policy、Skill 和 Sandbox 模型。当前视觉资产来自仓库内经项目方批准的代码原生素材，不包含第三方闭源代码或私有实现。
 
 ## 架构决定
 
