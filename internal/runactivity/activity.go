@@ -118,7 +118,7 @@ func projectEvent(event events.Event) (Item, bool) {
 		base.Kind, base.Title, base.Status = KindModelCall, "模型调用开始", "running"
 		base.Detail = modelIdentity(event.PayloadJSON)
 	case events.ModelPublicCommentaryEvent:
-		base.Kind, base.Source, base.Title = KindModelUpdate, SourceModel, "Prayu"
+		base.Kind, base.Source, base.Title = KindModelUpdate, SourceModel, "Traverse Board"
 		base.Detail = stringField(event.PayloadJSON, "text")
 		base.Verifiable = false
 		base.AttemptID = cleanLabel(stringField(event.PayloadJSON, "attempt_id"))
@@ -696,7 +696,7 @@ func projectMessage(event events.Event, base Item) (Item, bool) {
 		if payload.SourceKind != session.SourceModelResponse {
 			return Item{}, false
 		}
-		base.Kind, base.Source, base.Title = KindModelUpdate, SourceModel, "Prayu 更新"
+		base.Kind, base.Source, base.Title = KindModelUpdate, SourceModel, "针路簿更新"
 		base.Verifiable = false
 	case "user":
 		if payload.SourceKind != session.SourceOperatorMessage {

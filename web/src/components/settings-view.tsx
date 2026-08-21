@@ -194,7 +194,7 @@ export function SettingsView({
             placeholder={t("搜索设置...", "Search settings...")} type="search" value={query} />
         </label>
         <span className="settings-group-label">{t("个人", "Personal")}</span>
-        <nav aria-label={t("Prayu 设置", "Prayu settings")}>
+        <nav aria-label={t("针路簿设置", "Traverse Board settings")}>
           {visibleNavigation.map(({ id, label, icon: Icon }) => (
             <button className={section === id ? "active" : ""} key={id}
               onClick={() => setSection(id)} type="button">
@@ -203,7 +203,7 @@ export function SettingsView({
           ))}
         </nav>
         <span className="settings-group-label">{t("集成", "Integrations")}</span>
-        <nav aria-label={t("Prayu 集成", "Prayu integrations")}>
+        <nav aria-label={t("针路簿集成", "Traverse Board integrations")}>
           <button className={section === "extensions" ? "active" : ""}
             onClick={() => setSection("extensions")} type="button">
             <PlugZap aria-hidden="true" size={16} />
@@ -288,7 +288,7 @@ function ProfileSettings({ capabilities, desktop, health, client }: {
     <div className="profile-settings">
       <section className="profile-identity">
         <PrayuBrand className="profile-avatar" variant="icon" />
-        <h1>Prayu</h1>
+        <h1>{t("针路簿", "Traverse Board")}</h1>
         <p>@local-operator <span>{t("本地", "Local")}</span></p>
       </section>
       <dl className="profile-metrics">
@@ -415,7 +415,7 @@ function AboutSettings({ desktop, health }: { desktop: boolean; health: HealthVi
   const { t } = useLocale();
   return <section className="settings-page-section about-prayu">
     <PrayuBrand className="about-mark" variant="icon" />
-    <h1>Prayu</h1>
+    <h1>Traverse Board · 针路簿</h1>
     <p>{t("本地优先的 AI Agent 工作台", "Local-first AI Agent Workbench")}</p>
     <dl className="settings-row-list">
       <div><dt>{t("应用版本", "Application version")}</dt><dd>{health?.app_version ?? "dev"}</dd></div>

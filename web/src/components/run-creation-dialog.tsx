@@ -142,7 +142,7 @@ export function RunCreationDialog({ client, open, onClose, initialGoal = "",
         <header>
           <div>
             <span className="dialog-icon"><Plus aria-hidden="true" size={17} /></span>
-            <div><h2 id="run-creation-title">{t("新建 Run", "New Run")}</h2><small>Prayu</small></div>
+            <div><h2 id="run-creation-title">{t("新建 Run", "New Run")}</h2><small>{t("针路簿", "Traverse Board")}</small></div>
           </div>
           <button aria-label={t("关闭", "Close")} className="icon-button" disabled={busy}
             onClick={close} title={t("关闭", "Close")} type="button"><X aria-hidden="true" size={16} /></button>
@@ -161,7 +161,7 @@ export function RunCreationDialog({ client, open, onClose, initialGoal = "",
                 <FolderPlus aria-hidden="true" size={18} />}
               <span><strong>{workspaceName || t("选择目录", "Choose folder")}</strong>
                 <small>{workspaceID ? t("已注册为本次 Run 的工作区", "Registered for this Run") :
-                  t("选择 Prayu 可读取和编辑的目录", "Choose a directory Prayu may read and edit")}</small></span>
+                  t("选择针路簿可读取和编辑的目录", "Choose a directory Traverse Board may read and edit")}</small></span>
             </button>
           </div> : <label><span>{t("工作区", "Workspace")}</span>
             <select disabled={workspaces.isLoading || options.length === 0} onChange={(event) => {

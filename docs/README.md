@@ -1,4 +1,4 @@
-# Prayu 文档导航 / Documentation Index
+# Traverse Board · 针路簿文档导航 / Documentation Index
 
 [中文](../README.md) | [English](../README.en.md)
 
@@ -27,6 +27,7 @@ This directory separates user-facing documentation, current engineering state, a
 | 文档 | 用途 |
 |---|---|
 | [架构说明 / Architecture](architecture.md) | Go 单一控制平面、Run-centric 领域和跨语言边界 |
+| [品牌迁移 / Branding Migration](branding/README.md) | Traverse Board · 针路簿品牌、展示词汇与兼容迁移矩阵 |
 | [LSP 语义代码智能 / Code Intelligence](code-intelligence.md) | 审查配置、十项只读工具、进程生命周期、证据失效与真实 Server 验证 |
 | [HTTP API](http-api.md) | 认证 API 行为与 DTO 边界 |
 | [OpenAPI](openapi.json) | 由 Go 生成并受测试保护的机器可读合同 |
@@ -37,6 +38,7 @@ This directory separates user-facing documentation, current engineering state, a
 | [ADR 0121 / Scheduled Monitoring](adr/0121-durable-scheduled-monitoring-and-structured-diagnostics.md) | 持久任务、租约 fencing、预算、权限快照与结构化诊断边界 |
 | [ADR 0122 / Advanced Git](adr/0122-go-owned-advanced-git-lifecycle.md) | Go-owned 高级 Git 合同、状态机、Checkpoint、worktree 所有权与默认拒绝边界 |
 | [ADR 0123 / GitHub Review](adr/0123-go-owned-github-review-provider.md) | GitHub 凭据、证据图、远端写审批、幂等恢复与默认拒绝边界 |
+| [ADR 0124 / Traverse Board Branding](adr/0124-traverse-board-branding-migration.md) | 已接受品牌、仓库 slug、兼容身份与实施边界 |
 | [ADR 索引](adr/) | 权限、持久化、执行、浏览器、Desktop 等架构决策 |
 
 ## 当前工程上下文 / Current Engineering Context

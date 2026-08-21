@@ -1,6 +1,6 @@
 # Architecture
 
-Prayu is evolving from a CLI-first agent scaffold into a run-centric, resumable AI workbench. The redesign keeps the existing Go implementation and safety boundaries while organizing them around explicit execution ownership.
+Traverse Board · 针路簿 is evolving from a CLI-first agent scaffold into a run-centric, resumable AI workbench. The redesign keeps the existing Go implementation and safety boundaries while organizing them around explicit execution ownership.
 
 > **Current scope:** the active product is the general-purpose Agent Harness and Code workflow. CTF-specific solving and offensive automation are optional add-ons with no active implementation schedule. Only generic Provider, Tool, Skill, Analyzer, Sandbox, and Report extension seams remain in the core. See [Product Scope](PRODUCT_SCOPE.md).
 

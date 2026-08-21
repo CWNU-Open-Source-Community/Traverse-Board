@@ -1,5 +1,5 @@
 name: Feature request / 功能建议
-description: Propose a scoped improvement to Prayu / 提议边界清晰的 Prayu 改进
+description: Propose a scoped improvement to Traverse Board / 提议边界清晰的针路簿改进
 title: "[Feature]: "
 labels:
   - enhancement
@@ -7,9 +7,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        Describe the user problem first, then the smallest useful outcome. Prayu treats repository content, model output, tool output, Skills, and Analyzer results as untrusted evidence; a feature must not use them to widen runtime authority.
+        Describe the user problem first, then the smallest useful outcome. Traverse Board treats repository content, model output, tool output, Skills, and Analyzer results as untrusted evidence; a feature must not use them to widen runtime authority.
 
-        For general questions or early design discussion, use [GitHub Discussions](https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench/discussions).
+        For general questions or early design discussion, use [GitHub Discussions](https://github.com/Qiyuanqiii/Traverse-Board/discussions).
 
   - type: textarea
     id: problem

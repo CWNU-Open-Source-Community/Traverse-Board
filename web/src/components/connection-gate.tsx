@@ -122,7 +122,7 @@ export function ConnectionGate() {
         <PrayuBrand className="connection-brand" variant="hero" />
         <div className="connection-heading">
           <h1>{t("连接本地控制面", "Connect to local control plane")}</h1>
-          <p>Prayu · Go API / api.v1</p>
+          <p>Traverse Board · 针路簿 · Go API / api.v1</p>
         </div>
         {connecting && desktopBridgeAvailable() &&
           <div className="desktop-connecting"><LoaderCircle aria-hidden="true" className="spin" size={16} />{t("启动桌面工作台", "Starting desktop workbench")}</div>}

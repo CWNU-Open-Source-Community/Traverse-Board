@@ -6,9 +6,9 @@ Schema v124 新增默认关闭的 `github-review-provider.v1`，用于 Code Surf
 
 ## Official integration shape / 官方集成形态
 
-Prayu prefers a GitHub App with Device Flow enabled. GitHub recommends GitHub Apps over OAuth Apps for fine-grained permissions, short-lived user tokens, installation scoping, and centralized webhooks. Desktop/CLI Device Flow uses the public App client ID; the device code stays in process memory and the resulting access/refresh bundle is written only to the operating-system credential store.
+Traverse Board prefers a GitHub App with Device Flow enabled. GitHub recommends GitHub Apps over OAuth Apps for fine-grained permissions, short-lived user tokens, installation scoping, and centralized webhooks. Desktop/CLI Device Flow uses the public App client ID; the device code stays in process memory and the resulting access/refresh bundle is written only to the operating-system credential store.
 
-Prayu 优先采用开启 Device Flow 的 GitHub App。GitHub 官方建议新集成优先使用 GitHub App，以获得细粒度权限、短期 user token、installation Scope 与集中 webhook 能力。Desktop/CLI 只使用公开 Client ID；device code 仅保留在进程内，access/refresh bundle 只写入操作系统凭据库。
+针路簿优先采用开启 Device Flow 的 GitHub App。GitHub 官方建议新集成优先使用 GitHub App，以获得细粒度权限、短期 user token、installation Scope 与集中 webhook 能力。Desktop/CLI 只使用公开 Client ID；device code 仅保留在进程内，access/refresh bundle 只写入操作系统凭据库。
 
 Official references:
 
@@ -33,7 +33,7 @@ Create an organization- or user-owned GitHub App, enable Device Flow, and start 
 | Contents | Read | compare/merge-base evidence used to bind the PR snapshot |
 | Contents | Write only in the separate typed Git workflow | branch push; not used by model evidence tools or review-comment write-back |
 
-Install the App only on the repositories Prayu should inspect. Record the public client ID, never the client secret, in the connection. SSO-required organizations must authorize the installed App/token before qualification becomes eligible. Fine-grained PAT and existing OAuth-user credential references remain supported for read-only migration, but their effective write scopes cannot be proven from repository collaborator permissions and therefore never enable write-back in v1. GitHub App Device Flow is the production write path.
+Install the App only on the repositories Traverse Board should inspect. Record the public client ID, never the client secret, in the connection. SSO-required organizations must authorize the installed App/token before qualification becomes eligible. Fine-grained PAT and existing OAuth-user credential references remain supported for read-only migration, but their effective write scopes cannot be proven from repository collaborator permissions and therefore never enable write-back in v1. GitHub App Device Flow is the production write path.
 
 ## CLI / CLI 操作
 
@@ -89,10 +89,10 @@ The Desktop Repository page shows account/repository status, Device Flow, a boun
 
 ## Failure and recovery / 失败与恢复
 
-Offline, rate-limit, SSO, missing installation, private/fork permission, pagination drift, malformed response, source drift and cancellation have stable diagnostic/failure codes. A write persists `proposed` before approval and `running` before network I/O. Hidden idempotency markers allow observation-only startup recovery: Prayu may recognize an already-created reply/review/thread state, but it never repeats a remote mutation during recovery. If no exact marker/state is provable, the operation terminates as `interrupted_no_receipt`.
+Offline, rate-limit, SSO, missing installation, private/fork permission, pagination drift, malformed response, source drift and cancellation have stable diagnostic/failure codes. A write persists `proposed` before approval and `running` before network I/O. Hidden idempotency markers allow observation-only startup recovery: Traverse Board may recognize an already-created reply/review/thread state, but it never repeats a remote mutation during recovery. If no exact marker/state is provable, the operation terminates as `interrupted_no_receipt`.
 
 ## Real smoke and Developer Program / 真实联调与开发者计划
 
 Mock/replay and fault-injection tests run without credentials. A real smoke must be opt-in, target a disposable repository/PR, use a dedicated installation, avoid secrets in CI output, and clean up only artifacts it created. Record App ID/installation ID, repository, PR, API version, command revision and receipt IDs—never tokens.
 
-The [GitHub Developer Program](https://docs.github.com/en/integrations/concepts/github-developer-program) accepts teams with a production integration or developers actively building with GitHub APIs plus a support email. It is separate from [GitHub Marketplace listing requirements](https://docs.github.com/en/apps/github-marketplace/creating-apps-for-github-marketplace/requirements-for-listing-an-app). Prayu can technically apply during development; the recommended application gate is: #118 merged, a publicly installable GitHub App, support/privacy/security URLs, a real smoke receipt, least-privilege documentation, and a stable public callback/support surface. Marketplace submission is a later, independent release decision.
+The [GitHub Developer Program](https://docs.github.com/en/integrations/concepts/github-developer-program) accepts teams with a production integration or developers actively building with GitHub APIs plus a support email. It is separate from [GitHub Marketplace listing requirements](https://docs.github.com/en/apps/github-marketplace/creating-apps-for-github-marketplace/requirements-for-listing-an-app). Traverse Board can technically apply during development; the recommended application gate is: #118 merged, a publicly installable GitHub App, support/privacy/security URLs, a real smoke receipt, least-privilege documentation, and a stable public callback/support surface. Marketplace submission is a later, independent release decision.

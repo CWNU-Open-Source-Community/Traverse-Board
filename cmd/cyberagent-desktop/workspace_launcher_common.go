@@ -113,7 +113,7 @@ func confirmWorkspaceOpen(ctx context.Context, candidate workspaceLauncherCandid
 		Type:  runtime.QuestionDialog,
 		Title: "打开工作区",
 		Message: fmt.Sprintf("使用 %s 打开 Workspace \"%s\"？\n\n目录：%s\n应用：%s\n\n"+
-			"Prayu 只传递已登记目录，不执行命令。外部应用可能读取该目录内容。",
+			"针路簿只传递已登记目录，不执行命令。外部应用可能读取该目录内容。",
 			candidate.descriptor.Label, target.Name, target.RootPath, candidate.executable),
 		Buttons: []string{"打开", "取消"}, DefaultButton: "取消", CancelButton: "取消",
 	})

@@ -1,4 +1,4 @@
-# Prayu Web Console
+# Traverse Board · 针路簿 Web Console
 
 ## 中文
 
@@ -8,9 +8,9 @@ schema v45-v46 的 Run 概览显示操作者引导队列的 pending/prepared/com
 
 schema v71 的 External Skills 面板只读显示 Run 固定选择的 surface/profile、版本、信任类别、token 上界、声明工具数量以及 root/Specialist 准备/提交计数。它不接收 Skill 正文、路径、字节数、hash/digest/fingerprint、安装/选择 ID、operation key 或操作者/agent 身份，也没有 Run 选择、授权或执行按钮。D1-B1 仅在 Desktop 原生预览后提供另一次显式惰性安装确认；它不自动改变该面板对应的 Run 选择。
 
-这是 Prayu 的本地 read-mostly 运维界面。React/Vite 只消费 Go 生成的 OpenAPI 3.1 DTO 和 `api.v1`，不会重新实现 Policy、审批、工作区权限、Shell、Docker、模型路由或 SQLite 逻辑。当前窄 mutation 包括非授权档位、受控 Run/Session/Plan/审批、Go-issued FileEdit 提案/审阅/apply、不可变操作者验证、显式 plan-item/evidence 关联、record-only 快照回执及其不授权元数据复核、status-only Provider 凭证设置、wake 意图/前台消费，以及 Desktop 确认式惰性 Skill 安装。FileEdit 恢复、Repository Diff/History/Exact Commit/Comparison 键盘可访问成对预览、逐检查项验证快照下载/回执历史、带复核元数据和精确 Verify 导航的 Code Handoff、带有界审计事实的 Code Journey 和 runtime capability/worker health 是只读投影；wake worker 只能由 Go 进程启动参数开启，TypeScript 没有运行时启用入口。
+这是针路簿的本地 read-mostly 运维界面。React/Vite 只消费 Go 生成的 OpenAPI 3.1 DTO 和 `api.v1`，不会重新实现 Policy、审批、工作区权限、Shell、Docker、模型路由或 SQLite 逻辑。当前窄 mutation 包括非授权档位、受控 Run/Session/Plan/审批、Go-issued FileEdit 提案/审阅/apply、不可变操作者验证、显式 plan-item/evidence 关联、record-only 快照回执及其不授权元数据复核、status-only Provider 凭证设置、wake 意图/前台消费，以及 Desktop 确认式惰性 Skill 安装。FileEdit 恢复、Repository Diff/History/Exact Commit/Comparison 键盘可访问成对预览、逐检查项验证快照下载/回执历史、带复核元数据和精确 Verify 导航的 Code Handoff、带有界审计事实的 Code Journey 和 runtime capability/worker health 是只读投影；wake worker 只能由 Go 进程启动参数开启，TypeScript 没有运行时启用入口。
 
-## Prayu 桌面界面 / Prayu Desktop Surface
+## 针路簿桌面界面 / Traverse Board Desktop Surface
 
 D1-UX1/UX2/UX3 建立了最初的双表面工作台；D1-UX10/UX11 已用原生 Acrylic 和组件令牌替代
 旧背景与艺术字。当前 `PrayuBrand` 是 CSS/React 绘制的圆角应用标识，不读取截图或字标图片。
@@ -26,7 +26,7 @@ D1-UX4/UX5/UX6 增加 Wails 无边框窗口和原生最小化/最大化/关闭�
 `reasoning_effort`，所以“高/最高”只展示为禁用能力，不会伪造已生效状态。桌面与移动布局都保持
 无横向溢出。
 
-The current Prayu shell uses a CSS/React app mark rather than a screenshot or wordmark
+The current Traverse Board shell uses a CSS/React app mark rather than a screenshot or wordmark
 asset. Task, Run, Settings, and segmented selections share one Apple-inspired liquid-glass
 language: transparent at rest, translucent on hover, and opaque white with dark ink when
 selected. The legacy orange-brush gradients, clipping paths, and pseudo-elements have been

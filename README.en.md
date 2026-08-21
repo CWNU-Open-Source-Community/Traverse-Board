@@ -1,30 +1,30 @@
 <div align="center">
-  <h1>Prayu</h1>
+  <h1>Traverse Board · 针路簿</h1>
   <p><strong>A local-first, resumable, and auditable workbench for general-purpose AI agents</strong></p>
   <p>
     <a href="README.md">简体中文</a> |
     <a href="README.en.md">English</a>
   </p>
   <p>
-    <a href="https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/Qiyuanqiii/CTF-CyberAgent-Workbench/ci.yml?branch=main&style=flat-square"></a>
-    <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/Qiyuanqiii/CTF-CyberAgent-Workbench?style=flat-square"></a>
+    <a href="https://github.com/Qiyuanqiii/Traverse-Board/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/Qiyuanqiii/Traverse-Board/ci.yml?branch=main&style=flat-square"></a>
+    <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/Qiyuanqiii/Traverse-Board?style=flat-square"></a>
     <img alt="Go" src="https://img.shields.io/badge/control%20plane-Go-00ADD8?style=flat-square">
     <img alt="Desktop" src="https://img.shields.io/badge/desktop-Windows-0078D4?style=flat-square">
     <img alt="Desktop macOS" src="https://img.shields.io/badge/desktop-macOS-555555?style=flat-square">
   </p>
 </div>
 
-> **Naming:** The product and interface are named **Prayu**. The repository remains at `Qiyuanqiii/CTF-CyberAgent-Workbench` so existing activity records, bookmarks, and external links keep working. The `cyberagent` CLI, Go module, data directory, and environment variables also remain compatibility identifiers for now; they are not a second product.
+> **Naming:** The product and interface are named **Traverse Board · 针路簿**, and the GitHub repository is `Qiyuanqiii/Traverse-Board`. The `cyberagent` CLI, Go module, `.prayu` configuration, data directory, environment variables, installation identities, and existing artifact filenames remain compatibility identifiers; they are not a second product. See [ADR 0124](docs/adr/0124-traverse-board-branding-migration.md).
 
-## What is Prayu?
+## What is Traverse Board?
 
-Prayu is a local AI agent workbench controlled by Go. It unifies model routing, resumable long-running tasks, workspaces, tool calls, approvals, budgets, memory, and audit events in a run-centric runtime shared by the CLI, TUI, HTTP API, React console, and Windows/macOS Desktop.
+Traverse Board is a local AI agent workbench controlled by Go. It unifies model routing, resumable long-running tasks, workspaces, tool calls, approvals, budgets, memory, and audit events in a run-centric runtime shared by the CLI, TUI, HTTP API, React console, and Windows/macOS Desktop.
 
 A durable user objective is a `Mission`; one resumable execution attempt is a `Run`. Models may plan and propose actions, but Go owns the state machine, credentials, permissions, persistence, and execution boundaries. Repository files, web pages, model text, and tool output are untrusted evidence rather than instructions or authority.
 
 The active product focus is the **general-purpose Code Agent workflow**. CTF-specific and offensive-security solving has moved to an optional add-on scope and is not on the active implementation roadmap. Only generic Skill, Tool, Analyzer, Sandbox, Provider, and Report extension seams are retained for a future independent plugin. See [Product Scope](docs/PRODUCT_SCOPE.md).
 
-## Why Prayu?
+## Why Traverse Board?
 
 The hard part of a useful agent is not merely allowing a model to call tools. Long tasks must remain recoverable, explainable, and constrained across crashes, restarts, approvals, and collaboration.
 
@@ -132,7 +132,7 @@ The default is Plan/root `read_only` with a zero model-call budget. A metadata d
 
 ### Real Git, PowerShell, and Bash
 
-Prayu invokes real Git and operating-system shells; it is not a command emulator. It deliberately does not give the model a permanent, unreviewed raw terminal. The Code workflow separates execution by risk:
+Traverse Board invokes real Git and operating-system shells; it is not a command emulator. It deliberately does not give the model a permanent, unreviewed raw terminal. The Code workflow separates execution by risk:
 
 | Path | Real execution | Authority and limits |
 |---|---|---|
@@ -230,8 +230,8 @@ for the complete matrix, candidate bounds, and recovery behavior.
 ### Run from source
 
 ```powershell
-git clone https://github.com/Qiyuanqiii/CTF-CyberAgent-Workbench.git
-cd "CTF-CyberAgent-Workbench"
+git clone https://github.com/Qiyuanqiii/Traverse-Board.git
+cd "Traverse-Board"
 
 go run ./cmd/cyberagent version
 go run ./cmd/cyberagent provider list
@@ -242,7 +242,7 @@ go run ./cmd/cyberagent tui
 
 The default configuration uses the deterministic Mock Provider and requires no API key. Read [Model and Provider Commands](docs/usage.md#model-and-provider-commands) before connecting an external model. Credentials belong in the OS credential store or process environment, never in the repository.
 
-Local Ollama is the only keyless Provider and enables only when `CYBERAGENT_OLLAMA_BASE_URL` (loopback `http` only, default `http://127.0.0.1:11434`) and `CYBERAGENT_OLLAMA_MODEL` are set explicitly. Non-loopback hosts, HTTPS, redirects, and proxy bypasses are rejected; tools/vision/JSON/context capabilities fail closed from `/api/show` probing, and Prayu never installs Ollama, pulls a model, or scans the LAN.
+Local Ollama is the only keyless Provider and enables only when `CYBERAGENT_OLLAMA_BASE_URL` (loopback `http` only, default `http://127.0.0.1:11434`) and `CYBERAGENT_OLLAMA_MODEL` are set explicitly. Non-loopback hosts, HTTPS, redirects, and proxy bypasses are rejected; tools/vision/JSON/context capabilities fail closed from `/api/show` probing, and Traverse Board never installs Ollama, pulls a model, or scans the LAN.
 
 ### Windows Desktop preview
 
@@ -342,4 +342,4 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes. Work involvin
 
 ## License
 
-Prayu is licensed under the [Apache License 2.0](LICENSE).
+Traverse Board is licensed under the [Apache License 2.0](LICENSE).

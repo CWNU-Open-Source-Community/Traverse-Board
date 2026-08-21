@@ -9,7 +9,7 @@
 
 ### 一条不可跨越的边界
 
-“长期存在”不代表“更高优先级”。Prayu 按以下顺序解释上下文：
+“长期存在”不代表“更高优先级”。针路簿按以下顺序解释上下文：
 
 1. 系统与操作者当前输入；
 2. Go 运行时安全策略、Scope、Policy、预算和当前权限快照；
@@ -31,7 +31,7 @@ Tool、Network、Secret、Debug、Plugin、Hook、MCP、审批、Credential、�
 - Workspace 根的 `.prayu/instructions.ignore`，用于排除规范的相对路径 glob。
 
 顺序从 Workspace 根到目标所在目录，越近的目录优先级越高；同一级依次为
-`AGENTS.md`、`CLAUDE.md`、Prayu instructions、排序后的 rules。每个 source 保存相对
+`AGENTS.md`、`CLAUDE.md`、针路簿 instructions、排序后的 rules。每个 source 保存相对
 path、content SHA-256、scope、depth、precedence、加载时间、trust、适用 target、
 `why_effective`、脱敏状态和全部 false 的授权字段。冲突保留双方并解释最近目录获胜，
 不会静默删除低优先级来源。
@@ -159,7 +159,7 @@ leases, execution profiles, or policy overrides.
 
 ### Hierarchical discovery and immutable Run snapshots
 
-Within the exact registered Workspace, Prayu discovers `AGENTS.md`, `CLAUDE.md`,
+Within the exact registered Workspace, Traverse Board discovers `AGENTS.md`, `CLAUDE.md`,
 `.prayu/instructions.md`, and sorted `.prayu/rules/**/*.md` from root to the target directory.
 Nearer directories have higher precedence. Each source retains its canonical relative path,
 content digest, scope, depth, precedence, load time, trust class, target applicability,

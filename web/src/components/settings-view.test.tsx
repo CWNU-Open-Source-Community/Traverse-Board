@@ -46,7 +46,7 @@ describe("SettingsView", () => {
     expect(screen.getByRole("button", { name: "中文" })).toHaveAttribute("aria-pressed", "true");
 
     fireEvent.click(screen.getByRole("button", { name: "个人资料" }));
-    expect(screen.getByRole("heading", { name: "Prayu" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "针路簿" })).toBeInTheDocument();
     expect(screen.getByText("v84")).toBeInTheDocument();
     expect(screen.getByText("2/3")).toBeInTheDocument();
   });

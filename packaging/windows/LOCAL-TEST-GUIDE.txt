@@ -1,4 +1,4 @@
-Prayu Windows 本地试用说明
+Traverse Board · 针路簿 Windows 本地试用说明
 ==========================
 
 推荐入口
@@ -14,7 +14,7 @@ cyberagent-desktop.exe 会按设计进入更保守的默认模式。
 1. 打开左侧“模型切换”，或进入“设置与账户 > 模型与配置”。
 2. 在“系统凭证”中为 mimo、deepseek 或 anthropic 输入 API 凭证并保存。
    凭证由 Windows Credential Manager 保管，不写入 SQLite、日志或事件流。
-3. 如果界面提示需要重启，请关闭 Prayu，然后再次双击本启动器。
+3. 如果界面提示需要重启，请关闭针路簿，然后再次双击本启动器。
 4. 依次点击 Provider 的“连接诊断”和“Harness 验证”。Harness 验证会发起
    最多两次真实、受限的模型请求，但不会执行 Shell、文件、浏览器或工具动作。
 5. 在“模型路由”中为 code（或所需路由）选择已验证的 Provider/模型并保存。
@@ -23,7 +23,7 @@ cyberagent-desktop.exe 会按设计进入更保守的默认模式。
 --------
 1. 点击“新建任务”，选择工作区并创建 Run。
 2. 在底部输入区输入消息并发送。
-3. Prayu 会创建或复用该 Run 的 Session，持久化用户消息，执行一个有界
+3. 针路簿会创建或复用该 Run 的 Session，持久化用户消息，执行一个有界
    Supervisor step，并把真实 Provider 回复写回会话。刷新或重启后可继续读取。
 
 语言
@@ -39,7 +39,7 @@ English；选择保存在本机界面存储中。
 Runtime 是否已安装或更新。
 
 
-Prayu Windows Local Test Guide
+Traverse Board Windows Local Test Guide
 ==============================
 
 Recommended entry point
@@ -56,7 +56,7 @@ Connect a real model
 1. Open Model selection, or Settings and account > Models and providers.
 2. Store an API credential for mimo, deepseek, or anthropic under System credentials.
    Windows Credential Manager owns the secret; SQLite, logs, and events do not.
-3. Restart Prayu with this launcher if the interface requests a restart.
+3. Restart Traverse Board with this launcher if the interface requests a restart.
 4. Run Provider diagnostics, then Harness qualification. Qualification performs at
    most two bounded real model calls and executes no shell, file, browser, or tool action.
 5. Select the qualified Provider/model for the code route (or another required route).
@@ -65,7 +65,7 @@ Real chat
 ---------
 1. Choose New task, select a workspace, and create a Run.
 2. Send a message from the composer.
-3. Prayu creates or reuses the Run Session, persists the user message, runs one bounded
+3. Traverse Board creates or reuses the Run Session, persists the user message, runs one bounded
    Supervisor step, and stores the real Provider response. Refresh and restart recovery
    use the same durable conversation.
 

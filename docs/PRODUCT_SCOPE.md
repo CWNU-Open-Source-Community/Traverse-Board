@@ -1,4 +1,4 @@
-# Prayu 产品范围 / Product Scope
+# Traverse Board · 针路簿产品范围 / Product Scope
 
 更新日期 / Last updated: 2026-08-20
 
@@ -8,7 +8,7 @@ This document is the authority for current product scope. If a historical task, 
 
 ## 当前核心 / Active Core
 
-Prayu 当前开发的是通用、本地优先的 AI Agent Harness 与 Code Agent 产品面：
+针路簿当前开发的是通用、本地优先的 AI Agent Harness 与 Code Agent 产品面：
 
 - Mission、Run、Session、检查点、恢复、取消、预算和事件流；
 - Provider 路由、资格校验、公开流式回复、上下文压缩和结构化记忆；

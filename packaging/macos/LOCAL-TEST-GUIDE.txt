@@ -1,4 +1,4 @@
-Prayu macOS 本地试用说明
+Traverse Board · 针路簿 macOS 本地试用说明
 ==========================
 
 推荐入口
@@ -9,7 +9,7 @@ Prayu macOS 本地试用说明
 
 这个入口只启用本地产品试用所需的安全操作者能力，不启用完全访问、Debug
 最大权限、完整 CDP、后台唤醒 Worker 或 Agent 持久终端。直接双击
-Prayu.app 会按设计进入更保守的默认模式。启动器与指南位于 build/desktop/
+兼容文件名 `Prayu.app` 会按设计进入更保守的默认模式。启动器与指南位于 build/desktop/
 目录，仅用于本地产品测试，不是正式发行包。
 
 从源码构建
@@ -28,12 +28,12 @@ Node 版本不符时脚本会在前端检查前明确报错；如果 web/dist �
 2. macOS 系统凭证库尚未接入（没有明文回退）。请改用环境变量：在启动前为
    mimo、deepseek 或 anthropic 设置对应变量（例如 DEEPSEEK_API_KEY、
    DEEPSEEK_BASE_URL、MIMO_API_KEY、MIMO_BASE_URL、
-   CYBERAGENT_ANTHROPIC_API_KEY），然后重新启动 Prayu。环境变量始终优先，
+   CYBERAGENT_ANTHROPIC_API_KEY），然后重新启动针路簿。环境变量始终优先，
    不会写入 SQLite、日志或事件流。终端内可这样启动：
 
    本地 Ollama 无凭证，只需显式设置 CYBERAGENT_OLLAMA_BASE_URL（仅 loopback
    http，默认 http://127.0.0.1:11434）与 CYBERAGENT_OLLAMA_MODEL；请先自行
-   安装 Ollama 并 pull 模型，Prayu 不会自动安装或下载。
+   安装 Ollama 并 pull 模型，针路簿不会自动安装或下载。
 
        DEEPSEEK_API_KEY=sk-... ./build/desktop/Prayu.app/Contents/MacOS/cyberagent-desktop --operator-preview
 
@@ -45,7 +45,7 @@ Node 版本不符时脚本会在前端检查前明确报错；如果 web/dist �
 --------
 1. 点击"新建任务"，选择工作区并创建 Run。
 2. 在底部输入区输入消息并发送。
-3. Prayu 会创建或复用该 Run 的 Session，持久化用户消息，执行一个有界
+3. 针路簿会创建或复用该 Run 的 Session，持久化用户消息，执行一个有界
    Supervisor step，并把真实 Provider 回复写回会话。刷新或重启后可继续读取。
 
 打开工作区
@@ -68,7 +68,7 @@ English；选择保存在本机界面存储中。
 - 数据目录：~/.cyberagent-workbench。不要把 API key、cyberagent.db 或凭证
   截图提交到 Issue。若启动失败，请保留本地数据并记录稳定错误代码。
 
-Prayu macOS Local Test Guide
+Traverse Board macOS Local Test Guide
 ============================
 
 Recommended entry point
@@ -80,7 +80,7 @@ Double-click Start-Prayu-Operator-Preview.command, or run:
 This launcher enables only the safe operator capabilities needed for local
 product testing. It does not enable danger-full-access, maximum Debug access,
 Full CDP, the background wake worker, or an Agent-controlled persistent
-terminal. Double-clicking Prayu.app itself intentionally starts in the more
+terminal. Double-clicking the compatibility-named `Prayu.app` itself intentionally starts in the more
 conservative default mode. The launcher and this guide live under build/desktop/
 and exist only for local product testing; they are not a distribution package.
 
@@ -102,13 +102,13 @@ Connect a real model
    plaintext fallback. Use environment variables instead: set the matching
    variable for mimo, deepseek, or anthropic before launching (for example
    DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, MIMO_API_KEY, MIMO_BASE_URL,
-   CYBERAGENT_ANTHROPIC_API_KEY), then restart Prayu. Environment variables
+   CYBERAGENT_ANTHROPIC_API_KEY), then restart Traverse Board. Environment variables
    always take priority and never reach SQLite, logs, or events. From a
    terminal you can start it with:
 
    Local Ollama is keyless: set CYBERAGENT_OLLAMA_BASE_URL (loopback http
    only, default http://127.0.0.1:11434) and CYBERAGENT_OLLAMA_MODEL
-   explicitly. Install Ollama and pull the model yourself first; Prayu never
+   explicitly. Install Ollama and pull the model yourself first; Traverse Board never
    installs or downloads.
 
        DEEPSEEK_API_KEY=sk-... ./build/desktop/Prayu.app/Contents/MacOS/cyberagent-desktop --operator-preview
@@ -123,7 +123,7 @@ Real chat
 ---------
 1. Choose New task, select a workspace, and create a Run.
 2. Send a message from the composer.
-3. Prayu creates or reuses the Run Session, persists the user message, runs one
+3. Traverse Board creates or reuses the Run Session, persists the user message, runs one
    bounded Supervisor step, and stores the real Provider response. Refresh and
    restart recovery use the same durable conversation.
 

@@ -78,7 +78,7 @@ function renderDock(locale: "zh-CN" | "en-US" = "zh-CN") {
   return render(
     <LocaleProvider><QueryClientProvider client={queryClient}>
         <WorkbenchDock client={client} desktop={false} resourceKind="run"
-          runID="" sessionID="" title="Prayu 工作台">
+          runID="" sessionID="" title="针路簿工作台">
           <div>conversation body</div>
         </WorkbenchDock>
       </QueryClientProvider></LocaleProvider>,

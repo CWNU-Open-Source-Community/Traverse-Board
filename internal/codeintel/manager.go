@@ -309,7 +309,7 @@ func (c *client) initialize(ctx context.Context, generation string) (CapabilityS
 	}
 	params := map[string]any{
 		"processId":  nil,
-		"clientInfo": map[string]string{"name": "Prayu", "version": ProtocolVersion},
+		"clientInfo": map[string]string{"name": "Traverse Board", "version": ProtocolVersion},
 		"rootUri":    rootURI,
 		"workspaceFolders": []map[string]string{{"uri": rootURI,
 			"name": filepath.Base(c.workspace.Root)}},

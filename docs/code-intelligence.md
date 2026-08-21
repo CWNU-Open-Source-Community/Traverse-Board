@@ -103,22 +103,22 @@ TypeScript Language Server 使用 Node 时，Node 是受 SHA-256 约束的 execu
 
 ```powershell
 # 只加载配置并显示 metadata；不启动 Server。
-cyberagent code-intel status --config C:\Prayu\code-intel.json
+cyberagent code-intel status --config C:\TraverseBoard\code-intel.json
 
 # 只做 Workspace、审查和 executable hash 资格检查。
-cyberagent code-intel qualify --config C:\Prayu\code-intel.json `
+cyberagent code-intel qualify --config C:\TraverseBoard\code-intel.json `
   --workspace demo --start=false --json
 
 # 资格检查后真实 initialize，并显示协商后的 capability/generation。
-cyberagent code-intel qualify --config C:\Prayu\code-intel.json `
+cyberagent code-intel qualify --config C:\TraverseBoard\code-intel.json `
   --workspace demo --json
 
 # 普通 CLI/API 进程也可预先选择同一配置。
-$env:CYBERAGENT_CODE_INTEL_CONFIG = "C:\Prayu\code-intel.json"
-cyberagent api serve --code-intel-config C:\Prayu\code-intel.json
+$env:CYBERAGENT_CODE_INTEL_CONFIG = "C:\TraverseBoard\code-intel.json"
+cyberagent api serve --code-intel-config C:\TraverseBoard\code-intel.json
 
 # Desktop 使用独立启动参数。
-cyberagent-desktop --code-intel-config C:\Prayu\code-intel.json
+cyberagent-desktop --code-intel-config C:\TraverseBoard\code-intel.json
 ```
 
 认证只读 API 提供：
@@ -157,7 +157,7 @@ Desktop 设置页使用同一 API 显示 Server 和资格状态，不增加原�
 - Server 返回的每个 file URI 都重新通过 Workspace 路径策略；外部路径、链接/reparse point、大小写混淆、远程 URI 和非法转义被拒绝或降级为 partial。
 - Markdown/link、控制字符和 secret-shaped 文本会被清洗；远程 link 不进入证据。
 
-显式审查的 LSP Server 仍是本地用户权限下的真实进程。`network_access_granted=false`、去凭证环境和 `GOPROXY=off`/npm offline 是 Prayu 不授予网络意图的事实，不是 OS 防火墙或文件系统 Sandbox 的证明。不要把未知仓库提供的二进制、脚本或配置写入本配置；需要更强隔离时使用独立低权限账户、容器或其他 OS 级 Sandbox。
+显式审查的 LSP Server 仍是本地用户权限下的真实进程。`network_access_granted=false`、去凭证环境和 `GOPROXY=off`/npm offline 是针路簿不授予网络意图的事实，不是 OS 防火墙或文件系统 Sandbox 的证明。不要把未知仓库提供的二进制、脚本或配置写入本配置；需要更强隔离时使用独立低权限账户、容器或其他 OS 级 Sandbox。
 
 Git 来源绑定复用仓库的 exact-root 检查；带重定向 `.git` 文件的 linked worktree 当前会明确失败关闭，而不会悄悄省略 commit/branch 证明。脏状态摘要包含有界 Git index 与脏文件内容哈希；路径被清洗、状态被截断或内容超过绑定上限时，同样拒绝生成可能误标为 current 的语义证据。
 

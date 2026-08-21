@@ -362,7 +362,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   const panelTitle = workspaceSection === "conversation"
     ? selectedResourceID
       ? `${resourceKind === "run" ? t("任务", "Task") : t("对话", "Conversation")} / ${selectedResourceID.slice(0, 18)}`
-      : t("Prayu 工作台", "Prayu Workbench")
+      : t("针路簿工作台", "Traverse Board Workbench")
     : workspaceSection === "pull-requests" ? t("拉取请求", "Pull requests")
       : workspaceSection === "models" ? t("模型切换", "Models")
         : workspaceSection === "schedule" ? t("自动定时", "Scheduled tasks") : t("插件", "Plugins");
