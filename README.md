@@ -3,11 +3,16 @@
   <h1>Traverse Board · 针路簿</h1>
   <p><strong>本地优先、可恢复、可审计的通用 AI Agent 工作台</strong></p>
   <p>
+    <strong>The model navigates. The runtime keeps the truth.</strong><br>
+    <sub>针有所向，路有所记；牵星知位，行有所据。</sub>
+  </p>
+  <p>
     <a href="README.md">简体中文</a> |
     <a href="README.en.md">English</a>
   </p>
   <p>
     <a href="https://github.com/Qiyuanqiii/Traverse-Board/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/Qiyuanqiii/Traverse-Board/ci.yml?branch=main&style=flat-square"></a>
+    <a href="https://github.com/Qiyuanqiii/Traverse-Board/releases"><img alt="Release" src="https://img.shields.io/github/v/release/Qiyuanqiii/Traverse-Board?include_prereleases&sort=semver&style=flat-square"></a>
     <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/Qiyuanqiii/Traverse-Board?style=flat-square"></a>
     <img alt="Go" src="https://img.shields.io/badge/control%20plane-Go-00ADD8?style=flat-square">
     <img alt="Desktop" src="https://img.shields.io/badge/desktop-Windows-0078D4?style=flat-square">
@@ -15,44 +20,271 @@
   </p>
 </div>
 
-> **命名说明：** 产品与界面名称是 **Traverse Board · 针路簿**，GitHub 仓库是 `Qiyuanqiii/Traverse-Board`。`cyberagent` CLI、Go module、`.prayu` 配置、数据目录、环境变量、安装 identity 和现有发布件文件名继续作为兼容标识保留；它们不是第二套产品。Windows 对外主程序从 `v0.1.0-rc.2` 起使用 `TraverseBoard.exe`。完整边界见 [ADR 0124](docs/adr/0124-traverse-board-branding-migration.md) 与 [ADR 0125](docs/adr/0125-traverse-board-windows-executable-name.md)。
+> [!IMPORTANT]
+> **Traverse Board · 针路簿仍在活跃开发中。** 当前主线是通用 Agent Harness 与 Code 工作流；CTF、自动化渗透和专项攻防能力只保留为可选扩展方向。
+>
+> 航海名称是面向人的产品与架构语言，不是协议迁移表。`Policy`、`Scope`、`Approval`、`Capability`、`Lease`、`run_event` 等工程标识继续保持字面、可审计；`cyberagent` CLI、Go module、`.prayu`、数据目录、环境变量和安装 identity 仍是兼容标识。Windows 对外程序从 [`v0.1.0-rc.2`](https://github.com/Qiyuanqiii/Traverse-Board/releases/tag/v0.1.0-rc.2) 起使用 `TraverseBoard.exe`。完整边界见 [ADR 0124](docs/adr/0124-traverse-board-branding-migration.md) 与 [ADR 0125](docs/adr/0125-traverse-board-windows-executable-name.md)。
 
-## 针路簿是什么
+---
 
-针路簿是一个由 Go 主控的本地 AI Agent 工作台。它把模型路由、长任务恢复、工作区、工具调用、审批、预算、记忆和审计事件统一到一个 Run-centric 运行时中，并通过 CLI、TUI、HTTP API、React 控制台和 Windows/macOS Desktop 提供同一套能力。
+## Traverse Board 是什么？
 
-用户的长期目标是 `Mission`，一次可恢复的执行尝试是 `Run`。模型可以规划和提出动作，但 Go 始终拥有状态机、凭证、权限、持久化与执行边界。仓库文件、网页、模型文字和工具输出都只是不可信证据，不能自行升级为指令或权限。
+**Traverse Board · 针路簿** 是一个由 Go 控制平面主导的、本地优先、可恢复、可审计的通用 AI Agent Runtime 与工作台。
 
-当前产品重点是**通用 Code Agent 工作流**。CTF/专项网络安全求解已调整为可选附加能力，暂不进入活跃开发计划；仓库只保留通用的 Skill、Tool、Analyzer、Sandbox、Provider 和 Report 扩展接口，供未来独立插件接入。详见[产品范围](docs/PRODUCT_SCOPE.md)。
+它把模型路由、Mission/Run 生命周期、工作区、工具调用、权限审批、预算、长期记忆、多 Agent 协作、验证、证据和审计事件组织到同一个 **Run-centric** 运行时中，并通过 CLI、TUI、HTTP/OpenAPI、React 控制台与 Windows/macOS Desktop 暴露一致的能力。
 
-## 为什么选择针路簿
+- `Mission` 是用户希望长期完成的目标。
+- `Run` 是一次可以失败、暂停、恢复、重试或从历史状态分叉的执行尝试。
+- 模型负责理解目标、制定计划、选择当前被公开的工具并提出候选动作。
+- Go 负责状态机、权限、租约、工作区、持久化、执行与事实核验。
 
-通用 Agent 的难点不只是“让模型调用工具”，而是让长任务在失败、重启、审批和多人协作条件下仍然可恢复、可解释、可约束。
+仓库文件、网页、模型文字、第三方工具结果和外部 Skill 都只是**不可信输入或证据**。它们不能因为“看起来像指令”就自行获得权限。
 
-### 确定性工程与 Agent 协作
+## 为什么选择 Traverse Board？
 
-- **Go 硬约束：** Run 状态、预算、Scope、Policy、审批、幂等键、租约和审计记录由代码验证。
-- **模型动态决策：** 模型负责理解目标、制定计划、选择已公开的工具和生成面向用户的说明。
-- **事实分层：** 模型公开进度与 Harness 验证事实分开显示；模型声称“已完成”不会替代工具结果或验证收据。
-- **默认最小权限：** 高权限能力需要独立、显式、可撤销的操作者授权，持久配置本身不携带运行 authority。
-- **可恢复执行：** SQLite 是状态真源，Run、Session、事件、检查点和操作收据可以跨进程恢复。
+通用 Agent 的难点从来不只是“让模型调用工具”。真正困难的是：在模型可能误判、进程可能退出、工作区可能漂移、权限可能过期、多人或多 Agent 可能并发工作的情况下，任务仍然能够继续，而且每一步都能解释、复核和撤销。
 
-### 单一控制平面
+纯语言驱动的 Agent 容易遇到几类问题：
+
+- **自述不等于事实**：模型说“测试通过”不能替代真实命令、退出码和输入身份。
+- **配置不等于权限**：曾经配置过 Provider、Shell 或 Sandbox，不代表当前 Run 自动获得它。
+- **恢复不等于复权**：恢复 Session 或 Workspace 不能复活过期 Approval、Capability、Lease、凭证或进程。
+- **隔离不应混为一谈**：Git worktree、WASI guest 与 Docker/OS Sandbox 解决的是三类不同问题。
+- **协作必须可交接**：child Agent 的摘要不能替代独立 diff、验证、receipt 和集成复核。
+
+这些问题的共同根因是：**语言模型适合动态判断，但不适合充当状态真源或安全边界。**
+
+### 核心设计：确定性工程 × Agent
+
+Traverse Board 把两者放在各自擅长的位置。
+
+| 确定性工程——负责不能猜的事 | Agent——负责需要判断的事 |
+|---|---|
+| Run 状态机、generation 与执行租约 | 理解目标与当前上下文 |
+| Scope、Policy、Capability 与 Approval | 制定和调整计划 |
+| Workspace/Git 身份、哈希与漂移检查 | 选择当前已公开的模型与工具 |
+| 预算、超时、幂等与恢复语义 | 搜索、分析并提出候选修改 |
+| 测试、Analyzer、LSP 与 Harness 事实 | 解释进展、风险与取舍 |
+| Receipt、Event、Artifact 与审计记录 | 组织面向人的交付说明 |
+
+Go 是唯一控制平面。允许的调用方向始终是：
 
 ```text
-CLI / TUI / React / Windows Desktop / CI
-                    |
-              Go control plane
-       +------------+-------------+
-       |            |             |
-   LLM Router   Tool Gateway   Run Supervisor
-       |            |             |
-       +------ Policy / Approval --+
-                    |
-      SQLite / Workspace / Rust / Sandbox
+TypeScript / CLI / TUI / Desktop
+                │
+                ▼
+        Go Control Plane
+                │
+                ├── LLM Providers
+                ├── Workspace / Git / local tools
+                ├── LSP / MCP / Plugins
+                ├── wazero / deterministic WASI guest
+                └── Docker Sandbox
 ```
 
-允许的调用方向始终是 `TypeScript -> Go -> LLM/Rust/Docker`。TypeScript 不是安全边界；Rust 只做确定性分析，不管理 Agent、Session 或密钥。
+TypeScript 不是安全边界；Rust-implemented deterministic WASI Analyzer guest 不是 Agent；Docker 记录也不会在重启后自动恢复执行 authority。
+
+## 一次 Run 如何“航行”
+
+下面是简化后的主链路。它描述职责顺序，不替代真实的 Go 类型、协议或状态机。
+
+```text
+Mission
+  │
+  ▼
+Rutter · 针经
+目标、计划、项目指令与交付条件
+  │
+  ▼
+Helm · 舵
+Run Supervisor 选择下一项有界动作
+  │
+  ▼
+Kleithron · 水关
+Scope / Policy / Capability / Approval / Lease
+  │
+  ▼
+Dockyard · 船坞
+Workspace / Tool Gateway / Git 执行
+  │
+  ▼
+Sounding · 打水
+测试、探针与确定性分析建立事实
+  │
+  ▼
+Bell Book · 钟令簿
+把请求、授权、执行和结果绑定为 Receipt
+  │
+  ▼
+Deck Log · 航海实录
+追加式保存真正发生过的事件
+  │
+  ▼
+Anchorage · 锚地
+留下可 Resume / Rewind / Fork 的稳定位置
+```
+
+## 为什么叫 Traverse Board · 针路簿？
+
+历史上的 traverse board 会把一更之内的航向和航速外化记录，让航程不只存在于某个船员的记忆里。中国传统针路、针经、针谱及相关航海记录，则持续保存针位、航程、目的地、牵星和测深经验。
+
+它们不是同一件器物的逐字翻译，却共同表达了这个项目最重要的愿望：
+
+> **进程可以结束，模型可以更换，但航程不能因此消失。**
+
+`Traverse Board` 是英文品牌，`针路簿` 是中文品牌。GitHub 仓库使用合法 slug `Traverse-Board`；完整双语名用于 README、About、发布说明和产品界面。
+
+## 34 个航海命名项怎么读？
+
+这套词汇帮助人理解系统职责，但不会把数据库、API 或代码改写成谜语。
+
+- **正式品牌（Accepted）**：已经批准用于产品展示。
+- **暂定展示名（Provisional）**：可以用于架构和选定 UI，但首次出现必须同时写出技术副标题。
+- **概念保留（Conceptual reserve / Reserved）**：解释未来设计方向，当前不能被写成已经实现的 authority 或领域对象。
+
+机器可读映射见 [`docs/branding/naming-map.v2.yaml`](docs/branding/naming-map.v2.yaml)，展示规则见 [`docs/branding/theme-and-naming-v2.md`](docs/branding/theme-and-naming-v2.md)。
+
+### 产品与操作者界面
+
+| 名称 | 为什么这样命名 | 工程对象与特点 | 状态 |
+|---|---|---|---|
+| **Traverse Board · 针路簿 — Product / Runtime / Workbench** | 把航向、速度和经历外化，使下一更能够接着航行。 | 整体本地 Agent Runtime 与工作台；长期事实不依赖单个模型或进程存活。 | 正式品牌 |
+| **Quarterdeck · 后甲板 — Desktop native operator shell** | 后甲板是值更、观察和发令的位置。 | Windows/macOS 原生 Desktop 壳；负责窗口、系统集成与本机入口，但不能签发 Go capability。 | 暂定展示名 |
+| **Binnacle · 罗经柜 — React/Vite operator dashboard** | 罗经柜把重要仪表放在操作者可持续观察的位置。 | React/Vite 控制台；展示 Run、计划、审批和活动，不持有凭证、执行器或最终 authority。 | 暂定展示名 |
+| **Chartroom · 海图室 — Review / Diff / Evidence / Report UI** | 海图室用于摊开航迹、记录和证据进行复核。 | Diff、Code Journey、Evidence、Receipt、Finding、Report 与 SARIF 的审阅界面；模型解释和 Harness 事实分层显示。 | 暂定展示名 |
+
+### 航路、定位与上下文
+
+| 名称 | 为什么这样命名 | 工程对象与特点 | 状态 |
+|---|---|---|---|
+| **Helm · 舵 — Run Supervisor / bounded dispatch** | 舵决定下一刻实际往哪里走，而不是描述整条航线。 | Go-owned Run Supervisor；推进生命周期、调度有界步骤、处理取消、重试、等待和恢复。 | 暂定展示名 |
+| **Rutter · 针经 — Mission / Plan / Project Instructions** | 针经保存预定航路、地标、风险和抵达条件。 | Mission、Plan、WorkItem、层级项目指令和交付标准；它说明“准备怎么走”，但不能证明“已经做到”。 | 暂定展示名 |
+| **Kamal · 牵星板 — future trusted Run-state summary** | 牵星板用外部星体与地平确定位置，而不是依靠航海者自述。 | 未来可把 Workspace、Git、Checkpoint、Scope、Lease、Facts 与 Receipt 汇成可信 Run Fix；当前没有独立 Kamal 领域对象或 authority source。 | 概念保留 |
+| **Almanac · 星历 — user/project memory & durable reference** | 星历保存可供航行参考的长期知识，但不会替代当下观测。 | 显式 user/project memory、项目指令快照和持久参考；内容始终不可信、不授权，恢复时不会恢复旧权限。 | 暂定展示名 |
+| **Portolan · 海道图 — Provider / Tool / MCP capability topology** | 海道图标出港口、沿岸和可走航路，却不替船取得通行许可。 | Provider、Tool、Skill、Plugin 与 MCP 能力拓扑；描述“有哪些外部能力”，不等于当前 Run 可以调用。 | 暂定展示名 |
+| **Compass · 罗盘 — provider/model/tool route selection** | 罗盘给出当前选择的方向。 | 根据 Provider qualification、模型能力、Run mode、Surface、Phase、Role 和策略选择具体模型或工具路线。 | 暂定展示名 |
+
+### 语义观察与验证
+
+| 名称 | 为什么这样命名 | 工程对象与特点 | 状态 |
+|---|---|---|---|
+| **Astrolabe · 星盘 — read-only LSP semantic intelligence** | 星盘根据外部天体关系辅助定位，却不会替船作出决定。 | `code-intel-lsp.v1` 只读语义证据：symbols、definition、references、diagnostics、call/type hierarchy；结果绑定源码与 Server generation，不证明代码正确。 | 暂定展示名 |
+| **Armillary · 浑仪 — future semantic-relation visualization** | 浑仪适合呈现多层坐标和关系。 | 预留给未来的调用链、类型关系或语义关系可视化；当前没有独立实现。 | 保留概念 |
+| **Sounding · 打水 — Validation / Harness facts / deterministic observation** | 航海者不猜水深，而是实际下铅测量。 | 测试、Git/Workspace probe、post-condition、Analyzer 等事实层；每项观测都要绑定输入、环境、时间和结果身份。 | 暂定展示名 |
+| **Lead · 测深铅 — deterministic WASI Analyzer guest** | 测深铅是实际接触未知环境并返回读数的仪器；中文可直观理解为“铅锤”。 | Rust 实现的固定 `wasm32-wasip1` Analyzer guest；只接收有界 JSON/内存输入并返回确定性 metadata，不拥有 Run、网络、持久化或权限。 | 暂定展示名 |
+| **Diving Bell · 潜水钟 — wazero/WASI isolation chamber** | 人要进入未知水下观察，但不能把海水带进生存环境，于是使用封闭钟体。 | wazero Interpreter/WASI 窄执行层；每次新建 runtime/guest，限制模块、内存和 stdio，使用空环境、确定性随机与 deadline，不挂载文件系统、不开放网络或子进程。 | 暂定展示名 |
+| **Sea Trial · 试航 — post-change & integration validation** | 修船完成后必须离坞试航，不能只凭外观看起来完好。 | 变更后的 `git diff --check`、测试、UI evidence、child validation 和累积 integration verification。 | 暂定展示名 |
+
+### 权限与执行所有权
+
+| 名称 | 为什么这样命名 | 工程对象与特点 | 状态 |
+|---|---|---|---|
+| **Kleithron · 水关 — Policy / Approval / authority enforcement** | 水关控制水流与船只是否能够通过。 | Go 对 Policy、Scope、Capability、Approval、Permission、Lease 与 generation 做确定性复核；任一条件漂移即失败关闭。 | 暂定展示名 |
+| **Horizon · 地平 — Scope** | 地平定义当前可见、可达的边界。 | 限定 Workspace、路径、仓库、网络目标、工具和动作范围；越界请求不能靠模型解释放宽。 | 暂定展示名 |
+| **Clearance · 通关 — Capability / explicit Approval grant** | 通关表示某一条具体通路已经得到明确放行。 | 精确、可过期、可撤销并绑定请求指纹的能力或审批；不是永久布尔开关。 | 暂定展示名 |
+| **Watch · 值更 — Lease / generation / execution ownership** | 船上值更只在有限时间内由明确人员负责。 | Run/worker/process 的有界所有权窗口；过期、generation drift、状态变化或 Workspace 漂移都会让旧所有权失效。 | 暂定展示名 |
+
+### 工作区与三种隔离
+
+| 名称 | 为什么这样命名 | 工程对象与特点 | 状态 |
+|---|---|---|---|
+| **Dockyard · 船坞 — Workspace / Tool Gateway / Git execution domain** | 船坞是真正进行维修、装配和检查的地方。 | Workspace 浏览、哈希保护文件提案、Tool Gateway、typed Git、受控命令和执行收据的总工作域。 | 暂定展示名 |
+| **Drydock · 干船坞 — Git worktree isolation** | 干船坞把一艘待修的船与主航道隔开，便于修改和检验。 | child/integration Git worktree 与独立分支；隔离文件改动和合并流程，但**不是安全 Sandbox**，也不自动继承权限、网络或凭证。 | 暂定展示名 |
+| **Lazaretto · 检疫所 — Docker/OS sandbox boundary** | 检疫所隔离可能携带风险的人、货物或环境。 | `DockerSandboxService` 与 OS 隔离边界；只声明 active backend 已验证的保证。当前产品入口默认关闭，只接受 secret-free、environment-free、`network=disabled` 的有界 Manifest，且没有宿主 fallback。 | 暂定展示名 |
+
+### 多 Agent、交接与变更
+
+| 名称 | 为什么这样命名 | 工程对象与特点 | 状态 |
+|---|---|---|---|
+| **Flotilla · 船队 — child agents / fan-out / batch delivery** | 多艘船可以分工，但必须共享编队规则和最终航向。 | 最多两个核心 deliverable child、独立 worktree/branch，以及 1/2/4/6 档只读 fan-out；每个 child 受 Scope、generation、expiry 和交付门约束。 | 暂定展示名 |
+| **Signal Flags · 旗语 — durable child mailbox / handoff** | 船只之间通过可观察、可记录的旗语传递状态。 | durable mailbox、依赖等待、handoff 与完成报告；消息是协作输入，不是 authority，也不能替代独立 review。 | 暂定展示名 |
+| **Change Track · 变更航迹 — Diff / Code Journey / Handoff trail** | 航迹展示实际走过的路径，而不是计划中的路线。 | 完整 diff、提交比较、Code Journey、changed paths 与 handoff trail。它取代旧称 `Wake · 航迹`，避免与现有 Run wake 协议混淆。 | 暂定展示名 |
+
+### 恢复、持久化、证据与时间
+
+| 名称 | 为什么这样命名 | 工程对象与特点 | 状态 |
+|---|---|---|---|
+| **Anchorage · 锚地 — Workspace Checkpoints & Recovery** | 锚地提供可确认、可返回的稳定位置。 | 内容寻址的 Workspace Checkpoint、Resume、Undo/Redo、Rewind 与 Fork；恢复是一项新的可审计写操作，不使用 `git reset --hard`，也不恢复旧 authority。 | 暂定展示名 |
+| **Keel · 龙骨 — SQLite durable event/state store** | 龙骨承受整艘船的结构载荷，却不等于甲板上的航海记录。 | SQLite 本地状态真源与顺序迁移底座；保存 Run、Session、状态、事件和操作账本，敏感 bearer 只保存摘要或不落盘。 | 暂定展示名 |
+| **Deck Log · 航海实录 — append-only Run event ledger** | 航海实录按时间写下真正发生过的事情。 | 追加式 Run events、状态变化、模型公开进度、工具结果、checkpoint、incident 和 diagnostics 时间线。 | 暂定展示名 |
+| **Bell Book · 钟令簿 — execution & operation receipts** | 钟令簿记录每次钟声、命令和值更动作，便于核对谁在何时做了什么。 | Tool、Approval、Git、Test、Merge 等 Receipt；把请求、授权、执行、结果、摘要和绑定身份连成证据。 | 暂定展示名 |
+| **Sandglass · 香漏 — budget / deadline / timeout / retry / TTL** | 香漏把有限时间变成可观察、不可假装无限的资源。 | Run/model/token/money budget、timeout、retry backoff、lease expiry、scheduled deadline 与 next wake。 | 暂定展示名 |
+| **Lookout · 瞭望 — scheduled monitoring & structured diagnostics** | 瞭望持续观察变化，在必要时报告，而不是擅自改变航向。 | `scheduled-job.v1`、只读 monitor、停止条件、单实例 lease、退避、通知、doctor/debug query 与脱敏诊断包；默认零模型预算。 | 暂定展示名 |
+
+### MCP 引航
+
+| 名称 | 为什么这样命名 | 工程对象与特点 | 状态 |
+|---|---|---|---|
+| **Pilotage · 引航 — MCP discovery / review / invocation** | 引航不是把陌生港口的控制权交给外部，而是由熟悉水道的流程带船安全进出。 | Go-owned MCP Client 两阶段流程：先审查 discovery，再审查真实协商得到的 capability fingerprint；漂移会隔离旧授权。 | 暂定展示名 |
+| **Port · 港口 — individual MCP Server** | 每个港口提供不同设施、规则和风险。 | 单个 MCP Server 及其 tools/resources/prompts；远程凭证按引用注入，不返回给模型或普通 UI，调用结果始终按不可信证据处理。 | 暂定展示名 |
+
+## Sounding：Lead 与 Diving Bell 的准确关系
+
+`wazero` 属于 **Sounding · 打水** 子系统，但它不是测量仪器本身，而是让固定测量仪器在封闭环境中工作的执行器。
+
+```text
+Sounding · 打水
+│
+├── Direct lead-line probes
+│     go test / git status / git diff --check / workspace hash
+│
+└── Diving Bell · 潜水钟
+      isolated deterministic execution chamber
+      │
+      ├── wazero Interpreter + WASI host
+      │     fresh per invocation / bounded resources / no host authority
+      │
+      └── Lead · 测深铅
+            Rust-implemented deterministic WASI Analyzer guest
+```
+
+直接 Harness probe 像把测深铅直接投入现实：运行真实测试、读取 Git 状态或计算 Workspace 哈希。需要运行分析程序时，则把固定的 **Lead** 放进 **Diving Bell**：观察者进入封闭钟体完成一次受控观测，而不是让未知环境进入宿主控制平面。
+
+当前 Diving Bell 的工程边界是：
+
+- 每次调用创建新的 wazero Interpreter、WASI host、compiled module 与 guest；
+- 解释执行，不使用 guest JIT/native code generation；
+- 16 MiB 模块上限、256 MiB 每内存上限和固定 `_start`；
+- 有界 stdin/stdout、空环境、合成 argv、确定性随机源；
+- deadline、cancellation 与完成后关闭；
+- 无 filesystem mount、network、subprocess、native process 或 host path；
+- 只运行构建时嵌入且摘要固定的模块，不接受 caller-supplied WASM；
+- 结果必须通过协议、大小、SHA-256、退出码和确定性语义验证后才成立。
+
+所以五个职责必须分开：
+
+```text
+Kleithron · 水关   决定能不能测
+        │ exact-bound capability
+        ▼
+Diving Bell · 潜水钟   决定怎样安全运行测量器
+        │ bounded execution
+        ▼
+Sounding · 打水   决定测出了什么事实
+        │ validated result
+        ▼
+Bell Book · 钟令簿   证明这次测量确实执行过
+        │ receipt
+        ▼
+Deck Log · 航海实录   保存它在什么时候发生过
+```
+
+详细边界见 [ADR 0090](docs/adr/0090-embedded-wasi-analyzer-isolation-candidate.md)、[ADR 0091](docs/adr/0091-embedded-analyzer-product-route-bilingual-desktop-preview.md) 与 [`analyzers/README.md`](analyzers/README.md)。
+
+## 常见技术分别落在哪里？
+
+| 技术 | 航海模块 | 准确边界 |
+|---|---|---|
+| SQLite | **Keel · 龙骨** | 本地持久状态与事件底座，不是 UI 日志，也不把持久配置变成运行 authority。 |
+| Rust deterministic WASI guest | **Lead · 测深铅** | 固定、有界、确定性的测量仪；不拥有 Agent、Run、网络、文件系统或持久化。 |
+| wazero | **Diving Bell · 潜水钟** | 固定 guest 的窄 WASI 隔离执行室，不是 Docker 替代品。 |
+| Docker Sandbox | **Lazaretto · 检疫所** | 风险隔离与有界 I/O；只陈述已经验证的 backend 保证。 |
+| LSP | **Astrolabe · 星盘** | 只读语义观察；结果会 stale，不证明正确性。 |
+| MCP Client / Server | **Pilotage · 引航 / Port · 港口** | discovery、协商、审查与调用；属于 **Portolan · 海道图** 所描述的能力拓扑。 |
+| React/Vite | **Binnacle · 罗经柜** | 操作者 dashboard；展示状态但不授予权限。 |
+| Windows/macOS Desktop | **Quarterdeck · 后甲板** | 原生宿主与本机入口；Go 仍是控制平面。 |
+| Git worktree | **Drydock · 干船坞** | 隔离修改与集成，不是安全 Sandbox。 |
+| Diff / Code Journey | **Change Track · 变更航迹** | 记录实际改动与交接路径，不能与 Run wake 混写。 |
 
 ## 核心能力
 
