@@ -68,10 +68,13 @@ old/new installations. ADR 0110 remains authoritative until superseded.
 
 ### Artifact and launcher names
 
-The repository currently has no published GitHub Release, so the owner may choose a deliberate
-pre-release break. That decision must still update workflows, packaging scripts, checksum and
-SBOM metadata, verification scripts, README download patterns, Windows/macOS guides, and smoke
-tests in one reviewed change. Package identity is a separate decision from artifact filename.
+The published `v0.1.0-rc.1` prerelease contains
+`Prayu-portable-v0.1.0-rc.1-windows-amd64.zip` plus checksums, SBOM, metadata, and manifests.
+Those immutable historical assets keep their original names; changing a release title or replacing
+an asset would not rename already downloaded files and could make provenance less clear. Future
+artifact naming, if desired, must update workflows, packaging scripts, checksums, SBOM metadata,
+verification scripts, README patterns, Windows/macOS guides, and smoke tests in one reviewed
+change. Package identity remains a separate decision from artifact filename.
 
 ### CLI, module, environment and data directories
 

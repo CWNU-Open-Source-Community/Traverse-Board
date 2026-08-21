@@ -125,5 +125,9 @@ Prayu surfaces. External evidence confirms active third-party software use of Tr
 owner explicitly accepted that residual risk after distinguishing this project's direction and
 open-source model.
 
+The final remote preflight confirmed that GitHub Pages and a root reusable Action remain absent.
+It also found the published `v0.1.0-rc.1` prerelease; its Prayu-named immutable assets remain
+historical compatibility artifacts rather than being relabeled after publication.
+
 The detailed decision is in [Branding Migration](../branding/README.md) and the exact
 compatibility boundary is in [Branding Compatibility and Migration Matrix](../branding/compatibility-matrix.md).
