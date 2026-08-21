@@ -1,6 +1,6 @@
 # Prayu V2 任务书
 
-更新时间：2026-08-21
+更新时间：2026-08-22
 
 ## 目标
 
@@ -9,6 +9,12 @@
 当前任务书只推进通用 Agent Harness 与 Code 工作流。CTF 专用求解、自动化渗透和攻防工具链已经移出活跃路线图，不再排队开发；仓库仅保留 Run、Provider、Tool、Skill、Analyzer、Sandbox、Finding/Evidence/Report 等通用扩展接口，供未来经过独立 ADR 和安全复核的附加包接入。范围权威见 [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md)。
 
 ## 当前基线
+
+发布兼容修复随 schema v125 落地（ADR 0126）：仅对 exact version/name/checksum 的旧 Windows
+预览 v97 开放兼容，保留原 migration row，并在新事务迁移中重建正式 Docker lifecycle cleanup
+trigger。未知 checksum、错名、gap/newer schema 继续失败关闭；禁止删库、自动 reset、手改 checksum
+或替换已发布 rc.2。下一发布动作必须使用新 prerelease，并验证真实旧数据库副本原地升级、数据
+保留、integrity、Desktop 启动与便携包说明。
 
 GitHub Review Provider（Issue #118）随 schema v124 落地（ADR 0123）：首选 GitHub App
 Device Flow 与 OS credential store，精确诊断 installation/repository/permission/SSO/rate limit，

@@ -2,9 +2,21 @@
 
 > 本文件是按时间追加的历史开发账本，不是待办列表。当前产品范围以 [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md) 为准；CTF 专用求解和攻防自动化已移出活跃路线图，本文中的旧 Cyber 百分比仅保留为历史快照。
 
-更新时间：2026-08-21
+更新时间：2026-08-22
 
 ## 一、当前阶段
+
+2026-08-22 单切片 `旧 Windows 预览 v97 升级兼容` 推进到 SQLite v125。rc.2 下载包与
+EXE hash 正常，但便携启动器默认复用用户级 `.cyberagent-workbench`，一枚正式 v97 固化前的
+历史 checksum `844427...83b` 被正式 `e279b3...59d` 正确拒绝。只读对比确认数据库 integrity
+为 `ok`，24 个 v97 对象仅 cleanup receipt trigger 多两项更严格 lease 条件。ADR 0126 精确接受
+该 version/name/checksum，不改写旧 migration row；v125 在事务中重建正式 trigger。其他历史
+变体继续失败关闭。定向测试覆盖 checksum pin、错版本/错名/未知 checksum 拒绝、旧结构升级、
+Workspace 保留、canonical trigger 与 integrity；README 和本地测试指南明确“便携仅免安装，
+默认数据不随解压目录隔离”。专项回归、完整 `internal/store`（756.866s）、289 项前端测试、
+Desktop Go/Wails 测试和本地生产 EXE 构建均通过；新 EXE 使用真实旧库副本启动并升级至 v125，
+原数据库 hash 未变化且临时副本已删除。已发布 rc.2 不修改，修复需新 prerelease；Windows
+手工兼容矩阵和正式发布流程仍须在该 prerelease 上执行。
 
 2026-08-21 单切片 `GitHub Review Provider、CI 证据与修复闭环（Issue #118）` 推进到 SQLite
 v124。`github-review-provider.v1` 首选 GitHub App Device Flow，token 仅驻 OS credential store；

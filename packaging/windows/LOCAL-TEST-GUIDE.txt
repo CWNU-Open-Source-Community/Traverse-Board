@@ -34,6 +34,8 @@ English；选择保存在本机界面存储中。
 数据与排障
 ----------
 默认数据目录：%USERPROFILE%\.cyberagent-workbench
+“便携”仅表示程序文件免安装；默认数据不会跟随解压目录。重新下载或换目录解压
+仍会使用同一用户数据目录。只有显式设置 CYBERAGENT_HOME 才会使用隔离测试目录。
 不要把 API key、cyberagent.db 或凭证截图提交到 Issue。
 若启动失败，请保留本地数据，记录错误代码，并检查 Microsoft Edge WebView2
 Runtime 是否已安装或更新。
@@ -77,6 +79,9 @@ switch between Chinese and English. The choice is stored locally for the interfa
 Data and diagnostics
 --------------------
 Default data directory: %USERPROFILE%\.cyberagent-workbench
+Portable means install-free application files; data does not follow the extracted directory.
+Downloading or extracting another ZIP reuses the same user data home. Only an explicit
+CYBERAGENT_HOME selects an isolated test directory.
 Never attach API keys, cyberagent.db, or credential screenshots to an issue.
 For startup failures, preserve local data, record the stable error code, and verify that
 Microsoft Edge WebView2 Runtime is installed and current.

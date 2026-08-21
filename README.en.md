@@ -254,6 +254,9 @@ Local Ollama is the only keyless Provider and enables only when `CYBERAGENT_OLLA
 
 Use the operator-preview launcher. Opening the bare `TraverseBoard.exe` intentionally starts with the most conservative permissions. See [`packaging/windows/LOCAL-TEST-GUIDE.txt`](packaging/windows/LOCAL-TEST-GUIDE.txt) for the full manual test flow.
 
+> [!NOTE]
+> Portable means install-free application files, not directory-local data. The default data home remains `%USERPROFILE%\.cyberagent-workbench`, so extracting another ZIP reuses the same database. `v0.1.0-rc.2` cannot upgrade one exact pre-final Windows preview v97 history; schema v125 in later builds accepts that exact history and transactionally restores the canonical trigger without deleting or falsifying old data. See [ADR 0126](docs/adr/0126-legacy-v97-docker-trigger-compatibility.md).
+
 In Windows Desktop, **New Task** opens the native folder picker and completes `select directory -> register Workspace -> create Run`; no CLI or settings-page pre-registration is required. Cancelling creates neither a Workspace nor a Run, and the selected absolute path is never returned to React.
 
 ### macOS Desktop preview

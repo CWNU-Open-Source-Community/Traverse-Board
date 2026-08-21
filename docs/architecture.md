@@ -435,6 +435,13 @@ Schema v68 adds one immutable operator acceptance/rejection decision over an exa
 
 Schema v97 adds a separate non-authorizing lifecycle aggregate for the fixed-endpoint Docker transport. An immutable launch intent and generation-one lease commit before create; each daemon mutation has an append-only prepared action, and exact observations form a hash-chained `created -> started -> exited/cleaning -> cleaned` ledger with explicit failure facts and one immutable cleanup receipt. Every action, transition, receipt, and daemon mutation is fenced by the complete active lease identity and expiry. Recovery is database-led, never enumerates the daemon, and mutates only the deterministic name after the complete nine-label ownership set and exact configuration match. Partial, legacy, foreign, or inconsistent containers remain untouched. This supplies crash-safe engineering mechanics for start/wait/TERM/KILL/delete, but still grants no Run, Agent, Tool, CLI, HTTP, Desktop, production execution, output, or Artifact authority. See [ADR 0096](adr/0096-durable-docker-lifecycle-ownership-and-recovery.md).
 
+Schema v125 is a forward compatibility repair for one exact pre-final Windows
+preview history of v97. It accepts only the pinned v97 name and checksum,
+preserves that historical migration row, and transactionally replaces the one
+affected cleanup trigger with the canonical v97 definition. Unknown v97
+histories still fail closed. See
+[ADR 0126](adr/0126-legacy-v97-docker-trigger-compatibility.md).
+
 Schema v98 adds the bounded I/O contract without changing that authority boundary. Read-only input projection, fixed non-streaming attach, per-stream byte/line/deadline limits, strict output-archive walking, process-local staging, re-hashing, and atomic output commit are all bound to the exact lifecycle attempt/generation. Raw logs do not persist and the Workspace is never a writable container mount. See [ADR 0098](adr/0098-bounded-docker-container-io-contract.md).
 
 Schema v99 is the distinct product-composition layer. One Go-owned

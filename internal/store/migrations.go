@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const LatestSchemaVersion = 124
+const LatestSchemaVersion = 125
 
 type migration struct {
 	Version    int
@@ -8899,15 +8899,20 @@ func validateMigrationPlan(migrations []migration, applied map[int]appliedMigrat
 	return nil
 }
 
-const legacyWindowsPreviewMigration30Checksum = "bef87a078e337c7c78f020b0470b5d3c8a889a42c3f5993ef62f16e761018ae7"
+const (
+	legacyWindowsPreviewMigration30Checksum = "bef87a078e337c7c78f020b0470b5d3c8a889a42c3f5993ef62f16e761018ae7"
+	legacyWindowsPreviewMigration97Checksum = "844427411efc98247ebf521badb98a8c96e3a17b8aa5c7d429b7192d4dcad83b"
+)
 
 func acceptedMigrationChecksum(item migration, recorded string) bool {
 	if recorded == migrationChecksum(item) {
 		return true
 	}
-	// One Windows preview profile recorded this exact v30 history. The
-	// compatibility path is immutable and cannot be widened at runtime.
-	return item.Version == 30 && recorded == legacyWindowsPreviewMigration30Checksum
+	// Two Windows preview profiles recorded these exact released histories.
+	// Migration v125 repairs the legacy v97 cleanup trigger after validation.
+	// The compatibility path is immutable and cannot be widened at runtime.
+	return (item.Version == 30 && recorded == legacyWindowsPreviewMigration30Checksum) ||
+		(item.Version == 97 && recorded == legacyWindowsPreviewMigration97Checksum)
 }
 
 func migrationChecksum(item migration) string {
