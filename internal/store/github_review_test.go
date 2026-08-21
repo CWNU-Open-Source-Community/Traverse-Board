@@ -237,6 +237,19 @@ func TestGitHubReviewLedgerPersistsMetadataWithoutCredentialAndFencesWrites(t *t
 	if err != nil || replayed || created.Status != githubreview.OperationProposed {
 		t.Fatalf("create GitHub review write: %v replayed=%t %#v", err, replayed, created)
 	}
+	driftedSpec := spec
+	driftedSpec.ValidationSummary = "different reviewed validation"
+	driftedPreview, err := githubreview.NewWritePreview(driftedSpec, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	driftedRecord := record
+	driftedRecord.Spec = driftedSpec
+	driftedRecord.Preview = driftedPreview
+	driftedRecord.ApprovalFingerprint = driftedPreview.ApprovalFingerprint
+	if _, _, err := state.CreateGitHubReviewWrite(ctx, driftedRecord); apperror.CodeOf(err) != apperror.CodeConflict {
+		t.Fatalf("operation key accepted a changed approval summary: %v", err)
+	}
 	approvalRecord, err := state.EnsureApproval(ctx, approval.Proposal{
 		IdempotencyKey: approval.ProposalIdempotencyKey("github.review", record.ID),
 		ProposalID:     record.ID, SessionID: run.SessionID, WorkspaceID: workspace.ID,

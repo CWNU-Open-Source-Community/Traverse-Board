@@ -144,6 +144,17 @@ func TestReadSnapshotCollectsBoundedUntrustedReviewAndCIEvidence(t *testing.T) {
 	}
 }
 
+func TestReviewThreadsQueryHasBalancedDelimiters(t *testing.T) {
+	for _, pair := range [][2]string{{"{", "}"}, {"(", ")"}} {
+		if strings.Count(reviewThreadsQuery, pair[0]) != strings.Count(reviewThreadsQuery, pair[1]) {
+			t.Fatalf("review thread GraphQL query has unbalanced %s%s delimiters", pair[0], pair[1])
+		}
+	}
+	if strings.Contains(reviewThreadsQuery, "resetAt resource") {
+		t.Fatal("review thread GraphQL query requested the REST-only rate-limit resource field")
+	}
+}
+
 func TestSanitizeZipLogBoundsAndRedacts(t *testing.T) {
 	var buffer bytes.Buffer
 	archive := zip.NewWriter(&buffer)
@@ -253,8 +264,14 @@ func TestQualifyGitHubAppRequiresExactInstallationRepositoryAndPermissions(t *te
 	qualified, err := client.Qualify(t.Context(), repo, 7, ref)
 	if err != nil || !qualified.Eligible || qualified.Capability.InstallationID != 42 ||
 		!qualified.Capability.Reply || qualified.Capability.Push ||
+		qualified.Capability.Logs ||
 		qualified.Capability.Permissions["pull_requests"] != "write" {
 		t.Fatalf("exact GitHub App qualification failed: %v %#v", err, qualified)
+	}
+	client.network.AllowedLogHosts = []string{"pipelines.actions.githubusercontent.com"}
+	withLogHost, err := client.Qualify(t.Context(), repo, 7, ref)
+	if err != nil || !withLogHost.Eligible || !withLogHost.Capability.Logs {
+		t.Fatalf("reviewed Actions log host was not admitted: %v %#v", err, withLogHost)
 	}
 	includeRepository = false
 	missing, err := client.Qualify(t.Context(), repo, 7, ref)

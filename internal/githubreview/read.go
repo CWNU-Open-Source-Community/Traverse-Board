@@ -390,8 +390,7 @@ const reviewThreadsQuery = `query($owner:String!,$name:String!,$number:Int!,$cur
         author{login} commit{oid} originalCommit{oid}}
         pageInfo{hasNextPage endCursor}}
     } pageInfo{hasNextPage endCursor}}
-  }} rateLimit{limit remaining used resetAt resource}}
-}`
+  }} rateLimit{limit remaining used resetAt}}`
 
 type threadGraphQLData struct {
 	Repository struct {
@@ -445,7 +444,6 @@ type threadGraphQLData struct {
 		Remaining int       `json:"remaining"`
 		Used      int       `json:"used"`
 		ResetAt   time.Time `json:"resetAt"`
-		Resource  string    `json:"resource"`
 	} `json:"rateLimit"`
 }
 
@@ -516,7 +514,7 @@ func (c *Client) readThreads(ctx context.Context, request SnapshotRequest) (
 		page.ItemsRead = len(threads)
 		rate = RateLimit{Limit: data.RateLimit.Limit, Remaining: data.RateLimit.Remaining,
 			Used: data.RateLimit.Used, ResetAt: data.RateLimit.ResetAt,
-			Resource: sanitizeIdentity(data.RateLimit.Resource, 64)}
+			Resource: "graphql"}
 		info := data.Repository.PullRequest.ReviewThreads.PageInfo
 		if !info.HasNextPage {
 			break

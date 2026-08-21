@@ -32,7 +32,11 @@ func TestDeviceFlowStoresOnlyCredentialBundleAndRefreshes(t *testing.T) {
 				return
 			}
 			if polls.Add(1) == 1 {
-				_ = json.NewEncoder(writer).Encode(map[string]any{"error": "authorization_pending"})
+				_ = json.NewEncoder(writer).Encode(map[string]any{
+					"error":             "authorization_pending",
+					"error_description": "The authorization request is still pending.",
+					"error_uri":         "https://docs.github.com/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps",
+				})
 				return
 			}
 			_ = json.NewEncoder(writer).Encode(map[string]any{"access_token": "ghu_initial_abcdefghijklmnopqrstuvwxyz",

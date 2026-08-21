@@ -362,6 +362,9 @@ type oauthTokenResponse struct {
 	TokenType        string `json:"token_type"`
 	Scope            string `json:"scope"`
 	Error            string `json:"error"`
+	ErrorDescription string `json:"error_description"`
+	ErrorURI         string `json:"error_uri"`
+	Interval         int    `json:"interval"`
 }
 
 func (r oauthTokenResponse) bundle(now time.Time) (tokenBundle, error) {

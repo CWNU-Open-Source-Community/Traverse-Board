@@ -429,6 +429,7 @@ func (s *SQLiteStore) CreateGitHubReviewWrite(ctx context.Context,
 	}
 	if found {
 		if existing.RequestFingerprint != record.RequestFingerprint ||
+			existing.ApprovalFingerprint != record.ApprovalFingerprint ||
 			existing.Preview.ID != record.Preview.ID || existing.RunID != record.RunID {
 			return githubreview.WriteRecord{}, false, apperror.New(apperror.CodeConflict,
 				"GitHub review write operation key was reused for different intent")

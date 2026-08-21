@@ -161,10 +161,11 @@ func TestGitHubReviewServiceEvidenceApprovalAndReceipt(t *testing.T) {
 		CapabilityGeneration: capability.Generation, TargetID: "thread-node",
 		Body: "Applied the requested change.", Reviewers: []string{},
 		LocalChangeSummary: "one reviewed hunk", ValidationSummary: "focused test passed"}
-	reviewed, err := service.ReviewWrite(t.Context(), GitHubReviewWriteReviewRequest{
+	reviewRequest := GitHubReviewWriteReviewRequest{
 		ProtocolVersion: GitHubReviewAPIProtocolVersion, RunID: fixture.run.ID,
 		ConnectionID: configured.Connection.ID, SnapshotID: snapshot.ID,
-		OperationKey: "reply-once", RequestedBy: "test_operator", Spec: spec})
+		OperationKey: "reply-once", RequestedBy: "test_operator", Spec: spec}
+	reviewed, err := service.ReviewWrite(t.Context(), reviewRequest)
 	if err != nil || reviewed.Approval.Status != approval.StatusPending {
 		t.Fatalf("review: %v %#v", err, reviewed)
 	}
@@ -189,10 +190,68 @@ func TestGitHubReviewServiceEvidenceApprovalAndReceipt(t *testing.T) {
 	if err != nil || !replayed.Replayed || remote.executeCalls != 1 {
 		t.Fatalf("replay: %v %#v calls=%d", err, replayed, remote.executeCalls)
 	}
+	reviewedAgain, err := service.ReviewWrite(t.Context(), reviewRequest)
+	if err != nil || !reviewedAgain.Replayed ||
+		reviewedAgain.Operation.ID != reviewed.Operation.ID ||
+		reviewedAgain.Approval.ID != decision.Approval.ID ||
+		reviewedAgain.Approval.Status != approval.StatusApproved {
+		t.Fatalf("review replay after completion: %v %#v", err, reviewedAgain)
+	}
+	decisionAgain, err := fixture.state.DecideApproval(t.Context(), approval.DecisionRequest{
+		ProposalID: reviewedAgain.Operation.ID, IdempotencyKey: "approve-reply-once",
+		Action: approval.ActionApprove, ReviewedBy: "test_operator"})
+	if err != nil || !decisionAgain.Replayed || decisionAgain.Approval.ID != decision.Approval.ID {
+		t.Fatalf("approval replay after completion: %v %#v", err, decisionAgain)
+	}
+	executedAgain, err := service.ExecuteWrite(t.Context(), GitHubReviewWriteExecuteRequest{
+		ProtocolVersion: GitHubReviewAPIProtocolVersion, RunID: fixture.run.ID,
+		OperationID: reviewedAgain.Operation.ID, ApprovalID: decisionAgain.Approval.ID,
+		RequestedBy: "test_operator"})
+	if err != nil || !executedAgain.Replayed || remote.executeCalls != 1 {
+		t.Fatalf("full write replay after completion: %v %#v calls=%d", err, executedAgain,
+			remote.executeCalls)
+	}
+	recoverySpec := spec
+	recoverySpec.Body = "Recover this exact reply after restart."
+	recoveryReview, err := service.ReviewWrite(t.Context(), GitHubReviewWriteReviewRequest{
+		ProtocolVersion: GitHubReviewAPIProtocolVersion, RunID: fixture.run.ID,
+		ConnectionID: configured.Connection.ID, SnapshotID: snapshot.ID,
+		OperationKey: "reply-recovery", RequestedBy: "test_operator", Spec: recoverySpec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recoveryDecision, err := fixture.state.DecideApproval(t.Context(), approval.DecisionRequest{
+		ProposalID: recoveryReview.Operation.ID, IdempotencyKey: "approve-reply-recovery",
+		Action: approval.ActionApprove, ReviewedBy: "test_operator"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, replayed, err := fixture.state.StartGitHubReviewWrite(t.Context(),
+		recoveryReview.Operation.ID, recoveryDecision.Approval.ID,
+		recoveryReview.Operation.ApprovalFingerprint, time.Now().UTC()); err != nil || replayed {
+		t.Fatalf("simulate uncertain write start: %v replayed=%t", err, replayed)
+	}
+	restarted, err := NewGitHubReviewService(fixture.state, credentials, fixture.executor,
+		fixture.capabilities)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted.clientFactory = service.clientFactory
+	reconciled, err := restarted.ReconcileStartup(t.Context(), 100)
+	if err != nil || reconciled.Examined != 1 || reconciled.Recovered != 1 ||
+		remote.recoverCalls != 1 || len(reconciled.OperationIDs) != 1 ||
+		reconciled.OperationIDs[0] != recoveryReview.Operation.ID {
+		t.Fatalf("restart recovery: %v %#v calls=%d", err, reconciled, remote.recoverCalls)
+	}
+	reconciledAgain, err := restarted.ReconcileStartup(t.Context(), 100)
+	if err != nil || reconciledAgain.Examined != 0 || remote.recoverCalls != 1 {
+		t.Fatalf("restart recovery replay: %v %#v calls=%d", err, reconciledAgain,
+			remote.recoverCalls)
+	}
 	projection, err := service.Projection(t.Context(), fixture.run.ID,
 		configured.Connection.ID, identity.Number, 20)
 	if err != nil || len(projection.Snapshots) != 1 || len(projection.Evidence) != 1 ||
-		len(projection.Writes) != 1 {
+		len(projection.Writes) != 2 {
 		t.Fatalf("projection: %v %#v", err, projection)
 	}
 	encoded, _ := json.Marshal(projection)

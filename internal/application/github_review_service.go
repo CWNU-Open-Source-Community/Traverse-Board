@@ -555,6 +555,26 @@ func (s *GitHubReviewService) ReviewWrite(ctx context.Context,
 	if err != nil {
 		return GitHubReviewWriteReviewResult{}, apperror.Normalize(err)
 	}
+	if replayed && record.ApprovalID != "" {
+		approvalRecord, approvalErr := s.store.GetApproval(ctx, record.ApprovalID)
+		if approvalErr != nil {
+			return GitHubReviewWriteReviewResult{}, apperror.Normalize(approvalErr)
+		}
+		if approvalRecord.Status != approval.StatusApproved ||
+			approvalRecord.ProposalID != record.ID || approvalRecord.RunID != record.RunID ||
+			approvalRecord.SessionID != record.SessionID ||
+			approvalRecord.WorkspaceID != record.WorkspaceID ||
+			approvalRecord.ToolName != githubreview.ApprovalToolName ||
+			approvalRecord.ActionClass != githubreview.ApprovalActionClass ||
+			approvalRecord.Mode != "per_call" || approvalRecord.GrantID != "" ||
+			approvalRecord.RequestFingerprint != record.ApprovalFingerprint {
+			return GitHubReviewWriteReviewResult{}, apperror.New(apperror.CodeConflict,
+				"replayed GitHub review write approval binding is invalid")
+		}
+		return GitHubReviewWriteReviewResult{ProtocolVersion: GitHubReviewAPIProtocolVersion,
+			Preview: record.Preview, Operation: record, Approval: approvalRecord,
+			Replayed: true}, nil
+	}
 	approvalRecord, err := s.store.EnsureApproval(ctx, approval.Proposal{
 		IdempotencyKey: approval.ProposalIdempotencyKey(githubreview.ApprovalToolName,
 			record.ID),

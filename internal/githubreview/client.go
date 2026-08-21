@@ -418,7 +418,7 @@ func (c *Client) Qualify(ctx context.Context, repository RepositoryIdentity, prN
 		repository, ref)
 	result.Diagnostics = append(result.Diagnostics, installationDiagnostics...)
 	readAllowed := result.RepositoryAccessible
-	logsAllowed := false
+	logsAllowed := len(c.network.AllowedLogHosts) > 0
 	pushAllowed := false
 	if ref.Kind == AuthGitHubAppDevice {
 		permissions = installationPermissions
