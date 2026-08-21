@@ -88,6 +88,8 @@ export default function App() {
     (state) => state.gitAdvancedControlEnabled);
   const githubReviewControlEnabled = useConnectionStore(
     (state) => state.githubReviewControlEnabled);
+  const workspaceCheckpointControlEnabled = useConnectionStore(
+    (state) => state.workspaceCheckpointControlEnabled);
   const dockerExecutionEnabled = useConnectionStore(
     (state) => state.dockerExecutionEnabled);
   const agentCodeToolsEnabled = useConnectionStore(
@@ -127,6 +129,7 @@ export default function App() {
     embeddedAnalyzerExecutionEnabled={embeddedAnalyzerExecutionEnabled}
     gitAdvancedControlEnabled={gitAdvancedControlEnabled}
     githubReviewControlEnabled={githubReviewControlEnabled}
+    workspaceCheckpointControlEnabled={workspaceCheckpointControlEnabled}
     dockerExecutionEnabled={dockerExecutionEnabled}
     agentCodeToolsEnabled={agentCodeToolsEnabled} codeIntelEnabled={codeIntelEnabled} />;
 }
@@ -145,7 +148,8 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   scheduledJobControlEnabled, scheduledJobWorkerEnabled,
   evidenceAttachmentEnabled, verificationEvidenceEnabled, uiEvidenceControlEnabled,
   embeddedAnalyzerExecutionEnabled, gitAdvancedControlEnabled, githubReviewControlEnabled,
-  dockerExecutionEnabled, agentCodeToolsEnabled, codeIntelEnabled }: {
+  workspaceCheckpointControlEnabled, dockerExecutionEnabled,
+  agentCodeToolsEnabled, codeIntelEnabled }: {
   token: string;
   controlToken: string;
   runControlEnabled: boolean;
@@ -182,6 +186,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   embeddedAnalyzerExecutionEnabled: boolean;
   gitAdvancedControlEnabled: boolean;
   githubReviewControlEnabled: boolean;
+  workspaceCheckpointControlEnabled: boolean;
   dockerExecutionEnabled: boolean;
   agentCodeToolsEnabled: boolean;
   codeIntelEnabled: boolean;
@@ -216,6 +221,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     embeddedAnalyzerExecutionEnabled,
     gitAdvancedControlEnabled,
     githubReviewControlEnabled,
+    workspaceCheckpointControlEnabled,
     dockerExecutionEnabled,
     agentCodeToolsEnabled,
     codeIntelEnabled,
@@ -233,7 +239,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     skillInstallationEnabled, evidenceAttachmentEnabled,
     verificationEvidenceEnabled, uiEvidenceControlEnabled,
     embeddedAnalyzerExecutionEnabled, gitAdvancedControlEnabled, githubReviewControlEnabled,
-    dockerExecutionEnabled,
+    workspaceCheckpointControlEnabled, dockerExecutionEnabled,
     agentCodeToolsEnabled, codeIntelEnabled]);
   const queryClient = useQueryClient();
   const health = useConnectionStore((state) => state.health);
