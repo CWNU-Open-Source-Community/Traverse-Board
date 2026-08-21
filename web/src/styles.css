@@ -3268,36 +3268,12 @@ summary:focus-visible {
 }
 
 .prayu-brand-icon {
-  position: relative;
   width: 48px;
   aspect-ratio: 1;
   flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  border: 1px solid var(--prayu-border-strong);
-  border-radius: 14px;
-  color: var(--prayu-selected-ink);
-  background: var(--prayu-selected);
-  box-shadow:
-    0 10px 28px rgb(0 0 0 / 20%),
-    inset 0 1px 0 rgb(255 255 255 / 88%),
-    inset 0 -1px 0 rgb(0 0 0 / 8%);
-}
-
-.prayu-brand-glyph {
-  position: relative;
-  z-index: 1;
-  font-size: 28px;
-  font-weight: 650;
-  line-height: 1;
-}
-
-.prayu-brand-glint {
-  position: absolute;
-  inset: 0 0 56%;
-  border-bottom: 1px solid rgb(255 255 255 / 68%);
-  background: rgb(255 255 255 / 28%);
+  display: block;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 14px rgb(0 0 0 / 24%));
 }
 
 .prayu-brand-copy {
@@ -3329,10 +3305,8 @@ summary:focus-visible {
 
 .prayu-brand-hero .prayu-brand-icon {
   width: 68px;
-  border-radius: 20px;
 }
 
-.prayu-brand-hero .prayu-brand-glyph { font-size: 39px; }
 .prayu-brand-hero .prayu-brand-copy strong {
   display: grid;
   gap: 1px;
@@ -3374,17 +3348,11 @@ summary:focus-visible {
 
 .profile-avatar .prayu-brand-icon {
   width: 84px;
-  border-radius: 23px;
 }
-
-.profile-avatar .prayu-brand-glyph { font-size: 46px; }
 
 .about-mark .prayu-brand-icon {
   width: 78px;
-  border-radius: 21px;
 }
-
-.about-mark .prayu-brand-glyph { font-size: 43px; }
 
 .profile-identity p,
 .profile-identity p span,
@@ -4582,9 +4550,7 @@ summary:focus-visible {
   }
   .prayu-sidebar .prayu-brand-icon {
     width: 42px;
-    border-radius: 12px;
   }
-  .prayu-sidebar .prayu-brand-glyph { font-size: 25px; }
   .prayu-sidebar .prayu-brand-copy strong { font-size: 17px; }
   .run-activity-header { align-items: stretch; flex-direction: column; }
   .run-activity-safety { align-self: flex-start; }
@@ -5552,10 +5518,8 @@ samp {
 
   .prayu-sidebar .prayu-brand-icon {
     width: 36px;
-    border-radius: 10px;
   }
 
-  .prayu-sidebar .prayu-brand-glyph { font-size: 22px; }
   .prayu-sidebar .prayu-brand-copy strong { font-size: 15px; }
   .prayu-sidebar .prayu-brand-copy small { font-size: 9px; }
   .prayu-sidebar .sidebar-brand-action { top: 12px; right: 10px; }

@@ -60,13 +60,15 @@ metadataPath="$outputRoot/release-metadata.json"
 launcherName="Start-Prayu-Operator-Preview.command"
 guideName="LOCAL-TEST-GUIDE.txt"
 plistSourcePath="packaging/macos/Info.plist"
+iconSourcePath="packaging/macos/TraverseBoard.icns"
 launcherSourcePath="packaging/macos/$launcherName"
 guideSourcePath="packaging/macos/$guideName"
 launcherPath="$outputRoot/$launcherName"
 guidePath="$outputRoot/$guideName"
 plistPath="$bundleDir/Contents/Info.plist"
+iconPath="$bundleDir/Contents/Resources/TraverseBoard.icns"
 
-for required in "$plistSourcePath" "$launcherSourcePath" "$guideSourcePath"; do
+for required in "$plistSourcePath" "$iconSourcePath" "$launcherSourcePath" "$guideSourcePath"; do
     if [ ! -f "$required" ]; then
         die "Desktop macOS packaging assets are required: $required"
     fi
@@ -129,9 +131,10 @@ case "$targetArch" in
     *) die "Go macOS build architecture is invalid" ;;
 esac
 
-mkdir -p "$bundleDir/Contents/MacOS"
+mkdir -p "$bundleDir/Contents/MacOS" "$bundleDir/Contents/Resources"
 cp "$launcherSourcePath" "$launcherPath"
 cp "$guideSourcePath" "$guidePath"
+cp "$iconSourcePath" "$iconPath"
 chmod +x "$launcherPath"
 sed "s/@VERSION@/$Version/g" "$plistSourcePath" > "$plistPath"
 

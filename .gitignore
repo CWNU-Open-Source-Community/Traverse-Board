@@ -31,6 +31,7 @@ web/.vite/
 # Local UI automation artifacts
 .playwright-cli/
 output/playwright/
+output/branding/
 
 # CyberAgent runtime data must stay local
 .cyberagent-workbench/

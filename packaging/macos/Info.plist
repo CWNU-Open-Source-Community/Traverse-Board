@@ -10,6 +10,8 @@
 	<string>cyberagent-desktop</string>
 	<key>CFBundleIdentifier</key>
 	<string>workbench.prayu.desktop</string>
+	<key>CFBundleIconFile</key>
+	<string>TraverseBoard.icns</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>

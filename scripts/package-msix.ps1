@@ -12,7 +12,7 @@ param(
 Packages the per-user MSIX and (optionally) signs it (issue #57).
 
 .DESCRIPTION
-Stages the desktop EXE, AppxManifest.xml, and generated placeholder logos, then
+Stages the desktop EXE, AppxManifest.xml, and reviewed Traverse Board logos, then
 runs makeappx to produce PrayuDesktop.msix. Signing is fail-closed: without a
 code-signing certificate the script writes an unsigned MSIX and reports
 signed=false; with --CertificatePath it runs signtool and fails on any signing,
@@ -27,9 +27,16 @@ $repositoryRoot = [System.IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoo
 $outputRoot = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $OutputDirectory))
 $binaryPath = Join-Path $outputRoot "cyberagent-desktop.exe"
 $manifestPath = Join-Path $repositoryRoot "packaging/windows/AppxManifest.xml"
+$assetRoot = Join-Path $repositoryRoot "packaging/windows/Assets"
 $msixPath = Join-Path $outputRoot "PrayuDesktop.msix"
 
-foreach ($required in @($binaryPath, $manifestPath)) {
+foreach ($required in @(
+        $binaryPath,
+        $manifestPath,
+        (Join-Path $assetRoot "StoreLogo.png"),
+        (Join-Path $assetRoot "Square150x150Logo.png"),
+        (Join-Path $assetRoot "Square44x44Logo.png")
+    )) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "MSIX input is missing: $required"
     }
@@ -48,17 +55,6 @@ function Find-SDKTool {
     return $null
 }
 
-function New-PlaceholderLogo {
-    param([string]$Path, [int]$Size)
-    Add-Type -AssemblyName System.Drawing -ErrorAction Stop
-    $bitmap = New-Object System.Drawing.Bitmap($Size, $Size)
-    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-    $graphics.Clear([System.Drawing.Color]::FromArgb(255, 0, 120, 212))
-    $bitmap.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)
-    $graphics.Dispose()
-    $bitmap.Dispose()
-}
-
 # ---- Stage ----
 $staging = Join-Path $outputRoot (".msix-staging-" + [guid]::NewGuid().ToString("N"))
 [System.IO.Directory]::CreateDirectory((Join-Path $staging "Assets")) | Out-Null
@@ -69,9 +65,12 @@ try {
     $manifestContent = $manifestContent.Replace('Version="0.1.0.0"', "Version=`"$Version`"")
     [System.IO.File]::WriteAllText($stagedManifest, $manifestContent,
         [System.Text.UTF8Encoding]::new($false))
-    New-PlaceholderLogo (Join-Path $staging "Assets\StoreLogo.png") 50
-    New-PlaceholderLogo (Join-Path $staging "Assets\Square150x150Logo.png") 150
-    New-PlaceholderLogo (Join-Path $staging "Assets\Square44x44Logo.png") 44
+    Copy-Item -LiteralPath (Join-Path $assetRoot "StoreLogo.png") `
+        -Destination (Join-Path $staging "Assets\StoreLogo.png")
+    Copy-Item -LiteralPath (Join-Path $assetRoot "Square150x150Logo.png") `
+        -Destination (Join-Path $staging "Assets\Square150x150Logo.png")
+    Copy-Item -LiteralPath (Join-Path $assetRoot "Square44x44Logo.png") `
+        -Destination (Join-Path $staging "Assets\Square44x44Logo.png")
 
     $makeappx = Find-SDKTool "makeappx"
     if ($null -eq $makeappx) { throw "makeappx.exe was not found in the Windows SDK" }
