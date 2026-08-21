@@ -1,4 +1,5 @@
 <div align="center">
+  <img src="assets/branding/traverse-board-mark.png" alt="Traverse Board · 针路簿图标" width="180">
   <h1>Traverse Board · 针路簿</h1>
   <p><strong>本地优先、可恢复、可审计的通用 AI Agent 工作台</strong></p>
   <p>

@@ -19,6 +19,27 @@ canonical repository URLs while preserving compatibility identifiers.
 | [Compatibility and migration matrix](compatibility-matrix.md) | 展示名、仓库地址、协议、数据目录、包身份和发布件的迁移边界 |
 | [ADR 0124](../adr/0124-traverse-board-branding-migration.md) | 品牌决策、仓库 slug、后果与兼容边界 |
 
+## 官方图形标志 / Official Mark
+
+维护者提供的航向玫瑰、星图与航迹卷轴图形是项目的正式图标。规范母版位于
+[`assets/branding/traverse-board-mark.png`](../../assets/branding/traverse-board-mark.png)，
+尺寸为 1254×1254，保留透明背景；SHA-256 为
+`fb1260a41b49d7959dc731f4455d2022e55008bef9f73be6cbd674b08fa59a14`。
+
+Web、Windows 与 macOS 资产只允许从该母版进行确定性的缩放和容器格式转换，
+不得用字母 `T`、旧 `P` 标志或生成式重绘替代。小尺寸界面使用图形标志本身，
+并由周围的可访问名称提供完整产品名。
+
+The maintainer-supplied compass rose, celestial chart, and route-scroll artwork is the
+official project icon. Platform assets are deterministic size/container derivatives of the
+transparent master above; generative redraws and letter placeholders are not canonical.
+
+| Surface | Derived assets |
+|---|---|
+| React/Web | `web/src/assets/traverse-board-mark.png`, 32px favicon, 180px touch icon |
+| Windows | MSIX Store/44/150px PNGs, multi-resolution ICO, amd64/arm64 executable resources |
+| macOS | Multi-resolution `TraverseBoard.icns` copied into the signed app bundle |
+
 ## 当前结论 / Current Decision
 
 - 历史航海主题与当前 Go-owned、可恢复、可审计架构相符。

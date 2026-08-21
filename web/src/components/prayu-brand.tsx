@@ -1,4 +1,5 @@
 import { useLocale } from "../lib/locale";
+import brandMark from "../assets/traverse-board-mark.png";
 
 type PrayuBrandVariant = "compact" | "hero" | "icon";
 
@@ -12,10 +13,7 @@ export function PrayuBrand({ className = "", variant = "compact" }: {
   return (
     <span aria-label={displayName} className={`prayu-brand prayu-brand-${variant} ${className}`.trim()}
       role="img">
-      <span aria-hidden="true" className="prayu-brand-icon">
-        <span className="prayu-brand-glyph">T</span>
-        <span className="prayu-brand-glint" />
-      </span>
+      <img alt="" aria-hidden="true" className="prayu-brand-icon" src={brandMark} />
       {!iconOnly && <span aria-hidden="true" className="prayu-brand-copy">
         <strong>{variant === "hero" ? <><span>Traverse Board</span><span>针路簿</span></> : displayName}</strong>
         <small>{t("Agent 工作台", "Agent Workbench")}</small>

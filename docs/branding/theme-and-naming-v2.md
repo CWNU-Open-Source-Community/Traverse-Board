@@ -35,7 +35,8 @@ decision, not a trademark opinion.
 
 - 中文 locale：`针路簿`
 - 英文 locale：`Traverse Board`
-- icon-only surface：使用经审阅的图形标志，不用孤立字母代替最终 logo
+- icon-only surface：使用维护者批准的航向玫瑰、星图与航迹卷轴图形标志；规范母版见
+  `assets/branding/traverse-board-mark.png`，不用孤立字母代替
 - accessibility name：始终包含当前 locale 的完整产品名
 
 ### 2.2 产品与架构层
