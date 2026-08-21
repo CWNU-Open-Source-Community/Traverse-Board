@@ -29,7 +29,7 @@ ASCII-only and cannot contain spaces, the middle dot, or Chinese characters.
 | Identifier | Current value/example | Why it remains |
 |---|---|---|
 | CLI executable | `cyberagent` | Scripts, docs, automation, operator muscle memory |
-| Desktop executable | `cyberagent-desktop.exe` / `cyberagent-desktop` | Packaging and launch contracts |
+| Desktop Go entry / macOS executable | `cmd/cyberagent-desktop` / `cyberagent-desktop` | Internal and macOS build contracts; Windows public filename is migrated by ADR 0125 |
 | Go module | `cyberagent-workbench` | Import/build identity |
 | Process/data home | `.cyberagent-workbench`, `CYBERAGENT_HOME` | Existing user state and recovery |
 | Environment variables | `CYBERAGENT_*` | Provider/runtime configuration compatibility |
@@ -50,6 +50,18 @@ ASCII-only and cannot contain spaces, the middle dot, or Chinese characters.
 An internal identifier may retain an old brand indefinitely if changing it creates risk but no
 user benefit. Documentation must identify it as a compatibility identifier, not unfinished
 duplicate branding.
+
+### Windows published executable (`v0.1.0-rc.2`)
+
+[ADR 0125](../adr/0125-traverse-board-windows-executable-name.md) separately approves
+`TraverseBoard.exe` as the public Windows executable filename. The build output, portable ZIP,
+operator-preview launcher, MSIX executable declaration, checksums, manifests, smoke tests, and
+tagged Release asset move together. New packages do not carry a duplicate
+`cyberagent-desktop.exe`; historical releases retain their immutable original contents.
+
+This filename migration does not rename `cmd/cyberagent-desktop`, the `cyberagent` CLI, the Go
+module, data/configuration paths, environment variables, protocols, `PrayuDesktop` MSIX identity,
+or the macOS bundle executable.
 
 ## 3. Later migration requirements
 
@@ -74,7 +86,8 @@ Those immutable historical assets keep their original names; changing a release 
 an asset would not rename already downloaded files and could make provenance less clear. Future
 artifact naming, if desired, must update workflows, packaging scripts, checksums, SBOM metadata,
 verification scripts, README patterns, Windows/macOS guides, and smoke tests in one reviewed
-change. Package identity remains a separate decision from artifact filename.
+change. ADR 0125 is the scoped exception for the Windows executable inside and alongside those
+artifacts. Package identity remains a separate decision from artifact filename.
 
 ### CLI, module, environment and data directories
 

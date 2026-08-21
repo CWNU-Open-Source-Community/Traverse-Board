@@ -41,7 +41,7 @@ Fixture 是对由已审阅 start recipe 提供的数据状态的声明，不是�
 执行面默认关闭。启用 Windows Desktop 控制需要同时满足：
 
 ```powershell
-./build/desktop/cyberagent-desktop.exe `
+./build/desktop/TraverseBoard.exe `
   --enable-permission-control `
   --enable-danger-full-access `
   --enable-run-execution `

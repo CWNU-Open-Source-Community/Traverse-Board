@@ -7,7 +7,7 @@ Traverse Board · 针路簿 Windows 本地试用说明
 
 这个入口只启用本地产品试用所需的安全操作者能力，不启用完全访问、Debug
 最大权限、完整 CDP、后台唤醒 Worker 或 Agent 持久终端。直接双击
-cyberagent-desktop.exe 会按设计进入更保守的默认模式。
+TraverseBoard.exe 会按设计进入更保守的默认模式。
 
 首次接入真实模型
 ----------------
@@ -49,7 +49,7 @@ Double-click Start-Prayu-Operator-Preview.cmd.
 This launcher enables only the safe operator capabilities needed for local product
 testing. It does not enable danger-full-access, maximum Debug access, Full CDP,
 the background wake worker, or an Agent-controlled persistent terminal. Launching
-cyberagent-desktop.exe directly intentionally starts in the more conservative mode.
+TraverseBoard.exe directly intentionally starts in the more conservative mode.
 
 Connect a real model
 --------------------

@@ -18,6 +18,7 @@ canonical repository URLs while preserving compatibility identifiers.
 | [Machine-readable naming map](naming-map.v2.yaml) | 状态明确的机器可读展示映射；不授权兼容标识迁移 |
 | [Compatibility and migration matrix](compatibility-matrix.md) | 展示名、仓库地址、协议、数据目录、包身份和发布件的迁移边界 |
 | [ADR 0124](../adr/0124-traverse-board-branding-migration.md) | 品牌决策、仓库 slug、后果与兼容边界 |
+| [ADR 0125](../adr/0125-traverse-board-windows-executable-name.md) | `v0.1.0-rc.2` Windows 对外 EXE 文件名迁移 |
 
 ## 官方图形标志 / Official Mark
 
@@ -53,6 +54,8 @@ transparent master above; generative redraws and letter placeholders are not can
   `Trusted Run Fix` 领域对象或 authority source。
 - “Rust Analyzer”必须写成“Rust-implemented deterministic WASI Analyzer guest”，
   避免与 `rust-analyzer` 语言服务器混淆。
+- 从 `v0.1.0-rc.2` 开始，Windows 对外可执行文件名为 `TraverseBoard.exe`；内部 Go
+  入口、数据与安装 identity 继续遵循兼容边界，详见 ADR 0125。
 
 ## 授权边界 / Authorization Boundary
 

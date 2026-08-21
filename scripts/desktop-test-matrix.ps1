@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$BinaryPath = "build/desktop/cyberagent-desktop.exe",
+    [string]$BinaryPath = "build/desktop/TraverseBoard.exe",
     [ValidateRange(3, 60)][int]$StartupTimeoutSeconds = 15,
     [string]$OutputPath = ""
 )
