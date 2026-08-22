@@ -4,7 +4,24 @@
 
 Last updated: 2026-08-22
 
-## Current Single-Slice Checkpoint: Legacy v97 Upgrade Compatibility / Schema v125
+## Current Single-Slice Checkpoint: Workspace Access Permission / Issue #129 / Schema v126
+
+`workspace_access · 工作区执行` 是 Standard Code 的未来安全权限上限：Workspace 内读写可由
+策略表达，但命令只能交给通过独立 readiness 的 Workspace Sandbox adapter。宿主无沙箱执行、
+网络、凭证、用户主目录、持久用户/Agent 终端、Agent 输入和完整 CDP 均为 false。#129 不实现
+adapter，也没有运行期开关；生产 bootstrap 固定 readiness=false，所有界面必须灰显且不得回退
+到现有 host Command Runtime。选择需要精确确认，模型/Agent/Skill/仓库/恢复路径不能切档。
+
+Schema v126 保留所有旧快照与 operation replay，通过 create-copy-drop-rename 扩展 SQLite CHECK，
+并临时移除/按 canonical 定义恢复跨表 trigger；提交前验证 foreign keys。权限 revision 变化会在
+同一事务释放活动 execution lease，旧 Job owner 和工具 authority 随 snapshot/revision/generation
+漂移失败关闭。完整决策见 ADR 0127。
+
+完成证据：串行无缓存全仓 Go 全绿（Store 843.955s），受影响 domain/executionauth/application/
+store/httpapi 聚焦 race 全绿，Go vet/module、Windows Desktop secure tags、OpenAPI/TypeScript 生成、
+66 文件 290 项 Web、production build 与 npm audit 零漏洞通过；CI 已加入同一聚焦 race 门。
+
+## Previous Single-Slice Checkpoint: Legacy v97 Upgrade Compatibility / Schema v125
 
 `v0.1.0-rc.2` 在共享用户数据目录遇到一枚正式固化前的 Windows 预览 v97 历史时返回
 `FAILED_PRECONDITION`。发布 EXE 与 metadata hash 正确，数据库 `PRAGMA integrity_check` 为 `ok`；

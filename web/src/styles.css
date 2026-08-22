@@ -3501,6 +3501,7 @@ summary:focus-visible {
 }
 .permission-option-grid-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .permission-option-grid-four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.permission-option-grid-five { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .permission-option-grid-two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
 .permission-option-grid > button {
@@ -4484,7 +4485,8 @@ summary:focus-visible {
 }
 
 @media (max-width: 980px) {
-  .permission-option-grid-four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .permission-option-grid-four,
+  .permission-option-grid-five { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
   .workbench-dock-layout.with-sidecar {
     position: relative;
@@ -4527,6 +4529,7 @@ summary:focus-visible {
   .permission-option-grid-three,
   .permission-option-grid-two,
   .permission-option-grid-four,
+  .permission-option-grid-five,
   .permission-facts { grid-template-columns: 1fr; }
   .appearance-setting-row {
     align-items: stretch;

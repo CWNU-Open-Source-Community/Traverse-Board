@@ -61,7 +61,7 @@ The allowed direction is always `TypeScript -> Go -> LLM/Rust/Docker`. TypeScrip
 | Agent runtime | Mission/Run, resumable Supervisor, strict lifecycle, checkpoints, cancellation, retry, budgets, and execution leases |
 | Models and context | Mock, Anthropic-compatible, OpenAI-compatible, and loopback-only Ollama providers, routing, qualification, capability probing, streaming, compaction, hierarchical project instructions, explicit user/project memory, and Session continuity trees |
 | Planning and collaboration | Plan/Delivery, work items, notes, up to two core children, `batch-delivery.v1` isolated worktrees/branches/mailboxes/review/ordered merge, and 1/2/4/6 read-only fan-out tiers |
-| Tools and permissions | Tool Gateway, JSON Schema validation, Policy, Scope, human approval, four host-permission tiers, fixed commands, an ordinary-mode Run-owned command runtime, per-command PowerShell/Git Bash approval, and time-bound Debug terminal input |
+| Tools and permissions | Tool Gateway, JSON Schema validation, Policy, Scope, human approval, five Run permission ceilings, fixed commands, an ordinary-mode Run-owned command runtime, per-command PowerShell/Git Bash approval, and time-bound Debug terminal input |
 | Code workflows | Native folder selection and Workspace import, workspace browsing, repository state/history, diff review, file-edit proposals, read-only `code-intel-lsp.v1` semantic tools, transactional Workspace Checkpoints, stable hunks, stash/rebase/cherry-pick/bisect, managed worktrees, Undo/Redo/Rewind, independent Forks, verification plans, Code Journey, and Handoff |
 | Observability | Append-only Run events, Live Activity, public model commentary, Harness facts, Artifacts, Findings/Evidence/Reports, and SARIF |
 | Extension seams | Mode-aware inert Skill packages, human-reviewed generated candidates, a two-stage MCP Client, signed `plugin.v1`, restricted lifecycle hooks, Provider and Tool interfaces, an embedded WASI Analyzer, and network-none Docker product execution disabled by default |
@@ -79,6 +79,12 @@ Schema v115 introduces `agent-code-tools.v1`, allowing the root Supervisor to co
 | Cyber Surface or Specialist | No `agent-code-tools.v1` tools are advertised; the capability snapshot records the refusal reason |
 
 Read results are deterministically ordered, paginated, and bounded. Root escape, casing aliases, hidden entries outside the Go allowlist (`.github` is the sole code-evidence exception), ignored entries, links or reparse points, binary/non-UTF-8 data, and oversized files fail closed. `workspace_change` creates replace/create/move proposals only; `workspace_delete` is a separate exactly confirmed deletion proposal; `workspace_apply` can apply only an approved exact revision and rechecks source and destination hashes to detect review-time drift. Calls, results or refusals, authority snapshots, budget charges, and bounded Artifacts enter the resumable Supervisor ledger. `cyberagent run show <run-id>`, the Run Detail API, and the Desktop Run page expose the current generation and per-tool availability. This protocol grants no Shell, Git, network, or Sandbox authority. See the [Usage Guide](docs/usage.md) and [ADR 0116](docs/adr/0116-model-callable-workspace-tools.md).
+
+### Workspace Access permission contract
+
+Schema v126 adds `workspace_access` between `conservative` and `approval` as the future safe ceiling for Standard Code. It permits model reads and reviewed writes inside the registered Workspace and permits bounded commands only through an independently ready sandbox adapter. Unsandboxed host processes, network, credentials, the user home, persistent user/Agent terminals, and Full CDP remain denied. Any out-of-scope action requires a separate exact, one-time approval chain, and the persisted snapshot still grants no runtime authority.
+
+#129 installs no Local Sandbox and exposes no product flag that can claim adapter readiness. CLI, API, Desktop, and React therefore report the level as unavailable today, with no fallback to the existing host Command Runtime. A permission-revision change atomically releases the old execution lease and fences Job owners and tool authorities bound to the old snapshot. See [ADR 0127](docs/adr/0127-workspace-access-permission-contract.md).
 
 ### Read-only LSP code intelligence
 

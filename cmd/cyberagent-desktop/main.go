@@ -467,6 +467,9 @@ func runDesktop(config desktopOptions) error {
 		RunControlEnabled: config.profileControl, RunCreationEnabled: config.runCreation,
 		ExecutionPermissionControlEnabled: config.permissionControl,
 		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
+			// #129 defines Workspace Access, but no Desktop sandbox adapter is
+			// installed until its separate readiness issue lands.
+			WorkspaceSandboxEnabled:   false,
 			OperatorApprovalEnabled:   config.permissionControl,
 			DangerFullAccessEnabled:   config.dangerFullAccess,
 			DebugMaximumAccessEnabled: config.debugMaximumAccess,
@@ -545,6 +548,7 @@ func runDesktop(config desktopOptions) error {
 		ReadToken: readToken, ControlToken: controlToken, APIVersion: httpapi.Version,
 		RunControlEnabled: config.profileControl, RunCreationEnabled: config.runCreation,
 		ExecutionPermissionControlEnabled:       config.permissionControl,
+		WorkspaceSandboxEnabled:                 false,
 		BrowserCDPPermissionControlEnabled:      config.browserCDPControl,
 		FullCDPDebugEnabled:                     config.fullCDPDebug,
 		OperatorApprovalEnabled:                 config.permissionControl,

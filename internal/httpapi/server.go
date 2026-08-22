@@ -596,7 +596,8 @@ func New(store Store, config Config) (*API, error) {
 		return nil, apperror.Wrap(apperror.CodeInvalidArgument,
 			"HTTP API execution permission capabilities are invalid", err)
 	}
-	if (config.ExecutionPermissionCapabilities.OperatorApprovalEnabled ||
+	if (config.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled ||
+		config.ExecutionPermissionCapabilities.OperatorApprovalEnabled ||
 		config.ExecutionPermissionCapabilities.DangerFullAccessEnabled ||
 		config.ExecutionPermissionCapabilities.DebugMaximumAccessEnabled) &&
 		!config.ExecutionPermissionControlEnabled {

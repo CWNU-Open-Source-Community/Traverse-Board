@@ -167,6 +167,7 @@ const executionPermissions: Array<{
   icon: typeof ShieldCheck;
 }> = [
   { id: "conservative", chinese: "保守模式", english: "Conservative", detailChinese: "固定安全模板", detailEnglish: "Fixed safe templates", icon: ShieldCheck },
+  { id: "workspace_access", chinese: "工作区执行", english: "Workspace access", detailChinese: "隔离运行 · 无网络", detailEnglish: "Sandboxed · no network", icon: Container },
   { id: "approval", chinese: "用户审批", english: "User approval", detailChinese: "逐条人工确认", detailEnglish: "Per-command confirmation", icon: UserCheck },
   { id: "full_access", chinese: "完全访问", english: "Full access", detailChinese: "宿主机无沙箱", detailEnglish: "Unsandboxed host access", icon: ShieldOff },
   { id: "debug", chinese: "调试模式", english: "Debug", detailChinese: "持久交互终端", detailEnglish: "Persistent interactive terminal", icon: Bug },
@@ -179,6 +180,8 @@ function permissionRuntimeAvailable(
   switch (target) {
     case "conservative":
       return true;
+    case "workspace_access":
+      return permission.runtime.workspace_sandbox_enabled;
     case "approval":
       return permission.runtime.operator_approval_enabled;
     case "full_access":
@@ -198,17 +201,18 @@ export function ExecutionPermissionPanel({ client, detail }: {
   const [pendingMode, setPendingMode] =
     useState<RunExecutionPermissionView["mode"] | null>(null);
   const mutableStatus = detail.run.status === "created" || detail.run.status === "paused";
-  const mutable = client.hasExecutionPermissionControl && mutableStatus &&
-    !detail.execution_lease?.active;
+  const mutable = client.hasExecutionPermissionControl && mutableStatus;
   const mutation = useMutation({
     mutationFn: (target: RunExecutionPermissionView["mode"]) => {
       const body: {
         mode: RunExecutionPermissionView["mode"];
         reason: string;
+        confirm_workspace_access?: boolean;
         confirm_user_approval?: boolean;
         confirm_danger_full_access?: boolean;
         confirm_debug_access?: boolean;
       } = { mode: target, reason: "settings execution permission selection" };
+      if (target === "workspace_access") body.confirm_workspace_access = true;
       if (target === "approval") body.confirm_user_approval = true;
       if (target === "full_access") body.confirm_danger_full_access = true;
       if (target === "debug") body.confirm_debug_access = true;
@@ -233,7 +237,7 @@ export function ExecutionPermissionPanel({ client, detail }: {
   let boundary = t("Run 策略快照", "Run policy snapshot");
   if (!client.hasExecutionPermissionControl) boundary = t("启动时未开放权限控制", "Permission control was not enabled at startup");
   else if (!mutableStatus) boundary = t("请先暂停 Run", "Pause the Run first");
-  else if (detail.execution_lease?.active) boundary = t("执行租约占用中", "Execution lease is active");
+  else if (detail.execution_lease?.active) boundary = t("切换将撤销当前执行租约", "Switching revokes the active execution lease");
   return (
     <section className="permission-control-card execution-permission-section">
       <div className="section-heading">
@@ -244,7 +248,7 @@ export function ExecutionPermissionPanel({ client, detail }: {
         <StatusBadge status={permission.risk_tier} />
       </div>
       <div aria-label={t("Run 执行权限", "Run execution permission")}
-        className="permission-option-grid permission-option-grid-four" role="group">
+        className="permission-option-grid permission-option-grid-five" role="group">
         {executionPermissions.map(({ id, chinese, english, detailChinese, detailEnglish, icon: Icon }) => {
           const available = permissionRuntimeAvailable(permission, id);
           return <button aria-pressed={permission.mode === id}
@@ -252,13 +256,19 @@ export function ExecutionPermissionPanel({ client, detail }: {
             disabled={!mutable || mutation.isPending || permission.mode === id || !available}
             key={id} onClick={() => choose(id)} type="button">
             <Icon aria-hidden="true" size={17} />
-            <span><strong>{t(chinese, english)}</strong><small>{available ? t(detailChinese, detailEnglish) : t("启动闸门未开启", "Startup gate is closed")}</small></span>
+            <span><strong>{t(chinese, english)}</strong><small>{available
+              ? t(detailChinese, detailEnglish)
+              : id === "workspace_access"
+                ? t("沙箱适配器未就绪", "Sandbox adapter is unavailable")
+                : t("启动闸门未开启", "Startup gate is closed")}</small></span>
             {permission.mode === id && <Check aria-hidden="true" size={15} />}
           </button>;
         })}
       </div>
       {pendingMode && <PermissionConfirmation
-        description={pendingMode === "approval"
+        description={pendingMode === "workspace_access"
+          ? t("只允许受控工作区读写与经过验证的沙箱命令；网络、凭证、主目录、宿主进程、持久终端和完整 CDP 均被拒绝。", "Allows controlled Workspace access and verified sandbox commands only; network, credentials, home, host processes, persistent terminals, and Full CDP are denied.")
+          : pendingMode === "approval"
           ? t("每一条宿主机命令都需要用户批准。", "Every host command requires user approval.")
           : pendingMode === "full_access"
             ? t("将允许无沙箱宿主机文件与网络访问。", "Allows unsandboxed host filesystem and network access.")
@@ -271,6 +281,11 @@ export function ExecutionPermissionPanel({ client, detail }: {
         <div><dt>{t("文件系统", "Filesystem")}</dt><dd>{localizedProtocolValue(permission.filesystem_scope, t)}</dd></div>
         <div><dt>{t("网络", "Network")}</dt><dd>{localizedProtocolValue(permission.network_scope, t)}</dd></div>
       </dl>
+      {permission.mode === "workspace_access" && <p className="permission-closed-note">
+        {permission.runtime.workspace_sandbox_enabled
+          ? t("该选择仍只是策略上限；每次启动都必须重新验证沙箱 adapter。", "This selection remains a policy ceiling; every start must revalidate the sandbox adapter.")
+          : t("当前没有通过 readiness 的沙箱 adapter，因此此档不可执行命令，也不会回退到宿主进程。", "No sandbox adapter has passed readiness, so this level cannot execute commands and never falls back to a host process.")}
+      </p>}
       {mutation.isError && <MutationError error={mutation.error}
         fallback={t("权限档位切换失败", "Permission level switch failed")} />}
     </section>

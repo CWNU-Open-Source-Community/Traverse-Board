@@ -16,7 +16,8 @@ const migration97CleanupReceiptTriggerPrefix = "CREATE TRIGGER trg_sandbox_docke
 // Schema v125 deliberately leaves the canonical v97 trigger in place, so only
 // its migration-history row must be removed.
 func removeSchemaV125ForTestStatements() []string {
-	return []string{`DELETE FROM schema_migrations WHERE version = 125`}
+	return append(removeSchemaV126ForTestStatements(),
+		`DELETE FROM schema_migrations WHERE version = 125`)
 }
 
 func TestSchemaV125UpgradesCanonicalV124Database(t *testing.T) {

@@ -61,7 +61,7 @@ CLI / TUI / React / Windows Desktop / CI
 | Agent 运行时 | Mission/Run、可恢复 Supervisor、严格生命周期、检查点、取消、重试、预算和执行租约 |
 | 模型与上下文 | Mock、Anthropic-compatible、OpenAI-compatible 与 loopback-only Ollama Provider、模型路由、资格校验、能力探测、流式响应、上下文压缩、层级项目指令、显式 user/project 长期记忆与 Session 恢复树 |
 | 计划与协作 | Plan/Delivery、工作项、备注、最多两个核心 child、`batch-delivery.v1` 独立 Worktree/分支/邮箱/交付复核/顺序合并，以及 1/2/4/6 档只读 Fan-out |
-| 工具与权限 | Tool Gateway、JSON Schema 校验、Policy、Scope、人工审批、四档宿主权限、受控固定命令、普通模式 Run-owned 命令运行时、逐条审批 PowerShell/Git Bash，以及限时 Debug 终端输入 |
+| 工具与权限 | Tool Gateway、JSON Schema 校验、Policy、Scope、人工审批、五档 Run 权限上限、受控固定命令、普通模式 Run-owned 命令运行时、逐条审批 PowerShell/Git Bash，以及限时 Debug 终端输入 |
 | 代码工作流 | 系统目录选择与 Workspace 导入、工作区浏览、仓库状态、提交历史、Diff 审阅、文件编辑提案、只读 `code-intel-lsp.v1` 语义工具、事务化 Workspace Checkpoint、稳定 hunk、stash/rebase/cherry-pick/bisect、受管 worktree、GitHub App PR/CI 证据与审批回写、Undo/Redo/Rewind、独立 Fork、验证计划、Code Journey 与 Handoff |
 | 可观测性 | 追加式 Run 事件、Live Activity、公开模型进度、Harness 事实、Artifact、Finding/Evidence/Report、SARIF、持久化有界计划任务与脱敏结构化诊断包 |
 | 扩展 | 模式感知的惰性 Skill 包、生成候选人工审查、两阶段 MCP Client、签名 `plugin.v1`、受限生命周期 Hooks、Provider/Tool 接口、Go/Rust JSON 协议、内嵌 WASI Analyzer、Sandbox 合同与默认关闭的 network-none Docker 产品执行 |
@@ -79,6 +79,12 @@ Schema v115 引入 `agent-code-tools.v1`，让 root Supervisor 能在真实 Work
 | Cyber Surface 或 Specialist | 不公开任何 `agent-code-tools.v1` 工具，并在 capability 快照中说明拒绝原因 |
 
 只读结果稳定排序、分页且有界，并拒绝根目录逃逸、大小写别名、未列入 Go allowlist 的隐藏项（仅 `.github` 作为代码证据开放）、忽略项、链接或重解析点、二进制、非 UTF-8 与超限文件。`workspace_change` 只创建 replace/create/move 提案；`workspace_delete` 是独立、需精确确认的删除提案；`workspace_apply` 只能应用已经批准的精确版本，并重新检查原文件与目标文件哈希，避免审阅后内容漂移。每次调用、结果/拒绝、authority 快照、预算消耗与有界 Artifact 都进入可恢复 Supervisor 账本。`cyberagent run show <run-id>`、Run Detail API 和 Desktop Run 页面可查看当前 generation、逐工具可用性与拒绝原因。该协议不授予 Shell、Git、网络或 Sandbox 权限；完整设计见[使用手册](docs/usage.md)和 [ADR 0116](docs/adr/0116-model-callable-workspace-tools.md)。
+
+### 工作区执行权限合同
+
+Schema v126 在 `conservative` 与 `approval` 之间增加 `workspace_access · 工作区执行`，作为 Standard Code 的未来默认安全上限。它允许模型在已注册 Workspace 内读写，并允许一个已通过独立 readiness 的沙箱 adapter 运行有界命令；宿主无沙箱进程、网络、凭证、用户主目录、持久用户/Agent 终端和完整 CDP 全部拒绝。任何越界动作必须走另一条精确、一次性的审批链，持久权限快照本身始终不携带执行 authority。
+
+#129 不实现 Local Sandbox，也不提供可以打开 readiness 的产品参数。因此当前 CLI、API、Desktop 和 React 会一致显示该档不可用；它绝不回退到现有宿主 Command Runtime。切换权限 revision 会原子释放旧 execution lease，并使绑定旧快照的 Job owner 与工具 authority 失效。完整边界见 [ADR 0127](docs/adr/0127-workspace-access-permission-contract.md)。
 
 ### 只读 LSP 语义代码智能
 
@@ -524,6 +530,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 | v123 | 增加 git-advanced.v1 操作/序列审计与产品受管 worktree 注册表 | add git-advanced.v1 operation/sequence audits and the product-managed worktree registry |
 | v124 | 增加 GitHub connection、PR/CI 快照、本地证据图及审批回写/恢复账本 | add GitHub connections, PR/CI snapshots, local evidence graphs, and approved write/recovery ledgers |
 | v125 | 精确兼容旧 Windows 预览版 v97，并事务化重建 Docker lifecycle cleanup trigger | accept the exact legacy Windows preview v97 history and transactionally rebuild its Docker lifecycle cleanup trigger |
+| v126 | 增加 Workspace Access 工作区执行权限合同与沙箱 readiness 闸门 | add the Workspace Access permission contract and sandbox-readiness gate |
 
 </details>
 

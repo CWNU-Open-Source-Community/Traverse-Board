@@ -37,6 +37,7 @@ export function ConnectionGate() {
       connect(bootstrap.read_token, health, bootstrap.control_token, {
         runControlEnabled: bootstrap.control_enabled,
         executionPermissionControlEnabled: bootstrap.execution_permission_control_enabled,
+        workspaceSandboxEnabled: bootstrap.workspace_sandbox_enabled,
         browserCDPPermissionControlEnabled:
           bootstrap.browser_cdp_permission_control_enabled,
         fullCDPDebugEnabled: bootstrap.full_cdp_debug_enabled,

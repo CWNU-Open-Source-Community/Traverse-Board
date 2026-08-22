@@ -16,6 +16,7 @@ const RunExecutionPermissionControlPathTemplate = "/api/v1/runs/{run_id}/executi
 type RunExecutionPermissionControlRequestView struct {
 	Mode                    string `json:"mode"`
 	Reason                  string `json:"reason,omitempty"`
+	ConfirmWorkspaceAccess  bool   `json:"confirm_workspace_access,omitempty"`
 	ConfirmUserApproval     bool   `json:"confirm_user_approval,omitempty"`
 	ConfirmDangerFullAccess bool   `json:"confirm_danger_full_access,omitempty"`
 	ConfirmDebugAccess      bool   `json:"confirm_debug_access,omitempty"`
@@ -108,6 +109,7 @@ func (a *API) serveRunExecutionPermissionControl(writer http.ResponseWriter,
 		application.ChangeRunExecutionPermissionRequest{
 			RunID: runID, Mode: view.Mode, OperationKey: operationKey,
 			RequestedBy: "http_control", Reason: view.Reason,
+			ConfirmWorkspaceAccess:  view.ConfirmWorkspaceAccess,
 			ConfirmUserApproval:     view.ConfirmUserApproval,
 			ConfirmDangerFullAccess: view.ConfirmDangerFullAccess,
 			ConfirmDebugAccess:      view.ConfirmDebugAccess,
@@ -127,6 +129,7 @@ func executionPermissionRuntimeView(
 	capabilities domain.ExecutionPermissionRuntimeCapabilities,
 ) ExecutionPermissionRuntimeView {
 	return ExecutionPermissionRuntimeView{
+		WorkspaceSandboxEnabled:   capabilities.WorkspaceSandboxEnabled,
 		OperatorApprovalEnabled:   capabilities.OperatorApprovalEnabled,
 		DangerFullAccessEnabled:   capabilities.DangerFullAccessEnabled,
 		DebugMaximumAccessEnabled: capabilities.DebugMaximumAccessEnabled,

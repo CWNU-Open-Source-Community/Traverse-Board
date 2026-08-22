@@ -11,12 +11,13 @@ import (
 	"time"
 )
 
-const LatestSchemaVersion = 125
+const LatestSchemaVersion = 126
 
 type migration struct {
-	Version    int
-	Name       string
-	Statements []string
+	Version            int
+	Name               string
+	Statements         []string
+	DisableForeignKeys bool
 }
 
 type appliedMigration struct {
@@ -8811,7 +8812,29 @@ func (s *SQLiteStore) applyMigration(ctx context.Context, item migration) error 
 	if item.Version <= 0 || strings.TrimSpace(item.Name) == "" || len(item.Statements) == 0 {
 		return fmt.Errorf("invalid migration version=%d name=%q", item.Version, item.Name)
 	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("reserve migration %d connection: %w", item.Version, err)
+	}
+	defer conn.Close()
+	foreignKeysDisabled := false
+	if item.DisableForeignKeys {
+		if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys = OFF;`); err != nil {
+			return fmt.Errorf("disable foreign keys for migration %d: %w", item.Version, err)
+		}
+		var enabled int
+		if err := conn.QueryRowContext(ctx, `PRAGMA foreign_keys;`).Scan(&enabled); err != nil || enabled != 0 {
+			return fmt.Errorf("disable foreign keys for migration %d: state=%d err=%v",
+				item.Version, enabled, err)
+		}
+		foreignKeysDisabled = true
+		defer func() {
+			if foreignKeysDisabled {
+				_, _ = conn.ExecContext(context.Background(), `PRAGMA foreign_keys = ON;`)
+			}
+		}()
+	}
+	tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin migration %d: %w", item.Version, err)
 	}
@@ -8833,12 +8856,50 @@ func (s *SQLiteStore) applyMigration(ctx context.Context, item migration) error 
 			return fmt.Errorf("migration %d %q statement %d: %w", item.Version, item.Name, index+1, err)
 		}
 	}
+	if item.DisableForeignKeys {
+		rows, err := tx.QueryContext(ctx, `PRAGMA foreign_key_check;`)
+		if err != nil {
+			return fmt.Errorf("foreign-key check migration %d: %w", item.Version, err)
+		}
+		if rows.Next() {
+			var table string
+			var rowID sql.NullInt64
+			var parent string
+			var foreignKeyID int
+			scanErr := rows.Scan(&table, &rowID, &parent, &foreignKeyID)
+			_ = rows.Close()
+			if scanErr != nil {
+				return fmt.Errorf("scan foreign-key violation migration %d: %w",
+					item.Version, scanErr)
+			}
+			return fmt.Errorf("migration %d introduced foreign-key violation table=%q row=%v parent=%q key=%d",
+				item.Version, table, rowID, parent, foreignKeyID)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("read foreign-key check migration %d: %w", item.Version, err)
+		}
+		if err := rows.Close(); err != nil {
+			return fmt.Errorf("close foreign-key check migration %d: %w", item.Version, err)
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations (version, name, checksum, applied_at)
 		VALUES (?, ?, ?, ?)`, item.Version, item.Name, migrationChecksum(item), ts(time.Now().UTC())); err != nil {
 		return fmt.Errorf("record migration %d: %w", item.Version, err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit migration %d: %w", item.Version, err)
+	}
+	if item.DisableForeignKeys {
+		if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys = ON;`); err != nil {
+			return fmt.Errorf("restore foreign keys after migration %d: %w", item.Version, err)
+		}
+		var enabled int
+		if err := conn.QueryRowContext(ctx, `PRAGMA foreign_keys;`).Scan(&enabled); err != nil || enabled != 1 {
+			return fmt.Errorf("restore foreign keys after migration %d: state=%d err=%v",
+				item.Version, enabled, err)
+		}
+		foreignKeysDisabled = false
 	}
 	return nil
 }
@@ -8916,7 +8977,11 @@ func acceptedMigrationChecksum(item migration, recorded string) bool {
 }
 
 func migrationChecksum(item migration) string {
-	sum := sha256.Sum256([]byte(strings.Join(item.Statements, "\x00")))
+	payload := strings.Join(item.Statements, "\x00")
+	if item.DisableForeignKeys {
+		payload += "\x00migration.foreign_keys=off"
+	}
+	sum := sha256.Sum256([]byte(payload))
 	return hex.EncodeToString(sum[:])
 }
 

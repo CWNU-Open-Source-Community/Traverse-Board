@@ -14,6 +14,7 @@ function runtimeCapabilitiesData(overrides: Record<string, unknown> = {}) {
     agent_code_tools_enabled: true,
     code_intel_enabled: true,
     execution_permission_control_enabled: true, operator_approval_enabled: true,
+    workspace_sandbox_enabled: false,
     danger_full_access_enabled: true, debug_maximum_access_enabled: true,
     command_runtime_enabled: true,
     browser_cdp_permission_control_enabled: true, full_cdp_debug_enabled: true,
@@ -368,6 +369,7 @@ describe("CyberAgentClient", () => {
       agent_code_tools_enabled: true,
       code_intel_enabled: true,
       execution_permission_control_enabled: true, operator_approval_enabled: true,
+      workspace_sandbox_enabled: false,
       danger_full_access_enabled: true, debug_maximum_access_enabled: true,
       command_runtime_enabled: true,
       browser_cdp_permission_control_enabled: true, full_cdp_debug_enabled: true,
@@ -407,6 +409,7 @@ describe("CyberAgentClient", () => {
     expect(view).toEqual(data);
     expect(clientCapabilitiesFromRuntime(view)).toMatchObject({
       executionPermissionControlEnabled: true, operatorApprovalEnabled: true,
+      workspaceSandboxEnabled: false,
       dangerFullAccessEnabled: true, debugMaximumAccessEnabled: true,
       commandRuntimeEnabled: true,
       agentCodeToolsEnabled: true,

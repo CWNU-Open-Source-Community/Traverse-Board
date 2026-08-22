@@ -11,6 +11,7 @@ type PermissionOperationKind string
 
 const (
 	PermissionOperationFixedTemplate      PermissionOperationKind = "fixed_template"
+	PermissionOperationSandboxedWorkspace PermissionOperationKind = "sandboxed_workspace_command"
 	PermissionOperationStatelessCommand   PermissionOperationKind = "stateless_command"
 	PermissionOperationManagedCommand     PermissionOperationKind = "managed_command"
 	PermissionOperationPersistentTerminal PermissionOperationKind = "persistent_terminal"
@@ -26,16 +27,18 @@ type PermissionRequest struct {
 }
 
 type PermissionDecision struct {
-	Allowed            bool
-	RequiresApproval   bool
-	HostFilesystem     bool
-	Network            bool
-	PersistentTerminal bool
-	BackgroundProcess  bool
-	AgentTerminalInput bool
-	Mode               domain.RunExecutionPermissionMode
-	RequiredGate       domain.ExecutionPermissionGate
-	Reason             string
+	Allowed             bool
+	RequiresApproval    bool
+	HostFilesystem      bool
+	WorkspaceFilesystem bool
+	SandboxedCommand    bool
+	Network             bool
+	PersistentTerminal  bool
+	BackgroundProcess   bool
+	AgentTerminalInput  bool
+	Mode                domain.RunExecutionPermissionMode
+	RequiredGate        domain.ExecutionPermissionGate
+	Reason              string
 }
 
 func EvaluateExecutionPermission(snapshot domain.RunExecutionPermissionSnapshot,
@@ -58,6 +61,11 @@ func EvaluateExecutionPermission(snapshot domain.RunExecutionPermissionSnapshot,
 		decision.Reason = "the current process was not started with the required permission gate"
 		return decision, nil
 	}
+	if request.Kind == PermissionOperationSandboxedWorkspace &&
+		!runtime.WorkspaceSandboxEnabled {
+		decision.Reason = "the verified Workspace Sandbox adapter is unavailable"
+		return decision, nil
+	}
 
 	switch snapshot.Mode {
 	case domain.RunExecutionPermissionConservative:
@@ -72,6 +80,20 @@ func EvaluateExecutionPermission(snapshot domain.RunExecutionPermissionSnapshot,
 		}
 		decision.Allowed = true
 		decision.Reason = "Go-owned fixed command template is allowed"
+	case domain.RunExecutionPermissionWorkspaceAccess:
+		if request.Kind != PermissionOperationSandboxedWorkspace {
+			decision.Reason = "workspace-access mode permits process execution only through the verified sandbox adapter"
+			return decision, nil
+		}
+		if request.HostFilesystem || request.Network || request.BackgroundProcess ||
+			request.AgentTerminalInput || request.OperatorApproved {
+			decision.Reason = "workspace-access mode denies host, network, background, credential, home, and terminal capabilities"
+			return decision, nil
+		}
+		decision.Allowed = true
+		decision.WorkspaceFilesystem = true
+		decision.SandboxedCommand = true
+		decision.Reason = "verified Workspace Sandbox adapter permits one bounded command"
 	case domain.RunExecutionPermissionApproval:
 		if request.Kind == PermissionOperationPersistentTerminal ||
 			request.BackgroundProcess || request.AgentTerminalInput {
@@ -86,6 +108,8 @@ func EvaluateExecutionPermission(snapshot domain.RunExecutionPermissionSnapshot,
 		decision.Allowed = true
 		decision.HostFilesystem = request.HostFilesystem
 		decision.Network = request.Network
+		decision.WorkspaceFilesystem = request.Kind == PermissionOperationSandboxedWorkspace
+		decision.SandboxedCommand = request.Kind == PermissionOperationSandboxedWorkspace
 		decision.Reason = "operator approved this exact one-shot command"
 	case domain.RunExecutionPermissionFullAccess:
 		if request.Kind == PermissionOperationPersistentTerminal ||
@@ -98,6 +122,8 @@ func EvaluateExecutionPermission(snapshot domain.RunExecutionPermissionSnapshot,
 		decision.HostFilesystem = request.HostFilesystem
 		decision.Network = request.Network
 		decision.BackgroundProcess = request.BackgroundProcess
+		decision.WorkspaceFilesystem = request.Kind == PermissionOperationSandboxedWorkspace
+		decision.SandboxedCommand = request.Kind == PermissionOperationSandboxedWorkspace
 		if request.Kind == PermissionOperationManagedCommand {
 			decision.Reason = "danger-full-access process gate permits a Run-owned managed command"
 		} else {
@@ -110,6 +136,8 @@ func EvaluateExecutionPermission(snapshot domain.RunExecutionPermissionSnapshot,
 		decision.PersistentTerminal = request.Kind == PermissionOperationPersistentTerminal
 		decision.BackgroundProcess = request.BackgroundProcess
 		decision.AgentTerminalInput = request.AgentTerminalInput
+		decision.WorkspaceFilesystem = request.Kind == PermissionOperationSandboxedWorkspace
+		decision.SandboxedCommand = request.Kind == PermissionOperationSandboxedWorkspace
 		decision.Reason = "debug maximum-access process gate permits the requested capability"
 	default:
 		return PermissionDecision{}, errors.New("unsupported execution permission mode")
@@ -119,7 +147,8 @@ func EvaluateExecutionPermission(snapshot domain.RunExecutionPermissionSnapshot,
 
 func validatePermissionRequest(request PermissionRequest) error {
 	switch request.Kind {
-	case PermissionOperationFixedTemplate, PermissionOperationStatelessCommand,
+	case PermissionOperationFixedTemplate, PermissionOperationSandboxedWorkspace,
+		PermissionOperationStatelessCommand,
 		PermissionOperationManagedCommand,
 		PermissionOperationPersistentTerminal:
 	default:

@@ -23275,6 +23275,63 @@
         ],
         "type": "object"
       },
+      "ExecutionPermissionCapabilityMatrixView": {
+        "additionalProperties": false,
+        "properties": {
+          "credential_access": {
+            "type": "boolean"
+          },
+          "full_cdp": {
+            "type": "boolean"
+          },
+          "network_access": {
+            "type": "boolean"
+          },
+          "out_of_scope_policy": {
+            "enum": [
+              "denied",
+              "exact_once_required",
+              "not_required"
+            ],
+            "type": "string"
+          },
+          "persistent_agent_terminal": {
+            "type": "boolean"
+          },
+          "persistent_user_terminal": {
+            "type": "boolean"
+          },
+          "sandboxed_command_runtime": {
+            "type": "boolean"
+          },
+          "unsandboxed_host_process": {
+            "type": "boolean"
+          },
+          "user_home_access": {
+            "type": "boolean"
+          },
+          "workspace_read": {
+            "type": "boolean"
+          },
+          "workspace_write": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "workspace_read",
+          "workspace_write",
+          "sandboxed_command_runtime",
+          "unsandboxed_host_process",
+          "network_access",
+          "credential_access",
+          "user_home_access",
+          "persistent_user_terminal",
+          "persistent_agent_terminal",
+          "full_cdp",
+          "out_of_scope_policy"
+        ],
+        "type": "object"
+      },
       "ExecutionPermissionRuntimeView": {
         "additionalProperties": false,
         "properties": {
@@ -23286,9 +23343,13 @@
           },
           "operator_approval_enabled": {
             "type": "boolean"
+          },
+          "workspace_sandbox_enabled": {
+            "type": "boolean"
           }
         },
         "required": [
+          "workspace_sandbox_enabled",
           "operator_approval_enabled",
           "danger_full_access_enabled",
           "debug_maximum_access_enabled"
@@ -33983,9 +34044,13 @@
           "confirm_user_approval": {
             "type": "boolean"
           },
+          "confirm_workspace_access": {
+            "type": "boolean"
+          },
           "mode": {
             "enum": [
               "conservative",
+              "workspace_access",
               "approval",
               "full_access",
               "debug"
@@ -34027,6 +34092,7 @@
           "approval_policy": {
             "enum": [
               "fixed_templates",
+              "out_of_scope_exact_once",
               "per_command",
               "none"
             ],
@@ -34038,9 +34104,13 @@
           "capability_grant": {
             "type": "boolean"
           },
+          "capability_matrix": {
+            "$ref": "#/components/schemas/ExecutionPermissionCapabilityMatrixView"
+          },
           "command_scope": {
             "enum": [
               "fixed_templates",
+              "sandboxed_workspace",
               "arbitrary_stateless",
               "arbitrary_persistent"
             ],
@@ -34063,6 +34133,7 @@
           "mode": {
             "enum": [
               "conservative",
+              "workspace_access",
               "approval",
               "full_access",
               "debug"
@@ -34100,6 +34171,7 @@
           "required_gate": {
             "enum": [
               "conservative_control",
+              "workspace_sandbox_adapter",
               "operator_approval",
               "danger_full_access",
               "debug_maximum_access"
@@ -34143,6 +34215,7 @@
           "operator_confirmed",
           "runtime_gate_available",
           "runtime",
+          "capability_matrix",
           "created_at",
           "process_enabled",
           "execution_authorized",
@@ -35138,12 +35211,16 @@
           },
           "workspace_checkpoint_control_enabled": {
             "type": "boolean"
+          },
+          "workspace_sandbox_enabled": {
+            "type": "boolean"
           }
         },
         "required": [
           "protocol_version",
           "run_control_enabled",
           "execution_permission_control_enabled",
+          "workspace_sandbox_enabled",
           "operator_approval_enabled",
           "danger_full_access_enabled",
           "debug_maximum_access_enabled",

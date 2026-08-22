@@ -173,7 +173,7 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		bootstrap.ExecutionPermissionControlEnabled ||
 		bootstrap.BrowserCDPPermissionControlEnabled || bootstrap.FullCDPDebugEnabled ||
 		bootstrap.OperatorApprovalEnabled || bootstrap.DangerFullAccessEnabled ||
-		bootstrap.DebugMaximumAccessEnabled || bootstrap.CommandRuntimeEnabled ||
+		bootstrap.WorkspaceSandboxEnabled || bootstrap.DebugMaximumAccessEnabled || bootstrap.CommandRuntimeEnabled ||
 		bootstrap.FileEditReviewEnabled || bootstrap.FileEditProposalEnabled ||
 		bootstrap.RunWakeControlEnabled || bootstrap.FileEditApplyEnabled ||
 		bootstrap.RunWakeExecutionEnabled || bootstrap.RunWakeWorkerEnabled ||
@@ -206,7 +206,8 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		"control_enabled", "control_token",
 		"controlled_command_proposal_control_enabled",
 		"host_command_proposal_control_enabled",
-		"execution_permission_control_enabled", "operator_approval_enabled",
+		"execution_permission_control_enabled", "workspace_sandbox_enabled",
+		"operator_approval_enabled",
 		"browser_cdp_permission_control_enabled", "full_cdp_debug_enabled",
 		"danger_full_access_enabled", "debug_maximum_access_enabled",
 		"command_runtime_enabled",
@@ -257,6 +258,34 @@ func TestDesktopBridgeProjectsRunOwnedCommandRuntimeSeparatelyFromUserTerminal(t
 		bootstrap.AgentTerminalInputDefault || bootstrap.DebugMaximumAccessEnabled ||
 		bootstrap.DockerExecutionEnabled {
 		t.Fatalf("command runtime ownership projection is wrong: %#v", bootstrap)
+	}
+}
+
+func TestDesktopBridgeWorkspaceSandboxReadinessDoesNotEnableHostExecution(t *testing.T) {
+	selector, preview := NewSkillPackagePreviewBoundary()
+	base := DesktopBridgeConfig{
+		ContextProvider: func() context.Context { return context.Background() },
+		FilePicker:      &testSkillPackagePicker{}, ReadToken: testDesktopReadToken,
+		ControlToken: testDesktopControlToken, WorkspaceSandboxEnabled: true,
+		APIVersion: "api.v1", AppVersion: "test", UIDigest: testDesktopUIDigest,
+		Selector: selector, PreviewBridge: preview,
+	}
+	if _, err := NewDesktopBridge(base); apperror.CodeOf(err) != apperror.CodeInvalidArgument {
+		t.Fatalf("Workspace Sandbox readiness escaped permission control: %v", err)
+	}
+	base.ExecutionPermissionControlEnabled = true
+	bridge, err := NewDesktopBridge(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap, err := bridge.Bootstrap()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bootstrap.WorkspaceSandboxEnabled || bootstrap.CommandRuntimeEnabled ||
+		bootstrap.ProcessExecutionEnabled || bootstrap.ShellExecutionEnabled ||
+		bootstrap.DangerFullAccessEnabled {
+		t.Fatalf("Workspace Sandbox readiness widened host execution: %#v", bootstrap)
 	}
 }
 

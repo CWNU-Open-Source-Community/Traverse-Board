@@ -39,6 +39,7 @@ type ConnectionBootstrap struct {
 	ControlToken                            string `json:"control_token"`
 	ControlEnabled                          bool   `json:"control_enabled"`
 	ExecutionPermissionControlEnabled       bool   `json:"execution_permission_control_enabled"`
+	WorkspaceSandboxEnabled                 bool   `json:"workspace_sandbox_enabled"`
 	BrowserCDPPermissionControlEnabled      bool   `json:"browser_cdp_permission_control_enabled"`
 	FullCDPDebugEnabled                     bool   `json:"full_cdp_debug_enabled"`
 	OperatorApprovalEnabled                 bool   `json:"operator_approval_enabled"`
@@ -148,6 +149,7 @@ type DesktopBridgeConfig struct {
 	ControlToken                            string
 	RunControlEnabled                       bool
 	ExecutionPermissionControlEnabled       bool
+	WorkspaceSandboxEnabled                 bool
 	BrowserCDPPermissionControlEnabled      bool
 	FullCDPDebugEnabled                     bool
 	OperatorApprovalEnabled                 bool
@@ -280,6 +282,7 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 			"desktop Debug terminal Agent input requires the Go lease controller")
 	}
 	permissionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		WorkspaceSandboxEnabled:   config.WorkspaceSandboxEnabled,
 		OperatorApprovalEnabled:   config.OperatorApprovalEnabled,
 		DangerFullAccessEnabled:   config.DangerFullAccessEnabled,
 		DebugMaximumAccessEnabled: config.DebugMaximumAccessEnabled,
@@ -288,7 +291,7 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 		return nil, apperror.Wrap(apperror.CodeInvalidArgument,
 			"desktop execution permission capabilities are invalid", err)
 	}
-	if (config.OperatorApprovalEnabled || config.DangerFullAccessEnabled ||
+	if (config.WorkspaceSandboxEnabled || config.OperatorApprovalEnabled || config.DangerFullAccessEnabled ||
 		config.DebugMaximumAccessEnabled) && !config.ExecutionPermissionControlEnabled {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop execution permission capabilities require permission control")
@@ -369,6 +372,7 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 			UIDigest: config.UIDigest, ReadToken: config.ReadToken, ControlToken: config.ControlToken,
 			ControlEnabled:                          config.RunControlEnabled,
 			ExecutionPermissionControlEnabled:       config.ExecutionPermissionControlEnabled,
+			WorkspaceSandboxEnabled:                 config.WorkspaceSandboxEnabled,
 			BrowserCDPPermissionControlEnabled:      config.BrowserCDPPermissionControlEnabled,
 			FullCDPDebugEnabled:                     config.FullCDPDebugEnabled,
 			OperatorApprovalEnabled:                 config.OperatorApprovalEnabled,

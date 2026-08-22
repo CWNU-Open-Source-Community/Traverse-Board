@@ -4725,10 +4725,25 @@ export interface components {
             run_id: string;
             truncated: boolean;
         };
+        ExecutionPermissionCapabilityMatrixView: {
+            credential_access: boolean;
+            full_cdp: boolean;
+            network_access: boolean;
+            /** @enum {string} */
+            out_of_scope_policy: "denied" | "exact_once_required" | "not_required";
+            persistent_agent_terminal: boolean;
+            persistent_user_terminal: boolean;
+            sandboxed_command_runtime: boolean;
+            unsandboxed_host_process: boolean;
+            user_home_access: boolean;
+            workspace_read: boolean;
+            workspace_write: boolean;
+        };
         ExecutionPermissionRuntimeView: {
             danger_full_access_enabled: boolean;
             debug_maximum_access_enabled: boolean;
             operator_approval_enabled: boolean;
+            workspace_sandbox_enabled: boolean;
         };
         ExtensionInventoryView: {
             mcp_calls: components["schemas"]["ExtensionMCPCallAuditView"][];
@@ -7454,8 +7469,9 @@ export interface components {
             confirm_danger_full_access?: boolean;
             confirm_debug_access?: boolean;
             confirm_user_approval?: boolean;
+            confirm_workspace_access?: boolean;
             /** @enum {string} */
-            mode: "conservative" | "approval" | "full_access" | "debug";
+            mode: "conservative" | "workspace_access" | "approval" | "full_access" | "debug";
             reason?: string;
         };
         RunExecutionPermissionControlView: {
@@ -7465,18 +7481,19 @@ export interface components {
         RunExecutionPermissionView: {
             agent_terminal_input: boolean;
             /** @enum {string} */
-            approval_policy: "fixed_templates" | "per_command" | "none";
+            approval_policy: "fixed_templates" | "out_of_scope_exact_once" | "per_command" | "none";
             background_process: boolean;
             capability_grant: boolean;
+            capability_matrix: components["schemas"]["ExecutionPermissionCapabilityMatrixView"];
             /** @enum {string} */
-            command_scope: "fixed_templates" | "arbitrary_stateless" | "arbitrary_persistent";
+            command_scope: "fixed_templates" | "sandboxed_workspace" | "arbitrary_stateless" | "arbitrary_persistent";
             /** Format: date-time */
             created_at: string;
             execution_authorized: boolean;
             /** @enum {string} */
             filesystem_scope: "workspace_guarded" | "host_full";
             /** @enum {string} */
-            mode: "conservative" | "approval" | "full_access" | "debug";
+            mode: "conservative" | "workspace_access" | "approval" | "full_access" | "debug";
             /** @enum {string} */
             network_scope: "disabled" | "host";
             operator_confirmed: boolean;
@@ -7487,7 +7504,7 @@ export interface components {
             /** @enum {string} */
             protocol_version: "run_execution_permission.v1";
             /** @enum {string} */
-            required_gate: "conservative_control" | "operator_approval" | "danger_full_access" | "debug_maximum_access";
+            required_gate: "conservative_control" | "workspace_sandbox_adapter" | "operator_approval" | "danger_full_access" | "debug_maximum_access";
             /** Format: int64 */
             revision: number;
             /** @enum {string} */
@@ -7766,6 +7783,7 @@ export interface components {
             verification_evidence_enabled: boolean;
             wake_worker: components["schemas"]["RunWakeWorkerHealthView"];
             workspace_checkpoint_control_enabled: boolean;
+            workspace_sandbox_enabled: boolean;
         };
         ScheduledJob: {
             /** Format: date-time */

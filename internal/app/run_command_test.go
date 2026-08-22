@@ -264,10 +264,19 @@ func TestRunExecutionPermissionCLIRequiresRuntimeGateAndExactConfirmation(t *tes
 	if code != 0 || stderr != "" ||
 		!strings.Contains(shown, "mode: conservative") ||
 		!strings.Contains(shown, "approval_policy: fixed_templates") ||
+		!strings.Contains(shown, "sandboxed_command_runtime: false") ||
+		!strings.Contains(shown, "unsandboxed_host_process: false") ||
 		!strings.Contains(shown, "runtime_gate_available: true") ||
 		!strings.Contains(shown, "execution_authorized: false") {
 		t.Fatalf("unexpected initial permission output=%q stderr=%q code=%d",
 			shown, stderr, code)
+	}
+	if _, stderr, code := executeTestCommand(t, "run", "execution-permission",
+		"set", runID, "workspace_access",
+		"--operation-key", "cli-workspace-access-no-adapter-0001",
+		"--confirm-workspace-access"); code != 5 ||
+		!strings.Contains(stderr, "workspace_sandbox_adapter") {
+		t.Fatalf("Workspace Access without adapter stderr=%q code=%d", stderr, code)
 	}
 	if _, stderr, code := executeTestCommand(t, "run", "execution-permission",
 		"set", runID, "approval",

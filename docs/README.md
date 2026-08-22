@@ -41,6 +41,7 @@ This directory separates user-facing documentation, current engineering state, a
 | [ADR 0124 / Traverse Board Branding](adr/0124-traverse-board-branding-migration.md) | 已接受品牌、仓库 slug、兼容身份与实施边界 |
 | [ADR 0125 / Windows Executable Name](adr/0125-traverse-board-windows-executable-name.md) | `v0.1.0-rc.2` 对外 EXE 文件名与发布边界 |
 | [ADR 0126 / Legacy v97 Compatibility](adr/0126-legacy-v97-docker-trigger-compatibility.md) | 精确旧校验和、v125 trigger 修复、数据保留与失败关闭边界 |
+| [ADR 0127 / Workspace Access](adr/0127-workspace-access-permission-contract.md) | Standard Code 工作区权限上限、沙箱 readiness、revision fencing 与失败关闭边界 |
 | [ADR 索引](adr/) | 权限、持久化、执行、浏览器、Desktop 等架构决策 |
 
 ## 当前工程上下文 / Current Engineering Context

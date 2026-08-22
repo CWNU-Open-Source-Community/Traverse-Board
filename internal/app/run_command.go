@@ -1956,13 +1956,15 @@ func (a *App) runExecutionPermission(ctx context.Context, args []string) error {
 		return nil
 	}
 	if len(args) == 0 || args[0] != "set" {
-		return errors.New("usage: cyberagent run execution-permission <run-id> | cyberagent run execution-permission set <run-id> conservative|approval|full_access|debug --operation-key <key> [--confirm-user-approval|--confirm-danger-full-access|--confirm-debug-access] [--enable-permission-control] [--enable-danger-full-access] [--enable-debug-maximum-access] [--operator <id>] [--reason <text>]")
+		return errors.New("usage: cyberagent run execution-permission <run-id> | cyberagent run execution-permission set <run-id> conservative|workspace_access|approval|full_access|debug --operation-key <key> [--confirm-workspace-access|--confirm-user-approval|--confirm-danger-full-access|--confirm-debug-access] [--enable-permission-control] [--enable-danger-full-access] [--enable-debug-maximum-access] [--operator <id>] [--reason <text>]")
 	}
 	fs := newFlagSet("run execution-permission set", a.errOut)
 	operationKey := fs.String("operation-key", "",
 		"stable execution-permission operation key")
 	operator := fs.String("operator", "cli_operator", "operator identity")
 	reason := fs.String("reason", "", "redacted selection reason")
+	confirmWorkspace := fs.Bool("confirm-workspace-access", false,
+		"confirm the sandbox-only Workspace boundary")
 	confirmApproval := fs.Bool("confirm-user-approval", false,
 		"confirm exact per-command operator approval")
 	confirmFull := fs.Bool("confirm-danger-full-access", false,
@@ -1977,14 +1979,15 @@ func (a *App) runExecutionPermission(ctx context.Context, args []string) error {
 		"enable maximum debug access for this process")
 	if err := fs.Parse(reorderFlags(args[1:], map[string]bool{
 		"operation-key": true, "operator": true, "reason": true,
-		"confirm-user-approval": false, "confirm-danger-full-access": false,
+		"confirm-workspace-access": false,
+		"confirm-user-approval":    false, "confirm-danger-full-access": false,
 		"confirm-debug-access": false, "enable-permission-control": false,
 		"enable-danger-full-access": false, "enable-debug-maximum-access": false,
 	})); err != nil {
 		return err
 	}
 	if fs.NArg() != 2 || strings.TrimSpace(*operationKey) == "" {
-		return errors.New("usage: cyberagent run execution-permission set <run-id> conservative|approval|full_access|debug --operation-key <key> [--confirm-user-approval|--confirm-danger-full-access|--confirm-debug-access] [--enable-permission-control] [--enable-danger-full-access] [--enable-debug-maximum-access] [--operator <id>] [--reason <text>]")
+		return errors.New("usage: cyberagent run execution-permission set <run-id> conservative|workspace_access|approval|full_access|debug --operation-key <key> [--confirm-workspace-access|--confirm-user-approval|--confirm-danger-full-access|--confirm-debug-access] [--enable-permission-control] [--enable-danger-full-access] [--enable-debug-maximum-access] [--operator <id>] [--reason <text>]")
 	}
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled:   *enableControl,
@@ -2000,6 +2003,7 @@ func (a *App) runExecutionPermission(ctx context.Context, args []string) error {
 		application.ChangeRunExecutionPermissionRequest{
 			RunID: fs.Arg(0), Mode: fs.Arg(1), OperationKey: *operationKey,
 			RequestedBy: *operator, Reason: *reason,
+			ConfirmWorkspaceAccess:  *confirmWorkspace,
 			ConfirmUserApproval:     *confirmApproval,
 			ConfirmDangerFullAccess: *confirmFull,
 			ConfirmDebugAccess:      *confirmDebug,
@@ -2016,13 +2020,19 @@ func writeRunExecutionPermission(out interface{ Write([]byte) (int, error) },
 	permission domain.RunExecutionPermissionSnapshot, replayed bool,
 	runtimeGateAvailable bool,
 ) {
-	fmt.Fprintf(out, "run: %s\nmission: %s\nprotocol: %s\nrevision: %d\nmode: %s\napproval_policy: %s\ncommand_scope: %s\nfilesystem_scope: %s\nnetwork_scope: %s\npersistent_terminal: %t\nbackground_process: %t\nagent_terminal_input: %t\nrisk_tier: %s\nrequired_gate: %s\npolicy: %s\noperator_confirmed: %t\nrequested_by: %s\nreason: %s\ncreated_at: %s\nruntime_gate_available: %t\nprocess_enabled: false\nexecution_authorized: false\ncapability_grant: false\nreplayed: %t\n",
+	matrix, _ := permission.CapabilityMatrix()
+	fmt.Fprintf(out, "run: %s\nmission: %s\nprotocol: %s\nrevision: %d\nmode: %s\napproval_policy: %s\ncommand_scope: %s\nfilesystem_scope: %s\nnetwork_scope: %s\npersistent_terminal: %t\nbackground_process: %t\nagent_terminal_input: %t\nrisk_tier: %s\nrequired_gate: %s\npolicy: %s\noperator_confirmed: %t\nworkspace_read: %t\nworkspace_write: %t\nsandboxed_command_runtime: %t\nunsandboxed_host_process: %t\nnetwork_access: %t\ncredential_access: %t\nuser_home_access: %t\npersistent_user_terminal: %t\npersistent_agent_terminal: %t\nfull_cdp: %t\nout_of_scope_policy: %s\nrequested_by: %s\nreason: %s\ncreated_at: %s\nruntime_gate_available: %t\nprocess_enabled: false\nexecution_authorized: false\ncapability_grant: false\nreplayed: %t\n",
 		permission.RunID, permission.MissionID, permission.ProtocolVersion,
 		permission.Revision, permission.Mode, permission.ApprovalPolicy,
 		permission.CommandScope, permission.FilesystemScope, permission.NetworkScope,
 		permission.PersistentTerminal, permission.BackgroundProcess,
 		permission.AgentTerminalInput, permission.RiskTier, permission.RequiredGate,
-		permission.PolicyVersion, permission.OperatorConfirmed, permission.RequestedBy,
+		permission.PolicyVersion, permission.OperatorConfirmed,
+		matrix.WorkspaceRead, matrix.WorkspaceWrite, matrix.SandboxedCommandRuntime,
+		matrix.UnsandboxedHostProcess, matrix.NetworkAccess, matrix.CredentialAccess,
+		matrix.UserHomeAccess, matrix.PersistentUserTerminal,
+		matrix.PersistentAgentTerminal, matrix.FullCDP, matrix.OutOfScopePolicy,
+		permission.RequestedBy,
 		permission.Reason, permission.CreatedAt.Format(time.RFC3339Nano),
 		runtimeGateAvailable, replayed)
 }

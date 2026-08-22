@@ -42,6 +42,7 @@ type ChangeRunExecutionPermissionRequest struct {
 	OperationKey            string
 	RequestedBy             string
 	Reason                  string
+	ConfirmWorkspaceAccess  bool
 	ConfirmUserApproval     bool
 	ConfirmDangerFullAccess bool
 	ConfirmDebugAccess      bool
@@ -155,6 +156,11 @@ func (s *RunExecutionPermissionService) Change(ctx context.Context,
 		return ChangeRunExecutionPermissionResult{}, apperror.Wrap(
 			apperror.CodeInvalidArgument, "Run execution permission transition is invalid", err)
 	}
+	matrix, err := next.CapabilityMatrix()
+	if err != nil {
+		return ChangeRunExecutionPermissionResult{}, apperror.Wrap(
+			apperror.CodeInternal, "Run execution permission matrix is invalid", err)
+	}
 	operation := domain.RunExecutionPermissionOperation{
 		KeyDigest: keyDigest, RequestFingerprint: requestFingerprint,
 		SnapshotID: next.ID, RunID: next.RunID, RequestedBy: next.RequestedBy,
@@ -174,6 +180,19 @@ func (s *RunExecutionPermissionService) Change(ctx context.Context,
 			"policy_version": next.PolicyVersion, "requested_by": next.RequestedBy,
 			"reason": next.Reason, "process_enabled": false,
 			"execution_authorized": false, "capability_grant": false,
+			"capability_matrix": map[string]any{
+				"workspace_read":            matrix.WorkspaceRead,
+				"workspace_write":           matrix.WorkspaceWrite,
+				"sandboxed_command_runtime": matrix.SandboxedCommandRuntime,
+				"unsandboxed_host_process":  matrix.UnsandboxedHostProcess,
+				"network_access":            matrix.NetworkAccess,
+				"credential_access":         matrix.CredentialAccess,
+				"user_home_access":          matrix.UserHomeAccess,
+				"persistent_user_terminal":  matrix.PersistentUserTerminal,
+				"persistent_agent_terminal": matrix.PersistentAgentTerminal,
+				"full_cdp":                  matrix.FullCDP,
+				"out_of_scope_policy":       matrix.OutOfScopePolicy,
+			},
 		})
 	if err != nil {
 		return ChangeRunExecutionPermissionResult{}, err
@@ -240,10 +259,12 @@ func normalizeChangeRunExecutionPermissionRequest(
 			errors.New("bounded Run and operator identities are required")
 	}
 	switch strings.ToLower(request.RequestedBy) {
-	case "agent", "llm", "model", "repository", "repo", "skill":
+	case "agent", "llm", "model", "repository", "repo", "skill", "config",
+		"configuration", "project_config", "recovery", "recovery_data", "mcp",
+		"plugin", "hook":
 		return ChangeRunExecutionPermissionRequest{}, "", false,
 			errors.New(
-				"models, agents, Skills, and repository content cannot select execution permission modes")
+				"models, agents, Skills, extensions, repository configuration, and recovery data cannot select execution permission modes")
 	}
 	if !utf8.ValidString(request.Reason) || strings.ContainsRune(request.Reason, 0) ||
 		utf8.RuneCountInString(request.Reason) >
@@ -273,27 +294,34 @@ func normalizeChangeRunExecutionPermissionRequest(
 	confirmed := false
 	switch mode {
 	case domain.RunExecutionPermissionConservative:
-		if request.ConfirmUserApproval || request.ConfirmDangerFullAccess ||
+		if request.ConfirmWorkspaceAccess || request.ConfirmUserApproval || request.ConfirmDangerFullAccess ||
 			request.ConfirmDebugAccess {
 			return ChangeRunExecutionPermissionRequest{}, "", false,
 				errors.New("conservative mode must reset to an unconfirmed boundary")
 		}
+	case domain.RunExecutionPermissionWorkspaceAccess:
+		if !request.ConfirmWorkspaceAccess || request.ConfirmUserApproval ||
+			request.ConfirmDangerFullAccess || request.ConfirmDebugAccess {
+			return ChangeRunExecutionPermissionRequest{}, "", false,
+				errors.New("workspace-access mode requires its exact sandbox-boundary confirmation")
+		}
+		confirmed = true
 	case domain.RunExecutionPermissionApproval:
-		if !request.ConfirmUserApproval || request.ConfirmDangerFullAccess ||
+		if request.ConfirmWorkspaceAccess || !request.ConfirmUserApproval || request.ConfirmDangerFullAccess ||
 			request.ConfirmDebugAccess {
 			return ChangeRunExecutionPermissionRequest{}, "", false,
 				errors.New("approval mode requires its exact user-approval confirmation")
 		}
 		confirmed = true
 	case domain.RunExecutionPermissionFullAccess:
-		if request.ConfirmUserApproval || !request.ConfirmDangerFullAccess ||
+		if request.ConfirmWorkspaceAccess || request.ConfirmUserApproval || !request.ConfirmDangerFullAccess ||
 			request.ConfirmDebugAccess {
 			return ChangeRunExecutionPermissionRequest{}, "", false,
 				errors.New("full-access mode requires its exact danger-full-access confirmation")
 		}
 		confirmed = true
 	case domain.RunExecutionPermissionDebug:
-		if request.ConfirmUserApproval || request.ConfirmDangerFullAccess ||
+		if request.ConfirmWorkspaceAccess || request.ConfirmUserApproval || request.ConfirmDangerFullAccess ||
 			!request.ConfirmDebugAccess {
 			return ChangeRunExecutionPermissionRequest{}, "", false,
 				errors.New("debug mode requires its exact maximum-access confirmation")
@@ -310,6 +338,8 @@ func requiredExecutionPermissionGate(
 	switch mode {
 	case domain.RunExecutionPermissionConservative:
 		return domain.ExecutionPermissionGateConservative
+	case domain.RunExecutionPermissionWorkspaceAccess:
+		return domain.ExecutionPermissionGateWorkspaceSandbox
 	case domain.RunExecutionPermissionApproval:
 		return domain.ExecutionPermissionGateOperatorApproval
 	case domain.RunExecutionPermissionFullAccess:
