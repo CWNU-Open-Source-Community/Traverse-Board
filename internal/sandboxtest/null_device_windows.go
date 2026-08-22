@@ -69,35 +69,62 @@ func prepareSystemDrive() (func() error, bool, error) {
 }
 
 func prepareSystemDrivePath(root string) (func() error, bool, error) {
+	descriptor, err := windows.GetNamedSecurityInfo(root, windows.SE_FILE_OBJECT,
+		windows.DACL_SECURITY_INFORMATION)
+	if err != nil || descriptor == nil {
+		return nil, false, errors.Join(err, errors.New("read system-drive DACL"))
+	}
+	dacl, _, err := descriptor.DACL()
+	if err != nil || dacl == nil {
+		return nil, false, errors.Join(err, errors.New("resolve system-drive DACL"))
+	}
+	allPackagesSID, restrictedPackagesSID, err := applicationPackageSIDs()
+	if err != nil {
+		return nil, false, err
+	}
+	if systemDriveDACLReady(dacl, allPackagesSID, restrictedPackagesSID) {
+		return func() error { return nil }, false, nil
+	}
+
 	pointer, err := windows.UTF16PtrFromString(root)
 	if err != nil {
 		return nil, false, err
 	}
-	// Windows suppresses automatic propagation to child ACLs when SetSecurityInfo
-	// receives a handle opened with MAXIMUM_ALLOWED. That keeps this temporary
-	// root-only fixture from walking or rewriting the runner's system volume.
-	handle, err := windows.CreateFile(pointer, windows.MAXIMUM_ALLOWED,
+	// Opening a busy drive root directly with MAXIMUM_ALLOWED can conflict
+	// with a long-lived handle that did not share data-write or delete access.
+	// Start with only the security rights we need, then duplicate that handle
+	// with MAXIMUM_ALLOWED. SetSecurityInfo suppresses child ACL propagation for
+	// the duplicated handle without introducing a second filesystem open.
+	source, err := windows.CreateFile(pointer, windows.READ_CONTROL|windows.WRITE_DAC,
 		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
 		nil, windows.OPEN_EXISTING,
 		windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
 	if err != nil {
 		return nil, false, err
 	}
+	process, err := windows.GetCurrentProcess()
+	if err != nil {
+		return nil, false, errors.Join(err, windows.CloseHandle(source))
+	}
+	var handle windows.Handle
+	if err := windows.DuplicateHandle(process, source, process, &handle,
+		windows.MAXIMUM_ALLOWED|windows.READ_CONTROL|windows.WRITE_DAC, false, 0); err != nil {
+		return nil, false, errors.Join(err, windows.CloseHandle(source))
+	}
+	if err := windows.CloseHandle(source); err != nil {
+		return nil, false, errors.Join(err, windows.CloseHandle(handle))
+	}
 	fail := func(cause error) (func() error, bool, error) {
 		return nil, false, errors.Join(cause, windows.CloseHandle(handle))
 	}
-	descriptor, err := windows.GetSecurityInfo(handle, windows.SE_FILE_OBJECT,
+	descriptor, err = windows.GetSecurityInfo(handle, windows.SE_FILE_OBJECT,
 		windows.DACL_SECURITY_INFORMATION)
 	if err != nil || descriptor == nil {
 		return fail(errors.Join(err, errors.New("read system-drive DACL")))
 	}
-	dacl, _, err := descriptor.DACL()
+	dacl, _, err = descriptor.DACL()
 	if err != nil || dacl == nil {
 		return fail(errors.Join(err, errors.New("resolve system-drive DACL")))
-	}
-	allPackagesSID, restrictedPackagesSID, err := applicationPackageSIDs()
-	if err != nil {
-		return fail(err)
 	}
 	if systemDriveDACLReady(dacl, allPackagesSID, restrictedPackagesSID) {
 		return func() error { return nil }, false, windows.CloseHandle(handle)

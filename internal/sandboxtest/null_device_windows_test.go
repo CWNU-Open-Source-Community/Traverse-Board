@@ -3,6 +3,7 @@
 package sandboxtest
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,6 +16,28 @@ func TestPrepareSystemDrivePathRestoresRootWithoutPropagating(t *testing.T) {
 	child := filepath.Join(root, "child")
 	if err := os.Mkdir(child, 0o700); err != nil {
 		t.Fatal(err)
+	}
+	pointer, err := windows.UTF16PtrFromString(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	busyHandle, err := windows.CreateFile(pointer, windows.GENERIC_READ,
+		windows.FILE_SHARE_READ, nil, windows.OPEN_EXISTING,
+		windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer windows.CloseHandle(busyHandle)
+	directHandle, directErr := windows.CreateFile(pointer, windows.MAXIMUM_ALLOWED,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		nil, windows.OPEN_EXISTING,
+		windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
+	if directErr == nil {
+		_ = windows.CloseHandle(directHandle)
+		t.Fatal("MAXIMUM_ALLOWED unexpectedly bypassed the simulated sharing conflict")
+	}
+	if !errors.Is(directErr, windows.ERROR_SHARING_VIOLATION) {
+		t.Fatalf("simulate busy root: %v", directErr)
 	}
 	security := func(pathValue string) string {
 		t.Helper()
