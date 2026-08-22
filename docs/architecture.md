@@ -461,6 +461,25 @@ new permission revision atomically releases the active Run execution lease and
 fences old Job/tool authority. See
 [ADR 0127](adr/0127-workspace-access-permission-contract.md).
 
+Schema v127 adds `drydock-workspace.v1` as a Run-owned ownership and recovery
+boundary around one product-created Git worktree. The first create is a read-only
+Workspace Trust review over the exact source root/repository/common-dir/branch/base,
+raw index, dirty state, and special-entry counts. A second call must pin the exact
+digest; the immutable receipt grants no process authority. Dirty source content is
+not copied, and v1 rejects source symlink entries, submodule gitlinks, and linked or
+reparse-point roots.
+
+Creation persists a `preparing` owner before Git materialization. Use, Checkpoint,
+Rewind, Undo, Fork, Deliver, Cleanup, startup reconciliation, and expiry GC revalidate
+the complete Run/source/worktree/registry/branch/base/binding/generation identity.
+Tracked, untracked, staged, and raw-index state flows through the existing checkpoint
+store. Any uncertainty or observed user change is preserved as `recovery_required`.
+Delivery is a bounded review patch with merge/push/force/source-overwrite authority
+fixed false. Cleanup uses non-force removal only for an exact clean owner, retains the
+branch and audit rows, and never enumerates or removes unknown directories. See
+[Drydock Workspaces](drydock.md) and
+[ADR 0129](adr/0129-run-owned-drydock-workspaces.md).
+
 Schema v98 adds the bounded I/O contract without changing that authority boundary. Read-only input projection, fixed non-streaming attach, per-stream byte/line/deadline limits, strict output-archive walking, process-local staging, re-hashing, and atomic output commit are all bound to the exact lifecycle attempt/generation. Raw logs do not persist and the Workspace is never a writable container mount. See [ADR 0098](adr/0098-bounded-docker-container-io-contract.md).
 
 Schema v99 is the distinct product-composition layer. One Go-owned

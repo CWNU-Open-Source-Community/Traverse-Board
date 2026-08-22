@@ -23,8 +23,9 @@ import (
 )
 
 type SQLiteStore struct {
-	db   *sql.DB
-	home string
+	db                    *sql.DB
+	home                  string
+	hideDrydockWorkspaces bool
 }
 
 const maxStoreListOffset = 100000
@@ -112,7 +113,11 @@ func (s *SQLiteStore) Close() error {
 }
 
 func (s *SQLiteStore) Migrate(ctx context.Context) error {
-	return s.applyMigrations(ctx, migrationPlan())
+	if err := s.applyMigrations(ctx, migrationPlan()); err != nil {
+		return err
+	}
+	s.hideDrydockWorkspaces = true
+	return nil
 }
 
 func migrationPlan() []migration {
@@ -353,6 +358,7 @@ func migrationPlan() []migration {
 		{Version: 124, Name: "GitHub review evidence and approval-gated write receipts", Statements: githubReviewStatements},
 		{Version: 125, Name: "legacy Docker lifecycle cleanup trigger compatibility", Statements: legacyDockerLifecycleCleanupTriggerCompatibilityStatements},
 		{Version: 126, Name: "Workspace Access execution permission contract", Statements: workspaceAccessExecutionPermissionStatements, DisableForeignKeys: true},
+		{Version: 127, Name: "Run-owned Drydock worktrees and Workspace Trust", Statements: drydockWorkspaceTrustStatements},
 	}
 }
 
@@ -371,7 +377,12 @@ func (s *SQLiteStore) SaveWorkspace(ctx context.Context, rec WorkspaceRecord) er
 }
 
 func (s *SQLiteStore) ListWorkspaces(ctx context.Context) ([]WorkspaceRecord, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, root_path, created_at FROM workspaces ORDER BY name`)
+	query := `SELECT id, name, root_path, created_at FROM workspaces`
+	if s.hideDrydockWorkspaces {
+		query += ` WHERE NOT EXISTS (SELECT 1 FROM drydock_workspaces drydock
+			WHERE drydock.workspace_id = workspaces.id)`
+	}
+	rows, err := s.db.QueryContext(ctx, query+` ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -388,12 +399,22 @@ func (s *SQLiteStore) ListWorkspaces(ctx context.Context) ([]WorkspaceRecord, er
 }
 
 func (s *SQLiteStore) GetWorkspaceByName(ctx context.Context, name string) (WorkspaceRecord, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, name, root_path, created_at FROM workspaces WHERE name = ?`, name)
+	query := `SELECT id, name, root_path, created_at FROM workspaces WHERE name = ?`
+	if s.hideDrydockWorkspaces {
+		query += ` AND NOT EXISTS (SELECT 1 FROM drydock_workspaces drydock
+			WHERE drydock.workspace_id = workspaces.id)`
+	}
+	row := s.db.QueryRowContext(ctx, query, name)
 	return scanWorkspace(row)
 }
 
 func (s *SQLiteStore) GetWorkspaceByID(ctx context.Context, id string) (WorkspaceRecord, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, name, root_path, created_at FROM workspaces WHERE id = ?`, id)
+	query := `SELECT id, name, root_path, created_at FROM workspaces WHERE id = ?`
+	if s.hideDrydockWorkspaces {
+		query += ` AND NOT EXISTS (SELECT 1 FROM drydock_workspaces drydock
+			WHERE drydock.workspace_id = workspaces.id)`
+	}
+	row := s.db.QueryRowContext(ctx, query, id)
 	return scanWorkspace(row)
 }
 

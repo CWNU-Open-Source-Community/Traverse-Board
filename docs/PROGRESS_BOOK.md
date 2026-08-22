@@ -6,10 +6,19 @@
 
 ## 一、当前阶段
 
+2026-08-22 单切片 `Run-Owned Drydock（Issue #131）` 推进到 SQLite v127。新增精确绑定
+Run/Mission/Session/source Workspace/root/repository/common-dir/branch/base、managed registry、
+独立 worktree/branch 与 ownership generation 的 `drydock-workspace.v1`。首次创建用精确
+Workspace Trust digest 二次确认，Trust 不授予进程权限且 source dirty 内容不复制。Create WAL、
+startup reconcile、Use/Checkpoint/Rewind/Undo/Fork、review-only Delivery、Cleanup/GC 全部生成
+追加式 event/receipt；checkpoint 精确保留 tracked/untracked/raw index。漂移、崩溃后用户文件、
+未知目录和无法证明的 ownership 一律保留为 recovery；删除只允许 exact clean non-force remove。
+CLI/双语 README/Usage/Drydock 手册与 ADR 0129 共用同一 Application/Store 合同。
+
 2026-08-22 单切片 `统一 Runtime readiness、阻塞原因与修复建议（Issue #130）` 完成
-`run_capability_readiness.v1`，SQLite 保持 v126。PR #143 已合并并关闭 #129，因此 Epic #128
-声明的前置依赖已解除。Go 从当前 Run/mode/Profile/Permission/Interaction/CDP/lease 与进程
-startup/backend facts 单一投影五组 option 的 selected/selectable/runtime-available、稳定
+`run_capability_readiness.v1`，并由 PR #144 合并；SQLite 保持 v126。PR #143 已合并并关闭 #129，
+因此 Epic #128 声明的前置依赖已解除。Go 从当前 Run/mode/Profile/Permission/Interaction/CDP/lease
+与进程 startup/backend facts 单一投影五组 option 的 selected/selectable/runtime-available、稳定
 blocked-by/remediation 和 restart-required。CLI 直接调用同一 Application 服务，认证 HTTP/OpenAPI
 与 Desktop in-process Handler 暴露同一只读 DTO，React 严格校验后呈现且不再自行推导授权。
 

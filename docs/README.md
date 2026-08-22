@@ -14,6 +14,7 @@ This directory separates user-facing documentation, current engineering state, a
 | [产品范围 / Product Scope](PRODUCT_SCOPE.md) | 当前核心范围、可选附加能力和扩展接口 |
 | [使用手册 / Usage](usage.md) | CLI、Provider、Workspace、Run、审批和操作者工作流 |
 | [Workspace Checkpoints](workspace-checkpoints.md) | 检查点时间线、预览、Undo/Redo/Rewind、独立 Fork 与故障处理 |
+| [Drydock 工作目录](drydock.md) | Run-owned worktree、Workspace Trust、精确检查点、审阅交付与保守清理 |
 | [高级 Git 工作流 / Advanced Git](git-advanced.md) | 稳定 hunk、stash、rebase/cherry-pick/bisect、受管 worktree、审批与恢复 |
 | [GitHub Review Provider](github-review.md) | GitHub App Device Flow、PR/CI 证据、本地映射、审批回写与恢复 |
 | [可交付多代理 / Deliverable Batches](batch-delivery.md) | child Worktree、缩权工具、邮箱、交付收据、复核、合并与恢复 |
@@ -43,6 +44,7 @@ This directory separates user-facing documentation, current engineering state, a
 | [ADR 0126 / Legacy v97 Compatibility](adr/0126-legacy-v97-docker-trigger-compatibility.md) | 精确旧校验和、v125 trigger 修复、数据保留与失败关闭边界 |
 | [ADR 0127 / Workspace Access](adr/0127-workspace-access-permission-contract.md) | Standard Code 工作区权限上限、沙箱 readiness、revision fencing 与失败关闭边界 |
 | [ADR 0128 / Capability Readiness](adr/0128-go-owned-run-capability-readiness.md) | Go-owned 选择/运行时可用性、稳定阻塞码、修复动作、隐私与版本边界 |
+| [ADR 0129 / Drydock Workspaces](adr/0129-run-owned-drydock-workspaces.md) | Run-owned worktree、Workspace Trust、崩溃恢复、review-only 交付与精确清理边界 |
 | [ADR 索引](adr/) | 权限、持久化、执行、浏览器、Desktop 等架构决策 |
 
 ## 当前工程上下文 / Current Engineering Context

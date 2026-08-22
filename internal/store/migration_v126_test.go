@@ -15,7 +15,8 @@ import (
 // Historical downgrade fixtures only need migration v126 to be pending. The
 // older fixtures either rebuild or remove the permission table themselves.
 func removeSchemaV126ForTestStatements() []string {
-	return []string{`DELETE FROM schema_migrations WHERE version = 126`}
+	return append(removeSchemaV127ForTestStatements(),
+		`DELETE FROM schema_migrations WHERE version = 126`)
 }
 
 func TestSchemaV126PreservesHistoricalModesAndAddsWorkspaceAccess(t *testing.T) {

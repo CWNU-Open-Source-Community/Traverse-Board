@@ -155,6 +155,24 @@ always has `capability_grant=false`; every mutation and execution path rechecks 
 own control token, state, lease, confirmation, Policy, and backend gates. Unknown
 protocol versions fail closed. See [ADR 0128](adr/0128-go-owned-run-capability-readiness.md).
 
+### Run-owned Drydock
+
+`cyberagent drydock create` is a two-step operation: first inspect the exact source and
+copy the returned `trust_digest`; then call create with a new operation key,
+`--confirm-workspace-trust`, and `--expected-trust-digest`. The product derives the
+managed path and branch below `$CYBERAGENT_HOME/drydocks`; source dirty content is
+reported but not copied. `status|use|checkpoint|rewind|undo|fork|deliver|cleanup|reconcile|gc`
+all share the v127 ownership, generation, checkpoint, event, and receipt ledger.
+
+Checkpointing observed changes requires `--confirm-observed-changes`; Rewind and Undo
+return a preview before an explicitly confirmed apply. Delivery returns only a bounded
+review patch and cannot push, merge, force-update, or overwrite the source. Cleanup and
+GC preserve any dirty, drifted, ambiguous, or unknown directory and use non-force Git
+removal only after exact clean ownership is re-proved. The worktree itself supplies no
+process/network/credential isolation and Workspace Trust is not runtime authority. See
+[Drydock Workspaces](drydock.md) for complete commands and recovery steps and
+[ADR 0129](adr/0129-run-owned-drydock-workspaces.md) for the durable contract.
+
 Schema v91 adds the independent `restricted|full_debug` browser-CDP selector described above. It does not inherit Shell authority from v88, and v88 does not inherit CDP authority from v91. A future concrete browser operation must recheck both its exact method/scope contract and the current process gates.
 
 Schema v119 supplies that concrete operation only for source-bound local UI
