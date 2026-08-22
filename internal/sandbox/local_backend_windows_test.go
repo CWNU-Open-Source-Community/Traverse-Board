@@ -21,7 +21,7 @@ import (
 )
 
 func TestWindowsLocalSandboxReadinessUsesRealAppContainerProcess(t *testing.T) {
-	ownerRoot := filepath.Clean(filepath.Join(t.TempDir(), "owners"))
+	ownerRoot := filepath.Clean(filepath.Join(windowsTestTempDir(t), "owners"))
 	backend, err := NewPlatformLocalBackend(WithLocalOwnerRoot(ownerRoot))
 	if err != nil {
 		t.Fatal(err)
@@ -44,7 +44,7 @@ func TestWindowsLocalSandboxReadinessUsesRealAppContainerProcess(t *testing.T) {
 }
 
 func TestWindowsLocalSandboxRuntimeGenerationIsInstanceScoped(t *testing.T) {
-	base := t.TempDir()
+	base := windowsTestTempDir(t)
 	first, err := NewPlatformLocalBackend(WithLocalOwnerRoot(
 		filepath.Clean(filepath.Join(base, "owners-first"))))
 	if err != nil {
@@ -65,7 +65,7 @@ func TestWindowsLocalSandboxRuntimeGenerationIsInstanceScoped(t *testing.T) {
 
 func TestWindowsLocalSandboxCloseInvalidatesCachedReadiness(t *testing.T) {
 	backend, err := NewPlatformLocalBackend(WithLocalOwnerRoot(
-		filepath.Clean(filepath.Join(t.TempDir(), "owners"))))
+		filepath.Clean(filepath.Join(windowsTestTempDir(t), "owners"))))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestWindowsLocalSandboxExecutesInDrydockAndDeniesHostAndNetwork(t *testing.
 	if os.Getenv("TRAVERSE_BOARD_LOCAL_CHILD") == "1" {
 		t.Fatal("parent test unexpectedly entered child mode")
 	}
-	base := t.TempDir()
+	base := windowsTestTempDir(t)
 	ownerRoot := filepath.Clean(filepath.Join(base, "owners"))
 	drydock := filepath.Clean(filepath.Join(base, "drydock"))
 	outside := filepath.Clean(filepath.Join(base, "outside", "sentinel.txt"))
@@ -216,7 +216,7 @@ func TestWindowsLocalSandboxExecutesInDrydockAndDeniesHostAndNetwork(t *testing.
 }
 
 func TestWindowsLocalSandboxCompilesAndTestsInsideDrydock(t *testing.T) {
-	base := t.TempDir()
+	base := windowsTestTempDir(t)
 	ownerRoot := filepath.Clean(filepath.Join(base, "owners"))
 	drydock := filepath.Clean(filepath.Join(base, "drydock"))
 	if err := os.MkdirAll(drydock, 0o700); err != nil {
@@ -286,7 +286,7 @@ func TestWindowsLocalSandboxTimeoutAndCancellationReapProcessTree(t *testing.T) 
 		{name: "cancellation", cancel: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			base := t.TempDir()
+			base := windowsTestTempDir(t)
 			ownerRoot := filepath.Clean(filepath.Join(base, "owners"))
 			drydock := filepath.Clean(filepath.Join(base, "drydock"))
 			if err := os.MkdirAll(drydock, 0o700); err != nil {
@@ -392,7 +392,7 @@ func TestWindowsLocalSandboxEnforcesOutputAndDiskWriteLimits(t *testing.T) {
 		{name: "disk-write", mode: "disk"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			base := t.TempDir()
+			base := windowsTestTempDir(t)
 			ownerRoot := filepath.Clean(filepath.Join(base, "owners"))
 			drydock := filepath.Clean(filepath.Join(base, "drydock"))
 			if err := os.MkdirAll(drydock, 0o700); err != nil {
@@ -473,7 +473,7 @@ func TestWindowsLocalSandboxLimitChild(t *testing.T) {
 }
 
 func TestWindowsLocalSandboxRecoversOwnerAfterSimulatedAppCrashWithoutPIDAuthority(t *testing.T) {
-	base := t.TempDir()
+	base := windowsTestTempDir(t)
 	ownerRoot := filepath.Clean(filepath.Join(base, "owners"))
 	drydock := filepath.Clean(filepath.Join(base, "drydock"))
 	if err := os.MkdirAll(drydock, 0o700); err != nil {
@@ -625,7 +625,7 @@ func TestWindowsLocalSandboxRecoversOwnerAfterSimulatedAppCrashWithoutPIDAuthori
 }
 
 func TestWindowsLocalSandboxRejectsPreexistingReparseEscapeBeforeStartingProcess(t *testing.T) {
-	base := t.TempDir()
+	base := windowsTestTempDir(t)
 	ownerRoot := filepath.Clean(filepath.Join(base, "owners"))
 	drydock := filepath.Clean(filepath.Join(base, "drydock"))
 	outside := filepath.Clean(filepath.Join(base, "outside"))
@@ -670,7 +670,7 @@ func TestWindowsLocalSandboxRejectsPreexistingReparseEscapeBeforeStartingProcess
 }
 
 func TestWindowsLocalSandboxRejectsPreexistingHardlinkEscapeBeforeACLGrant(t *testing.T) {
-	base := t.TempDir()
+	base := windowsTestTempDir(t)
 	ownerRoot := filepath.Clean(filepath.Join(base, "owners"))
 	drydock := filepath.Clean(filepath.Join(base, "drydock"))
 	outside := filepath.Clean(filepath.Join(base, "outside", "sentinel.txt"))
@@ -710,7 +710,7 @@ func TestWindowsLocalSandboxRejectsPreexistingHardlinkEscapeBeforeACLGrant(t *te
 }
 
 func TestWindowsLocalSandboxRequestRejectsUNCDeviceAndBindingDrift(t *testing.T) {
-	base := t.TempDir()
+	base := windowsTestTempDir(t)
 	drydock := filepath.Clean(filepath.Join(base, "drydock"))
 	toolchain := filepath.Clean(filepath.Join(base, "toolchain"))
 	otherToolchain := filepath.Clean(filepath.Join(base, "other-toolchain"))
@@ -989,6 +989,32 @@ func windowsTestCurrentAppContainerFolder() (string, error) {
 	value, err := localAppContainerFolderPath(sid)
 	runtime.KeepAlive(containerInfo)
 	return value, err
+}
+
+func windowsTestTempDir(t *testing.T) string {
+	t.Helper()
+	raw := filepath.Clean(t.TempDir())
+	pointer, err := windows.UTF16PtrFromString(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle, err := windows.CreateFile(pointer, windows.FILE_READ_ATTRIBUTES,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		nil, windows.OPEN_EXISTING,
+		windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer windows.CloseHandle(handle)
+	attributes, err := windows.GetFileAttributes(pointer)
+	if err != nil || attributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+		t.Fatalf("Windows test temp root is indirect: %v", err)
+	}
+	resolved, err := localFinalPath(handle)
+	if err != nil || !validLocalHostRoot(resolved) {
+		t.Fatalf("resolve Windows test temp root: %v", err)
+	}
+	return resolved
 }
 
 func windowsTestCrossDriveSentinel(t *testing.T, excludedVolume string) string {
