@@ -284,6 +284,7 @@ type Config struct {
 	UIEvidenceControlEnabled                bool
 	ExecutionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
 	BrowserCDPPermissionCapabilities        domain.BrowserCDPPermissionRuntimeCapabilities
+	CapabilityReadinessRuntime              *application.CapabilityReadinessRuntime
 	RunLifecycleController                  RunLifecycleController
 	RunExecutionController                  RunExecutionController
 	PublicModelStreamSource                 PublicModelStreamSource
@@ -362,6 +363,7 @@ type API struct {
 	dockerExecutionEnabled                  bool
 	executionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
 	browserCDPPermissionCapabilities        domain.BrowserCDPPermissionRuntimeCapabilities
+	capabilityReadiness                     *application.RunCapabilityReadinessService
 	runLifecycleController                  RunLifecycleController
 	runExecutionController                  RunExecutionController
 	publicModelStreamSource                 PublicModelStreamSource
@@ -618,6 +620,39 @@ func New(store Store, config Config) (*API, error) {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API full CDP debug requires maximum Debug execution capability")
 	}
+	readinessRuntime := application.CapabilityReadinessRuntime{
+		RunControlEnabled:                  controlTokenPresent && config.RunControlEnabled,
+		ExecutionPermissionControlEnabled:  controlTokenPresent && config.ExecutionPermissionControlEnabled,
+		BrowserCDPPermissionControlEnabled: controlTokenPresent && config.BrowserCDPPermissionControlEnabled,
+		ExecutionPermissionCapabilities:    config.ExecutionPermissionCapabilities,
+		BrowserCDPPermissionCapabilities:   config.BrowserCDPPermissionCapabilities,
+		LocalSandboxInstalled:              config.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled,
+		DockerStartupGateEnabled:           dockerExecutionEnabled,
+		DockerAvailable:                    dockerExecutionEnabled,
+	}
+	if config.CapabilityReadinessRuntime != nil {
+		readinessRuntime = *config.CapabilityReadinessRuntime
+		if readinessRuntime.RunControlEnabled !=
+			(controlTokenPresent && config.RunControlEnabled) ||
+			readinessRuntime.ExecutionPermissionControlEnabled !=
+				(controlTokenPresent && config.ExecutionPermissionControlEnabled) ||
+			readinessRuntime.BrowserCDPPermissionControlEnabled !=
+				(controlTokenPresent && config.BrowserCDPPermissionControlEnabled) ||
+			readinessRuntime.ExecutionPermissionCapabilities !=
+				config.ExecutionPermissionCapabilities ||
+			readinessRuntime.BrowserCDPPermissionCapabilities !=
+				config.BrowserCDPPermissionCapabilities ||
+			readinessRuntime.DockerStartupGateEnabled != dockerExecutionEnabled {
+			return nil, apperror.New(apperror.CodeInvalidArgument,
+				"HTTP API capability readiness runtime does not match process startup gates")
+		}
+	}
+	if err := readinessRuntime.Validate(); err != nil {
+		return nil, apperror.Wrap(apperror.CodeInvalidArgument,
+			"HTTP API capability readiness runtime is invalid", err)
+	}
+	capabilityReadiness := application.NewRunCapabilityReadinessService(store,
+		readinessRuntime)
 	version := strings.TrimSpace(config.AppVersion)
 	if version == "" {
 		version = "unknown"
@@ -680,6 +715,7 @@ func New(store Store, config Config) (*API, error) {
 		dockerExecutionEnabled:              dockerExecutionEnabled,
 		executionPermissionCapabilities:     config.ExecutionPermissionCapabilities,
 		browserCDPPermissionCapabilities:    config.BrowserCDPPermissionCapabilities,
+		capabilityReadiness:                 capabilityReadiness,
 		runLifecycleController:              config.RunLifecycleController,
 		runExecutionController:              config.RunExecutionController,
 		publicModelStreamSource:             config.PublicModelStreamSource,

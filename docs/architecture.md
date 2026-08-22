@@ -59,6 +59,15 @@ TypeScript -> Go -> LLM
 
 TypeScript and Rust never bypass Go for secrets, persistence, policy, workspace permissions, shell execution, network scope, or Docker. See [ADR 0001](adr/0001-go-control-plane.md).
 
+`run_capability_readiness.v1` is the Go-owned presentation boundary for persisted
+Permission/Profile/Interaction/CDP intent, Run and lease state, process startup
+gates, and backend proof. CLI calls the Application service directly; browser and
+Desktop React consume its authenticated HTTP projection. TypeScript accepts the
+exact version and canonical disposition vocabulary but does not recompute
+authorization. `selected`, `selectable`, and `runtime_available` remain independent,
+and the envelope fixes `capability_grant=false`; it is never consumed as execution
+authority. See [ADR 0128](adr/0128-go-owned-run-capability-readiness.md).
+
 `code-intel-lsp.v1` adds one more Go-owned process boundary without changing that direction. An explicitly reviewed local language server communicates only through bounded stdio JSON-RPC. Go owns qualification, executable hashing, minimal environment, initialize/document synchronization, timeout/cancellation, restart, and process-tree cleanup; Tool Gateway reuses the exact `agent-code-tools.v1` Workspace-read authority. Server output is untrusted evidence and every returned URI is resolved again below the Workspace root. Capability inventory is process-local and metadata-only, so this feature adds no SQLite migration and no renderer-owned authority. The configured Server remains a real local process rather than an OS sandbox; see [Code Intelligence](code-intelligence.md).
 
 The production React bundle is built by Vite but hosted only when Go receives an explicit `--ui-dir`. Go validates and snapshots the static tree before serving it from the same loopback origin as `api.v1`; `/api` remains a reserved authenticated namespace. Vite's loopback proxy is a development adapter, not a second control plane.

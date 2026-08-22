@@ -6,7 +6,26 @@ Last updated: 2026-08-22
 
 ## Resume Context
 
-当前检查点是 issue #129 / schema v126 的 `workspace_access · 工作区执行` 权限合同。
+当前检查点是 issue #130 的 Go-owned `run_capability_readiness.v1`；SQLite 保持 schema v126。
+PR #143 已合并并关闭 #129，所以 Epic #128 声明的唯一前置依赖已解除。新 Application 服务把
+当前 Run/mode/Profile/Permission/Interaction/CDP/lease 与进程 startup/backend facts 合成为
+Permission、Profile、Interaction、browser-CDP 和 Standard Code 的 selected/selectable/
+runtime-available、稳定阻塞码、修复动作与重启要求。CLI、认证 HTTP/OpenAPI、Desktop in-process
+Handler 和 React 共用该事实；TypeScript 对未知版本、字段、顺序、原因/修复配对、Run 绑定和
+authority 扩展失败关闭。
+
+该投影始终 `capability_grant=false`，不返回 Workspace/Docker/browser 私有路径或 endpoint、凭证、
+lease/owner/operation/process identity，也不能替代 control bearer、确认、Policy、lease 或具体
+执行时再验证。Local/Docker 可以只记录意图而保持 runtime unavailable；Standard Code 在 #130
+仍以 `capability_not_implemented` 明确关闭。边界见 ADR 0128。
+
+本地验证通过低并发无缓存全仓 Go（Application 628.645s、HTTP 184.223s、Store 885.493s、
+Desktop 35.269s）、readiness 聚焦 race、Go vet/module、Windows Desktop secure tags、66 文件
+299 项 Web、strict TypeScript、production build 与 OpenAPI/TypeScript 双重确定性生成。生成物
+SHA-256 为 `fde7d8af96ad0fcd719eab5d2b7b7701d1519996310253c777f174ed0267694e` /
+`84c1cb48fa14466c2308f8a3d909eacd08466b2eaf7b8a95cd7a221c8d94d7d2`。
+
+上一检查点是 issue #129 / schema v126 的 `workspace_access · 工作区执行` 权限合同。
 该档位位于 `conservative` 与 `approval` 之间，只允许已注册 Workspace 内读写，以及经独立
 Workspace Sandbox readiness 证明后的有界命令；宿主无沙箱进程、网络、凭证、用户主目录、
 持久终端、Agent 输入和完整 CDP 全部拒绝。#129 不安装 adapter、不提供 enable 参数，当前产品

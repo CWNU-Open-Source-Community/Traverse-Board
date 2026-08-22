@@ -17,7 +17,9 @@ import {
 } from "lucide-react";
 import type { CyberAgentClient } from "../api/client";
 import type {
+  CapabilityReadinessOptionView,
   RunDetailView,
+  RunCapabilityReadinessView,
   RunBrowserCDPPermissionControlView,
   RunBrowserCDPPermissionView,
   RunExecutionInteractionControlRequestView,
@@ -43,6 +45,11 @@ export function RunPermissionSettings({ client, runID }: {
       `/runs/${encodeURIComponent(runID)}`, {}, signal),
     enabled: runID !== "",
   });
+  const readinessQuery = useQuery({
+    queryKey: ["run", runID, "capability-readiness"],
+    queryFn: ({ signal }) => client.runCapabilityReadiness(runID, signal),
+    enabled: runID !== "",
+  });
   if (!runID) {
     return <section className="settings-page-section permission-settings-page">
       <h1>{t("权限", "Permissions")}</h1>
@@ -53,13 +60,15 @@ export function RunPermissionSettings({ client, runID }: {
       </div>
     </section>;
   }
-  if (detailQuery.isPending) {
+  if (detailQuery.isPending || readinessQuery.isPending) {
     return <LoadingState label={t("加载 Run 权限", "Loading Run permissions")} />;
   }
-  if (detailQuery.isError || !detailQuery.data) {
-    return <ErrorState error={detailQuery.error} />;
+  if (detailQuery.isError || !detailQuery.data || readinessQuery.isError ||
+    !readinessQuery.data) {
+    return <ErrorState error={detailQuery.error ?? readinessQuery.error} />;
   }
   const detail = detailQuery.data;
+  const readiness = readinessQuery.data;
   return <section className="settings-page-section permission-settings-page">
     <div className="permission-settings-title">
       <div>
@@ -68,13 +77,14 @@ export function RunPermissionSettings({ client, runID }: {
       </div>
       <StatusBadge status={detail.execution_permission.risk_tier} />
     </div>
-    <ExecutionPermissionPanel client={client} detail={detail}
+    <StandardCodeReadinessPanel readiness={readiness} />
+    <ExecutionPermissionPanel client={client} detail={detail} readiness={readiness}
       key={`permission-${detail.run.id}`} />
-    <BrowserCDPPermissionPanel client={client} detail={detail}
+    <BrowserCDPPermissionPanel client={client} detail={detail} readiness={readiness}
       key={`browser-cdp-${detail.run.id}`} />
-    <ExecutionInteractionPanel client={client} detail={detail}
+    <ExecutionInteractionPanel client={client} detail={detail} readiness={readiness}
       key={`interaction-${detail.run.id}`} />
-    <ExecutionProfilePanel client={client} detail={detail}
+    <ExecutionProfilePanel client={client} detail={detail} readiness={readiness}
       key={`profile-${detail.run.id}`} />
     <section className="permission-authority-boundary" aria-label={t("运行时授权边界", "Runtime authorization boundary")}>
       <ShieldAlert aria-hidden="true" size={17} />
@@ -99,15 +109,14 @@ const executionProfiles: Array<{
   { id: "local", chinese: "本地工作区", english: "Local workspace", detailChinese: "系统沙箱", detailEnglish: "System sandbox", icon: Terminal },
 ];
 
-export function ExecutionProfilePanel({ client, detail }: {
+export function ExecutionProfilePanel({ client, detail, readiness }: {
   client: CyberAgentClient;
   detail: RunDetailView;
+  readiness: RunCapabilityReadinessView;
 }) {
   const { t } = useLocale();
   const queryClient = useQueryClient();
   const profile = detail.execution_profile;
-  const mutableStatus = detail.run.status === "created" || detail.run.status === "paused";
-  const mutable = client.hasControl && mutableStatus && !detail.execution_lease?.active;
   const mutation = useMutation({
     mutationFn: (target: RunExecutionProfileView["profile"]) =>
       client.postControl<RunExecutionProfileControlView>(
@@ -120,12 +129,14 @@ export function ExecutionProfilePanel({ client, detail }: {
         ? { ...current, execution_profile: result.execution_profile }
         : current);
       void queryClient.invalidateQueries({ queryKey: ["run", detail.run.id, "events"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["run", detail.run.id, "capability-readiness"],
+      });
     },
   });
-  let boundary = t("操作员意图", "Operator intent");
-  if (!client.hasControl) boundary = t("只读连接", "Read-only connection");
-  else if (!mutableStatus) boundary = t("请先暂停 Run", "Pause the Run first");
-  else if (detail.execution_lease?.active) boundary = t("执行租约占用中", "Execution lease is active");
+  const selectedReadiness = selectedCapabilityReadiness(readiness.profiles);
+  const boundary = capabilityReadinessSummary(selectedReadiness,
+    t("操作员意图", "Operator intent"), t);
   return (
     <section className="permission-control-card execution-profile-section">
       <div className="section-heading">
@@ -137,15 +148,17 @@ export function ExecutionProfilePanel({ client, detail }: {
       </div>
       <div aria-label={t("Run 执行环境", "Run execution profile")}
         className="permission-option-grid permission-option-grid-three" role="group">
-        {executionProfiles.map(({ id, chinese, english, detailChinese, detailEnglish, icon: Icon }) => (
-          <button aria-pressed={profile.profile === id}
-            disabled={!mutable || mutation.isPending || profile.profile === id}
+        {executionProfiles.map(({ id, chinese, english, detailChinese, detailEnglish, icon: Icon }) => {
+          const option = capabilityReadinessOption(readiness.profiles, id);
+          return <button aria-pressed={option.selected}
+            disabled={mutation.isPending || option.selected || !option.selectable}
             key={id} onClick={() => mutation.mutate(id)} type="button">
             <Icon aria-hidden="true" size={17} />
-            <span><strong>{t(chinese, english)}</strong><small>{t(detailChinese, detailEnglish)}</small></span>
-            {profile.profile === id && <Check aria-hidden="true" size={15} />}
+            <span><strong>{t(chinese, english)}</strong><small>{capabilityReadinessDetail(
+              option, t(detailChinese, detailEnglish), t)}</small></span>
+            {option.selected && <Check aria-hidden="true" size={15} />}
           </button>
-        ))}
+        })}
       </div>
       <dl className="permission-facts">
         <div><dt>{t("后端", "Backend")}</dt><dd>{localizedProtocolValue(profile.backend, t)}</dd></div>
@@ -173,35 +186,16 @@ const executionPermissions: Array<{
   { id: "debug", chinese: "调试模式", english: "Debug", detailChinese: "持久交互终端", detailEnglish: "Persistent interactive terminal", icon: Bug },
 ];
 
-function permissionRuntimeAvailable(
-  permission: RunExecutionPermissionView,
-  target: RunExecutionPermissionView["mode"],
-) {
-  switch (target) {
-    case "conservative":
-      return true;
-    case "workspace_access":
-      return permission.runtime.workspace_sandbox_enabled;
-    case "approval":
-      return permission.runtime.operator_approval_enabled;
-    case "full_access":
-      return permission.runtime.danger_full_access_enabled;
-    case "debug":
-      return permission.runtime.debug_maximum_access_enabled;
-  }
-}
-
-export function ExecutionPermissionPanel({ client, detail }: {
+export function ExecutionPermissionPanel({ client, detail, readiness }: {
   client: CyberAgentClient;
   detail: RunDetailView;
+  readiness: RunCapabilityReadinessView;
 }) {
   const { t } = useLocale();
   const queryClient = useQueryClient();
   const permission = detail.execution_permission;
   const [pendingMode, setPendingMode] =
     useState<RunExecutionPermissionView["mode"] | null>(null);
-  const mutableStatus = detail.run.status === "created" || detail.run.status === "paused";
-  const mutable = client.hasExecutionPermissionControl && mutableStatus;
   const mutation = useMutation({
     mutationFn: (target: RunExecutionPermissionView["mode"]) => {
       const body: {
@@ -228,16 +222,18 @@ export function ExecutionPermissionPanel({ client, detail }: {
         ? { ...current, execution_permission: result.execution_permission }
         : current);
       void queryClient.invalidateQueries({ queryKey: ["run", detail.run.id, "events"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["run", detail.run.id, "capability-readiness"],
+      });
     },
   });
   const choose = (target: RunExecutionPermissionView["mode"]) => {
     if (target === "conservative") mutation.mutate(target);
     else setPendingMode(target);
   };
-  let boundary = t("Run 策略快照", "Run policy snapshot");
-  if (!client.hasExecutionPermissionControl) boundary = t("启动时未开放权限控制", "Permission control was not enabled at startup");
-  else if (!mutableStatus) boundary = t("请先暂停 Run", "Pause the Run first");
-  else if (detail.execution_lease?.active) boundary = t("切换将撤销当前执行租约", "Switching revokes the active execution lease");
+  const selectedReadiness = selectedCapabilityReadiness(readiness.permissions);
+  const boundary = capabilityReadinessSummary(selectedReadiness,
+    t("Run 策略快照", "Run policy snapshot"), t);
   return (
     <section className="permission-control-card execution-permission-section">
       <div className="section-heading">
@@ -250,18 +246,15 @@ export function ExecutionPermissionPanel({ client, detail }: {
       <div aria-label={t("Run 执行权限", "Run execution permission")}
         className="permission-option-grid permission-option-grid-five" role="group">
         {executionPermissions.map(({ id, chinese, english, detailChinese, detailEnglish, icon: Icon }) => {
-          const available = permissionRuntimeAvailable(permission, id);
-          return <button aria-pressed={permission.mode === id}
+          const option = capabilityReadinessOption(readiness.permissions, id);
+          return <button aria-pressed={option.selected}
             className={id === "full_access" || id === "debug" ? "danger" : ""}
-            disabled={!mutable || mutation.isPending || permission.mode === id || !available}
+            disabled={mutation.isPending || option.selected || !option.selectable}
             key={id} onClick={() => choose(id)} type="button">
             <Icon aria-hidden="true" size={17} />
-            <span><strong>{t(chinese, english)}</strong><small>{available
-              ? t(detailChinese, detailEnglish)
-              : id === "workspace_access"
-                ? t("沙箱适配器未就绪", "Sandbox adapter is unavailable")
-                : t("启动闸门未开启", "Startup gate is closed")}</small></span>
-            {permission.mode === id && <Check aria-hidden="true" size={15} />}
+            <span><strong>{t(chinese, english)}</strong><small>{capabilityReadinessDetail(
+              option, t(detailChinese, detailEnglish), t)}</small></span>
+            {option.selected && <Check aria-hidden="true" size={15} />}
           </button>;
         })}
       </div>
@@ -282,7 +275,7 @@ export function ExecutionPermissionPanel({ client, detail }: {
         <div><dt>{t("网络", "Network")}</dt><dd>{localizedProtocolValue(permission.network_scope, t)}</dd></div>
       </dl>
       {permission.mode === "workspace_access" && <p className="permission-closed-note">
-        {permission.runtime.workspace_sandbox_enabled
+        {capabilityReadinessOption(readiness.permissions, "workspace_access").runtime_available
           ? t("该选择仍只是策略上限；每次启动都必须重新验证沙箱 adapter。", "This selection remains a policy ceiling; every start must revalidate the sandbox adapter.")
           : t("当前没有通过 readiness 的沙箱 adapter，因此此档不可执行命令，也不会回退到宿主进程。", "No sandbox adapter has passed readiness, so this level cannot execute commands and never falls back to a host process.")}
       </p>}
@@ -304,19 +297,15 @@ const browserCDPPermissions: Array<{
   { id: "full_debug", chinese: "完整 CDP（调试）", english: "Full CDP (debug)", detailChinese: "请求改写、Cookie 与任意方法", detailEnglish: "Request rewriting, cookies, and arbitrary methods", dangerous: true },
 ];
 
-export function BrowserCDPPermissionPanel({ client, detail }: {
+export function BrowserCDPPermissionPanel({ client, detail, readiness }: {
   client: CyberAgentClient;
   detail: RunDetailView;
+  readiness: RunCapabilityReadinessView;
 }) {
   const { t } = useLocale();
   const queryClient = useQueryClient();
   const permission = detail.browser_cdp_permission;
   const [confirmFull, setConfirmFull] = useState(false);
-  const mutableStatus = detail.run.status === "created" || detail.run.status === "paused";
-  const mutable = client.hasBrowserCDPPermissionControl && mutableStatus &&
-    !detail.execution_lease?.active;
-  const fullAvailable = client.hasFullCDPDebug && permission.runtime.full_debug_enabled &&
-    permission.runtime.execution_debug_selected && detail.execution_permission.mode === "debug";
   const mutation = useMutation({
     mutationFn: (target: RunBrowserCDPPermissionView["mode"]) =>
       client.postControl<RunBrowserCDPPermissionControlView>(
@@ -334,16 +323,18 @@ export function BrowserCDPPermissionPanel({ client, detail }: {
         ? { ...current, browser_cdp_permission: result.browser_cdp_permission }
         : current);
       void queryClient.invalidateQueries({ queryKey: ["run", detail.run.id, "events"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["run", detail.run.id, "capability-readiness"],
+      });
     },
   });
   const choose = (target: RunBrowserCDPPermissionView["mode"]) => {
     if (target === "restricted") mutation.mutate(target);
     else setConfirmFull(true);
   };
-  let boundary = t("独立 CDP 权限上限", "Independent CDP permission ceiling");
-  if (!client.hasBrowserCDPPermissionControl) boundary = t("启动时未开放 CDP 权限控制", "CDP permission control was not enabled at startup");
-  else if (!mutableStatus) boundary = t("请先暂停 Run", "Pause the Run first");
-  else if (detail.execution_lease?.active) boundary = t("执行租约占用中", "Execution lease is active");
+  const selectedReadiness = selectedCapabilityReadiness(readiness.browser_cdp_permissions);
+  const boundary = capabilityReadinessSummary(selectedReadiness,
+    t("独立 CDP 权限上限", "Independent CDP permission ceiling"), t);
   return (
     <section className="permission-control-card browser-cdp-permission-section">
       <div className="section-heading">
@@ -356,10 +347,10 @@ export function BrowserCDPPermissionPanel({ client, detail }: {
       <div aria-label={t("Run 浏览器 CDP 权限", "Run browser CDP permission")}
         className="permission-option-grid permission-option-grid-two" role="group">
         {browserCDPPermissions.map(({ id, chinese, english, detailChinese, detailEnglish, dangerous }) => {
-          const available = id === "restricted" || fullAvailable;
-          return <button aria-pressed={permission.mode === id}
+          const option = capabilityReadinessOption(readiness.browser_cdp_permissions, id);
+          return <button aria-pressed={option.selected}
             className={dangerous ? "danger" : ""}
-            disabled={!mutable || mutation.isPending || permission.mode === id || !available}
+            disabled={mutation.isPending || option.selected || !option.selectable}
             key={id} onClick={() => choose(id)} type="button">
             {dangerous
               ? <ShieldAlert aria-hidden="true" size={17} />
@@ -367,9 +358,10 @@ export function BrowserCDPPermissionPanel({ client, detail }: {
             <span>
               <strong>{t(chinese, english)}</strong>
               {dangerous && <em className="sensitive-permission-label">{t("高度敏感权限", "Highly sensitive permission")}</em>}
-              <small>{available ? t(detailChinese, detailEnglish) : t("需要调试模式与专用启动闸门", "Requires Debug mode and its dedicated startup gate")}</small>
+              <small>{capabilityReadinessDetail(option,
+                t(detailChinese, detailEnglish), t)}</small>
             </span>
-            {permission.mode === id && <Check aria-hidden="true" size={15} />}
+            {option.selected && <Check aria-hidden="true" size={15} />}
           </button>;
         })}
       </div>
@@ -406,26 +398,16 @@ const interactionModes: Array<{
   { id: "cyber", chinese: "Cyber", english: "Cyber", detailChinese: "容器持久终端", detailEnglish: "Persistent container terminal", icon: Container },
 ];
 
-function interactionCompatible(detail: RunDetailView,
-  target: RunExecutionInteractionView["mode"]) {
-  if (target === "preview") return true;
-  if (target === "cyber") {
-    return detail.mode.surface === "cyber" && detail.execution_profile.profile === "docker";
-  }
-  return detail.mode.surface === "code" && detail.execution_profile.profile === "local";
-}
-
-export function ExecutionInteractionPanel({ client, detail }: {
+export function ExecutionInteractionPanel({ client, detail, readiness }: {
   client: CyberAgentClient;
   detail: RunDetailView;
+  readiness: RunCapabilityReadinessView;
 }) {
   const { t } = useLocale();
   const queryClient = useQueryClient();
   const interaction = detail.execution_interaction;
   const [pendingMode, setPendingMode] =
     useState<RunExecutionInteractionView["mode"] | null>(null);
-  const mutableStatus = detail.run.status === "created" || detail.run.status === "paused";
-  const mutable = client.hasControl && mutableStatus && !detail.execution_lease?.active;
   const mutation = useMutation({
     mutationFn: (target: RunExecutionInteractionView["mode"]) => {
       const body: RunExecutionInteractionControlRequestView = {
@@ -448,31 +430,37 @@ export function ExecutionInteractionPanel({ client, detail }: {
         ? { ...current, execution_interaction: result.execution_interaction }
         : current);
       void queryClient.invalidateQueries({ queryKey: ["run", detail.run.id, "events"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["run", detail.run.id, "capability-readiness"],
+      });
     },
   });
   const choose = (target: RunExecutionInteractionView["mode"]) => {
     if (target === "preview") mutation.mutate(target);
     else setPendingMode(target);
   };
+  const selectedReadiness = selectedCapabilityReadiness(readiness.interactions);
   return (
     <section className="permission-control-card execution-interaction-section">
       <div className="section-heading">
         <div>
           <h2><Terminal aria-hidden="true" size={16} />{t("交互信任模型", "Interaction trust model")}</h2>
-          <span>{detail.mode.surface} · {detail.execution_profile.profile}</span>
+          <span>{capabilityReadinessSummary(selectedReadiness,
+            `${detail.mode.surface} · ${detail.execution_profile.profile}`, t)}</span>
         </div>
         <StatusBadge status={interaction.workspace_trust} />
       </div>
       <div aria-label={t("Run 执行交互", "Run execution interaction")}
         className="permission-option-grid permission-option-grid-four" role="group">
         {interactionModes.map(({ id, chinese, english, detailChinese, detailEnglish, icon: Icon }) => {
-          const compatible = interactionCompatible(detail, id);
-          return <button aria-pressed={interaction.mode === id}
-            disabled={!mutable || mutation.isPending || interaction.mode === id || !compatible}
+          const option = capabilityReadinessOption(readiness.interactions, id);
+          return <button aria-pressed={option.selected}
+            disabled={mutation.isPending || option.selected || !option.selectable}
             key={id} onClick={() => choose(id)} type="button">
             <Icon aria-hidden="true" size={17} />
-            <span><strong>{t(chinese, english)}</strong><small>{compatible ? t(detailChinese, detailEnglish) : t("环境或工作面不匹配", "Environment or surface mismatch")}</small></span>
-            {interaction.mode === id && <Check aria-hidden="true" size={15} />}
+            <span><strong>{t(chinese, english)}</strong><small>{capabilityReadinessDetail(
+              option, t(detailChinese, detailEnglish), t)}</small></span>
+            {option.selected && <Check aria-hidden="true" size={15} />}
           </button>;
         })}
       </div>
@@ -494,6 +482,117 @@ export function ExecutionInteractionPanel({ client, detail }: {
         fallback={t("交互信任模型切换失败", "Interaction trust model switch failed")} />}
     </section>
   );
+}
+
+export function StandardCodeReadinessPanel({ readiness }: {
+  readiness: RunCapabilityReadinessView;
+}) {
+  const { t } = useLocale();
+  const option = capabilityReadinessOption(readiness.presets, "standard_code");
+  return <section className="permission-control-card standard-code-readiness-section">
+    <div className="section-heading">
+      <div>
+        <h2><Code2 aria-hidden="true" size={16} />Standard Code</h2>
+        <span>{capabilityReadinessSummary(option,
+          t("原子预设 readiness", "Atomic preset readiness"), t)}</span>
+      </div>
+      <StatusBadge status={option.runtime_available ? "ready" : "blocked"} />
+    </div>
+    <div aria-label={t("Standard Code 预设", "Standard Code preset")}
+      className="permission-option-grid permission-option-grid-two" role="group">
+      <button aria-pressed={option.selected} disabled type="button">
+        <Code2 aria-hidden="true" size={17} />
+        <span>
+          <strong>Standard Code</strong>
+          <small>{capabilityReadinessDetail(option,
+            t("工作区执行与受控沙箱", "Workspace access with controlled sandbox"), t)}</small>
+        </span>
+        {option.selected && <Check aria-hidden="true" size={15} />}
+      </button>
+    </div>
+    <dl className="permission-facts">
+      <div><dt>{t("已选择", "Selected")}</dt><dd>{option.selected ? t("是", "yes") : t("否", "no")}</dd></div>
+      <div><dt>{t("可选择", "Selectable")}</dt><dd>{option.selectable ? t("是", "yes") : t("否", "no")}</dd></div>
+      <div><dt>{t("运行时", "Runtime")}</dt><dd>{option.runtime_available ? t("可用", "available") : t("不可用", "unavailable")}</dd></div>
+    </dl>
+  </section>;
+}
+
+type ReadinessTranslator = (chinese: string, english: string) => string;
+
+function capabilityReadinessOption(options: CapabilityReadinessOptionView[],
+  value: string): CapabilityReadinessOptionView {
+  const option = options.find((candidate) => candidate.value === value);
+  if (!option) {
+    throw new Error(`Capability readiness option ${value} is missing`);
+  }
+  return option;
+}
+
+function selectedCapabilityReadiness(
+  options: CapabilityReadinessOptionView[],
+): CapabilityReadinessOptionView {
+  const selected = options.find((option) => option.selected);
+  if (!selected) {
+    throw new Error("Capability readiness selection is missing");
+  }
+  return selected;
+}
+
+const readinessBlockerLabels: Record<string, [string, string]> = {
+  run_not_quiescent: ["Run 尚未暂停", "Run is not quiescent"],
+  execution_lease_active: ["执行租约占用中", "Execution lease is active"],
+  startup_gate_closed: ["启动闸门未开启", "Startup gate is closed"],
+  capability_not_implemented: ["能力尚未实现", "Capability is not implemented"],
+  backend_not_ready: ["后端 readiness 未通过", "Backend readiness has not passed"],
+  surface_mismatch: ["工作面不匹配", "Surface mismatch"],
+  profile_mismatch: ["执行环境不匹配", "Profile mismatch"],
+  permission_mismatch: ["权限档位不匹配", "Permission mismatch"],
+  workspace_untrusted: ["工作区尚未信任", "Workspace is untrusted"],
+  sandbox_unproven: ["沙箱隔离尚未证明", "Sandbox isolation is unproven"],
+  docker_unavailable: ["Docker 不可用", "Docker is unavailable"],
+};
+
+const readinessRemediationLabels: Record<string, [string, string]> = {
+  pause_run: ["暂停 Run", "Pause the Run"],
+  create_new_run: ["创建新 Run", "Create a new Run"],
+  wait_for_execution_lease: ["等待租约释放", "Wait for the lease to release"],
+  restart_with_startup_gate: ["开启闸门并重启", "Restart with the startup gate"],
+  upgrade_application: ["升级到实现该能力的版本", "Upgrade to a version that implements it"],
+  retry_backend_readiness: ["修复后端并重新检查", "Repair the backend and retry readiness"],
+  select_required_surface: ["选择所需工作面", "Select the required surface"],
+  select_required_profile: ["选择所需执行环境", "Select the required profile"],
+  select_required_permission: ["选择所需权限档位", "Select the required permission"],
+  trust_workspace: ["确认工作区信任", "Confirm Workspace trust"],
+  verify_sandbox: ["安装并验证沙箱", "Install and verify the sandbox"],
+  install_or_start_docker: ["安装或启动 Docker", "Install or start Docker"],
+};
+
+function capabilityReadinessSummary(option: CapabilityReadinessOptionView,
+  fallback: string, t: ReadinessTranslator): string {
+  if (option.blocked_by.length === 0) {
+    return option.runtime_available ? fallback : t("运行时不可用", "Runtime unavailable");
+  }
+  return localizedReadinessValue(readinessBlockerLabels, option.blocked_by[0]!, t);
+}
+
+function capabilityReadinessDetail(option: CapabilityReadinessOptionView,
+  fallback: string, t: ReadinessTranslator): string {
+  if (option.blocked_by.length === 0) {
+    return option.runtime_available ? fallback : t("运行时不可用", "Runtime unavailable");
+  }
+  const blocker = localizedReadinessValue(readinessBlockerLabels, option.blocked_by[0]!, t);
+  const remediation = localizedReadinessValue(readinessRemediationLabels,
+    option.remediation[0]!, t);
+  const additional = option.blocked_by.length > 1 ? ` +${option.blocked_by.length - 1}` : "";
+  const restart = option.restart_required ? t(" · 需重启", " · restart required") : "";
+  return `${blocker}${additional} · ${remediation}${restart}`;
+}
+
+function localizedReadinessValue(labels: Record<string, [string, string]>,
+  value: string, t: ReadinessTranslator): string {
+  const label = labels[value];
+  return label ? t(label[0], label[1]) : value.replaceAll("_", " ");
 }
 
 function PermissionConfirmation({ description, label, loading, onCancel, onConfirm }: {

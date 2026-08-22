@@ -972,6 +972,63 @@ type RunDetailView struct {
 	ExternalSkills       *ExternalSkillProjectionView `json:"external_skills,omitempty"`
 }
 
+type CapabilityReadinessOptionView struct {
+	Value            string   `json:"value"`
+	Selected         bool     `json:"selected"`
+	Selectable       bool     `json:"selectable"`
+	RuntimeAvailable bool     `json:"runtime_available"`
+	BlockedBy        []string `json:"blocked_by"`
+	Remediation      []string `json:"remediation"`
+	RestartRequired  bool     `json:"restart_required"`
+}
+
+type RunCapabilityReadinessView struct {
+	ProtocolVersion       string                          `json:"protocol_version"`
+	RunID                 string                          `json:"run_id"`
+	Permissions           []CapabilityReadinessOptionView `json:"permissions"`
+	Profiles              []CapabilityReadinessOptionView `json:"profiles"`
+	Interactions          []CapabilityReadinessOptionView `json:"interactions"`
+	BrowserCDPPermissions []CapabilityReadinessOptionView `json:"browser_cdp_permissions"`
+	Presets               []CapabilityReadinessOptionView `json:"presets"`
+	CapabilityGrant       bool                            `json:"capability_grant"`
+}
+
+func runCapabilityReadinessView(
+	value application.RunCapabilityReadiness,
+) RunCapabilityReadinessView {
+	return RunCapabilityReadinessView{
+		ProtocolVersion: value.ProtocolVersion, RunID: value.RunID,
+		Permissions:           capabilityReadinessOptionViews(value.Permissions),
+		Profiles:              capabilityReadinessOptionViews(value.Profiles),
+		Interactions:          capabilityReadinessOptionViews(value.Interactions),
+		BrowserCDPPermissions: capabilityReadinessOptionViews(value.BrowserCDPPermissions),
+		Presets:               capabilityReadinessOptionViews(value.Presets),
+		CapabilityGrant:       false,
+	}
+}
+
+func capabilityReadinessOptionViews(
+	values []application.CapabilityReadinessOption,
+) []CapabilityReadinessOptionView {
+	views := make([]CapabilityReadinessOptionView, len(values))
+	for index, value := range values {
+		blockedBy := make([]string, len(value.BlockedBy))
+		for blockerIndex, blocker := range value.BlockedBy {
+			blockedBy[blockerIndex] = string(blocker)
+		}
+		remediation := make([]string, len(value.Remediation))
+		for remediationIndex, action := range value.Remediation {
+			remediation[remediationIndex] = string(action)
+		}
+		views[index] = CapabilityReadinessOptionView{
+			Value: value.Value, Selected: value.Selected, Selectable: value.Selectable,
+			RuntimeAvailable: value.RuntimeAvailable, BlockedBy: blockedBy,
+			Remediation: remediation, RestartRequired: value.RestartRequired,
+		}
+	}
+	return views
+}
+
 type AgentCodeToolCapabilityView struct {
 	Name          string `json:"name"`
 	Class         string `json:"class"`

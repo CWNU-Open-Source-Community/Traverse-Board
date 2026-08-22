@@ -97,6 +97,17 @@ render independent controls, but it contains no token, owner, lease, Run, or pri
 error and cannot enable a worker, install a service, or grant a mutation. Every control
 route still requires the control token and its corresponding Go gate independently.
 
+Run-specific option readiness is exposed separately through authenticated read-only
+`GET /api/v1/runs/{run_id}/capability-readiness`. Its exact
+`run_capability_readiness.v1` response covers Permission, Profile, Interaction,
+browser-CDP, and Standard Code values with `selected`, `selectable`,
+`runtime_available`, canonical blockers/remediations, and `restart_required`.
+Go combines persisted snapshots and leases with current process gates and backend
+proof; React does not reconstruct those facts. The DTO omits private paths,
+endpoints, credentials, lease/owner identities, and raw errors, and fixes
+`capability_grant=false`. It cannot authorize a control POST or runtime operation.
+See [ADR 0128](adr/0128-go-owned-run-capability-readiness.md).
+
 The process capability document reports whether the `agent-code-tools.v1` runtime
 is compiled in, while `GET /api/v1/runs/{run_id}` carries the authoritative
 Run-specific generation and per-tool availability/refusal snapshot. The latter is
@@ -134,6 +145,7 @@ Ordinary browser clients keep `/events/stream` SSE. Wails v2 does not support As
 $headers = @{ Authorization = "Bearer $env:CYBERAGENT_API_TOKEN" }
 Invoke-RestMethod http://127.0.0.1:8765/api/v1/health -Headers $headers
 Invoke-RestMethod http://127.0.0.1:8765/api/v1/capabilities -Headers $headers
+Invoke-RestMethod http://127.0.0.1:8765/api/v1/runs/<run-id>/capability-readiness -Headers $headers
 Invoke-RestMethod "http://127.0.0.1:8765/api/v1/runs?limit=20" -Headers $headers
 Invoke-RestMethod "http://127.0.0.1:8765/api/v1/workspaces?limit=20" -Headers $headers
 Invoke-WebRequest http://127.0.0.1:8765/api/v1/openapi.json -Headers $headers

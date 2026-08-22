@@ -10,6 +10,13 @@
 
 ## 当前基线
 
+Runtime readiness 统一投影（Issue #130，SQLite 仍为 schema v126）新增 Go-owned
+`run_capability_readiness.v1`。Permission、Profile、Interaction、browser-CDP 与 Standard Code
+都返回独立 selected/selectable/runtime-available、稳定阻塞码、对应修复动作和重启要求；CLI、
+HTTP/OpenAPI、Desktop 与 React 共用 Application 服务。该响应固定不授权、不泄露私有路径，
+TypeScript 对未知版本或扩展失败关闭。Local/Docker 允许只记录意图而后端不可用；Standard Code
+仍明确未实现。边界见 ADR 0128。
+
 Workspace Access 权限合同（Issue #129 / schema v126）新增第五档
 `workspace_access · 工作区执行`：允许 Workspace 内读写，只允许 ready sandbox adapter 的有界
 命令，拒绝宿主无沙箱进程、网络、凭证、用户主目录、持久终端、Agent 输入和完整 CDP。该 issue

@@ -1112,6 +1112,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/capability-readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect Run capability readiness
+         * @description Returns the Go-owned selected, selectable, runtime-available, stable blocker, remediation, and restart-required projection for every Permission, Profile, Interaction, browser CDP, and Standard Code preset option. This read-only projection is not a bearer, does not grant capability, and exposes no Workspace path, Docker endpoint, browser Profile, credential, lease token, or process identity.
+         */
+        get: operations["getRunCapabilityReadiness"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/child-task-proposals": {
         parameters: {
             query?: never;
@@ -3708,6 +3728,16 @@ export interface components {
         CancellationSpec: {
             /** Format: int32 */
             grace_period_millis: number;
+        };
+        CapabilityReadinessOptionView: {
+            blocked_by: ("run_not_quiescent" | "execution_lease_active" | "startup_gate_closed" | "capability_not_implemented" | "surface_mismatch" | "profile_mismatch" | "permission_mismatch" | "workspace_untrusted" | "sandbox_unproven" | "docker_unavailable" | "backend_not_ready")[];
+            remediation: ("pause_run" | "create_new_run" | "wait_for_execution_lease" | "restart_with_startup_gate" | "upgrade_application" | "select_required_surface" | "select_required_profile" | "select_required_permission" | "trust_workspace" | "verify_sandbox" | "install_or_start_docker" | "retry_backend_readiness")[];
+            restart_required: boolean;
+            runtime_available: boolean;
+            selectable: boolean;
+            selected: boolean;
+            /** @enum {string} */
+            value: "conservative" | "workspace_access" | "approval" | "full_access" | "debug" | "preview" | "docker" | "local" | "controlled" | "cyber" | "restricted" | "full_debug" | "standard_code";
         };
         Change: {
             binary: boolean;
@@ -7301,6 +7331,17 @@ export interface components {
             runtime_gate_available: boolean;
             screenshot_allowed: boolean;
             transport_enabled: boolean;
+        };
+        RunCapabilityReadinessView: {
+            browser_cdp_permissions: components["schemas"]["CapabilityReadinessOptionView"][];
+            capability_grant: boolean;
+            interactions: components["schemas"]["CapabilityReadinessOptionView"][];
+            permissions: components["schemas"]["CapabilityReadinessOptionView"][];
+            presets: components["schemas"]["CapabilityReadinessOptionView"][];
+            profiles: components["schemas"]["CapabilityReadinessOptionView"][];
+            /** @enum {string} */
+            protocol_version: "run_capability_readiness.v1";
+            run_id: string;
         };
         RunConfigView: {
             continuity_context_fingerprint?: string;
@@ -11882,6 +11923,41 @@ export interface operations {
             413: components["responses"]["RequestEntityTooLarge"];
             414: components["responses"]["RequestTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getRunCapabilityReadiness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["RunCapabilityReadinessView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
         };

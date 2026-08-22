@@ -42,6 +42,7 @@ This directory separates user-facing documentation, current engineering state, a
 | [ADR 0125 / Windows Executable Name](adr/0125-traverse-board-windows-executable-name.md) | `v0.1.0-rc.2` 对外 EXE 文件名与发布边界 |
 | [ADR 0126 / Legacy v97 Compatibility](adr/0126-legacy-v97-docker-trigger-compatibility.md) | 精确旧校验和、v125 trigger 修复、数据保留与失败关闭边界 |
 | [ADR 0127 / Workspace Access](adr/0127-workspace-access-permission-contract.md) | Standard Code 工作区权限上限、沙箱 readiness、revision fencing 与失败关闭边界 |
+| [ADR 0128 / Capability Readiness](adr/0128-go-owned-run-capability-readiness.md) | Go-owned 选择/运行时可用性、稳定阻塞码、修复动作、隐私与版本边界 |
 | [ADR 索引](adr/) | 权限、持久化、执行、浏览器、Desktop 等架构决策 |
 
 ## 当前工程上下文 / Current Engineering Context

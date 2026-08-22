@@ -90,6 +90,64 @@ func TestControlPlanePublishesExtensionInventoryToDesktopRenderer(t *testing.T) 
 	}
 }
 
+func TestControlPlanePublishesGoOwnedRunCapabilityReadiness(t *testing.T) {
+	plane, err := OpenControlPlane(ControlPlaneConfig{
+		DatabasePath: filepath.Join(t.TempDir(), "desktop-capability-readiness.db"),
+		ReadToken:    desktopControlPlaneTestToken, ControlToken: desktopControlPlaneControlToken,
+		RunControlEnabled: true, AppVersion: "desktop-readiness-test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = plane.Close() })
+	_, run, err := application.NewRunService(plane.stateStore).Create(t.Context(),
+		application.CreateRunRequest{Goal: "project Desktop readiness", Profile: "code",
+			Surface: "code", Phase: "deliver", Budget: domain.Budget{MaxTurns: 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := desktopAPIRequest(plane.Handler(), "/api/v1/runs/"+run.ID+
+		"/capability-readiness")
+	if response.Code != http.StatusOK {
+		t.Fatalf("Desktop readiness status=%d body=%s", response.Code,
+			response.Body.String())
+	}
+	var envelope desktopAPIEnvelope
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	var readiness httpapi.RunCapabilityReadinessView
+	if err := json.Unmarshal(envelope.Data, &readiness); err != nil {
+		t.Fatal(err)
+	}
+	if readiness.ProtocolVersion != application.RunCapabilityReadinessProtocolVersion ||
+		readiness.RunID != run.ID || readiness.CapabilityGrant {
+		t.Fatalf("unexpected Desktop readiness envelope: %#v", readiness)
+	}
+	var docker httpapi.CapabilityReadinessOptionView
+	for _, option := range readiness.Profiles {
+		if option.Value == string(domain.RunExecutionProfileDocker) {
+			docker = option
+			break
+		}
+	}
+	if docker.Value == "" || !docker.Selectable || docker.RuntimeAvailable ||
+		!containsDesktopReadinessValue(docker.BlockedBy,
+			string(application.CapabilityBlockerDockerUnavailable)) {
+		t.Fatalf("Desktop did not preserve selectable intent and unavailable runtime: %#v",
+			docker)
+	}
+}
+
+func containsDesktopReadinessValue(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestControlPlaneRegistersAnExistingWorkspaceDirectoryWithoutModifyingIt(t *testing.T) {
 	home := t.TempDir()
 	selected := filepath.Join(t.TempDir(), "selected-project")
