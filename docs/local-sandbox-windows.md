@@ -112,7 +112,12 @@ timeout/cancellation tree cleanup, and owner recovery after simulated app crash.
 The Windows CI jobs run this suite plus CLI/API/Desktop gate tests. Their
 ephemeral runners explicitly opt into a test-only fixture that temporarily
 supplies missing system-drive metadata ACEs and the complete `\Device\Null`
-package ACEs/Low Integrity label, then restores the captured descriptors after
-the suite. Production code has no such host-mutation path.
+package ACEs/Low Integrity label. The normal path suppresses descendant ACL
+propagation and restores the captured descriptors exactly. If Windows Server
+2025 keeps a conflicting system-root handle, only a GitHub-hosted disposable
+runner may persist the two metadata-only, non-inheriting root ACEs for the rest
+of that job through the non-propagating file-security API; the runner is then
+discarded. Local and self-hosted tests fail closed instead, `\Device\Null` is
+still restored, and production code has no host-mutation path.
 
 See [ADR 0130](adr/0130-windows-local-sandbox-backend.md).

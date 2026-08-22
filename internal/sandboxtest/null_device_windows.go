@@ -24,9 +24,14 @@ const (
 	systemMandatoryLabelNoWriteUp = 0x1
 )
 
-// PrepareHost supplies the Windows host ACLs required by LPAC subprocesses and
-// returns an exact restoration function. A named mutex serializes test packages
-// while either machine-wide security descriptor is temporarily changed.
+var setFileSecurityWProc = windows.NewLazySystemDLL("advapi32.dll").NewProc(
+	"SetFileSecurityW",
+)
+
+// PrepareHost supplies the Windows host ACLs required by LPAC subprocesses. It
+// returns an exact restoration function except for the explicitly gated,
+// disposable GitHub-hosted runner fallback. A named mutex serializes test
+// packages while either machine-wide security descriptor is changed.
 func PrepareHost() (func() error, error) {
 	releaseMutex, err := acquireHostMutex()
 	if err != nil {
@@ -90,29 +95,24 @@ func prepareSystemDrivePath(root string) (func() error, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	// Opening a busy drive root directly with MAXIMUM_ALLOWED can conflict
-	// with a long-lived handle that did not share data-write or delete access.
-	// Start with only the security rights we need, then duplicate that handle
-	// with MAXIMUM_ALLOWED. SetSecurityInfo suppresses child ACL propagation for
-	// the duplicated handle without introducing a second filesystem open.
-	source, err := windows.CreateFile(pointer, windows.READ_CONTROL|windows.WRITE_DAC,
+	// MAXIMUM_ALLOWED makes SetSecurityInfo suppress child ACL propagation.
+	// Some Windows Server 2025 hosted runners keep a conflicting root handle;
+	// only those disposable GitHub-hosted test machines use the persistent,
+	// non-propagating fallback below.
+	handle, err := windows.CreateFile(pointer, windows.MAXIMUM_ALLOWED,
 		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
 		nil, windows.OPEN_EXISTING,
 		windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
 	if err != nil {
-		return nil, false, err
-	}
-	process, err := windows.GetCurrentProcess()
-	if err != nil {
-		return nil, false, errors.Join(err, windows.CloseHandle(source))
-	}
-	var handle windows.Handle
-	if err := windows.DuplicateHandle(process, source, process, &handle,
-		windows.MAXIMUM_ALLOWED|windows.READ_CONTROL|windows.WRITE_DAC, false, 0); err != nil {
-		return nil, false, errors.Join(err, windows.CloseHandle(source))
-	}
-	if err := windows.CloseHandle(source); err != nil {
-		return nil, false, errors.Join(err, windows.CloseHandle(handle))
+		if !errors.Is(err, windows.ERROR_SHARING_VIOLATION) ||
+			!githubHostedLocalSandboxTest() {
+			return nil, false, err
+		}
+		if err := persistHostedSystemDriveDACL(root, descriptor, dacl,
+			allPackagesSID, restrictedPackagesSID); err != nil {
+			return nil, false, err
+		}
+		return func() error { return nil }, true, nil
 	}
 	fail := func(cause error) (func() error, bool, error) {
 		return nil, false, errors.Join(cause, windows.CloseHandle(handle))
@@ -166,6 +166,76 @@ func prepareSystemDrivePath(root string) (func() error, bool, error) {
 	runtime.KeepAlive(allPackagesSID)
 	runtime.KeepAlive(restrictedPackagesSID)
 	return restore, true, nil
+}
+
+func githubHostedLocalSandboxTest() bool {
+	return os.Getenv(prepareSystemDriveEnv) == "1" &&
+		os.Getenv("GITHUB_ACTIONS") == "true" &&
+		os.Getenv("RUNNER_ENVIRONMENT") == "github-hosted"
+}
+
+func persistHostedSystemDriveDACL(root string, descriptor *windows.SECURITY_DESCRIPTOR,
+	dacl *windows.ACL, allPackagesSID, restrictedPackagesSID *windows.SID,
+) error {
+	if descriptor == nil || dacl == nil || allPackagesSID == nil ||
+		restrictedPackagesSID == nil {
+		return errors.New("invalid system-drive host fixture")
+	}
+	control, _, err := descriptor.Control()
+	if err != nil {
+		return err
+	}
+	preparedDACL, err := windows.ACLFromEntries([]windows.EXPLICIT_ACCESS{
+		explicitAccess(allPackagesSID, systemDriveMetadataAccess),
+		explicitAccess(restrictedPackagesSID, systemDriveMetadataAccess),
+	}, dacl)
+	if err != nil {
+		return err
+	}
+	return setFileDACL(root, daclSecurityInformation(control), control, preparedDACL)
+}
+
+func setFileDACL(pathValue string, information windows.SECURITY_INFORMATION,
+	control windows.SECURITY_DESCRIPTOR_CONTROL, dacl *windows.ACL,
+) error {
+	pointer, err := windows.UTF16PtrFromString(pathValue)
+	if err != nil {
+		return err
+	}
+	descriptor, err := windows.NewSecurityDescriptor()
+	if err != nil {
+		return err
+	}
+	if err := descriptor.SetDACL(dacl, true, false); err != nil {
+		return err
+	}
+	inheritanceControl := windows.SECURITY_DESCRIPTOR_CONTROL(
+		windows.SE_DACL_AUTO_INHERIT_REQ | windows.SE_DACL_AUTO_INHERITED |
+			windows.SE_DACL_PROTECTED)
+	if err := descriptor.SetControl(inheritanceControl,
+		control&inheritanceControl); err != nil {
+		return err
+	}
+	selfRelative, err := descriptor.ToSelfRelative()
+	if err != nil {
+		return err
+	}
+	// SetFileSecurity applies a directory DACL without propagating it to
+	// existing children. This legacy API is confined to a disposable hosted
+	// runner because it does not preserve AUTO_INHERITED on the target itself.
+	result, _, callErr := setFileSecurityWProc.Call(uintptr(unsafe.Pointer(pointer)),
+		uintptr(information), uintptr(unsafe.Pointer(selfRelative)))
+	runtime.KeepAlive(pointer)
+	runtime.KeepAlive(descriptor)
+	runtime.KeepAlive(selfRelative)
+	runtime.KeepAlive(dacl)
+	if result != 0 {
+		return nil
+	}
+	if callErr == windows.ERROR_SUCCESS {
+		return windows.ERROR_GEN_FAILURE
+	}
+	return callErr
 }
 
 type nullDeviceSecurity struct {

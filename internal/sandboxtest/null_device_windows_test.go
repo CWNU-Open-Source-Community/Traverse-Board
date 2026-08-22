@@ -17,28 +17,6 @@ func TestPrepareSystemDrivePathRestoresRootWithoutPropagating(t *testing.T) {
 	if err := os.Mkdir(child, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	pointer, err := windows.UTF16PtrFromString(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	busyHandle, err := windows.CreateFile(pointer, windows.GENERIC_READ,
-		windows.FILE_SHARE_READ, nil, windows.OPEN_EXISTING,
-		windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer windows.CloseHandle(busyHandle)
-	directHandle, directErr := windows.CreateFile(pointer, windows.MAXIMUM_ALLOWED,
-		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
-		nil, windows.OPEN_EXISTING,
-		windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
-	if directErr == nil {
-		_ = windows.CloseHandle(directHandle)
-		t.Fatal("MAXIMUM_ALLOWED unexpectedly bypassed the simulated sharing conflict")
-	}
-	if !errors.Is(directErr, windows.ERROR_SHARING_VIOLATION) {
-		t.Fatalf("simulate busy root: %v", directErr)
-	}
 	security := func(pathValue string) string {
 		t.Helper()
 		descriptor, err := windows.GetNamedSecurityInfo(pathValue, windows.SE_FILE_OBJECT,
@@ -90,6 +68,84 @@ func TestPrepareSystemDrivePathRestoresRootWithoutPropagating(t *testing.T) {
 	}
 	if got := security(child); got != childBefore {
 		t.Fatal("child DACL changed during root restoration")
+	}
+}
+
+func TestPrepareSystemDrivePathHostedFallbackHandlesBusyRootWithoutPropagating(t *testing.T) {
+	root := t.TempDir()
+	child := filepath.Join(root, "child")
+	if err := os.Mkdir(child, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	security := func(pathValue string) string {
+		t.Helper()
+		descriptor, err := windows.GetNamedSecurityInfo(pathValue, windows.SE_FILE_OBJECT,
+			windows.DACL_SECURITY_INFORMATION)
+		if err != nil || descriptor == nil {
+			t.Fatalf("read DACL for %s: %v", filepath.Base(pathValue), err)
+		}
+		return descriptor.String()
+	}
+	childBefore := security(child)
+	pointer, err := windows.UTF16PtrFromString(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	busyHandle, err := windows.CreateFile(pointer, windows.GENERIC_READ,
+		windows.FILE_SHARE_READ, nil, windows.OPEN_EXISTING,
+		windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer windows.CloseHandle(busyHandle)
+	directHandle, directErr := windows.CreateFile(pointer, windows.MAXIMUM_ALLOWED,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		nil, windows.OPEN_EXISTING,
+		windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
+	if directErr == nil {
+		_ = windows.CloseHandle(directHandle)
+		t.Fatal("MAXIMUM_ALLOWED unexpectedly bypassed the simulated sharing conflict")
+	}
+	if !errors.Is(directErr, windows.ERROR_SHARING_VIOLATION) {
+		t.Fatalf("simulate busy root: %v", directErr)
+	}
+	t.Setenv(prepareSystemDriveEnv, "1")
+	t.Setenv("GITHUB_ACTIONS", "false")
+	t.Setenv("RUNNER_ENVIRONMENT", "self-hosted")
+	if _, _, err := prepareSystemDrivePath(root); !errors.Is(err,
+		windows.ERROR_SHARING_VIOLATION) {
+		t.Fatalf("non-hosted fallback did not fail closed: %v", err)
+	}
+	t.Setenv("GITHUB_ACTIONS", "true")
+	t.Setenv("RUNNER_ENVIRONMENT", "github-hosted")
+	restore, changed, err := prepareSystemDrivePath(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("hosted fallback did not prepare the temporary root")
+	}
+	if err := restore(); err != nil {
+		t.Fatal(err)
+	}
+	descriptor, err := windows.GetNamedSecurityInfo(root, windows.SE_FILE_OBJECT,
+		windows.DACL_SECURITY_INFORMATION)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dacl, _, err := descriptor.DACL()
+	if err != nil {
+		t.Fatal(err)
+	}
+	allPackagesSID, restrictedPackagesSID, err := applicationPackageSIDs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !systemDriveDACLReady(dacl, allPackagesSID, restrictedPackagesSID) {
+		t.Fatal("hosted fallback did not persist both metadata ACEs")
+	}
+	if got := security(child); got != childBefore {
+		t.Fatal("hosted fallback propagated root-only ACEs to the child")
 	}
 }
 
