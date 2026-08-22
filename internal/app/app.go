@@ -345,7 +345,7 @@ func (a *App) printHelp() {
 	fmt.Fprintln(a.out, "  cyberagent tool schema|invoke|list|show|approve|deny")
 	fmt.Fprintln(a.out, "  cyberagent edit propose|list|show|review-approve|review-deny|approve|deny")
 	fmt.Fprintln(a.out, "  cyberagent approval list|show|grant")
-	fmt.Fprintln(a.out, "  cyberagent sandbox validate|template")
+	fmt.Fprintln(a.out, "  cyberagent sandbox validate|template|local-readiness")
 	fmt.Fprintln(a.out, "  cyberagent artifact list|show|read|verify")
 	fmt.Fprintln(a.out, "  cyberagent ui-evidence list|show|artifact")
 	fmt.Fprintln(a.out, "  cyberagent analyzer execute")

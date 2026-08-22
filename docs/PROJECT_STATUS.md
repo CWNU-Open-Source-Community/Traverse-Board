@@ -1,12 +1,21 @@
 # Project Status
 
-Last updated: 2026-08-22
+Last updated: 2026-08-23
 
 > **Scope authority:** active mainline work targets the general-purpose Agent Harness and Code workflow. CTF-specific solving and offensive automation are optional add-ons and have no active implementation schedule. Historical references and percentages below remain audit history, not queued work. See [Product Scope](PRODUCT_SCOPE.md).
 
 ## Resume Context
 
-当前检查点是 issue #131 / schema v127 的 `drydock-workspace.v1`。一个 Code Run 只能持有一个
+当前检查点是 issue #132 的 Windows-first Local Sandbox（schema 仍为 v127）。Windows x64 以
+显式 `--enable-workspace-sandbox` 启动真实 LPAC/AppContainer、WFP、creation-time Job、严格
+handle/environment、临时最小 ACL 与无 PID authority 的 owner journal 探针；失败或不支持时返回
+稳定 unavailable 原因，绝不回退宿主执行。每次运行只获得随机文件系统 capability 与非网络
+`registryRead` capability，并明确退出 `ALL APPLICATION PACKAGES`；Drydock 可写，显式工具链只读，
+网络、凭证、用户主目录、设备/UNC/reparse/hardlink 和其他盘符保持拒绝。CLI、认证 API 与 Desktop
+只消费同一 `local_sandbox_readiness.v1`。共享 sandboxed Command Runtime adapter 仍由 #134 负责，
+所以 readiness/权限选择本身不向模型发布命令工具。边界见 ADR 0130。
+
+上一检查点是 issue #131 / schema v127 的 `drydock-workspace.v1`。一个 Code Run 只能持有一个
 精确绑定 source Workspace/root/repository/common-dir/branch/base 的产品管理 worktree；首次使用
 需要 pin 完整 Workspace Trust digest，且 Trust 固定不授予执行 authority。source dirty 内容不
 复制；symlink/submodule/reparse source 在 v1 显式拒绝。
