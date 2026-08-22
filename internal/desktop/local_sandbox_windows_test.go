@@ -33,7 +33,10 @@ func TestMain(m *testing.M) {
 }
 
 func TestWindowsControlPlaneConsumesValidatedLocalSandboxReadiness(t *testing.T) {
-	base := t.TempDir()
+	base, err := sandboxtest.CanonicalRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	backend, err := sandbox.NewPlatformLocalBackend(sandbox.WithLocalOwnerRoot(
 		filepath.Clean(filepath.Join(base, "owners"))))
 	if err != nil {

@@ -6,10 +6,25 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"golang.org/x/sys/windows"
 )
+
+func TestCanonicalRootReturnsStableFinalPath(t *testing.T) {
+	root, err := CanonicalRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := CanonicalRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.EqualFold(root, resolved) {
+		t.Fatalf("canonical root changed on repeat resolution: %q != %q", root, resolved)
+	}
+}
 
 func TestPrepareSystemDrivePathRestoresRootWithoutPropagating(t *testing.T) {
 	root := t.TempDir()

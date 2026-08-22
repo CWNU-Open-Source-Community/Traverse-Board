@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -59,6 +60,53 @@ func PrepareHost() (func() error, error) {
 	return func() error {
 		return errors.Join(runRestores(restoreNull, restoreDrive), releaseMutex())
 	}, nil
+}
+
+// CanonicalRoot resolves an existing test directory to the final local path
+// expected by the Local Sandbox root-pinning boundary. GitHub-hosted Windows
+// runners may expose temporary directories through an 8.3 path alias.
+func CanonicalRoot(value string) (string, error) {
+	raw := filepath.Clean(value)
+	if !filepath.IsAbs(raw) {
+		return "", errors.New("canonical test root must be absolute")
+	}
+	info, err := os.Lstat(raw)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return "", errors.Join(err, errors.New("canonical test root must be a directory"))
+	}
+	pointer, err := windows.UTF16PtrFromString(raw)
+	if err != nil {
+		return "", err
+	}
+	handle, err := windows.CreateFile(pointer, windows.FILE_READ_ATTRIBUTES,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		nil, windows.OPEN_EXISTING,
+		windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
+	if err != nil {
+		return "", err
+	}
+	defer windows.CloseHandle(handle)
+	attributes, err := windows.GetFileAttributes(pointer)
+	if err != nil || attributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+		return "", errors.Join(err, errors.New("canonical test root cannot be a reparse point"))
+	}
+	buffer := make([]uint16, 512)
+	for {
+		length, err := windows.GetFinalPathNameByHandle(handle, &buffer[0],
+			uint32(len(buffer)), 0)
+		if err != nil {
+			return "", err
+		}
+		if int(length) < len(buffer) {
+			resolved := filepath.Clean(strings.TrimPrefix(
+				windows.UTF16ToString(buffer[:length]), `\\?\`))
+			if !filepath.IsAbs(resolved) {
+				return "", errors.New("canonical test root is not local and absolute")
+			}
+			return resolved, nil
+		}
+		buffer = make([]uint16, int(length)+1)
+	}
 }
 
 func prepareSystemDrive() (func() error, bool, error) {
