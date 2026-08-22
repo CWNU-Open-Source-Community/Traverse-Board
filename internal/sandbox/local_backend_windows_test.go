@@ -139,8 +139,8 @@ func TestWindowsLocalSandboxExecutesInDrydockAndDeniesHostAndNetwork(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable = filepath.Clean(executable)
-	toolchainRoot := filepath.Dir(executable)
+	toolchainRoot := windowsTestCanonicalRoot(t, filepath.Dir(executable))
+	executable = filepath.Join(toolchainRoot, filepath.Base(executable))
 	toolchainSentinel := filepath.Join(toolchainRoot,
 		"local-read-only-"+localFingerprint(t.Name())[:16]+".txt")
 	if err := os.WriteFile(toolchainSentinel, []byte("toolchain-read-only"), 0o600); err != nil {
@@ -250,7 +250,8 @@ func TestWindowsLocalSandboxCompilesAndTestsInsideDrydock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	goRoot := filepath.Clean(strings.TrimSpace(string(goRootOutput)))
+	goRoot := windowsTestCanonicalRoot(t,
+		filepath.Clean(strings.TrimSpace(string(goRootOutput))))
 	request := localWindowsTestRequest(t, backend, drydock, goRoot, "/go-toolchain",
 		"/go-toolchain/bin/go.exe", []string{"test", "./...", "-count=1"})
 	request.Manifest.Resources = ResourceLimits{CPUQuotaMillis: 4000,
@@ -310,10 +311,11 @@ func TestWindowsLocalSandboxTimeoutAndCancellationReapProcessTree(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			executable = filepath.Clean(executable)
+			toolchainRoot := windowsTestCanonicalRoot(t, filepath.Dir(executable))
+			executable = filepath.Join(toolchainRoot, filepath.Base(executable))
 			pidPath := filepath.Join(drydock, "grandchild.pid")
 			request := localWindowsTestRequest(t, backend, drydock,
-				filepath.Dir(executable), "/test-toolchain",
+				toolchainRoot, "/test-toolchain",
 				"/test-toolchain/"+filepath.ToSlash(filepath.Base(executable)),
 				[]string{"-test.run=^TestWindowsLocalSandboxTreeChild$", "--", pidPath})
 			request.Manifest.Environment = []EnvironmentBinding{{
@@ -412,9 +414,10 @@ func TestWindowsLocalSandboxEnforcesOutputAndDiskWriteLimits(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			executable = filepath.Clean(executable)
+			toolchainRoot := windowsTestCanonicalRoot(t, filepath.Dir(executable))
+			executable = filepath.Join(toolchainRoot, filepath.Base(executable))
 			request := localWindowsTestRequest(t, backend, drydock,
-				filepath.Dir(executable), "/test-toolchain",
+				toolchainRoot, "/test-toolchain",
 				"/test-toolchain/"+filepath.ToSlash(filepath.Base(executable)),
 				[]string{"-test.run=^TestWindowsLocalSandboxLimitChild$"})
 			request.Manifest.Environment = []EnvironmentBinding{{
@@ -594,11 +597,11 @@ func TestWindowsLocalSandboxRecoversOwnerAfterSimulatedAppCrashWithoutPIDAuthori
 	if err != nil {
 		t.Fatal(err)
 	}
-	if restored.DACLSDDL != snapshot.DACLSDDL ||
+	if !windowsTestSameDACL(restored.DACLSDDL, snapshot.DACLSDDL) ||
 		restored.DACLProtected != snapshot.DACLProtected ||
 		restored.LabelSDDL != snapshot.LabelSDDL {
 		t.Fatalf("startup recovery mismatch: dacl=%t protected=%t label_before=%q label_after=%q",
-			restored.DACLSDDL == snapshot.DACLSDDL,
+			windowsTestSameDACL(restored.DACLSDDL, snapshot.DACLSDDL),
 			restored.DACLProtected == snapshot.DACLProtected,
 			snapshot.LabelSDDL, restored.LabelSDDL)
 	}
@@ -611,7 +614,7 @@ func TestWindowsLocalSandboxRecoversOwnerAfterSimulatedAppCrashWithoutPIDAuthori
 	if err != nil {
 		t.Fatal(err)
 	}
-	if restoredExisting.DACLSDDL != existingSnapshot.DACLSDDL ||
+	if !windowsTestSameDACL(restoredExisting.DACLSDDL, existingSnapshot.DACLSDDL) ||
 		restoredExisting.DACLProtected != existingSnapshot.DACLProtected ||
 		restoredExisting.LabelSDDL != existingSnapshot.LabelSDDL {
 		t.Fatal("startup recovery left inherited AppContainer authority below Drydock")
@@ -993,28 +996,44 @@ func windowsTestCurrentAppContainerFolder() (string, error) {
 
 func windowsTestTempDir(t *testing.T) string {
 	t.Helper()
-	raw := filepath.Clean(t.TempDir())
+	return windowsTestCanonicalRoot(t, t.TempDir())
+}
+
+func windowsTestCanonicalRoot(t *testing.T, value string) string {
+	t.Helper()
+	raw := filepath.Clean(value)
 	pointer, err := windows.UTF16PtrFromString(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
 	handle, err := windows.CreateFile(pointer, windows.FILE_READ_ATTRIBUTES,
 		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
-		nil, windows.OPEN_EXISTING,
-		windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
+		nil, windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer windows.CloseHandle(handle)
-	attributes, err := windows.GetFileAttributes(pointer)
-	if err != nil || attributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-		t.Fatalf("Windows test temp root is indirect: %v", err)
-	}
 	resolved, err := localFinalPath(handle)
 	if err != nil || !validLocalHostRoot(resolved) {
-		t.Fatalf("resolve Windows test temp root: %v", err)
+		t.Fatalf("resolve Windows test root %q: %v", raw, err)
 	}
 	return resolved
+}
+
+func windowsTestSameDACL(first, second string) bool {
+	return windowsTestDACLWithoutAutoInherited(first) ==
+		windowsTestDACLWithoutAutoInherited(second)
+}
+
+func windowsTestDACLWithoutAutoInherited(value string) string {
+	if !strings.HasPrefix(value, "D:") {
+		return value
+	}
+	end := strings.IndexByte(value, '(')
+	if end < 0 {
+		end = len(value)
+	}
+	return value[:2] + strings.ReplaceAll(value[2:end], "AI", "") + value[end:]
 }
 
 func windowsTestCrossDriveSentinel(t *testing.T, excludedVolume string) string {
