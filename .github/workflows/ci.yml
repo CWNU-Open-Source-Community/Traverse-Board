@@ -257,6 +257,8 @@ jobs:
   desktop:
     name: Windows Desktop shell
     runs-on: windows-latest
+    env:
+      TRAVERSE_BOARD_LOCAL_SANDBOX_TEST_HOST_PREP: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Set up current Go 1.25 patch
@@ -314,6 +316,8 @@ jobs:
           check-latest: true
           cache: true
       - name: Verify Local Sandbox on the Windows 2022 compatibility host
+        env:
+          TRAVERSE_BOARD_LOCAL_SANDBOX_TEST_HOST_PREP: '1'
         run: go test -v -count=1 -timeout 10m ./internal/sandbox -run '^TestWindowsLocalSandbox'
       - name: Verify real Edge UI evidence matrix and regression detection
         shell: pwsh

@@ -17,14 +17,14 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	restore, err := sandboxtest.PrepareNullDevice()
+	restore, err := sandboxtest.PrepareHost()
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "prepare Windows Local Sandbox NUL device: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "prepare Windows Local Sandbox host ACLs: %v\n", err)
 		os.Exit(1)
 	}
 	code := m.Run()
 	if err := restore(); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "restore Windows Local Sandbox NUL device: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "restore Windows Local Sandbox host ACLs: %v\n", err)
 		code = 1
 	}
 	os.Exit(code)
