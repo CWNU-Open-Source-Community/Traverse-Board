@@ -6,6 +6,18 @@
 
 ## 一、当前阶段
 
+2026-08-22 单切片 `Workspace Access 权限合同（Issue #129）` 推进到 SQLite v126。新增
+`workspace_access · 工作区执行`、完整 capability matrix、精确确认、独立
+`workspace_sandbox_adapter` readiness 和 `sandboxed_workspace_command` 统一授权决策；宿主进程、
+网络、凭证、home、持久终端、Agent 输入与 Full CDP 均拒绝。当前产品没有 adapter 或 enable
+参数，因此 CLI/API/Desktop/React 一致 unavailable，且现有 host Command Runtime 明确不能回退。
+切档事务化释放 execution lease；旧 Job/tool authority 由 permission snapshot/revision/generation
+漂移拒绝。v126 保留旧快照与幂等 replay，重建 CHECK 与跨表 trigger 并验证 foreign keys；设计见
+ADR 0127。串行无缓存全仓 Go 全绿（Application 538.493s、HTTP 148.569s、Store 843.955s），
+五个受影响包的 Workspace/permission/migration/Job/tool 聚焦 race、vet、module verify/tidy、Windows
+Desktop secure tags、OpenAPI/TypeScript 确定性生成、66 个文件 290 项 React、strict TypeScript、
+Vite production build 与 npm audit 零漏洞均通过；同一聚焦 race 门已加入 CI。
+
 2026-08-22 单切片 `旧 Windows 预览 v97 升级兼容` 推进到 SQLite v125。rc.2 下载包与
 EXE hash 正常，但便携启动器默认复用用户级 `.cyberagent-workbench`，一枚正式 v97 固化前的
 历史 checksum `844427...83b` 被正式 `e279b3...59d` 正确拒绝。只读对比确认数据库 integrity

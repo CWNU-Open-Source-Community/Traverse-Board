@@ -13,6 +13,7 @@ interface ConnectionState {
   controlToken: string;
   runControlEnabled: boolean;
   executionPermissionControlEnabled: boolean;
+  workspaceSandboxEnabled: boolean;
   browserCDPPermissionControlEnabled: boolean;
   fullCDPDebugEnabled: boolean;
   operatorApprovalEnabled: boolean;
@@ -71,6 +72,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   controlToken: "",
   runControlEnabled: false,
   executionPermissionControlEnabled: false,
+  workspaceSandboxEnabled: false,
   browserCDPPermissionControlEnabled: false,
   fullCDPDebugEnabled: false,
   operatorApprovalEnabled: false,
@@ -113,6 +115,9 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
       runControlEnabled: present && (capabilities.runControlEnabled ?? true),
       executionPermissionControlEnabled: present &&
         (capabilities.executionPermissionControlEnabled ?? false),
+      workspaceSandboxEnabled: present &&
+        (capabilities.executionPermissionControlEnabled ?? false) &&
+        (capabilities.workspaceSandboxEnabled ?? false),
       browserCDPPermissionControlEnabled: present &&
         (capabilities.browserCDPPermissionControlEnabled ?? false),
       fullCDPDebugEnabled: present &&
@@ -171,7 +176,8 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   },
   disconnect: () => set({ token: "", controlToken: "", health: null,
     runControlEnabled: false, runCreationEnabled: false, sessionMessageEnabled: false,
-    executionPermissionControlEnabled: false, operatorApprovalEnabled: false,
+    executionPermissionControlEnabled: false, workspaceSandboxEnabled: false,
+    operatorApprovalEnabled: false,
     browserCDPPermissionControlEnabled: false, fullCDPDebugEnabled: false,
     dangerFullAccessEnabled: false, debugMaximumAccessEnabled: false,
     commandRuntimeEnabled: false,

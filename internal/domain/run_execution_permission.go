@@ -20,24 +20,27 @@ const (
 type RunExecutionPermissionMode string
 
 const (
-	RunExecutionPermissionConservative RunExecutionPermissionMode = "conservative"
-	RunExecutionPermissionApproval     RunExecutionPermissionMode = "approval"
-	RunExecutionPermissionFullAccess   RunExecutionPermissionMode = "full_access"
-	RunExecutionPermissionDebug        RunExecutionPermissionMode = "debug"
+	RunExecutionPermissionConservative    RunExecutionPermissionMode = "conservative"
+	RunExecutionPermissionWorkspaceAccess RunExecutionPermissionMode = "workspace_access"
+	RunExecutionPermissionApproval        RunExecutionPermissionMode = "approval"
+	RunExecutionPermissionFullAccess      RunExecutionPermissionMode = "full_access"
+	RunExecutionPermissionDebug           RunExecutionPermissionMode = "debug"
 )
 
 type ExecutionPermissionApprovalPolicy string
 
 const (
-	ExecutionPermissionApprovalFixedTemplates ExecutionPermissionApprovalPolicy = "fixed_templates"
-	ExecutionPermissionApprovalPerCommand     ExecutionPermissionApprovalPolicy = "per_command"
-	ExecutionPermissionApprovalNone           ExecutionPermissionApprovalPolicy = "none"
+	ExecutionPermissionApprovalFixedTemplates      ExecutionPermissionApprovalPolicy = "fixed_templates"
+	ExecutionPermissionApprovalOutOfScopeExactOnce ExecutionPermissionApprovalPolicy = "out_of_scope_exact_once"
+	ExecutionPermissionApprovalPerCommand          ExecutionPermissionApprovalPolicy = "per_command"
+	ExecutionPermissionApprovalNone                ExecutionPermissionApprovalPolicy = "none"
 )
 
 type ExecutionPermissionCommandScope string
 
 const (
 	ExecutionPermissionCommandFixedTemplates      ExecutionPermissionCommandScope = "fixed_templates"
+	ExecutionPermissionCommandSandboxedWorkspace  ExecutionPermissionCommandScope = "sandboxed_workspace"
 	ExecutionPermissionCommandArbitraryStateless  ExecutionPermissionCommandScope = "arbitrary_stateless"
 	ExecutionPermissionCommandArbitraryPersistent ExecutionPermissionCommandScope = "arbitrary_persistent"
 )
@@ -60,10 +63,36 @@ type ExecutionPermissionGate string
 
 const (
 	ExecutionPermissionGateConservative       ExecutionPermissionGate = "conservative_control"
+	ExecutionPermissionGateWorkspaceSandbox   ExecutionPermissionGate = "workspace_sandbox_adapter"
 	ExecutionPermissionGateOperatorApproval   ExecutionPermissionGate = "operator_approval"
 	ExecutionPermissionGateDangerFullAccess   ExecutionPermissionGate = "danger_full_access"
 	ExecutionPermissionGateDebugMaximumAccess ExecutionPermissionGate = "debug_maximum_access"
 )
+
+type ExecutionPermissionOutOfScopePolicy string
+
+const (
+	ExecutionPermissionOutOfScopeDenied    ExecutionPermissionOutOfScopePolicy = "denied"
+	ExecutionPermissionOutOfScopeExactOnce ExecutionPermissionOutOfScopePolicy = "exact_once_required"
+	ExecutionPermissionOutOfScopeNotNeeded ExecutionPermissionOutOfScopePolicy = "not_required"
+)
+
+// ExecutionPermissionCapabilityMatrix is a policy ceiling, not proof that a
+// runtime adapter exists. In particular, SandboxedCommandRuntime still needs
+// the process-local WorkspaceSandboxEnabled readiness gate at every start.
+type ExecutionPermissionCapabilityMatrix struct {
+	WorkspaceRead           bool
+	WorkspaceWrite          bool
+	SandboxedCommandRuntime bool
+	UnsandboxedHostProcess  bool
+	NetworkAccess           bool
+	CredentialAccess        bool
+	UserHomeAccess          bool
+	PersistentUserTerminal  bool
+	PersistentAgentTerminal bool
+	FullCDP                 bool
+	OutOfScopePolicy        ExecutionPermissionOutOfScopePolicy
+}
 
 type runExecutionPermissionDefinition struct {
 	ApprovalPolicy     ExecutionPermissionApprovalPolicy
@@ -76,6 +105,7 @@ type runExecutionPermissionDefinition struct {
 	RiskTier           ExecutionRiskTier
 	RequiredGate       ExecutionPermissionGate
 	OperatorConfirmed  bool
+	CapabilityMatrix   ExecutionPermissionCapabilityMatrix
 }
 
 var runExecutionPermissionDefinitions = map[RunExecutionPermissionMode]runExecutionPermissionDefinition{
@@ -86,6 +116,24 @@ var runExecutionPermissionDefinitions = map[RunExecutionPermissionMode]runExecut
 		NetworkScope:    ExecutionPermissionNetworkDisabled,
 		RiskTier:        ExecutionRiskMinimal,
 		RequiredGate:    ExecutionPermissionGateConservative,
+		CapabilityMatrix: ExecutionPermissionCapabilityMatrix{
+			WorkspaceRead: true, WorkspaceWrite: true,
+			OutOfScopePolicy: ExecutionPermissionOutOfScopeDenied,
+		},
+	},
+	RunExecutionPermissionWorkspaceAccess: {
+		ApprovalPolicy:    ExecutionPermissionApprovalOutOfScopeExactOnce,
+		CommandScope:      ExecutionPermissionCommandSandboxedWorkspace,
+		FilesystemScope:   ExecutionPermissionFilesystemWorkspaceGuarded,
+		NetworkScope:      ExecutionPermissionNetworkDisabled,
+		RiskTier:          ExecutionRiskElevated,
+		RequiredGate:      ExecutionPermissionGateWorkspaceSandbox,
+		OperatorConfirmed: true,
+		CapabilityMatrix: ExecutionPermissionCapabilityMatrix{
+			WorkspaceRead: true, WorkspaceWrite: true,
+			SandboxedCommandRuntime: true,
+			OutOfScopePolicy:        ExecutionPermissionOutOfScopeExactOnce,
+		},
 	},
 	RunExecutionPermissionApproval: {
 		ApprovalPolicy:    ExecutionPermissionApprovalPerCommand,
@@ -95,6 +143,12 @@ var runExecutionPermissionDefinitions = map[RunExecutionPermissionMode]runExecut
 		RiskTier:          ExecutionRiskElevated,
 		RequiredGate:      ExecutionPermissionGateOperatorApproval,
 		OperatorConfirmed: true,
+		CapabilityMatrix: ExecutionPermissionCapabilityMatrix{
+			WorkspaceRead: true, WorkspaceWrite: true,
+			SandboxedCommandRuntime: true, UnsandboxedHostProcess: true,
+			NetworkAccess: true, CredentialAccess: true, UserHomeAccess: true,
+			OutOfScopePolicy: ExecutionPermissionOutOfScopeExactOnce,
+		},
 	},
 	RunExecutionPermissionFullAccess: {
 		ApprovalPolicy:    ExecutionPermissionApprovalNone,
@@ -104,6 +158,12 @@ var runExecutionPermissionDefinitions = map[RunExecutionPermissionMode]runExecut
 		RiskTier:          ExecutionRiskHigh,
 		RequiredGate:      ExecutionPermissionGateDangerFullAccess,
 		OperatorConfirmed: true,
+		CapabilityMatrix: ExecutionPermissionCapabilityMatrix{
+			WorkspaceRead: true, WorkspaceWrite: true,
+			SandboxedCommandRuntime: true, UnsandboxedHostProcess: true,
+			NetworkAccess: true, CredentialAccess: true, UserHomeAccess: true,
+			OutOfScopePolicy: ExecutionPermissionOutOfScopeNotNeeded,
+		},
 	},
 	RunExecutionPermissionDebug: {
 		ApprovalPolicy:     ExecutionPermissionApprovalNone,
@@ -116,6 +176,13 @@ var runExecutionPermissionDefinitions = map[RunExecutionPermissionMode]runExecut
 		RiskTier:           ExecutionRiskHigh,
 		RequiredGate:       ExecutionPermissionGateDebugMaximumAccess,
 		OperatorConfirmed:  true,
+		CapabilityMatrix: ExecutionPermissionCapabilityMatrix{
+			WorkspaceRead: true, WorkspaceWrite: true,
+			SandboxedCommandRuntime: true, UnsandboxedHostProcess: true,
+			NetworkAccess: true, CredentialAccess: true, UserHomeAccess: true,
+			PersistentUserTerminal: true, PersistentAgentTerminal: true,
+			FullCDP: true, OutOfScopePolicy: ExecutionPermissionOutOfScopeNotNeeded,
+		},
 	},
 }
 
@@ -135,6 +202,7 @@ func (m RunExecutionPermissionMode) Valid() bool {
 // ExecutionPermissionRuntimeCapabilities are process-local startup grants.
 // They are deliberately never persisted in a Run snapshot.
 type ExecutionPermissionRuntimeCapabilities struct {
+	WorkspaceSandboxEnabled   bool
 	OperatorApprovalEnabled   bool
 	DangerFullAccessEnabled   bool
 	DebugMaximumAccessEnabled bool
@@ -159,6 +227,8 @@ func (c ExecutionPermissionRuntimeCapabilities) Allows(
 	switch mode {
 	case RunExecutionPermissionConservative:
 		return true
+	case RunExecutionPermissionWorkspaceAccess:
+		return c.WorkspaceSandboxEnabled
 	case RunExecutionPermissionApproval:
 		return c.OperatorApprovalEnabled
 	case RunExecutionPermissionFullAccess:
@@ -168,6 +238,15 @@ func (c ExecutionPermissionRuntimeCapabilities) Allows(
 	default:
 		return false
 	}
+}
+
+func (s RunExecutionPermissionSnapshot) CapabilityMatrix() (
+	ExecutionPermissionCapabilityMatrix, error,
+) {
+	if err := s.Validate(); err != nil {
+		return ExecutionPermissionCapabilityMatrix{}, err
+	}
+	return runExecutionPermissionDefinitions[s.Mode].CapabilityMatrix, nil
 }
 
 // RunExecutionPermissionSnapshot records the operator-selected policy ceiling.

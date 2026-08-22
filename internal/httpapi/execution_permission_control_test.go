@@ -72,3 +72,52 @@ func TestRunExecutionPermissionControlRequiresRuntimeGateAndExactConfirmation(t 
 		t.Fatalf("HTTP permission replay changed result: %+v", replayed)
 	}
 }
+
+func TestRunExecutionPermissionControlProjectsUnavailableWorkspaceBoundary(t *testing.T) {
+	fixture := newAPIFixture(t)
+	_, run, err := application.NewRunService(fixture.store).Create(t.Context(),
+		application.CreateRunRequest{Goal: "select Workspace Access through HTTP",
+			Profile: "code", Budget: domain.Budget{MaxTurns: 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/v1/runs/" + run.ID + "/execution-permission"
+	body := `{"mode":"workspace_access","confirm_workspace_access":true}`
+	closed, err := New(fixture.store, Config{AccessToken: testAccessToken,
+		ControlToken: testControlToken, ExecutionPermissionControlEnabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	denied := performControlPathRequest(t, closed, path,
+		"http-workspace-access-closed-0001", strings.NewReader(body))
+	assertAPIError(t, denied, http.StatusForbidden, "POLICY_DENIED")
+
+	open, err := New(fixture.store, Config{AccessToken: testAccessToken,
+		ControlToken: testControlToken, ExecutionPermissionControlEnabled: true,
+		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
+			WorkspaceSandboxEnabled: true,
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := performControlPathRequest(t, open, path,
+		"http-workspace-access-open-0001", strings.NewReader(body))
+	var selected RunExecutionPermissionControlView
+	decodeDataStatus(t, response, http.StatusAccepted, &selected)
+	permission := selected.ExecutionPermission
+	if permission.Mode != string(domain.RunExecutionPermissionWorkspaceAccess) ||
+		!permission.RuntimeGateAvailable || !permission.Runtime.WorkspaceSandboxEnabled ||
+		!permission.CapabilityMatrix.WorkspaceRead ||
+		!permission.CapabilityMatrix.WorkspaceWrite ||
+		!permission.CapabilityMatrix.SandboxedCommandRuntime ||
+		permission.CapabilityMatrix.UnsandboxedHostProcess ||
+		permission.CapabilityMatrix.NetworkAccess ||
+		permission.CapabilityMatrix.CredentialAccess ||
+		permission.CapabilityMatrix.UserHomeAccess ||
+		permission.CapabilityMatrix.PersistentUserTerminal ||
+		permission.CapabilityMatrix.PersistentAgentTerminal ||
+		permission.CapabilityMatrix.FullCDP || permission.ProcessEnabled ||
+		permission.ExecutionAuthorized || permission.CapabilityGrant {
+		t.Fatalf("Workspace Access HTTP projection widened authority: %+v", permission)
+	}
+}

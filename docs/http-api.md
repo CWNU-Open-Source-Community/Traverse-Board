@@ -565,7 +565,7 @@ metadata；原始 artifact 下载额外返回 `no-store`、ETag、精确 SHA-256
 | `POST` | `/api/v1/runs/{run_id}/active-call/cancel` | Separately authorized exact active-call cancellation request |
 | `POST` | `/api/v1/runs/{run_id}/agents/{agent_id}/active-call/cancel` | Separately authorized exact Specialist-call cancellation request |
 | `POST` | `/api/v1/runs/{run_id}/execution-profile` | Select `preview|docker|local` intent; never starts a process or grants authority |
-| `POST` | `/api/v1/runs/{run_id}/execution-permission` | Operator-select `conservative|approval|full_access|debug`; exact confirmation and process startup gate required, persisted selection never grants authority |
+| `POST` | `/api/v1/runs/{run_id}/execution-permission` | Operator-select `conservative|workspace_access|approval|full_access|debug`; Workspace Access requires exact confirmation plus a ready sandbox adapter, never falls back to host execution, and persisted selection never grants authority |
 | `POST` | `/api/v1/runs/{run_id}/browser-cdp-permission` | Operator-select `restricted|full_debug`; full mode requires Debug execution permission, dedicated startup gate and exact confirmation; selection never starts a browser or opens CDP |
 | `POST` | `/api/v1/runs/{run_id}/lifecycle` | Idempotent `start|pause|resume` under exact state/quiescence/lease gates |
 | `POST` | `/api/v1/runs/{run_id}/execute` | Freeze and execute at most eight pending inputs through the existing RunSupervisor |

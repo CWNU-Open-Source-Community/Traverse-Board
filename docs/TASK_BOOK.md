@@ -10,6 +10,12 @@
 
 ## 当前基线
 
+Workspace Access 权限合同（Issue #129 / schema v126）新增第五档
+`workspace_access · 工作区执行`：允许 Workspace 内读写，只允许 ready sandbox adapter 的有界
+命令，拒绝宿主无沙箱进程、网络、凭证、用户主目录、持久终端、Agent 输入和完整 CDP。该 issue
+不实现 Local Sandbox，产品 readiness 固定关闭且无宿主回退；切档会释放旧 execution lease 并
+fence 旧 Job/tool authority。#130 及后续实现只能消费这份已冻结合同，不能暗改其权限含义。
+
 发布兼容修复随 schema v125 落地（ADR 0126）：仅对 exact version/name/checksum 的旧 Windows
 预览 v97 开放兼容，保留原 migration row，并在新事务迁移中重建正式 Docker lifecycle cleanup
 trigger。未知 checksum、错名、gap/newer schema 继续失败关闭；禁止删库、自动 reset、手改 checksum

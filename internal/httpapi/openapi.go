@@ -2309,15 +2309,15 @@ var openAPIFieldEnums = map[string][]string{
 	"RunExecutionProfileView.policy_version":                   {domain.RunExecutionProfilePolicyVersion},
 	"RunExecutionProfileControlRequestView.profile":            {string(domain.RunExecutionProfilePreview), string(domain.RunExecutionProfileDocker), string(domain.RunExecutionProfileLocal)},
 	"RunExecutionPermissionView.protocol_version":              {domain.RunExecutionPermissionProtocolVersion},
-	"RunExecutionPermissionView.mode":                          {string(domain.RunExecutionPermissionConservative), string(domain.RunExecutionPermissionApproval), string(domain.RunExecutionPermissionFullAccess), string(domain.RunExecutionPermissionDebug)},
-	"RunExecutionPermissionView.approval_policy":               {string(domain.ExecutionPermissionApprovalFixedTemplates), string(domain.ExecutionPermissionApprovalPerCommand), string(domain.ExecutionPermissionApprovalNone)},
-	"RunExecutionPermissionView.command_scope":                 {string(domain.ExecutionPermissionCommandFixedTemplates), string(domain.ExecutionPermissionCommandArbitraryStateless), string(domain.ExecutionPermissionCommandArbitraryPersistent)},
+	"RunExecutionPermissionView.mode":                          {string(domain.RunExecutionPermissionConservative), string(domain.RunExecutionPermissionWorkspaceAccess), string(domain.RunExecutionPermissionApproval), string(domain.RunExecutionPermissionFullAccess), string(domain.RunExecutionPermissionDebug)},
+	"RunExecutionPermissionView.approval_policy":               {string(domain.ExecutionPermissionApprovalFixedTemplates), string(domain.ExecutionPermissionApprovalOutOfScopeExactOnce), string(domain.ExecutionPermissionApprovalPerCommand), string(domain.ExecutionPermissionApprovalNone)},
+	"RunExecutionPermissionView.command_scope":                 {string(domain.ExecutionPermissionCommandFixedTemplates), string(domain.ExecutionPermissionCommandSandboxedWorkspace), string(domain.ExecutionPermissionCommandArbitraryStateless), string(domain.ExecutionPermissionCommandArbitraryPersistent)},
 	"RunExecutionPermissionView.filesystem_scope":              {string(domain.ExecutionPermissionFilesystemWorkspaceGuarded), string(domain.ExecutionPermissionFilesystemHostFull)},
 	"RunExecutionPermissionView.network_scope":                 {string(domain.ExecutionPermissionNetworkDisabled), string(domain.ExecutionPermissionNetworkHost)},
 	"RunExecutionPermissionView.risk_tier":                     {string(domain.ExecutionRiskMinimal), string(domain.ExecutionRiskElevated), string(domain.ExecutionRiskHigh)},
-	"RunExecutionPermissionView.required_gate":                 {string(domain.ExecutionPermissionGateConservative), string(domain.ExecutionPermissionGateOperatorApproval), string(domain.ExecutionPermissionGateDangerFullAccess), string(domain.ExecutionPermissionGateDebugMaximumAccess)},
+	"RunExecutionPermissionView.required_gate":                 {string(domain.ExecutionPermissionGateConservative), string(domain.ExecutionPermissionGateWorkspaceSandbox), string(domain.ExecutionPermissionGateOperatorApproval), string(domain.ExecutionPermissionGateDangerFullAccess), string(domain.ExecutionPermissionGateDebugMaximumAccess)},
 	"RunExecutionPermissionView.policy_version":                {domain.RunExecutionPermissionPolicyVersion},
-	"RunExecutionPermissionControlRequestView.mode":            {string(domain.RunExecutionPermissionConservative), string(domain.RunExecutionPermissionApproval), string(domain.RunExecutionPermissionFullAccess), string(domain.RunExecutionPermissionDebug)},
+	"RunExecutionPermissionControlRequestView.mode":            {string(domain.RunExecutionPermissionConservative), string(domain.RunExecutionPermissionWorkspaceAccess), string(domain.RunExecutionPermissionApproval), string(domain.RunExecutionPermissionFullAccess), string(domain.RunExecutionPermissionDebug)},
 	"RunBrowserCDPPermissionView.protocol_version":             {domain.RunBrowserCDPPermissionProtocolVersion},
 	"RunBrowserCDPPermissionView.mode":                         {string(domain.RunBrowserCDPPermissionRestricted), string(domain.RunBrowserCDPPermissionFullDebug)},
 	"RunBrowserCDPPermissionView.risk_tier":                    {string(domain.ExecutionRiskMinimal), string(domain.ExecutionRiskHigh)},
@@ -2428,6 +2428,8 @@ var openAPIFieldEnums = map[string][]string{
 	"MessageView.role":                                         {"user", "assistant", "system", "tool"},
 	"MessageView.provenance_version":                           {session.LegacyContextProvenanceVersion, session.ContextProvenanceVersion},
 	"MessageView.source_kind":                                  {session.SourceOperatorMessage, session.SourceModelResponse, session.SourceGoControl, session.SourceWorkspaceFile, session.SourceWorkspaceList, session.SourceWorkspaceDiff, session.SourceToolResult, session.SourceGoCommandResult},
+
+	"ExecutionPermissionCapabilityMatrixView.out_of_scope_policy": {string(domain.ExecutionPermissionOutOfScopeDenied), string(domain.ExecutionPermissionOutOfScopeExactOnce), string(domain.ExecutionPermissionOutOfScopeNotNeeded)},
 }
 
 var openAPIFieldMinimums = map[string]float64{

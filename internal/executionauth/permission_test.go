@@ -32,7 +32,7 @@ func permissionSnapshot(t *testing.T,
 	return next
 }
 
-func TestEvaluateExecutionPermissionDistinguishesAllFourModes(t *testing.T) {
+func TestEvaluateExecutionPermissionDistinguishesAllFiveModes(t *testing.T) {
 	conservative, err := EvaluateExecutionPermission(
 		permissionSnapshot(t, domain.RunExecutionPermissionConservative),
 		domain.ExecutionPermissionRuntimeCapabilities{},
@@ -46,6 +46,39 @@ func TestEvaluateExecutionPermissionDistinguishesAllFourModes(t *testing.T) {
 		PermissionRequest{Kind: PermissionOperationStatelessCommand})
 	if err != nil || denied.Allowed {
 		t.Fatalf("conservative arbitrary command=%+v err=%v", denied, err)
+	}
+
+	workspaceSnapshot := permissionSnapshot(t,
+		domain.RunExecutionPermissionWorkspaceAccess)
+	workspaceClosed, err := EvaluateExecutionPermission(workspaceSnapshot,
+		domain.ExecutionPermissionRuntimeCapabilities{},
+		PermissionRequest{Kind: PermissionOperationSandboxedWorkspace})
+	if err != nil || workspaceClosed.Allowed {
+		t.Fatalf("Workspace Access ran without adapter=%+v err=%v", workspaceClosed, err)
+	}
+	workspaceRuntime := domain.ExecutionPermissionRuntimeCapabilities{
+		WorkspaceSandboxEnabled: true,
+	}
+	workspace, err := EvaluateExecutionPermission(workspaceSnapshot, workspaceRuntime,
+		PermissionRequest{Kind: PermissionOperationSandboxedWorkspace})
+	if err != nil || !workspace.Allowed || !workspace.WorkspaceFilesystem ||
+		!workspace.SandboxedCommand || workspace.HostFilesystem || workspace.Network ||
+		workspace.BackgroundProcess || workspace.PersistentTerminal ||
+		workspace.AgentTerminalInput {
+		t.Fatalf("Workspace Access decision=%+v err=%v", workspace, err)
+	}
+	for _, request := range []PermissionRequest{
+		{Kind: PermissionOperationStatelessCommand},
+		{Kind: PermissionOperationSandboxedWorkspace, HostFilesystem: true},
+		{Kind: PermissionOperationSandboxedWorkspace, Network: true},
+		{Kind: PermissionOperationSandboxedWorkspace, BackgroundProcess: true},
+	} {
+		decision, err := EvaluateExecutionPermission(workspaceSnapshot,
+			workspaceRuntime, request)
+		if err != nil || decision.Allowed {
+			t.Fatalf("Workspace Access widened request=%+v decision=%+v err=%v",
+				request, decision, err)
+		}
 	}
 
 	approvalRuntime := domain.ExecutionPermissionRuntimeCapabilities{

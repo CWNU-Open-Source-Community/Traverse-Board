@@ -47,6 +47,7 @@ type RuntimeCapabilitiesView struct {
 	ProtocolVersion                    string                       `json:"protocol_version"`
 	RunControlEnabled                  bool                         `json:"run_control_enabled"`
 	ExecutionPermissionControlEnabled  bool                         `json:"execution_permission_control_enabled"`
+	WorkspaceSandboxEnabled            bool                         `json:"workspace_sandbox_enabled"`
 	OperatorApprovalEnabled            bool                         `json:"operator_approval_enabled"`
 	DangerFullAccessEnabled            bool                         `json:"danger_full_access_enabled"`
 	DebugMaximumAccessEnabled          bool                         `json:"debug_maximum_access_enabled"`
@@ -154,6 +155,7 @@ func (a *API) runtimeCapabilities(request *http.Request) (any, *Page, error) {
 		ProtocolVersion:   RuntimeCapabilitiesProtocolVersion,
 		RunControlEnabled: a.controlEnabled, RunCreationEnabled: a.runCreationEnabled,
 		ExecutionPermissionControlEnabled:  a.executionPermissionControlEnabled,
+		WorkspaceSandboxEnabled:            a.executionPermissionCapabilities.WorkspaceSandboxEnabled,
 		OperatorApprovalEnabled:            a.executionPermissionCapabilities.OperatorApprovalEnabled,
 		DangerFullAccessEnabled:            a.executionPermissionCapabilities.DangerFullAccessEnabled,
 		DebugMaximumAccessEnabled:          a.executionPermissionCapabilities.DebugMaximumAccessEnabled,

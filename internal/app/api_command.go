@@ -518,8 +518,9 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		application.RunWakeWorkerConcurrency, application.RunWakeWorkerMaxSteps)
 	fmt.Fprintf(a.out, "scheduled_job_control_enabled: %t\nscheduled_job_worker_enabled: %t\nscheduled_job_worker_concurrency: %d\nscheduled_job_persistent_service: false\n",
 		controlToken != "", *scheduledJobWorker, scheduler.WorkerConcurrency)
-	fmt.Fprintf(a.out, "execution_permission_control_enabled: %t\noperator_approval_enabled: %t\nhost_command_proposal_control_enabled: %t\ndanger_full_access_enabled: %t\ndebug_maximum_access_enabled: %t\ncommand_runtime_enabled: %t\n",
-		*permissionControl, permissionCapabilities.OperatorApprovalEnabled,
+	fmt.Fprintf(a.out, "execution_permission_control_enabled: %t\nworkspace_sandbox_enabled: %t\noperator_approval_enabled: %t\nhost_command_proposal_control_enabled: %t\ndanger_full_access_enabled: %t\ndebug_maximum_access_enabled: %t\ncommand_runtime_enabled: %t\n",
+		*permissionControl, permissionCapabilities.WorkspaceSandboxEnabled,
+		permissionCapabilities.OperatorApprovalEnabled,
 		*hostCommandProposals,
 		permissionCapabilities.DangerFullAccessEnabled,
 		permissionCapabilities.DebugMaximumAccessEnabled, commandRuntime != nil)

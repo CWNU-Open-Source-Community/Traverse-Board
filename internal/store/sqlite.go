@@ -352,6 +352,7 @@ func migrationPlan() []migration {
 		{Version: 123, Name: "approval-gated advanced Git recovery and managed worktrees", Statements: gitAdvancedStatements},
 		{Version: 124, Name: "GitHub review evidence and approval-gated write receipts", Statements: githubReviewStatements},
 		{Version: 125, Name: "legacy Docker lifecycle cleanup trigger compatibility", Statements: legacyDockerLifecycleCleanupTriggerCompatibilityStatements},
+		{Version: 126, Name: "Workspace Access execution permission contract", Statements: workspaceAccessExecutionPermissionStatements, DisableForeignKeys: true},
 	}
 }
 

@@ -6,7 +6,20 @@ Last updated: 2026-08-22
 
 ## Resume Context
 
-当前检查点是 `v0.1.0-rc.2` 的旧数据库升级兼容修复（ADR 0126 / schema v125）。一枚
+当前检查点是 issue #129 / schema v126 的 `workspace_access · 工作区执行` 权限合同。
+该档位位于 `conservative` 与 `approval` 之间，只允许已注册 Workspace 内读写，以及经独立
+Workspace Sandbox readiness 证明后的有界命令；宿主无沙箱进程、网络、凭证、用户主目录、
+持久终端、Agent 输入和完整 CDP 全部拒绝。#129 不安装 adapter、不提供 enable 参数，当前产品
+必须显示 unavailable 且禁止回退宿主执行。切档会原子释放旧 execution lease，并以
+snapshot/revision/generation fencing 撤销旧 Job owner 与工具 authority。边界见 ADR 0127。
+
+本地验证已通过串行无缓存全仓 Go、受影响五包聚焦 race、Go vet/module、Windows Desktop secure
+tags、OpenAPI/TypeScript 确定性生成、290 项 Web 测试、production build 与 npm audit。Store 全量
+重放用时 843.955 秒；CI 另增加同一 Workspace permission/migration/Job/tool race 门。
+
+上一检查点是 `v0.1.0-rc.2` 的旧数据库升级兼容修复（ADR 0126 / schema v125）。
+
+一枚
 正式固化前的 Windows 预览数据库记录了精确 v97 checksum `844427...83b`，而正式 v97 为
 `e279b3...59d`；数据库 integrity 正常，24 个 v97 SQLite 对象中只有 cleanup receipt trigger
 多出两项更严格的 final-transition lease 绑定。rc.2 因不可变 migration 校验而正确失败关闭，

@@ -442,6 +442,16 @@ affected cleanup trigger with the canonical v97 definition. Unknown v97
 histories still fail closed. See
 [ADR 0126](adr/0126-legacy-v97-docker-trigger-compatibility.md).
 
+Schema v126 adds the non-authorizing `workspace_access` Run permission ceiling.
+It admits only a `sandboxed_workspace_command` decision when an independent,
+process-local Workspace Sandbox adapter is ready; host process, network,
+credential, home, terminal, Agent-input, and Full-CDP facts remain false. The
+current product installs no adapter, so every surface reports the mode as
+unavailable and no existing host runner may serve as a fallback. Selecting any
+new permission revision atomically releases the active Run execution lease and
+fences old Job/tool authority. See
+[ADR 0127](adr/0127-workspace-access-permission-contract.md).
+
 Schema v98 adds the bounded I/O contract without changing that authority boundary. Read-only input projection, fixed non-streaming attach, per-stream byte/line/deadline limits, strict output-archive walking, process-local staging, re-hashing, and atomic output commit are all bound to the exact lifecycle attempt/generation. Raw logs do not persist and the Workspace is never a writable container mount. See [ADR 0098](adr/0098-bounded-docker-container-io-contract.md).
 
 Schema v99 is the distinct product-composition layer. One Go-owned

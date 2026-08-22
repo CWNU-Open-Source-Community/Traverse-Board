@@ -249,6 +249,48 @@ func TestAgentCodeExecutorCreatesReviewedFileAndFailsClosedOnCASConflict(t *test
 	if _, err := os.Stat(filepath.Join(workspaceRoot, "moved.txt")); !os.IsNotExist(err) {
 		t.Fatalf("delete target still exists: %v", err)
 	}
+
+	if _, err := application.NewRunService(state).Pause(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	permissionResult, err := application.NewRunExecutionPermissionService(state,
+		domain.ExecutionPermissionRuntimeCapabilities{WorkspaceSandboxEnabled: true}).Change(
+		ctx, application.ChangeRunExecutionPermissionRequest{
+			RunID: run.ID, Mode: string(domain.RunExecutionPermissionWorkspaceAccess),
+			OperationKey: "agent-code-permission-drift-0001", RequestedBy: "test_operator",
+			Reason: "verify permission revision fencing", ConfirmWorkspaceAccess: true,
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	released, found, err := state.GetRunExecutionLease(ctx, run.ID)
+	if err != nil || !found || released.Status != domain.RunExecutionLeaseReleased {
+		t.Fatalf("permission change did not revoke lease: lease=%+v found=%t err=%v",
+			released, found, err)
+	}
+	if _, err := application.NewRunService(state).Resume(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	newLease, err := state.AcquireRunExecutionLease(ctx,
+		domain.AcquireRunExecutionLeaseRequest{RunID: run.ID,
+			OwnerID: "agent-code-test-after-drift", TTL: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleScope := scope
+	staleScope.InvocationID = "invocation-agent-code-stale-permission"
+	staleScope.OperationKey = "agent-code-stale-permission-0001"
+	staleScope.LeaseID = newLease.Lease.LeaseID
+	staleScope.LeaseGeneration = newLease.Lease.Generation
+	_, err = executor.ExecuteAgentCode(ctx, staleScope, toolgateway.WorkspaceReadTool,
+		mustAgentCodePayload(t, toolgateway.WorkspaceReadPayload{
+			Version: toolgateway.AgentCodeRegistryVersion, Path: "missing.txt",
+			StartLine: 1, EndLine: 1}))
+	if apperror.CodeOf(apperror.Normalize(err)) != apperror.CodeFailedPrecondition ||
+		permissionResult.Permission.Revision == staleScope.PermissionRevision {
+		t.Fatalf("old tool authority survived permission drift: revision=%d stale=%d err=%v",
+			permissionResult.Permission.Revision, staleScope.PermissionRevision, err)
+	}
 }
 
 type agentCodeToolResultFixture struct {

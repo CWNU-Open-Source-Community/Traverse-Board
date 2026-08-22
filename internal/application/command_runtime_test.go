@@ -10,12 +10,38 @@ import (
 	"testing"
 	"time"
 
+	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/store"
 	"cyberagent-workbench/internal/toolgateway"
 )
+
+func TestCommandRuntimeDoesNotMapWorkspaceAccessToHostExecution(t *testing.T) {
+	state, err := store.Open(filepath.Join(t.TempDir(), "workspace-access-host-runtime.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	manager, err := runner.NewPlatformCommandRuntimeManager(state,
+		idgen.New("workspace-access-host-owner"))
+	if err != nil {
+		t.Skipf("platform host command runtime is unavailable: %v", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = manager.Shutdown(shutdownCtx)
+	}()
+	service, err := NewCommandRuntimeService(state, manager,
+		domain.ExecutionPermissionRuntimeCapabilities{WorkspaceSandboxEnabled: true})
+	if service != nil || apperror.CodeOf(err) != apperror.CodeFailedPrecondition ||
+		!strings.Contains(err.Error(), "danger-full-access") {
+		t.Fatalf("Workspace Access enabled the host command runtime: service=%v err=%v",
+			service, err)
+	}
+}
 
 func TestCommandRuntimeServiceRunsAndReplaysFencedForegroundCommand(t *testing.T) {
 	ctx := context.Background()
@@ -474,19 +500,27 @@ func TestCommandRuntimeBackgroundJobSurvivesSupervisorLeaseTurnover(t *testing.T
 		permissionDrift.Jobs[0].State != runner.CommandRuntimeJobRunning {
 		t.Fatalf("permission-drift start=%#v err=%v", permissionDrift, err)
 	}
-	if _, _, err := state.ReleaseRunExecutionLease(ctx, acquired.Lease); err != nil {
+	oldPermission, err := state.GetRunExecutionPermission(ctx, runRecord.ID)
+	if err != nil {
 		t.Fatal(err)
 	}
 	runs := NewRunService(state)
 	if _, err := runs.Pause(ctx, runRecord.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewRunExecutionPermissionService(state, capabilities).Change(ctx,
+	changedPermission, err := NewRunExecutionPermissionService(state, capabilities).Change(ctx,
 		ChangeRunExecutionPermissionRequest{RunID: runRecord.ID,
 			Mode:         string(domain.RunExecutionPermissionConservative),
 			OperationKey: "command-runtime-permission-drift-0001",
-			RequestedBy:  "test_operator", Reason: "revoke managed command authority"}); err != nil {
+			RequestedBy:  "test_operator", Reason: "revoke managed command authority"})
+	if err != nil {
 		t.Fatal(err)
+	}
+	releasedLease, found, err := state.GetRunExecutionLease(ctx, runRecord.ID)
+	if err != nil || !found || releasedLease.Status != domain.RunExecutionLeaseReleased ||
+		changedPermission.Permission.Revision == oldPermission.Revision {
+		t.Fatalf("permission change did not revoke old Job authority: permission=%+v lease=%+v found=%t err=%v",
+			changedPermission.Permission, releasedLease, found, err)
 	}
 	if _, err := runs.Resume(ctx, runRecord.ID); err != nil {
 		t.Fatal(err)

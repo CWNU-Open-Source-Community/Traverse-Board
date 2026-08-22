@@ -740,32 +740,48 @@ type RunExecutionProfileView struct {
 }
 
 type ExecutionPermissionRuntimeView struct {
+	WorkspaceSandboxEnabled   bool `json:"workspace_sandbox_enabled"`
 	OperatorApprovalEnabled   bool `json:"operator_approval_enabled"`
 	DangerFullAccessEnabled   bool `json:"danger_full_access_enabled"`
 	DebugMaximumAccessEnabled bool `json:"debug_maximum_access_enabled"`
 }
 
+type ExecutionPermissionCapabilityMatrixView struct {
+	WorkspaceRead           bool   `json:"workspace_read"`
+	WorkspaceWrite          bool   `json:"workspace_write"`
+	SandboxedCommandRuntime bool   `json:"sandboxed_command_runtime"`
+	UnsandboxedHostProcess  bool   `json:"unsandboxed_host_process"`
+	NetworkAccess           bool   `json:"network_access"`
+	CredentialAccess        bool   `json:"credential_access"`
+	UserHomeAccess          bool   `json:"user_home_access"`
+	PersistentUserTerminal  bool   `json:"persistent_user_terminal"`
+	PersistentAgentTerminal bool   `json:"persistent_agent_terminal"`
+	FullCDP                 bool   `json:"full_cdp"`
+	OutOfScopePolicy        string `json:"out_of_scope_policy"`
+}
+
 type RunExecutionPermissionView struct {
-	ProtocolVersion      string                         `json:"protocol_version"`
-	Revision             int64                          `json:"revision"`
-	Mode                 string                         `json:"mode"`
-	ApprovalPolicy       string                         `json:"approval_policy"`
-	CommandScope         string                         `json:"command_scope"`
-	FilesystemScope      string                         `json:"filesystem_scope"`
-	NetworkScope         string                         `json:"network_scope"`
-	PersistentTerminal   bool                           `json:"persistent_terminal"`
-	BackgroundProcess    bool                           `json:"background_process"`
-	AgentTerminalInput   bool                           `json:"agent_terminal_input"`
-	RiskTier             string                         `json:"risk_tier"`
-	RequiredGate         string                         `json:"required_gate"`
-	PolicyVersion        string                         `json:"policy_version"`
-	OperatorConfirmed    bool                           `json:"operator_confirmed"`
-	RuntimeGateAvailable bool                           `json:"runtime_gate_available"`
-	Runtime              ExecutionPermissionRuntimeView `json:"runtime"`
-	CreatedAt            time.Time                      `json:"created_at"`
-	ProcessEnabled       bool                           `json:"process_enabled"`
-	ExecutionAuthorized  bool                           `json:"execution_authorized"`
-	CapabilityGrant      bool                           `json:"capability_grant"`
+	ProtocolVersion      string                                  `json:"protocol_version"`
+	Revision             int64                                   `json:"revision"`
+	Mode                 string                                  `json:"mode"`
+	ApprovalPolicy       string                                  `json:"approval_policy"`
+	CommandScope         string                                  `json:"command_scope"`
+	FilesystemScope      string                                  `json:"filesystem_scope"`
+	NetworkScope         string                                  `json:"network_scope"`
+	PersistentTerminal   bool                                    `json:"persistent_terminal"`
+	BackgroundProcess    bool                                    `json:"background_process"`
+	AgentTerminalInput   bool                                    `json:"agent_terminal_input"`
+	RiskTier             string                                  `json:"risk_tier"`
+	RequiredGate         string                                  `json:"required_gate"`
+	PolicyVersion        string                                  `json:"policy_version"`
+	OperatorConfirmed    bool                                    `json:"operator_confirmed"`
+	RuntimeGateAvailable bool                                    `json:"runtime_gate_available"`
+	Runtime              ExecutionPermissionRuntimeView          `json:"runtime"`
+	CapabilityMatrix     ExecutionPermissionCapabilityMatrixView `json:"capability_matrix"`
+	CreatedAt            time.Time                               `json:"created_at"`
+	ProcessEnabled       bool                                    `json:"process_enabled"`
+	ExecutionAuthorized  bool                                    `json:"execution_authorized"`
+	CapabilityGrant      bool                                    `json:"capability_grant"`
 }
 
 type BrowserCDPPermissionRuntimeView struct {
@@ -1181,6 +1197,7 @@ func runExecutionProfileView(
 func runExecutionPermissionView(value domain.RunExecutionPermissionSnapshot,
 	capabilities domain.ExecutionPermissionRuntimeCapabilities,
 ) RunExecutionPermissionView {
+	matrix, _ := value.CapabilityMatrix()
 	return RunExecutionPermissionView{
 		ProtocolVersion: value.ProtocolVersion, Revision: value.Revision,
 		Mode: string(value.Mode), ApprovalPolicy: string(value.ApprovalPolicy),
@@ -1194,7 +1211,17 @@ func runExecutionPermissionView(value domain.RunExecutionPermissionSnapshot,
 		OperatorConfirmed:    value.OperatorConfirmed,
 		RuntimeGateAvailable: capabilities.Allows(value.Mode),
 		Runtime:              executionPermissionRuntimeView(capabilities),
-		CreatedAt:            value.CreatedAt, ProcessEnabled: value.ProcessEnabled,
+		CapabilityMatrix: ExecutionPermissionCapabilityMatrixView{
+			WorkspaceRead: matrix.WorkspaceRead, WorkspaceWrite: matrix.WorkspaceWrite,
+			SandboxedCommandRuntime: matrix.SandboxedCommandRuntime,
+			UnsandboxedHostProcess:  matrix.UnsandboxedHostProcess,
+			NetworkAccess:           matrix.NetworkAccess, CredentialAccess: matrix.CredentialAccess,
+			UserHomeAccess:          matrix.UserHomeAccess,
+			PersistentUserTerminal:  matrix.PersistentUserTerminal,
+			PersistentAgentTerminal: matrix.PersistentAgentTerminal,
+			FullCDP:                 matrix.FullCDP, OutOfScopePolicy: string(matrix.OutOfScopePolicy),
+		},
+		CreatedAt: value.CreatedAt, ProcessEnabled: value.ProcessEnabled,
 		ExecutionAuthorized: value.ExecutionAuthorized,
 		CapabilityGrant:     value.CapabilityGrant,
 	}

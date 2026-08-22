@@ -57,7 +57,8 @@ function detail(): RunDetailView {
       required_gate: "conservative_control",
       policy_version: "execution_permission_policy.v1", operator_confirmed: false,
       runtime_gate_available: true,
-      runtime: { operator_approval_enabled: true, danger_full_access_enabled: true,
+      runtime: { workspace_sandbox_enabled: false,
+        operator_approval_enabled: true, danger_full_access_enabled: true,
         debug_maximum_access_enabled: false },
       created_at: "2026-07-27T00:00:00Z", process_enabled: false,
       execution_authorized: false, capability_grant: false,
@@ -92,7 +93,56 @@ describe("ExecutionPermissionPanel", () => {
       />
     </QueryClientProvider>);
     expect(screen.getByRole("button", { name: /调试/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /工作区执行/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: /完全访问/ })).toBeEnabled();
+  });
+
+  it("confirms Workspace Access without implying a host fallback", async () => {
+    const available = {
+      ...detail(),
+      execution_permission: {
+        ...detail().execution_permission,
+        runtime: {
+          ...detail().execution_permission.runtime,
+          workspace_sandbox_enabled: true,
+        },
+      },
+    } as RunDetailView;
+    const selected = {
+      ...available.execution_permission,
+      mode: "workspace_access" as const,
+      approval_policy: "out_of_scope_exact_once" as const,
+      command_scope: "sandboxed_workspace" as const,
+      required_gate: "workspace_sandbox_adapter" as const,
+      operator_confirmed: true,
+      revision: 2,
+    };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-workspace-access",
+      data: { execution_permission: selected, replayed: false },
+    }), { status: 202, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<QueryClientProvider client={new QueryClient()}>
+      <ExecutionPermissionPanel
+        client={new CyberAgentClient("read", "/api/v1", "control", {
+          executionPermissionControlEnabled: true,
+        })}
+        detail={available}
+      />
+    </QueryClientProvider>);
+    await user.click(screen.getByRole("button", { name: /工作区执行/ }));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByText(/宿主进程、持久终端和完整 CDP 均被拒绝/))
+      .toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "确认" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({
+      mode: "workspace_access",
+      reason: "settings execution permission selection",
+      confirm_workspace_access: true,
+    });
   });
 
   it("requires an inline confirmation before selecting full access", async () => {

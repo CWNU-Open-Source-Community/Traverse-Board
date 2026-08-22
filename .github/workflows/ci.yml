@@ -36,6 +36,12 @@ jobs:
         # Linux runner after a forward schema is added. Keep the complete
         # uncached suite with a bounded deadline that covers the observed case.
         run: go test -timeout 45m -count=1 ./...
+      - name: Race-check Workspace Access permission and authority fencing
+        run: >-
+          go test -race -timeout 15m -count=1
+          ./internal/domain ./internal/executionauth ./internal/application
+          ./internal/store ./internal/httpapi
+          -run 'WorkspaceAccess|RunExecutionPermission|ExecutionPermission|PermissionDrift|SchemaV126|AgentCodeExecutorCreatesReviewedFileAndFailsClosedOnCASConflict|CommandRuntimeServiceRunsAndReplaysFencedForegroundCommand'
       - run: go vet ./...
       - name: Install pinned govulncheck
         env:

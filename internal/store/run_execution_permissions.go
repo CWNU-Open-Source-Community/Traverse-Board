@@ -109,17 +109,6 @@ func (s *SQLiteStore) TransitionRunExecutionPermission(ctx context.Context,
 				"Run execution permission can only change while created or paused; Run is %s",
 				run.Status))
 	}
-	var activeLeaseCount int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_execution_leases
-		WHERE run_id = ? AND status = 'active' AND julianday(expires_at) > julianday('now')`,
-		run.ID).Scan(&activeLeaseCount); err != nil {
-		return domain.RunExecutionPermissionSnapshot{}, false, err
-	}
-	if activeLeaseCount != 0 {
-		return domain.RunExecutionPermissionSnapshot{}, false, apperror.New(
-			apperror.CodeFailedPrecondition,
-			"Run execution permission cannot change while an execution lease is active")
-	}
 	if snapshot.MissionID != run.MissionID || snapshot.MissionID != mission.ID ||
 		snapshot.Revision != current.Revision+1 || snapshot.Mode == current.Mode ||
 		snapshot.ProtocolVersion != current.ProtocolVersion ||
@@ -128,6 +117,33 @@ func (s *SQLiteStore) TransitionRunExecutionPermission(ctx context.Context,
 		return domain.RunExecutionPermissionSnapshot{}, false, apperror.New(
 			apperror.CodeConflict,
 			"Run execution permission changed concurrently or attempted to change immutable policy")
+	}
+	lease, found, err := getRunExecutionLeaseTx(ctx, tx, run.ID)
+	if err != nil {
+		return domain.RunExecutionPermissionSnapshot{}, false, err
+	}
+	if found && lease.ActiveAt(snapshot.CreatedAt) {
+		result, err := tx.ExecContext(ctx, `UPDATE run_execution_leases
+			SET status = ?, released_at = ?
+			WHERE run_id = ? AND lease_id = ? AND owner_id = ? AND generation = ?
+				AND status = ?`, domain.RunExecutionLeaseReleased, ts(snapshot.CreatedAt),
+			lease.RunID, lease.LeaseID, lease.OwnerID, lease.Generation,
+			domain.RunExecutionLeaseActive)
+		if err != nil {
+			return domain.RunExecutionPermissionSnapshot{}, false, err
+		}
+		if err := requireSingleLeaseUpdate(result,
+			"Run execution lease changed before permission revision revocation"); err != nil {
+			return domain.RunExecutionPermissionSnapshot{}, false, err
+		}
+		if err := appendSupervisorEventTx(ctx, tx, run,
+			events.RunExecutionLeaseReleasedEvent, "run_execution_permission", run.ID,
+			map[string]any{"owner_id": lease.OwnerID, "generation": lease.Generation,
+				"released_at":              snapshot.CreatedAt,
+				"reason":                   "execution_permission_revision_changed",
+				"next_permission_revision": snapshot.Revision}); err != nil {
+			return domain.RunExecutionPermissionSnapshot{}, false, err
+		}
 	}
 	if err := insertRunExecutionPermissionSnapshotTx(ctx, tx, snapshot); err != nil {
 		_ = tx.Rollback()
@@ -270,6 +286,19 @@ func validateRunExecutionPermissionSelectedEvent(event events.Event,
 		ProcessEnabled      *bool                                     `json:"process_enabled"`
 		ExecutionAuthorized *bool                                     `json:"execution_authorized"`
 		CapabilityGrant     *bool                                     `json:"capability_grant"`
+		CapabilityMatrix    struct {
+			WorkspaceRead           bool                                       `json:"workspace_read"`
+			WorkspaceWrite          bool                                       `json:"workspace_write"`
+			SandboxedCommandRuntime bool                                       `json:"sandboxed_command_runtime"`
+			UnsandboxedHostProcess  bool                                       `json:"unsandboxed_host_process"`
+			NetworkAccess           bool                                       `json:"network_access"`
+			CredentialAccess        bool                                       `json:"credential_access"`
+			UserHomeAccess          bool                                       `json:"user_home_access"`
+			PersistentUserTerminal  bool                                       `json:"persistent_user_terminal"`
+			PersistentAgentTerminal bool                                       `json:"persistent_agent_terminal"`
+			FullCDP                 bool                                       `json:"full_cdp"`
+			OutOfScopePolicy        domain.ExecutionPermissionOutOfScopePolicy `json:"out_of_scope_policy"`
+		} `json:"capability_matrix"`
 	}
 	decoder := json.NewDecoder(strings.NewReader(event.PayloadJSON))
 	decoder.DisallowUnknownFields()
@@ -278,6 +307,10 @@ func validateRunExecutionPermissionSelectedEvent(event events.Event,
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return errors.New("run execution permission event contains trailing data")
+	}
+	matrix, err := snapshot.CapabilityMatrix()
+	if err != nil {
+		return err
 	}
 	if payload.Protocol != snapshot.ProtocolVersion || payload.Revision != snapshot.Revision ||
 		!payload.From.Valid() || payload.From == snapshot.Mode || payload.To != snapshot.Mode ||
@@ -293,7 +326,18 @@ func validateRunExecutionPermissionSelectedEvent(event events.Event,
 		payload.RequestedBy != snapshot.RequestedBy || payload.Reason != snapshot.Reason ||
 		payload.ProcessEnabled == nil || *payload.ProcessEnabled ||
 		payload.ExecutionAuthorized == nil || *payload.ExecutionAuthorized ||
-		payload.CapabilityGrant == nil || *payload.CapabilityGrant {
+		payload.CapabilityGrant == nil || *payload.CapabilityGrant ||
+		payload.CapabilityMatrix.WorkspaceRead != matrix.WorkspaceRead ||
+		payload.CapabilityMatrix.WorkspaceWrite != matrix.WorkspaceWrite ||
+		payload.CapabilityMatrix.SandboxedCommandRuntime != matrix.SandboxedCommandRuntime ||
+		payload.CapabilityMatrix.UnsandboxedHostProcess != matrix.UnsandboxedHostProcess ||
+		payload.CapabilityMatrix.NetworkAccess != matrix.NetworkAccess ||
+		payload.CapabilityMatrix.CredentialAccess != matrix.CredentialAccess ||
+		payload.CapabilityMatrix.UserHomeAccess != matrix.UserHomeAccess ||
+		payload.CapabilityMatrix.PersistentUserTerminal != matrix.PersistentUserTerminal ||
+		payload.CapabilityMatrix.PersistentAgentTerminal != matrix.PersistentAgentTerminal ||
+		payload.CapabilityMatrix.FullCDP != matrix.FullCDP ||
+		payload.CapabilityMatrix.OutOfScopePolicy != matrix.OutOfScopePolicy {
 		return errors.New(
 			"run execution permission event does not match its closed capability boundary")
 	}

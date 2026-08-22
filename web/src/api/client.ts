@@ -194,6 +194,7 @@ export type QueryValue = boolean | number | string | undefined;
 export interface ClientCapabilities {
   runControlEnabled?: boolean;
   executionPermissionControlEnabled?: boolean;
+  workspaceSandboxEnabled?: boolean;
   browserCDPPermissionControlEnabled?: boolean;
   fullCDPDebugEnabled?: boolean;
   operatorApprovalEnabled?: boolean;
@@ -1544,7 +1545,8 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
     "browser_cdp_permission_control_enabled", "full_cdp_debug_enabled",
     "controlled_command_proposal_control_enabled",
     "host_command_proposal_control_enabled",
-    "execution_permission_control_enabled", "operator_approval_enabled",
+    "execution_permission_control_enabled", "workspace_sandbox_enabled",
+    "operator_approval_enabled",
     "danger_full_access_enabled", "debug_maximum_access_enabled",
     "evidence_attachment_enabled", "verification_evidence_enabled",
     "embedded_analyzer_execution_enabled", "workspace_checkpoint_control_enabled",
@@ -1601,6 +1603,7 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
       scheduledWorker.active || scheduledWorker.poll_interval_ms !== 0)) ||
     (value.full_cdp_debug_enabled && (!value.browser_cdp_permission_control_enabled ||
       !value.debug_maximum_access_enabled)) ||
+    (value.workspace_sandbox_enabled && !value.execution_permission_control_enabled) ||
     (value.host_command_proposal_control_enabled && !value.operator_approval_enabled) ||
     (value.batch_delivery_host_validation_enabled &&
       (!value.batch_delivery_control_enabled || !value.execution_permission_control_enabled ||
@@ -1687,6 +1690,7 @@ export function clientCapabilitiesFromRuntime(value: RuntimeCapabilitiesView): C
   return {
     runControlEnabled: value.run_control_enabled,
     executionPermissionControlEnabled: value.execution_permission_control_enabled,
+    workspaceSandboxEnabled: value.workspace_sandbox_enabled,
     browserCDPPermissionControlEnabled: value.browser_cdp_permission_control_enabled,
     fullCDPDebugEnabled: value.full_cdp_debug_enabled,
     operatorApprovalEnabled: value.operator_approval_enabled,
