@@ -5,13 +5,30 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/sandbox"
+	"cyberagent-workbench/internal/sandboxtest"
 )
+
+func TestMain(m *testing.M) {
+	restore, err := sandboxtest.PrepareNullDevice()
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "prepare Windows Local Sandbox NUL device: %v\n", err)
+		os.Exit(1)
+	}
+	code := m.Run()
+	if err := restore(); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "restore Windows Local Sandbox NUL device: %v\n", err)
+		code = 1
+	}
+	os.Exit(code)
+}
 
 func TestWindowsLocalSandboxCLIProbeOpensOnlyWorkspaceGate(t *testing.T) {
 	t.Setenv("CYBERAGENT_HOME", t.TempDir())

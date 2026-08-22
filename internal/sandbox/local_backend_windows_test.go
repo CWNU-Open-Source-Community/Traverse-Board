@@ -18,15 +18,16 @@ import (
 	"time"
 	"unsafe"
 
+	"cyberagent-workbench/internal/sandboxtest"
+
 	"golang.org/x/sys/windows"
 )
 
 func TestMain(m *testing.M) {
-	if os.Getenv("TRAVERSE_BOARD_TEST_PREPARE_NULL_DEVICE") != "1" ||
-		windowsTestIsSandboxChild() {
+	if windowsTestIsSandboxChild() {
 		os.Exit(m.Run())
 	}
-	restore, err := windowsTestPrepareNullDevice()
+	restore, err := sandboxtest.PrepareNullDevice()
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "prepare Windows Local Sandbox NUL device: %v\n", err)
 		os.Exit(1)
@@ -1079,109 +1080,6 @@ func windowsTestDACLACEs(value string) (map[string]int, bool) {
 		aces[string(bytes)]++
 	}
 	return aces, true
-}
-
-func windowsTestPrepareNullDevice() (func() error, error) {
-	pointer, err := windows.UTF16PtrFromString(`\\.\NUL`)
-	if err != nil {
-		return nil, err
-	}
-	restrictedPackagesSID, err := windows.StringToSid("S-1-15-2-2")
-	if err != nil {
-		return nil, err
-	}
-	open := func(access uint32) (windows.Handle, error) {
-		return windows.CreateFile(pointer, access,
-			windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
-			nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
-	}
-	handle, err := open(windows.GENERIC_READ | windows.READ_CONTROL)
-	if err != nil {
-		return nil, err
-	}
-	descriptor, err := windows.GetSecurityInfo(handle, windows.SE_KERNEL_OBJECT,
-		windows.DACL_SECURITY_INFORMATION)
-	if err != nil || descriptor == nil {
-		_ = windows.CloseHandle(handle)
-		return nil, errors.Join(err, ErrLocalSandboxBoundary)
-	}
-	existingDACL, _, err := descriptor.DACL()
-	if err != nil || existingDACL == nil {
-		_ = windows.CloseHandle(handle)
-		return nil, errors.Join(err, ErrLocalSandboxBoundary)
-	}
-	if windowsTestDACLGrantsNull(existingDACL, restrictedPackagesSID) {
-		_ = windows.CloseHandle(handle)
-		return func() error { return nil }, nil
-	}
-	_ = windows.CloseHandle(handle)
-	handle, err = open(windows.GENERIC_READ | windows.READ_CONTROL | windows.WRITE_DAC)
-	if err != nil {
-		return nil, err
-	}
-	closeWithError := func(cause error) (func() error, error) {
-		_ = windows.CloseHandle(handle)
-		return nil, cause
-	}
-	descriptor, err = windows.GetSecurityInfo(handle, windows.SE_KERNEL_OBJECT,
-		windows.DACL_SECURITY_INFORMATION)
-	if err != nil || descriptor == nil {
-		return closeWithError(errors.Join(err, ErrLocalSandboxBoundary))
-	}
-	originalDACL, _, err := descriptor.DACL()
-	if err != nil || originalDACL == nil {
-		return closeWithError(errors.Join(err, ErrLocalSandboxBoundary))
-	}
-	entry := windows.EXPLICIT_ACCESS{
-		AccessPermissions: windows.GENERIC_READ | windows.GENERIC_WRITE | windows.GENERIC_EXECUTE,
-		AccessMode:        windows.GRANT_ACCESS,
-		Inheritance:       windows.NO_INHERITANCE,
-		Trustee: windows.TRUSTEE{TrusteeForm: windows.TRUSTEE_IS_SID,
-			TrusteeType:  windows.TRUSTEE_IS_WELL_KNOWN_GROUP,
-			TrusteeValue: windows.TrusteeValueFromSID(restrictedPackagesSID)},
-	}
-	preparedDACL, err := windows.ACLFromEntries([]windows.EXPLICIT_ACCESS{entry}, originalDACL)
-	if err != nil {
-		return closeWithError(err)
-	}
-	if err := windows.SetSecurityInfo(handle, windows.SE_KERNEL_OBJECT,
-		windows.DACL_SECURITY_INFORMATION, nil, nil, preparedDACL, nil); err != nil {
-		return closeWithError(err)
-	}
-	restore := func() error {
-		restoreErr := windows.SetSecurityInfo(handle, windows.SE_KERNEL_OBJECT,
-			windows.DACL_SECURITY_INFORMATION, nil, nil, originalDACL, nil)
-		if restoreErr == nil {
-			restored, verifyErr := windows.GetSecurityInfo(handle, windows.SE_KERNEL_OBJECT,
-				windows.DACL_SECURITY_INFORMATION)
-			if verifyErr != nil || restored == nil ||
-				!windowsTestSameDACL(restored.String(), descriptor.String()) {
-				restoreErr = errors.Join(verifyErr, ErrLocalSandboxBoundary)
-			}
-		}
-		closeErr := windows.CloseHandle(handle)
-		return errors.Join(restoreErr, closeErr)
-	}
-	runtime.KeepAlive(restrictedPackagesSID)
-	return restore, nil
-}
-
-func windowsTestDACLGrantsNull(dacl *windows.ACL, sid *windows.SID) bool {
-	if dacl == nil || sid == nil || !sid.IsValid() {
-		return false
-	}
-	for index := uint32(0); index < uint32(dacl.AceCount); index++ {
-		var ace *windows.ACCESS_ALLOWED_ACE
-		if err := windows.GetAce(dacl, index, &ace); err != nil || ace == nil ||
-			ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE {
-			continue
-		}
-		aceSID := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
-		if aceSID.IsValid() && aceSID.Equals(sid) && ace.Mask != 0 {
-			return true
-		}
-	}
-	return false
 }
 
 func windowsTestCrossDriveSentinel(t *testing.T, excludedVolume string) string {

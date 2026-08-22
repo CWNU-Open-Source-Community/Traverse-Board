@@ -5,7 +5,9 @@ package desktop
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -13,7 +15,22 @@ import (
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/httpapi"
 	"cyberagent-workbench/internal/sandbox"
+	"cyberagent-workbench/internal/sandboxtest"
 )
+
+func TestMain(m *testing.M) {
+	restore, err := sandboxtest.PrepareNullDevice()
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "prepare Windows Local Sandbox NUL device: %v\n", err)
+		os.Exit(1)
+	}
+	code := m.Run()
+	if err := restore(); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "restore Windows Local Sandbox NUL device: %v\n", err)
+		code = 1
+	}
+	os.Exit(code)
+}
 
 func TestWindowsControlPlaneConsumesValidatedLocalSandboxReadiness(t *testing.T) {
 	base := t.TempDir()
