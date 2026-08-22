@@ -31,6 +31,12 @@ failed conformance probe. Evidence contains booleans, timestamps, generations,
 and fingerprints only. It contains no Workspace/Drydock path, profile name,
 PID, credential, owner journal path, or capability grant.
 
+The probe also opens `NUL` for both reading and writing from the real LPAC.
+Downlevel Windows hosts whose `\Device\Null` security descriptor does not grant
+`ALL RESTRICTED APPLICATION PACKAGES` the standard read/write/execute access
+remain unavailable until an administrator applies that boot-scoped host
+prerequisite. The backend never changes this machine-wide kernel-object ACL.
+
 `WorkspaceSandboxEnabled` becomes true only for a currently valid `ready`
 attestation. An unavailable probe leaves Workspace Access closed. Users may
 explicitly choose the existing per-operation Approval path; the product does
@@ -101,5 +107,8 @@ Manager and sensitive-environment isolation, denial of profile-tree recreation
 and writes, bounded output/write I/O,
 timeout/cancellation tree cleanup, and owner recovery after simulated app crash.
 The Windows CI job runs this suite plus CLI/API/Desktop gate tests.
+On the ephemeral Windows 2022 runner, the test harness temporarily supplies the
+downlevel `\Device\Null` grant and restores its captured DACL after the suite;
+production code has no such host-mutation path.
 
 See [ADR 0130](adr/0130-windows-local-sandbox-backend.md).

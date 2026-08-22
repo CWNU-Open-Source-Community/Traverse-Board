@@ -64,6 +64,11 @@ Every backend instance has a cryptographically random runtime generation.
 Requests and evidence additionally bind all Run/Drydock/snapshot revision,
 lease, operation, capability, manifest, resource, and toolchain identities.
 Readiness and execution evidence are strict versioned, non-authorizing DTOs.
+The real readiness child must also read and write `NUL`. Older Windows builds
+whose boot-created `\Device\Null` DACL omits `ALL RESTRICTED APPLICATION
+PACKAGES` therefore fail closed until an administrator provisions that
+machine-wide prerequisite; the product process never mutates a kernel-object
+ACL.
 
 ## Product gate
 
@@ -97,6 +102,8 @@ Real Windows x64 subprocess tests cover write/compile/test success and every
 filesystem, network, credential, resource, process-tree, cancellation, timeout,
 profile-tree recreation/write, and simulated-crash boundary above. Product
 tests prove CLI/API/Desktop gating without opening danger-full-access. Windows
-CI executes the same focused suite.
+CI executes the same focused suite. Its ephemeral Windows 2022 compatibility
+harness temporarily grants the downlevel null-device prerequisite and restores
+the captured DACL after testing.
 The security diff audit must contain no unresolved high- or medium-severity
 finding before the product gate is accepted.

@@ -156,7 +156,8 @@ func (b *windowsLocalBackend) probeReadinessLocked(ctx context.Context) (returnE
 		return err
 	}
 	process, processErr := runLocalProcess(ctx, localProcessSpec{profile: profile,
-		executable: cmdPath, arguments: []string{"/d", "/c", "echo ready>readiness.txt"},
+		executable: cmdPath, arguments: []string{"/d", "/c",
+			"type NUL>null-proof.txt && echo ready>readiness.txt && echo ready>NUL"},
 		workingDir: rootPath, environment: environment,
 		resources: ResourceLimits{CPUQuotaMillis: 1000, MemoryBytes: 256 * 1024 * 1024,
 			PIDs: 4, MaxOutputBytes: 64 * 1024}, timeout: 15 * time.Second,
@@ -171,6 +172,10 @@ func (b *windowsLocalBackend) probeReadinessLocked(ctx context.Context) (returnE
 	payload, err := os.ReadFile(filepath.Join(rootPath, "readiness.txt"))
 	if err != nil || strings.TrimSpace(string(payload)) != "ready" {
 		return errors.Join(err, errors.New("local sandbox readiness write proof failed"))
+	}
+	nullProof, err := os.ReadFile(filepath.Join(rootPath, "null-proof.txt"))
+	if err != nil || len(nullProof) != 0 {
+		return errors.Join(err, errors.New("local sandbox null-device proof failed"))
 	}
 	return nil
 }
