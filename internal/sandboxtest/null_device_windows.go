@@ -137,6 +137,9 @@ func daclGrantsRestrictedPackages(dacl *windows.ACL, sid *windows.SID) bool {
 	if dacl == nil || sid == nil || !sid.IsValid() {
 		return false
 	}
+	required := windows.ACCESS_MASK(windows.FILE_GENERIC_READ | windows.FILE_GENERIC_WRITE |
+		windows.FILE_GENERIC_EXECUTE)
+	var granted windows.ACCESS_MASK
 	for index := uint32(0); index < uint32(dacl.AceCount); index++ {
 		var ace *windows.ACCESS_ALLOWED_ACE
 		if err := windows.GetAce(dacl, index, &ace); err != nil || ace == nil ||
@@ -144,9 +147,22 @@ func daclGrantsRestrictedPackages(dacl *windows.ACL, sid *windows.SID) bool {
 			continue
 		}
 		aceSID := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
-		if aceSID.IsValid() && aceSID.Equals(sid) && ace.Mask != 0 {
-			return true
+		if aceSID.IsValid() && aceSID.Equals(sid) {
+			granted |= nullDeviceAccessMask(ace.Mask)
 		}
 	}
-	return false
+	return granted&required == required
+}
+
+func nullDeviceAccessMask(mask windows.ACCESS_MASK) windows.ACCESS_MASK {
+	if mask&windows.GENERIC_READ != 0 {
+		mask = mask&^windows.GENERIC_READ | windows.FILE_GENERIC_READ
+	}
+	if mask&windows.GENERIC_WRITE != 0 {
+		mask = mask&^windows.GENERIC_WRITE | windows.FILE_GENERIC_WRITE
+	}
+	if mask&windows.GENERIC_EXECUTE != 0 {
+		mask = mask&^windows.GENERIC_EXECUTE | windows.FILE_GENERIC_EXECUTE
+	}
+	return mask
 }
