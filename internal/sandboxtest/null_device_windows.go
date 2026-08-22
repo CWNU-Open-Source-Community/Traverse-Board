@@ -107,21 +107,29 @@ func PrepareNullDevice() (func() error, error) {
 }
 
 func acquireNullDeviceMutex() (func() error, error) {
+	// Windows mutex ownership belongs to an OS thread, not a Go goroutine.
+	// TestMain invokes both this function and its returned release closure.
+	runtime.LockOSThread()
 	pointer, err := windows.UTF16PtrFromString(nullDeviceMutexName)
 	if err != nil {
+		runtime.UnlockOSThread()
 		return nil, err
 	}
 	handle, err := windows.CreateMutex(nil, false, pointer)
 	if err != nil {
+		runtime.UnlockOSThread()
 		return nil, err
 	}
 	status, err := windows.WaitForSingleObject(handle, 10*60*1000)
 	if err != nil || (status != windows.WAIT_OBJECT_0 && status != windows.WAIT_ABANDONED) {
 		_ = windows.CloseHandle(handle)
+		runtime.UnlockOSThread()
 		return nil, errors.Join(err, fmt.Errorf("wait for null-device test mutex: %d", status))
 	}
 	return func() error {
-		return errors.Join(windows.ReleaseMutex(handle), windows.CloseHandle(handle))
+		releaseErr := errors.Join(windows.ReleaseMutex(handle), windows.CloseHandle(handle))
+		runtime.UnlockOSThread()
+		return releaseErr
 	}, nil
 }
 
