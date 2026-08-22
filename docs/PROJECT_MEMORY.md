@@ -2,9 +2,29 @@
 
 > Scope checkpoint (2026-08-13): continue only the general-purpose Agent Harness and Code workflow. CTF-specific solving/offensive automation is an optional add-on with no active slices; retain generic extension seams only. Historical Cyber percentages are not current planning metrics. See [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md).
 
-Last updated: 2026-08-21
+Last updated: 2026-08-22
 
-## Current Single-Slice Checkpoint: GitHub Review Provider / Issue #118
+## Current Single-Slice Checkpoint: Legacy v97 Upgrade Compatibility / Schema v125
+
+`v0.1.0-rc.2` 在共享用户数据目录遇到一枚正式固化前的 Windows 预览 v97 历史时返回
+`FAILED_PRECONDITION`。发布 EXE 与 metadata hash 正确，数据库 `PRAGMA integrity_check` 为 `ok`；
+旧 checksum 固定为 `844427411efc98247ebf521badb98a8c96e3a17b8aa5c7d429b7192d4dcad83b`，
+正式值为 `e279b320761a7ae9ff7af17dbb9df0eceb80702d434f9dca30eca6825892559d`。
+两份 v97 schema 的 24 个对象中只有 cleanup receipt trigger 不同：旧 trigger 多两项更严格的
+final-transition lease identity 条件。
+
+ADR 0126 与 schema v125 固化唯一兼容路线：仅接受 exact version/name/legacy checksum，绝不改写
+旧 `schema_migrations` row；随后在事务中重建正式 trigger，再继续正常升级。未知 checksum、
+错名、gap 和 newer schema 继续失败关闭。回归必须证明正式/旧 checksum 固定、真实旧结构可升级、
+Workspace 数据保留、trigger 与正式 v97 字节语义一致、integrity 为 `ok`。不得让用户删除数据库，
+不得替换已发布 rc.2 资产；完成后发布新 prerelease。便携包默认仍使用共享
+`%USERPROFILE%\.cyberagent-workbench`，重新解压不会隔离数据。
+
+本地验证已完成：专项与完整 Store 回归、289 项前端测试、Desktop Go/Wails 测试、生产标签
+EXE 构建，以及真实旧 v97 数据库副本的 EXE 启动升级均通过。原数据库 hash 未改变，临时副本
+已删除。正式发布仍需新 prerelease 的 CI 与 Windows 手工兼容矩阵，不能把本地构建当成已发布资产。
+
+## Previous Single-Slice Checkpoint: GitHub Review Provider / Issue #118
 
 2026-08-21 的 issue #118 推进到 `github-review-provider.v1`（ADR 0123，schema v124）。
 GitHub App Device Flow 是首选生产路径：公开 client ID 可持久化，device code 仅在进程内，

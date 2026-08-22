@@ -1,12 +1,28 @@
 # Project Status
 
-Last updated: 2026-08-21
+Last updated: 2026-08-22
 
 > **Scope authority:** active mainline work targets the general-purpose Agent Harness and Code workflow. CTF-specific solving and offensive automation are optional add-ons and have no active implementation schedule. Historical references and percentages below remain audit history, not queued work. See [Product Scope](PRODUCT_SCOPE.md).
 
 ## Resume Context
 
-当前检查点是 issue #118 / schema v124 的 GitHub Review Provider。默认关闭的
+当前检查点是 `v0.1.0-rc.2` 的旧数据库升级兼容修复（ADR 0126 / schema v125）。一枚
+正式固化前的 Windows 预览数据库记录了精确 v97 checksum `844427...83b`，而正式 v97 为
+`e279b3...59d`；数据库 integrity 正常，24 个 v97 SQLite 对象中只有 cleanup receipt trigger
+多出两项更严格的 final-transition lease 绑定。rc.2 因不可变 migration 校验而正确失败关闭，
+但缺少面向该已知历史的前向兼容路径。
+
+修复只接受 version/name/checksum 全部精确匹配的旧 v97，保留其原始 migration row，并由 v125
+在同一事务中 drop/recreate 正式 trigger；其他未知 checksum、错名、缺口或更高版本继续拒绝。
+定向测试固定正式/旧 checksum、重建真实 trigger 差异、验证 Workspace 保留、schema v125、
+trigger canonicalization 与 `PRAGMA integrity_check`。已发布 rc.2 资产保持不可变；修复需要新的
+prerelease。便携 ZIP 仅免安装，默认仍复用 `%USERPROFILE%\.cyberagent-workbench`。
+
+本地验证已通过专项升级测试、完整 `internal/store`、前端 289 项测试、Desktop Go/Wails 测试及
+生产标签 EXE 构建。该 EXE 对真实旧 v97 数据库副本完成启动与 v125 升级；原数据库 hash 保持
+不变，测试副本已删除。此结果不替代新 prerelease 的 CI、签名/发布或 Windows 手工兼容矩阵。
+
+上一检查点是 issue #118 / schema v124 的 GitHub Review Provider。默认关闭的
 `github-review-provider.v1` 使用 GitHub App Device Flow、OS credential reference、固定
 `X-GitHub-Api-Version: 2026-03-10` 与 exact installation/repository permission qualification。
 远端 PR/CI 内容经字节、分页、日志压缩包、Markdown/链接和 secret-shaped 清洗后形成不可变快照，

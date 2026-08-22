@@ -280,6 +280,9 @@ open build/desktop/Prayu.app
 
 The release candidate is an unsigned portable ZIP (`Prayu-portable-<version>-windows-amd64.zip`) containing `TraverseBoard.exe`, the operator-preview launcher, `LOCAL-TEST-GUIDE.txt`, `LICENSE`, a third-party `NOTICE`, the CycloneDX `sbom.json`, and `release-metadata.json`. The tagged GitHub Release also attaches the same `TraverseBoard.exe` directly. It carries no API key, user data, cache, debug log, or source map.
 
+> [!NOTE]
+> “便携”表示程序文件免安装，并不表示数据跟随解压目录。默认数据仍位于 `%USERPROFILE%\.cyberagent-workbench`，因此重新下载或换目录解压会继续使用同一数据库。`v0.1.0-rc.2` 无法升级一枚正式固化前的 v97 Windows 预览历史；schema v125 在后续构建中精确兼容并事务化修复它，不删除或伪造旧数据。见 [ADR 0126](docs/adr/0126-legacy-v97-docker-trigger-compatibility.md)。
+
 **下载后校验 / Verify after download**（PowerShell）：
 
 ```powershell
@@ -520,6 +523,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 | v122 | 增加 scheduled-job.v1、单实例租约/fencing、轮次与通知账本 | add scheduled-job.v1, singleton lease/fencing, round, and notification ledgers |
 | v123 | 增加 git-advanced.v1 操作/序列审计与产品受管 worktree 注册表 | add git-advanced.v1 operation/sequence audits and the product-managed worktree registry |
 | v124 | 增加 GitHub connection、PR/CI 快照、本地证据图及审批回写/恢复账本 | add GitHub connections, PR/CI snapshots, local evidence graphs, and approved write/recovery ledgers |
+| v125 | 精确兼容旧 Windows 预览版 v97，并事务化重建 Docker lifecycle cleanup trigger | accept the exact legacy Windows preview v97 history and transactionally rebuild its Docker lifecycle cleanup trigger |
 
 </details>
 

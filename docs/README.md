@@ -40,6 +40,7 @@ This directory separates user-facing documentation, current engineering state, a
 | [ADR 0123 / GitHub Review](adr/0123-go-owned-github-review-provider.md) | GitHub 凭据、证据图、远端写审批、幂等恢复与默认拒绝边界 |
 | [ADR 0124 / Traverse Board Branding](adr/0124-traverse-board-branding-migration.md) | 已接受品牌、仓库 slug、兼容身份与实施边界 |
 | [ADR 0125 / Windows Executable Name](adr/0125-traverse-board-windows-executable-name.md) | `v0.1.0-rc.2` 对外 EXE 文件名与发布边界 |
+| [ADR 0126 / Legacy v97 Compatibility](adr/0126-legacy-v97-docker-trigger-compatibility.md) | 精确旧校验和、v125 trigger 修复、数据保留与失败关闭边界 |
 | [ADR 索引](adr/) | 权限、持久化、执行、浏览器、Desktop 等架构决策 |
 
 ## 当前工程上下文 / Current Engineering Context

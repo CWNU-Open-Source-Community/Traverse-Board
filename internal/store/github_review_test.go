@@ -25,11 +25,11 @@ func TestGitHubReviewListJSONBound(t *testing.T) {
 	}
 }
 
-// removeSchemaV124ForTestStatements restores a v123 database and is the head
-// of the cumulative downgrade fixture chain used by every historical migration
-// test.
+// removeSchemaV124ForTestStatements restores a v123 database. Historical
+// downgrade fixtures form one cumulative chain, so it first removes the newer
+// v125 compatibility migration.
 func removeSchemaV124ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV125ForTestStatements(), []string{
 		`DROP TABLE github_review_write_operations`,
 		`DROP TABLE github_review_evidence_graphs`,
 		`DROP TABLE github_review_snapshots`,
@@ -108,7 +108,7 @@ func removeSchemaV124ForTestStatements() []string {
 			)
 			BEGIN SELECT RAISE(ABORT, 'supervisor tool round still has pending calls'); END`,
 		`DELETE FROM schema_migrations WHERE version = 124`,
-	}
+	}...)
 }
 
 func TestGitHubReviewLedgerPersistsMetadataWithoutCredentialAndFencesWrites(t *testing.T) {
