@@ -5,6 +5,7 @@ package sandbox
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -24,6 +25,43 @@ type localPreparedRun struct {
 	workingDir    string
 	environment   []uint16
 	baselineBytes int64
+}
+
+type localReadinessProcessFailure struct {
+	cause                   error
+	exitCode                int
+	timedOut                bool
+	cancelled               bool
+	outputLimitExceeded     bool
+	writeLimitExceeded      bool
+	treeReaped              bool
+	appContainer            bool
+	lessPrivileged          bool
+	lowIntegrity            bool
+	zeroNetworkCapabilities bool
+	matchingProfileSID      bool
+	matchingCapabilitySIDs  bool
+}
+
+func (e *localReadinessProcessFailure) Error() string {
+	if e == nil {
+		return "local sandbox readiness child failed"
+	}
+	return fmt.Sprintf("local sandbox readiness child failed (process_error=%t "+
+		"exit_code=%d timed_out=%t cancelled=%t output_limit=%t write_limit=%t "+
+		"tree_reaped=%t app_container=%t less_privileged=%t low_integrity=%t "+
+		"zero_network=%t matching_profile=%t matching_capabilities=%t)",
+		e.cause != nil, e.exitCode, e.timedOut, e.cancelled, e.outputLimitExceeded,
+		e.writeLimitExceeded, e.treeReaped, e.appContainer, e.lessPrivileged,
+		e.lowIntegrity, e.zeroNetworkCapabilities, e.matchingProfileSID,
+		e.matchingCapabilitySIDs)
+}
+
+func (e *localReadinessProcessFailure) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.cause
 }
 
 func (b *windowsLocalBackend) Readiness(ctx context.Context,
@@ -167,7 +205,16 @@ func (b *windowsLocalBackend) probeReadinessLocked(ctx context.Context) (returnE
 		!process.proof.lessPrivileged || !process.proof.lowIntegrity ||
 		!process.proof.zeroNetworkCapabilities || !process.proof.matchingProfileSID ||
 		!process.proof.matchingCapabilitySIDs {
-		return errors.Join(processErr, errors.New("local sandbox readiness child failed"))
+		return &localReadinessProcessFailure{cause: processErr, exitCode: process.exitCode,
+			timedOut: process.timedOut, cancelled: process.cancelled,
+			outputLimitExceeded: process.outputLimitExceeded,
+			writeLimitExceeded:  process.writeLimitExceeded, treeReaped: process.treeReaped,
+			appContainer:            process.proof.appContainer,
+			lessPrivileged:          process.proof.lessPrivileged,
+			lowIntegrity:            process.proof.lowIntegrity,
+			zeroNetworkCapabilities: process.proof.zeroNetworkCapabilities,
+			matchingProfileSID:      process.proof.matchingProfileSID,
+			matchingCapabilitySIDs:  process.proof.matchingCapabilitySIDs}
 	}
 	payload, err := os.ReadFile(filepath.Join(rootPath, "readiness.txt"))
 	if err != nil || strings.TrimSpace(string(payload)) != "ready" {

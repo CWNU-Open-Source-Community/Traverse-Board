@@ -3,10 +3,72 @@
 package sandboxtest
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"golang.org/x/sys/windows"
 )
+
+func TestPrepareSystemDrivePathRestoresRootWithoutPropagating(t *testing.T) {
+	root := t.TempDir()
+	child := filepath.Join(root, "child")
+	if err := os.Mkdir(child, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	security := func(pathValue string) string {
+		t.Helper()
+		descriptor, err := windows.GetNamedSecurityInfo(pathValue, windows.SE_FILE_OBJECT,
+			windows.DACL_SECURITY_INFORMATION)
+		if err != nil || descriptor == nil {
+			t.Fatalf("read DACL for %s: %v", filepath.Base(pathValue), err)
+		}
+		return descriptor.String()
+	}
+	rootBefore, childBefore := security(root), security(child)
+	restore, changed, err := prepareSystemDrivePath(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored := false
+	t.Cleanup(func() {
+		if !restored {
+			_ = restore()
+		}
+	})
+	if !changed {
+		t.Skip("temporary root already has both AppContainer metadata ACEs")
+	}
+	descriptor, err := windows.GetNamedSecurityInfo(root, windows.SE_FILE_OBJECT,
+		windows.DACL_SECURITY_INFORMATION)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dacl, _, err := descriptor.DACL()
+	if err != nil {
+		t.Fatal(err)
+	}
+	allPackagesSID, restrictedPackagesSID, err := applicationPackageSIDs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !systemDriveDACLReady(dacl, allPackagesSID, restrictedPackagesSID) {
+		t.Fatal("temporary root did not receive both metadata ACEs")
+	}
+	if got := security(child); got != childBefore {
+		t.Fatal("root-only metadata ACEs propagated to the child")
+	}
+	if err := restore(); err != nil {
+		t.Fatal(err)
+	}
+	restored = true
+	if got := security(root); got != rootBefore {
+		t.Fatal("temporary root DACL was not restored exactly")
+	}
+	if got := security(child); got != childBefore {
+		t.Fatal("child DACL changed during root restoration")
+	}
+}
 
 func TestDACLGrantsRestrictedPackagesRequiresCompleteNullDeviceAccess(t *testing.T) {
 	sid, err := windows.StringToSid("S-1-15-2-2")

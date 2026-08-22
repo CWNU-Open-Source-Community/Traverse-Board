@@ -65,7 +65,20 @@ func TestWindowsLocalSandboxReadinessUsesRealAppContainerProcess(t *testing.T) {
 	if !readiness.Ready || readiness.Status != LocalReadinessReady ||
 		!readiness.AppContainerToken || !readiness.ZeroNetworkCapabilities ||
 		!readiness.CreationTimeJobBinding || readiness.CapabilityGrant {
-		t.Fatalf("unexpected Local Sandbox readiness: %#v", readiness)
+		windowsBackend, ok := backend.(*windowsLocalBackend)
+		if !ok {
+			t.Fatalf("unexpected Local Sandbox readiness: %#v", readiness)
+		}
+		windowsBackend.mu.Lock()
+		diagnosticErr := windowsBackend.probeReadinessLocked(context.Background())
+		windowsBackend.mu.Unlock()
+		var processFailure *localReadinessProcessFailure
+		if errors.As(diagnosticErr, &processFailure) {
+			t.Fatalf("unexpected Local Sandbox readiness: %#v; diagnostic: %v",
+				readiness, processFailure)
+		}
+		t.Fatalf("unexpected Local Sandbox readiness: %#v; diagnostic_type=%T",
+			readiness, diagnosticErr)
 	}
 }
 

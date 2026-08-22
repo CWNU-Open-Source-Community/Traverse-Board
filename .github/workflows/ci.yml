@@ -284,16 +284,16 @@ jobs:
         run: |
           npm ci
           npm run build
+      - name: Verify Windows Local Sandbox isolation and product gates
+        run: >-
+          go test -v -count=1 -timeout 10m ./internal/sandbox ./internal/app ./internal/desktop
+          -run '^TestWindows(LocalSandbox|APIServe|ControlPlane)'
       - name: Test Desktop boundaries
         run: go test -tags "desktop,wv2runtime.error" -count=1 ./cmd/cyberagent-desktop ./internal/desktop ./internal/webui
       - name: Verify cross-platform Runner receipt vectors
         run: go test -count=1 ./internal/runner -run 'TestEvidenceSetReceipt(Golden|Compatibility).*Vectors'
       - name: Verify Windows command runtime transports
         run: go test -v -count=1 ./internal/runner -run '^TestCommandRuntime(Platform(ShellSmoke|CancelReapsOwnedProcessTree)|WindowsPowerShell5PowerShell7AndGitBashSmoke)$'
-      - name: Verify Windows Local Sandbox isolation and product gates
-        run: >-
-          go test -v -count=1 -timeout 10m ./internal/sandbox ./internal/app ./internal/desktop
-          -run '^TestWindows(LocalSandbox|APIServe|ControlPlane)'
       - name: Verify Windows analyzer conformance boundaries
         shell: pwsh
         run: |

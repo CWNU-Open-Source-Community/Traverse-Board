@@ -69,29 +69,46 @@ func prepareSystemDrive() (func() error, bool, error) {
 }
 
 func prepareSystemDrivePath(root string) (func() error, bool, error) {
-	descriptor, err := windows.GetNamedSecurityInfo(root, windows.SE_FILE_OBJECT,
+	pointer, err := windows.UTF16PtrFromString(root)
+	if err != nil {
+		return nil, false, err
+	}
+	// Windows suppresses automatic propagation to child ACLs when SetSecurityInfo
+	// receives a handle opened with MAXIMUM_ALLOWED. That keeps this temporary
+	// root-only fixture from walking or rewriting the runner's system volume.
+	handle, err := windows.CreateFile(pointer, windows.MAXIMUM_ALLOWED,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		nil, windows.OPEN_EXISTING,
+		windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
+	if err != nil {
+		return nil, false, err
+	}
+	fail := func(cause error) (func() error, bool, error) {
+		return nil, false, errors.Join(cause, windows.CloseHandle(handle))
+	}
+	descriptor, err := windows.GetSecurityInfo(handle, windows.SE_FILE_OBJECT,
 		windows.DACL_SECURITY_INFORMATION)
 	if err != nil || descriptor == nil {
-		return nil, false, errors.Join(err, errors.New("read system-drive DACL"))
+		return fail(errors.Join(err, errors.New("read system-drive DACL")))
 	}
 	dacl, _, err := descriptor.DACL()
 	if err != nil || dacl == nil {
-		return nil, false, errors.Join(err, errors.New("resolve system-drive DACL"))
+		return fail(errors.Join(err, errors.New("resolve system-drive DACL")))
 	}
 	allPackagesSID, restrictedPackagesSID, err := applicationPackageSIDs()
 	if err != nil {
-		return nil, false, err
+		return fail(err)
 	}
 	if systemDriveDACLReady(dacl, allPackagesSID, restrictedPackagesSID) {
-		return func() error { return nil }, false, nil
+		return func() error { return nil }, false, windows.CloseHandle(handle)
 	}
 	control, _, err := descriptor.Control()
 	if err != nil {
-		return nil, false, err
+		return fail(err)
 	}
 	originalSDDL := descriptor.String()
 	if originalSDDL == "" {
-		return nil, false, errors.New("serialize system-drive DACL")
+		return fail(errors.New("serialize system-drive DACL"))
 	}
 	entries := []windows.EXPLICIT_ACCESS{
 		explicitAccess(allPackagesSID, systemDriveMetadataAccess),
@@ -99,24 +116,25 @@ func prepareSystemDrivePath(root string) (func() error, bool, error) {
 	}
 	preparedDACL, err := windows.ACLFromEntries(entries, dacl)
 	if err != nil {
-		return nil, false, err
+		return fail(err)
 	}
 	information := daclSecurityInformation(control)
-	if err := windows.SetNamedSecurityInfo(root, windows.SE_FILE_OBJECT, information,
+	if err := windows.SetSecurityInfo(handle, windows.SE_FILE_OBJECT, information,
 		nil, nil, preparedDACL, nil); err != nil {
-		return nil, false, err
+		return fail(err)
 	}
 	restore := func() error {
 		original, err := windows.SecurityDescriptorFromString(originalSDDL)
 		if err != nil {
-			return err
+			return errors.Join(err, windows.CloseHandle(handle))
 		}
 		originalDACL, _, err := original.DACL()
 		if err != nil || originalDACL == nil {
-			return errors.Join(err, errors.New("restore system-drive DACL"))
+			return errors.Join(err, errors.New("restore system-drive DACL"),
+				windows.CloseHandle(handle))
 		}
-		return windows.SetNamedSecurityInfo(root, windows.SE_FILE_OBJECT, information,
-			nil, nil, originalDACL, nil)
+		return errors.Join(windows.SetSecurityInfo(handle, windows.SE_FILE_OBJECT,
+			information, nil, nil, originalDACL, nil), windows.CloseHandle(handle))
 	}
 	runtime.KeepAlive(allPackagesSID)
 	runtime.KeepAlive(restrictedPackagesSID)
