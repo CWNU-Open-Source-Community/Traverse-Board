@@ -192,7 +192,8 @@ func (s *SandboxManifestService) ValidateExecutionCandidate(ctx context.Context,
 		return sandbox.ValidatedExecutionCandidate{}, apperror.New(apperror.CodeConflict,
 			"sandbox execution candidate Mission or workspace binding changed")
 	}
-	workspace, err := s.store.GetSandboxWorkspace(ctx, mission.WorkspaceID)
+	workspace, err := s.resolveSandboxWorkspace(ctx, run.ID, mission.WorkspaceID,
+		manifest, true)
 	if err != nil {
 		return sandbox.ValidatedExecutionCandidate{}, apperror.Normalize(err)
 	}

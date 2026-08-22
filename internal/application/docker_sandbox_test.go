@@ -2,6 +2,8 @@ package application
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -21,6 +23,44 @@ type dockerSandboxReadinessTransport struct {
 	image    string
 	mu       sync.Mutex
 	calls    int
+}
+
+func TestDockerSandboxStandardCodeGitMetadataMaskIsCreatedOnceWithoutOverwrite(t *testing.T) {
+	fixture := newDockerSandboxServiceFixture(t, "standard-code-mask")
+	mask, err := fixture.service.standardCodeGitMetadataMaskPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mask != filepath.Join(fixture.stagingRoot, standardCodeGitMetadataMaskFile) {
+		t.Fatalf("mask path escaped fixed staging root: %q", mask)
+	}
+	content, err := os.ReadFile(mask)
+	if err != nil || string(content) != sandbox.DockerStandardCodeGitMetadataMask {
+		t.Fatalf("mask content=%q err=%v", content, err)
+	}
+	if replay, replayErr := fixture.service.standardCodeGitMetadataMaskPath(); replayErr != nil || replay != mask {
+		t.Fatalf("mask replay=%q err=%v", replay, replayErr)
+	}
+	conflictingRoot := t.TempDir()
+	conflicting, err := NewDockerSandboxService(fixture.store, fixture.readiness,
+		policy.NewDefaultChecker(), sandbox.DockerRuntimeCapabilities{Enabled: true},
+		fixture.permission, WithDockerSandboxExecution(fixture.lifecycle, fixture.io,
+			conflictingRoot, time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflictingPath := filepath.Join(conflictingRoot, standardCodeGitMetadataMaskFile)
+	if err := os.WriteFile(conflictingPath, []byte("unproven"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path, err := conflicting.standardCodeGitMetadataMaskPath()
+	if err != nil || path != conflictingPath {
+		t.Fatalf("existing mask lookup=%q err=%v", path, err)
+	}
+	if content, readErr := os.ReadFile(conflictingPath); readErr != nil ||
+		string(content) != "unproven" {
+		t.Fatalf("unproven file was overwritten: %q err=%v", content, readErr)
+	}
 }
 
 func (transport *dockerSandboxReadinessTransport) Endpoint() sandbox.DockerObservationEndpoint {
@@ -206,7 +246,7 @@ func TestDockerSandboxServiceStartWALCrashRetryUsesIndependentKey(t *testing.T) 
 	}
 	startKey := "product-start-wal-independent-start"
 	start := domain.DockerSandboxStartIntent{
-		AdmissionID: admitted.Admission.ID,
+		AdmissionID:     admitted.Admission.ID,
 		ProtocolVersion: domain.DockerSandboxStartProtocolVersion,
 		OperationKeyDigest: runmutation.Fingerprint(dockerSandboxStartOperationProtocol,
 			admitted.Admission.ID, admitted.Admission.RunID, startKey),
@@ -215,7 +255,7 @@ func TestDockerSandboxServiceStartWALCrashRetryUsesIndependentKey(t *testing.T) 
 			admitted.Admission.AdmissionFingerprint,
 			admitted.Admission.RuntimeEpochFingerprint),
 		RuntimeEpochFingerprint: admitted.Admission.RuntimeEpochFingerprint,
-		RunID: admitted.Admission.RunID, RequestedBy: fixture.requestedBy,
+		RunID:                   admitted.Admission.RunID, RequestedBy: fixture.requestedBy,
 		CreatedAt: fixture.service.now().UTC(),
 	}
 	start.StartFingerprint = domain.DockerSandboxStartFingerprint(start)

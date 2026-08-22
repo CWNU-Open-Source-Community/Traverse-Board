@@ -360,6 +360,7 @@ type dockerCreateHostConfig struct {
 	RestartPolicy   dockerRestartPolicy `json:"RestartPolicy"`
 	LogConfig       dockerLogConfig     `json:"LogConfig"`
 	Mounts          []dockerCreateMount `json:"Mounts"`
+	Tmpfs           map[string]string   `json:"Tmpfs"`
 	DNS             []string            `json:"Dns"`
 	DNSOptions      []string            `json:"DnsOptions"`
 	DNSSearch       []string            `json:"DnsSearch"`
@@ -428,6 +429,10 @@ func dockerCreatePayloadWithLabels(request DockerContainerWriteRequest,
 			BindOptions: &dockerCreateBindOptions{Propagation: mount.Propagation}}
 	}
 	initEnabled := true
+	tmpfs := map[string]string{}
+	if dockerContainerSpecUsesStandardCodeWorkspace(spec) {
+		tmpfs[DockerStandardCodeCacheTarget] = DockerStandardCodeCacheTmpfsOptions
+	}
 	return dockerCreateContainerPayload{
 		Image: spec.ImageDigest, Entrypoint: []string{spec.Executable},
 		Cmd: append([]string(nil), spec.Arguments...), Env: []string{},
@@ -443,8 +448,9 @@ func dockerCreatePayloadWithLabels(request DockerContainerWriteRequest,
 			LogConfig: dockerLogConfig{Type: "local", Config: map[string]string{
 				"max-size": "256k", "max-file": "1", "compress": "false",
 			}},
-			Mounts: mounts, DNS: []string{}, DNSOptions: []string{}, DNSSearch: []string{},
-			ExtraHosts: []string{}, Links: []string{}, PortBindings: map[string]any{},
+			Mounts: mounts, Tmpfs: tmpfs, DNS: []string{}, DNSOptions: []string{},
+			DNSSearch: []string{}, ExtraHosts: []string{}, Links: []string{},
+			PortBindings: map[string]any{},
 		},
 		NetworkingConfig: dockerCreateNetworkingConfig{
 			EndpointsConfig: map[string]json.RawMessage{},
@@ -549,6 +555,7 @@ type dockerContainerInspection struct {
 		RestartPolicy   dockerRestartPolicy `json:"RestartPolicy"`
 		LogConfig       dockerLogConfig     `json:"LogConfig"`
 		Mounts          []dockerCreateMount `json:"Mounts"`
+		Tmpfs           map[string]string   `json:"Tmpfs"`
 	} `json:"HostConfig"`
 	Mounts []struct {
 		Type        string `json:"Type"`
@@ -632,6 +639,7 @@ func verifyDockerContainerConfigurationWithLabels(inspection dockerContainerInsp
 		!containsFold(inspection.HostConfig.SecurityOpt, "no-new-privileges") ||
 		len(inspection.HostConfig.CapAdd) != 0 || len(inspection.HostConfig.CapDrop) != 1 ||
 		!containsFold(inspection.HostConfig.CapDrop, "ALL") ||
+		!equalStringMap(inspection.HostConfig.Tmpfs, dockerExpectedContainerTmpfs(spec)) ||
 		len(inspection.HostConfig.Binds) != 0 || len(inspection.HostConfig.Devices) != 0 ||
 		len(inspection.HostConfig.DeviceRequests) != 0 ||
 		len(inspection.HostConfig.PortBindings) != 0 || inspection.HostConfig.PublishAllPorts ||
@@ -658,6 +666,14 @@ func verifyDockerContainerConfigurationWithLabels(inspection dockerContainerInsp
 		return newDockerContainerWriteError(DockerContainerWriteFailureConfigMismatch)
 	}
 	return nil
+}
+
+func dockerExpectedContainerTmpfs(spec DockerContainerSpec) map[string]string {
+	value := map[string]string{}
+	if dockerContainerSpecUsesStandardCodeWorkspace(spec) {
+		value[DockerStandardCodeCacheTarget] = DockerStandardCodeCacheTmpfsOptions
+	}
+	return value
 }
 
 func dockerNetworkSettingsAreNone(networks map[string]struct {

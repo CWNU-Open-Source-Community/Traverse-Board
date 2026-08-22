@@ -20,6 +20,7 @@ const (
 	dockerSandboxStartRequestProtocol    = "docker_sandbox_start_request.v1"
 	dockerSandboxCancelOperationProtocol = "docker_sandbox_cancel_operation.v1"
 	dockerSandboxOutputCommitProtocol    = "docker_sandbox_output_commit_operation.v1"
+	standardCodeGitMetadataMaskFile      = "standard-code-git-metadata-mask.v1"
 )
 
 type DockerSandboxStartRequest struct {
@@ -449,7 +450,7 @@ func (s *DockerSandboxService) requireCurrentDockerSandboxStartAuthority(ctx con
 		!dockerSandboxAdmissionMatchesCurrent(admission, authority) ||
 		authority.Plan.PlanFingerprint != plan.PlanFingerprint ||
 		writeRequest.RequestFingerprint !=
-			mustDockerSandboxWriteRequestFingerprint(ctx, authority) {
+			s.mustDockerSandboxWriteRequestFingerprint(ctx, authority) {
 		return errors.New("Docker Sandbox authority changed before start")
 	}
 	return nil
@@ -481,6 +482,19 @@ func (s *DockerSandboxService) HandleDockerContainerLifecyclePostExit(ctx contex
 	}
 	if request.ExitObservation.ExitCode != 0 ||
 		dockerSandboxLifecycleWasInterrupted(request.Record) {
+		return nil
+	}
+	manifest, decodeErr := sandbox.DecodeManifest([]byte(admission.ManifestJSON))
+	if decodeErr != nil {
+		return decodeErr
+	}
+	// Standard Code writes only to its exact Drydock mount. Its durable file
+	// result is the Drydock Workspace Checkpoint assembled by the higher-level
+	// adapter, so exporting the complete repository as a bounded Artifact would
+	// be both incomplete and misleading. Logs still use the shared capture
+	// contract above; ordinary Docker Sandbox output mounts keep the existing
+	// staging and Artifact commit path below.
+	if _, standardCode := sandbox.ParseDockerStandardCodeManifest(manifest); standardCode {
 		return nil
 	}
 	// Artifact commit has its own current-authority check. Log capture and
@@ -552,7 +566,7 @@ func (s *DockerSandboxService) requireCurrentDockerSandboxArtifactAuthority(
 		domain.RunExecutionProfileDocker ||
 		!dockerSandboxAdmissionMatchesCurrent(admission, authority) ||
 		plan.PlanFingerprint != admission.PlanFingerprint ||
-		mustDockerSandboxWriteRequestFingerprint(ctx, authority) !=
+		s.mustDockerSandboxWriteRequestFingerprint(ctx, authority) !=
 			writeRequest.RequestFingerprint {
 		return errors.New("Docker Sandbox artifact authority changed")
 	}
@@ -588,7 +602,8 @@ func (s *DockerSandboxService) reconstructDockerSandboxWriteRequest(ctx context.
 		return sandbox.DockerContainerPlan{}, sandbox.DockerContainerWriteRequest{},
 			errors.New("Docker Sandbox compiled plan changed")
 	}
-	workspace, err := s.store.GetSandboxWorkspace(ctx, admission.WorkspaceID)
+	workspace, err := s.resolveDockerSandboxWorkspace(ctx, admission.RunID,
+		admission.WorkspaceID, manifest, false)
 	if err != nil {
 		return sandbox.DockerContainerPlan{}, sandbox.DockerContainerWriteRequest{}, err
 	}
@@ -605,7 +620,7 @@ func (s *DockerSandboxService) reconstructDockerSandboxWriteRequest(ctx context.
 		return sandbox.DockerContainerPlan{}, sandbox.DockerContainerWriteRequest{},
 			errors.New("Docker Sandbox specification cannot be reconstructed")
 	}
-	writeRequest, err := sandbox.NewDockerContainerWriteRequest(ctx, root, spec)
+	writeRequest, err := s.newDockerSandboxWriteRequest(ctx, root, manifest, spec)
 	if err != nil {
 		return sandbox.DockerContainerPlan{}, sandbox.DockerContainerWriteRequest{}, err
 	}
@@ -653,13 +668,14 @@ func (s *DockerSandboxService) completeDockerSandbox(ctx context.Context,
 		return product, apperror.Normalize(commitErr)
 	}
 	exitCode := lifecycle.Receipt.ExitCode
+	_, standardCode := sandbox.ParseDockerStandardCodeManifest(manifestFromAdmission(admission))
 	if lifecycle.Receipt.Outcome == sandbox.DockerContainerLifecycleOutcomeNaturalExit &&
 		exitCode != nil {
 		if !hasLog || logReceipt.Validate() != nil {
 			outcome, reason = domain.DockerSandboxOutcomeFailed,
 				domain.DockerSandboxReasonIOFailed
 		}
-		if *exitCode == 0 && (!hasStaging || staging.Validate() != nil ||
+		if *exitCode == 0 && !standardCode && (!hasStaging || staging.Validate() != nil ||
 			(staging.FileCount > 0 && (!hasCommit || commit.Validate() != nil))) {
 			outcome, reason = domain.DockerSandboxOutcomeFailed,
 				domain.DockerSandboxReasonIOFailed
@@ -693,6 +709,11 @@ func (s *DockerSandboxService) completeDockerSandbox(ctx context.Context,
 	}
 	stored.Replayed = replayed
 	return stored, nil
+}
+
+func manifestFromAdmission(admission domain.DockerSandboxAdmission) sandbox.Manifest {
+	manifest, _ := sandbox.DecodeManifest([]byte(admission.ManifestJSON))
+	return manifest
 }
 
 func dockerSandboxProductOutcome(record sandbox.DockerContainerLifecycleRecord,
@@ -799,7 +820,7 @@ func dockerSandboxAdmissionMatchesCurrent(admission domain.DockerSandboxAdmissio
 		admission.PolicyFingerprint == authority.Plan.PolicyFingerprint
 }
 
-func mustDockerSandboxWriteRequestFingerprint(ctx context.Context,
+func (s *DockerSandboxService) mustDockerSandboxWriteRequestFingerprint(ctx context.Context,
 	authority dockerSandboxAuthority,
 ) string {
 	spec, err := sandbox.CompileDockerContainerSpec(ctx, authority.Observation,
@@ -807,11 +828,65 @@ func mustDockerSandboxWriteRequestFingerprint(ctx context.Context,
 	if err != nil || sandbox.DockerContainerPlanMatchesSpec(authority.Plan, spec) != nil {
 		return ""
 	}
-	request, err := sandbox.NewDockerContainerWriteRequest(ctx, authority.RootPath, spec)
+	request, err := s.newDockerSandboxWriteRequest(ctx, authority.RootPath,
+		authority.Manifest, spec)
 	if err != nil {
 		return ""
 	}
 	return request.RequestFingerprint
+}
+
+func (s *DockerSandboxService) newDockerSandboxWriteRequest(ctx context.Context,
+	root string, manifest sandbox.Manifest, spec sandbox.DockerContainerSpec,
+) (sandbox.DockerContainerWriteRequest, error) {
+	if _, standardCode := sandbox.ParseDockerStandardCodeManifest(manifest); !standardCode {
+		return sandbox.NewDockerContainerWriteRequest(ctx, root, spec)
+	}
+	mask, err := s.standardCodeGitMetadataMaskPath()
+	if err != nil {
+		return sandbox.DockerContainerWriteRequest{}, err
+	}
+	return sandbox.NewDockerStandardCodeContainerWriteRequest(ctx, root, mask, spec)
+}
+
+func (s *DockerSandboxService) standardCodeGitMetadataMaskPath() (string, error) {
+	if s == nil || s.stagingRoot == "" {
+		return "", errors.New("Standard Code Git metadata mask root is unavailable")
+	}
+	s.standardCodeMaskMu.Lock()
+	defer s.standardCodeMaskMu.Unlock()
+	target := filepath.Join(s.stagingRoot, standardCodeGitMetadataMaskFile)
+	if filepath.Dir(target) != s.stagingRoot {
+		return "", errors.New("Standard Code Git metadata mask escaped its trusted root")
+	}
+	file, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o444)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return target, nil
+		}
+		return "", err
+	}
+	created := true
+	defer func() {
+		if created {
+			_ = os.Remove(target)
+		}
+	}()
+	if _, err = file.WriteString(sandbox.DockerStandardCodeGitMetadataMask); err == nil {
+		err = file.Sync()
+	}
+	closeErr := file.Close()
+	if err != nil {
+		return "", err
+	}
+	if closeErr != nil {
+		return "", closeErr
+	}
+	if err := os.Chmod(target, 0o444); err != nil {
+		return "", err
+	}
+	created = false
+	return target, nil
 }
 
 func normalizeDockerSandboxStartRequest(request DockerSandboxStartRequest) (

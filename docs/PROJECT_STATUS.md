@@ -1,10 +1,24 @@
 # Project Status
 
-Last updated: 2026-08-22
+Last updated: 2026-08-23
 
 > **Scope authority:** active mainline work targets the general-purpose Agent Harness and Code workflow. CTF-specific solving and offensive automation are optional add-ons and have no active implementation schedule. Historical references and percentages below remain audit history, not queued work. See [Product Scope](PRODUCT_SCOPE.md).
 
 ## Resume Context
+
+当前检查点是 issue #133 / schema v128。v128 只扩展既有 immutable Docker admission 的
+permission CHECK 以接受 `workspace_access`，并保留历史记录与全部绑定/不可变触发器。Standard Code
+新增显式、固定镜像、固定本地
+endpoint 的 Docker `network=none` 备用后端。统一 `standard-code-command.v1` 只含工具链、argv、
+Drydock 相对 cwd、超时和目的；Local/Docker 共用 Checkpoint/Artifact 结果 schema。Go 固定唯一
+Drydock mount、非 root 用户、只读 rootfs/toolchains、资源/取消上限与空凭证输入，并在 start 前重验
+Drydock generation/Checkpoint/binding、Docker profile、workspace_access revision、per-call approval、
+Policy、budget、进程 gate、固定镜像与 readiness。daemon/镜像失败不拉取、不回退宿主。
+
+启动、取消、超时、daemon 断开、应用退出和重启继续复用 v97-v99 生命周期 WAL、lease fencing、
+exact labels/config 与 absence confirmation；文件结果由幂等 Drydock Checkpoint 表示，日志复用有界
+脱敏 receipt。Drydock/Worktree 不是安全沙箱；容器才是进程/网络/rootfs 隔离边界。未知或无法证明
+归属的宿主文件、目录与容器保持不动。边界见 ADR 0130 和 `docs/standard-code-docker.md`。
 
 当前检查点是 issue #131 / schema v127 的 `drydock-workspace.v1`。一个 Code Run 只能持有一个
 精确绑定 source Workspace/root/repository/common-dir/branch/base 的产品管理 worktree；首次使用

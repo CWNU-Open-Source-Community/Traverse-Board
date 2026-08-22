@@ -2,9 +2,23 @@
 
 > 本文件是按时间追加的历史开发账本，不是待办列表。当前产品范围以 [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md) 为准；CTF 专用求解和攻防自动化已移出活跃路线图，本文中的旧 Cyber 百分比仅保留为历史快照。
 
-更新时间：2026-08-22
+更新时间：2026-08-23
 
 ## 一、当前阶段
+
+2026-08-23 单切片 `Standard Code Docker network-none 备用后端（Issue #133）` 推进到 SQLite
+v128；迁移只扩展 immutable Docker admission permission CHECK 以接受 `workspace_access`，保留旧
+admission 与全部绑定/不可变 trigger。实现复用 Docker admission/image/readiness/lifecycle/log 和
+Drydock checkpoint ledger，并新增
+backend-neutral `standard-code-command.v1` 与共同结果 schema；Docker 编译器只识别单一固定
+profile：当前精确 Drydock 是唯一 `/workspace` mount，network none、无 credential/env/socket、
+非 root、只读 rootfs/toolchain 和固定资源/取消上限。当前 Drydock/Profile/workspace_access/
+process gate/approval/Policy/budget/image/readiness 在 start 前重新 fencing；失败不 pull、不 host fallback。
+
+取消、超时、crash/restart 与权限漂移由既有 exact-owned lifecycle 收敛 cleanup，文件结果再进入
+幂等 Drydock Checkpoint；未知 host path/foreign container 不触碰。固定 Go runner、四工具链无依赖
+fixture、只接受本地 exact-digest base 的离线构建脚本、opt-in real Docker test、CLI、手册与 ADR
+0130 已接线。Drydock/Worktree 明确不是安全沙箱，容器才提供进程/网络/rootfs 隔离。
 
 2026-08-22 单切片 `Run-Owned Drydock（Issue #131）` 推进到 SQLite v127。新增精确绑定
 Run/Mission/Session/source Workspace/root/repository/common-dir/branch/base、managed registry、

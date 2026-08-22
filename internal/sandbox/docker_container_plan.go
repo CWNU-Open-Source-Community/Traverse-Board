@@ -269,6 +269,7 @@ func CompileDockerContainerSpec(ctx context.Context, observation DockerObservati
 	if normalized.WritableMountCount() != 1 {
 		return DockerContainerSpec{}, errors.New("docker container compiler requires exactly one dedicated writable output mount")
 	}
+	_, standardCodeWorkspace := ParseDockerStandardCodeManifest(normalized)
 
 	spec := DockerContainerSpec{
 		ProtocolVersion: DockerContainerSpecProtocolVersion,
@@ -320,8 +321,15 @@ func CompileDockerContainerSpec(ctx context.Context, observation DockerObservati
 		}
 		spec.Mounts[index] = compiled
 	}
-	if outputTarget == "" || pathWithin(spec.WorkingDirectory, outputTarget) {
+	if outputTarget == "" || (!standardCodeWorkspace &&
+		pathWithin(spec.WorkingDirectory, outputTarget)) {
 		return DockerContainerSpec{}, errors.New("docker working directory must remain outside the dedicated output mount")
+	}
+	if standardCodeWorkspace && (len(spec.Mounts) != 1 ||
+		outputTarget != DockerStandardCodeWorkspaceTarget ||
+		spec.WorkingDirectory != DockerStandardCodeWorkspaceTarget) {
+		return DockerContainerSpec{}, errors.New(
+			"Standard Code Docker must use its one exact writable Drydock mount")
 	}
 	for _, outputPath := range normalized.Output.Paths {
 		if outputPath == outputTarget || !pathWithin(outputPath, outputTarget) {
@@ -435,8 +443,12 @@ func (spec DockerContainerSpec) Validate() error {
 			workdirReadOnly = true
 		}
 	}
-	if writable != 1 || outputTarget == "" || !workdirReadOnly ||
-		pathWithin(spec.WorkingDirectory, outputTarget) {
+	standardCodeWorkspace := dockerContainerSpecUsesStandardCodeWorkspace(spec)
+	if writable != 1 || outputTarget == "" ||
+		(!standardCodeWorkspace && (!workdirReadOnly ||
+			pathWithin(spec.WorkingDirectory, outputTarget))) ||
+		(standardCodeWorkspace && (workdirReadOnly ||
+			outputTarget != spec.WorkingDirectory || len(spec.Mounts) != 1)) {
 		return errors.New("docker container specification must isolate one writable output mount")
 	}
 	secretCount := 0
@@ -500,6 +512,43 @@ func (spec DockerContainerSpec) Validate() error {
 		}
 	}
 	return nil
+}
+
+func dockerContainerSpecUsesStandardCodeWorkspace(spec DockerContainerSpec) bool {
+	if spec.Executable != DockerStandardCodeRunnerExecutable ||
+		spec.WorkingDirectory != DockerStandardCodeWorkspaceTarget ||
+		len(spec.Mounts) != 1 || len(spec.Environment) != 0 ||
+		spec.InputArtifactCount != 0 || spec.OutputCount != 2 ||
+		spec.Network.Mode != "disabled" || len(spec.Network.AllowedTargets) != 0 ||
+		spec.Resources.NanoCPUs != int64(DockerStandardCodeCPUQuotaMillis)*1_000_000 ||
+		spec.Resources.MemoryBytes != DockerStandardCodeMemoryBytes ||
+		spec.Resources.PIDs != DockerStandardCodePIDs ||
+		spec.Resources.MaxOutputBytes != DockerStandardCodeMaxOutputBytes ||
+		spec.Termination.GracePeriodMillis != DockerStandardCodeCancellationMS {
+		return false
+	}
+	mount := spec.Mounts[0]
+	if mount.Source != "." || mount.Target != DockerStandardCodeWorkspaceTarget ||
+		mount.Access != MountReadWrite || !mount.DedicatedOutput || mount.InputReadOnly {
+		return false
+	}
+	manifest := Manifest{
+		ProtocolVersion: ManifestProtocolVersion,
+		Backend:         BackendDocker,
+		Command: CommandSpec{Executable: spec.Executable,
+			Arguments:        append([]string(nil), spec.Arguments...),
+			WorkingDirectory: spec.WorkingDirectory},
+		Mounts:  []Mount{{Source: mount.Source, Target: mount.Target, Access: mount.Access}},
+		Network: NetworkScope{Mode: "disabled"},
+		Resources: ResourceLimits{CPUQuotaMillis: int(spec.Resources.NanoCPUs / 1_000_000),
+			MemoryBytes: spec.Resources.MemoryBytes, PIDs: spec.Resources.PIDs,
+			MaxOutputBytes: spec.Resources.MaxOutputBytes},
+		Output:         OutputSpec{CaptureStdout: true, CaptureStderr: true},
+		TimeoutSeconds: spec.Termination.TimeoutSeconds,
+		Cancellation:   CancellationSpec{GracePeriodMillis: spec.Termination.GracePeriodMillis},
+	}
+	_, ok := ParseDockerStandardCodeManifest(manifest)
+	return ok
 }
 
 func dockerContainerCommandFingerprint(spec DockerContainerSpec) string {

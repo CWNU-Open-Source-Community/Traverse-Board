@@ -359,6 +359,7 @@ func migrationPlan() []migration {
 		{Version: 125, Name: "legacy Docker lifecycle cleanup trigger compatibility", Statements: legacyDockerLifecycleCleanupTriggerCompatibilityStatements},
 		{Version: 126, Name: "Workspace Access execution permission contract", Statements: workspaceAccessExecutionPermissionStatements, DisableForeignKeys: true},
 		{Version: 127, Name: "Run-owned Drydock worktrees and Workspace Trust", Statements: drydockWorkspaceTrustStatements},
+		{Version: 128, Name: "Standard Code Docker Workspace Access admission", Statements: standardCodeDockerWorkspaceAccessStatements, DisableForeignKeys: true},
 	}
 }
 

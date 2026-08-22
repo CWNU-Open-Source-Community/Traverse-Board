@@ -26,6 +26,8 @@ import (
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/runner"
+	"cyberagent-workbench/internal/sandbox"
+	"cyberagent-workbench/internal/standardcode"
 	"cyberagent-workbench/internal/store"
 	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/workspace"
@@ -111,6 +113,8 @@ func (a *App) runCommand(ctx context.Context, args []string) error {
 		return a.runFanout(ctx, args[1:])
 	case "sandbox":
 		return a.runSandboxManifest(ctx, args[1:])
+	case "standard-code":
+		return a.runStandardCode(ctx, args[1:])
 	case "wake":
 		return a.runWake(ctx, args[1:])
 	case "schedule":
@@ -2143,12 +2147,14 @@ func (a *App) runCapabilityReadiness(ctx context.Context, args []string) error {
 	fullCDPDebug := fs.Bool("enable-full-cdp-debug", false,
 		"project complete CDP Debug startup availability")
 	dockerExecution := fs.Bool("enable-docker-execution", false,
-		"project the Docker execution startup gate; exact backend readiness remains unproven")
+		"probe the fixed Standard Code Docker backend and project its startup gate")
+	workspaceSandbox := fs.Bool("enable-workspace-sandbox", false,
+		"project the process-local Workspace sandbox startup gate")
 	if err := fs.Parse(reorderFlags(args, map[string]bool{
 		"json": false, "enable-permission-control": false,
 		"enable-danger-full-access": false, "enable-debug-maximum-access": false,
 		"enable-browser-cdp-control": false, "enable-full-cdp-debug": false,
-		"enable-docker-execution": false,
+		"enable-docker-execution": false, "enable-workspace-sandbox": false,
 	})); err != nil {
 		return err
 	}
@@ -2156,6 +2162,7 @@ func (a *App) runCapabilityReadiness(ctx context.Context, args []string) error {
 		return errors.New("usage: cyberagent run capability-readiness <run-id> [--json] [explicit startup capability flags]")
 	}
 	executionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		WorkspaceSandboxEnabled:   *workspaceSandbox,
 		OperatorApprovalEnabled:   *permissionControl,
 		DangerFullAccessEnabled:   *dangerFullAccess,
 		DebugMaximumAccessEnabled: *debugMaximumAccess,
@@ -2179,7 +2186,17 @@ func (a *App) runCapabilityReadiness(ctx context.Context, args []string) error {
 		BrowserCDPPermissionControlEnabled: *browserCDPControl,
 		ExecutionPermissionCapabilities:    executionCapabilities,
 		BrowserCDPPermissionCapabilities:   browserCapabilities,
-		DockerStartupGateEnabled:           *dockerExecution, DockerAvailable: *dockerExecution,
+		DockerStartupGateEnabled:           *dockerExecution,
+	}
+	if readiness, found, readinessErr := a.standardCodeCapabilityDockerReadiness(ctx,
+		*dockerExecution); readinessErr != nil {
+		return readinessErr
+	} else if found {
+		runtime.DockerReadiness = &readiness
+		runtime.DockerAvailable = readiness.DaemonReachable
+		runtime.DockerBackendReady = readiness.Ready
+	} else {
+		runtime.DockerAvailable = *dockerExecution
 	}
 	projection, err := application.NewRunCapabilityReadinessService(a.store, runtime).
 		Project(ctx, fs.Arg(0))
@@ -2193,6 +2210,41 @@ func (a *App) runCapabilityReadiness(ctx context.Context, args []string) error {
 	}
 	writeRunCapabilityReadiness(a.out, projection)
 	return nil
+}
+
+func (a *App) standardCodeCapabilityDockerReadiness(ctx context.Context,
+	enabled bool,
+) (sandbox.DockerReadiness, bool, error) {
+	imageDigest := strings.TrimSpace(os.Getenv(standardCodeDockerImageEnvironment))
+	if !sandbox.ValidOCIImageDigest(imageDigest) {
+		return sandbox.DockerReadiness{}, false, nil
+	}
+	manifest, err := standardcode.CompileDockerManifest(standardcode.ExecutionContext{
+		RunID: "readiness-run", MissionID: "readiness-mission",
+		SessionID: "readiness-session", WorkspaceID: "readiness-workspace",
+		DrydockID: "readiness-drydock", DrydockWorkspaceID: "readiness-drydock-workspace",
+		DrydockGeneration: 1, CheckpointID: "readiness-checkpoint",
+		DrydockBindingSHA256: strings.Repeat("a", 64),
+		ProfileSnapshotID:    "readiness-profile", ProfileRevision: 1,
+		PermissionSnapshotID: "readiness-permission", PermissionRevision: 1,
+		CapabilityGeneration: strings.Repeat("b", 64),
+	}, standardcode.Command{ProtocolVersion: standardcode.CommandProtocolVersion,
+		Toolchain: sandbox.DockerStandardCodeToolchainGo, Arguments: []string{"version"},
+		WorkingDirectory: ".", TimeoutSeconds: 30, Purpose: "readiness probe"})
+	if err != nil {
+		return sandbox.DockerReadiness{}, false, err
+	}
+	probe := a.dockerReadinessProbe
+	if probe == nil {
+		local, probeErr := sandbox.NewLocalDockerReadinessProbe()
+		if probeErr != nil {
+			return sandbox.DockerReadiness{}, false, probeErr
+		}
+		probe = local
+	}
+	readiness, err := probe.Check(ctx, sandbox.DockerRuntimeCapabilities{Enabled: enabled},
+		manifest, imageDigest)
+	return readiness, err == nil, err
 }
 
 func writeRunCapabilityReadiness(out interface{ Write([]byte) (int, error) },

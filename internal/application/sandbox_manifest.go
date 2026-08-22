@@ -297,6 +297,19 @@ type SandboxManifestService struct {
 	runtimeResourceRead  sandbox.DockerRuntimeInputResourceInspector
 	runtimeResourceClean sandbox.DockerRuntimeInputResourceCleanupTransport
 	productionEvidence   sandbox.DockerProductionEvidenceCollector
+	standardCodeDrydock  *DrydockService
+}
+
+// WithStandardCodeDrydock projects only the exact, fully bound Standard Code
+// manifest onto its product-owned Drydock root. Other sandbox manifests retain
+// the registered source Workspace binding.
+func (s *SandboxManifestService) WithStandardCodeDrydock(
+	drydockService *DrydockService,
+) *SandboxManifestService {
+	if s != nil {
+		s.standardCodeDrydock = drydockService
+	}
+	return s
 }
 
 type PrepareSandboxManifestRequest struct {
@@ -454,7 +467,8 @@ func (s *SandboxManifestService) Prepare(ctx context.Context,
 		return sandbox.PreparedIntent{}, apperror.New(apperror.CodeFailedPrecondition,
 			"sandbox manifest requires an exact non-empty Mission workspace scope")
 	}
-	workspace, err := s.store.GetSandboxWorkspace(ctx, mission.WorkspaceID)
+	workspace, err := s.resolveSandboxWorkspace(ctx, run.ID, mission.WorkspaceID,
+		manifest, true)
 	if err != nil {
 		return sandbox.PreparedIntent{}, apperror.Normalize(err)
 	}
@@ -547,6 +561,22 @@ func (s *SandboxManifestService) Prepare(ctx context.Context,
 			"sandbox manifest was recorded but permanently denied by policy")
 	}
 	return stored, nil
+}
+
+func (s *SandboxManifestService) resolveSandboxWorkspace(ctx context.Context,
+	runID, workspaceID string, manifest sandbox.Manifest, requireUnchanged bool,
+) (sandbox.WorkspaceBinding, error) {
+	if binding, standardCode := sandbox.ParseDockerStandardCodeManifest(manifest); standardCode {
+		if s.standardCodeDrydock == nil || binding.RunID != runID ||
+			binding.WorkspaceID != workspaceID {
+			return sandbox.WorkspaceBinding{}, apperror.New(
+				apperror.CodeFailedPrecondition,
+				"Standard Code manifest requires its exact Drydock authority")
+		}
+		return s.standardCodeDrydock.ResolveDrydockExecutionBinding(ctx, binding,
+			requireUnchanged)
+	}
+	return s.store.GetSandboxWorkspace(ctx, workspaceID)
 }
 
 func (s *SandboxManifestService) replay(ctx context.Context,

@@ -11,6 +11,7 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
+	"cyberagent-workbench/internal/sandbox"
 )
 
 const dockerSandboxAdmissionSelect = `SELECT id, protocol_version,
@@ -656,6 +657,54 @@ func (s *SQLiteStore) ListRecoverableDockerSandboxes(ctx context.Context,
 			ON receipt.admission_id = admission.id
 		WHERE receipt.admission_id IS NULL
 		ORDER BY admission.created_at, admission.id LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	values := make([]domain.DockerSandboxRecord, 0, len(ids))
+	for _, id := range ids {
+		value, err := getDockerSandboxRecord(ctx, s.db, id)
+		if err != nil {
+			return nil, err
+		}
+		values = append(values, value)
+	}
+	return values, nil
+}
+
+// ListCompletedStandardCodeDockerSandboxes returns only bounded terminal
+// records that carry the fixed Standard Code runner protocol. The application
+// still performs the full exact-manifest parse before using a record. This
+// narrow query closes the crash window between the Docker receipt and the
+// Drydock checkpoint without allowing recovery to turn an admission into a
+// new start.
+func (s *SQLiteStore) ListCompletedStandardCodeDockerSandboxes(ctx context.Context,
+	limit int,
+) ([]domain.DockerSandboxRecord, error) {
+	if limit < 1 || limit > 100 {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"Standard Code Docker recovery limit must be between 1 and 100")
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT admission.id
+		FROM sandbox_docker_product_admissions admission
+		JOIN sandbox_docker_product_receipts receipt
+			ON receipt.admission_id = admission.id
+		WHERE json_extract(admission.manifest_json, '$.command.executable') = ?
+			AND json_extract(admission.manifest_json, '$.command.arguments[0]') = ?
+		ORDER BY receipt.completed_at DESC, admission.id DESC LIMIT ?`,
+		sandbox.DockerStandardCodeRunnerExecutable,
+		sandbox.DockerStandardCodeRunnerProtocolVersion, limit)
 	if err != nil {
 		return nil, err
 	}
