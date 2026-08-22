@@ -128,6 +128,15 @@ func (e *AdvancedExecutor) ManagedWorktreePath(binding gitadvanced.RepositoryBin
 	return e.managedWorktreeDestination(binding, name, true)
 }
 
+// PlannedManagedWorktreePath returns the exact product-derived destination
+// before materialization. It accepts no caller-selected directory and is used
+// by higher-level lifecycle ledgers to persist a write-ahead ownership record.
+func (e *AdvancedExecutor) PlannedManagedWorktreePath(binding gitadvanced.RepositoryBinding,
+	name string,
+) (string, error) {
+	return e.managedWorktreeDestination(binding, name, false)
+}
+
 // CaptureAdvancedBinding binds repository identity, HEAD, index, worktree,
 // stash, sequencer, and current upstream. It handles linked worktrees by
 // resolving --git-path instead of assuming <root>/.git/index.
@@ -193,14 +202,6 @@ func (e *AdvancedExecutor) CaptureAdvancedBinding(ctx context.Context,
 	if objectFormat != "sha1" && objectFormat != "sha256" {
 		return gitadvanced.RepositoryBinding{}, errors.New("unsupported Git object format")
 	}
-	indexPath, err := e.requiredPathOutput(ctx, canonical, "rev-parse", "--path-format=absolute", "--git-path", "index")
-	if err != nil {
-		return gitadvanced.RepositoryBinding{}, err
-	}
-	indexDigest, err := digestOptionalRegularFile(indexPath, MaxAdvancedTrackedBytes)
-	if err != nil {
-		return gitadvanced.RepositoryBinding{}, err
-	}
 	status, stderr, exit, err := e.git(ctx, canonical, nil,
 		"status", "--porcelain=v2", "-z", "--untracked-files=all")
 	if err != nil || exit != 0 {
@@ -208,6 +209,16 @@ func (e *AdvancedExecutor) CaptureAdvancedBinding(ctx context.Context,
 			strings.TrimSpace(stderr))
 	}
 	worktreeDigest, err := e.captureWorktreeDigest(ctx, canonical, status)
+	if err != nil {
+		return gitadvanced.RepositoryBinding{}, err
+	}
+	// Git status may refresh only the index stat cache. Digest the index after
+	// that read so a second inspection observes the same post-inspection state.
+	indexPath, err := e.requiredPathOutput(ctx, canonical, "rev-parse", "--path-format=absolute", "--git-path", "index")
+	if err != nil {
+		return gitadvanced.RepositoryBinding{}, err
+	}
+	indexDigest, err := digestOptionalRegularFile(indexPath, MaxAdvancedTrackedBytes)
 	if err != nil {
 		return gitadvanced.RepositoryBinding{}, err
 	}

@@ -10,14 +10,21 @@
 
 ## 当前基线
 
-Runtime readiness 统一投影（Issue #130，SQLite 仍为 schema v126）新增 Go-owned
+Drydock 工作目录（Issue #131 / schema v127）为每个 Code Run 增加精确 source/root/repository/
+branch/base 与 generation 绑定的产品管理 worktree。首次 create 的 Workspace Trust digest 必须
+二次 pin，且不授予进程权限；source dirty 内容不复制。Checkpoint/Rewind/Undo 覆盖 tracked、
+untracked 和 raw index，Fork 不继承 authority，Delivery 只产生 review patch。崩溃或任何用户
+改动保留为 recovery；Cleanup/GC 只删除 exact clean owner，禁止 force、source overwrite 和未知
+目录清理。设计与操作见 ADR 0129 和 `docs/drydock.md`。
+
+上一基线 Runtime readiness 统一投影（Issue #130，SQLite 仍为 schema v126）新增 Go-owned
 `run_capability_readiness.v1`。Permission、Profile、Interaction、browser-CDP 与 Standard Code
 都返回独立 selected/selectable/runtime-available、稳定阻塞码、对应修复动作和重启要求；CLI、
 HTTP/OpenAPI、Desktop 与 React 共用 Application 服务。该响应固定不授权、不泄露私有路径，
 TypeScript 对未知版本或扩展失败关闭。Local/Docker 允许只记录意图而后端不可用；Standard Code
 仍明确未实现。边界见 ADR 0128。
 
-Workspace Access 权限合同（Issue #129 / schema v126）新增第五档
+再上一基线 Workspace Access 权限合同（Issue #129 / schema v126）新增第五档
 `workspace_access · 工作区执行`：允许 Workspace 内读写，只允许 ready sandbox adapter 的有界
 命令，拒绝宿主无沙箱进程、网络、凭证、用户主目录、持久终端、Agent 输入和完整 CDP。该 issue
 不实现 Local Sandbox，产品 readiness 固定关闭且无宿主回退；切档会释放旧 execution lease 并

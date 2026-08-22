@@ -177,6 +177,32 @@ func (s *SQLiteStore) ListWorkspaceCheckpoints(ctx context.Context, runID string
 	return values, rows.Err()
 }
 
+func (s *SQLiteStore) ListWorkspaceCheckpointsByWorkspace(ctx context.Context,
+	runID, workspaceID string, limit int,
+) ([]workspacecheckpoint.Checkpoint, error) {
+	runID, workspaceID = strings.TrimSpace(runID), strings.TrimSpace(workspaceID)
+	if runID == "" || workspaceID == "" || limit < 1 || limit > 2_000 {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"workspace checkpoint scoped list request is invalid")
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT `+workspaceCheckpointColumns+`
+		FROM workspace_checkpoints WHERE run_id = ? AND workspace_id = ? AND sealed = 1
+		ORDER BY created_at DESC, id DESC LIMIT ?`, runID, workspaceID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	values := make([]workspacecheckpoint.Checkpoint, 0, limit)
+	for rows.Next() {
+		value, scanErr := scanWorkspaceCheckpoint(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		values = append(values, value)
+	}
+	return values, rows.Err()
+}
+
 func (s *SQLiteStore) GetWorkspaceCheckpointSnapshot(ctx context.Context,
 	id string,
 ) (workspacecheckpoint.Snapshot, error) {
@@ -514,6 +540,32 @@ func (s *SQLiteStore) ListWorkspaceCheckpointTransactions(ctx context.Context,
 		value, err := scanWorkspaceCheckpointTransaction(rows)
 		if err != nil {
 			return nil, err
+		}
+		values = append(values, value)
+	}
+	return values, rows.Err()
+}
+
+func (s *SQLiteStore) ListWorkspaceCheckpointTransactionsByWorkspace(
+	ctx context.Context, runID, workspaceID string, limit int,
+) ([]workspacecheckpoint.Transaction, error) {
+	runID, workspaceID = strings.TrimSpace(runID), strings.TrimSpace(workspaceID)
+	if runID == "" || workspaceID == "" || limit < 1 || limit > 2_000 {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"workspace checkpoint scoped transaction list request is invalid")
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT `+workspaceCheckpointTransactionColumns+`
+		FROM workspace_checkpoint_transactions WHERE run_id = ? AND workspace_id = ?
+		ORDER BY created_at DESC, id DESC LIMIT ?`, runID, workspaceID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	values := make([]workspacecheckpoint.Transaction, 0, limit)
+	for rows.Next() {
+		value, scanErr := scanWorkspaceCheckpointTransaction(rows)
+		if scanErr != nil {
+			return nil, scanErr
 		}
 		values = append(values, value)
 	}

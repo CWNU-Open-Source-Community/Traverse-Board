@@ -4,11 +4,23 @@
 
 Last updated: 2026-08-22
 
-## Current Single-Slice Checkpoint: Unified Runtime Readiness / Issue #130 / Schema v126
+## Current Single-Slice Checkpoint: Run-Owned Drydock / Issue #131 / Schema v127
 
-PR #143 已合并并关闭 #129，因此 Epic #128 中 #130 对 #129 的唯一前置依赖已经解除；#130
-完成后继续为 #135 Standard Code 预设和 #136 安全模式 UX 提供协议前置。SQLite 不迁移，仍为
-v126。
+`drydock-workspace.v1` 为一个 Code Run 持久绑定 source Workspace/root/repository/common-dir/
+branch/base、独立产品管理 worktree/branch、managed registry、ownership generation 和 current
+binding。首次 create 只展示精确来源与 dirty/raw-index 状态，第二次必须确认同一 Workspace Trust
+digest；Trust 永远不授予 process/network/credential/Git remote authority，source dirty 内容不复制。
+
+Create 使用 WAL；Use/Checkpoint/Rewind/Undo/Fork/Deliver/Cleanup 逐次重验完整身份。Checkpoint
+覆盖 tracked/untracked/raw index；Fork 建立 authority-reset Run；Delivery 只给 review patch，禁止
+merge/push/force/source overwrite。崩溃、漂移或用户改动保留为 `recovery_required`；Cleanup/GC
+只非 force 删除 exact clean owner，不枚举或删除未知目录。边界见 ADR 0129 与 `docs/drydock.md`。
+
+## Previous Single-Slice Checkpoint: Unified Runtime Readiness / Issue #130 / Schema v126
+
+Issue #130 已由 PR #144 合并。PR #143 先行合并并关闭 #129，因此 Epic #128 中 #130 对 #129 的
+唯一前置依赖已经解除；该协议继续为 #135 Standard Code 预设和 #136 安全模式 UX 提供前置。
+SQLite 不迁移，仍为 v126。
 
 `run_capability_readiness.v1` 由 Go Application 单一计算 Permission、Profile、Interaction、
 browser-CDP 与 Standard Code 的 `selected`、`selectable`、`runtime_available`、稳定

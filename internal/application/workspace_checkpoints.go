@@ -67,6 +67,16 @@ type WorkspaceCheckpointStore interface {
 		workspacecheckpoint.RunState, bool, error)
 }
 
+// workspaceCheckpointScopedTimelineStore is an optional exact projection used
+// by durable stores that can query one Run/Workspace timeline directly. Test
+// doubles and older adapters keep the bounded in-memory fallback below.
+type workspaceCheckpointScopedTimelineStore interface {
+	ListWorkspaceCheckpointsByWorkspace(context.Context, string, string, int) (
+		[]workspacecheckpoint.Checkpoint, error)
+	ListWorkspaceCheckpointTransactionsByWorkspace(context.Context, string, string, int) (
+		[]workspacecheckpoint.Transaction, error)
+}
+
 type WorkspaceCheckpointForkStore interface {
 	WorkspaceCheckpointStore
 	ContextContinuityStore
@@ -80,6 +90,7 @@ type WorkspaceCheckpointService struct {
 	capabilities   domain.ExecutionPermissionRuntimeCapabilities
 	now            func() time.Time
 	lifecycleHooks *hooks.Engine
+	runWorkspace   func(context.Context, string) (session.WorkspaceInfo, bool, error)
 }
 
 func (s *WorkspaceCheckpointService) WithLifecycleHooks(
@@ -87,6 +98,18 @@ func (s *WorkspaceCheckpointService) WithLifecycleHooks(
 ) *WorkspaceCheckpointService {
 	if s != nil {
 		s.lifecycleHooks = engine
+	}
+	return s
+}
+
+// withRunWorkspaceResolver permits an Application-internal, identity-verifying
+// owner such as Drydock to substitute its Run-owned Workspace. Keeping this
+// hook package-private prevents an external caller from replacing Run scope.
+func (s *WorkspaceCheckpointService) withRunWorkspaceResolver(
+	resolver func(context.Context, string) (session.WorkspaceInfo, bool, error),
+) *WorkspaceCheckpointService {
+	if s != nil {
+		s.runWorkspace = resolver
 	}
 	return s
 }
@@ -535,12 +558,30 @@ func (s *WorkspaceCheckpointService) Timeline(ctx context.Context, runID string,
 		return WorkspaceCheckpointTimeline{}, apperror.New(apperror.CodeInvalidArgument,
 			"workspace checkpoint timeline limit is invalid")
 	}
-	checkpoints, err := s.store.ListWorkspaceCheckpoints(ctx, binding.run.ID, limit)
-	if err != nil {
-		return WorkspaceCheckpointTimeline{}, apperror.Normalize(err)
+	var checkpoints []workspacecheckpoint.Checkpoint
+	var transactions []workspacecheckpoint.Transaction
+	if scoped, ok := s.store.(workspaceCheckpointScopedTimelineStore); ok {
+		checkpoints, err = scoped.ListWorkspaceCheckpointsByWorkspace(ctx,
+			binding.run.ID, binding.workspace.ID, limit)
+		if err == nil {
+			transactions, err = scoped.ListWorkspaceCheckpointTransactionsByWorkspace(ctx,
+				binding.run.ID, binding.workspace.ID, limit)
+		}
+	} else {
+		// A Run may also own a Drydock checkpoint timeline. Adapters without an
+		// exact query receive a bounded superset and are projected in memory.
+		checkpoints, err = s.store.ListWorkspaceCheckpoints(ctx, binding.run.ID,
+			workspaceCheckpointListLimit)
+		if err == nil {
+			checkpoints = filterWorkspaceCheckpoints(checkpoints, binding.workspace.ID, limit)
+			transactions, err = s.store.ListWorkspaceCheckpointTransactions(ctx,
+				binding.run.ID, workspaceCheckpointListLimit)
+		}
+		if err == nil {
+			transactions = filterWorkspaceCheckpointTransactions(transactions,
+				binding.workspace.ID, limit)
+		}
 	}
-	transactions, err := s.store.ListWorkspaceCheckpointTransactions(ctx,
-		binding.run.ID, limit)
 	if err != nil {
 		return WorkspaceCheckpointTimeline{}, apperror.Normalize(err)
 	}
@@ -558,6 +599,36 @@ func (s *WorkspaceCheckpointService) Timeline(ctx context.Context, runID string,
 		value.Current = &state
 	}
 	return value, nil
+}
+
+func filterWorkspaceCheckpoints(values []workspacecheckpoint.Checkpoint,
+	workspaceID string, limit int,
+) []workspacecheckpoint.Checkpoint {
+	filtered := make([]workspacecheckpoint.Checkpoint, 0, min(len(values), limit))
+	for _, value := range values {
+		if value.WorkspaceID == workspaceID {
+			filtered = append(filtered, value)
+			if len(filtered) == limit {
+				break
+			}
+		}
+	}
+	return filtered
+}
+
+func filterWorkspaceCheckpointTransactions(values []workspacecheckpoint.Transaction,
+	workspaceID string, limit int,
+) []workspacecheckpoint.Transaction {
+	filtered := make([]workspacecheckpoint.Transaction, 0, min(len(values), limit))
+	for _, value := range values {
+		if value.WorkspaceID == workspaceID {
+			filtered = append(filtered, value)
+			if len(filtered) == limit {
+				break
+			}
+		}
+	}
+	return filtered
 }
 
 func (s *WorkspaceCheckpointService) Restore(ctx context.Context,
@@ -792,6 +863,21 @@ func (s *WorkspaceCheckpointService) Redo(ctx context.Context, runID,
 func (s *WorkspaceCheckpointService) Fork(ctx context.Context,
 	request WorkspaceForkRequest,
 ) (WorkspaceForkResult, error) {
+	return s.fork(ctx, request, nil)
+}
+
+// forkFromOwnedCheckpoint reuses the authority-reset Fork implementation with
+// a package-internal cursor owned by a higher-level lifecycle such as Drydock.
+// It never replaces the source Workspace cursor stored for the Run.
+func (s *WorkspaceCheckpointService) forkFromOwnedCheckpoint(ctx context.Context,
+	request WorkspaceForkRequest, ownedState workspacecheckpoint.RunState,
+) (WorkspaceForkResult, error) {
+	return s.fork(ctx, request, &ownedState)
+}
+
+func (s *WorkspaceCheckpointService) fork(ctx context.Context,
+	request WorkspaceForkRequest, ownedState *workspacecheckpoint.RunState,
+) (WorkspaceForkResult, error) {
 	request = normalizeWorkspaceForkRequest(request)
 	if s == nil || s.store == nil {
 		return WorkspaceForkResult{}, apperror.New(apperror.CodeFailedPrecondition,
@@ -831,7 +917,15 @@ func (s *WorkspaceCheckpointService) Fork(ctx context.Context,
 		return WorkspaceForkResult{}, apperror.New(apperror.CodeFailedPrecondition,
 			"workspace fork requires a committed Git base")
 	}
-	state, found, err := s.store.GetWorkspaceCheckpointRunState(ctx, binding.run.ID)
+	var state workspacecheckpoint.RunState
+	found := false
+	if ownedState != nil {
+		state = *ownedState
+		found = state.Validate() == nil && state.RunID == binding.run.ID &&
+			state.WorkspaceID == binding.workspace.ID && state.LastTransactionID == ""
+	} else {
+		state, found, err = s.store.GetWorkspaceCheckpointRunState(ctx, binding.run.ID)
+	}
 	if err != nil || !found || state.CurrentCheckpointID != request.ExpectedCurrentCheckpointID {
 		if err == nil {
 			err = apperror.New(apperror.CodeConflict,
@@ -1782,6 +1876,24 @@ func (s *WorkspaceCheckpointService) loadBinding(ctx context.Context,
 	}
 	if value.session, err = s.store.GetSession(ctx, value.run.SessionID); err != nil {
 		return value, apperror.Normalize(err)
+	}
+	if s.runWorkspace != nil {
+		resolved, found, resolveErr := s.runWorkspace(ctx, value.run.ID)
+		if resolveErr != nil {
+			return value, apperror.Normalize(resolveErr)
+		}
+		if found {
+			value.workspace = resolved
+			if value.run.MissionID != value.mission.ID ||
+				value.run.SessionID != value.session.ID || value.mission.WorkspaceID == "" ||
+				value.mission.WorkspaceID != value.session.WorkspaceID ||
+				strings.TrimSpace(value.workspace.ID) == "" ||
+				strings.TrimSpace(value.workspace.RootPath) == "" {
+				return value, apperror.New(apperror.CodeFailedPrecondition,
+					"resolved workspace checkpoint Run binding is invalid")
+			}
+			return value, nil
+		}
 	}
 	if value.workspace, err = s.store.GetWorkspaceInfo(ctx,
 		value.mission.WorkspaceID); err != nil {

@@ -667,7 +667,7 @@ func captureGitEnvironment() []string {
 	}
 	values = append(values, "LANG=C", "LC_ALL=C", "GIT_TERMINAL_PROMPT=0",
 		"GCM_INTERACTIVE=never", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull,
-		"GIT_PAGER=cat", "GIT_EDITOR=true")
+		"GIT_PAGER=cat", "GIT_EDITOR=true", "GIT_OPTIONAL_LOCKS=0")
 	return values
 }
 

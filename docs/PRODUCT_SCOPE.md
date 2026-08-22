@@ -1,6 +1,6 @@
 # Traverse Board · 针路簿产品范围 / Product Scope
 
-更新日期 / Last updated: 2026-08-20
+更新日期 / Last updated: 2026-08-22
 
 本文是当前产品范围的权威说明。历史任务书、进度百分比或兼容命令与本文冲突时，以本文、当前代码和相关 ADR 为准。
 
@@ -13,13 +13,13 @@ This document is the authority for current product scope. If a historical task, 
 - Mission、Run、Session、检查点、恢复、取消、预算和事件流；
 - Provider 路由、资格校验、公开流式回复、上下文压缩和结构化记忆；
 - Plan/Delivery、工作项、备注、受控 child、可交付 child 的隔离 Worktree/交付复核/本地顺序合并，以及只读 Fan-out；
-- Workspace、Repository、Diff、模型可调用的有界读取/搜索、人工审查的文件变更、稳定 hunk、审批式 stash/rebase/cherry-pick/bisect、产品受管 worktree、验证、Journey 和 Handoff；
+- Workspace、Repository、Diff、模型可调用的有界读取/搜索、人工审查的文件变更、Run-owned Drydock、稳定 hunk、审批式 stash/rebase/cherry-pick/bisect、产品受管 worktree、验证、Journey 和 Handoff；
 - Tool Gateway、Skill、Policy、Scope、Approval、Capability 和权限档位；
 - Artifact、Finding、Evidence、Report、SARIF 和 Live Activity；
 - CLI、TUI、HTTP/OpenAPI、React/Vite 和 Windows Desktop；
 - Go 主控的 Rust Analyzer 与 Sandbox 扩展合同。
 
-The active product is a general-purpose, local-first AI Agent Harness and Code Agent surface covering resumable execution, models and context, planning, bounded model-callable Workspace reads and reviewed mutations, approval-gated stable hunks/stash/rebase/cherry-pick/bisect, product-managed worktrees, isolated deliverable-child worktrees and local merge review, permissions, audit/reporting, and shared CLI/TUI/API/Desktop clients.
+The active product is a general-purpose, local-first AI Agent Harness and Code Agent surface covering resumable execution, models and context, planning, bounded model-callable Workspace reads and reviewed mutations, Run-owned Drydocks, approval-gated stable hunks/stash/rebase/cherry-pick/bisect, product-managed worktrees, isolated deliverable-child worktrees and local merge review, permissions, audit/reporting, and shared CLI/TUI/API/Desktop clients.
 
 ## 可选附加范围 / Optional Add-on Scope
 
@@ -60,6 +60,7 @@ A future security add-on must remain removable and must reuse these generic seam
 - 文件写入、命令、网络、浏览器、终端和容器分别授权，不能用一个“Cyber 模式”总开关替代。
 - 高风险操作需要独立 Policy、审批、预算、租约、审计和可恢复失败语义。
 - Provider 私有 thinking、凭证、原始 Prompt 和工具原始输出不进入公开活动或持久化投影。
+- Worktree 只提供来源分离和可恢复所有权；执行隔离仍需独立运行时证据，无法证明归属或含用户改动的目录不得自动删除。
 
 ## 重新启动附加功能的条件 / Reactivation Criteria
 

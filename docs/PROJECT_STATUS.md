@@ -6,13 +6,23 @@ Last updated: 2026-08-22
 
 ## Resume Context
 
-当前检查点是 issue #130 的 Go-owned `run_capability_readiness.v1`；SQLite 保持 schema v126。
-PR #143 已合并并关闭 #129，所以 Epic #128 声明的唯一前置依赖已解除。新 Application 服务把
-当前 Run/mode/Profile/Permission/Interaction/CDP/lease 与进程 startup/backend facts 合成为
-Permission、Profile、Interaction、browser-CDP 和 Standard Code 的 selected/selectable/
-runtime-available、稳定阻塞码、修复动作与重启要求。CLI、认证 HTTP/OpenAPI、Desktop in-process
-Handler 和 React 共用该事实；TypeScript 对未知版本、字段、顺序、原因/修复配对、Run 绑定和
-authority 扩展失败关闭。
+当前检查点是 issue #131 / schema v127 的 `drydock-workspace.v1`。一个 Code Run 只能持有一个
+精确绑定 source Workspace/root/repository/common-dir/branch/base 的产品管理 worktree；首次使用
+需要 pin 完整 Workspace Trust digest，且 Trust 固定不授予执行 authority。source dirty 内容不
+复制；symlink/submodule/reparse source 在 v1 显式拒绝。
+
+生命周期使用 create WAL、ownership generation、managed registry 和 current binding fencing。
+Checkpoint/Rewind/Undo 精确保留 tracked/untracked/raw index；Fork 建立独立且不继承 authority 的
+Run；Delivery 仅输出 review patch。崩溃、漂移和用户文件都保留为 recovery；Cleanup/GC 只删除
+exact clean product owner，不 force、不覆盖 source、不删除未知目录。边界见 ADR 0129。
+
+上一检查点是 issue #130 的 Go-owned `run_capability_readiness.v1`；SQLite 保持 schema v126，
+实现已由 PR #144 合并。PR #143 先行合并并关闭 #129，所以 Epic #128 声明的唯一前置依赖已解除。
+Application 服务把当前 Run/mode/Profile/Permission/Interaction/CDP/lease 与进程 startup/backend
+facts 合成为 Permission、Profile、Interaction、browser-CDP 和 Standard Code 的 selected/
+selectable/runtime-available、稳定阻塞码、修复动作与重启要求。CLI、认证 HTTP/OpenAPI、Desktop
+in-process Handler 和 React 共用该事实；TypeScript 对未知版本、字段、顺序、原因/修复配对、
+Run 绑定和 authority 扩展失败关闭。
 
 该投影始终 `capability_grant=false`，不返回 Workspace/Docker/browser 私有路径或 endpoint、凭证、
 lease/owner/operation/process identity，也不能替代 control bearer、确认、Policy、lease 或具体

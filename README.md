@@ -62,7 +62,7 @@ CLI / TUI / React / Windows Desktop / CI
 | 模型与上下文 | Mock、Anthropic-compatible、OpenAI-compatible 与 loopback-only Ollama Provider、模型路由、资格校验、能力探测、流式响应、上下文压缩、层级项目指令、显式 user/project 长期记忆与 Session 恢复树 |
 | 计划与协作 | Plan/Delivery、工作项、备注、最多两个核心 child、`batch-delivery.v1` 独立 Worktree/分支/邮箱/交付复核/顺序合并，以及 1/2/4/6 档只读 Fan-out |
 | 工具与权限 | Tool Gateway、JSON Schema 校验、Policy、Scope、人工审批、五档 Run 权限上限、受控固定命令、普通模式 Run-owned 命令运行时、逐条审批 PowerShell/Git Bash，以及限时 Debug 终端输入 |
-| 代码工作流 | 系统目录选择与 Workspace 导入、工作区浏览、仓库状态、提交历史、Diff 审阅、文件编辑提案、只读 `code-intel-lsp.v1` 语义工具、事务化 Workspace Checkpoint、稳定 hunk、stash/rebase/cherry-pick/bisect、受管 worktree、GitHub App PR/CI 证据与审批回写、Undo/Redo/Rewind、独立 Fork、验证计划、Code Journey 与 Handoff |
+| 代码工作流 | 系统目录选择与 Workspace 导入、工作区浏览、仓库状态、提交历史、Diff 审阅、文件编辑提案、只读 `code-intel-lsp.v1` 语义工具、事务化 Workspace Checkpoint、Run-owned Drydock、稳定 hunk、stash/rebase/cherry-pick/bisect、受管 worktree、GitHub App PR/CI 证据与审批回写、Undo/Redo/Rewind、独立 Fork、验证计划、Code Journey 与 Handoff |
 | 可观测性 | 追加式 Run 事件、Live Activity、公开模型进度、Harness 事实、Artifact、Finding/Evidence/Report、SARIF、持久化有界计划任务与脱敏结构化诊断包 |
 | 扩展 | 模式感知的惰性 Skill 包、生成候选人工审查、两阶段 MCP Client、签名 `plugin.v1`、受限生命周期 Hooks、Provider/Tool 接口、Go/Rust JSON 协议、内嵌 WASI Analyzer、Sandbox 合同与默认关闭的 network-none Docker 产品执行 |
 | 客户端 | `cyberagent` CLI、Bubble Tea TUI、认证 HTTP/OpenAPI、React/Vite、Windows/macOS Desktop 便携预览 |
@@ -87,6 +87,12 @@ Schema v126 在 `conservative` 与 `approval` 之间增加 `workspace_access · 
 #129 不实现 Local Sandbox，也不提供可以打开 readiness 的产品参数。因此当前 CLI、API、Desktop 和 React 会一致显示该档不可用；它绝不回退到现有宿主 Command Runtime。切换权限 revision 会原子释放旧 execution lease，并使绑定旧快照的 Job owner 与工具 authority 失效。完整边界见 [ADR 0127](docs/adr/0127-workspace-access-permission-contract.md)。
 
 #130 新增 Go-owned `run_capability_readiness.v1`，把当前已选、现在可切换和后端当前可运行拆成独立事实，并为 Permission、Profile、Interaction、CDP 与 Standard Code 返回稳定阻塞码、修复动作和重启要求。CLI、HTTP、Desktop 与 React 共用该投影；响应不含私有路径且始终 `capability_grant=false`。详见 [ADR 0128](docs/adr/0128-go-owned-run-capability-readiness.md)。
+
+### Run-owned Drydock 工作目录
+
+Schema v127 的 `drydock-workspace.v1` 从精确的 source Workspace、repository/common-dir、branch、base commit、root 指纹和 dirty/index 状态创建产品管理的独立 worktree。首次 create 只返回 Workspace Trust digest；操作者必须把该 digest 原样带入第二次确认，任何来源漂移都会失败关闭。来源未提交内容只进入 Trust 回执，不会被暗中复制。Trust 永远固定 `grants_process_authority=false`；Drydock 本身不提供进程、网络、凭证或宿主文件系统隔离。
+
+每个 Use/Checkpoint/Rewind/Undo/Fork/Deliver/Cleanup 都重新证明 Run、Workspace、root、Git registration、branch/base/current binding 和 ownership generation。Checkpoint 精确保存 tracked、untracked 与 raw index；崩溃、冲突、用户改动、未知目录或身份不确定时一律保留目录并进入人工恢复。Delivery 只生成审阅 patch，固定禁止 merge/push/force/覆盖来源；Cleanup/到期 GC 只以非 force 方式删除完整证明为产品所有且干净的 worktree，并保留分支与全部事件/收据。命令与恢复手册见 [Drydock 工作目录](docs/drydock.md)，设计见 [ADR 0129](docs/adr/0129-run-owned-drydock-workspaces.md)。
 
 ### 只读 LSP 语义代码智能
 
@@ -533,6 +539,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 | v124 | 增加 GitHub connection、PR/CI 快照、本地证据图及审批回写/恢复账本 | add GitHub connections, PR/CI snapshots, local evidence graphs, and approved write/recovery ledgers |
 | v125 | 精确兼容旧 Windows 预览版 v97，并事务化重建 Docker lifecycle cleanup trigger | accept the exact legacy Windows preview v97 history and transactionally rebuild its Docker lifecycle cleanup trigger |
 | v126 | 增加 Workspace Access 工作区执行权限合同与沙箱 readiness 闸门 | add the Workspace Access permission contract and sandbox-readiness gate |
+| v127 | 增加 Run-owned Drydock、Workspace Trust、恢复/交付/清理事件与收据 | add Run-owned Drydocks, Workspace Trust, and recovery/delivery/cleanup events and receipts |
 
 </details>
 
