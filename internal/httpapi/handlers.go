@@ -56,7 +56,7 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 			"project-instructions", "long-term-memories", "session-tree",
 			"repository-state", "repository-diff", "repository-history", "repository-file-history", "repository-commit-detail", "repository-commit-comparison", "repository-commit-file-preview", "verification-evidence", "verification-plan", "verification-plan-coverage", "verification-snapshot-export", "verification-snapshot-receipts", "code-handoff", "code-handoff-export",
 			"operation-receipts", "operator-actions", "evidence-inventory",
-			"run-activity", "event-stream", "event-poll", "capabilities", "openapi",
+			"run-activity", "run-capability-readiness", "event-stream", "event-poll", "capabilities", "openapi",
 			"doctor", "debug", "diagnostic-bundle"}
 		if a.scheduledJobController != nil {
 			resources = append(resources, "scheduled-jobs")
@@ -498,6 +498,8 @@ func (a *API) routeRuns(request *http.Request, segments []string) (any, *Page, e
 			return a.runEvents(request, segments[1])
 		case "activity":
 			return a.runActivity(request, segments[1])
+		case "capability-readiness":
+			return a.runCapabilityReadiness(request, segments[1])
 		case "work-items":
 			return a.runWorkItems(request, segments[1])
 		case "notes":

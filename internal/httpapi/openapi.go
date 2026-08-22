@@ -937,6 +937,11 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 		{Path: "/api/v1/runs/{run_id}", OperationID: "getRun", Summary: "Inspect a Run", Tag: "Runs",
 			Description: "Returns Run, Mission, checkpoint, tool usage, token-free execution-lease metadata, read-only Plan/Delivery and external-Skill metadata projections, and the Go-derived agent-code-tools.v1 generation with per-tool availability or refusal when present. The capability projection is informational and grants no execution authority.",
 			DataType:    reflect.TypeOf(RunDetailView{}), NotFound: true, Parameters: []openAPIParameter{runID}},
+		{Path: RunCapabilityReadinessPathTemplate, OperationID: "getRunCapabilityReadiness",
+			Summary: "Inspect Run capability readiness", Tag: "Runs",
+			Description: "Returns the Go-owned selected, selectable, runtime-available, stable blocker, remediation, and restart-required projection for every Permission, Profile, Interaction, browser CDP, and Standard Code preset option. This read-only projection is not a bearer, does not grant capability, and exposes no Workspace path, Docker endpoint, browser Profile, credential, lease token, or process identity.",
+			DataType:    reflect.TypeOf(RunCapabilityReadinessView{}), NotFound: true,
+			Parameters: []openAPIParameter{runID}},
 		{Path: "/api/v1/runs/{run_id}/events", OperationID: "listRunEvents", Summary: "List Run events",
 			Tag: "Runs", Description: "Returns the ordered append-only Run event stream.",
 			DataType: reflect.TypeOf(EventView{}), Collection: true, Paginated: true, NotFound: true,
@@ -1921,7 +1926,13 @@ func jsonField(field reflect.StructField) (string, bool, bool) {
 
 func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[string]any) {
 	if values := openAPIFieldEnums[typeName+"."+fieldName]; len(values) != 0 {
-		schema["enum"] = values
+		if schema["type"] == "array" {
+			if items, ok := schema["items"].(map[string]any); ok {
+				items["enum"] = values
+			}
+		} else {
+			schema["enum"] = values
+		}
 	}
 	if minimum, ok := openAPIFieldMinimums[typeName+"."+fieldName]; ok {
 		schema["minimum"] = minimum
@@ -2339,6 +2350,10 @@ var openAPIFieldEnums = map[string][]string{
 	"RunExecutionInteractionView.policy_version":               {domain.RunExecutionInteractionPolicyVersion},
 	"RunExecutionInteractionControlRequestView.mode":           {string(domain.RunExecutionInteractionPreview), string(domain.RunExecutionInteractionControlled), string(domain.RunExecutionInteractionDebug), string(domain.RunExecutionInteractionCyber)},
 	"RunExecutionInteractionControlRequestView.trust":          {string(domain.WorkspaceTrustUntrusted), string(domain.WorkspaceTrustTrusted)},
+	"RunCapabilityReadinessView.protocol_version":              {application.RunCapabilityReadinessProtocolVersion},
+	"CapabilityReadinessOptionView.value":                      {string(domain.RunExecutionPermissionConservative), string(domain.RunExecutionPermissionWorkspaceAccess), string(domain.RunExecutionPermissionApproval), string(domain.RunExecutionPermissionFullAccess), string(domain.RunExecutionPermissionDebug), string(domain.RunExecutionProfilePreview), string(domain.RunExecutionProfileDocker), string(domain.RunExecutionProfileLocal), string(domain.RunExecutionInteractionControlled), string(domain.RunExecutionInteractionCyber), string(domain.RunBrowserCDPPermissionRestricted), string(domain.RunBrowserCDPPermissionFullDebug), application.StandardCodePresetValue},
+	"CapabilityReadinessOptionView.blocked_by":                 {string(application.CapabilityBlockerRunNotQuiescent), string(application.CapabilityBlockerExecutionLeaseActive), string(application.CapabilityBlockerStartupGateClosed), string(application.CapabilityBlockerCapabilityUnimplemented), string(application.CapabilityBlockerSurfaceMismatch), string(application.CapabilityBlockerProfileMismatch), string(application.CapabilityBlockerPermissionMismatch), string(application.CapabilityBlockerWorkspaceUntrusted), string(application.CapabilityBlockerSandboxUnproven), string(application.CapabilityBlockerDockerUnavailable), string(application.CapabilityBlockerBackendNotReady)},
+	"CapabilityReadinessOptionView.remediation":                {string(application.CapabilityRemediationPauseRun), string(application.CapabilityRemediationCreateNewRun), string(application.CapabilityRemediationWaitForExecutionLease), string(application.CapabilityRemediationRestartWithStartupGate), string(application.CapabilityRemediationUpgradeApplication), string(application.CapabilityRemediationSelectRequiredSurface), string(application.CapabilityRemediationSelectRequiredProfile), string(application.CapabilityRemediationSelectRequiredPermission), string(application.CapabilityRemediationTrustWorkspace), string(application.CapabilityRemediationVerifySandbox), string(application.CapabilityRemediationInstallOrStartDocker), string(application.CapabilityRemediationRetryBackendReadiness)},
 	"RunCreationControlRequestView.version":                    {domain.RunCreationProtocolVersion},
 	"RunCreationControlRequestView.profile":                    {string(domain.ProfileCode), string(domain.ProfileReview), string(domain.ProfileLearn), string(domain.ProfileScript)},
 	"RunCreationControlRequestView.surface":                    {string(domain.ExecutionSurfaceCode), string(domain.ExecutionSurfaceCyber)},

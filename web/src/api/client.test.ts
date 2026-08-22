@@ -50,6 +50,33 @@ function runtimeCapabilitiesData(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function capabilityReadinessOption(value: string, selected = false) {
+  return { value, selected, selectable: true, runtime_available: true,
+    blocked_by: [] as string[], remediation: [] as string[], restart_required: false };
+}
+
+function capabilityReadinessData() {
+  const preset = capabilityReadinessOption("standard_code");
+  preset.selectable = false;
+  preset.runtime_available = false;
+  preset.blocked_by = ["capability_not_implemented"];
+  preset.remediation = ["upgrade_application"];
+  return {
+    protocol_version: "run_capability_readiness.v1", run_id: "run-1",
+    permissions: [capabilityReadinessOption("conservative", true),
+      capabilityReadinessOption("workspace_access"), capabilityReadinessOption("approval"),
+      capabilityReadinessOption("full_access"), capabilityReadinessOption("debug")],
+    profiles: [capabilityReadinessOption("preview", true),
+      capabilityReadinessOption("docker"), capabilityReadinessOption("local")],
+    interactions: [capabilityReadinessOption("preview", true),
+      capabilityReadinessOption("controlled"), capabilityReadinessOption("debug"),
+      capabilityReadinessOption("cyber")],
+    browser_cdp_permissions: [capabilityReadinessOption("restricted", true),
+      capabilityReadinessOption("full_debug")],
+    presets: [preset], capability_grant: false,
+  };
+}
+
 function scheduledJobData(overrides: Record<string, unknown> = {}) {
   return {
     id: "scheduled-job-1", owner_run_id: "run-1", owner_root_agent_id: "agent-root",
@@ -454,6 +481,61 @@ describe("CyberAgentClient", () => {
     expect(clientCapabilitiesFromRuntime(view)).toMatchObject({
       dockerExecutionEnabled: true,
     });
+  });
+
+  it("accepts only the exact Run capability readiness protocol", async () => {
+    const data = capabilityReadinessData();
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-run-readiness", data,
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(new CyberAgentClient("read-secret").runCapabilityReadiness("run-1"))
+      .resolves.toEqual(data);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/runs/run-1/capability-readiness");
+    expect(init.headers).toMatchObject({ Authorization: "Bearer read-secret" });
+  });
+
+  it.each([
+    ["unknown protocol", (data: ReturnType<typeof capabilityReadinessData>) => {
+      data.protocol_version = "run_capability_readiness.v2";
+    }],
+    ["capability grant", (data: ReturnType<typeof capabilityReadinessData>) => {
+      data.capability_grant = true;
+    }],
+    ["unknown blocker", (data: ReturnType<typeof capabilityReadinessData>) => {
+      data.profiles[0]!.blocked_by = ["private_runtime_error"];
+      data.profiles[0]!.remediation = ["pause_run"];
+    }],
+    ["missing remediation", (data: ReturnType<typeof capabilityReadinessData>) => {
+      data.profiles[0]!.blocked_by = ["run_not_quiescent"];
+    }],
+    ["unrelated remediation", (data: ReturnType<typeof capabilityReadinessData>) => {
+      data.profiles[0]!.blocked_by = ["run_not_quiescent"];
+      data.profiles[0]!.remediation = ["pause_run", "trust_workspace"];
+    }],
+    ["unsorted blockers", (data: ReturnType<typeof capabilityReadinessData>) => {
+      data.profiles[0]!.blocked_by = ["backend_not_ready", "startup_gate_closed"];
+      data.profiles[0]!.remediation = ["restart_with_startup_gate", "retry_backend_readiness"];
+      data.profiles[0]!.runtime_available = false;
+      data.profiles[0]!.restart_required = true;
+    }],
+    ["missing selected permission", (data: ReturnType<typeof capabilityReadinessData>) => {
+      data.permissions[0]!.selected = false;
+    }],
+    ["private extension", (data: ReturnType<typeof capabilityReadinessData>) => {
+      (data.permissions[0] as Record<string, unknown>).root_path = "C:\\private";
+    }],
+  ])("fails closed for a malformed readiness response with %s", async (_label, mutate) => {
+    const data = capabilityReadinessData();
+    mutate(data);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-run-readiness-invalid", data,
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+
+    await expect(new CyberAgentClient("read-secret").runCapabilityReadiness("run-1"))
+      .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
   it("creates scheduled jobs through the control bearer and validates closed authority", async () => {

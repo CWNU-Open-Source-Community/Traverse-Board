@@ -541,6 +541,19 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	hostCommandProposals := application.NewHostCommandProposalReviewService(
 		stateStore, hostCommandExecutor, config.ExecutionPermissionCapabilities)
 	embeddedAnalyzerExecution := application.NewEmbeddedAnalyzerExecutionService(stateStore)
+	capabilityReadinessRuntime := application.CapabilityReadinessRuntime{
+		RunControlEnabled: config.ControlToken != "" && config.RunControlEnabled,
+		ExecutionPermissionControlEnabled: config.ControlToken != "" &&
+			config.ExecutionPermissionControlEnabled,
+		BrowserCDPPermissionControlEnabled: config.ControlToken != "" &&
+			config.BrowserCDPPermissionControlEnabled,
+		ExecutionPermissionCapabilities:  config.ExecutionPermissionCapabilities,
+		BrowserCDPPermissionCapabilities: config.BrowserCDPPermissionCapabilities,
+		LocalSandboxInstalled: config.ExecutionPermissionCapabilities.
+			WorkspaceSandboxEnabled,
+		DockerStartupGateEnabled: config.DockerExecutionEnabled,
+		DockerAvailable:          config.DockerExecutionEnabled,
+	}
 	api, err := httpapi.New(stateStore, httpapi.Config{
 		AccessToken: config.ReadToken, ControlToken: config.ControlToken,
 		RunControlEnabled:                       config.RunControlEnabled,
@@ -548,6 +561,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		ExecutionPermissionCapabilities:         config.ExecutionPermissionCapabilities,
 		BrowserCDPPermissionControlEnabled:      config.BrowserCDPPermissionControlEnabled,
 		BrowserCDPPermissionCapabilities:        config.BrowserCDPPermissionCapabilities,
+		CapabilityReadinessRuntime:              &capabilityReadinessRuntime,
 		RunCreationEnabled:                      config.RunCreationEnabled,
 		SessionMessageEnabled:                   config.SessionMessageEnabled,
 		SessionSteeringControlEnabled:           config.SessionSteeringControlEnabled,

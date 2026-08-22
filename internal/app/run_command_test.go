@@ -141,6 +141,40 @@ func TestRunModeCLISelectsShowsAndChangesPhase(t *testing.T) {
 	}
 }
 
+func TestRunCapabilityReadinessCLIEmitsStrictNonAuthorizingProjection(t *testing.T) {
+	t.Setenv("CYBERAGENT_HOME", t.TempDir())
+	created, stderr, code := executeTestCommand(t, "run", "create",
+		"inspect capability readiness", "--profile", "code", "--surface", "code",
+		"--phase", "deliver", "--max-turns", "3")
+	if code != 0 || stderr != "" {
+		t.Fatalf("create stdout=%s stderr=%s code=%d", created, stderr, code)
+	}
+	runID := runIDPattern.FindString(created)
+	output, stderr, code := executeTestCommand(t, "run", "capability-readiness",
+		runID, "--json")
+	if code != 0 || stderr != "" {
+		t.Fatalf("readiness stdout=%s stderr=%s code=%d", output, stderr, code)
+	}
+	var projection application.RunCapabilityReadiness
+	if err := json.Unmarshal([]byte(output), &projection); err != nil {
+		t.Fatal(err)
+	}
+	if projection.RunID != runID || projection.CapabilityGrant ||
+		projection.Validate() != nil || len(projection.Permissions) != 5 ||
+		len(projection.Presets) != 1 {
+		t.Fatalf("invalid CLI readiness projection: %#v", projection)
+	}
+	workspace := projection.Permissions[1]
+	if workspace.Value != "workspace_access" || workspace.Selectable ||
+		workspace.RuntimeAvailable || !workspace.RestartRequired {
+		t.Fatalf("CLI readiness widened Workspace Access: %#v", workspace)
+	}
+	if strings.Contains(strings.ToLower(output), "root_path") ||
+		strings.Contains(strings.ToLower(output), "lease_id") {
+		t.Fatalf("CLI readiness exposed private runtime state: %s", output)
+	}
+}
+
 func TestRunExecutionProfileCLISelectsWithoutGrantingExecution(t *testing.T) {
 	t.Setenv("CYBERAGENT_HOME", t.TempDir())
 	created, stderr, code := executeTestCommand(t, "run", "create",

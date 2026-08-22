@@ -86,6 +86,8 @@ Schema v126 在 `conservative` 与 `approval` 之间增加 `workspace_access · 
 
 #129 不实现 Local Sandbox，也不提供可以打开 readiness 的产品参数。因此当前 CLI、API、Desktop 和 React 会一致显示该档不可用；它绝不回退到现有宿主 Command Runtime。切换权限 revision 会原子释放旧 execution lease，并使绑定旧快照的 Job owner 与工具 authority 失效。完整边界见 [ADR 0127](docs/adr/0127-workspace-access-permission-contract.md)。
 
+#130 新增 Go-owned `run_capability_readiness.v1`，把当前已选、现在可切换和后端当前可运行拆成独立事实，并为 Permission、Profile、Interaction、CDP 与 Standard Code 返回稳定阻塞码、修复动作和重启要求。CLI、HTTP、Desktop 与 React 共用该投影；响应不含私有路径且始终 `capability_grant=false`。详见 [ADR 0128](docs/adr/0128-go-owned-run-capability-readiness.md)。
+
 ### 只读 LSP 语义代码智能
 
 `code-intel-lsp.v1` 只启动操作者显式配置、审查并以 executable SHA-256 固定的本地 Language Server。Go 拥有 initialize、文档同步、请求取消/超时、崩溃重启和进程树清理；模型只在 Code Surface 的 root Plan/Deliver 回合看到 Server 实际协商成功的 workspace/document symbol、definition、references、implementation、hover、signature、diagnostics、call/type hierarchy 工具。Cyber、Specialist、rename、code action 和 format 均不开放。

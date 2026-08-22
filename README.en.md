@@ -86,6 +86,8 @@ Schema v126 adds `workspace_access` between `conservative` and `approval` as the
 
 #129 installs no Local Sandbox and exposes no product flag that can claim adapter readiness. CLI, API, Desktop, and React therefore report the level as unavailable today, with no fallback to the existing host Command Runtime. A permission-revision change atomically releases the old execution lease and fences Job owners and tool authorities bound to the old snapshot. See [ADR 0127](docs/adr/0127-workspace-access-permission-contract.md).
 
+#130 adds Go-owned `run_capability_readiness.v1`, separating the selected value, current selection eligibility, and current backend availability. Permission, Profile, Interaction, CDP, and Standard Code options now share stable blockers, remediations, and restart facts across CLI, HTTP, Desktop, and React. The private-path-free response always keeps `capability_grant=false`. See [ADR 0128](docs/adr/0128-go-owned-run-capability-readiness.md).
+
 ### Read-only LSP code intelligence
 
 `code-intel-lsp.v1` starts only local language servers selected through an explicit operator-reviewed configuration and pinned executable SHA-256. Go owns initialization, document synchronization, cancellation/timeouts, crash restart, and process-tree cleanup. During Code-surface root Plan/Deliver turns, the model sees only capabilities actually negotiated by the server: workspace/document symbols, definition, references, implementation, hover, signature help, diagnostics, and call/type hierarchy. Cyber, Specialist, rename, code actions, and formatting remain unavailable.

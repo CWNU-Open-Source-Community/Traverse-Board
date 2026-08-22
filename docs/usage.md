@@ -60,6 +60,8 @@ cyberagent run execution-permission set <run-id> debug --operation-key <stable-k
 cyberagent run browser-cdp-permission <run-id>
 cyberagent run browser-cdp-permission set <run-id> restricted --operation-key <stable-key> --enable-browser-cdp-control
 cyberagent run browser-cdp-permission set <run-id> full_debug --operation-key <stable-key> --confirm-full-cdp-debug --enable-browser-cdp-control --enable-full-cdp-debug --enable-permission-control --enable-danger-full-access --enable-debug-maximum-access
+cyberagent run capability-readiness <run-id>
+cyberagent run capability-readiness <run-id> --json --enable-permission-control --enable-browser-cdp-control --enable-docker-execution
 cyberagent run command-plan <run-id> git-status
 cyberagent run command-plan <run-id> git-diff-check --timeout 30s
 cyberagent run command-plan <run-id> go-version
@@ -140,6 +142,18 @@ A Mission is the stable goal and authorization scope. A Run is one resumable exe
 Schema v86 separates execution interaction intent from general runtime authority. `preview` is the default. `controlled` requires a Code-surface Run, the Local execution profile, explicit operator trust, and an explicit Workspace-boundary confirmation. `debug` additionally requests a user-owned ConPTY terminal, while `cyber` requires a Cyber-surface Run and Docker profile. Models, Agents, Skills, and repository content cannot select these modes. Every interaction snapshot still fixes process execution, network, capability grants, and execution authorization to false. Schema v87 records the separate, closed one-shot command path with write-ahead intents and immutable metadata-only receipts rather than widening that snapshot.
 
 Schema v88 adds an orthogonal execution-permission selector. Schema v126 expands it to `conservative|workspace_access|approval|full_access|debug`. `workspace_access · 工作区执行` is the future Standard Code ceiling: Workspace reads and reviewed writes are allowed, but commands require a separate ready Workspace Sandbox adapter; unsandboxed host processes, network, credentials, user home, persistent terminals, Agent input, and Full CDP are denied. #129 installs no adapter and exposes no enable flag, so the mode is currently unavailable on every product surface and never falls back to host execution. Selecting it requires the exact `--confirm-workspace-access` confirmation once a future adapter is ready. Schema v96 gives `approval` a durable model-proposal/operator-review path; the current extension accepts either an exact native process or one canonical PowerShell/Git Bash command envelope on Windows. `full_access` has an operator-only, dual-confirmed, non-sandboxed Windows CLI one-shot executor; it has no HTTP/Desktop/model route. `debug` has a short process-local lease over a user-started terminal; Desktop can now grant/revoke that lease and the root Supervisor can use it only in Code/Deliver. Elevated selection requires its own exact confirmation plus process-local startup gates. Persisted snapshots never grant authority, and a permission revision change releases the active execution lease before any new authority can be acquired. See [ADR 0127](adr/0127-workspace-access-permission-contract.md).
+
+`run capability-readiness` and `GET /api/v1/runs/{run_id}/capability-readiness`
+return the same Go-owned `run_capability_readiness.v1` projection used by Desktop.
+Each Permission, Profile, Interaction, browser-CDP, and Standard Code option reports
+`selected`, `selectable`, `runtime_available`, stable `blocked_by` and `remediation`
+arrays, and `restart_required`. Local or Docker intent may be selectable while its
+backend remains unavailable. Human output is stable for diagnosis; `--json` emits
+the exact protocol. Startup flags describe only the current invocation and do not
+prove backend readiness. The read response contains no private path or bearer and
+always has `capability_grant=false`; every mutation and execution path rechecks its
+own control token, state, lease, confirmation, Policy, and backend gates. Unknown
+protocol versions fail closed. See [ADR 0128](adr/0128-go-owned-run-capability-readiness.md).
 
 Schema v91 adds the independent `restricted|full_debug` browser-CDP selector described above. It does not inherit Shell authority from v88, and v88 does not inherit CDP authority from v91. A future concrete browser operation must recheck both its exact method/scope contract and the current process gates.
 

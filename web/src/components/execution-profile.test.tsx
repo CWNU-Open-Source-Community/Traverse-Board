@@ -3,6 +3,8 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CyberAgentClient } from "../api/client";
 import type { RunDetailView, RunExecutionProfileView } from "../api/types";
+import { capabilityReadinessFixture, patchCapabilityReadiness } from
+  "../test/capability-readiness";
 import { ExecutionProfilePanel } from "./run-permission-settings";
 
 vi.mock("../lib/locale", () => ({
@@ -57,12 +59,22 @@ function detail(profile: RunExecutionProfileView["profile"] = "preview"): RunDet
 describe("ExecutionProfilePanel", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("keeps selection read-only without a distinct control token", () => {
+  it("uses the server projection when a profile is not selectable", () => {
+    const readiness = patchCapabilityReadiness(capabilityReadinessFixture(),
+      "profiles", "docker", {
+        selectable: false,
+        blocked_by: ["run_not_quiescent"], remediation: ["pause_run"],
+      });
     render(<QueryClientProvider client={new QueryClient()}>
-      <ExecutionProfilePanel client={new CyberAgentClient("read-token")} detail={detail()} />
+      <ExecutionProfilePanel
+        client={new CyberAgentClient("read-token", "/api/v1", "control-token", {
+          runControlEnabled: true,
+        })}
+        detail={detail()} readiness={readiness} />
     </QueryClientProvider>);
-    expect(screen.getByText("只读连接")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Docker/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Docker/ }))
+      .toHaveTextContent("Run 尚未暂停");
   });
 
   it("submits one control request and adopts the returned non-authorizing profile", async () => {
@@ -81,6 +93,7 @@ describe("ExecutionProfilePanel", () => {
           runControlEnabled: true,
         })}
         detail={detail()}
+        readiness={capabilityReadinessFixture()}
       />
     </QueryClientProvider>);
 

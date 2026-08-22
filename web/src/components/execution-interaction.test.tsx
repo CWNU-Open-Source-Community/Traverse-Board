@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CyberAgentClient } from "../api/client";
 import type { RunDetailView } from "../api/types";
+import { capabilityReadinessFixture } from "../test/capability-readiness";
 import { ExecutionInteractionPanel } from "./run-permission-settings";
 
 vi.mock("../lib/locale", () => ({
@@ -56,6 +57,7 @@ describe("ExecutionInteractionPanel", () => {
           runControlEnabled: true,
         })}
         detail={detail()}
+        readiness={capabilityReadinessFixture()}
       />
     </QueryClientProvider>);
     expect(screen.getByRole("button", { name: /Cyber/ })).toBeDisabled();
@@ -81,6 +83,7 @@ describe("ExecutionInteractionPanel", () => {
           runControlEnabled: true,
         })}
         detail={detail()}
+        readiness={capabilityReadinessFixture()}
       />
     </QueryClientProvider>);
 

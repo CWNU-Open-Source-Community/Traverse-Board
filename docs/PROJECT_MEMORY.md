@@ -4,7 +4,31 @@
 
 Last updated: 2026-08-22
 
-## Current Single-Slice Checkpoint: Workspace Access Permission / Issue #129 / Schema v126
+## Current Single-Slice Checkpoint: Unified Runtime Readiness / Issue #130 / Schema v126
+
+PR #143 已合并并关闭 #129，因此 Epic #128 中 #130 对 #129 的唯一前置依赖已经解除；#130
+完成后继续为 #135 Standard Code 预设和 #136 安全模式 UX 提供协议前置。SQLite 不迁移，仍为
+v126。
+
+`run_capability_readiness.v1` 由 Go Application 单一计算 Permission、Profile、Interaction、
+browser-CDP 与 Standard Code 的 `selected`、`selectable`、`runtime_available`、稳定
+`blocked_by[]`、对应 `remediation[]` 和 `restart_required`。CLI 直接调用同一服务，HTTP 与
+Desktop 复用认证 read route；React 只严格校验和呈现，不再从 Run/lease/client gates 重建授权。
+投影固定 `capability_grant=false`，不含路径、endpoint、凭证、owner/lease 或 raw backend error。
+
+Local/Docker 在 Run 状态与控制路径允许时可以记录意图，但没有 sandbox proof、Docker 或 backend
+readiness 时继续 runtime unavailable。Standard Code 在本切片只投影
+`capability_not_implemented`，不开放 mutation 或运行权。协议、稳定排序、版本拒绝和隐私边界见
+ADR 0128。
+
+完成证据：`go test -p 2 -count=1 -timeout 30m ./...` 全绿（Application 628.645s、HTTP
+184.223s、Store 885.493s、Desktop 35.269s），readiness Application/HTTP 聚焦 race、Go vet、
+module verify、Desktop secure tags、66 文件 299 项 Web、TypeScript、Vite production build 与
+OpenAPI/TypeScript 双重确定性生成通过。OpenAPI/TypeScript SHA-256 为
+`fde7d8af96ad0fcd719eab5d2b7b7701d1519996310253c777f174ed0267694e` /
+`84c1cb48fa14466c2308f8a3d909eacd08466b2eaf7b8a95cd7a221c8d94d7d2`。
+
+## Previous Single-Slice Checkpoint: Workspace Access Permission / Issue #129 / Schema v126
 
 `workspace_access · 工作区执行` 是 Standard Code 的未来安全权限上限：Workspace 内读写可由
 策略表达，但命令只能交给通过独立 readiness 的 Workspace Sandbox adapter。宿主无沙箱执行、

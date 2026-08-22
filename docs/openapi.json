@@ -5976,6 +5976,84 @@
         "x-cyberagent-read-only": false
       }
     },
+    "/api/v1/runs/{run_id}/capability-readiness": {
+      "get": {
+        "operationId": "getRunCapabilityReadiness",
+        "summary": "Inspect Run capability readiness",
+        "description": "Returns the Go-owned selected, selectable, runtime-available, stable blocker, remediation, and restart-required projection for every Permission, Profile, Interaction, browser CDP, and Standard Code preset option. This read-only projection is not a bearer, does not grant capability, and exposes no Workspace path, Docker endpoint, browser Profile, credential, lease token, or process identity.",
+        "tags": [
+          "Runs"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/RunCapabilityReadinessView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
     "/api/v1/runs/{run_id}/child-task-proposals": {
       "get": {
         "operationId": "listRunChildTaskProposals",
@@ -19292,6 +19370,90 @@
         },
         "required": [
           "grace_period_millis"
+        ],
+        "type": "object"
+      },
+      "CapabilityReadinessOptionView": {
+        "additionalProperties": false,
+        "properties": {
+          "blocked_by": {
+            "items": {
+              "enum": [
+                "run_not_quiescent",
+                "execution_lease_active",
+                "startup_gate_closed",
+                "capability_not_implemented",
+                "surface_mismatch",
+                "profile_mismatch",
+                "permission_mismatch",
+                "workspace_untrusted",
+                "sandbox_unproven",
+                "docker_unavailable",
+                "backend_not_ready"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "remediation": {
+            "items": {
+              "enum": [
+                "pause_run",
+                "create_new_run",
+                "wait_for_execution_lease",
+                "restart_with_startup_gate",
+                "upgrade_application",
+                "select_required_surface",
+                "select_required_profile",
+                "select_required_permission",
+                "trust_workspace",
+                "verify_sandbox",
+                "install_or_start_docker",
+                "retry_backend_readiness"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "restart_required": {
+            "type": "boolean"
+          },
+          "runtime_available": {
+            "type": "boolean"
+          },
+          "selectable": {
+            "type": "boolean"
+          },
+          "selected": {
+            "type": "boolean"
+          },
+          "value": {
+            "enum": [
+              "conservative",
+              "workspace_access",
+              "approval",
+              "full_access",
+              "debug",
+              "preview",
+              "docker",
+              "local",
+              "controlled",
+              "cyber",
+              "restricted",
+              "full_debug",
+              "standard_code"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "selected",
+          "selectable",
+          "runtime_available",
+          "blocked_by",
+          "remediation",
+          "restart_required"
         ],
         "type": "object"
       },
@@ -33398,6 +33560,66 @@
           "transport_enabled",
           "browser_start_authorized",
           "runtime_authorized",
+          "capability_grant"
+        ],
+        "type": "object"
+      },
+      "RunCapabilityReadinessView": {
+        "additionalProperties": false,
+        "properties": {
+          "browser_cdp_permissions": {
+            "items": {
+              "$ref": "#/components/schemas/CapabilityReadinessOptionView"
+            },
+            "type": "array"
+          },
+          "capability_grant": {
+            "type": "boolean"
+          },
+          "interactions": {
+            "items": {
+              "$ref": "#/components/schemas/CapabilityReadinessOptionView"
+            },
+            "type": "array"
+          },
+          "permissions": {
+            "items": {
+              "$ref": "#/components/schemas/CapabilityReadinessOptionView"
+            },
+            "type": "array"
+          },
+          "presets": {
+            "items": {
+              "$ref": "#/components/schemas/CapabilityReadinessOptionView"
+            },
+            "type": "array"
+          },
+          "profiles": {
+            "items": {
+              "$ref": "#/components/schemas/CapabilityReadinessOptionView"
+            },
+            "type": "array"
+          },
+          "protocol_version": {
+            "enum": [
+              "run_capability_readiness.v1"
+            ],
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "run_id",
+          "permissions",
+          "profiles",
+          "interactions",
+          "browser_cdp_permissions",
+          "presets",
           "capability_grant"
         ],
         "type": "object"

@@ -129,6 +129,7 @@ import type {
   RepositoryCommitFilePreviewView,
   RunCreationControlRequestView,
   RunCreationControlView,
+  RunCapabilityReadinessView,
   RunExecutionControlRequestView,
   RunExecutionControlView,
   RunLifecycleControlRequestView,
@@ -1624,6 +1625,133 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
       "INVALID_RESPONSE", 502);
   }
   return value as unknown as RuntimeCapabilitiesView;
+}
+
+const capabilityReadinessBlockers = [
+  "run_not_quiescent", "execution_lease_active", "startup_gate_closed",
+  "capability_not_implemented", "surface_mismatch", "profile_mismatch",
+  "permission_mismatch", "workspace_untrusted", "sandbox_unproven",
+  "docker_unavailable", "backend_not_ready",
+] as const;
+
+const capabilityReadinessRemediations = [
+  "pause_run", "create_new_run", "wait_for_execution_lease",
+  "restart_with_startup_gate", "upgrade_application", "select_required_surface",
+  "select_required_profile", "select_required_permission", "trust_workspace",
+  "verify_sandbox", "install_or_start_docker", "retry_backend_readiness",
+] as const;
+
+type ReadinessBlocker = typeof capabilityReadinessBlockers[number];
+type ReadinessRemediation = typeof capabilityReadinessRemediations[number];
+
+const readinessRemediationForBlocker: Record<ReadinessBlocker,
+  ReadinessRemediation | readonly ReadinessRemediation[]> = {
+  run_not_quiescent: ["pause_run", "create_new_run"],
+  execution_lease_active: "wait_for_execution_lease",
+  startup_gate_closed: "restart_with_startup_gate",
+  capability_not_implemented: "upgrade_application",
+  surface_mismatch: "select_required_surface",
+  profile_mismatch: "select_required_profile",
+  permission_mismatch: "select_required_permission",
+  workspace_untrusted: "trust_workspace",
+  sandbox_unproven: "verify_sandbox",
+  docker_unavailable: "install_or_start_docker",
+  backend_not_ready: "retry_backend_readiness",
+};
+
+function parseCapabilityReadinessOption(value: unknown,
+  expectedValue: string): Record<string, unknown> {
+  if (!hasExactKeys(value, ["blocked_by", "remediation", "restart_required",
+    "runtime_available", "selectable", "selected", "value"]) ||
+    value.value !== expectedValue || typeof value.selected !== "boolean" ||
+    typeof value.selectable !== "boolean" || typeof value.runtime_available !== "boolean" ||
+    typeof value.restart_required !== "boolean" || !Array.isArray(value.blocked_by) ||
+    !Array.isArray(value.remediation)) {
+    throw new APIRequestError("Capability readiness option is invalid", "INVALID_RESPONSE", 502);
+  }
+  const blockers = value.blocked_by;
+  const remediation = value.remediation;
+  if (blockers.length > capabilityReadinessBlockers.length ||
+    remediation.length > capabilityReadinessRemediations.length ||
+    blockers.some((entry) => typeof entry !== "string" ||
+      !capabilityReadinessBlockers.includes(entry as ReadinessBlocker)) ||
+    remediation.some((entry) => typeof entry !== "string" ||
+      !capabilityReadinessRemediations.includes(entry as ReadinessRemediation)) ||
+    new Set(blockers).size !== blockers.length || new Set(remediation).size !== remediation.length ||
+    blockers.some((entry, index) => index > 0 &&
+      capabilityReadinessBlockers.indexOf(entry as ReadinessBlocker) <=
+        capabilityReadinessBlockers.indexOf(blockers[index - 1] as ReadinessBlocker)) ||
+    remediation.some((entry, index) => index > 0 &&
+      capabilityReadinessRemediations.indexOf(entry as ReadinessRemediation) <=
+        capabilityReadinessRemediations.indexOf(remediation[index - 1] as ReadinessRemediation)) ||
+    (blockers.length === 0) !== (remediation.length === 0) ||
+    value.restart_required !== blockers.includes("startup_gate_closed")) {
+    throw new APIRequestError("Capability readiness disposition is invalid",
+      "INVALID_RESPONSE", 502);
+  }
+  for (const blocker of blockers as ReadinessBlocker[]) {
+    const expected = readinessRemediationForBlocker[blocker];
+    const accepted = Array.isArray(expected) ? expected : [expected];
+    if (!accepted.some((entry) => remediation.includes(entry))) {
+      throw new APIRequestError("Capability readiness remediation is incomplete",
+        "INVALID_RESPONSE", 502);
+    }
+  }
+  for (const action of remediation as ReadinessRemediation[]) {
+    const matched = (blockers as ReadinessBlocker[]).some((blocker) => {
+      const expected = readinessRemediationForBlocker[blocker];
+      const accepted = Array.isArray(expected) ? expected : [expected];
+      return accepted.includes(action);
+    });
+    if (!matched) {
+      throw new APIRequestError("Capability readiness remediation is unrelated",
+        "INVALID_RESPONSE", 502);
+    }
+  }
+  const runtimeFailureBlockers: ReadinessBlocker[] = [
+    "capability_not_implemented", "surface_mismatch", "profile_mismatch",
+    "permission_mismatch", "workspace_untrusted", "sandbox_unproven",
+    "docker_unavailable", "backend_not_ready",
+  ];
+  if (value.runtime_available &&
+    blockers.some((entry) => runtimeFailureBlockers.includes(entry as ReadinessBlocker))) {
+    throw new APIRequestError("Capability readiness claims a blocked runtime",
+      "INVALID_RESPONSE", 502);
+  }
+  return value;
+}
+
+function parseRunCapabilityReadiness(value: unknown,
+  expectedRunID: string): RunCapabilityReadinessView {
+  if (!hasExactKeys(value, ["browser_cdp_permissions", "capability_grant",
+    "interactions", "permissions", "presets", "profiles", "protocol_version", "run_id"]) ||
+    value.protocol_version !== "run_capability_readiness.v1" ||
+    value.run_id !== expectedRunID || !boundedIdentity(value.run_id) ||
+    value.capability_grant !== false) {
+    throw new APIRequestError("Run capability readiness response is invalid",
+      "INVALID_RESPONSE", 502);
+  }
+  const groups: Array<[unknown, readonly string[], boolean]> = [
+    [value.permissions, ["conservative", "workspace_access", "approval", "full_access", "debug"], true],
+    [value.profiles, ["preview", "docker", "local"], true],
+    [value.interactions, ["preview", "controlled", "debug", "cyber"], true],
+    [value.browser_cdp_permissions, ["restricted", "full_debug"], true],
+    [value.presets, ["standard_code"], false],
+  ];
+  for (const [rawOptions, expected, requiresSelection] of groups) {
+    if (!Array.isArray(rawOptions) || rawOptions.length !== expected.length) {
+      throw new APIRequestError("Run capability readiness option group is incomplete",
+        "INVALID_RESPONSE", 502);
+    }
+    const parsed = rawOptions.map((option, index) =>
+      parseCapabilityReadinessOption(option, expected[index]!));
+    const selected = parsed.filter((option) => option.selected === true).length;
+    if (selected > 1 || (requiresSelection && selected !== 1)) {
+      throw new APIRequestError("Run capability readiness selection is invalid",
+        "INVALID_RESPONSE", 502);
+    }
+  }
+  return value as unknown as RunCapabilityReadinessView;
 }
 
 const safeWebReadinessBlockingReasons = [
@@ -4371,6 +4499,15 @@ export class CyberAgentClient {
 
   async runtimeCapabilities(signal?: AbortSignal): Promise<RuntimeCapabilitiesView> {
     return parseRuntimeCapabilities(await this.get<unknown>("/capabilities", {}, signal));
+  }
+
+  async runCapabilityReadiness(runID: string,
+    signal?: AbortSignal): Promise<RunCapabilityReadinessView> {
+    if (!boundedIdentity(runID) || runID.trim() !== runID) {
+      throw new Error("A normalized Run identity is required");
+    }
+    return parseRunCapabilityReadiness(await this.get<unknown>(
+      `/runs/${encodeURIComponent(runID)}/capability-readiness`, {}, signal), runID);
   }
 
   async codeIntelInventory(workspaceID = "", signal?: AbortSignal):

@@ -60,6 +60,10 @@ export type FindingReportSummaryView = components["schemas"]["FindingReportSumma
 export type FindingReportView = components["schemas"]["FindingReportView"];
 export type HealthView = components["schemas"]["HealthView"];
 export type RuntimeCapabilitiesView = components["schemas"]["RuntimeCapabilitiesView"];
+export type CapabilityReadinessOptionView =
+  components["schemas"]["CapabilityReadinessOptionView"];
+export type RunCapabilityReadinessView =
+  components["schemas"]["RunCapabilityReadinessView"];
 export type GitAdvancedAuthorityView = components["schemas"]["GitAdvancedAuthorityView"];
 export type GitAdvancedCapabilityView = components["schemas"]["GitAdvancedCapabilitySnapshot"];
 export type GitAdvancedConflictView = components["schemas"]["GitAdvancedConflictState"];

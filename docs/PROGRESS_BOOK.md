@@ -6,6 +6,26 @@
 
 ## 一、当前阶段
 
+2026-08-22 单切片 `统一 Runtime readiness、阻塞原因与修复建议（Issue #130）` 完成
+`run_capability_readiness.v1`，SQLite 保持 v126。PR #143 已合并并关闭 #129，因此 Epic #128
+声明的前置依赖已解除。Go 从当前 Run/mode/Profile/Permission/Interaction/CDP/lease 与进程
+startup/backend facts 单一投影五组 option 的 selected/selectable/runtime-available、稳定
+blocked-by/remediation 和 restart-required。CLI 直接调用同一 Application 服务，认证 HTTP/OpenAPI
+与 Desktop in-process Handler 暴露同一只读 DTO，React 严格校验后呈现且不再自行推导授权。
+
+响应固定 `capability_grant=false`，不含 Workspace/Docker/browser 路径或 endpoint、凭证、
+lease/owner/operation/process identity，也不能替代 mutation/execution 的 control bearer、确认、
+Policy、lease 或执行时复核。Local/Docker 可只记录意图并明确 runtime unavailable；Standard Code
+仍以 `capability_not_implemented` 关闭。ADR 0128 固定原因/修复映射、规范顺序、隐私和未知版本
+失败关闭。
+
+最终 `go test -p 2 -count=1 -timeout 30m ./...` 全绿（Application 628.645s、HTTP 184.223s、
+Store 885.493s、Desktop 35.269s）；readiness Application/HTTP 聚焦 race、vet、module verify、
+Desktop secure tags、66 文件 299 项 Web、strict TypeScript 与 production build 通过。OpenAPI 和
+TypeScript 连续两次生成字节稳定，SHA-256 为
+`fde7d8af96ad0fcd719eab5d2b7b7701d1519996310253c777f174ed0267694e` /
+`84c1cb48fa14466c2308f8a3d909eacd08466b2eaf7b8a95cd7a221c8d94d7d2`。
+
 2026-08-22 单切片 `Workspace Access 权限合同（Issue #129）` 推进到 SQLite v126。新增
 `workspace_access · 工作区执行`、完整 capability matrix、精确确认、独立
 `workspace_sandbox_adapter` readiness 和 `sandboxed_workspace_command` 统一授权决策；宿主进程、

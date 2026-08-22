@@ -3,6 +3,8 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CyberAgentClient } from "../api/client";
 import type { RunDetailView } from "../api/types";
+import { capabilityReadinessFixture, patchCapabilityReadiness } from
+  "../test/capability-readiness";
 import { BrowserCDPPermissionPanel, ExecutionPermissionPanel,
   RunPermissionSettings } from "./run-permission-settings";
 
@@ -90,6 +92,7 @@ describe("ExecutionPermissionPanel", () => {
           executionPermissionControlEnabled: true,
         })}
         detail={detail()}
+        readiness={capabilityReadinessFixture()}
       />
     </QueryClientProvider>);
     expect(screen.getByRole("button", { name: /调试/ })).toBeDisabled();
@@ -123,12 +126,19 @@ describe("ExecutionPermissionPanel", () => {
     }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
+    const readiness = patchCapabilityReadiness(capabilityReadinessFixture(),
+      "permissions", "workspace_access", {
+        selectable: true, runtime_available: false,
+        blocked_by: ["sandbox_unproven"], remediation: ["verify_sandbox"],
+        restart_required: false,
+      });
     render(<QueryClientProvider client={new QueryClient()}>
       <ExecutionPermissionPanel
         client={new CyberAgentClient("read", "/api/v1", "control", {
           executionPermissionControlEnabled: true,
         })}
         detail={available}
+        readiness={readiness}
       />
     </QueryClientProvider>);
     await user.click(screen.getByRole("button", { name: /工作区执行/ }));
@@ -165,6 +175,7 @@ describe("ExecutionPermissionPanel", () => {
           executionPermissionControlEnabled: true,
         })}
         detail={detail()}
+        readiness={capabilityReadinessFixture()}
       />
     </QueryClientProvider>);
     await user.click(screen.getByRole("button", { name: /完全访问/ }));
@@ -192,6 +203,10 @@ describe("ExecutionPermissionPanel", () => {
     } as RunDetailView;
     queryClient.setQueryData(["run", "run-1"], runOne);
     queryClient.setQueryData(["run", "run-2"], runTwo);
+    queryClient.setQueryData(["run", "run-1", "capability-readiness"],
+      capabilityReadinessFixture("run-1"));
+    queryClient.setQueryData(["run", "run-2", "capability-readiness"],
+      capabilityReadinessFixture("run-2"));
     const user = userEvent.setup();
     const view = render(<QueryClientProvider client={queryClient}>
       <RunPermissionSettings client={client} runID="run-1" />
@@ -221,6 +236,7 @@ describe("BrowserCDPPermissionPanel", () => {
           fullCDPDebugEnabled: true,
         })}
         detail={detail()}
+        readiness={capabilityReadinessFixture()}
       />
     </QueryClientProvider>);
     expect(screen.getByText("高度敏感权限")).toBeInTheDocument();
@@ -258,6 +274,11 @@ describe("BrowserCDPPermissionPanel", () => {
     }), { status: 202, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
+    const readiness = patchCapabilityReadiness(capabilityReadinessFixture(),
+      "browser_cdp_permissions", "full_debug", {
+        selectable: true, runtime_available: true,
+        blocked_by: [], remediation: [], restart_required: false,
+      });
     render(<QueryClientProvider client={new QueryClient()}>
       <BrowserCDPPermissionPanel
         client={new CyberAgentClient("read", "/api/v1", "control", {
@@ -265,6 +286,7 @@ describe("BrowserCDPPermissionPanel", () => {
           fullCDPDebugEnabled: true,
         })}
         detail={debugDetail}
+        readiness={readiness}
       />
     </QueryClientProvider>);
 

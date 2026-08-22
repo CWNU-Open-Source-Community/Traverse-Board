@@ -73,6 +73,8 @@ func (a *App) runCommand(ctx context.Context, args []string) error {
 		return a.runExecutionPermission(ctx, args[1:])
 	case "browser-cdp-permission":
 		return a.runBrowserCDPPermission(ctx, args[1:])
+	case "capability-readiness":
+		return a.runCapabilityReadiness(ctx, args[1:])
 	case "command-plan":
 		return a.runCommandPlan(ctx, args[1:])
 	case "command-execute":
@@ -2125,6 +2127,103 @@ func writeRunBrowserCDPPermission(out interface{ Write([]byte) (int, error) },
 		permission.RequiredGate, permission.PolicyVersion,
 		permission.OperatorConfirmed, permission.RequestedBy, permission.Reason,
 		permission.CreatedAt.Format(time.RFC3339Nano), runtimeGateAvailable, replayed)
+}
+
+func (a *App) runCapabilityReadiness(ctx context.Context, args []string) error {
+	fs := newFlagSet("run capability-readiness", a.errOut)
+	jsonOutput := fs.Bool("json", false, "emit the strict readiness protocol as JSON")
+	permissionControl := fs.Bool("enable-permission-control", false,
+		"project permission-control startup availability")
+	dangerFullAccess := fs.Bool("enable-danger-full-access", false,
+		"project danger-full-access startup availability")
+	debugMaximumAccess := fs.Bool("enable-debug-maximum-access", false,
+		"project maximum Debug startup availability")
+	browserCDPControl := fs.Bool("enable-browser-cdp-control", false,
+		"project browser CDP control startup availability")
+	fullCDPDebug := fs.Bool("enable-full-cdp-debug", false,
+		"project complete CDP Debug startup availability")
+	dockerExecution := fs.Bool("enable-docker-execution", false,
+		"project the Docker execution startup gate; exact backend readiness remains unproven")
+	if err := fs.Parse(reorderFlags(args, map[string]bool{
+		"json": false, "enable-permission-control": false,
+		"enable-danger-full-access": false, "enable-debug-maximum-access": false,
+		"enable-browser-cdp-control": false, "enable-full-cdp-debug": false,
+		"enable-docker-execution": false,
+	})); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return errors.New("usage: cyberagent run capability-readiness <run-id> [--json] [explicit startup capability flags]")
+	}
+	executionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled:   *permissionControl,
+		DangerFullAccessEnabled:   *dangerFullAccess,
+		DebugMaximumAccessEnabled: *debugMaximumAccess,
+	}
+	browserCapabilities := domain.BrowserCDPPermissionRuntimeCapabilities{
+		ControlEnabled: *browserCDPControl, FullDebugEnabled: *fullCDPDebug,
+	}
+	if err := executionCapabilities.Validate(); err != nil {
+		return apperror.Wrap(apperror.CodeInvalidArgument, err.Error(), err)
+	}
+	if err := browserCapabilities.Validate(); err != nil {
+		return apperror.Wrap(apperror.CodeInvalidArgument, err.Error(), err)
+	}
+	if browserCapabilities.FullDebugEnabled &&
+		!executionCapabilities.DebugMaximumAccessEnabled {
+		return apperror.New(apperror.CodeInvalidArgument,
+			"full CDP debug readiness requires maximum Debug execution readiness")
+	}
+	runtime := application.CapabilityReadinessRuntime{
+		RunControlEnabled: true, ExecutionPermissionControlEnabled: *permissionControl,
+		BrowserCDPPermissionControlEnabled: *browserCDPControl,
+		ExecutionPermissionCapabilities:    executionCapabilities,
+		BrowserCDPPermissionCapabilities:   browserCapabilities,
+		DockerStartupGateEnabled:           *dockerExecution, DockerAvailable: *dockerExecution,
+	}
+	projection, err := application.NewRunCapabilityReadinessService(a.store, runtime).
+		Project(ctx, fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	if *jsonOutput {
+		encoder := json.NewEncoder(a.out)
+		encoder.SetEscapeHTML(true)
+		return encoder.Encode(projection)
+	}
+	writeRunCapabilityReadiness(a.out, projection)
+	return nil
+}
+
+func writeRunCapabilityReadiness(out interface{ Write([]byte) (int, error) },
+	projection application.RunCapabilityReadiness,
+) {
+	fmt.Fprintf(out, "protocol: %s\nrun: %s\ncapability_grant: false\n",
+		projection.ProtocolVersion, projection.RunID)
+	groups := []struct {
+		name    string
+		options []application.CapabilityReadinessOption
+	}{
+		{"permission", projection.Permissions}, {"profile", projection.Profiles},
+		{"interaction", projection.Interactions},
+		{"browser_cdp", projection.BrowserCDPPermissions}, {"preset", projection.Presets},
+	}
+	for _, group := range groups {
+		for _, option := range group.options {
+			blockedBy := make([]string, len(option.BlockedBy))
+			for index, blocker := range option.BlockedBy {
+				blockedBy[index] = string(blocker)
+			}
+			remediation := make([]string, len(option.Remediation))
+			for index, action := range option.Remediation {
+				remediation[index] = string(action)
+			}
+			fmt.Fprintf(out, "%s.%s: selected=%t selectable=%t runtime_available=%t blocked_by=%s remediation=%s restart_required=%t\n",
+				group.name, option.Value, option.Selected, option.Selectable,
+				option.RuntimeAvailable, strings.Join(blockedBy, ","),
+				strings.Join(remediation, ","), option.RestartRequired)
+		}
+	}
 }
 
 func (a *App) runCommandPlan(ctx context.Context, args []string) error {
