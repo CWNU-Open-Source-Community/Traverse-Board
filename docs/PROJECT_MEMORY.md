@@ -16,7 +16,7 @@ Drydock generation/Checkpoint/binding、Docker profile、workspace_access revisi
 exact approval、Policy、budget 和 readiness 在 start 前重验；启动后的预期写入由 terminal
 Drydock Checkpoint 归属。cancel/crash/restart/permission drift 复用已有 WAL/lease/exact labels/config/
 absence cleanup；未知文件、目录、container 保留。Drydock/Worktree 是 ownership/recovery boundary，
-不是 isolation boundary。边界与操作见 ADR 0130 / `docs/standard-code-docker.md`。
+不是 isolation boundary。边界与操作见 ADR 0131 / `docs/standard-code-docker.md`。
 
 Schema v128 只重建既有 Docker product admission parent table，把 `workspace_access` 加入闭集 CHECK，
 原样复制历史 admission，并恢复其 insert/binding/cancellation/start/launch/receipt/immutable triggers；

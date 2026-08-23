@@ -454,12 +454,17 @@ histories still fail closed. See
 Schema v126 adds the non-authorizing `workspace_access` Run permission ceiling.
 It admits only a `sandboxed_workspace_command` decision when an independent,
 process-local Workspace Sandbox adapter is ready; host process, network,
-credential, home, terminal, Agent-input, and Full-CDP facts remain false. At
-schema v126 the product installed no adapter. Issue #133 later adds only the
-explicit fixed Docker `network=none` Standard Code fallback; an existing host
-runner still may not serve as a fallback. Selecting any new permission revision
-atomically releases the active Run execution lease and fences old Job/tool authority. See
-[ADR 0127](adr/0127-workspace-access-permission-contract.md).
+credential, home, terminal, Agent-input, and Full-CDP facts remain false.
+Windows x64 now installs the Local adapter only behind an explicit startup
+request and a real AppContainer/WFP/Job/ACL readiness proof. Failure keeps the
+mode unavailable and no existing host runner may serve as a fallback. The
+sandboxed shared Command Runtime adapter remains separate (#134). Issue #133
+adds the separately gated fixed Docker `network=none` Standard Code fallback;
+daemon or image failure likewise never selects a host runner. Selecting any new
+permission revision atomically releases the active Run execution lease and fences
+old Job/tool authority. See
+[ADR 0127](adr/0127-workspace-access-permission-contract.md) and
+[ADR 0130](adr/0130-windows-local-sandbox-backend.md).
 
 Schema v127 adds `drydock-workspace.v1` as a Run-owned ownership and recovery
 boundary around one product-created Git worktree. The first create is a read-only
@@ -494,7 +499,7 @@ revalidated immediately before start. Drydock is not the isolation boundary; the
 fixed Docker container is. Terminal writes become one idempotent Drydock Checkpoint,
 while bounded logs retain the existing receipt. See
 [Standard Code Docker](standard-code-docker.md) and
-[ADR 0130](adr/0130-standard-code-docker-network-none-backend.md).
+[ADR 0131](adr/0131-standard-code-docker-network-none-backend.md).
 
 Schema v98 adds the bounded I/O contract without changing that authority boundary. Read-only input projection, fixed non-streaming attach, per-stream byte/line/deadline limits, strict output-archive walking, process-local staging, re-hashing, and atomic output commit are all bound to the exact lifecycle attempt/generation. Raw logs do not persist and the Workspace is never a writable container mount. See [ADR 0098](adr/0098-bounded-docker-container-io-contract.md).
 

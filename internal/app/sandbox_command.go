@@ -18,7 +18,7 @@ import (
 
 func (a *App) sandboxCommand(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: cyberagent sandbox validate|template")
+		return errors.New("usage: cyberagent sandbox validate|template|local-readiness")
 	}
 	switch args[0] {
 	case "validate":
@@ -62,6 +62,26 @@ func (a *App) sandboxCommand(ctx context.Context, args []string) error {
 		}
 		fmt.Fprintln(a.out, string(encoded))
 		return nil
+	case "local-readiness":
+		fs := newFlagSet("sandbox local-readiness", a.errOut)
+		enabled := fs.Bool("enable-workspace-sandbox", false,
+			"request the process-local Workspace Sandbox startup gate")
+		jsonOutput := fs.Bool("json", false,
+			"emit the strict Local Sandbox readiness protocol as JSON")
+		if err := fs.Parse(reorderFlags(args[1:], map[string]bool{
+			"enable-workspace-sandbox": false, "json": false,
+		})); err != nil {
+			return err
+		}
+		if fs.NArg() != 0 {
+			return errors.New("usage: cyberagent sandbox local-readiness [--enable-workspace-sandbox] [--json]")
+		}
+		backend, readiness, err := openLocalSandbox(ctx, *enabled)
+		if err != nil {
+			return err
+		}
+		defer backend.Close()
+		return writeLocalSandboxReadiness(a.out, readiness, *jsonOutput)
 	default:
 		return fmt.Errorf("unknown sandbox subcommand %q", args[0])
 	}

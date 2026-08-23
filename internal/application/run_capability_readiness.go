@@ -131,6 +131,29 @@ type CapabilityReadinessRuntime struct {
 	BrowserBackendReady                bool
 }
 
+// WithLocalSandboxReadiness consumes a validated, non-authorizing backend
+// attestation. WorkspaceSandboxEnabled is opened only by a current ready proof;
+// a requested but unavailable backend remains fail-closed.
+func (r CapabilityReadinessRuntime) WithLocalSandboxReadiness(
+	readiness sandbox.LocalReadiness,
+) (CapabilityReadinessRuntime, error) {
+	if err := readiness.Validate(); err != nil {
+		return CapabilityReadinessRuntime{}, fmt.Errorf(
+			"local sandbox readiness: %w", err)
+	}
+	now := time.Now().UTC()
+	current := !readiness.CheckedAt.After(now) && now.Before(readiness.ExpiresAt)
+	ready := readiness.FeatureEnabled && readiness.Ready &&
+		readiness.Status == sandbox.LocalReadinessReady && current
+	r.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled = ready
+	r.LocalSandboxInstalled = ready || (readiness.FeatureEnabled &&
+		readiness.ReasonCode != sandbox.LocalReasonPlatformUnsupported &&
+		readiness.ReasonCode != sandbox.LocalReasonArchitectureUnsupported)
+	r.LocalSandboxProven = ready
+	r.LocalBackendReady = ready
+	return r, nil
+}
+
 func (r CapabilityReadinessRuntime) Validate() error {
 	if err := r.ExecutionPermissionCapabilities.Validate(); err != nil {
 		return fmt.Errorf("execution permission capabilities: %w", err)
@@ -165,7 +188,7 @@ func (r CapabilityReadinessRuntime) Validate() error {
 	}
 	if r.StandardCodePresetEnabled && (!r.RunControlEnabled ||
 		!r.ExecutionPermissionControlEnabled || !r.BrowserCDPPermissionControlEnabled) {
-		return errors.New("Standard Code preset control requires all component controls")
+		return errors.New("standard code preset control requires all component controls")
 	}
 	return nil
 }

@@ -84,11 +84,11 @@ Schema v115 引入 `agent-code-tools.v1`，让 root Supervisor 能在真实 Work
 
 Schema v126 在 `conservative` 与 `approval` 之间增加 `workspace_access · 工作区执行`，作为 Standard Code 的权限上限。它允许模型在已注册 Workspace 内读写，并允许一个已通过独立 readiness 的沙箱 adapter 运行有界命令；宿主无沙箱进程、网络、凭证、用户主目录、持久用户/Agent 终端和完整 CDP 全部拒绝。任何越界动作必须走另一条精确、一次性的审批链，持久权限快照本身始终不携带执行 authority。
 
-#129 不实现 Local Sandbox，也不提供可以打开 readiness 的产品参数。因此当前 CLI、API、Desktop 和 React 会一致显示该档不可用；它绝不回退到现有宿主 Command Runtime。切换权限 revision 会原子释放旧 execution lease，并使绑定旧快照的 Job owner 与工具 authority 失效。完整边界见 [ADR 0127](docs/adr/0127-workspace-access-permission-contract.md)。
+Windows x64 现在提供显式 `--enable-workspace-sandbox` Local backend；只有真实 AppContainer/WFP/Job/ACL readiness 通过后，CLI、API 与 Desktop 才会打开该进程的 Workspace gate。失败或不支持的平台继续显示不可用，且绝不回退到现有宿主 Command Runtime。共享 sandboxed Command Runtime adapter 仍由 #134 负责，因此 readiness/权限选择本身不会启动进程或向模型发布命令工具。切换权限 revision 会原子释放旧 execution lease，并使绑定旧快照的 Job owner 与工具 authority 失效。完整边界见 [ADR 0127](docs/adr/0127-workspace-access-permission-contract.md) 与 [ADR 0130](docs/adr/0130-windows-local-sandbox-backend.md)。
 
 #130 新增 Go-owned `run_capability_readiness.v1`，把当前已选、现在可切换和后端当前可运行拆成独立事实，并为 Permission、Profile、Interaction、CDP 与 Standard Code 返回稳定阻塞码、修复动作和重启要求。CLI、HTTP、Desktop 与 React 共用该投影；响应不含私有路径且始终 `capability_grant=false`。详见 [ADR 0128](docs/adr/0128-go-owned-run-capability-readiness.md)。
 
-Schema v128 随 #133 将既有固定本地 Docker Engine 的 `network=none` 路径接为 Standard Code 的显式备用后端，并只为既有 Docker admission ledger 增加 `workspace_access` 枚举兼容。上层 `standard-code-command.v1` 不含 backend、镜像、endpoint、mount、网络、环境或 Docker flags；Go 只把当前精确 Drydock 投影到 `/workspace`，固定非 root 用户、只读根文件系统/工具链、资源上限和无凭证环境。daemon/镜像不可用只返回稳定 `blocked_by/remediation`，不拉取镜像且不回退宿主执行。Drydock/Worktree 仍只是所有权与恢复边界，不是安全沙箱；进程与网络隔离来自固定容器。操作见 [Standard Code Docker backend](docs/standard-code-docker.md)，设计见 [ADR 0130](docs/adr/0130-standard-code-docker-network-none-backend.md)。
+Schema v128 随 #133 将既有固定本地 Docker Engine 的 `network=none` 路径接为 Standard Code 的显式备用后端，并只为既有 Docker admission ledger 增加 `workspace_access` 枚举兼容。上层 `standard-code-command.v1` 不含 backend、镜像、endpoint、mount、网络、环境或 Docker flags；Go 只把当前精确 Drydock 投影到 `/workspace`，固定非 root 用户、只读根文件系统/工具链、资源上限和无凭证环境。daemon/镜像不可用只返回稳定 `blocked_by/remediation`，不拉取镜像且不回退宿主执行。Drydock/Worktree 仍只是所有权与恢复边界，不是安全沙箱；进程与网络隔离来自固定容器。操作见 [Standard Code Docker backend](docs/standard-code-docker.md)，设计见 [ADR 0131](docs/adr/0131-standard-code-docker-network-none-backend.md)。
 
 ### Run-owned Drydock 工作目录
 

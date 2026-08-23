@@ -1962,7 +1962,7 @@ func (a *App) runExecutionPermission(ctx context.Context, args []string) error {
 		return nil
 	}
 	if len(args) == 0 || args[0] != "set" {
-		return errors.New("usage: cyberagent run execution-permission <run-id> | cyberagent run execution-permission set <run-id> conservative|workspace_access|approval|full_access|debug --operation-key <key> [--confirm-workspace-access|--confirm-user-approval|--confirm-danger-full-access|--confirm-debug-access] [--enable-permission-control] [--enable-danger-full-access] [--enable-debug-maximum-access] [--operator <id>] [--reason <text>]")
+		return errors.New("usage: cyberagent run execution-permission <run-id> | cyberagent run execution-permission set <run-id> conservative|workspace_access|approval|full_access|debug --operation-key <key> [--confirm-workspace-access|--confirm-user-approval|--confirm-danger-full-access|--confirm-debug-access] [--enable-permission-control] [--enable-workspace-sandbox] [--enable-danger-full-access] [--enable-debug-maximum-access] [--operator <id>] [--reason <text>]")
 	}
 	fs := newFlagSet("run execution-permission set", a.errOut)
 	operationKey := fs.String("operation-key", "",
@@ -1979,6 +1979,8 @@ func (a *App) runExecutionPermission(ctx context.Context, args []string) error {
 		"confirm persistent maximum-access debug capabilities")
 	enableControl := fs.Bool("enable-permission-control", false,
 		"enable permission elevation for this process")
+	enableWorkspaceSandbox := fs.Bool("enable-workspace-sandbox", false,
+		"request the verified process-local Workspace Sandbox gate")
 	enableFull := fs.Bool("enable-danger-full-access", false,
 		"enable danger-full-access for this process")
 	enableDebug := fs.Bool("enable-debug-maximum-access", false,
@@ -1988,17 +1990,30 @@ func (a *App) runExecutionPermission(ctx context.Context, args []string) error {
 		"confirm-workspace-access": false,
 		"confirm-user-approval":    false, "confirm-danger-full-access": false,
 		"confirm-debug-access": false, "enable-permission-control": false,
+		"enable-workspace-sandbox":  false,
 		"enable-danger-full-access": false, "enable-debug-maximum-access": false,
 	})); err != nil {
 		return err
 	}
 	if fs.NArg() != 2 || strings.TrimSpace(*operationKey) == "" {
-		return errors.New("usage: cyberagent run execution-permission set <run-id> conservative|workspace_access|approval|full_access|debug --operation-key <key> [--confirm-workspace-access|--confirm-user-approval|--confirm-danger-full-access|--confirm-debug-access] [--enable-permission-control] [--enable-danger-full-access] [--enable-debug-maximum-access] [--operator <id>] [--reason <text>]")
+		return errors.New("usage: cyberagent run execution-permission set <run-id> conservative|workspace_access|approval|full_access|debug --operation-key <key> [--confirm-workspace-access|--confirm-user-approval|--confirm-danger-full-access|--confirm-debug-access] [--enable-permission-control] [--enable-workspace-sandbox] [--enable-danger-full-access] [--enable-debug-maximum-access] [--operator <id>] [--reason <text>]")
 	}
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		OperatorApprovalEnabled:   *enableControl,
 		DangerFullAccessEnabled:   *enableFull,
 		DebugMaximumAccessEnabled: *enableDebug,
+	}
+	if *enableWorkspaceSandbox && !*enableControl {
+		return apperror.New(apperror.CodeInvalidArgument,
+			"--enable-workspace-sandbox requires --enable-permission-control")
+	}
+	if *enableWorkspaceSandbox {
+		backend, readiness, err := openLocalSandbox(ctx, true)
+		if err != nil {
+			return err
+		}
+		defer backend.Close()
+		capabilities.WorkspaceSandboxEnabled = readiness.Ready
 	}
 	if err := capabilities.Validate(); err != nil {
 		return apperror.Wrap(apperror.CodeInvalidArgument,
@@ -2138,6 +2153,8 @@ func (a *App) runCapabilityReadiness(ctx context.Context, args []string) error {
 	jsonOutput := fs.Bool("json", false, "emit the strict readiness protocol as JSON")
 	permissionControl := fs.Bool("enable-permission-control", false,
 		"project permission-control startup availability")
+	workspaceSandbox := fs.Bool("enable-workspace-sandbox", false,
+		"probe and project the verified process-local Workspace Sandbox")
 	dangerFullAccess := fs.Bool("enable-danger-full-access", false,
 		"project danger-full-access startup availability")
 	debugMaximumAccess := fs.Bool("enable-debug-maximum-access", false,
@@ -2148,18 +2165,21 @@ func (a *App) runCapabilityReadiness(ctx context.Context, args []string) error {
 		"project complete CDP Debug startup availability")
 	dockerExecution := fs.Bool("enable-docker-execution", false,
 		"probe the fixed Standard Code Docker backend and project its startup gate")
-	workspaceSandbox := fs.Bool("enable-workspace-sandbox", false,
-		"project the process-local Workspace sandbox startup gate")
 	if err := fs.Parse(reorderFlags(args, map[string]bool{
 		"json": false, "enable-permission-control": false,
+		"enable-workspace-sandbox":  false,
 		"enable-danger-full-access": false, "enable-debug-maximum-access": false,
 		"enable-browser-cdp-control": false, "enable-full-cdp-debug": false,
-		"enable-docker-execution": false, "enable-workspace-sandbox": false,
+		"enable-docker-execution": false,
 	})); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
 		return errors.New("usage: cyberagent run capability-readiness <run-id> [--json] [explicit startup capability flags]")
+	}
+	if *workspaceSandbox && !*permissionControl {
+		return apperror.New(apperror.CodeInvalidArgument,
+			"--enable-workspace-sandbox requires --enable-permission-control")
 	}
 	executionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		WorkspaceSandboxEnabled:   *workspaceSandbox,
@@ -2197,6 +2217,17 @@ func (a *App) runCapabilityReadiness(ctx context.Context, args []string) error {
 		runtime.DockerBackendReady = readiness.Ready
 	} else {
 		runtime.DockerAvailable = *dockerExecution
+	}
+	if *workspaceSandbox {
+		backend, readiness, err := openLocalSandbox(ctx, true)
+		if err != nil {
+			return err
+		}
+		defer backend.Close()
+		runtime, err = runtime.WithLocalSandboxReadiness(readiness)
+		if err != nil {
+			return err
+		}
 	}
 	projection, err := application.NewRunCapabilityReadinessService(a.store, runtime).
 		Project(ctx, fs.Arg(0))

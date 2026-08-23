@@ -55,6 +55,8 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		"enable the process-local single-concurrency scheduled job worker")
 	permissionControl := fs.Bool("enable-permission-control", false,
 		"enable operator-selected Run execution permissions")
+	workspaceSandbox := fs.Bool("enable-workspace-sandbox", false,
+		"probe and enable the verified process-local Workspace Sandbox")
 	hostCommandProposals := fs.Bool("enable-host-command-proposals", false,
 		"enable exact process or canonical PowerShell/Git Bash proposals with independent operator review")
 	dangerFullAccess := fs.Bool("enable-danger-full-access", false,
@@ -82,6 +84,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		"enable-file-edit-proposals": false, "enable-provider-credentials": false,
 		"enable-wake-worker": false, "enable-scheduled-job-worker": false,
 		"enable-permission-control":     false,
+		"enable-workspace-sandbox":      false,
 		"enable-host-command-proposals": false,
 		"enable-danger-full-access":     false, "enable-debug-maximum-access": false,
 		"enable-browser-cdp-control": false, "enable-full-cdp-debug": false,
@@ -111,6 +114,35 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		OperatorApprovalEnabled:   *permissionControl,
 		DangerFullAccessEnabled:   *dangerFullAccess,
 		DebugMaximumAccessEnabled: *debugMaximumAccess,
+	}
+	if *workspaceSandbox && !*permissionControl {
+		return apperror.New(apperror.CodeInvalidArgument,
+			"--enable-workspace-sandbox requires --enable-permission-control")
+	}
+	var localReadinessRuntime *application.CapabilityReadinessRuntime
+	if *workspaceSandbox {
+		backend, readiness, err := openLocalSandbox(ctx, true)
+		if err != nil {
+			return err
+		}
+		defer backend.Close()
+		runtime := application.CapabilityReadinessRuntime{
+			RunControlEnabled:                  controlToken != "",
+			ExecutionPermissionControlEnabled:  controlToken != "" && *permissionControl,
+			BrowserCDPPermissionControlEnabled: controlToken != "" && *browserCDPControl,
+			ExecutionPermissionCapabilities:    permissionCapabilities,
+			BrowserCDPPermissionCapabilities: domain.BrowserCDPPermissionRuntimeCapabilities{
+				ControlEnabled: *browserCDPControl, FullDebugEnabled: *fullCDPDebug,
+			},
+			DockerStartupGateEnabled: *dockerExecution,
+			DockerAvailable:          *dockerExecution,
+		}
+		runtime, err = runtime.WithLocalSandboxReadiness(readiness)
+		if err != nil {
+			return err
+		}
+		permissionCapabilities = runtime.ExecutionPermissionCapabilities
+		localReadinessRuntime = &runtime
 	}
 	if err := permissionCapabilities.Validate(); err != nil {
 		return apperror.Wrap(apperror.CodeInvalidArgument,
@@ -394,6 +426,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		ExecutionPermissionCapabilities:         permissionCapabilities,
 		BrowserCDPPermissionControlEnabled:      *browserCDPControl,
 		BrowserCDPPermissionCapabilities:        browserCDPCapabilities,
+		CapabilityReadinessRuntime:              localReadinessRuntime,
 		SkillInstallationEnabled:                controlToken != "",
 		EvidenceAttachmentEnabled:               controlToken != "",
 		VerificationEvidenceEnabled:             controlToken != "",

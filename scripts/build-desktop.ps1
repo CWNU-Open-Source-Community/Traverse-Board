@@ -91,7 +91,14 @@ if (-not $SkipFrontend) {
 
 Push-Location $repositoryRoot
 try {
-    Invoke-Checked { go test ./internal/desktop ./internal/webui -count=1 } "Desktop Go boundary tests failed"
+    Invoke-Checked {
+        go test ./internal/desktop -count=1 `
+            -run '^TestWindowsControlPlaneConsumesValidatedLocalSandboxReadiness$'
+    } "Desktop Local Sandbox readiness test failed"
+    Invoke-Checked {
+        go test ./internal/desktop ./internal/webui -count=1 `
+            -skip '^TestWindowsControlPlaneConsumesValidatedLocalSandboxReadiness$'
+    } "Desktop Go boundary tests failed"
     Invoke-Checked { go test -tags "desktop,wv2runtime.error" ./cmd/cyberagent-desktop -count=1 } "Wails adapter tests failed"
 
     $revision = (& git rev-parse HEAD).Trim()

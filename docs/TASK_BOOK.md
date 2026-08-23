@@ -16,7 +16,7 @@ Drydock；镜像、endpoint、mount、环境、网络和 Docker flags 不进入 
 只检查不拉取，daemon/镜像错误投影稳定 blocker/remediation 且禁止宿主回退。start/cancel/crash/
 restart/权限漂移复用既有 exact-owned 生命周期清理，最终文件状态由幂等 Drydock Checkpoint 归属；
 v128 只扩展既有 immutable Docker admission 的 permission CHECK 并保留旧记录/触发器。
-Drydock/Worktree 不承担安全沙箱语义；边界见 ADR 0130 和 `docs/standard-code-docker.md`。
+Drydock/Worktree 不承担安全沙箱语义；边界见 ADR 0131 和 `docs/standard-code-docker.md`。
 
 Drydock 工作目录（Issue #131 / schema v127）为每个 Code Run 增加精确 source/root/repository/
 branch/base 与 generation 绑定的产品管理 worktree。首次 create 的 Workspace Trust digest 必须
@@ -30,7 +30,7 @@ untracked 和 raw index，Fork 不继承 authority，Delivery 只产生 review p
 都返回独立 selected/selectable/runtime-available、稳定阻塞码、对应修复动作和重启要求；CLI、
 HTTP/OpenAPI、Desktop 与 React 共用 Application 服务。该响应固定不授权、不泄露私有路径，
 TypeScript 对未知版本或扩展失败关闭。Local Sandbox 仍由独立 issue 实现；Standard Code 的固定
-Docker fallback 由 #133 提供。边界见 ADR 0128 与 ADR 0130。
+Docker fallback 由 #133 提供。边界见 ADR 0128 与 ADR 0131。
 
 再上一基线 Workspace Access 权限合同（Issue #129 / schema v126）新增第五档
 `workspace_access · 工作区执行`：允许 Workspace 内读写，只允许 ready sandbox adapter 的有界
