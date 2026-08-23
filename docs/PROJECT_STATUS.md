@@ -6,7 +6,21 @@ Last updated: 2026-08-23
 
 ## Resume Context
 
-当前检查点是 issue #132 的 Windows-first Local Sandbox（schema 仍为 v127）。Windows x64 以
+当前检查点是 issue #133 / schema v128。v128 只扩展既有 immutable Docker admission 的
+permission CHECK 以接受 `workspace_access`，并保留历史记录与全部绑定/不可变触发器。Standard Code
+新增显式、固定镜像、固定本地
+endpoint 的 Docker `network=none` 备用后端。统一 `standard-code-command.v1` 只含工具链、argv、
+Drydock 相对 cwd、超时和目的；Local/Docker 共用 Checkpoint/Artifact 结果 schema。Go 固定唯一
+Drydock mount、非 root 用户、只读 rootfs/toolchains、资源/取消上限与空凭证输入，并在 start 前重验
+Drydock generation/Checkpoint/binding、Docker profile、workspace_access revision、per-call approval、
+Policy、budget、进程 gate、固定镜像与 readiness。daemon/镜像失败不拉取、不回退宿主。
+
+启动、取消、超时、daemon 断开、应用退出和重启继续复用 v97-v99 生命周期 WAL、lease fencing、
+exact labels/config 与 absence confirmation；文件结果由幂等 Drydock Checkpoint 表示，日志复用有界
+脱敏 receipt。Drydock/Worktree 不是安全沙箱；容器才是进程/网络/rootfs 隔离边界。未知或无法证明
+归属的宿主文件、目录与容器保持不动。边界见 ADR 0131 和 `docs/standard-code-docker.md`。
+
+上一检查点是 issue #132 的 Windows-first Local Sandbox（schema 仍为 v127）。Windows x64 以
 显式 `--enable-workspace-sandbox` 启动真实 LPAC/AppContainer、WFP、creation-time Job、严格
 handle/environment、临时最小 ACL 与无 PID authority 的 owner journal 探针；失败或不支持时返回
 稳定 unavailable 原因，绝不回退宿主执行。每次运行只获得随机文件系统 capability 与非网络
@@ -15,7 +29,7 @@ handle/environment、临时最小 ACL 与无 PID authority 的 owner journal 探
 只消费同一 `local_sandbox_readiness.v1`。共享 sandboxed Command Runtime adapter 仍由 #134 负责，
 所以 readiness/权限选择本身不向模型发布命令工具。边界见 ADR 0130。
 
-上一检查点是 issue #131 / schema v127 的 `drydock-workspace.v1`。一个 Code Run 只能持有一个
+再上一检查点是 issue #131 / schema v127 的 `drydock-workspace.v1`。一个 Code Run 只能持有一个
 精确绑定 source Workspace/root/repository/common-dir/branch/base 的产品管理 worktree；首次使用
 需要 pin 完整 Workspace Trust digest，且 Trust 固定不授予执行 authority。source dirty 内容不
 复制；symlink/submodule/reparse source 在 v1 显式拒绝。
@@ -25,7 +39,7 @@ Checkpoint/Rewind/Undo 精确保留 tracked/untracked/raw index；Fork 建立独
 Run；Delivery 仅输出 review patch。崩溃、漂移和用户文件都保留为 recovery；Cleanup/GC 只删除
 exact clean product owner，不 force、不覆盖 source、不删除未知目录。边界见 ADR 0129。
 
-上一检查点是 issue #130 的 Go-owned `run_capability_readiness.v1`；SQLite 保持 schema v126，
+更早的 issue #130 提供 Go-owned `run_capability_readiness.v1`；SQLite 保持 schema v126，
 实现已由 PR #144 合并。PR #143 先行合并并关闭 #129，所以 Epic #128 声明的唯一前置依赖已解除。
 Application 服务把当前 Run/mode/Profile/Permission/Interaction/CDP/lease 与进程 startup/backend
 facts 合成为 Permission、Profile、Interaction、browser-CDP 和 Standard Code 的 selected/
@@ -44,7 +58,7 @@ Desktop 35.269s）、readiness 聚焦 race、Go vet/module、Windows Desktop sec
 SHA-256 为 `fde7d8af96ad0fcd719eab5d2b7b7701d1519996310253c777f174ed0267694e` /
 `84c1cb48fa14466c2308f8a3d909eacd08466b2eaf7b8a95cd7a221c8d94d7d2`。
 
-上一检查点是 issue #129 / schema v126 的 `workspace_access · 工作区执行` 权限合同。
+更早的 issue #129 / schema v126 冻结了 `workspace_access · 工作区执行` 权限合同。
 该档位位于 `conservative` 与 `approval` 之间，只允许已注册 Workspace 内读写，以及经独立
 Workspace Sandbox readiness 证明后的有界命令；宿主无沙箱进程、网络、凭证、用户主目录、
 持久终端、Agent 输入和完整 CDP 全部拒绝。#129 不安装 adapter、不提供 enable 参数，当前产品

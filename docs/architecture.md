@@ -458,9 +458,11 @@ credential, home, terminal, Agent-input, and Full-CDP facts remain false.
 Windows x64 now installs the Local adapter only behind an explicit startup
 request and a real AppContainer/WFP/Job/ACL readiness proof. Failure keeps the
 mode unavailable and no existing host runner may serve as a fallback. The
-sandboxed shared Command Runtime adapter remains separate (#134). Selecting any
-new permission revision atomically releases the active Run execution lease and
-fences old Job/tool authority. See
+sandboxed shared Command Runtime adapter remains separate (#134). Issue #133
+adds the separately gated fixed Docker `network=none` Standard Code fallback;
+daemon or image failure likewise never selects a host runner. Selecting any new
+permission revision atomically releases the active Run execution lease and fences
+old Job/tool authority. See
 [ADR 0127](adr/0127-workspace-access-permission-contract.md) and
 [ADR 0130](adr/0130-windows-local-sandbox-backend.md).
 
@@ -482,6 +484,22 @@ fixed false. Cleanup uses non-force removal only for an exact clean owner, retai
 branch and audit rows, and never enumerates or removes unknown directories. See
 [Drydock Workspaces](drydock.md) and
 [ADR 0129](adr/0129-run-owned-drydock-workspaces.md).
+
+Schema v128 lets the existing immutable Docker admission ledger accept the v126
+`workspace_access` permission; it preserves historical admissions and restores every
+cross-table and immutability trigger. Issue #133 composes the existing ledgers through
+`standard-code-command.v1`. The Docker adapter recognizes one exact manifest: the
+current Drydock is the sole writable host projection at `/workspace`; an exact
+application-owned file is mounted read-only over `/workspace/.git`; container rootfs/toolchains
+are read-only; user/resources/cancellation are fixed; network is none; and environment,
+credentials, arbitrary mounts/endpoints/flags, and image pulls are absent. Current
+Drydock generation/Checkpoint/binding, Docker profile, `workspace_access` permission,
+per-call approval, process gates, Policy, budgets, fixed image, and readiness are
+revalidated immediately before start. Drydock is not the isolation boundary; the
+fixed Docker container is. Terminal writes become one idempotent Drydock Checkpoint,
+while bounded logs retain the existing receipt. See
+[Standard Code Docker](standard-code-docker.md) and
+[ADR 0131](adr/0131-standard-code-docker-network-none-backend.md).
 
 Schema v98 adds the bounded I/O contract without changing that authority boundary. Read-only input projection, fixed non-streaming attach, per-stream byte/line/deadline limits, strict output-archive walking, process-local staging, re-hashing, and atomic output commit are all bound to the exact lifecycle attempt/generation. Raw logs do not persist and the Workspace is never a writable container mount. See [ADR 0098](adr/0098-bounded-docker-container-io-contract.md).
 

@@ -96,12 +96,47 @@ type DockerSandboxService struct {
 	stagingRoot             string
 	leaseTTL                time.Duration
 	now                     func() time.Time
+	standardCodeDrydock     *DrydockService
+	standardCodeImageDigest string
+	standardCodeCapability  string
 
-	activeMu sync.Mutex
-	active   map[string]context.CancelFunc
+	standardCodeMaskMu sync.Mutex
+	activeMu           sync.Mutex
+	active             map[string]context.CancelFunc
 }
 
 type DockerSandboxServiceOption func(*DockerSandboxService) error
+
+// WithDockerStandardCode binds the fixed Standard Code manifest to one exact,
+// pre-existing image digest and to read-only Drydock ownership validation. It
+// never pulls an image and exposes no image or Docker setting to a command.
+func WithDockerStandardCode(drydockService *DrydockService,
+	imageDigest string,
+) DockerSandboxServiceOption {
+	return func(service *DockerSandboxService) error {
+		imageDigest = strings.TrimSpace(imageDigest)
+		if drydockService == nil || !sandbox.ValidOCIImageDigest(imageDigest) {
+			return errors.New("Standard Code Docker authority is invalid")
+		}
+		service.standardCodeDrydock = drydockService
+		service.standardCodeImageDigest = imageDigest
+		service.standardCodeCapability = runmutation.Fingerprint(
+			"standard_code_docker_capability.v1", imageDigest,
+			fmt.Sprintf("%t", service.dockerCapabilities.Enabled),
+			fmt.Sprintf("%t", service.permissionCapabilities.WorkspaceSandboxEnabled))
+		return nil
+	}
+}
+
+func (s *DockerSandboxService) StandardCodeCapabilityGeneration() (string, error) {
+	if s == nil || s.standardCodeDrydock == nil ||
+		!sandbox.ValidOCIImageDigest(s.standardCodeImageDigest) ||
+		s.standardCodeCapability == "" {
+		return "", apperror.New(apperror.CodeFailedPrecondition,
+			"Standard Code Docker capability is not configured")
+	}
+	return s.standardCodeCapability, nil
+}
 
 // WithDockerSandboxExecution installs the only product execution transports.
 // Both must use the same fixed local endpoint. stagingRoot is trusted host
@@ -229,6 +264,39 @@ func (s *DockerSandboxService) Readiness(ctx context.Context,
 			value.EndpointFingerprint != s.lifecycleTransport.Endpoint().Fingerprint) {
 		return sandbox.DockerReadiness{}, apperror.New(apperror.CodeConflict,
 			"Docker Sandbox readiness endpoint changed from execution endpoint")
+	}
+	return value, nil
+}
+
+// StandardCodeReadiness probes the fixed image before an approval/plan exists.
+// The request carries no endpoint or image selector and the probe never pulls.
+func (s *DockerSandboxService) StandardCodeReadiness(ctx context.Context,
+	manifest sandbox.Manifest,
+) (sandbox.DockerReadiness, error) {
+	if s == nil || s.readiness == nil || s.standardCodeDrydock == nil ||
+		!sandbox.ValidOCIImageDigest(s.standardCodeImageDigest) {
+		return sandbox.DockerReadiness{}, apperror.New(
+			apperror.CodeFailedPrecondition,
+			"Standard Code Docker readiness is not configured")
+	}
+	if _, ok := sandbox.ParseDockerStandardCodeManifest(manifest); !ok {
+		return sandbox.DockerReadiness{}, apperror.New(apperror.CodeInvalidArgument,
+			"Standard Code Docker manifest is invalid")
+	}
+	value, err := s.readiness.Check(ctx, s.dockerCapabilities, manifest,
+		s.standardCodeImageDigest)
+	if err != nil {
+		return sandbox.DockerReadiness{}, apperror.Normalize(err)
+	}
+	if value.Validate() != nil {
+		return sandbox.DockerReadiness{}, apperror.New(apperror.CodeInternal,
+			"Standard Code Docker readiness result is invalid")
+	}
+	if value.Ready && s.lifecycleTransport != nil &&
+		(value.EndpointClass != s.lifecycleTransport.Endpoint().Class ||
+			value.EndpointFingerprint != s.lifecycleTransport.Endpoint().Fingerprint) {
+		return sandbox.DockerReadiness{}, apperror.New(apperror.CodeConflict,
+			"Standard Code Docker readiness endpoint changed")
 	}
 	return value, nil
 }
@@ -442,7 +510,8 @@ func (s *DockerSandboxService) loadCurrentDockerSandboxAuthority(ctx context.Con
 	if value.Mission, err = s.store.GetMission(ctx, plan.MissionID); err != nil {
 		return dockerSandboxAuthority{}, apperror.Normalize(err)
 	}
-	if value.Workspace, err = s.store.GetSandboxWorkspace(ctx, plan.WorkspaceID); err != nil {
+	if value.Workspace, err = s.resolveDockerSandboxWorkspace(ctx, plan.RunID,
+		plan.WorkspaceID, manifest, true); err != nil {
 		return dockerSandboxAuthority{}, apperror.Normalize(err)
 	}
 	if value.Intent, err = s.store.GetSandboxManifestIntent(ctx, plan.PreparationID); err != nil {
@@ -477,11 +546,54 @@ func (s *DockerSandboxService) loadCurrentDockerSandboxAuthority(ctx context.Con
 	if err := validateDockerSandboxAuthorityBindings(value); err != nil {
 		return dockerSandboxAuthority{}, err
 	}
+	if binding, standardCode := sandbox.ParseDockerStandardCodeManifest(manifest); standardCode {
+		if err := s.validateDockerStandardCodeAuthority(value, binding); err != nil {
+			return dockerSandboxAuthority{}, err
+		}
+	}
 	if value.RootPath, err = validateSandboxWorkspaceBinding(value.Workspace); err != nil {
 		return dockerSandboxAuthority{}, apperror.Wrap(apperror.CodeFailedPrecondition,
 			"Docker Sandbox workspace binding is invalid", err)
 	}
 	return value, nil
+}
+
+func (s *DockerSandboxService) resolveDockerSandboxWorkspace(ctx context.Context,
+	runID, workspaceID string, manifest sandbox.Manifest, requireUnchanged bool,
+) (sandbox.WorkspaceBinding, error) {
+	if binding, standardCode := sandbox.ParseDockerStandardCodeManifest(manifest); standardCode {
+		if s.standardCodeDrydock == nil || binding.RunID != runID ||
+			binding.WorkspaceID != workspaceID {
+			return sandbox.WorkspaceBinding{}, apperror.New(
+				apperror.CodeFailedPrecondition,
+				"Standard Code Docker requires its exact Drydock authority")
+		}
+		return s.standardCodeDrydock.ResolveDrydockExecutionBinding(ctx, binding,
+			requireUnchanged)
+	}
+	return s.store.GetSandboxWorkspace(ctx, workspaceID)
+}
+
+func (s *DockerSandboxService) validateDockerStandardCodeAuthority(
+	authority dockerSandboxAuthority, binding sandbox.DockerStandardCodeRunnerBinding,
+) error {
+	if s.standardCodeDrydock == nil ||
+		authority.Plan.ImageDigest != s.standardCodeImageDigest ||
+		binding.RunID != authority.Run.ID || binding.MissionID != authority.Mission.ID ||
+		binding.SessionID != authority.Run.SessionID ||
+		binding.WorkspaceID != authority.Mission.WorkspaceID ||
+		binding.ProfileSnapshotID != authority.Profile.ID ||
+		binding.ProfileRevision != authority.Profile.Revision ||
+		binding.PermissionSnapshotID != authority.Permission.ID ||
+		binding.PermissionRevision != authority.Permission.Revision ||
+		binding.CapabilityGeneration != s.standardCodeCapability ||
+		authority.Profile.Profile != domain.RunExecutionProfileDocker ||
+		authority.Permission.Mode != domain.RunExecutionPermissionWorkspaceAccess ||
+		!s.permissionCapabilities.WorkspaceSandboxEnabled {
+		return apperror.New(apperror.CodeConflict,
+			"Standard Code Docker authority changed")
+	}
+	return nil
 }
 
 func (s *DockerSandboxService) evaluateCurrentDockerSandboxGates(

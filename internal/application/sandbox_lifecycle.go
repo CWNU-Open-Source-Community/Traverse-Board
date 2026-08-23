@@ -366,7 +366,8 @@ func (s *SandboxManifestService) revalidateExecutionCandidate(ctx context.Contex
 			apperror.New(apperror.CodeConflict,
 				"sandbox execution Run, Mission, workspace, or preparation binding changed")
 	}
-	workspace, err := s.store.GetSandboxWorkspace(ctx, mission.WorkspaceID)
+	workspace, err := s.resolveSandboxWorkspace(ctx, run.ID, mission.WorkspaceID,
+		manifest, true)
 	if err != nil {
 		return sandbox.PreparedIntent{}, domain.Run{}, domain.Mission{}, "", apperror.Normalize(err)
 	}

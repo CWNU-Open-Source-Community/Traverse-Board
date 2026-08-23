@@ -47,6 +47,7 @@ This directory separates user-facing documentation, current engineering state, a
 | [ADR 0128 / Capability Readiness](adr/0128-go-owned-run-capability-readiness.md) | Go-owned 选择/运行时可用性、稳定阻塞码、修复动作、隐私与版本边界 |
 | [ADR 0129 / Drydock Workspaces](adr/0129-run-owned-drydock-workspaces.md) | Run-owned worktree、Workspace Trust、崩溃恢复、review-only 交付与精确清理边界 |
 | [ADR 0130 / Windows Local Sandbox](adr/0130-windows-local-sandbox-backend.md) | Windows AppContainer/WFP/Job/ACL 边界、证据、恢复与产品 gate |
+| [ADR 0131 / Standard Code Docker](adr/0131-standard-code-docker-network-none-backend.md) | 固定 Docker `network=none` 后端、Drydock 投影、readiness 与恢复边界 |
 | [ADR 索引](adr/) | 权限、持久化、执行、浏览器、Desktop 等架构决策 |
 
 ## 当前工程上下文 / Current Engineering Context

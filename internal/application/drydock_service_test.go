@@ -14,6 +14,7 @@ import (
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/gitadvanced"
 	"cyberagent-workbench/internal/repository"
+	"cyberagent-workbench/internal/sandbox"
 	"cyberagent-workbench/internal/store"
 )
 
@@ -250,6 +251,59 @@ func TestDrydockLifecycleCoversDirtySourceCheckpointDeliveryAndReceipts(t *testi
 		if receipt.GrantsProcessAuthority {
 			t.Fatalf("receipt granted process authority: %+v", receipt)
 		}
+	}
+}
+
+func TestResolveDrydockExecutionBindingDistinguishesPrestartDriftFromOwnedOutput(t *testing.T) {
+	fixture := newDrydockApplicationFixture(t, "standard code execution binding")
+	preview, err := fixture.service.Create(t.Context(), DrydockCreateRequest{
+		RunID: fixture.run.ID, OperationKey: "standard-code-binding-preview",
+		RequestedBy: "operator"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := fixture.service.Create(t.Context(), DrydockCreateRequest{
+		RunID: fixture.run.ID, OperationKey: "standard-code-binding-create",
+		RequestedBy: "operator", ConfirmWorkspaceTrust: true,
+		ExpectedTrustDigest: preview.TrustDigest})
+	if err != nil || created.Workspace == nil {
+		t.Fatalf("create Drydock: %#v err=%v", created, err)
+	}
+	workspace := *created.Workspace
+	binding := sandbox.DockerStandardCodeRunnerBinding{
+		RunID: workspace.RunID, MissionID: workspace.MissionID,
+		SessionID: workspace.SessionID, WorkspaceID: workspace.SourceWorkspaceID,
+		DrydockID: workspace.ID, DrydockWorkspaceID: workspace.WorkspaceID,
+		DrydockGeneration:    workspace.Generation,
+		CheckpointID:         workspace.LastCheckpointID,
+		DrydockBindingSHA256: workspace.ExpectedBindingFingerprint,
+		ProfileSnapshotID:    "standard-code-profile-1", ProfileRevision: 1,
+		PermissionSnapshotID: "standard-code-permission-1", PermissionRevision: 1,
+		CapabilityGeneration: strings.Repeat("c", 64),
+		CommandSHA256:        strings.Repeat("d", 64),
+		Toolchain:            sandbox.DockerStandardCodeToolchainGo,
+		WorkingDirectory:     ".", Arguments: []string{"test", "./..."},
+		TimeoutSeconds: 60}
+	resolved, err := fixture.service.ResolveDrydockExecutionBinding(t.Context(),
+		binding, true)
+	if err != nil || resolved.ID != workspace.SourceWorkspaceID ||
+		resolved.RootPath != workspace.Path {
+		t.Fatalf("resolve exact Drydock = %#v err=%v", resolved, err)
+	}
+	afterResolve, found, err := fixture.state.GetDrydockByRun(t.Context(), fixture.run.ID)
+	if err != nil || !found || afterResolve.Generation != workspace.Generation {
+		t.Fatalf("read-only resolve advanced ownership: %#v found=%t err=%v",
+			afterResolve, found, err)
+	}
+	writeDrydockTestFile(t, filepath.Join(workspace.Path, "container-output.txt"),
+		"owned container output\n")
+	if _, err := fixture.service.ResolveDrydockExecutionBinding(t.Context(), binding,
+		true); err == nil {
+		t.Fatal("pre-start Drydock content drift was accepted")
+	}
+	if resolved, err = fixture.service.ResolveDrydockExecutionBinding(t.Context(),
+		binding, false); err != nil || resolved.RootPath != workspace.Path {
+		t.Fatalf("owned post-start output blocked cleanup: %#v err=%v", resolved, err)
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 	"cyberagent-workbench/internal/gitadvanced"
 	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/runmutation"
+	"cyberagent-workbench/internal/sandbox"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/workspacecheckpoint"
 )
@@ -131,6 +132,45 @@ type DrydockUseResult struct {
 	BindingFingerprint     string            `json:"binding_fingerprint"`
 	GrantsProcessAuthority bool              `json:"grants_process_authority"`
 	Replayed               bool              `json:"replayed"`
+}
+
+// ResolveDrydockExecutionBinding performs a read-only ownership check for the
+// exact Standard Code runner binding. It grants no process authority and does
+// not advance the Drydock generation. When requireUnchanged is false, it still
+// proves the owned root/branch/base identity but permits changes made by an
+// already-owned container so cancellation and recovery can converge cleanup.
+func (s *DrydockService) ResolveDrydockExecutionBinding(ctx context.Context,
+	binding sandbox.DockerStandardCodeRunnerBinding, requireUnchanged bool,
+) (sandbox.WorkspaceBinding, error) {
+	if s == nil || binding.Validate() != nil {
+		return sandbox.WorkspaceBinding{}, apperror.New(apperror.CodeInvalidArgument,
+			"Standard Code Drydock binding is invalid")
+	}
+	workspace, _, observed, err := s.loadExactDrydock(ctx, binding.RunID,
+		binding.DrydockGeneration, false)
+	if err != nil {
+		return sandbox.WorkspaceBinding{}, err
+	}
+	if workspace.State != drydock.StateReady && workspace.State != drydock.StateDelivered {
+		return sandbox.WorkspaceBinding{}, apperror.New(apperror.CodeFailedPrecondition,
+			"Standard Code Drydock is not ready")
+	}
+	if workspace.ID != binding.DrydockID ||
+		workspace.RunID != binding.RunID || workspace.MissionID != binding.MissionID ||
+		workspace.SessionID != binding.SessionID ||
+		workspace.SourceWorkspaceID != binding.WorkspaceID ||
+		workspace.WorkspaceID != binding.DrydockWorkspaceID ||
+		workspace.LastCheckpointID != binding.CheckpointID ||
+		workspace.ExpectedBindingFingerprint != binding.DrydockBindingSHA256 {
+		return sandbox.WorkspaceBinding{}, apperror.New(apperror.CodeConflict,
+			"Standard Code Drydock authority binding changed")
+	}
+	if requireUnchanged && observed.Binding.Fingerprint() != binding.DrydockBindingSHA256 {
+		return sandbox.WorkspaceBinding{}, apperror.New(apperror.CodeConflict,
+			"Standard Code Drydock content changed before container start")
+	}
+	return sandbox.WorkspaceBinding{ID: workspace.SourceWorkspaceID,
+		RootPath: workspace.Path}, nil
 }
 
 type DrydockCheckpointRequest struct {

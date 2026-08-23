@@ -65,6 +65,29 @@ type DockerContainerWriteRequest struct {
 func NewDockerContainerWriteRequest(ctx context.Context, workspaceRoot string,
 	spec DockerContainerSpec,
 ) (DockerContainerWriteRequest, error) {
+	if dockerContainerSpecUsesStandardCodeWorkspace(spec) {
+		return DockerContainerWriteRequest{}, errors.New(
+			"Standard Code Docker requires its fixed Git metadata mask")
+	}
+	return newDockerContainerWriteRequest(ctx, workspaceRoot, "", spec)
+}
+
+// NewDockerStandardCodeContainerWriteRequest adds the one fixed read-only
+// metadata mask to the exact writable Drydock mount. The mask source is trusted
+// application configuration, never a Manifest or command field.
+func NewDockerStandardCodeContainerWriteRequest(ctx context.Context, workspaceRoot,
+	gitMetadataMask string, spec DockerContainerSpec,
+) (DockerContainerWriteRequest, error) {
+	if !dockerContainerSpecUsesStandardCodeWorkspace(spec) {
+		return DockerContainerWriteRequest{}, errors.New(
+			"Git metadata masking is restricted to the fixed Standard Code profile")
+	}
+	return newDockerContainerWriteRequest(ctx, workspaceRoot, gitMetadataMask, spec)
+}
+
+func newDockerContainerWriteRequest(ctx context.Context, workspaceRoot,
+	gitMetadataMask string, spec DockerContainerSpec,
+) (DockerContainerWriteRequest, error) {
 	if err := ctx.Err(); err != nil {
 		return DockerContainerWriteRequest{}, err
 	}
@@ -86,7 +109,27 @@ func NewDockerContainerWriteRequest(ctx context.Context, workspaceRoot string,
 		return DockerContainerWriteRequest{}, errors.New("docker rehearsal workspace root is not a directory")
 	}
 
-	mounts := make([]DockerHostMount, len(spec.Mounts))
+	standardCode := dockerContainerSpecUsesStandardCodeWorkspace(spec)
+	if standardCode {
+		if err := validateDockerStandardCodeWorkspaceGitMetadata(resolvedRoot); err != nil {
+			return DockerContainerWriteRequest{}, err
+		}
+		var maskErr error
+		gitMetadataMask, maskErr = validateDockerStandardCodeGitMetadataMask(
+			gitMetadataMask)
+		if maskErr != nil {
+			return DockerContainerWriteRequest{}, maskErr
+		}
+	} else if gitMetadataMask != "" {
+		return DockerContainerWriteRequest{}, errors.New(
+			"generic Docker request cannot carry a Git metadata mask")
+	}
+
+	mountCount := len(spec.Mounts)
+	if standardCode {
+		mountCount++
+	}
+	mounts := make([]DockerHostMount, 0, mountCount)
 	for index, planned := range spec.Mounts {
 		if err := ctx.Err(); err != nil {
 			return DockerContainerWriteRequest{}, err
@@ -95,8 +138,13 @@ func NewDockerContainerWriteRequest(ctx context.Context, workspaceRoot string,
 		if err != nil {
 			return DockerContainerWriteRequest{}, fmt.Errorf("resolve Docker rehearsal mount %d: %w", index+1, err)
 		}
-		mounts[index] = DockerHostMount{Source: source, Target: planned.Target,
-			ReadOnly: planned.Access == MountReadOnly, Propagation: planned.Propagation}
+		mounts = append(mounts, DockerHostMount{Source: source, Target: planned.Target,
+			ReadOnly: planned.Access == MountReadOnly, Propagation: planned.Propagation})
+	}
+	if standardCode {
+		mounts = append(mounts, DockerHostMount{Source: gitMetadataMask,
+			Target: DockerStandardCodeGitMetadataTarget, ReadOnly: true,
+			Propagation: DockerMountPropagationPrivate})
 	}
 	request := DockerContainerWriteRequest{ProtocolVersion: DockerContainerWriteProtocolVersion,
 		Spec: spec, HostMounts: mounts}
@@ -107,18 +155,37 @@ func NewDockerContainerWriteRequest(ctx context.Context, workspaceRoot string,
 }
 
 func (request DockerContainerWriteRequest) Validate() error {
+	standardCode := dockerContainerSpecUsesStandardCodeWorkspace(request.Spec)
+	expectedMounts := len(request.Spec.Mounts)
+	if standardCode {
+		expectedMounts++
+	}
 	if request.ProtocolVersion != DockerContainerWriteProtocolVersion ||
 		ValidateDockerContainerRehearsalProfile(request.Spec) != nil ||
-		len(request.HostMounts) != len(request.Spec.Mounts) ||
+		len(request.HostMounts) != expectedMounts ||
 		!validDigest(request.MountFingerprint) || !validDigest(request.RequestFingerprint) {
 		return errors.New("docker container write request is invalid")
 	}
-	for index, mount := range request.HostMounts {
+	for index, mount := range request.HostMounts[:len(request.Spec.Mounts)] {
 		planned := request.Spec.Mounts[index]
 		if mount.Validate() != nil || mount.Target != planned.Target ||
 			mount.ReadOnly != (planned.Access == MountReadOnly) ||
 			mount.Propagation != planned.Propagation {
 			return errors.New("docker container write mount does not match the compiled plan")
+		}
+	}
+	if standardCode {
+		workspaceMount := request.HostMounts[0]
+		mask := request.HostMounts[len(request.HostMounts)-1]
+		if workspaceMount.Source == mask.Source ||
+			validateDockerStandardCodeWorkspaceGitMetadata(workspaceMount.Source) != nil ||
+			mask.Validate() != nil || !mask.ReadOnly ||
+			mask.Target != DockerStandardCodeGitMetadataTarget ||
+			mask.Propagation != DockerMountPropagationPrivate {
+			return errors.New("Standard Code Git metadata mask is invalid")
+		}
+		if resolved, err := validateDockerStandardCodeGitMetadataMask(mask.Source); err != nil || resolved != mask.Source {
+			return errors.New("Standard Code Git metadata mask changed")
 		}
 	}
 	if request.MountFingerprint != dockerHostMountFingerprint(request.HostMounts) ||
@@ -127,6 +194,49 @@ func (request DockerContainerWriteRequest) Validate() error {
 		return errors.New("docker container write request fingerprint is invalid")
 	}
 	return nil
+}
+
+func validateDockerStandardCodeWorkspaceGitMetadata(root string) error {
+	target := filepath.Join(root, ".git")
+	info, err := os.Lstat(target)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 ||
+		info.Size() < int64(len("gitdir: x\n")) || info.Size() > 4*1024 {
+		return errors.New("Standard Code Drydock Git metadata is not a bounded linked-worktree file")
+	}
+	content, err := os.ReadFile(target)
+	text := string(content)
+	value := strings.TrimSuffix(strings.TrimPrefix(text, "gitdir: "), "\n")
+	if err != nil || !strings.HasPrefix(text, "gitdir: ") ||
+		!strings.HasSuffix(text, "\n") || strings.Count(text, "\n") != 1 ||
+		value == "" || value != strings.TrimSpace(value) ||
+		strings.ContainsAny(value, "\r\n") {
+		return errors.New("Standard Code Drydock Git metadata is invalid")
+	}
+	return nil
+}
+
+func validateDockerStandardCodeGitMetadataMask(source string) (string, error) {
+	if source == "" || strings.ContainsRune(source, 0) {
+		return "", errors.New("Standard Code Git metadata mask is unavailable")
+	}
+	abs, err := filepath.Abs(source)
+	if err != nil || filepath.Clean(abs) != source {
+		return "", errors.New("Standard Code Git metadata mask path is invalid")
+	}
+	info, err := os.Lstat(abs)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 ||
+		info.Size() != int64(len(DockerStandardCodeGitMetadataMask)) {
+		return "", errors.New("Standard Code Git metadata mask is not an exact regular file")
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil || filepath.Clean(resolved) != abs {
+		return "", errors.New("Standard Code Git metadata mask identity changed")
+	}
+	content, err := os.ReadFile(abs)
+	if err != nil || string(content) != DockerStandardCodeGitMetadataMask {
+		return "", errors.New("Standard Code Git metadata mask content changed")
+	}
+	return abs, nil
 }
 
 func ValidateDockerContainerRehearsalProfile(spec DockerContainerSpec) error {

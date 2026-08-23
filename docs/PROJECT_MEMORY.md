@@ -2,9 +2,27 @@
 
 > Scope checkpoint (2026-08-13): continue only the general-purpose Agent Harness and Code workflow. CTF-specific solving/offensive automation is an optional add-on with no active slices; retain generic extension seams only. Historical Cyber percentages are not current planning metrics. See [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md).
 
-Last updated: 2026-08-22
+Last updated: 2026-08-23
 
-## Current Single-Slice Checkpoint: Run-Owned Drydock / Issue #131 / Schema v127
+## Current Single-Slice Checkpoint: Standard Code Docker Fallback / Issue #133 / Schema v128
+
+`standard-code-command.v1` 固定上层 toolchain/argv/relative-cwd/timeout/purpose schema，不暴露
+backend/image/endpoint/mount/network/env/credential/Docker flags。Docker adapter 只认一个 Go 编译
+profile：精确当前 Drydock -> `/workspace`，network none，固定 65532、只读 rootfs/toolchains、空
+credential 输入与资源上限。固定镜像只 inspect 不 pull；daemon/image 缺失映射稳定 blocker/remediation，
+禁止回退 unsandboxed host。
+
+Drydock generation/Checkpoint/binding、Docker profile、workspace_access revision、process gates、
+exact approval、Policy、budget 和 readiness 在 start 前重验；启动后的预期写入由 terminal
+Drydock Checkpoint 归属。cancel/crash/restart/permission drift 复用已有 WAL/lease/exact labels/config/
+absence cleanup；未知文件、目录、container 保留。Drydock/Worktree 是 ownership/recovery boundary，
+不是 isolation boundary。边界与操作见 ADR 0131 / `docs/standard-code-docker.md`。
+
+Schema v128 只重建既有 Docker product admission parent table，把 `workspace_access` 加入闭集 CHECK，
+原样复制历史 admission，并恢复其 insert/binding/cancellation/start/launch/receipt/immutable triggers；
+迁移提交前继续执行 foreign-key check。
+
+## Previous Single-Slice Checkpoint: Run-Owned Drydock / Issue #131 / Schema v127
 
 `drydock-workspace.v1` 为一个 Code Run 持久绑定 source Workspace/root/repository/common-dir/
 branch/base、独立产品管理 worktree/branch、managed registry、ownership generation 和 current

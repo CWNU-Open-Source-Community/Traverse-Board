@@ -127,6 +127,7 @@ type CapabilityReadinessRuntime struct {
 	DockerStartupGateEnabled           bool
 	DockerAvailable                    bool
 	DockerBackendReady                 bool
+	DockerReadiness                    *sandbox.DockerReadiness
 	BrowserBackendReady                bool
 }
 
@@ -173,6 +174,14 @@ func (r CapabilityReadinessRuntime) Validate() error {
 	}
 	if r.DockerBackendReady && (!r.DockerStartupGateEnabled || !r.DockerAvailable) {
 		return errors.New("a ready Docker backend requires its startup gate and installation")
+	}
+	if r.DockerReadiness != nil {
+		if r.DockerReadiness.Validate() != nil ||
+			r.DockerReadiness.FeatureEnabled != r.DockerStartupGateEnabled ||
+			r.DockerAvailable != r.DockerReadiness.DaemonReachable ||
+			r.DockerBackendReady != r.DockerReadiness.Ready {
+			return errors.New("detailed Docker readiness does not match runtime facts")
+		}
 	}
 	if r.BrowserBackendReady && !r.BrowserCDPPermissionControlEnabled {
 		return errors.New("a ready browser backend requires restricted CDP control")
@@ -551,6 +560,22 @@ func (p capabilityReadinessProjection) addLocalBackendBlockers(
 func (p capabilityReadinessProjection) addDockerBackendBlockers(
 	builder *capabilityReadinessOptionBuilder,
 ) bool {
+	if p.runtime.DockerReadiness != nil {
+		switch p.runtime.DockerReadiness.ReasonCode {
+		case sandbox.DockerReadinessReasonNone:
+			return true
+		case sandbox.DockerReadinessReasonFeatureDisabled:
+			builder.add(CapabilityBlockerStartupGateClosed,
+				CapabilityRemediationRestartWithStartupGate)
+		case sandbox.DockerReadinessReasonDaemonUnreachable:
+			builder.add(CapabilityBlockerDockerUnavailable,
+				CapabilityRemediationInstallOrStartDocker)
+		default:
+			builder.add(CapabilityBlockerBackendNotReady,
+				CapabilityRemediationRetryBackendReadiness)
+		}
+		return false
+	}
 	ready := true
 	if !p.runtime.DockerStartupGateEnabled {
 		ready = false

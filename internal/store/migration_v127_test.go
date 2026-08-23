@@ -13,6 +13,7 @@ import (
 // must not leave a future table reference behind.
 func removeSchemaV127ForTestStatements() []string {
 	return []string{
+		`DELETE FROM schema_migrations WHERE version = 128`,
 		`DROP TRIGGER trg_workspace_checkpoint_insert_scope`,
 		`CREATE TRIGGER trg_workspace_checkpoint_insert_scope
 			BEFORE INSERT ON workspace_checkpoints
