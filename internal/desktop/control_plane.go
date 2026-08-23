@@ -26,6 +26,7 @@ import (
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/runner"
+	"cyberagent-workbench/internal/sandbox"
 	"cyberagent-workbench/internal/scheduler"
 	"cyberagent-workbench/internal/skills"
 	"cyberagent-workbench/internal/store"
@@ -75,6 +76,7 @@ type ControlPlaneConfig struct {
 	RunControlEnabled                       bool
 	ExecutionPermissionControlEnabled       bool
 	ExecutionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
+	LocalSandboxReadiness                   *sandbox.LocalReadiness
 	BrowserCDPPermissionControlEnabled      bool
 	BrowserCDPPermissionCapabilities        domain.BrowserCDPPermissionRuntimeCapabilities
 	RunCreationEnabled                      bool
@@ -121,6 +123,17 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	if strings.TrimSpace(config.DatabasePath) == "" {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop database path is required")
+	}
+	if config.LocalSandboxReadiness != nil {
+		if err := config.LocalSandboxReadiness.Validate(); err != nil ||
+			config.LocalSandboxReadiness.Ready !=
+				config.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled {
+			return nil, apperror.New(apperror.CodeInvalidArgument,
+				"desktop Local Sandbox readiness does not match its startup gate")
+		}
+	} else if config.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"desktop Workspace Sandbox startup gate requires validated readiness")
 	}
 	if config.DockerExecutionEnabled &&
 		(!config.ExecutionPermissionControlEnabled ||
@@ -553,6 +566,19 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 			WorkspaceSandboxEnabled,
 		DockerStartupGateEnabled: config.DockerExecutionEnabled,
 		DockerAvailable:          config.DockerExecutionEnabled,
+	}
+	if config.LocalSandboxReadiness != nil {
+		capabilityReadinessRuntime, err = capabilityReadinessRuntime.
+			WithLocalSandboxReadiness(*config.LocalSandboxReadiness)
+		if err != nil || capabilityReadinessRuntime.ExecutionPermissionCapabilities !=
+			config.ExecutionPermissionCapabilities {
+			if terminalManager != nil {
+				_ = terminalManager.Shutdown()
+			}
+			_ = stateStore.Close()
+			return nil, apperror.New(apperror.CodeInvalidArgument,
+				"desktop Local Sandbox readiness projection is invalid")
+		}
 	}
 	api, err := httpapi.New(stateStore, httpapi.Config{
 		AccessToken: config.ReadToken, ControlToken: config.ControlToken,

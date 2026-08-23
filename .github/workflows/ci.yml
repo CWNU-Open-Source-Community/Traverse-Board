@@ -257,6 +257,8 @@ jobs:
   desktop:
     name: Windows Desktop shell
     runs-on: windows-latest
+    env:
+      TRAVERSE_BOARD_LOCAL_SANDBOX_TEST_HOST_PREP: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Set up current Go 1.25 patch
@@ -282,8 +284,20 @@ jobs:
         run: |
           npm ci
           npm run build
+      - name: Verify Windows Local Sandbox isolation and product gates
+        shell: pwsh
+        run: |
+          go test -v -count=1 -timeout 10m ./internal/desktop -run '^TestWindowsControlPlane'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test -v -count=1 -timeout 10m ./internal/app -run '^TestWindowsAPIServe'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test -v -count=1 -timeout 10m ./internal/sandbox -run '^TestWindowsLocalSandbox'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Test Desktop boundaries
-        run: go test -tags "desktop,wv2runtime.error" -count=1 ./cmd/cyberagent-desktop ./internal/desktop ./internal/webui
+        run: >-
+          go test -tags "desktop,wv2runtime.error" -count=1
+          -skip '^TestWindowsControlPlaneConsumesValidatedLocalSandboxReadiness$'
+          ./cmd/cyberagent-desktop ./internal/desktop ./internal/webui
       - name: Verify cross-platform Runner receipt vectors
         run: go test -count=1 ./internal/runner -run 'TestEvidenceSetReceipt(Golden|Compatibility).*Vectors'
       - name: Verify Windows command runtime transports
@@ -309,6 +323,10 @@ jobs:
           go-version: '1.25.x'
           check-latest: true
           cache: true
+      - name: Verify Local Sandbox on the Windows 2022 compatibility host
+        env:
+          TRAVERSE_BOARD_LOCAL_SANDBOX_TEST_HOST_PREP: '1'
+        run: go test -v -count=1 -timeout 10m ./internal/sandbox -run '^TestWindowsLocalSandbox'
       - name: Verify real Edge UI evidence matrix and regression detection
         shell: pwsh
         run: |

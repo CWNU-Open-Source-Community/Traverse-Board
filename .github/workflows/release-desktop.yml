@@ -86,6 +86,8 @@ jobs:
     name: Portable ZIP (reproducible + verified)
     needs: dependency-boundaries
     runs-on: windows-latest
+    env:
+      TRAVERSE_BOARD_LOCAL_SANDBOX_TEST_HOST_PREP: '1'
     outputs:
       version: ${{ steps.release.outputs.version }}
       msix_version: ${{ steps.release.outputs.msix_version }}

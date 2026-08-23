@@ -454,12 +454,15 @@ histories still fail closed. See
 Schema v126 adds the non-authorizing `workspace_access` Run permission ceiling.
 It admits only a `sandboxed_workspace_command` decision when an independent,
 process-local Workspace Sandbox adapter is ready; host process, network,
-credential, home, terminal, Agent-input, and Full-CDP facts remain false. The
-current product installs no adapter, so every surface reports the mode as
-unavailable and no existing host runner may serve as a fallback. Selecting any
+credential, home, terminal, Agent-input, and Full-CDP facts remain false.
+Windows x64 now installs the Local adapter only behind an explicit startup
+request and a real AppContainer/WFP/Job/ACL readiness proof. Failure keeps the
+mode unavailable and no existing host runner may serve as a fallback. The
+sandboxed shared Command Runtime adapter remains separate (#134). Selecting any
 new permission revision atomically releases the active Run execution lease and
 fences old Job/tool authority. See
-[ADR 0127](adr/0127-workspace-access-permission-contract.md).
+[ADR 0127](adr/0127-workspace-access-permission-contract.md) and
+[ADR 0130](adr/0130-windows-local-sandbox-backend.md).
 
 Schema v127 adds `drydock-workspace.v1` as a Run-owned ownership and recovery
 boundary around one product-created Git worktree. The first create is a read-only

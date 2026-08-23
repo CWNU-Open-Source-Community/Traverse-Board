@@ -134,6 +134,19 @@ func TestDesktopOptionsDefaultToReadOnlyAndRequireExplicitCapabilities(t *testin
 		t.Fatal("host command proposals without permission control were accepted")
 	}
 	if _, err := parseDesktopOptions([]string{
+		"--enable-workspace-sandbox",
+	}); err == nil || !strings.Contains(err.Error(), "--enable-permission-control") {
+		t.Fatalf("Workspace Sandbox without permission control was accepted: %v", err)
+	}
+	workspaceSandbox, err := parseDesktopOptions([]string{
+		"--enable-permission-control", "--enable-workspace-sandbox",
+	})
+	if err != nil || !workspaceSandbox.permissionControl ||
+		!workspaceSandbox.workspaceSandbox {
+		t.Fatalf("Workspace Sandbox capability set is incomplete: %+v err=%v",
+			workspaceSandbox, err)
+	}
+	if _, err := parseDesktopOptions([]string{
 		"--enable-batch-validation-execution",
 	}); err == nil {
 		t.Fatal("batch host validation without permission/full access was accepted")
@@ -209,6 +222,7 @@ func TestDesktopOperatorPreviewEnablesTheSafeProductBundleOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !preview.operatorPreview || !preview.profileControl || !preview.permissionControl ||
+		!preview.workspaceSandbox ||
 		!preview.browserCDPControl || !preview.runCreation || !preview.sessionMessages ||
 		!preview.sessionSteeringControl || !preview.runLifecycle || !preview.runExecution ||
 		!preview.planDeliveryControl || !preview.approvalControl ||

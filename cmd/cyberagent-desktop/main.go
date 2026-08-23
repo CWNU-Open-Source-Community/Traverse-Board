@@ -18,6 +18,7 @@ import (
 	"cyberagent-workbench/internal/desktop"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/httpapi"
+	"cyberagent-workbench/internal/sandbox"
 	"cyberagent-workbench/internal/webui"
 	webassets "cyberagent-workbench/web"
 
@@ -38,6 +39,7 @@ type desktopOptions struct {
 	operatorPreview        bool
 	profileControl         bool
 	permissionControl      bool
+	workspaceSandbox       bool
 	dangerFullAccess       bool
 	debugMaximumAccess     bool
 	browserCDPControl      bool
@@ -228,6 +230,8 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		"enable only the non-authorizing Run execution-profile control")
 	permissionControl := fs.Bool("enable-permission-control", false,
 		"enable operator selection of execution permission modes")
+	workspaceSandbox := fs.Bool("enable-workspace-sandbox", false,
+		"probe and enable the verified Windows Workspace Sandbox")
 	dangerFullAccess := fs.Bool("enable-danger-full-access", false,
 		"enable unsandboxed one-shot host execution permission selection")
 	debugMaximumAccess := fs.Bool("enable-debug-maximum-access", false,
@@ -310,6 +314,7 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 	if *operatorPreview {
 		*profileControl = true
 		*permissionControl = true
+		*workspaceSandbox = true
 		*browserCDPControl = true
 		*runCreation = true
 		*sessionMessages = true
@@ -353,6 +358,10 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		return desktopOptions{}, errors.New(
 			"host command proposals require --enable-permission-control")
 	}
+	if *workspaceSandbox && !*permissionControl {
+		return desktopOptions{}, errors.New(
+			"Workspace Sandbox requires --enable-permission-control")
+	}
 	if *dockerExecution && !*permissionControl {
 		return desktopOptions{}, errors.New(
 			"Docker execution requires --enable-permission-control")
@@ -388,6 +397,7 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 	return desktopOptions{operatorPreview: *operatorPreview,
 		profileControl: *profileControl, runCreation: *runCreation,
 		permissionControl: *permissionControl, dangerFullAccess: *dangerFullAccess,
+		workspaceSandbox:       *workspaceSandbox,
 		debugMaximumAccess:     *debugMaximumAccess,
 		browserCDPControl:      *browserCDPControl,
 		fullCDPDebug:           *fullCDPDebug,
@@ -429,6 +439,20 @@ func runDesktop(config desktopOptions) error {
 	if err := checkDesktopPrerequisites(); err != nil {
 		return err
 	}
+	var localReadiness *sandbox.LocalReadiness
+	if config.workspaceSandbox {
+		backend, err := sandbox.NewPlatformLocalBackend()
+		if err != nil {
+			return err
+		}
+		defer backend.Close()
+		readiness, err := backend.Readiness(context.Background(),
+			sandbox.LocalRuntimeCapabilities{Enabled: true})
+		if err != nil {
+			return err
+		}
+		localReadiness = &readiness
+	}
 	bundle, err := webui.LoadEmbeddedFS(webassets.Files, "dist")
 	if err != nil {
 		return apperror.Wrap(apperror.CodeFailedPrecondition,
@@ -467,13 +491,12 @@ func runDesktop(config desktopOptions) error {
 		RunControlEnabled: config.profileControl, RunCreationEnabled: config.runCreation,
 		ExecutionPermissionControlEnabled: config.permissionControl,
 		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
-			// #129 defines Workspace Access, but no Desktop sandbox adapter is
-			// installed until its separate readiness issue lands.
-			WorkspaceSandboxEnabled:   false,
+			WorkspaceSandboxEnabled:   localReadiness != nil && localReadiness.Ready,
 			OperatorApprovalEnabled:   config.permissionControl,
 			DangerFullAccessEnabled:   config.dangerFullAccess,
 			DebugMaximumAccessEnabled: config.debugMaximumAccess,
 		},
+		LocalSandboxReadiness:              localReadiness,
 		BrowserCDPPermissionControlEnabled: config.browserCDPControl,
 		BrowserCDPPermissionCapabilities: domain.BrowserCDPPermissionRuntimeCapabilities{
 			ControlEnabled:   config.browserCDPControl,
@@ -548,7 +571,7 @@ func runDesktop(config desktopOptions) error {
 		ReadToken: readToken, ControlToken: controlToken, APIVersion: httpapi.Version,
 		RunControlEnabled: config.profileControl, RunCreationEnabled: config.runCreation,
 		ExecutionPermissionControlEnabled:       config.permissionControl,
-		WorkspaceSandboxEnabled:                 false,
+		WorkspaceSandboxEnabled:                 localReadiness != nil && localReadiness.Ready,
 		BrowserCDPPermissionControlEnabled:      config.browserCDPControl,
 		FullCDPDebugEnabled:                     config.fullCDPDebug,
 		OperatorApprovalEnabled:                 config.permissionControl,
