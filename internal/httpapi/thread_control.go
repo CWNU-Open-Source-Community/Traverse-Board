@@ -12,6 +12,7 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/threadtranscript"
 )
 
 const ThreadCollectionPath = "/api/v1/threads"
@@ -77,12 +78,47 @@ func (a *API) routeThreads(request *http.Request, segments []string) (any, *Page
 			return a.threadMessages(request, segments[1])
 		case "runs":
 			return a.threadRuns(request, segments[1])
+		case "transcript":
+			return a.threadTranscript(request, segments[1])
 		case "export":
 			return a.threadExport(request, segments[1])
 		}
 	}
 	return nil, nil, apperror.New(apperror.CodeNotFound,
 		"Thread HTTP API endpoint was not found")
+}
+
+func (a *API) threadTranscript(request *http.Request, threadID string) (any, *Page, error) {
+	values := request.URL.Query()
+	if err := validateSingleQueryValues(values, "limit", "cursor"); err != nil {
+		return nil, nil, err
+	}
+	if _, err := a.store.GetThread(request.Context(), threadID); err != nil {
+		return nil, nil, err
+	}
+	pageRequest, err := parseThreadTranscriptPage(values, request.URL.Path)
+	if err != nil {
+		return nil, nil, err
+	}
+	source, err := a.store.ListThreadTranscriptSourceBefore(request.Context(), threadID,
+		pageRequest.BeforeOrdinal, pageRequest.BeforeSequence, pageRequest.Limit+1)
+	if err != nil {
+		return nil, nil, err
+	}
+	hasMore := len(source) > pageRequest.Limit
+	if hasMore {
+		source = source[:pageRequest.Limit]
+	}
+	items, err := threadtranscript.Build(threadID, source)
+	if err != nil {
+		return nil, nil, apperror.Wrap(apperror.CodeFailedPrecondition,
+			"durable Thread transcript could not be projected", err)
+	}
+	views := make([]ThreadTranscriptItemView, len(items))
+	for index := range items {
+		views[index] = threadTranscriptItemView(items[index])
+	}
+	return views, threadTranscriptPage(pageRequest, source, hasMore), nil
 }
 
 func (a *API) threads(request *http.Request) (any, *Page, error) {

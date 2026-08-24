@@ -527,6 +527,27 @@ During an attempt, `run events` may contain at most 32 ordered `model.delta` rec
 
 `model_public_stream.v3` exposes provisional message text only through the existing safe public previewer and adds a content-free tool projection: stable response/item/call IDs, status, redacted tool name, and bounded argument byte count. A Desktop card may show “Preparing call” while bytes arrive, but no argument is shown or persisted and no execution begins. A complete call must first pass JSON, size, sensitive-data, Policy, budget, authority, and idempotency checks in Go. Schema v130 then immutably binds the stream IDs to the deterministic Supervisor call ID; durable `supervisor.tool_execution_started/completed` events carry the same safe identity projection. Model terminal events, token usage, and `execution_millis` commit together, and replay cannot double-charge the budget or duplicate logical tool effects.
 
+### Unified Thread transcript / 统一 Thread 主工作面
+
+打开 `/threads/{thread_id}` 时，页面从 `GET /api/v1/threads/{thread_id}/transcript`
+读取最新一页持久记录，并用不受追加事件影响的 opaque keyset cursor 向前加载。记录按
+`(Run ordinal, event sequence, item position)` 排列，包括 Run/successor 边界、用户消息、公开
+模型正文、白名单 Harness 事实、schema-v130 结构化工具阶段、审批、验证、检查点和交付。
+`limit` 约束持久 source records；一个有界 tool-batch source 会完整展开为逐 item 卡片，不会在
+批次中间丢失身份。
+
+Thread 是普通任务的主页面：Composer、暂停/恢复、当前审批、继续执行和交付均在同一页面。
+Events、Artifacts、Run 与 Session 页面仍用于专业审计和诊断。实时 `model_public_stream.v3`
+内容固定标为 provisional；相同 stream item、source reference 或 attempt/model/tool-round 的 durable
+记录到达后会确定性替换它，已确认历史不会重排。
+
+Transcript 只展示公开模型文本与 Go 允许的结构化事实，不展示或推断 private chain-of-thought，
+也没有工具参数、raw output、provider bytes、凭据或无限 terminal 数据字段。长细节默认使用可键盘
+展开的原生 disclosure；长历史采用可变高度虚拟化。Composer 与 transcript scroller 是独立 flex
+siblings，在 390px 窄屏、200% 等效高度、中文 IME、Shift+Enter、虚拟键盘、safe area 和
+reduced-motion 下保持可达。完整设计与 #140 packaged E2E 的稳定入口见
+[ADR 0134](adr/0134-unified-thread-transcript.md)。
+
 Repair transitions emit `supervisor.protocol_repair_requested/started/completed/failed`. The raw invalid output is never copied into the repair prompt, Session, or event payload. `run step` prints `model_attempts`, `protocol_repairs`, `model_outcome`, `stream_events`, and `stream_bytes`. Exhausted transient retries return unavailable exit code 6, rate limits return resource-exhausted exit code 8, cancellation returns 7, and deadline expiration returns 9.
 
 The application service exposes in-process active-call query, bounded metadata subscription, and idempotent cancellation operations. An explicit application cancellation first appends a redacted `model.cancel_requested` event and then signals the Go-owned Provider context. Subscribers receive no raw model text and are disconnected if their 32-event buffer fills. Bubble Tea consumes this interface through an adapter. Schema v18 extends cancellation across processes through a durable, exact-attempt request: a separately authorized API process records intent, and only the worker holding the private execution lease can observe it and cancel its local Provider context. Request, observation, and terminal resolution are audited without exposing the registry or fencing token.

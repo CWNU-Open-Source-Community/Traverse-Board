@@ -3080,6 +3080,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/threads/{thread_id}/transcript": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the unified Thread transcript
+         * @description Returns the newest bounded page of one Go-owned narrative projection across immutable Run boundaries, public messages, allowlisted Harness facts, structured tool item stages, approvals, verification, checkpoints, and delivery. The opaque keyset cursor pages older records without shifting when the active Run appends events or a successor Run is created. Tool arguments, raw output, provider bytes, secrets, and private reasoning are never included.
+         */
+        get: operations["listThreadTranscript"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ui-evidence/{attempt_id}": {
         parameters: {
             query?: never;
@@ -8570,6 +8590,48 @@ export interface components {
             ordinal: number;
             predecessor_run_id?: string;
             run: components["schemas"]["RunView"];
+        };
+        ThreadTranscriptItemView: {
+            /** @enum {string} */
+            activity_type: "message" | "search" | "read" | "edit" | "execute" | "verify" | "approval" | "checkpoint" | "delivery";
+            attempt_id?: string;
+            boundary_reason?: string;
+            canonical_id: string;
+            /** Format: date-time */
+            created_at: string;
+            detail?: string;
+            durable: boolean;
+            durable_call_id?: string;
+            id: string;
+            instruction_authorized: boolean;
+            /** @enum {string} */
+            kind: "harness_status" | "model_update" | "operator_input" | "model_call" | "tool_call" | "approval" | "file_change" | "plan" | "dependency" | "browser";
+            /** Format: int32 */
+            model_attempt?: number;
+            /** Format: int32 */
+            position?: number;
+            provisional: boolean;
+            run_id: string;
+            /** Format: int64 */
+            run_ordinal: number;
+            /** Format: int64 */
+            sequence: number;
+            /** @enum {string} */
+            source: "harness" | "model" | "operator";
+            source_ref?: string;
+            /** @enum {string} */
+            stage: "started" | "arguments_ready" | "running" | "result" | "blocked";
+            status?: string;
+            stream_call_id?: string;
+            stream_item_id?: string;
+            stream_response_id?: string;
+            title: string;
+            tool_name?: string;
+            /** Format: int32 */
+            tool_round?: number;
+            verifiable: boolean;
+            /** @enum {string} */
+            version: "thread_transcript.v1";
         };
         ThreadView: {
             active_run_id?: string;
@@ -16723,6 +16785,47 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["ThreadRunView"][];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listThreadTranscript: {
+        parameters: {
+            query?: {
+                /** @description Maximum durable source records from 1 to 100; a bounded structured tool batch expands item-by-item; defaults to 50 */
+                limit?: number;
+                /** @description Opaque cursor bound to this Thread transcript route and source-record ordering */
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadTranscriptItemView"][];
+                        page: components["schemas"]["Page"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";

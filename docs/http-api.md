@@ -538,6 +538,7 @@ metadata；原始 artifact 下载额外返回 `no-store`、ETag、精确 SHA-256
 | `GET` | `/api/v1/threads/{thread_id}` | Stable Thread identity, Mission, active/last Run, composer state, and complete ordered Run chain |
 | `GET` | `/api/v1/threads/{thread_id}/runs` | Immutable predecessor/successor Run bindings for one Thread |
 | `GET` | `/api/v1/threads/{thread_id}/messages` | Ordered cross-Run Session-message projection, including pending operator input without duplication |
+| `GET` | `/api/v1/threads/{thread_id}/transcript` | Newest bounded Go-owned narrative page across Run boundaries, public messages, structured tool stages, approvals, verification, checkpoints, and delivery; opaque keyset cursor pages older durable sources |
 | `POST` | `/api/v1/threads/{thread_id}/messages` | Continue the live Run, or atomically create/reuse one authority-free successor when the prior Run is terminal |
 | `POST` | `/api/v1/threads/{thread_id}/archive` | Exact-version, idempotent soft archive without deleting history |
 | `POST` | `/api/v1/threads/{thread_id}/restore` | Restore the same Thread identity without implicitly creating a Run |

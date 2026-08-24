@@ -31,6 +31,7 @@ import (
 	"cyberagent-workbench/internal/scheduler"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/skills"
+	"cyberagent-workbench/internal/threadtranscript"
 	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/uievidence"
 	"cyberagent-workbench/internal/verification"
@@ -729,6 +730,12 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			NotFound: true,
 			Parameters: append(append([]openAPIParameter{threadID}, paginationParameters()...),
 				booleanQueryParameter("include_compacted", "Include compacted historical messages"))},
+		{Path: "/api/v1/threads/{thread_id}/transcript", OperationID: "listThreadTranscript",
+			Summary: "Read the unified Thread transcript", Tag: "Threads",
+			Description: "Returns the newest bounded page of one Go-owned narrative projection across immutable Run boundaries, public messages, allowlisted Harness facts, structured tool item stages, approvals, verification, checkpoints, and delivery. The opaque keyset cursor pages older records without shifting when the active Run appends events or a successor Run is created. Tool arguments, raw output, provider bytes, secrets, and private reasoning are never included.",
+			DataType:    reflect.TypeOf(ThreadTranscriptItemView{}), Collection: true,
+			Paginated: true, NotFound: true,
+			Parameters: append([]openAPIParameter{threadID}, threadTranscriptPaginationParameters()...)},
 		{Path: "/api/v1/threads/{thread_id}/messages", Method: http.MethodPost,
 			OperationID: "submitThreadMessage", Summary: "Continue a Thread", Tag: "Control",
 			Description: "Queues input on the live Run, including while waiting for approval. If the last Run is terminal, atomically creates or reuses exactly one fresh successor Run and Session; no approval, lease, process, network, credential, execution profile, or capability authority is inherited.",
@@ -1781,6 +1788,17 @@ func paginationParameters() []openAPIParameter {
 	}
 }
 
+func threadTranscriptPaginationParameters() []openAPIParameter {
+	return []openAPIParameter{
+		{Name: "limit", In: "query",
+			Description: "Maximum durable source records from 1 to 100; a bounded structured tool batch expands item-by-item; defaults to 50",
+			Schema:      map[string]any{"type": "integer", "minimum": 1, "maximum": MaxPageLimit, "default": DefaultPageLimit}},
+		{Name: "cursor", In: "query",
+			Description: "Opaque cursor bound to this Thread transcript route and source-record ordering",
+			Schema:      map[string]any{"type": "string", "minLength": 1, "maxLength": MaxCursorBytes}},
+	}
+}
+
 func debugOpenAPIParameters() []openAPIParameter {
 	runID := identityQueryParameter("run_id", "Exact Run diagnostic scope")
 	runID.Required = true
@@ -2190,6 +2208,11 @@ var openAPIFieldEnums = map[string][]string{
 	"RunActivityView.version":                                  {runactivity.ProtocolVersion},
 	"RunActivityItemView.kind":                                 {string(runactivity.KindHarnessStatus), string(runactivity.KindModelUpdate), string(runactivity.KindOperatorInput), string(runactivity.KindModelCall), string(runactivity.KindToolCall), string(runactivity.KindApproval), string(runactivity.KindFileChange), string(runactivity.KindPlan), string(runactivity.KindDependency), string(runactivity.KindBrowser)},
 	"RunActivityItemView.source":                               {string(runactivity.SourceHarness), string(runactivity.SourceModel), string(runactivity.SourceOperator)},
+	"ThreadTranscriptItemView.version":                         {threadtranscript.ProtocolVersion},
+	"ThreadTranscriptItemView.activity_type":                   {string(threadtranscript.TypeMessage), string(threadtranscript.TypeSearch), string(threadtranscript.TypeRead), string(threadtranscript.TypeEdit), string(threadtranscript.TypeExecute), string(threadtranscript.TypeVerify), string(threadtranscript.TypeApproval), string(threadtranscript.TypeCheckpoint), string(threadtranscript.TypeDelivery)},
+	"ThreadTranscriptItemView.stage":                           {string(threadtranscript.StageStarted), string(threadtranscript.StageArgumentsReady), string(threadtranscript.StageRunning), string(threadtranscript.StageResult), string(threadtranscript.StageBlocked)},
+	"ThreadTranscriptItemView.kind":                            {string(runactivity.KindHarnessStatus), string(runactivity.KindModelUpdate), string(runactivity.KindOperatorInput), string(runactivity.KindModelCall), string(runactivity.KindToolCall), string(runactivity.KindApproval), string(runactivity.KindFileChange), string(runactivity.KindPlan), string(runactivity.KindDependency), string(runactivity.KindBrowser)},
+	"ThreadTranscriptItemView.source":                          {string(runactivity.SourceHarness), string(runactivity.SourceModel), string(runactivity.SourceOperator)},
 	"IndexView.api_version":                                    {Version},
 	"HealthView.status":                                        {"ok"},
 	"HealthView.api_version":                                   {Version},

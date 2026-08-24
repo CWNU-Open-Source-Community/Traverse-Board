@@ -164,6 +164,12 @@ func projectEvent(event events.Event) (Item, bool) {
 	case events.ToolProposedEvent:
 		base.Kind, base.Title, base.Status = KindToolCall, "工具操作已提议", "pending"
 		base.Detail = toolNameFromPayload(event.PayloadJSON)
+	case events.ToolApprovedEvent:
+		base.Kind, base.Title, base.Status = KindToolCall, "工具操作已批准", "approved"
+		base.Detail = toolNameFromPayload(event.PayloadJSON)
+	case events.ToolDeniedEvent:
+		base.Kind, base.Title, base.Status = KindToolCall, "工具操作已拒绝", "denied"
+		base.Detail = toolNameFromPayload(event.PayloadJSON)
 	case events.ToolStartedEvent:
 		base.Kind, base.Title, base.Status = KindToolCall, "工具操作开始", "running"
 		base.Detail = toolNameFromPayload(event.PayloadJSON)
@@ -177,6 +183,8 @@ func projectEvent(event events.Event) (Item, bool) {
 		base.Kind, base.Title, base.Status = KindApproval, "等待用户审批", "pending"
 	case events.ApprovalDecidedEvent:
 		base.Kind, base.Title, base.Status = KindApproval, "用户审批已记录", "completed"
+	case events.ApprovalBoundEvent:
+		base.Kind, base.Title, base.Status = KindApproval, "审批已绑定到操作", "pending"
 	case events.ControlledCommandProposedEvent:
 		base.Kind, base.Title, base.Status = KindApproval, "受控命令已提议", "pending"
 	case events.ControlledCommandProposalReviewedEvent:
@@ -199,6 +207,28 @@ func projectEvent(event events.Event) (Item, bool) {
 		base.Kind, base.Title, base.Status = KindPlan, "计划方向已选择", "selected"
 	case events.DeliveryCheckpointRecordedEvent:
 		base.Kind, base.Title, base.Status = KindPlan, "切片交付检查点已记录", "completed"
+	case events.VerificationEvidenceRecordedEvent:
+		base.Kind, base.Title, base.Status = KindPlan, "验证证据已记录", "completed"
+	case events.VerificationPlanRecordedEvent:
+		base.Kind, base.Title, base.Status = KindPlan, "验证计划已记录", "completed"
+	case events.VerificationPlanEvidenceAssociatedEvent:
+		base.Kind, base.Title, base.Status = KindPlan, "验证证据已关联", "completed"
+	case events.VerificationSnapshotReceiptRecordedEvent:
+		base.Kind, base.Title, base.Status = KindPlan, "验证快照收据已记录", "completed"
+	case events.VerificationSnapshotReviewRecordedEvent:
+		base.Kind, base.Title, base.Status = KindPlan, "验证快照已复核", "completed"
+	case events.SupervisorCheckpointedEvent:
+		base.Kind, base.Title, base.Status = KindPlan, "Supervisor 检查点已记录", "completed"
+	case events.WorkspaceCheckpointCreatedEvent:
+		base.Kind, base.Title, base.Status = KindPlan, "工作区检查点已创建", "completed"
+	case events.WorkspaceCheckpointTransactionPreparedEvent:
+		base.Kind, base.Title, base.Status = KindPlan, "工作区恢复已准备", "pending"
+	case events.WorkspaceCheckpointTransactionCompletedEvent:
+		base.Kind, base.Title, base.Status = KindPlan, "工作区恢复已完成", "completed"
+	case events.WorkspaceCheckpointTransactionFailedEvent:
+		base.Kind, base.Title, base.Status = KindPlan, "工作区恢复失败", "failed"
+	case events.ArtifactCreatedEvent:
+		base.Kind, base.Title, base.Status = KindPlan, "交付物已记录", "completed"
 	case events.ProtocolRepairStartedEvent, events.AgentProtocolRepairStartedEvent:
 		base.Title, base.Status = "模型协议修复开始", "running"
 	case events.ProtocolRepairCompletedEvent, events.AgentProtocolRepairCompletedEvent:

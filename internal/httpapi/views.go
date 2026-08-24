@@ -14,6 +14,7 @@ import (
 	"cyberagent-workbench/internal/operatoraction"
 	"cyberagent-workbench/internal/runactivity"
 	"cyberagent-workbench/internal/session"
+	"cyberagent-workbench/internal/threadtranscript"
 	"cyberagent-workbench/internal/toolbudget"
 )
 
@@ -1112,6 +1113,38 @@ type ThreadMessageView struct {
 	CreatedAt             time.Time `json:"created_at"`
 }
 
+type ThreadTranscriptItemView struct {
+	Version               string    `json:"version"`
+	ID                    string    `json:"id"`
+	CanonicalID           string    `json:"canonical_id"`
+	RunID                 string    `json:"run_id"`
+	RunOrdinal            int64     `json:"run_ordinal"`
+	Sequence              int64     `json:"sequence"`
+	Position              int       `json:"position,omitempty"`
+	ActivityType          string    `json:"activity_type"`
+	Stage                 string    `json:"stage"`
+	Kind                  string    `json:"kind"`
+	Source                string    `json:"source"`
+	Title                 string    `json:"title"`
+	Detail                string    `json:"detail,omitempty"`
+	Status                string    `json:"status,omitempty"`
+	Verifiable            bool      `json:"verifiable"`
+	InstructionAuthorized bool      `json:"instruction_authorized"`
+	AttemptID             string    `json:"attempt_id,omitempty"`
+	ModelAttempt          int       `json:"model_attempt,omitempty"`
+	ToolRound             int       `json:"tool_round,omitempty"`
+	ToolName              string    `json:"tool_name,omitempty"`
+	StreamResponseID      string    `json:"stream_response_id,omitempty"`
+	StreamItemID          string    `json:"stream_item_id,omitempty"`
+	StreamCallID          string    `json:"stream_call_id,omitempty"`
+	DurableCallID         string    `json:"durable_call_id,omitempty"`
+	SourceRef             string    `json:"source_ref,omitempty"`
+	BoundaryReason        string    `json:"boundary_reason,omitempty"`
+	Provisional           bool      `json:"provisional"`
+	Durable               bool      `json:"durable"`
+	CreatedAt             time.Time `json:"created_at"`
+}
+
 type ThreadEventView struct {
 	ID        int64           `json:"id"`
 	ThreadID  string          `json:"thread_id"`
@@ -1558,6 +1591,23 @@ func threadMessageView(value domain.ThreadMessage) ThreadMessageView {
 		InstructionAuthorized: value.InstructionAuthorized, Status: value.Status,
 		TokenEstimate: value.TokenEstimate,
 		Compacted:     value.Compacted, CreatedAt: value.CreatedAt}
+}
+
+func threadTranscriptItemView(value threadtranscript.Item) ThreadTranscriptItemView {
+	return ThreadTranscriptItemView{
+		Version: value.Version, ID: value.ID, CanonicalID: value.CanonicalID,
+		RunID: value.RunID, RunOrdinal: value.RunOrdinal, Sequence: value.Sequence,
+		Position: value.Position, ActivityType: string(value.Type), Stage: string(value.Stage),
+		Kind: string(value.Kind), Source: string(value.Source), Title: value.Title,
+		Detail: value.Detail, Status: value.Status, Verifiable: value.Verifiable,
+		InstructionAuthorized: value.InstructionAuthorized, AttemptID: value.AttemptID,
+		ModelAttempt: value.ModelAttempt, ToolRound: value.ToolRound,
+		ToolName: value.ToolName, StreamResponseID: value.StreamResponseID,
+		StreamItemID: value.StreamItemID, StreamCallID: value.StreamCallID,
+		DurableCallID: value.DurableCallID, SourceRef: value.SourceRef,
+		BoundaryReason: value.BoundaryReason, Provisional: value.Provisional,
+		Durable: value.Durable, CreatedAt: value.CreatedAt,
+	}
 }
 
 func messageView(value session.Message) MessageView {

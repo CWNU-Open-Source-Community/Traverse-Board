@@ -615,6 +615,64 @@ func TestRunActivitySeparatesPublicUpdatesFromHarnessEvidence(t *testing.T) {
 		http.StatusNotFound, "NOT_FOUND")
 }
 
+func TestThreadTranscriptUsesStableCrossRunCursorAndSafeProjection(t *testing.T) {
+	fixture := newAPIFixture(t)
+	ctx := context.Background()
+	threadRecord, err := fixture.store.GetThreadByRun(ctx, fixture.run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.store.SaveSessionMessage(ctx,
+		session.NewMessage(fixture.run.SessionID, "assistant", "durable transcript tail")); err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/v1/threads/" + threadRecord.ID + "/transcript"
+	firstResponse := fixture.get(t, path+"?limit=2")
+	var first []ThreadTranscriptItemView
+	firstEnvelope := decodeData(t, firstResponse, &first)
+	if len(first) == 0 || firstEnvelope.Page == nil || firstEnvelope.Page.NextCursor == "" {
+		t.Fatalf("newest transcript page is incomplete: items=%#v page=%#v", first, firstEnvelope.Page)
+	}
+	last := first[len(first)-1]
+	if last.Version != "thread_transcript.v1" || last.Detail != "durable transcript tail" ||
+		last.Source != "model" || last.ActivityType != "message" || !last.Durable || last.Provisional {
+		t.Fatalf("durable transcript tail is wrong: %#v", last)
+	}
+	oldCursor := firstEnvelope.Page.NextCursor
+	if _, err := fixture.store.SaveSessionMessage(ctx,
+		session.NewMessage(fixture.run.SessionID, "assistant", "new append")); err != nil {
+		t.Fatal(err)
+	}
+	var older []ThreadTranscriptItemView
+	olderEnvelope := decodeData(t, fixture.get(t, path+"?limit=2&cursor="+
+		url.QueryEscape(oldCursor)), &older)
+	if olderEnvelope.Page == nil {
+		t.Fatal("continued transcript omitted its page contract")
+	}
+	for _, item := range older {
+		if item.Detail == "new append" || item.ID == last.ID {
+			t.Fatalf("append shifted or duplicated the old cursor: %#v", older)
+		}
+	}
+	var refreshed []ThreadTranscriptItemView
+	decodeData(t, fixture.get(t, path+"?limit=2"), &refreshed)
+	if len(refreshed) == 0 || refreshed[len(refreshed)-1].Detail != "new append" {
+		t.Fatalf("fresh tail did not observe append: %#v", refreshed)
+	}
+	for _, forbidden := range []string{fixture.secret, fixture.leaseID, "echo api evidence", `"payload"`} {
+		if strings.Contains(firstResponse.Body.String(), forbidden) {
+			t.Fatalf("Thread transcript exposed private/raw data %q: %s", forbidden,
+				firstResponse.Body.String())
+		}
+	}
+	assertAPIError(t, fixture.get(t, "/api/v1/threads/missing/transcript"),
+		http.StatusNotFound, "NOT_FOUND")
+	assertAPIError(t, fixture.get(t, path+"?cursor=not-a-cursor"),
+		http.StatusBadRequest, "INVALID_ARGUMENT")
+	assertAPIError(t, fixture.get(t, path+"-different?cursor="+url.QueryEscape(oldCursor)),
+		http.StatusNotFound, "NOT_FOUND")
+}
+
 func TestReadAPIPaginationCursorIsOpaqueScopedAndBounded(t *testing.T) {
 	fixture := newAPIFixture(t)
 	first := fixture.get(t, "/api/v1/runs/"+fixture.run.ID+"/notes?limit=2")

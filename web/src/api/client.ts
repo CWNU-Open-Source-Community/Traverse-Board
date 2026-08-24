@@ -147,6 +147,7 @@ import type {
   ThreadMessageControlView,
   ThreadLifecycleControlRequestView,
   ThreadLifecycleControlView,
+  ThreadTranscriptItemView,
   ThreadView,
   ScheduledJobControlView,
   ScheduledJobCreateRequestView,
@@ -485,6 +486,72 @@ function parseThreadLifecycleControl(value: unknown, expectedThreadID: string,
       "INVALID_RESPONSE", 502);
   }
   return { ...value, thread } as unknown as ThreadLifecycleControlView;
+}
+
+const threadTranscriptTypes = ["message", "search", "read", "edit", "execute", "verify",
+  "approval", "checkpoint", "delivery"];
+const threadTranscriptStages = ["started", "arguments_ready", "running", "result", "blocked"];
+const threadTranscriptKinds = ["harness_status", "model_update", "operator_input", "model_call",
+  "tool_call", "approval", "file_change", "plan", "dependency", "browser"];
+const threadTranscriptSources = ["harness", "model", "operator"];
+
+function parseThreadTranscriptItem(value: unknown): ThreadTranscriptItemView {
+  const required = ["activity_type", "canonical_id", "created_at", "durable", "id",
+    "instruction_authorized", "kind", "provisional", "run_id", "run_ordinal", "sequence",
+    "source", "stage", "title", "verifiable", "version"];
+  const optional = ["attempt_id", "boundary_reason", "detail", "durable_call_id",
+    "model_attempt", "position", "source_ref", "status", "stream_call_id", "stream_item_id",
+    "stream_response_id", "tool_name", "tool_round"];
+  if (!isRecord(value) || !hasOnlyKeys(value, [...required, ...optional]) ||
+    required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
+    value.version !== "thread_transcript.v1" || !boundedIdentity(value.id) ||
+    !boundedIdentity(value.canonical_id) || !boundedIdentity(value.run_id) ||
+    !safePositiveInteger(value.run_ordinal) ||
+    !safeBoundedCount(value.sequence, Number.MAX_SAFE_INTEGER) ||
+    !threadTranscriptTypes.includes(String(value.activity_type)) ||
+    !threadTranscriptStages.includes(String(value.stage)) ||
+    !threadTranscriptKinds.includes(String(value.kind)) ||
+    !threadTranscriptSources.includes(String(value.source)) ||
+    !boundedText(value.title, 512) || !validDate(value.created_at) ||
+    typeof value.verifiable !== "boolean" || typeof value.instruction_authorized !== "boolean" ||
+    value.provisional !== false || value.durable !== true) {
+    throw new APIRequestError("Thread transcript item is invalid", "INVALID_RESPONSE", 502);
+  }
+  for (const field of ["attempt_id", "boundary_reason", "durable_call_id", "source_ref", "status",
+    "stream_call_id", "stream_item_id", "stream_response_id", "tool_name"]) {
+    if (value[field] !== undefined && !boundedIdentity(value[field])) {
+      throw new APIRequestError("Thread transcript identity is invalid", "INVALID_RESPONSE", 502);
+    }
+  }
+  if (value.detail !== undefined && (typeof value.detail !== "string" ||
+    value.detail.length === 0 || value.detail.length > 16_384 || value.detail.includes("\0")) ||
+    value.position !== undefined && !safePositiveInteger(value.position) ||
+    value.model_attempt !== undefined && !safePositiveInteger(value.model_attempt) ||
+    value.tool_round !== undefined && !safeBoundedCount(value.tool_round, 100)) {
+    throw new APIRequestError("Thread transcript metadata is invalid", "INVALID_RESPONSE", 502);
+  }
+  if ((value.sequence === 0) !== (value.boundary_reason !== undefined) ||
+    (value.stream_item_id !== undefined && value.canonical_id !== value.stream_item_id) ||
+    (value.source === "harness" && value.verifiable !== true) ||
+    (value.source === "model" && value.verifiable !== false)) {
+    throw new APIRequestError("Thread transcript provenance is invalid", "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as ThreadTranscriptItemView;
+}
+
+function parseThreadTranscriptItems(values: unknown[]): ThreadTranscriptItemView[] {
+  const items = values.map(parseThreadTranscriptItem);
+  for (let index = 1; index < items.length; index++) {
+    const left = items[index - 1];
+    const right = items[index];
+    if (right.run_ordinal < left.run_ordinal ||
+      (right.run_ordinal === left.run_ordinal && right.sequence < left.sequence) ||
+      (right.run_ordinal === left.run_ordinal && right.sequence === left.sequence &&
+        (right.position ?? 0) < (left.position ?? 0))) {
+      throw new APIRequestError("Thread transcript page is out of order", "INVALID_RESPONSE", 502);
+    }
+  }
+  return items;
 }
 
 function parseSessionMessageControl(value: unknown,
@@ -5705,7 +5772,10 @@ export class CyberAgentClient {
       throw new APIRequestError("API collection response omitted pagination metadata", "INVALID_RESPONSE", 502,
         envelope.request_id);
     }
-    return { items: envelope.data, page: envelope.page, requestID: envelope.request_id };
+    const items = /^\/threads\/[^/]+\/transcript$/u.test(path)
+      ? parseThreadTranscriptItems(envelope.data as unknown[]) as T[]
+      : envelope.data;
+    return { items, page: envelope.page, requestID: envelope.request_id };
   }
 
   async postControl<T>(

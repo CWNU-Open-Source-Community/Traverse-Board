@@ -547,9 +547,10 @@ function AgentCodeToolsPanel({ detail }: { detail: RunDetailView }) {
   </section>;
 }
 
-export function RunControlPanel({ client, detail }: {
+export function RunControlPanel({ client, detail, threadID = "" }: {
   client: CyberAgentClient;
   detail: RunDetailView;
+  threadID?: string;
 }) {
   const { t } = useLocale();
   const queryClient = useQueryClient();
@@ -577,6 +578,10 @@ export function RunControlPanel({ client, detail }: {
         : current);
       void queryClient.invalidateQueries({ queryKey: ["run", detail.run.id] });
       void queryClient.invalidateQueries({ queryKey: ["run", detail.run.id, "events"] });
+      if (threadID) {
+        void queryClient.invalidateQueries({ queryKey: ["thread", threadID] });
+        void queryClient.invalidateQueries({ queryKey: ["thread", threadID, "transcript"] });
+      }
     },
   });
   const execution = useMutation({
@@ -588,6 +593,10 @@ export function RunControlPanel({ client, detail }: {
       setLastExecution(result);
       void queryClient.invalidateQueries({ queryKey: ["run", detail.run.id] });
       void queryClient.invalidateQueries({ queryKey: ["run", detail.run.id, "events"] });
+      if (threadID) {
+        void queryClient.invalidateQueries({ queryKey: ["thread", threadID] });
+        void queryClient.invalidateQueries({ queryKey: ["thread", threadID, "transcript"] });
+      }
     },
   });
   if (!client.hasRunLifecycle && !client.hasRunExecution) {
