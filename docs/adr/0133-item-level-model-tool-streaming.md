@@ -1,8 +1,8 @@
-# ADR 0132: Provider-Neutral Item-Level Model and Tool Streaming
+# ADR 0133: Provider-Neutral Item-Level Model and Tool Streaming
 
 - Status: Accepted
 - Date: 2026-08-24
-- Scope: GitHub Issue #152 and schema v129
+- Scope: GitHub Issue #152 and schema v130
 
 ## Context
 
@@ -98,7 +98,7 @@ states that Go validation must occur before execution.
 
 SQLite persists only content-free item boundaries in `model.delta`. On successful
 model completion, the Supervisor binds each stable stream call to the deterministic
-Go-issued call ID. Schema v129 stores the response/item/call reconciliation identities
+Go-issued call ID. Schema v130 stores the response/item/call reconciliation identities
 on `run_supervisor_tool_calls` and makes them immutable. The tool payload remains under
 the existing normalization, size, redaction, policy, budget, and idempotency controls.
 
@@ -112,7 +112,7 @@ through its deterministic operation key, preserving existing exactly-once logica
 effects.
 
 Completed Session history is projected as durable completed message items using stable
-Session/message-derived IDs. This includes history written before schema v129; no
+Session/message-derived IDs. This includes history written before schema v130; no
 history rewrite is required.
 
 ## Security properties

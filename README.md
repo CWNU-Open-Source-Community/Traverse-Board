@@ -19,9 +19,9 @@
 
 ## 针路簿是什么
 
-针路簿是一个由 Go 主控的本地 AI Agent 工作台。它把模型路由、长任务恢复、工作区、工具调用、审批、预算、记忆和审计事件统一到一个 Run-centric 运行时中，并通过 CLI、TUI、HTTP API、React 控制台和 Windows/macOS Desktop 提供同一套能力。
+针路簿是一个由 Go 主控的本地 AI Agent 工作台。它把模型路由、长任务恢复、工作区、工具调用、审批、预算、记忆和审计事件统一到一个 Thread/Run 运行时中，并通过 CLI、TUI、HTTP API、React 控制台和 Windows/macOS Desktop 提供同一套能力。
 
-用户的长期目标是 `Mission`，一次可恢复的执行尝试是 `Run`。模型可以规划和提出动作，但 Go 始终拥有状态机、凭证、权限、持久化与执行边界。仓库文件、网页、模型文字和工具输出都只是不可信证据，不能自行升级为指令或权限。
+`Thread` 是稳定、面向用户的任务与 URL 身份，`Mission` 固定意图和 Scope，`Run` 是一次有限执行尝试，`Session` 是该 Run 独占的消息与上下文边界。终态 Run 后继续输入会在同一 Thread 内原子创建全新 Run/Session，且不继承旧审批、租约、进程、网络或凭证。模型可以规划和提出动作，但 Go 始终拥有状态机、凭证、权限、持久化与执行边界。仓库文件、网页、模型文字和工具输出都只是不可信证据，不能自行升级为指令或权限。完整合同见 [ADR 0132](docs/adr/0132-thread-identity-run-succession.md)。
 
 当前产品重点是**通用 Code Agent 工作流**。CTF/专项网络安全求解已调整为可选附加能力，暂不进入活跃开发计划；仓库只保留通用的 Skill、Tool、Analyzer、Sandbox、Provider 和 Report 扩展接口，供未来独立插件接入。详见[产品范围](docs/PRODUCT_SCOPE.md)。
 
@@ -58,7 +58,7 @@ CLI / TUI / React / Windows Desktop / CI
 
 | 领域 | 当前能力 |
 |---|---|
-| Agent 运行时 | Mission/Run、可恢复 Supervisor、严格生命周期、检查点、取消、重试、预算和执行租约 |
+| Agent 运行时 | 稳定 Thread 身份、Mission/Run/Session 边界、无授权继承的 Run succession、可恢复 Supervisor、严格生命周期、检查点、取消、重试、预算和执行租约 |
 | 模型与上下文 | Mock、Anthropic-compatible、OpenAI-compatible 与 loopback-only Ollama Provider、模型路由、资格校验、能力探测、流式响应、上下文压缩、层级项目指令、显式 user/project 长期记忆与 Session 恢复树 |
 | 计划与协作 | Plan/Delivery、工作项、备注、最多两个核心 child、`batch-delivery.v1` 独立 Worktree/分支/邮箱/交付复核/顺序合并，以及 1/2/4/6 档只读 Fan-out |
 | 工具与权限 | Tool Gateway、JSON Schema 校验、Policy、Scope、人工审批、五档 Run 权限上限、受控固定命令、普通模式 Run-owned 命令运行时、逐条审批 PowerShell/Git Bash，以及限时 Debug 终端输入 |
@@ -92,9 +92,9 @@ Schema v128 随 #133 将既有固定本地 Docker Engine 的 `network=none` 路�
 
 ### 模型与工具的 item 级流式事件
 
-Schema v129 与 `llm.item_stream.v1` 将 OpenAI 的交错 tool-call delta、Anthropic content block、Ollama/Mock 的完整 item，以及旧 `ChatChunk` 统一为有序的 response/item/call 生命周期。参数增量只在有界内存中拼接；Provider 只能声明调用已准备，不能签发 authority 或执行工具。Go 在完整 JSON 通过大小、敏感数据、Policy、预算与幂等检查后才记录执行开始/完成，并以稳定 response/item/call ID 对齐临时 UI 卡片与持久工具账本。
+Schema v130 与 `llm.item_stream.v1` 将 OpenAI 的交错 tool-call delta、Anthropic content block、Ollama/Mock 的完整 item，以及旧 `ChatChunk` 统一为有序的 response/item/call 生命周期。参数增量只在有界内存中拼接；Provider 只能声明调用已准备，不能签发 authority 或执行工具。Go 在完整 JSON 通过大小、敏感数据、Policy、预算与幂等检查后才记录执行开始/完成，并以稳定 response/item/call ID 对齐临时 UI 卡片与持久工具账本。
 
-公开 `model_public_stream.v3` 和 `model.delta` 只携带稳定 ID、状态、脱敏工具名、参数字节数及无正文边界，不保存参数、raw wire、凭据或私有推理。取消、断流、缺失 usage、模型漂移和畸形/重复终态会稳定失败，且不会补造成功完成事件；旧 Session 历史无需改写即可显示为 durable completed item。设计与失败语义见 [ADR 0132](docs/adr/0132-item-level-model-tool-streaming.md)。
+公开 `model_public_stream.v3` 和 `model.delta` 只携带稳定 ID、状态、脱敏工具名、参数字节数及无正文边界，不保存参数、raw wire、凭据或私有推理。取消、断流、缺失 usage、模型漂移和畸形/重复终态会稳定失败，且不会补造成功完成事件；旧 Session 历史无需改写即可显示为 durable completed item。设计与失败语义见 [ADR 0133](docs/adr/0133-item-level-model-tool-streaming.md)。
 
 ### Run-owned Drydock 工作目录
 
@@ -415,7 +415,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 完整逐切片原始记录保留在 [`PROGRESS_BOOK.md`](docs/PROGRESS_BOOK.md)，当前检查点与验收证据保留在 [`PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)，恢复上下文见 [`PROJECT_MEMORY.md`](docs/PROJECT_MEMORY.md)。这些账本是历史记录，不应被当作待重新执行的任务列表。
 
 <details>
-<summary><strong>SQLite Schema v1-v129 迁移审计表 / Migration ledger</strong></summary>
+<summary><strong>SQLite Schema v1-v130 迁移审计表 / Migration ledger</strong></summary>
 
 此表是 Store 防漏迁移测试使用的审计合同。新增 schema 时必须按顺序追加，不得改写或删除既有行。
 
@@ -549,7 +549,8 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 | v126 | 增加 Workspace Access 工作区执行权限合同与沙箱 readiness 闸门 | add the Workspace Access permission contract and sandbox-readiness gate |
 | v127 | 增加 Run-owned Drydock、Workspace Trust、恢复/交付/清理事件与收据 | add Run-owned Drydocks, Workspace Trust, and recovery/delivery/cleanup events and receipts |
 | v128 | 允许固定 Docker Standard Code 后端复用 Workspace Access admission | allow the fixed Docker Standard Code backend to reuse Workspace Access admission |
-| v129 | 增加 item 级流式工具调用的稳定响应、item 与 call 对齐标识 | add stable response, item, and call reconciliation identities for item-level streamed tool calls |
+| v129 | 稳定 Thread 身份、Run succession 与无损生命周期投影 | stable Thread identity, Run succession, and lossless lifecycle projection |
+| v130 | 增加 item 级流式工具调用的稳定响应、item 与 call 对齐标识 | add stable response, item, and call reconciliation identities for item-level streamed tool calls |
 
 </details>
 

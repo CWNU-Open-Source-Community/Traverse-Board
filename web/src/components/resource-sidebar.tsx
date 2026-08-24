@@ -17,7 +17,7 @@ import {
   X,
 } from "lucide-react";
 import type { CyberAgentClient } from "../api/client";
-import type { RunView, SessionView } from "../api/types";
+import type { RunView, SessionView, ThreadView } from "../api/types";
 import { usePagedResource } from "../hooks/use-paged-resource";
 import { formatCompactDate, shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
@@ -59,14 +59,19 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [archiveCandidate, setArchiveCandidate] = useState<SessionView | null>(null);
+  const [threadArchiveCandidate, setThreadArchiveCandidate] = useState<ThreadView | null>(null);
   const [hiddenSessionIDs, setHiddenSessionIDs] = useState<Set<string>>(() => new Set());
   const queryClient = useQueryClient();
   const kind = useConnectionStore((state) => state.resourceKind);
   const selectedRunID = useConnectionStore((state) => state.selectedRunID);
   const selectedSessionID = useConnectionStore((state) => state.selectedSessionID);
+  const selectedThreadID = useConnectionStore((state) => state.selectedThreadID);
   const selectRun = useConnectionStore((state) => state.selectRun);
   const selectSession = useConnectionStore((state) => state.selectSession);
+  const selectThread = useConnectionStore((state) => state.selectThread);
 
+  const threadsQuery = usePagedResource<ThreadView>(client, ["threads"], "/threads",
+    { limit: 50, status: "active" }, true);
   const runsQuery = usePagedResource<RunView>(client, ["runs"], "/runs", { limit: 50 }, true);
   const sessionsQuery = usePagedResource<SessionView>(client, ["sessions"], "/sessions",
     { limit: 50 }, true);
@@ -74,6 +79,8 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
     [runsQuery.data]);
   const sessions = useMemo(() => sessionsQuery.data?.pages.flatMap((page) => page.items) ?? [],
     [sessionsQuery.data]);
+  const threads = useMemo(() => threadsQuery.data?.pages.flatMap((page) => page.items) ?? [],
+    [threadsQuery.data]);
   const activeSessions = useMemo(() => sessions.filter((session) =>
     session.status !== "archived" && !hiddenSessionIDs.has(session.id)), [hiddenSessionIDs, sessions]);
   const normalizedSearch = search.trim().toLowerCase();
@@ -81,6 +88,25 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
     `${run.id} ${run.mission_id} ${run.status}`.toLowerCase().includes(normalizedSearch));
   const visibleSessions = activeSessions.filter((session) => !normalizedSearch ||
     `${session.id} ${session.title} ${session.route}`.toLowerCase().includes(normalizedSearch));
+  const visibleThreads = threads.filter((thread) => !normalizedSearch ||
+    `${thread.id} ${thread.title} ${thread.last_run_id}`.toLowerCase().includes(normalizedSearch));
+
+  const threadArchiveMutation = useMutation({
+    mutationFn: (thread: ThreadView) => client.transitionThread(thread.id, "archive", {
+      version: "thread_lifecycle.v1", expected_version: thread.version,
+    }, `web-thread-archive-${globalThis.crypto.randomUUID()}`),
+    onSuccess: (result) => {
+      setThreadArchiveCandidate(null);
+      if (kind === "thread" && selectedThreadID === result.thread.id) {
+        const fallback = threads.find((thread) => thread.id !== result.thread.id);
+        if (fallback) selectThread(fallback.id);
+        else if (runs[0]) selectRun(runs[0].id);
+        else if (activeSessions[0]) selectSession(activeSessions[0].id);
+      }
+      void queryClient.invalidateQueries({ queryKey: ["threads"] });
+      void queryClient.invalidateQueries({ queryKey: ["thread", result.thread.id] });
+    },
+  });
 
   const archiveMutation = useMutation({
     mutationFn: (session: SessionView) => client.archiveSession(session.id, {
@@ -101,6 +127,18 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
   });
   const archiveDialogRef = useModalFocusTrap<HTMLElement>(Boolean(archiveCandidate),
     () => setArchiveCandidate(null), archiveMutation.isPending);
+  const threadArchiveDialogRef = useModalFocusTrap<HTMLElement>(Boolean(threadArchiveCandidate),
+    () => setThreadArchiveCandidate(null), threadArchiveMutation.isPending);
+
+  useEffect(() => {
+    if (kind === "thread" && !threadsQuery.isLoading && !threadsQuery.isFetching &&
+      !threads.some((thread) => thread.id === selectedThreadID)) {
+      if (threads[0]) selectThread(threads[0].id);
+      else if (runs[0]) selectRun(runs[0].id);
+      else if (activeSessions[0]) selectSession(activeSessions[0].id);
+    }
+  }, [activeSessions, kind, runs, selectRun, selectSession, selectedThreadID,
+    selectThread, threads, threadsQuery.isFetching, threadsQuery.isLoading]);
 
   useEffect(() => {
     if (kind === "run" && !runsQuery.isLoading && !runsQuery.isFetching &&
@@ -124,8 +162,10 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
     select();
     onNavigate?.("conversation");
   };
-  const refreshHistory = () => void Promise.all([runsQuery.refetch(), sessionsQuery.refetch()]);
-  const historyBusy = runsQuery.isFetching || sessionsQuery.isFetching;
+  const refreshHistory = () => void Promise.all([
+    threadsQuery.refetch(), runsQuery.refetch(), sessionsQuery.refetch(),
+  ]);
+  const historyBusy = threadsQuery.isFetching || runsQuery.isFetching || sessionsQuery.isFetching;
 
   return (
     <aside className="resource-sidebar prayu-sidebar">
@@ -158,6 +198,43 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
       </label>}
 
       <div className="sidebar-history">
+        <section aria-labelledby="thread-history-heading">
+          <header className="sidebar-history-heading">
+            <span id="thread-history-heading">{t("任务历史", "Task history")}</span>
+            <button aria-label={t("刷新历史记录", "Refresh history")} disabled={historyBusy}
+              onClick={refreshHistory} title={t("刷新历史记录", "Refresh history")} type="button">
+              <RefreshCw aria-hidden="true" className={historyBusy ? "spin" : ""} size={13} />
+            </button>
+          </header>
+          {threadsQuery.isLoading && <LoadingState label={t("加载任务历史", "Loading task history")} />}
+          {threadsQuery.isError && <ErrorState error={threadsQuery.error} />}
+          {!threadsQuery.isLoading && !threadsQuery.isError && visibleThreads.length === 0 &&
+            <div className="sidebar-history-empty"><Archive aria-hidden="true" size={15} />
+              {t("暂无任务", "No tasks")}</div>}
+          {visibleThreads.map((thread) => <div className={`sidebar-history-row-shell ${
+            selectedThreadID === thread.id && activeSection === "conversation" ? "selected" : ""}`}
+            key={thread.id}>
+            <button className="resource-row sidebar-history-row"
+              onClick={() => selectConversation(() => selectThread(thread.id))} type="button">
+              <MessagesSquare aria-hidden="true" size={15} />
+              <span className="sidebar-history-copy"><strong>{thread.title}</strong>
+                <small>{shortID(thread.last_run_id)} · {formatCompactDate(thread.updated_at)}</small></span>
+              <i aria-label={thread.composer_state}
+                className={`history-status status-${thread.composer_state}`} />
+            </button>
+            <button aria-label={`${t("归档任务", "Archive task")} ${thread.title}`}
+              className="sidebar-history-delete" onClick={() => {
+                threadArchiveMutation.reset();
+                setThreadArchiveCandidate(thread);
+              }} title={t("归档任务", "Archive task")} type="button">
+              <Trash2 aria-hidden="true" size={13} />
+            </button>
+          </div>)}
+          <LoadMoreButton hasNextPage={Boolean(threadsQuery.hasNextPage)}
+            isFetching={threadsQuery.isFetchingNextPage}
+            onClick={() => void threadsQuery.fetchNextPage()} />
+        </section>
+
         <section aria-labelledby="session-history-heading">
           <header className="sidebar-history-heading">
             <span id="session-history-heading">{t("历史对话", "Conversation history")}</span>
@@ -257,6 +334,33 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
               </button>
             </div>
           </footer>
+        </section>
+      </div>}
+      {threadArchiveCandidate && <div className="desktop-dialog-backdrop" role="presentation">
+        <section aria-labelledby="archive-thread-title" aria-modal="true"
+          className="desktop-dialog archive-session-dialog" ref={threadArchiveDialogRef}
+          role="dialog" tabIndex={-1}>
+          <header><div><span className="dialog-icon"><Trash2 aria-hidden="true" size={17} /></span>
+            <div><h2 id="archive-thread-title">{t("归档任务", "Archive task")}</h2>
+              <small>{threadArchiveCandidate.title}</small></div></div>
+            <button aria-label={t("关闭", "Close")} className="icon-button"
+              disabled={threadArchiveMutation.isPending}
+              onClick={() => setThreadArchiveCandidate(null)} type="button">
+              <X aria-hidden="true" size={16} /></button></header>
+          <div className="desktop-dialog-body archive-session-copy">
+            <p>{t("任务会从活动历史中移除；其所有 Run、消息和审计记录仍保持绑定，可恢复或导出。",
+              "The task leaves active history; every Run, message, and audit record stays bound for restore or export.")}</p>
+            {threadArchiveMutation.isError && <p className="connection-error">
+              {threadArchiveMutation.error instanceof Error ? threadArchiveMutation.error.message :
+                t("归档任务失败", "Could not archive task")}</p>}
+          </div>
+          <footer><span /><div className="desktop-dialog-actions">
+            <button className="dialog-secondary" disabled={threadArchiveMutation.isPending}
+              onClick={() => setThreadArchiveCandidate(null)} type="button">{t("取消", "Cancel")}</button>
+            <button className="dialog-danger" disabled={threadArchiveMutation.isPending}
+              onClick={() => threadArchiveMutation.mutate(threadArchiveCandidate)} type="button">
+              <Trash2 aria-hidden="true" size={15} />{t("归档", "Archive")}</button>
+          </div></footer>
         </section>
       </div>}
     </aside>

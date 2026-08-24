@@ -19,7 +19,8 @@ function runtimeCapabilitiesData(overrides: Record<string, unknown> = {}) {
     command_runtime_enabled: true,
     browser_cdp_permission_control_enabled: true, full_cdp_debug_enabled: true,
     run_control_enabled: true, run_creation_enabled: true,
-    session_message_enabled: true, session_steering_control_enabled: true,
+    session_message_enabled: true, thread_control_enabled: true,
+    session_steering_control_enabled: true,
     run_lifecycle_enabled: true, run_execution_enabled: true,
     plan_delivery_control_enabled: true, approval_control_enabled: true,
     controlled_command_proposal_control_enabled: true,
@@ -111,6 +112,27 @@ const runCreationData = {
     scope: { workspace_id: "workspace-1", network_mode: "disabled" }, capability_grant: false,
   },
   replayed: false,
+};
+
+const threadData = {
+  id: "thread-created", protocol_version: "thread.v1", workspace_id: "workspace-1",
+  mission_id: "mission-created", title: "Create parser", status: "active",
+  active_run_id: "run-created", last_run_id: "run-created", version: 2,
+  composer_state: "ready", created_at: "2026-08-24T00:00:00Z",
+  updated_at: "2026-08-24T00:00:00Z",
+};
+
+const threadCreationData = { ...runCreationData, thread: threadData };
+
+const threadMessageData = {
+  version: "thread_message_submission.v1", thread: threadData,
+  run_id: "run-created", session_id: "sess-created", successor_created: false,
+  steering: {
+    id: "thread-steer-1", sequence: 1, status: "pending", prepared: false,
+    created_at: "2026-08-24T00:01:00Z",
+  },
+  replayed: false, execution_started: false, model_called: false,
+  tool_called: false, capability_grant: false,
 };
 
 const sessionMessageData = {
@@ -406,7 +428,8 @@ describe("CyberAgentClient", () => {
       command_runtime_enabled: true,
       browser_cdp_permission_control_enabled: true, full_cdp_debug_enabled: true,
       run_control_enabled: true, run_creation_enabled: true,
-      session_message_enabled: true, session_steering_control_enabled: true,
+      session_message_enabled: true, thread_control_enabled: true,
+      session_steering_control_enabled: true,
       run_lifecycle_enabled: true, run_execution_enabled: true,
       plan_delivery_control_enabled: true, approval_control_enabled: true,
       controlled_command_proposal_control_enabled: true,
@@ -972,6 +995,88 @@ describe("CyberAgentClient", () => {
     await expect(client.createRun({ version: "run_creation.v1", goal: "Different goal",
       workspace_id: "workspace-1" }, "web-run-create-operation-0004"))
       .rejects.toThrow("closed authority");
+  });
+
+  it("creates a Thread and validates its canonical identity binding", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-thread-create", data: threadCreationData,
+    }), { status: 202, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+
+    const result = await client.createThread({
+      version: "thread_creation.v1", goal: "Create parser", workspace_id: "workspace-1",
+    }, "web-thread-create-operation-0001");
+
+    expect(result.thread).toEqual(threadData);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/threads");
+    expect(init.headers).toMatchObject({ Authorization: "Bearer control-secret",
+      "Idempotency-Key": "web-thread-create-operation-0001" });
+  });
+
+  it("submits Thread messages and lifecycle changes through the stable Thread URL", async () => {
+    const archivedThread = { ...threadData, status: "archived", version: 3,
+      composer_state: "unavailable", archived_at: "2026-08-24T00:02:00Z",
+      updated_at: "2026-08-24T00:02:00Z" };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-thread-message", data: threadMessageData,
+      }), { status: 202, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-thread-archive",
+        data: { version: "thread_lifecycle.v1", thread: archivedThread,
+          capability_grant: false },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+
+    await expect(client.submitThreadMessage("thread-created", {
+      version: "thread_message_submission.v1", content: "Continue safely",
+    }, "web-thread-message-operation-0001")).resolves.toEqual(threadMessageData);
+    await expect(client.transitionThread("thread-created", "archive", {
+      version: "thread_lifecycle.v1", expected_version: 2,
+    }, "web-thread-archive-operation-0001")).resolves.toMatchObject({ thread: archivedThread });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/v1/threads/thread-created/messages", "/api/v1/threads/thread-created/archive",
+    ]);
+    expect((fetchMock.mock.calls[0]?.[1] as RequestInit).headers).toMatchObject({
+      "Idempotency-Key": "web-thread-message-operation-0001",
+    });
+    expect((fetchMock.mock.calls[1]?.[1] as RequestInit).headers).toMatchObject({
+      "Idempotency-Key": "web-thread-archive-operation-0001",
+    });
+  });
+
+  it("rejects forged Thread authority and cross-Thread projections", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-thread-forged-authority",
+        data: { ...threadMessageData, model_called: true },
+      }), { status: 202, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-thread-cross-projection",
+        data: { ...threadMessageData, thread: { ...threadData, id: "thread-other" } },
+      }), { status: 202, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-thread-forged-lifecycle",
+        data: { version: "thread_lifecycle.v1",
+          thread: { ...threadData, status: "archived", version: 3,
+            composer_state: "unavailable", archived_at: "2026-08-24T00:02:00Z",
+            updated_at: "2026-08-24T00:02:00Z" }, capability_grant: true },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+    const request = { version: "thread_message_submission.v1" as const, content: "Continue" };
+
+    await expect(client.submitThreadMessage("thread-created", request,
+      "web-thread-message-operation-0002")).rejects.toThrow("invalid");
+    await expect(client.submitThreadMessage("thread-created", request,
+      "web-thread-message-operation-0003")).rejects.toThrow("invalid");
+    await expect(client.transitionThread("thread-created", "archive", {
+      version: "thread_lifecycle.v1", expected_version: 2,
+    }, "web-thread-archive-operation-0002")).rejects.toThrow("invalid");
   });
 
   it("separates Session messages and validates the closed submission response", async () => {

@@ -360,7 +360,8 @@ func migrationPlan() []migration {
 		{Version: 126, Name: "Workspace Access execution permission contract", Statements: workspaceAccessExecutionPermissionStatements, DisableForeignKeys: true},
 		{Version: 127, Name: "Run-owned Drydock worktrees and Workspace Trust", Statements: drydockWorkspaceTrustStatements},
 		{Version: 128, Name: "Standard Code Docker Workspace Access admission", Statements: standardCodeDockerWorkspaceAccessStatements, DisableForeignKeys: true},
-		{Version: 129, Name: "item stream tool reconciliation identities", Statements: itemStreamToolIdentityStatements},
+		{Version: 129, Name: "stable Thread identity and Run succession", Statements: threadSuccessionStatements},
+		{Version: 130, Name: "item stream tool reconciliation identities", Statements: itemStreamToolIdentityStatements},
 	}
 }
 

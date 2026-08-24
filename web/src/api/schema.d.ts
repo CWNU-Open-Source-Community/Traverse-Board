@@ -2912,6 +2912,174 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/threads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Threads
+         * @description Returns the canonical stable task projection. A Thread remains addressable while its finite Runs complete, fail, cancel, or are succeeded.
+         */
+        get: operations["listThreads"];
+        put?: never;
+        /**
+         * Create a Thread
+         * @description Atomically creates one stable Thread with its initial Mission, Run, Session, closed mode, all-denied authority snapshots, root Agent, and audit events.
+         */
+        post: operations["createThread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect a Thread
+         * @description Returns the same canonical Thread projection with its Mission, active and last Run, and complete succession chain.
+         */
+        get: operations["getThread"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive a Thread
+         * @description Archives the stable Thread and its Run-local Sessions without deleting or orphaning Run, message, or audit history.
+         */
+        post: operations["archiveThread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Soft-delete a Thread
+         * @description Removes the Thread from ordinary lists while retaining a lossless exportable Run, Session, message, and audit graph.
+         */
+        post: operations["deleteThread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export a Thread
+         * @description Returns the complete self-contained Thread, Mission, Run chain, Run-local Sessions, message provenance, and Thread/Run audit events. The HTTP response limit fails closed instead of silently truncating history.
+         */
+        get: operations["exportThread"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Thread messages
+         * @description Returns one ordered projection across every Run-local Session in the Thread without moving or duplicating messages.
+         */
+        get: operations["listThreadMessages"];
+        put?: never;
+        /**
+         * Continue a Thread
+         * @description Queues input on the live Run, including while waiting for approval. If the last Run is terminal, atomically creates or reuses exactly one fresh successor Run and Session; no approval, lease, process, network, credential, execution profile, or capability authority is inherited.
+         */
+        post: operations["submitThreadMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore a Thread
+         * @description Restores the same Thread identity and its Sessions; it does not create a new Run unless later composer input requires a successor.
+         */
+        post: operations["restoreThread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Thread Runs
+         * @description Returns the immutable ordered predecessor/successor Run chain for one Thread.
+         */
+        get: operations["listThreadRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ui-evidence/{attempt_id}": {
         parameters: {
             query?: never;
@@ -7838,6 +8006,7 @@ export interface components {
             session_steering_control_enabled: boolean;
             shell_execution_enabled: boolean;
             skill_installation_enabled: boolean;
+            thread_control_enabled: boolean;
             ui_evidence_control_enabled: boolean;
             verification_evidence_enabled: boolean;
             wake_worker: components["schemas"]["RunWakeWorkerHealthView"];
@@ -8273,6 +8442,158 @@ export interface components {
             run_id: string;
             /** Format: int32 */
             turn: number;
+        };
+        ThreadCreationControlRequestView: {
+            goal: string;
+            /** @enum {string} */
+            phase?: "plan" | "deliver";
+            /** @enum {string} */
+            profile?: "code" | "review" | "learn" | "script";
+            /** @enum {string} */
+            surface?: "code" | "cyber";
+            /** @enum {string} */
+            version: "thread_creation.v1";
+            workspace_id: string;
+        };
+        ThreadCreationControlView: {
+            mission: components["schemas"]["MissionView"];
+            mode: components["schemas"]["RunModeView"];
+            replayed: boolean;
+            run: components["schemas"]["RunView"];
+            session: components["schemas"]["SessionView"];
+            thread: components["schemas"]["ThreadView"];
+        };
+        ThreadDetailView: {
+            active_run?: components["schemas"]["RunView"];
+            last_run: components["schemas"]["RunView"];
+            mission: components["schemas"]["MissionView"];
+            runs: components["schemas"]["ThreadRunView"][];
+            thread: components["schemas"]["ThreadView"];
+        };
+        ThreadEventView: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int64 */
+            id: number;
+            payload: unknown;
+            run_id?: string;
+            source: string;
+            thread_id: string;
+            type: string;
+        };
+        ThreadExportView: {
+            audit_events: components["schemas"]["ThreadRunAuditEventView"][];
+            events: components["schemas"]["ThreadEventView"][];
+            /** Format: date-time */
+            exported_at: string;
+            messages: components["schemas"]["ThreadMessageView"][];
+            mission: components["schemas"]["MissionView"];
+            /** @enum {string} */
+            protocol_version: "thread_export.v1";
+            runs: components["schemas"]["ThreadRunView"][];
+            sessions: components["schemas"]["SessionView"][];
+            thread: components["schemas"]["ThreadView"];
+        };
+        ThreadLifecycleControlRequestView: {
+            /** Format: int64 */
+            expected_version: number;
+            /** @enum {string} */
+            version: "thread_lifecycle.v1";
+        };
+        ThreadLifecycleControlView: {
+            capability_grant: boolean;
+            thread: components["schemas"]["ThreadView"];
+            /** @enum {string} */
+            version: "thread_lifecycle.v1";
+        };
+        ThreadMessageControlRequestView: {
+            content: string;
+            /** @enum {string} */
+            version: "thread_message_submission.v1";
+        };
+        ThreadMessageControlView: {
+            capability_grant: boolean;
+            execution_started: boolean;
+            model_called: boolean;
+            predecessor_run_id?: string;
+            replayed: boolean;
+            run_id: string;
+            session_id: string;
+            steering: components["schemas"]["OperatorSteeringMessageView"];
+            successor_created: boolean;
+            thread: components["schemas"]["ThreadView"];
+            tool_called: boolean;
+            /** @enum {string} */
+            version: "thread_message_submission.v1";
+        };
+        ThreadMessageView: {
+            compacted: boolean;
+            content: string;
+            content_sha256: string;
+            /** Format: date-time */
+            created_at: string;
+            id: string;
+            instruction_authorized: boolean;
+            /** @enum {string} */
+            provenance_version: "context_provenance.v0" | "context_provenance.v1";
+            /** @enum {string} */
+            role: "system" | "user" | "assistant" | "tool";
+            run_id: string;
+            session_id: string;
+            /** @enum {string} */
+            source_kind: "operator_message" | "model_response" | "go_control" | "workspace_file" | "workspace_listing" | "workspace_diff" | "tool_result" | "go_command_result";
+            source_ref?: string;
+            /** @enum {string} */
+            status: "pending" | "committed";
+            thread_id: string;
+            /** Format: int32 */
+            token_estimate: number;
+        };
+        ThreadRunAuditEventView: {
+            /** Format: date-time */
+            created_at: string;
+            event_id: string;
+            mission_id: string;
+            payload: unknown;
+            run_id: string;
+            /** Format: int64 */
+            sequence: number;
+            source: string;
+            subject_id?: string;
+            type: string;
+            version: string;
+        };
+        ThreadRunView: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int64 */
+            ordinal: number;
+            predecessor_run_id?: string;
+            run: components["schemas"]["RunView"];
+        };
+        ThreadView: {
+            active_run_id?: string;
+            /** Format: date-time */
+            archived_at?: string;
+            /** @enum {string} */
+            composer_state: "ready" | "waiting_approval" | "successor_required" | "unavailable";
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            deleted_at?: string;
+            id: string;
+            last_run_id: string;
+            mission_id: string;
+            /** @enum {string} */
+            protocol_version: "thread.v1";
+            /** @enum {string} */
+            status: "active" | "archived" | "deleted";
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: int64 */
+            version: number;
+            workspace_id?: string;
         };
         ToolUsageView: {
             /** Format: int64 */
@@ -15998,6 +16319,421 @@ export interface operations {
             413: components["responses"]["RequestEntityTooLarge"];
             414: components["responses"]["RequestTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listThreads: {
+        parameters: {
+            query?: {
+                /** @description Page size from 1 to 100; defaults to 50 */
+                limit?: number;
+                /** @description Opaque cursor bound to this route and exact filter set */
+                cursor?: string;
+                /** @description Exact Thread lifecycle status */
+                status?: "active" | "archived" | "deleted";
+                /** @description Include soft-deleted Threads */
+                include_deleted?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadView"][];
+                        page: components["schemas"]["Page"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    createThread: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadCreationControlRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadCreationControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadDetailView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    archiveThread: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadLifecycleControlRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadLifecycleControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    deleteThread: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadLifecycleControlRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadLifecycleControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    exportThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadExportView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listThreadMessages: {
+        parameters: {
+            query?: {
+                /** @description Page size from 1 to 100; defaults to 50 */
+                limit?: number;
+                /** @description Opaque cursor bound to this route and exact filter set */
+                cursor?: string;
+                /** @description Include compacted historical messages */
+                include_compacted?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadMessageView"][];
+                        page: components["schemas"]["Page"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    submitThreadMessage: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadMessageControlRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadMessageControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    restoreThread: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadLifecycleControlRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadLifecycleControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listThreadRuns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadRunView"][];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
         };

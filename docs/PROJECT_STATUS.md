@@ -6,19 +6,23 @@ Last updated: 2026-08-24
 
 ## Resume Context
 
-当前检查点是 issue #152 / schema v129。`llm.item_stream.v1` 以稳定 sequence 和
+当前检查点是 issue #152 / schema v130。`llm.item_stream.v1` 以稳定 sequence 和
 Application-owned response/item/call ID 统一 OpenAI interleaved tool delta、Anthropic content
 block、Ollama/Mock complete-item 与 legacy `ChatChunk`。参数 delta 只在有界内存中拼接并与最终
 JSON call 对照；Provider 无权发出 execution event。Go 在完整校验和 durable call 建立后记录
-`tool_execution_started/completed`，并以 schema v129 的不可变 ID 绑定支持重启重放与 exactly-once
+`tool_execution_started/completed`，并以 schema v130 的不可变 ID 绑定支持重启重放与 exactly-once
 逻辑效果。
 
 `model_public_stream.v3` 让 Desktop/Web 在参数流动时显示“准备调用”，但只含稳定 ID、状态、
 脱敏工具名与 byte count。`model.delta` 只保存 content-free boundary；两者都不含参数、raw wire、
 凭据或私有推理。取消、EOF、usage/model/终态错误会写失败/取消边界，不伪造成功完成；旧 Session
-history 无需迁移即可投影 durable completed item。边界见 ADR 0132。
+history 无需迁移即可投影 durable completed item。边界见 ADR 0133。
 
-上一检查点是 issue #133 / schema v128。v128 只扩展既有 immutable Docker admission 的
+上一检查点是 issue #151 / schema v129。`thread.v1` 提供稳定、面向用户的 Thread
+身份与 Run succession；终态 Run 后继续输入会创建新 Run/Session，保留历史但不继承
+审批、lease、进程、网络或凭据 authority。生命周期、导出与旧 Run 回填边界见 ADR 0132。
+
+再上一检查点是 issue #133 / schema v128。v128 只扩展既有 immutable Docker admission 的
 permission CHECK 以接受 `workspace_access`，并保留历史记录与全部绑定/不可变触发器。Standard Code
 新增显式、固定镜像、固定本地 endpoint 的 Docker `network=none` 备用后端。
 

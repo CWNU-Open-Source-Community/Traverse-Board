@@ -1062,6 +1062,91 @@ type SessionView struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+type ThreadView struct {
+	ID              string     `json:"id"`
+	ProtocolVersion string     `json:"protocol_version"`
+	WorkspaceID     string     `json:"workspace_id,omitempty"`
+	MissionID       string     `json:"mission_id"`
+	Title           string     `json:"title"`
+	Status          string     `json:"status"`
+	ActiveRunID     string     `json:"active_run_id,omitempty"`
+	LastRunID       string     `json:"last_run_id"`
+	Version         int64      `json:"version"`
+	ComposerState   string     `json:"composer_state"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	ArchivedAt      *time.Time `json:"archived_at,omitempty"`
+	DeletedAt       *time.Time `json:"deleted_at,omitempty"`
+}
+
+type ThreadRunView struct {
+	Run              RunView   `json:"run"`
+	Ordinal          int64     `json:"ordinal"`
+	PredecessorRunID string    `json:"predecessor_run_id,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
+}
+
+type ThreadDetailView struct {
+	Thread    ThreadView      `json:"thread"`
+	Mission   MissionView     `json:"mission"`
+	ActiveRun *RunView        `json:"active_run,omitempty"`
+	LastRun   RunView         `json:"last_run"`
+	Runs      []ThreadRunView `json:"runs"`
+}
+
+type ThreadMessageView struct {
+	ID                    string    `json:"id"`
+	ThreadID              string    `json:"thread_id"`
+	RunID                 string    `json:"run_id"`
+	SessionID             string    `json:"session_id"`
+	Role                  string    `json:"role"`
+	Content               string    `json:"content"`
+	ProvenanceVersion     string    `json:"provenance_version"`
+	SourceKind            string    `json:"source_kind"`
+	SourceRef             string    `json:"source_ref,omitempty"`
+	ContentSHA256         string    `json:"content_sha256"`
+	InstructionAuthorized bool      `json:"instruction_authorized"`
+	Status                string    `json:"status"`
+	TokenEstimate         int       `json:"token_estimate"`
+	Compacted             bool      `json:"compacted"`
+	CreatedAt             time.Time `json:"created_at"`
+}
+
+type ThreadEventView struct {
+	ID        int64           `json:"id"`
+	ThreadID  string          `json:"thread_id"`
+	RunID     string          `json:"run_id,omitempty"`
+	Type      string          `json:"type"`
+	Source    string          `json:"source"`
+	Payload   json.RawMessage `json:"payload"`
+	CreatedAt time.Time       `json:"created_at"`
+}
+
+type ThreadExportView struct {
+	ProtocolVersion string                    `json:"protocol_version"`
+	ExportedAt      time.Time                 `json:"exported_at"`
+	Thread          ThreadView                `json:"thread"`
+	Mission         MissionView               `json:"mission"`
+	Runs            []ThreadRunView           `json:"runs"`
+	Sessions        []SessionView             `json:"sessions"`
+	Messages        []ThreadMessageView       `json:"messages"`
+	Events          []ThreadEventView         `json:"events"`
+	AuditEvents     []ThreadRunAuditEventView `json:"audit_events"`
+}
+
+type ThreadRunAuditEventView struct {
+	EventID   string          `json:"event_id"`
+	Version   string          `json:"version"`
+	RunID     string          `json:"run_id"`
+	MissionID string          `json:"mission_id"`
+	Sequence  int64           `json:"sequence"`
+	Type      string          `json:"type"`
+	Source    string          `json:"source"`
+	SubjectID string          `json:"subject_id,omitempty"`
+	Payload   json.RawMessage `json:"payload"`
+	CreatedAt time.Time       `json:"created_at"`
+}
+
 type SessionDetailView struct {
 	Session SessionView `json:"session"`
 	Run     *RunView    `json:"run,omitempty"`
@@ -1445,6 +1530,34 @@ func deliveryCheckpointView(value domain.DeliveryCheckpoint,
 func sessionView(value session.Session) SessionView {
 	return SessionView{ID: value.ID, WorkspaceID: value.WorkspaceID, Title: value.Title, Route: value.Route,
 		Status: value.Status, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}
+}
+
+func threadView(value domain.Thread, activeRunStatus ...domain.RunStatus) ThreadView {
+	composerState := "ready"
+	if value.Status != domain.ThreadActive {
+		composerState = "unavailable"
+	} else if value.ActiveRunID == "" {
+		composerState = "successor_required"
+	} else if len(activeRunStatus) > 0 && activeRunStatus[0] == domain.RunWaitingApproval {
+		composerState = "waiting_approval"
+	}
+	return ThreadView{ID: value.ID, ProtocolVersion: value.ProtocolVersion,
+		WorkspaceID: value.WorkspaceID, MissionID: value.MissionID, Title: value.Title,
+		Status: string(value.Status), ActiveRunID: value.ActiveRunID,
+		LastRunID: value.LastRunID, Version: value.Version, ComposerState: composerState,
+		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
+		ArchivedAt: value.ArchivedAt, DeletedAt: value.DeletedAt}
+}
+
+func threadMessageView(value domain.ThreadMessage) ThreadMessageView {
+	return ThreadMessageView{ID: value.ID, ThreadID: value.ThreadID,
+		RunID: value.RunID, SessionID: value.SessionID, Role: value.Role,
+		Content: value.Content, ProvenanceVersion: value.ProvenanceVersion,
+		SourceKind: value.SourceKind, SourceRef: value.SourceRef,
+		ContentSHA256:         value.ContentSHA256,
+		InstructionAuthorized: value.InstructionAuthorized, Status: value.Status,
+		TokenEstimate: value.TokenEstimate,
+		Compacted:     value.Compacted, CreatedAt: value.CreatedAt}
 }
 
 func messageView(value session.Message) MessageView {

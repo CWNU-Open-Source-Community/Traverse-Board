@@ -46,6 +46,7 @@ type ConnectionBootstrap struct {
 	DangerFullAccessEnabled                 bool   `json:"danger_full_access_enabled"`
 	DebugMaximumAccessEnabled               bool   `json:"debug_maximum_access_enabled"`
 	CommandRuntimeEnabled                   bool   `json:"command_runtime_enabled"`
+	ThreadControlEnabled                    bool   `json:"thread_control_enabled"`
 	RunCreationEnabled                      bool   `json:"run_creation_enabled"`
 	SessionMessageEnabled                   bool   `json:"session_message_enabled"`
 	SessionSteeringControlEnabled           bool   `json:"session_steering_control_enabled"`
@@ -379,6 +380,7 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 			DangerFullAccessEnabled:                 config.DangerFullAccessEnabled,
 			DebugMaximumAccessEnabled:               config.DebugMaximumAccessEnabled,
 			CommandRuntimeEnabled:                   commandRuntimeEnabled,
+			ThreadControlEnabled:                    config.RunCreationEnabled && config.SessionMessageEnabled,
 			RunCreationEnabled:                      config.RunCreationEnabled,
 			SessionMessageEnabled:                   config.SessionMessageEnabled,
 			SessionSteeringControlEnabled:           config.SessionSteeringControlEnabled,

@@ -1450,7 +1450,7 @@ regression that source/build checks alone do not prove. Operational details are 
 
 ## Provider-Neutral Item Streaming
 
-ADR 0132 and schema v129 add `llm.item_stream.v1` between provider wire adapters and
+ADR 0133 and schema v130 add `llm.item_stream.v1` between provider wire adapters and
 the Supervisor. OpenAI interleaved calls, Anthropic content blocks, and complete-item
 Ollama/Mock/legacy streams share one ordered response/item/call state machine. The
 Application replaces upstream IDs with stable attempt-owned IDs; tool deltas carry no
@@ -1461,7 +1461,7 @@ boundaries are persisted independently so aggregation cannot lose lifecycle stat
 `model_public_stream.v3` exposes only stable IDs, item status, tool name, and argument
 byte count. Raw text/argument event fields cannot be JSON-marshaled, and neither public
 nor `model.delta` shapes can represent private reasoning, credentials, raw wire data,
-or tool arguments. Schema v129 immutably binds provisional response/item/call IDs to
+or tool arguments. Schema v130 immutably binds provisional response/item/call IDs to
 the deterministic Supervisor call ledger; old Session messages are projected as
 durable completed items without rewriting history. Cancellation, EOF, and provider
 errors end in failed/cancelled items and never synthesize successful completion.

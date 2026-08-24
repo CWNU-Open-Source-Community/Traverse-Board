@@ -10,13 +10,17 @@
 
 ## 当前基线
 
-Item 级模型/工具流（Issue #152 / schema v129）以 `llm.item_stream.v1` 统一 OpenAI 交错
+Item 级模型/工具流（Issue #152 / schema v130）以 `llm.item_stream.v1` 统一 OpenAI 交错
 tool-call delta、Anthropic content block、Ollama/Mock 完整 item 与旧 `ChatChunk`。Application
 替换 provider ID 为 attempt-owned 稳定 ID；参数 delta 只在有界内存中拼接，完整 JSON 经 Go
 校验后才进入工具账本与执行链。`model_public_stream.v3`、`model.delta` 和执行事件只投影无正文
-边界，不保存参数、raw payload、凭据或私有推理。schema v129 将 response/item/call ID 不可变绑定
+边界，不保存参数、raw payload、凭据或私有推理。schema v130 将 response/item/call ID 不可变绑定
 到 Supervisor call；取消、EOF、usage/model/终态错误失败关闭，旧 Session history 无需重写。
-边界见 ADR 0132。
+边界见 ADR 0133。
+
+Stable Thread Identity（Issue #151 / schema v129）以 `thread.v1` 为用户任务与 URL 提供
+稳定身份，并将旧 Run/Session 无损绑定到 Thread。终态 Run 后继续输入会创建
+新 Run/Session，不继承审批、lease、进程、网络或凭据 authority。边界见 ADR 0132。
 
 Standard Code Docker 备用后端（Issue #133 / schema v128）已把固定本地 Engine 的
 `network=none` 路径接入统一 Command/Checkpoint/Artifact 合同。唯一可写 host mount 是当前精确

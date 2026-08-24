@@ -2,12 +2,17 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CyberAgentClient } from "../api/client";
-import type { RunCreationControlView } from "../api/types";
+import type { ThreadCreationControlView } from "../api/types";
 import { useConnectionStore } from "../state/connection";
 import * as desktopBridge from "../lib/desktop-bridge";
 import { RunCreationDialog } from "./run-creation-dialog";
 
 const created = {
+  thread: { id: "thread-created", protocol_version: "thread.v1",
+    workspace_id: "workspace-1", mission_id: "mission-created", title: "Create parser",
+    status: "active", active_run_id: "run-created", last_run_id: "run-created",
+    version: 1, composer_state: "ready", created_at: "2026-07-18T00:00:00Z",
+    updated_at: "2026-07-18T00:00:00Z" },
   mission: { id: "mission-created", goal: "Create parser", profile: "code",
     workspace_id: "workspace-1", scope: { workspace_id: "workspace-1", network_mode: "disabled" },
     created_at: "2026-07-18T00:00:00Z", updated_at: "2026-07-18T00:00:00Z" },
@@ -23,7 +28,7 @@ const created = {
     policy_version: "mode_policy.v1", requested_by: "http_control", reason: "initial Run mode",
     created_at: "2026-07-18T00:00:00Z", capability_grant: false },
   replayed: false,
-} as RunCreationControlView;
+} as ThreadCreationControlView;
 
 describe("RunCreationDialog", () => {
   beforeEach(() => {
@@ -42,9 +47,9 @@ describe("RunCreationDialog", () => {
     const importWorkspace = vi.spyOn(desktopBridge, "importDesktopWorkspace")
       .mockResolvedValue({ id: "ws-import-selected", name: "selected-project",
         created_at: "2026-08-13T01:02:03Z" });
-    const createRun = vi.fn().mockResolvedValue(created);
+    const createThread = vi.fn().mockResolvedValue(created);
     const getPage = vi.fn();
-    const client = { getPage, createRun } as unknown as CyberAgentClient;
+    const client = { getPage, createThread } as unknown as CyberAgentClient;
     const user = userEvent.setup();
     render(<QueryClientProvider client={new QueryClient()}>
       <RunCreationDialog client={client} open onClose={vi.fn()} />
@@ -54,9 +59,10 @@ describe("RunCreationDialog", () => {
     expect(await screen.findByText("selected-project")).toBeInTheDocument();
     expect(getPage).not.toHaveBeenCalled();
     await user.type(screen.getByLabelText("Goal"), "Create parser");
-    await user.click(screen.getByRole("button", { name: "Create Run" }));
-    await waitFor(() => expect(createRun).toHaveBeenCalledTimes(1));
-    expect(createRun.mock.calls[0]?.[0]).toMatchObject({
+    await user.click(screen.getByRole("button", { name: "Create task" }));
+    await waitFor(() => expect(createThread).toHaveBeenCalledTimes(1));
+    expect(createThread.mock.calls[0]?.[0]).toMatchObject({
+      version: "thread_creation.v1",
       workspace_id: "ws-import-selected",
       goal: "Create parser",
     });
@@ -64,13 +70,13 @@ describe("RunCreationDialog", () => {
 
   it("reuses one in-memory idempotency key for an identical retry", async () => {
     vi.stubGlobal("crypto", { randomUUID: vi.fn().mockReturnValue("00000000-0000-4000-8000-000000000001") });
-    const createRun = vi.fn()
+    const createThread = vi.fn()
       .mockRejectedValueOnce(new Error("connection interrupted"))
       .mockResolvedValueOnce(created);
     const client = {
       getPage: vi.fn().mockResolvedValue({ items: [{ id: "workspace-1", name: "Project",
         created_at: "2026-07-18T00:00:00Z" }], page: { limit: 100 }, requestID: "req-workspaces" }),
-      createRun,
+      createThread,
     } as unknown as CyberAgentClient;
     const onClose = vi.fn();
     const user = userEvent.setup();
@@ -80,27 +86,27 @@ describe("RunCreationDialog", () => {
 
     await waitFor(() => expect(screen.getByLabelText("Workspace")).toHaveValue("workspace-1"));
     await user.type(screen.getByLabelText("Goal"), "Create parser");
-    await user.click(screen.getByRole("button", { name: "Create Run" }));
+    await user.click(screen.getByRole("button", { name: "Create task" }));
     await screen.findByText("connection interrupted");
-    await user.click(screen.getByRole("button", { name: "Create Run" }));
-    await waitFor(() => expect(createRun).toHaveBeenCalledTimes(2));
+    await user.click(screen.getByRole("button", { name: "Create task" }));
+    await waitFor(() => expect(createThread).toHaveBeenCalledTimes(2));
 
-    const firstKey = createRun.mock.calls[0]?.[1];
-    const secondKey = createRun.mock.calls[1]?.[1];
+    const firstKey = createThread.mock.calls[0]?.[1];
+    const secondKey = createThread.mock.calls[1]?.[1];
     expect(firstKey).toBe("web-run-create-00000000-0000-4000-8000-000000000001");
     expect(secondKey).toBe(firstKey);
-    expect(useConnectionStore.getState().selectedRunID).toBe("run-created");
+    expect(useConnectionStore.getState().selectedThreadID).toBe("thread-created");
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
   });
 
   it("blocks a multibyte goal above the Go UTF-8 byte limit", async () => {
-    const createRun = vi.fn();
+    const createThread = vi.fn();
     const client = {
       getPage: vi.fn().mockResolvedValue({ items: [{ id: "workspace-1", name: "Project",
         created_at: "2026-07-18T00:00:00Z" }], page: { limit: 100 }, requestID: "req-workspaces" }),
-      createRun,
+      createThread,
     } as unknown as CyberAgentClient;
     render(<QueryClientProvider client={new QueryClient()}>
       <RunCreationDialog client={client} open onClose={vi.fn()} />
@@ -109,16 +115,16 @@ describe("RunCreationDialog", () => {
     await waitFor(() => expect(screen.getByLabelText("Workspace")).toHaveValue("workspace-1"));
     fireEvent.change(screen.getByLabelText("Goal"), { target: { value: "界".repeat(1366) } });
     expect(screen.getByText("Goal exceeds 4096 UTF-8 bytes")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create Run" })).toBeDisabled();
-    expect(createRun).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Create task" })).toBeDisabled();
+    expect(createThread).not.toHaveBeenCalled();
   });
 
   it("prefills a task drafted in the workbench composer", async () => {
-    const createRun = vi.fn().mockResolvedValue(created);
+    const createThread = vi.fn().mockResolvedValue(created);
     const client = {
       getPage: vi.fn().mockResolvedValue({ items: [{ id: "workspace-1", name: "Project",
         created_at: "2026-07-18T00:00:00Z" }], page: { limit: 100 }, requestID: "req-workspaces" }),
-      createRun,
+      createThread,
     } as unknown as CyberAgentClient;
     const user = userEvent.setup();
     render(<QueryClientProvider client={new QueryClient()}>
@@ -128,8 +134,8 @@ describe("RunCreationDialog", () => {
 
     await waitFor(() => expect(screen.getByLabelText("Goal")).toHaveValue("Audit the parser"));
     expect(screen.queryByText("Phase")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Create Run" }));
-    await waitFor(() => expect(createRun).toHaveBeenCalledTimes(1));
-    expect(createRun.mock.calls[0]?.[0]).toMatchObject({ phase: "plan" });
+    await user.click(screen.getByRole("button", { name: "Create task" }));
+    await waitFor(() => expect(createThread).toHaveBeenCalledTimes(1));
+    expect(createThread.mock.calls[0]?.[0]).toMatchObject({ phase: "plan" });
   });
 });

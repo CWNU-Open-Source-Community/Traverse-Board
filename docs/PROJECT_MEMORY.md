@@ -4,7 +4,7 @@
 
 Last updated: 2026-08-24
 
-## Current Single-Slice Checkpoint: Item-Level Model/Tool Streaming / Issue #152 / Schema v129
+## Current Single-Slice Checkpoint: Item-Level Model/Tool Streaming / Issue #152 / Schema v130
 
 `llm.item_stream.v1` 将 OpenAI interleaved tool-call delta、Anthropic content block、Ollama/Mock
 complete-item 与 legacy `ChatChunk` 归一为严格有序 response/item/call 生命周期。Application
@@ -13,10 +13,16 @@ complete-item 与 legacy `ChatChunk` 归一为严格有序 response/item/call �
 全部既有 Policy/budget/authority/idempotency 检查后记录 execution start/completion。
 
 `model_public_stream.v3` 只显示稳定 ID、状态、脱敏工具名和参数字节数；`model.delta` 只保存
-content-free boundary。二者都不能表示参数、raw wire、凭据或 private thinking。schema v129
+content-free boundary。二者都不能表示参数、raw wire、凭据或 private thinking。schema v130
 不可变绑定 provisional response/item/call 与本地 call ID；旧 Session message 确定性投影为 durable
 completed message item。取消、EOF、缺失/畸形 usage、模型漂移、重复/矛盾终态不补造成功完成。
-边界见 ADR 0132。
+边界见 ADR 0133。
+
+## Previous Single-Slice Checkpoint: Stable Thread Identity / Issue #151 / Schema v129
+
+`thread.v1` 为用户任务和 URL 提供稳定身份，并将历史 Run/Session 无损绑定到
+Thread。终态 Run 后继续输入会原子创建新 Run/Session，不继承审批、lease、进程、
+网络或凭据 authority。生命周期、导出与恢复边界见 ADR 0132。
 
 ## Previous Single-Slice Checkpoint: Standard Code Docker Fallback / Issue #133 / Schema v128
 

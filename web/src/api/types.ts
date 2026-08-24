@@ -60,6 +60,20 @@ export type FindingReportSummaryView = components["schemas"]["FindingReportSumma
 export type FindingReportView = components["schemas"]["FindingReportView"];
 export type HealthView = components["schemas"]["HealthView"];
 export type RuntimeCapabilitiesView = components["schemas"]["RuntimeCapabilitiesView"];
+export type ThreadView = components["schemas"]["ThreadView"];
+export type ThreadDetailView = components["schemas"]["ThreadDetailView"];
+export type ThreadRunView = components["schemas"]["ThreadRunView"];
+export type ThreadMessageView = components["schemas"]["ThreadMessageView"];
+export type ThreadExportView = components["schemas"]["ThreadExportView"];
+export type ThreadCreationControlRequestView =
+  components["schemas"]["ThreadCreationControlRequestView"];
+export type ThreadCreationControlView = components["schemas"]["ThreadCreationControlView"];
+export type ThreadMessageControlRequestView =
+  components["schemas"]["ThreadMessageControlRequestView"];
+export type ThreadMessageControlView = components["schemas"]["ThreadMessageControlView"];
+export type ThreadLifecycleControlRequestView =
+  components["schemas"]["ThreadLifecycleControlRequestView"];
+export type ThreadLifecycleControlView = components["schemas"]["ThreadLifecycleControlView"];
 export type CapabilityReadinessOptionView =
   components["schemas"]["CapabilityReadinessOptionView"];
 export type RunCapabilityReadinessView =

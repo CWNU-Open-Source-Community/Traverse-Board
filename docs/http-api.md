@@ -533,6 +533,16 @@ metadata；原始 artifact 下载额外返回 `no-store`、ETag、精确 SHA-256
 | `POST` | `/api/v1/models/prices` | Atomically import one bounded `price_snapshot.v1` operator document; same-content imports replay idempotently and a Provider/README/Skill/repository file can never reach it |
 | `POST` | `/api/v1/models/diagnostics` | One explicitly confirmed, content-free, tool-disabled Provider diagnostic |
 | `POST` | `/api/v1/models/routes/{profile}` | Persist one validated Provider/model route before updating the in-memory Router |
+| `GET` | `/api/v1/threads` | Canonical stable task projection; optional lifecycle status and soft-delete filters plus keyset pagination |
+| `POST` | `/api/v1/threads` | Idempotently create one Thread with its initial Mission, Run, Session, all-denied authority, and audit graph |
+| `GET` | `/api/v1/threads/{thread_id}` | Stable Thread identity, Mission, active/last Run, composer state, and complete ordered Run chain |
+| `GET` | `/api/v1/threads/{thread_id}/runs` | Immutable predecessor/successor Run bindings for one Thread |
+| `GET` | `/api/v1/threads/{thread_id}/messages` | Ordered cross-Run Session-message projection, including pending operator input without duplication |
+| `POST` | `/api/v1/threads/{thread_id}/messages` | Continue the live Run, or atomically create/reuse one authority-free successor when the prior Run is terminal |
+| `POST` | `/api/v1/threads/{thread_id}/archive` | Exact-version, idempotent soft archive without deleting history |
+| `POST` | `/api/v1/threads/{thread_id}/restore` | Restore the same Thread identity without implicitly creating a Run |
+| `POST` | `/api/v1/threads/{thread_id}/delete` | Exact-version soft delete after every bound Run is terminal; history remains exportable |
+| `GET` | `/api/v1/threads/{thread_id}/export` | Complete Thread/Mission/Run/Session/message-provenance/Thread-event/Run-audit export; oversized HTTP responses fail rather than truncate |
 | `GET` | `/api/v1/runs` | Creation-ordered Runs; `status`, `mission_id`, stable keyset pagination |
 | `POST` | `/api/v1/runs` | Idempotently create one closed Mission/Run/Session in a registered Workspace |
 | `GET` | `/api/v1/runs/{run_id}` | Run, Mission, immutable execution-mode/profile snapshots, read-only Plan/checkpoint/external-Skill metadata, tool usage, token-free lease summary, and the `agent-code-tools.v1` generation with per-tool availability/refusal |
@@ -743,9 +753,9 @@ cyberagent api openapi
 cyberagent api openapi --output docs/openapi.json
 ```
 
-运行时的 `/api/v1/openapi.json` 返回同一份原始文档，仍要求 loopback 与 read Bearer 认证，不接受 query 或 body。它使用 `application/vnd.oai.openapi+json`，不套普通 `api.v1` envelope。当前契约有 156 个 path、173 个 operation 和 473 个 schema。测试逐条命中公开 handler，并确认普通 DTO 不包含 Workspace root、Artifact/Skill/Session 正文、模型输出、工具参数、私有 lifecycle、operation/fencing/lease owner、API key、Provider Base URL 或环境变量名。batch delivery DTO 还明确排除 child/integration root、owner-token digest 与 operation/request fingerprint；明文 owner token 只在 Prepare/rotation control 响应中返回一次。
+运行时的 `/api/v1/openapi.json` 返回同一份原始文档，仍要求 loopback 与 read Bearer 认证，不接受 query 或 body。它使用 `application/vnd.oai.openapi+json`，不套普通 `api.v1` envelope。当前契约有 164 个 path、183 个 operation 和 486 个 schema。测试逐条命中公开 handler，并确认普通 DTO 不包含 Workspace root、Artifact/Skill/Session 正文、模型输出、工具参数、私有 lifecycle、operation/fencing/lease owner、API key、Provider Base URL 或环境变量名。batch delivery DTO 还明确排除 child/integration root、owner-token digest 与 operation/request fingerprint；明文 owner token 只在 Prepare/rotation control 响应中返回一次。
 
-The runtime `/api/v1/openapi.json` returns the same raw document under the loopback and read-bearer boundary and accepts neither a query nor a body. It uses `application/vnd.oai.openapi+json` rather than the ordinary `api.v1` envelope. The contract contains 156 paths, 173 operations, and 473 schemas. Tests exercise every handler and verify that ordinary DTOs omit Workspace roots, Artifact/Skill/Session bodies, model output, Tool arguments, private lifecycle, operation/fencing/lease-owner identities, API keys, Provider base URLs, and environment-variable names. Batch-delivery DTOs additionally omit child/integration roots, owner-token digests, and operation/request fingerprints; a plaintext owner token appears only once in a prepare/rotation control response.
+The runtime `/api/v1/openapi.json` returns the same raw document under the loopback and read-bearer boundary and accepts neither a query nor a body. It uses `application/vnd.oai.openapi+json` rather than the ordinary `api.v1` envelope. The contract contains 164 paths, 183 operations, and 486 schemas. Tests exercise every handler and verify that ordinary DTOs omit Workspace roots, Artifact/Skill/Session bodies, model output, Tool arguments, private lifecycle, operation/fencing/lease-owner identities, API keys, Provider base URLs, and environment-variable names. Batch-delivery DTOs additionally omit child/integration roots, owner-token digests, and operation/request fingerprints; a plaintext owner token appears only once in a prepare/rotation control response.
 
 ## 主动取消 / Active-Call Cancellation
 

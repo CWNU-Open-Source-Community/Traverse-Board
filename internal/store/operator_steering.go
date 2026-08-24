@@ -115,7 +115,7 @@ func (s *SQLiteStore) enqueueOperatorSteering(ctx context.Context,
 		return domain.OperatorSteeringEnqueueResult{}, false,
 			apperror.New(apperror.CodeConflict, "operator steering Run and Session binding changed")
 	}
-	if run.Status != domain.RunRunning && run.Status != domain.RunPaused {
+	if run.Terminal() {
 		return domain.OperatorSteeringEnqueueResult{}, false,
 			apperror.New(apperror.CodeFailedPrecondition,
 				fmt.Sprintf("run %s cannot accept operator steering while %s", run.ID, run.Status))

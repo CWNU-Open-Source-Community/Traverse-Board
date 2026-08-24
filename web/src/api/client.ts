@@ -141,6 +141,13 @@ import type {
   RunWakeExecutionRequestView,
   RunWakeExecutionView,
   RuntimeCapabilitiesView,
+  ThreadCreationControlRequestView,
+  ThreadCreationControlView,
+  ThreadMessageControlRequestView,
+  ThreadMessageControlView,
+  ThreadLifecycleControlRequestView,
+  ThreadLifecycleControlView,
+  ThreadView,
   ScheduledJobControlView,
   ScheduledJobCreateRequestView,
   ScheduledJobDetailView,
@@ -204,6 +211,7 @@ export interface ClientCapabilities {
   commandRuntimeEnabled?: boolean;
   runCreationEnabled?: boolean;
   sessionMessageEnabled?: boolean;
+  threadControlEnabled?: boolean;
   sessionSteeringControlEnabled?: boolean;
   runLifecycleEnabled?: boolean;
   runExecutionEnabled?: boolean;
@@ -365,6 +373,120 @@ function parseRunCreationControl(value: unknown,
   return value as unknown as RunCreationControlView;
 }
 
+function parseThreadView(value: unknown, expectedThreadID = ""): ThreadView {
+  const required = ["composer_state", "created_at", "id", "last_run_id", "mission_id",
+    "protocol_version", "status", "title", "updated_at", "version"];
+  const optional = ["active_run_id", "archived_at", "deleted_at", "workspace_id"];
+  if (!isRecord(value) || !hasOnlyKeys(value, [...required, ...optional]) ||
+    required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
+    value.protocol_version !== "thread.v1" || !boundedIdentity(value.id) ||
+    (expectedThreadID !== "" && value.id !== expectedThreadID) ||
+    !boundedIdentity(value.mission_id) || !boundedIdentity(value.last_run_id) ||
+    !boundedText(value.title, 4_096) || !safePositiveInteger(value.version) ||
+    !validDate(value.created_at) || !validDate(value.updated_at) ||
+    (value.workspace_id !== undefined && !boundedIdentity(value.workspace_id)) ||
+    (value.active_run_id !== undefined && !boundedIdentity(value.active_run_id)) ||
+    (value.archived_at !== undefined && !validDate(value.archived_at)) ||
+    (value.deleted_at !== undefined && !validDate(value.deleted_at)) ||
+    !["active", "archived", "deleted"].includes(String(value.status)) ||
+    !["ready", "waiting_approval", "successor_required", "unavailable"]
+      .includes(String(value.composer_state)) ||
+    Date.parse(String(value.updated_at)) < Date.parse(String(value.created_at))) {
+    throw new APIRequestError("Thread response is invalid", "INVALID_RESPONSE", 502);
+  }
+  if ((value.active_run_id !== undefined && value.active_run_id !== value.last_run_id) ||
+    (value.status === "active" && (value.archived_at !== undefined ||
+      value.deleted_at !== undefined ||
+      (value.active_run_id === undefined && value.composer_state !== "successor_required") ||
+      (value.active_run_id !== undefined && value.composer_state !== "ready" &&
+        value.composer_state !== "waiting_approval"))) ||
+    (value.status === "archived" && (!validDate(value.archived_at) ||
+      value.deleted_at !== undefined || value.composer_state !== "unavailable")) ||
+    (value.status === "deleted" && (!validDate(value.archived_at) ||
+      !validDate(value.deleted_at) || value.composer_state !== "unavailable"))) {
+    throw new APIRequestError("Thread response violated its lifecycle projection",
+      "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as ThreadView;
+}
+
+function parseThreadCreationControl(value: unknown,
+  request: ThreadCreationControlRequestView): ThreadCreationControlView {
+  if (!hasExactKeys(value, ["mission", "mode", "replayed", "run", "session", "thread"])) {
+    throw new APIRequestError("Thread creation response is invalid", "INVALID_RESPONSE", 502);
+  }
+  const runCreation = parseRunCreationControl({ mission: value.mission, mode: value.mode,
+    replayed: value.replayed, run: value.run, session: value.session }, {
+    version: "run_creation.v1", goal: request.goal, workspace_id: request.workspace_id,
+    profile: request.profile, surface: request.surface, phase: request.phase,
+  });
+  const thread = parseThreadView(value.thread);
+  if (thread.status !== "active" || thread.workspace_id !== request.workspace_id ||
+    thread.mission_id !== runCreation.mission.id || thread.title !== request.goal ||
+    thread.active_run_id !== runCreation.run.id || thread.last_run_id !== runCreation.run.id ||
+    thread.composer_state !== "ready") {
+    throw new APIRequestError("Thread creation response violated its identity binding",
+      "INVALID_RESPONSE", 502);
+  }
+  return { ...runCreation, thread } as ThreadCreationControlView;
+}
+
+function isValidOperatorSteeringMessage(value: unknown): value is Record<string, unknown> {
+  if (!isRecord(value) || !hasOnlyKeys(value,
+    ["cancelled_at", "committed_at", "created_at", "id", "prepared", "sequence", "status"]) ||
+    !boundedIdentity(value.id) || value.prepared !== false ||
+    !safePositiveInteger(value.sequence) || !validDate(value.created_at) ||
+    !["pending", "committed", "cancelled"].includes(String(value.status))) {
+    return false;
+  }
+  const committedAt = value.committed_at;
+  const cancelledAt = value.cancelled_at;
+  return (committedAt === undefined || validDate(committedAt)) &&
+    (cancelledAt === undefined || validDate(cancelledAt)) &&
+    (value.status !== "pending" || (committedAt === undefined && cancelledAt === undefined)) &&
+    (value.status !== "committed" || (committedAt !== undefined && cancelledAt === undefined)) &&
+    (value.status !== "cancelled" || (cancelledAt !== undefined && committedAt === undefined));
+}
+
+function parseThreadMessageControl(value: unknown, expectedThreadID: string): ThreadMessageControlView {
+  const required = ["capability_grant", "execution_started", "model_called", "replayed",
+    "run_id", "session_id", "steering", "successor_created", "thread", "tool_called", "version"];
+  if (!isRecord(value) || !hasOnlyKeys(value, [...required, "predecessor_run_id"]) ||
+    required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
+    value.version !== "thread_message_submission.v1" || !boundedIdentity(value.run_id) ||
+    !boundedIdentity(value.session_id) || typeof value.successor_created !== "boolean" ||
+    typeof value.replayed !== "boolean" || value.execution_started !== false ||
+    value.model_called !== false || value.tool_called !== false || value.capability_grant !== false ||
+    !isValidOperatorSteeringMessage(value.steering) ||
+    (value.predecessor_run_id !== undefined && !boundedIdentity(value.predecessor_run_id))) {
+    throw new APIRequestError("Thread message response is invalid", "INVALID_RESPONSE", 502);
+  }
+  const thread = parseThreadView(value.thread, expectedThreadID);
+  if (thread.status !== "active" || thread.active_run_id !== value.run_id ||
+    (value.successor_created && (value.predecessor_run_id === undefined ||
+      value.predecessor_run_id === value.run_id)) ||
+    (!value.successor_created && value.predecessor_run_id !== undefined)) {
+    throw new APIRequestError("Thread message response violated its continuation contract",
+      "INVALID_RESPONSE", 502);
+  }
+  return { ...value, thread } as unknown as ThreadMessageControlView;
+}
+
+function parseThreadLifecycleControl(value: unknown, expectedThreadID: string,
+  action: "archive" | "restore" | "delete", expectedVersion: number): ThreadLifecycleControlView {
+  if (!hasExactKeys(value, ["capability_grant", "thread", "version"]) ||
+    value.version !== "thread_lifecycle.v1" || value.capability_grant !== false) {
+    throw new APIRequestError("Thread lifecycle response is invalid", "INVALID_RESPONSE", 502);
+  }
+  const thread = parseThreadView(value.thread, expectedThreadID);
+  const expectedStatus = action === "archive" ? "archived" : action === "restore" ? "active" : "deleted";
+  if (thread.status !== expectedStatus || thread.version < expectedVersion) {
+    throw new APIRequestError("Thread lifecycle response violated its transition contract",
+      "INVALID_RESPONSE", 502);
+  }
+  return { ...value, thread } as unknown as ThreadLifecycleControlView;
+}
+
 function parseSessionMessageControl(value: unknown,
   expectedSessionID: string): SessionMessageControlView {
   if (!hasExactKeys(value, ["capability_grant", "execution_started", "model_called", "replayed",
@@ -374,29 +496,8 @@ function parseSessionMessageControl(value: unknown,
     !boundedIdentity(value.session_id) || typeof value.replayed !== "boolean" ||
     value.execution_started !== false || value.model_called !== false ||
     value.tool_called !== false || value.capability_grant !== false ||
-    !isRecord(value.steering) || !hasOnlyKeys(value.steering,
-      ["cancelled_at", "committed_at", "created_at", "id", "prepared", "sequence", "status"]) ||
-    !boundedIdentity(value.steering.id) ||
-    value.steering.prepared !== false ||
-    typeof value.steering.sequence !== "number" ||
-    !Number.isSafeInteger(value.steering.sequence) || value.steering.sequence <= 0 ||
-    typeof value.steering.created_at !== "string" ||
-    !Number.isFinite(Date.parse(value.steering.created_at)) ||
-    (value.steering.status !== "pending" && value.steering.status !== "committed" &&
-      value.steering.status !== "cancelled")) {
+    !isValidOperatorSteeringMessage(value.steering)) {
     throw new APIRequestError("Session message response is invalid", "INVALID_RESPONSE", 502);
-  }
-  const committedAt = value.steering.committed_at;
-  const cancelledAt = value.steering.cancelled_at;
-  if ((committedAt !== undefined && (typeof committedAt !== "string" ||
-      !Number.isFinite(Date.parse(committedAt)))) ||
-    (cancelledAt !== undefined && (typeof cancelledAt !== "string" ||
-      !Number.isFinite(Date.parse(cancelledAt)))) ||
-    (value.steering.status === "pending" && (committedAt !== undefined || cancelledAt !== undefined)) ||
-    (value.steering.status === "committed" && (committedAt === undefined || cancelledAt !== undefined)) ||
-    (value.steering.status === "cancelled" && (cancelledAt === undefined || committedAt !== undefined))) {
-    throw new APIRequestError("Session message response violated its steering state contract",
-      "INVALID_RESPONSE", 502);
   }
   return value as unknown as SessionMessageControlView;
 }
@@ -1599,7 +1700,7 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
     "run_wake_worker_enabled", "scheduled_job_control_enabled",
     "scheduled_job_worker_enabled", "scheduled_job_worker", "session_message_enabled",
     "session_steering_control_enabled", "shell_execution_enabled",
-    "skill_installation_enabled", "wake_worker"];
+    "skill_installation_enabled", "thread_control_enabled", "wake_worker"];
   if (!hasExactKeys(value, capabilityKeys) || value.protocol_version !== "runtime_capabilities.v1") {
     throw new APIRequestError("Runtime capability response is invalid", "INVALID_RESPONSE", 502);
   }
@@ -1642,6 +1743,8 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
     (value.full_cdp_debug_enabled && (!value.browser_cdp_permission_control_enabled ||
       !value.debug_maximum_access_enabled)) ||
     (value.workspace_sandbox_enabled && !value.execution_permission_control_enabled) ||
+    value.thread_control_enabled !==
+      (value.run_creation_enabled && value.session_message_enabled) ||
     (value.host_command_proposal_control_enabled && !value.operator_approval_enabled) ||
     (value.batch_delivery_host_validation_enabled &&
       (!value.batch_delivery_control_enabled || !value.execution_permission_control_enabled ||
@@ -1864,6 +1967,7 @@ export function clientCapabilitiesFromRuntime(value: RuntimeCapabilitiesView): C
     commandRuntimeEnabled: value.command_runtime_enabled,
     runCreationEnabled: value.run_creation_enabled,
     sessionMessageEnabled: value.session_message_enabled,
+    threadControlEnabled: value.thread_control_enabled,
     sessionSteeringControlEnabled: value.session_steering_control_enabled,
     runLifecycleEnabled: value.run_lifecycle_enabled,
     runExecutionEnabled: value.run_execution_enabled,
@@ -4426,6 +4530,7 @@ export class CyberAgentClient {
   readonly hasFullCDPDebug: boolean;
   readonly hasRunCreation: boolean;
   readonly hasSessionMessages: boolean;
+  readonly hasThreadControl: boolean;
   readonly hasSessionSteeringControl: boolean;
   readonly hasRunLifecycle: boolean;
   readonly hasRunExecution: boolean;
@@ -4475,6 +4580,10 @@ export class CyberAgentClient {
       (capabilities.fullCDPDebugEnabled ?? false);
     this.hasRunCreation = controlPresent && (capabilities.runCreationEnabled ?? true);
     this.hasSessionMessages = controlPresent && (capabilities.sessionMessageEnabled ?? true);
+    this.hasThreadControl = controlPresent &&
+      (capabilities.threadControlEnabled ??
+        ((capabilities.runCreationEnabled ?? true) &&
+          (capabilities.sessionMessageEnabled ?? true)));
     this.hasSessionSteeringControl = controlPresent &&
       (capabilities.sessionSteeringControlEnabled ?? true);
     this.hasRunLifecycle = controlPresent && (capabilities.runLifecycleEnabled ?? true);
@@ -5632,6 +5741,41 @@ export class CyberAgentClient {
     }
     const result = await this.sendControl<unknown>("/runs", body, idempotencyKey, signal);
     return parseRunCreationControl(result, body);
+  }
+
+  async createThread(body: ThreadCreationControlRequestView, idempotencyKey: string,
+    signal?: AbortSignal): Promise<ThreadCreationControlView> {
+    if (!this.hasThreadControl || !this.hasRunCreation || !this.hasSessionMessages ||
+      body.version !== "thread_creation.v1") {
+      throw new Error("Thread creation capability is required for this operation");
+    }
+    return parseThreadCreationControl(await this.sendControl<unknown>("/threads", body,
+      idempotencyKey, signal), body);
+  }
+
+  async submitThreadMessage(threadID: string, body: ThreadMessageControlRequestView,
+    idempotencyKey: string, signal?: AbortSignal): Promise<ThreadMessageControlView> {
+    if (!this.hasThreadControl || !this.hasSessionMessages || !boundedIdentity(threadID) ||
+      threadID.trim() !== threadID || body.version !== "thread_message_submission.v1") {
+      throw new Error("Thread message capability and a normalized Thread are required");
+    }
+    return parseThreadMessageControl(await this.sendControl<unknown>(
+      `/threads/${encodeURIComponent(threadID)}/messages`, body, idempotencyKey, signal,
+    ), threadID);
+  }
+
+  async transitionThread(threadID: string, action: "archive" | "restore" | "delete",
+    body: ThreadLifecycleControlRequestView, idempotencyKey: string,
+    signal?: AbortSignal): Promise<ThreadLifecycleControlView> {
+    if (!this.hasThreadControl || !this.hasSessionMessages ||
+      !boundedIdentity(threadID) || threadID.trim() !== threadID ||
+      body.version !== "thread_lifecycle.v1" || !Number.isSafeInteger(body.expected_version) ||
+      body.expected_version < 1) {
+      throw new Error("Thread lifecycle capability and a current Thread version are required");
+    }
+    return parseThreadLifecycleControl(await this.sendControl<unknown>(
+      `/threads/${encodeURIComponent(threadID)}/${action}`, body, idempotencyKey, signal,
+    ), threadID, action, body.expected_version);
   }
 
   async submitSessionMessage(sessionID: string, body: SessionMessageControlRequestView,

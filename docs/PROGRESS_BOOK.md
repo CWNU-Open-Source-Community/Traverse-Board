@@ -6,7 +6,7 @@
 
 ## 一、当前阶段
 
-2026-08-24 单切片 `Item-Level Model/Tool Streaming（Issue #152）` 推进到 SQLite v129。
+2026-08-24 单切片 `Item-Level Model/Tool Streaming（Issue #152）` 推进到 SQLite v130。
 `llm.item_stream.v1` 将 OpenAI interleaved tool delta、Anthropic content block、Ollama/Mock
 complete-item 与 legacy `ChatChunk` 归一为严格有序、attempt-owned ID 的 response/item/call
 生命周期。参数 delta 只在有界内存中拼接并与最终合法 JSON 对照；Provider execution event 被拒绝，
@@ -14,9 +14,13 @@ Go Supervisor 在既有 Policy/budget/authority/idempotency 门后记录 durable
 
 公开 `model_public_stream.v3` 只显示安全正文预览、稳定 ID、item 状态、脱敏工具名和参数 byte count；
 `model.delta` 只增加 content-free boundary/granularity。raw argument、provider wire、凭据与 private
-thinking 均不可表示。v129 不可变绑定 provisional ID 与本地 call ledger；旧 Session history 无需
+thinking 均不可表示。v130 不可变绑定 provisional ID 与本地 call ledger；旧 Session history 无需
 rewrite。取消、EOF、缺失/畸形 usage、模型漂移与矛盾终态失败关闭且不补造完成事件。OpenAI 真实兼容
-loopback 用例证明参数流动期间无 WorkItem，Go 完成验证后只执行一次；ADR 0132 固定边界。
+loopback 用例证明参数流动期间无 WorkItem，Go 完成验证后只执行一次；ADR 0133 固定边界。
+
+2026-08-24 单切片 `Stable Thread Identity and Run Succession（Issue #151）` 推进到
+SQLite v129。`thread.v1` 以稳定 Thread 身份组织 Run/Session succession；终态 Run 后继续
+输入会创建新 Run/Session，不继承审批、租约、进程、网络或凭据。详见 ADR 0132。
 
 2026-08-23 单切片 `Standard Code Docker network-none 备用后端（Issue #133）` 推进到 SQLite
 v128；迁移只扩展 immutable Docker admission permission CHECK 以接受 `workspace_access`，保留旧

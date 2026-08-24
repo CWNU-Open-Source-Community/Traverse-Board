@@ -22,6 +22,7 @@ import type {
   RepositoryStateView,
   RunDetailView,
   SessionDetailView,
+  ThreadDetailView,
   WorkItemView,
 } from "../api/types";
 import {
@@ -39,7 +40,7 @@ import { RepositoryDiffPanel } from "./repository-diff-panel";
 import { WorkspaceExplorer } from "./workspace-explorer";
 import { UserTerminalPanel } from "./user-terminal-panel";
 
-export type WorkbenchResourceKind = "run" | "session";
+export type WorkbenchResourceKind = "thread" | "run" | "session";
 type SidecarTab = "review" | "terminal" | "browser" | "files" | "tasks";
 type SidecarGroup = "workspace" | "run" | "reserved";
 
@@ -50,6 +51,7 @@ interface WorkbenchContext {
   status: string;
   updatedAt: string;
   workspaceID: string;
+  runID: string;
 }
 
 const sidecarItems: Array<{
@@ -74,13 +76,14 @@ const sidecarGroups: Array<{ id: SidecarGroup; label: [string, string] }> = [
 ];
 
 export function WorkbenchDock({ children, client, desktop, resourceKind, runID, sessionID,
-  title }: {
+  threadID = "", title }: {
   children: ReactNode;
   client: CyberAgentClient;
   desktop: boolean;
   resourceKind: WorkbenchResourceKind;
   runID: string;
   sessionID: string;
+  threadID?: string;
   title: string;
 }) {
   const { t } = useLocale();
@@ -90,20 +93,21 @@ export function WorkbenchDock({ children, client, desktop, resourceKind, runID, 
   const [sidecarTab, setSidecarTab] = useState<SidecarTab>("files");
   const [sidecarMenuOpen, setSidecarMenuOpen] = useState(false);
   const [terminalSessionID, setTerminalSessionID] = useState("");
-  const terminalRunRef = useRef(runID);
+  const context = useWorkbenchContext(client, resourceKind, runID, sessionID, threadID);
+  const effectiveRunID = context.runID || runID;
+  const terminalRunRef = useRef(effectiveRunID);
   const sidecarMenuRef = useRef<HTMLDivElement>(null);
-  const context = useWorkbenchContext(client, resourceKind, runID, sessionID);
 
   useDismissablePopover(sidecarMenuRef, sidecarMenuOpen, () => setSidecarMenuOpen(false));
   useEffect(() => {
-    if (terminalRunRef.current === runID) return;
+    if (terminalRunRef.current === effectiveRunID) return;
     const previousSession = terminalSessionID;
-    terminalRunRef.current = runID;
+    terminalRunRef.current = effectiveRunID;
     setTerminalSessionID("");
     if (previousSession) {
       void closeDesktopUserTerminal(previousSession).catch(() => undefined);
     }
-  }, [runID, terminalSessionID]);
+  }, [effectiveRunID, terminalSessionID]);
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       if (!event.ctrlKey || event.metaKey) return;
@@ -169,7 +173,7 @@ export function WorkbenchDock({ children, client, desktop, resourceKind, runID, 
           <div className="workspace-panel-stage">{children}</div>
           {summaryVisible && <WorkbenchSummary client={client} context={context} />}
         </div>
-        {bottomVisible && <BottomPanel desktop={desktop} runID={runID}
+        {bottomVisible && <BottomPanel desktop={desktop} runID={effectiveRunID}
           sessionID={terminalSessionID} onSession={setTerminalSessionID}
           onClose={() => setBottomVisible(false)} />}
       </div>
@@ -204,7 +208,7 @@ export function WorkbenchDock({ children, client, desktop, resourceKind, runID, 
           </button>
         </header>
         <div className="workbench-sidecar-body">
-          <SidecarContent client={client} context={context} runID={runID} tab={sidecarTab} />
+          <SidecarContent client={client} context={context} runID={effectiveRunID} tab={sidecarTab} />
         </div>
       </aside>}
     </div>
@@ -387,7 +391,7 @@ function SideTaskPanel({ client, runID }: { client: CyberAgentClient; runID: str
 }
 
 function useWorkbenchContext(client: CyberAgentClient, resourceKind: WorkbenchResourceKind,
-  runID: string, sessionID: string): WorkbenchContext {
+  runID: string, sessionID: string, threadID: string): WorkbenchContext {
   const run = useQuery({
     queryKey: ["run", runID],
     queryFn: ({ signal }) => client.get<RunDetailView>(`/runs/${encodeURIComponent(runID)}`, {}, signal),
@@ -399,6 +403,12 @@ function useWorkbenchContext(client: CyberAgentClient, resourceKind: WorkbenchRe
       `/sessions/${encodeURIComponent(sessionID)}`, {}, signal),
     enabled: resourceKind === "session" && Boolean(sessionID),
   });
+  const thread = useQuery({
+    queryKey: ["thread", threadID],
+    queryFn: ({ signal }) => client.get<ThreadDetailView>(
+      `/threads/${encodeURIComponent(threadID)}`, {}, signal),
+    enabled: resourceKind === "thread" && Boolean(threadID),
+  });
   if (resourceKind === "run" && run.data) {
     return {
       goal: run.data.mission.goal,
@@ -407,6 +417,7 @@ function useWorkbenchContext(client: CyberAgentClient, resourceKind: WorkbenchRe
       status: run.data.run.status,
       updatedAt: run.data.run.updated_at,
       workspaceID: run.data.mission.workspace_id ?? "",
+      runID: run.data.run.id,
     };
   }
   if (resourceKind === "session" && session.data) {
@@ -417,9 +428,23 @@ function useWorkbenchContext(client: CyberAgentClient, resourceKind: WorkbenchRe
       status: session.data.session.status,
       updatedAt: session.data.session.updated_at,
       workspaceID: session.data.session.workspace_id ?? "",
+      runID: session.data.run?.id ?? "",
     };
   }
-  return { goal: "", mode: "", resourceLabel: "", status: "", updatedAt: "", workspaceID: "" };
+  if (resourceKind === "thread" && thread.data) {
+    const currentRun = thread.data.active_run ?? thread.data.last_run;
+    return {
+      goal: thread.data.mission.goal,
+      mode: `Thread / ${thread.data.mission.profile}`,
+      resourceLabel: `Thread ${shortID(thread.data.thread.id)}`,
+      status: thread.data.thread.status,
+      updatedAt: thread.data.thread.updated_at,
+      workspaceID: thread.data.thread.workspace_id ?? "",
+      runID: currentRun.id,
+    };
+  }
+  return { goal: "", mode: "", resourceLabel: "", status: "", updatedAt: "",
+    workspaceID: "", runID: "" };
 }
 
 function useDismissablePopover(root: RefObject<HTMLElement | null>, open: boolean,
