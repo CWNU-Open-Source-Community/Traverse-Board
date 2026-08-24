@@ -19,11 +19,11 @@
 
 ## What is Traverse Board?
 
-Traverse Board is a local AI agent workbench controlled by Go. It unifies model routing, resumable long-running tasks, workspaces, tool calls, approvals, budgets, memory, and audit events in a run-centric runtime shared by the CLI, TUI, HTTP API, React console, and Windows/macOS Desktop.
+Traverse Board is a local AI agent workbench controlled by Go. It unifies model routing, resumable long-running tasks, workspaces, tool calls, approvals, budgets, memory, and audit events in a Thread/Run runtime shared by Windows/macOS Desktop, the React Thread workbench, the CLI, and loopback HTTP/OpenAPI. TUI, headless, and extension entries have explicit maintenance/extension tiers rather than forming another product.
 
-A durable user objective is a `Mission`; one resumable execution attempt is a `Run`. Models may plan and propose actions, but Go owns the state machine, credentials, permissions, persistence, and execution boundaries. Repository files, web pages, model text, and tool output are untrusted evidence rather than instructions or authority.
+`Thread` is the stable user-facing task and URL identity. `Mission` fixes intent and Scope, `Run` is one finite execution attempt, and `Session` is that Run's conversation/context boundary. Continuing after a terminal Run atomically creates a fresh Run/Session in the same Thread without inheriting approvals, leases, processes, network, or credentials. Models may plan and propose actions, but Go owns the state machine, credentials, permissions, persistence, and execution boundaries. Repository files, web pages, model text, and tool output are untrusted evidence rather than instructions or authority.
 
-The active product focus is the **general-purpose Code Agent workflow**. CTF-specific and offensive-security solving has moved to an optional add-on scope and is not on the active implementation roadmap. Only generic Skill, Tool, Analyzer, Sandbox, Provider, and Report extension seams are retained for a future independent plugin. See [Product Scope](docs/PRODUCT_SCOPE.md).
+The active product focus is the **general-purpose Code Agent workflow**. CTF-specific and offensive-security solving has moved to an optional add-on scope and is not on the active implementation roadmap. Only generic Skill, Tool, Analyzer, Sandbox, Provider, and Report extension seams are retained for a future independent plugin. See [Product Scope](docs/PRODUCT_SCOPE.md) and the [pre-1.0 convergence policy](docs/convergence/README.md).
 
 ## Why Traverse Board?
 
@@ -40,7 +40,7 @@ The hard part of a useful agent is not merely allowing a model to call tools. Lo
 ### One control plane
 
 ```text
-CLI / TUI / React / Windows + macOS Desktop / CI
+CLI / React / Windows + macOS Desktop / loopback API
                     |
               Go control plane
        +------------+-------------+

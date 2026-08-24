@@ -12,6 +12,7 @@ This directory separates user-facing documentation, current engineering state, a
 |---|---|
 | [README 中文](../README.md) / [README English](../README.en.md) | 产品定位、核心能力、快速开始和历史阶段索引 |
 | [产品范围 / Product Scope](PRODUCT_SCOPE.md) | 当前核心范围、可选附加能力和扩展接口 |
+| [Pre-1.0 产品收敛](convergence/README.md) | Surface tier、协议冻结等级、Durable Operation 边界、规范词汇与有界后续 Issue |
 | [使用手册 / Usage](usage.md) | CLI、Provider、Workspace、Run、审批和操作者工作流 |
 | [Workspace Checkpoints](workspace-checkpoints.md) | 检查点时间线、预览、Undo/Redo/Rewind、独立 Fork 与故障处理 |
 | [Drydock 工作目录](drydock.md) | Run-owned worktree、Workspace Trust、精确检查点、审阅交付与保守清理 |
@@ -50,6 +51,8 @@ This directory separates user-facing documentation, current engineering state, a
 | [ADR 0131 / Standard Code Docker](adr/0131-standard-code-docker-network-none-backend.md) | 固定 Docker `network=none` 后端、Drydock 投影、readiness 与恢复边界 |
 | [ADR 0132 / Thread Identity](adr/0132-thread-identity-run-succession.md) | 稳定 Thread 身份、Run succession、生命周期与无 authority 继承边界 |
 | [ADR 0133 / Item-level Model Streaming](adr/0133-item-level-model-tool-streaming.md) | Provider-neutral response/item/call 生命周期、Go 工具执行权威、脱敏公开/持久投影与恢复语义 |
+| [ADR 0134 / Unified Thread Transcript](adr/0134-unified-thread-transcript.md) | 跨 Run 的统一叙事、稳定游标、临时/持久 item reconciliation 与 Thread 主工作面 |
+| [ADR 0135 / Pre-1.0 Product Convergence](adr/0135-pre-1-0-product-convergence.md) | Surface 支持等级、Schema/Protocol 冻结等级、最小 Durable Operation 抽象和兼容词汇 |
 | [ADR 索引](adr/) | 权限、持久化、执行、浏览器、Desktop 等架构决策 |
 
 ## 当前工程上下文 / Current Engineering Context
@@ -76,5 +79,6 @@ The historical percentages are roadmap estimates, not performance benchmarks, se
 - 产品能力声明以当前代码、测试、`PROJECT_STATUS.md` 和相关 ADR 为准。
 - `PROGRESS_BOOK.md` 与 ADR 只追加或显式标记 superseded，不重写历史来匹配当前叙事。
 - 新增用户能力时同步更新 README、Usage 和 Product Scope；新增权限或所有权边界时先更新 ADR。
+- 新增产品 Surface、持久协议或用户主概念时同步更新 `docs/convergence/`；inventory 只描述边界，不能授予 authority。
 - 不在文档、示例或截图中提交 API key、控制令牌、绝对用户路径或 Provider 原始响应。
 - Keep Chinese and English product entry points aligned; additional README language variants are intentionally out of scope.
