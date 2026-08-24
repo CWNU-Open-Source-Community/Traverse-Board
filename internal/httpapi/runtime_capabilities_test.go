@@ -9,6 +9,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/scheduler"
 )
@@ -47,6 +48,8 @@ func TestRuntimeCapabilitiesAreReadOnlyAndDefaultClosed(t *testing.T) {
 		view.RunWakeWorkerEnabled || view.ScheduledJobControlEnabled ||
 		view.ScheduledJobWorkerEnabled ||
 		!view.AgentCodeToolsEnabled || view.CodeIntelEnabled ||
+		!view.CommandRuntimeProtocolAvailable || view.CommandRuntimeAdapterInstalled ||
+		view.CommandRuntimeAdapterReady || len(view.CommandRuntimeAdapters) != 0 ||
 		view.CommandRuntimeEnabled || view.ProcessExecutionEnabled || view.ShellExecutionEnabled ||
 		view.DockerExecutionEnabled || view.BatchDeliveryHostValidationEnabled ||
 		view.WakeWorker.Enabled ||
@@ -153,6 +156,8 @@ func TestRuntimeCapabilitiesEnableCommandRuntimeOnlyForFullAccessExecution(t *te
 		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
 			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
 		},
+		CommandRuntimeAdapters: []commandruntimeadapter.Identity{
+			commandruntimeadapter.HostUnsandboxed(strings.Repeat("a", 64))},
 		AppVersion: "command-runtime-capability-test",
 	})
 	if err != nil {
@@ -164,6 +169,8 @@ func TestRuntimeCapabilitiesEnableCommandRuntimeOnlyForFullAccessExecution(t *te
 	decodeDataStatus(t, response, http.StatusOK, &view)
 	if !view.RunExecutionEnabled || !view.ExecutionPermissionControlEnabled ||
 		!view.OperatorApprovalEnabled || !view.DangerFullAccessEnabled ||
+		!view.CommandRuntimeProtocolAvailable || !view.CommandRuntimeAdapterInstalled ||
+		!view.CommandRuntimeAdapterReady || len(view.CommandRuntimeAdapters) != 1 ||
 		!view.CommandRuntimeEnabled || !view.ProcessExecutionEnabled ||
 		!view.ShellExecutionEnabled || !view.AgentCodeToolsEnabled ||
 		view.DebugMaximumAccessEnabled {

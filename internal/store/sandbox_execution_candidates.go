@@ -19,6 +19,7 @@ const sandboxExecutionCandidateSelect = `SELECT id, preparation_id, run_id, miss
 	workspace_fingerprint, scope_fingerprint, policy_fingerprint, mount_binding_fingerprint,
 	approval_id, approval_status, mount_count, regular_file_mount_count, directory_mount_count,
 	tokens_used, execution_millis_used, tool_calls_used, budget_checked, lease_quiescent,
+	run_lease_id, run_lease_generation, run_lease_owner_id,
 	backend_enabled, execution_authorized, requested_by, validated_at
 	FROM sandbox_execution_candidates`
 
@@ -137,11 +138,13 @@ func (s *SQLiteStore) CreateSandboxExecutionCandidate(ctx context.Context,
 	if err := requireSandboxCandidateStoreBudget(run.Budget, usage, toolCalls); err != nil {
 		return sandbox.ValidatedExecutionCandidate{}, false, err
 	}
-	if lease, found, err := getRunExecutionLeaseTx(ctx, tx, run.ID); err != nil {
+	lease, found, err := getRunExecutionLeaseTx(ctx, tx, run.ID)
+	if err != nil {
 		return sandbox.ValidatedExecutionCandidate{}, false, err
-	} else if found && lease.ActiveAt(time.Now().UTC()) {
-		return sandbox.ValidatedExecutionCandidate{}, false, apperror.New(apperror.CodeFailedPrecondition,
-			"sandbox execution candidate requires a quiescent Run")
+	}
+	if err := validateSandboxCandidateRunLease(candidate, lease, found,
+		time.Now().UTC(), "sandbox execution candidate requires a quiescent Run"); err != nil {
+		return sandbox.ValidatedExecutionCandidate{}, false, err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO sandbox_execution_candidates
 		(id, preparation_id, run_id, mission_id, workspace_id, protocol_version,
@@ -149,8 +152,9 @@ func (s *SQLiteStore) CreateSandboxExecutionCandidate(ctx context.Context,
 		policy_fingerprint, mount_binding_fingerprint, approval_id, approval_status,
 		mount_count, regular_file_mount_count, directory_mount_count, tokens_used,
 		execution_millis_used, tool_calls_used, budget_checked, lease_quiescent,
+		run_lease_id, run_lease_generation, run_lease_owner_id,
 		backend_enabled, execution_authorized, requested_by, validated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		candidate.ID, candidate.PreparationID, candidate.RunID, candidate.MissionID,
 		candidate.WorkspaceID, candidate.ProtocolVersion, candidate.ManifestFingerprint,
 		candidate.AuthorizationFingerprint, candidate.WorkspaceFingerprint,
@@ -159,6 +163,7 @@ func (s *SQLiteStore) CreateSandboxExecutionCandidate(ctx context.Context,
 		candidate.MountCount, candidate.RegularFileMountCount, candidate.DirectoryMountCount,
 		candidate.TokensUsed, candidate.ExecutionMillisUsed, candidate.ToolCallsUsed,
 		boolInt(candidate.BudgetChecked), boolInt(candidate.LeaseQuiescent),
+		candidate.RunLeaseID, candidate.RunLeaseGeneration, candidate.RunLeaseOwnerID,
 		boolInt(candidate.BackendEnabled), boolInt(candidate.ExecutionAuthorized),
 		candidate.RequestedBy, ts(candidate.ValidatedAt)); err != nil {
 		_ = tx.Rollback()
@@ -181,6 +186,27 @@ func (s *SQLiteStore) CreateSandboxExecutionCandidate(ctx context.Context,
 	return sandbox.ValidatedExecutionCandidate{Candidate: candidate}, false, nil
 }
 
+func validateSandboxCandidateRunLease(candidate sandbox.ExecutionCandidate,
+	lease domain.RunExecutionLease, found bool, now time.Time,
+	quiescentMessage string,
+) error {
+	if candidate.LeaseQuiescent {
+		if found && lease.ActiveAt(now) {
+			return apperror.New(apperror.CodeFailedPrecondition, quiescentMessage)
+		}
+		return nil
+	}
+	if !found || !lease.ActiveAt(now) || lease.RunID != candidate.RunID ||
+		lease.LeaseID != candidate.RunLeaseID ||
+		lease.Generation != candidate.RunLeaseGeneration ||
+		lease.OwnerID != candidate.RunLeaseOwnerID ||
+		lease.Status != domain.RunExecutionLeaseActive {
+		return apperror.New(apperror.CodeConflict,
+			"sandbox execution candidate Run lease binding is stale")
+	}
+	return nil
+}
+
 func validateSandboxExecutionCandidateMutation(candidate sandbox.ExecutionCandidate,
 	operation sandbox.CandidateOperation,
 ) error {
@@ -195,8 +221,7 @@ func validateSandboxExecutionCandidateMutation(candidate sandbox.ExecutionCandid
 	if operation.CandidateID != candidate.ID || operation.PreparationID != candidate.PreparationID ||
 		operation.RunID != candidate.RunID || operation.RequestedBy != candidate.RequestedBy ||
 		!operation.CreatedAt.Equal(candidate.ValidatedAt) ||
-		operation.RequestFingerprint != sandbox.CandidateRequestFingerprint(candidate.PreparationID,
-			candidate.ManifestFingerprint, candidate.ApprovalID, candidate.RequestedBy) {
+		operation.RequestFingerprint != sandbox.CandidateOperationRequestFingerprint(candidate) {
 		return apperror.New(apperror.CodeInvalidArgument,
 			"sandbox execution candidate and operation bindings do not match")
 	}
@@ -274,8 +299,10 @@ func appendSandboxExecutionCandidateEvent(ctx context.Context, tx *sql.Tx,
 			"tokens_used":              candidate.TokensUsed,
 			"execution_millis_used":    candidate.ExecutionMillisUsed,
 			"tool_calls_used":          candidate.ToolCallsUsed, "budget_checked": true,
-			"lease_quiescent": true, "manifest_content_stored": false,
-			"backend_enabled": false, "execution_authorized": false,
+			"lease_quiescent":         candidate.LeaseQuiescent,
+			"run_lease_bound":         !candidate.LeaseQuiescent,
+			"manifest_content_stored": false,
+			"backend_enabled":         false, "execution_authorized": false,
 		})
 	if err != nil {
 		return err
@@ -344,8 +371,7 @@ func validateStoredSandboxExecutionCandidateBinding(candidate sandbox.ExecutionC
 	if candidate.ID != operation.CandidateID || candidate.PreparationID != operation.PreparationID ||
 		candidate.RunID != operation.RunID || candidate.RequestedBy != operation.RequestedBy ||
 		!candidate.ValidatedAt.Equal(operation.CreatedAt) ||
-		operation.RequestFingerprint != sandbox.CandidateRequestFingerprint(candidate.PreparationID,
-			candidate.ManifestFingerprint, candidate.ApprovalID, candidate.RequestedBy) {
+		operation.RequestFingerprint != sandbox.CandidateOperationRequestFingerprint(candidate) {
 		return apperror.New(apperror.CodeInternal,
 			"stored sandbox execution candidate operation binding is invalid")
 	}
@@ -371,7 +397,9 @@ func scanSandboxExecutionCandidate(scanner interface{ Scan(...any) error }) (san
 		&candidate.ApprovalID, &candidate.ApprovalStatus, &candidate.MountCount,
 		&candidate.RegularFileMountCount, &candidate.DirectoryMountCount,
 		&candidate.TokensUsed, &candidate.ExecutionMillisUsed, &candidate.ToolCallsUsed,
-		&budgetChecked, &leaseQuiescent, &backendEnabled, &executionAuthorized,
+		&budgetChecked, &leaseQuiescent, &candidate.RunLeaseID,
+		&candidate.RunLeaseGeneration, &candidate.RunLeaseOwnerID,
+		&backendEnabled, &executionAuthorized,
 		&candidate.RequestedBy, &validatedAt); err != nil {
 		return sandbox.ExecutionCandidate{}, err
 	}

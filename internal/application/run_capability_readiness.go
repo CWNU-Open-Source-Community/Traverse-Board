@@ -9,8 +9,11 @@ import (
 	"time"
 
 	"cyberagent-workbench/internal/apperror"
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/sandbox"
+	"cyberagent-workbench/internal/toolgateway"
 )
 
 const RunCapabilityReadinessProtocolVersion = "run_capability_readiness.v1"
@@ -111,11 +114,25 @@ type RunCapabilityReadiness struct {
 	Interactions          []CapabilityReadinessOption `json:"interactions"`
 	BrowserCDPPermissions []CapabilityReadinessOption `json:"browser_cdp_permissions"`
 	Presets               []CapabilityReadinessOption `json:"presets"`
+	CommandRuntime        CommandRuntimeReadiness     `json:"command_runtime"`
 	CapabilityGrant       bool                        `json:"capability_grant"`
+}
+
+// CommandRuntimeReadiness separates a compiled protocol, a process-installed
+// backend, live backend readiness, and the non-authorizing fact that the
+// current Run would receive the tool under its present durable snapshots.
+type CommandRuntimeReadiness struct {
+	ProtocolAvailable bool   `json:"protocol_available"`
+	AdapterInstalled  bool   `json:"adapter_installed"`
+	AdapterReady      bool   `json:"adapter_ready"`
+	CurrentRunGranted bool   `json:"current_run_granted"`
+	AdapterKind       string `json:"adapter_kind,omitempty"`
+	Backend           string `json:"backend,omitempty"`
 }
 
 type CapabilityReadinessRuntime struct {
 	RunControlEnabled                  bool
+	RunExecutionEnabled                bool
 	ExecutionPermissionControlEnabled  bool
 	BrowserCDPPermissionControlEnabled bool
 	StandardCodePresetEnabled          bool
@@ -129,6 +146,7 @@ type CapabilityReadinessRuntime struct {
 	DockerBackendReady                 bool
 	DockerReadiness                    *sandbox.DockerReadiness
 	BrowserBackendReady                bool
+	CommandRuntimeAdapters             []commandruntimeadapter.Identity
 }
 
 // WithLocalSandboxReadiness consumes a validated, non-authorizing backend
@@ -183,6 +201,19 @@ func (r CapabilityReadinessRuntime) Validate() error {
 			return errors.New("detailed Docker readiness does not match runtime facts")
 		}
 	}
+	seenAdapters := make(map[commandruntimeadapter.Identity]struct{},
+		len(r.CommandRuntimeAdapters))
+	for _, adapter := range r.CommandRuntimeAdapters {
+		permission := commandRuntimePermission(adapter)
+		if adapter.Validate() != nil || !adapter.Executable() || permission == "" ||
+			!r.ExecutionPermissionCapabilities.Allows(permission) {
+			return errors.New("Command Runtime installed adapter is invalid")
+		}
+		if _, duplicate := seenAdapters[adapter]; duplicate {
+			return errors.New("Command Runtime installed adapter is duplicated")
+		}
+		seenAdapters[adapter] = struct{}{}
+	}
 	if r.BrowserBackendReady && !r.BrowserCDPPermissionControlEnabled {
 		return errors.New("a ready browser backend requires restricted CDP control")
 	}
@@ -201,19 +232,26 @@ type RunCapabilityReadinessStore interface {
 	GetRunBrowserCDPPermission(context.Context, string) (domain.RunBrowserCDPPermissionSnapshot, error)
 	GetRunExecutionInteraction(context.Context, string) (domain.RunExecutionInteractionSnapshot, error)
 	GetRunExecutionLease(context.Context, string) (domain.RunExecutionLease, bool, error)
+	GetDrydockByRun(context.Context, string) (drydock.Workspace, bool, error)
 }
 
 type RunCapabilityReadinessService struct {
-	store   RunCapabilityReadinessStore
-	runtime CapabilityReadinessRuntime
-	now     func() time.Time
+	store          RunCapabilityReadinessStore
+	runtime        CapabilityReadinessRuntime
+	commandRuntime toolgateway.CommandRuntimeAdvertiser
+	now            func() time.Time
 }
 
 func NewRunCapabilityReadinessService(store RunCapabilityReadinessStore,
 	runtime CapabilityReadinessRuntime,
+	commandRuntime ...toolgateway.CommandRuntimeAdvertiser,
 ) *RunCapabilityReadinessService {
-	return &RunCapabilityReadinessService{store: store, runtime: runtime,
+	service := &RunCapabilityReadinessService{store: store, runtime: runtime,
 		now: func() time.Time { return time.Now().UTC() }}
+	if len(commandRuntime) == 1 {
+		service.commandRuntime = commandRuntime[0]
+	}
+	return service
 }
 
 func (s *RunCapabilityReadinessService) Project(ctx context.Context,
@@ -265,10 +303,33 @@ func (s *RunCapabilityReadinessService) Project(ctx context.Context,
 		return RunCapabilityReadiness{}, apperror.Wrap(apperror.CodeInternal,
 			"Run capability readiness source facts are invalid", err)
 	}
+	drydockWorkspace, drydockFound, err := s.store.GetDrydockByRun(ctx, run.ID)
+	if err != nil {
+		return RunCapabilityReadiness{}, apperror.Normalize(err)
+	}
+	drydockReady := drydockFound && drydockWorkspace.RunID == run.ID &&
+		(drydockWorkspace.State == drydock.StateReady ||
+			drydockWorkspace.State == drydock.StateDelivered)
+	advertisedAdapter := commandruntimeadapter.Identity{}
+	advertised := false
+	if s.commandRuntime != nil {
+		advertisedAdapter, advertised, err = s.commandRuntime.
+			AdvertisedCommandRuntimeAdapter(ctx, run.ID, permission.Mode)
+		if err != nil {
+			return RunCapabilityReadiness{}, apperror.Normalize(err)
+		}
+		if advertised && !containsCommandRuntimeAdapter(
+			s.runtime.CommandRuntimeAdapters, advertisedAdapter) {
+			return RunCapabilityReadiness{}, apperror.New(apperror.CodeInternal,
+				"advertised Command Runtime adapter is not installed")
+		}
+	}
 	activeLease := found && lease.ActiveAt(s.now())
 	value := capabilityReadinessProjection{run: run, mode: mode, profile: profile,
 		permission: permission, cdp: cdp, interaction: interaction,
-		activeLease: activeLease, runtime: s.runtime}.project()
+		activeLease: activeLease, drydockReady: drydockReady, runtime: s.runtime,
+		advertisedAdapter: advertisedAdapter, advertised: advertised,
+		advertisementAuthoritative: s.commandRuntime != nil}.project()
 	if err := value.Validate(); err != nil {
 		return RunCapabilityReadiness{}, apperror.Wrap(apperror.CodeInternal,
 			"Run capability readiness projection is invalid", err)
@@ -307,14 +368,18 @@ func validateCapabilityReadinessInputs(run domain.Run, mode domain.RunModeSnapsh
 }
 
 type capabilityReadinessProjection struct {
-	run         domain.Run
-	mode        domain.RunModeSnapshot
-	profile     domain.RunExecutionProfileSnapshot
-	permission  domain.RunExecutionPermissionSnapshot
-	cdp         domain.RunBrowserCDPPermissionSnapshot
-	interaction domain.RunExecutionInteractionSnapshot
-	activeLease bool
-	runtime     CapabilityReadinessRuntime
+	run                        domain.Run
+	mode                       domain.RunModeSnapshot
+	profile                    domain.RunExecutionProfileSnapshot
+	permission                 domain.RunExecutionPermissionSnapshot
+	cdp                        domain.RunBrowserCDPPermissionSnapshot
+	interaction                domain.RunExecutionInteractionSnapshot
+	activeLease                bool
+	drydockReady               bool
+	runtime                    CapabilityReadinessRuntime
+	advertisedAdapter          commandruntimeadapter.Identity
+	advertised                 bool
+	advertisementAuthoritative bool
 }
 
 func (p capabilityReadinessProjection) project() RunCapabilityReadiness {
@@ -323,8 +388,72 @@ func (p capabilityReadinessProjection) project() RunCapabilityReadiness {
 		Permissions: p.permissionOptions(), Profiles: p.profileOptions(),
 		Interactions:          p.interactionOptions(),
 		BrowserCDPPermissions: p.browserCDPOptions(), Presets: p.presetOptions(),
+		CommandRuntime:  p.commandRuntimeReadiness(),
 		CapabilityGrant: false,
 	}
+}
+
+func (p capabilityReadinessProjection) commandRuntimeReadiness() CommandRuntimeReadiness {
+	result := CommandRuntimeReadiness{ProtocolAvailable: true,
+		AdapterInstalled: len(p.runtime.CommandRuntimeAdapters) > 0}
+	selected := false
+	selectedReady := false
+	for _, adapter := range p.runtime.CommandRuntimeAdapters {
+		ready := true
+		switch adapter.Backend {
+		case CommandRuntimeLocalSandboxBackend:
+			ready = p.runtime.LocalBackendReady
+		case CommandRuntimeDockerSandboxBackend:
+			ready = p.runtime.DockerBackendReady
+		}
+		result.AdapterReady = result.AdapterReady || ready
+		if commandRuntimePermission(adapter) != p.permission.Mode ||
+			commandRuntimeExecutionProfile(adapter) != p.profile.Profile {
+			continue
+		}
+		if selected {
+			// Ambiguous selection fails closed without hiding the process-level
+			// fact that adapters are installed.
+			result.AdapterKind, result.Backend = "", ""
+			selectedReady = false
+			continue
+		}
+		selected = true
+		result.AdapterKind = string(adapter.Kind)
+		result.Backend = adapter.Backend
+		selectedReady = ready
+		if adapter.Kind == commandruntimeadapter.KindSandboxedWorkspace {
+			selectedReady = selectedReady && p.drydockReady
+		}
+	}
+	if p.advertised {
+		result.AdapterReady = true
+		result.AdapterKind = string(p.advertisedAdapter.Kind)
+		result.Backend = p.advertisedAdapter.Backend
+		selected = true
+		selectedReady = true
+	}
+	grantReady := selected && selectedReady
+	if p.advertisementAuthoritative {
+		grantReady = p.advertised
+	}
+	result.CurrentRunGranted = p.runtime.RunExecutionEnabled &&
+		grantReady && p.activeLease &&
+		p.run.Status == domain.RunRunning &&
+		p.mode.Surface == domain.ExecutionSurfaceCode &&
+		p.mode.Phase == domain.ExecutionPhaseDeliver
+	return result
+}
+
+func containsCommandRuntimeAdapter(installed []commandruntimeadapter.Identity,
+	want commandruntimeadapter.Identity,
+) bool {
+	for _, adapter := range installed {
+		if adapter.SameBackend(want) {
+			return true
+		}
+	}
+	return false
 }
 
 func (p capabilityReadinessProjection) permissionOptions() []CapabilityReadinessOption {
@@ -668,6 +797,12 @@ func (r RunCapabilityReadiness) Validate() error {
 	if r.ProtocolVersion != RunCapabilityReadinessProtocolVersion ||
 		!domain.ValidAgentID(r.RunID) || r.CapabilityGrant {
 		return errors.New("Run capability readiness envelope is invalid")
+	}
+	if !r.CommandRuntime.ProtocolAvailable ||
+		r.CommandRuntime.AdapterReady && !r.CommandRuntime.AdapterInstalled ||
+		r.CommandRuntime.CurrentRunGranted && !r.CommandRuntime.AdapterReady ||
+		((r.CommandRuntime.AdapterKind == "") != (r.CommandRuntime.Backend == "")) {
+		return errors.New("Run Command Runtime readiness is invalid")
 	}
 	groups := []struct {
 		name        string

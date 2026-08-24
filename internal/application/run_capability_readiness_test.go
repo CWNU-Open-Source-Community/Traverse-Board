@@ -3,10 +3,12 @@ package application_test
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"cyberagent-workbench/internal/application"
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/store"
 )
@@ -149,6 +151,99 @@ func TestRunCapabilityReadinessSeparatesUnprovenAndUnreadyBackends(t *testing.T)
 		hasReadinessBlocker(docker, application.CapabilityBlockerDockerUnavailable) {
 		t.Fatalf("installed but unready Docker backend was misclassified: %#v", docker)
 	}
+}
+
+func TestRunCapabilityReadinessSeparatesInstalledAdapterFromCurrentRunGrant(t *testing.T) {
+	ctx, state, run := newCapabilityReadinessRun(t, "code")
+	if _, err := application.NewRunExecutionProfileService(state).Change(ctx,
+		application.ChangeRunExecutionProfileRequest{RunID: run.ID, Profile: "local",
+			OperationKey: "readiness-command-runtime-profile",
+			RequestedBy:  "test_operator", Reason: "select host runtime profile"}); err != nil {
+		t.Fatal(err)
+	}
+	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true}
+	permissions := application.NewRunExecutionPermissionService(state, capabilities)
+	if _, err := permissions.Change(ctx,
+		application.ChangeRunExecutionPermissionRequest{RunID: run.ID,
+			Mode:         string(domain.RunExecutionPermissionFullAccess),
+			OperationKey: "readiness-command-runtime-permission",
+			RequestedBy:  "test_operator", Reason: "select host runtime permission",
+			ConfirmDangerFullAccess: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := application.NewRunService(state).Start(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	acquired, err := state.AcquireRunExecutionLease(ctx,
+		domain.AcquireRunExecutionLeaseRequest{RunID: run.ID,
+			OwnerID: "readiness-command-runtime-owner", TTL: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := readyCapabilityReadinessRuntime()
+	runtime.RunExecutionEnabled = true
+	identity := commandruntimeadapter.HostUnsandboxed(strings.Repeat("a", 64))
+	runtime.CommandRuntimeAdapters = []commandruntimeadapter.Identity{identity}
+	advertiser := &readinessCommandRuntimeAdvertiser{identity: identity, ready: true}
+	service := application.NewRunCapabilityReadinessService(state, runtime, advertiser)
+	granted, err := service.Project(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := granted.CommandRuntime
+	if !status.ProtocolAvailable || !status.AdapterInstalled || !status.AdapterReady ||
+		!status.CurrentRunGranted || status.AdapterKind != "host_unsandboxed" ||
+		status.Backend != "run_owned_command_runtime" {
+		t.Fatalf("granted Command Runtime status=%#v", status)
+	}
+	advertiser.ready = false
+	notReady, err := service.Project(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status = notReady.CommandRuntime
+	if !status.ProtocolAvailable || !status.AdapterInstalled || !status.AdapterReady ||
+		status.CurrentRunGranted || status.AdapterKind != "host_unsandboxed" {
+		t.Fatalf("unavailable current adapter was granted: %#v", status)
+	}
+	advertiser.ready = true
+	if _, _, err := state.ReleaseRunExecutionLease(ctx, acquired.Lease); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := application.NewRunService(state).Pause(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := permissions.Change(ctx,
+		application.ChangeRunExecutionPermissionRequest{RunID: run.ID,
+			Mode:         string(domain.RunExecutionPermissionConservative),
+			OperationKey: "readiness-command-runtime-revoke",
+			RequestedBy:  "test_operator", Reason: "revoke current Run grant"}); err != nil {
+		t.Fatal(err)
+	}
+	revoked, err := service.Project(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status = revoked.CommandRuntime
+	if !status.ProtocolAvailable || !status.AdapterInstalled || !status.AdapterReady ||
+		status.CurrentRunGranted || status.AdapterKind != "" || status.Backend != "" {
+		t.Fatalf("revoked Command Runtime status=%#v", status)
+	}
+}
+
+type readinessCommandRuntimeAdvertiser struct {
+	identity commandruntimeadapter.Identity
+	ready    bool
+}
+
+func (a *readinessCommandRuntimeAdvertiser) AdvertisedCommandRuntimeAdapter(
+	_ context.Context, _ string, permission domain.RunExecutionPermissionMode,
+) (commandruntimeadapter.Identity, bool, error) {
+	if a == nil || !a.ready || !a.identity.AllowsPermission(permission) {
+		return commandruntimeadapter.Identity{}, false, nil
+	}
+	return a.identity, true, nil
 }
 
 func TestCapabilityReadinessOptionValidationRejectsContradictoryDisposition(t *testing.T) {

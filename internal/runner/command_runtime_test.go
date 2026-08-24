@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 )
 
@@ -248,7 +249,7 @@ func TestCommandRuntimeManagerStreamsSanitizedOutputAndPersistsTerminalState(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, replayed, err := manager.Start(context.Background(), commandRuntimeTestRequest(2000))
+	snapshot, replayed, err := manager.Start(context.Background(), commandRuntimeTestRequest(manager, 2000))
 	if err != nil || replayed || snapshot.State != CommandRuntimeJobRunning {
 		t.Fatalf("start snapshot=%#v replayed=%t err=%v", snapshot, replayed, err)
 	}
@@ -286,7 +287,7 @@ func TestCommandRuntimeManagerStreamsSanitizedOutputAndPersistsTerminalState(t *
 		stored.OutputFramesJSON == "[]" {
 		t.Fatalf("terminal job was not persisted: %#v err=%v", stored, err)
 	}
-	replay, wasReplay, err := manager.Start(context.Background(), commandRuntimeTestRequest(2000))
+	replay, wasReplay, err := manager.Start(context.Background(), commandRuntimeTestRequest(manager, 2000))
 	if err != nil || !wasReplay || replay.ID != snapshot.ID ||
 		replay.State != CommandRuntimeJobCompleted || starter.starts != 1 {
 		t.Fatalf("start replay duplicated execution: %#v replay=%t starts=%d err=%v",
@@ -303,7 +304,7 @@ func TestCommandRuntimeManagerRejectsProcessWithoutCreationTimeTreeOwnership(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, _, err := manager.Start(context.Background(), commandRuntimeTestRequest(2000))
+	snapshot, _, err := manager.Start(context.Background(), commandRuntimeTestRequest(manager, 2000))
 	if !errors.Is(err, ErrCommandRuntimeUnavailable) ||
 		snapshot.State != CommandRuntimeJobFailed || !snapshot.TreeReaped {
 		t.Fatalf("unowned process was accepted: %#v err=%v", snapshot, err)
@@ -321,7 +322,7 @@ func TestCommandRuntimeManagerShutdownClosesLaunchGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, _, err := manager.Start(context.Background(),
-		commandRuntimeTestRequest(2000)); !errors.Is(err, ErrCommandRuntimeUnavailable) {
+		commandRuntimeTestRequest(manager, 2000)); !errors.Is(err, ErrCommandRuntimeUnavailable) {
 		t.Fatalf("closed manager accepted a launch: %v", err)
 	}
 	if starter.starts != 0 {
@@ -348,7 +349,7 @@ func TestCommandRuntimeManagerConcurrentStartReplaysOneOwnedProcess(t *testing.T
 		go func() {
 			defer wait.Done()
 			snapshot, replayed, err := manager.Start(context.Background(),
-				commandRuntimeTestRequest(2000))
+				commandRuntimeTestRequest(manager, 2000))
 			results <- startResult{snapshot: snapshot, replayed: replayed, err: err}
 		}()
 	}
@@ -384,13 +385,13 @@ func TestCommandRuntimeManagerBoundsGlobalActiveProcesses(t *testing.T) {
 		t.Fatal(err)
 	}
 	for index := 0; index < MaxCommandRuntimeActiveJobs; index++ {
-		request := commandRuntimeTestRequest(2000)
+		request := commandRuntimeTestRequest(manager, 2000)
 		request.Scope.OperationKey = fmt.Sprintf("operation-%d", index)
 		if _, _, err := manager.Start(context.Background(), request); err != nil {
 			t.Fatalf("start %d before global limit: %v", index, err)
 		}
 	}
-	overflow := commandRuntimeTestRequest(2000)
+	overflow := commandRuntimeTestRequest(manager, 2000)
 	overflow.Scope.OperationKey = "operation-overflow"
 	if _, _, err := manager.Start(context.Background(), overflow); !errors.Is(
 		err, ErrCommandRuntimeUnavailable) {
@@ -415,7 +416,7 @@ func TestCommandRuntimeManagerStartsTimeoutBeforeInitialStdinCanBlock(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := commandRuntimeTestRequest(2000)
+	request := commandRuntimeTestRequest(manager, 2000)
 	request.Spec.Spec.InitialStdin = "initial input\n"
 	request.Spec.Spec.CloseInitialStdin = true
 	type startResult struct {
@@ -481,7 +482,7 @@ func TestCommandRuntimeManagerTreatsPartialStdinWriteAsUncertainReplay(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, _, err := manager.Start(context.Background(), commandRuntimeTestRequest(2000))
+	snapshot, _, err := manager.Start(context.Background(), commandRuntimeTestRequest(manager, 2000))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -512,7 +513,7 @@ func TestCommandRuntimeManagerTimeoutOwnsFinalReason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, _, err := manager.Start(context.Background(), commandRuntimeTestRequest(25))
+	snapshot, _, err := manager.Start(context.Background(), commandRuntimeTestRequest(manager, 25))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -534,7 +535,7 @@ func TestCommandRuntimeManagerRetriesStoppingProcessWithoutChangingReason(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, _, err := manager.Start(context.Background(), commandRuntimeTestRequest(2000))
+	snapshot, _, err := manager.Start(context.Background(), commandRuntimeTestRequest(manager, 2000))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -565,7 +566,7 @@ func TestCommandRuntimeManagerRenewsOwnerLeaseAndFailsClosed(t *testing.T) {
 	manager.ownerLeaseTTL = 150 * time.Millisecond
 	manager.ownerRenewEvery = 25 * time.Millisecond
 	manager.ownerRenewTimeout = 50 * time.Millisecond
-	snapshot, _, err := manager.Start(context.Background(), commandRuntimeTestRequest(2000))
+	snapshot, _, err := manager.Start(context.Background(), commandRuntimeTestRequest(manager, 2000))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -607,7 +608,7 @@ func TestCommandRuntimeManagerRestartWaitsForOwnerExpiryAndNeverRelaunches(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, _, err := first.Start(context.Background(), commandRuntimeTestRequest(2000))
+	snapshot, _, err := first.Start(context.Background(), commandRuntimeTestRequest(first, 2000))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -655,7 +656,7 @@ func TestCommandRuntimeManagerSurfacesTerminalPersistenceFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, _, err := manager.Start(context.Background(), commandRuntimeTestRequest(2000))
+	snapshot, _, err := manager.Start(context.Background(), commandRuntimeTestRequest(manager, 2000))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -674,6 +675,60 @@ func TestCommandRuntimeManagerSurfacesTerminalPersistenceFailure(t *testing.T) {
 			t.Fatal("terminal persistence failure was hidden")
 		}
 	}
+}
+
+func TestSandboxCommandRuntimeManagerUsesSameDurableJobWithoutHostPID(t *testing.T) {
+	identity := commandruntimeadapter.SandboxedWorkspace("local_windows_lpac",
+		"windows_appcontainer.v1", strings.Repeat("d", 64))
+	executor := &commandRuntimeSandboxExecutorFake{identity: identity}
+	manager, err := NewSandboxCommandRuntimeManager(newCommandRuntimeMemoryStore(),
+		executor, "sandbox-runtime-owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := commandRuntimeTestRequest(manager, 2000)
+	request.Scope.PermissionMode = domain.RunExecutionPermissionWorkspaceAccess
+	request.Spec.Spec.StdinPolicy = CommandRuntimeStdinClosed
+	request.Spec.Spec.CloseInitialStdin = true
+	snapshot, replayed, err := manager.Start(t.Context(), request)
+	if err != nil || replayed || snapshot.State != CommandRuntimeJobRunning ||
+		snapshot.PID != 0 || snapshot.ProcessGroup != 0 || snapshot.Adapter != identity {
+		t.Fatalf("sandbox start=%#v replayed=%t err=%v", snapshot, replayed, err)
+	}
+	terminal, page := waitCommandRuntimeTerminal(t, manager, snapshot.ID)
+	if terminal.State != CommandRuntimeJobCompleted || terminal.ExitCode == nil ||
+		*terminal.ExitCode != 0 || !terminal.TreeReaped || len(page.Frames) != 2 ||
+		executor.calls != 1 {
+		t.Fatalf("sandbox terminal=%#v page=%#v calls=%d", terminal, page, executor.calls)
+	}
+
+	wrong := request
+	wrong.Scope.OperationKey = "sandbox-wrong-adapter"
+	wrong.Scope.Adapter = commandruntimeadapter.SandboxedWorkspace("docker_standard_code",
+		"docker-standard-code.v1", strings.Repeat("e", 64))
+	if _, _, err := manager.Start(t.Context(), wrong); !errors.Is(
+		err, ErrCommandRuntimeBoundary) {
+		t.Fatalf("cross-adapter launch error=%v", err)
+	}
+}
+
+type commandRuntimeSandboxExecutorFake struct {
+	identity commandruntimeadapter.Identity
+	calls    int
+}
+
+func (e *commandRuntimeSandboxExecutorFake) Identity() commandruntimeadapter.Identity {
+	return e.identity
+}
+
+func (*commandRuntimeSandboxExecutorFake) Available() bool { return true }
+
+func (e *commandRuntimeSandboxExecutorFake) ExecuteSandboxCommand(
+	context.Context, CommandRuntimeScope, CommandRuntimeResolvedSpec,
+) (CommandRuntimeSandboxResult, error) {
+	e.calls++
+	return CommandRuntimeSandboxResult{ExitCode: 0, Stdout: []byte("sandbox-out\n"),
+		Stderr: []byte("sandbox-err\n"), TreeReaped: true}, nil
 }
 
 func TestCommandRuntimePlatformShellSmoke(t *testing.T) {
@@ -700,7 +755,8 @@ func TestCommandRuntimePlatformShellSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	process, err := newPlatformCommandRuntimeStarter().Start(resolved)
+	process, err := newPlatformCommandRuntimeStarter().Start(
+		context.Background(), CommandRuntimeScope{}, resolved)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -742,7 +798,8 @@ func TestCommandRuntimePlatformCancelReapsOwnedProcessTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	process, err := newPlatformCommandRuntimeStarter().Start(resolved)
+	process, err := newPlatformCommandRuntimeStarter().Start(
+		context.Background(), CommandRuntimeScope{}, resolved)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -783,7 +840,10 @@ func TestCommandRuntimePlatformCancelReapsOwnedProcessTree(t *testing.T) {
 	}
 }
 
-func commandRuntimeTestRequest(timeoutMilliseconds int64) CommandRuntimeStartRequest {
+func commandRuntimeTestRequest(manager *CommandRuntimeManager,
+	timeoutMilliseconds int64,
+) CommandRuntimeStartRequest {
+	adapter, _ := manager.AdapterIdentity()
 	return CommandRuntimeStartRequest{
 		Scope: CommandRuntimeScope{InvocationID: "invocation-1", OperationKey: "operation-1",
 			RunID: "run-1", MissionID: "mission-1", RootAgentID: "agent-1",
@@ -793,7 +853,8 @@ func commandRuntimeTestRequest(timeoutMilliseconds int64) CommandRuntimeStartReq
 			ProfileSnapshotID: "profile-1", ProfileRevision: 1,
 			PermissionSnapshotID: "permission-1", PermissionRevision: 1,
 			PermissionMode: domain.RunExecutionPermissionFullAccess,
-			LeaseID:        "lease-1", LeaseGeneration: 1, LeaseOwnerID: "lease-owner-1"},
+			LeaseID:        "lease-1", LeaseGeneration: 1, LeaseOwnerID: "lease-owner-1",
+			Adapter: adapter},
 		Spec: CommandRuntimeResolvedSpec{Spec: CommandRuntimeSpec{
 			Version: CommandRuntimeProtocolVersion, Profile: CommandRuntimeProcess,
 			WorkingDirectory: ".", StdinPolicy: CommandRuntimeStdinPipe,
@@ -933,7 +994,9 @@ type commandRuntimeFakeStarter struct {
 
 func (*commandRuntimeFakeStarter) Name() string    { return "fake-command-runtime" }
 func (*commandRuntimeFakeStarter) Available() bool { return true }
-func (s *commandRuntimeFakeStarter) Start(CommandRuntimeResolvedSpec) (commandRuntimeProcess, error) {
+func (s *commandRuntimeFakeStarter) Start(context.Context, CommandRuntimeScope,
+	CommandRuntimeResolvedSpec,
+) (commandRuntimeProcess, error) {
 	process := newCommandRuntimeFakeProcess()
 	if s.ownership != nil {
 		process.ownership = *s.ownership

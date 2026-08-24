@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/runner"
@@ -38,9 +39,10 @@ func (s *commandRuntimeExecutorStub) ExecuteCommandRuntime(_ context.Context,
 	s.input = input
 	exitCode := 0
 	return CommandRuntimeExecutionResult{
-		Backend: "run_owned_command_runtime", Action: input.Action,
+		Backend: scope.Adapter.Backend, Adapter: scope.Adapter, Action: input.Action,
 		Jobs: []runner.CommandRuntimeJobSnapshot{{
 			ID: "command-job-1", State: runner.CommandRuntimeJobCompleted,
+			Adapter: scope.Adapter,
 			Profile: runner.CommandRuntimePowerShell, ExitCode: &exitCode,
 			OutputCursor: 45, TreeReaped: true,
 		}},
@@ -97,7 +99,7 @@ func TestCommandRuntimeGatewayUsesFencedScopeAndSanitizesUntrustedFrames(t *test
 	if executor.calls != 1 || executor.scope.LeaseID != "lease-1" ||
 		executor.scope.LeaseGeneration != 7 || executor.input.Action != CommandRuntimeActionRun ||
 		outcome.Result == nil || outcome.Result.Status != StatusCompleted ||
-		outcome.Result.Metadata["owner"] != "run_owned_command_runtime" ||
+		outcome.Result.Metadata["owner"] != "host_unsandboxed" ||
 		outcome.Result.Metadata["job_1_artifact_stdout_id"] == "" ||
 		outcome.Result.Metadata["job_1_artifact_stdout_sha256"] == "" ||
 		outcome.Result.Metadata["user_terminal_shared"] != "false" ||
@@ -187,6 +189,7 @@ func commandRuntimeValidPayload(script string) json.RawMessage {
 }
 
 func commandRuntimeToolCall(payload json.RawMessage) ToolCall {
+	adapter := commandruntimeadapter.HostUnsandboxed(strings.Repeat("a", 64))
 	return ToolCall{Name: CommandRuntimeTool, Payload: payload,
 		OperationKey: "command-runtime-operation-0001", RunID: "run-1",
 		AgentID: "agent-root-1", SessionID: "session-1", WorkspaceID: "workspace-1",
@@ -194,6 +197,6 @@ func commandRuntimeToolCall(payload json.RawMessage) ToolCall {
 		Role: domain.AgentRoleRoot, Profile: domain.ProfileCode,
 		PermissionMode: domain.RunExecutionPermissionFullAccess,
 		ModeRevision:   1, PermissionRevision: 1,
-		CapabilityGeneration: strings.Repeat("a", 64),
-		LeaseID:              "lease-1", LeaseGeneration: 7, RequestedBy: "run_supervisor"}
+		CapabilityGeneration: adapter.Generation, CommandRuntimeAdapter: adapter,
+		LeaseID: "lease-1", LeaseGeneration: 7, RequestedBy: "run_supervisor"}
 }

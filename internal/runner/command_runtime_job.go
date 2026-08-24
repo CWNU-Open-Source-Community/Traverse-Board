@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/outputsafe"
 )
@@ -122,6 +123,7 @@ type CommandRuntimeScope struct {
 	LeaseID              string
 	LeaseGeneration      int64
 	LeaseOwnerID         string
+	Adapter              commandruntimeadapter.Identity
 }
 
 func (s CommandRuntimeScope) Validate() error {
@@ -134,10 +136,10 @@ func (s CommandRuntimeScope) Validate() error {
 			return ErrCommandRuntimeBoundary
 		}
 	}
-	if len(s.WorkspaceRootSHA256) != sha256.Size*2 ||
+	if len(s.WorkspaceRootSHA256) != sha256.Size*2 || s.Adapter.Validate() != nil ||
 		s.ModeRevision <= 0 || s.ProfileRevision <= 0 ||
 		s.PermissionRevision <= 0 || s.LeaseGeneration <= 0 ||
-		s.PermissionMode != domain.RunExecutionPermissionFullAccess {
+		!s.Adapter.AllowsPermission(s.PermissionMode) {
 		return ErrCommandRuntimeBoundary
 	}
 	return nil
@@ -166,6 +168,7 @@ type CommandRuntimeJob struct {
 	LeaseID               string
 	LeaseGeneration       int64
 	LeaseOwnerID          string
+	Adapter               commandruntimeadapter.Identity
 	OwnerID               string
 	OwnerGeneration       int64
 	OwnerRenewedAt        time.Time
@@ -247,8 +250,11 @@ func (j CommandRuntimeJob) Validate() error {
 		len([]byte(j.WorkingDirectory)) > MaxCommandRuntimePathBytes ||
 		!jsonValid(j.IntentJSON) || !j.Profile.Valid() || !j.StdinPolicy.Valid() ||
 		j.Network != CommandRuntimeNetworkDisabled || !j.State.Valid() ||
-		j.Credentials != CommandRuntimeCredentialsNone ||
-		j.PermissionMode != domain.RunExecutionPermissionFullAccess ||
+		j.Credentials != CommandRuntimeCredentialsNone || j.Adapter.Validate() != nil ||
+		(j.Adapter.Kind != commandruntimeadapter.KindLegacyUnbound &&
+			!j.Adapter.AllowsPermission(j.PermissionMode)) ||
+		(j.Adapter.Kind == commandruntimeadapter.KindLegacyUnbound &&
+			j.PermissionMode != domain.RunExecutionPermissionFullAccess) ||
 		j.ModeRevision <= 0 || j.ProfileRevision <= 0 || j.PermissionRevision <= 0 ||
 		j.LeaseGeneration <= 0 || j.OwnerGeneration <= 0 ||
 		j.OwnerRenewedAt.IsZero() || j.OwnerExpiresAt.IsZero() ||
@@ -283,9 +289,23 @@ func (j CommandRuntimeJob) Validate() error {
 	} else if j.StartedAt == nil || j.StartedAt.IsZero() {
 		return ErrCommandRuntimeBoundary
 	}
-	if (j.State == CommandRuntimeJobRunning || j.State == CommandRuntimeJobStopping) &&
-		(j.PID <= 0 || j.ProcessGroup <= 0 || !j.JobAssignedAtCreation) {
-		return ErrCommandRuntimeBoundary
+	if j.State == CommandRuntimeJobRunning || j.State == CommandRuntimeJobStopping {
+		if !j.JobAssignedAtCreation {
+			return ErrCommandRuntimeBoundary
+		}
+		switch j.Adapter.Kind {
+		case commandruntimeadapter.KindSandboxedWorkspace:
+			if j.PID != 0 || j.ProcessGroup != 0 {
+				return ErrCommandRuntimeBoundary
+			}
+		case commandruntimeadapter.KindHostUnsandboxed,
+			commandruntimeadapter.KindLegacyUnbound:
+			if j.PID <= 0 || j.ProcessGroup <= 0 {
+				return ErrCommandRuntimeBoundary
+			}
+		default:
+			return ErrCommandRuntimeBoundary
+		}
 	}
 	if j.State.Terminal() {
 		if j.CompletedAt == nil || j.CompletedAt.Before(*j.StartedAt) ||
@@ -341,6 +361,7 @@ func CommandRuntimeOperationIdentity(runID, operationKey string) (string, string
 
 type CommandRuntimeJobSnapshot struct {
 	ID                    string                         `json:"id"`
+	Adapter               commandruntimeadapter.Identity `json:"adapter"`
 	State                 CommandRuntimeJobState         `json:"state"`
 	Profile               CommandRuntimeProfile          `json:"profile"`
 	ExecutablePath        string                         `json:"executable_path"`
@@ -371,7 +392,7 @@ type CommandRuntimeJobSnapshot struct {
 
 func ProjectCommandRuntimeJob(job CommandRuntimeJob) CommandRuntimeJobSnapshot {
 	return CommandRuntimeJobSnapshot{
-		ID: job.ID, State: job.State, Profile: job.Profile,
+		ID: job.ID, Adapter: job.Adapter, State: job.State, Profile: job.Profile,
 		ExecutablePath: job.ExecutablePath, ExecutableSHA256: job.ExecutableSHA256,
 		WorkingDirectory:  job.WorkingDirectory,
 		EnvironmentSHA256: job.EnvironmentSHA256, Network: job.Network,
@@ -411,12 +432,14 @@ type commandRuntimeProcess interface {
 type commandRuntimeStarter interface {
 	Name() string
 	Available() bool
-	Start(CommandRuntimeResolvedSpec) (commandRuntimeProcess, error)
+	Start(context.Context, CommandRuntimeScope,
+		CommandRuntimeResolvedSpec) (commandRuntimeProcess, error)
 }
 
 type CommandRuntimeManager struct {
 	store             CommandRuntimeStore
 	starter           commandRuntimeStarter
+	adapter           commandruntimeadapter.Identity
 	ownerID           string
 	ownerGeneration   int64
 	ownerLeaseTTL     time.Duration
@@ -457,16 +480,30 @@ type commandRuntimeStdinResult struct {
 func NewCommandRuntimeManager(store CommandRuntimeStore, starter commandRuntimeStarter,
 	ownerID string,
 ) (*CommandRuntimeManager, error) {
+	generation := time.Now().UTC().UnixNano()
+	if starter == nil || generation <= 0 {
+		return nil, ErrCommandRuntimeUnavailable
+	}
+	adapter := commandruntimeadapter.HostUnsandboxed(commandRuntimeDigest(
+		"command_runtime_adapter_generation.v1", starter.Name(), ownerID,
+		fmt.Sprint(generation)))
+	return newCommandRuntimeManagerWithAdapter(store, starter, adapter, ownerID,
+		generation)
+}
+
+func newCommandRuntimeManagerWithAdapter(store CommandRuntimeStore,
+	starter commandRuntimeStarter, adapter commandruntimeadapter.Identity,
+	ownerID string, generation int64,
+) (*CommandRuntimeManager, error) {
 	ownerID = strings.TrimSpace(ownerID)
 	if store == nil || starter == nil || !starter.Available() ||
 		ownerID == "" || !utf8.ValidString(ownerID) || len([]rune(ownerID)) > 256 {
 		return nil, ErrCommandRuntimeUnavailable
 	}
-	generation := time.Now().UTC().UnixNano()
-	if generation <= 0 {
+	if generation <= 0 || !adapter.Executable() {
 		return nil, ErrCommandRuntimeUnavailable
 	}
-	return &CommandRuntimeManager{store: store, starter: starter,
+	return &CommandRuntimeManager{store: store, starter: starter, adapter: adapter,
 		ownerID: ownerID, ownerGeneration: generation,
 		ownerLeaseTTL:     CommandRuntimeOwnerLeaseTTL,
 		ownerRenewEvery:   commandRuntimeOwnerRenewEvery,
@@ -481,14 +518,22 @@ func NewPlatformCommandRuntimeManager(store CommandRuntimeStore,
 }
 
 func (m *CommandRuntimeManager) Available() bool {
-	return m != nil && m.store != nil && m.starter != nil && m.starter.Available()
+	return m != nil && m.store != nil && m.starter != nil && m.starter.Available() &&
+		m.adapter.Executable()
+}
+
+func (m *CommandRuntimeManager) AdapterIdentity() (commandruntimeadapter.Identity, bool) {
+	if !m.Available() {
+		return commandruntimeadapter.Identity{}, false
+	}
+	return m.adapter, true
 }
 
 func (m *CommandRuntimeManager) Start(ctx context.Context,
 	request CommandRuntimeStartRequest,
 ) (CommandRuntimeJobSnapshot, bool, error) {
 	if ctx == nil || ctx.Err() != nil || m == nil || !m.Available() ||
-		request.Scope.Validate() != nil {
+		request.Scope.Validate() != nil || !request.Scope.Adapter.SameBackend(m.adapter) {
 		return CommandRuntimeJobSnapshot{}, false, ErrCommandRuntimeBoundary
 	}
 	m.startMu.Lock()
@@ -520,6 +565,11 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 			request.Scope.PermissionSnapshotID, fmt.Sprint(request.Scope.PermissionRevision),
 			string(request.Scope.PermissionMode), request.Scope.LeaseID,
 			fmt.Sprint(request.Scope.LeaseGeneration), request.Scope.LeaseOwnerID,
+			string(request.Scope.Adapter.Kind), request.Scope.Adapter.Backend,
+			request.Scope.Adapter.BackendIdentity, request.Scope.Adapter.Generation,
+			string(request.Scope.Adapter.IsolationGrade),
+			string(request.Scope.Adapter.NetworkPolicy),
+			string(request.Scope.Adapter.CredentialPolicy),
 			fingerprint),
 		InvocationID: request.Scope.InvocationID, RunID: request.Scope.RunID,
 		MissionID: request.Scope.MissionID, SessionID: request.Scope.SessionID,
@@ -532,8 +582,8 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 		PermissionRevision:   request.Scope.PermissionRevision,
 		PermissionMode:       request.Scope.PermissionMode,
 		LeaseID:              request.Scope.LeaseID, LeaseGeneration: request.Scope.LeaseGeneration,
-		LeaseOwnerID: request.Scope.LeaseOwnerID,
-		OwnerID:      m.ownerID, OwnerGeneration: m.ownerGeneration,
+		LeaseOwnerID: request.Scope.LeaseOwnerID, Adapter: request.Scope.Adapter,
+		OwnerID: m.ownerID, OwnerGeneration: m.ownerGeneration,
 		OwnerRenewedAt: now, OwnerExpiresAt: ownerExpiresAt,
 		IntentJSON:      commandRuntimeIntentJSON(request.Spec),
 		SpecFingerprint: fingerprint, Profile: request.Spec.Spec.Profile,
@@ -556,7 +606,8 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 	}
 	if replayed {
 		if stored.RequestFingerprint != record.RequestFingerprint ||
-			stored.SpecFingerprint != record.SpecFingerprint {
+			stored.SpecFingerprint != record.SpecFingerprint ||
+			!stored.Adapter.SameBackend(record.Adapter) {
 			return CommandRuntimeJobSnapshot{}, true, ErrCommandRuntimeUncertain
 		}
 		if stored.State.Terminal() {
@@ -568,7 +619,8 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 		return ProjectCommandRuntimeJob(stored), true, ErrCommandRuntimeUncertain
 	}
 
-	process, err := m.starter.Start(request.Spec)
+	process, err := m.starter.Start(context.WithoutCancel(ctx), request.Scope,
+		request.Spec)
 	if err != nil {
 		failed := stored
 		started := now
@@ -593,8 +645,13 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 		return ProjectCommandRuntimeJob(stored), false, errors.Join(err, updateErr)
 	}
 	ownership := process.Ownership()
-	if ownership.PID <= 0 || ownership.ProcessGroup <= 0 ||
-		!ownership.JobAssignedAtCreation || !ownership.KillOnClose {
+	validOwnership := ownership.JobAssignedAtCreation && ownership.KillOnClose
+	if m.adapter.Kind == commandruntimeadapter.KindSandboxedWorkspace {
+		validOwnership = validOwnership && ownership.PID == 0 && ownership.ProcessGroup == 0
+	} else {
+		validOwnership = validOwnership && ownership.PID > 0 && ownership.ProcessGroup > 0
+	}
+	if !validOwnership {
 		_ = process.Kill()
 		_ = process.Close()
 		failed := stored
@@ -929,7 +986,7 @@ func (m *CommandRuntimeManager) Shutdown(ctx context.Context) error {
 // process merely because it can read the same SQLite database.
 func (m *CommandRuntimeManager) OwnsActiveJob(job CommandRuntimeJob) bool {
 	if m == nil || job.ID == "" || job.OwnerID != m.ownerID ||
-		job.OwnerGeneration != m.ownerGeneration {
+		job.OwnerGeneration != m.ownerGeneration || !job.Adapter.SameBackend(m.adapter) {
 		return false
 	}
 	entry := m.entry(job.ID)
@@ -955,6 +1012,16 @@ func (m *CommandRuntimeManager) ReconcileStartup(ctx context.Context) (int, erro
 		if m.entry(job.ID) != nil || job.State.Terminal() {
 			continue
 		}
+		if job.Adapter.Kind == commandruntimeadapter.KindLegacyUnbound {
+			// v116 rows are durable read-only evidence. No new manager may use
+			// their PID or owner metadata as execution authority.
+			continue
+		}
+		if job.Adapter.Kind != m.adapter.Kind ||
+			job.Adapter.Backend != m.adapter.Backend ||
+			job.Adapter.BackendIdentity != m.adapter.BackendIdentity {
+			continue
+		}
 		if ownershipStore, ok := m.store.(CommandRuntimeOwnershipStore); ok {
 			active, ownershipErr := ownershipStore.CommandRuntimeJobOwnershipActive(ctx, job)
 			if ownershipErr != nil {
@@ -964,7 +1031,9 @@ func (m *CommandRuntimeManager) ReconcileStartup(ctx context.Context) (int, erro
 				continue
 			}
 		}
-		cleanupCommandRuntimeOrphan(job.PID, job.ProcessGroup)
+		if job.Adapter.Kind == commandruntimeadapter.KindHostUnsandboxed {
+			cleanupCommandRuntimeOrphan(job.PID, job.ProcessGroup)
+		}
 		now := time.Now().UTC()
 		exitCode := 125
 		previous := job.Version

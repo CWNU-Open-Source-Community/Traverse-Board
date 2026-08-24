@@ -18,6 +18,9 @@ describe("connection store", () => {
     useConnectionStore.getState().connect("ephemeral-token", health, "ephemeral-control-token", {
       githubReviewControlEnabled: true,
       workspaceCheckpointControlEnabled: true,
+      commandRuntimeProtocolAvailable: true,
+      commandRuntimeAdapterInstalled: true,
+      commandRuntimeAdapterReady: true,
     });
     useConnectionStore.getState().selectRun("run-1");
 
@@ -35,6 +38,9 @@ describe("connection store", () => {
     expect(useConnectionStore.getState().evidenceAttachmentEnabled).toBe(true);
     expect(useConnectionStore.getState().githubReviewControlEnabled).toBe(true);
     expect(useConnectionStore.getState().workspaceCheckpointControlEnabled).toBe(true);
+    expect(useConnectionStore.getState().commandRuntimeProtocolAvailable).toBe(true);
+    expect(useConnectionStore.getState().commandRuntimeAdapterInstalled).toBe(true);
+    expect(useConnectionStore.getState().commandRuntimeAdapterReady).toBe(true);
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
 
@@ -53,6 +59,9 @@ describe("connection store", () => {
     expect(useConnectionStore.getState().evidenceAttachmentEnabled).toBe(false);
     expect(useConnectionStore.getState().githubReviewControlEnabled).toBe(false);
     expect(useConnectionStore.getState().workspaceCheckpointControlEnabled).toBe(false);
+    expect(useConnectionStore.getState().commandRuntimeProtocolAvailable).toBe(false);
+    expect(useConnectionStore.getState().commandRuntimeAdapterInstalled).toBe(false);
+    expect(useConnectionStore.getState().commandRuntimeAdapterReady).toBe(false);
     expect(useConnectionStore.getState().selectedRunID).toBe("");
     expect(useConnectionStore.getState().selectedThreadID).toBe("");
   });

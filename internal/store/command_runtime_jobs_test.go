@@ -13,6 +13,7 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/artifact"
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/runner"
 )
@@ -100,6 +101,7 @@ func TestCommandRuntimeJobLedgerFencesScopeAndPreservesTerminalAudit(t *testing.
 		PermissionRevision:   permissionResult.Permission.Revision,
 		PermissionMode:       permissionResult.Permission.Mode,
 		LeaseID:              lease.LeaseID, LeaseGeneration: lease.Generation, LeaseOwnerID: lease.OwnerID,
+		Adapter: commandruntimeadapter.HostUnsandboxed(strings.Repeat("d", 64)),
 		OwnerID: "command-runtime-owner-1", OwnerGeneration: 1,
 		OwnerRenewedAt: now, OwnerExpiresAt: now.Add(time.Minute), IntentJSON: `{}`,
 		SpecFingerprint: runner.CommandRuntimeSpecFingerprint(resolved),

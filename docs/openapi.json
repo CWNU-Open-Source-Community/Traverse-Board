@@ -22136,6 +22136,42 @@
         ],
         "type": "object"
       },
+      "CommandRuntimeAdapterView": {
+        "additionalProperties": false,
+        "properties": {
+          "backend": {
+            "type": "string"
+          },
+          "backend_identity": {
+            "type": "string"
+          },
+          "credential_policy": {
+            "type": "string"
+          },
+          "isolation_grade": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "network_policy": {
+            "type": "string"
+          },
+          "ready": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kind",
+          "backend",
+          "backend_identity",
+          "isolation_grade",
+          "network_policy",
+          "credential_policy",
+          "ready"
+        ],
+        "type": "object"
+      },
       "CommandRuntimeEnvironment": {
         "additionalProperties": false,
         "properties": {
@@ -22167,6 +22203,36 @@
         "required": [
           "inline_bytes",
           "artifact_bytes"
+        ],
+        "type": "object"
+      },
+      "CommandRuntimeReadinessView": {
+        "additionalProperties": false,
+        "properties": {
+          "adapter_installed": {
+            "type": "boolean"
+          },
+          "adapter_kind": {
+            "type": "string"
+          },
+          "adapter_ready": {
+            "type": "boolean"
+          },
+          "backend": {
+            "type": "string"
+          },
+          "current_run_granted": {
+            "type": "boolean"
+          },
+          "protocol_available": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "protocol_available",
+          "adapter_installed",
+          "adapter_ready",
+          "current_run_granted"
         ],
         "type": "object"
       },
@@ -34687,6 +34753,9 @@
           "capability_grant": {
             "type": "boolean"
           },
+          "command_runtime": {
+            "$ref": "#/components/schemas/CommandRuntimeReadinessView"
+          },
           "interactions": {
             "items": {
               "$ref": "#/components/schemas/CapabilityReadinessOptionView"
@@ -34731,6 +34800,7 @@
           "interactions",
           "browser_cdp_permissions",
           "presets",
+          "command_runtime",
           "capability_grant"
         ],
         "type": "object"
@@ -36425,7 +36495,22 @@
           "code_intel_enabled": {
             "type": "boolean"
           },
+          "command_runtime_adapter_installed": {
+            "type": "boolean"
+          },
+          "command_runtime_adapter_ready": {
+            "type": "boolean"
+          },
+          "command_runtime_adapters": {
+            "items": {
+              "$ref": "#/components/schemas/CommandRuntimeAdapterView"
+            },
+            "type": "array"
+          },
           "command_runtime_enabled": {
+            "type": "boolean"
+          },
+          "command_runtime_protocol_available": {
             "type": "boolean"
           },
           "controlled_command_proposal_control_enabled": {
@@ -36561,6 +36646,10 @@
           "danger_full_access_enabled",
           "debug_maximum_access_enabled",
           "command_runtime_enabled",
+          "command_runtime_protocol_available",
+          "command_runtime_adapter_installed",
+          "command_runtime_adapter_ready",
+          "command_runtime_adapters",
           "browser_cdp_permission_control_enabled",
           "full_cdp_debug_enabled",
           "run_creation_enabled",

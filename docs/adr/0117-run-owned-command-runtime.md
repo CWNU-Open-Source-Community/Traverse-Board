@@ -8,6 +8,11 @@ Accepted for schema v116 and the `command-runtime.v2` root-Supervisor tool.
 
 已接受，用于 schema v116 与 root Supervisor 的 `command-runtime.v2` 工具。
 
+> Schema v131 amends the authority model without changing the tool schema or Job
+> state machine: the original host path is now explicitly `host_unsandboxed`, and
+> ready Local/Docker paths use `sandboxed_workspace`. See
+> [Command Runtime adapter split](../architecture/command-runtime-adapter-split.md).
+
 ## Context / 背景
 
 ADR 0107 introduced a workspace-scoped native one-shot runner. ADR 0114 then

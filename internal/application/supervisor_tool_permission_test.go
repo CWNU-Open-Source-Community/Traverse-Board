@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"cyberagent-workbench/internal/apperror"
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/mcp"
@@ -222,6 +223,20 @@ func TestSupervisorDebugTerminalRequiresDeliverDebugAndRuntime(t *testing.T) {
 }
 
 func TestSupervisorCommandRuntimeRequiresCodeDeliverFullAccessAndRuntime(t *testing.T) {
+	adapter := commandruntimeadapter.HostUnsandboxed(strings.Repeat("a", 64))
+	authority, err := commandruntimeadapter.EncodeAuthority(
+		commandruntimeadapter.NewAuthority("run-1", adapter))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeOptions := func(enabled bool) supervisorToolOptions {
+		if !enabled {
+			return supervisorToolOptions{}
+		}
+		return supervisorToolOptions{CommandRuntime: supervisorCommandRuntimeTools{
+			Adapter: adapter, Authority: authority,
+		}}
+	}
 	tests := []struct {
 		name    string
 		surface domain.ExecutionSurface
@@ -254,7 +269,7 @@ func TestSupervisorCommandRuntimeRequiresCodeDeliverFullAccessAndRuntime(t *test
 			found := false
 			for _, spec := range supervisorStructuredToolSpecs(test.surface, test.phase,
 				test.mode, false, false,
-				supervisorToolOptions{CommandRuntimeEnabled: test.enabled}) {
+				runtimeOptions(test.enabled)) {
 				found = found || spec.Name == string(toolgateway.CommandRuntimeTool)
 			}
 			if found != test.want {
@@ -274,12 +289,63 @@ func TestSupervisorCommandRuntimeRequiresCodeDeliverFullAccessAndRuntime(t *test
 	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
 		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
 		domain.RunExecutionPermissionFullAccess, false, false,
-		supervisorToolOptions{CommandRuntimeEnabled: true}); err != nil {
+		runtimeOptions(true)); err != nil {
 		t.Fatalf("authorized command runtime call was rejected: %v", err)
 	}
 	if !recoverableSupervisorToolError(toolgateway.CommandRuntimeTool,
 		apperror.CodeFailedPrecondition) {
 		t.Fatal("command runtime lifecycle conflict was not model-recoverable")
+	}
+}
+
+func TestSupervisorCommandRuntimeSandboxRequiresWorkspaceAccess(t *testing.T) {
+	adapter := commandruntimeadapter.SandboxedWorkspace(
+		CommandRuntimeLocalSandboxBackend, "windows-local-sandbox.v1",
+		strings.Repeat("b", 64))
+	authority, err := commandruntimeadapter.EncodeAuthority(
+		commandruntimeadapter.NewAuthority("run-1", adapter))
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := supervisorToolOptions{CommandRuntime: supervisorCommandRuntimeTools{
+		Adapter: adapter, Authority: authority}}
+	for _, test := range []struct {
+		name       string
+		surface    domain.ExecutionSurface
+		phase      domain.ExecutionPhase
+		permission domain.RunExecutionPermissionMode
+		want       bool
+	}{
+		{"workspace Code Deliver", domain.ExecutionSurfaceCode,
+			domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionWorkspaceAccess, true},
+		{"full access", domain.ExecutionSurfaceCode,
+			domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionFullAccess, false},
+		{"Plan", domain.ExecutionSurfaceCode,
+			domain.ExecutionPhasePlan, domain.RunExecutionPermissionWorkspaceAccess, false},
+		{"Cyber", domain.ExecutionSurfaceCyber,
+			domain.ExecutionPhaseDeliver, domain.RunExecutionPermissionWorkspaceAccess, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			found := false
+			for _, spec := range supervisorStructuredToolSpecs(test.surface, test.phase,
+				test.permission, false, false, options) {
+				found = found || spec.Name == string(toolgateway.CommandRuntimeTool)
+			}
+			if found != test.want {
+				t.Fatalf("sandbox command runtime visible=%t want=%t", found, test.want)
+			}
+		})
+	}
+	payload := json.RawMessage(`{"version":"command-runtime.v2","action":"list"}`)
+	prepared, err := prepareSupervisorToolCalls([]llm.ToolCall{{
+		ID:   "provider-call-command-runtime-sandbox",
+		Name: string(toolgateway.CommandRuntimeTool), Arguments: payload,
+	}}, "run-1", 1, 1, domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
+		domain.RunExecutionPermissionWorkspaceAccess, false, false, options)
+	if err != nil || len(prepared) != 1 ||
+		string(prepared[0].Authority) != string(authority) {
+		t.Fatalf("sandbox command runtime authority was not attached: %#v err=%v",
+			prepared, err)
 	}
 }
 

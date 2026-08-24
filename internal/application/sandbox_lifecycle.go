@@ -482,12 +482,24 @@ func (s *SandboxManifestService) revalidateExecutionCandidate(ctx context.Contex
 	if err := requireSandboxCandidateBudget(run.Budget, usage, toolUsage.Consumed); err != nil {
 		return sandbox.PreparedIntent{}, domain.Run{}, domain.Mission{}, "", err
 	}
-	if lease, found, err := s.store.GetRunExecutionLease(ctx, run.ID); err != nil {
+	lease, found, err := s.store.GetRunExecutionLease(ctx, run.ID)
+	if err != nil {
 		return sandbox.PreparedIntent{}, domain.Run{}, domain.Mission{}, "", apperror.Normalize(err)
-	} else if found && lease.ActiveAt(time.Now().UTC()) {
+	}
+	now := time.Now().UTC()
+	if candidate.LeaseQuiescent && found && lease.ActiveAt(now) {
 		return sandbox.PreparedIntent{}, domain.Run{}, domain.Mission{}, "",
 			apperror.New(apperror.CodeFailedPrecondition,
 				"sandbox lifecycle creation requires a quiescent Run")
+	}
+	if !candidate.LeaseQuiescent && (!found || !lease.ActiveAt(now) ||
+		lease.LeaseID != candidate.RunLeaseID ||
+		lease.Generation != candidate.RunLeaseGeneration ||
+		lease.OwnerID != candidate.RunLeaseOwnerID ||
+		lease.Status != domain.RunExecutionLeaseActive) {
+		return sandbox.PreparedIntent{}, domain.Run{}, domain.Mission{}, "",
+			apperror.New(apperror.CodeConflict,
+				"sandbox lifecycle Run lease binding is stale")
 	}
 	return intent, run, mission, rootPath, nil
 }

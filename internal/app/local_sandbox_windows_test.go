@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -103,9 +104,54 @@ func TestWindowsAPIServePublishesWorkspaceGateOnlyAfterLocalProbe(t *testing.T) 
 			strings.Contains(value, "workspace_sandbox_enabled: true")
 	})
 	if strings.Contains(output, "danger_full_access_enabled: true") ||
-		strings.Contains(output, "debug_maximum_access_enabled: true") ||
-		strings.Contains(output, "command_runtime_enabled: true") {
+		strings.Contains(output, "debug_maximum_access_enabled: true") {
 		t.Fatalf("Workspace Sandbox probe widened host execution: %s", output)
+	}
+	if !strings.Contains(output, "command_runtime_enabled: true") {
+		t.Fatalf("Workspace Sandbox probe did not publish Command Runtime: %s", output)
+	}
+	request, err := http.NewRequest(http.MethodGet,
+		outputField(output, "api_url")+"/capabilities", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer local-readiness-api-token-0123456789")
+	response, err := (&http.Client{Timeout: 2 * time.Second}).Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var envelope struct {
+		Data struct {
+			CommandRuntimeEnabled           bool `json:"command_runtime_enabled"`
+			CommandRuntimeProtocolAvailable bool `json:"command_runtime_protocol_available"`
+			CommandRuntimeAdapterInstalled  bool `json:"command_runtime_adapter_installed"`
+			CommandRuntimeAdapterReady      bool `json:"command_runtime_adapter_ready"`
+			CommandRuntimeAdapters          []struct {
+				Kind             string `json:"kind"`
+				Backend          string `json:"backend"`
+				IsolationGrade   string `json:"isolation_grade"`
+				NetworkPolicy    string `json:"network_policy"`
+				CredentialPolicy string `json:"credential_policy"`
+				Ready            bool   `json:"ready"`
+			} `json:"command_runtime_adapters"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&envelope); err != nil {
+		t.Fatal(err)
+	}
+	adapters := envelope.Data.CommandRuntimeAdapters
+	if response.StatusCode != http.StatusOK || !envelope.Data.CommandRuntimeEnabled ||
+		!envelope.Data.CommandRuntimeProtocolAvailable ||
+		!envelope.Data.CommandRuntimeAdapterInstalled ||
+		!envelope.Data.CommandRuntimeAdapterReady || len(adapters) != 1 ||
+		adapters[0].Kind != "sandboxed_workspace" ||
+		adapters[0].Backend != application.CommandRuntimeLocalSandboxBackend ||
+		adapters[0].IsolationGrade != "workspace_sandbox" ||
+		adapters[0].NetworkPolicy != "denied" ||
+		adapters[0].CredentialPolicy != "none" || !adapters[0].Ready {
+		t.Fatalf("Workspace Sandbox Command Runtime receipt is not exact: status=%d data=%+v",
+			response.StatusCode, envelope.Data)
 	}
 	cancel()
 	select {

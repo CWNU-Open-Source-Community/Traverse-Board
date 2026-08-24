@@ -84,7 +84,7 @@ Schema v115 引入 `agent-code-tools.v1`，让 root Supervisor 能在真实 Work
 
 Schema v126 在 `conservative` 与 `approval` 之间增加 `workspace_access · 工作区执行`，作为 Standard Code 的权限上限。它允许模型在已注册 Workspace 内读写，并允许一个已通过独立 readiness 的沙箱 adapter 运行有界命令；宿主无沙箱进程、网络、凭证、用户主目录、持久用户/Agent 终端和完整 CDP 全部拒绝。任何越界动作必须走另一条精确、一次性的审批链，持久权限快照本身始终不携带执行 authority。
 
-Windows x64 现在提供显式 `--enable-workspace-sandbox` Local backend；只有真实 AppContainer/WFP/Job/ACL readiness 通过后，CLI、API 与 Desktop 才会打开该进程的 Workspace gate。失败或不支持的平台继续显示不可用，且绝不回退到现有宿主 Command Runtime。共享 sandboxed Command Runtime adapter 仍由 #134 负责，因此 readiness/权限选择本身不会启动进程或向模型发布命令工具。切换权限 revision 会原子释放旧 execution lease，并使绑定旧快照的 Job owner 与工具 authority 失效。完整边界见 [ADR 0127](docs/adr/0127-workspace-access-permission-contract.md) 与 [ADR 0130](docs/adr/0130-windows-local-sandbox-backend.md)。
+Windows x64 现在提供显式 `--enable-workspace-sandbox` Local backend；只有真实 AppContainer/WFP/Job/ACL readiness 通过后，CLI、API 与 Desktop 才会打开该进程的 Workspace gate。Schema v131 将它和固定 Docker Standard Code 后端接入统一的 `sandboxed_workspace` Command Runtime adapter；`workspace_access` 永远不能回退到宿主执行。既有宿主路径则明确标记为 `host_unsandboxed`，只接受 `full_access` 与 danger startup gate，并如实报告宿主网络和凭证仍可用。切换权限 revision 会原子释放旧 execution lease，并使绑定旧快照的 Job owner 与 adapter authority 失效。完整边界见 [Command Runtime adapter split](docs/architecture/command-runtime-adapter-split.md)、[ADR 0127](docs/adr/0127-workspace-access-permission-contract.md)与 [ADR 0130](docs/adr/0130-windows-local-sandbox-backend.md)。
 
 #130 新增 Go-owned `run_capability_readiness.v1`，把当前已选、现在可切换和后端当前可运行拆成独立事实，并为 Permission、Profile、Interaction、CDP 与 Standard Code 返回稳定阻塞码、修复动作和重启要求。CLI、HTTP、Desktop 与 React 共用该投影；响应不含私有路径且始终 `capability_grant=false`。详见 [ADR 0128](docs/adr/0128-go-owned-run-capability-readiness.md)。
 
@@ -152,12 +152,12 @@ Desktop、认证 OpenAPI 与只读/导出 CLI 共用同一份不可变 Attempt�
 | 入口 | 实际执行 | 权限与限制 |
 |---|---|---|
 | 类型化 Git | 真实 `git` 进程；覆盖本地整文件与稳定 hunk 操作、stash、rebase/cherry-pick/bisect、受管 worktree，以及独立授权的 fetch、fast-forward pull、push branch、创建/更新 PR | 参数由 Go 合成，固定仓库/权限/lease 状态并先审批与 Checkpoint；禁用 hook/外部 diff/凭证/自定义 driver，raw argv、force push 与共享历史改写不开放 |
-| Run-owned 命令运行时 | 真实 PowerShell/Bash 或绝对路径原生进程；支持有序批次、cursor 输出、受限 stdin 与后台 Job | 仅 Code/Local/Deliver/root + `full_access`，且进程必须显式开启 permission-control/danger-full-access；固定无 Profile 解释器、受限环境、`network=disabled`/`credentials=none`，每次 Tool 调用重新校验当前 Run 租约与 Policy |
+| Run-owned 命令运行时 | 同一 `command-runtime.v2` Job/cursor/Artifact 协议；可落到 Windows Local、固定 Docker Standard Code，或明确高风险的宿主进程 adapter | `sandboxed_workspace` 仅接受 Code/Deliver/root + `workspace_access` + 对应 readiness，只运行于 Drydock；`host_unsandboxed` 仅接受 `full_access` + danger startup gate。adapter/backend/generation 在广告、Job 和每次调用中精确绑定，模型不能选择 |
 | Approval 一次性 Shell | Windows 上的真实 PowerShell 或同一 Git for Windows 发行版中的 Git Bash；命令被固定成无 Profile、非交互的一次性 argv | 仅 Code/Local/Controlled/Approval；模型只能提出一行命令，操作者必须核对解释器哈希、完整 argv、cwd 与宿主网络风险并逐条批准；不支持持久或后台所有权 |
 | Debug 持久终端 | Windows 使用 PowerShell + ConPTY + creation-time Job Object；macOS 使用 Bash + PTY + 独立进程组 | 仅 Code/Local/Deliver/Debug；用户先启动终端，再显式授予 15 秒至 15 分钟的进程内 Agent 输入租约，可随时撤销。普通后台 job 随终端清理；主动 POSIX daemonize 仍是宿主残余风险 |
 | Full-access 一次性进程 | Windows 上按绝对路径和 SHA-256 启动真实可执行文件与字面 argv | 仅操作者 CLI 双确认；仍是非沙箱宿主执行，可运行高权限解释器，但不向模型公开 |
 
-`command_runtime` 与用户终端、Debug 终端、人工审批 one-shot 和 Docker Sandbox 不共享 session 或所有权。schema v116 先以当前 Supervisor generation lease 写入不可变启动意图，再由独立、可过期的进程所有者心跳维持后台 Job；下一 turn 可继续读取或写 stdin，另一进程不能凭数据库记录收养它。崩溃时 Windows creation-time Job Object 或 POSIX guardian/process group 回收 owned 进程树，重启只把所有者已过期的记录收敛为 `interrupted`，绝不按持久 PID 重新执行；POSIX 上主动新建 session 并脱离 inherited process group 的 daemon 仍是非沙箱 `full_access` 残余风险。stdout/stderr 以单调 cursor 保留通道与时间，内联窗口溢出后仍可生成有 SHA-256 的有界 Artifact；所有返回模型的内容统一去除 ANSI/C1/Unicode 控制序列、修复 UTF-8 并脱敏。
+`command_runtime` 与用户终端、Debug 终端和人工审批 one-shot 不共享 session 或所有权。Schema v116 先以当前 Supervisor generation lease 写入不可变启动意图；schema v131 再把 exact adapter kind/backend/identity/generation/isolation/network/credential policy 固定到广告、调用、Job 与回执。独立、可过期的进程所有者心跳维持后台 Job，另一进程不能凭数据库记录收养它；旧 v116 行只读投影为不可执行的 `legacy_unbound`。宿主 adapter 保留 stdin，当前 Local/Docker adapter 只接受 closed stdin 并在 `incomplete_reasons` 说明。崩溃时 backend 必须回收 owned 进程树，重启只把所有者已过期的记录收敛为 `interrupted`，绝不按持久 PID 重新执行。stdout/stderr 以单调 cursor 保留通道与时间，内联窗口溢出后仍可生成有 SHA-256 的有界 Artifact；所有返回模型的内容统一去除 ANSI/C1/Unicode 控制序列、修复 UTF-8 并脱敏。
 
 `debug_terminal` 每次写入仍经过 Shell Policy；需要另行逐条审批的命令不会借 Debug 租约绕过审批。授权瞬间会固定输出水位，模型不能读取租约授予前的终端滚动内容。为支持 Run 恢复，模型提交的规范化命令和水位之后脱敏、有界的结果会进入 Supervisor 工具记录；schema v113 让该工具进入同一持久调用账本并保留既有记录。进程内 Workspace 根目录摘要和 mode revision 会阻止目录或阶段漂移后旧租约复活；用户键盘输入、原始 PTY 字节、根目录路径和租约 bearer 均不持久化。应用重启会终止会话并使租约失效。Cyber Surface 不公开这些宿主 Shell 路径。完整边界见[使用手册](docs/usage.md)、[ADR 0114](docs/adr/0114-real-shell-transports-and-supervised-debug-terminal.md)和 [ADR 0117](docs/adr/0117-run-owned-command-runtime.md)。
 
@@ -167,7 +167,7 @@ Desktop、认证 OpenAPI 与只读/导出 CLI 共用同一份不可变 Attempt�
 - 项目指令、长期记忆和对话 Checkpoint 始终是不可信、非授权上下文；Workspace Checkpoint 只保存有界文件/index 状态。两类 Fork/Resume 都不恢复审批、capability、凭据、网络、进程、终端租约或执行档位。详见[双语上下文/威胁模型与删除说明](docs/context-continuity.md)、[Workspace Checkpoints](docs/workspace-checkpoints.md)、[ADR 0115](docs/adr/0115-non-authorizing-durable-context-continuity.md)和 [ADR 0118](docs/adr/0118-transactional-workspace-checkpoints.md)。
 - 文件编辑、宿主命令、浏览器 CDP、终端输入和 Sandbox 是彼此独立的授权面。
 - 可交付 child 的 owner token 只在创建或 generation 轮换响应中返回一次，SQLite 和普通 HTTP/Desktop 投影仅保留摘要；丢失后必须 CAS 轮换 generation，旧 token 立即失效。
-- 普通命令运行时只接受 `network=disabled` 与 `credentials=none`，清空 credential helper/Profile/高风险环境入口并拒绝显式网络意图；它不是可证明的 OS 网络沙箱，`full_access` 仍是宿主执行能力，需要联网的命令必须改走独立逐次审阅路径。
+- `host_unsandboxed` 只接受 `network=disabled` 与 `credentials=none` 的命令意图，但回执明确标记宿主网络/凭证仍可用；它不是 OS 网络沙箱。`sandboxed_workspace` 只有在 Local/Docker 独立隔离 readiness 成立时才报告 `network=denied` 与 `credentials=none`，且只运行于 Drydock。
 - 受控命令默认使用 Go 固定模板；PowerShell/Bash 只通过 Code/Deliver/root + `full_access` 的 Run-owned runtime、逐条审批，或可撤销 Debug 租约三条独立路径开放。通用宿主执行与 Debug 能力不会因模型、Skill 或仓库文档而自动开启。
 - Docker Sandbox 产品入口默认关闭。显式进程 capability、当前 `docker` Profile、匹配权限档、精确 per-call 审批、Policy、预算与 30 秒 readiness 必须同时成立；数据库记录不能在重启后恢复 start authority。
 - 当前产品执行只接受 environment-free、secret-free 的 `network=disabled` Manifest，并在 Docker create/inspect 两侧固定 `network none`。allowlist/scoped egress 仍缺少 Go-owned host/port/protocol guard，因此一律以 `managed_egress_unavailable` 失败关闭；Docker 不可用时没有宿主 fallback。
@@ -415,7 +415,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 完整逐切片原始记录保留在 [`PROGRESS_BOOK.md`](docs/PROGRESS_BOOK.md)，当前检查点与验收证据保留在 [`PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)，恢复上下文见 [`PROJECT_MEMORY.md`](docs/PROJECT_MEMORY.md)。这些账本是历史记录，不应被当作待重新执行的任务列表。
 
 <details>
-<summary><strong>SQLite Schema v1-v130 迁移审计表 / Migration ledger</strong></summary>
+<summary><strong>SQLite Schema v1-v131 迁移审计表 / Migration ledger</strong></summary>
 
 此表是 Store 防漏迁移测试使用的审计合同。新增 schema 时必须按顺序追加，不得改写或删除既有行。
 
@@ -551,6 +551,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 | v128 | 允许固定 Docker Standard Code 后端复用 Workspace Access admission | allow the fixed Docker Standard Code backend to reuse Workspace Access admission |
 | v129 | 稳定 Thread 身份、Run succession 与无损生命周期投影 | stable Thread identity, Run succession, and lossless lifecycle projection |
 | v130 | 增加 item 级流式工具调用的稳定响应、item 与 call 对齐标识 | add stable response, item, and call reconciliation identities for item-level streamed tool calls |
+| v131 | 将 Command Runtime Job、Supervisor 广告与执行回执绑定到 adapter identity，并把旧记录投影为只读 legacy_unbound | bind Command Runtime jobs, Supervisor advertisements, and receipts to adapter identity while projecting legacy records as read-only legacy_unbound |
 
 </details>
 

@@ -24,7 +24,9 @@ import (
 	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/artifact"
 	"cyberagent-workbench/internal/browserruntime"
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/fileedit"
 	"cyberagent-workbench/internal/hooks"
@@ -35,6 +37,7 @@ import (
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/skills"
 	"cyberagent-workbench/internal/toolbudget"
+	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/verification"
 )
 
@@ -146,6 +149,7 @@ type Store interface {
 	ReconcileScheduledJobs(context.Context, time.Time, int) (int, error)
 	GetSupervisorCheckpoint(ctx context.Context, runID string) (domain.SupervisorCheckpoint, bool, error)
 	GetRunExecutionLease(ctx context.Context, runID string) (domain.RunExecutionLease, bool, error)
+	GetDrydockByRun(ctx context.Context, runID string) (drydock.Workspace, bool, error)
 	ListOperatorSteering(ctx context.Context, runID string,
 		limit int) ([]domain.OperatorSteeringMessage, error)
 	GetOperatorSteeringQueueSummary(ctx context.Context,
@@ -298,6 +302,8 @@ type Config struct {
 	ExecutionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
 	BrowserCDPPermissionCapabilities        domain.BrowserCDPPermissionRuntimeCapabilities
 	CapabilityReadinessRuntime              *application.CapabilityReadinessRuntime
+	CommandRuntimeAdapters                  []commandruntimeadapter.Identity
+	CommandRuntimeAdvertiser                toolgateway.CommandRuntimeAdvertiser
 	RunLifecycleController                  RunLifecycleController
 	RunExecutionController                  RunExecutionController
 	PublicModelStreamSource                 PublicModelStreamSource
@@ -377,6 +383,8 @@ type API struct {
 	executionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
 	browserCDPPermissionCapabilities        domain.BrowserCDPPermissionRuntimeCapabilities
 	capabilityReadiness                     *application.RunCapabilityReadinessService
+	commandRuntimeAdapters                  []commandruntimeadapter.Identity
+	capabilityReadinessRuntime              application.CapabilityReadinessRuntime
 	runLifecycleController                  RunLifecycleController
 	runExecutionController                  RunExecutionController
 	publicModelStreamSource                 PublicModelStreamSource
@@ -635,6 +643,7 @@ func New(store Store, config Config) (*API, error) {
 	}
 	readinessRuntime := application.CapabilityReadinessRuntime{
 		RunControlEnabled:                  controlTokenPresent && config.RunControlEnabled,
+		RunExecutionEnabled:                controlTokenPresent && config.RunExecutionEnabled,
 		ExecutionPermissionControlEnabled:  controlTokenPresent && config.ExecutionPermissionControlEnabled,
 		BrowserCDPPermissionControlEnabled: controlTokenPresent && config.BrowserCDPPermissionControlEnabled,
 		ExecutionPermissionCapabilities:    config.ExecutionPermissionCapabilities,
@@ -642,11 +651,14 @@ func New(store Store, config Config) (*API, error) {
 		LocalSandboxInstalled:              config.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled,
 		DockerStartupGateEnabled:           dockerExecutionEnabled,
 		DockerAvailable:                    dockerExecutionEnabled,
+		CommandRuntimeAdapters:             append([]commandruntimeadapter.Identity(nil), config.CommandRuntimeAdapters...),
 	}
 	if config.CapabilityReadinessRuntime != nil {
 		readinessRuntime = *config.CapabilityReadinessRuntime
 		if readinessRuntime.RunControlEnabled !=
 			(controlTokenPresent && config.RunControlEnabled) ||
+			readinessRuntime.RunExecutionEnabled !=
+				(controlTokenPresent && config.RunExecutionEnabled) ||
 			readinessRuntime.ExecutionPermissionControlEnabled !=
 				(controlTokenPresent && config.ExecutionPermissionControlEnabled) ||
 			readinessRuntime.BrowserCDPPermissionControlEnabled !=
@@ -659,13 +671,18 @@ func New(store Store, config Config) (*API, error) {
 			return nil, apperror.New(apperror.CodeInvalidArgument,
 				"HTTP API capability readiness runtime does not match process startup gates")
 		}
+		if !sameCommandRuntimeAdapterIdentities(readinessRuntime.CommandRuntimeAdapters,
+			config.CommandRuntimeAdapters) {
+			return nil, apperror.New(apperror.CodeInvalidArgument,
+				"HTTP API Command Runtime adapter readiness does not match process installation")
+		}
 	}
 	if err := readinessRuntime.Validate(); err != nil {
 		return nil, apperror.Wrap(apperror.CodeInvalidArgument,
 			"HTTP API capability readiness runtime is invalid", err)
 	}
 	capabilityReadiness := application.NewRunCapabilityReadinessService(store,
-		readinessRuntime)
+		readinessRuntime, config.CommandRuntimeAdvertiser)
 	version := strings.TrimSpace(config.AppVersion)
 	if version == "" {
 		version = "unknown"
@@ -729,6 +746,8 @@ func New(store Store, config Config) (*API, error) {
 		executionPermissionCapabilities:     config.ExecutionPermissionCapabilities,
 		browserCDPPermissionCapabilities:    config.BrowserCDPPermissionCapabilities,
 		capabilityReadiness:                 capabilityReadiness,
+		commandRuntimeAdapters:              append([]commandruntimeadapter.Identity(nil), config.CommandRuntimeAdapters...),
+		capabilityReadinessRuntime:          readinessRuntime,
 		runLifecycleController:              config.RunLifecycleController,
 		runExecutionController:              config.RunExecutionController,
 		publicModelStreamSource:             config.PublicModelStreamSource,
@@ -788,6 +807,18 @@ func validateAccessToken(token string) error {
 		}
 	}
 	return nil
+}
+
+func sameCommandRuntimeAdapterIdentities(left, right []commandruntimeadapter.Identity) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func ListenLoopback(ctx context.Context, address string) (net.Listener, error) {

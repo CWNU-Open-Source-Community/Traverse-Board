@@ -3,6 +3,7 @@
 package runner
 
 import (
+	"context"
 	"encoding/binary"
 	"io"
 	"os"
@@ -67,7 +68,8 @@ func TestCommandRuntimeWindowsPowerShell5PowerShell7AndGitBashSmoke(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			process, err := newPlatformCommandRuntimeStarter().Start(resolved)
+			process, err := newPlatformCommandRuntimeStarter().Start(
+				context.Background(), CommandRuntimeScope{}, resolved)
 			if err != nil {
 				t.Fatal(err)
 			}

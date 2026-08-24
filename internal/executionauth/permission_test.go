@@ -67,11 +67,18 @@ func TestEvaluateExecutionPermissionDistinguishesAllFiveModes(t *testing.T) {
 		workspace.AgentTerminalInput {
 		t.Fatalf("Workspace Access decision=%+v err=%v", workspace, err)
 	}
+	workspaceBackground, err := EvaluateExecutionPermission(workspaceSnapshot,
+		workspaceRuntime, PermissionRequest{Kind: PermissionOperationSandboxedWorkspace,
+			BackgroundProcess: true})
+	if err != nil || !workspaceBackground.Allowed ||
+		!workspaceBackground.BackgroundProcess || workspaceBackground.HostFilesystem ||
+		workspaceBackground.Network {
+		t.Fatalf("Workspace Access managed Job=%+v err=%v", workspaceBackground, err)
+	}
 	for _, request := range []PermissionRequest{
 		{Kind: PermissionOperationStatelessCommand},
 		{Kind: PermissionOperationSandboxedWorkspace, HostFilesystem: true},
 		{Kind: PermissionOperationSandboxedWorkspace, Network: true},
-		{Kind: PermissionOperationSandboxedWorkspace, BackgroundProcess: true},
 	} {
 		decision, err := EvaluateExecutionPermission(workspaceSnapshot,
 			workspaceRuntime, request)

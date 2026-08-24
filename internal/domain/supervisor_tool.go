@@ -114,13 +114,13 @@ func (c SupervisorToolCall) Validate() error {
 		!utf8.ValidString(c.PayloadJSON) || !json.Valid([]byte(c.PayloadJSON)) {
 		return errors.New("supervisor tool payload must be bounded valid UTF-8 JSON")
 	}
-	if isAgentCodeSupervisorTool(c.ToolName) {
+	if isAgentCodeSupervisorTool(c.ToolName) || c.ToolName == "command_runtime" {
 		if len(c.AuthorityJSON) == 0 || len(c.AuthorityJSON) > MaxSupervisorToolAuthorityBytes ||
 			!utf8.ValidString(c.AuthorityJSON) || !json.Valid([]byte(c.AuthorityJSON)) {
-			return errors.New("agent code supervisor tool requires bounded durable authority JSON")
+			return errors.New("authority-bound supervisor tool requires bounded durable authority JSON")
 		}
 	} else if c.AuthorityJSON != "" {
-		return errors.New("non-agent-code supervisor tool cannot carry authority JSON")
+		return errors.New("non-authority-bound supervisor tool cannot carry authority JSON")
 	}
 	if !c.Status.Valid() {
 		return fmt.Errorf("invalid supervisor tool status %q", c.Status)

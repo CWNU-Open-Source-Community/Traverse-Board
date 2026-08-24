@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -9,9 +10,12 @@ import (
 
 	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/policy"
+	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/sandbox"
 	"cyberagent-workbench/internal/standardcode"
+	"cyberagent-workbench/internal/toolgateway"
 )
 
 type standardCodeDockerLifecycleTransport struct {
@@ -272,5 +276,119 @@ func TestStandardCodeDockerServiceExecutesIntoDrydockCheckpoint(t *testing.T) {
 		len(replay) != 0 || baseLifecycle.starts != 2 {
 		t.Fatalf("restart recovery was not idempotent: replay=%+v err=%v lifecycle=%+v",
 			replay, err, baseLifecycle)
+	}
+
+	goExecutable, err := exec.LookPath("go")
+	if err != nil {
+		t.Skipf("Go executable is unavailable for Command Runtime adapter integration: %v", err)
+	}
+	goExecutable, err = filepath.Abs(goExecutable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runRecord, err := NewRunService(fixture.state).Start(ctx, fixture.run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, found, err := fixture.state.GetRootAgent(ctx, runRecord.ID)
+	if err != nil || !found {
+		t.Fatalf("Command Runtime root found=%t err=%v", found, err)
+	}
+	acquired, err := fixture.state.AcquireRunExecutionLease(ctx,
+		domain.AcquireRunExecutionLeaseRequest{RunID: runRecord.ID,
+			OwnerID: "command-runtime-docker-test-owner", TTL: 3 * time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	executor, err := NewDockerSandboxCommandRuntimeExecutor(restartedService)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, err := runner.NewSandboxCommandRuntimeManager(fixture.state, executor,
+		idgen.New("command-runtime-docker-manager"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = manager.Shutdown(shutdownCtx)
+	}()
+	commandRuntime, err := NewSandboxedCommandRuntimeService(fixture.state, manager,
+		executor, permissionCapabilities, fixture.service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	advertised, available, err := commandRuntime.AdvertisedCommandRuntimeAdapter(ctx,
+		runRecord.ID, domain.RunExecutionPermissionWorkspaceAccess)
+	if err != nil || !available || !advertised.SameBackend(executor.Identity()) {
+		t.Fatalf("Docker adapter advertisement=%#v available=%t err=%v",
+			advertised, available, err)
+	}
+	maxBytes := 32 * 1024
+	runtimeScope := toolgateway.CommandRuntimeContext{
+		InvocationID: "command-runtime-docker-invocation",
+		OperationKey: "command-runtime-docker-operation", RunID: runRecord.ID,
+		RootAgentID: root.ID, SessionID: runRecord.SessionID,
+		WorkspaceID:          fixture.workspace.ID,
+		CapabilityGeneration: advertised.Generation,
+		LeaseID:              acquired.Lease.LeaseID, LeaseGeneration: acquired.Lease.Generation,
+		RequestedBy: "run_supervisor", Adapter: advertised,
+		PolicyDecision: toolgateway.Decision{Allowed: true,
+			Approval: toolgateway.ApprovalAutomatic, Risk: "medium",
+			Reason: "test exact Docker sandbox adapter"},
+	}
+	runtimeResult, err := commandRuntime.ExecuteCommandRuntime(ctx, runtimeScope,
+		toolgateway.CommandRuntimeInput{
+			Version: toolgateway.CommandRuntimeToolProtocolVersion,
+			Action:  toolgateway.CommandRuntimeActionStart,
+			Commands: []runner.CommandRuntimeSpec{{
+				Version: runner.CommandRuntimeProtocolVersion,
+				Profile: runner.CommandRuntimeProcess, Executable: goExecutable,
+				Arguments: []string{"version"}, WorkingDirectory: ".",
+				Environment: []runner.CommandRuntimeEnvironment{},
+				StdinPolicy: runner.CommandRuntimeStdinClosed, CloseInitialStdin: true,
+				TimeoutMilliseconds: 60_000,
+				Output: runner.CommandRuntimeOutputPolicy{InlineBytes: 4096,
+					ArtifactBytes: 64 * 1024},
+				Network:     runner.CommandRuntimeNetworkDisabled,
+				Credentials: runner.CommandRuntimeCredentialsNone,
+				Purpose:     "exercise Command Runtime through fixed Docker Standard Code",
+			}},
+		})
+	if err != nil || runtimeResult.ValidateBoundAdapter() != nil ||
+		!runtimeResult.Adapter.SameBackend(advertised) || len(runtimeResult.Jobs) != 1 ||
+		runtimeResult.Jobs[0].State.Terminal() {
+		t.Fatalf("Docker Command Runtime start=%+v err=%v", runtimeResult, err)
+	}
+	jobID := runtimeResult.Jobs[0].ID
+	cursor := uint64(0)
+	waitMilliseconds := int((5 * time.Second).Milliseconds())
+	deadline := time.Now().Add(2 * time.Minute)
+	for !runtimeResult.Jobs[0].State.Terminal() {
+		if time.Now().After(deadline) {
+			t.Fatalf("Docker Command Runtime Job did not become terminal: %+v", runtimeResult)
+		}
+		runtimeResult, err = commandRuntime.ExecuteCommandRuntime(ctx, runtimeScope,
+			toolgateway.CommandRuntimeInput{
+				Version: toolgateway.CommandRuntimeToolProtocolVersion,
+				Action:  toolgateway.CommandRuntimeActionWait, JobID: jobID,
+				Cursor: &cursor, MaxBytes: &maxBytes,
+				WaitMilliseconds: &waitMilliseconds,
+			})
+		if err != nil || runtimeResult.ValidateBoundAdapter() != nil ||
+			len(runtimeResult.Jobs) != 1 || len(runtimeResult.Pages) != 1 {
+			t.Fatalf("Docker Command Runtime wait=%+v err=%v", runtimeResult, err)
+		}
+		cursor = runtimeResult.Pages[0].NextCursor
+	}
+	if runtimeResult.Jobs[0].State != runner.CommandRuntimeJobCompleted ||
+		len(runtimeResult.Artifacts) != 1 ||
+		!strings.Contains(runtimeResult.Artifacts[0].Stdout,
+			standardcode.ResultProtocolVersion) || baseLifecycle.starts != 3 {
+		candidates, _ := fixture.state.ListSandboxExecutionCandidates(ctx,
+			runRecord.ID, 20)
+		t.Fatalf("Docker Command Runtime result=%+v err=%v lifecycle=%+v candidates=%+v",
+			runtimeResult, err, baseLifecycle, candidates)
 	}
 }

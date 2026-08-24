@@ -25,7 +25,10 @@ type StandardCodeDockerStore interface {
 		domain.RunExecutionProfileSnapshot, error)
 	GetRunExecutionPermission(context.Context, string) (
 		domain.RunExecutionPermissionSnapshot, error)
+	GetRunExecutionLease(context.Context, string) (domain.RunExecutionLease, bool, error)
 	GetDrydockByRun(context.Context, string) (drydock.Workspace, bool, error)
+	GetSandboxExecutionCandidate(context.Context, string) (
+		sandbox.ValidatedExecutionCandidate, error)
 	GetDockerLogCaptureReceiptByAttempt(context.Context, string) (
 		sandbox.DockerLogCaptureReceipt, bool, error)
 	GetDockerSandboxAdmissionByOperation(context.Context, string) (
@@ -200,11 +203,30 @@ func (s *StandardCodeDockerService) Cancel(ctx context.Context,
 func (s *StandardCodeDockerService) Execute(ctx context.Context,
 	request StandardCodeDockerExecuteRequest,
 ) (StandardCodeDockerExecuteResult, error) {
+	return s.execute(ctx, request, nil)
+}
+
+func (s *StandardCodeDockerService) executeCommandRuntime(ctx context.Context,
+	request StandardCodeDockerExecuteRequest, lease domain.RunExecutionLease,
+) (StandardCodeDockerExecuteResult, error) {
+	if lease.Validate() != nil || lease.RunID != request.RunID ||
+		lease.Status != domain.RunExecutionLeaseActive {
+		return StandardCodeDockerExecuteResult{}, apperror.New(
+			apperror.CodeInvalidArgument,
+			"Standard Code Command Runtime lease is invalid")
+	}
+	return s.execute(ctx, request, &lease)
+}
+
+func (s *StandardCodeDockerService) execute(ctx context.Context,
+	request StandardCodeDockerExecuteRequest, runLease *domain.RunExecutionLease,
+) (StandardCodeDockerExecuteResult, error) {
 	request, err := normalizeStandardCodeDockerExecuteRequest(request)
 	if err != nil {
 		return StandardCodeDockerExecuteResult{}, err
 	}
-	if replay, found, replayErr := s.loadTerminalReplay(ctx, request); replayErr != nil {
+	if replay, found, replayErr := s.loadTerminalReplay(ctx, request,
+		runLease); replayErr != nil {
 		return StandardCodeDockerExecuteResult{}, replayErr
 	} else if found {
 		return replay, nil
@@ -226,11 +248,18 @@ func (s *StandardCodeDockerService) Execute(ctx context.Context,
 	if !readiness.Ready {
 		return result, nil
 	}
-	candidate, err := s.manifests.ValidateExecutionCandidate(ctx,
-		ValidateSandboxExecutionCandidateRequest{PreparationID: request.PreparationID,
-			Manifest: manifest, ApprovalID: request.ApprovalID,
-			OperationKey: standardCodeStageKey(request.OperationKey, "candidate"),
-			RequestedBy:  request.RequestedBy})
+	candidateRequest := ValidateSandboxExecutionCandidateRequest{
+		PreparationID: request.PreparationID, Manifest: manifest,
+		ApprovalID:   request.ApprovalID,
+		OperationKey: standardCodeStageKey(request.OperationKey, "candidate"),
+		RequestedBy:  request.RequestedBy}
+	var candidate sandbox.ValidatedExecutionCandidate
+	if runLease == nil {
+		candidate, err = s.manifests.ValidateExecutionCandidate(ctx, candidateRequest)
+	} else {
+		candidate, err = s.manifests.validateLeaseBoundExecutionCandidate(ctx,
+			candidateRequest, *runLease)
+	}
 	if err != nil {
 		return result, err
 	}
@@ -306,7 +335,7 @@ func (s *StandardCodeDockerService) Execute(ctx context.Context,
 	result.AdmissionID = admission.Admission.ID
 	executionContext, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	go s.monitorCurrentAuthority(executionContext, done, scope, cancel)
+	go s.monitorCurrentAuthority(executionContext, done, scope, runLease, cancel)
 	started, startErr := s.docker.Start(executionContext, DockerSandboxStartRequest{
 		AdmissionID:  admission.Admission.ID,
 		OperationKey: standardCodeStageKey(request.OperationKey, "start"),
@@ -399,7 +428,7 @@ func normalizeStandardCodeDockerExecuteRequest(
 }
 
 func (s *StandardCodeDockerService) loadTerminalReplay(ctx context.Context,
-	request StandardCodeDockerExecuteRequest,
+	request StandardCodeDockerExecuteRequest, runLease *domain.RunExecutionLease,
 ) (StandardCodeDockerExecuteResult, bool, error) {
 	operationDigest := runmutation.Fingerprint("docker_sandbox_admission_operation.v1",
 		request.RunID, standardCodeStageKey(request.OperationKey, "admit"))
@@ -423,6 +452,21 @@ func (s *StandardCodeDockerService) loadTerminalReplay(ctx context.Context,
 		return StandardCodeDockerExecuteResult{}, true, apperror.New(
 			apperror.CodeConflict,
 			"Standard Code execution operation was used for different intent")
+	}
+	candidate, err := s.store.GetSandboxExecutionCandidate(ctx, admission.CandidateID)
+	if err != nil {
+		return StandardCodeDockerExecuteResult{}, true, apperror.Normalize(err)
+	}
+	if runLease == nil {
+		if !candidate.Candidate.LeaseQuiescent {
+			return StandardCodeDockerExecuteResult{}, true, apperror.New(
+				apperror.CodeConflict,
+				"Standard Code replay lease mode changed")
+		}
+	} else if !executionCandidateMatchesRunLease(candidate.Candidate, *runLease) {
+		return StandardCodeDockerExecuteResult{}, true, apperror.New(
+			apperror.CodeConflict,
+			"Standard Code replay Run lease changed")
 	}
 	record, err := s.store.GetDockerSandboxRecord(ctx, admission.ID)
 	if err != nil {
@@ -567,7 +611,8 @@ func (s *StandardCodeDockerService) compileCurrent(ctx context.Context, runID st
 }
 
 func (s *StandardCodeDockerService) monitorCurrentAuthority(ctx context.Context,
-	done <-chan struct{}, scope standardcode.ExecutionContext, cancel context.CancelFunc,
+	done <-chan struct{}, scope standardcode.ExecutionContext,
+	runLease *domain.RunExecutionLease, cancel context.CancelFunc,
 ) {
 	ticker := time.NewTicker(s.authorityPoll)
 	defer ticker.Stop()
@@ -578,7 +623,7 @@ func (s *StandardCodeDockerService) monitorCurrentAuthority(ctx context.Context,
 		case <-done:
 			return
 		case <-ticker.C:
-			if !s.currentAuthorityMetadata(ctx, scope) {
+			if !s.currentAuthorityMetadata(ctx, scope, runLease) {
 				cancel()
 				return
 			}
@@ -587,7 +632,7 @@ func (s *StandardCodeDockerService) monitorCurrentAuthority(ctx context.Context,
 }
 
 func (s *StandardCodeDockerService) currentAuthorityMetadata(ctx context.Context,
-	scope standardcode.ExecutionContext,
+	scope standardcode.ExecutionContext, runLease *domain.RunExecutionLease,
 ) bool {
 	run, err := s.store.GetRun(ctx, scope.RunID)
 	if err != nil || run.Terminal() || run.MissionID != scope.MissionID ||
@@ -606,12 +651,30 @@ func (s *StandardCodeDockerService) currentAuthorityMetadata(ctx context.Context
 		permission.Mode != domain.RunExecutionPermissionWorkspaceAccess {
 		return false
 	}
+	if runLease != nil {
+		current, found, leaseErr := s.store.GetRunExecutionLease(ctx, scope.RunID)
+		if leaseErr != nil || !found || !current.ActiveAt(time.Now().UTC()) ||
+			current.LeaseID != runLease.LeaseID ||
+			current.Generation != runLease.Generation ||
+			current.OwnerID != runLease.OwnerID {
+			return false
+		}
+	}
 	workspace, found, err := s.store.GetDrydockByRun(ctx, scope.RunID)
 	return err == nil && found && workspace.ID == scope.DrydockID &&
 		workspace.Generation == scope.DrydockGeneration &&
 		workspace.LastCheckpointID == scope.CheckpointID &&
 		workspace.State != drydock.StateCleaned &&
 		workspace.State != drydock.StateRecoveryRequired
+}
+
+func executionCandidateMatchesRunLease(candidate sandbox.ExecutionCandidate,
+	lease domain.RunExecutionLease,
+) bool {
+	return !candidate.LeaseQuiescent && lease.Validate() == nil &&
+		candidate.RunID == lease.RunID && candidate.RunLeaseID == lease.LeaseID &&
+		candidate.RunLeaseGeneration == lease.Generation &&
+		candidate.RunLeaseOwnerID == lease.OwnerID
 }
 
 func (s *StandardCodeDockerService) finalize(ctx context.Context,

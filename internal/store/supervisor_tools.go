@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"cyberagent-workbench/internal/apperror"
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/llm"
@@ -192,6 +193,19 @@ func normalizeSupervisorToolCallsForStore(calls []llm.ToolCall, runID string, tu
 			if authorityErr != nil || len(canonicalAuthority) > domain.MaxSupervisorToolAuthorityBytes {
 				return nil, apperror.New(apperror.CodeInvalidArgument,
 					"agent code supervisor tool authority is invalid")
+			}
+			normalized[index].Authority = canonicalAuthority
+		} else if name == toolgateway.CommandRuntimeTool {
+			authority, authorityErr := commandruntimeadapter.DecodeAuthority(
+				normalized[index].Authority)
+			if authorityErr != nil || authority.RunID != runID {
+				return nil, apperror.New(apperror.CodeInvalidArgument,
+					"command runtime supervisor tool is missing its exact durable adapter authority")
+			}
+			canonicalAuthority, authorityErr := commandruntimeadapter.EncodeAuthority(authority)
+			if authorityErr != nil || len(canonicalAuthority) > domain.MaxSupervisorToolAuthorityBytes {
+				return nil, apperror.New(apperror.CodeInvalidArgument,
+					"command runtime supervisor tool authority is invalid")
 			}
 			normalized[index].Authority = canonicalAuthority
 		} else if len(normalized[index].Authority) != 0 {

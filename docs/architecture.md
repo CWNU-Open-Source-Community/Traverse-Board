@@ -455,12 +455,13 @@ Schema v126 adds the non-authorizing `workspace_access` Run permission ceiling.
 It admits only a `sandboxed_workspace_command` decision when an independent,
 process-local Workspace Sandbox adapter is ready; host process, network,
 credential, home, terminal, Agent-input, and Full-CDP facts remain false.
-Windows x64 now installs the Local adapter only behind an explicit startup
-request and a real AppContainer/WFP/Job/ACL readiness proof. Failure keeps the
-mode unavailable and no existing host runner may serve as a fallback. The
-sandboxed shared Command Runtime adapter remains separate (#134). Issue #133
-adds the separately gated fixed Docker `network=none` Standard Code fallback;
-daemon or image failure likewise never selects a host runner. Selecting any new
+Windows x64 installs the Local adapter only behind an explicit startup request
+and a real AppContainer/WFP/Job/ACL readiness proof. Failure keeps the mode
+unavailable and no existing host runner may serve as a fallback. Schema v131
+connects that backend and the separately gated fixed Docker `network=none`
+Standard Code path to the exact `sandboxed_workspace` Command Runtime adapter;
+daemon, image, or Local readiness failure still never selects a host runner.
+Selecting any new
 permission revision atomically releases the active Run execution lease and fences
 old Job/tool authority. See
 [ADR 0127](adr/0127-workspace-access-permission-contract.md) and
@@ -730,7 +731,7 @@ The same Go adapter owns read projections for the bounded Agent graph, operator-
 
 ## Persistence
 
-SQLite remains the local source of truth. Schema migration `v1` records the legacy baseline, `v2`-`v18` establish the Run/Supervisor/memory/tool/Artifact/lease control plane, `v19`-`v38` add bounded Agent coordination, reviewed delegation, read-only Fan-out, Findings, and operator scheduling, and `v39`-`v47` add immutable Skill selection/context, Run modes, Plan/Delivery, provenance, checkpoints, steering, and Specialist minimization. Schemas `v48`-`v63` build the still-disabled Sandbox evidence and recovery chain; `v64`-`v68` add non-authorizing execution-profile and Docker production-evidence decisions; `v69`-`v71` add the inert user Skill Registry, exact Run selection/context, and read-only provenance; `v72`-`v113` continue the audited Run, Desktop, Provider, browser, Analyzer, Docker, dependency, MCP, project-config, Git, external-Skill, and Debug-terminal control planes; `v114` adds explicit long-term memory plus immutable instruction/continuity ledgers without authority restoration; `v115` adds model-callable workspace tools and hash-guarded file mutations; `v116` adds the Run-owned ordinary command runtime and its Supervisor call ledger; `v117` adds content-addressed transactional Workspace Checkpoints; `v118` adds isolated batch delivery; `v119` adds source-bound real-browser UI-evidence attempts, steps, and artifacts; `v120` adds the reviewed MCP Client ledger; `v121` adds inert Plugin installation, publisher trust, rollback, and restricted-Hook audits; `v122` adds durable bounded scheduled monitoring and structured-diagnostics records; `v123` adds immutable advanced-Git operations/sequences plus the managed-worktree registry; and `v124` adds generation-CAS GitHub connections, immutable PR/CI snapshots and local evidence graphs, plus Approval-bound remote-write recovery receipts. Non-schema D1-B1 exposes the existing v69 Registry through inert HTTP/Desktop confirmation and adds no migration. Migrations are ordered, checksummed, transactional, and safe to apply repeatedly; legacy databases are upgraded without deleting their data or fabricating new operator decisions.
+SQLite remains the local source of truth. Schema migration `v1` records the legacy baseline, `v2`-`v18` establish the Run/Supervisor/memory/tool/Artifact/lease control plane, `v19`-`v38` add bounded Agent coordination, reviewed delegation, read-only Fan-out, Findings, and operator scheduling, and `v39`-`v47` add immutable Skill selection/context, Run modes, Plan/Delivery, provenance, checkpoints, steering, and Specialist minimization. Schemas `v48`-`v63` build the still-disabled Sandbox evidence and recovery chain; `v64`-`v68` add non-authorizing execution-profile and Docker production-evidence decisions; `v69`-`v71` add the inert user Skill Registry, exact Run selection/context, and read-only provenance; `v72`-`v113` continue the audited Run, Desktop, Provider, browser, Analyzer, Docker, dependency, MCP, project-config, Git, external-Skill, and Debug-terminal control planes; `v114` adds explicit long-term memory plus immutable instruction/continuity ledgers without authority restoration; `v115` adds model-callable workspace tools and hash-guarded file mutations; `v116` adds the Run-owned ordinary command runtime and its Supervisor call ledger; `v117` adds content-addressed transactional Workspace Checkpoints; `v118` adds isolated batch delivery; `v119` adds source-bound real-browser UI-evidence attempts, steps, and artifacts; `v120` adds the reviewed MCP Client ledger; `v121` adds inert Plugin installation, publisher trust, rollback, and restricted-Hook audits; `v122` adds durable bounded scheduled monitoring and structured-diagnostics records; `v123` adds immutable advanced-Git operations/sequences plus the managed-worktree registry; `v124` adds generation-CAS GitHub connections, immutable PR/CI snapshots and local evidence graphs, plus Approval-bound remote-write recovery receipts; `v125` repairs one pinned preview migration history; `v126` adds Workspace Access; `v127` adds Run-owned Drydocks; `v128` admits fixed Docker Standard Code under Workspace Access; `v129` adds stable Thread identity and Run succession; `v130` adds item-level streamed tool reconciliation identities; and `v131` binds Command Runtime jobs and advertisements to exact sandboxed/host adapter identities while projecting legacy rows as non-executable evidence. Non-schema D1-B1 exposes the existing v69 Registry through inert HTTP/Desktop confirmation and adds no migration. Migrations are ordered, checksummed, transactional, and safe to apply repeatedly; legacy databases are upgraded without deleting their data or fabricating new operator decisions.
 
 ## Go-Owned GitHub Review Provider
 
@@ -1213,22 +1214,27 @@ group cleanup. Cyber and Plan do not expose the tool.
 ## Run-Owned Ordinary Command Runtime
 
 ADR 0117 adds `command-runtime.v2` as a fourth, separately owned execution path.
-It is neither the user terminal nor its Debug input lease, neither an approval
-proposal nor Docker. Only the root Supervisor in Code/Local/Deliver with current
+Schema v131 keeps that one model schema and Job state machine while splitting its
+authority into exact `sandboxed_workspace` and `host_unsandboxed` adapters. The
+former accepts only Code/Deliver/root `workspace_access` with ready Local or fixed
+Docker isolation and an exact Drydock; the latter accepts only Code/Local/Deliver
 `full_access`, a live execution lease, and the process-local danger-full-access
-capability can see it. The Gateway validates an action-tagged union, runs ordinary
-Policy on each exact command, and exposes fixed PowerShell/Bash script profiles or
-an absolute non-workspace native executable with literal argv. cwd, restricted env,
-stdin, timeout, output, `network=disabled`, and `credentials=none` are mandatory
-contract fields; executable, environment, and canonical Workspace root are hashed.
+capability. It is neither the user terminal nor its Debug input lease and neither
+an approval proposal nor a model-selectable Docker/host switch. The Gateway
+validates an action-tagged union, adapter authority, and ordinary Policy on each
+exact command. cwd, restricted env, stdin, timeout, output, `network=disabled`, and
+`credentials=none` are mandatory contract fields; executable, environment, and
+canonical Workspace/Drydock root are hashed.
 
 Foreground requests run one-to-four commands sequentially under explicit
 fail-fast/continue semantics. Background Jobs have a monotonic interleaved
 stdout/stderr cursor, bounded stdin writes, wait/cancel/kill, a byte-and-frame-bounded
 inline ring, terminal hashes, and bounded Artifact capture. Output is sanitized by
 a stateful chunk decoder before storage and again at the model boundary. The
-projection always marks it as untrusted and records ownership as
-`run_owned_command_runtime`, with user-terminal/debug-terminal/sandbox sharing false.
+projection always marks it as untrusted and carries the exact adapter, backend
+generation, isolation grade, and effective network/credential policy. The current
+sandbox backends accept closed stdin only and declare that limitation; the host
+adapter retains the bounded stdin protocol.
 
 Schema v116 stores a write-ahead immutable launch intent fenced by the starting
 Supervisor generation. Live handles then belong to a distinct random process owner
@@ -1240,16 +1246,21 @@ Durable root/mode/profile/permission/root-hash
 drift does kill it. Windows assigns a kill-on-close Job Object in the creation call.
 POSIX uses an owned process group, a fixed parent-pipe guardian, and Linux parent-
 death signaling. Restart waits out a still-live owner heartbeat and then records
-`interrupted`; it never executes the stored intent or signals a durable PID. A
+`interrupted`; it never executes the stored intent or signals a durable PID. Schema
+v131 makes pre-v131 Jobs readable only through the non-executable `legacy_unbound`
+projection and stores no host PID/process group for sandbox Jobs. A
 deliberately new POSIX session can escape the inherited process group and remains
 an explicit unsandboxed `full_access` risk rather than a safely adoptable Job.
 
-The network declaration is an intent and policy boundary, not a portable packet-
-containment claim. Profile/helper/proxy/credential environment paths and common
+For `host_unsandboxed`, the network declaration is an intent and policy boundary,
+not a portable packet-containment claim. Profile/helper/proxy/credential environment paths and common
 explicit network commands are denied, and any Policy result requiring approval is
 routed away from this automatic tool. Because `full_access` is still unsandboxed
-host execution, network or credential use requires a separate exact review, while
-Docker `network none` remains the path for containment evidence.
+host execution, its receipt reports host network and credentials as available.
+Network or credential use requires a separate exact review. Sandboxed receipts
+report denial/no-credentials only from current Local or Docker isolation readiness.
+The complete split is documented in
+[Command Runtime adapter split](architecture/command-runtime-adapter-split.md).
 
 ## Transactional Workspace Checkpoints
 

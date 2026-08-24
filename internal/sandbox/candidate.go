@@ -6,7 +6,10 @@ import (
 	"time"
 )
 
-const ExecutionCandidateProtocolVersion = "sandbox_execution_candidate.v1"
+const (
+	ExecutionCandidateProtocolVersion       = "sandbox_execution_candidate.v2"
+	ExecutionCandidateLegacyProtocolVersion = "sandbox_execution_candidate.v1"
+)
 
 type ExecutionCandidate struct {
 	ID                       string
@@ -31,6 +34,9 @@ type ExecutionCandidate struct {
 	ToolCallsUsed            int64
 	BudgetChecked            bool
 	LeaseQuiescent           bool
+	RunLeaseID               string
+	RunLeaseGeneration       int64
+	RunLeaseOwnerID          string
 	BackendEnabled           bool
 	ExecutionAuthorized      bool
 	RequestedBy              string
@@ -62,7 +68,8 @@ func (c ExecutionCandidate) Validate() error {
 			return err
 		}
 	}
-	if c.ProtocolVersion != ExecutionCandidateProtocolVersion {
+	if c.ProtocolVersion != ExecutionCandidateProtocolVersion &&
+		c.ProtocolVersion != ExecutionCandidateLegacyProtocolVersion {
 		return fmt.Errorf("unsupported sandbox execution candidate protocol %q", c.ProtocolVersion)
 	}
 	for label, digest := range map[string]string{
@@ -82,8 +89,23 @@ func (c ExecutionCandidate) Validate() error {
 	if c.TokensUsed < 0 || c.ExecutionMillisUsed < 0 || c.ToolCallsUsed < 0 {
 		return errors.New("sandbox execution candidate usage counters cannot be negative")
 	}
-	if !c.BudgetChecked || !c.LeaseQuiescent || c.BackendEnabled || c.ExecutionAuthorized {
-		return errors.New("sandbox execution candidate must remain budget-checked, quiescent, and execution-disabled")
+	if !c.BudgetChecked || c.BackendEnabled || c.ExecutionAuthorized {
+		return errors.New("sandbox execution candidate must remain budget-checked and execution-disabled")
+	}
+	leaseBound := c.RunLeaseID != "" || c.RunLeaseOwnerID != "" ||
+		c.RunLeaseGeneration != 0
+	if c.ProtocolVersion == ExecutionCandidateLegacyProtocolVersion {
+		if !c.LeaseQuiescent || leaseBound {
+			return errors.New("legacy sandbox execution candidate must remain quiescent")
+		}
+	} else if c.LeaseQuiescent == leaseBound {
+		return errors.New("sandbox execution candidate must bind either quiescence or one Run lease")
+	} else if leaseBound {
+		if validateStoredIdentity("candidate Run lease id", c.RunLeaseID) != nil ||
+			validateStoredIdentity("candidate Run lease owner", c.RunLeaseOwnerID) != nil ||
+			c.RunLeaseGeneration < 1 {
+			return errors.New("sandbox execution candidate Run lease binding is invalid")
+		}
 	}
 	if c.ApprovalID == "" {
 		if c.ApprovalStatus != ApprovalNotRequired {
@@ -128,4 +150,29 @@ func CandidateRequestFingerprint(preparationID, manifestFingerprint, approvalID,
 ) string {
 	return fingerprint("sandbox_execution_candidate_request.v1", preparationID,
 		manifestFingerprint, approvalID, requestedBy)
+}
+
+// CandidateLeaseRequestFingerprint binds the v2 candidate mode. A Run-owned
+// command-runtime candidate carries the exact active Run lease; ordinary
+// operator candidates retain the historical quiescent mode without gaining
+// execution authority.
+func CandidateLeaseRequestFingerprint(preparationID, manifestFingerprint, approvalID,
+	requestedBy string, leaseQuiescent bool, runLeaseID string,
+	runLeaseGeneration int64, runLeaseOwnerID string,
+) string {
+	return fingerprint("sandbox_execution_candidate_request.v2",
+		CandidateRequestFingerprint(preparationID, manifestFingerprint, approvalID,
+			requestedBy), fmt.Sprintf("%t", leaseQuiescent), runLeaseID,
+		fmt.Sprint(runLeaseGeneration), runLeaseOwnerID)
+}
+
+func CandidateOperationRequestFingerprint(candidate ExecutionCandidate) string {
+	if candidate.ProtocolVersion == ExecutionCandidateLegacyProtocolVersion {
+		return CandidateRequestFingerprint(candidate.PreparationID,
+			candidate.ManifestFingerprint, candidate.ApprovalID, candidate.RequestedBy)
+	}
+	return CandidateLeaseRequestFingerprint(candidate.PreparationID,
+		candidate.ManifestFingerprint, candidate.ApprovalID, candidate.RequestedBy,
+		candidate.LeaseQuiescent, candidate.RunLeaseID,
+		candidate.RunLeaseGeneration, candidate.RunLeaseOwnerID)
 }

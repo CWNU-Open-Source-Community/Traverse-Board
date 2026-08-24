@@ -94,11 +94,12 @@ runtime generation. Drift fails closed.
 ## Scope
 
 This backend supplies the Local isolation mechanism and proof required by
-`workspace_access + local + controlled`. The shared Command Runtime adapter
-split is tracked separately by issue #134; until that adapter consumes this
-backend, readiness and permission selection do not themselves advertise a
-model command tool or start a process. Standard Code preset orchestration also
-remains separate. These omissions never authorize host execution.
+`workspace_access + local + controlled`. Schema v131's
+`sandboxed_workspace/local_windows_lpac` adapter consumes that proof and may
+advertise the shared `command-runtime.v2` tool only for a current Run with an
+active lease and exact Drydock binding. Readiness or permission selection alone
+still does not start a process or grant authority, and failure never selects the
+host adapter. Standard Code preset orchestration remains separate.
 
 ## Verification
 

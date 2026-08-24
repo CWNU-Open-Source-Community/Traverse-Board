@@ -362,6 +362,7 @@ func migrationPlan() []migration {
 		{Version: 128, Name: "Standard Code Docker Workspace Access admission", Statements: standardCodeDockerWorkspaceAccessStatements, DisableForeignKeys: true},
 		{Version: 129, Name: "stable Thread identity and Run succession", Statements: threadSuccessionStatements},
 		{Version: 130, Name: "item stream tool reconciliation identities", Statements: itemStreamToolIdentityStatements},
+		{Version: 131, Name: "Command Runtime adapter authority and legacy projection", Statements: commandRuntimeAdapterStatements, DisableForeignKeys: true},
 	}
 }
 

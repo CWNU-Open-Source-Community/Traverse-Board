@@ -19,7 +19,7 @@ import (
 // build their downgrade chain from the newest schema and must therefore start
 // by removing this migration.
 func removeSchemaV129ForTestStatements() []string {
-	return append(removeSchemaV130ForTestStatements(), []string{
+	return append(removeSchemaV131ForTestStatements(), []string{
 		`DROP TRIGGER trg_runs_thread_terminal_projection`,
 		`DROP TRIGGER trg_operator_steering_insert_binding`,
 		`CREATE TRIGGER trg_operator_steering_insert_binding

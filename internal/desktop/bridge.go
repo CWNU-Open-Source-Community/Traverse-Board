@@ -47,6 +47,9 @@ type ConnectionBootstrap struct {
 	DebugMaximumAccessEnabled               bool   `json:"debug_maximum_access_enabled"`
 	CommandRuntimeEnabled                   bool   `json:"command_runtime_enabled"`
 	ThreadControlEnabled                    bool   `json:"thread_control_enabled"`
+	CommandRuntimeProtocolAvailable         bool   `json:"command_runtime_protocol_available"`
+	CommandRuntimeAdapterInstalled          bool   `json:"command_runtime_adapter_installed"`
+	CommandRuntimeAdapterReady              bool   `json:"command_runtime_adapter_ready"`
 	RunCreationEnabled                      bool   `json:"run_creation_enabled"`
 	SessionMessageEnabled                   bool   `json:"session_message_enabled"`
 	SessionSteeringControlEnabled           bool   `json:"session_steering_control_enabled"`
@@ -156,6 +159,8 @@ type DesktopBridgeConfig struct {
 	OperatorApprovalEnabled                 bool
 	DangerFullAccessEnabled                 bool
 	DebugMaximumAccessEnabled               bool
+	CommandRuntimeAdapterInstalled          bool
+	CommandRuntimeAdapterReady              bool
 	RunCreationEnabled                      bool
 	SessionMessageEnabled                   bool
 	SessionSteeringControlEnabled           bool
@@ -323,8 +328,12 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop batch validation requires control, permission control, and danger-full-access")
 	}
+	if config.CommandRuntimeAdapterReady && !config.CommandRuntimeAdapterInstalled {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"desktop Command Runtime readiness requires an installed adapter")
+	}
 	commandRuntimeEnabled := config.RunExecutionEnabled &&
-		permissionCapabilities.Allows(domain.RunExecutionPermissionFullAccess)
+		config.CommandRuntimeAdapterReady
 	browserCDPCapabilities := domain.BrowserCDPPermissionRuntimeCapabilities{
 		ControlEnabled:   config.BrowserCDPPermissionControlEnabled,
 		FullDebugEnabled: config.FullCDPDebugEnabled,
@@ -381,6 +390,9 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 			DebugMaximumAccessEnabled:               config.DebugMaximumAccessEnabled,
 			CommandRuntimeEnabled:                   commandRuntimeEnabled,
 			ThreadControlEnabled:                    config.RunCreationEnabled && config.SessionMessageEnabled,
+			CommandRuntimeProtocolAvailable:         true,
+			CommandRuntimeAdapterInstalled:          config.CommandRuntimeAdapterInstalled,
+			CommandRuntimeAdapterReady:              config.CommandRuntimeAdapterReady,
 			RunCreationEnabled:                      config.RunCreationEnabled,
 			SessionMessageEnabled:                   config.SessionMessageEnabled,
 			SessionSteeringControlEnabled:           config.SessionSteeringControlEnabled,

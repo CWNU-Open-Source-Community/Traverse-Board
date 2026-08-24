@@ -6,12 +6,57 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/sandbox"
 )
+
+func TestSandboxCandidateRunLeaseRequiresExactActiveBinding(t *testing.T) {
+	now := time.Now().UTC()
+	lease := domain.RunExecutionLease{RunID: "run-lease-bound", LeaseID: "lease-exact",
+		OwnerID: "command-runtime-owner", Generation: 7,
+		Status: domain.RunExecutionLeaseActive, AcquiredAt: now.Add(-time.Minute),
+		RenewedAt: now.Add(-time.Second), ExpiresAt: now.Add(time.Minute)}
+	candidate := sandbox.ExecutionCandidate{RunID: lease.RunID, LeaseQuiescent: false,
+		RunLeaseID: lease.LeaseID, RunLeaseGeneration: lease.Generation,
+		RunLeaseOwnerID: lease.OwnerID}
+	if err := validateSandboxCandidateRunLease(candidate, lease, true, now,
+		"expected a quiescent Run"); err != nil {
+		t.Fatalf("exact active lease was rejected: %v", err)
+	}
+	for name, mutate := range map[string]func(*domain.RunExecutionLease){
+		"lease id":   func(value *domain.RunExecutionLease) { value.LeaseID = "lease-drifted" },
+		"generation": func(value *domain.RunExecutionLease) { value.Generation++ },
+		"owner":      func(value *domain.RunExecutionLease) { value.OwnerID = "different-owner" },
+		"run":        func(value *domain.RunExecutionLease) { value.RunID = "different-run" },
+		"expiry":     func(value *domain.RunExecutionLease) { value.ExpiresAt = now },
+	} {
+		t.Run(name, func(t *testing.T) {
+			drifted := lease
+			mutate(&drifted)
+			if err := validateSandboxCandidateRunLease(candidate, drifted, true, now,
+				"expected a quiescent Run"); apperror.CodeOf(err) != apperror.CodeConflict {
+				t.Fatalf("drift error=%v, want conflict", err)
+			}
+		})
+	}
+	if err := validateSandboxCandidateRunLease(candidate, domain.RunExecutionLease{},
+		false, now, "expected a quiescent Run"); apperror.CodeOf(err) != apperror.CodeConflict {
+		t.Fatalf("missing lease error=%v, want conflict", err)
+	}
+	quiescent := candidate
+	quiescent.LeaseQuiescent = true
+	quiescent.RunLeaseID, quiescent.RunLeaseOwnerID = "", ""
+	quiescent.RunLeaseGeneration = 0
+	if err := validateSandboxCandidateRunLease(quiescent, lease, true, now,
+		"expected a quiescent Run"); apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
+		t.Fatalf("quiescent candidate active-lease error=%v", err)
+	}
+}
 
 func TestSandboxExecutionCandidateConcurrentReplayAndImmutability(t *testing.T) {
 	ctx := context.Background()
