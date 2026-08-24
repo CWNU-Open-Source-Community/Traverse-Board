@@ -212,6 +212,8 @@ export function SessionComposer({ client, sessionID, run, workspaceID = "", cont
   const localPublicStream = usePublicModelStream(client, run?.id ?? "",
     Boolean(!publicModelStream && run && mutation.isPending && client.hasRunExecution));
   const publicStream = publicModelStream ?? localPublicStream;
+  const publicToolItems = publicStream.snapshot?.items.filter((item) =>
+    item.type === "tool_call") ?? [];
   const phaseMutation = useMutation({
     mutationFn: async ({ selected, intent }: { selected: boolean; intent: PhaseRetryIntent }) => {
       if (!run || !client.hasPlanDelivery) {
@@ -354,6 +356,22 @@ export function SessionComposer({ client, sessionID, run, workspaceID = "", cont
             <Square aria-hidden="true" size={13} />{t("停止", "Stop")}
           </button>}
       </header>
+      {publicToolItems.length > 0 && <div aria-label={t("正在准备的工具调用", "Preparing tool calls")}
+        className="public-model-tool-list">
+        {publicToolItems.map((item) => <div className="public-model-tool-item" key={item.id}>
+          <strong>{item.tool_name}</strong>
+          <span>{item.status === "in_progress"
+            ? t("正在准备调用", "Preparing call")
+            : item.status === "ready_for_validation"
+              ? t("参数已就绪，等待验证", "Arguments ready; awaiting validation")
+              : item.status === "completed"
+                ? t("已准备，正在提交验证", "Prepared; submitting for validation")
+                : item.status === "cancelled"
+                  ? t("准备已取消", "Preparation cancelled")
+                  : t("准备失败", "Preparation failed")}
+            {item.argument_bytes ? ` · ${item.argument_bytes} ${t("字节", "bytes")}` : ""}</span>
+        </div>)}
+      </div>}
       <p>{publicStream.snapshot?.text || (publicStream.status === "reconnecting"
         ? t("连接中断，正在重新连接…", "Connection interrupted, reconnecting…")
         : t("正在等待模型输出…", "Waiting for model output…"))}</p>

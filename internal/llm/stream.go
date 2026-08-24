@@ -5,14 +5,21 @@ import "errors"
 const (
 	MaxModelDeltaEvents = 32
 	MaxModelOutputBytes = 64 * 1024
+	// Anthropic-compatible streams admit up to four times the tool-call limit
+	// in ordered content blocks. A tool item has four persisted boundaries;
+	// keep one complete provider response representable in a single flush.
+	MaxStreamBoundariesPerDelta = MaxProviderOutputItems*4 + 4
 )
 
 type ModelDelta struct {
-	Sequence   int
-	ChunkCount int
-	ByteCount  int
-	TotalBytes int
-	Done       bool
+	Sequence       int
+	ChunkCount     int
+	ByteCount      int
+	TotalBytes     int
+	Done           bool
+	ResponseID     string
+	StreamSequence int
+	Boundaries     []StreamBoundary
 }
 
 func (d ModelDelta) Validate(maxEvents int, maxBytes int) error {
@@ -25,8 +32,45 @@ func (d ModelDelta) Validate(maxEvents int, maxBytes int) error {
 	if maxBytes > 0 && d.TotalBytes > maxBytes {
 		return errors.New("model delta total exceeds its byte limit")
 	}
-	if !d.Done && (d.ChunkCount == 0 || d.ByteCount == 0) {
-		return errors.New("non-final model delta must contain progress")
+	if len(d.Boundaries) > MaxStreamBoundariesPerDelta {
+		return errors.New("model delta contains too many item boundaries")
+	}
+	itemStream := d.ResponseID != "" || d.StreamSequence != 0 || len(d.Boundaries) != 0
+	if itemStream {
+		if err := validateStreamIdentity(d.ResponseID, "model delta response"); err != nil {
+			return err
+		}
+		if d.StreamSequence <= 0 || d.StreamSequence > MaxItemStreamEvents {
+			return errors.New("model delta item stream sequence is invalid")
+		}
+		previous := 0
+		terminal := StreamEventType("")
+		for index, boundary := range d.Boundaries {
+			if err := boundary.Validate(d.ResponseID); err != nil {
+				return err
+			}
+			if boundary.Sequence <= previous || boundary.Sequence > d.StreamSequence {
+				return errors.New("model delta item boundaries are unordered")
+			}
+			if boundary.Type == StreamResponseCompleted || boundary.Type == StreamResponseFailed ||
+				boundary.Type == StreamResponseCancelled {
+				if terminal != "" || index != len(d.Boundaries)-1 ||
+					boundary.Sequence != d.StreamSequence {
+					return errors.New("model delta response terminal boundary is not final")
+				}
+				terminal = boundary.Type
+			}
+			previous = boundary.Sequence
+		}
+		if d.Done && terminal != StreamResponseCompleted {
+			return errors.New("completed model delta requires a response completion boundary")
+		}
+		if !d.Done && terminal == StreamResponseCompleted {
+			return errors.New("non-final model delta cannot complete its response")
+		}
+	}
+	if !d.Done && (d.ChunkCount == 0 || d.ByteCount == 0) && len(d.Boundaries) == 0 {
+		return errors.New("non-final model delta must contain byte or item progress")
 	}
 	return nil
 }

@@ -12,7 +12,7 @@ import (
 // guard after removing the Drydock-owned schema. Historical downgrade fixtures
 // must not leave a future table reference behind.
 func removeSchemaV127ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV129ForTestStatements(), []string{
 		`DELETE FROM schema_migrations WHERE version = 128`,
 		`DROP TRIGGER trg_workspace_checkpoint_insert_scope`,
 		`CREATE TRIGGER trg_workspace_checkpoint_insert_scope
@@ -37,7 +37,7 @@ func removeSchemaV127ForTestStatements() []string {
 		`DROP TABLE drydock_workspaces`,
 		`DROP TABLE drydock_workspace_trust`,
 		`DELETE FROM schema_migrations WHERE version = 127`,
-	}
+	}...)
 }
 
 func TestSchemaV127AddsImmutableDrydockOwnershipAndExtendsCheckpointScope(t *testing.T) {

@@ -947,9 +947,11 @@ type ollamaStreamState struct {
 	finished      bool
 	textBytes     int
 	hasText       bool
+	textItemSeen  bool
 	toolCount     int
 	tools         []ToolCall
 	usage         *Usage
+	events        providerStreamEvents
 }
 
 func (s *ollamaStreamState) consume(line []byte) (*ChatChunk, error) {
@@ -982,7 +984,8 @@ func (s *ollamaStreamState) consume(line []byte) (*ChatChunk, error) {
 	if s.finished {
 		return nil, ollamaProtocolError(s.provider, "received an event after the stream finished")
 	}
-	var chunk *ChatChunk
+	streamEvents := s.ensureStreamStarted()
+	chunk := &ChatChunk{}
 	if event.Message != nil {
 		if role := strings.TrimSpace(event.Message.Role); role != "" && role != "assistant" {
 			return nil, ollamaProtocolError(s.provider, "returned an invalid stream role")
@@ -994,7 +997,18 @@ func (s *ollamaStreamState) consume(line []byte) (*ChatChunk, error) {
 			}
 			s.textBytes += len(text)
 			s.hasText = true
-			chunk = &ChatChunk{Text: text}
+			if !s.textItemSeen {
+				s.textItemSeen = true
+				streamEvents = append(streamEvents, s.events.emit(StreamEvent{
+					Type: StreamOutputItemStarted, ItemID: "message", ItemType: StreamItemMessage,
+					ItemStatus: StreamItemInProgress,
+				}))
+			}
+			streamEvents = append(streamEvents, s.events.emit(StreamEvent{
+				Type: StreamTextDelta, ItemID: "message", ItemType: StreamItemMessage,
+				ItemStatus: StreamItemInProgress, TextDelta: text,
+			}))
+			chunk.Text = text
 		}
 		if len(event.Message.ToolCalls) != 0 {
 			if s.toolCount != 0 {
@@ -1006,30 +1020,64 @@ func (s *ollamaStreamState) consume(line []byte) (*ChatChunk, error) {
 			}
 			s.tools = calls
 			s.toolCount = len(calls)
+			for index := range calls {
+				itemID := fmt.Sprintf("tool/%d", index)
+				call := calls[index]
+				streamEvents = append(streamEvents,
+					s.events.emit(StreamEvent{Type: StreamOutputItemStarted, ItemID: itemID,
+						ItemType: StreamItemToolCall, ItemStatus: StreamItemInProgress}),
+					s.events.emit(StreamEvent{Type: StreamToolCallStarted, ItemID: itemID,
+						CallID: call.ID, ItemType: StreamItemToolCall,
+						ItemStatus: StreamItemInProgress, ToolName: call.Name}),
+					s.events.emit(StreamEvent{Type: StreamToolCallCompleted, ItemID: itemID,
+						CallID: call.ID, ItemType: StreamItemToolCall,
+						ItemStatus: StreamItemReadyForValidation, ToolName: call.Name,
+						CompletedCall: &call}),
+					s.events.emit(StreamEvent{Type: StreamOutputItemCompleted, ItemID: itemID,
+						CallID: call.ID, ItemType: StreamItemToolCall,
+						ItemStatus: StreamItemCompleted, ToolName: call.Name}),
+				)
+			}
 		}
 	}
 	if event.Done {
 		s.finished = true
+		if s.toolCount == 0 && !s.hasText {
+			return nil, ollamaProtocolError(s.provider, "stream produced no content")
+		}
 		if reason := strings.TrimSpace(event.DoneReason); reason != "" &&
 			reason != "stop" && reason != "length" {
 			return nil, ollamaProtocolError(s.provider, "returned an invalid done reason")
 		}
 		usage := ollamaUsage(event.PromptEvalCount, event.EvalCount, "", s.messagesBytes)
 		s.usage = &usage
-		if chunk != nil {
-			chunk.Done = true
-			chunk.ToolCalls = s.tools
-			chunk.Usage = s.usage
-			chunk.Model, chunk.Provider = s.model, s.provider
-			return chunk, nil
+		if s.textItemSeen {
+			streamEvents = append(streamEvents, s.events.emit(StreamEvent{
+				Type: StreamOutputItemCompleted, ItemID: "message", ItemType: StreamItemMessage,
+				ItemStatus: StreamItemCompleted,
+			}))
 		}
-		return &ChatChunk{Done: true, ToolCalls: s.tools, Usage: s.usage,
-			Model: s.model, Provider: s.provider}, nil
-	}
-	if chunk != nil {
+		streamEvents = append(streamEvents, s.events.terminalEvent(OutcomeSuccess, s.usage))
+		chunk.Done = true
+		chunk.ToolCalls = s.tools
+		chunk.Events = streamEvents
+		chunk.Usage = s.usage
 		chunk.Model, chunk.Provider = s.model, s.provider
+		return chunk, nil
 	}
+	chunk.Events = streamEvents
+	if chunk.Text == "" && len(chunk.Events) == 0 {
+		return nil, nil
+	}
+	chunk.Model, chunk.Provider = s.model, s.provider
 	return chunk, nil
+}
+
+func (s *ollamaStreamState) ensureStreamStarted() []StreamEvent {
+	if s.events.started {
+		return nil
+	}
+	return []StreamEvent{s.events.start()}
 }
 
 func (s *ollamaStreamState) finalChunk() (ChatChunk, error) {
@@ -1049,11 +1097,12 @@ func (p *OllamaProvider) readStream(ctx context.Context, body io.ReadCloser,
 ) {
 	defer close(chunks)
 	defer body.Close()
-	state := ollamaStreamState{provider: p.name, model: model, messagesBytes: messagesBytes}
+	state := ollamaStreamState{provider: p.name, model: model, messagesBytes: messagesBytes,
+		events: newProviderStreamEvents(p.name, model, "ollama-response", StreamGranularityComplete)}
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 64*1024), maxOllamaStreamLineBytes)
 	sendError := func(err error) bool {
-		return p.sendStreamChunk(ctx, chunks, ChatChunk{Err: err})
+		return p.sendStreamChunk(ctx, chunks, state.events.failureChunk(err))
 	}
 	// The reader keeps consuming until EOF: Ollama closes the connection after
 	// the terminal event, and any non-empty trailing event must surface as a
@@ -1094,4 +1143,3 @@ func (p *OllamaProvider) sendStreamChunk(ctx context.Context,
 		return true
 	}
 }
-

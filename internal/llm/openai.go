@@ -717,6 +717,7 @@ type openAIStreamToolCall struct {
 }
 
 type openAIStreamResponse struct {
+	ID      string         `json:"id"`
 	Model   string         `json:"model"`
 	Choices []openAIChoice `json:"choices"`
 	Usage   *openAIUsage   `json:"usage"`
@@ -728,7 +729,11 @@ type openAIStreamToolState struct {
 	name      string
 	idSeen    bool
 	nameSeen  bool
+	itemID    string
+	itemSeen  bool
+	callSeen  bool
 	arguments strings.Builder
+	pending   []string
 }
 
 type openAIStreamState struct {
@@ -741,7 +746,9 @@ type openAIStreamState struct {
 	usage         *Usage
 	textBytes     int
 	hasTextDelta  bool
+	textItemSeen  bool
 	tools         map[int]*openAIStreamToolState
+	events        providerStreamEvents
 }
 
 func (s *openAIStreamState) consume(payload []byte) (*ChatChunk, error) {
@@ -775,7 +782,11 @@ func (s *openAIStreamState) consume(payload []byte) (*ChatChunk, error) {
 			return nil, openAIProtocolError(s.provider, "returned invalid stream usage")
 		}
 		s.usage = &usage
-		return nil, nil
+		events := s.ensureStreamStarted()
+		if len(events) == 0 {
+			return nil, nil
+		}
+		return &ChatChunk{Events: events}, nil
 	}
 	if len(event.Choices) != 1 || event.Choices[0].Index == nil || *event.Choices[0].Index != 0 || s.finished {
 		return nil, openAIProtocolError(s.provider, "returned an invalid stream choice")
@@ -784,7 +795,8 @@ func (s *openAIStreamState) consume(payload []byte) (*ChatChunk, error) {
 	if choice.Delta.Role != "" && choice.Delta.Role != "assistant" {
 		return nil, openAIProtocolError(s.provider, "returned an invalid stream role")
 	}
-	var chunk *ChatChunk
+	streamEvents := s.ensureStreamStarted()
+	chunk := &ChatChunk{}
 	if choice.Delta.Content != nil && *choice.Delta.Content != "" {
 		text := *choice.Delta.Content
 		if s.textBytes > MaxModelOutputBytes-len(text) {
@@ -792,12 +804,25 @@ func (s *openAIStreamState) consume(payload []byte) (*ChatChunk, error) {
 		}
 		s.textBytes += len(text)
 		s.hasTextDelta = true
-		chunk = &ChatChunk{Text: text}
+		if !s.textItemSeen {
+			s.textItemSeen = true
+			streamEvents = append(streamEvents, s.events.emit(StreamEvent{
+				Type: StreamOutputItemStarted, ItemID: "message", ItemType: StreamItemMessage,
+				ItemStatus: StreamItemInProgress,
+			}))
+		}
+		streamEvents = append(streamEvents, s.events.emit(StreamEvent{
+			Type: StreamTextDelta, ItemID: "message", ItemType: StreamItemMessage,
+			ItemStatus: StreamItemInProgress, TextDelta: text,
+		}))
+		chunk.Text = text
 	}
 	for _, delta := range choice.Delta.ToolCalls {
-		if err := s.consumeToolDelta(delta); err != nil {
+		events, err := s.consumeToolDelta(delta)
+		if err != nil {
 			return nil, openAIProtocolError(s.provider, "returned an invalid tool-call delta")
 		}
+		streamEvents = append(streamEvents, events...)
 	}
 	if choice.FinishReason != "" {
 		s.finished = true
@@ -818,15 +843,20 @@ func (s *openAIStreamState) consume(payload []byte) (*ChatChunk, error) {
 		}
 		s.usage = &usage
 	}
+	chunk.Events = streamEvents
+	if chunk.Text == "" && len(chunk.Events) == 0 {
+		return nil, nil
+	}
 	return chunk, nil
 }
 
-func (s *openAIStreamState) consumeToolDelta(delta openAIStreamToolCall) error {
+func (s *openAIStreamState) consumeToolDelta(delta openAIStreamToolCall) ([]StreamEvent, error) {
+	events := make([]StreamEvent, 0, 4)
 	if delta.Index == nil || *delta.Index < 0 || *delta.Index >= MaxProviderToolCalls {
-		return errors.New("tool-call index is invalid")
+		return nil, errors.New("tool-call index is invalid")
 	}
 	if delta.Type != "" && delta.Type != "function" {
-		return errors.New("tool-call type is unsupported")
+		return nil, errors.New("tool-call type is unsupported")
 	}
 	if s.tools == nil {
 		s.tools = make(map[int]*openAIStreamToolState)
@@ -834,32 +864,68 @@ func (s *openAIStreamState) consumeToolDelta(delta openAIStreamToolCall) error {
 	state, exists := s.tools[*delta.Index]
 	if !exists {
 		if len(s.tools) >= MaxProviderToolCalls {
-			return errors.New("too many tool calls")
+			return nil, errors.New("too many tool calls")
 		}
-		state = &openAIStreamToolState{}
+		state = &openAIStreamToolState{itemID: fmt.Sprintf("tool/%d", *delta.Index)}
 		s.tools[*delta.Index] = state
+	}
+	if !state.itemSeen {
+		state.itemSeen = true
+		events = append(events, s.events.emit(StreamEvent{
+			Type: StreamOutputItemStarted, ItemID: state.itemID, ItemType: StreamItemToolCall,
+			ItemStatus: StreamItemInProgress,
+		}))
 	}
 	if delta.ID != "" {
 		if state.idSeen && delta.ID != state.id {
-			return errors.New("tool-call id changed")
+			return nil, errors.New("tool-call id changed")
 		}
 		state.id, state.idSeen = delta.ID, true
 	}
 	if delta.Function.Name != "" {
 		if state.nameSeen && delta.Function.Name != state.name {
-			return errors.New("tool-call name changed")
+			return nil, errors.New("tool-call name changed")
 		}
 		state.name, state.nameSeen = delta.Function.Name, true
 	}
 	if !utf8.ValidString(state.id) || !utf8.ValidString(state.name) ||
 		len([]rune(state.id)) > MaxProviderToolIdentity || len([]rune(state.name)) > MaxProviderToolIdentity {
-		return errors.New("tool-call identity exceeds the limit")
+		return nil, errors.New("tool-call identity exceeds the limit")
 	}
 	if state.arguments.Len() > MaxProviderToolPayloadSize-len(delta.Function.Arguments) {
-		return errors.New("tool-call arguments exceed the limit")
+		return nil, errors.New("tool-call arguments exceed the limit")
 	}
 	_, _ = state.arguments.WriteString(delta.Function.Arguments)
-	return nil
+	if delta.Function.Arguments != "" {
+		state.pending = append(state.pending, delta.Function.Arguments)
+	}
+	if !state.callSeen && state.idSeen && state.nameSeen {
+		if err := validateToolName(state.name); err != nil {
+			return nil, err
+		}
+		state.callSeen = true
+		events = append(events, s.events.emit(StreamEvent{
+			Type: StreamToolCallStarted, ItemID: state.itemID, CallID: state.id,
+			ItemType: StreamItemToolCall, ItemStatus: StreamItemInProgress, ToolName: state.name,
+		}))
+		for _, pending := range state.pending {
+			events = append(events, s.events.emit(StreamEvent{
+				Type: StreamToolArgumentDelta, ItemID: state.itemID, CallID: state.id,
+				ItemType: StreamItemToolCall, ItemStatus: StreamItemInProgress,
+				ToolName: state.name, ArgumentDelta: pending,
+			}))
+		}
+		state.pending = nil
+	} else if state.callSeen && delta.Function.Arguments != "" {
+		pending := state.pending[len(state.pending)-1]
+		state.pending = state.pending[:len(state.pending)-1]
+		events = append(events, s.events.emit(StreamEvent{
+			Type: StreamToolArgumentDelta, ItemID: state.itemID, CallID: state.id,
+			ItemType: StreamItemToolCall, ItemStatus: StreamItemInProgress,
+			ToolName: state.name, ArgumentDelta: pending,
+		}))
+	}
+	return events, nil
 }
 
 func (s *openAIStreamState) finalChunk() (ChatChunk, error) {
@@ -899,8 +965,45 @@ func (s *openAIStreamState) finalChunk() (ChatChunk, error) {
 		return ChatChunk{}, openAIProtocolError(s.provider, "stream returned an incompatible finish reason")
 	}
 	usage := *s.usage
-	return ChatChunk{Done: true, ToolCalls: calls, Usage: &usage,
+	events := make([]StreamEvent, 0, 3+len(calls)*2)
+	if s.textItemSeen {
+		events = append(events, s.events.emit(StreamEvent{
+			Type: StreamOutputItemCompleted, ItemID: "message", ItemType: StreamItemMessage,
+			ItemStatus: StreamItemCompleted,
+		}))
+	}
+	for _, index := range indices {
+		state := s.tools[index]
+		if !state.callSeen || len(state.pending) != 0 {
+			return ChatChunk{}, openAIProtocolError(s.provider, "stream returned an unfinished tool call")
+		}
+		var call ToolCall
+		for _, current := range calls {
+			if current.ID == state.id {
+				call = current
+				break
+			}
+		}
+		events = append(events, s.events.emit(StreamEvent{
+			Type: StreamToolCallCompleted, ItemID: state.itemID, CallID: state.id,
+			ItemType: StreamItemToolCall, ItemStatus: StreamItemReadyForValidation,
+			ToolName: state.name, CompletedCall: &call,
+		}))
+		events = append(events, s.events.emit(StreamEvent{
+			Type: StreamOutputItemCompleted, ItemID: state.itemID, CallID: state.id,
+			ItemType: StreamItemToolCall, ItemStatus: StreamItemCompleted, ToolName: state.name,
+		}))
+	}
+	events = append(events, s.events.terminalEvent(OutcomeSuccess, &usage))
+	return ChatChunk{Done: true, ToolCalls: calls, Events: events, Usage: &usage,
 		Model: s.model, Provider: s.provider}, nil
+}
+
+func (s *openAIStreamState) ensureStreamStarted() []StreamEvent {
+	if s.events.started {
+		return nil
+	}
+	return []StreamEvent{s.events.start()}
 }
 
 func (p *OpenAICompatibleProvider) readStream(ctx context.Context, body io.ReadCloser,
@@ -908,14 +1011,15 @@ func (p *OpenAICompatibleProvider) readStream(ctx context.Context, body io.ReadC
 ) {
 	defer close(chunks)
 	defer body.Close()
-	state := openAIStreamState{provider: p.name, model: model}
+	state := openAIStreamState{provider: p.name, model: model,
+		events: newProviderStreamEvents(p.name, model, "openai-response", StreamGranularityDelta)}
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 64*1024), maxOpenAIStreamLineBytes)
 	dataLines := make([]string, 0, 1)
 	eventBytes := 0
 	stopped := false
 	sendError := func(err error) bool {
-		return p.sendStreamChunk(ctx, chunks, ChatChunk{Err: err})
+		return p.sendStreamChunk(ctx, chunks, state.events.failureChunk(err))
 	}
 	flush := func() bool {
 		if len(dataLines) == 0 {

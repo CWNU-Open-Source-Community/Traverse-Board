@@ -6357,6 +6357,7 @@ export interface components {
             /** Format: int64 */
             id: number;
             instruction_authorized: boolean;
+            output_items: components["schemas"]["OutputItem"][];
             /** @enum {string} */
             provenance_version: "context_provenance.v0" | "context_provenance.v1";
             /** @enum {string} */
@@ -6589,6 +6590,19 @@ export interface components {
             pending: number;
             /** Format: int32 */
             prepared: number;
+        };
+        OutputItem: {
+            /** Format: int32 */
+            argument_bytes?: number;
+            call_id?: string;
+            durable: boolean;
+            durable_call_id?: string;
+            id: string;
+            provisional: boolean;
+            response_id: string;
+            status: string;
+            tool_name?: string;
+            type: string;
         };
         OutputSpec: {
             capture_stderr: boolean;
@@ -6871,8 +6885,12 @@ export interface components {
         PublicModelStreamSnapshot: {
             call: components["schemas"]["ActiveCallInfo"];
             content_kind: string;
+            /** Format: int32 */
+            event_sequence: number;
+            items: components["schemas"]["OutputItem"][];
             message_complete: boolean;
             provisional: boolean;
+            response_id?: string;
             /** Format: int64 */
             revision: number;
             text: string;
@@ -8236,6 +8254,9 @@ export interface components {
             result?: unknown;
             /** @enum {string} */
             status: "pending" | "completed" | "denied" | "failed";
+            stream_call_id?: string;
+            stream_item_id?: string;
+            stream_response_id?: string;
             tool_name: string;
         };
         SupervisorToolRoundView: {

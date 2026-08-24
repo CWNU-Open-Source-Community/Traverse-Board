@@ -166,7 +166,7 @@ const modelCancellationData = {
 };
 
 const publicModelStreamData = {
-  version: "model_public_stream.v2",
+  version: "model_public_stream.v3",
   call: {
     run_id: "run-1", session_id: "sess-1", attempt_id: "attempt-1",
     model_attempt: 1, transport_attempt: 1, max_attempts: 3, protocol_repair: 0,
@@ -174,7 +174,12 @@ const publicModelStreamData = {
     started_at: "2026-08-08T00:00:00Z", stream_chunks: 2, stream_bytes: 64,
     cancel_requested: false,
   },
-  revision: 3, content_kind: "root_message", text: "A safe provisional answer", message_complete: false,
+  revision: 3, response_id: "response-1", event_sequence: 4, items: [{
+    response_id: "response-1", id: "item-tool-1", type: "tool_call",
+    status: "in_progress", call_id: "call-tool-1", tool_name: "read_file",
+    argument_bytes: 24, provisional: true, durable: false,
+  }],
+  content_kind: "root_message", text: "A safe provisional answer", message_complete: false,
   provisional: true, updated_at: "2026-08-08T00:00:01Z",
 };
 
@@ -1245,9 +1250,22 @@ describe("CyberAgentClient", () => {
         version: "api.v1", request_id: "req-public-stream-cross-run",
         data: { ...publicModelStreamData,
           call: { ...publicModelStreamData.call, run_id: "run-other" } },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-public-stream-arguments",
+        data: { ...publicModelStreamData, items: [{
+          ...publicModelStreamData.items[0], arguments: { path: "private.md" },
+        }] },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-public-stream-duplicate-item",
+        data: { ...publicModelStreamData,
+          items: [publicModelStreamData.items[0], publicModelStreamData.items[0]] },
       }), { status: 200, headers: { "Content-Type": "application/json" } })));
     const client = new CyberAgentClient("read-secret", "/api/v1");
 
+    await expect(client.getPublicModelStream("run-1")).rejects.toThrow("invalid");
+    await expect(client.getPublicModelStream("run-1")).rejects.toThrow("invalid");
     await expect(client.getPublicModelStream("run-1")).rejects.toThrow("invalid");
     await expect(client.getPublicModelStream("run-1")).rejects.toThrow("invalid");
   });

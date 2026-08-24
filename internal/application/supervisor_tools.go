@@ -254,7 +254,9 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 			return nil, errors.New("provider requested duplicate structured tool intent in one batch")
 		}
 		seen[callID] = struct{}{}
-		out[index] = llm.ToolCall{ID: callID, Name: string(name), Arguments: payload}
+		out[index] = llm.ToolCall{ID: callID, Name: string(name), Arguments: payload,
+			StreamResponseID: call.StreamResponseID, StreamItemID: call.StreamItemID,
+			StreamCallID: call.StreamCallID}
 		if toolgateway.IsAgentCodeTool(name) {
 			out[index].Authority = append(json.RawMessage(nil), agentCodeAuthority...)
 		}
@@ -461,6 +463,10 @@ func (s *RunSupervisor) resumeSupervisorTools(ctx context.Context, turn domain.S
 		for _, call := range round.Calls {
 			if call.Status != domain.SupervisorToolPending {
 				continue
+			}
+			if _, err := s.store.RecordSupervisorToolExecutionStarted(ctx, turn.Checkpoint,
+				call.CallID); err != nil {
+				return rounds, apperror.Normalize(err)
 			}
 			result, err := s.invokeSupervisorTool(ctx, turn, call)
 			if err != nil {

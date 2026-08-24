@@ -88,6 +88,7 @@ export function RunActivityTimeline({ activity, liveCommentary = null,
     liveCommentary.text.trim() &&
     !hasDurablePublicUpdate(activity.items, liveCommentary)
     ? provisionalActivityItem(activity, liveCommentary, liveStatus) : null;
+  const liveTools = liveCommentary?.items.filter((item) => item.type === "tool_call") ?? [];
   return (
     <section aria-label={t("Run 活动", "Run activity")} className="run-activity">
       <header className="run-activity-header">
@@ -112,7 +113,7 @@ export function RunActivityTimeline({ activity, liveCommentary = null,
             `Showing recent activity through event #${activity.through_sequence}`)}
         </div>
       )}
-      {activity.items.length === 0 && !provisional ? (
+      {activity.items.length === 0 && !provisional && liveTools.length === 0 ? (
         <div className="run-activity-empty">
           <MessageSquareText aria-hidden="true" size={21} />
           <span>{t("还没有公开活动", "No public activity yet")}</span>
@@ -124,9 +125,41 @@ export function RunActivityTimeline({ activity, liveCommentary = null,
             <HarnessDisclosure items={entry.items} key={entry.id} t={t} />)}
           {provisional && <ActivityMessage item={provisional} key={provisional.id}
             provisional t={t} />}
+          {liveTools.map((item) => <LiveToolPreparation item={item} key={item.id} t={t} />)}
         </ol>
       )}
     </section>
+  );
+}
+
+function LiveToolPreparation({ item, t }: {
+  item: PublicModelStreamSnapshot["items"][number];
+  t: Translator;
+}) {
+  const labels: Record<string, [string, string]> = {
+    in_progress: ["正在准备调用", "Preparing call"],
+    ready_for_validation: ["参数已就绪，等待验证", "Arguments ready; awaiting validation"],
+    completed: ["已准备，正在提交验证", "Prepared; submitting for validation"],
+    failed: ["准备失败", "Preparation failed"],
+    cancelled: ["准备已取消", "Preparation cancelled"],
+  };
+  const label = labels[item.status] ?? [item.status, item.status];
+  return (
+    <li className="run-activity-item source-model is-provisional live-tool-preparation">
+      <span className="run-activity-marker"><Wrench aria-hidden="true" size={16} /></span>
+      <div className="run-activity-body">
+        <div className="run-activity-meta">
+          <span className="run-activity-source source-model">{t("模型工具请求", "Model tool request")}</span>
+          <span className="run-activity-live"><span aria-hidden="true" />{t("临时", "Live")}</span>
+        </div>
+        <h3>{item.tool_name}</h3>
+        <div className="run-activity-detail">{t(...label)}
+          {item.argument_bytes ? ` · ${item.argument_bytes} ${t("字节", "bytes")}` : ""}
+        </div>
+        <small>{t("参数内容不会显示或写入公开活动；Go 验证后才会执行。",
+          "Arguments are neither displayed nor written to public activity; execution begins only after Go validation.")}</small>
+      </div>
+    </li>
   );
 }
 

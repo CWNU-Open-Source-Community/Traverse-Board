@@ -35,6 +35,19 @@ func TestSupervisorToolLedgerAllowsEveryAdvertisedDefinition(t *testing.T) {
 	}
 }
 
+func addCurrentSupervisorToolStreamColumns(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+	// Historical fixtures intentionally exercise the current writer before
+	// reopening through Open. Supply only the columns the current writer needs;
+	// the historical ledger rebuilds then discard them and v129 recreates the
+	// complete indexed/guarded contract during the real upgrade.
+	for _, statement := range itemStreamToolIdentityStatements[:3] {
+		if _, err := db.ExecContext(ctx, statement); err != nil {
+			t.Fatalf("add current item-stream compatibility column: %v", err)
+		}
+	}
+}
+
 func TestSchemaV113PreservesCallsAndAdmitsDebugTerminal(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v112-supervisor-tools.db")
@@ -72,6 +85,7 @@ func TestSchemaV113PreservesCallsAndAdmitsDebugTerminal(t *testing.T) {
 		_ = legacy.Close()
 		t.Fatal(err)
 	}
+	addCurrentSupervisorToolStreamColumns(t, ctx, db)
 
 	_, run, err := application.NewRunService(legacy).Create(ctx, application.CreateRunRequest{
 		Goal: "preserve v112 Supervisor tools", Profile: "code",
@@ -188,6 +202,7 @@ func TestSchemaV116AndV120PreserveAuthorityAndAdmitRuntimeTools(t *testing.T) {
 			t.Fatalf("apply v115 migration %d: %v", item.Version, err)
 		}
 	}
+	addCurrentSupervisorToolStreamColumns(t, ctx, db)
 	_, run, err := application.NewRunService(legacy).Create(ctx, application.CreateRunRequest{
 		Goal: "preserve v115 workspace authority", Profile: "code",
 		Budget: domain.Budget{MaxTurns: 5, MaxToolCalls: 20},

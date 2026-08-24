@@ -1,15 +1,28 @@
 # Project Status
 
-Last updated: 2026-08-23
+Last updated: 2026-08-24
 
 > **Scope authority:** active mainline work targets the general-purpose Agent Harness and Code workflow. CTF-specific solving and offensive automation are optional add-ons and have no active implementation schedule. Historical references and percentages below remain audit history, not queued work. See [Product Scope](PRODUCT_SCOPE.md).
 
 ## Resume Context
 
-当前检查点是 issue #133 / schema v128。v128 只扩展既有 immutable Docker admission 的
+当前检查点是 issue #152 / schema v129。`llm.item_stream.v1` 以稳定 sequence 和
+Application-owned response/item/call ID 统一 OpenAI interleaved tool delta、Anthropic content
+block、Ollama/Mock complete-item 与 legacy `ChatChunk`。参数 delta 只在有界内存中拼接并与最终
+JSON call 对照；Provider 无权发出 execution event。Go 在完整校验和 durable call 建立后记录
+`tool_execution_started/completed`，并以 schema v129 的不可变 ID 绑定支持重启重放与 exactly-once
+逻辑效果。
+
+`model_public_stream.v3` 让 Desktop/Web 在参数流动时显示“准备调用”，但只含稳定 ID、状态、
+脱敏工具名与 byte count。`model.delta` 只保存 content-free boundary；两者都不含参数、raw wire、
+凭据或私有推理。取消、EOF、usage/model/终态错误会写失败/取消边界，不伪造成功完成；旧 Session
+history 无需迁移即可投影 durable completed item。边界见 ADR 0132。
+
+上一检查点是 issue #133 / schema v128。v128 只扩展既有 immutable Docker admission 的
 permission CHECK 以接受 `workspace_access`，并保留历史记录与全部绑定/不可变触发器。Standard Code
-新增显式、固定镜像、固定本地
-endpoint 的 Docker `network=none` 备用后端。统一 `standard-code-command.v1` 只含工具链、argv、
+新增显式、固定镜像、固定本地 endpoint 的 Docker `network=none` 备用后端。
+
+统一 `standard-code-command.v1` 只含工具链、argv、
 Drydock 相对 cwd、超时和目的；Local/Docker 共用 Checkpoint/Artifact 结果 schema。Go 固定唯一
 Drydock mount、非 root 用户、只读 rootfs/toolchains、资源/取消上限与空凭证输入，并在 start 前重验
 Drydock generation/Checkpoint/binding、Docker profile、workspace_access revision、per-call approval、

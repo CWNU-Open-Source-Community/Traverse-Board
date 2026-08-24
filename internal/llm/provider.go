@@ -12,6 +12,7 @@ import (
 
 const (
 	MaxProviderToolCalls       = 16
+	MaxProviderOutputItems     = MaxProviderToolCalls * 4
 	MaxProviderToolIdentity    = 128
 	MaxProviderToolPayloadSize = 256 * 1024
 	MaxProviderToolResultSize  = 64 * 1024
@@ -58,18 +59,21 @@ type ChatRequest struct {
 }
 
 type ChatResponse struct {
-	Text      string
-	ToolCalls []ToolCall
-	Usage     Usage
-	Raw       json.RawMessage
-	Model     string
-	Provider  string
+	ResponseID string
+	Text       string
+	ToolCalls  []ToolCall
+	Items      []OutputItem
+	Usage      Usage
+	Raw        json.RawMessage
+	Model      string
+	Provider   string
 }
 
 type ChatChunk struct {
 	Text      string
 	Done      bool
 	ToolCalls []ToolCall
+	Events    []StreamEvent
 	Usage     *Usage
 	Model     string
 	Provider  string
@@ -94,6 +98,11 @@ type ToolCall struct {
 	// payloads. Supervisor persistence uses it to replay a pending call against
 	// the exact capability snapshot that exposed the tool.
 	Authority json.RawMessage `json:"-"`
+	// Stream identities are application-owned reconciliation metadata. They
+	// never come from provider authority and are never sent back on the wire.
+	StreamResponseID string `json:"-"`
+	StreamItemID     string `json:"-"`
+	StreamCallID     string `json:"-"`
 }
 
 func NormalizeToolCall(call ToolCall) (ToolCall, error) {
@@ -101,6 +110,9 @@ func NormalizeToolCall(call ToolCall) (ToolCall, error) {
 	call.Name = strings.TrimSpace(call.Name)
 	call.Arguments = append(json.RawMessage(nil), bytes.TrimSpace(call.Arguments)...)
 	call.Authority = append(json.RawMessage(nil), bytes.TrimSpace(call.Authority)...)
+	call.StreamResponseID = strings.TrimSpace(call.StreamResponseID)
+	call.StreamItemID = strings.TrimSpace(call.StreamItemID)
+	call.StreamCallID = strings.TrimSpace(call.StreamCallID)
 	if call.ID == "" || call.Name == "" || !utf8.ValidString(call.ID) || !utf8.ValidString(call.Name) ||
 		len([]rune(call.ID)) > MaxProviderToolIdentity || len([]rune(call.Name)) > MaxProviderToolIdentity ||
 		strings.ContainsRune(call.ID, 0) || strings.ContainsRune(call.Name, 0) {
@@ -116,6 +128,19 @@ func NormalizeToolCall(call ToolCall) (ToolCall, error) {
 		return ToolCall{}, fmt.Errorf("provider tool call arguments must be valid UTF-8 JSON up to %d bytes",
 			MaxProviderToolPayloadSize)
 	}
+	streamIDs := []string{call.StreamResponseID, call.StreamItemID, call.StreamCallID}
+	streamCount := 0
+	for _, value := range streamIDs {
+		if value != "" {
+			streamCount++
+			if err := validateStreamIdentity(value, "tool call"); err != nil {
+				return ToolCall{}, err
+			}
+		}
+	}
+	if streamCount != 0 && streamCount != len(streamIDs) {
+		return ToolCall{}, errors.New("provider tool call stream identities must be all present or all absent")
+	}
 	return call, nil
 }
 
@@ -125,6 +150,10 @@ func NormalizeToolCalls(calls []ToolCall) ([]ToolCall, error) {
 	}
 	out := make([]ToolCall, len(calls))
 	seen := make(map[string]struct{}, len(calls))
+	seenStreamItems := make(map[string]struct{}, len(calls))
+	seenStreamCalls := make(map[string]struct{}, len(calls))
+	streamResponseID := ""
+	streamMetadata := false
 	for index, call := range calls {
 		normalized, err := NormalizeToolCall(call)
 		if err != nil {
@@ -134,6 +163,27 @@ func NormalizeToolCalls(calls []ToolCall) ([]ToolCall, error) {
 			return nil, errors.New("provider tool call ids must be unique")
 		}
 		seen[normalized.ID] = struct{}{}
+		hasStreamMetadata := normalized.StreamResponseID != ""
+		if index == 0 {
+			streamMetadata = hasStreamMetadata
+		} else if hasStreamMetadata != streamMetadata {
+			return nil, errors.New("provider tool calls must consistently carry stream identities")
+		}
+		if hasStreamMetadata {
+			if streamResponseID == "" {
+				streamResponseID = normalized.StreamResponseID
+			} else if normalized.StreamResponseID != streamResponseID {
+				return nil, errors.New("provider tool calls changed their stream response identity")
+			}
+			if _, exists := seenStreamItems[normalized.StreamItemID]; exists {
+				return nil, errors.New("provider tool call stream item ids must be unique")
+			}
+			if _, exists := seenStreamCalls[normalized.StreamCallID]; exists {
+				return nil, errors.New("provider tool call stream call ids must be unique")
+			}
+			seenStreamItems[normalized.StreamItemID] = struct{}{}
+			seenStreamCalls[normalized.StreamCallID] = struct{}{}
+		}
 		out[index] = normalized
 	}
 	return out, nil

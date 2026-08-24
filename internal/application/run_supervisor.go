@@ -79,6 +79,8 @@ type SupervisorStore interface {
 	ListSupervisorToolRounds(ctx context.Context, checkpoint domain.SupervisorCheckpoint) ([]domain.SupervisorToolRound, error)
 	RecordSupervisorToolResult(ctx context.Context, checkpoint domain.SupervisorCheckpoint,
 		result domain.SupervisorToolResult) (domain.SupervisorToolCall, bool, error)
+	RecordSupervisorToolExecutionStarted(ctx context.Context, checkpoint domain.SupervisorCheckpoint,
+		callID string) (bool, error)
 }
 
 type externalRootSkillContextStore interface {

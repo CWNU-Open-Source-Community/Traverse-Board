@@ -67,18 +67,36 @@ func TestSupervisorToolBatchAndResultEventsAreAtomicAndReplayable(t *testing.T) 
 	rounds, err := st.ListSupervisorToolRounds(ctx, checkpoint)
 	if err != nil || len(rounds) != 1 || len(rounds[0].Calls) != 1 ||
 		rounds[0].Calls[0].Status != domain.SupervisorToolPending ||
+		rounds[0].Calls[0].StreamResponseID == "" || rounds[0].Calls[0].StreamItemID == "" ||
+		rounds[0].Calls[0].StreamCallID == "" ||
 		strings.Contains(rounds[0].Calls[0].PayloadJSON, secret) ||
 		!strings.Contains(rounds[0].Calls[0].PayloadJSON, "[REDACTED:") {
 		t.Fatalf("pending supervisor tool batch is unsafe: %#v err=%v", rounds, err)
+	}
+	if _, err := st.db.ExecContext(ctx, `UPDATE run_supervisor_tool_calls
+		SET stream_call_id = 'changed' WHERE run_id = ? AND call_id = ?`, run.ID,
+		rounds[0].Calls[0].CallID); err == nil {
+		t.Fatal("SQLite allowed a reconciled stream identity to change")
+	}
+	result := domain.SupervisorToolResult{
+		CallID: rounds[0].Calls[0].CallID, Status: domain.SupervisorToolCompleted,
+		ResultJSON: `{"status":"completed"}`, CompletedAt: time.Now().UTC(),
+	}
+	if _, _, err := st.RecordSupervisorToolResult(ctx, checkpoint, result); apperror.CodeOf(apperror.Normalize(err)) != apperror.CodeFailedPrecondition {
+		t.Fatalf("result without execution start error = %v", err)
+	}
+	if inserted, err := st.RecordSupervisorToolExecutionStarted(ctx, checkpoint,
+		rounds[0].Calls[0].CallID); err != nil || !inserted {
+		t.Fatalf("supervisor tool execution start failed: inserted=%t err=%v", inserted, err)
+	}
+	if inserted, err := st.RecordSupervisorToolExecutionStarted(ctx, checkpoint,
+		rounds[0].Calls[0].CallID); err != nil || inserted {
+		t.Fatalf("supervisor tool execution start replay failed: inserted=%t err=%v", inserted, err)
 	}
 	if _, err := st.db.ExecContext(ctx, `CREATE TRIGGER fail_supervisor_tool_result_event
 		BEFORE INSERT ON run_events WHEN NEW.type = 'supervisor.tool_result_recorded'
 		BEGIN SELECT RAISE(ABORT, 'injected supervisor tool result event failure'); END;`); err != nil {
 		t.Fatal(err)
-	}
-	result := domain.SupervisorToolResult{
-		CallID: rounds[0].Calls[0].CallID, Status: domain.SupervisorToolCompleted,
-		ResultJSON: `{"status":"completed"}`, CompletedAt: time.Now().UTC(),
 	}
 	if _, _, err := st.RecordSupervisorToolResult(ctx, checkpoint, result); err == nil {
 		t.Fatal("expected supervisor tool result event failure")
@@ -93,6 +111,10 @@ func TestSupervisorToolBatchAndResultEventsAreAtomicAndReplayable(t *testing.T) 
 	stored, replayed, err := st.RecordSupervisorToolResult(ctx, checkpoint, result)
 	if err != nil || replayed || stored.Status != domain.SupervisorToolCompleted {
 		t.Fatalf("supervisor tool result did not commit: %#v replayed=%t err=%v", stored, replayed, err)
+	}
+	if inserted, err := st.RecordSupervisorToolExecutionStarted(ctx, checkpoint,
+		rounds[0].Calls[0].CallID); err != nil || inserted {
+		t.Fatalf("completed execution start replay failed: inserted=%t err=%v", inserted, err)
 	}
 	if _, replayed, err := st.RecordSupervisorToolResult(ctx, checkpoint, result); err != nil || !replayed {
 		t.Fatalf("supervisor tool result replay was not idempotent: replayed=%t err=%v", replayed, err)
@@ -113,6 +135,8 @@ func TestSupervisorToolBatchAndResultEventsAreAtomicAndReplayable(t *testing.T) 
 	}
 	eventList, err := st.ListRunEvents(ctx, run.ID)
 	if err != nil || countRunEventType(eventList, events.SupervisorToolBatchEvent) != 1 ||
+		countRunEventType(eventList, events.SupervisorToolExecutionStartedEvent) != 1 ||
+		countRunEventType(eventList, events.SupervisorToolExecutionCompletedEvent) != 1 ||
 		countRunEventType(eventList, events.SupervisorToolResultEvent) != 1 ||
 		countRunEventType(eventList, events.SupervisorToolCompleteEvent) != 1 {
 		t.Fatalf("supervisor tool event stream is inconsistent: %#v err=%v", eventList, err)
@@ -246,6 +270,10 @@ func TestConcurrentSupervisorToolResultReplayConvergesAcrossStores(t *testing.T)
 		CallID: callID, Status: domain.SupervisorToolCompleted,
 		ResultJSON: `{"status":"completed"}`, CompletedAt: time.Now().UTC(),
 	}
+	if inserted, err := st.RecordSupervisorToolExecutionStarted(ctx, checkpoint,
+		callID); err != nil || !inserted {
+		t.Fatalf("supervisor tool execution start failed: inserted=%t err=%v", inserted, err)
+	}
 	type recordResult struct {
 		replayed bool
 		err      error
@@ -285,6 +313,8 @@ func TestConcurrentSupervisorToolResultReplayConvergesAcrossStores(t *testing.T)
 	}
 	eventList, err := st.ListRunEvents(ctx, run.ID)
 	if err != nil || countRunEventType(eventList, events.SupervisorToolResultEvent) != 1 ||
+		countRunEventType(eventList, events.SupervisorToolExecutionStartedEvent) != 1 ||
+		countRunEventType(eventList, events.SupervisorToolExecutionCompletedEvent) != 1 ||
 		countRunEventType(eventList, events.SupervisorToolCompleteEvent) != 1 {
 		t.Fatalf("concurrent result duplicated events: %#v err=%v", eventList, err)
 	}

@@ -6,6 +6,7 @@ import (
 )
 
 func TestStandardCodeDockerCLIHasNoImageOrDockerArgumentEscapeHatch(t *testing.T) {
+	t.Setenv("CYBERAGENT_HOME", t.TempDir())
 	t.Setenv(standardCodeDockerImageEnvironment, "")
 	base := []string{"run", "standard-code", "docker-readiness",
 		"standard-code-run-1", "--generation", "1", "--checkpoint",
@@ -28,6 +29,7 @@ func TestStandardCodeDockerCLIHasNoImageOrDockerArgumentEscapeHatch(t *testing.T
 }
 
 func TestStandardCodeDockerExecuteRequiresAllProcessGates(t *testing.T) {
+	t.Setenv("CYBERAGENT_HOME", t.TempDir())
 	args := []string{"run", "standard-code", "docker-execute",
 		"standard-code-run-1", "--generation", "1", "--checkpoint",
 		"standard-code-checkpoint-1", "--toolchain", "rust", "--purpose",

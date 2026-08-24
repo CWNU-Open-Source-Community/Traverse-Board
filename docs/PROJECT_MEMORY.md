@@ -2,9 +2,23 @@
 
 > Scope checkpoint (2026-08-13): continue only the general-purpose Agent Harness and Code workflow. CTF-specific solving/offensive automation is an optional add-on with no active slices; retain generic extension seams only. Historical Cyber percentages are not current planning metrics. See [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md).
 
-Last updated: 2026-08-23
+Last updated: 2026-08-24
 
-## Current Single-Slice Checkpoint: Standard Code Docker Fallback / Issue #133 / Schema v128
+## Current Single-Slice Checkpoint: Item-Level Model/Tool Streaming / Issue #152 / Schema v129
+
+`llm.item_stream.v1` 将 OpenAI interleaved tool-call delta、Anthropic content block、Ollama/Mock
+complete-item 与 legacy `ChatChunk` 归一为严格有序 response/item/call 生命周期。Application
+以 Run/attempt 事实替换 upstream ID；argument delta 只在 256 KiB 有界内存中拼接，必须与完整、
+合法 JSON call 一致。Provider execution event 被拒绝，只有 Go Supervisor 在 durable call 建立和
+全部既有 Policy/budget/authority/idempotency 检查后记录 execution start/completion。
+
+`model_public_stream.v3` 只显示稳定 ID、状态、脱敏工具名和参数字节数；`model.delta` 只保存
+content-free boundary。二者都不能表示参数、raw wire、凭据或 private thinking。schema v129
+不可变绑定 provisional response/item/call 与本地 call ID；旧 Session message 确定性投影为 durable
+completed message item。取消、EOF、缺失/畸形 usage、模型漂移、重复/矛盾终态不补造成功完成。
+边界见 ADR 0132。
+
+## Previous Single-Slice Checkpoint: Standard Code Docker Fallback / Issue #133 / Schema v128
 
 `standard-code-command.v1` 固定上层 toolchain/argv/relative-cwd/timeout/purpose schema，不暴露
 backend/image/endpoint/mount/network/env/credential/Docker flags。Docker adapter 只认一个 Go 编译

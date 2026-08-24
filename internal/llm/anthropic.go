@@ -340,9 +340,13 @@ func (p *AnthropicCompatibleProvider) readStream(ctx context.Context, body io.Re
 	defer body.Close()
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 64*1024), 1<<20)
-	state := anthropicStreamState{model: defaultModel}
+	state := anthropicStreamState{model: defaultModel,
+		events: newProviderStreamEvents(p.name, defaultModel, "anthropic-response", StreamGranularityDelta)}
 	dataLines := make([]string, 0, 1)
 	stopped := false
+	sendError := func(err error) bool {
+		return p.sendStreamChunk(ctx, chunks, state.events.failureChunk(err))
+	}
 	flush := func() bool {
 		if len(dataLines) == 0 {
 			return true
@@ -350,16 +354,13 @@ func (p *AnthropicCompatibleProvider) readStream(ctx context.Context, body io.Re
 		payload := strings.Join(dataLines, "\n")
 		dataLines = dataLines[:0]
 		if payload == "[DONE]" {
-			stopped = true
-			chunk := state.finalChunk()
-			if err := chunk.Usage.Validate(); err != nil {
-				return p.sendStreamChunk(ctx, chunks, ChatChunk{Err: NewProviderError(OutcomeInvalidResponse, p.name, "returned invalid stream usage", err)})
-			}
-			return p.sendStreamChunk(ctx, chunks, chunk)
+			_ = sendError(NewProviderError(OutcomeInvalidResponse, p.name,
+				"stream ended without message_stop", io.ErrUnexpectedEOF))
+			return false
 		}
 		chunk, done, err := state.consume([]byte(payload), p.name)
 		if err != nil {
-			_ = p.sendStreamChunk(ctx, chunks, ChatChunk{Err: err})
+			_ = sendError(err)
 			return false
 		}
 		if chunk != nil && !p.sendStreamChunk(ctx, chunks, *chunk) {
@@ -387,10 +388,11 @@ func (p *AnthropicCompatibleProvider) readStream(ctx context.Context, body io.Re
 		return
 	}
 	if err := scanner.Err(); err != nil {
-		_ = p.sendStreamChunk(ctx, chunks, ChatChunk{Err: NewProviderError(OutcomeInvalidResponse, p.name, "stream read failed", err)})
+		_ = sendError(NewProviderError(OutcomeInvalidResponse, p.name, "stream read failed", err))
 		return
 	}
-	_ = p.sendStreamChunk(ctx, chunks, ChatChunk{Err: NewProviderError(OutcomeInvalidResponse, p.name, "stream ended before message_stop", io.ErrUnexpectedEOF)})
+	_ = sendError(NewProviderError(OutcomeInvalidResponse, p.name,
+		"stream ended before message_stop", io.ErrUnexpectedEOF))
 }
 
 func (p *AnthropicCompatibleProvider) sendStreamChunk(ctx context.Context, chunks chan<- ChatChunk, chunk ChatChunk) bool {
@@ -628,11 +630,17 @@ type anthropicStreamEvent struct {
 }
 
 type anthropicStreamState struct {
-	model        string
-	inputTokens  int
-	outputTokens int
-	toolBlocks   map[int]*anthropicStreamToolBlock
-	toolCalls    []ToolCall
+	model          string
+	inputTokens    int
+	outputTokens   int
+	toolBlocks     map[int]*anthropicStreamToolBlock
+	textBlocks     map[int]bool
+	privateBlocks  map[int]bool
+	toolCalls      []ToolCall
+	messageStarted bool
+	messageStopped bool
+	itemCount      int
+	events         providerStreamEvents
 }
 
 type anthropicStreamToolBlock struct {
@@ -650,33 +658,100 @@ func (s *anthropicStreamState) consume(payload []byte, provider string) (*ChatCh
 	}
 	switch event.Type {
 	case "message_start":
-		if strings.TrimSpace(event.Message.Model) != "" {
-			s.model = event.Message.Model
+		if s.messageStarted || s.messageStopped {
+			return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
+				"returned a duplicate message start", nil)
 		}
+		model := strings.TrimSpace(event.Message.Model)
+		if model == "" || !utf8.ValidString(model) || len([]rune(model)) > MaxItemStreamIdentity ||
+			strings.ContainsRune(model, 0) {
+			return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
+				"returned an invalid model identity during the stream", nil)
+		}
+		s.model = model
+		s.events.model = model
+		s.messageStarted = true
 		s.inputTokens = event.Message.Usage.InputTokens
 		s.outputTokens = event.Message.Usage.OutputTokens
+		return &ChatChunk{Events: []StreamEvent{s.events.start()}}, false, nil
 	case "content_block_start":
+		if !s.messageStarted || s.messageStopped || event.Index < 0 || event.Index >= MaxProviderOutputItems ||
+			s.blockExists(event.Index) {
+			return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
+				"returned an invalid content block start", nil)
+		}
+		itemID := fmt.Sprintf("block/%d", event.Index)
 		if event.ContentBlock.Type == "text" && event.ContentBlock.Text != "" {
-			return &ChatChunk{Text: event.ContentBlock.Text}, false, nil
+			s.ensureBlockMaps()
+			s.textBlocks[event.Index] = true
+			s.itemCount++
+			events := []StreamEvent{s.events.emit(StreamEvent{
+				Type: StreamOutputItemStarted, ItemID: itemID, ItemType: StreamItemMessage,
+				ItemStatus: StreamItemInProgress,
+			})}
+			events = append(events, s.events.emit(StreamEvent{
+				Type: StreamTextDelta, ItemID: itemID, ItemType: StreamItemMessage,
+				ItemStatus: StreamItemInProgress, TextDelta: event.ContentBlock.Text,
+			}))
+			return &ChatChunk{Text: event.ContentBlock.Text, Events: events}, false, nil
+		}
+		if event.ContentBlock.Type == "text" {
+			s.ensureBlockMaps()
+			s.textBlocks[event.Index] = true
+			s.itemCount++
+			return &ChatChunk{Events: []StreamEvent{s.events.emit(StreamEvent{
+				Type: StreamOutputItemStarted, ItemID: itemID, ItemType: StreamItemMessage,
+				ItemStatus: StreamItemInProgress,
+			})}}, false, nil
 		}
 		if event.ContentBlock.Type == "tool_use" {
-			if event.Index < 0 {
-				return nil, false, NewProviderError(OutcomeInvalidResponse, provider, "returned a negative tool block index", nil)
+			if len(s.toolBlocks)+len(s.toolCalls) >= MaxProviderToolCalls {
+				return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
+					"returned too many tool blocks", nil)
 			}
-			if s.toolBlocks == nil {
-				s.toolBlocks = make(map[int]*anthropicStreamToolBlock)
+			id := strings.TrimSpace(event.ContentBlock.ID)
+			name := strings.TrimSpace(event.ContentBlock.Name)
+			if err := validateStreamIdentity(id, "provider call"); err != nil {
+				return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
+					"returned an invalid tool block identity", err)
 			}
-			if _, exists := s.toolBlocks[event.Index]; exists {
-				return nil, false, NewProviderError(OutcomeInvalidResponse, provider, "returned a duplicate tool block index", nil)
+			if err := validateToolName(name); err != nil {
+				return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
+					"returned an invalid tool block name", err)
 			}
+			s.ensureBlockMaps()
 			s.toolBlocks[event.Index] = &anthropicStreamToolBlock{
-				id: strings.TrimSpace(event.ContentBlock.ID), name: strings.TrimSpace(event.ContentBlock.Name),
+				id: id, name: name,
 				input: append(json.RawMessage(nil), event.ContentBlock.Input...),
 			}
+			s.itemCount++
+			return &ChatChunk{Events: []StreamEvent{
+				s.events.emit(StreamEvent{Type: StreamOutputItemStarted, ItemID: itemID,
+					ItemType: StreamItemToolCall, ItemStatus: StreamItemInProgress}),
+				s.events.emit(StreamEvent{Type: StreamToolCallStarted, ItemID: itemID, CallID: id,
+					ItemType: StreamItemToolCall, ItemStatus: StreamItemInProgress, ToolName: name}),
+			}}, false, nil
 		}
+		s.ensureBlockMaps()
+		s.privateBlocks[event.Index] = true
 	case "content_block_delta":
-		if event.Delta.Type == "text_delta" && event.Delta.Text != "" {
-			return &ChatChunk{Text: event.Delta.Text}, false, nil
+		if !s.messageStarted || s.messageStopped || event.Index < 0 ||
+			event.Index >= MaxProviderOutputItems {
+			return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
+				"returned a content delta outside an active message", nil)
+		}
+		itemID := fmt.Sprintf("block/%d", event.Index)
+		if event.Delta.Type == "text_delta" {
+			if event.Delta.Text == "" || !s.textBlocks[event.Index] ||
+				s.toolBlocks[event.Index] != nil || s.privateBlocks[event.Index] {
+				return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
+					"returned text for an unknown content block", nil)
+			}
+			events := []StreamEvent{s.events.emit(StreamEvent{
+				Type: StreamTextDelta, ItemID: itemID, ItemType: StreamItemMessage,
+				ItemStatus: StreamItemInProgress, TextDelta: event.Delta.Text,
+			})}
+			return &ChatChunk{Text: event.Delta.Text, Events: events}, false, nil
 		}
 		if event.Delta.Type == "input_json_delta" {
 			block, exists := s.toolBlocks[event.Index]
@@ -688,8 +763,33 @@ func (s *anthropicStreamState) consume(payload []byte, provider string) (*ChatCh
 			}
 			block.hasPartial = true
 			_, _ = block.partial.WriteString(event.Delta.PartialJSON)
+			if event.Delta.PartialJSON != "" {
+				return &ChatChunk{Events: []StreamEvent{s.events.emit(StreamEvent{
+					Type: StreamToolArgumentDelta, ItemID: itemID, CallID: block.id,
+					ItemType: StreamItemToolCall, ItemStatus: StreamItemInProgress,
+					ToolName: block.name, ArgumentDelta: event.Delta.PartialJSON,
+				})}}, false, nil
+			}
+			return nil, false, nil
+		}
+		if !s.privateBlocks[event.Index] {
+			return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
+				"returned an unsupported content block delta", nil)
 		}
 	case "content_block_stop":
+		if !s.messageStarted || s.messageStopped || event.Index < 0 ||
+			event.Index >= MaxProviderOutputItems {
+			return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
+				"returned a content stop outside an active message", nil)
+		}
+		itemID := fmt.Sprintf("block/%d", event.Index)
+		if s.textBlocks[event.Index] {
+			delete(s.textBlocks, event.Index)
+			return &ChatChunk{Events: []StreamEvent{s.events.emit(StreamEvent{
+				Type: StreamOutputItemCompleted, ItemID: itemID, ItemType: StreamItemMessage,
+				ItemStatus: StreamItemCompleted,
+			})}}, false, nil
+		}
 		if block, exists := s.toolBlocks[event.Index]; exists {
 			arguments := append(json.RawMessage(nil), block.input...)
 			if block.hasPartial {
@@ -704,16 +804,38 @@ func (s *anthropicStreamState) consume(payload []byte, provider string) (*ChatCh
 			}
 			s.toolCalls = append(s.toolCalls, call)
 			delete(s.toolBlocks, event.Index)
+			callCopy := call
+			return &ChatChunk{Events: []StreamEvent{
+				s.events.emit(StreamEvent{Type: StreamToolCallCompleted, ItemID: itemID,
+					CallID: block.id, ItemType: StreamItemToolCall,
+					ItemStatus: StreamItemReadyForValidation, ToolName: block.name,
+					CompletedCall: &callCopy}),
+				s.events.emit(StreamEvent{Type: StreamOutputItemCompleted, ItemID: itemID,
+					CallID: block.id, ItemType: StreamItemToolCall,
+					ItemStatus: StreamItemCompleted, ToolName: block.name}),
+			}}, false, nil
 		}
+		if s.privateBlocks[event.Index] {
+			delete(s.privateBlocks, event.Index)
+			return nil, false, nil
+		}
+		return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
+			"returned a stop for an unknown content block", nil)
 	case "message_delta":
+		if !s.messageStarted || s.messageStopped {
+			return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
+				"returned usage outside an active message", nil)
+		}
 		if event.Usage.InputTokens != 0 {
 			s.inputTokens = event.Usage.InputTokens
 		}
 		s.outputTokens = event.Usage.OutputTokens
 	case "message_stop":
-		if len(s.toolBlocks) != 0 {
+		if !s.messageStarted || s.messageStopped || len(s.toolBlocks) != 0 ||
+			len(s.textBlocks) != 0 || len(s.privateBlocks) != 0 || s.itemCount == 0 {
 			return nil, false, NewProviderError(OutcomeInvalidResponse, provider, "message stopped with unfinished tool blocks", nil)
 		}
+		s.messageStopped = true
 		calls, err := NormalizeToolCalls(s.toolCalls)
 		if err != nil {
 			return nil, false, NewProviderError(OutcomeInvalidResponse, provider, "returned invalid streamed tool calls", err)
@@ -723,6 +845,7 @@ func (s *anthropicStreamState) consume(payload []byte, provider string) (*ChatCh
 		if err := chunk.Usage.Validate(); err != nil {
 			return nil, false, NewProviderError(OutcomeInvalidResponse, provider, "returned invalid stream usage", err)
 		}
+		chunk.Events = []StreamEvent{s.events.terminalEvent(OutcomeSuccess, chunk.Usage)}
 		return &chunk, true, nil
 	case "error":
 		kind := OutcomePermanent
@@ -735,6 +858,22 @@ func (s *anthropicStreamState) consume(payload []byte, provider string) (*ChatCh
 		return nil, false, NewProviderError(kind, provider, event.Error.Message, nil)
 	}
 	return nil, false, nil
+}
+
+func (s *anthropicStreamState) ensureBlockMaps() {
+	if s.toolBlocks == nil {
+		s.toolBlocks = make(map[int]*anthropicStreamToolBlock)
+	}
+	if s.textBlocks == nil {
+		s.textBlocks = make(map[int]bool)
+	}
+	if s.privateBlocks == nil {
+		s.privateBlocks = make(map[int]bool)
+	}
+}
+
+func (s *anthropicStreamState) blockExists(index int) bool {
+	return s.toolBlocks[index] != nil || s.textBlocks[index] || s.privateBlocks[index]
 }
 
 func (s anthropicStreamState) finalChunk() ChatChunk {

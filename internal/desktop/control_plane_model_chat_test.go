@@ -188,8 +188,11 @@ func writeAnthropicTextSSE(t *testing.T, writer http.ResponseWriter, model strin
 	writeAnthropicSSE(t, writer,
 		map[string]any{"type": "message_start", "message": map[string]any{
 			"model": model, "usage": map[string]any{"input_tokens": 12, "output_tokens": 0}}},
+		map[string]any{"type": "content_block_start", "index": 0,
+			"content_block": map[string]any{"type": "text", "text": ""}},
 		map[string]any{"type": "content_block_delta", "index": 0,
 			"delta": map[string]any{"type": "text_delta", "text": text}},
+		map[string]any{"type": "content_block_stop", "index": 0},
 		map[string]any{"type": "message_delta", "usage": map[string]any{"output_tokens": 8}},
 		map[string]any{"type": "message_stop"},
 	)

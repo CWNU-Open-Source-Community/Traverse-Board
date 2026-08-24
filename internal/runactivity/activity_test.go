@@ -53,6 +53,34 @@ func TestBuildSeparatesPublicModelUpdatesFromHarnessEvents(t *testing.T) {
 	}
 }
 
+func TestBuildProjectsToolExecutionBoundariesWithoutPayloads(t *testing.T) {
+	now := time.Now().UTC()
+	source := []events.Event{
+		event(1, events.SupervisorToolExecutionStartedEvent,
+			`{"tool":"read_file","status":"pending","arguments":{"path":"private.md"}}`, now),
+		event(2, events.SupervisorToolExecutionCompletedEvent,
+			`{"tool":"read_file","status":"completed","result":"private bytes"}`, now),
+	}
+
+	got, err := Build("run-1", source, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Items) != 2 || got.Items[0].Title != "工具执行已开始" ||
+		got.Items[0].Status != "running" || got.Items[1].Title != "工具执行已完成" ||
+		got.Items[1].Status != "completed" || got.Items[0].Detail != "读取文件" ||
+		got.Items[1].Detail != "读取文件" {
+		t.Fatalf("unexpected execution boundary projection: %#v", got.Items)
+	}
+	encoded, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "private.md") || strings.Contains(string(encoded), "private bytes") {
+		t.Fatalf("tool payload leaked into public activity: %s", encoded)
+	}
+}
+
 func TestBuildRedactsAndBoundsPublicMessages(t *testing.T) {
 	secret := "sk-" + strings.Repeat("q", 30)
 	content := strings.Repeat("界", MaxDetailRunes+50) + " " + secret

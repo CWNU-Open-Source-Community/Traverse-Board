@@ -8,12 +8,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/domain"
+	eventtypes "cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/store"
@@ -31,7 +33,12 @@ func TestOpenAICompatibleProviderRunSupervisorToolRoundTrip(t *testing.T) {
 		mu            sync.Mutex
 		requests      []openAISupervisorWireRequest
 		handlerErrors []error
+		argumentsFlow = make(chan struct{})
+		releaseFinish = make(chan struct{})
+		releaseOnce   sync.Once
 	)
+	releaseProvider := func() { releaseOnce.Do(func() { close(releaseFinish) }) }
+	defer releaseProvider()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodPost || request.URL.Path != "/v1/chat/completions" {
 			http.NotFound(writer, request)
@@ -111,6 +118,23 @@ func TestOpenAICompatibleProviderRunSupervisorToolRoundTrip(t *testing.T) {
 				}},
 			}
 		}
+		if call == 0 {
+			writer.Header().Set("Content-Type", "text/event-stream")
+			encoded, encodeErr := json.Marshal(events[0])
+			if encodeErr == nil {
+				_, encodeErr = fmt.Fprintf(writer, "data: %s\n\n", encoded)
+			}
+			if encodeErr != nil {
+				mu.Lock()
+				handlerErrors = append(handlerErrors, encodeErr)
+				mu.Unlock()
+				return
+			}
+			writer.(http.Flusher).Flush()
+			close(argumentsFlow)
+			<-releaseFinish
+			events = events[1:]
+		}
 		if err := writeOpenAISupervisorStream(writer, events); err != nil {
 			mu.Lock()
 			handlerErrors = append(handlerErrors, err)
@@ -153,13 +177,62 @@ func TestOpenAICompatibleProviderRunSupervisorToolRoundTrip(t *testing.T) {
 	defer st.Close()
 	run := newStartedRunForProvider(t, st, providerName,
 		domain.Budget{MaxTurns: 3, MaxToolCalls: 5})
-	result, err := application.NewRunSupervisor(st, router, policy.NewDefaultChecker()).
-		Step(context.Background(), run.ID)
+	supervisor := application.NewRunSupervisor(st, router, policy.NewDefaultChecker())
+	type stepResult struct {
+		result application.LifecycleResult
+		err    error
+	}
+	done := make(chan stepResult, 1)
+	go func() {
+		result, err := supervisor.Step(context.Background(), run.ID)
+		done <- stepResult{result: result, err: err}
+	}()
+	select {
+	case <-argumentsFlow:
+	case <-time.After(2 * time.Second):
+		t.Fatal("OpenAI tool arguments did not begin streaming")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	var live application.PublicModelStreamSnapshot
+	for {
+		var found bool
+		live, found = supervisor.PublicModelStream(run.ID)
+		if found && len(live.Items) == 1 && live.Items[0].ArgumentBytes > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("tool preparation did not reach the public item projection: %#v", live)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if item := live.Items[0]; item.Type != llm.StreamItemToolCall ||
+		item.Status != llm.StreamItemInProgress || item.ToolName != "work_item_create" ||
+		!item.Provisional || item.Durable || item.DurableCallID != "" {
+		t.Fatalf("unsafe live tool preparation item: %#v", item)
+	}
+	before, err := st.ListWorkItems(context.Background(), domain.WorkItemFilter{RunID: run.ID})
+	if err != nil || len(before) != 0 {
+		t.Fatalf("tool executed before its complete call was validated: items=%#v err=%v", before, err)
+	}
+	releaseProvider()
+	var completed stepResult
+	select {
+	case completed = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Supervisor did not finish the OpenAI tool round trip")
+	}
+	result, err := completed.result, completed.err
 	if err != nil {
 		mu.Lock()
 		deferredErrors := append([]error(nil), handlerErrors...)
+		requestCount := len(requests)
 		mu.Unlock()
-		t.Fatalf("Supervisor OpenAI tool round trip failed: %v (mock errors: %v)", err, deferredErrors)
+		var causes []error
+		for current := err; current != nil; current = errors.Unwrap(current) {
+			causes = append(causes, current)
+		}
+		t.Fatalf("Supervisor OpenAI tool round trip failed: %v (result: %#v; requests: %d; causes: %v; mock errors: %v)",
+			err, result, requestCount, causes, deferredErrors)
 	}
 	if result.Status != application.LifecycleTurnCompleted || result.ToolRounds != 1 ||
 		result.ToolCalls != 1 || result.ModelAttempts != 2 || result.Text != finalMessage {
@@ -188,6 +261,58 @@ func TestOpenAICompatibleProviderRunSupervisorToolRoundTrip(t *testing.T) {
 	if len(messages) != 2 || messages[0].Role != "user" || messages[1].Role != "assistant" ||
 		messages[1].Content != finalMessage {
 		t.Fatalf("Session did not commit exactly one user/assistant pair: %#v", messages)
+	}
+	timeline, err := st.ListRunEvents(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantEvents := map[string]int{
+		eventtypes.SupervisorToolExecutionStartedEvent:   1,
+		eventtypes.SupervisorToolExecutionCompletedEvent: 1,
+		eventtypes.SupervisorToolResultEvent:             1,
+	}
+	identities := map[string]string{}
+	for _, event := range timeline {
+		if _, tracked := wantEvents[event.Type]; !tracked {
+			continue
+		}
+		wantEvents[event.Type]--
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
+			t.Fatal(err)
+		}
+		for _, field := range []string{"stream_response_id", "stream_item_id", "stream_call_id",
+			"durable_call_id"} {
+			value, _ := payload[field].(string)
+			if value == "" {
+				t.Fatalf("%s omitted %s: %s", event.Type, field, event.PayloadJSON)
+			}
+			if prior := identities[field]; prior != "" && prior != value {
+				t.Fatalf("%s changed from %q to %q", field, prior, value)
+			}
+			identities[field] = value
+		}
+		if event.Type == eventtypes.SupervisorToolExecutionStartedEvent ||
+			event.Type == eventtypes.SupervisorToolExecutionCompletedEvent {
+			wantType := string(llm.StreamToolExecutionStarted)
+			if event.Type == eventtypes.SupervisorToolExecutionCompletedEvent {
+				wantType = string(llm.StreamToolExecutionCompleted)
+			}
+			if payload["item_stream_version"] != llm.ItemStreamProtocolVersion ||
+				payload["item_event_type"] != wantType || payload["item_type"] != "tool_call" ||
+				payload["durable"] != true || payload["provisional"] != false {
+				t.Fatalf("execution event omitted its durable item projection: %s", event.PayloadJSON)
+			}
+		}
+		if strings.Contains(event.PayloadJSON, "provider-call-1") ||
+			strings.Contains(event.PayloadJSON, itemTitle) {
+			t.Fatalf("provider identity or arguments leaked into execution event: %s", event.PayloadJSON)
+		}
+	}
+	for eventType, remaining := range wantEvents {
+		if remaining != 0 {
+			t.Fatalf("event %s count mismatch: remaining=%d", eventType, remaining)
+		}
 	}
 }
 

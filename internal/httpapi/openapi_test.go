@@ -1208,11 +1208,11 @@ func prepareOpenAPIPlanControlTarget(t *testing.T,
 		t.Fatal(err)
 	}
 	provider := &httpPlanProvider{responses: []*llm.ChatResponse{
-		{Provider: "openapi-plan", Model: "model",
+		{Provider: "http-plan", Model: "model",
 			Usage: llm.Usage{InputTokens: 2, OutputTokens: 2, TotalTokens: 4},
 			ToolCalls: []llm.ToolCall{{ID: "openapi-plan-control-call",
 				Name: "plan_delivery_propose", Arguments: json.RawMessage(httpPlanDeliveryPayload)}}},
-		{Text: httpRootWaitResponse(t), Provider: "openapi-plan", Model: "model",
+		{Text: httpRootWaitResponse(t), Provider: "http-plan", Model: "model",
 			Usage: llm.Usage{InputTokens: 2, OutputTokens: 2, TotalTokens: 4}},
 	}}
 	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})

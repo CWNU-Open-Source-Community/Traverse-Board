@@ -96,8 +96,23 @@ func (m MockProvider) StreamChat(ctx context.Context, req ChatRequest) (<-chan C
 		return nil, err
 	}
 	ch := make(chan ChatChunk, 2)
-	ch <- ChatChunk{Text: resp.Text}
-	ch <- FinalChatChunk(resp)
+	events := newProviderStreamEvents(resp.Provider, resp.Model, "mock-response",
+		StreamGranularityComplete)
+	ch <- ChatChunk{Text: resp.Text, Events: []StreamEvent{
+		events.start(),
+		events.emit(StreamEvent{Type: StreamOutputItemStarted, ItemID: "message",
+			ItemType: StreamItemMessage, ItemStatus: StreamItemInProgress}),
+		events.emit(StreamEvent{Type: StreamTextDelta, ItemID: "message",
+			ItemType: StreamItemMessage, ItemStatus: StreamItemInProgress, TextDelta: resp.Text}),
+	}}
+	usage := resp.Usage
+	final := FinalChatChunk(resp)
+	final.Events = []StreamEvent{
+		events.emit(StreamEvent{Type: StreamOutputItemCompleted, ItemID: "message",
+			ItemType: StreamItemMessage, ItemStatus: StreamItemCompleted}),
+		events.terminalEvent(OutcomeSuccess, &usage),
+	}
+	ch <- final
 	close(ch)
 	return ch, nil
 }

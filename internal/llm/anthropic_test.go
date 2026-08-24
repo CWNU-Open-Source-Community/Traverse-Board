@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -158,8 +159,10 @@ func TestAnthropicCompatibleProviderStreamsSSEWithFinalUsage(t *testing.T) {
 		}
 		for _, payload := range []string{
 			`{"type":"message_start","message":{"model":"stream-model","usage":{"input_tokens":7,"output_tokens":0}}}`,
-			`{"type":"content_block_delta","delta":{"type":"text_delta","text":"hello "}}`,
-			`{"type":"content_block_delta","delta":{"type":"text_delta","text":"world"}}`,
+			`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+			`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello "}}`,
+			`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"world"}}`,
+			`{"type":"content_block_stop","index":0}`,
 			`{"type":"message_delta","usage":{"output_tokens":2}}`,
 			`{"type":"message_stop"}`,
 		} {
@@ -205,7 +208,9 @@ func TestAnthropicCompatibleProviderDoesNotStreamThinkingDeltasAsText(t *testing
 			`{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"private"}}`,
 			`{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"hidden trace"}}`,
 			`{"type":"content_block_stop","index":0}`,
+			`{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}`,
 			`{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"public update"}}`,
+			`{"type":"content_block_stop","index":1}`,
 			`{"type":"message_delta","usage":{"output_tokens":3}}`,
 			`{"type":"message_stop"}`,
 		} {
@@ -331,6 +336,7 @@ func TestAnthropicCompatibleProviderStreamsToolUseJSONDeltas(t *testing.T) {
 		t.Fatal(err)
 	}
 	var final ChatChunk
+	var eventTypes []StreamEventType
 	for chunk := range chunks {
 		if chunk.Err != nil {
 			t.Fatal(chunk.Err)
@@ -338,11 +344,17 @@ func TestAnthropicCompatibleProviderStreamsToolUseJSONDeltas(t *testing.T) {
 		if chunk.Done {
 			final = chunk
 		}
+		for _, event := range chunk.Events {
+			eventTypes = append(eventTypes, event.Type)
+		}
 	}
 	if !final.Done || final.Usage == nil || final.Usage.TotalTokens != 9 || len(final.ToolCalls) != 1 ||
 		final.ToolCalls[0].ID != "provider-stream-1" ||
 		string(final.ToolCalls[0].Arguments) != `{"title":"Stream plan"}` {
 		t.Fatalf("unexpected streamed tool call: %#v", final)
+	}
+	if want := providerToolDeltaEventVector(2); !reflect.DeepEqual(eventTypes, want) {
+		t.Fatalf("Anthropic tool event vector = %v, want %v", eventTypes, want)
 	}
 }
 
@@ -366,6 +378,42 @@ func TestAnthropicCompatibleProviderReportsMalformedStreamEvent(t *testing.T) {
 	if !ok || ProviderErrorKind(chunk.Err) != OutcomeInvalidResponse {
 		t.Fatalf("malformed SSE was not typed: ok=%t chunk=%#v", ok, chunk)
 	}
+}
+
+func TestAnthropicStreamRejectsTextBlockLifecycleGaps(t *testing.T) {
+	newState := func(t *testing.T) *anthropicStreamState {
+		t.Helper()
+		state := &anthropicStreamState{model: "requested",
+			events: newProviderStreamEvents("test", "requested", "wire",
+				StreamGranularityDelta)}
+		if _, _, err := state.consume([]byte(
+			`{"type":"message_start","message":{"model":"actual","usage":{"input_tokens":1,"output_tokens":0}}}`),
+			"test"); err != nil {
+			t.Fatal(err)
+		}
+		return state
+	}
+
+	t.Run("delta without start", func(t *testing.T) {
+		state := newState(t)
+		if _, _, err := state.consume([]byte(
+			`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"unsafe"}}`),
+			"test"); ProviderErrorKind(err) != OutcomeInvalidResponse {
+			t.Fatalf("unknown text block error = %v", err)
+		}
+	})
+
+	t.Run("stop with open block", func(t *testing.T) {
+		state := newState(t)
+		if _, _, err := state.consume([]byte(
+			`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":"partial"}}`),
+			"test"); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := state.consume([]byte(`{"type":"message_stop"}`), "test"); ProviderErrorKind(err) != OutcomeInvalidResponse {
+			t.Fatalf("unfinished text block error = %v", err)
+		}
+	})
 }
 
 func TestAnthropicCompatibleProviderClassifiesHTTPFailures(t *testing.T) {

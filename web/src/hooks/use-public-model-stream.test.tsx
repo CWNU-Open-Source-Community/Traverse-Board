@@ -4,7 +4,7 @@ import type { PublicModelStreamSnapshot } from "../api/types";
 import { usePublicModelStream } from "./use-public-model-stream";
 
 const first: PublicModelStreamSnapshot = {
-  version: "model_public_stream.v2",
+  version: "model_public_stream.v3",
   call: {
     run_id: "run-1", session_id: "sess-1", attempt_id: "attempt-1",
     model_attempt: 1, transport_attempt: 1, max_attempts: 3, protocol_repair: 0,
@@ -12,7 +12,8 @@ const first: PublicModelStreamSnapshot = {
     started_at: "2026-08-08T00:00:00Z", stream_chunks: 1, stream_bytes: 16,
     cancel_requested: false,
   },
-  revision: 1, content_kind: "tool_commentary", text: "First safe text", message_complete: false,
+  revision: 1, response_id: "response-1", event_sequence: 3, items: [],
+  content_kind: "tool_commentary", text: "First safe text", message_complete: false,
   provisional: true, updated_at: "2026-08-08T00:00:01Z",
 };
 

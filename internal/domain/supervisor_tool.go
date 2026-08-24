@@ -41,21 +41,24 @@ func (s SupervisorToolCallStatus) Terminal() bool {
 }
 
 type SupervisorToolCall struct {
-	RunID         string
-	Turn          int
-	AttemptID     string
-	Round         int
-	Position      int
-	ModelAttempt  int
-	CallID        string
-	ToolName      string
-	PayloadJSON   string
-	AuthorityJSON string
-	Status        SupervisorToolCallStatus
-	ResultJSON    string
-	ErrorCode     string
-	CreatedAt     time.Time
-	CompletedAt   *time.Time
+	RunID            string
+	Turn             int
+	AttemptID        string
+	Round            int
+	Position         int
+	ModelAttempt     int
+	CallID           string
+	StreamResponseID string
+	StreamItemID     string
+	StreamCallID     string
+	ToolName         string
+	PayloadJSON      string
+	AuthorityJSON    string
+	Status           SupervisorToolCallStatus
+	ResultJSON       string
+	ErrorCode        string
+	CreatedAt        time.Time
+	CompletedAt      *time.Time
 }
 
 func (c SupervisorToolCall) Validate() error {
@@ -70,6 +73,20 @@ func (c SupervisorToolCall) Validate() error {
 	}
 	if c.RunID == "" || c.AttemptID == "" || c.CallID == "" || c.ToolName == "" {
 		return errors.New("supervisor tool Run, attempt, call, and tool identities are required")
+	}
+	streamIDs := []string{c.StreamResponseID, c.StreamItemID, c.StreamCallID}
+	streamCount := 0
+	for _, value := range streamIDs {
+		if value != "" {
+			streamCount++
+			if !utf8.ValidString(value) || strings.TrimSpace(value) != value ||
+				len([]rune(value)) > MaxSupervisorToolIdentityRunes {
+				return errors.New("supervisor tool stream identity is invalid")
+			}
+		}
+	}
+	if streamCount != 0 && streamCount != len(streamIDs) {
+		return errors.New("supervisor tool stream identities must be all present or all absent")
 	}
 	if c.Turn <= 0 || c.Round <= 0 || c.Round > MaxSupervisorToolRounds ||
 		c.Position <= 0 || c.Position > MaxSupervisorToolCallsPerRound || c.ModelAttempt <= 0 {

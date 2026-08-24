@@ -2,12 +2,14 @@ package httpapi
 
 import (
 	"encoding/json"
+	"strconv"
 	"time"
 
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/artifact"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
+	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/operationreceipt"
 	"cyberagent-workbench/internal/operatoraction"
 	"cyberagent-workbench/internal/runactivity"
@@ -1066,18 +1068,19 @@ type SessionDetailView struct {
 }
 
 type MessageView struct {
-	ID                    int64     `json:"id"`
-	SessionID             string    `json:"session_id"`
-	Role                  string    `json:"role"`
-	Content               string    `json:"content"`
-	ProvenanceVersion     string    `json:"provenance_version"`
-	SourceKind            string    `json:"source_kind"`
-	SourceRef             string    `json:"source_ref,omitempty"`
-	ContentSHA256         string    `json:"content_sha256"`
-	InstructionAuthorized bool      `json:"instruction_authorized"`
-	TokenEstimate         int       `json:"token_estimate"`
-	Compacted             bool      `json:"compacted"`
-	CreatedAt             time.Time `json:"created_at"`
+	ID                    int64            `json:"id"`
+	SessionID             string           `json:"session_id"`
+	Role                  string           `json:"role"`
+	Content               string           `json:"content"`
+	ProvenanceVersion     string           `json:"provenance_version"`
+	SourceKind            string           `json:"source_kind"`
+	SourceRef             string           `json:"source_ref,omitempty"`
+	ContentSHA256         string           `json:"content_sha256"`
+	InstructionAuthorized bool             `json:"instruction_authorized"`
+	TokenEstimate         int              `json:"token_estimate"`
+	Compacted             bool             `json:"compacted"`
+	CreatedAt             time.Time        `json:"created_at"`
+	OutputItems           []llm.OutputItem `json:"output_items"`
 }
 
 type EventView struct {
@@ -1174,16 +1177,19 @@ type ArtifactView struct {
 }
 
 type SupervisorToolCallView struct {
-	Position     int             `json:"position"`
-	ModelAttempt int             `json:"model_attempt"`
-	CallID       string          `json:"call_id"`
-	ToolName     string          `json:"tool_name"`
-	Payload      json.RawMessage `json:"payload"`
-	Status       string          `json:"status"`
-	Result       json.RawMessage `json:"result,omitempty"`
-	ErrorCode    string          `json:"error_code,omitempty"`
-	CreatedAt    time.Time       `json:"created_at"`
-	CompletedAt  *time.Time      `json:"completed_at,omitempty"`
+	Position         int             `json:"position"`
+	ModelAttempt     int             `json:"model_attempt"`
+	CallID           string          `json:"call_id"`
+	StreamResponseID string          `json:"stream_response_id,omitempty"`
+	StreamItemID     string          `json:"stream_item_id,omitempty"`
+	StreamCallID     string          `json:"stream_call_id,omitempty"`
+	ToolName         string          `json:"tool_name"`
+	Payload          json.RawMessage `json:"payload"`
+	Status           string          `json:"status"`
+	Result           json.RawMessage `json:"result,omitempty"`
+	ErrorCode        string          `json:"error_code,omitempty"`
+	CreatedAt        time.Time       `json:"created_at"`
+	CompletedAt      *time.Time      `json:"completed_at,omitempty"`
 }
 
 type SupervisorToolRoundView struct {
@@ -1442,11 +1448,20 @@ func sessionView(value session.Session) SessionView {
 }
 
 func messageView(value session.Message) MessageView {
+	items := make([]llm.OutputItem, 0, 1)
+	if value.Role == "assistant" {
+		responseID := llm.StableStreamID("response", "session", value.SessionID,
+			strconv.FormatInt(value.ID, 10))
+		items = append(items, llm.OutputItem{ResponseID: responseID,
+			ID: llm.StableStreamID("item", responseID, "1"), Type: llm.StreamItemMessage,
+			Status: llm.StreamItemCompleted, Durable: true})
+	}
 	return MessageView{ID: value.ID, SessionID: value.SessionID, Role: value.Role, Content: value.Content,
 		ProvenanceVersion: value.Provenance.Version, SourceKind: value.Provenance.SourceKind,
 		SourceRef: value.Provenance.SourceRef, ContentSHA256: value.Provenance.ContentSHA256,
 		InstructionAuthorized: value.Provenance.InstructionAuthorized,
-		TokenEstimate:         value.TokenEstimate, Compacted: value.Compacted, CreatedAt: value.CreatedAt}
+		TokenEstimate:         value.TokenEstimate, Compacted: value.Compacted, CreatedAt: value.CreatedAt,
+		OutputItems: items}
 }
 
 func eventView(value events.Event) EventView {
@@ -1506,7 +1521,9 @@ func supervisorToolRoundView(value domain.SupervisorToolRound) SupervisorToolRou
 	for index, call := range value.Calls {
 		calls[index] = SupervisorToolCallView{
 			Position: call.Position, ModelAttempt: call.ModelAttempt, CallID: call.CallID,
-			ToolName: call.ToolName, Payload: json.RawMessage(call.PayloadJSON), Status: string(call.Status),
+			StreamResponseID: call.StreamResponseID, StreamItemID: call.StreamItemID,
+			StreamCallID: call.StreamCallID,
+			ToolName:     call.ToolName, Payload: json.RawMessage(call.PayloadJSON), Status: string(call.Status),
 			Result: json.RawMessage(call.ResultJSON), ErrorCode: call.ErrorCode,
 			CreatedAt: call.CreatedAt, CompletedAt: call.CompletedAt,
 		}

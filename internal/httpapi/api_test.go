@@ -456,6 +456,16 @@ func TestReadAPIExposesDurableStateWithoutArtifactContentOrCheckpointInput(t *te
 			len(message.ContentSHA256) != 64 {
 			t.Fatalf("message view omitted context provenance: %#v", message)
 		}
+		if message.Role == "assistant" {
+			if len(message.OutputItems) != 1 ||
+				message.OutputItems[0].Type != llm.StreamItemMessage ||
+				message.OutputItems[0].Status != llm.StreamItemCompleted ||
+				!message.OutputItems[0].Durable || message.OutputItems[0].Provisional {
+				t.Fatalf("old assistant history was not projected as a completed item: %#v", message)
+			}
+		} else if len(message.OutputItems) != 0 {
+			t.Fatalf("non-assistant history gained model output items: %#v", message)
+		}
 	}
 
 	workResponse := fixture.get(t, "/api/v1/runs/"+fixture.run.ID+"/work-items?owner=root")
