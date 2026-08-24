@@ -765,11 +765,10 @@ func (m *CommandRuntimeManager) Wait(ctx context.Context, jobID string,
 	}
 	deadline := time.Now().Add(wait)
 	for {
-		page, err := entry.read(cursor, maxBytes)
+		snapshot, page, err := entry.readSnapshot(cursor, maxBytes)
 		if err != nil {
 			return CommandRuntimeJobSnapshot{}, CommandRuntimeOutputPage{}, err
 		}
-		snapshot := entry.snapshot()
 		if snapshot.State.Terminal() {
 			if terminalErr := entry.persistError(); terminalErr != nil {
 				return snapshot, page, terminalErr
@@ -1327,23 +1326,27 @@ func (e *commandRuntimeEntry) appendOutput(stream CommandRuntimeStream,
 	e.signal()
 }
 
-func (e *commandRuntimeEntry) read(cursor uint64,
+func (e *commandRuntimeEntry) readSnapshot(cursor uint64,
 	maxBytes int,
-) (CommandRuntimeOutputPage, error) {
+) (CommandRuntimeJobSnapshot, CommandRuntimeOutputPage, error) {
 	if maxBytes == 0 {
 		maxBytes = MaxCommandRuntimeOutputRead
 	}
 	if maxBytes < MinCommandRuntimeOutputRead || maxBytes > MaxCommandRuntimeOutputRead {
-		return CommandRuntimeOutputPage{}, ErrCommandRuntimeBoundary
+		return CommandRuntimeJobSnapshot{}, CommandRuntimeOutputPage{},
+			ErrCommandRuntimeBoundary
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.record.OutputCursor = e.ring.next
+	e.record.OutputBaseCursor = e.ring.base
+	snapshot := ProjectCommandRuntimeJob(e.record)
 	page := e.ring.read(cursor, maxBytes)
 	page.JobID = e.record.ID
 	page.State = e.record.State
 	page.ExitCode = cloneInt(e.record.ExitCode)
 	page.TruncationReason = e.record.TruncationReason
-	return page, nil
+	return snapshot, page, nil
 }
 
 func (e *commandRuntimeEntry) signal() {

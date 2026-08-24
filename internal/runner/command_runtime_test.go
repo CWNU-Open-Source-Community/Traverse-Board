@@ -697,7 +697,9 @@ func TestSandboxCommandRuntimeManagerUsesSameDurableJobWithoutHostPID(t *testing
 	}
 	terminal, page := waitCommandRuntimeTerminal(t, manager, snapshot.ID)
 	if terminal.State != CommandRuntimeJobCompleted || terminal.ExitCode == nil ||
-		*terminal.ExitCode != 0 || !terminal.TreeReaped || len(page.Frames) != 2 ||
+		*terminal.ExitCode != 0 || !terminal.TreeReaped ||
+		page.State != terminal.State || page.ExitCode == nil || *page.ExitCode != 0 ||
+		page.EndCursor != terminal.OutputCursor || len(page.Frames) != 2 ||
 		executor.calls != 1 {
 		t.Fatalf("sandbox terminal=%#v page=%#v calls=%d", terminal, page, executor.calls)
 	}
