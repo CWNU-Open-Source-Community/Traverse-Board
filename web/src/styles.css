@@ -4241,7 +4241,6 @@ summary:focus-visible {
 .prayu-shell .session-composer,
 .prayu-shell .prayu-starter-composer,
 .prayu-shell .public-model-stream {
-  position: relative;
   isolation: isolate;
   overflow: visible;
   border: 1px solid var(--prayu-border-strong);
@@ -4253,6 +4252,13 @@ summary:focus-visible {
     inset 0 -1px 0 color-mix(in srgb, var(--prayu-text) 8%, transparent);
   -webkit-backdrop-filter: blur(28px) saturate(175%) contrast(104%);
   backdrop-filter: blur(28px) saturate(175%) contrast(104%);
+}
+
+/* Keep the transcript Composer sticky; only non-Composer glass surfaces establish
+   a relative positioning context. Sticky positioning already anchors its pseudo-element. */
+.prayu-shell .prayu-starter-composer,
+.prayu-shell .public-model-stream {
+  position: relative;
 }
 
 .prayu-shell .session-composer,
