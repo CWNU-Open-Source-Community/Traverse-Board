@@ -321,10 +321,10 @@ func (t *transport) setFailure(err error, kill bool) {
 			_ = t.process.Wait(waitCtx)
 			cancel()
 		}
+		close(t.done)
 		for _, ready := range pending {
 			ready <- rpcResponse{err: err}
 		}
-		close(t.done)
 	})
 }
 

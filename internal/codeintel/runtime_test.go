@@ -250,6 +250,43 @@ func TestDiagnosticsDoesNotMaskTransportCrashAsPushFallback(t *testing.T) {
 	}
 }
 
+func TestTransportFailureClosesBeforeReleasingPendingRequests(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	defer writer.Close()
+
+	// An unbuffered response channel makes the publication order observable:
+	// setFailure cannot continue past the send until this waiter inspects done.
+	pending := make(chan rpcResponse)
+	current := &transport{
+		stdin:   writer,
+		pending: map[int64]chan rpcResponse{1: pending},
+		done:    make(chan struct{}),
+	}
+	observed := make(chan error, 1)
+	go func() {
+		response := <-pending
+		if response.err == nil {
+			observed <- errors.New("pending request was released without the transport failure")
+			return
+		}
+		select {
+		case <-current.done:
+			observed <- nil
+		default:
+			observed <- errors.New("pending request was released before transport termination")
+		}
+	}()
+
+	current.setFailure(errors.New("test transport failure"), false)
+	if err := <-observed; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDiagnosticsUsesOnlyCurrentBoundedPushFallback(t *testing.T) {
 	root := testWorkspace(t)
 	manager := testManager(t, root, "push-diagnostics", time.Second)
