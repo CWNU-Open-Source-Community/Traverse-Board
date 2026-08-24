@@ -22,6 +22,7 @@ const (
 	// as their idempotency key when they persist side effects.
 	DockerContainerLifecyclePostExitProtocolVersion = "application_docker_container_lifecycle_post_exit.v1"
 	DockerContainerLifecyclePostExitFailureReason   = "post_exit_processing_failed"
+	DockerContainerLifecycleRunningProtocolVersion  = "application_docker_container_lifecycle_running.v1"
 
 	DockerContainerLifecycleStartAuthorityProtocolVersion = "application_docker_container_lifecycle_start_authority.v1"
 	DockerContainerLifecycleStartAuthorityDeniedReason    = "start_authority_denied"
@@ -150,6 +151,54 @@ func (fn DockerContainerLifecyclePostExitFunc) HandleDockerContainerLifecyclePos
 	return fn(ctx, request)
 }
 
+// DockerContainerLifecycleRunning is the process-local extension used only
+// for an already-started, ownership-bound container. It cannot create, start,
+// adopt, or recover input authority after restart.
+type DockerContainerLifecycleRunning interface {
+	HandleDockerContainerLifecycleRunning(context.Context,
+		DockerContainerLifecycleRunningRequest,
+		sandbox.DockerContainerLifecycleFence) error
+}
+
+type DockerContainerLifecycleRunningRequest struct {
+	ProtocolVersion    string
+	Record             sandbox.DockerContainerLifecycleRecord
+	Plan               sandbox.DockerContainerPlan
+	WriteRequest       sandbox.DockerContainerWriteRequest
+	LifecycleRequest   sandbox.DockerContainerLifecycleRequest
+	RunningObservation sandbox.DockerContainerLifecycleObservation
+	Lease              sandbox.DockerContainerLifecycleLease
+}
+
+func (request DockerContainerLifecycleRunningRequest) Validate() error {
+	started := latestLifecycleTransition(request.Record,
+		sandbox.DockerContainerLifecycleTransitionStarted)
+	if request.ProtocolVersion != DockerContainerLifecycleRunningProtocolVersion ||
+		request.Record.Validate() != nil || request.Record.Receipt != nil ||
+		request.Plan.Validate() != nil || request.WriteRequest.Validate() != nil ||
+		request.LifecycleRequest.Validate() != nil || request.Lease.Validate() != nil ||
+		request.Lease.Status != sandbox.DockerContainerLifecycleLeaseActive ||
+		request.Lease.IntentID != request.Record.Intent.ID ||
+		request.Lease.LeaseID != request.Record.Lease.LeaseID ||
+		request.Lease.OwnerID != request.Record.Lease.OwnerID ||
+		request.Lease.Generation != request.Record.Lease.Generation ||
+		request.LifecycleRequest.LeaseGeneration != request.Lease.Generation ||
+		request.LifecycleRequest.WriteRequest.RequestFingerprint !=
+			request.WriteRequest.RequestFingerprint ||
+		request.Record.Intent.PlanID != request.Plan.ID ||
+		request.Record.Intent.RequestFingerprint != request.WriteRequest.RequestFingerprint ||
+		request.RunningObservation.State != sandbox.DockerContainerLifecycleStateRunning ||
+		!request.RunningObservation.Running ||
+		!request.RunningObservation.ContainerPresent ||
+		request.RunningObservation.RequestFingerprint !=
+			request.LifecycleRequest.RequestFingerprint ||
+		started == nil || started.ContainerIDFingerprint !=
+		request.RunningObservation.ContainerIDFingerprint {
+		return errors.New("Docker lifecycle running request is invalid")
+	}
+	return nil
+}
+
 // DockerContainerLifecyclePostExitRequest is a non-authorizing snapshot. Its
 // lease and authority are current only for the callback context supplied by the
 // Supervisor; callers must not retain or reuse them after the callback returns.
@@ -213,6 +262,7 @@ type DockerContainerLifecycleSupervisor struct {
 	transport sandbox.DockerContainerLifecycleTransport
 	authority DockerContainerLifecycleAuthority
 	startAuth DockerContainerLifecycleStartAuthority
+	running   DockerContainerLifecycleRunning
 	postExit  DockerContainerLifecyclePostExit
 	ownerID   string
 	leaseTTL  time.Duration
@@ -245,6 +295,15 @@ func (s *DockerContainerLifecycleSupervisor) WithDockerContainerLifecyclePostExi
 ) *DockerContainerLifecycleSupervisor {
 	if s != nil && postExit != nil {
 		s.postExit = postExit
+	}
+	return s
+}
+
+func (s *DockerContainerLifecycleSupervisor) WithDockerContainerLifecycleRunning(
+	running DockerContainerLifecycleRunning,
+) *DockerContainerLifecycleSupervisor {
+	if s != nil && running != nil {
+		s.running = running
 	}
 	return s
 }
@@ -600,6 +659,24 @@ func (s *DockerContainerLifecycleSupervisor) runObserved(ctx context.Context,
 	if observation.State == sandbox.DockerContainerLifecycleStateRunning {
 		cleaning := latestLifecycleTransition(record,
 			sandbox.DockerContainerLifecycleTransitionCleaning)
+		if cleaning == nil && writeRequest.Spec.StdinPipe {
+			inputErr := s.handleRunning(ctx, record, request, observation)
+			if inputErr != nil {
+				err = inputErr
+				reason := sandbox.DockerContainerLifecycleReasonCleanupStarted
+				if errors.Is(inputErr, context.DeadlineExceeded) {
+					reason = sandbox.DockerContainerLifecycleReasonTimeout
+				} else if errors.Is(inputErr, context.Canceled) || ctx.Err() != nil {
+					reason = sandbox.DockerContainerLifecycleReasonCancelled
+				}
+				record, inputErr = s.ensureCleaning(context.WithoutCancel(ctx), record, reason)
+				if inputErr != nil {
+					return sandbox.DockerContainerLifecycleRecord{}, inputErr
+				}
+				cleaning = latestLifecycleTransition(record,
+					sandbox.DockerContainerLifecycleTransitionCleaning)
+			}
+		}
 		if cleaning == nil {
 			waitCtx, cancel := context.WithTimeout(ctx,
 				time.Duration(writeRequest.Spec.Termination.TimeoutSeconds)*time.Second)
@@ -699,6 +776,39 @@ func (s *DockerContainerLifecycleSupervisor) runObserved(ctx context.Context,
 		return finished, postExitErr
 	}
 	return finished, nil
+}
+
+func (s *DockerContainerLifecycleSupervisor) handleRunning(ctx context.Context,
+	record sandbox.DockerContainerLifecycleRecord,
+	lifecycleRequest sandbox.DockerContainerLifecycleRequest,
+	observation sandbox.DockerContainerLifecycleObservation,
+) error {
+	if s.running == nil {
+		return errors.New("Docker lifecycle stdin authority is unavailable")
+	}
+	plan, writeRequest, err := s.authority.RevalidateDockerContainerLifecycle(ctx,
+		record.Intent)
+	if err != nil || validateDockerLifecycleAuthority(record.Intent, plan, writeRequest,
+		s.transport.Endpoint()) != nil ||
+		writeRequest.RequestFingerprint != lifecycleRequest.WriteRequest.RequestFingerprint {
+		return errors.New("Docker lifecycle running authority changed")
+	}
+	lease := s.currentLease()
+	if err := s.store.FenceDockerContainerLifecycle(ctx, lease); err != nil {
+		return err
+	}
+	record.Lease = lease
+	request := DockerContainerLifecycleRunningRequest{
+		ProtocolVersion: DockerContainerLifecycleRunningProtocolVersion,
+		Record:          record, Plan: plan, WriteRequest: writeRequest,
+		LifecycleRequest: lifecycleRequest, RunningObservation: observation,
+		Lease: lease,
+	}
+	if request.Validate() != nil {
+		return errors.New("Docker lifecycle running request is invalid")
+	}
+	return s.running.HandleDockerContainerLifecycleRunning(ctx, request,
+		s.fence(record.Intent.ID))
 }
 
 func (s *DockerContainerLifecycleSupervisor) finishStartDeniedAbsent(ctx context.Context,
@@ -823,7 +933,8 @@ func (s *DockerContainerLifecycleSupervisor) fence(intentID string) sandbox.Dock
 		}
 		// wait is a daemon read despite using POST. It is fenced, but does not
 		// enter the external-write WAL table.
-		if action != sandbox.DockerContainerLifecycleActionWait {
+		if action != sandbox.DockerContainerLifecycleActionWait &&
+			action != sandbox.DockerContainerLifecycleActionAttachStdin {
 			deadline, ok := ctx.Deadline()
 			if !ok || deadline.After(lease.ExpiresAt) {
 				return apperror.New(apperror.CodeConflict,

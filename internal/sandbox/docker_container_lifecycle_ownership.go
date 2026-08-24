@@ -305,6 +305,7 @@ func (action DockerContainerLifecyclePreparedAction) Validate() error {
 func validDockerContainerLifecycleWriteVerb(verb string) bool {
 	return verb == string(DockerContainerLifecycleActionCreate) ||
 		verb == string(DockerContainerLifecycleActionStart) ||
+		verb == string(DockerContainerLifecycleActionAttachStdin) ||
 		verb == string(DockerContainerLifecycleActionTERM) ||
 		verb == string(DockerContainerLifecycleActionKILL) ||
 		verb == string(DockerContainerLifecycleActionDelete)

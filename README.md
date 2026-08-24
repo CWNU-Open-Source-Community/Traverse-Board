@@ -161,7 +161,7 @@ Desktop、认证 OpenAPI 与只读/导出 CLI 共用同一份不可变 Attempt�
 | Debug 持久终端 | Windows 使用 PowerShell + ConPTY + creation-time Job Object；macOS 使用 Bash + PTY + 独立进程组 | 仅 Code/Local/Deliver/Debug；用户先启动终端，再显式授予 15 秒至 15 分钟的进程内 Agent 输入租约，可随时撤销。普通后台 job 随终端清理；主动 POSIX daemonize 仍是宿主残余风险 |
 | Full-access 一次性进程 | Windows 上按绝对路径和 SHA-256 启动真实可执行文件与字面 argv | 仅操作者 CLI 双确认；仍是非沙箱宿主执行，可运行高权限解释器，但不向模型公开 |
 
-`command_runtime` 与用户终端、Debug 终端和人工审批 one-shot 不共享 session 或所有权。Schema v116 先以当前 Supervisor generation lease 写入不可变启动意图；schema v131 再把 exact adapter kind/backend/identity/generation/isolation/network/credential policy 固定到广告、调用、Job 与回执。独立、可过期的进程所有者心跳维持后台 Job，另一进程不能凭数据库记录收养它；旧 v116 行只读投影为不可执行的 `legacy_unbound`。宿主 adapter 保留 stdin，当前 Local/Docker adapter 只接受 closed stdin 并在 `incomplete_reasons` 说明。崩溃时 backend 必须回收 owned 进程树，重启只把所有者已过期的记录收敛为 `interrupted`，绝不按持久 PID 重新执行。stdout/stderr 以单调 cursor 保留通道与时间，内联窗口溢出后仍可生成有 SHA-256 的有界 Artifact；所有返回模型的内容统一去除 ANSI/C1/Unicode 控制序列、修复 UTF-8 并脱敏。
+`command_runtime` 与用户终端、Debug 终端和人工审批 one-shot 不共享 session 或所有权。Schema v116 先以当前 Supervisor generation lease 写入不可变启动意图；schema v131 再把 exact adapter kind/backend/identity/generation/isolation/network/credential policy 固定到广告、调用、Job 与回执。独立、可过期的进程所有者心跳维持后台 Job，另一进程不能凭数据库记录收养它；旧 v116 行只读投影为不可执行的 `legacy_unbound`。宿主、Windows Local 与固定 Docker adapter 都复用同一套有界 stdin 生命周期；Local 把 manager-owned pipe 复制到 AppContainer 的唯一 stdin handle，Docker 则以 runner v2 + schema v132 生命周期 WAL 把进程内输入绑定到精确 owned container。输入字节不持久化，重启也不会收养旧管道。崩溃时 backend 必须回收 owned 进程树，重启只把所有者已过期的记录收敛为 `interrupted`，绝不按持久 PID 重新执行。stdout/stderr 以单调 cursor 保留通道与时间，内联窗口溢出后仍可生成有 SHA-256 的有界 Artifact；所有返回模型的内容统一去除 ANSI/C1/Unicode 控制序列、修复 UTF-8 并脱敏。
 
 `debug_terminal` 每次写入仍经过 Shell Policy；需要另行逐条审批的命令不会借 Debug 租约绕过审批。授权瞬间会固定输出水位，模型不能读取租约授予前的终端滚动内容。为支持 Run 恢复，模型提交的规范化命令和水位之后脱敏、有界的结果会进入 Supervisor 工具记录；schema v113 让该工具进入同一持久调用账本并保留既有记录。进程内 Workspace 根目录摘要和 mode revision 会阻止目录或阶段漂移后旧租约复活；用户键盘输入、原始 PTY 字节、根目录路径和租约 bearer 均不持久化。应用重启会终止会话并使租约失效。Cyber Surface 不公开这些宿主 Shell 路径。完整边界见[使用手册](docs/usage.md)、[ADR 0114](docs/adr/0114-real-shell-transports-and-supervised-debug-terminal.md)和 [ADR 0117](docs/adr/0117-run-owned-command-runtime.md)。
 
@@ -556,6 +556,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 | v129 | 稳定 Thread 身份、Run succession 与无损生命周期投影 | stable Thread identity, Run succession, and lossless lifecycle projection |
 | v130 | 增加 item 级流式工具调用的稳定响应、item 与 call 对齐标识 | add stable response, item, and call reconciliation identities for item-level streamed tool calls |
 | v131 | 将 Command Runtime Job、Supervisor 广告与执行回执绑定到 adapter identity，并把旧记录投影为只读 legacy_unbound | bind Command Runtime jobs, Supervisor advertisements, and receipts to adapter identity while projecting legacy records as read-only legacy_unbound |
+| v132 | 将 Docker Command Runtime 的进程内 stdin attach 绑定到不可变生命周期 WAL 与当前租约 | fence process-local Docker Command Runtime stdin attachment through the immutable lifecycle WAL and current lease |
 
 </details>
 

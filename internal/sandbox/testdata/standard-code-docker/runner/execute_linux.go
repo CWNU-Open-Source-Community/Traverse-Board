@@ -23,7 +23,7 @@ const (
 )
 
 func executeTool(executable string, arguments, environment []string,
-	workingDirectory string, limits executionLimits,
+	workingDirectory string, limits executionLimits, stdinPipe bool,
 ) (int, error) {
 	ledger, err := captureWorkspaceLedger(workspaceRoot, workspaceInitialEntries)
 	if err != nil {
@@ -49,6 +49,9 @@ func executeTool(executable string, arguments, environment []string,
 	command.Env = append([]string(nil), environment...)
 	command.Dir = workingDirectory
 	command.Stdout, command.Stderr = os.Stdout, os.Stderr
+	if stdinPipe {
+		command.Stdin = os.Stdin
+	}
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	monitorStop := make(chan struct{})
 	monitorResult := make(chan error, 1)

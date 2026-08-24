@@ -1,8 +1,9 @@
 # Standard Code Docker backend
 
-Schema v128 only extends the existing immutable Docker admission permission check with
-`workspace_access`; all execution, lifecycle, log, and Drydock state continues to use
-the established ledgers.
+Schema v128 extends the existing immutable Docker admission permission check with
+`workspace_access`. Schema v132 adds the metadata-only, lease-fenced `attach_stdin`
+lifecycle action used by the shared Command Runtime; all execution, log, and Drydock
+state continues to use the established ledgers.
 
 The Docker backend is an explicit, fixed `network=none` Standard Code fallback. It is
 available only for a Code Run whose current execution profile is `docker`, current
@@ -30,6 +31,10 @@ powershell -ExecutionPolicy Bypass -File internal/sandbox/testdata/standard-code
 The script refuses missing/unpinned bases, disables build-step networking and pulling,
 chooses a random tag it owns, strips inherited environment, volume, and label config,
 and prints the exact digest for both product and opt-in test vars.
+
+The current fixture contains `standard-code-docker-runner.v2`; rebuild it when
+upgrading from a v1 image. Durable v1 manifests remain readable as closed-stdin
+recovery evidence, but new execution always compiles the v2 contract.
 
 ## Readiness and execution
 
@@ -76,6 +81,15 @@ The result uses `standard-code-command-result.v1`: the file result is the exact 
 Drydock Checkpoint and logs are bounded receipt metadata. Raw logs are not persisted.
 Use `docker-cancel` for an exact admission and `docker-recover` after restart; both
 reuse the existing ownership ledger and never start a new attempt during recovery.
+
+The ordinary operator `standard-code` commands keep stdin closed. When the same
+backend is selected by `command-runtime.v2`, `stdin_policy=pipe` enables Docker's
+non-TTY stdin flags and one input-only attachment to the exact owned running
+container. Initial and later `write_stdin` bytes stay in memory, are bounded by the
+shared Job manager and backend transport, and are never written to SQLite. The
+attachment action is recorded before daemon mutation; timeout, cancellation,
+authority drift, process exit, or restart closes the pipe and follows the existing
+exact cleanup path.
 
 ## Boundary
 

@@ -1594,7 +1594,7 @@ remaining actions are:
 | `list` | none | list up to 32 Jobs for the current Run |
 | `read` | `job_id`, `cursor`, `max_bytes`, `wait_milliseconds=0` | read one immediately available page |
 | `wait` | `job_id`, `cursor`, `max_bytes`, positive wait up to 5 seconds | long-poll until output, terminal state, or deadline |
-| `write_stdin` | `job_id`, `stdin`, `close_stdin` | one bounded, secret-screened, operation-idempotent write; currently supported by the host adapter, while Local/Docker report closed-stdin-only in `incomplete_reasons` |
+| `write_stdin` | `job_id`, `stdin`, `close_stdin` | one bounded, secret-screened, operation-idempotent write through the currently bound host, Windows Local, or fixed Docker adapter; sandbox input remains process-local and is never recovered after restart |
 | `cancel` | `job_id`, grace up to 5 seconds | request best-effort graceful tree termination, then kill (Windows Job termination is immediate) |
 | `kill` | `job_id` | terminate the owned process tree immediately |
 

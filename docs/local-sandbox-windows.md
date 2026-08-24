@@ -76,7 +76,8 @@ Command Runtime.
   NuGet, Kubernetes, and Go state point inside Drydock or are disabled.
   Credential Manager access is tested from the real child token.
 - **Resources:** Job Object CPU rate, job memory, active-process count,
-  kill-on-close, closed stdin, wall timeout/cancellation, combined output
+  kill-on-close, closed-by-default or explicitly piped bounded stdin, wall
+  timeout/cancellation, combined output
   budget, write-I/O budget, final Drydock size, artifact paths, and tree entry
   counts are bounded.
 - **Recovery:** a private, exclusive owner journal is committed before profile
@@ -110,6 +111,8 @@ readable by `ALL APPLICATION PACKAGES`, DNS/TCP/UDP/loopback denial, Credential
 Manager and sensitive-environment isolation, denial of profile-tree recreation
 and writes, bounded output/write I/O,
 timeout/cancellation tree cleanup, and owner recovery after simulated app crash.
+Command Runtime coverage additionally streams initial and interactive stdin through
+the real AppContainer child and proves EOF/cancellation unblocks the owned tree.
 The Windows CI jobs run this suite plus CLI/API/Desktop gate tests. Their
 ephemeral runners explicitly opt into a test-only fixture that temporarily
 supplies missing system-drive metadata ACEs and the complete `\Device\Null`

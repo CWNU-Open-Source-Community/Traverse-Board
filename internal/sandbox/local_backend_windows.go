@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -230,6 +231,30 @@ func (b *windowsLocalBackend) probeReadinessLocked(ctx context.Context) (returnE
 func (b *windowsLocalBackend) Run(ctx context.Context,
 	request LocalRunRequest,
 ) (result LocalExecutionResult, returnErr error) {
+	if request.StdinPipe {
+		return result, ErrLocalSandboxBoundary
+	}
+	return b.run(ctx, request, nil)
+}
+
+func (b *windowsLocalBackend) RunWithStdin(ctx context.Context,
+	request LocalRunRequest, stdin io.ReadCloser,
+) (result LocalExecutionResult, returnErr error) {
+	if stdin == nil || !request.StdinPipe {
+		if stdin != nil {
+			_ = stdin.Close()
+		}
+		return result, ErrLocalSandboxBoundary
+	}
+	return b.run(ctx, request, stdin)
+}
+
+func (b *windowsLocalBackend) run(ctx context.Context,
+	request LocalRunRequest, stdin io.ReadCloser,
+) (result LocalExecutionResult, returnErr error) {
+	if stdin != nil {
+		defer stdin.Close()
+	}
 	if b == nil || ctx == nil {
 		return result, ErrLocalSandboxUnavailable
 	}
@@ -314,6 +339,7 @@ func (b *windowsLocalBackend) Run(ctx context.Context,
 		timeout:      time.Duration(normalized.Manifest.TimeoutSeconds) * time.Second,
 		captureOut:   normalized.Manifest.Output.CaptureStdout,
 		captureErr:   normalized.Manifest.Output.CaptureStderr,
+		stdin:        stdin,
 		writeMaximum: normalized.MaxDiskWriteBytes})
 	treeErr := validateLocalTree(prepared.drydock.path)
 	if treeErr != nil {

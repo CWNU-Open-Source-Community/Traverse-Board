@@ -391,4 +391,75 @@ func TestStandardCodeDockerServiceExecutesIntoDrydockCheckpoint(t *testing.T) {
 		t.Fatalf("Docker Command Runtime result=%+v err=%v lifecycle=%+v candidates=%+v",
 			runtimeResult, err, baseLifecycle, candidates)
 	}
+
+	pipeScope := runtimeScope
+	pipeScope.InvocationID = "command-runtime-docker-stdin-invocation"
+	pipeScope.OperationKey = "command-runtime-docker-stdin-start"
+	pipeResult, err := commandRuntime.ExecuteCommandRuntime(ctx, pipeScope,
+		toolgateway.CommandRuntimeInput{
+			Version: toolgateway.CommandRuntimeToolProtocolVersion,
+			Action:  toolgateway.CommandRuntimeActionStart,
+			Commands: []runner.CommandRuntimeSpec{{
+				Version: runner.CommandRuntimeProtocolVersion,
+				Profile: runner.CommandRuntimeProcess, Executable: goExecutable,
+				Arguments: []string{"version"}, WorkingDirectory: ".",
+				Environment:  []runner.CommandRuntimeEnvironment{},
+				StdinPolicy:  runner.CommandRuntimeStdinPipe,
+				InitialStdin: "initial\n", CloseInitialStdin: false,
+				TimeoutMilliseconds: 60_000,
+				Output: runner.CommandRuntimeOutputPolicy{InlineBytes: 4096,
+					ArtifactBytes: 64 * 1024},
+				Network:     runner.CommandRuntimeNetworkDisabled,
+				Credentials: runner.CommandRuntimeCredentialsNone,
+				Purpose:     "stream stdin through fixed Docker Standard Code",
+			}},
+		})
+	if err != nil || len(pipeResult.Jobs) != 1 ||
+		pipeResult.Jobs[0].State != runner.CommandRuntimeJobRunning ||
+		len(pipeResult.IncompleteReasons) != 0 {
+		t.Fatalf("Docker Command Runtime stdin start=%+v err=%v", pipeResult, err)
+	}
+	pipeJobID := pipeResult.Jobs[0].ID
+	interactive, closePipe := "interactive\n", true
+	pipeScope.InvocationID = "command-runtime-docker-stdin-write-invocation"
+	pipeScope.OperationKey = "command-runtime-docker-stdin-write"
+	pipeResult, err = commandRuntime.ExecuteCommandRuntime(ctx, pipeScope,
+		toolgateway.CommandRuntimeInput{
+			Version: toolgateway.CommandRuntimeToolProtocolVersion,
+			Action:  toolgateway.CommandRuntimeActionWriteStdin, JobID: pipeJobID,
+			Stdin: &interactive, CloseStdin: &closePipe,
+		})
+	if err != nil || len(pipeResult.Jobs) != 1 || !pipeResult.Jobs[0].StdinClosed {
+		t.Fatalf("Docker Command Runtime stdin write=%+v err=%v", pipeResult, err)
+	}
+	pipeCursor := uint64(0)
+	pipeScope.InvocationID = "command-runtime-docker-stdin-wait-invocation"
+	for !pipeResult.Jobs[0].State.Terminal() {
+		if time.Now().After(deadline.Add(2 * time.Minute)) {
+			t.Fatalf("Docker Command Runtime stdin Job did not become terminal: %+v",
+				pipeResult)
+		}
+		pipeScope.OperationKey = "command-runtime-docker-stdin-wait-" +
+			string(rune('a'+len(pipeResult.Pages)))
+		pipeResult, err = commandRuntime.ExecuteCommandRuntime(ctx, pipeScope,
+			toolgateway.CommandRuntimeInput{
+				Version: toolgateway.CommandRuntimeToolProtocolVersion,
+				Action:  toolgateway.CommandRuntimeActionWait, JobID: pipeJobID,
+				Cursor: &pipeCursor, MaxBytes: &maxBytes,
+				WaitMilliseconds: &waitMilliseconds,
+			})
+		if err != nil || len(pipeResult.Jobs) != 1 || len(pipeResult.Pages) != 1 {
+			t.Fatalf("Docker Command Runtime stdin wait=%+v err=%v", pipeResult, err)
+		}
+		pipeCursor = pipeResult.Pages[0].NextCursor
+	}
+	ioTransport.mu.Lock()
+	stdinBytes := append([]byte(nil), ioTransport.stdin...)
+	ioTransport.mu.Unlock()
+	if pipeResult.Jobs[0].State != runner.CommandRuntimeJobCompleted ||
+		!pipeResult.Jobs[0].StdinClosed || string(stdinBytes) !=
+		"initial\ninteractive\n" || baseLifecycle.starts != 4 {
+		t.Fatalf("Docker Command Runtime stdin result=%+v input=%q lifecycle=%+v",
+			pipeResult, stdinBytes, baseLifecycle)
+	}
 }

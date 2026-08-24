@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-23
 - Scope: GitHub Issue #133 and schema v128
+- Amended: 2026-08-25; runner v2 and schema v132 sandbox stdin follow-up
 
 ## Context
 
@@ -29,13 +30,17 @@ timestamps, `network=disabled`, and `credentials=none`. Backend selection is pro
 state, not a command field.
 
 The Docker adapter compiles that command plus current authority facts into the one
-recognized `standard-code-docker-runner.v1` manifest:
+recognized `standard-code-docker-runner.v2` manifest (durable v1 manifests remain
+readable as closed-stdin recovery evidence):
 
 - one exact current Drydock root projected at `/workspace`, read-write, plus one
   application-owned exact regular file mounted read-only over `/workspace/.git` so a
   linked-worktree control path is not disclosed or usable;
 - no command-selected mount, input Artifact, environment entry, secret, device, port,
   Docker socket, endpoint, or user flag;
+- ordinary Standard Code fixes stdin closed; the Run-owned Command Runtime may bind
+  only `closed|pipe`, with pipe selecting Docker's non-TTY stdin flags and an exact
+  owned-container input attachment;
 - fixed `/traverse-board/standard-code-runner`, `/workspace`, `65532:65532`, read-only
   container root filesystem, `no-new-privileges`, all capabilities dropped, and init;
 - `network=none`, empty allowlist, fixed CPU/memory/PID/output limits, timeout, and
@@ -90,6 +95,9 @@ Start, wait, timeout, cancellation, daemon disconnect, application exit, and res
 reuse the existing durable lifecycle WAL, exact labels, lease fencing, deterministic
 container name, config inspection, and absence confirmation. Permission/profile/Run or
 Drydock metadata drift cancels the active context; terminal cleanup still converges.
+Schema v132 records one metadata-only `attach_stdin` action after the started
+transition and before daemon mutation. Bytes and handles stay process-local; a
+restarted process cannot recover them and cleans the exact owned container instead.
 Startup recovery never starts an admission-only record and cannot duplicate a launch.
 It only resumes already launched exact-owned records. A bounded query over the fixed
 runner protocol also closes the crash window after a Docker terminal receipt but before
@@ -107,7 +115,9 @@ The runner selects fixed absolute tool paths, starts them without a shell, super
 their process group, and constructs a small fixed environment rather than inheriting
 host values. Go disables module network lookup and Cargo is offline. Toolchain cache
 and temporary files stay in the bounded tmpfs; only command Workspace changes reach
-the Drydock. The runner establishes its resource monitor before child start, combines
+the Drydock. Runner v2 forwards stdin only for the bound pipe policy; deployments must
+rebuild the fixture image rather than using a v1 runner digest for new executions. The
+runner establishes its resource monitor before child start, combines
 kernel events with aggregate byte/entry scans, forwards cancellation, and fails closed
 when accounting is unavailable.
 
@@ -117,8 +127,8 @@ when accounting is unavailable.
   remains only the exact working-directory ownership and recovery boundary.
 - The adapter cannot mount HOME, SSH/Git credentials, a browser profile, Docker socket,
   or an undeclared path, and cannot accept managed egress or online installation.
-- Local Sandbox can implement the same Command/Checkpoint/Artifact contracts later
-  without changing Supervisor tool schema.
+- Windows Local and Docker implement the same Command Runtime stdin/Job/Checkpoint/
+  Artifact contract without exposing backend selection in the Supervisor schema.
 - Schema v128 performs one compatibility rebuild of the immutable Docker admission
   parent table so its closed permission check accepts `workspace_access`. Historical
   admissions are copied exactly and all binding/lifecycle/immutability triggers are

@@ -20,12 +20,13 @@ const (
 	DockerContainerLifecycleStateRunning = "running"
 	DockerContainerLifecycleStateExited  = "exited"
 
-	DockerContainerLifecycleActionCreate = "create"
-	DockerContainerLifecycleActionStart  = "start"
-	DockerContainerLifecycleActionWait   = "wait"
-	DockerContainerLifecycleActionTERM   = "term"
-	DockerContainerLifecycleActionKILL   = "kill"
-	DockerContainerLifecycleActionDelete = "delete"
+	DockerContainerLifecycleActionCreate      = "create"
+	DockerContainerLifecycleActionStart       = "start"
+	DockerContainerLifecycleActionWait        = "wait"
+	DockerContainerLifecycleActionAttachStdin = "attach_stdin"
+	DockerContainerLifecycleActionTERM        = "term"
+	DockerContainerLifecycleActionKILL        = "kill"
+	DockerContainerLifecycleActionDelete      = "delete"
 )
 
 type DockerContainerLifecycleActionKind string
@@ -37,7 +38,8 @@ func (action DockerContainerLifecycleActionKind) String() string {
 func (action DockerContainerLifecycleActionKind) Valid() bool {
 	switch action {
 	case DockerContainerLifecycleActionCreate, DockerContainerLifecycleActionStart,
-		DockerContainerLifecycleActionWait, DockerContainerLifecycleActionTERM,
+		DockerContainerLifecycleActionWait, DockerContainerLifecycleActionAttachStdin,
+		DockerContainerLifecycleActionTERM,
 		DockerContainerLifecycleActionKILL, DockerContainerLifecycleActionDelete:
 		return true
 	default:

@@ -205,6 +205,7 @@ type DockerContainerSpec struct {
 	NoNewPrivileges            bool
 	DropAllCapabilities        bool
 	InitEnabled                bool
+	StdinPipe                  bool
 	Mounts                     []DockerContainerMountSpec
 	Environment                []DockerContainerEnvironmentSpec
 	Network                    DockerContainerNetworkSpec
@@ -269,7 +270,7 @@ func CompileDockerContainerSpec(ctx context.Context, observation DockerObservati
 	if normalized.WritableMountCount() != 1 {
 		return DockerContainerSpec{}, errors.New("docker container compiler requires exactly one dedicated writable output mount")
 	}
-	_, standardCodeWorkspace := ParseDockerStandardCodeManifest(normalized)
+	standardCodeBinding, standardCodeWorkspace := ParseDockerStandardCodeManifest(normalized)
 
 	spec := DockerContainerSpec{
 		ProtocolVersion: DockerContainerSpecProtocolVersion,
@@ -284,6 +285,8 @@ func CompileDockerContainerSpec(ctx context.Context, observation DockerObservati
 		WorkingDirectory:      normalized.Command.WorkingDirectory,
 		User:                  DockerContainerFixedUser, ReadOnlyRootFS: true, NoNewPrivileges: true,
 		DropAllCapabilities: true, InitEnabled: true,
+		StdinPipe: standardCodeWorkspace &&
+			standardCodeBinding.StdinPolicy == DockerStandardCodeStdinPipe,
 		InputArtifactCount: len(normalized.InputArtifactIDs), InputArtifactsReadOnly: true,
 		OutputCount:      normalized.OutputCount(),
 		SecretsEphemeral: true, SecretsMetadataExcluded: true,
@@ -444,7 +447,7 @@ func (spec DockerContainerSpec) Validate() error {
 		}
 	}
 	standardCodeWorkspace := dockerContainerSpecUsesStandardCodeWorkspace(spec)
-	if writable != 1 || outputTarget == "" ||
+	if writable != 1 || outputTarget == "" || (spec.StdinPipe && !standardCodeWorkspace) ||
 		(!standardCodeWorkspace && (!workdirReadOnly ||
 			pathWithin(spec.WorkingDirectory, outputTarget))) ||
 		(standardCodeWorkspace && (workdirReadOnly ||
@@ -547,8 +550,9 @@ func dockerContainerSpecUsesStandardCodeWorkspace(spec DockerContainerSpec) bool
 		TimeoutSeconds: spec.Termination.TimeoutSeconds,
 		Cancellation:   CancellationSpec{GracePeriodMillis: spec.Termination.GracePeriodMillis},
 	}
-	_, ok := ParseDockerStandardCodeManifest(manifest)
-	return ok
+	binding, ok := ParseDockerStandardCodeManifest(manifest)
+	return ok && spec.StdinPipe ==
+		(binding.StdinPolicy == DockerStandardCodeStdinPipe)
 }
 
 func dockerContainerCommandFingerprint(spec DockerContainerSpec) string {
@@ -591,10 +595,16 @@ func dockerContainerSecretPlanFingerprint(spec DockerContainerSpec) string {
 }
 
 func dockerContainerConfigFingerprint(spec DockerContainerSpec) string {
-	return fingerprint("sandbox_docker_container_config.v1", spec.ImageDigest, spec.OSType,
+	parts := []string{"sandbox_docker_container_config.v1", spec.ImageDigest, spec.OSType,
 		spec.Architecture, spec.User, strconv.FormatBool(spec.ReadOnlyRootFS),
 		strconv.FormatBool(spec.NoNewPrivileges), strconv.FormatBool(spec.DropAllCapabilities),
-		strconv.FormatBool(spec.InitEnabled), spec.CommandFingerprint)
+		strconv.FormatBool(spec.InitEnabled), spec.CommandFingerprint}
+	// Preserve closed-stdin v1 plan fingerprints so durable pre-v2 Standard
+	// Code executions remain readable and cleanup-safe after upgrade.
+	if spec.StdinPipe {
+		parts = append(parts, "stdin_pipe=true")
+	}
+	return fingerprint(parts...)
 }
 
 func dockerContainerResourcePlanFingerprint(spec DockerContainerSpec) string {

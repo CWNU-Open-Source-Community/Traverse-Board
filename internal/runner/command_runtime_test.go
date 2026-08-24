@@ -697,7 +697,9 @@ func TestSandboxCommandRuntimeManagerUsesSameDurableJobWithoutHostPID(t *testing
 	}
 	terminal, page := waitCommandRuntimeTerminal(t, manager, snapshot.ID)
 	if terminal.State != CommandRuntimeJobCompleted || terminal.ExitCode == nil ||
-		*terminal.ExitCode != 0 || !terminal.TreeReaped || len(page.Frames) != 2 ||
+		*terminal.ExitCode != 0 || !terminal.TreeReaped ||
+		page.State != terminal.State || page.ExitCode == nil || *page.ExitCode != 0 ||
+		page.EndCursor != terminal.OutputCursor || len(page.Frames) != 2 ||
 		executor.calls != 1 {
 		t.Fatalf("sandbox terminal=%#v page=%#v calls=%d", terminal, page, executor.calls)
 	}
@@ -712,9 +714,72 @@ func TestSandboxCommandRuntimeManagerUsesSameDurableJobWithoutHostPID(t *testing
 	}
 }
 
+func TestSandboxCommandRuntimeManagerStreamsInitialAndInteractiveStdin(t *testing.T) {
+	identity := commandruntimeadapter.SandboxedWorkspace("docker_standard_code",
+		"docker-standard-code.v2", strings.Repeat("f", 64))
+	executor := &commandRuntimeSandboxExecutorFake{identity: identity, stdinEcho: true}
+	manager, err := NewSandboxCommandRuntimeManager(newCommandRuntimeMemoryStore(),
+		executor, "sandbox-stdin-owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := commandRuntimeTestRequest(manager, 2000)
+	request.Scope.PermissionMode = domain.RunExecutionPermissionWorkspaceAccess
+	request.Spec.Spec.InitialStdin = "initial\n"
+	request.Spec.Spec.CloseInitialStdin = false
+	snapshot, replayed, err := manager.Start(t.Context(), request)
+	if err != nil || replayed {
+		t.Fatalf("sandbox stdin start=%#v replayed=%t err=%v", snapshot, replayed, err)
+	}
+	updated, written, replayed, err := manager.WriteStdin(t.Context(), snapshot.ID,
+		"sandbox-stdin-second-write", []byte("interactive\n"), true)
+	if err != nil || replayed || written != len("interactive\n") || !updated.StdinClosed {
+		t.Fatalf("sandbox stdin write=%#v written=%d replayed=%t err=%v",
+			updated, written, replayed, err)
+	}
+	terminal, page := waitCommandRuntimeTerminal(t, manager, snapshot.ID)
+	var stdout strings.Builder
+	for _, frame := range page.Frames {
+		if frame.Stream == CommandRuntimeStdout {
+			stdout.WriteString(frame.Text)
+		}
+	}
+	if terminal.State != CommandRuntimeJobCompleted || !terminal.StdinClosed ||
+		stdout.String() != "initial\ninteractive\n" {
+		t.Fatalf("sandbox stdin terminal=%#v stdout=%q page=%#v",
+			terminal, stdout.String(), page)
+	}
+}
+
+func TestSandboxCommandRuntimeManagerCancellationClosesStdinPipe(t *testing.T) {
+	identity := commandruntimeadapter.SandboxedWorkspace("docker_standard_code",
+		"docker-standard-code.v2", strings.Repeat("9", 64))
+	executor := &commandRuntimeSandboxExecutorFake{identity: identity, stdinEcho: true}
+	manager, err := NewSandboxCommandRuntimeManager(newCommandRuntimeMemoryStore(),
+		executor, "sandbox-stdin-cancel-owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := commandRuntimeTestRequest(manager, 2000)
+	request.Scope.PermissionMode = domain.RunExecutionPermissionWorkspaceAccess
+	snapshot, _, err := manager.Start(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Stop(t.Context(), snapshot.ID, false, time.Second); err != nil {
+		t.Fatalf("cancel sandbox stdin Job: %v", err)
+	}
+	terminal, _ := waitCommandRuntimeTerminal(t, manager, snapshot.ID)
+	if terminal.State != CommandRuntimeJobCancelled || !terminal.StdinClosed ||
+		!terminal.TreeReaped {
+		t.Fatalf("cancelled sandbox stdin Job=%#v", terminal)
+	}
+}
+
 type commandRuntimeSandboxExecutorFake struct {
-	identity commandruntimeadapter.Identity
-	calls    int
+	identity  commandruntimeadapter.Identity
+	calls     int
+	stdinEcho bool
 }
 
 func (e *commandRuntimeSandboxExecutorFake) Identity() commandruntimeadapter.Identity {
@@ -724,9 +789,14 @@ func (e *commandRuntimeSandboxExecutorFake) Identity() commandruntimeadapter.Ide
 func (*commandRuntimeSandboxExecutorFake) Available() bool { return true }
 
 func (e *commandRuntimeSandboxExecutorFake) ExecuteSandboxCommand(
-	context.Context, CommandRuntimeScope, CommandRuntimeResolvedSpec,
+	_ context.Context, _ CommandRuntimeScope, _ CommandRuntimeResolvedSpec, stdin io.ReadCloser,
 ) (CommandRuntimeSandboxResult, error) {
 	e.calls++
+	if e.stdinEcho {
+		data, err := io.ReadAll(stdin)
+		return CommandRuntimeSandboxResult{ExitCode: 0, Stdout: data,
+			TreeReaped: true}, err
+	}
 	return CommandRuntimeSandboxResult{ExitCode: 0, Stdout: []byte("sandbox-out\n"),
 		Stderr: []byte("sandbox-err\n"), TreeReaped: true}, nil
 }

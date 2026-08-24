@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"time"
 
@@ -92,7 +93,8 @@ func (s *StandardCodeDockerService) Readiness(ctx context.Context,
 	request StandardCodeDockerReadinessRequest,
 ) (standardcode.BackendReadiness, error) {
 	_, manifest, err := s.compileCurrent(ctx, request.RunID,
-		request.ExpectedGeneration, request.ExpectedCheckpoint, request.Command, true)
+		request.ExpectedGeneration, request.ExpectedCheckpoint, request.Command,
+		sandbox.DockerStandardCodeStdinClosed, true)
 	if err != nil {
 		return standardcode.BackendReadiness{}, err
 	}
@@ -106,6 +108,18 @@ func (s *StandardCodeDockerService) Readiness(ctx context.Context,
 func (s *StandardCodeDockerService) Prepare(ctx context.Context,
 	request StandardCodeDockerPrepareRequest,
 ) (StandardCodeDockerPrepareResult, error) {
+	return s.prepare(ctx, request, sandbox.DockerStandardCodeStdinClosed)
+}
+
+func (s *StandardCodeDockerService) prepareCommandRuntime(ctx context.Context,
+	request StandardCodeDockerPrepareRequest, stdinPolicy string,
+) (StandardCodeDockerPrepareResult, error) {
+	return s.prepare(ctx, request, stdinPolicy)
+}
+
+func (s *StandardCodeDockerService) prepare(ctx context.Context,
+	request StandardCodeDockerPrepareRequest, stdinPolicy string,
+) (StandardCodeDockerPrepareResult, error) {
 	request.OperationKey = strings.TrimSpace(request.OperationKey)
 	request.RequestedBy = strings.TrimSpace(request.RequestedBy)
 	if !validDockerSandboxOperationKey(request.OperationKey) ||
@@ -115,7 +129,8 @@ func (s *StandardCodeDockerService) Prepare(ctx context.Context,
 			"Standard Code preparation operation or operator is invalid")
 	}
 	_, manifest, err := s.compileCurrent(ctx, request.RunID,
-		request.ExpectedGeneration, request.ExpectedCheckpoint, request.Command, true)
+		request.ExpectedGeneration, request.ExpectedCheckpoint, request.Command,
+		stdinPolicy, true)
 	if err != nil {
 		return StandardCodeDockerPrepareResult{}, err
 	}
@@ -203,36 +218,42 @@ func (s *StandardCodeDockerService) Cancel(ctx context.Context,
 func (s *StandardCodeDockerService) Execute(ctx context.Context,
 	request StandardCodeDockerExecuteRequest,
 ) (StandardCodeDockerExecuteResult, error) {
-	return s.execute(ctx, request, nil)
+	return s.execute(ctx, request, nil, sandbox.DockerStandardCodeStdinClosed, nil)
 }
 
 func (s *StandardCodeDockerService) executeCommandRuntime(ctx context.Context,
 	request StandardCodeDockerExecuteRequest, lease domain.RunExecutionLease,
+	stdinPolicy string, stdin io.ReadCloser,
 ) (StandardCodeDockerExecuteResult, error) {
 	if lease.Validate() != nil || lease.RunID != request.RunID ||
-		lease.Status != domain.RunExecutionLeaseActive {
+		lease.Status != domain.RunExecutionLeaseActive ||
+		(stdinPolicy == sandbox.DockerStandardCodeStdinPipe) != (stdin != nil) ||
+		(stdinPolicy != sandbox.DockerStandardCodeStdinClosed &&
+			stdinPolicy != sandbox.DockerStandardCodeStdinPipe) {
 		return StandardCodeDockerExecuteResult{}, apperror.New(
 			apperror.CodeInvalidArgument,
 			"Standard Code Command Runtime lease is invalid")
 	}
-	return s.execute(ctx, request, &lease)
+	return s.execute(ctx, request, &lease, stdinPolicy, stdin)
 }
 
 func (s *StandardCodeDockerService) execute(ctx context.Context,
 	request StandardCodeDockerExecuteRequest, runLease *domain.RunExecutionLease,
+	stdinPolicy string, stdin io.ReadCloser,
 ) (StandardCodeDockerExecuteResult, error) {
 	request, err := normalizeStandardCodeDockerExecuteRequest(request)
 	if err != nil {
 		return StandardCodeDockerExecuteResult{}, err
 	}
 	if replay, found, replayErr := s.loadTerminalReplay(ctx, request,
-		runLease); replayErr != nil {
+		runLease, stdinPolicy); replayErr != nil {
 		return StandardCodeDockerExecuteResult{}, replayErr
 	} else if found {
 		return replay, nil
 	}
 	scope, manifest, err := s.compileCurrent(ctx, request.RunID,
-		request.ExpectedGeneration, request.ExpectedCheckpoint, request.Command, true)
+		request.ExpectedGeneration, request.ExpectedCheckpoint, request.Command,
+		stdinPolicy, true)
 	if err != nil {
 		return StandardCodeDockerExecuteResult{}, err
 	}
@@ -333,6 +354,15 @@ func (s *StandardCodeDockerService) execute(ctx context.Context,
 		return result, nil
 	}
 	result.AdmissionID = admission.Admission.ID
+	var releaseStdin func()
+	if stdinPolicy == sandbox.DockerStandardCodeStdinPipe {
+		releaseStdin, err = s.docker.registerCommandRuntimeStdin(
+			admission.Admission.ID, stdin)
+		if err != nil {
+			return result, err
+		}
+		defer releaseStdin()
+	}
 	executionContext, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go s.monitorCurrentAuthority(executionContext, done, scope, runLease, cancel)
@@ -429,6 +459,7 @@ func normalizeStandardCodeDockerExecuteRequest(
 
 func (s *StandardCodeDockerService) loadTerminalReplay(ctx context.Context,
 	request StandardCodeDockerExecuteRequest, runLease *domain.RunExecutionLease,
+	stdinPolicy string,
 ) (StandardCodeDockerExecuteResult, bool, error) {
 	operationDigest := runmutation.Fingerprint("docker_sandbox_admission_operation.v1",
 		request.RunID, standardCodeStageKey(request.OperationKey, "admit"))
@@ -448,6 +479,7 @@ func (s *StandardCodeDockerService) loadTerminalReplay(ctx context.Context,
 		admission.RequestedBy != request.RequestedBy ||
 		binding.DrydockGeneration != request.ExpectedGeneration ||
 		binding.CheckpointID != request.ExpectedCheckpoint ||
+		binding.StdinPolicy != stdinPolicy ||
 		!standardCodeCommandMatchesBinding(request.Command, binding) {
 		return StandardCodeDockerExecuteResult{}, true, apperror.New(
 			apperror.CodeConflict,
@@ -531,7 +563,7 @@ func executionContextFromDockerBinding(
 
 func (s *StandardCodeDockerService) compileCurrent(ctx context.Context, runID string,
 	expectedGeneration int64, expectedCheckpoint string, command standardcode.Command,
-	requireUnchanged bool,
+	stdinPolicy string, requireUnchanged bool,
 ) (standardcode.ExecutionContext, sandbox.Manifest, error) {
 	runID, expectedCheckpoint = strings.TrimSpace(runID), strings.TrimSpace(expectedCheckpoint)
 	if !domain.ValidAgentID(runID) || expectedGeneration < 1 ||
@@ -597,7 +629,8 @@ func (s *StandardCodeDockerService) compileCurrent(ctx context.Context, runID st
 		ProfileSnapshotID:    profile.ID, ProfileRevision: profile.Revision,
 		PermissionSnapshotID: permission.ID, PermissionRevision: permission.Revision,
 		CapabilityGeneration: generation}
-	manifest, err := standardcode.CompileDockerManifest(scope, command)
+	manifest, err := standardcode.CompileDockerManifestWithStdin(scope, command,
+		stdinPolicy)
 	if err != nil {
 		return standardcode.ExecutionContext{}, sandbox.Manifest{}, apperror.Wrap(
 			apperror.CodeInvalidArgument, "Standard Code command is invalid", err)

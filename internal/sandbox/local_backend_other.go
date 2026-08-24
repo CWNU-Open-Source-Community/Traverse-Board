@@ -4,6 +4,7 @@ package sandbox
 
 import (
 	"context"
+	"io"
 	"runtime"
 	"time"
 )
@@ -46,6 +47,15 @@ func (b *unavailableLocalBackend) Readiness(_ context.Context,
 func (*unavailableLocalBackend) Run(context.Context,
 	LocalRunRequest,
 ) (LocalExecutionResult, error) {
+	return LocalExecutionResult{}, ErrLocalSandboxUnavailable
+}
+
+func (*unavailableLocalBackend) RunWithStdin(_ context.Context,
+	_ LocalRunRequest, stdin io.ReadCloser,
+) (LocalExecutionResult, error) {
+	if stdin != nil {
+		_ = stdin.Close()
+	}
 	return LocalExecutionResult{}, ErrLocalSandboxUnavailable
 }
 

@@ -523,6 +523,10 @@ func TestDockerContainerIOErrors(t *testing.T) {
 		t.Fatalf("code = %q", code)
 	}
 	unavailable := NewUnavailableDockerContainerIOTransport("missing", "unavailable")
+	stdinTransport, ok := unavailable.(DockerContainerStdinTransport)
+	if !ok || stdinTransport.SupportsOwnedStdin() {
+		t.Fatal("unavailable Docker I/O advertised owned stdin support")
+	}
 	if _, err := unavailable.AttachLogs(context.Background(), testDockerLogCapturePlan(t, 1024, 64)); err == nil || DockerContainerIOErrorCode(err) != DockerContainerIOFailureUnavailable {
 		t.Fatalf("unavailable attach = %v", err)
 	}

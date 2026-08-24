@@ -438,7 +438,9 @@ func dockerCreatePayloadWithLabels(request DockerContainerWriteRequest,
 		Cmd: append([]string(nil), spec.Arguments...), Env: []string{},
 		WorkingDir: spec.WorkingDirectory,
 		User:       spec.User, NetworkDisabled: true, StopSignal: DockerTerminationSignalGraceful,
-		Labels: labels, ExposedPorts: map[string]json.RawMessage{},
+		AttachStdin: spec.StdinPipe, OpenStdin: spec.StdinPipe,
+		StdinOnce: spec.StdinPipe,
+		Labels:    labels, ExposedPorts: map[string]json.RawMessage{},
 		HostConfig: dockerCreateHostConfig{
 			ReadonlyRootfs: true, SecurityOpt: []string{"no-new-privileges"},
 			CapDrop: []string{"ALL"}, Init: &initEnabled, NetworkMode: DockerNetworkDriverNone,
@@ -614,9 +616,9 @@ func verifyDockerContainerConfigurationWithLabels(inspection dockerContainerInsp
 		inspection.Config.Image != spec.ImageDigest || inspection.Config.User != spec.User ||
 		inspection.Config.WorkingDir != spec.WorkingDirectory ||
 		!inspection.Config.NetworkDisabled || inspection.Config.StopSignal != DockerTerminationSignalGraceful ||
-		inspection.Config.AttachStdin || inspection.Config.AttachStdout ||
-		inspection.Config.AttachStderr || inspection.Config.OpenStdin ||
-		inspection.Config.StdinOnce || inspection.Config.Tty ||
+		inspection.Config.AttachStdin != spec.StdinPipe || inspection.Config.AttachStdout ||
+		inspection.Config.AttachStderr || inspection.Config.OpenStdin != spec.StdinPipe ||
+		inspection.Config.StdinOnce != spec.StdinPipe || inspection.Config.Tty ||
 		len(inspection.Config.Env) != 0 || len(inspection.Config.ExposedPorts) != 0 ||
 		!equalStrings(inspection.Config.Entrypoint, []string{spec.Executable}) ||
 		!equalStrings(inspection.Config.Cmd, spec.Arguments) ||

@@ -10,7 +10,8 @@ import (
 )
 
 const (
-	DockerStandardCodeRunnerProtocolVersion = "standard-code-docker-runner.v1"
+	DockerStandardCodeRunnerProtocolVersion = "standard-code-docker-runner.v2"
+	dockerStandardCodeRunnerLegacyProtocol  = "standard-code-docker-runner.v1"
 	DockerStandardCodeRunnerExecutable      = "/traverse-board/standard-code-runner"
 	DockerStandardCodeWorkspaceTarget       = "/workspace"
 	DockerStandardCodeGitMetadataTarget     = "/workspace/.git"
@@ -35,8 +36,11 @@ const (
 	DockerStandardCodeToolchainNode   = "node"
 	DockerStandardCodeToolchainPython = "python"
 	DockerStandardCodeToolchainRust   = "rust"
+	DockerStandardCodeStdinClosed     = "closed"
+	DockerStandardCodeStdinPipe       = "pipe"
 
-	dockerStandardCodeBindingFieldCount = 23
+	dockerStandardCodeBindingFieldCount = 24
+	dockerStandardCodeLegacyFieldCount  = 23
 )
 
 // DockerStandardCodeRunnerBinding is the complete authority and command wire
@@ -58,6 +62,7 @@ type DockerStandardCodeRunnerBinding struct {
 	PermissionRevision   int64
 	CapabilityGeneration string
 	CommandSHA256        string
+	StdinPolicy          string
 	Toolchain            string
 	WorkingDirectory     string
 	Arguments            []string
@@ -75,6 +80,7 @@ func (binding DockerStandardCodeRunnerBinding) Validate() error {
 	if binding.DrydockGeneration < 1 || binding.ProfileRevision < 1 ||
 		binding.PermissionRevision < 1 || !validDigest(binding.DrydockBindingSHA256) ||
 		!validDigest(binding.CapabilityGeneration) || !validDigest(binding.CommandSHA256) ||
+		!validDockerStandardCodeStdinPolicy(binding.StdinPolicy) ||
 		!validDockerStandardCodeToolchain(binding.Toolchain) ||
 		!validDockerStandardCodeRelativePath(binding.WorkingDirectory) ||
 		binding.TimeoutSeconds < 1 || binding.TimeoutSeconds > MaxTimeoutSeconds ||
@@ -98,6 +104,10 @@ func (binding DockerStandardCodeRunnerBinding) Validate() error {
 		return errors.New("Standard Code Docker command exceeds its fixed byte bound")
 	}
 	return nil
+}
+
+func validDockerStandardCodeStdinPolicy(value string) bool {
+	return value == DockerStandardCodeStdinClosed || value == DockerStandardCodeStdinPipe
 }
 
 func validDockerStandardCodeToolchain(value string) bool {
@@ -125,11 +135,22 @@ func validDockerStandardCodeRelativePath(value string) bool {
 // sole writable host projection; the transport adds only its fixed read-only
 // Git metadata mask. Docker configuration remains entirely Go-owned.
 func DockerStandardCodeManifest(binding DockerStandardCodeRunnerBinding) (Manifest, error) {
+	return dockerStandardCodeManifest(binding, DockerStandardCodeRunnerProtocolVersion)
+}
+
+func dockerStandardCodeManifest(binding DockerStandardCodeRunnerBinding,
+	protocol string,
+) (Manifest, error) {
 	if err := binding.Validate(); err != nil {
 		return Manifest{}, err
 	}
+	if protocol != DockerStandardCodeRunnerProtocolVersion &&
+		(protocol != dockerStandardCodeRunnerLegacyProtocol ||
+			binding.StdinPolicy != DockerStandardCodeStdinClosed) {
+		return Manifest{}, errors.New("Standard Code Docker runner protocol is invalid")
+	}
 	arguments := []string{
-		DockerStandardCodeRunnerProtocolVersion,
+		protocol,
 		binding.RunID,
 		binding.MissionID,
 		binding.SessionID,
@@ -145,6 +166,11 @@ func DockerStandardCodeManifest(binding DockerStandardCodeRunnerBinding) (Manife
 		strconv.FormatInt(binding.PermissionRevision, 10),
 		binding.CapabilityGeneration,
 		binding.CommandSHA256,
+	}
+	if protocol == DockerStandardCodeRunnerProtocolVersion {
+		arguments = append(arguments, binding.StdinPolicy)
+	}
+	arguments = append(arguments,
 		binding.Toolchain,
 		binding.WorkingDirectory,
 		strconv.FormatInt(DockerStandardCodeWorkspaceGrowthBytes, 10),
@@ -152,7 +178,7 @@ func DockerStandardCodeManifest(binding DockerStandardCodeRunnerBinding) (Manife
 		strconv.FormatInt(DockerStandardCodeWorkspaceFileBytes, 10),
 		strconv.FormatInt(DockerStandardCodeWorkspaceFreeBytes, 10),
 		strconv.FormatInt(DockerStandardCodeWorkspaceFreeEntries, 10),
-	}
+	)
 	arguments = append(arguments, binding.Arguments...)
 	manifest := Manifest{
 		ProtocolVersion: ManifestProtocolVersion,
@@ -189,7 +215,7 @@ func ParseDockerStandardCodeManifest(manifest Manifest) (
 	if err != nil || normalized.Backend != BackendDocker ||
 		normalized.Command.Executable != DockerStandardCodeRunnerExecutable ||
 		normalized.Command.WorkingDirectory != DockerStandardCodeWorkspaceTarget ||
-		len(normalized.Command.Arguments) < dockerStandardCodeBindingFieldCount ||
+		len(normalized.Command.Arguments) < dockerStandardCodeLegacyFieldCount ||
 		len(normalized.Mounts) != 1 || normalized.Mounts[0] != (Mount{Source: ".",
 		Target: DockerStandardCodeWorkspaceTarget, Access: MountReadWrite}) ||
 		normalized.Network.Mode != "disabled" ||
@@ -204,17 +230,30 @@ func ParseDockerStandardCodeManifest(manifest Manifest) (
 		return DockerStandardCodeRunnerBinding{}, false
 	}
 	arguments := normalized.Command.Arguments
-	if arguments[0] != DockerStandardCodeRunnerProtocolVersion {
+	protocol := arguments[0]
+	fieldCount := dockerStandardCodeBindingFieldCount
+	stdinIndex, toolchainIndex, workingDirectoryIndex, limitIndex := 16, 17, 18, 19
+	stdinPolicy := DockerStandardCodeStdinClosed
+	if protocol == dockerStandardCodeRunnerLegacyProtocol {
+		fieldCount = dockerStandardCodeLegacyFieldCount
+		stdinIndex, toolchainIndex, workingDirectoryIndex, limitIndex = -1, 16, 17, 18
+	} else if protocol != DockerStandardCodeRunnerProtocolVersion {
 		return DockerStandardCodeRunnerBinding{}, false
+	}
+	if len(arguments) < fieldCount {
+		return DockerStandardCodeRunnerBinding{}, false
+	}
+	if stdinIndex >= 0 {
+		stdinPolicy = arguments[stdinIndex]
 	}
 	generation, generationErr := strconv.ParseInt(arguments[7], 10, 64)
 	profileRevision, profileErr := strconv.ParseInt(arguments[11], 10, 64)
 	permissionRevision, permissionErr := strconv.ParseInt(arguments[13], 10, 64)
-	workspaceGrowthBytes, growthBytesErr := strconv.ParseInt(arguments[18], 10, 64)
-	workspaceGrowthEntries, growthEntriesErr := strconv.Atoi(arguments[19])
-	workspaceFileBytes, fileBytesErr := strconv.ParseInt(arguments[20], 10, 64)
-	workspaceFreeBytes, freeBytesErr := strconv.ParseInt(arguments[21], 10, 64)
-	workspaceFreeEntries, freeEntriesErr := strconv.ParseInt(arguments[22], 10, 64)
+	workspaceGrowthBytes, growthBytesErr := strconv.ParseInt(arguments[limitIndex], 10, 64)
+	workspaceGrowthEntries, growthEntriesErr := strconv.Atoi(arguments[limitIndex+1])
+	workspaceFileBytes, fileBytesErr := strconv.ParseInt(arguments[limitIndex+2], 10, 64)
+	workspaceFreeBytes, freeBytesErr := strconv.ParseInt(arguments[limitIndex+3], 10, 64)
+	workspaceFreeEntries, freeEntriesErr := strconv.ParseInt(arguments[limitIndex+4], 10, 64)
 	if generationErr != nil || profileErr != nil || permissionErr != nil ||
 		growthBytesErr != nil || growthEntriesErr != nil || fileBytesErr != nil ||
 		freeBytesErr != nil || freeEntriesErr != nil || workspaceGrowthBytes !=
@@ -233,14 +272,15 @@ func ParseDockerStandardCodeManifest(manifest Manifest) (
 		ProfileSnapshotID: arguments[10], ProfileRevision: profileRevision,
 		PermissionSnapshotID: arguments[12], PermissionRevision: permissionRevision,
 		CapabilityGeneration: arguments[14], CommandSHA256: arguments[15],
-		Toolchain: arguments[16], WorkingDirectory: arguments[17],
-		Arguments:      append([]string(nil), arguments[dockerStandardCodeBindingFieldCount:]...),
-		TimeoutSeconds: normalized.TimeoutSeconds,
+		StdinPolicy: stdinPolicy, Toolchain: arguments[toolchainIndex],
+		WorkingDirectory: arguments[workingDirectoryIndex],
+		Arguments:        append([]string(nil), arguments[fieldCount:]...),
+		TimeoutSeconds:   normalized.TimeoutSeconds,
 	}
 	if binding.Validate() != nil {
 		return DockerStandardCodeRunnerBinding{}, false
 	}
-	recompiled, err := DockerStandardCodeManifest(binding)
+	recompiled, err := dockerStandardCodeManifest(binding, protocol)
 	if err != nil {
 		return DockerStandardCodeRunnerBinding{}, false
 	}

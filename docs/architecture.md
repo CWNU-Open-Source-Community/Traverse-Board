@@ -1232,9 +1232,11 @@ stdout/stderr cursor, bounded stdin writes, wait/cancel/kill, a byte-and-frame-b
 inline ring, terminal hashes, and bounded Artifact capture. Output is sanitized by
 a stateful chunk decoder before storage and again at the model boundary. The
 projection always marks it as untrusted and carries the exact adapter, backend
-generation, isolation grade, and effective network/credential policy. The current
-sandbox backends accept closed stdin only and declare that limitation; the host
-adapter retains the bounded stdin protocol.
+generation, isolation grade, and effective network/credential policy. All three
+adapters retain the bounded stdin protocol. Windows Local forwards the manager-owned
+pipe through the AppContainer handle list; fixed Docker binds the pipe policy into
+runner v2 and records a metadata-only, lease-fenced `attach_stdin` action in schema
+v132. No sandbox input bytes or handles survive restart.
 
 Schema v116 stores a write-ahead immutable launch intent fenced by the starting
 Supervisor generation. Live handles then belong to a distinct random process owner

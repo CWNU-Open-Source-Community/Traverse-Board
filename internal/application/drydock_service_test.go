@@ -281,6 +281,7 @@ func TestResolveDrydockExecutionBindingDistinguishesPrestartDriftFromOwnedOutput
 		PermissionSnapshotID: "standard-code-permission-1", PermissionRevision: 1,
 		CapabilityGeneration: strings.Repeat("c", 64),
 		CommandSHA256:        strings.Repeat("d", 64),
+		StdinPolicy:          sandbox.DockerStandardCodeStdinClosed,
 		Toolchain:            sandbox.DockerStandardCodeToolchainGo,
 		WorkingDirectory:     ".", Arguments: []string{"test", "./..."},
 		TimeoutSeconds: 60}
