@@ -31,8 +31,17 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+func setCanonicalLocalSandboxTestHome(t *testing.T) {
+	t.Helper()
+	home, err := sandboxtest.CanonicalRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CYBERAGENT_HOME", home)
+}
+
 func TestWindowsLocalSandboxCLIProbeOpensOnlyWorkspaceGate(t *testing.T) {
-	t.Setenv("CYBERAGENT_HOME", t.TempDir())
+	setCanonicalLocalSandboxTestHome(t)
 	readinessJSON, stderr, code := executeTestCommand(t, "sandbox", "local-readiness",
 		"--enable-workspace-sandbox", "--json")
 	if code != 0 || stderr != "" {
@@ -86,7 +95,7 @@ func TestWindowsLocalSandboxCLIProbeOpensOnlyWorkspaceGate(t *testing.T) {
 }
 
 func TestWindowsAPIServePublishesWorkspaceGateOnlyAfterLocalProbe(t *testing.T) {
-	t.Setenv("CYBERAGENT_HOME", t.TempDir())
+	setCanonicalLocalSandboxTestHome(t)
 	t.Setenv(apiTokenEnvironment, "local-readiness-api-token-0123456789")
 	t.Setenv(apiControlTokenEnvironment, "local-readiness-control-token-012345")
 	ctx, cancel := context.WithCancel(context.Background())
