@@ -42,6 +42,17 @@ func createMissionRunTx(ctx context.Context, tx *sql.Tx, mission domain.Mission,
 	mode domain.RunModeSnapshot, linkedSession session.Session, createSession bool,
 	initialEvents []events.Event,
 ) error {
+	if err := createRunGraphTx(ctx, tx, mission, run, mode, linkedSession, createSession,
+		true, initialEvents); err != nil {
+		return err
+	}
+	return insertInitialThreadTx(ctx, tx, mission, run)
+}
+
+func createRunGraphTx(ctx context.Context, tx *sql.Tx, mission domain.Mission, run domain.Run,
+	mode domain.RunModeSnapshot, linkedSession session.Session, createSession bool,
+	createMission bool, initialEvents []events.Event,
+) error {
 	mission.Goal = redact.String(mission.Goal)
 	linkedSession.Title = redact.String(linkedSession.Title)
 	if err := mission.Validate(); err != nil {
@@ -107,11 +118,23 @@ func createMissionRunTx(ctx context.Context, tx *sql.Tx, mission domain.Mission,
 			return errors.New("active run session was not found")
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO missions
-		(id, goal, profile, workspace_id, scope_json, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`, mission.ID, mission.Goal, mission.Profile, mission.WorkspaceID,
-		scopeJSON, ts(mission.CreatedAt), ts(mission.UpdatedAt)); err != nil {
-		return err
+	if createMission {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO missions
+			(id, goal, profile, workspace_id, scope_json, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`, mission.ID, mission.Goal, mission.Profile, mission.WorkspaceID,
+			scopeJSON, ts(mission.CreatedAt), ts(mission.UpdatedAt)); err != nil {
+			return err
+		}
+	} else {
+		stored, err := scanMission(tx.QueryRowContext(ctx, `SELECT id, goal, profile, workspace_id,
+			scope_json, created_at, updated_at FROM missions WHERE id = ?`, mission.ID))
+		if err != nil {
+			return err
+		}
+		if stored.ID != mission.ID || stored.Profile != mission.Profile ||
+			stored.WorkspaceID != mission.WorkspaceID {
+			return errors.New("successor Run Mission binding changed")
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO runs
 		(id, mission_id, session_id, status, config_json, budget_json, started_at, finished_at, created_at, updated_at)

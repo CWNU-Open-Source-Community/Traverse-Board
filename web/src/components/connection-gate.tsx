@@ -47,6 +47,7 @@ export function ConnectionGate() {
         commandRuntimeEnabled: bootstrap.command_runtime_enabled,
         runCreationEnabled: bootstrap.run_creation_enabled,
         sessionMessageEnabled: bootstrap.session_message_enabled,
+        threadControlEnabled: bootstrap.thread_control_enabled,
         sessionSteeringControlEnabled: bootstrap.session_steering_control_enabled,
         runLifecycleEnabled: bootstrap.run_lifecycle_enabled,
         runExecutionEnabled: bootstrap.run_execution_enabled,

@@ -19,6 +19,7 @@ import { RunCreationDialog } from "./components/run-creation-dialog";
 import { ResourceSidebar, type WorkbenchSection } from "./components/resource-sidebar";
 import { RunWorkspace } from "./components/run-workspace";
 import { SessionWorkspace } from "./components/session-workspace";
+import { ThreadWorkspace } from "./components/thread-workspace";
 import { ScheduledTasksWorkspace } from "./components/scheduled-tasks-workspace";
 import { SettingsView, type SettingsCapability } from "./components/settings-view";
 import { EmptyConversation, SidebarResizeHandle, UtilityWorkspace,
@@ -53,6 +54,7 @@ export default function App() {
   const commandRuntimeEnabled = useConnectionStore((state) => state.commandRuntimeEnabled);
   const runCreationEnabled = useConnectionStore((state) => state.runCreationEnabled);
   const sessionMessageEnabled = useConnectionStore((state) => state.sessionMessageEnabled);
+  const threadControlEnabled = useConnectionStore((state) => state.threadControlEnabled);
   const sessionSteeringControlEnabled = useConnectionStore(
     (state) => state.sessionSteeringControlEnabled);
   const runLifecycleEnabled = useConnectionStore((state) => state.runLifecycleEnabled);
@@ -108,6 +110,7 @@ export default function App() {
     debugMaximumAccessEnabled={debugMaximumAccessEnabled}
     commandRuntimeEnabled={commandRuntimeEnabled}
     sessionMessageEnabled={sessionMessageEnabled}
+    threadControlEnabled={threadControlEnabled}
     sessionSteeringControlEnabled={sessionSteeringControlEnabled}
     runLifecycleEnabled={runLifecycleEnabled} runExecutionEnabled={runExecutionEnabled}
     planDeliveryControlEnabled={planDeliveryControlEnabled}
@@ -138,7 +141,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   executionPermissionControlEnabled, operatorApprovalEnabled, dangerFullAccessEnabled,
   debugMaximumAccessEnabled, commandRuntimeEnabled,
   browserCDPPermissionControlEnabled, fullCDPDebugEnabled,
-  sessionMessageEnabled, sessionSteeringControlEnabled, runLifecycleEnabled,
+  sessionMessageEnabled, threadControlEnabled, sessionSteeringControlEnabled, runLifecycleEnabled,
   runExecutionEnabled, planDeliveryControlEnabled, approvalControlEnabled,
   controlledCommandProposalControlEnabled,
   hostCommandProposalControlEnabled,
@@ -162,6 +165,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   debugMaximumAccessEnabled: boolean;
   commandRuntimeEnabled: boolean;
   sessionMessageEnabled: boolean;
+  threadControlEnabled: boolean;
   sessionSteeringControlEnabled: boolean;
   runLifecycleEnabled: boolean;
   runExecutionEnabled: boolean;
@@ -204,7 +208,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   const desktop = desktopBridgeAvailable();
   const macTitlebar = desktopIsMacPlatform();
   const client = useMemo(() => new CyberAgentClient(token, undefined, controlToken, {
-    runControlEnabled, runCreationEnabled, sessionMessageEnabled,
+    runControlEnabled, runCreationEnabled, sessionMessageEnabled, threadControlEnabled,
     executionPermissionControlEnabled, operatorApprovalEnabled,
     dangerFullAccessEnabled, debugMaximumAccessEnabled, commandRuntimeEnabled,
     browserCDPPermissionControlEnabled, fullCDPDebugEnabled,
@@ -229,6 +233,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     executionPermissionControlEnabled, operatorApprovalEnabled,
     dangerFullAccessEnabled, debugMaximumAccessEnabled, commandRuntimeEnabled,
     browserCDPPermissionControlEnabled, fullCDPDebugEnabled, sessionMessageEnabled,
+    threadControlEnabled,
     sessionSteeringControlEnabled, runLifecycleEnabled, runExecutionEnabled,
     planDeliveryControlEnabled, approvalControlEnabled, modelControlEnabled,
     controlledCommandProposalControlEnabled,
@@ -248,6 +253,10 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   const resourceKind = useConnectionStore((state) => state.resourceKind);
   const selectedRunID = useConnectionStore((state) => state.selectedRunID);
   const selectedSessionID = useConnectionStore((state) => state.selectedSessionID);
+  const selectedThreadID = useConnectionStore((state) => state.selectedThreadID);
+  const selectThread = useConnectionStore((state) => state.selectThread);
+  const selectRun = useConnectionStore((state) => state.selectRun);
+  const selectSession = useConnectionStore((state) => state.selectSession);
   const healthQuery = useQuery({
     queryKey: ["health"],
     queryFn: ({ signal }) => client.health(signal),
@@ -321,6 +330,35 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     return () => narrowWorkspace.removeEventListener("change", collapseSidebar);
   }, []);
 
+  useEffect(() => {
+    const restoreLocation = (force: boolean) => {
+      if (!force && (selectedThreadID || selectedRunID || selectedSessionID)) return;
+      const selection = workspaceSelectionFromPath(window.location.pathname);
+      if (!selection) return;
+      if (selection.kind === "thread") selectThread(selection.id);
+      else if (selection.kind === "run") selectRun(selection.id);
+      else selectSession(selection.id);
+      setSurface("workspace");
+      setWorkspaceSection("conversation");
+    };
+    const onPopState = () => restoreLocation(true);
+    restoreLocation(false);
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [selectRun, selectSession, selectThread, selectedRunID, selectedSessionID,
+    selectedThreadID]);
+
+  useEffect(() => {
+    if (workspaceSection !== "conversation") return;
+    const selectedID = resourceKind === "thread" ? selectedThreadID :
+      resourceKind === "run" ? selectedRunID : selectedSessionID;
+    if (!selectedID) return;
+    const nextPath = `/${resourceKind}s/${encodeURIComponent(selectedID)}`;
+    if (window.location.pathname !== nextPath) {
+      window.history.replaceState({ resourceKind, selectedID }, "", nextPath);
+    }
+  }, [resourceKind, selectedRunID, selectedSessionID, selectedThreadID, workspaceSection]);
+
   const leave = () => {
     setSurface("workspace");
     setWorkspaceSection("conversation");
@@ -358,10 +396,11 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     if (section === "plugins" && desktop) setSkillPreviewOpen(true);
   };
 
-  const selectedResourceID = resourceKind === "run" ? selectedRunID : selectedSessionID;
+  const selectedResourceID = resourceKind === "thread" ? selectedThreadID :
+    resourceKind === "run" ? selectedRunID : selectedSessionID;
   const panelTitle = workspaceSection === "conversation"
     ? selectedResourceID
-      ? `${resourceKind === "run" ? t("任务", "Task") : t("对话", "Conversation")} / ${selectedResourceID.slice(0, 18)}`
+      ? `${resourceKind === "thread" ? t("任务", "Task") : resourceKind === "run" ? "Run" : "Session"} / ${selectedResourceID.slice(0, 18)}`
       : t("针路簿工作台", "Traverse Board Workbench")
     : workspaceSection === "pull-requests" ? t("拉取请求", "Pull requests")
       : workspaceSection === "models" ? t("模型切换", "Models")
@@ -375,7 +414,9 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
       ? <UtilityWorkspace kind={workspaceSection}
         onOpenPlugins={desktop ? () => setSkillPreviewOpen(true) : undefined} />
       : selectedResourceID
-        ? resourceKind === "run"
+        ? resourceKind === "thread"
+          ? <ThreadWorkspace client={client} key={selectedThreadID} threadID={selectedThreadID} />
+          : resourceKind === "run"
           ? <RunWorkspace client={client} key={selectedRunID}
             onOpenPlugins={desktop ? () => setSkillPreviewOpen(true) : undefined}
             runID={selectedRunID} />
@@ -447,7 +488,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
             onOpenSettings={() => setSurface("settings")} />}
           {sidebarVisible && <SidebarResizeHandle onChange={resizeSidebar} value={sidebarWidth} />}
           <WorkbenchFrame client={client} desktop={desktop} resourceKind={resourceKind}
-            runID={selectedRunID} sessionID={selectedSessionID}
+            runID={selectedRunID} sessionID={selectedSessionID} threadID={selectedThreadID}
             title={panelTitle}>
             {workspaceContent}
           </WorkbenchFrame>
@@ -465,6 +506,21 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
         onClose={() => setRunCreationOpen(false)} />
     </>
   );
+}
+
+function workspaceSelectionFromPath(pathname: string): {
+  kind: "thread" | "run" | "session";
+  id: string;
+} | null {
+  const match = /^\/(threads|runs|sessions)\/([^/]+)\/?$/u.exec(pathname);
+  if (!match) return null;
+  try {
+    const id = decodeURIComponent(match[2]);
+    if (!id || id.includes("/") || id.trim() !== id) return null;
+    return { kind: match[1] === "threads" ? "thread" : match[1] === "runs" ? "run" : "session", id };
+  } catch {
+    return null;
+  }
 }
 
 function readSidebarWidth(): number {

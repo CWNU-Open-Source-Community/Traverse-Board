@@ -51,6 +51,19 @@ const (
 
 type Store interface {
 	SchemaVersion(ctx context.Context) (int, error)
+	GetThread(context.Context, string) (domain.Thread, error)
+	GetThreadByRun(context.Context, string) (domain.Thread, error)
+	GetThreadBySession(context.Context, string) (domain.Thread, error)
+	ListThreadsByCreationPage(context.Context, domain.ThreadFilter, time.Time,
+		string) ([]domain.Thread, error)
+	ListThreadRuns(context.Context, string) ([]domain.ThreadRun, error)
+	ListThreadMessagesPage(context.Context, string, bool, int,
+		int) ([]domain.ThreadMessage, error)
+	EnsureThreadSuccessor(context.Context, string, string, domain.Mission, domain.Run,
+		domain.RunModeSnapshot, session.Session, []events.Event) (domain.Thread, domain.Run, bool, error)
+	TransitionThreadWithOperationKey(context.Context, string, domain.ThreadLifecycleAction,
+		int64, string, string, time.Time) (domain.Thread, error)
+	ExportThread(context.Context, string) (domain.ThreadExport, error)
 	GetMission(ctx context.Context, id string) (domain.Mission, error)
 	GetRun(ctx context.Context, id string) (domain.Run, error)
 	GetRootAgent(ctx context.Context, runID string) (domain.AgentNode, bool, error)
@@ -891,6 +904,15 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if request.URL.Path == "/api/v1/runs" && request.Method != http.MethodGet {
 		a.serveRunCreationControl(tracked, request, requestID)
+		return
+	}
+	if request.URL.Path == ThreadCollectionPath && request.Method != http.MethodGet {
+		a.serveThreadCreationControl(tracked, request, requestID)
+		return
+	}
+	if threadID, action, matched := matchThreadMutationPath(request.URL.Path); matched &&
+		request.Method != http.MethodGet {
+		a.serveThreadMutationControl(tracked, request, requestID, threadID, action)
 		return
 	}
 	if sessionID, matched := matchSessionArchiveControlPath(request.URL.Path); matched {

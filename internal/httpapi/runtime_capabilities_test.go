@@ -40,6 +40,7 @@ func TestRuntimeCapabilitiesAreReadOnlyAndDefaultClosed(t *testing.T) {
 		view.RunControlEnabled != fixture.api.controlEnabled ||
 		view.RunCreationEnabled != fixture.api.runCreationEnabled ||
 		view.SessionMessageEnabled != fixture.api.sessionMessageEnabled ||
+		view.ThreadControlEnabled != (fixture.api.runCreationEnabled && fixture.api.sessionMessageEnabled) ||
 		view.ControlledCommandProposalEnabled ||
 		view.HostCommandProposalEnabled ||
 		view.FileEditProposalEnabled || view.ProviderCredentialEnabled ||

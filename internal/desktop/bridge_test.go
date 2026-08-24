@@ -164,7 +164,7 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		bootstrap.AppVersion != "test" || bootstrap.UIDigest != testDesktopUIDigest ||
 		bootstrap.ReadToken != testDesktopReadToken ||
 		bootstrap.ControlToken != testDesktopControlToken || !bootstrap.ControlEnabled ||
-		!bootstrap.RunCreationEnabled || !bootstrap.SessionMessageEnabled ||
+		!bootstrap.ThreadControlEnabled || !bootstrap.RunCreationEnabled || !bootstrap.SessionMessageEnabled ||
 		!bootstrap.RunLifecycleEnabled || !bootstrap.RunExecutionEnabled ||
 		bootstrap.PlanDeliveryControlEnabled || bootstrap.ApprovalControlEnabled ||
 		bootstrap.ControlledCommandProposalControlEnabled ||
@@ -211,6 +211,7 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		"browser_cdp_permission_control_enabled", "full_cdp_debug_enabled",
 		"danger_full_access_enabled", "debug_maximum_access_enabled",
 		"command_runtime_enabled",
+		"thread_control_enabled",
 		"docker_execution_enabled", "file_edit_review_enabled", "file_edit_proposal_enabled",
 		"model_control_enabled", "provider_credential_enabled",
 		"file_edit_apply_enabled",

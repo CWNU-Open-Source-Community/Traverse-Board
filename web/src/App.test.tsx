@@ -67,6 +67,10 @@ vi.mock("./components/session-workspace", () => ({
     </div>;
   },
 }));
+vi.mock("./components/thread-workspace", () => ({
+  ThreadWorkspace: ({ threadID }: { threadID: string }) =>
+    <div data-testid="thread-identity">{threadID}</div>,
+}));
 vi.mock("./components/desktop-skill-preview", () => ({
   DesktopSkillPreviewDialog: () => null,
 }));
@@ -97,6 +101,7 @@ describe("App capability wiring", () => {
 
   afterEach(() => {
     useConnectionStore.getState().disconnect();
+    window.history.replaceState({}, "", "/");
     vi.unstubAllGlobals();
   });
 
@@ -202,5 +207,28 @@ describe("App capability wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: "Submit Session draft" }));
     expect(submitSessionDraft).toHaveBeenCalledOnce();
     expect(submitSessionDraft).toHaveBeenCalledWith("session-b", "instructions for session B");
+  });
+
+  it("restores and navigates the canonical Thread URL projection", () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
+    useConnectionStore.getState().disconnect();
+    useConnectionStore.getState().connect("read-token", {
+      status: "ok", api_version: "api.v1", app_version: "test", schema_version: 129,
+    }, "control-token", { threadControlEnabled: true });
+    window.history.replaceState({}, "", "/threads/thread-from-url");
+
+    render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
+
+    expect(screen.getByTestId("thread-identity")).toHaveTextContent("thread-from-url");
+    expect(useConnectionStore.getState().resourceKind).toBe("thread");
+    expect(useConnectionStore.getState().selectedThreadID).toBe("thread-from-url");
+
+    act(() => {
+      window.history.pushState({}, "", "/threads/thread-from-history");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(screen.getByTestId("thread-identity")).toHaveTextContent("thread-from-history");
+    expect(useConnectionStore.getState().selectedThreadID).toBe("thread-from-history");
+    expect(window.location.pathname).toBe("/threads/thread-from-history");
   });
 });

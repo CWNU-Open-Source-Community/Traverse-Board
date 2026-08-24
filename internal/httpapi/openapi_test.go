@@ -658,7 +658,32 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, openAPIThreadRun, err := application.NewRunService(fixture.store).Create(t.Context(),
+		application.CreateRunRequest{Goal: "OpenAPI Thread fixture", Profile: "review",
+			WorkspaceID: fixture.workspace.ID, Budget: domain.Budget{MaxTurns: 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	openAPIThread, err := fixture.store.GetThreadByRun(t.Context(), openAPIThreadRun.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, deleteThreadRun, err := application.NewRunService(fixture.store).Create(t.Context(),
+		application.CreateRunRequest{Goal: "OpenAPI delete Thread fixture", Profile: "review",
+			WorkspaceID: fixture.workspace.ID, Budget: domain.Budget{MaxTurns: 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := application.NewRunService(fixture.store).Cancel(t.Context(),
+		deleteThreadRun.ID); err != nil {
+		t.Fatal(err)
+	}
+	deleteThread, err := fixture.store.GetThreadByRun(t.Context(), deleteThreadRun.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	replacements := map[string]string{
+		"{thread_id}":         openAPIThread.ID,
 		"{run_id}":            fixture.run.ID,
 		"{workspace_id}":      fixture.workspace.ID,
 		"{agent_id}":          child.ID,
@@ -723,6 +748,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		} else if spec.Path == FileEditProposalRecoveryPathTemplate {
 			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", fixture.run.ID)
 			requestPath = strings.ReplaceAll(requestPath, "{edit_id}", recoveryProposal.Edit.ID)
+		} else if spec.OperationID == "deleteThread" {
+			requestPath = strings.ReplaceAll(spec.Path, "{thread_id}", deleteThread.ID)
 		}
 		if spec.OperationID == "searchWorkspace" {
 			requestPath += "?query=README"
@@ -900,6 +927,24 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 					spec.Path == DockerSandboxCancelPath {
 					body = `{"admission_id":"docker-sandbox-admission-openapi",` +
 						`"requested_by":"openapi_test"}`
+				} else if spec.OperationID == "createThread" {
+					body = `{"version":"thread_creation.v1","goal":"OpenAPI live Thread",` +
+						`"workspace_id":"` + fixture.workspace.ID + `"}`
+				} else if spec.OperationID == "submitThreadMessage" {
+					body = `{"version":"thread_message_submission.v1",` +
+						`"content":"OpenAPI live Thread message"}`
+				} else if spec.OperationID == "archiveThread" ||
+					spec.OperationID == "restoreThread" || spec.OperationID == "deleteThread" {
+					threadID := openAPIThread.ID
+					if spec.OperationID == "deleteThread" {
+						threadID = deleteThread.ID
+					}
+					current, loadErr := fixture.store.GetThread(t.Context(), threadID)
+					if loadErr != nil {
+						t.Fatal(loadErr)
+					}
+					body = `{"version":"thread_lifecycle.v1","expected_version":` +
+						fmt.Sprint(current.Version) + `}`
 				} else if spec.Path == RunCreationControlPath {
 					body = `{"version":"run_creation.v1","goal":"OpenAPI live Run",` +
 						`"workspace_id":"` + fixture.workspace.ID + `"}`

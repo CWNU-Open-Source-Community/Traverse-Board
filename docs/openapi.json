@@ -31,6 +31,10 @@
       "description": "Redacted Go-owned Provider and model-route availability."
     },
     {
+      "name": "Threads",
+      "description": "Stable user-facing task identity, Run succession, and lossless lifecycle history."
+    },
+    {
       "name": "Runs",
       "description": "Durable Run state and Run-scoped projections."
     },
@@ -16053,6 +16057,1036 @@
           }
         },
         "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/threads": {
+      "get": {
+        "operationId": "listThreads",
+        "summary": "List Threads",
+        "description": "Returns the canonical stable task projection. A Thread remains addressable while its finite Runs complete, fail, cancel, or are succeeded.",
+        "tags": [
+          "Threads"
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size from 1 to 100; defaults to 50",
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Opaque cursor bound to this route and exact filter set",
+            "schema": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Exact Thread lifecycle status",
+            "schema": {
+              "enum": [
+                "active",
+                "archived",
+                "deleted"
+              ],
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "name": "include_deleted",
+            "in": "query",
+            "description": "Include soft-deleted Threads",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/ThreadView"
+                      },
+                      "type": "array"
+                    },
+                    "page": {
+                      "$ref": "#/components/schemas/Page"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data",
+                    "page"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      },
+      "post": {
+        "operationId": "createThread",
+        "summary": "Create a Thread",
+        "description": "Atomically creates one stable Thread with its initial Mission, Run, Session, closed mode, all-denied authority snapshots, root Agent, and audit events.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque retry key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ThreadCreationControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThreadCreationControlRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/threads/{thread_id}": {
+      "get": {
+        "operationId": "getThread",
+        "summary": "Inspect a Thread",
+        "description": "Returns the same canonical Thread projection with its Mission, active and last Run, and complete succession chain.",
+        "tags": [
+          "Threads"
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "description": "Thread identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ThreadDetailView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/threads/{thread_id}/archive": {
+      "post": {
+        "operationId": "archiveThread",
+        "summary": "Archive a Thread",
+        "description": "Archives the stable Thread and its Run-local Sessions without deleting or orphaning Run, message, or audit history.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "description": "Thread identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque retry key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ThreadLifecycleControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThreadLifecycleControlRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/threads/{thread_id}/delete": {
+      "post": {
+        "operationId": "deleteThread",
+        "summary": "Soft-delete a Thread",
+        "description": "Removes the Thread from ordinary lists while retaining a lossless exportable Run, Session, message, and audit graph.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "description": "Thread identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque retry key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ThreadLifecycleControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThreadLifecycleControlRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/threads/{thread_id}/export": {
+      "get": {
+        "operationId": "exportThread",
+        "summary": "Export a Thread",
+        "description": "Returns the complete self-contained Thread, Mission, Run chain, Run-local Sessions, message provenance, and Thread/Run audit events. The HTTP response limit fails closed instead of silently truncating history.",
+        "tags": [
+          "Threads"
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "description": "Thread identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ThreadExportView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/threads/{thread_id}/messages": {
+      "get": {
+        "operationId": "listThreadMessages",
+        "summary": "List Thread messages",
+        "description": "Returns one ordered projection across every Run-local Session in the Thread without moving or duplicating messages.",
+        "tags": [
+          "Threads"
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "description": "Thread identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size from 1 to 100; defaults to 50",
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Opaque cursor bound to this route and exact filter set",
+            "schema": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "name": "include_compacted",
+            "in": "query",
+            "description": "Include compacted historical messages",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/ThreadMessageView"
+                      },
+                      "type": "array"
+                    },
+                    "page": {
+                      "$ref": "#/components/schemas/Page"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data",
+                    "page"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      },
+      "post": {
+        "operationId": "submitThreadMessage",
+        "summary": "Continue a Thread",
+        "description": "Queues input on the live Run, including while waiting for approval. If the last Run is terminal, atomically creates or reuses exactly one fresh successor Run and Session; no approval, lease, process, network, credential, execution profile, or capability authority is inherited.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "description": "Thread identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque retry key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ThreadMessageControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThreadMessageControlRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/threads/{thread_id}/restore": {
+      "post": {
+        "operationId": "restoreThread",
+        "summary": "Restore a Thread",
+        "description": "Restores the same Thread identity and its Sessions; it does not create a new Run unless later composer input requires a successor.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "description": "Thread identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque retry key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ThreadLifecycleControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThreadLifecycleControlRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/threads/{thread_id}/runs": {
+      "get": {
+        "operationId": "listThreadRuns",
+        "summary": "List Thread Runs",
+        "description": "Returns the immutable ordered predecessor/successor Run chain for one Thread.",
+        "tags": [
+          "Threads"
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "description": "Thread identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/ThreadRunView"
+                      },
+                      "type": "array"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
       }
     },
     "/api/v1/ui-evidence/{attempt_id}": {
@@ -35422,6 +36456,9 @@
           "skill_installation_enabled": {
             "type": "boolean"
           },
+          "thread_control_enabled": {
+            "type": "boolean"
+          },
           "ui_evidence_control_enabled": {
             "type": "boolean"
           },
@@ -35451,6 +36488,7 @@
           "full_cdp_debug_enabled",
           "run_creation_enabled",
           "session_message_enabled",
+          "thread_control_enabled",
           "session_steering_control_enabled",
           "run_lifecycle_enabled",
           "run_execution_enabled",
@@ -37129,6 +38167,625 @@
           "model_attempt",
           "calls",
           "created_at"
+        ],
+        "type": "object"
+      },
+      "ThreadCreationControlRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "goal": {
+            "type": "string"
+          },
+          "phase": {
+            "enum": [
+              "plan",
+              "deliver"
+            ],
+            "type": "string"
+          },
+          "profile": {
+            "enum": [
+              "code",
+              "review",
+              "learn",
+              "script"
+            ],
+            "type": "string"
+          },
+          "surface": {
+            "enum": [
+              "code",
+              "cyber"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              "thread_creation.v1"
+            ],
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "goal",
+          "workspace_id"
+        ],
+        "type": "object"
+      },
+      "ThreadCreationControlView": {
+        "additionalProperties": false,
+        "properties": {
+          "mission": {
+            "$ref": "#/components/schemas/MissionView"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/RunModeView"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "run": {
+            "$ref": "#/components/schemas/RunView"
+          },
+          "session": {
+            "$ref": "#/components/schemas/SessionView"
+          },
+          "thread": {
+            "$ref": "#/components/schemas/ThreadView"
+          }
+        },
+        "required": [
+          "thread",
+          "mission",
+          "run",
+          "session",
+          "mode",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "ThreadDetailView": {
+        "additionalProperties": false,
+        "properties": {
+          "active_run": {
+            "$ref": "#/components/schemas/RunView"
+          },
+          "last_run": {
+            "$ref": "#/components/schemas/RunView"
+          },
+          "mission": {
+            "$ref": "#/components/schemas/MissionView"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/ThreadRunView"
+            },
+            "type": "array"
+          },
+          "thread": {
+            "$ref": "#/components/schemas/ThreadView"
+          }
+        },
+        "required": [
+          "thread",
+          "mission",
+          "last_run",
+          "runs"
+        ],
+        "type": "object"
+      },
+      "ThreadEventView": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "maxLength": 256,
+            "minLength": 1,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "payload": {},
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "thread_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "thread_id",
+          "type",
+          "source",
+          "payload",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "ThreadExportView": {
+        "additionalProperties": false,
+        "properties": {
+          "audit_events": {
+            "items": {
+              "$ref": "#/components/schemas/ThreadRunAuditEventView"
+            },
+            "type": "array"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/ThreadEventView"
+            },
+            "type": "array"
+          },
+          "exported_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/ThreadMessageView"
+            },
+            "type": "array"
+          },
+          "mission": {
+            "$ref": "#/components/schemas/MissionView"
+          },
+          "protocol_version": {
+            "enum": [
+              "thread_export.v1"
+            ],
+            "type": "string"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/ThreadRunView"
+            },
+            "type": "array"
+          },
+          "sessions": {
+            "items": {
+              "$ref": "#/components/schemas/SessionView"
+            },
+            "type": "array"
+          },
+          "thread": {
+            "$ref": "#/components/schemas/ThreadView"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "exported_at",
+          "thread",
+          "mission",
+          "runs",
+          "sessions",
+          "messages",
+          "events",
+          "audit_events"
+        ],
+        "type": "object"
+      },
+      "ThreadLifecycleControlRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_version": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "version": {
+            "enum": [
+              "thread_lifecycle.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "expected_version"
+        ],
+        "type": "object"
+      },
+      "ThreadLifecycleControlView": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_grant": {
+            "type": "boolean"
+          },
+          "thread": {
+            "$ref": "#/components/schemas/ThreadView"
+          },
+          "version": {
+            "enum": [
+              "thread_lifecycle.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "thread",
+          "capability_grant"
+        ],
+        "type": "object"
+      },
+      "ThreadMessageControlRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              "thread_message_submission.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "content"
+        ],
+        "type": "object"
+      },
+      "ThreadMessageControlView": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_grant": {
+            "type": "boolean"
+          },
+          "execution_started": {
+            "type": "boolean"
+          },
+          "model_called": {
+            "type": "boolean"
+          },
+          "predecessor_run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "steering": {
+            "$ref": "#/components/schemas/OperatorSteeringMessageView"
+          },
+          "successor_created": {
+            "type": "boolean"
+          },
+          "thread": {
+            "$ref": "#/components/schemas/ThreadView"
+          },
+          "tool_called": {
+            "type": "boolean"
+          },
+          "version": {
+            "enum": [
+              "thread_message_submission.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "thread",
+          "run_id",
+          "session_id",
+          "successor_created",
+          "steering",
+          "replayed",
+          "execution_started",
+          "model_called",
+          "tool_called",
+          "capability_grant"
+        ],
+        "type": "object"
+      },
+      "ThreadMessageView": {
+        "additionalProperties": false,
+        "properties": {
+          "compacted": {
+            "type": "boolean"
+          },
+          "content": {
+            "type": "string"
+          },
+          "content_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "instruction_authorized": {
+            "type": "boolean"
+          },
+          "provenance_version": {
+            "enum": [
+              "context_provenance.v0",
+              "context_provenance.v1"
+            ],
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "system",
+              "user",
+              "assistant",
+              "tool"
+            ],
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_kind": {
+            "enum": [
+              "operator_message",
+              "model_response",
+              "go_control",
+              "workspace_file",
+              "workspace_listing",
+              "workspace_diff",
+              "tool_result",
+              "go_command_result"
+            ],
+            "type": "string"
+          },
+          "source_ref": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "committed"
+            ],
+            "type": "string"
+          },
+          "thread_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "token_estimate": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "thread_id",
+          "run_id",
+          "session_id",
+          "role",
+          "content",
+          "provenance_version",
+          "source_kind",
+          "content_sha256",
+          "instruction_authorized",
+          "status",
+          "token_estimate",
+          "compacted",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "ThreadRunAuditEventView": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "event_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "mission_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "payload": {},
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "source": {
+            "type": "string"
+          },
+          "subject_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id",
+          "version",
+          "run_id",
+          "mission_id",
+          "sequence",
+          "type",
+          "source",
+          "payload",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "ThreadRunView": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "ordinal": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "predecessor_run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "run": {
+            "$ref": "#/components/schemas/RunView"
+          }
+        },
+        "required": [
+          "run",
+          "ordinal",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "ThreadView": {
+        "additionalProperties": false,
+        "properties": {
+          "active_run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "archived_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "composer_state": {
+            "enum": [
+              "ready",
+              "waiting_approval",
+              "successor_required",
+              "unavailable"
+            ],
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deleted_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "last_run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "mission_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "protocol_version": {
+            "enum": [
+              "thread.v1"
+            ],
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "archived",
+              "deleted"
+            ],
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "protocol_version",
+          "mission_id",
+          "title",
+          "status",
+          "last_run_id",
+          "version",
+          "composer_state",
+          "created_at",
+          "updated_at"
         ],
         "type": "object"
       },

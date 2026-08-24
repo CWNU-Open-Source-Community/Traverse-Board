@@ -56,6 +56,7 @@ type RuntimeCapabilitiesView struct {
 	FullCDPDebugEnabled                bool                         `json:"full_cdp_debug_enabled"`
 	RunCreationEnabled                 bool                         `json:"run_creation_enabled"`
 	SessionMessageEnabled              bool                         `json:"session_message_enabled"`
+	ThreadControlEnabled               bool                         `json:"thread_control_enabled"`
 	SessionSteeringControlEnabled      bool                         `json:"session_steering_control_enabled"`
 	RunLifecycleEnabled                bool                         `json:"run_lifecycle_enabled"`
 	RunExecutionEnabled                bool                         `json:"run_execution_enabled"`
@@ -163,6 +164,7 @@ func (a *API) runtimeCapabilities(request *http.Request) (any, *Page, error) {
 		BrowserCDPPermissionControlEnabled: a.browserCDPPermissionControlEnabled,
 		FullCDPDebugEnabled:                a.browserCDPPermissionCapabilities.FullDebugEnabled,
 		SessionMessageEnabled:              a.sessionMessageEnabled,
+		ThreadControlEnabled:               a.runCreationEnabled && a.sessionMessageEnabled,
 		SessionSteeringControlEnabled:      a.sessionSteeringControlEnabled,
 		RunLifecycleEnabled:                a.runLifecycleEnabled, RunExecutionEnabled: a.runExecutionEnabled,
 		PlanDeliveryControlEnabled:         a.planDeliveryControlEnabled,
