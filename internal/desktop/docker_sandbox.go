@@ -23,31 +23,52 @@ const desktopDockerSandboxStagingDirectory = "docker-sandbox-staging"
 func newDesktopDockerSandboxService(ctx context.Context, stateStore *store.SQLiteStore,
 	home string, enabled bool,
 	permissionCapabilities domain.ExecutionPermissionRuntimeCapabilities,
-) (*application.DockerSandboxService, error) {
+	drydocks *application.DrydockService, imageDigest string,
+) (*application.DockerSandboxService, *application.StandardCodeDockerService, error) {
 	if ctx == nil || stateStore == nil || permissionCapabilities.Validate() != nil {
-		return nil, errors.New("Desktop Docker Sandbox dependencies are invalid")
+		return nil, nil, errors.New("Desktop Docker Sandbox dependencies are invalid")
 	}
 	readiness, err := sandbox.NewLocalDockerReadinessProbe()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	stagingRoot := filepath.Join(home, desktopDockerSandboxStagingDirectory)
 	if err := os.MkdirAll(stagingRoot, 0o700); err != nil {
-		return nil, errors.New("Desktop Docker Sandbox staging root is unavailable")
+		return nil, nil, errors.New("Desktop Docker Sandbox staging root is unavailable")
+	}
+	options := []application.DockerSandboxServiceOption{
+		application.WithDockerSandboxExecution(
+			sandbox.NewLocalDockerContainerLifecycleTransport(),
+			sandbox.NewLocalDockerContainerIOTransport(), stagingRoot,
+			sandbox.DefaultDockerContainerLifecycleLeaseTTL),
+	}
+	if enabled && permissionCapabilities.WorkspaceSandboxEnabled && drydocks != nil &&
+		sandbox.ValidOCIImageDigest(imageDigest) {
+		options = append(options,
+			application.WithDockerStandardCode(drydocks, imageDigest))
+	} else {
+		imageDigest = ""
 	}
 	service, err := application.NewDockerSandboxService(stateStore, readiness,
 		policy.NewDefaultChecker(), sandbox.DockerRuntimeCapabilities{Enabled: enabled},
-		permissionCapabilities, application.WithDockerSandboxExecution(
-			sandbox.NewLocalDockerContainerLifecycleTransport(),
-			sandbox.NewLocalDockerContainerIOTransport(), stagingRoot,
-			sandbox.DefaultDockerContainerLifecycleLeaseTTL))
+		permissionCapabilities, options...)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if _, err := service.RecoverStartup(ctx); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return service, nil
+	if imageDigest == "" {
+		return service, nil, nil
+	}
+	manifests := application.NewSandboxManifestService(stateStore,
+		policy.NewDefaultChecker())
+	standard, err := application.NewStandardCodeDockerService(stateStore, drydocks,
+		manifests, service, imageDigest)
+	if err != nil {
+		return nil, nil, err
+	}
+	return service, standard, nil
 }
 
 // DockerExecutionEnabled reports the capability held by the live process,

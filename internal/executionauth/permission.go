@@ -85,15 +85,16 @@ func EvaluateExecutionPermission(snapshot domain.RunExecutionPermissionSnapshot,
 			decision.Reason = "workspace-access mode permits process execution only through the verified sandbox adapter"
 			return decision, nil
 		}
-		if request.HostFilesystem || request.Network || request.BackgroundProcess ||
-			request.AgentTerminalInput || request.OperatorApproved {
-			decision.Reason = "workspace-access mode denies host, network, background, credential, home, and terminal capabilities"
+		if request.HostFilesystem || request.Network || request.AgentTerminalInput ||
+			request.OperatorApproved {
+			decision.Reason = "workspace-access mode denies host, network, credential, home, and terminal capabilities"
 			return decision, nil
 		}
 		decision.Allowed = true
 		decision.WorkspaceFilesystem = true
 		decision.SandboxedCommand = true
-		decision.Reason = "verified Workspace Sandbox adapter permits one bounded command"
+		decision.BackgroundProcess = request.BackgroundProcess
+		decision.Reason = "verified Workspace Sandbox adapter permits one bounded managed command"
 	case domain.RunExecutionPermissionApproval:
 		if request.Kind == PermissionOperationPersistentTerminal ||
 			request.BackgroundProcess || request.AgentTerminalInput {

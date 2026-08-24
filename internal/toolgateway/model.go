@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/redact"
 )
@@ -196,29 +197,30 @@ func (s Status) Valid() bool {
 }
 
 type ToolCall struct {
-	Name                 ToolName                          `json:"name"`
-	Arguments            map[string]string                 `json:"arguments"`
-	Payload              json.RawMessage                   `json:"payload,omitempty"`
-	InvocationID         string                            `json:"invocation_id,omitempty"`
-	OperationKey         string                            `json:"-"`
-	RunID                string                            `json:"run_id,omitempty"`
-	AgentID              string                            `json:"agent_id,omitempty"`
-	SessionID            string                            `json:"session_id,omitempty"`
-	WorkspaceID          string                            `json:"workspace_id,omitempty"`
-	MissionID            string                            `json:"mission_id,omitempty"`
-	RootFingerprint      string                            `json:"root_fingerprint,omitempty"`
-	Surface              domain.ExecutionSurface           `json:"surface,omitempty"`
-	Phase                domain.ExecutionPhase             `json:"phase,omitempty"`
-	Role                 domain.AgentRole                  `json:"role,omitempty"`
-	Profile              domain.Profile                    `json:"profile,omitempty"`
-	PermissionMode       domain.RunExecutionPermissionMode `json:"permission_mode,omitempty"`
-	ModeRevision         int64                             `json:"mode_revision,omitempty"`
-	PermissionRevision   int64                             `json:"permission_revision,omitempty"`
-	CapabilityGeneration string                            `json:"capability_generation,omitempty"`
-	LeaseID              string                            `json:"-"`
-	LeaseGeneration      int64                             `json:"-"`
-	WorkspaceRoot        string                            `json:"-"`
-	RequestedBy          string                            `json:"requested_by,omitempty"`
+	Name                  ToolName                          `json:"name"`
+	Arguments             map[string]string                 `json:"arguments"`
+	Payload               json.RawMessage                   `json:"payload,omitempty"`
+	InvocationID          string                            `json:"invocation_id,omitempty"`
+	OperationKey          string                            `json:"-"`
+	RunID                 string                            `json:"run_id,omitempty"`
+	AgentID               string                            `json:"agent_id,omitempty"`
+	SessionID             string                            `json:"session_id,omitempty"`
+	WorkspaceID           string                            `json:"workspace_id,omitempty"`
+	MissionID             string                            `json:"mission_id,omitempty"`
+	RootFingerprint       string                            `json:"root_fingerprint,omitempty"`
+	Surface               domain.ExecutionSurface           `json:"surface,omitempty"`
+	Phase                 domain.ExecutionPhase             `json:"phase,omitempty"`
+	Role                  domain.AgentRole                  `json:"role,omitempty"`
+	Profile               domain.Profile                    `json:"profile,omitempty"`
+	PermissionMode        domain.RunExecutionPermissionMode `json:"permission_mode,omitempty"`
+	ModeRevision          int64                             `json:"mode_revision,omitempty"`
+	PermissionRevision    int64                             `json:"permission_revision,omitempty"`
+	CapabilityGeneration  string                            `json:"capability_generation,omitempty"`
+	LeaseID               string                            `json:"-"`
+	LeaseGeneration       int64                             `json:"-"`
+	WorkspaceRoot         string                            `json:"-"`
+	RequestedBy           string                            `json:"requested_by,omitempty"`
+	CommandRuntimeAdapter commandruntimeadapter.Identity    `json:"-"`
 }
 
 func NormalizeToolCall(call ToolCall) (ToolCall, error) {

@@ -98,11 +98,13 @@ func (s *SQLiteStore) CreateSandboxDisabledExecution(ctx context.Context,
 	if err := requireSandboxCandidateStoreBudget(run.Budget, usage, toolCalls); err != nil {
 		return sandbox.Lifecycle{}, false, err
 	}
-	if lease, found, err := getRunExecutionLeaseTx(ctx, tx, run.ID); err != nil {
+	runLease, found, err := getRunExecutionLeaseTx(ctx, tx, run.ID)
+	if err != nil {
 		return sandbox.Lifecycle{}, false, err
-	} else if found && lease.ActiveAt(time.Now().UTC()) {
-		return sandbox.Lifecycle{}, false, apperror.New(apperror.CodeFailedPrecondition,
-			"sandbox lifecycle creation requires a quiescent Run")
+	}
+	if err := validateSandboxCandidateRunLease(candidate, runLease, found,
+		time.Now().UTC(), "sandbox lifecycle creation requires a quiescent Run"); err != nil {
+		return sandbox.Lifecycle{}, false, err
 	}
 	if err := verifySandboxInputBindingsTx(ctx, tx, execution, inputs, run.SessionID); err != nil {
 		return sandbox.Lifecycle{}, false, err

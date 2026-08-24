@@ -42,7 +42,9 @@ type windowsCommandRuntimeProcess struct {
 	closed  bool
 }
 
-func (windowsCommandRuntimeStarter) Start(spec CommandRuntimeResolvedSpec) (
+func (windowsCommandRuntimeStarter) Start(_ context.Context, _ CommandRuntimeScope,
+	spec CommandRuntimeResolvedSpec,
+) (
 	commandRuntimeProcess, error,
 ) {
 	if spec.Spec.Version != CommandRuntimeProtocolVersion ||

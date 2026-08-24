@@ -3,6 +3,7 @@
 package runner
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -35,7 +36,9 @@ type unixCommandRuntimeProcess struct {
 	waitErr        error
 }
 
-func (unixCommandRuntimeStarter) Start(spec CommandRuntimeResolvedSpec) (commandRuntimeProcess, error) {
+func (unixCommandRuntimeStarter) Start(_ context.Context, _ CommandRuntimeScope,
+	spec CommandRuntimeResolvedSpec,
+) (commandRuntimeProcess, error) {
 	if validateCommandRuntimeLaunchDirectory(spec) != nil ||
 		commandRuntimeFileDigestMatches(spec.ExecutablePath, spec.ExecutableSHA256) != nil {
 		return nil, ErrCommandRuntimeBoundary

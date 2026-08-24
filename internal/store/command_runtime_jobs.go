@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"cyberagent-workbench/internal/apperror"
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/runner"
 )
@@ -25,7 +26,9 @@ const commandRuntimeJobColumns = `id, operation_digest, request_fingerprint,
 	output_cursor, output_base_cursor, output_frames_json, stdout_sha256,
 	stderr_sha256, truncation_reason, exit_code, timed_out, cancelled, killed,
 	tree_reaped, job_assigned_at_creation, stdin_closed, stdin_write_count,
-	version, created_at, started_at, completed_at, updated_at`
+	version, created_at, started_at, completed_at, updated_at,
+	adapter_kind, adapter_backend, adapter_backend_identity, adapter_generation,
+	adapter_isolation_grade, adapter_network_policy, adapter_credential_policy`
 
 type commandRuntimeJobQueryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
@@ -61,7 +64,8 @@ func (s *SQLiteStore) PrepareCommandRuntimeJob(ctx context.Context,
 		if existing.ID != job.ID ||
 			existing.RequestFingerprint != job.RequestFingerprint ||
 			existing.SpecFingerprint != job.SpecFingerprint ||
-			existing.RunID != job.RunID || existing.InvocationID != job.InvocationID {
+			existing.RunID != job.RunID || existing.InvocationID != job.InvocationID ||
+			existing.Adapter != job.Adapter {
 			return runner.CommandRuntimeJob{}, false, apperror.New(
 				apperror.CodeConflict, "command runtime operation key was reused")
 		}
@@ -84,10 +88,12 @@ func (s *SQLiteStore) PrepareCommandRuntimeJob(ctx context.Context,
 		output_cursor, output_base_cursor, output_frames_json, stdout_sha256,
 		stderr_sha256, truncation_reason, exit_code, timed_out, cancelled, killed,
 		tree_reaped, job_assigned_at_creation, stdin_closed, stdin_write_count,
-		version, created_at, started_at, completed_at, updated_at)
+		version, created_at, started_at, completed_at, updated_at,
+		adapter_kind, adapter_backend, adapter_backend_identity, adapter_generation,
+		adapter_isolation_grade, adapter_network_policy, adapter_credential_policy)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
 			?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-			?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		job.ID, runner.CommandRuntimeProtocolVersion, job.OperationDigest,
 		job.RequestFingerprint, job.InvocationID, job.RunID, job.MissionID,
 		job.SessionID, job.WorkspaceID, job.RootAgentID, job.WorkspaceRootSHA256,
@@ -107,7 +113,10 @@ func (s *SQLiteStore) PrepareCommandRuntimeJob(ctx context.Context,
 		boolInt(job.TreeReaped), boolInt(job.JobAssignedAtCreation),
 		boolInt(job.StdinClosed), job.StdinWriteCount, job.Version,
 		ts(job.CreatedAt), nullableTS(job.StartedAt), nullableTS(job.CompletedAt),
-		ts(job.UpdatedAt))
+		ts(job.UpdatedAt), job.Adapter.Kind, job.Adapter.Backend,
+		job.Adapter.BackendIdentity, job.Adapter.Generation,
+		job.Adapter.IsolationGrade, job.Adapter.NetworkPolicy,
+		job.Adapter.CredentialPolicy)
 	if err != nil {
 		return runner.CommandRuntimeJob{}, false, apperror.Wrap(
 			apperror.CodeConflict, "command runtime launch scope was rejected", err)
@@ -142,7 +151,11 @@ func (s *SQLiteStore) UpdateCommandRuntimeJob(ctx context.Context,
 		cancelled = ?, killed = ?, tree_reaped = ?, job_assigned_at_creation = ?,
 		stdin_closed = ?, stdin_write_count = ?, owner_renewed_at = ?,
 		owner_expires_at = ?, version = ?, started_at = ?, completed_at = ?,
-		updated_at = ? WHERE id = ? AND version = ?`,
+		updated_at = ? WHERE id = ? AND version = ?
+			AND adapter_kind = ? AND adapter_backend = ?
+			AND adapter_backend_identity = ? AND adapter_generation = ?
+			AND adapter_isolation_grade = ? AND adapter_network_policy = ?
+			AND adapter_credential_policy = ?`,
 		job.State, job.PID, job.ProcessGroup, job.Stdout, job.Stderr,
 		job.StdoutObservedBytes, job.StderrObservedBytes, job.OutputCursor,
 		job.OutputBaseCursor, job.OutputFramesJSON, job.StdoutSHA256,
@@ -152,7 +165,10 @@ func (s *SQLiteStore) UpdateCommandRuntimeJob(ctx context.Context,
 		boolInt(job.StdinClosed), job.StdinWriteCount, ts(job.OwnerRenewedAt),
 		ts(job.OwnerExpiresAt), job.Version,
 		nullableTS(job.StartedAt), nullableTS(job.CompletedAt), ts(job.UpdatedAt),
-		job.ID, expectedVersion)
+		job.ID, expectedVersion, job.Adapter.Kind, job.Adapter.Backend,
+		job.Adapter.BackendIdentity, job.Adapter.Generation,
+		job.Adapter.IsolationGrade, job.Adapter.NetworkPolicy,
+		job.Adapter.CredentialPolicy)
 	if err != nil {
 		return runner.CommandRuntimeJob{}, apperror.Wrap(
 			apperror.CodeConflict, "command runtime transition was rejected", err)
@@ -228,13 +244,23 @@ func (s *SQLiteStore) CommandRuntimeJobOwnershipActive(ctx context.Context,
 		return false, apperror.New(apperror.CodeInvalidArgument,
 			"command runtime ownership query is invalid")
 	}
+	if job.Adapter.Kind == commandruntimeadapter.KindLegacyUnbound {
+		return false, nil
+	}
 	var active int
 	err := s.db.QueryRowContext(ctx, `SELECT EXISTS (
 		SELECT 1 FROM command_runtime_jobs
 		WHERE id = ? AND owner_id = ? AND owner_generation = ?
+			AND adapter_kind = ? AND adapter_backend = ?
+			AND adapter_backend_identity = ? AND adapter_generation = ?
+			AND adapter_isolation_grade = ? AND adapter_network_policy = ?
+			AND adapter_credential_policy = ?
 			AND state IN ('prepared', 'running', 'stopping')
 			AND julianday(owner_expires_at) > julianday('now')
-	)`, job.ID, job.OwnerID, job.OwnerGeneration).Scan(&active)
+	)`, job.ID, job.OwnerID, job.OwnerGeneration, job.Adapter.Kind,
+		job.Adapter.Backend, job.Adapter.BackendIdentity, job.Adapter.Generation,
+		job.Adapter.IsolationGrade, job.Adapter.NetworkPolicy,
+		job.Adapter.CredentialPolicy).Scan(&active)
 	if err != nil {
 		return false, err
 	}
@@ -275,6 +301,7 @@ func scanCommandRuntimeJob(scanner commandRuntimeJobScanner) (
 	var timedOut, cancelled, killed, treeReaped, assigned, stdinClosed int
 	var ownerRenewedAt, ownerExpiresAt sql.NullString
 	var createdAt, startedAt, completedAt, updatedAt sql.NullString
+	var adapterKind, adapterIsolation, adapterNetwork, adapterCredentials string
 	err := scanner.Scan(&job.ID, &job.OperationDigest, &job.RequestFingerprint,
 		&job.InvocationID, &job.RunID, &job.MissionID, &job.SessionID,
 		&job.WorkspaceID, &job.RootAgentID, &job.WorkspaceRootSHA256,
@@ -292,7 +319,9 @@ func scanCommandRuntimeJob(scanner commandRuntimeJobScanner) (
 		&job.StderrSHA256, &job.TruncationReason, &exitCode, &timedOut,
 		&cancelled, &killed, &treeReaped, &assigned, &stdinClosed,
 		&job.StdinWriteCount, &job.Version, &createdAt, &startedAt,
-		&completedAt, &updatedAt)
+		&completedAt, &updatedAt, &adapterKind, &job.Adapter.Backend,
+		&job.Adapter.BackendIdentity, &job.Adapter.Generation, &adapterIsolation,
+		&adapterNetwork, &adapterCredentials)
 	if err != nil {
 		return runner.CommandRuntimeJob{}, err
 	}
@@ -302,6 +331,10 @@ func scanCommandRuntimeJob(scanner commandRuntimeJobScanner) (
 	job.Network = runner.CommandRuntimeNetwork(network)
 	job.Credentials = runner.CommandRuntimeCredentialPolicy(credentials)
 	job.State = runner.CommandRuntimeJobState(state)
+	job.Adapter.Kind = commandruntimeadapter.Kind(adapterKind)
+	job.Adapter.IsolationGrade = commandruntimeadapter.IsolationGrade(adapterIsolation)
+	job.Adapter.NetworkPolicy = commandruntimeadapter.NetworkPolicy(adapterNetwork)
+	job.Adapter.CredentialPolicy = commandruntimeadapter.CredentialPolicy(adapterCredentials)
 	if exitCode.Valid {
 		value := int(exitCode.Int64)
 		job.ExitCode = &value

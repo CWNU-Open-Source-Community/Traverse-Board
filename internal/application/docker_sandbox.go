@@ -54,6 +54,7 @@ type DockerSandboxStore interface {
 		domain.RunExecutionPermissionSnapshot, error)
 	GetRunExecutionPermissionSnapshot(context.Context, string) (
 		domain.RunExecutionPermissionSnapshot, error)
+	GetRunExecutionLease(context.Context, string) (domain.RunExecutionLease, bool, error)
 	GetApproval(context.Context, string) (approval.Record, error)
 	GetRunAgentUsage(context.Context, string) (domain.RunAgentUsage, error)
 	GetToolCallUsage(context.Context, string) (toolbudget.Usage, error)
@@ -545,6 +546,21 @@ func (s *DockerSandboxService) loadCurrentDockerSandboxAuthority(ctx context.Con
 	}
 	if err := validateDockerSandboxAuthorityBindings(value); err != nil {
 		return dockerSandboxAuthority{}, err
+	}
+	currentLease, leaseFound, err := s.store.GetRunExecutionLease(ctx, plan.RunID)
+	if err != nil {
+		return dockerSandboxAuthority{}, apperror.Normalize(err)
+	}
+	now := s.now().UTC()
+	if value.Candidate.Candidate.LeaseQuiescent {
+		if leaseFound && currentLease.ActiveAt(now) {
+			return dockerSandboxAuthority{}, apperror.New(apperror.CodeConflict,
+				"Docker Sandbox quiescent candidate gained a Run lease")
+		}
+	} else if !leaseFound || !currentLease.ActiveAt(now) ||
+		!executionCandidateMatchesRunLease(value.Candidate.Candidate, currentLease) {
+		return dockerSandboxAuthority{}, apperror.New(apperror.CodeConflict,
+			"Docker Sandbox Run lease authority changed")
 	}
 	if binding, standardCode := sandbox.ParseDockerStandardCodeManifest(manifest); standardCode {
 		if err := s.validateDockerStandardCodeAuthority(value, binding); err != nil {

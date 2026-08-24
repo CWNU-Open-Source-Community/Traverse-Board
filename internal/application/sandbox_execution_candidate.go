@@ -133,6 +133,23 @@ func (s *SandboxManifestService) ReviewApproval(ctx context.Context, preparation
 func (s *SandboxManifestService) ValidateExecutionCandidate(ctx context.Context,
 	request ValidateSandboxExecutionCandidateRequest,
 ) (sandbox.ValidatedExecutionCandidate, error) {
+	return s.validateExecutionCandidate(ctx, request, nil)
+}
+
+// validateLeaseBoundExecutionCandidate is available only to Go-owned product
+// adapters that already hold the exact active Run execution lease. It does not
+// turn a persisted candidate into authority: every downstream stage must
+// re-read and match this lease before a backend write.
+func (s *SandboxManifestService) validateLeaseBoundExecutionCandidate(
+	ctx context.Context, request ValidateSandboxExecutionCandidateRequest,
+	lease domain.RunExecutionLease,
+) (sandbox.ValidatedExecutionCandidate, error) {
+	return s.validateExecutionCandidate(ctx, request, &lease)
+}
+
+func (s *SandboxManifestService) validateExecutionCandidate(ctx context.Context,
+	request ValidateSandboxExecutionCandidateRequest, runLease *domain.RunExecutionLease,
+) (sandbox.ValidatedExecutionCandidate, error) {
 	if s == nil || s.store == nil || s.checker == nil {
 		return sandbox.ValidatedExecutionCandidate{}, apperror.New(apperror.CodeFailedPrecondition,
 			"sandbox manifest store and policy checker are required")
@@ -152,8 +169,22 @@ func (s *SandboxManifestService) ValidateExecutionCandidate(ctx context.Context,
 		return sandbox.ValidatedExecutionCandidate{}, apperror.Wrap(apperror.CodeInvalidArgument,
 			"sandbox execution candidate Manifest fingerprint failed", err)
 	}
-	requestFingerprint := sandbox.CandidateRequestFingerprint(normalized.PreparationID,
-		manifestFingerprint, normalized.ApprovalID, normalized.RequestedBy)
+	leaseQuiescent := runLease == nil
+	leaseID, leaseOwnerID := "", ""
+	leaseGeneration := int64(0)
+	if runLease != nil {
+		if runLease.Validate() != nil {
+			return sandbox.ValidatedExecutionCandidate{}, apperror.New(
+				apperror.CodeInvalidArgument,
+				"sandbox execution candidate Run lease is invalid")
+		}
+		leaseID, leaseOwnerID = runLease.LeaseID, runLease.OwnerID
+		leaseGeneration = runLease.Generation
+	}
+	requestFingerprint := sandbox.CandidateLeaseRequestFingerprint(
+		normalized.PreparationID, manifestFingerprint, normalized.ApprovalID,
+		normalized.RequestedBy, leaseQuiescent, leaseID, leaseGeneration,
+		leaseOwnerID)
 	operationKeyDigest := runmutation.Fingerprint("sandbox_execution_candidate_operation.v1",
 		normalized.PreparationID, normalized.OperationKey)
 	if operation, found, err := s.store.GetSandboxExecutionCandidateOperation(ctx,
@@ -288,11 +319,19 @@ func (s *SandboxManifestService) ValidateExecutionCandidate(ctx context.Context,
 		return sandbox.ValidatedExecutionCandidate{}, err
 	}
 	now := time.Now().UTC()
-	if lease, found, err := s.store.GetRunExecutionLease(ctx, run.ID); err != nil {
+	lease, found, err := s.store.GetRunExecutionLease(ctx, run.ID)
+	if err != nil {
 		return sandbox.ValidatedExecutionCandidate{}, apperror.Normalize(err)
-	} else if found && lease.ActiveAt(now) {
+	}
+	if runLease == nil && found && lease.ActiveAt(now) {
 		return sandbox.ValidatedExecutionCandidate{}, apperror.New(apperror.CodeFailedPrecondition,
 			"sandbox execution candidate requires a quiescent Run without an active execution lease")
+	}
+	if runLease != nil && (!found || !lease.ActiveAt(now) || lease.RunID != run.ID ||
+		lease.LeaseID != runLease.LeaseID || lease.Generation != runLease.Generation ||
+		lease.OwnerID != runLease.OwnerID || lease.Status != domain.RunExecutionLeaseActive) {
+		return sandbox.ValidatedExecutionCandidate{}, apperror.New(apperror.CodeConflict,
+			"sandbox execution candidate Run lease binding is stale")
 	}
 	candidate := sandbox.ExecutionCandidate{
 		ID: idgen.New("sandbox-candidate"), PreparationID: intent.Preparation.ID,
@@ -305,7 +344,9 @@ func (s *SandboxManifestService) ValidateExecutionCandidate(ctx context.Context,
 		MountCount: mountBinding.MountCount, RegularFileMountCount: mountBinding.RegularFileCount,
 		DirectoryMountCount: mountBinding.DirectoryCount, TokensUsed: agentUsage.TotalTokens,
 		ExecutionMillisUsed: agentUsage.TotalExecutionMillis, ToolCallsUsed: toolUsage.Consumed,
-		BudgetChecked: true, LeaseQuiescent: true, BackendEnabled: false,
+		BudgetChecked: true, LeaseQuiescent: leaseQuiescent,
+		RunLeaseID: leaseID, RunLeaseGeneration: leaseGeneration,
+		RunLeaseOwnerID: leaseOwnerID, BackendEnabled: false,
 		ExecutionAuthorized: false, RequestedBy: normalized.RequestedBy, ValidatedAt: now,
 	}
 	operation := sandbox.CandidateOperation{

@@ -2228,6 +2228,14 @@ func (a *App) runCapabilityReadiness(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
+		localAdapter, err := application.NewLocalSandboxCommandRuntimeExecutor(
+			a.store, backend, readiness)
+		if err != nil {
+			return err
+		}
+		runtime.RunExecutionEnabled = true
+		runtime.CommandRuntimeAdapters = append(runtime.CommandRuntimeAdapters,
+			localAdapter.Identity())
 	}
 	projection, err := application.NewRunCapabilityReadinessService(a.store, runtime).
 		Project(ctx, fs.Arg(0))
@@ -2283,6 +2291,13 @@ func writeRunCapabilityReadiness(out interface{ Write([]byte) (int, error) },
 ) {
 	fmt.Fprintf(out, "protocol: %s\nrun: %s\ncapability_grant: false\n",
 		projection.ProtocolVersion, projection.RunID)
+	fmt.Fprintf(out, "command_runtime.protocol_available: %t\ncommand_runtime.adapter_installed: %t\ncommand_runtime.adapter_ready: %t\ncommand_runtime.current_run_granted: %t\ncommand_runtime.adapter_kind: %s\ncommand_runtime.backend: %s\n",
+		projection.CommandRuntime.ProtocolAvailable,
+		projection.CommandRuntime.AdapterInstalled,
+		projection.CommandRuntime.AdapterReady,
+		projection.CommandRuntime.CurrentRunGranted,
+		projection.CommandRuntime.AdapterKind,
+		projection.CommandRuntime.Backend)
 	groups := []struct {
 		name    string
 		options []application.CapabilityReadinessOption

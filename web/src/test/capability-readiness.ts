@@ -73,6 +73,12 @@ export function capabilityReadinessFixture(
         remediation: ["select_required_permission"], restart_required: false,
       }),
     ],
+    command_runtime: {
+      protocol_available: true,
+      adapter_installed: false,
+      adapter_ready: false,
+      current_run_granted: false,
+    },
     presets: [option("standard_code", false, false, false, {
       blocked_by: ["capability_not_implemented", "workspace_untrusted",
         "sandbox_unproven"],

@@ -401,11 +401,13 @@ func validateSandboxBackendEvidenceCurrentTx(ctx context.Context, tx *sql.Tx,
 	if err := requireSandboxCandidateStoreBudget(run.Budget, usage, toolCalls); err != nil {
 		return sandbox.DisabledPreflight{}, err
 	}
-	if lease, found, err := getRunExecutionLeaseTx(ctx, tx, run.ID); err != nil {
+	lease, found, err := getRunExecutionLeaseTx(ctx, tx, run.ID)
+	if err != nil {
 		return sandbox.DisabledPreflight{}, err
-	} else if found && lease.ActiveAt(time.Now().UTC()) {
-		return sandbox.DisabledPreflight{}, apperror.New(apperror.CodeFailedPrecondition,
-			"sandbox evidence requires a quiescent Run")
+	}
+	if err := validateSandboxCandidateRunLease(candidate, lease, found,
+		time.Now().UTC(), "sandbox evidence requires a quiescent Run"); err != nil {
+		return sandbox.DisabledPreflight{}, err
 	}
 	if err := verifySandboxInputBindingsTx(ctx, tx, lifecycle.Execution,
 		lifecycle.Inputs, run.SessionID); err != nil {

@@ -5,7 +5,6 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
-	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/scheduler"
 )
 
@@ -43,6 +42,16 @@ type ScheduledJobWorkerHealthView struct {
 	AuthorityEscalation    bool   `json:"authority_escalation"`
 }
 
+type CommandRuntimeAdapterView struct {
+	Kind             string `json:"kind"`
+	Backend          string `json:"backend"`
+	BackendIdentity  string `json:"backend_identity"`
+	IsolationGrade   string `json:"isolation_grade"`
+	NetworkPolicy    string `json:"network_policy"`
+	CredentialPolicy string `json:"credential_policy"`
+	Ready            bool   `json:"ready"`
+}
+
 type RuntimeCapabilitiesView struct {
 	ProtocolVersion                    string                       `json:"protocol_version"`
 	RunControlEnabled                  bool                         `json:"run_control_enabled"`
@@ -52,6 +61,10 @@ type RuntimeCapabilitiesView struct {
 	DangerFullAccessEnabled            bool                         `json:"danger_full_access_enabled"`
 	DebugMaximumAccessEnabled          bool                         `json:"debug_maximum_access_enabled"`
 	CommandRuntimeEnabled              bool                         `json:"command_runtime_enabled"`
+	CommandRuntimeProtocolAvailable    bool                         `json:"command_runtime_protocol_available"`
+	CommandRuntimeAdapterInstalled     bool                         `json:"command_runtime_adapter_installed"`
+	CommandRuntimeAdapterReady         bool                         `json:"command_runtime_adapter_ready"`
+	CommandRuntimeAdapters             []CommandRuntimeAdapterView  `json:"command_runtime_adapters"`
 	BrowserCDPPermissionControlEnabled bool                         `json:"browser_cdp_permission_control_enabled"`
 	FullCDPDebugEnabled                bool                         `json:"full_cdp_debug_enabled"`
 	RunCreationEnabled                 bool                         `json:"run_creation_enabled"`
@@ -149,9 +162,26 @@ func (a *API) runtimeCapabilities(request *http.Request) (any, *Page, error) {
 		scheduledWorker.Active = health.Active
 		scheduledWorker.PollIntervalMillis = health.PollIntervalMillis
 	}
-	commandRuntimeEnabled := a.runExecutionEnabled &&
-		a.executionPermissionCapabilities.Allows(
-			domain.RunExecutionPermissionFullAccess)
+	commandRuntimeAdapters := make([]CommandRuntimeAdapterView, 0,
+		len(a.commandRuntimeAdapters))
+	commandRuntimeReady := false
+	for _, adapter := range a.commandRuntimeAdapters {
+		ready := true
+		switch adapter.Backend {
+		case application.CommandRuntimeLocalSandboxBackend:
+			ready = a.capabilityReadinessRuntime.LocalBackendReady
+		case application.CommandRuntimeDockerSandboxBackend:
+			ready = a.capabilityReadinessRuntime.DockerBackendReady
+		}
+		commandRuntimeReady = commandRuntimeReady || ready
+		commandRuntimeAdapters = append(commandRuntimeAdapters,
+			CommandRuntimeAdapterView{Kind: string(adapter.Kind), Backend: adapter.Backend,
+				BackendIdentity:  adapter.BackendIdentity,
+				IsolationGrade:   string(adapter.IsolationGrade),
+				NetworkPolicy:    string(adapter.NetworkPolicy),
+				CredentialPolicy: string(adapter.CredentialPolicy), Ready: ready})
+	}
+	commandRuntimeEnabled := a.runExecutionEnabled && commandRuntimeReady
 	return RuntimeCapabilitiesView{
 		ProtocolVersion:   RuntimeCapabilitiesProtocolVersion,
 		RunControlEnabled: a.controlEnabled, RunCreationEnabled: a.runCreationEnabled,
@@ -161,6 +191,10 @@ func (a *API) runtimeCapabilities(request *http.Request) (any, *Page, error) {
 		DangerFullAccessEnabled:            a.executionPermissionCapabilities.DangerFullAccessEnabled,
 		DebugMaximumAccessEnabled:          a.executionPermissionCapabilities.DebugMaximumAccessEnabled,
 		CommandRuntimeEnabled:              commandRuntimeEnabled,
+		CommandRuntimeProtocolAvailable:    true,
+		CommandRuntimeAdapterInstalled:     len(commandRuntimeAdapters) > 0,
+		CommandRuntimeAdapterReady:         commandRuntimeReady,
+		CommandRuntimeAdapters:             commandRuntimeAdapters,
 		BrowserCDPPermissionControlEnabled: a.browserCDPPermissionControlEnabled,
 		FullCDPDebugEnabled:                a.browserCDPPermissionCapabilities.FullDebugEnabled,
 		SessionMessageEnabled:              a.sessionMessageEnabled,

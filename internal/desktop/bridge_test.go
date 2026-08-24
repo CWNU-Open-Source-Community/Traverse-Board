@@ -173,7 +173,10 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		bootstrap.ExecutionPermissionControlEnabled ||
 		bootstrap.BrowserCDPPermissionControlEnabled || bootstrap.FullCDPDebugEnabled ||
 		bootstrap.OperatorApprovalEnabled || bootstrap.DangerFullAccessEnabled ||
-		bootstrap.WorkspaceSandboxEnabled || bootstrap.DebugMaximumAccessEnabled || bootstrap.CommandRuntimeEnabled ||
+		bootstrap.WorkspaceSandboxEnabled || bootstrap.DebugMaximumAccessEnabled ||
+		!bootstrap.CommandRuntimeProtocolAvailable ||
+		bootstrap.CommandRuntimeAdapterInstalled || bootstrap.CommandRuntimeAdapterReady ||
+		bootstrap.CommandRuntimeEnabled ||
 		bootstrap.FileEditReviewEnabled || bootstrap.FileEditProposalEnabled ||
 		bootstrap.RunWakeControlEnabled || bootstrap.FileEditApplyEnabled ||
 		bootstrap.RunWakeExecutionEnabled || bootstrap.RunWakeWorkerEnabled ||
@@ -210,7 +213,8 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		"operator_approval_enabled",
 		"browser_cdp_permission_control_enabled", "full_cdp_debug_enabled",
 		"danger_full_access_enabled", "debug_maximum_access_enabled",
-		"command_runtime_enabled",
+		"command_runtime_enabled", "command_runtime_protocol_available",
+		"command_runtime_adapter_installed", "command_runtime_adapter_ready",
 		"thread_control_enabled",
 		"docker_execution_enabled", "file_edit_review_enabled", "file_edit_proposal_enabled",
 		"model_control_enabled", "provider_credential_enabled",
@@ -243,8 +247,9 @@ func TestDesktopBridgeProjectsRunOwnedCommandRuntimeSeparatelyFromUserTerminal(t
 		FilePicker:      &testSkillPackagePicker{}, ReadToken: testDesktopReadToken,
 		ControlToken: testDesktopControlToken, RunExecutionEnabled: true,
 		ExecutionPermissionControlEnabled: true, OperatorApprovalEnabled: true,
-		DangerFullAccessEnabled: true,
-		APIVersion:              "api.v1", AppVersion: "test", UIDigest: testDesktopUIDigest,
+		DangerFullAccessEnabled:        true,
+		CommandRuntimeAdapterInstalled: true, CommandRuntimeAdapterReady: true,
+		APIVersion: "api.v1", AppVersion: "test", UIDigest: testDesktopUIDigest,
 		Selector: selector, PreviewBridge: preview,
 	})
 	if err != nil {
@@ -254,7 +259,9 @@ func TestDesktopBridgeProjectsRunOwnedCommandRuntimeSeparatelyFromUserTerminal(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bootstrap.CommandRuntimeEnabled || !bootstrap.ProcessExecutionEnabled ||
+	if !bootstrap.CommandRuntimeProtocolAvailable ||
+		!bootstrap.CommandRuntimeAdapterInstalled || !bootstrap.CommandRuntimeAdapterReady ||
+		!bootstrap.CommandRuntimeEnabled || !bootstrap.ProcessExecutionEnabled ||
 		!bootstrap.ShellExecutionEnabled || bootstrap.UserTerminalEnabled ||
 		bootstrap.AgentTerminalInputDefault || bootstrap.DebugMaximumAccessEnabled ||
 		bootstrap.DockerExecutionEnabled {

@@ -210,6 +210,9 @@ export interface ClientCapabilities {
   dangerFullAccessEnabled?: boolean;
   debugMaximumAccessEnabled?: boolean;
   commandRuntimeEnabled?: boolean;
+  commandRuntimeProtocolAvailable?: boolean;
+  commandRuntimeAdapterInstalled?: boolean;
+  commandRuntimeAdapterReady?: boolean;
   runCreationEnabled?: boolean;
   sessionMessageEnabled?: boolean;
   threadControlEnabled?: boolean;
@@ -1746,7 +1749,9 @@ function parseUIEvidenceBundle(value: unknown, attemptID: string): UIEvidenceBun
 
 function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
   const capabilityKeys = ["agent_code_tools_enabled", "approval_control_enabled",
-    "command_runtime_enabled", "docker_execution_enabled",
+    "command_runtime_enabled", "command_runtime_protocol_available",
+    "command_runtime_adapter_installed", "command_runtime_adapter_ready",
+    "command_runtime_adapters", "docker_execution_enabled",
     "code_intel_enabled",
     "browser_cdp_permission_control_enabled", "full_cdp_debug_enabled",
     "controlled_command_proposal_control_enabled",
@@ -1773,9 +1778,47 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
   }
   for (const key of capabilityKeys) {
     if (key !== "protocol_version" && key !== "wake_worker" && key !== "scheduled_job_worker" &&
+      key !== "command_runtime_adapters" &&
       typeof value[key] !== "boolean") {
       throw new APIRequestError("Runtime capability flag is invalid", "INVALID_RESPONSE", 502);
     }
+  }
+  if (value.command_runtime_protocol_available !== true ||
+    !Array.isArray(value.command_runtime_adapters) ||
+    value.command_runtime_adapters.length > 8) {
+    throw new APIRequestError("Command Runtime adapter capabilities are invalid",
+      "INVALID_RESPONSE", 502);
+  }
+  const commandRuntimeAdapters = value.command_runtime_adapters.map((adapter) => {
+    if (!hasExactKeys(adapter, ["backend", "backend_identity", "credential_policy",
+      "isolation_grade", "kind", "network_policy", "ready"]) ||
+      !boundedIdentity(adapter.backend) || !boundedIdentity(adapter.backend_identity) ||
+      typeof adapter.ready !== "boolean") {
+      throw new APIRequestError("Command Runtime adapter receipt is invalid",
+        "INVALID_RESPONSE", 502);
+    }
+    const sandboxed = adapter.kind === "sandboxed_workspace" &&
+      adapter.isolation_grade === "workspace_sandbox" &&
+      adapter.network_policy === "denied" && adapter.credential_policy === "none";
+    const host = adapter.kind === "host_unsandboxed" &&
+      adapter.isolation_grade === "host_unsandboxed" &&
+      adapter.network_policy === "host_available" &&
+      adapter.credential_policy === "host_available";
+    if (!sandboxed && !host) {
+      throw new APIRequestError("Command Runtime adapter receipt is inconsistent",
+        "INVALID_RESPONSE", 502);
+    }
+    return adapter;
+  });
+  if (new Set(commandRuntimeAdapters.map((adapter) => adapter.backend)).size !==
+      commandRuntimeAdapters.length ||
+    value.command_runtime_adapter_installed !== (commandRuntimeAdapters.length > 0) ||
+    value.command_runtime_adapter_ready !==
+      commandRuntimeAdapters.some((adapter) => adapter.ready) ||
+    value.command_runtime_enabled !==
+      (value.run_execution_enabled && value.command_runtime_adapter_ready)) {
+    throw new APIRequestError("Command Runtime adapter capability summary is inconsistent",
+      "INVALID_RESPONSE", 502);
   }
   const worker = value.wake_worker;
   const scheduledWorker = value.scheduled_job_worker;
@@ -1818,8 +1861,6 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
         !value.operator_approval_enabled || !value.danger_full_access_enabled)) ||
     (value.ui_evidence_control_enabled && (!value.command_runtime_enabled ||
       !value.browser_cdp_permission_control_enabled)) ||
-    value.command_runtime_enabled !==
-      (value.run_execution_enabled && value.danger_full_access_enabled) ||
     value.process_execution_enabled !== value.command_runtime_enabled ||
     value.shell_execution_enabled !== value.command_runtime_enabled ||
     (value.docker_execution_enabled && !value.execution_permission_control_enabled) ||
@@ -1931,11 +1972,33 @@ function parseCapabilityReadinessOption(value: unknown,
 function parseRunCapabilityReadiness(value: unknown,
   expectedRunID: string): RunCapabilityReadinessView {
   if (!hasExactKeys(value, ["browser_cdp_permissions", "capability_grant",
-    "interactions", "permissions", "presets", "profiles", "protocol_version", "run_id"]) ||
+    "command_runtime", "interactions", "permissions", "presets", "profiles",
+    "protocol_version", "run_id"]) ||
     value.protocol_version !== "run_capability_readiness.v1" ||
     value.run_id !== expectedRunID || !boundedIdentity(value.run_id) ||
     value.capability_grant !== false) {
     throw new APIRequestError("Run capability readiness response is invalid",
+      "INVALID_RESPONSE", 502);
+  }
+  const commandRuntime = value.command_runtime;
+  const commandRuntimeRequired = ["adapter_installed", "adapter_ready",
+    "current_run_granted", "protocol_available"];
+  const commandRuntimeAllowed = [...commandRuntimeRequired, "adapter_kind", "backend"];
+  if (!isRecord(commandRuntime) || !hasOnlyKeys(commandRuntime, commandRuntimeAllowed) ||
+    commandRuntimeRequired.some((key) =>
+      !Object.prototype.hasOwnProperty.call(commandRuntime, key)) ||
+    commandRuntime.protocol_available !== true ||
+    typeof commandRuntime.adapter_installed !== "boolean" ||
+    typeof commandRuntime.adapter_ready !== "boolean" ||
+    typeof commandRuntime.current_run_granted !== "boolean" ||
+    (commandRuntime.adapter_ready && !commandRuntime.adapter_installed) ||
+    (commandRuntime.current_run_granted && (!commandRuntime.adapter_ready ||
+      !["sandboxed_workspace", "host_unsandboxed"].includes(
+        String(commandRuntime.adapter_kind)) || !boundedIdentity(commandRuntime.backend))) ||
+    (!commandRuntime.current_run_granted &&
+      (Object.prototype.hasOwnProperty.call(commandRuntime, "adapter_kind") ||
+        Object.prototype.hasOwnProperty.call(commandRuntime, "backend")))) {
+    throw new APIRequestError("Command Runtime readiness response is invalid",
       "INVALID_RESPONSE", 502);
   }
   const groups: Array<[unknown, readonly string[], boolean]> = [
@@ -2032,6 +2095,9 @@ export function clientCapabilitiesFromRuntime(value: RuntimeCapabilitiesView): C
     dangerFullAccessEnabled: value.danger_full_access_enabled,
     debugMaximumAccessEnabled: value.debug_maximum_access_enabled,
     commandRuntimeEnabled: value.command_runtime_enabled,
+    commandRuntimeProtocolAvailable: value.command_runtime_protocol_available,
+    commandRuntimeAdapterInstalled: value.command_runtime_adapter_installed,
+    commandRuntimeAdapterReady: value.command_runtime_adapter_ready,
     runCreationEnabled: value.run_creation_enabled,
     sessionMessageEnabled: value.session_message_enabled,
     threadControlEnabled: value.thread_control_enabled,

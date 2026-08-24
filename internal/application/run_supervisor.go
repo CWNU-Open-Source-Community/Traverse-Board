@@ -11,6 +11,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/codeintel"
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/contextmgr"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/hooks"
@@ -199,7 +200,7 @@ type RunSupervisor struct {
 	skillRegistryErr         error
 	waitGraph                *waitgraph.Graph
 	debugTerminalEnabled     bool
-	commandRuntimeEnabled    bool
+	commandRuntime           toolgateway.CommandRuntimeAdvertiser
 	mcpClient                SupervisorMCPClient
 	codeIntel                *codeintel.Manager
 	lifecycleHooks           *hooks.Engine
@@ -281,10 +282,37 @@ func (s *RunSupervisor) WithCommandRuntime(
 	executor toolgateway.CommandRuntimeExecutor,
 ) *RunSupervisor {
 	if s != nil && s.tools != nil && executor != nil {
+		advertiser, ok := executor.(toolgateway.CommandRuntimeAdvertiser)
+		if !ok {
+			return s
+		}
 		s.tools.WithCommandRuntimeExecutor(executor)
-		s.commandRuntimeEnabled = true
+		s.commandRuntime = advertiser
 	}
 	return s
+}
+
+func (s *RunSupervisor) supervisorCommandRuntimeTools(ctx context.Context,
+	runID string, permission domain.RunExecutionPermissionMode,
+) (supervisorCommandRuntimeTools, error) {
+	if s == nil || s.commandRuntime == nil {
+		return supervisorCommandRuntimeTools{}, nil
+	}
+	adapter, available, err := s.commandRuntime.AdvertisedCommandRuntimeAdapter(
+		ctx, runID, permission)
+	if err != nil {
+		return supervisorCommandRuntimeTools{}, apperror.Normalize(err)
+	}
+	if !available {
+		return supervisorCommandRuntimeTools{}, nil
+	}
+	authority, err := commandruntimeadapter.EncodeAuthority(
+		commandruntimeadapter.NewAuthority(runID, adapter))
+	if err != nil {
+		return supervisorCommandRuntimeTools{}, apperror.Wrap(apperror.CodeInternal,
+			"command runtime adapter advertisement is invalid", err)
+	}
+	return supervisorCommandRuntimeTools{Adapter: adapter, Authority: authority}, nil
 }
 
 // WithMCPClient exposes only already-reviewed MCP tools to an exact
@@ -598,6 +626,12 @@ func (s *RunSupervisor) stepWithLeaseMode(ctx context.Context, lease domain.RunE
 		failure := s.recordFailure(ctx, &result, err, 0)
 		return result, failure
 	}
+	commandRuntime, err := s.supervisorCommandRuntimeTools(ctx, turn.Run.ID,
+		executionPermission.Mode)
+	if err != nil {
+		failure := s.recordFailure(ctx, &result, err, 0)
+		return result, failure
+	}
 	agentCodeCapabilities, agentCodeAuthority, err :=
 		s.supervisorAgentCodeCapabilities(ctx, turn, executionPermission)
 	if err != nil {
@@ -622,7 +656,7 @@ func (s *RunSupervisor) stepWithLeaseMode(ctx context.Context, lease domain.RunE
 		Messages: messages,
 		Tools: supervisorStructuredToolSpecs(turn.Mode.Surface, turn.Mode.Phase,
 			executionPermission.Mode, skillCandidateEnabled, s.debugTerminalEnabled,
-			supervisorToolOptions{CommandRuntimeEnabled: s.commandRuntimeEnabled,
+			supervisorToolOptions{CommandRuntime: commandRuntime,
 				AgentCode: supervisorAgentCodeTools{Capabilities: agentCodeCapabilities,
 					Authority: agentCodeAuthority},
 				CodeIntel: supervisorCodeIntelTools{Capabilities: codeIntelCapabilities,
@@ -802,7 +836,7 @@ func (s *RunSupervisor) stepWithLeaseMode(ctx context.Context, lease domain.RunE
 					turn.Run.ID, turn.Checkpoint.NextTurn, len(toolRounds)+1,
 					turn.Mode.Surface, turn.Mode.Phase, executionPermission.Mode,
 					skillCandidateEnabled, s.debugTerminalEnabled,
-					supervisorToolOptions{CommandRuntimeEnabled: s.commandRuntimeEnabled,
+					supervisorToolOptions{CommandRuntime: commandRuntime,
 						AgentCode: supervisorAgentCodeTools{Capabilities: agentCodeCapabilities,
 							Authority: agentCodeAuthority},
 						CodeIntel: supervisorCodeIntelTools{Capabilities: codeIntelCapabilities,

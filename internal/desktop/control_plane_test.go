@@ -121,7 +121,11 @@ func TestControlPlanePublishesGoOwnedRunCapabilityReadiness(t *testing.T) {
 		t.Fatal(err)
 	}
 	if readiness.ProtocolVersion != application.RunCapabilityReadinessProtocolVersion ||
-		readiness.RunID != run.ID || readiness.CapabilityGrant {
+		readiness.RunID != run.ID || readiness.CapabilityGrant ||
+		!readiness.CommandRuntime.ProtocolAvailable ||
+		readiness.CommandRuntime.AdapterInstalled ||
+		readiness.CommandRuntime.AdapterReady ||
+		readiness.CommandRuntime.CurrentRunGranted {
 		t.Fatalf("unexpected Desktop readiness envelope: %#v", readiness)
 	}
 	var docker httpapi.CapabilityReadinessOptionView

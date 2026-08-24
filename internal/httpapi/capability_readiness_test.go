@@ -18,7 +18,11 @@ func TestRunCapabilityReadinessHTTPProjectsSameStableGoFacts(t *testing.T) {
 	if view.ProtocolVersion != application.RunCapabilityReadinessProtocolVersion ||
 		view.RunID != fixture.run.ID || view.CapabilityGrant || len(view.Permissions) != 5 ||
 		len(view.Profiles) != 3 || len(view.Interactions) != 4 ||
-		len(view.BrowserCDPPermissions) != 2 || len(view.Presets) != 1 {
+		len(view.BrowserCDPPermissions) != 2 || len(view.Presets) != 1 ||
+		!view.CommandRuntime.ProtocolAvailable ||
+		view.CommandRuntime.AdapterInstalled || view.CommandRuntime.AdapterReady ||
+		view.CommandRuntime.CurrentRunGranted || view.CommandRuntime.AdapterKind != "" ||
+		view.CommandRuntime.Backend != "" {
 		t.Fatalf("unexpected HTTP readiness projection: %#v", view)
 	}
 	preview := readinessHTTPOption(t, view.Profiles, "preview")

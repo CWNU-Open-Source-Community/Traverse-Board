@@ -23,6 +23,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/browserruntime"
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/session"
@@ -631,6 +632,22 @@ type fakeUIEvidenceCommands struct {
 type blockingBuildUIEvidenceCommands struct {
 	mu     sync.Mutex
 	killed bool
+}
+
+func uiEvidenceTestCommandRuntimeAdapter() commandruntimeadapter.Identity {
+	return commandruntimeadapter.HostUnsandboxed(uiEvidenceTestDigest("command-runtime"))
+}
+
+func (*blockingBuildUIEvidenceCommands) AdvertisedCommandRuntimeAdapter(
+	context.Context, string, domain.RunExecutionPermissionMode,
+) (commandruntimeadapter.Identity, bool, error) {
+	return uiEvidenceTestCommandRuntimeAdapter(), true, nil
+}
+
+func (*fakeUIEvidenceCommands) AdvertisedCommandRuntimeAdapter(
+	context.Context, string, domain.RunExecutionPermissionMode,
+) (commandruntimeadapter.Identity, bool, error) {
+	return uiEvidenceTestCommandRuntimeAdapter(), true, nil
 }
 
 func (c *blockingBuildUIEvidenceCommands) ExecuteCommandRuntime(ctx context.Context,

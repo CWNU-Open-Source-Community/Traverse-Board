@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"cyberagent-workbench/internal/apperror"
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/executionauth"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/session"
@@ -31,13 +33,25 @@ type CommandRuntimeStore interface {
 		domain.RunExecutionPermissionSnapshot, error)
 	GetRunExecutionLease(context.Context, string) (
 		domain.RunExecutionLease, bool, error)
+	GetDrydockByRun(context.Context, string) (drydock.Workspace, bool, error)
 }
 
 type CommandRuntimeService struct {
 	store        CommandRuntimeStore
 	manager      *runner.CommandRuntimeManager
+	adapter      commandruntimeadapter.Identity
 	capabilities domain.ExecutionPermissionRuntimeCapabilities
 	checkpoints  *WorkspaceCheckpointService
+	drydocks     *DrydockService
+	sandbox      runner.CommandRuntimeSandboxExecutor
+}
+
+type commandRuntimeSandboxReadiness interface {
+	Ready(context.Context, string) (bool, error)
+}
+
+type commandRuntimeSandboxCheckpointOwner interface {
+	OwnsWorkspaceCheckpoint() bool
 }
 
 type commandRuntimeBindings struct {
@@ -49,6 +63,8 @@ type commandRuntimeBindings struct {
 	profile    domain.RunExecutionProfileSnapshot
 	permission domain.RunExecutionPermissionSnapshot
 	lease      domain.RunExecutionLease
+	drydock    drydock.Workspace
+	rootPath   string
 	rootSHA256 string
 }
 
@@ -62,28 +78,185 @@ func NewCommandRuntimeService(store CommandRuntimeStore,
 		return nil, apperror.New(apperror.CodeFailedPrecondition,
 			"command runtime requires the danger-full-access startup gate")
 	}
-	return &CommandRuntimeService{store: store, manager: manager,
+	adapter, installed := manager.AdapterIdentity()
+	if !installed || adapter.Kind != commandruntimeadapter.KindHostUnsandboxed ||
+		!adapter.AllowsPermission(domain.RunExecutionPermissionFullAccess) {
+		return nil, apperror.New(apperror.CodeFailedPrecondition,
+			"command runtime host adapter identity is invalid")
+	}
+	return &CommandRuntimeService{store: store, manager: manager, adapter: adapter,
 		capabilities: capabilities,
 		checkpoints:  embeddedWorkspaceCheckpointService(store, capabilities)}, nil
+}
+
+// NewSandboxedCommandRuntimeService binds the shared Job protocol to one
+// already-isolated Local or Docker backend. Drydock owns the workspace and the
+// checkpoint projection; the source Workspace is never used as the executable
+// root for this adapter.
+func NewSandboxedCommandRuntimeService(store CommandRuntimeStore,
+	manager *runner.CommandRuntimeManager,
+	sandboxExecutor runner.CommandRuntimeSandboxExecutor,
+	capabilities domain.ExecutionPermissionRuntimeCapabilities,
+	drydocks *DrydockService,
+) (*CommandRuntimeService, error) {
+	if store == nil || manager == nil || !manager.Available() || drydocks == nil ||
+		sandboxExecutor == nil || !sandboxExecutor.Available() ||
+		capabilities.Validate() != nil ||
+		!capabilities.Allows(domain.RunExecutionPermissionWorkspaceAccess) {
+		return nil, apperror.New(apperror.CodeFailedPrecondition,
+			"sandboxed command runtime requires a proven Workspace Sandbox and Drydock")
+	}
+	adapter, installed := manager.AdapterIdentity()
+	if !installed || adapter.Kind != commandruntimeadapter.KindSandboxedWorkspace ||
+		!adapter.SameBackend(sandboxExecutor.Identity()) ||
+		!adapter.AllowsPermission(domain.RunExecutionPermissionWorkspaceAccess) ||
+		commandRuntimeExecutionProfile(adapter) == "" {
+		return nil, apperror.New(apperror.CodeFailedPrecondition,
+			"sandboxed command runtime adapter identity is invalid")
+	}
+	checkpoints := embeddedWorkspaceCheckpointService(store, capabilities)
+	if checkpoints == nil {
+		return nil, apperror.New(apperror.CodeFailedPrecondition,
+			"sandboxed command runtime requires Workspace Checkpoint storage")
+	}
+	drydocks.WithCheckpointService(checkpoints)
+	if drydocks.checkpoints == nil {
+		return nil, apperror.New(apperror.CodeFailedPrecondition,
+			"sandboxed command runtime Drydock checkpoint projection is unavailable")
+	}
+	checkpointService := drydocks.checkpoints
+	if owner, ok := sandboxExecutor.(commandRuntimeSandboxCheckpointOwner); ok &&
+		owner.OwnsWorkspaceCheckpoint() {
+		checkpointService = nil
+	}
+	return &CommandRuntimeService{store: store, manager: manager, adapter: adapter,
+		capabilities: capabilities, checkpoints: checkpointService,
+		drydocks: drydocks, sandbox: sandboxExecutor}, nil
+}
+
+func (s *CommandRuntimeService) InstalledCommandRuntimeAdapter() (
+	commandruntimeadapter.Identity, bool,
+) {
+	if s == nil {
+		return commandruntimeadapter.Identity{}, false
+	}
+	permission := commandRuntimePermission(s.adapter)
+	if s.capabilities.Validate() != nil || permission == "" ||
+		!s.capabilities.Allows(permission) {
+		return commandruntimeadapter.Identity{}, false
+	}
+	adapter := s.adapter
+	if adapter.Kind == commandruntimeadapter.KindSandboxedWorkspace &&
+		(s.sandbox == nil || !s.sandbox.Available() ||
+			!adapter.SameBackend(s.sandbox.Identity())) {
+		return commandruntimeadapter.Identity{}, false
+	}
+	if adapter.Validate() != nil || !adapter.Executable() ||
+		!adapter.SameBackend(s.adapter) {
+		return commandruntimeadapter.Identity{}, false
+	}
+	return adapter, true
+}
+
+func (s *CommandRuntimeService) AdvertisedCommandRuntimeAdapter(ctx context.Context,
+	runID string, permission domain.RunExecutionPermissionMode,
+) (commandruntimeadapter.Identity, bool, error) {
+	if s == nil || !domain.ValidAgentID(runID) || !s.adapter.Executable() ||
+		!s.adapter.AllowsPermission(permission) ||
+		!s.capabilities.Allows(permission) {
+		return commandruntimeadapter.Identity{}, false, nil
+	}
+	if ctx == nil {
+		return commandruntimeadapter.Identity{}, false, apperror.New(
+			apperror.CodeInvalidArgument, "command runtime advertisement context is invalid")
+	}
+	if ctx.Err() != nil {
+		return commandruntimeadapter.Identity{}, false, ctx.Err()
+	}
+	runRecord, err := s.store.GetRun(ctx, runID)
+	if err != nil {
+		return commandruntimeadapter.Identity{}, false, apperror.Normalize(err)
+	}
+	mode, err := s.store.GetRunMode(ctx, runID)
+	if err != nil {
+		return commandruntimeadapter.Identity{}, false, apperror.Normalize(err)
+	}
+	profile, err := s.store.GetRunExecutionProfile(ctx, runID)
+	if err != nil {
+		return commandruntimeadapter.Identity{}, false, apperror.Normalize(err)
+	}
+	currentPermission, err := s.store.GetRunExecutionPermission(ctx, runID)
+	if err != nil {
+		return commandruntimeadapter.Identity{}, false, apperror.Normalize(err)
+	}
+	lease, leaseFound, err := s.store.GetRunExecutionLease(ctx, runID)
+	if err != nil {
+		return commandruntimeadapter.Identity{}, false, apperror.Normalize(err)
+	}
+	if runRecord.ID != runID || runRecord.Status != domain.RunRunning ||
+		runRecord.Terminal() || mode.RunID != runID ||
+		mode.MissionID != runRecord.MissionID ||
+		mode.Surface != domain.ExecutionSurfaceCode ||
+		mode.Phase != domain.ExecutionPhaseDeliver ||
+		profile.RunID != runID || profile.MissionID != runRecord.MissionID ||
+		profile.Profile != commandRuntimeExecutionProfile(s.adapter) ||
+		currentPermission.RunID != runID ||
+		currentPermission.MissionID != runRecord.MissionID ||
+		currentPermission.Mode != permission || !leaseFound ||
+		lease.RunID != runID || !lease.ActiveAt(time.Now().UTC()) {
+		return commandruntimeadapter.Identity{}, false, nil
+	}
+	if s.adapter.Kind == commandruntimeadapter.KindSandboxedWorkspace {
+		if s.sandbox == nil || !s.sandbox.Available() ||
+			!s.adapter.SameBackend(s.sandbox.Identity()) {
+			return commandruntimeadapter.Identity{}, false, nil
+		}
+		if readiness, ok := s.sandbox.(commandRuntimeSandboxReadiness); ok {
+			ready, err := readiness.Ready(ctx, runID)
+			if err != nil {
+				return commandruntimeadapter.Identity{}, false, apperror.Normalize(err)
+			}
+			if !ready {
+				return commandruntimeadapter.Identity{}, false, nil
+			}
+		}
+		workspace, found, err := s.store.GetDrydockByRun(ctx, runID)
+		if err != nil {
+			return commandruntimeadapter.Identity{}, false, apperror.Normalize(err)
+		}
+		if !found || (workspace.State != drydock.StateReady &&
+			workspace.State != drydock.StateDelivered) {
+			return commandruntimeadapter.Identity{}, false, nil
+		}
+	}
+	return s.adapter, true, nil
 }
 
 func (s *CommandRuntimeService) ExecuteCommandRuntime(ctx context.Context,
 	scope toolgateway.CommandRuntimeContext, input toolgateway.CommandRuntimeInput,
 ) (toolgateway.CommandRuntimeExecutionResult, error) {
 	if s == nil || s.store == nil || s.manager == nil || ctx == nil ||
-		ctx.Err() != nil || scope.Validate() != nil || input.Validate() != nil {
+		ctx.Err() != nil || scope.Validate() != nil || input.Validate() != nil ||
+		!scope.Adapter.SameBackend(s.adapter) ||
+		scope.CapabilityGeneration != s.adapter.Generation {
 		return toolgateway.CommandRuntimeExecutionResult{}, apperror.New(
 			apperror.CodeInvalidArgument, "command runtime request is invalid")
+	}
+	if !s.commandRuntimeAdapterCurrent() {
+		return toolgateway.CommandRuntimeExecutionResult{}, apperror.New(
+			apperror.CodeConflict, "command runtime adapter authority is stale")
 	}
 	bindings, err := s.loadAuthorizedBindings(ctx, scope)
 	if err != nil {
 		return toolgateway.CommandRuntimeExecutionResult{}, err
 	}
+	adapter := s.adapter
 	result := toolgateway.CommandRuntimeExecutionResult{
-		Backend: "run_owned_command_runtime", Action: input.Action,
-		Jobs:      []runner.CommandRuntimeJobSnapshot{},
-		Pages:     []runner.CommandRuntimeOutputPage{},
-		Artifacts: []toolgateway.CommandRuntimeArtifactOutput{},
+		Backend: adapter.Backend, Adapter: adapter, Action: input.Action,
+		Jobs:              []runner.CommandRuntimeJobSnapshot{},
+		Pages:             []runner.CommandRuntimeOutputPage{},
+		Artifacts:         []toolgateway.CommandRuntimeArtifactOutput{},
+		IncompleteReasons: commandRuntimeIncompleteReasons(adapter),
 	}
 	switch input.Action {
 	case toolgateway.CommandRuntimeActionRun:
@@ -108,7 +281,7 @@ func (s *CommandRuntimeService) ExecuteCommandRuntime(ctx context.Context,
 			return result, err
 		}
 		resolved, err := runner.NormalizeCommandRuntimeSpec(input.Commands[0],
-			bindings.workspace.RootPath)
+			bindings.rootPath)
 		if err != nil {
 			return result, commandRuntimeError(err)
 		}
@@ -316,7 +489,7 @@ func (s *CommandRuntimeService) runForeground(ctx context.Context,
 	resolvedCommands := make([]runner.CommandRuntimeResolvedSpec, len(input.Commands))
 	for index, command := range input.Commands {
 		resolved, err := runner.NormalizeCommandRuntimeSpec(command,
-			bindings.workspace.RootPath)
+			bindings.rootPath)
 		if err != nil {
 			return result, commandRuntimeError(err)
 		}
@@ -415,6 +588,9 @@ func (s *CommandRuntimeService) completeTerminalCommandRuntimeBoundaries(ctx con
 		return commandRuntimeError(err)
 	}
 	for _, job := range jobs {
+		if !job.Adapter.SameBackend(s.adapter) {
+			continue
+		}
 		if job.State.Terminal() {
 			if err := s.completeCommandRuntimeJobBoundary(ctx, job); err != nil {
 				return err
@@ -480,8 +656,12 @@ func (s *CommandRuntimeService) loadAuthorizedBindings(ctx context.Context,
 	scope toolgateway.CommandRuntimeContext,
 ) (commandRuntimeBindings, error) {
 	var value commandRuntimeBindings
-	if err := s.capabilities.Validate(); err != nil ||
-		!s.capabilities.Allows(domain.RunExecutionPermissionFullAccess) {
+	expectedPermission := commandRuntimePermission(s.adapter)
+	expectedProfile := commandRuntimeExecutionProfile(s.adapter)
+	if err := s.capabilities.Validate(); err != nil || !s.adapter.Executable() ||
+		expectedPermission == "" || expectedProfile == "" ||
+		!s.capabilities.Allows(expectedPermission) ||
+		!s.adapter.AllowsPermission(expectedPermission) {
 		return value, apperror.New(apperror.CodePolicyDenied,
 			"command runtime startup capability is disabled")
 	}
@@ -496,7 +676,8 @@ func (s *CommandRuntimeService) loadAuthorizedBindings(ctx context.Context,
 		value.mission.WorkspaceID); err != nil {
 		return value, apperror.Normalize(err)
 	}
-	if value.root, _, err = s.store.GetRootAgent(ctx, value.run.ID); err != nil {
+	var rootFound bool
+	if value.root, rootFound, err = s.store.GetRootAgent(ctx, value.run.ID); err != nil {
 		return value, apperror.Normalize(err)
 	}
 	if value.mode, err = s.store.GetRunMode(ctx, value.run.ID); err != nil {
@@ -510,16 +691,35 @@ func (s *CommandRuntimeService) loadAuthorizedBindings(ctx context.Context,
 		value.run.ID); err != nil {
 		return value, apperror.Normalize(err)
 	}
-	var found bool
-	if value.lease, found, err = s.store.GetRunExecutionLease(ctx,
+	var leaseFound bool
+	if value.lease, leaseFound, err = s.store.GetRunExecutionLease(ctx,
 		value.run.ID); err != nil {
 		return value, apperror.Normalize(err)
 	}
+	value.rootPath = value.workspace.RootPath
+	if s.adapter.Kind == commandruntimeadapter.KindSandboxedWorkspace {
+		var drydockFound bool
+		if value.drydock, drydockFound, err = s.store.GetDrydockByRun(ctx,
+			value.run.ID); err != nil {
+			return value, apperror.Normalize(err)
+		}
+		if !drydockFound || value.drydock.RunID != value.run.ID ||
+			value.drydock.MissionID != value.mission.ID ||
+			value.drydock.SessionID != value.run.SessionID ||
+			value.drydock.SourceWorkspaceID != value.workspace.ID ||
+			(value.drydock.State != drydock.StateReady &&
+				value.drydock.State != drydock.StateDelivered) {
+			return value, apperror.New(apperror.CodeConflict,
+				"command runtime Drydock binding is stale")
+		}
+		value.rootPath = value.drydock.Path
+	}
 	if value.rootSHA256, err = runner.CommandRuntimeWorkspaceRootSHA256(
-		value.workspace.RootPath); err != nil {
+		value.rootPath); err != nil {
 		return value, commandRuntimeError(err)
 	}
-	if !found || value.run.Terminal() || value.run.Status != domain.RunRunning ||
+	if !leaseFound || !rootFound || value.run.Terminal() ||
+		value.run.Status != domain.RunRunning ||
 		value.run.ID != scope.RunID || value.run.SessionID != scope.SessionID ||
 		value.run.MissionID != value.mission.ID ||
 		value.mission.WorkspaceID != scope.WorkspaceID ||
@@ -530,11 +730,11 @@ func (s *CommandRuntimeService) loadAuthorizedBindings(ctx context.Context,
 		value.mode.Phase != domain.ExecutionPhaseDeliver ||
 		value.profile.RunID != value.run.ID ||
 		value.profile.MissionID != value.mission.ID ||
-		value.profile.Profile != domain.RunExecutionProfileLocal ||
+		value.profile.Profile != expectedProfile ||
 		value.profile.NetworkScope != domain.ExecutionNetworkDisabled ||
 		value.permission.RunID != value.run.ID ||
 		value.permission.MissionID != value.mission.ID ||
-		value.permission.Mode != domain.RunExecutionPermissionFullAccess ||
+		value.permission.Mode != expectedPermission ||
 		value.lease.LeaseID != scope.LeaseID ||
 		value.lease.Generation != scope.LeaseGeneration ||
 		value.lease.Status != domain.RunExecutionLeaseActive ||
@@ -542,18 +742,20 @@ func (s *CommandRuntimeService) loadAuthorizedBindings(ctx context.Context,
 		return value, apperror.New(apperror.CodeConflict,
 			"command runtime durable binding is stale")
 	}
+	request := executionauth.PermissionRequest{Network: false, BackgroundProcess: true}
+	if s.adapter.Kind == commandruntimeadapter.KindSandboxedWorkspace {
+		request.Kind = executionauth.PermissionOperationSandboxedWorkspace
+	} else {
+		request.Kind = executionauth.PermissionOperationManagedCommand
+		request.HostFilesystem = true
+	}
 	decision, err := executionauth.EvaluateExecutionPermission(value.permission,
-		s.capabilities, executionauth.PermissionRequest{
-			Kind:           executionauth.PermissionOperationManagedCommand,
-			HostFilesystem: true, Network: false, BackgroundProcess: true,
-		})
+		s.capabilities, request)
 	if err != nil {
 		return value, apperror.Wrap(apperror.CodeInvalidArgument,
 			"command runtime permission request is invalid", err)
 	}
-	if !decision.Allowed || !decision.HostFilesystem || decision.Network ||
-		!decision.BackgroundProcess || decision.PersistentTerminal ||
-		decision.AgentTerminalInput {
+	if !commandRuntimePermissionDecisionMatches(s.adapter, decision) {
 		return value, apperror.New(apperror.CodePolicyDenied,
 			"command runtime is not authorized by the current permission gate")
 	}
@@ -575,7 +777,7 @@ func (s *CommandRuntimeService) runnerScope(scope toolgateway.CommandRuntimeCont
 		PermissionRevision:   bindings.permission.Revision,
 		PermissionMode:       bindings.permission.Mode, LeaseID: bindings.lease.LeaseID,
 		LeaseGeneration: bindings.lease.Generation,
-		LeaseOwnerID:    bindings.lease.OwnerID}
+		LeaseOwnerID:    bindings.lease.OwnerID, Adapter: s.adapter}
 }
 
 func (s *CommandRuntimeService) authorizeJob(ctx context.Context, jobID string,
@@ -602,11 +804,13 @@ func (s *CommandRuntimeService) authorizeActiveJob(ctx context.Context, jobID st
 		return runner.CommandRuntimeJob{}, err
 	}
 	if job.State.Terminal() || job.WorkspaceRootSHA256 != bindings.rootSHA256 ||
+		!job.Adapter.SameBackend(s.adapter) ||
 		job.ModeSnapshotID != bindings.mode.ID || job.ModeRevision != bindings.mode.Revision ||
 		job.ProfileSnapshotID != bindings.profile.ID ||
 		job.ProfileRevision != bindings.profile.Revision ||
 		job.PermissionSnapshotID != bindings.permission.ID ||
 		job.PermissionRevision != bindings.permission.Revision ||
+		job.PermissionMode != bindings.permission.Mode ||
 		!s.manager.OwnsActiveJob(job) {
 		return runner.CommandRuntimeJob{}, apperror.New(apperror.CodeConflict,
 			"command runtime job ownership is stale")
@@ -624,6 +828,9 @@ func (s *CommandRuntimeService) authorizeReadableJob(ctx context.Context, jobID 
 	job, err := s.authorizeJob(ctx, jobID, bindings)
 	if err != nil || job.State.Terminal() {
 		return job, err
+	}
+	if job.Adapter.Kind == commandruntimeadapter.KindLegacyUnbound {
+		return job, nil
 	}
 	active, activeErr := s.authorizeActiveJob(ctx, jobID, bindings)
 	if activeErr == nil {
@@ -652,6 +859,9 @@ func (s *CommandRuntimeService) Reconcile(ctx context.Context) (int, error) {
 	}
 	stopped := reconciled
 	for _, job := range jobs {
+		if !job.Adapter.SameBackend(s.adapter) {
+			continue
+		}
 		if job.State.Terminal() {
 			if completeErr := s.completeCommandRuntimeJobBoundary(ctx, job); completeErr != nil {
 				return stopped, completeErr
@@ -689,8 +899,12 @@ func (s *CommandRuntimeService) Reconcile(ctx context.Context) (int, error) {
 func (s *CommandRuntimeService) commandRuntimeJobBindingsCurrent(ctx context.Context,
 	job runner.CommandRuntimeJob,
 ) (bool, error) {
-	if err := s.capabilities.Validate(); err != nil ||
-		!s.capabilities.Allows(domain.RunExecutionPermissionFullAccess) {
+	expectedPermission := commandRuntimePermission(s.adapter)
+	expectedProfile := commandRuntimeExecutionProfile(s.adapter)
+	if err := s.capabilities.Validate(); err != nil || !s.commandRuntimeAdapterCurrent() ||
+		!job.Adapter.SameBackend(s.adapter) ||
+		expectedPermission == "" || expectedProfile == "" ||
+		!s.capabilities.Allows(expectedPermission) {
 		return false, nil
 	}
 	runRecord, err := s.store.GetRun(ctx, job.RunID)
@@ -721,7 +935,21 @@ func (s *CommandRuntimeService) commandRuntimeJobBindingsCurrent(ctx context.Con
 	if err != nil {
 		return false, apperror.Normalize(err)
 	}
-	rootSHA256, err := runner.CommandRuntimeWorkspaceRootSHA256(workspace.RootPath)
+	rootPath := workspace.RootPath
+	if s.adapter.Kind == commandruntimeadapter.KindSandboxedWorkspace {
+		owned, drydockFound, drydockErr := s.store.GetDrydockByRun(ctx, runRecord.ID)
+		if drydockErr != nil {
+			return false, apperror.Normalize(drydockErr)
+		}
+		if !drydockFound || owned.RunID != runRecord.ID ||
+			owned.MissionID != mission.ID || owned.SessionID != runRecord.SessionID ||
+			owned.SourceWorkspaceID != workspace.ID ||
+			(owned.State != drydock.StateReady && owned.State != drydock.StateDelivered) {
+			return false, nil
+		}
+		rootPath = owned.Path
+	}
+	rootSHA256, err := runner.CommandRuntimeWorkspaceRootSHA256(rootPath)
 	if err != nil {
 		return false, nil
 	}
@@ -735,11 +963,28 @@ func (s *CommandRuntimeService) commandRuntimeJobBindingsCurrent(ctx context.Con
 		mode.Surface == domain.ExecutionSurfaceCode &&
 		mode.Phase == domain.ExecutionPhaseDeliver &&
 		profile.ID == job.ProfileSnapshotID && profile.Revision == job.ProfileRevision &&
-		profile.Profile == domain.RunExecutionProfileLocal &&
+		profile.Profile == expectedProfile &&
 		profile.NetworkScope == domain.ExecutionNetworkDisabled &&
 		permission.ID == job.PermissionSnapshotID &&
 		permission.Revision == job.PermissionRevision &&
-		permission.Mode == domain.RunExecutionPermissionFullAccess, nil
+		permission.Mode == job.PermissionMode &&
+		permission.Mode == expectedPermission, nil
+}
+
+func (s *CommandRuntimeService) commandRuntimeAdapterCurrent() bool {
+	if s == nil || s.manager == nil || !s.manager.Available() ||
+		!s.adapter.Executable() {
+		return false
+	}
+	managerAdapter, installed := s.manager.AdapterIdentity()
+	if !installed || !managerAdapter.SameBackend(s.adapter) {
+		return false
+	}
+	if s.adapter.Kind == commandruntimeadapter.KindSandboxedWorkspace {
+		return s.sandbox != nil && s.sandbox.Available() &&
+			s.sandbox.Identity().SameBackend(s.adapter)
+	}
+	return s.adapter.Kind == commandruntimeadapter.KindHostUnsandboxed
 }
 
 func (s *CommandRuntimeService) Shutdown(ctx context.Context) error {
@@ -787,6 +1032,67 @@ func appendCommandRuntimeArtifact(result *toolgateway.CommandRuntimeExecutionRes
 			Stdout: job.Stdout, Stderr: job.Stderr})
 }
 
+func commandRuntimePermission(adapter commandruntimeadapter.Identity) domain.RunExecutionPermissionMode {
+	switch adapter.Kind {
+	case commandruntimeadapter.KindHostUnsandboxed:
+		return domain.RunExecutionPermissionFullAccess
+	case commandruntimeadapter.KindSandboxedWorkspace:
+		return domain.RunExecutionPermissionWorkspaceAccess
+	default:
+		return ""
+	}
+}
+
+func commandRuntimeExecutionProfile(adapter commandruntimeadapter.Identity) domain.RunExecutionProfile {
+	switch adapter.Kind {
+	case commandruntimeadapter.KindHostUnsandboxed:
+		return domain.RunExecutionProfileLocal
+	case commandruntimeadapter.KindSandboxedWorkspace:
+		switch adapter.Backend {
+		case "local_windows_lpac":
+			return domain.RunExecutionProfileLocal
+		case "docker_standard_code":
+			return domain.RunExecutionProfileDocker
+		}
+	}
+	return ""
+}
+
+func commandRuntimeIncompleteReasons(adapter commandruntimeadapter.Identity) []string {
+	switch adapter.Kind {
+	case commandruntimeadapter.KindHostUnsandboxed:
+		return []string{
+			"host_unsandboxed cannot enforce the command network=disabled intent",
+			"host_unsandboxed cannot prove host credentials are unavailable to the child process",
+		}
+	case commandruntimeadapter.KindSandboxedWorkspace:
+		return []string{
+			"this sandbox backend accepts closed stdin only; streaming stdin is unavailable",
+		}
+	default:
+		return []string{"command runtime adapter evidence is incomplete"}
+	}
+}
+
+func commandRuntimePermissionDecisionMatches(adapter commandruntimeadapter.Identity,
+	decision executionauth.PermissionDecision,
+) bool {
+	if !decision.Allowed || decision.Network || decision.PersistentTerminal ||
+		decision.AgentTerminalInput {
+		return false
+	}
+	switch adapter.Kind {
+	case commandruntimeadapter.KindHostUnsandboxed:
+		return decision.HostFilesystem && decision.BackgroundProcess &&
+			!decision.WorkspaceFilesystem && !decision.SandboxedCommand
+	case commandruntimeadapter.KindSandboxedWorkspace:
+		return !decision.HostFilesystem && decision.BackgroundProcess &&
+			decision.WorkspaceFilesystem && decision.SandboxedCommand
+	default:
+		return false
+	}
+}
+
 func commandRuntimeBatchOperationKey(operationKey string, index int) string {
 	digest := sha256.Sum256([]byte(fmt.Sprintf("command-runtime-batch.v2:%d:%s",
 		index, operationKey)))
@@ -823,3 +1129,4 @@ func commandRuntimeError(err error) error {
 }
 
 var _ toolgateway.CommandRuntimeExecutor = (*CommandRuntimeService)(nil)
+var _ toolgateway.CommandRuntimeAdvertiser = (*CommandRuntimeService)(nil)

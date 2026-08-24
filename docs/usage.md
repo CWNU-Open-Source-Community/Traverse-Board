@@ -142,14 +142,17 @@ A Mission is the stable goal and authorization scope. A Run is one resumable exe
 
 Schema v86 separates execution interaction intent from general runtime authority. `preview` is the default. `controlled` requires a Code-surface Run, the Local execution profile, explicit operator trust, and an explicit Workspace-boundary confirmation. `debug` additionally requests a user-owned ConPTY terminal, while `cyber` requires a Cyber-surface Run and Docker profile. Models, Agents, Skills, and repository content cannot select these modes. Every interaction snapshot still fixes process execution, network, capability grants, and execution authorization to false. Schema v87 records the separate, closed one-shot command path with write-ahead intents and immutable metadata-only receipts rather than widening that snapshot.
 
-Schema v88 adds an orthogonal execution-permission selector. Schema v126 expands it to `conservative|workspace_access|approval|full_access|debug`. `workspace_access · 工作区执行` is the Standard Code ceiling: Workspace reads and reviewed writes are allowed, but commands require a separate ready Workspace Sandbox adapter; unsandboxed host processes, network, credentials, user home, persistent terminals, Agent input, and Full CDP are denied. The Windows x64 Local backend can now be explicitly probed with `--enable-workspace-sandbox`; its gate opens only after the real AppContainer/WFP/Job/ACL readiness proof succeeds and never falls back to host execution. The shared sandboxed Local Command Runtime adapter remains tracked by #134, so readiness/selection alone does not advertise a model command tool. #133 separately adds an explicitly enabled, fixed-image Docker `network=none` backend; daemon or image failure likewise never falls back to host execution. Selecting the permission requires `--enable-permission-control` and the exact `--confirm-workspace-access` confirmation, and execution revalidates the current backend gates. Schema v96 gives `approval` a durable model-proposal/operator-review path; the current extension accepts either an exact native process or one canonical PowerShell/Git Bash command envelope on Windows. `full_access` has an operator-only, dual-confirmed, non-sandboxed Windows CLI one-shot executor; it has no HTTP/Desktop/model route. `debug` has a short process-local lease over a user-started terminal; Desktop can now grant/revoke that lease and the root Supervisor can use it only in Code/Deliver. Elevated selection requires its own exact confirmation plus process-local startup gates. Persisted snapshots never grant authority, and a permission revision change releases the active execution lease before any new authority can be acquired. See [ADR 0127](adr/0127-workspace-access-permission-contract.md), [ADR 0130](adr/0130-windows-local-sandbox-backend.md), and [ADR 0131](adr/0131-standard-code-docker-network-none-backend.md).
+Schema v88 adds an orthogonal execution-permission selector. Schema v126 expands it to `conservative|workspace_access|approval|full_access|debug`. `workspace_access · 工作区执行` is the Standard Code ceiling: Workspace reads and reviewed writes are allowed, but commands require a separate ready Workspace Sandbox adapter; unsandboxed host processes, network, credentials, user home, persistent terminals, Agent input, and Full CDP are denied. The Windows x64 Local backend can be explicitly probed with `--enable-workspace-sandbox`; its gate opens only after the real AppContainer/WFP/Job/ACL readiness proof succeeds. The fixed Docker `network=none` backend remains separately gated. Schema v131 connects both to the unified `sandboxed_workspace` Command Runtime and binds each advertisement and call to its exact backend generation; unavailable Local/Docker readiness never falls back to host execution. Selecting the permission requires `--enable-permission-control` and the exact `--confirm-workspace-access` confirmation, and execution revalidates the current backend gates. Schema v96 gives `approval` a durable model-proposal/operator-review path; the current extension accepts either an exact native process or one canonical PowerShell/Git Bash command envelope on Windows. `full_access` has an operator-only, dual-confirmed, non-sandboxed Windows CLI one-shot executor and may separately expose the explicitly gated `host_unsandboxed` Command Runtime. `debug` has a short process-local lease over a user-started terminal. Persisted snapshots never grant authority, and a permission revision change releases the active execution lease before any new authority can be acquired. See [Command Runtime adapter split](architecture/command-runtime-adapter-split.md), [ADR 0127](adr/0127-workspace-access-permission-contract.md), [ADR 0130](adr/0130-windows-local-sandbox-backend.md), and [ADR 0131](adr/0131-standard-code-docker-network-none-backend.md).
 
 `run capability-readiness` and `GET /api/v1/runs/{run_id}/capability-readiness`
 return the same Go-owned `run_capability_readiness.v1` projection used by Desktop.
 Each Permission, Profile, Interaction, browser-CDP, and Standard Code option reports
 `selected`, `selectable`, `runtime_available`, stable `blocked_by` and `remediation`
-arrays, and `restart_required`. Local or Docker intent may be selectable while its
-backend remains unavailable. Human output is stable for diagnosis; `--json` emits
+arrays, and `restart_required`. Its `command_runtime` object separately reports
+`protocol_available`, `adapter_installed`, `adapter_ready`, and
+`current_run_granted`, plus the selected kind/backend when one is actually bound.
+Local or Docker intent may be selectable while its backend remains unavailable.
+Human output is stable for diagnosis; `--json` emits
 the exact protocol. Startup flags describe only the current invocation and do not
 prove backend readiness. The read response contains no private path or bearer and
 always has `capability_grant=false`; every mutation and execution path rechecks its
@@ -1517,13 +1520,15 @@ The canonical model command and sanitized bounded post-grant result are stored i
 
 ## Ordinary Run-Owned Command Runtime / 普通模式 Run-owned 命令运行时
 
-`command_runtime` gives the root Supervisor a real but bounded command loop in
-Code/Local/Deliver without granting Debug-terminal input. It is available only in
-a host process that explicitly enables both the permission-control and
-danger-full-access startup gates. The Run must separately be in Code/Deliver,
-select the Local profile, hold durable `full_access`, and have a current Supervisor
-execution lease. The safe `--operator-preview` bundle intentionally does not turn
-on danger-full-access.
+`command_runtime` gives the root Supervisor one adapter-neutral, bounded command
+and Job protocol without granting Debug-terminal input. Go selects the adapter;
+the request schema has no backend field. A `sandboxed_workspace` adapter requires
+Code/Deliver/root, `workspace_access`, an active execution lease, a Run-owned
+Drydock, and either ready Local (`local + controlled`) or fixed Docker Standard
+Code (`docker`) isolation. A `host_unsandboxed` adapter requires Code/Local/Deliver,
+`full_access`, the active lease, and both permission-control and danger-full-access
+startup gates. The safe `--operator-preview` bundle intentionally does not install
+the host adapter.
 
 ```powershell
 # Desktop: the Settings capability row will show “命令运行时 / Command runtime”.
@@ -1589,7 +1594,7 @@ remaining actions are:
 | `list` | none | list up to 32 Jobs for the current Run |
 | `read` | `job_id`, `cursor`, `max_bytes`, `wait_milliseconds=0` | read one immediately available page |
 | `wait` | `job_id`, `cursor`, `max_bytes`, positive wait up to 5 seconds | long-poll until output, terminal state, or deadline |
-| `write_stdin` | `job_id`, `stdin`, `close_stdin` | one bounded, secret-screened, operation-idempotent write |
+| `write_stdin` | `job_id`, `stdin`, `close_stdin` | one bounded, secret-screened, operation-idempotent write; currently supported by the host adapter, while Local/Docker report closed-stdin-only in `incomplete_reasons` |
 | `cancel` | `job_id`, grace up to 5 seconds | request best-effort graceful tree termination, then kill (Windows Job termination is immediate) |
 | `kill` | `job_id` | terminate the owned process tree immediately |
 
@@ -1611,17 +1616,25 @@ After crash, restart waits for the owner heartbeat to expire, records
 `interrupted`, and never re-executes or signals a persisted, possibly reused PID.
 Deliberate POSIX daemonization into a new session can escape the inherited process
 group; it remains an unsandboxed `full_access` residual risk and is never adopted
-from the durable row.
+from the durable row. Schema v131 persists the complete adapter receipt on every
+Job and projects pre-v131 rows as read-only, non-executable `legacy_unbound`
+evidence. Sandbox Jobs persist no host PID/process group and are never adopted
+after restart.
 
-Only `network=disabled` and `credentials=none` exist. The runtime fixes or clears
+Only `network=disabled` and `credentials=none` exist in the model request. The host
+adapter fixes or clears
 Profile, HOME/USERPROFILE, Git helper/hook/config, SSH agent, prompt, proxy, and
 loader-related paths; pins Git to file-only transport; applies immutable offline
 defaults for Go/Cargo/npm/pip/uv; and rejects secret-like env/stdin and explicit network intent.
-This is not packet-level host containment: `full_access` remains unsandboxed host
+This is not packet-level host containment: `host_unsandboxed` truthfully reports
+`host_available` network and credential policies, and `full_access` remains unsandboxed host
 execution, retains the host OS user token, and cannot prove that credential files are
 unreadable. Commands that need network/credentials or trigger per-command approval
 must use a separate reviewed one-shot path; use Docker `network none` when actual
-network containment evidence is required. See [ADR 0117](adr/0117-run-owned-command-runtime.md).
+network containment evidence is required. Local/Docker receipts report denied
+network and no credentials only when their independent isolation readiness is
+current. See [Command Runtime adapter split](architecture/command-runtime-adapter-split.md)
+and [ADR 0117](adr/0117-run-owned-command-runtime.md).
 
 ## Review-Gated PowerShell and Git Bash
 

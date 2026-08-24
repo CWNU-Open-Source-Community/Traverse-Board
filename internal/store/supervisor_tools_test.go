@@ -11,6 +11,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/llm"
@@ -217,6 +218,52 @@ func TestSupervisorAgentCodeAuthorityIsDurableAndRequired(t *testing.T) {
 		Arguments: json.RawMessage(`{"version":"agent-code-tools.v1","path":"README.md","start_line":1,"end_line":1}`)}},
 		run.ID, checkpoint.NextTurn, 2); err == nil {
 		t.Fatal("agent code call without Go-issued authority was persisted")
+	}
+}
+
+func TestSupervisorCommandRuntimeAuthorityIsCanonicalAndRequired(t *testing.T) {
+	runID := "run-command-runtime-authority"
+	payload, err := toolgateway.NormalizeSupervisorToolPayload(
+		toolgateway.CommandRuntimeTool,
+		json.RawMessage(`{"version":"command-runtime.v2","action":"list"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	operationKey := runmutation.SupervisorToolOperationKey(runID, 1,
+		string(toolgateway.CommandRuntimeTool), string(payload))
+	callID, err := runmutation.SupervisorToolCallID(operationKey, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := commandruntimeadapter.SandboxedWorkspace(
+		"local_windows_sandbox", "windows-local-sandbox.v1", strings.Repeat("a", 64))
+	authority, err := commandruntimeadapter.EncodeAuthority(
+		commandruntimeadapter.NewAuthority(runID, identity))
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := llm.ToolCall{ID: callID, Name: string(toolgateway.CommandRuntimeTool),
+		Arguments: payload, Authority: authority}
+	normalized, err := normalizeSupervisorToolCallsForStore(
+		[]llm.ToolCall{call}, runID, 1, 1)
+	if err != nil || len(normalized) != 1 ||
+		string(normalized[0].Authority) != string(authority) {
+		t.Fatalf("exact adapter authority was not canonical: %#v err=%v", normalized, err)
+	}
+	call.Authority = nil
+	if _, err := normalizeSupervisorToolCallsForStore(
+		[]llm.ToolCall{call}, runID, 1, 1); err == nil {
+		t.Fatal("command runtime call without Go-issued adapter authority was persisted")
+	}
+	wrongAuthority, err := commandruntimeadapter.EncodeAuthority(
+		commandruntimeadapter.NewAuthority("run-command-runtime-other", identity))
+	if err != nil {
+		t.Fatal(err)
+	}
+	call.Authority = wrongAuthority
+	if _, err := normalizeSupervisorToolCallsForStore(
+		[]llm.ToolCall{call}, runID, 1, 1); err == nil {
+		t.Fatal("command runtime authority for another Run was persisted")
 	}
 }
 

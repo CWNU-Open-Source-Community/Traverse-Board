@@ -985,6 +985,15 @@ type CapabilityReadinessOptionView struct {
 	RestartRequired  bool     `json:"restart_required"`
 }
 
+type CommandRuntimeReadinessView struct {
+	ProtocolAvailable bool   `json:"protocol_available"`
+	AdapterInstalled  bool   `json:"adapter_installed"`
+	AdapterReady      bool   `json:"adapter_ready"`
+	CurrentRunGranted bool   `json:"current_run_granted"`
+	AdapterKind       string `json:"adapter_kind,omitempty"`
+	Backend           string `json:"backend,omitempty"`
+}
+
 type RunCapabilityReadinessView struct {
 	ProtocolVersion       string                          `json:"protocol_version"`
 	RunID                 string                          `json:"run_id"`
@@ -993,6 +1002,7 @@ type RunCapabilityReadinessView struct {
 	Interactions          []CapabilityReadinessOptionView `json:"interactions"`
 	BrowserCDPPermissions []CapabilityReadinessOptionView `json:"browser_cdp_permissions"`
 	Presets               []CapabilityReadinessOptionView `json:"presets"`
+	CommandRuntime        CommandRuntimeReadinessView     `json:"command_runtime"`
 	CapabilityGrant       bool                            `json:"capability_grant"`
 }
 
@@ -1006,7 +1016,15 @@ func runCapabilityReadinessView(
 		Interactions:          capabilityReadinessOptionViews(value.Interactions),
 		BrowserCDPPermissions: capabilityReadinessOptionViews(value.BrowserCDPPermissions),
 		Presets:               capabilityReadinessOptionViews(value.Presets),
-		CapabilityGrant:       false,
+		CommandRuntime: CommandRuntimeReadinessView{
+			ProtocolAvailable: value.CommandRuntime.ProtocolAvailable,
+			AdapterInstalled:  value.CommandRuntime.AdapterInstalled,
+			AdapterReady:      value.CommandRuntime.AdapterReady,
+			CurrentRunGranted: value.CommandRuntime.CurrentRunGranted,
+			AdapterKind:       value.CommandRuntime.AdapterKind,
+			Backend:           value.CommandRuntime.Backend,
+		},
+		CapabilityGrant: false,
 	}
 }
 

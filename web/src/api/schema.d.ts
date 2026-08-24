@@ -4340,6 +4340,15 @@ export interface components {
             source_sha256: string;
             workspace_id: string;
         };
+        CommandRuntimeAdapterView: {
+            backend: string;
+            backend_identity: string;
+            credential_policy: string;
+            isolation_grade: string;
+            kind: string;
+            network_policy: string;
+            ready: boolean;
+        };
         CommandRuntimeEnvironment: {
             name: string;
             value: string;
@@ -4349,6 +4358,14 @@ export interface components {
             artifact_bytes: number;
             /** Format: int32 */
             inline_bytes: number;
+        };
+        CommandRuntimeReadinessView: {
+            adapter_installed: boolean;
+            adapter_kind?: string;
+            adapter_ready: boolean;
+            backend?: string;
+            current_run_granted: boolean;
+            protocol_available: boolean;
         };
         CommandRuntimeSpec: {
             arguments?: string[];
@@ -7541,6 +7558,7 @@ export interface components {
         RunCapabilityReadinessView: {
             browser_cdp_permissions: components["schemas"]["CapabilityReadinessOptionView"][];
             capability_grant: boolean;
+            command_runtime: components["schemas"]["CommandRuntimeReadinessView"];
             interactions: components["schemas"]["CapabilityReadinessOptionView"][];
             permissions: components["schemas"]["CapabilityReadinessOptionView"][];
             presets: components["schemas"]["CapabilityReadinessOptionView"][];
@@ -7990,7 +8008,11 @@ export interface components {
             batch_delivery_host_validation_enabled: boolean;
             browser_cdp_permission_control_enabled: boolean;
             code_intel_enabled: boolean;
+            command_runtime_adapter_installed: boolean;
+            command_runtime_adapter_ready: boolean;
+            command_runtime_adapters: components["schemas"]["CommandRuntimeAdapterView"][];
             command_runtime_enabled: boolean;
+            command_runtime_protocol_available: boolean;
             controlled_command_proposal_control_enabled: boolean;
             danger_full_access_enabled: boolean;
             debug_maximum_access_enabled: boolean;

@@ -489,6 +489,7 @@ export function StandardCodeReadinessPanel({ readiness }: {
 }) {
   const { t } = useLocale();
   const option = capabilityReadinessOption(readiness.presets, "standard_code");
+  const runtime = readiness.command_runtime;
   return <section className="permission-control-card standard-code-readiness-section">
     <div className="section-heading">
       <div>
@@ -514,7 +515,14 @@ export function StandardCodeReadinessPanel({ readiness }: {
       <div><dt>{t("已选择", "Selected")}</dt><dd>{option.selected ? t("是", "yes") : t("否", "no")}</dd></div>
       <div><dt>{t("可选择", "Selectable")}</dt><dd>{option.selectable ? t("是", "yes") : t("否", "no")}</dd></div>
       <div><dt>{t("运行时", "Runtime")}</dt><dd>{option.runtime_available ? t("可用", "available") : t("不可用", "unavailable")}</dd></div>
+      <div><dt>{t("协议", "Protocol")}</dt><dd>{runtime.protocol_available ? t("存在", "available") : t("缺失", "missing")}</dd></div>
+      <div><dt>{t("Adapter", "Adapter")}</dt><dd>{runtime.adapter_installed ? t("已安装", "installed") : t("未安装", "not installed")}</dd></div>
+      <div><dt>{t("后端", "Backend")}</dt><dd>{runtime.adapter_ready ? t("就绪", "ready") : t("未就绪", "not ready")}</dd></div>
+      <div><dt>{t("当前 Run", "Current Run")}</dt><dd>{runtime.current_run_granted ? t("已授予", "granted") : t("未授予", "not granted")}</dd></div>
     </dl>
+    {runtime.current_run_granted && <p className="permission-closed-note">
+      {runtime.adapter_kind} · {runtime.backend}
+    </p>}
   </section>;
 }
 

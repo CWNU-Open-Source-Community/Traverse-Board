@@ -17,6 +17,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/browserruntime"
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/redact"
@@ -140,6 +141,7 @@ type UIEvidenceBundle struct {
 // durable Job identity sealed into an Attempt before that lease expired.
 type uiEvidenceCommandRuntime interface {
 	toolgateway.CommandRuntimeExecutor
+	toolgateway.CommandRuntimeAdvertiser
 	cleanupUIEvidenceJob(context.Context, uiEvidenceCommandCleanupBinding) (
 		runner.CommandRuntimeJobSnapshot, error)
 }
@@ -447,6 +449,7 @@ type preparedUIEvidence struct {
 	workspace session.WorkspaceRecord
 	root      domain.AgentNode
 	lease     domain.RunExecutionLease
+	adapter   commandruntimeadapter.Identity
 }
 
 func (s *UIEvidenceService) prepare(ctx context.Context,
@@ -484,6 +487,17 @@ func (s *UIEvidenceService) prepare(ctx context.Context,
 		root.ParentID != "" || runRecord.SessionID == "" || mission.WorkspaceID == "" {
 		return preparedUIEvidence{}, uievidence.Attempt{}, apperror.New(
 			apperror.CodeFailedPrecondition, "UI evidence Run binding is not executable")
+	}
+	adapter, available, err := s.commands.AdvertisedCommandRuntimeAdapter(ctx,
+		runRecord.ID, domain.RunExecutionPermissionFullAccess)
+	if err != nil {
+		return preparedUIEvidence{}, uievidence.Attempt{}, err
+	}
+	if !available || adapter.Kind != commandruntimeadapter.KindHostUnsandboxed ||
+		!adapter.Executable() {
+		return preparedUIEvidence{}, uievidence.Attempt{}, apperror.New(
+			apperror.CodeFailedPrecondition,
+			"UI evidence requires the granted host Command Runtime adapter")
 	}
 	_, attemptID := uievidence.OperationIdentity(runRecord.ID, request.OperationKey)
 	createdAt := s.now()
@@ -557,7 +571,8 @@ func (s *UIEvidenceService) prepare(ctx context.Context,
 		return preparedUIEvidence{}, stored, nil
 	}
 	return preparedUIEvidence{request: request, attempt: stored, browser: browser,
-			run: runRecord, mission: mission, workspace: workspace, root: root, lease: lease},
+			run: runRecord, mission: mission, workspace: workspace, root: root, lease: lease,
+			adapter: adapter},
 		uievidence.Attempt{}, nil
 }
 
@@ -1010,11 +1025,12 @@ func (s *UIEvidenceService) commandScope(prepared preparedUIEvidence,
 		OperationKey: identity,
 		RunID:        prepared.run.ID, RootAgentID: prepared.root.ID,
 		SessionID: prepared.run.SessionID, WorkspaceID: prepared.mission.WorkspaceID,
-		CapabilityGeneration: prepared.attempt.Manifest.Fingerprint,
+		CapabilityGeneration: prepared.adapter.Generation,
 		LeaseID:              prepared.lease.LeaseID, LeaseGeneration: prepared.lease.Generation,
 		RequestedBy: "run_supervisor", PolicyDecision: toolgateway.Decision{
 			Allowed: true, Approval: toolgateway.ApprovalAutomatic, Risk: "high",
-			Reason: "exact ui-evidence.v1 recipe passed the Run execution boundary"}}
+			Reason: "exact ui-evidence.v1 recipe passed the Run execution boundary"},
+		Adapter: prepared.adapter}
 }
 
 func (s *UIEvidenceService) startCommand(ctx context.Context,

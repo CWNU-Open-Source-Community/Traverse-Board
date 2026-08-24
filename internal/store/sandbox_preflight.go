@@ -106,11 +106,13 @@ func (s *SQLiteStore) CreateSandboxDisabledPreflight(ctx context.Context,
 	if err := requireSandboxCandidateStoreBudget(run.Budget, usage, toolCalls); err != nil {
 		return sandbox.DisabledPreflight{}, false, err
 	}
-	if lease, found, err := getRunExecutionLeaseTx(ctx, tx, run.ID); err != nil {
+	lease, found, err := getRunExecutionLeaseTx(ctx, tx, run.ID)
+	if err != nil {
 		return sandbox.DisabledPreflight{}, false, err
-	} else if found && lease.ActiveAt(time.Now().UTC()) {
-		return sandbox.DisabledPreflight{}, false, apperror.New(apperror.CodeFailedPrecondition,
-			"sandbox preflight requires a quiescent Run")
+	}
+	if err := validateSandboxCandidateRunLease(candidate, lease, found,
+		time.Now().UTC(), "sandbox preflight requires a quiescent Run"); err != nil {
+		return sandbox.DisabledPreflight{}, false, err
 	}
 	if err := verifySandboxInputBindingsTx(ctx, tx, lifecycle.Execution,
 		lifecycle.Inputs, run.SessionID); err != nil {

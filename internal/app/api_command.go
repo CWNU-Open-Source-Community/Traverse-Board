@@ -12,12 +12,14 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/httpapi"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/plugins"
 	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/runner"
+	"cyberagent-workbench/internal/sandbox"
 	"cyberagent-workbench/internal/scheduler"
 	"cyberagent-workbench/internal/skills"
 	"cyberagent-workbench/internal/webui"
@@ -120,12 +122,16 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 			"--enable-workspace-sandbox requires --enable-permission-control")
 	}
 	var localReadinessRuntime *application.CapabilityReadinessRuntime
+	var localSandboxBackend sandbox.LocalBackend
+	var localSandboxReadiness *sandbox.LocalReadiness
 	if *workspaceSandbox {
 		backend, readiness, err := openLocalSandbox(ctx, true)
 		if err != nil {
 			return err
 		}
-		defer backend.Close()
+		localSandboxBackend = backend
+		localSandboxReadiness = &readiness
+		defer localSandboxBackend.Close()
 		runtime := application.CapabilityReadinessRuntime{
 			RunControlEnabled:                  controlToken != "",
 			ExecutionPermissionControlEnabled:  controlToken != "" && *permissionControl,
@@ -287,8 +293,23 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		return apperror.Wrap(apperror.CodeUnavailable,
 			"batch delivery startup reconciliation failed", err)
 	}
-	dockerSandbox, err := a.newDockerSandboxService(*dockerExecution,
-		permissionCapabilities)
+	var commandRuntimeDrydocks *application.DrydockService
+	if controlToken != "" && permissionCapabilities.WorkspaceSandboxEnabled {
+		drydockExecutor, executorErr := repository.NewDrydockExecutor(
+			filepath.Join(a.home, "drydocks"))
+		if executorErr != nil {
+			return executorErr
+		}
+		commandRuntimeDrydocks, err = application.NewDrydockService(a.store,
+			drydockExecutor)
+		if err != nil {
+			return err
+		}
+		commandRuntimeDrydocks.WithCheckpointService(workspaceCheckpoints)
+	}
+	dockerSandbox, standardCodeRuntime, err :=
+		a.newDockerSandboxServiceWithStandardCode(*dockerExecution,
+			permissionCapabilities, commandRuntimeDrydocks)
 	if err != nil {
 		return err
 	}
@@ -313,19 +334,84 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		return apperror.Wrap(apperror.CodeUnavailable,
 			"command runtime startup reconciliation failed", err)
 	}
+	commandManagers := []*runner.CommandRuntimeManager{commandManager}
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
-		_ = commandManager.Shutdown(shutdownCtx)
-		cancel()
+		defer cancel()
+		for _, manager := range commandManagers {
+			_ = manager.Shutdown(shutdownCtx)
+		}
 	}()
-	var commandRuntime *application.CommandRuntimeService
+	commandAdapters := make([]*application.CommandRuntimeService, 0, 3)
 	if controlToken != "" && permissionCapabilities.Allows(
 		domain.RunExecutionPermissionFullAccess) {
-		commandRuntime, err = application.NewCommandRuntimeService(a.store,
+		hostRuntime, serviceErr := application.NewCommandRuntimeService(a.store,
 			commandManager, permissionCapabilities)
+		if serviceErr != nil {
+			return serviceErr
+		}
+		commandAdapters = append(commandAdapters, hostRuntime)
+	}
+	if controlToken != "" && localSandboxBackend != nil &&
+		localSandboxReadiness != nil && commandRuntimeDrydocks != nil {
+		localExecutor, executorErr := application.NewLocalSandboxCommandRuntimeExecutor(
+			a.store, localSandboxBackend, *localSandboxReadiness)
+		if executorErr != nil {
+			return executorErr
+		}
+		localManager, managerErr := runner.NewSandboxCommandRuntimeManager(a.store,
+			localExecutor, idgen.New("command-runtime-local-owner"))
+		if managerErr != nil {
+			return managerErr
+		}
+		commandManagers = append(commandManagers, localManager)
+		if _, managerErr = localManager.ReconcileStartup(ctx); managerErr != nil {
+			return apperror.Wrap(apperror.CodeUnavailable,
+				"Local Command Runtime startup reconciliation failed", managerErr)
+		}
+		localRuntime, serviceErr := application.NewSandboxedCommandRuntimeService(
+			a.store, localManager, localExecutor, permissionCapabilities,
+			commandRuntimeDrydocks)
+		if serviceErr != nil {
+			return serviceErr
+		}
+		commandAdapters = append(commandAdapters, localRuntime)
+	}
+	if controlToken != "" && standardCodeRuntime != nil &&
+		commandRuntimeDrydocks != nil {
+		dockerExecutor, executorErr :=
+			application.NewDockerSandboxCommandRuntimeExecutor(standardCodeRuntime)
+		if executorErr != nil {
+			return executorErr
+		}
+		dockerManager, managerErr := runner.NewSandboxCommandRuntimeManager(a.store,
+			dockerExecutor, idgen.New("command-runtime-docker-owner"))
+		if managerErr != nil {
+			return managerErr
+		}
+		commandManagers = append(commandManagers, dockerManager)
+		if _, managerErr = dockerManager.ReconcileStartup(ctx); managerErr != nil {
+			return apperror.Wrap(apperror.CodeUnavailable,
+				"Docker Command Runtime startup reconciliation failed", managerErr)
+		}
+		dockerRuntime, serviceErr := application.NewSandboxedCommandRuntimeService(
+			a.store, dockerManager, dockerExecutor, permissionCapabilities,
+			commandRuntimeDrydocks)
+		if serviceErr != nil {
+			return serviceErr
+		}
+		commandAdapters = append(commandAdapters, dockerRuntime)
+	}
+	var commandRuntime application.CommandRuntimeRuntime
+	if len(commandAdapters) == 1 {
+		commandRuntime = commandAdapters[0]
+	} else if len(commandAdapters) > 1 {
+		commandRuntime, err = application.NewCommandRuntimeMultiplexer(commandAdapters...)
 		if err != nil {
 			return err
 		}
+	}
+	if commandRuntime != nil {
 		executionControl.WithCommandRuntime(commandRuntime)
 	}
 	if executor := a.newDockerSandboxProposalExecutor(); executor != nil {
@@ -401,6 +487,38 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		application.NewHostCommandProposalReviewService(
 			a.store, hostCommandExecutor, permissionCapabilities)
 	embeddedAnalyzerExecution := application.NewEmbeddedAnalyzerExecutionService(a.store)
+	installedCommandRuntimeAdapters := []commandruntimeadapter.Identity{}
+	if commandRuntime != nil {
+		installedCommandRuntimeAdapters = commandRuntime.InstalledCommandRuntimeAdapters()
+	}
+	readinessRuntime := application.CapabilityReadinessRuntime{
+		RunControlEnabled:                  controlToken != "",
+		RunExecutionEnabled:                controlToken != "",
+		ExecutionPermissionControlEnabled:  controlToken != "" && *permissionControl,
+		BrowserCDPPermissionControlEnabled: controlToken != "" && *browserCDPControl,
+		ExecutionPermissionCapabilities:    permissionCapabilities,
+		BrowserCDPPermissionCapabilities:   browserCDPCapabilities,
+		LocalSandboxInstalled:              permissionCapabilities.WorkspaceSandboxEnabled,
+		DockerStartupGateEnabled:           *dockerExecution,
+		DockerAvailable:                    *dockerExecution,
+		CommandRuntimeAdapters:             installedCommandRuntimeAdapters,
+	}
+	if localReadinessRuntime != nil {
+		readinessRuntime = *localReadinessRuntime
+		readinessRuntime.RunExecutionEnabled = controlToken != ""
+		readinessRuntime.CommandRuntimeAdapters = installedCommandRuntimeAdapters
+	}
+	if standardCodeRuntime != nil {
+		if dockerReadiness, found, readinessErr :=
+			a.standardCodeCapabilityDockerReadiness(ctx, *dockerExecution); readinessErr != nil {
+			return readinessErr
+		} else if found {
+			readinessRuntime.DockerReadiness = &dockerReadiness
+			readinessRuntime.DockerAvailable = dockerReadiness.DaemonReachable
+			readinessRuntime.DockerBackendReady = dockerReadiness.Ready
+		}
+	}
+	localReadinessRuntime = &readinessRuntime
 	api, err := httpapi.New(a.store, httpapi.Config{
 		AccessToken: accessToken, ControlToken: controlToken,
 		RunControlEnabled: controlToken != "", RunCreationEnabled: controlToken != "",
@@ -427,6 +545,8 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		BrowserCDPPermissionControlEnabled:      *browserCDPControl,
 		BrowserCDPPermissionCapabilities:        browserCDPCapabilities,
 		CapabilityReadinessRuntime:              localReadinessRuntime,
+		CommandRuntimeAdapters:                  installedCommandRuntimeAdapters,
+		CommandRuntimeAdvertiser:                commandRuntime,
 		SkillInstallationEnabled:                controlToken != "",
 		EvidenceAttachmentEnabled:               controlToken != "",
 		VerificationEvidenceEnabled:             controlToken != "",

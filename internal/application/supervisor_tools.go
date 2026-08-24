@@ -11,6 +11,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/codeintel"
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/mcp"
@@ -34,11 +35,16 @@ type supervisorCodeIntelTools struct {
 	Authority    json.RawMessage
 }
 
+type supervisorCommandRuntimeTools struct {
+	Adapter   commandruntimeadapter.Identity
+	Authority json.RawMessage
+}
+
 type supervisorToolOptions struct {
-	CommandRuntimeEnabled bool
-	AgentCode             supervisorAgentCodeTools
-	CodeIntel             supervisorCodeIntelTools
-	MCP                   mcp.ScopedCapabilities
+	CommandRuntime supervisorCommandRuntimeTools
+	AgentCode      supervisorAgentCodeTools
+	CodeIntel      supervisorCodeIntelTools
+	MCP            mcp.ScopedCapabilities
 }
 
 type supervisorToolResultEnvelope struct {
@@ -64,7 +70,7 @@ func supervisorStructuredToolSpecs(surface domain.ExecutionSurface,
 	if len(options) > 0 {
 		configured = options[0]
 	}
-	runtimeEnabled := configured.CommandRuntimeEnabled
+	runtimeEnabled := configured.CommandRuntime.Adapter.Executable()
 	agentCode := toolgateway.AgentCodeCapabilitySnapshot{}
 	if len(options) > 0 {
 		agentCode = configured.AgentCode.Capabilities
@@ -93,7 +99,7 @@ func supervisorStructuredToolSpecs(surface domain.ExecutionSurface,
 		if definition.Name == toolgateway.CommandRuntimeTool &&
 			(!runtimeEnabled || surface != domain.ExecutionSurfaceCode ||
 				phase != domain.ExecutionPhaseDeliver ||
-				permissionMode != domain.RunExecutionPermissionFullAccess) {
+				!configured.CommandRuntime.Adapter.AllowsPermission(permissionMode)) {
 			continue
 		}
 		if definition.Name == toolgateway.MCPToolCallTool {
@@ -137,7 +143,8 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 	if len(options) > 0 {
 		configured = options[0]
 	}
-	runtimeEnabled := configured.CommandRuntimeEnabled
+	runtimeEnabled := configured.CommandRuntime.Adapter.Executable()
+	commandRuntimeAuthority := configured.CommandRuntime.Authority
 	agentCode := toolgateway.AgentCodeCapabilitySnapshot{}
 	var agentCodeAuthority json.RawMessage
 	codeIntel := toolgateway.CodeIntelCapabilitySnapshot{}
@@ -217,9 +224,9 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 		if name == toolgateway.CommandRuntimeTool &&
 			(!runtimeEnabled || surface != domain.ExecutionSurfaceCode ||
 				phase != domain.ExecutionPhaseDeliver ||
-				permissionMode != domain.RunExecutionPermissionFullAccess) {
+				!configured.CommandRuntime.Adapter.AllowsPermission(permissionMode)) {
 			return nil, errors.New(
-				"provider requested command runtime outside Code/Deliver/full-access runtime")
+				"provider requested command runtime outside its advertised Code/Deliver adapter authority")
 		}
 		if name == toolgateway.MCPToolCallTool &&
 			(surface != domain.ExecutionSurfaceCode || phase != domain.ExecutionPhaseDeliver ||
@@ -262,6 +269,15 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 		}
 		if toolgateway.IsCodeIntelTool(name) {
 			out[index].Authority = append(json.RawMessage(nil), codeIntelAuthority...)
+		}
+		if name == toolgateway.CommandRuntimeTool {
+			if authority, authorityErr := commandruntimeadapter.DecodeAuthority(
+				commandRuntimeAuthority); authorityErr != nil ||
+				authority.RunID != runID ||
+				!authority.Adapter.SameBackend(configured.CommandRuntime.Adapter) {
+				return nil, errors.New("command runtime advertisement authority is invalid")
+			}
+			out[index].Authority = append(json.RawMessage(nil), commandRuntimeAuthority...)
 		}
 	}
 	return out, nil
@@ -512,6 +528,24 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		toolCall.ModeRevision = authority.ModeRevision
 		toolCall.PermissionRevision = authority.PermissionRevision
 		toolCall.CapabilityGeneration = authority.CapabilityGeneration
+	}
+	if name == toolgateway.CommandRuntimeTool {
+		authority, authorityErr := commandruntimeadapter.DecodeAuthority(
+			json.RawMessage(call.AuthorityJSON))
+		permission, permissionErr := s.store.GetRunExecutionPermission(ctx, turn.Run.ID)
+		if authorityErr != nil || permissionErr != nil || authority.RunID != call.RunID ||
+			!authority.Adapter.AllowsPermission(permission.Mode) {
+			return domain.SupervisorToolResult{}, apperror.New(apperror.CodeFailedPrecondition,
+				"durable command runtime adapter authority does not match the active Supervisor turn")
+		}
+		toolCall.MissionID = turn.Mission.ID
+		toolCall.Surface = turn.Mode.Surface
+		toolCall.Phase = turn.Mode.Phase
+		toolCall.Role = turn.Agent.Role
+		toolCall.Profile = turn.Mode.Profile
+		toolCall.PermissionMode = permission.Mode
+		toolCall.CapabilityGeneration = authority.Adapter.Generation
+		toolCall.CommandRuntimeAdapter = authority.Adapter
 	}
 	if name == toolgateway.MCPToolCallTool {
 		permission, permissionErr := s.store.GetRunExecutionPermission(ctx, turn.Run.ID)

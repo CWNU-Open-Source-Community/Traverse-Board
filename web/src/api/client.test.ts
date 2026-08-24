@@ -8,6 +8,14 @@ const healthEnvelope = {
   data: { status: "ok", api_version: "api.v1", app_version: "test", schema_version: 37 },
 };
 
+function commandRuntimeAdapterData() {
+  return {
+    kind: "host_unsandboxed", backend: "run_owned_command_runtime",
+    backend_identity: "host-process.v1", isolation_grade: "host_unsandboxed",
+    network_policy: "host_available", credential_policy: "host_available", ready: true,
+  } as const;
+}
+
 function runtimeCapabilitiesData(overrides: Record<string, unknown> = {}) {
   return {
     protocol_version: "runtime_capabilities.v1",
@@ -17,6 +25,10 @@ function runtimeCapabilitiesData(overrides: Record<string, unknown> = {}) {
     workspace_sandbox_enabled: false,
     danger_full_access_enabled: true, debug_maximum_access_enabled: true,
     command_runtime_enabled: true,
+    command_runtime_protocol_available: true,
+    command_runtime_adapter_installed: true,
+    command_runtime_adapter_ready: true,
+    command_runtime_adapters: [commandRuntimeAdapterData()],
     browser_cdp_permission_control_enabled: true, full_cdp_debug_enabled: true,
     run_control_enabled: true, run_creation_enabled: true,
     session_message_enabled: true, thread_control_enabled: true,
@@ -74,6 +86,8 @@ function capabilityReadinessData() {
       capabilityReadinessOption("cyber")],
     browser_cdp_permissions: [capabilityReadinessOption("restricted", true),
       capabilityReadinessOption("full_debug")],
+    command_runtime: { protocol_available: true, adapter_installed: true,
+      adapter_ready: true, current_run_granted: false },
     presets: [preset], capability_grant: false,
   };
 }
@@ -426,6 +440,10 @@ describe("CyberAgentClient", () => {
       workspace_sandbox_enabled: false,
       danger_full_access_enabled: true, debug_maximum_access_enabled: true,
       command_runtime_enabled: true,
+      command_runtime_protocol_available: true,
+      command_runtime_adapter_installed: true,
+      command_runtime_adapter_ready: true,
+      command_runtime_adapters: [commandRuntimeAdapterData()],
       browser_cdp_permission_control_enabled: true, full_cdp_debug_enabled: true,
       run_control_enabled: true, run_creation_enabled: true,
       session_message_enabled: true, thread_control_enabled: true,
@@ -467,6 +485,9 @@ describe("CyberAgentClient", () => {
       workspaceSandboxEnabled: false,
       dangerFullAccessEnabled: true, debugMaximumAccessEnabled: true,
       commandRuntimeEnabled: true,
+      commandRuntimeProtocolAvailable: true,
+      commandRuntimeAdapterInstalled: true,
+      commandRuntimeAdapterReady: true,
       agentCodeToolsEnabled: true,
       codeIntelEnabled: true,
       browserCDPPermissionControlEnabled: true, fullCDPDebugEnabled: true,
@@ -511,6 +532,18 @@ describe("CyberAgentClient", () => {
     });
   });
 
+  it("rejects an inconsistent Command Runtime adapter receipt", async () => {
+    const adapter = { ...commandRuntimeAdapterData(),
+      kind: "sandboxed_workspace", isolation_grade: "workspace_sandbox" };
+    const data = runtimeCapabilitiesData({ command_runtime_adapters: [adapter] });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-command-runtime-capabilities", data,
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+
+    await expect(new CyberAgentClient("read-secret").runtimeCapabilities())
+      .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+  });
+
   it("accepts only the exact Run capability readiness protocol", async () => {
     const data = capabilityReadinessData();
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
@@ -551,6 +584,12 @@ describe("CyberAgentClient", () => {
     }],
     ["missing selected permission", (data: ReturnType<typeof capabilityReadinessData>) => {
       data.permissions[0]!.selected = false;
+    }],
+    ["adapter ready without installation", (data: ReturnType<typeof capabilityReadinessData>) => {
+      data.command_runtime.adapter_installed = false;
+    }],
+    ["granted adapter without identity", (data: ReturnType<typeof capabilityReadinessData>) => {
+      data.command_runtime.current_run_granted = true;
     }],
     ["private extension", (data: ReturnType<typeof capabilityReadinessData>) => {
       (data.permissions[0] as Record<string, unknown>).root_path = "C:\\private";

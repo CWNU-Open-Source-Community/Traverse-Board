@@ -35,12 +35,13 @@ go run ./cmd/cyberagent api serve --listen 127.0.0.1:8765 --ui-dir web/dist `
   --enable-permission-control --enable-docker-execution
 ```
 
-权限开关不会让数据库快照自动获得执行权。`full_access` 与当前 Code/Local/Deliver
-Run、root Supervisor lease、`--enable-permission-control`、
-`--enable-danger-full-access` 同时成立时，API 进程会安装 v116
-`command_runtime`；它与 `approval` 的逐条审阅路径和 `debug` 用户终端彼此独立。
-未设置 `CYBERAGENT_API_CONTROL_TOKEN` 时，permission control 与 Run execution
-都不能启动。
+权限开关不会让数据库快照自动获得执行权。Schema v131 保留同一
+`command-runtime.v2` 工具并按进程实际 readiness 安装 exact adapter：Local 或固定
+Docker 只接受当前 Code/Deliver/root `workspace_access` Run 与 Drydock；宿主 adapter
+只接受 Code/Local/Deliver `full_access`、root Supervisor lease、
+`--enable-permission-control` 和 `--enable-danger-full-access`。模型不能指定 backend，
+Sandbox 不可用也不会回退宿主。未设置 `CYBERAGENT_API_CONTROL_TOKEN` 时，permission
+control 与 Run execution 都不能启动。
 
 设置独立 control token 后，普通 `api serve` 同时开放固定提案 review route；
 Desktop 则必须额外使用 `--enable-command-proposals`。三条 endpoint 为：
@@ -96,12 +97,18 @@ health from authenticated `GET /api/v1/capabilities`. React may use that respons
 render independent controls, but it contains no token, owner, lease, Run, or private
 error and cannot enable a worker, install a service, or grant a mutation. Every control
 route still requires the control token and its corresponding Go gate independently.
+The Command Runtime fields distinguish a compiled protocol, installed adapters,
+live backend readiness, and a bounded list of adapter kind/backend/isolation/network/
+credential receipts; they do not report a Run grant.
 
 Run-specific option readiness is exposed separately through authenticated read-only
 `GET /api/v1/runs/{run_id}/capability-readiness`. Its exact
 `run_capability_readiness.v1` response covers Permission, Profile, Interaction,
 browser-CDP, and Standard Code values with `selected`, `selectable`,
 `runtime_available`, canonical blockers/remediations, and `restart_required`.
+Its `command_runtime` object separately reports `protocol_available`,
+`adapter_installed`, `adapter_ready`, and `current_run_granted`, plus the selected
+kind/backend only when current authority picks one adapter.
 Go combines persisted snapshots and leases with current process gates and backend
 proof; React does not reconstruct those facts. The DTO omits private paths,
 endpoints, credentials, lease/owner identities, and raw errors, and fixes

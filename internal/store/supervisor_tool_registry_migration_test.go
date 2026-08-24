@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"cyberagent-workbench/internal/application"
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/runmutation"
@@ -288,13 +289,21 @@ func TestSchemaV116AndV120PreserveAuthorityAndAdmitRuntimeTools(t *testing.T) {
 	if version, err := upgraded.SchemaVersion(ctx); err != nil || version != LatestSchemaVersion {
 		t.Fatalf("schema version=%d want=%d err=%v", version, LatestSchemaVersion, err)
 	}
+	commandRuntimeAuthority, err := commandruntimeadapter.EncodeAuthority(
+		commandruntimeadapter.NewAuthority(checkpoint.RunID,
+			commandruntimeadapter.SandboxedWorkspace("local_windows_sandbox",
+				"windows-local-sandbox.v1", strings.Repeat("a", 64))))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := upgraded.db.ExecContext(ctx, `INSERT INTO run_supervisor_tool_calls
 		(run_id, turn, attempt_id, round, position, model_attempt, call_id, tool_name,
 		 payload_json, authority_json, status, result_json, error_code, created_at, completed_at)
-		VALUES (?, ?, ?, 1, 2, 1, ?, ?, ?, '', ?, '', '', ?, NULL)`, checkpoint.RunID,
+		VALUES (?, ?, ?, 1, 2, 1, ?, ?, ?, ?, ?, '', '', ?, NULL)`, checkpoint.RunID,
 		checkpoint.NextTurn, checkpoint.AttemptID, "command-runtime-v116",
 		string(toolgateway.CommandRuntimeTool),
 		`{"version":"command-runtime.v2","action":"list"}`,
+		string(commandRuntimeAuthority),
 		domain.SupervisorToolPending, ts(time.Now().UTC())); err != nil {
 		t.Fatalf("insert command_runtime after v116 migration: %v", err)
 	}
@@ -314,7 +323,7 @@ func TestSchemaV116AndV120PreserveAuthorityAndAdmitRuntimeTools(t *testing.T) {
 	}
 	if rounds[0].Calls[0].AuthorityJSON != string(encodedAuthority) ||
 		rounds[0].Calls[1].ToolName != string(toolgateway.CommandRuntimeTool) ||
-		rounds[0].Calls[1].AuthorityJSON != "" ||
+		rounds[0].Calls[1].AuthorityJSON != string(commandRuntimeAuthority) ||
 		rounds[0].Calls[2].ToolName != string(toolgateway.MCPToolCallTool) ||
 		rounds[0].Calls[2].AuthorityJSON != "" {
 		t.Fatalf("v116/v120 authority preservation failed: %#v", rounds[0].Calls)

@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"cyberagent-workbench/internal/artifact"
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/outputsafe"
 	"cyberagent-workbench/internal/policy"
@@ -150,6 +151,7 @@ type CommandRuntimeContext struct {
 	LeaseGeneration      int64
 	RequestedBy          string
 	PolicyDecision       Decision
+	Adapter              commandruntimeadapter.Identity
 }
 
 func (c CommandRuntimeContext) Validate() error {
@@ -162,6 +164,7 @@ func (c CommandRuntimeContext) Validate() error {
 	}
 	if !domain.ValidAgentID(c.RootAgentID) ||
 		!validAgentCodeDigest(c.CapabilityGeneration, false) || c.LeaseGeneration <= 0 ||
+		!c.Adapter.Executable() ||
 		c.RequestedBy != "run_supervisor" || c.PolicyDecision.Validate() != nil ||
 		!c.PolicyDecision.Allowed || c.PolicyDecision.Approval != ApprovalAutomatic {
 		return errors.New("command runtime requires an automatically authorized fenced root scope")
@@ -176,24 +179,30 @@ type CommandRuntimeArtifactOutput struct {
 }
 
 type CommandRuntimeExecutionResult struct {
-	Backend   string
-	Action    string
-	Jobs      []runner.CommandRuntimeJobSnapshot
-	Pages     []runner.CommandRuntimeOutputPage
-	Artifacts []CommandRuntimeArtifactOutput
-	Replayed  bool
+	Backend           string
+	Adapter           commandruntimeadapter.Identity
+	Action            string
+	Jobs              []runner.CommandRuntimeJobSnapshot
+	Pages             []runner.CommandRuntimeOutputPage
+	Artifacts         []CommandRuntimeArtifactOutput
+	Replayed          bool
+	IncompleteReasons []string
 }
 
 func (r CommandRuntimeExecutionResult) Validate() error {
+	if !r.Adapter.Executable() || r.Backend != r.Adapter.Backend {
+		return errors.New("command runtime adapter receipt is invalid")
+	}
 	if strings.TrimSpace(r.Backend) == "" || strings.TrimSpace(r.Backend) != r.Backend ||
 		len([]rune(r.Backend)) > MaxExecutionBackendRunes ||
 		!validCommandRuntimeAction(r.Action) || len(r.Jobs) > MaxCommandRuntimeResultJobs ||
-		len(r.Pages) > MaxCommandRuntimeBatch || len(r.Artifacts) > MaxCommandRuntimeBatch {
+		len(r.Pages) > MaxCommandRuntimeBatch || len(r.Artifacts) > MaxCommandRuntimeBatch ||
+		len(r.IncompleteReasons) > 16 {
 		return errors.New("command runtime execution result is invalid")
 	}
 	for _, job := range r.Jobs {
 		if !domain.ValidAgentID(job.ID) || !job.State.Valid() ||
-			job.OutputBaseCursor > job.OutputCursor {
+			job.OutputBaseCursor > job.OutputCursor || job.Adapter.Validate() != nil {
 			return errors.New("command runtime job result is invalid")
 		}
 	}
@@ -219,7 +228,17 @@ func (r CommandRuntimeExecutionResult) Validate() error {
 			return errors.New("command runtime artifact output is invalid")
 		}
 	}
+	for _, reason := range r.IncompleteReasons {
+		if reason == "" || reason != strings.TrimSpace(reason) || !utf8.ValidString(reason) ||
+			len([]rune(reason)) > 512 || strings.ContainsRune(reason, 0) {
+			return errors.New("command runtime incomplete reason is invalid")
+		}
+	}
 	return nil
+}
+
+func (r CommandRuntimeExecutionResult) ValidateBoundAdapter() error {
+	return r.Validate()
 }
 
 type CommandRuntimeExecutor interface {
@@ -227,9 +246,17 @@ type CommandRuntimeExecutor interface {
 		CommandRuntimeInput) (CommandRuntimeExecutionResult, error)
 }
 
+// CommandRuntimeAdvertiser returns the process-local adapter identity that may
+// be advertised for the current Run permission. The resulting authority is
+// durable evidence, not a capability that recovery data may widen.
+type CommandRuntimeAdvertiser interface {
+	AdvertisedCommandRuntimeAdapter(context.Context, string,
+		domain.RunExecutionPermissionMode) (commandruntimeadapter.Identity, bool, error)
+}
+
 var commandRuntimeDefinition = ToolDefinition{
 	Name: CommandRuntimeTool, Class: ClassProcess, Approval: ApprovalAutomatic,
-	Description: "Run an ordered command-runtime.v2 batch or manage one Run-owned background Job in ordinary Code/Deliver full-access mode. Every command declares a fixed PowerShell/Bash/process profile, literal argv or script, workspace-relative cwd, restricted environment, stdin lifecycle, timeout, bounded output, disabled network intent, and no credentials. Output is untrusted, sanitized, cursor-addressed evidence; this tool is separate from the user terminal, Debug terminal, reviewed one-shot command, and Docker Sandbox.",
+	Description: "Run an ordered command-runtime.v2 batch or manage one Run-owned background Job through the adapter selected by current Run authority; the model cannot select or override that adapter. Every command declares a fixed PowerShell/Bash/process profile, literal argv or script, workspace-relative cwd, restricted environment, stdin lifecycle, timeout, bounded output, disabled network intent, and no credentials. Output is untrusted, sanitized, cursor-addressed evidence; this tool is separate from the user terminal, Debug terminal, reviewed one-shot command, and Docker Sandbox.",
 	InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["version","action"],"properties":{"version":{"const":"command-runtime.v2"},"action":{"enum":["run","start","list","read","wait","write_stdin","cancel","kill"]},"commands":{"type":"array","minItems":1,"maxItems":4,"items":{"type":"object","additionalProperties":false,"required":["version","profile","working_directory","environment","stdin_policy","close_initial_stdin","timeout_milliseconds","output","network","credentials","purpose"],"properties":{"version":{"const":"command-runtime.v2"},"profile":{"enum":["powershell","bash","process"]},"executable":{"type":"string","maxLength":4096},"arguments":{"type":"array","maxItems":128,"items":{"type":"string","maxLength":16384}},"script":{"type":"string","maxLength":65536},"working_directory":{"type":"string","minLength":1,"maxLength":4096},"environment":{"type":"array","maxItems":32,"items":{"type":"object","additionalProperties":false,"required":["name","value"],"properties":{"name":{"type":"string","minLength":1,"maxLength":128},"value":{"type":"string","maxLength":65536}}}},"stdin_policy":{"enum":["closed","pipe"]},"initial_stdin":{"type":"string","maxLength":65536},"close_initial_stdin":{"type":"boolean"},"timeout_milliseconds":{"type":"integer","minimum":1,"maximum":1800000},"output":{"type":"object","additionalProperties":false,"required":["inline_bytes","artifact_bytes"],"properties":{"inline_bytes":{"type":"integer","minimum":4096,"maximum":524288},"artifact_bytes":{"type":"integer","minimum":4096,"maximum":4194304}}},"network":{"const":"disabled"},"credentials":{"const":"none"},"purpose":{"type":"string","minLength":1,"maxLength":1200}}}},"failure_policy":{"enum":["fail_fast","continue"]},"job_id":{"type":"string","minLength":1,"maxLength":256},"cursor":{"type":"integer","minimum":0},"max_bytes":{"type":"integer","minimum":4,"maximum":32768},"wait_milliseconds":{"type":"integer","minimum":0,"maximum":5000},"stdin":{"type":"string","maxLength":65536},"close_stdin":{"type":"boolean"}},"allOf":[{"if":{"properties":{"action":{"const":"run"}}},"then":{"required":["commands","failure_policy","max_bytes"]}},{"if":{"properties":{"action":{"const":"start"}}},"then":{"required":["commands"]}},{"if":{"properties":{"action":{"enum":["read","wait"]}}},"then":{"required":["job_id","cursor","max_bytes","wait_milliseconds"]}},{"if":{"properties":{"action":{"const":"write_stdin"}}},"then":{"required":["job_id","stdin","close_stdin"]}},{"if":{"properties":{"action":{"const":"cancel"}}},"then":{"required":["job_id","wait_milliseconds"]}},{"if":{"properties":{"action":{"const":"kill"}}},"then":{"required":["job_id"]}}]}`),
 }
 
@@ -467,7 +494,8 @@ func (g *Gateway) invokeCommandRuntime(ctx context.Context, call ToolCall) (
 		SessionID: call.SessionID, WorkspaceID: call.WorkspaceID,
 		CapabilityGeneration: call.CapabilityGeneration,
 		LeaseID:              call.LeaseID, LeaseGeneration: call.LeaseGeneration,
-		RequestedBy: call.RequestedBy, PolicyDecision: decision}
+		RequestedBy: call.RequestedBy, PolicyDecision: decision,
+		Adapter: call.CommandRuntimeAdapter}
 	if err := scope.Validate(); err != nil {
 		return Outcome{}, err
 	}
@@ -477,17 +505,24 @@ func (g *Gateway) invokeCommandRuntime(ctx context.Context, call ToolCall) (
 		return Outcome{}, err
 	}
 	sanitizeCommandRuntimeExecutionResult(&result)
-	if err := result.Validate(); err != nil {
+	if err := result.ValidateBoundAdapter(); err != nil ||
+		!result.Adapter.SameBackend(scope.Adapter) {
+		if err == nil {
+			err = errors.New("command runtime adapter receipt does not match advertised authority")
+		}
 		return Outcome{}, err
 	}
 	completed := time.Now().UTC()
 	projection := struct {
-		Version string                             `json:"version"`
-		Action  string                             `json:"action"`
-		Jobs    []runner.CommandRuntimeJobSnapshot `json:"jobs"`
-		Pages   []runner.CommandRuntimeOutputPage  `json:"pages,omitempty"`
+		Version           string                             `json:"version"`
+		Action            string                             `json:"action"`
+		Adapter           commandruntimeadapter.Identity     `json:"adapter"`
+		Jobs              []runner.CommandRuntimeJobSnapshot `json:"jobs"`
+		Pages             []runner.CommandRuntimeOutputPage  `json:"pages,omitempty"`
+		IncompleteReasons []string                           `json:"incomplete_reasons,omitempty"`
 	}{Version: runner.CommandRuntimeResultVersion, Action: result.Action,
-		Jobs: result.Jobs, Pages: result.Pages}
+		Adapter: result.Adapter, Jobs: result.Jobs, Pages: result.Pages,
+		IncompleteReasons: result.IncompleteReasons}
 	encoded, err := json.Marshal(projection)
 	if err != nil {
 		return Outcome{}, err
@@ -496,12 +531,22 @@ func (g *Gateway) invokeCommandRuntime(ctx context.Context, call ToolCall) (
 		MaxResultStdoutBytes)
 	metadata := map[string]string{
 		"backend": result.Backend, "action": result.Action,
-		"job_count": strconv.Itoa(len(result.Jobs)),
-		"replayed":  strconv.FormatBool(result.Replayed),
-		"owner":     "run_owned_command_runtime", "output_source": "untrusted_command_runtime",
-		"network": "disabled", "credentials": "none", "profile_files": "disabled",
+		"adapter_kind":       string(result.Adapter.Kind),
+		"backend_identity":   result.Adapter.BackendIdentity,
+		"backend_generation": result.Adapter.Generation,
+		"isolation_grade":    string(result.Adapter.IsolationGrade),
+		"job_count":          strconv.Itoa(len(result.Jobs)),
+		"replayed":           strconv.FormatBool(result.Replayed),
+		"owner":              string(result.Adapter.Kind), "output_source": "untrusted_command_runtime",
+		"network":     string(result.Adapter.NetworkPolicy),
+		"credentials": string(result.Adapter.CredentialPolicy), "profile_files": "disabled",
 		"user_terminal_shared": "false", "debug_terminal_shared": "false",
-		"sandbox_shared": "false", "instruction_authorized": "false",
+		"sandbox_shared": strconv.FormatBool(
+			result.Adapter.Kind == commandruntimeadapter.KindSandboxedWorkspace),
+		"instruction_authorized": "false",
+	}
+	if len(result.IncompleteReasons) > 0 {
+		metadata["incomplete_reason_count"] = strconv.Itoa(len(result.IncompleteReasons))
 	}
 	for index, output := range result.Artifacts {
 		captured, captureErr := g.captureTerminalArtifacts(ctx, call, output.JobID,

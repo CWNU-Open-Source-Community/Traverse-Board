@@ -6,7 +6,7 @@ import type { RunDetailView } from "../api/types";
 import { capabilityReadinessFixture, patchCapabilityReadiness } from
   "../test/capability-readiness";
 import { BrowserCDPPermissionPanel, ExecutionPermissionPanel,
-  RunPermissionSettings } from "./run-permission-settings";
+  RunPermissionSettings, StandardCodeReadinessPanel } from "./run-permission-settings";
 
 vi.mock("../lib/locale", () => ({
   useLocale: () => ({ locale: "zh-CN", setLocale: () => undefined,
@@ -222,6 +222,25 @@ describe("ExecutionPermissionPanel", () => {
     expect(screen.getByText((_, element) =>
       element?.tagName === "SPAN" && element.textContent?.startsWith("run-2") === true,
     )).toBeInTheDocument();
+  });
+});
+
+describe("StandardCodeReadinessPanel", () => {
+  it("shows protocol, installed adapter, backend readiness, and current Run grant separately", () => {
+    const readiness = capabilityReadinessFixture();
+    readiness.command_runtime = {
+      protocol_available: true, adapter_installed: true, adapter_ready: true,
+      current_run_granted: true, adapter_kind: "sandboxed_workspace",
+      backend: "local_windows_sandbox",
+    };
+    render(<StandardCodeReadinessPanel readiness={readiness} />);
+
+    expect(screen.getByText("存在")).toBeInTheDocument();
+    expect(screen.getByText("已安装")).toBeInTheDocument();
+    expect(screen.getByText("就绪")).toBeInTheDocument();
+    expect(screen.getByText("已授予")).toBeInTheDocument();
+    expect(screen.getByText("sandboxed_workspace · local_windows_sandbox"))
+      .toBeInTheDocument();
   });
 });
 

@@ -30,9 +30,10 @@ import (
 )
 
 const (
-	desktopSingleInstanceID = "e3305a58-3d1e-4e2f-b4ca-d1032a737b96"
-	defaultDesktopWidth     = 1440
-	defaultDesktopHeight    = 900
+	desktopSingleInstanceID            = "e3305a58-3d1e-4e2f-b4ca-d1032a737b96"
+	defaultDesktopWidth                = 1440
+	defaultDesktopHeight               = 900
+	standardCodeDockerImageEnvironment = "CYBERAGENT_STANDARD_CODE_DOCKER_IMAGE_DIGEST"
 )
 
 type desktopOptions struct {
@@ -440,12 +441,14 @@ func runDesktop(config desktopOptions) error {
 		return err
 	}
 	var localReadiness *sandbox.LocalReadiness
+	var localBackend sandbox.LocalBackend
 	if config.workspaceSandbox {
 		backend, err := sandbox.NewPlatformLocalBackend()
 		if err != nil {
 			return err
 		}
-		defer backend.Close()
+		localBackend = backend
+		defer localBackend.Close()
 		readiness, err := backend.Readiness(context.Background(),
 			sandbox.LocalRuntimeCapabilities{Enabled: true})
 		if err != nil {
@@ -497,6 +500,8 @@ func runDesktop(config desktopOptions) error {
 			DebugMaximumAccessEnabled: config.debugMaximumAccess,
 		},
 		LocalSandboxReadiness:              localReadiness,
+		LocalSandboxBackend:                localBackend,
+		StandardCodeDockerImageDigest:      strings.TrimSpace(os.Getenv(standardCodeDockerImageEnvironment)),
 		BrowserCDPPermissionControlEnabled: config.browserCDPControl,
 		BrowserCDPPermissionCapabilities: domain.BrowserCDPPermissionRuntimeCapabilities{
 			ControlEnabled:   config.browserCDPControl,
@@ -566,6 +571,8 @@ func runDesktop(config desktopOptions) error {
 
 	lifecycle := desktop.NewLifecycle(wailsWindowRestorer{})
 	selector, preview := desktop.NewSkillPackagePreviewBoundary()
+	commandRuntimeAdapterInstalled, commandRuntimeAdapterReady :=
+		controlPlane.CommandRuntimeProcessStatus()
 	bridge, err := desktop.NewDesktopBridge(desktop.DesktopBridgeConfig{
 		ContextProvider: lifecycle.Context, FilePicker: nativeSkillPackagePicker{},
 		ReadToken: readToken, ControlToken: controlToken, APIVersion: httpapi.Version,
@@ -577,6 +584,8 @@ func runDesktop(config desktopOptions) error {
 		OperatorApprovalEnabled:                 config.permissionControl,
 		DangerFullAccessEnabled:                 config.dangerFullAccess,
 		DebugMaximumAccessEnabled:               config.debugMaximumAccess,
+		CommandRuntimeAdapterInstalled:          commandRuntimeAdapterInstalled,
+		CommandRuntimeAdapterReady:              commandRuntimeAdapterReady,
 		SessionMessageEnabled:                   config.sessionMessages,
 		SessionSteeringControlEnabled:           config.sessionSteeringControl,
 		RunLifecycleEnabled:                     config.runLifecycle,

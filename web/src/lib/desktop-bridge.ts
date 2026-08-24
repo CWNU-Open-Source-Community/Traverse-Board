@@ -39,6 +39,9 @@ export interface DesktopConnectionBootstrap {
   danger_full_access_enabled: boolean;
   debug_maximum_access_enabled: boolean;
   command_runtime_enabled: boolean;
+  command_runtime_protocol_available: true;
+  command_runtime_adapter_installed: boolean;
+  command_runtime_adapter_ready: boolean;
   thread_control_enabled: boolean;
   run_creation_enabled: boolean;
   session_message_enabled: boolean;
@@ -704,6 +707,8 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     "agent_code_tools_enabled", "api_base_url", "api_version", "app_version",
     "code_intel_enabled",
     "approval_control_enabled", "command_runtime_enabled",
+    "command_runtime_protocol_available", "command_runtime_adapter_installed",
+    "command_runtime_adapter_ready",
     "controlled_command_proposal_control_enabled",
     "host_command_proposal_control_enabled",
     "execution_permission_control_enabled", "operator_approval_enabled",
@@ -748,6 +753,10 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     typeof value.danger_full_access_enabled === "boolean" &&
     typeof value.debug_maximum_access_enabled === "boolean" &&
     typeof value.command_runtime_enabled === "boolean" &&
+    value.command_runtime_protocol_available === true &&
+    typeof value.command_runtime_adapter_installed === "boolean" &&
+    typeof value.command_runtime_adapter_ready === "boolean" &&
+    (!value.command_runtime_adapter_ready || value.command_runtime_adapter_installed) &&
     typeof value.thread_control_enabled === "boolean" &&
     typeof value.run_creation_enabled === "boolean" &&
     typeof value.session_message_enabled === "boolean" &&
@@ -828,7 +837,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
       (value.command_runtime_enabled && value.browser_cdp_permission_control_enabled &&
         value.run_execution_enabled)) &&
     value.command_runtime_enabled ===
-      (value.run_execution_enabled && value.danger_full_access_enabled) &&
+      (value.run_execution_enabled && value.command_runtime_adapter_ready) &&
     value.thread_control_enabled ===
       (value.run_creation_enabled && value.session_message_enabled) &&
     value.read_only_default === !(value.control_enabled || value.run_creation_enabled ||

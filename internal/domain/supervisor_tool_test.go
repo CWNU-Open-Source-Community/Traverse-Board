@@ -75,7 +75,7 @@ func TestSupervisorToolCallAcceptsEveryDurableToolName(t *testing.T) {
 				ToolName: toolName, PayloadJSON: `{}`, Status: SupervisorToolPending,
 				CreatedAt: now,
 			}
-			if isAgentCodeSupervisorTool(toolName) {
+			if isAgentCodeSupervisorTool(toolName) || toolName == "command_runtime" {
 				call.AuthorityJSON = `{}`
 			}
 			if err := call.Validate(); err != nil {

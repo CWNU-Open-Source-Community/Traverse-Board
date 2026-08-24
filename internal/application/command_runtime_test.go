@@ -11,12 +11,103 @@ import (
 	"time"
 
 	"cyberagent-workbench/internal/apperror"
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/store"
 	"cyberagent-workbench/internal/toolgateway"
 )
+
+func TestCommandRuntimeMultiplexerRejectsDuplicateBackendAcrossGenerations(t *testing.T) {
+	state, err := store.Open(filepath.Join(t.TempDir(), "command-runtime-multiplexer.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true}
+	managers := make([]*runner.CommandRuntimeManager, 0, 2)
+	for _, owner := range []string{"duplicate-backend-owner-a", "duplicate-backend-owner-b"} {
+		manager, err := runner.NewPlatformCommandRuntimeManager(state, idgen.New(owner))
+		if err != nil {
+			t.Skipf("platform host command runtime is unavailable: %v", err)
+		}
+		managers = append(managers, manager)
+	}
+	defer func() {
+		for _, manager := range managers {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = manager.Shutdown(shutdownCtx)
+			cancel()
+		}
+	}()
+	services := make([]*CommandRuntimeService, 0, len(managers))
+	for _, manager := range managers {
+		service, err := NewCommandRuntimeService(state, manager, capabilities)
+		if err != nil {
+			t.Fatal(err)
+		}
+		services = append(services, service)
+	}
+	if services[0].adapter.Generation == services[1].adapter.Generation {
+		t.Fatal("test managers unexpectedly share an adapter generation")
+	}
+	if value, err := NewCommandRuntimeMultiplexer(services...); value != nil ||
+		apperror.CodeOf(err) != apperror.CodeConflict {
+		t.Fatalf("duplicate backend generations were accepted: value=%v err=%v", value, err)
+	}
+}
+
+func TestCommandRuntimeDockerCommandMapsOnlyFixedToolchains(t *testing.T) {
+	for _, test := range []struct {
+		executable string
+		want       string
+	}{
+		{"go", "go"}, {"node", "node"}, {"python3", "python"}, {"cargo", "rust"},
+	} {
+		t.Run(test.executable, func(t *testing.T) {
+			resolved := runner.CommandRuntimeResolvedSpec{
+				Spec: runner.CommandRuntimeSpec{Profile: runner.CommandRuntimeProcess,
+					WorkingDirectory: "src", TimeoutMilliseconds: 1501,
+					Purpose: "exercise a fixed Docker toolchain"},
+				ExecutablePath: filepath.Join("opt", "toolchains", test.executable),
+				CanonicalArgv:  []string{"version"},
+			}
+			command, err := commandRuntimeDockerCommand(resolved)
+			if err != nil || command.Validate() != nil || command.Toolchain != test.want ||
+				command.TimeoutSeconds != 2 || command.WorkingDirectory != "src" ||
+				len(command.Arguments) != 1 || command.Arguments[0] != "version" {
+				t.Fatalf("Docker command=%#v err=%v", command, err)
+			}
+		})
+	}
+	for _, executable := range []string{"bash", "powershell.exe", "curl", "docker"} {
+		resolved := runner.CommandRuntimeResolvedSpec{
+			Spec: runner.CommandRuntimeSpec{Profile: runner.CommandRuntimeProcess,
+				WorkingDirectory: ".", TimeoutMilliseconds: 1000,
+				Purpose: "reject an arbitrary Docker executable"},
+			ExecutablePath: filepath.Join("opt", "toolchains", executable),
+			CanonicalArgv:  []string{},
+		}
+		if command, err := commandRuntimeDockerCommand(resolved); err == nil {
+			t.Fatalf("arbitrary executable %q mapped to %#v", executable, command)
+		}
+	}
+}
+
+func TestCommandRuntimeAdapterReceiptsCannotMasqueradeAcrossIsolationGrades(t *testing.T) {
+	host := commandruntimeadapter.HostUnsandboxed(strings.Repeat("a", 64))
+	sandboxed := commandruntimeadapter.SandboxedWorkspace(
+		CommandRuntimeLocalSandboxBackend, "windows-local-sandbox.v1",
+		strings.Repeat("b", 64))
+	forged := host
+	forged.Kind = commandruntimeadapter.KindSandboxedWorkspace
+	if host.SameBackend(sandboxed) || forged.Validate() == nil || forged.Executable() {
+		t.Fatalf("adapter identities crossed isolation grades: host=%#v sandbox=%#v forged=%#v",
+			host, sandboxed, forged)
+	}
+}
 
 func TestCommandRuntimeDoesNotMapWorkspaceAccessToHostExecution(t *testing.T) {
 	state, err := store.Open(filepath.Join(t.TempDir(), "workspace-access-host-runtime.db"))
@@ -40,6 +131,40 @@ func TestCommandRuntimeDoesNotMapWorkspaceAccessToHostExecution(t *testing.T) {
 		!strings.Contains(err.Error(), "danger-full-access") {
 		t.Fatalf("Workspace Access enabled the host command runtime: service=%v err=%v",
 			service, err)
+	}
+}
+
+func TestCommandRuntimeAdvertisementRequiresCurrentRunLease(t *testing.T) {
+	ctx := context.Background()
+	state, runRecord, _, lease, capabilities := newCommandRuntimeTestRuntime(t, ctx)
+	manager, err := runner.NewPlatformCommandRuntimeManager(state,
+		idgen.New("command-runtime-advertisement-owner"))
+	if err != nil {
+		t.Skipf("platform host command runtime is unavailable: %v", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = manager.Shutdown(shutdownCtx)
+	}()
+	service, err := NewCommandRuntimeService(state, manager, capabilities)
+	if err != nil {
+		t.Fatal(err)
+	}
+	advertised, available, err := service.AdvertisedCommandRuntimeAdapter(ctx,
+		runRecord.ID, domain.RunExecutionPermissionFullAccess)
+	if err != nil || !available || !advertised.SameBackend(service.adapter) {
+		t.Fatalf("active Run advertisement=%#v available=%t err=%v",
+			advertised, available, err)
+	}
+	if _, _, err := state.ReleaseRunExecutionLease(ctx, lease); err != nil {
+		t.Fatal(err)
+	}
+	advertised, available, err = service.AdvertisedCommandRuntimeAdapter(ctx,
+		runRecord.ID, domain.RunExecutionPermissionFullAccess)
+	if err != nil || available || advertised != (commandruntimeadapter.Identity{}) {
+		t.Fatalf("released lease retained advertisement=%#v available=%t err=%v",
+			advertised, available, err)
 	}
 }
 
@@ -89,10 +214,11 @@ func TestCommandRuntimeServiceRunsAndReplaysFencedForegroundCommand(t *testing.T
 		OperationKey: "command-runtime-operation-1", RunID: runRecord.ID,
 		RootAgentID: root.ID, SessionID: runRecord.SessionID,
 		WorkspaceID: "workspace-command-runtime-app", LeaseID: lease.LeaseID,
-		CapabilityGeneration: strings.Repeat("a", 64),
+		CapabilityGeneration: service.adapter.Generation,
 		LeaseGeneration:      lease.Generation, RequestedBy: "run_supervisor",
 		PolicyDecision: toolgateway.Decision{Allowed: true,
 			Approval: toolgateway.ApprovalAutomatic, Risk: "high", Reason: "test"},
+		Adapter: service.adapter,
 	}
 	result, err := service.ExecuteCommandRuntime(ctx, scope, input)
 	if errors.Is(err, runner.ErrCommandRuntimeUnavailable) {
@@ -179,7 +305,7 @@ func TestCommandRuntimeForegroundBatchHonorsOrderedFailurePolicy(t *testing.T) {
 			}
 			maxBytes := 4096
 			result, err := service.ExecuteCommandRuntime(ctx,
-				commandRuntimeTestScope(runRecord, root, lease,
+				commandRuntimeTestScope(service, runRecord, root, lease,
 					"command-runtime-batch-"+testCase.policy),
 				toolgateway.CommandRuntimeInput{
 					Version:       toolgateway.CommandRuntimeToolProtocolVersion,
@@ -247,7 +373,7 @@ func TestCommandRuntimeForegroundBatchPreflightsEveryCommand(t *testing.T) {
 	invalid.Purpose = "invalid second command must fail before the first starts"
 	maxBytes := 4096
 	result, err := service.ExecuteCommandRuntime(ctx,
-		commandRuntimeTestScope(runRecord, root, lease, "command-runtime-preflight"),
+		commandRuntimeTestScope(service, runRecord, root, lease, "command-runtime-preflight"),
 		toolgateway.CommandRuntimeInput{
 			Version: toolgateway.CommandRuntimeToolProtocolVersion,
 			Action:  toolgateway.CommandRuntimeActionRun, FailurePolicy: toolgateway.CommandRuntimeFailFast,
@@ -313,7 +439,7 @@ func TestCommandRuntimeForegroundCancellationReapsProcessTree(t *testing.T) {
 	callCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 	defer cancel()
 	_, err = service.ExecuteCommandRuntime(callCtx,
-		commandRuntimeTestScope(runRecord, root, lease,
+		commandRuntimeTestScope(service, runRecord, root, lease,
 			"command-runtime-cancel-foreground"), input)
 	if errors.Is(err, runner.ErrCommandRuntimeUnavailable) {
 		t.Skipf("%s is unavailable: %v", profile, err)
@@ -329,7 +455,7 @@ func TestCommandRuntimeForegroundCancellationReapsProcessTree(t *testing.T) {
 	}
 }
 
-func TestCommandRuntimeBackgroundJobSurvivesSupervisorLeaseTurnover(t *testing.T) {
+func TestCommandRuntimeBackgroundJobSurvivesTurnAndFailsClosedOnDurableDrift(t *testing.T) {
 	ctx := context.Background()
 	state, runRecord, root, firstLease, capabilities := newCommandRuntimeTestRuntime(t, ctx)
 	originalWorkspace, err := state.GetWorkspaceByID(ctx, "workspace-command-runtime-app")
@@ -358,7 +484,7 @@ func TestCommandRuntimeBackgroundJobSurvivesSupervisorLeaseTurnover(t *testing.T
 		profile = runner.CommandRuntimePowerShell
 		script = `$line = [Console]::In.ReadLine(); [Console]::Out.WriteLine("cross-turn:$line")`
 	}
-	scope := commandRuntimeTestScope(runRecord, root, firstLease,
+	scope := commandRuntimeTestScope(service, runRecord, root, firstLease,
 		"command-runtime-start-turn-1")
 	started, err := service.ExecuteCommandRuntime(ctx, scope,
 		toolgateway.CommandRuntimeInput{Version: toolgateway.CommandRuntimeToolProtocolVersion,
@@ -397,7 +523,7 @@ func TestCommandRuntimeBackgroundJobSurvivesSupervisorLeaseTurnover(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope = commandRuntimeTestScope(runRecord, root, acquired.Lease,
+	scope = commandRuntimeTestScope(service, runRecord, root, acquired.Lease,
 		"command-runtime-stdin-turn-2")
 	stdin := "resumed"
 	closeStdin := true
@@ -600,7 +726,7 @@ func TestCommandRuntimeUIEvidenceCleanupReapsExactJobAfterLeaseRelease(t *testin
 		script = `$line = [Console]::In.ReadLine(); [Console]::Out.WriteLine("unexpected:$line")`
 	}
 	identity := "ui-attempt-cleanup-test:application"
-	scope := commandRuntimeTestScope(runRecord, root, lease, identity)
+	scope := commandRuntimeTestScope(service, runRecord, root, lease, identity)
 	scope.InvocationID = identity
 	started, err := service.ExecuteCommandRuntime(ctx, scope,
 		toolgateway.CommandRuntimeInput{Version: toolgateway.CommandRuntimeToolProtocolVersion,
@@ -653,18 +779,20 @@ func TestCommandRuntimeUIEvidenceCleanupReapsExactJobAfterLeaseRelease(t *testin
 	}
 }
 
-func commandRuntimeTestScope(runRecord domain.Run, root domain.AgentNode,
+func commandRuntimeTestScope(service *CommandRuntimeService,
+	runRecord domain.Run, root domain.AgentNode,
 	lease domain.RunExecutionLease, operationKey string,
 ) toolgateway.CommandRuntimeContext {
 	return toolgateway.CommandRuntimeContext{
 		InvocationID: "command-runtime-invocation-" + operationKey,
 		OperationKey: operationKey, RunID: runRecord.ID, RootAgentID: root.ID,
 		SessionID: runRecord.SessionID, WorkspaceID: "workspace-command-runtime-app",
-		CapabilityGeneration: strings.Repeat("a", 64),
+		CapabilityGeneration: service.adapter.Generation,
 		LeaseID:              lease.LeaseID, LeaseGeneration: lease.Generation,
 		RequestedBy: "run_supervisor", PolicyDecision: toolgateway.Decision{
 			Allowed: true, Approval: toolgateway.ApprovalAutomatic,
 			Risk: "high", Reason: "test"},
+		Adapter: service.adapter,
 	}
 }
 

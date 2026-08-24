@@ -14,6 +14,7 @@ import (
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/browserruntime"
 	"cyberagent-workbench/internal/codeintel"
+	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/credential"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/executionauth"
@@ -39,33 +40,36 @@ import (
 // It does not listen on a socket and it adds no renderer authority beyond the
 // tokens explicitly supplied in ControlPlaneConfig.
 type ControlPlane struct {
-	stateStore            *store.SQLiteStore
-	workspaceManager      *workspace.Manager
-	workspaceImportMu     sync.Mutex
-	handler               http.Handler
-	closeOnce             sync.Once
-	closeErr              error
-	skillInstaller        *application.SkillPackageRegistryService
-	dockerSandbox         *application.DockerSandboxService
-	userTerminal          *desktopUserTerminalService
-	debugAgentInput       application.DebugTerminalAgentInputController
-	commandRuntime        *application.CommandRuntimeService
-	uiEvidence            *application.UIEvidenceService
-	commandRuntimeManager *runner.CommandRuntimeManager
-	codeIntelManager      *codeintel.Manager
-	terminalManager       *terminalruntime.Manager
-	boundaryMonitor       *terminalruntime.HostBoundaryMonitor
-	terminalWorkerMu      sync.Mutex
-	terminalCancel        context.CancelFunc
-	terminalDone          chan struct{}
-	wakeWorker            *application.RunWakeWorker
-	scheduledJobWorker    *scheduler.Worker
-	workerMu              sync.Mutex
-	workerCancel          context.CancelFunc
-	workerDone            chan struct{}
-	scheduledWorkerCancel context.CancelFunc
-	scheduledWorkerDone   chan struct{}
-	closed                bool
+	stateStore                     *store.SQLiteStore
+	workspaceManager               *workspace.Manager
+	workspaceImportMu              sync.Mutex
+	handler                        http.Handler
+	closeOnce                      sync.Once
+	closeErr                       error
+	skillInstaller                 *application.SkillPackageRegistryService
+	dockerSandbox                  *application.DockerSandboxService
+	userTerminal                   *desktopUserTerminalService
+	debugAgentInput                application.DebugTerminalAgentInputController
+	commandRuntime                 application.CommandRuntimeRuntime
+	uiEvidence                     *application.UIEvidenceService
+	commandRuntimeManager          *runner.CommandRuntimeManager
+	commandRuntimeManagers         []*runner.CommandRuntimeManager
+	commandRuntimeAdapterInstalled bool
+	commandRuntimeAdapterReady     bool
+	codeIntelManager               *codeintel.Manager
+	terminalManager                *terminalruntime.Manager
+	boundaryMonitor                *terminalruntime.HostBoundaryMonitor
+	terminalWorkerMu               sync.Mutex
+	terminalCancel                 context.CancelFunc
+	terminalDone                   chan struct{}
+	wakeWorker                     *application.RunWakeWorker
+	scheduledJobWorker             *scheduler.Worker
+	workerMu                       sync.Mutex
+	workerCancel                   context.CancelFunc
+	workerDone                     chan struct{}
+	scheduledWorkerCancel          context.CancelFunc
+	scheduledWorkerDone            chan struct{}
+	closed                         bool
 }
 
 type ControlPlaneConfig struct {
@@ -77,6 +81,8 @@ type ControlPlaneConfig struct {
 	ExecutionPermissionControlEnabled       bool
 	ExecutionPermissionCapabilities         domain.ExecutionPermissionRuntimeCapabilities
 	LocalSandboxReadiness                   *sandbox.LocalReadiness
+	LocalSandboxBackend                     sandbox.LocalBackend
+	StandardCodeDockerImageDigest           string
 	BrowserCDPPermissionControlEnabled      bool
 	BrowserCDPPermissionCapabilities        domain.BrowserCDPPermissionRuntimeCapabilities
 	RunCreationEnabled                      bool
@@ -134,6 +140,13 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	} else if config.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop Workspace Sandbox startup gate requires validated readiness")
+	}
+	if config.LocalSandboxBackend != nil &&
+		(config.LocalSandboxReadiness == nil ||
+			config.LocalSandboxBackend.Generation() !=
+				config.LocalSandboxReadiness.RuntimeGeneration) {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"desktop Local Sandbox backend does not match its readiness proof")
 	}
 	if config.DockerExecutionEnabled &&
 		(!config.ExecutionPermissionControlEnabled ||
@@ -320,9 +333,28 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		return nil, apperror.Wrap(apperror.CodeUnavailable,
 			"desktop batch delivery startup reconciliation failed", err)
 	}
-	dockerSandbox, err := newDesktopDockerSandboxService(context.Background(),
+	var commandRuntimeDrydocks *application.DrydockService
+	if config.RunExecutionEnabled &&
+		config.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled {
+		drydockExecutor, executorErr := repository.NewDrydockExecutor(
+			filepath.Join(home, "drydocks"))
+		if executorErr != nil {
+			_ = stateStore.Close()
+			return nil, executorErr
+		}
+		commandRuntimeDrydocks, err = application.NewDrydockService(stateStore,
+			drydockExecutor)
+		if err != nil {
+			_ = stateStore.Close()
+			return nil, err
+		}
+		commandRuntimeDrydocks.WithCheckpointService(workspaceCheckpoints)
+	}
+	dockerSandbox, standardCodeRuntime, err := newDesktopDockerSandboxService(
+		context.Background(),
 		stateStore, home, config.DockerExecutionEnabled,
-		config.ExecutionPermissionCapabilities)
+		config.ExecutionPermissionCapabilities, commandRuntimeDrydocks,
+		strings.TrimSpace(config.StandardCodeDockerImageDigest))
 	if err != nil {
 		_ = stateStore.Close()
 		return nil, apperror.Wrap(apperror.CodeFailedPrecondition,
@@ -351,18 +383,103 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		return nil, apperror.Wrap(apperror.CodeUnavailable,
 			"command runtime startup reconciliation failed", err)
 	}
-	var commandRuntime *application.CommandRuntimeService
+	commandManagers := []*runner.CommandRuntimeManager{commandManager}
+	commandManagersTransferred := false
+	defer func() {
+		if !commandManagersTransferred {
+			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
+		}
+	}()
+	commandAdapters := make([]*application.CommandRuntimeService, 0, 3)
 	if config.RunExecutionEnabled && config.ExecutionPermissionCapabilities.Allows(
 		domain.RunExecutionPermissionFullAccess) {
-		commandRuntime, err = application.NewCommandRuntimeService(stateStore,
+		hostRuntime, serviceErr := application.NewCommandRuntimeService(stateStore,
 			commandManager, config.ExecutionPermissionCapabilities)
+		if serviceErr != nil {
+			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
+			_ = stateStore.Close()
+			return nil, serviceErr
+		}
+		commandAdapters = append(commandAdapters, hostRuntime)
+	}
+	if config.RunExecutionEnabled && config.LocalSandboxBackend != nil &&
+		config.LocalSandboxReadiness != nil && commandRuntimeDrydocks != nil {
+		localExecutor, executorErr := application.NewLocalSandboxCommandRuntimeExecutor(
+			stateStore, config.LocalSandboxBackend, *config.LocalSandboxReadiness)
+		if executorErr != nil {
+			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
+			_ = stateStore.Close()
+			return nil, executorErr
+		}
+		localManager, managerErr := runner.NewSandboxCommandRuntimeManager(stateStore,
+			localExecutor, idgen.New("command-runtime-local-owner"))
+		if managerErr != nil {
+			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
+			_ = stateStore.Close()
+			return nil, managerErr
+		}
+		commandManagers = append(commandManagers, localManager)
+		if _, managerErr = localManager.ReconcileStartup(context.Background()); managerErr != nil {
+			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
+			_ = stateStore.Close()
+			return nil, apperror.Wrap(apperror.CodeUnavailable,
+				"Local Command Runtime startup reconciliation failed", managerErr)
+		}
+		localRuntime, serviceErr := application.NewSandboxedCommandRuntimeService(
+			stateStore, localManager, localExecutor,
+			config.ExecutionPermissionCapabilities, commandRuntimeDrydocks)
+		if serviceErr != nil {
+			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
+			_ = stateStore.Close()
+			return nil, serviceErr
+		}
+		commandAdapters = append(commandAdapters, localRuntime)
+	}
+	if config.RunExecutionEnabled && standardCodeRuntime != nil &&
+		commandRuntimeDrydocks != nil {
+		dockerExecutor, executorErr :=
+			application.NewDockerSandboxCommandRuntimeExecutor(standardCodeRuntime)
+		if executorErr != nil {
+			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
+			_ = stateStore.Close()
+			return nil, executorErr
+		}
+		dockerManager, managerErr := runner.NewSandboxCommandRuntimeManager(stateStore,
+			dockerExecutor, idgen.New("command-runtime-docker-owner"))
+		if managerErr != nil {
+			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
+			_ = stateStore.Close()
+			return nil, managerErr
+		}
+		commandManagers = append(commandManagers, dockerManager)
+		if _, managerErr = dockerManager.ReconcileStartup(context.Background()); managerErr != nil {
+			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
+			_ = stateStore.Close()
+			return nil, apperror.Wrap(apperror.CodeUnavailable,
+				"Docker Command Runtime startup reconciliation failed", managerErr)
+		}
+		dockerRuntime, serviceErr := application.NewSandboxedCommandRuntimeService(
+			stateStore, dockerManager, dockerExecutor,
+			config.ExecutionPermissionCapabilities, commandRuntimeDrydocks)
+		if serviceErr != nil {
+			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
+			_ = stateStore.Close()
+			return nil, serviceErr
+		}
+		commandAdapters = append(commandAdapters, dockerRuntime)
+	}
+	var commandRuntime application.CommandRuntimeRuntime
+	if len(commandAdapters) == 1 {
+		commandRuntime = commandAdapters[0]
+	} else if len(commandAdapters) > 1 {
+		commandRuntime, err = application.NewCommandRuntimeMultiplexer(commandAdapters...)
 		if err != nil {
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			_ = commandManager.Shutdown(shutdownCtx)
-			cancel()
+			shutdownDesktopCommandRuntimeManagers(commandManagers, 2*time.Second)
 			_ = stateStore.Close()
 			return nil, err
 		}
+	}
+	if commandRuntime != nil {
 		executionControl.WithCommandRuntime(commandRuntime)
 	}
 	uiEvidence, err := application.NewUIEvidenceReadService(stateStore)
@@ -555,7 +672,8 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		stateStore, hostCommandExecutor, config.ExecutionPermissionCapabilities)
 	embeddedAnalyzerExecution := application.NewEmbeddedAnalyzerExecutionService(stateStore)
 	capabilityReadinessRuntime := application.CapabilityReadinessRuntime{
-		RunControlEnabled: config.ControlToken != "" && config.RunControlEnabled,
+		RunControlEnabled:   config.ControlToken != "" && config.RunControlEnabled,
+		RunExecutionEnabled: config.ControlToken != "" && config.RunExecutionEnabled,
 		ExecutionPermissionControlEnabled: config.ControlToken != "" &&
 			config.ExecutionPermissionControlEnabled,
 		BrowserCDPPermissionControlEnabled: config.ControlToken != "" &&
@@ -567,6 +685,11 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		DockerStartupGateEnabled: config.DockerExecutionEnabled,
 		DockerAvailable:          config.DockerExecutionEnabled,
 	}
+	installedCommandRuntimeAdapters := []commandruntimeadapter.Identity{}
+	if commandRuntime != nil {
+		installedCommandRuntimeAdapters = commandRuntime.InstalledCommandRuntimeAdapters()
+	}
+	capabilityReadinessRuntime.CommandRuntimeAdapters = installedCommandRuntimeAdapters
 	if config.LocalSandboxReadiness != nil {
 		capabilityReadinessRuntime, err = capabilityReadinessRuntime.
 			WithLocalSandboxReadiness(*config.LocalSandboxReadiness)
@@ -580,6 +703,17 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 				"desktop Local Sandbox readiness projection is invalid")
 		}
 	}
+	commandRuntimeAdapterReady := false
+	for _, adapter := range installedCommandRuntimeAdapters {
+		ready := true
+		switch adapter.Backend {
+		case application.CommandRuntimeLocalSandboxBackend:
+			ready = capabilityReadinessRuntime.LocalBackendReady
+		case application.CommandRuntimeDockerSandboxBackend:
+			ready = capabilityReadinessRuntime.DockerBackendReady
+		}
+		commandRuntimeAdapterReady = commandRuntimeAdapterReady || ready
+	}
 	api, err := httpapi.New(stateStore, httpapi.Config{
 		AccessToken: config.ReadToken, ControlToken: config.ControlToken,
 		RunControlEnabled:                       config.RunControlEnabled,
@@ -588,6 +722,8 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		BrowserCDPPermissionControlEnabled:      config.BrowserCDPPermissionControlEnabled,
 		BrowserCDPPermissionCapabilities:        config.BrowserCDPPermissionCapabilities,
 		CapabilityReadinessRuntime:              &capabilityReadinessRuntime,
+		CommandRuntimeAdapters:                  installedCommandRuntimeAdapters,
+		CommandRuntimeAdvertiser:                commandRuntime,
 		RunCreationEnabled:                      config.RunCreationEnabled,
 		SessionMessageEnabled:                   config.SessionMessageEnabled,
 		SessionSteeringControlEnabled:           config.SessionSteeringControlEnabled,
@@ -661,16 +797,30 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		return nil, err
 	}
 	codeIntelTransferred = true
+	commandManagersTransferred = true
 	return &ControlPlane{stateStore: stateStore, workspaceManager: workspaceManager,
 		handler:        api.Handler(),
 		skillInstaller: skillInstaller, dockerSandbox: dockerSandbox,
 		userTerminal:    userTerminal,
 		debugAgentInput: debugAgentInput,
 		commandRuntime:  commandRuntime, uiEvidence: uiEvidence,
-		commandRuntimeManager: commandManager,
-		codeIntelManager:      codeIntelManager,
-		terminalManager:       terminalManager, boundaryMonitor: boundaryMonitor,
+		commandRuntimeManager:          commandManager,
+		commandRuntimeManagers:         commandManagers,
+		commandRuntimeAdapterInstalled: len(installedCommandRuntimeAdapters) > 0,
+		commandRuntimeAdapterReady:     commandRuntimeAdapterReady,
+		codeIntelManager:               codeIntelManager,
+		terminalManager:                terminalManager, boundaryMonitor: boundaryMonitor,
 		wakeWorker: wakeWorker, scheduledJobWorker: scheduledJobWorker}, nil
+}
+
+// CommandRuntimeProcessStatus exposes non-authorizing process facts to the
+// native Desktop bootstrap. Current-Run grant remains in the per-Run readiness
+// projection and is never inferred by the renderer.
+func (c *ControlPlane) CommandRuntimeProcessStatus() (installed, ready bool) {
+	if c == nil {
+		return false, false
+	}
+	return c.commandRuntimeAdapterInstalled, c.commandRuntimeAdapterReady
 }
 
 // RegisterWorkspaceDirectory keeps the selected host path entirely within Go
@@ -884,6 +1034,21 @@ func (c *ControlPlane) reconcileCommandRuntime(ctx context.Context) error {
 	return nil
 }
 
+func shutdownDesktopCommandRuntimeManagers(managers []*runner.CommandRuntimeManager,
+	timeout time.Duration,
+) {
+	if timeout <= 0 {
+		timeout = 2 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	for _, manager := range managers {
+		if manager != nil {
+			_ = manager.Shutdown(ctx)
+		}
+	}
+}
+
 func (c *ControlPlane) Close() error {
 	if c == nil {
 		return nil
@@ -933,7 +1098,17 @@ func (c *ControlPlane) Close() error {
 			c.closeErr = errors.Join(c.closeErr, c.uiEvidence.Close(shutdownContext))
 			shutdownCancel()
 		}
-		if c.commandRuntimeManager != nil {
+		if len(c.commandRuntimeManagers) > 0 {
+			shutdownContext, shutdownCancel := context.WithTimeout(
+				context.Background(), 7*time.Second)
+			for _, manager := range c.commandRuntimeManagers {
+				if manager != nil {
+					c.closeErr = errors.Join(c.closeErr,
+						manager.Shutdown(shutdownContext))
+				}
+			}
+			shutdownCancel()
+		} else if c.commandRuntimeManager != nil {
 			shutdownContext, shutdownCancel := context.WithTimeout(
 				context.Background(), 7*time.Second)
 			c.closeErr = errors.Join(c.closeErr,

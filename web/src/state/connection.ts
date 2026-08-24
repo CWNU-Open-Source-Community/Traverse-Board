@@ -21,6 +21,9 @@ interface ConnectionState {
   dangerFullAccessEnabled: boolean;
   debugMaximumAccessEnabled: boolean;
   commandRuntimeEnabled: boolean;
+  commandRuntimeProtocolAvailable: boolean;
+  commandRuntimeAdapterInstalled: boolean;
+  commandRuntimeAdapterReady: boolean;
   runCreationEnabled: boolean;
   sessionMessageEnabled: boolean;
   threadControlEnabled: boolean;
@@ -83,6 +86,9 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   dangerFullAccessEnabled: false,
   debugMaximumAccessEnabled: false,
   commandRuntimeEnabled: false,
+  commandRuntimeProtocolAvailable: false,
+  commandRuntimeAdapterInstalled: false,
+  commandRuntimeAdapterReady: false,
   runCreationEnabled: false,
   sessionMessageEnabled: false,
   threadControlEnabled: false,
@@ -132,6 +138,12 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
       dangerFullAccessEnabled: present && (capabilities.dangerFullAccessEnabled ?? false),
       debugMaximumAccessEnabled: present && (capabilities.debugMaximumAccessEnabled ?? false),
       commandRuntimeEnabled: present && (capabilities.commandRuntimeEnabled ?? false),
+      commandRuntimeProtocolAvailable: present &&
+        (capabilities.commandRuntimeProtocolAvailable ?? false),
+      commandRuntimeAdapterInstalled: present &&
+        (capabilities.commandRuntimeAdapterInstalled ?? false),
+      commandRuntimeAdapterReady: present &&
+        (capabilities.commandRuntimeAdapterReady ?? false),
       runCreationEnabled: present && (capabilities.runCreationEnabled ?? true),
       sessionMessageEnabled: present && (capabilities.sessionMessageEnabled ?? true),
       threadControlEnabled: present && (capabilities.threadControlEnabled ??
@@ -189,7 +201,8 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
     operatorApprovalEnabled: false,
     browserCDPPermissionControlEnabled: false, fullCDPDebugEnabled: false,
     dangerFullAccessEnabled: false, debugMaximumAccessEnabled: false,
-    commandRuntimeEnabled: false,
+    commandRuntimeEnabled: false, commandRuntimeProtocolAvailable: false,
+    commandRuntimeAdapterInstalled: false, commandRuntimeAdapterReady: false,
     sessionSteeringControlEnabled: false,
     runLifecycleEnabled: false, runExecutionEnabled: false,
 	planDeliveryControlEnabled: false, approvalControlEnabled: false,
