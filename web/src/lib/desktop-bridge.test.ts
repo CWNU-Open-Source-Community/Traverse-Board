@@ -21,6 +21,7 @@ const bootstrap = {
   debug_maximum_access_enabled: false,
   workspace_sandbox_enabled: false,
   command_runtime_enabled: false,
+  thread_control_enabled: false,
   run_creation_enabled: false,
   session_message_enabled: false,
   session_steering_control_enabled: false,

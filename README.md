@@ -19,9 +19,9 @@
 
 ## 针路簿是什么
 
-针路簿是一个由 Go 主控的本地 AI Agent 工作台。它把模型路由、长任务恢复、工作区、工具调用、审批、预算、记忆和审计事件统一到一个 Run-centric 运行时中，并通过 CLI、TUI、HTTP API、React 控制台和 Windows/macOS Desktop 提供同一套能力。
+针路簿是一个由 Go 主控的本地 AI Agent 工作台。它把模型路由、长任务恢复、工作区、工具调用、审批、预算、记忆和审计事件统一到一个 Thread/Run 运行时中，并通过 CLI、TUI、HTTP API、React 控制台和 Windows/macOS Desktop 提供同一套能力。
 
-用户的长期目标是 `Mission`，一次可恢复的执行尝试是 `Run`。模型可以规划和提出动作，但 Go 始终拥有状态机、凭证、权限、持久化与执行边界。仓库文件、网页、模型文字和工具输出都只是不可信证据，不能自行升级为指令或权限。
+`Thread` 是稳定、面向用户的任务与 URL 身份，`Mission` 固定意图和 Scope，`Run` 是一次有限执行尝试，`Session` 是该 Run 独占的消息与上下文边界。终态 Run 后继续输入会在同一 Thread 内原子创建全新 Run/Session，且不继承旧审批、租约、进程、网络或凭证。模型可以规划和提出动作，但 Go 始终拥有状态机、凭证、权限、持久化与执行边界。仓库文件、网页、模型文字和工具输出都只是不可信证据，不能自行升级为指令或权限。完整合同见 [ADR 0132](docs/adr/0132-thread-identity-run-succession.md)。
 
 当前产品重点是**通用 Code Agent 工作流**。CTF/专项网络安全求解已调整为可选附加能力，暂不进入活跃开发计划；仓库只保留通用的 Skill、Tool、Analyzer、Sandbox、Provider 和 Report 扩展接口，供未来独立插件接入。详见[产品范围](docs/PRODUCT_SCOPE.md)。
 
@@ -58,7 +58,7 @@ CLI / TUI / React / Windows Desktop / CI
 
 | 领域 | 当前能力 |
 |---|---|
-| Agent 运行时 | Mission/Run、可恢复 Supervisor、严格生命周期、检查点、取消、重试、预算和执行租约 |
+| Agent 运行时 | 稳定 Thread 身份、Mission/Run/Session 边界、无授权继承的 Run succession、可恢复 Supervisor、严格生命周期、检查点、取消、重试、预算和执行租约 |
 | 模型与上下文 | Mock、Anthropic-compatible、OpenAI-compatible 与 loopback-only Ollama Provider、模型路由、资格校验、能力探测、流式响应、上下文压缩、层级项目指令、显式 user/project 长期记忆与 Session 恢复树 |
 | 计划与协作 | Plan/Delivery、工作项、备注、最多两个核心 child、`batch-delivery.v1` 独立 Worktree/分支/邮箱/交付复核/顺序合并，以及 1/2/4/6 档只读 Fan-out |
 | 工具与权限 | Tool Gateway、JSON Schema 校验、Policy、Scope、人工审批、五档 Run 权限上限、受控固定命令、普通模式 Run-owned 命令运行时、逐条审批 PowerShell/Git Bash，以及限时 Debug 终端输入 |
@@ -543,6 +543,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 | v126 | 增加 Workspace Access 工作区执行权限合同与沙箱 readiness 闸门 | add the Workspace Access permission contract and sandbox-readiness gate |
 | v127 | 增加 Run-owned Drydock、Workspace Trust、恢复/交付/清理事件与收据 | add Run-owned Drydocks, Workspace Trust, and recovery/delivery/cleanup events and receipts |
 | v128 | 允许固定 Docker Standard Code 后端复用 Workspace Access admission | allow the fixed Docker Standard Code backend to reuse Workspace Access admission |
+| v129 | 稳定 Thread 身份、Run succession 与无损生命周期投影 | stable Thread identity, Run succession, and lossless lifecycle projection |
 
 </details>
 

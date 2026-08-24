@@ -39,6 +39,7 @@ export interface DesktopConnectionBootstrap {
   danger_full_access_enabled: boolean;
   debug_maximum_access_enabled: boolean;
   command_runtime_enabled: boolean;
+  thread_control_enabled: boolean;
   run_creation_enabled: boolean;
   session_message_enabled: boolean;
   session_steering_control_enabled: boolean;
@@ -721,6 +722,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     "provider_credential_enabled", "process_execution_enabled",
     "protocol_version", "read_only_default",
     "plan_delivery_control_enabled", "read_token", "renderer_path_input_supported",
+    "thread_control_enabled",
     "run_creation_enabled", "shell_execution_enabled",
     "run_execution_enabled", "run_lifecycle_enabled", "run_wake_control_enabled",
     "run_wake_execution_enabled", "run_wake_worker_enabled",
@@ -746,6 +748,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     typeof value.danger_full_access_enabled === "boolean" &&
     typeof value.debug_maximum_access_enabled === "boolean" &&
     typeof value.command_runtime_enabled === "boolean" &&
+    typeof value.thread_control_enabled === "boolean" &&
     typeof value.run_creation_enabled === "boolean" &&
     typeof value.session_message_enabled === "boolean" &&
     typeof value.session_steering_control_enabled === "boolean" &&
@@ -826,6 +829,8 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
         value.run_execution_enabled)) &&
     value.command_runtime_enabled ===
       (value.run_execution_enabled && value.danger_full_access_enabled) &&
+    value.thread_control_enabled ===
+      (value.run_creation_enabled && value.session_message_enabled) &&
     value.read_only_default === !(value.control_enabled || value.run_creation_enabled ||
       value.execution_permission_control_enabled ||
       value.browser_cdp_permission_control_enabled ||

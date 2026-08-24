@@ -107,15 +107,16 @@ func TestSessionMessageSubmissionRejectsUnboundAndNonRunningSessions(t *testing.
 		t.Fatalf("unbound Session error=%v code=%s", err, apperror.CodeOf(err))
 	}
 	_, created, err := application.NewRunService(st).Create(ctx, application.CreateRunRequest{
-		Goal: "created Run cannot queue", Profile: "code", Budget: domain.Budget{MaxTurns: 2},
+		Goal: "created Run can queue", Profile: "code", Budget: domain.Budget{MaxTurns: 2},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	base.SessionID = created.SessionID
 	base.OperationKey = "session-message-precondition-0002"
-	if _, err := service.Submit(ctx, base); apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
-		t.Fatalf("created Run error=%v code=%s", err, apperror.CodeOf(err))
+	if result, err := service.Submit(ctx, base); err != nil ||
+		result.Run.Status != domain.RunCreated || result.Message.Status != domain.OperatorSteeringPending {
+		t.Fatalf("created Run submission=%#v error=%v", result, err)
 	}
 }
 

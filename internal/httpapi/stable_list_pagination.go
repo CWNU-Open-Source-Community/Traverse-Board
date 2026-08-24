@@ -158,3 +158,7 @@ func runStableListPosition(value RunView) (time.Time, string) {
 func sessionStableListPosition(value SessionView) (time.Time, string) {
 	return value.CreatedAt, value.ID
 }
+
+func threadStableListPosition(value ThreadView) (time.Time, string) {
+	return value.CreatedAt, value.ID
+}

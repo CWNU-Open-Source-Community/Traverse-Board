@@ -2,13 +2,14 @@ import { create } from "zustand";
 import type { ClientCapabilities } from "../api/client";
 import type { HealthView } from "../api/types";
 
-type ResourceKind = "run" | "session";
+type ResourceKind = "thread" | "run" | "session";
 
 interface ConnectionState {
   health: HealthView | null;
   resourceKind: ResourceKind;
   selectedRunID: string;
   selectedSessionID: string;
+  selectedThreadID: string;
   token: string;
   controlToken: string;
   runControlEnabled: boolean;
@@ -22,6 +23,7 @@ interface ConnectionState {
   commandRuntimeEnabled: boolean;
   runCreationEnabled: boolean;
   sessionMessageEnabled: boolean;
+  threadControlEnabled: boolean;
   sessionSteeringControlEnabled: boolean;
   runLifecycleEnabled: boolean;
   runExecutionEnabled: boolean;
@@ -55,12 +57,14 @@ interface ConnectionState {
   disconnect: () => void;
   selectRun: (runID: string) => void;
   selectSession: (sessionID: string) => void;
+  selectThread: (threadID: string) => void;
   setHealth: (health: HealthView) => void;
   setResourceKind: (kind: ResourceKind) => void;
 }
 
 const initialSelection = {
-  resourceKind: "run" as const,
+  resourceKind: "thread" as const,
+  selectedThreadID: "",
   selectedRunID: "",
   selectedSessionID: "",
 };
@@ -81,6 +85,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   commandRuntimeEnabled: false,
   runCreationEnabled: false,
   sessionMessageEnabled: false,
+  threadControlEnabled: false,
   sessionSteeringControlEnabled: false,
   runLifecycleEnabled: false,
   runExecutionEnabled: false,
@@ -129,6 +134,9 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
       commandRuntimeEnabled: present && (capabilities.commandRuntimeEnabled ?? false),
       runCreationEnabled: present && (capabilities.runCreationEnabled ?? true),
       sessionMessageEnabled: present && (capabilities.sessionMessageEnabled ?? true),
+      threadControlEnabled: present && (capabilities.threadControlEnabled ??
+        ((capabilities.runCreationEnabled ?? true) &&
+          (capabilities.sessionMessageEnabled ?? true))),
       sessionSteeringControlEnabled: present &&
         (capabilities.sessionSteeringControlEnabled ?? true),
       runLifecycleEnabled: present && (capabilities.runLifecycleEnabled ?? true),
@@ -176,6 +184,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   },
   disconnect: () => set({ token: "", controlToken: "", health: null,
     runControlEnabled: false, runCreationEnabled: false, sessionMessageEnabled: false,
+    threadControlEnabled: false,
     executionPermissionControlEnabled: false, workspaceSandboxEnabled: false,
     operatorApprovalEnabled: false,
     browserCDPPermissionControlEnabled: false, fullCDPDebugEnabled: false,
@@ -204,6 +213,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
     ...initialSelection }),
   selectRun: (selectedRunID) => set({ selectedRunID, resourceKind: "run" }),
   selectSession: (selectedSessionID) => set({ selectedSessionID, resourceKind: "session" }),
+  selectThread: (selectedThreadID) => set({ selectedThreadID, resourceKind: "thread" }),
   setHealth: (health) => set({ health }),
   setResourceKind: (resourceKind) => set({ resourceKind }),
 }));

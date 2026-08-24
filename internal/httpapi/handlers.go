@@ -50,7 +50,7 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 		if err := rejectQuery(request.URL.Query()); err != nil {
 			return nil, nil, err
 		}
-		resources := []string{"runs", "sessions", "work-items", "notes", "artifacts",
+		resources := []string{"threads", "runs", "sessions", "work-items", "notes", "artifacts",
 			"agent-graph", "delegations", "readonly-fanout", "finding-reports",
 			"external-skills", "workspaces", "workspace-explorer", "workspace-search", "models",
 			"project-instructions", "long-term-memories", "session-tree",
@@ -91,6 +91,10 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 		}
 		if a.runCreationEnabled {
 			resources = append(resources, "run-creation-control")
+		}
+		if a.runCreationEnabled && a.sessionMessageEnabled {
+			resources = append(resources, "thread-creation-control", "thread-message-control",
+				"thread-lifecycle-control")
 		}
 		if a.runLifecycleEnabled {
 			resources = append(resources, "run-lifecycle-control")
@@ -179,6 +183,8 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 		}
 	}
 	switch segments[0] {
+	case "threads":
+		return a.routeThreads(request, segments)
 	case "scheduled-jobs":
 		if len(segments) == 2 {
 			return a.scheduledJob(request, segments[1])

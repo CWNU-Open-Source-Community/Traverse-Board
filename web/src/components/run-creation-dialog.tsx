@@ -3,8 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderPlus, LoaderCircle, Plus, X } from "lucide-react";
 import type { CyberAgentClient } from "../api/client";
 import type {
-  RunCreationControlRequestView,
-  RunCreationControlView,
+  ThreadCreationControlRequestView,
+  ThreadCreationControlView,
   WorkspaceView,
 } from "../api/types";
 import { useConnectionStore } from "../state/connection";
@@ -15,8 +15,8 @@ import {
 } from "../lib/desktop-bridge";
 import { useModalFocusTrap } from "../hooks/use-modal-focus-trap";
 
-const profiles: Array<NonNullable<RunCreationControlRequestView["profile"]>> = ["code", "review", "learn", "script"];
-const surfaces: Array<NonNullable<RunCreationControlRequestView["surface"]>> = ["code", "cyber"];
+const profiles: Array<NonNullable<ThreadCreationControlRequestView["profile"]>> = ["code", "review", "learn", "script"];
+const surfaces: Array<NonNullable<ThreadCreationControlRequestView["surface"]>> = ["code", "cyber"];
 
 interface RetryIntent {
   fingerprint: string;
@@ -29,19 +29,19 @@ export function RunCreationDialog({ client, open, onClose, initialGoal = "",
   open: boolean;
   onClose: () => void;
   initialGoal?: string;
-  initialPhase?: NonNullable<RunCreationControlRequestView["phase"]>;
+  initialPhase?: NonNullable<ThreadCreationControlRequestView["phase"]>;
 }) {
   const { t } = useLocale();
   const [goal, setGoal] = useState("");
   const [workspaceID, setWorkspaceID] = useState("");
   const [workspaceName, setWorkspaceName] = useState("");
-  const [profile, setProfile] = useState<NonNullable<RunCreationControlRequestView["profile"]>>("code");
-  const [surface, setSurface] = useState<NonNullable<RunCreationControlRequestView["surface"]>>("code");
-  const [phase, setPhase] = useState<NonNullable<RunCreationControlRequestView["phase"]>>("deliver");
+  const [profile, setProfile] = useState<NonNullable<ThreadCreationControlRequestView["profile"]>>("code");
+  const [surface, setSurface] = useState<NonNullable<ThreadCreationControlRequestView["surface"]>>("code");
+  const [phase, setPhase] = useState<NonNullable<ThreadCreationControlRequestView["phase"]>>("deliver");
   const retryIntent = useRef<RetryIntent | null>(null);
   const wasOpen = useRef(false);
   const queryClient = useQueryClient();
-  const selectRun = useConnectionStore((state) => state.selectRun);
+  const selectThread = useConnectionStore((state) => state.selectThread);
   const nativeWorkspaceImport = desktopWorkspaceImportEnabled();
   const workspaces = useQuery({
     queryKey: ["workspaces"],
@@ -61,14 +61,15 @@ export function RunCreationDialog({ client, open, onClose, initialGoal = "",
     },
   });
   const mutation = useMutation({
-    mutationFn: ({ request, key }: { request: RunCreationControlRequestView; key: string }) =>
-      client.createRun(request, key),
-    onSuccess: (result: RunCreationControlView) => {
+    mutationFn: ({ request, key }: { request: ThreadCreationControlRequestView; key: string }) =>
+      client.createThread(request, key),
+    onSuccess: (result: ThreadCreationControlView) => {
       retryIntent.current = null;
       setGoal("");
       void queryClient.invalidateQueries({ queryKey: ["runs"] });
       void queryClient.invalidateQueries({ queryKey: ["sessions"] });
-      selectRun(result.run.id);
+      void queryClient.invalidateQueries({ queryKey: ["threads"] });
+      selectThread(result.thread.id);
       onClose();
     },
   });
@@ -107,8 +108,8 @@ export function RunCreationDialog({ client, open, onClose, initialGoal = "",
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const request: RunCreationControlRequestView = {
-      version: "run_creation.v1",
+    const request: ThreadCreationControlRequestView = {
+      version: "thread_creation.v1",
       goal: goal.trim(),
       workspace_id: workspaceID,
       profile,
@@ -142,7 +143,7 @@ export function RunCreationDialog({ client, open, onClose, initialGoal = "",
         <header>
           <div>
             <span className="dialog-icon"><Plus aria-hidden="true" size={17} /></span>
-            <div><h2 id="run-creation-title">{t("新建 Run", "New Run")}</h2><small>{t("针路簿", "Traverse Board")}</small></div>
+            <div><h2 id="run-creation-title">{t("新建任务", "New task")}</h2><small>Thread · {t("针路簿", "Traverse Board")}</small></div>
           </div>
           <button aria-label={t("关闭", "Close")} className="icon-button" disabled={busy}
             onClick={close} title={t("关闭", "Close")} type="button"><X aria-hidden="true" size={16} /></button>
@@ -160,7 +161,7 @@ export function RunCreationDialog({ client, open, onClose, initialGoal = "",
               {workspaceImport.isPending ? <LoaderCircle aria-hidden="true" className="spin" size={18} /> :
                 <FolderPlus aria-hidden="true" size={18} />}
               <span><strong>{workspaceName || t("选择目录", "Choose folder")}</strong>
-                <small>{workspaceID ? t("已注册为本次 Run 的工作区", "Registered for this Run") :
+                <small>{workspaceID ? t("已注册为本任务的工作区", "Registered for this task") :
                   t("选择针路簿可读取和编辑的目录", "Choose a directory Traverse Board may read and edit")}</small></span>
             </button>
           </div> : <label><span>{t("工作区", "Workspace")}</span>
@@ -204,7 +205,7 @@ export function RunCreationDialog({ client, open, onClose, initialGoal = "",
           <button className="dialog-secondary" disabled={busy} onClick={close} type="button">{t("取消", "Cancel")}</button>
           <button className="dialog-primary" disabled={!ready} type="submit">
             {mutation.isPending ? <LoaderCircle aria-hidden="true" className="spin" size={16} /> : <Plus aria-hidden="true" size={16} />}
-            {t("创建 Run", "Create Run")}
+            {t("创建任务", "Create task")}
           </button>
         </footer>
       </form>
@@ -213,5 +214,5 @@ export function RunCreationDialog({ client, open, onClose, initialGoal = "",
 }
 
 function errorMessage(value: unknown): string {
-  return value instanceof Error && value.message.trim() ? value.message : "Run creation failed";
+  return value instanceof Error && value.message.trim() ? value.message : "Task creation failed";
 }
