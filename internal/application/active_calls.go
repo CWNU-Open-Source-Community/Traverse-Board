@@ -18,7 +18,7 @@ import (
 
 const ActiveCallEnvelopeVersion = "v1"
 
-const PublicModelStreamVersion = "model_public_stream.v2"
+const PublicModelStreamVersion = "model_public_stream.v3"
 
 type PublicModelStreamContentKind string
 
@@ -63,6 +63,9 @@ type PublicModelStreamSnapshot struct {
 	Version         string                       `json:"version"`
 	Call            ActiveCallInfo               `json:"call"`
 	Revision        int64                        `json:"revision"`
+	ResponseID      string                       `json:"response_id,omitempty"`
+	EventSequence   int                          `json:"event_sequence"`
+	Items           []llm.OutputItem             `json:"items"`
 	ContentKind     PublicModelStreamContentKind `json:"content_kind"`
 	Text            string                       `json:"text"`
 	MessageComplete bool                         `json:"message_complete"`
@@ -82,6 +85,32 @@ func (s PublicModelStreamSnapshot) Validate() error {
 	}
 	if len(s.Text) > llm.MaxModelOutputBytes || !utf8.ValidString(s.Text) {
 		return errors.New("public model stream text is invalid")
+	}
+	if s.ResponseID == "" {
+		if s.EventSequence != 0 || len(s.Items) != 0 {
+			return errors.New("public model stream item identity is incomplete")
+		}
+		return nil
+	}
+	if err := llm.ValidateStreamID(s.ResponseID); err != nil {
+		return errors.New("public model stream response identity is invalid")
+	}
+	if s.EventSequence <= 0 || s.EventSequence > llm.MaxItemStreamEvents {
+		return errors.New("public model stream event sequence is invalid")
+	}
+	if len(s.Items) > llm.MaxProviderOutputItems {
+		return errors.New("public model stream contains too many output items")
+	}
+	seen := make(map[string]struct{}, len(s.Items))
+	for _, item := range s.Items {
+		if err := item.Validate(); err != nil || item.ResponseID != s.ResponseID ||
+			!item.Provisional || item.Durable {
+			return errors.New("public model stream output item is invalid")
+		}
+		if _, exists := seen[item.ID]; exists {
+			return errors.New("public model stream output item ids are not unique")
+		}
+		seen[item.ID] = struct{}{}
 	}
 	return nil
 }
@@ -221,6 +250,10 @@ type activeCallEntry struct {
 	publicText      string
 	publicComplete  bool
 	publicUpdatedAt time.Time
+	responseID      string
+	eventSequence   int
+	publicItems     map[string]*llm.OutputItem
+	publicItemOrder []string
 	subscribers     map[uint64]*activeCallSubscriber
 }
 
@@ -382,6 +415,7 @@ func (r *ActiveCallRegistry) reserve(parent context.Context, checkpoint domain.S
 			Model:    redact.String(strings.TrimSpace(attempt.Model)),
 		},
 		subscribers: map[uint64]*activeCallSubscriber{},
+		publicItems: map[string]*llm.OutputItem{},
 	}
 	r.mu.Lock()
 	if _, exists := r.calls[key.runID]; exists {
@@ -455,6 +489,100 @@ func (l *activeCallLease) PublishPublicPreview(kind PublicModelStreamContentKind
 	entry.publicRevision++
 	entry.publicUpdatedAt = time.Now().UTC()
 	return nil
+}
+
+// PublishItemEvent retains only a content-free live projection. TextDelta,
+// ArgumentDelta, completed arguments, usage, raw wire data, and error text are
+// deliberately never copied into the public bridge.
+func (l *activeCallLease) PublishItemEvent(event llm.StreamEvent) error {
+	if l == nil || l.registry == nil || l.entry == nil {
+		return apperror.New(apperror.CodeFailedPrecondition, "active call lease is required")
+	}
+	if event.Version != llm.ItemStreamProtocolVersion || event.Sequence <= 0 ||
+		event.Sequence > llm.MaxItemStreamEvents || !event.Type.Valid() ||
+		!event.Provisional || event.Durable {
+		return apperror.New(apperror.CodeInvalidArgument, "public item stream event is invalid")
+	}
+	r := l.registry
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, ok := r.calls[l.key.runID]
+	if !ok || entry != l.entry || entry.key != l.key || !entry.started {
+		return apperror.New(apperror.CodeConflict, "active call changed before item publication")
+	}
+	if event.Sequence != entry.eventSequence+1 {
+		return apperror.New(apperror.CodeConflict, "public item stream sequence is inconsistent")
+	}
+	if entry.responseID == "" {
+		if event.Type != llm.StreamResponseStarted || strings.TrimSpace(event.ResponseID) == "" {
+			return apperror.New(apperror.CodeInvalidArgument,
+				"public item stream omitted its response start")
+		}
+		entry.responseID = event.ResponseID
+	} else if event.ResponseID != entry.responseID {
+		return apperror.New(apperror.CodeConflict, "public item stream response identity changed")
+	}
+	entry.eventSequence = event.Sequence
+	switch event.Type {
+	case llm.StreamOutputItemStarted:
+		if event.ItemType == llm.StreamItemMessage {
+			entry.upsertPublicItem(llm.OutputItem{ResponseID: entry.responseID,
+				ID: event.ItemID, Type: llm.StreamItemMessage, Status: llm.StreamItemInProgress,
+				Provisional: true})
+		}
+	case llm.StreamToolCallStarted:
+		toolName := llm.SafeStreamToolName(event.ToolName)
+		entry.upsertPublicItem(llm.OutputItem{ResponseID: entry.responseID,
+			ID: event.ItemID, Type: llm.StreamItemToolCall, Status: llm.StreamItemInProgress,
+			CallID: event.CallID, ToolName: toolName, Provisional: true})
+	case llm.StreamToolArgumentDelta:
+		if item := entry.publicItems[event.ItemID]; item != nil &&
+			item.Type == llm.StreamItemToolCall && item.CallID == event.CallID &&
+			item.ToolName == llm.SafeStreamToolName(event.ToolName) {
+			if item.ArgumentBytes > llm.MaxProviderToolPayloadSize-len(event.ArgumentDelta) {
+				return apperror.New(apperror.CodeResourceExhausted,
+					"public tool argument progress exceeds its limit")
+			}
+			item.ArgumentBytes += len(event.ArgumentDelta)
+		}
+	case llm.StreamToolCallCompleted:
+		if item := entry.publicItems[event.ItemID]; item != nil && item.CallID == event.CallID {
+			item.Status = llm.StreamItemReadyForValidation
+		}
+	case llm.StreamOutputItemCompleted:
+		if item := entry.publicItems[event.ItemID]; item != nil {
+			item.Status = llm.StreamItemCompleted
+		}
+	case llm.StreamResponseFailed:
+		entry.failPublicItems(llm.StreamItemFailed)
+	case llm.StreamResponseCancelled:
+		entry.failPublicItems(llm.StreamItemCancelled)
+	}
+	entry.publicRevision++
+	entry.publicUpdatedAt = time.Now().UTC()
+	return nil
+}
+
+func (e *activeCallEntry) upsertPublicItem(item llm.OutputItem) bool {
+	if e == nil || item.ID == "" || e.publicItems[item.ID] != nil {
+		return false
+	}
+	copy := item
+	e.publicItems[item.ID] = &copy
+	e.publicItemOrder = append(e.publicItemOrder, item.ID)
+	return true
+}
+
+func (e *activeCallEntry) failPublicItems(status llm.StreamItemStatus) bool {
+	changed := false
+	for _, id := range e.publicItemOrder {
+		item := e.publicItems[id]
+		if item != nil && item.Status != llm.StreamItemCompleted {
+			item.Status = status
+			changed = true
+		}
+	}
+	return changed
 }
 
 func (l *activeCallLease) PublishProgress(deltaBytes int, totalBytes int) error {
@@ -636,9 +764,17 @@ func activeCallEvent(entry *activeCallEntry, eventType ActiveCallEventType, delt
 }
 
 func publicModelStreamSnapshot(entry *activeCallEntry) PublicModelStreamSnapshot {
+	items := make([]llm.OutputItem, 0, len(entry.publicItemOrder))
+	for _, id := range entry.publicItemOrder {
+		if item := entry.publicItems[id]; item != nil {
+			items = append(items, *item)
+		}
+	}
 	return PublicModelStreamSnapshot{
 		Version: PublicModelStreamVersion, Call: entry.info,
-		Revision: entry.publicRevision, ContentKind: entry.publicKind, Text: entry.publicText,
+		Revision: entry.publicRevision, ResponseID: entry.responseID,
+		EventSequence: entry.eventSequence, Items: items,
+		ContentKind: entry.publicKind, Text: entry.publicText,
 		MessageComplete: entry.publicComplete, Provisional: true,
 		UpdatedAt: entry.publicUpdatedAt,
 	}

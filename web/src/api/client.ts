@@ -597,15 +597,30 @@ function parsePublicModelStream(value: unknown,
   const callKeys = ["attempt_id", "cancel_requested", "max_attempts", "model",
     "model_attempt", "protocol_repair", "provider", "run_id", "session_id",
     "started_at", "stream_bytes", "stream_chunks", "tool_round", "transport_attempt"];
-  if (!hasExactKeys(value, ["call", "content_kind", "message_complete", "provisional", "revision",
-    "text", "updated_at", "version"]) ||
-    value.version !== "model_public_stream.v2" || value.provisional !== true ||
+  const required = ["call", "content_kind", "event_sequence", "items", "message_complete",
+    "provisional", "revision", "text", "updated_at", "version"];
+  if (!isRecord(value) || !hasOnlyKeys(value, [...required, "response_id"]) ||
+    required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
+    value.version !== "model_public_stream.v3" || value.provisional !== true ||
     !["root_message", "tool_commentary"].includes(String(value.content_kind)) ||
     typeof value.message_complete !== "boolean" || !safePositiveInteger(value.revision) ||
     typeof value.text !== "string" ||
     new TextEncoder().encode(value.text).byteLength > 64 * 1024 ||
-    !validDate(value.updated_at) || !hasExactKeys(value.call, callKeys)) {
+    !safeBoundedCount(value.event_sequence, 16 * 1024) || !Array.isArray(value.items) ||
+    value.items.length > 64 || !validDate(value.updated_at) ||
+    !hasExactKeys(value.call, callKeys)) {
     throw new APIRequestError("Public model stream response is invalid", "INVALID_RESPONSE", 502);
+  }
+  const responseID = value.response_id === undefined ? "" : boundedIdentity(value.response_id);
+  const itemIDs = new Set(value.items.map((item) => isRecord(item) && typeof item.id === "string"
+    ? item.id : ""));
+  if ((value.response_id !== undefined && !responseID) ||
+    (!responseID && (value.event_sequence !== 0 || value.items.length !== 0)) ||
+    (responseID && !safePositiveInteger(value.event_sequence)) ||
+    itemIDs.size !== value.items.length ||
+    value.items.some((item) => !validPublicOutputItem(item, responseID))) {
+    throw new APIRequestError("Public model stream item projection is invalid",
+      "INVALID_RESPONSE", 502);
   }
   const call = value.call;
   if (call.run_id !== expectedRunID || !boundedIdentity(call.run_id) ||
@@ -620,6 +635,28 @@ function parsePublicModelStream(value: unknown,
     throw new APIRequestError("Public model stream binding is invalid", "INVALID_RESPONSE", 502);
   }
   return value as unknown as PublicModelStreamSnapshot;
+}
+
+function validPublicOutputItem(value: unknown, responseID: string): boolean {
+  const required = ["durable", "id", "provisional", "response_id", "status", "type"];
+  const allowed = [...required, "argument_bytes", "call_id", "durable_call_id", "tool_name"];
+  if (!isRecord(value) || !hasOnlyKeys(value, allowed) ||
+    required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
+    value.response_id !== responseID || !boundedIdentity(value.response_id) ||
+    !boundedIdentity(value.id) || value.provisional !== true || value.durable !== false ||
+    !["message", "tool_call"].includes(String(value.type)) ||
+    !["in_progress", "ready_for_validation", "completed", "failed", "cancelled"]
+      .includes(String(value.status))) {
+    return false;
+  }
+  if (value.type === "message") {
+    return value.call_id === undefined && value.durable_call_id === undefined &&
+      value.tool_name === undefined && value.argument_bytes === undefined &&
+      value.status !== "ready_for_validation";
+  }
+  return Boolean(boundedIdentity(value.call_id) && boundedIdentity(value.tool_name)) &&
+    value.durable_call_id === undefined &&
+    (value.argument_bytes === undefined || safeBoundedCount(value.argument_bytes, 256 * 1024));
 }
 
 function parseSpecialistModelCancellation(value: unknown, expectedRunID: string,
@@ -4061,7 +4098,8 @@ function hasOnlyKeys(value: Record<string, unknown>, allowed: string[]): boolean
 }
 
 function boundedIdentity(value: unknown): string {
-  return typeof value === "string" && value.trim() === value && value.length > 0 && value.length <= 256
+  return typeof value === "string" && value.trim() === value && !value.includes("\0") &&
+    value.length > 0 && value.length <= 256
     ? value
     : "";
 }

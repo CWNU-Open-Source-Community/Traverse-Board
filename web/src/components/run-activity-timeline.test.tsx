@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import type { RunActivityView } from "../api/types";
+import type { PublicModelStreamSnapshot, RunActivityView } from "../api/types";
 import { LocaleProvider, type PrayuLocale } from "../lib/locale";
 import { RunActivityTimeline } from "./run-activity-timeline";
 
@@ -94,6 +94,23 @@ describe("RunActivityTimeline", () => {
     expect(screen.queryByText("临时")).not.toBeInTheDocument();
   });
 
+  it("shows tool preparation without exposing streamed arguments", () => {
+    const snapshot = publicSnapshot();
+    snapshot.text = "";
+    snapshot.items = [{
+      response_id: "response-live", id: "item-tool-1", type: "tool_call",
+      status: "in_progress", call_id: "call-tool-1", tool_name: "read_file",
+      argument_bytes: 32, provisional: true, durable: false,
+    }];
+    renderTimeline(<RunActivityTimeline activity={activity()}
+      liveCommentary={snapshot} liveStatus="live" />);
+
+    expect(screen.getByText("read_file")).toBeInTheDocument();
+    expect(screen.getByText("正在准备调用 · 32 字节")).toBeInTheDocument();
+    expect(screen.getByText(/Go 验证后才会执行/u)).toBeInTheDocument();
+    expect(screen.queryByText(/README\.md/u)).not.toBeInTheDocument();
+  });
+
   it("condenses a completed tool lifecycle into actual operation rows", () => {
     const value = activity();
     value.items.push(
@@ -163,10 +180,13 @@ function activity(): RunActivityView {
   };
 }
 
-function publicSnapshot() {
+function publicSnapshot(): PublicModelStreamSnapshot {
   return {
-    version: "model_public_stream.v2",
+    version: "model_public_stream.v3",
     revision: 3,
+    response_id: "response-live",
+    event_sequence: 5,
+    items: [],
     content_kind: "tool_commentary",
     provisional: true,
     text: "正在检查差异，下一步运行测试。",

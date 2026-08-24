@@ -271,6 +271,8 @@ const (
 	ProtocolRepairCompletedEvent                  = "supervisor.protocol_repair_completed"
 	ProtocolRepairFailedEvent                     = "supervisor.protocol_repair_failed"
 	SupervisorToolBatchEvent                      = "supervisor.tool_batch_requested"
+	SupervisorToolExecutionStartedEvent           = "supervisor.tool_execution_started"
+	SupervisorToolExecutionCompletedEvent         = "supervisor.tool_execution_completed"
 	SupervisorToolResultEvent                     = "supervisor.tool_result_recorded"
 	SupervisorToolCompleteEvent                   = "supervisor.tool_batch_completed"
 	SupervisorActionEvent                         = "supervisor.action_committed"

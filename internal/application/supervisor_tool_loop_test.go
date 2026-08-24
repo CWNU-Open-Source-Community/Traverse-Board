@@ -70,8 +70,10 @@ func TestRunSupervisorExecutesAllowlistedStructuredToolAndContinuesModel(t *test
 	}
 	for eventType, want := range map[string]int{
 		events.ModelCompletedEvent: 2, events.SupervisorToolBatchEvent: 1,
-		events.ModelPublicCommentaryEvent: 1,
-		events.SupervisorToolResultEvent:  1, events.SupervisorToolCompleteEvent: 1,
+		events.ModelPublicCommentaryEvent:            1,
+		events.SupervisorToolExecutionStartedEvent:   1,
+		events.SupervisorToolExecutionCompletedEvent: 1,
+		events.SupervisorToolResultEvent:             1, events.SupervisorToolCompleteEvent: 1,
 		events.WorkItemCreatedEvent: 1, events.ToolCompletedEvent: 1,
 	} {
 		if got := countEventType(eventList, eventType); got != want {

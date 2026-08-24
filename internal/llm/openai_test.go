@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -169,14 +170,33 @@ func TestOpenAICompatibleProviderStreamsInterleavedToolCallsDeterministically(t 
 	if !captured.Stream || captured.StreamOptions == nil || !captured.StreamOptions.IncludeUsage {
 		t.Fatalf("stream usage option missing: %#v", captured)
 	}
-	if len(all) != 1 || !all[0].Done || all[0].Model != "gpt-test" ||
-		all[0].Usage == nil || all[0].Usage.TotalTokens != 19 ||
-		len(all[0].ToolCalls) != 2 {
+	var final *ChatChunk
+	var eventTypes []StreamEventType
+	for index := range all {
+		for _, event := range all[index].Events {
+			eventTypes = append(eventTypes, event.Type)
+		}
+		if all[index].Done {
+			copy := all[index]
+			final = &copy
+		}
+	}
+	if final == nil || final.Model != "gpt-test" || final.Usage == nil ||
+		final.Usage.TotalTokens != 19 || len(final.ToolCalls) != 2 {
 		t.Fatalf("unexpected chunks: %#v", all)
 	}
-	if first, second := all[0].ToolCalls[0], all[0].ToolCalls[1]; first.ID != "call_a" || first.Name != "run_command" || string(first.Arguments) != `{"command":"id"}` ||
+	wantEvents := []StreamEventType{StreamResponseStarted,
+		StreamOutputItemStarted, StreamToolCallStarted, StreamToolArgumentDelta,
+		StreamOutputItemStarted, StreamToolCallStarted, StreamToolArgumentDelta,
+		StreamToolArgumentDelta, StreamToolArgumentDelta,
+		StreamToolCallCompleted, StreamOutputItemCompleted,
+		StreamToolCallCompleted, StreamOutputItemCompleted, StreamResponseCompleted}
+	if !reflect.DeepEqual(eventTypes, wantEvents) {
+		t.Fatalf("item event order = %v, want %v", eventTypes, wantEvents)
+	}
+	if first, second := final.ToolCalls[0], final.ToolCalls[1]; first.ID != "call_a" || first.Name != "run_command" || string(first.Arguments) != `{"command":"id"}` ||
 		second.ID != "call_b" || second.Name != "read_file" || string(second.Arguments) != `{"path":"README.md"}` {
-		t.Fatalf("tool calls not deterministically aggregated: %#v", all[0].ToolCalls)
+		t.Fatalf("tool calls not deterministically aggregated: %#v", final.ToolCalls)
 	}
 }
 
@@ -201,10 +221,23 @@ func TestOpenAICompatibleProviderAcceptsUsageOnFinalChoice(t *testing.T) {
 		}
 		all = append(all, chunk)
 	}
-	if len(all) != 1 || !all[0].Done || all[0].Usage == nil ||
-		all[0].Usage.TotalTokens != 12 || len(all[0].ToolCalls) != 1 ||
-		all[0].ToolCalls[0].Name != "read_file" {
+	var final *ChatChunk
+	var eventTypes []StreamEventType
+	for index := range all {
+		for _, event := range all[index].Events {
+			eventTypes = append(eventTypes, event.Type)
+		}
+		if all[index].Done {
+			copy := all[index]
+			final = &copy
+		}
+	}
+	if final == nil || final.Usage == nil || final.Usage.TotalTokens != 12 ||
+		len(final.ToolCalls) != 1 || final.ToolCalls[0].Name != "read_file" {
 		t.Fatalf("unexpected final-choice usage stream: %#v", all)
+	}
+	if want := providerToolDeltaEventVector(1); !reflect.DeepEqual(eventTypes, want) {
+		t.Fatalf("OpenAI tool event vector = %v, want %v", eventTypes, want)
 	}
 }
 

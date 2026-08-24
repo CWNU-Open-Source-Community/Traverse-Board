@@ -188,7 +188,7 @@ func TestRunSupervisorRetriesRetryableMidStreamFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	if provider.streamCalls != 2 || provider.chatCalls != 0 || result.ModelAttempts != 2 ||
-		result.ModelOutcome != llm.OutcomeSuccess || result.StreamEvents != 1 {
+		result.ModelOutcome != llm.OutcomeSuccess || result.StreamEvents != 2 {
 		t.Fatalf("retryable stream failure did not recover: provider=%#v result=%#v", provider, result)
 	}
 	items, err := st.ListRunEvents(context.Background(), run.ID)
@@ -208,7 +208,7 @@ func TestRunSupervisorRejectsMalformedStreamBoundaries(t *testing.T) {
 		chunks     []llm.ChatChunk
 		wantEvents int
 	}{
-		{name: "oversized", chunks: []llm.ChatChunk{{Text: strings.Repeat("x", llm.MaxModelOutputBytes+1)}}},
+		{name: "oversized", chunks: []llm.ChatChunk{{Text: strings.Repeat("x", llm.MaxModelOutputBytes+1)}}, wantEvents: 1},
 		{name: "invalid utf8", chunks: []llm.ChatChunk{{Text: string([]byte{0xff, 0xfe})}, finalStreamChunk("stream-test", "model", usage)}, wantEvents: 1},
 		{name: "missing usage", chunks: []llm.ChatChunk{{Text: `{"version":"root_lifecycle.v1"}`}, {Done: true}}, wantEvents: 1},
 		{name: "missing done", chunks: []llm.ChatChunk{{Text: `{"version":"root_lifecycle.v1"}`}}, wantEvents: 1},
@@ -284,7 +284,7 @@ func TestRunSupervisorResumesAfterMidStreamCancellation(t *testing.T) {
 	}
 	first, err := firstStep.result, firstStep.err
 	if apperror.CodeOf(err) != apperror.CodeCancelled || first.Checkpoint.Phase != domain.SupervisorTurnStarted ||
-		first.StreamEvents != 1 || first.StreamBytes != len("partial stream") || first.ModelOutcome != llm.OutcomeCancelled {
+		first.StreamEvents != 2 || first.StreamBytes != len("partial stream") || first.ModelOutcome != llm.OutcomeCancelled {
 		t.Fatalf("mid-stream cancellation was not recoverable: result=%#v code=%s err=%v", first, apperror.CodeOf(err), err)
 	}
 	resumed, err := supervisor.Step(context.Background(), run.ID)
@@ -298,7 +298,7 @@ func TestRunSupervisorResumesAfterMidStreamCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if countEventType(items, events.ModelDeltaEvent) != 2 || countEventType(items, events.ModelFailedEvent) != 1 ||
+	if countEventType(items, events.ModelDeltaEvent) != 3 || countEventType(items, events.ModelFailedEvent) != 1 ||
 		countEventType(items, events.ModelCompletedEvent) != 1 || countEventType(items, events.AgentTurnStartedEvent) != 1 {
 		t.Fatalf("cancel/resume stream events were inconsistent: %#v", items)
 	}

@@ -136,7 +136,7 @@ describe("SessionComposer", () => {
       model_called: true, tool_called: false, capability_grant: false,
     } as RunExecutionControlView;
     const snapshot = {
-      version: "model_public_stream.v2",
+      version: "model_public_stream.v3",
       call: {
         run_id: "run-1", session_id: "sess-1", attempt_id: "attempt-live",
         model_attempt: 2, transport_attempt: 1, max_attempts: 3, protocol_repair: 0,
@@ -144,7 +144,13 @@ describe("SessionComposer", () => {
         started_at: "2026-08-08T00:00:00Z", stream_chunks: 2, stream_bytes: 40,
         cancel_requested: false,
       },
-      revision: 2, content_kind: "root_message", text: "Visible safe model answer", message_complete: false,
+      revision: 2, response_id: "response-live", event_sequence: 6,
+      items: [{
+        response_id: "response-live", id: "item-tool-1", type: "tool_call",
+        status: "in_progress", call_id: "call-tool-1", tool_name: "read_file",
+        argument_bytes: 24, provisional: true, durable: false,
+      }],
+      content_kind: "root_message", text: "Visible safe model answer", message_complete: false,
       provisional: true, updated_at: "2026-08-08T00:00:01Z",
     } as PublicModelStreamSnapshot;
     const cancelModelCall = vi.fn().mockResolvedValue({
@@ -163,6 +169,8 @@ describe("SessionComposer", () => {
     await user.type(screen.getByLabelText("Session message"), "Inspect this change");
     await user.click(screen.getByRole("button", { name: "Queue message" }));
     await screen.findByText("Visible safe model answer");
+    expect(screen.getByText("read_file")).toBeInTheDocument();
+    expect(screen.getByText(/Preparing call · 24 bytes/u)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Stop" }));
     await waitFor(() => expect(cancelModelCall).toHaveBeenCalledTimes(1));
     expect(cancelModelCall).toHaveBeenCalledWith("run-1", {

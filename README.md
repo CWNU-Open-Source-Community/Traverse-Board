@@ -90,6 +90,12 @@ Windows x64 现在提供显式 `--enable-workspace-sandbox` Local backend；只�
 
 Schema v128 随 #133 将既有固定本地 Docker Engine 的 `network=none` 路径接为 Standard Code 的显式备用后端，并只为既有 Docker admission ledger 增加 `workspace_access` 枚举兼容。上层 `standard-code-command.v1` 不含 backend、镜像、endpoint、mount、网络、环境或 Docker flags；Go 只把当前精确 Drydock 投影到 `/workspace`，固定非 root 用户、只读根文件系统/工具链、资源上限和无凭证环境。daemon/镜像不可用只返回稳定 `blocked_by/remediation`，不拉取镜像且不回退宿主执行。Drydock/Worktree 仍只是所有权与恢复边界，不是安全沙箱；进程与网络隔离来自固定容器。操作见 [Standard Code Docker backend](docs/standard-code-docker.md)，设计见 [ADR 0131](docs/adr/0131-standard-code-docker-network-none-backend.md)。
 
+### 模型与工具的 item 级流式事件
+
+Schema v130 与 `llm.item_stream.v1` 将 OpenAI 的交错 tool-call delta、Anthropic content block、Ollama/Mock 的完整 item，以及旧 `ChatChunk` 统一为有序的 response/item/call 生命周期。参数增量只在有界内存中拼接；Provider 只能声明调用已准备，不能签发 authority 或执行工具。Go 在完整 JSON 通过大小、敏感数据、Policy、预算与幂等检查后才记录执行开始/完成，并以稳定 response/item/call ID 对齐临时 UI 卡片与持久工具账本。
+
+公开 `model_public_stream.v3` 和 `model.delta` 只携带稳定 ID、状态、脱敏工具名、参数字节数及无正文边界，不保存参数、raw wire、凭据或私有推理。取消、断流、缺失 usage、模型漂移和畸形/重复终态会稳定失败，且不会补造成功完成事件；旧 Session 历史无需改写即可显示为 durable completed item。设计与失败语义见 [ADR 0133](docs/adr/0133-item-level-model-tool-streaming.md)。
+
 ### Run-owned Drydock 工作目录
 
 Schema v127 的 `drydock-workspace.v1` 从精确的 source Workspace、repository/common-dir、branch、base commit、root 指纹和 dirty/index 状态创建产品管理的独立 worktree。首次 create 只返回 Workspace Trust digest；操作者必须把该 digest 原样带入第二次确认，任何来源漂移都会失败关闭。来源未提交内容只进入 Trust 回执，不会被暗中复制。Trust 永远固定 `grants_process_authority=false`；Drydock 本身不提供进程、网络、凭证或宿主文件系统隔离。
@@ -409,7 +415,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 完整逐切片原始记录保留在 [`PROGRESS_BOOK.md`](docs/PROGRESS_BOOK.md)，当前检查点与验收证据保留在 [`PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)，恢复上下文见 [`PROJECT_MEMORY.md`](docs/PROJECT_MEMORY.md)。这些账本是历史记录，不应被当作待重新执行的任务列表。
 
 <details>
-<summary><strong>SQLite Schema v1-v123 迁移审计表 / Migration ledger</strong></summary>
+<summary><strong>SQLite Schema v1-v130 迁移审计表 / Migration ledger</strong></summary>
 
 此表是 Store 防漏迁移测试使用的审计合同。新增 schema 时必须按顺序追加，不得改写或删除既有行。
 
@@ -544,6 +550,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 | v127 | 增加 Run-owned Drydock、Workspace Trust、恢复/交付/清理事件与收据 | add Run-owned Drydocks, Workspace Trust, and recovery/delivery/cleanup events and receipts |
 | v128 | 允许固定 Docker Standard Code 后端复用 Workspace Access admission | allow the fixed Docker Standard Code backend to reuse Workspace Access admission |
 | v129 | 稳定 Thread 身份、Run succession 与无损生命周期投影 | stable Thread identity, Run succession, and lossless lifecycle projection |
+| v130 | 增加 item 级流式工具调用的稳定响应、item 与 call 对齐标识 | add stable response, item, and call reconciliation identities for item-level streamed tool calls |
 
 </details>
 

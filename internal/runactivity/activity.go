@@ -142,6 +142,17 @@ func projectEvent(event events.Event) (Item, bool) {
 	case events.SupervisorToolBatchEvent:
 		base.Kind, base.Title, base.Status = KindToolCall, "工具调用已请求", "running"
 		base.Detail = toolList(event.PayloadJSON)
+	case events.SupervisorToolExecutionStartedEvent:
+		base.Kind, base.Title, base.Status = KindToolCall, "工具执行已开始", "running"
+		if tool := cleanLabel(stringField(event.PayloadJSON, "tool")); tool != "" {
+			base.Detail = toolDisplayName(tool)
+		}
+	case events.SupervisorToolExecutionCompletedEvent:
+		base.Kind, base.Title = KindToolCall, "工具执行已完成"
+		base.Status = cleanStatus(stringField(event.PayloadJSON, "status"))
+		if tool := cleanLabel(stringField(event.PayloadJSON, "tool")); tool != "" {
+			base.Detail = toolDisplayName(tool)
+		}
 	case events.SupervisorToolResultEvent:
 		base.Kind, base.Title, base.Status = KindToolCall, "工具结果已记录",
 			cleanStatus(stringField(event.PayloadJSON, "status"))

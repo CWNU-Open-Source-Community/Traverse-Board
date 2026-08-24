@@ -724,7 +724,7 @@ supervisor.action_committed
 supervisor.run_waiting / supervisor.run_completed / supervisor.run_failed
 ```
 
-CLI and `headless.v1` consume persisted events. The Headless adapter emits one bounded NDJSON `run.event` per durable sequence plus a final `stream.end`, supports numeric sequence resume and optional local SQLite follow, and maps terminal/bound/deadline outcomes to the existing stable CLI exits. It validates continuity and record bounds but never executes a Run or writes Store state. Bubble Tea polls the same local Store sequence in batches of at most 32, retains the latest 50 metadata-only events, validates contiguous Run/Mission-bound sequences, discards stale asynchronous results, and stops after a terminal Run. Each refresh brackets Session messages, ToolRuns, WorkItems, Notes, Agent nodes/completions, and bounded Finding report summaries with the durable event tail; a changing tail retries the composite snapshot up to eight times instead of displaying a torn projection. Event payloads and complete Finding/Evidence bodies are not rendered. The Events, Agents, and Findings tabs are read-only; existing Tool approval and active-call cancellation still cross the Go application service, and Bubble Tea never receives a Provider context. The Go HTTP adapter exposes persisted metadata over bounded resumable SSE. Transient active-call state and any future user-facing text projection still require separate Go-owned lifecycle/redaction design. Persisted `model.delta` remains counter-only.
+CLI and `headless.v1` consume persisted events. The Headless adapter emits one bounded NDJSON `run.event` per durable sequence plus a final `stream.end`, supports numeric sequence resume and optional local SQLite follow, and maps terminal/bound/deadline outcomes to the existing stable CLI exits. It validates continuity and record bounds but never executes a Run or writes Store state. Bubble Tea polls the same local Store sequence in batches of at most 32, retains the latest 50 metadata-only events, validates contiguous Run/Mission-bound sequences, discards stale asynchronous results, and stops after a terminal Run. Each refresh brackets Session messages, ToolRuns, WorkItems, Notes, Agent nodes/completions, and bounded Finding report summaries with the durable event tail; a changing tail retries the composite snapshot up to eight times instead of displaying a torn projection. Event payloads and complete Finding/Evidence bodies are not rendered. The Events, Agents, and Findings tabs are read-only; existing Tool approval and active-call cancellation still cross the Go application service, and Bubble Tea never receives a Provider context. The Go HTTP adapter exposes persisted metadata over bounded resumable SSE. `model_public_stream.v3` is the separate Go-owned, redacted process-local text/item projection. Persisted `model.delta` retains counters plus content-free item boundaries, never model text or tool arguments.
 
 The same Go adapter owns read projections for the bounded Agent graph, operator-gated delegation lifecycle, read-only Fan-out plans/latest execution summaries, and Finding/Report state. These are intentionally separate DTOs rather than serialized Store records. Fan-out summary queries do not select model report JSON, input/snapshot/report digests, error narratives, or lease/fencing identities; Finding views expose immutable assertion facts and Artifact descriptors but omit Artifact content and private operator narratives. React consumes only generated OpenAPI shapes. It may request the explicitly enabled Run/Session/Plan/approval/Diff/wake controls, but Go reloads authoritative state and performs every transition; TypeScript cannot supply derived authority, private leases, paths, or file bodies. A cross-surface contract test creates one real SQLite Run through the CLI and proves that CLI JSON, the TUI projection, authenticated loopback HTTP, and Headless NDJSON agree on Run, Mission, Session, status, durable event tail, and Agent count.
 
@@ -1447,3 +1447,21 @@ and reduced-motion cells and writes a source/browser/artifact receipt. Its delib
 missing-click-handler route establishes that real interaction evidence catches a
 regression that source/build checks alone do not prove. Operational details are in
 [Real-browser UI Evidence](ui-evidence.md).
+
+## Provider-Neutral Item Streaming
+
+ADR 0133 and schema v130 add `llm.item_stream.v1` between provider wire adapters and
+the Supervisor. OpenAI interleaved calls, Anthropic content blocks, and complete-item
+Ollama/Mock/legacy streams share one ordered response/item/call state machine. The
+Application replaces upstream IDs with stable attempt-owned IDs; tool deltas carry no
+authority, and only Go may record execution start/completion after a complete call has
+passed validation. Text retains 2 KiB/250 ms aggregation, while content-free item
+boundaries are persisted independently so aggregation cannot lose lifecycle state.
+
+`model_public_stream.v3` exposes only stable IDs, item status, tool name, and argument
+byte count. Raw text/argument event fields cannot be JSON-marshaled, and neither public
+nor `model.delta` shapes can represent private reasoning, credentials, raw wire data,
+or tool arguments. Schema v130 immutably binds provisional response/item/call IDs to
+the deterministic Supervisor call ledger; old Session messages are projected as
+durable completed items without rewriting history. Cancellation, EOF, and provider
+errors end in failed/cancelled items and never synthesize successful completion.

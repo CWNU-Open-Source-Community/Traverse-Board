@@ -24,7 +24,8 @@ func (s *SQLiteStore) ListSupervisorToolRounds(ctx context.Context,
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT
 		r.run_id, r.turn, r.attempt_id, r.round, r.model_attempt, r.created_at, r.completed_at,
-		c.run_id, c.turn, c.attempt_id, c.round, c.position, c.model_attempt, c.call_id, c.tool_name,
+		c.run_id, c.turn, c.attempt_id, c.round, c.position, c.model_attempt, c.call_id,
+		c.stream_response_id, c.stream_item_id, c.stream_call_id, c.tool_name,
 		c.payload_json, c.authority_json, c.status, c.result_json, c.error_code, c.created_at, c.completed_at
 		FROM run_supervisor_tool_rounds r
 		JOIN run_supervisor_tool_calls c
@@ -55,7 +56,8 @@ func (s *SQLiteStore) ListRunSupervisorToolRoundsPage(ctx context.Context, runID
 	)
 	SELECT
 		r.run_id, r.turn, r.attempt_id, r.round, r.model_attempt, r.created_at, r.completed_at,
-		c.run_id, c.turn, c.attempt_id, c.round, c.position, c.model_attempt, c.call_id, c.tool_name,
+		c.run_id, c.turn, c.attempt_id, c.round, c.position, c.model_attempt, c.call_id,
+		c.stream_response_id, c.stream_item_id, c.stream_call_id, c.tool_name,
 		c.payload_json, c.authority_json, c.status, c.result_json, c.error_code, c.created_at, c.completed_at
 		FROM selected r
 		JOIN run_supervisor_tool_calls c
@@ -134,11 +136,13 @@ func insertSupervisorToolRoundTx(ctx context.Context, tx *sql.Tx, run domain.Run
 	names := make([]string, 0, len(normalized))
 	for index, call := range normalized {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO run_supervisor_tool_calls
-			(run_id, turn, attempt_id, round, position, model_attempt, call_id, tool_name, payload_json,
+			(run_id, turn, attempt_id, round, position, model_attempt, call_id,
+			 stream_response_id, stream_item_id, stream_call_id, tool_name, payload_json,
 			 authority_json, status, result_json, error_code, created_at, completed_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', ?, NULL)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', ?, NULL)`,
 			checkpoint.RunID, checkpoint.NextTurn, checkpoint.AttemptID, round, index+1, attempt.Number,
-			call.ID, call.Name, string(call.Arguments), string(call.Authority),
+			call.ID, call.StreamResponseID, call.StreamItemID, call.StreamCallID,
+			call.Name, string(call.Arguments), string(call.Authority),
 			domain.SupervisorToolPending, ts(now)); err != nil {
 			return err
 		}
@@ -148,6 +152,9 @@ func insertSupervisorToolRoundTx(ctx context.Context, tx *sql.Tx, run domain.Run
 		supervisorToolRoundSubject(checkpoint, round), map[string]any{
 			"turn": checkpoint.NextTurn, "attempt_id": checkpoint.AttemptID, "round": round,
 			"model_attempt": attempt.Number, "tool_count": len(normalized), "tools": names,
+			"stream_response_id": normalized[0].StreamResponseID,
+			"stream_item_ids":    supervisorToolStreamItemIDs(normalized),
+			"stream_call_ids":    supervisorToolStreamCallIDs(normalized),
 		})
 }
 
@@ -201,6 +208,103 @@ func normalizeSupervisorToolCallsForStore(calls []llm.ToolCall, runID string, tu
 	return normalized, nil
 }
 
+func supervisorToolStreamItemIDs(calls []llm.ToolCall) []string {
+	items := make([]string, len(calls))
+	for index := range calls {
+		items[index] = calls[index].StreamItemID
+	}
+	return items
+}
+
+func supervisorToolStreamCallIDs(calls []llm.ToolCall) []string {
+	items := make([]string, len(calls))
+	for index := range calls {
+		items[index] = calls[index].StreamCallID
+	}
+	return items
+}
+
+func (s *SQLiteStore) RecordSupervisorToolExecutionStarted(ctx context.Context,
+	checkpoint domain.SupervisorCheckpoint, callID string,
+) (bool, error) {
+	if err := checkpoint.Validate(); err != nil {
+		return false, err
+	}
+	if checkpoint.Phase != domain.SupervisorTurnStarted {
+		return false, apperror.New(apperror.CodeFailedPrecondition,
+			"only a started supervisor turn can execute a tool")
+	}
+	callID = strings.TrimSpace(callID)
+	if callID == "" || len([]rune(callID)) > domain.MaxSupervisorToolIdentityRunes {
+		return false, apperror.New(apperror.CodeInvalidArgument, "supervisor tool call id is invalid")
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	run, current, err := requireActiveSupervisorAttemptTx(ctx, tx, checkpoint)
+	if err != nil {
+		return false, err
+	}
+	call, err := getSupervisorToolCallTx(ctx, tx, current, callID)
+	if err != nil {
+		return false, err
+	}
+	exists, err := supervisorModelEventExistsTx(ctx, tx, run.ID,
+		events.SupervisorToolExecutionStartedEvent, call.CallID)
+	if err != nil {
+		return false, err
+	}
+	if exists {
+		if err := tx.Commit(); err != nil {
+			return false, err
+		}
+		return false, nil
+	}
+	if call.Status != domain.SupervisorToolPending {
+		return false, apperror.New(apperror.CodeConflict,
+			"only a pending supervisor tool can begin execution")
+	}
+	if err := appendSupervisorEventTx(ctx, tx, run,
+		events.SupervisorToolExecutionStartedEvent, "run_supervisor", call.CallID,
+		supervisorToolStreamEventPayload(call, domain.SupervisorToolPending,
+			llm.StreamToolExecutionStarted)); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func supervisorToolStreamEventPayload(call domain.SupervisorToolCall,
+	status domain.SupervisorToolCallStatus, eventType llm.StreamEventType,
+) map[string]any {
+	payload := map[string]any{
+		"turn": call.Turn, "attempt_id": call.AttemptID, "round": call.Round,
+		"position": call.Position, "tool": call.ToolName, "status": status,
+		"stream_response_id": call.StreamResponseID, "stream_item_id": call.StreamItemID,
+		"stream_call_id": call.StreamCallID, "durable_call_id": call.CallID,
+	}
+	if eventType == llm.StreamToolExecutionStarted || eventType == llm.StreamToolExecutionCompleted {
+		itemStatus := llm.StreamItemInProgress
+		if eventType == llm.StreamToolExecutionCompleted {
+			itemStatus = llm.StreamItemCompleted
+			if status == domain.SupervisorToolFailed {
+				itemStatus = llm.StreamItemFailed
+			}
+		}
+		payload["item_stream_version"] = llm.ItemStreamProtocolVersion
+		payload["item_event_type"] = eventType
+		payload["item_type"] = llm.StreamItemToolCall
+		payload["item_status"] = itemStatus
+		payload["provisional"] = false
+		payload["durable"] = true
+	}
+	return payload
+}
+
 func (s *SQLiteStore) RecordSupervisorToolResult(ctx context.Context, checkpoint domain.SupervisorCheckpoint,
 	result domain.SupervisorToolResult,
 ) (domain.SupervisorToolCall, bool, error) {
@@ -248,6 +352,15 @@ func (s *SQLiteStore) RecordSupervisorToolResult(ctx context.Context, checkpoint
 		}
 		return call, true, nil
 	}
+	executionStarted, err := supervisorModelEventExistsTx(ctx, tx, run.ID,
+		events.SupervisorToolExecutionStartedEvent, call.CallID)
+	if err != nil {
+		return domain.SupervisorToolCall{}, false, err
+	}
+	if !executionStarted {
+		return domain.SupervisorToolCall{}, false, apperror.New(apperror.CodeFailedPrecondition,
+			"supervisor tool result requires a durable execution start")
+	}
 	completedAt := result.CompletedAt.UTC()
 	update, err := tx.ExecContext(ctx, `UPDATE run_supervisor_tool_calls
 		SET status = ?, result_json = ?, error_code = ?, completed_at = ?
@@ -269,12 +382,18 @@ func (s *SQLiteStore) RecordSupervisorToolResult(ctx context.Context, checkpoint
 	call.ResultJSON = result.ResultJSON
 	call.ErrorCode = result.ErrorCode
 	call.CompletedAt = &completedAt
+	if err := appendSupervisorEventTx(ctx, tx, run,
+		events.SupervisorToolExecutionCompletedEvent, "run_supervisor", call.CallID,
+		supervisorToolStreamEventPayload(call, call.Status,
+			llm.StreamToolExecutionCompleted)); err != nil {
+		return domain.SupervisorToolCall{}, false, err
+	}
 	if err := appendSupervisorEventTx(ctx, tx, run, events.SupervisorToolResultEvent, "run_supervisor",
-		call.CallID, map[string]any{
-			"turn": call.Turn, "attempt_id": call.AttemptID, "round": call.Round,
-			"position": call.Position, "tool": call.ToolName, "status": call.Status,
-			"error_code": call.ErrorCode,
-		}); err != nil {
+		call.CallID, func() map[string]any {
+			payload := supervisorToolStreamEventPayload(call, call.Status, "")
+			payload["error_code"] = call.ErrorCode
+			return payload
+		}()); err != nil {
 		return domain.SupervisorToolCall{}, false, err
 	}
 	var pending int
@@ -313,7 +432,8 @@ func getSupervisorToolCallTx(ctx context.Context, tx *sql.Tx, checkpoint domain.
 	callID string,
 ) (domain.SupervisorToolCall, error) {
 	return scanSupervisorToolCall(tx.QueryRowContext(ctx, `SELECT run_id, turn, attempt_id, round, position,
-		model_attempt, call_id, tool_name, payload_json, authority_json, status, result_json, error_code, created_at, completed_at
+		model_attempt, call_id, stream_response_id, stream_item_id, stream_call_id,
+		tool_name, payload_json, authority_json, status, result_json, error_code, created_at, completed_at
 		FROM run_supervisor_tool_calls
 		WHERE run_id = ? AND turn = ? AND attempt_id = ? AND call_id = ?`, checkpoint.RunID,
 		checkpoint.NextTurn, checkpoint.AttemptID, strings.TrimSpace(callID)))
@@ -329,7 +449,8 @@ func scanSupervisorToolRoundCall(row scanner) (domain.SupervisorToolRound, domai
 	var callCompletedAt sql.NullString
 	if err := row.Scan(&round.RunID, &round.Turn, &round.AttemptID, &round.Round, &round.ModelAttempt,
 		&roundCreatedAt, &roundCompletedAt, &call.RunID, &call.Turn, &call.AttemptID, &call.Round,
-		&call.Position, &call.ModelAttempt, &call.CallID, &call.ToolName, &call.PayloadJSON,
+		&call.Position, &call.ModelAttempt, &call.CallID, &call.StreamResponseID,
+		&call.StreamItemID, &call.StreamCallID, &call.ToolName, &call.PayloadJSON,
 		&call.AuthorityJSON, &callStatus,
 		&call.ResultJSON, &call.ErrorCode, &callCreatedAt, &callCompletedAt); err != nil {
 		return domain.SupervisorToolRound{}, domain.SupervisorToolCall{}, err
@@ -358,7 +479,8 @@ func scanSupervisorToolCall(row scanner) (domain.SupervisorToolCall, error) {
 	var createdAt string
 	var completedAt sql.NullString
 	if err := row.Scan(&call.RunID, &call.Turn, &call.AttemptID, &call.Round, &call.Position,
-		&call.ModelAttempt, &call.CallID, &call.ToolName, &call.PayloadJSON, &call.AuthorityJSON,
+		&call.ModelAttempt, &call.CallID, &call.StreamResponseID, &call.StreamItemID,
+		&call.StreamCallID, &call.ToolName, &call.PayloadJSON, &call.AuthorityJSON,
 		&status, &call.ResultJSON,
 		&call.ErrorCode, &createdAt, &completedAt); err != nil {
 		return domain.SupervisorToolCall{}, err

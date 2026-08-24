@@ -3,6 +3,7 @@ package application
 import (
 	"bytes"
 	"context"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -33,12 +34,15 @@ type modelStreamAggregator struct {
 	rootPreview       *rootMessagePreviewer
 	commentaryPreview *publicCommentaryPreviewer
 
-	output        bytes.Buffer
-	previewBytes  int
-	pendingChunks int
-	pendingBytes  int
-	events        int
-	durableBytes  int
+	output            bytes.Buffer
+	previewBytes      int
+	pendingChunks     int
+	pendingBytes      int
+	events            int
+	durableBytes      int
+	stream            *llm.ItemStreamAccumulator
+	streamSequence    int
+	pendingBoundaries []llm.StreamBoundary
 }
 
 func (s *RunSupervisor) streamModel(ctx context.Context, checkpoint domain.SupervisorCheckpoint, attempt llm.ModelAttempt, ref llm.ModelRef, request llm.ChatRequest, live *activeCallLease) (modelStreamResult, error) {
@@ -51,12 +55,28 @@ func (s *RunSupervisor) streamModel(ctx context.Context, checkpoint domain.Super
 		rootPreview:       newRootMessagePreviewer(s.checker),
 		commentaryPreview: newPublicCommentaryPreviewer(s.checker),
 	}
+	responseID := llm.StableStreamID("response", checkpoint.RunID, checkpoint.AttemptID,
+		strconv.Itoa(attempt.Number))
+	aggregator.stream, err = llm.NewItemStreamAccumulator(responseID, ref.Provider, ref.Model)
+	if err != nil {
+		return modelStreamResult{}, llm.NewProviderError(llm.OutcomeInvalidResponse,
+			ref.Provider, "could not initialize item stream", err)
+	}
 	return aggregator.consume(ctx, chunks)
 }
 
 func (a *modelStreamAggregator) consume(ctx context.Context, chunks <-chan llm.ChatChunk) (modelStreamResult, error) {
 	if chunks == nil {
 		return a.result(nil), llm.NewProviderError(llm.OutcomeInvalidResponse, a.ref.Provider, "returned a nil stream", nil)
+	}
+	if a.stream == nil {
+		responseID := llm.StableStreamID("response", a.checkpoint.RunID, a.checkpoint.AttemptID,
+			strconv.Itoa(a.attempt.Number))
+		stream, err := llm.NewItemStreamAccumulator(responseID, a.ref.Provider, a.ref.Model)
+		if err != nil {
+			return a.result(nil), err
+		}
+		a.stream = stream
 	}
 	ticker := time.NewTicker(modelDeltaFlushInterval)
 	defer ticker.Stop()
@@ -69,6 +89,7 @@ func (a *modelStreamAggregator) consume(ctx context.Context, chunks <-chan llm.C
 			select {
 			case chunk, ok = <-chunks:
 			case <-ctx.Done():
+				_ = a.acceptStreamEvents(a.stream.Abort(llm.OutcomeCancelled))
 				flushErr := a.flush(false)
 				return a.result(nil), modelStreamFailure(ctx.Err(), flushErr)
 			case <-ticker.C:
@@ -79,6 +100,7 @@ func (a *modelStreamAggregator) consume(ctx context.Context, chunks <-chan llm.C
 			}
 		}
 		if !ok {
+			_ = a.acceptStreamEvents(a.stream.Abort(llm.OutcomeInvalidResponse))
 			flushErr := a.flush(false)
 			if ctx.Err() != nil {
 				return a.result(nil), modelStreamFailure(ctx.Err(), flushErr)
@@ -86,18 +108,24 @@ func (a *modelStreamAggregator) consume(ctx context.Context, chunks <-chan llm.C
 			streamErr := llm.NewProviderError(llm.OutcomeInvalidResponse, a.ref.Provider, "stream closed before a final chunk", nil)
 			return a.result(nil), modelStreamFailure(streamErr, flushErr)
 		}
+		normalized, itemEvents, itemErr := a.stream.Consume(chunk)
+		if itemErr != nil {
+			_ = a.acceptStreamEvents(a.stream.Abort(llm.OutcomeInvalidResponse))
+			flushErr := a.flush(false)
+			streamErr := llm.NewProviderError(llm.OutcomeInvalidResponse, a.ref.Provider,
+				"returned an invalid item stream", itemErr)
+			return a.result(nil), modelStreamFailure(streamErr, flushErr)
+		}
+		chunk = normalized
+		if err := a.acceptStreamEvents(itemEvents); err != nil {
+			return a.result(nil), err
+		}
 		if chunk.Err != nil {
 			flushErr := a.flush(false)
 			if ctx.Err() != nil {
 				return a.result(nil), modelStreamFailure(ctx.Err(), flushErr)
 			}
 			return a.result(nil), modelStreamFailure(llm.NormalizeProviderError(a.ref.Provider, chunk.Err), flushErr)
-		}
-		if len(chunk.ToolCalls) > 0 && !chunk.Done {
-			flushErr := a.flush(false)
-			streamErr := llm.NewProviderError(llm.OutcomeInvalidResponse, a.ref.Provider,
-				"tool calls are only valid on the final stream chunk", nil)
-			return a.result(nil), modelStreamFailure(streamErr, flushErr)
 		}
 		if err := a.appendText(chunk.Text); err != nil {
 			flushErr := a.flush(false)
@@ -126,9 +154,6 @@ func (a *modelStreamAggregator) consume(ctx context.Context, chunks <-chan llm.C
 			streamErr := llm.NewProviderError(llm.OutcomeInvalidResponse, a.ref.Provider, "stream returned invalid UTF-8", nil)
 			return a.result(nil), modelStreamFailure(streamErr, flushErr)
 		}
-		if err := a.flush(true); err != nil {
-			return a.result(nil), err
-		}
 		provider := strings.TrimSpace(chunk.Provider)
 		if provider == "" {
 			provider = a.ref.Provider
@@ -150,11 +175,34 @@ func (a *modelStreamAggregator) consume(ctx context.Context, chunks <-chan llm.C
 		} else if err := a.publishPublicPreview(true); err != nil {
 			return a.result(nil), err
 		}
+		if err := a.flush(true); err != nil {
+			return a.result(nil), err
+		}
 		response := &llm.ChatResponse{
-			Text: a.output.String(), ToolCalls: toolCalls, Usage: *chunk.Usage, Provider: provider, Model: model,
+			ResponseID: a.stream.ResponseID(), Text: a.output.String(), ToolCalls: toolCalls,
+			Items: a.stream.Items(), Usage: *chunk.Usage, Provider: provider, Model: model,
 		}
 		return a.result(response), nil
 	}
+}
+
+func (a *modelStreamAggregator) acceptStreamEvents(items []llm.StreamEvent) error {
+	for _, item := range items {
+		if item.Sequence <= a.streamSequence {
+			return llm.NewProviderError(llm.OutcomeInvalidResponse, a.ref.Provider,
+				"item stream sequence moved backwards", nil)
+		}
+		a.streamSequence = item.Sequence
+		if boundary, ok := llm.BoundaryForEvent(item); ok {
+			a.pendingBoundaries = append(a.pendingBoundaries, boundary)
+		}
+		if a.live != nil {
+			if err := a.live.PublishItemEvent(item); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (a *modelStreamAggregator) appendText(text string) error {
@@ -208,7 +256,7 @@ func (a *modelStreamAggregator) publishCommentaryPreview(complete bool) error {
 }
 
 func (a *modelStreamAggregator) flush(done bool) error {
-	if a.pendingBytes == 0 && !done {
+	if a.pendingBytes == 0 && len(a.pendingBoundaries) == 0 && !done {
 		return nil
 	}
 	if !done && a.events >= llm.MaxModelDeltaEvents-1 {
@@ -220,6 +268,8 @@ func (a *modelStreamAggregator) flush(done bool) error {
 	delta := llm.ModelDelta{
 		Sequence: a.events + 1, ChunkCount: a.pendingChunks, ByteCount: a.pendingBytes,
 		TotalBytes: a.durableBytes + a.pendingBytes, Done: done,
+		ResponseID: a.stream.ResponseID(), StreamSequence: a.streamSequence,
+		Boundaries: append([]llm.StreamBoundary(nil), a.pendingBoundaries...),
 	}
 	eventCtx, eventCancel := supervisorModelEventContext(context.Background())
 	inserted, err := a.supervisor.store.RecordSupervisorModelDelta(eventCtx, a.checkpoint, a.attempt, delta)
@@ -234,6 +284,7 @@ func (a *modelStreamAggregator) flush(done bool) error {
 	a.durableBytes = delta.TotalBytes
 	a.pendingChunks = 0
 	a.pendingBytes = 0
+	a.pendingBoundaries = nil
 	return nil
 }
 

@@ -584,6 +584,7 @@ metadata；原始 artifact 下载额外返回 `no-store`、ETag、精确 SHA-256
 | `GET` | `/api/v1/runs/{run_id}/fanout-plans` | Read-only plan metadata plus latest bounded execution/shard summary; pagination |
 | `GET` | `/api/v1/runs/{run_id}/reports` | Finding report metadata and severity counts; pagination |
 | `GET` | `/api/v1/runs/{run_id}/reports/{report_id}` | Finding facts, model-assertion provenance, Artifact metadata, and lifecycle timestamps |
+| `GET` | `/api/v1/runs/{run_id}/active-call` | Process-local `model_public_stream.v3`: redacted preview plus stable content-free item status/tool-name/argument-byte projection; no raw arguments or private reasoning |
 | `POST` | `/api/v1/runs/{run_id}/active-call/cancel` | Separately authorized exact active-call cancellation request |
 | `POST` | `/api/v1/runs/{run_id}/agents/{agent_id}/active-call/cancel` | Separately authorized exact Specialist-call cancellation request |
 | `POST` | `/api/v1/runs/{run_id}/execution-profile` | Select `preview|docker|local` intent; never starts a process or grants authority |
@@ -752,9 +753,9 @@ cyberagent api openapi
 cyberagent api openapi --output docs/openapi.json
 ```
 
-运行时的 `/api/v1/openapi.json` 返回同一份原始文档，仍要求 loopback 与 read Bearer 认证，不接受 query 或 body。它使用 `application/vnd.oai.openapi+json`，不套普通 `api.v1` envelope。当前契约有 164 个 path、183 个 operation 和 485 个 schema。测试逐条命中公开 handler，并确认普通 DTO 不包含 Workspace root、Artifact/Skill/Session 正文、模型输出、工具参数、私有 lifecycle、operation/fencing/lease owner、API key、Provider Base URL 或环境变量名。batch delivery DTO 还明确排除 child/integration root、owner-token digest 与 operation/request fingerprint；明文 owner token 只在 Prepare/rotation control 响应中返回一次。
+运行时的 `/api/v1/openapi.json` 返回同一份原始文档，仍要求 loopback 与 read Bearer 认证，不接受 query 或 body。它使用 `application/vnd.oai.openapi+json`，不套普通 `api.v1` envelope。当前契约有 164 个 path、183 个 operation 和 486 个 schema。测试逐条命中公开 handler，并确认普通 DTO 不包含 Workspace root、Artifact/Skill/Session 正文、模型输出、工具参数、私有 lifecycle、operation/fencing/lease owner、API key、Provider Base URL 或环境变量名。batch delivery DTO 还明确排除 child/integration root、owner-token digest 与 operation/request fingerprint；明文 owner token 只在 Prepare/rotation control 响应中返回一次。
 
-The runtime `/api/v1/openapi.json` returns the same raw document under the loopback and read-bearer boundary and accepts neither a query nor a body. It uses `application/vnd.oai.openapi+json` rather than the ordinary `api.v1` envelope. The contract contains 164 paths, 183 operations, and 485 schemas. Tests exercise every handler and verify that ordinary DTOs omit Workspace roots, Artifact/Skill/Session bodies, model output, Tool arguments, private lifecycle, operation/fencing/lease-owner identities, API keys, Provider base URLs, and environment-variable names. Batch-delivery DTOs additionally omit child/integration roots, owner-token digests, and operation/request fingerprints; a plaintext owner token appears only once in a prepare/rotation control response.
+The runtime `/api/v1/openapi.json` returns the same raw document under the loopback and read-bearer boundary and accepts neither a query nor a body. It uses `application/vnd.oai.openapi+json` rather than the ordinary `api.v1` envelope. The contract contains 164 paths, 183 operations, and 486 schemas. Tests exercise every handler and verify that ordinary DTOs omit Workspace roots, Artifact/Skill/Session bodies, model output, Tool arguments, private lifecycle, operation/fencing/lease-owner identities, API keys, Provider base URLs, and environment-variable names. Batch-delivery DTOs additionally omit child/integration roots, owner-token digests, and operation/request fingerprints; a plaintext owner token appears only once in a prepare/rotation control response.
 
 ## 主动取消 / Active-Call Cancellation
 

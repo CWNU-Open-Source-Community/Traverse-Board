@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -611,7 +612,9 @@ func (s *SQLiteStore) RecordSupervisorModelDelta(ctx context.Context, checkpoint
 			return false, apperror.Wrap(apperror.CodeFailedPrecondition, "invalid durable model delta payload", err)
 		}
 		if payload.Sequence != delta.Sequence || payload.ChunkCount != delta.ChunkCount || payload.ByteCount != delta.ByteCount ||
-			payload.TotalBytes != delta.TotalBytes || payload.Done != delta.Done {
+			payload.TotalBytes != delta.TotalBytes || payload.Done != delta.Done ||
+			payload.ResponseID != delta.ResponseID || payload.StreamSequence != delta.StreamSequence ||
+			!sameStreamBoundaries(payload.Boundaries, delta.Boundaries) {
 			return false, apperror.New(apperror.CodeConflict, "model delta replay does not match its durable event")
 		}
 		if err := tx.Commit(); err != nil {
@@ -629,6 +632,24 @@ func (s *SQLiteStore) RecordSupervisorModelDelta(ctx context.Context, checkpoint
 	if delta.Sequence != state.Count+1 || delta.TotalBytes != state.TotalBytes+delta.ByteCount {
 		return false, apperror.New(apperror.CodeConflict, "model delta is not the next durable stream update")
 	}
+	itemStream := delta.ResponseID != "" || delta.StreamSequence != 0 || len(delta.Boundaries) != 0
+	if itemStream {
+		if state.Count > 0 && state.ResponseID == "" ||
+			state.ResponseID != "" && state.ResponseID != delta.ResponseID ||
+			delta.StreamSequence <= state.StreamSequence {
+			return false, apperror.New(apperror.CodeConflict,
+				"model delta item stream identity or sequence changed")
+		}
+		for _, boundary := range delta.Boundaries {
+			if boundary.Sequence <= state.StreamSequence {
+				return false, apperror.New(apperror.CodeConflict,
+					"model delta item boundary is not the next durable update")
+			}
+		}
+	} else if state.ResponseID != "" {
+		return false, apperror.New(apperror.CodeConflict,
+			"model delta omitted established item stream metadata")
+	}
 	if err := appendSupervisorEventTx(ctx, tx, run, events.ModelDeltaEvent, "model_gateway", deltaSubject, map[string]any{
 		"turn": checkpoint.NextTurn, "attempt_id": checkpoint.AttemptID,
 		"model_attempt": attempt.Number, "transport_attempt": attempt.TransportNumber(),
@@ -636,6 +657,8 @@ func (s *SQLiteStore) RecordSupervisorModelDelta(ctx context.Context, checkpoint
 		"delta_sequence": delta.Sequence,
 		"chunk_count":    delta.ChunkCount, "delta_bytes": delta.ByteCount,
 		"total_bytes": delta.TotalBytes, "done": delta.Done,
+		"stream_response_id": delta.ResponseID, "stream_sequence": delta.StreamSequence,
+		"item_boundaries": delta.Boundaries,
 	}); err != nil {
 		return false, err
 	}
@@ -756,6 +779,17 @@ func (s *SQLiteStore) RecordSupervisorModelCompleted(ctx context.Context, checkp
 			return domain.SupervisorCheckpoint{}, err
 		}
 	}
+	responseID := strings.TrimSpace(response.ResponseID)
+	if responseID == "" {
+		responseID = llm.StableStreamID("response", checkpoint.RunID, checkpoint.AttemptID,
+			strconv.Itoa(attempt.Number))
+	}
+	toolCalls, outputItems, err := llm.CompleteOutputItems(responseID, response.Text,
+		toolCalls, response.Items)
+	if err != nil {
+		return domain.SupervisorCheckpoint{}, apperror.Wrap(apperror.CodeInvalidArgument,
+			"invalid completed model output items", err)
+	}
 	payload := map[string]any{
 		"turn": checkpoint.NextTurn, "attempt_id": checkpoint.AttemptID,
 		"model_attempt": attempt.Number, "transport_attempt": attempt.TransportNumber(),
@@ -764,7 +798,8 @@ func (s *SQLiteStore) RecordSupervisorModelCompleted(ctx context.Context, checkp
 		"provider":   attempt.Provider, "model": attempt.Model, "outcome": attempt.Outcome,
 		"elapsed_millis": elapsedMillis, "usage": response.Usage,
 		"stream_events": attempt.StreamEvents, "stream_bytes": attempt.StreamBytes,
-		"tool_call_count": len(toolCalls),
+		"tool_call_count":    len(toolCalls),
+		"stream_response_id": responseID, "output_items": outputItems,
 	}
 	return s.recordSupervisorModelTerminal(ctx, checkpoint, attempt, events.ModelCompletedEvent, payload,
 		supervisorModelTerminalOptions{Usage: &response.Usage, ToolCalls: toolCalls})
@@ -1139,17 +1174,22 @@ func supervisorModelPublicCommentarySubject(checkpoint domain.SupervisorCheckpoi
 }
 
 type supervisorModelDeltaPayload struct {
-	Sequence   int  `json:"delta_sequence"`
-	ChunkCount int  `json:"chunk_count"`
-	ByteCount  int  `json:"delta_bytes"`
-	TotalBytes int  `json:"total_bytes"`
-	Done       bool `json:"done"`
+	Sequence       int                  `json:"delta_sequence"`
+	ChunkCount     int                  `json:"chunk_count"`
+	ByteCount      int                  `json:"delta_bytes"`
+	TotalBytes     int                  `json:"total_bytes"`
+	Done           bool                 `json:"done"`
+	ResponseID     string               `json:"stream_response_id,omitempty"`
+	StreamSequence int                  `json:"stream_sequence,omitempty"`
+	Boundaries     []llm.StreamBoundary `json:"item_boundaries,omitempty"`
 }
 
 type supervisorModelDeltaState struct {
-	Count      int
-	TotalBytes int
-	Done       bool
+	Count          int
+	TotalBytes     int
+	Done           bool
+	ResponseID     string
+	StreamSequence int
 }
 
 func supervisorModelDeltaStateTx(ctx context.Context, tx *sql.Tx, runID string, modelSubject string) (supervisorModelDeltaState, error) {
@@ -1172,7 +1212,8 @@ func supervisorModelDeltaStateTx(ctx context.Context, tx *sql.Tx, runID string, 
 		}
 		delta := llm.ModelDelta{
 			Sequence: payload.Sequence, ChunkCount: payload.ChunkCount, ByteCount: payload.ByteCount,
-			TotalBytes: payload.TotalBytes, Done: payload.Done,
+			TotalBytes: payload.TotalBytes, Done: payload.Done, ResponseID: payload.ResponseID,
+			StreamSequence: payload.StreamSequence, Boundaries: payload.Boundaries,
 		}
 		if err := delta.Validate(llm.MaxModelDeltaEvents, llm.MaxModelOutputBytes); err != nil {
 			return supervisorModelDeltaState{}, apperror.Wrap(apperror.CodeFailedPrecondition, "invalid durable model delta counters", err)
@@ -1180,6 +1221,26 @@ func supervisorModelDeltaStateTx(ctx context.Context, tx *sql.Tx, runID string, 
 		if payload.Sequence != state.Count+1 || payload.ChunkCount < 0 || payload.ByteCount < 0 ||
 			payload.TotalBytes != state.TotalBytes+payload.ByteCount || state.Done {
 			return supervisorModelDeltaState{}, apperror.New(apperror.CodeFailedPrecondition, "inconsistent durable model delta sequence")
+		}
+		itemStream := payload.ResponseID != "" || payload.StreamSequence != 0 || len(payload.Boundaries) != 0
+		if itemStream {
+			if state.Count > 0 && state.ResponseID == "" ||
+				state.ResponseID != "" && state.ResponseID != payload.ResponseID ||
+				payload.StreamSequence <= state.StreamSequence {
+				return supervisorModelDeltaState{}, apperror.New(apperror.CodeFailedPrecondition,
+					"inconsistent durable item stream identity or sequence")
+			}
+			for _, boundary := range payload.Boundaries {
+				if boundary.Sequence <= state.StreamSequence {
+					return supervisorModelDeltaState{}, apperror.New(apperror.CodeFailedPrecondition,
+						"durable item boundary was replayed out of order")
+				}
+			}
+			state.ResponseID = payload.ResponseID
+			state.StreamSequence = payload.StreamSequence
+		} else if state.ResponseID != "" {
+			return supervisorModelDeltaState{}, apperror.New(apperror.CodeFailedPrecondition,
+				"durable item stream metadata disappeared")
 		}
 		state.Count++
 		state.TotalBytes = payload.TotalBytes
@@ -1192,6 +1253,18 @@ func supervisorModelDeltaStateTx(ctx context.Context, tx *sql.Tx, runID string, 
 		return supervisorModelDeltaState{}, apperror.New(apperror.CodeFailedPrecondition, "durable model delta limits were exceeded")
 	}
 	return state, nil
+}
+
+func sameStreamBoundaries(left []llm.StreamBoundary, right []llm.StreamBoundary) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func sanitizeModelAttempt(attempt llm.ModelAttempt) llm.ModelAttempt {

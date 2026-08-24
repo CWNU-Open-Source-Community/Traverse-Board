@@ -2690,6 +2690,29 @@ body { background: transparent; }
   background: #168f82;
   box-shadow: 0 0 0 3px rgb(22 143 130 / 12%);
 }
+.public-model-tool-list {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 2px;
+}
+.public-model-tool-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 9px;
+  border: 1px solid rgb(22 143 130 / 18%);
+  border-radius: 7px;
+  background: rgb(22 143 130 / 6%);
+}
+.public-model-tool-item strong {
+  min-width: 0;
+  overflow: hidden;
+  font: 600 11px/1.4 var(--font-mono, monospace);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.public-model-tool-item span { color: #817469; font-size: 10px; text-align: right; }
 .public-model-stream p {
   min-height: 21px;
   margin: 10px 0 8px;

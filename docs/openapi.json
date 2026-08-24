@@ -30636,6 +30636,12 @@
           "instruction_authorized": {
             "type": "boolean"
           },
+          "output_items": {
+            "items": {
+              "$ref": "#/components/schemas/OutputItem"
+            },
+            "type": "array"
+          },
           "provenance_version": {
             "enum": [
               "context_provenance.v0",
@@ -30691,7 +30697,8 @@
           "instruction_authorized",
           "token_estimate",
           "compacted",
-          "created_at"
+          "created_at",
+          "output_items"
         ],
         "type": "object"
       },
@@ -31608,6 +31615,59 @@
           "committed",
           "cancelled",
           "messages"
+        ],
+        "type": "object"
+      },
+      "OutputItem": {
+        "additionalProperties": false,
+        "properties": {
+          "argument_bytes": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "call_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "durable": {
+            "type": "boolean"
+          },
+          "durable_call_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "provisional": {
+            "type": "boolean"
+          },
+          "response_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tool_name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "response_id",
+          "id",
+          "type",
+          "status",
+          "provisional",
+          "durable"
         ],
         "type": "object"
       },
@@ -32769,11 +32829,26 @@
           "content_kind": {
             "type": "string"
           },
+          "event_sequence": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OutputItem"
+            },
+            "type": "array"
+          },
           "message_complete": {
             "type": "boolean"
           },
           "provisional": {
             "type": "boolean"
+          },
+          "response_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
           },
           "revision": {
             "format": "int64",
@@ -32794,6 +32869,8 @@
           "version",
           "call",
           "revision",
+          "event_sequence",
+          "items",
           "content_kind",
           "text",
           "message_complete",
@@ -38099,6 +38176,21 @@
               "denied",
               "failed"
             ],
+            "type": "string"
+          },
+          "stream_call_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "stream_item_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "stream_response_id": {
+            "maxLength": 256,
+            "minLength": 1,
             "type": "string"
           },
           "tool_name": {
