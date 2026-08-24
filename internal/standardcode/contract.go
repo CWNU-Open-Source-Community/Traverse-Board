@@ -154,6 +154,16 @@ func (scope ExecutionContext) Validate() error {
 }
 
 func CompileDockerManifest(scope ExecutionContext, command Command) (sandbox.Manifest, error) {
+	return CompileDockerManifestWithStdin(scope, command,
+		sandbox.DockerStandardCodeStdinClosed)
+}
+
+// CompileDockerManifestWithStdin is reserved for the Run-owned Command Runtime
+// adapter. The caller supplies only the backend-neutral closed/pipe policy;
+// Docker attachment flags and the input transport remain Go-owned.
+func CompileDockerManifestWithStdin(scope ExecutionContext, command Command,
+	stdinPolicy string,
+) (sandbox.Manifest, error) {
 	if err := scope.Validate(); err != nil {
 		return sandbox.Manifest{}, err
 	}
@@ -175,6 +185,7 @@ func CompileDockerManifest(scope ExecutionContext, command Command) (sandbox.Man
 		PermissionRevision:   scope.PermissionRevision,
 		CapabilityGeneration: scope.CapabilityGeneration,
 		CommandSHA256:        commandSHA256,
+		StdinPolicy:          stdinPolicy,
 		Toolchain:            command.Toolchain, WorkingDirectory: command.WorkingDirectory,
 		Arguments:      append([]string(nil), command.Arguments...),
 		TimeoutSeconds: command.TimeoutSeconds,

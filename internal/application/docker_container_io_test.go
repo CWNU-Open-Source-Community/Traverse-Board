@@ -150,12 +150,35 @@ type fakeDockerContainerIOTransport struct {
 	exports       int
 	ownedAttaches int
 	ownedExports  int
+	stdinBytes    int
+	stdin         []byte
+}
+
+func (transport *fakeDockerContainerIOTransport) AttachOwnedStdin(ctx context.Context,
+	request sandbox.DockerContainerLifecycleRequest, stdin io.ReadCloser,
+	fence sandbox.DockerContainerLifecycleFence,
+) error {
+	if stdin == nil || fence == nil || !request.WriteRequest.Spec.StdinPipe {
+		return errors.New("owned stdin request is invalid")
+	}
+	if err := fence(ctx, sandbox.DockerContainerLifecycleActionAttachStdin); err != nil {
+		return err
+	}
+	defer stdin.Close()
+	data, err := io.ReadAll(stdin)
+	transport.mu.Lock()
+	transport.stdinBytes += len(data)
+	transport.stdin = append(transport.stdin, data...)
+	transport.mu.Unlock()
+	return err
 }
 
 func (transport *fakeDockerContainerIOTransport) Endpoint() sandbox.DockerObservationEndpoint {
 	endpoint, _ := sandbox.NewDockerObservationEndpoint(sandbox.DockerObservationEndpointLocalUnix)
 	return endpoint
 }
+
+func (*fakeDockerContainerIOTransport) SupportsOwnedStdin() bool { return true }
 
 func (transport *fakeDockerContainerIOTransport) AttachLogs(ctx context.Context,
 	plan sandbox.DockerLogCapturePlan) (io.ReadCloser, error) {

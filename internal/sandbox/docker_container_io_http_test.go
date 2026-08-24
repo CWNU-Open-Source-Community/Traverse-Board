@@ -1,12 +1,17 @@
 package sandbox
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"cyberagent-workbench/internal/idgen"
 )
@@ -23,6 +28,67 @@ type ownedDockerIOTestDoer struct {
 	lifecycle *dockerLifecycleTestDaemon
 	fail      error
 	requests  []*http.Request
+	stdin     *dockerStdinTestStream
+}
+
+type dockerStdinTestStream struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+	done   chan struct{}
+	once   sync.Once
+}
+
+type dockerBlockingStdin struct {
+	started chan struct{}
+	closed  chan struct{}
+	start   sync.Once
+	close   sync.Once
+}
+
+func newDockerBlockingStdin() *dockerBlockingStdin {
+	return &dockerBlockingStdin{started: make(chan struct{}), closed: make(chan struct{})}
+}
+
+func (stdin *dockerBlockingStdin) Read([]byte) (int, error) {
+	stdin.start.Do(func() { close(stdin.started) })
+	<-stdin.closed
+	return 0, io.EOF
+}
+
+func (stdin *dockerBlockingStdin) Close() error {
+	stdin.close.Do(func() { close(stdin.closed) })
+	return nil
+}
+
+func newDockerStdinTestStream() *dockerStdinTestStream {
+	return &dockerStdinTestStream{done: make(chan struct{})}
+}
+
+func (stream *dockerStdinTestStream) Read([]byte) (int, error) {
+	<-stream.done
+	return 0, io.EOF
+}
+
+func (stream *dockerStdinTestStream) Write(data []byte) (int, error) {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	select {
+	case <-stream.done:
+		return 0, io.ErrClosedPipe
+	default:
+		return stream.buffer.Write(data)
+	}
+}
+
+func (stream *dockerStdinTestStream) Close() error {
+	stream.once.Do(func() { close(stream.done) })
+	return nil
+}
+
+func (stream *dockerStdinTestStream) String() string {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	return stream.buffer.String()
 }
 
 func (doer *ownedDockerIOTestDoer) Do(request *http.Request) (*http.Response, error) {
@@ -31,6 +97,11 @@ func (doer *ownedDockerIOTestDoer) Do(request *http.Request) (*http.Response, er
 		return nil, doer.fail
 	}
 	switch {
+	case request.Method == http.MethodPost && strings.HasSuffix(request.URL.Path, "/attach") &&
+		request.URL.RawQuery == dockerContainerStdinAttachQuery && doer.stdin != nil:
+		return &http.Response{StatusCode: http.StatusSwitchingProtocols,
+			Header: http.Header{"Upgrade": []string{"tcp"}}, Body: doer.stdin,
+			Request: request}, nil
 	case request.Method == http.MethodPost && strings.HasSuffix(request.URL.Path, "/attach"):
 		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{},
 			Body: io.NopCloser(strings.NewReader("raw")), Request: request}, nil
@@ -41,6 +112,73 @@ func (doer *ownedDockerIOTestDoer) Do(request *http.Request) (*http.Response, er
 	default:
 		return doer.lifecycle.Do(request)
 	}
+}
+
+func testOwnedDockerStdinTransport(t *testing.T) (*ownedDockerIOTestDoer,
+	dockerEngineContainerIOTransport, DockerContainerLifecycleRequest,
+) {
+	t.Helper()
+	binding := dockerStandardCodeBindingFixture(DockerStandardCodeToolchainPython)
+	binding.StdinPolicy = DockerStandardCodeStdinPipe
+	manifest, err := DockerStandardCodeManifest(binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err := CompileDockerContainerSpec(t.Context(),
+		dockerContainerCompilerObservation(t, t.Context(), manifest, true, 8,
+			8*1024*1024*1024), manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	hostGitdir := filepath.Join(t.TempDir(), ".git", "worktrees", "stdin")
+	if err := os.WriteFile(filepath.Join(root, ".git"),
+		[]byte("gitdir: "+hostGitdir+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mask := filepath.Join(t.TempDir(), "git-metadata-mask")
+	if err := os.WriteFile(mask, []byte(DockerStandardCodeGitMetadataMask), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeRequest, err := NewDockerStandardCodeContainerWriteRequest(t.Context(),
+		root, mask, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint, _ := NewDockerObservationEndpoint(DockerObservationEndpointLocalUnix)
+	daemon := &dockerLifecycleTestDaemon{mode: dockerLifecycleExitKill}
+	lifecycle, err := newDockerEngineContainerLifecycleTransport(daemon, endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownership, err := NewDockerContainerLifecycleOwnership(
+		"docker-stdin-owned-test-attempt", 1,
+		fingerprint("docker-stdin-owned-test-intent"),
+		writeRequest.Spec.LabelPlanFingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage, err := lifecycle.StageOwned(t.Context(), writeRequest, ownership,
+		allowDockerLifecycleFence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := NewOwnedDockerContainerLifecycleRequest(ownership.AttemptID, 1,
+		writeRequest, stage, ownership, DockerContainerLifecycleConfirmation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := lifecycle.Start(t.Context(), request,
+		allowDockerLifecycleFence); err != nil {
+		t.Fatal(err)
+	}
+	doer := &ownedDockerIOTestDoer{lifecycle: daemon,
+		stdin: newDockerStdinTestStream()}
+	transport, err := newDockerEngineContainerIOTransport(doer, endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return doer, transport, request
 }
 
 func testOwnedDockerIOTransport(t *testing.T) (*dockerLifecycleTestDaemon,
@@ -195,6 +333,70 @@ func TestDockerContainerOwnedIOInspectsNameThenUsesRawContainerID(t *testing.T) 
 		doer.requests[1].URL.Path != wantArchive ||
 		strings.Contains(doer.requests[1].URL.Path, request.ResourceIDFingerprint) {
 		t.Fatalf("owned export did not rebind to raw ID: %#v", doer.requests)
+	}
+}
+
+func TestDockerContainerOwnedStdinRequiresRunningPipeProfileAndFence(t *testing.T) {
+	doer, transport, request := testOwnedDockerStdinTransport(t)
+	var actions []DockerContainerLifecycleActionKind
+	fence := func(_ context.Context, action DockerContainerLifecycleActionKind) error {
+		actions = append(actions, action)
+		return nil
+	}
+	input := io.NopCloser(strings.NewReader("first\nsecond\n"))
+	if err := transport.AttachOwnedStdin(t.Context(), request, input, fence); err != nil {
+		t.Fatal(err)
+	}
+	if doer.stdin.String() != "first\nsecond\n" || len(actions) != 1 ||
+		actions[0] != DockerContainerLifecycleActionAttachStdin {
+		t.Fatalf("stdin=%q actions=%#v", doer.stdin.String(), actions)
+	}
+	if len(doer.requests) != 3 ||
+		!strings.HasSuffix(doer.requests[0].URL.Path, "/json") ||
+		!strings.HasSuffix(doer.requests[1].URL.Path, "/json") ||
+		doer.requests[2].URL.RawQuery != dockerContainerStdinAttachQuery ||
+		doer.requests[2].Header.Get("Connection") != "Upgrade" ||
+		doer.requests[2].Header.Get("Upgrade") != "tcp" {
+		t.Fatalf("unexpected stdin daemon requests: %#v", doer.requests)
+	}
+
+	request.WriteRequest.Spec.StdinPipe = false
+	if err := transport.AttachOwnedStdin(t.Context(), request,
+		io.NopCloser(strings.NewReader("blocked")), fence); err == nil {
+		t.Fatal("closed-stdin request reached Docker attach")
+	}
+}
+
+func TestDockerContainerOwnedStdinCancellationClosesProcessLocalStreams(t *testing.T) {
+	doer, transport, request := testOwnedDockerStdinTransport(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	input := newDockerBlockingStdin()
+	done := make(chan error, 1)
+	go func() {
+		done <- transport.AttachOwnedStdin(ctx, request, input,
+			allowDockerLifecycleFence)
+	}()
+	select {
+	case <-input.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Docker stdin copy did not start")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Docker stdin cancellation error=%v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Docker stdin cancellation did not return")
+	}
+	select {
+	case <-doer.stdin.done:
+	default:
+		t.Fatal("Docker upgraded stdin stream remained open after cancellation")
+	}
+	if len(doer.requests) != 3 {
+		t.Fatalf("Docker stdin cancellation requests=%#v", doer.requests)
 	}
 }
 

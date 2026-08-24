@@ -1066,9 +1066,7 @@ func commandRuntimeIncompleteReasons(adapter commandruntimeadapter.Identity) []s
 			"host_unsandboxed cannot prove host credentials are unavailable to the child process",
 		}
 	case commandruntimeadapter.KindSandboxedWorkspace:
-		return []string{
-			"this sandbox backend accepts closed stdin only; streaming stdin is unavailable",
-		}
+		return []string{}
 	default:
 		return []string{"command runtime adapter evidence is incomplete"}
 	}

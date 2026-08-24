@@ -38,7 +38,7 @@ type CommandRuntimeSandboxExecutor interface {
 	Identity() commandruntimeadapter.Identity
 	Available() bool
 	ExecuteSandboxCommand(context.Context, CommandRuntimeScope,
-		CommandRuntimeResolvedSpec) (CommandRuntimeSandboxResult, error)
+		CommandRuntimeResolvedSpec, io.ReadCloser) (CommandRuntimeSandboxResult, error)
 }
 
 // NewSandboxCommandRuntimeManager reuses the mature Run-owned Job state
@@ -81,8 +81,10 @@ func (s commandRuntimeSandboxStarter) Start(_ context.Context,
 	scope CommandRuntimeScope, spec CommandRuntimeResolvedSpec,
 ) (commandRuntimeProcess, error) {
 	if !s.Available() || !scope.Adapter.SameBackend(s.executor.Identity()) ||
-		spec.Spec.StdinPolicy != CommandRuntimeStdinClosed ||
-		spec.Spec.InitialStdin != "" || !spec.Spec.CloseInitialStdin {
+		(spec.Spec.StdinPolicy == CommandRuntimeStdinClosed &&
+			(spec.Spec.InitialStdin != "" || !spec.Spec.CloseInitialStdin)) ||
+		(spec.Spec.StdinPolicy != CommandRuntimeStdinClosed &&
+			spec.Spec.StdinPolicy != CommandRuntimeStdinPipe) {
 		return nil, ErrCommandRuntimeBoundary
 	}
 	return newCommandRuntimeSandboxProcess(s.executor, scope, spec), nil
@@ -90,12 +92,15 @@ func (s commandRuntimeSandboxStarter) Start(_ context.Context,
 
 type commandRuntimeSandboxProcess struct {
 	cancel       context.CancelFunc
+	stdinReader  *io.PipeReader
+	stdinWriter  *io.PipeWriter
 	stdoutReader *io.PipeReader
 	stdoutWriter *io.PipeWriter
 	stderrReader *io.PipeReader
 	stderrWriter *io.PipeWriter
 	done         chan struct{}
 	closeOnce    sync.Once
+	stdinMu      sync.Mutex
 	mu           sync.Mutex
 	exitCode     int
 	waitErr      error
@@ -104,10 +109,16 @@ type commandRuntimeSandboxProcess struct {
 func newCommandRuntimeSandboxProcess(executor CommandRuntimeSandboxExecutor,
 	scope CommandRuntimeScope, spec CommandRuntimeResolvedSpec,
 ) *commandRuntimeSandboxProcess {
+	var stdinReader *io.PipeReader
+	var stdinWriter *io.PipeWriter
+	if spec.Spec.StdinPolicy == CommandRuntimeStdinPipe {
+		stdinReader, stdinWriter = io.Pipe()
+	}
 	stdoutReader, stdoutWriter := io.Pipe()
 	stderrReader, stderrWriter := io.Pipe()
 	executionContext, cancel := context.WithCancel(context.Background())
 	process := &commandRuntimeSandboxProcess{cancel: cancel,
+		stdinReader: stdinReader, stdinWriter: stdinWriter,
 		stdoutReader: stdoutReader, stdoutWriter: stdoutWriter,
 		stderrReader: stderrReader, stderrWriter: stderrWriter,
 		done: make(chan struct{}), exitCode: 125}
@@ -119,7 +130,14 @@ func (p *commandRuntimeSandboxProcess) execute(ctx context.Context,
 	executor CommandRuntimeSandboxExecutor, scope CommandRuntimeScope,
 	spec CommandRuntimeResolvedSpec,
 ) {
-	result, err := executor.ExecuteSandboxCommand(ctx, scope, spec)
+	var stdin io.ReadCloser
+	if p.stdinReader != nil {
+		stdin = p.stdinReader
+	}
+	result, err := executor.ExecuteSandboxCommand(ctx, scope, spec, stdin)
+	if p.stdinReader != nil {
+		_ = p.stdinReader.Close()
+	}
 	if validationErr := result.Validate(spec.Spec.Output.ArtifactBytes); validationErr != nil {
 		err = errors.Join(err, validationErr)
 		result.ExitCode = 125
@@ -153,11 +171,26 @@ func (*commandRuntimeSandboxProcess) Ownership() CommandRuntimeProcessOwnership 
 func (p *commandRuntimeSandboxProcess) Stdout() io.ReadCloser { return p.stdoutReader }
 func (p *commandRuntimeSandboxProcess) Stderr() io.ReadCloser { return p.stderrReader }
 
-func (*commandRuntimeSandboxProcess) WriteStdin([]byte) (int, error) {
-	return 0, ErrCommandRuntimeBoundary
+func (p *commandRuntimeSandboxProcess) WriteStdin(data []byte) (int, error) {
+	p.stdinMu.Lock()
+	writer := p.stdinWriter
+	p.stdinMu.Unlock()
+	if writer == nil {
+		return 0, ErrCommandRuntimeJobClosed
+	}
+	return writer.Write(data)
 }
 
-func (*commandRuntimeSandboxProcess) CloseStdin() error { return nil }
+func (p *commandRuntimeSandboxProcess) CloseStdin() error {
+	p.stdinMu.Lock()
+	writer := p.stdinWriter
+	p.stdinWriter = nil
+	p.stdinMu.Unlock()
+	if writer == nil {
+		return nil
+	}
+	return writer.Close()
+}
 
 func (p *commandRuntimeSandboxProcess) Wait() (int, error) {
 	<-p.done
@@ -168,6 +201,7 @@ func (p *commandRuntimeSandboxProcess) Wait() (int, error) {
 
 func (p *commandRuntimeSandboxProcess) Cancel(grace time.Duration) error {
 	p.cancel()
+	_ = p.CloseStdin()
 	if grace <= 0 {
 		return nil
 	}
@@ -183,12 +217,17 @@ func (p *commandRuntimeSandboxProcess) Cancel(grace time.Duration) error {
 
 func (p *commandRuntimeSandboxProcess) Kill() error {
 	p.cancel()
+	_ = p.CloseStdin()
 	return nil
 }
 
 func (p *commandRuntimeSandboxProcess) Close() error {
 	p.closeOnce.Do(func() {
 		p.cancel()
+		_ = p.CloseStdin()
+		if p.stdinReader != nil {
+			_ = p.stdinReader.Close()
+		}
 		_ = p.stdoutReader.Close()
 		_ = p.stderrReader.Close()
 	})

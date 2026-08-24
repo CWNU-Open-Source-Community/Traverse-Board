@@ -363,6 +363,7 @@ func migrationPlan() []migration {
 		{Version: 129, Name: "stable Thread identity and Run succession", Statements: threadSuccessionStatements},
 		{Version: 130, Name: "item stream tool reconciliation identities", Statements: itemStreamToolIdentityStatements},
 		{Version: 131, Name: "Command Runtime adapter authority and legacy projection", Statements: commandRuntimeAdapterStatements, DisableForeignKeys: true},
+		{Version: 132, Name: "fenced Docker Command Runtime stdin attachment", Statements: dockerLifecycleStdinActionStatements, DisableForeignKeys: true},
 	}
 }
 

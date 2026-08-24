@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 
@@ -54,7 +56,7 @@ func (e *DockerSandboxCommandRuntimeExecutor) Identity() commandruntimeadapter.I
 
 func (e *DockerSandboxCommandRuntimeExecutor) Available() bool {
 	if e == nil || e.service == nil || e.service.docker == nil ||
-		!e.identity.Executable() {
+		!e.identity.Executable() || !e.service.docker.commandRuntimeStdinAvailable() {
 		return false
 	}
 	generation, err := e.service.docker.StandardCodeCapabilityGeneration()
@@ -84,14 +86,32 @@ func (e *DockerSandboxCommandRuntimeExecutor) Ready(ctx context.Context,
 
 func (e *DockerSandboxCommandRuntimeExecutor) ExecuteSandboxCommand(ctx context.Context,
 	scope runner.CommandRuntimeScope, spec runner.CommandRuntimeResolvedSpec,
+	stdin io.ReadCloser,
 ) (runner.CommandRuntimeSandboxResult, error) {
-	if ctx == nil || ctx.Err() != nil || !e.Available() ||
-		scope.Validate() != nil || !scope.Adapter.SameBackend(e.identity) ||
-		scope.PermissionMode != domain.RunExecutionPermissionWorkspaceAccess ||
+	if ctx == nil || ctx.Err() != nil {
+		return runner.CommandRuntimeSandboxResult{}, fmt.Errorf(
+			"%w: execution context is unavailable", runner.ErrCommandRuntimeBoundary)
+	}
+	if !e.Available() {
+		return runner.CommandRuntimeSandboxResult{}, fmt.Errorf(
+			"%w: Docker Standard Code adapter is unavailable or stale",
+			runner.ErrCommandRuntimeBoundary)
+	}
+	if scope.Validate() != nil || !scope.Adapter.SameBackend(e.identity) {
+		return runner.CommandRuntimeSandboxResult{}, fmt.Errorf(
+			"%w: execution scope does not match the Docker Standard Code adapter",
+			runner.ErrCommandRuntimeBoundary)
+	}
+	if scope.PermissionMode != domain.RunExecutionPermissionWorkspaceAccess ||
 		spec.Spec.Profile != runner.CommandRuntimeProcess ||
-		spec.Spec.StdinPolicy != runner.CommandRuntimeStdinClosed ||
-		!spec.Spec.CloseInitialStdin || spec.Spec.InitialStdin != "" {
-		return runner.CommandRuntimeSandboxResult{}, runner.ErrCommandRuntimeBoundary
+		(spec.Spec.StdinPolicy == runner.CommandRuntimeStdinClosed &&
+			(stdin != nil || !spec.Spec.CloseInitialStdin || spec.Spec.InitialStdin != "")) ||
+		(spec.Spec.StdinPolicy == runner.CommandRuntimeStdinPipe && stdin == nil) ||
+		(spec.Spec.StdinPolicy != runner.CommandRuntimeStdinClosed &&
+			spec.Spec.StdinPolicy != runner.CommandRuntimeStdinPipe) {
+		return runner.CommandRuntimeSandboxResult{}, fmt.Errorf(
+			"%w: command or stdin policy is unsupported by Docker Standard Code",
+			runner.ErrCommandRuntimeBoundary)
 	}
 	command, err := commandRuntimeDockerCommand(spec)
 	if err != nil {
@@ -105,11 +125,15 @@ func (e *DockerSandboxCommandRuntimeExecutor) ExecuteSandboxCommand(ctx context.
 	baseKey := "command-runtime-docker-" + runmutation.Fingerprint(
 		"command_runtime_docker_adapter_operation.v1", scope.RunID,
 		scope.OperationKey)[:24]
-	prepared, err := e.service.Prepare(ctx, StandardCodeDockerPrepareRequest{
+	stdinPolicy := sandbox.DockerStandardCodeStdinClosed
+	if spec.Spec.StdinPolicy == runner.CommandRuntimeStdinPipe {
+		stdinPolicy = sandbox.DockerStandardCodeStdinPipe
+	}
+	prepared, err := e.service.prepareCommandRuntime(ctx, StandardCodeDockerPrepareRequest{
 		RunID: scope.RunID, ExpectedGeneration: workspace.Generation,
 		ExpectedCheckpoint: workspace.LastCheckpointID,
 		OperationKey:       baseKey + "-prepare", RequestedBy: scope.RootAgentID,
-		Command: command})
+		Command: command}, stdinPolicy)
 	if err != nil {
 		return runner.CommandRuntimeSandboxResult{}, err
 	}
@@ -128,7 +152,8 @@ func (e *DockerSandboxCommandRuntimeExecutor) ExecuteSandboxCommand(ctx context.
 		lease.Generation != scope.LeaseGeneration || lease.OwnerID != scope.LeaseOwnerID ||
 		lease.Status != domain.RunExecutionLeaseActive {
 		return runner.CommandRuntimeSandboxResult{}, errors.Join(err,
-			runner.ErrCommandRuntimeBoundary)
+			fmt.Errorf("%w: Run execution lease changed during Docker admission",
+				runner.ErrCommandRuntimeBoundary))
 	}
 	executed, err := e.service.executeCommandRuntime(ctx,
 		StandardCodeDockerExecuteRequest{
@@ -136,7 +161,7 @@ func (e *DockerSandboxCommandRuntimeExecutor) ExecuteSandboxCommand(ctx context.
 			ExpectedCheckpoint: workspace.LastCheckpointID,
 			PreparationID:      prepared.Preparation.Preparation.ID,
 			ApprovalID:         decision.Approval.ID, OperationKey: baseKey + "-execute",
-			RequestedBy: scope.RootAgentID, Command: command}, lease)
+			RequestedBy: scope.RootAgentID, Command: command}, lease, stdinPolicy, stdin)
 	if err != nil {
 		return runner.CommandRuntimeSandboxResult{}, err
 	}

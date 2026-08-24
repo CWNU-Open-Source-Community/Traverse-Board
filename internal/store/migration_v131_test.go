@@ -21,9 +21,9 @@ import (
 )
 
 func removeSchemaV131ForTestStatements() []string {
-	return append([]string{
+	return append(removeSchemaV132ForTestStatements(), append([]string{
 		`DELETE FROM schema_migrations WHERE version = 131`,
-	}, removeSchemaV130ForTestStatements()...)
+	}, removeSchemaV130ForTestStatements()...)...)
 }
 
 func TestSchemaV131PreservesV130StreamToolIdentities(t *testing.T) {

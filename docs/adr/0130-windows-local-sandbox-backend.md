@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-23
 - Scope: GitHub Issue #132; no schema change
+- Amended: 2026-08-25; sandbox Command Runtime stdin follow-up to #134
 
 ## Context
 
@@ -30,9 +31,11 @@ runtime provider initialization. No internet client/server or private-network
 capability is present, and real network conformance remains authoritative.
 
 The process is assigned at creation to a Job Object with kill-on-close,
-active-process, job-memory, CPU-rate, and UI limits. Only closed stdin and the
-two output pipe handles are inherited. Root completion, timeout, cancellation,
-or error terminates and reaps the entire Job tree.
+active-process, job-memory, CPU-rate, and UI limits. Closed-input requests inherit
+the null handle. `command-runtime.v2` pipe requests instead inherit one anonymous
+stdin read handle while the non-inheritable parent writer is fed from the
+manager-owned bounded pipe. Root completion, EOF, timeout, cancellation, or error
+closes input and terminates/reaps the entire Job tree.
 
 One exact Drydock root receives temporary run-scoped capability-SID
 read/write/execute access
@@ -81,9 +84,10 @@ when `local_sandbox_readiness.v1` is valid and ready. Failed or unsupported
 conditions retain stable reason/remediation codes. Approval remains an explicit
 alternative; no Local failure may select `full_access` or the host runner.
 
-Issue #134 remains responsible for splitting the shared Command Runtime into
-sandboxed and host adapters. This ADR neither installs a model command tool nor
-changes the Standard Code preset.
+Schema v131's #134 implementation installs this backend as the exact
+`sandboxed_workspace/local_windows_lpac` Command Runtime adapter. Its v132 follow-up
+adds no Local persistence: stdin bytes and handles remain process-local and restart
+still cannot adopt a Job.
 
 ## Consequences
 
@@ -94,13 +98,15 @@ changes the Standard Code preset.
   and one process-local backend owner.
 - Other platforms remain unavailable until an equivalent independently audited
   backend exists.
-- Some tools that assume inherited user configuration, online module download,
-  interactive stdin, or detached workers intentionally fail in Workspace
-  Access and must use reviewed offline inputs or a separate Approval.
+- Some tools that assume inherited user configuration, online module download, a
+  persistent PTY, or detached workers intentionally fail in Workspace Access.
+  Bounded ordinary stdin is available only through the Run-owned Command Runtime
+  pipe and does not turn the sandbox into a terminal session.
 
 ## Verification
 
-Real Windows x64 subprocess tests cover write/compile/test success and every
+Real Windows x64 subprocess tests cover write/compile/test success, interactive
+stdin/EOF, and every
 filesystem, network, credential, resource, process-tree, cancellation, timeout,
 profile-tree recreation/write, and simulated-crash boundary above. Product
 tests prove CLI/API/Desktop gating without opening danger-full-access. Windows

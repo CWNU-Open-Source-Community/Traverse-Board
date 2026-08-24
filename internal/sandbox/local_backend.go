@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"path"
 	"path/filepath"
 	"sort"
@@ -234,6 +235,7 @@ type LocalRunRequest struct {
 	Binding           LocalExecutionBinding
 	ToolchainInputs   []LocalToolchainInput
 	MaxDiskWriteBytes int64
+	StdinPipe         bool
 }
 
 func (r LocalRunRequest) Validate() error {
@@ -449,6 +451,7 @@ type LocalBackend interface {
 	Generation() string
 	Readiness(context.Context, LocalRuntimeCapabilities) (LocalReadiness, error)
 	Run(context.Context, LocalRunRequest) (LocalExecutionResult, error)
+	RunWithStdin(context.Context, LocalRunRequest, io.ReadCloser) (LocalExecutionResult, error)
 	Close() error
 }
 
@@ -492,7 +495,7 @@ func localExecutionBindingFingerprint(request LocalRunRequest) string {
 		fmt.Sprint(b.PermissionRevision), b.ProfileSnapshotID, fmt.Sprint(b.ProfileRevision),
 		b.InteractionSnapshotID, fmt.Sprint(b.InteractionRevision), b.CapabilityGeneration,
 		b.LeaseID, fmt.Sprint(b.LeaseGeneration), b.OperationKeySHA256, b.RuntimeGeneration,
-		fmt.Sprint(request.MaxDiskWriteBytes)}
+		fmt.Sprint(request.MaxDiskWriteBytes), fmt.Sprint(request.StdinPipe)}
 	for _, input := range request.ToolchainInputs {
 		parts = append(parts, input.ID, input.RootSHA256, input.VirtualRoot)
 	}

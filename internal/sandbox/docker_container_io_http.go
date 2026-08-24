@@ -8,13 +8,16 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 const (
-	DockerContainerIOFailureInvalidResponse = "invalid_response"
-	DockerContainerIOFailureConnection      = "connection_failed"
-	DockerContainerIOFailureUnavailable     = "unavailable"
-	DockerContainerIOFailureConfigMismatch  = "configuration_mismatch"
+	DockerContainerIOFailureInvalidResponse       = "invalid_response"
+	DockerContainerIOFailureConnection            = "connection_failed"
+	DockerContainerIOFailureUnavailable           = "unavailable"
+	DockerContainerIOFailureConfigMismatch        = "configuration_mismatch"
+	MaxDockerContainerStdinBytes            int64 = 5 * 1024 * 1024
+	dockerContainerStdinAttachQuery               = "stdin=1&stream=1"
 )
 
 // DockerContainerIOTransport is the closed daemon surface for the container
@@ -38,6 +41,16 @@ type DockerContainerOwnedIOTransport interface {
 		plan DockerLogCapturePlan) (io.ReadCloser, error)
 	ExportOwnedOutputs(ctx context.Context, request DockerContainerLifecycleRequest,
 		plan DockerOutputExportPlan) (io.ReadCloser, error)
+}
+
+// DockerContainerStdinTransport is the one process-local, ownership-fenced
+// daemon surface used by the Command Runtime Docker adapter. Raw input is
+// neither persisted nor accepted until the exact owned container is running.
+type DockerContainerStdinTransport interface {
+	Endpoint() DockerObservationEndpoint
+	SupportsOwnedStdin() bool
+	AttachOwnedStdin(context.Context, DockerContainerLifecycleRequest,
+		io.ReadCloser, DockerContainerLifecycleFence) error
 }
 
 type dockerEngineContainerIOTransport struct {
@@ -127,6 +140,145 @@ func (transport dockerEngineContainerIOTransport) ExportOwnedOutputs(ctx context
 		return nil, err
 	}
 	return transport.exportOutputs(ctx, containerID, plan.OutputMountTarget)
+}
+
+func (transport dockerEngineContainerIOTransport) AttachOwnedStdin(ctx context.Context,
+	request DockerContainerLifecycleRequest, stdin io.ReadCloser,
+	fence DockerContainerLifecycleFence,
+) error {
+	if stdin == nil {
+		return newDockerContainerIOError(DockerContainerIOFailureConfigMismatch)
+	}
+	defer stdin.Close()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if request.Validate() != nil || !request.WriteRequest.Spec.StdinPipe ||
+		fence == nil {
+		return newDockerContainerIOError(DockerContainerIOFailureConfigMismatch)
+	}
+	containerID, err := transport.resolveOwnedContainer(ctx, request,
+		request.AttemptID, request.Ownership.ResourceGeneration,
+		request.WriteRequest.Spec.RunID, request.ResourceIDFingerprint)
+	if err != nil {
+		return err
+	}
+	inspection, found, err := transport.write.inspect(ctx, containerID)
+	if err != nil || !found || inspection.ID != containerID ||
+		!inspection.State.Running || inspection.State.Status != "running" ||
+		inspection.State.Pid <= 0 ||
+		verifyDockerContainerConfigurationWithLabels(inspection,
+			request.WriteRequest, mustDockerLifecycleLabels(request)) != nil {
+		if err != nil {
+			return mapDockerContainerWriteIOError(err)
+		}
+		return newDockerContainerIOError(DockerContainerIOFailureConfigMismatch)
+	}
+	if err := fence(ctx, DockerContainerLifecycleActionAttachStdin); err != nil {
+		return err
+	}
+	path := "/v" + DockerContainerWriteAPIVersion + "/containers/" +
+		url.PathEscape(containerID) + "/attach"
+	requestURL := "http://docker" + path + "?" + dockerContainerStdinAttachQuery
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, requestURL, nil)
+	if err != nil || !validDockerContainerIOOperation(http.MethodPost, path,
+		dockerContainerStdinAttachQuery) {
+		return newDockerContainerIOError(DockerContainerIOFailureInvalidResponse)
+	}
+	httpRequest.Header.Set("User-Agent", "cyberagent-workbench/docker-container-stdin-v1")
+	httpRequest.Header.Set("Connection", "Upgrade")
+	httpRequest.Header.Set("Upgrade", "tcp")
+	response, err := transport.doer.Do(httpRequest)
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return newDockerContainerIOError(DockerContainerIOFailureConnection)
+	}
+	if response == nil || response.Body == nil {
+		return newDockerContainerIOError(DockerContainerIOFailureInvalidResponse)
+	}
+	stream, writable := response.Body.(io.ReadWriteCloser)
+	if !writable || response.StatusCode != http.StatusSwitchingProtocols ||
+		!strings.EqualFold(response.Header.Get("Upgrade"), "tcp") ||
+		response.Request == nil || response.Request.URL == nil ||
+		response.Request.Method != http.MethodPost ||
+		response.Request.URL.Scheme != "http" || response.Request.URL.Host != "docker" ||
+		response.Request.URL.Path != path ||
+		response.Request.URL.RawQuery != dockerContainerStdinAttachQuery {
+		_ = response.Body.Close()
+		return newDockerContainerIOError(DockerContainerIOFailureInvalidResponse)
+	}
+	return pumpDockerContainerStdin(ctx, stream, stdin)
+}
+
+func (dockerEngineContainerIOTransport) SupportsOwnedStdin() bool { return true }
+
+func mustDockerLifecycleLabels(request DockerContainerLifecycleRequest) []DockerContainerLabel {
+	labels, err := dockerContainerLifecycleOwnedLabels(request.WriteRequest.Spec.Labels,
+		request.Ownership)
+	if err != nil {
+		return nil
+	}
+	return labels
+}
+
+func pumpDockerContainerStdin(ctx context.Context, stream io.ReadWriteCloser,
+	stdin io.ReadCloser,
+) error {
+	type copyResult struct {
+		count int64
+		err   error
+	}
+	written := make(chan copyResult, 1)
+	closed := make(chan error, 1)
+	go func() {
+		count, err := io.Copy(stream, io.LimitReader(stdin,
+			MaxDockerContainerStdinBytes+1))
+		written <- copyResult{count: count, err: err}
+	}()
+	go func() {
+		_, err := io.Copy(io.Discard, stream)
+		closed <- err
+	}()
+	finish := func(result copyResult) error {
+		_ = stream.Close()
+		_ = stdin.Close()
+		select {
+		case <-closed:
+		case <-time.After(time.Second):
+		}
+		if result.count > MaxDockerContainerStdinBytes {
+			return newDockerContainerIOError(DockerContainerIOFailureConfigMismatch)
+		}
+		if result.err != nil && ctx.Err() == nil {
+			return newDockerContainerIOError(DockerContainerIOFailureConnection)
+		}
+		return ctx.Err()
+	}
+	select {
+	case result := <-written:
+		return finish(result)
+	case readErr := <-closed:
+		_ = stdin.Close()
+		_ = stream.Close()
+		result := <-written
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			return newDockerContainerIOError(DockerContainerIOFailureConnection)
+		}
+		if result.count > MaxDockerContainerStdinBytes {
+			return newDockerContainerIOError(DockerContainerIOFailureConfigMismatch)
+		}
+		return nil
+	case <-ctx.Done():
+		_ = stdin.Close()
+		_ = stream.Close()
+		<-written
+		return ctx.Err()
+	}
 }
 
 func (transport dockerEngineContainerIOTransport) resolveOwnedContainer(ctx context.Context,
@@ -276,7 +428,8 @@ func validDockerContainerIOOperation(method, path, rawQuery string) bool {
 			tail != url.PathEscape(reference)+"/attach" {
 			return false
 		}
-		return rawQuery == "logs=1&stderr=1&stdout=1&stream=0"
+		return rawQuery == "logs=1&stderr=1&stdout=1&stream=0" ||
+			rawQuery == dockerContainerStdinAttachQuery
 	case http.MethodGet:
 		if !strings.HasSuffix(tail, "/archive") {
 			return false
@@ -349,6 +502,21 @@ func (transport unavailableDockerContainerIOTransport) ExportOwnedOutputs(ctx co
 ) (io.ReadCloser, error) {
 	return transport.ExportOutputs(ctx, plan)
 }
+
+func (transport unavailableDockerContainerIOTransport) AttachOwnedStdin(ctx context.Context,
+	_ DockerContainerLifecycleRequest, stdin io.ReadCloser,
+	_ DockerContainerLifecycleFence,
+) error {
+	if stdin != nil {
+		_ = stdin.Close()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return newDockerContainerIOError(DockerContainerIOFailureUnavailable)
+}
+
+func (unavailableDockerContainerIOTransport) SupportsOwnedStdin() bool { return false }
 
 type DockerContainerIOError struct {
 	code string

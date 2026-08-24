@@ -61,6 +61,7 @@ type localProcessSpec struct {
 	timeout      time.Duration
 	captureOut   bool
 	captureErr   bool
+	stdin        io.ReadCloser
 	writeMaximum int64
 }
 
@@ -168,11 +169,24 @@ func runLocalProcess(ctx context.Context, spec localProcessSpec) (localProcessRe
 		return localProcessResult{}, err
 	}
 	defer stderr.close()
-	stdin, err := openLocalNullInput()
+	var stdin windows.Handle
+	var stdinWriter *os.File
+	if spec.stdin == nil {
+		stdin, err = openLocalNullInput()
+	} else {
+		stdin, stdinWriter, err = newLocalInputPipe()
+	}
 	if err != nil {
 		return localProcessResult{}, err
 	}
-	defer windows.CloseHandle(stdin)
+	defer func() {
+		if stdin != 0 {
+			_ = windows.CloseHandle(stdin)
+		}
+		if stdinWriter != nil {
+			_ = stdinWriter.Close()
+		}
+	}()
 
 	attributes, err := windows.NewProcThreadAttributeList(4)
 	if err != nil {
@@ -252,6 +266,8 @@ func runLocalProcess(ctx context.Context, spec localProcessSpec) (localProcessRe
 		_, _ = waitLocalProcess(process.Process, 2*time.Second)
 		return localProcessResult{}, fmt.Errorf("resume AppContainer process: %w", err)
 	}
+	_ = windows.CloseHandle(stdin)
+	stdin = 0
 	_ = windows.CloseHandle(stdout.write)
 	stdout.write = 0
 	_ = windows.CloseHandle(stderr.write)
@@ -263,6 +279,16 @@ func runLocalProcess(ctx context.Context, spec localProcessSpec) (localProcessRe
 	stdout.read = 0
 	errStream := startLocalOutput(stderr.read, budget, spec.captureErr)
 	stderr.read = 0
+	var stdinDone chan error
+	if stdinWriter != nil {
+		stdinDone = make(chan error, 1)
+		writer := stdinWriter
+		done := stdinDone
+		go func() {
+			_, copyErr := io.Copy(writer, spec.stdin)
+			done <- errors.Join(copyErr, writer.Close())
+		}()
+	}
 
 	result := localProcessResult{startedAt: startedAt, proof: proof}
 	deadline := time.Now().Add(spec.timeout)
@@ -287,6 +313,12 @@ func runLocalProcess(ctx context.Context, spec localProcessSpec) (localProcessRe
 		case <-ctx.Done():
 			result.cancelled = true
 			err = context.Canceled
+		case inputErr := <-stdinDone:
+			stdinDone = nil
+			stdinWriter = nil
+			if inputErr != nil {
+				err = inputErr
+			}
 		case <-budget.signal:
 			result.outputLimitExceeded = true
 			err = ErrLocalSandboxOutputLimit
@@ -306,6 +338,17 @@ func runLocalProcess(ctx context.Context, spec localProcessSpec) (localProcessRe
 		if err != nil {
 			break
 		}
+	}
+	if spec.stdin != nil {
+		_ = spec.stdin.Close()
+	}
+	if stdinWriter != nil {
+		_ = stdinWriter.Close()
+		stdinWriter = nil
+	}
+	if stdinDone != nil {
+		<-stdinDone
+		stdinDone = nil
 	}
 	if processDone {
 		var exitCode uint32
@@ -624,6 +667,27 @@ func newLocalPipe() (localPipe, error) {
 		return localPipe{}, err
 	}
 	return localPipe{read: readHandle, write: writeHandle}, nil
+}
+
+func newLocalInputPipe() (windows.Handle, *os.File, error) {
+	security := windows.SecurityAttributes{Length: uint32(unsafe.Sizeof(windows.SecurityAttributes{})),
+		InheritHandle: 1}
+	var readHandle, writeHandle windows.Handle
+	if err := windows.CreatePipe(&readHandle, &writeHandle, &security, 0); err != nil {
+		return 0, nil, err
+	}
+	if err := windows.SetHandleInformation(writeHandle, windows.HANDLE_FLAG_INHERIT, 0); err != nil {
+		_ = windows.CloseHandle(readHandle)
+		_ = windows.CloseHandle(writeHandle)
+		return 0, nil, err
+	}
+	writer := os.NewFile(uintptr(writeHandle), "local-sandbox-stdin")
+	if writer == nil {
+		_ = windows.CloseHandle(readHandle)
+		_ = windows.CloseHandle(writeHandle)
+		return 0, nil, ErrLocalSandboxUnavailable
+	}
+	return readHandle, writer, nil
 }
 
 func (p *localPipe) close() {

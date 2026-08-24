@@ -14,10 +14,10 @@ import (
 )
 
 const (
-	protocol                      = "standard-code-docker-runner.v1"
+	protocol                      = "standard-code-docker-runner.v2"
 	workspaceRoot                 = "/workspace"
 	cacheRoot                     = "/traverse-board/cache"
-	bindingFieldCount             = 23
+	bindingFieldCount             = 24
 	workspaceGrowthBytes    int64 = 16 * 1024 * 1024
 	workspaceGrowthEntries  int64 = 4_096
 	workspaceFileBytes      int64 = 16 * 1024 * 1024
@@ -61,15 +61,23 @@ func run(arguments []string) (int, error) {
 			return runnerFailureExitCode, errors.New("runner digest is invalid")
 		}
 	}
-	limits, err := parseExecutionLimits(fields[18:23])
+	limits, err := parseExecutionLimits(fields[19:24])
 	if err != nil {
 		return runnerFailureExitCode, err
 	}
-	workingDirectory, err := resolveWorkingDirectory(fields[17])
+	stdinPipe := false
+	switch fields[16] {
+	case "closed":
+	case "pipe":
+		stdinPipe = true
+	default:
+		return runnerFailureExitCode, errors.New("runner stdin policy is invalid")
+	}
+	workingDirectory, err := resolveWorkingDirectory(fields[18])
 	if err != nil {
 		return runnerFailureExitCode, err
 	}
-	executable, environment, err := fixedToolchain(fields[16])
+	executable, environment, err := fixedToolchain(fields[17])
 	if err != nil {
 		return runnerFailureExitCode, err
 	}
@@ -79,7 +87,8 @@ func run(arguments []string) (int, error) {
 			return runnerFailureExitCode, errors.New("tool argument is invalid")
 		}
 	}
-	return executeTool(executable, toolArguments, environment, workingDirectory, limits)
+	return executeTool(executable, toolArguments, environment, workingDirectory, limits,
+		stdinPipe)
 }
 
 type executionLimits struct {

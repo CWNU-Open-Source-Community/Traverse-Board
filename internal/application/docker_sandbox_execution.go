@@ -3,9 +3,11 @@ package application
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"cyberagent-workbench/internal/apperror"
@@ -325,7 +327,74 @@ func (s *DockerSandboxService) newLifecycleSupervisor() (
 			"Docker Sandbox lifecycle Supervisor is unavailable", err)
 	}
 	return supervisor.WithDockerContainerLifecycleStartAuthority(s).
+		WithDockerContainerLifecycleRunning(s).
 		WithDockerContainerLifecyclePostExit(s), nil
+}
+
+func (s *DockerSandboxService) commandRuntimeStdinAvailable() bool {
+	return s != nil && s.stdinTransport != nil && s.lifecycleTransport != nil &&
+		s.stdinTransport.SupportsOwnedStdin() &&
+		s.stdinTransport.Endpoint() == s.lifecycleTransport.Endpoint()
+}
+
+func (s *DockerSandboxService) registerCommandRuntimeStdin(admissionID string,
+	stdin io.ReadCloser,
+) (func(), error) {
+	admissionID = strings.TrimSpace(admissionID)
+	if !s.commandRuntimeStdinAvailable() || stdin == nil ||
+		!validDockerSandboxIdentity(admissionID) {
+		if stdin != nil {
+			_ = stdin.Close()
+		}
+		return nil, errors.New("Docker Command Runtime stdin transport is unavailable")
+	}
+	s.stdinMu.Lock()
+	if _, exists := s.activeStdin[admissionID]; exists {
+		s.stdinMu.Unlock()
+		_ = stdin.Close()
+		return nil, errors.New("Docker Command Runtime stdin is already registered")
+	}
+	s.activeStdin[admissionID] = stdin
+	s.stdinMu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			s.stdinMu.Lock()
+			current, exists := s.activeStdin[admissionID]
+			if exists {
+				delete(s.activeStdin, admissionID)
+			}
+			s.stdinMu.Unlock()
+			if exists {
+				_ = current.Close()
+			}
+		})
+	}, nil
+}
+
+func (s *DockerSandboxService) HandleDockerContainerLifecycleRunning(ctx context.Context,
+	request DockerContainerLifecycleRunningRequest,
+	fence sandbox.DockerContainerLifecycleFence,
+) error {
+	if request.Validate() != nil || !request.WriteRequest.Spec.StdinPipe ||
+		fence == nil || !s.commandRuntimeStdinAvailable() {
+		return errors.New("Docker Command Runtime running input request is invalid")
+	}
+	record, found, err := s.store.GetDockerSandboxRecordByLifecycleIntent(ctx,
+		request.Record.Intent.ID)
+	if err != nil || !found || record.Launch == nil ||
+		record.Launch.LifecycleIntentID != request.Record.Intent.ID {
+		return errors.Join(err,
+			errors.New("Docker Command Runtime input has no product owner"))
+	}
+	s.stdinMu.Lock()
+	stdin := s.activeStdin[record.Admission.ID]
+	s.stdinMu.Unlock()
+	if stdin == nil {
+		return errors.New("Docker Command Runtime input authority did not survive restart")
+	}
+	return s.stdinTransport.AttachOwnedStdin(ctx, request.LifecycleRequest,
+		stdin, fence)
 }
 
 // RevalidateDockerContainerLifecycle implements cleanup-safe exact authority

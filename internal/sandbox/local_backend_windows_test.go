@@ -254,6 +254,64 @@ func TestWindowsLocalSandboxExecutesInDrydockAndDeniesHostAndNetwork(t *testing.
 	}
 }
 
+func TestWindowsLocalSandboxStreamsAndClosesStdin(t *testing.T) {
+	base := windowsTestTempDir(t)
+	backend, err := NewPlatformLocalBackend(WithLocalOwnerRoot(
+		filepath.Join(base, "owners")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+	if readiness, err := backend.Readiness(t.Context(),
+		LocalRuntimeCapabilities{Enabled: true}); err != nil || !readiness.Ready {
+		t.Fatalf("Local Sandbox not ready: %#v err=%v", readiness, err)
+	}
+	drydock := filepath.Join(base, "drydock")
+	if err := os.MkdirAll(drydock, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolchainRoot := windowsTestCanonicalRoot(t, filepath.Dir(executable))
+	request := localWindowsTestRequest(t, backend, drydock, toolchainRoot,
+		"/test-toolchain", "/test-toolchain/"+filepath.ToSlash(filepath.Base(executable)),
+		[]string{"-test.run=^TestWindowsLocalSandboxStdinChild$"})
+	request.Manifest.Environment = []EnvironmentBinding{{Name: "TRAVERSE_BOARD_LOCAL_CHILD",
+		Source: EnvironmentLiteral, Value: "stdin"}}
+	request.StdinPipe = true
+	reader, writer := io.Pipe()
+	type completed struct {
+		result LocalExecutionResult
+		err    error
+	}
+	done := make(chan completed, 1)
+	go func() {
+		result, runErr := backend.RunWithStdin(t.Context(), request, reader)
+		done <- completed{result: result, err: runErr}
+	}()
+	for _, part := range []string{"first line\n", "second line\n"} {
+		if written, err := writer.Write([]byte(part)); err != nil || written != len(part) {
+			t.Fatalf("write Local Sandbox stdin=%d err=%v", written, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case value := <-done:
+		if value.err != nil || value.result.Status != LocalExecutionCompleted ||
+			!strings.HasPrefix(string(value.result.Stdout.Data),
+				"first line\nsecond line\n") ||
+			!value.result.StdinClosed || !value.result.TreeReaped {
+			t.Fatalf("Local Sandbox stdin result=%#v err=%v", value.result, value.err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("Local Sandbox stdin execution did not terminate")
+	}
+}
+
 func TestWindowsLocalSandboxCompilesAndTestsInsideDrydock(t *testing.T) {
 	base := windowsTestTempDir(t)
 	ownerRoot := filepath.Clean(filepath.Join(base, "owners"))
@@ -1014,6 +1072,17 @@ func TestWindowsLocalSandboxChildProbe(t *testing.T) {
 				name, value, working)
 		}
 	}
+}
+
+func TestWindowsLocalSandboxStdinChild(t *testing.T) {
+	if os.Getenv("TRAVERSE_BOARD_LOCAL_CHILD") != "stdin" {
+		t.Skip("Local Sandbox stdin child helper")
+	}
+	payload, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = os.Stdout.Write(payload)
 }
 
 func windowsTestCurrentAppContainerFolder() (string, error) {

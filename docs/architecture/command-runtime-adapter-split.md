@@ -51,9 +51,15 @@ bridge does not weaken the existing Sandbox transaction.
 Both backends reuse foreground/background Job creation, cursor output, timeout,
 cancel/kill, owner heartbeat, bounded Artifact capture, and restart reconciliation.
 Sandbox Jobs deliberately persist no host PID or process group. Backend cancellation
-must return only after its complete process/container tree is reaped. The current
-Local and Docker contracts accept closed stdin only; `write_stdin` is rejected and
-results include that limitation in `incomplete_reasons`.
+must return only after its complete process/container tree is reaped. The shared Job
+manager owns a bounded stdin pipe for `stdin_policy=pipe`, serializes initial and
+interactive writes, and closes it on EOF, timeout, cancel, kill, or owner shutdown.
+Windows Local copies that pipe into the AppContainer child's sole inherited stdin
+handle. Docker binds the policy into `standard-code-docker-runner.v2`, opens only the
+exact owned running container's input attachment, and fences the metadata-only
+`attach_stdin` action in schema v132's lifecycle WAL. Input bytes and handles are
+never persisted, so restart cannot adopt or replay them and instead converges through
+normal container cleanup.
 
 Local commands use the shared Workspace Checkpoint boundary. Docker Standard Code
 already owns the exact Drydock checkpoint transaction, so the outer Command Runtime
@@ -66,7 +72,8 @@ PID-less sandbox Job states. All pre-v131 rows are migrated to `legacy_unbound`.
 They remain listable/readable evidence but cannot count as active capacity, acquire
 process ownership, execute, accept stdin, or be adopted after restart. New active
 Jobs also are never adopted from a persisted PID: owner loss converges them to
-`interrupted` through the existing reconciliation rules.
+`interrupted` through the existing reconciliation rules. Schema v132 changes no Job
+payload and stores no input; it only admits the fenced Docker lifecycle attach verb.
 
 ## Product projections
 

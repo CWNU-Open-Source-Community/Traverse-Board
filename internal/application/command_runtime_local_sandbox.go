@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"io"
 	"path"
 	"path/filepath"
 	"strings"
@@ -105,12 +106,16 @@ func (e *LocalSandboxCommandRuntimeExecutor) Ready(ctx context.Context,
 
 func (e *LocalSandboxCommandRuntimeExecutor) ExecuteSandboxCommand(ctx context.Context,
 	scope runner.CommandRuntimeScope, spec runner.CommandRuntimeResolvedSpec,
+	stdin io.ReadCloser,
 ) (runner.CommandRuntimeSandboxResult, error) {
 	if ctx == nil || ctx.Err() != nil || !e.Available() ||
 		scope.Validate() != nil || !scope.Adapter.SameBackend(e.identity) ||
 		scope.PermissionMode != domain.RunExecutionPermissionWorkspaceAccess ||
-		spec.Spec.StdinPolicy != runner.CommandRuntimeStdinClosed ||
-		!spec.Spec.CloseInitialStdin || spec.Spec.InitialStdin != "" {
+		(spec.Spec.StdinPolicy == runner.CommandRuntimeStdinClosed &&
+			(stdin != nil || !spec.Spec.CloseInitialStdin || spec.Spec.InitialStdin != "")) ||
+		(spec.Spec.StdinPolicy == runner.CommandRuntimeStdinPipe && stdin == nil) ||
+		(spec.Spec.StdinPolicy != runner.CommandRuntimeStdinClosed &&
+			spec.Spec.StdinPolicy != runner.CommandRuntimeStdinPipe) {
 		return runner.CommandRuntimeSandboxResult{}, runner.ErrCommandRuntimeBoundary
 	}
 	workspace, found, err := e.store.GetDrydockByRun(ctx, scope.RunID)
@@ -159,7 +164,13 @@ func (e *LocalSandboxCommandRuntimeExecutor) ExecuteSandboxCommand(ctx context.C
 	if err != nil {
 		return runner.CommandRuntimeSandboxResult{}, err
 	}
-	value, runErr := e.backend.Run(ctx, request)
+	var value sandbox.LocalExecutionResult
+	var runErr error
+	if spec.Spec.StdinPolicy == runner.CommandRuntimeStdinPipe {
+		value, runErr = e.backend.RunWithStdin(ctx, request, stdin)
+	} else {
+		value, runErr = e.backend.Run(ctx, request)
+	}
 	if validateErr := value.Validate(request); validateErr != nil {
 		return runner.CommandRuntimeSandboxResult{}, errors.Join(runErr, validateErr)
 	}
@@ -241,7 +252,8 @@ func (e *LocalSandboxCommandRuntimeExecutor) compile(scope runner.CommandRuntime
 			ID: "command-runtime-toolchain", Root: toolchainRoot,
 			VirtualRoot: commandRuntimeLocalToolchainRoot,
 			RootSHA256:  toolchainSHA256}},
-		MaxDiskWriteBytes: sandbox.DockerStandardCodeWorkspaceGrowthBytes}
+		MaxDiskWriteBytes: sandbox.DockerStandardCodeWorkspaceGrowthBytes,
+		StdinPipe:         spec.Spec.StdinPolicy == runner.CommandRuntimeStdinPipe}
 	return sandbox.NormalizeLocalRunRequest(request)
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -93,6 +94,7 @@ type DockerSandboxService struct {
 	permissionCapabilities  domain.ExecutionPermissionRuntimeCapabilities
 	runtimeEpochFingerprint string
 	lifecycleTransport      sandbox.DockerContainerLifecycleTransport
+	stdinTransport          sandbox.DockerContainerStdinTransport
 	ioService               *DockerContainerIOService
 	stagingRoot             string
 	leaseTTL                time.Duration
@@ -104,6 +106,8 @@ type DockerSandboxService struct {
 	standardCodeMaskMu sync.Mutex
 	activeMu           sync.Mutex
 	active             map[string]context.CancelFunc
+	stdinMu            sync.Mutex
+	activeStdin        map[string]io.ReadCloser
 }
 
 type DockerSandboxServiceOption func(*DockerSandboxService) error
@@ -158,6 +162,7 @@ func WithDockerSandboxExecution(lifecycle sandbox.DockerContainerLifecycleTransp
 			return err
 		}
 		service.lifecycleTransport = lifecycle
+		service.stdinTransport, _ = ioTransport.(sandbox.DockerContainerStdinTransport)
 		service.ioService = NewDockerContainerIOService(service.store, ioTransport)
 		service.stagingRoot = root
 		service.leaseTTL = leaseTTL
@@ -184,9 +189,10 @@ func NewDockerSandboxService(store DockerSandboxStore, readiness sandbox.Readine
 		permissionCapabilities: permissionCapabilities,
 		runtimeEpochFingerprint: dockerSandboxRuntimeEpochFingerprint(epoch,
 			dockerCapabilities, permissionCapabilities),
-		leaseTTL: sandbox.DefaultDockerContainerLifecycleLeaseTTL,
-		now:      func() time.Time { return time.Now().UTC() },
-		active:   make(map[string]context.CancelFunc),
+		leaseTTL:    sandbox.DefaultDockerContainerLifecycleLeaseTTL,
+		now:         func() time.Time { return time.Now().UTC() },
+		active:      make(map[string]context.CancelFunc),
+		activeStdin: make(map[string]io.ReadCloser),
 	}
 	for _, option := range options {
 		if option == nil || option(service) != nil {

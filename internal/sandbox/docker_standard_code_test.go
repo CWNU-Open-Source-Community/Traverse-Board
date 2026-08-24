@@ -20,7 +20,8 @@ func dockerStandardCodeBindingFixture(toolchain string) DockerStandardCodeRunner
 		ProfileSnapshotID:    "standard-code-profile-1", ProfileRevision: 1,
 		PermissionSnapshotID: "standard-code-permission-1", PermissionRevision: 1,
 		CapabilityGeneration: strings.Repeat("b", 64),
-		CommandSHA256:        strings.Repeat("c", 64), Toolchain: toolchain,
+		CommandSHA256:        strings.Repeat("c", 64),
+		StdinPolicy:          DockerStandardCodeStdinClosed, Toolchain: toolchain,
 		WorkingDirectory: ".", Arguments: []string{"test", "./..."},
 		TimeoutSeconds: 120,
 	}
@@ -45,6 +46,7 @@ func TestDockerStandardCodeManifestIsBackendNeutralAndExact(t *testing.T) {
 			}
 			parsed, ok := ParseDockerStandardCodeManifest(manifest)
 			if !ok || parsed.Toolchain != toolchain ||
+				parsed.StdinPolicy != DockerStandardCodeStdinClosed ||
 				parsed.DrydockBindingSHA256 != binding.DrydockBindingSHA256 ||
 				strings.Join(parsed.Arguments, "\x00") != strings.Join(binding.Arguments, "\x00") {
 				t.Fatalf("fixed manifest did not round-trip: %#v ok=%t", parsed, ok)
@@ -56,6 +58,43 @@ func TestDockerStandardCodeManifestIsBackendNeutralAndExact(t *testing.T) {
 				t.Fatalf("fixed Standard Code boundary drifted: %#v", manifest)
 			}
 		})
+	}
+}
+
+func TestDockerStandardCodeManifestBindsPipeStdinAndReadsLegacyClosedReceipts(t *testing.T) {
+	binding := dockerStandardCodeBindingFixture(DockerStandardCodeToolchainPython)
+	legacy, err := dockerStandardCodeManifest(binding,
+		dockerStandardCodeRunnerLegacyProtocol)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyBinding, ok := ParseDockerStandardCodeManifest(legacy)
+	if !ok || legacyBinding.StdinPolicy != DockerStandardCodeStdinClosed ||
+		legacy.Command.Arguments[0] != dockerStandardCodeRunnerLegacyProtocol {
+		t.Fatalf("legacy Standard Code manifest was not retained: %#v ok=%t",
+			legacyBinding, ok)
+	}
+
+	binding.StdinPolicy = DockerStandardCodeStdinPipe
+	manifest, err := DockerStandardCodeManifest(binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, ok := ParseDockerStandardCodeManifest(manifest)
+	if !ok || parsed.StdinPolicy != DockerStandardCodeStdinPipe ||
+		manifest.Command.Arguments[0] != DockerStandardCodeRunnerProtocolVersion {
+		t.Fatalf("pipe Standard Code manifest did not round-trip: %#v ok=%t", parsed, ok)
+	}
+	observation := dockerContainerCompilerObservation(t, t.Context(), manifest, true, 8,
+		8*1024*1024*1024)
+	spec, err := CompileDockerContainerSpec(t.Context(), observation, manifest)
+	if err != nil || !spec.StdinPipe {
+		t.Fatalf("pipe Standard Code spec=%#v err=%v", spec, err)
+	}
+	payload := dockerCreatePayload(DockerContainerWriteRequest{Spec: spec})
+	if !payload.AttachStdin || !payload.OpenStdin || !payload.StdinOnce ||
+		payload.AttachStdout || payload.AttachStderr || payload.Tty {
+		t.Fatalf("pipe Standard Code Docker config drifted: %#v", payload)
 	}
 }
 
