@@ -14,7 +14,11 @@ import { useLocale } from "../lib/locale";
 
 type ApprovalAction = ApprovalDecisionControlRequestView["action"];
 
-export function ApprovalPanel({ client, runID }: { client: CyberAgentClient; runID: string }) {
+export function ApprovalPanel({ client, runID, threadID = "" }: {
+  client: CyberAgentClient;
+  runID: string;
+  threadID?: string;
+}) {
   const { t } = useLocale();
   const queryClient = useQueryClient();
   const [reasons, setReasons] = useState<Record<string, string>>({});
@@ -48,6 +52,10 @@ export function ApprovalPanel({ client, runID }: { client: CyberAgentClient; run
       void queryClient.invalidateQueries({ queryKey: ["run", runID, "approvals"] });
       void queryClient.invalidateQueries({ queryKey: ["run", runID] });
       void queryClient.invalidateQueries({ queryKey: ["run", runID, "events"] });
+      if (threadID) {
+        void queryClient.invalidateQueries({ queryKey: ["thread", threadID] });
+        void queryClient.invalidateQueries({ queryKey: ["thread", threadID, "transcript"] });
+      }
     },
   });
   if (query.isLoading) {

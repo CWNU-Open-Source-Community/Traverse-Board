@@ -64,6 +64,7 @@ export type ThreadView = components["schemas"]["ThreadView"];
 export type ThreadDetailView = components["schemas"]["ThreadDetailView"];
 export type ThreadRunView = components["schemas"]["ThreadRunView"];
 export type ThreadMessageView = components["schemas"]["ThreadMessageView"];
+export type ThreadTranscriptItemView = components["schemas"]["ThreadTranscriptItemView"];
 export type ThreadExportView = components["schemas"]["ThreadExportView"];
 export type ThreadCreationControlRequestView =
   components["schemas"]["ThreadCreationControlRequestView"];

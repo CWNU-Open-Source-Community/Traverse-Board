@@ -96,6 +96,10 @@ Schema v130 与 `llm.item_stream.v1` 将 OpenAI 的交错 tool-call delta、Anth
 
 公开 `model_public_stream.v3` 和 `model.delta` 只携带稳定 ID、状态、脱敏工具名、参数字节数及无正文边界，不保存参数、raw wire、凭据或私有推理。取消、断流、缺失 usage、模型漂移和畸形/重复终态会稳定失败，且不会补造成功完成事件；旧 Session 历史无需改写即可显示为 durable completed item。设计与失败语义见 [ADR 0133](docs/adr/0133-item-level-model-tool-streaming.md)。
 
+`thread_transcript.v1` 进一步把同一 Thread 内的用户消息、Assistant 公开文本、Harness 事实、结构化工具阶段、审批、验证、检查点、交付和多 Run 边界合为主页面叙事。持久顺序使用 `(Run ordinal, event sequence, item position)`；追加事件和 successor 不会移动旧 keyset cursor。临时模型/工具卡片只在相同稳定身份的 durable event 到达前存在，模型陈述与可验证 Harness 事实始终使用不同标签、图标和无障碍文本。
+
+Thread 页面同屏提供发送、暂停/恢复、审批、继续和交付查看；Events、Artifacts、Run 与 Session 页面继续作为专业审计面。长历史由有界可变高度虚拟列表承担，Composer 是独立 sticky 根布局区域，并覆盖窄屏、200% 等效缩放、中文 IME、虚拟键盘、safe area 和 reduced motion。安全投影不包含工具参数、raw output、provider bytes、凭据或私有推理。设计与恢复合同见 [ADR 0134](docs/adr/0134-unified-thread-transcript.md)。
+
 ### Run-owned Drydock 工作目录
 
 Schema v127 的 `drydock-workspace.v1` 从精确的 source Workspace、repository/common-dir、branch、base commit、root 指纹和 dirty/index 状态创建产品管理的独立 worktree。首次 create 只返回 Workspace Trust digest；操作者必须把该 digest 原样带入第二次确认，任何来源漂移都会失败关闭。来源未提交内容只进入 Trust 回执，不会被暗中复制。Trust 永远固定 `grants_process_authority=false`；Drydock 本身不提供进程、网络、凭证或宿主文件系统隔离。

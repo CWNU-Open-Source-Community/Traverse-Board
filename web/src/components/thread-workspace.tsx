@@ -1,6 +1,8 @@
-import { useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent,
+  type MutableRefObject, type SetStateAction } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LoaderCircle, MessagesSquare, SendHorizontal } from "lucide-react";
+import { Activity, ChevronDown, LoaderCircle, MessagesSquare, SendHorizontal,
+  ShieldCheck } from "lucide-react";
 import type { CyberAgentClient } from "../api/client";
 import type {
   RunDetailView,
@@ -8,14 +10,18 @@ import type {
   ThreadDetailView,
   ThreadMessageControlRequestView,
   ThreadMessageControlView,
-  ThreadMessageView,
+  ThreadTranscriptItemView,
 } from "../api/types";
 import { usePagedResource } from "../hooks/use-paged-resource";
+import { usePublicModelStream } from "../hooks/use-public-model-stream";
+import { useRunEventStream } from "../hooks/use-run-event-stream";
 import { submitComposerOnEnter } from "../lib/composer-keyboard";
 import { formatDate, formatNumber, shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
-import { EmptyState, ErrorState, KeyValue, LoadMoreButton, LoadingState, StatusBadge } from "./common";
-import { SafeMarkdown } from "./safe-markdown";
+import { ErrorState, KeyValue, LoadingState, StatusBadge } from "./common";
+import { ApprovalPanel } from "./approval-panel";
+import { RunControlPanel } from "./run-workspace";
+import { ThreadTranscript } from "./thread-transcript";
 
 const maximumContentBytes = 16 * 1024;
 
@@ -42,12 +48,21 @@ export function ThreadWorkspace({ client, threadID }: {
       `/threads/${encodeURIComponent(threadID)}`, {}, signal),
     enabled: Boolean(threadID),
   });
-  const messagesQuery = usePagedResource<ThreadMessageView>(client,
-    ["thread", threadID, "messages"],
-    `/threads/${encodeURIComponent(threadID)}/messages`,
-    { limit: 100, include_compacted: true }, Boolean(threadID));
-  const messages = useMemo(() => messagesQuery.data?.pages
-    .flatMap((page) => page.items) ?? [], [messagesQuery.data]);
+  const transcriptQuery = usePagedResource<ThreadTranscriptItemView>(client,
+    ["thread", threadID, "transcript"],
+    `/threads/${encodeURIComponent(threadID)}/transcript`,
+    { limit: 100 }, Boolean(threadID));
+  const durableItems = useMemo(() => [...(transcriptQuery.data?.pages ?? [])]
+    .reverse().flatMap((page) => page.items), [transcriptQuery.data]);
+  const [pendingItems, setPendingItems] = useState<ThreadTranscriptItemView[]>([]);
+  const refreshTimer = useRef<number | null>(null);
+  useEffect(() => {
+    setPendingItems([]);
+    if (refreshTimer.current !== null) {
+      window.clearTimeout(refreshTimer.current);
+      refreshTimer.current = null;
+    }
+  }, [threadID]);
 
   if (!threadID) {
     return <div className="workspace-empty"><MessagesSquare aria-hidden="true" size={24} />
@@ -57,55 +72,133 @@ export function ThreadWorkspace({ client, threadID }: {
   if (detailQuery.isError || !detailQuery.data) return <ErrorState error={detailQuery.error} />;
   const detail = detailQuery.data;
   const currentRun = detail.active_run ?? detail.last_run;
+  return <ThreadWorkspaceReady client={client} currentRunID={currentRun.id}
+    detail={detail} durableItems={durableItems} pendingItems={pendingItems}
+    refreshTimer={refreshTimer} setPendingItems={setPendingItems}
+    transcriptQuery={transcriptQuery} />;
+}
 
-  return <div className="workspace-view">
+function ThreadWorkspaceReady({ client, currentRunID, detail, durableItems, pendingItems,
+  refreshTimer, setPendingItems, transcriptQuery }: {
+  client: CyberAgentClient;
+  currentRunID: string;
+  detail: ThreadDetailView;
+  durableItems: ThreadTranscriptItemView[];
+  pendingItems: ThreadTranscriptItemView[];
+  refreshTimer: MutableRefObject<number | null>;
+  setPendingItems: Dispatch<SetStateAction<ThreadTranscriptItemView[]>>;
+  transcriptQuery: ReturnType<typeof usePagedResource<ThreadTranscriptItemView>>;
+}) {
+  const { t } = useLocale();
+  const queryClient = useQueryClient();
+  const runDetailQuery = useQuery({
+    queryKey: ["run", currentRunID],
+    queryFn: ({ signal }) => client.get<RunDetailView>(
+      `/runs/${encodeURIComponent(currentRunID)}`, {}, signal),
+    enabled: Boolean(currentRunID),
+  });
+  const eventStream = useRunEventStream(client, currentRunID);
+  const liveStream = usePublicModelStream(client, currentRunID,
+    Boolean(detail.active_run) && ["running", "preparing", "waiting_approval"]
+      .includes(detail.active_run?.status ?? ""));
+  const latestFrame = eventStream.frames.at(-1);
+  useEffect(() => {
+    if (!latestFrame || latestFrame.event.type === "model.delta" || refreshTimer.current !== null) {
+      return;
+    }
+    refreshTimer.current = window.setTimeout(() => {
+      refreshTimer.current = null;
+      void queryClient.invalidateQueries({ queryKey: ["thread", detail.thread.id], exact: true });
+      void queryClient.invalidateQueries({ queryKey: ["thread", detail.thread.id, "transcript"] });
+      void queryClient.invalidateQueries({ queryKey: ["run", currentRunID], exact: true });
+      void queryClient.invalidateQueries({ queryKey: ["run", currentRunID, "approvals"] });
+    }, 100);
+  }, [currentRunID, detail.thread.id, latestFrame, queryClient, refreshTimer]);
+  useEffect(() => () => {
+    if (refreshTimer.current !== null) {
+      window.clearTimeout(refreshTimer.current);
+      refreshTimer.current = null;
+    }
+  }, [currentRunID, refreshTimer]);
+  useEffect(() => {
+    const durableIdentities = new Set(durableItems.flatMap((item) =>
+      [item.canonical_id, item.source_ref ?? ""]));
+    setPendingItems((current) => current.filter((item) =>
+      !durableIdentities.has(item.canonical_id)));
+  }, [durableItems, setPendingItems]);
+  const onQueued = (submission: ThreadMessageControlView, content: string) => {
+    const existing = detail.runs.find((binding) => binding.run.id === submission.run_id)?.ordinal;
+    const runOrdinal = existing ?? Math.max(0, ...detail.runs.map((binding) => binding.ordinal)) + 1;
+    const steering = submission.steering;
+    const item: ThreadTranscriptItemView = {
+      version: "thread_transcript.v1", id: `pending:${steering.id}`,
+      canonical_id: steering.id, run_id: submission.run_id, run_ordinal: runOrdinal,
+      sequence: Number.MAX_SAFE_INTEGER - 3, activity_type: "message", stage: "started",
+      kind: "operator_input", source: "operator", title: "用户消息已排队",
+      detail: content, status: "pending", verifiable: true,
+      instruction_authorized: true, source_ref: steering.id, provisional: true,
+      durable: false, created_at: steering.created_at,
+    };
+    setPendingItems((current) => [...current.filter((entry) =>
+      entry.canonical_id !== item.canonical_id), item]);
+  };
+  const deliveryCount = durableItems.filter((item) => item.activity_type === "delivery").length;
+
+  return <div className="workspace-view thread-workspace">
     <header className="workspace-header">
       <div>
         <div className="workspace-kicker">Thread {shortID(detail.thread.id)}</div>
         <h1>{detail.thread.title}</h1>
         <div className="header-meta"><StatusBadge status={detail.thread.status} />
           <span>{t("稳定任务身份", "Stable task identity")}</span>
-          <span>{t("输入", "Composer")}: {detail.thread.composer_state}</span></div>
+          <span>{t("输入", "Composer")}: {detail.thread.composer_state}</span>
+          {deliveryCount > 0 && <span>{t("交付", "Delivery")}: {deliveryCount}</span>}</div>
       </div>
     </header>
-    <div className="session-summary">
+    <div className="session-summary thread-summary">
       <dl className="detail-grid">
         <KeyValue label={t("工作区", "Workspace")} value={detail.thread.workspace_id || "-"} />
-        <KeyValue label={t("当前 Run", "Current Run")} value={shortID(currentRun.id)} />
+        <KeyValue label={t("当前 Run", "Current Run")} value={shortID(currentRunID)} />
         <KeyValue label={t("Run 次数", "Run attempts")} value={formatNumber(detail.runs.length)} />
         <KeyValue label={t("更新时间", "Updated")} value={formatDate(detail.thread.updated_at)} />
       </dl>
     </div>
-    <div className="workspace-content session-content">
-      <div className="section-heading"><h2>{t("任务历史", "Task history")}</h2>
-        <span>{formatNumber(messages.length)}</span></div>
-      {messagesQuery.isLoading && <LoadingState />}
-      {messagesQuery.isError && <ErrorState error={messagesQuery.error} />}
-      {!messagesQuery.isLoading && !messagesQuery.isError && messages.length === 0 &&
-        <EmptyState>{t("暂无消息", "No messages")}</EmptyState>}
-      <div className="message-list">
-        {messages.map((message) => <article className={`message-row role-${message.role}`}
-          key={`${message.run_id}:${message.id}`}>
-          <header><strong>{message.role}</strong><StatusBadge status={message.status} />
-            <StatusBadge status={`run ${shortID(message.run_id)}`} />
-            <span>{formatNumber(message.token_estimate)} {t("令牌", "tokens")}</span>
-            {message.compacted && <StatusBadge status="compacted" />}
-            <time dateTime={message.created_at}>{formatDate(message.created_at)}</time></header>
-          {message.role === "assistant" ? <SafeMarkdown>{message.content}</SafeMarkdown> :
-            <p>{message.content}</p>}
-        </article>)}
+    <details className="thread-control-drawer" open={detail.active_run?.status === "waiting_approval"}>
+      <summary><span><Activity aria-hidden="true" size={15} />
+        {t("运行与审批控制", "Run and approval controls")}</span>
+        <span><StatusBadge status={detail.active_run?.status ?? detail.last_run.status} />
+          <ChevronDown aria-hidden="true" size={15} /></span></summary>
+      <div className="thread-control-content">
+        {runDetailQuery.isLoading && <LoadingState />}
+        {runDetailQuery.isError && <ErrorState error={runDetailQuery.error} />}
+        {runDetailQuery.data && <RunControlPanel client={client} detail={runDetailQuery.data}
+          threadID={detail.thread.id} />}
+        {detail.active_run?.status === "waiting_approval" &&
+          <ApprovalPanel client={client} runID={currentRunID} threadID={detail.thread.id} />}
+        <p className="thread-control-boundary"><ShieldCheck aria-hidden="true" size={13} />
+          {t("暂停、恢复与审批继续使用 Go 控制面；此页面不持有执行权限。",
+            "Pause, resume, and approval remain Go control-plane operations; this page holds no execution authority.")}</p>
       </div>
-      <LoadMoreButton hasNextPage={Boolean(messagesQuery.hasNextPage)}
-        isFetching={messagesQuery.isFetchingNextPage}
-        onClick={() => void messagesQuery.fetchNextPage()} />
+    </details>
+    <div className="workspace-content thread-transcript-region">
+      {transcriptQuery.isLoading && <LoadingState />}
+      {transcriptQuery.isError && <ErrorState error={transcriptQuery.error} />}
+      {!transcriptQuery.isLoading && !transcriptQuery.isError &&
+        <ThreadTranscript durableItems={durableItems}
+          hasOlder={Boolean(transcriptQuery.hasNextPage)}
+          isFetchingOlder={transcriptQuery.isFetchingNextPage}
+          liveSnapshot={liveStream.snapshot} liveStatus={liveStream.status}
+          onLoadOlder={() => void transcriptQuery.fetchNextPage()} pendingItems={pendingItems}
+          streamError={eventStream.error || liveStream.error} />}
     </div>
-    <ThreadComposer client={client} detail={detail} />
+    <ThreadComposer client={client} detail={detail} onQueued={onQueued} />
   </div>;
 }
 
-function ThreadComposer({ client, detail }: {
+function ThreadComposer({ client, detail, onQueued }: {
   client: CyberAgentClient;
   detail: ThreadDetailView;
+  onQueued: (submission: ThreadMessageControlView, content: string) => void;
 }) {
   const { t } = useLocale();
   const [content, setContent] = useState("");
@@ -118,6 +211,7 @@ function ThreadComposer({ client, detail }: {
     }): Promise<ThreadTurnResult> => {
       const submission = await client.submitThreadMessage(detail.thread.id, request,
         intent.messageKey);
+      onQueued(submission, request.content);
       let runnableStatus = submission.successor_created ? "created" :
         detail.active_run?.id === submission.run_id ? detail.active_run.status : "";
       if (runnableStatus === "") {
@@ -148,6 +242,9 @@ function ThreadComposer({ client, detail }: {
       setContent("");
       void queryClient.invalidateQueries({ queryKey: ["threads"] });
       void queryClient.invalidateQueries({ queryKey: ["thread", detail.thread.id] });
+      void queryClient.invalidateQueries({
+        queryKey: ["thread", detail.thread.id, "transcript"],
+      });
       void queryClient.invalidateQueries({ queryKey: ["runs"] });
       void queryClient.invalidateQueries({ queryKey: ["run", result.submission.run_id] });
     },

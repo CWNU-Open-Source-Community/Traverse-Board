@@ -16,6 +16,7 @@ import (
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/session"
+	"cyberagent-workbench/internal/threadtranscript"
 )
 
 const threadSelect = `SELECT id, protocol_version, workspace_id, mission_id, title,
@@ -273,6 +274,89 @@ func (s *SQLiteStore) listThreadRunAuditEvents(ctx context.Context,
 		out = append(out, item)
 	}
 	return out, rows.Err()
+}
+
+// ListThreadTranscriptSourceBefore reads the append-only Thread ordering key in
+// reverse so the primary UI can open at the newest activity and page older
+// history without offsets that shift when a Run appends events or gains a
+// successor. Sequence zero is the immutable Run boundary.
+func (s *SQLiteStore) ListThreadTranscriptSourceBefore(ctx context.Context, threadID string,
+	beforeOrdinal, beforeSequence int64, limit int,
+) ([]threadtranscript.Source, error) {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return nil, errors.New("thread transcript requires a Thread id")
+	}
+	if limit <= 0 || limit > threadtranscript.MaxSourceRecords {
+		return nil, fmt.Errorf("thread transcript source limit must be between 1 and %d",
+			threadtranscript.MaxSourceRecords)
+	}
+	if beforeOrdinal < 0 || beforeSequence < 0 || (beforeOrdinal == 0 && beforeSequence != 0) {
+		return nil, errors.New("thread transcript source cursor is invalid")
+	}
+	query := `WITH transcript AS (
+		SELECT binding.thread_id, binding.ordinal, binding.run_id, binding.session_id,
+			COALESCE(binding.predecessor_run_id, '') AS predecessor_run_id,
+			COALESCE(predecessor.status, '') AS predecessor_run_status,
+			current.status AS run_status, 0 AS sequence, '' AS event_id,
+			'' AS event_version, current.mission_id, '' AS event_type,
+			'' AS event_source, '' AS subject_id, '' AS payload_json,
+			'' AS operator_content, '' AS operator_status, binding.created_at
+		FROM thread_runs binding
+		JOIN runs current ON current.id = binding.run_id
+		LEFT JOIN runs predecessor ON predecessor.id = binding.predecessor_run_id
+		UNION ALL
+		SELECT binding.thread_id, binding.ordinal, binding.run_id, binding.session_id,
+			COALESCE(binding.predecessor_run_id, ''),
+			COALESCE(predecessor.status, ''), current.status, event.sequence,
+			event.event_id, event.version, event.mission_id, event.type,
+			event.source, COALESCE(event.subject_id, ''), event.payload_json,
+			COALESCE(steering.content, ''), COALESCE(steering.status, ''), event.created_at
+		FROM thread_runs binding
+		JOIN runs current ON current.id = binding.run_id
+		LEFT JOIN runs predecessor ON predecessor.id = binding.predecessor_run_id
+		JOIN run_events event ON event.run_id = binding.run_id
+		LEFT JOIN operator_steering_messages steering ON steering.id = event.subject_id
+	)
+	SELECT ordinal, run_id, session_id, predecessor_run_id,
+		predecessor_run_status, run_status, sequence, event_id, event_version,
+		mission_id, event_type, event_source, subject_id, payload_json, created_at
+		, operator_content, operator_status
+	FROM transcript WHERE thread_id = ?`
+	args := []any{threadID}
+	if beforeOrdinal > 0 {
+		query += ` AND (ordinal < ? OR (ordinal = ? AND sequence < ?))`
+		args = append(args, beforeOrdinal, beforeOrdinal, beforeSequence)
+	}
+	query += ` ORDER BY ordinal DESC, sequence DESC LIMIT ?`
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]threadtranscript.Source, 0, limit)
+	for rows.Next() {
+		var item threadtranscript.Source
+		var eventID, eventVersion, missionID, eventType, eventSource, subjectID string
+		var payloadJSON, created string
+		if err := rows.Scan(&item.Ordinal, &item.RunID, &item.SessionID,
+			&item.PredecessorRunID, &item.PredecessorRunStatus, &item.RunStatus,
+			&item.Sequence, &eventID, &eventVersion, &missionID, &eventType,
+			&eventSource, &subjectID, &payloadJSON, &created, &item.OperatorContent,
+			&item.OperatorStatus); err != nil {
+			return nil, err
+		}
+		item.CreatedAt = parseTS(created)
+		if item.Sequence > 0 {
+			item.Event = &events.Event{EventID: eventID, Version: eventVersion,
+				RunID: item.RunID, MissionID: missionID, Sequence: item.Sequence,
+				Type: eventType, Source: eventSource, SubjectID: subjectID,
+				PayloadJSON: payloadJSON, CreatedAt: item.CreatedAt}
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
 }
 
 // EnsureThreadSuccessor returns the current live Run when one already exists,

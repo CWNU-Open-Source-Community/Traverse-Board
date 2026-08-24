@@ -34,6 +34,7 @@ import (
 	"cyberagent-workbench/internal/operatoraction"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/skills"
+	"cyberagent-workbench/internal/threadtranscript"
 	"cyberagent-workbench/internal/toolbudget"
 	"cyberagent-workbench/internal/verification"
 )
@@ -59,6 +60,8 @@ type Store interface {
 	ListThreadRuns(context.Context, string) ([]domain.ThreadRun, error)
 	ListThreadMessagesPage(context.Context, string, bool, int,
 		int) ([]domain.ThreadMessage, error)
+	ListThreadTranscriptSourceBefore(context.Context, string, int64, int64,
+		int) ([]threadtranscript.Source, error)
 	EnsureThreadSuccessor(context.Context, string, string, domain.Mission, domain.Run,
 		domain.RunModeSnapshot, session.Session, []events.Event) (domain.Thread, domain.Run, bool, error)
 	TransitionThreadWithOperationKey(context.Context, string, domain.ThreadLifecycleAction,

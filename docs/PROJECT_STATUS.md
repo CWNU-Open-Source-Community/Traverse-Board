@@ -6,7 +6,19 @@ Last updated: 2026-08-24
 
 ## Resume Context
 
-当前检查点是 issue #152 / schema v130。`llm.item_stream.v1` 以稳定 sequence 和
+当前检查点是 issue #153；SQLite 仍为 schema v130。`thread_transcript.v1` 以
+`(Thread Run ordinal, durable event sequence, projected item position)` 将用户消息、公开模型文本、
+Harness 事实、schema-v130 工具 item 阶段、审批、验证、检查点、交付和 successor 边界投影到
+稳定 Thread 主页面。route-scoped opaque keyset cursor 在追加事件、创建后继 Run 和重启后不漂移；
+provisional model/tool 卡片由相同稳定身份的 durable 事件确定性替换，React 不重建 Supervisor 状态。
+
+Thread 页面同屏保留 Composer、Run 暂停/恢复、审批和交付查看；Events/Artifacts/Run/Session
+仍是专业审计面。可变高度虚拟列表覆盖 10,000 项有界 fixture，长细节使用原生 disclosure；
+Composer 是 transcript scroller 的独立 sticky sibling，并通过窄屏、200% 等效高度、IME、
+虚拟键盘与 reduced-motion 合同。投影无工具参数、raw output、provider bytes、凭据和 private
+reasoning。边界见 ADR 0134。
+
+上一检查点是 issue #152 / schema v130。`llm.item_stream.v1` 以稳定 sequence 和
 Application-owned response/item/call ID 统一 OpenAI interleaved tool delta、Anthropic content
 block、Ollama/Mock complete-item 与 legacy `ChatChunk`。参数 delta 只在有界内存中拼接并与最终
 JSON call 对照；Provider 无权发出 execution event。Go 在完整校验和 durable call 建立后记录

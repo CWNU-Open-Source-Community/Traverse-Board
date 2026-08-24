@@ -1049,6 +1049,34 @@ describe("CyberAgentClient", () => {
     });
   });
 
+  it("validates the closed, ordered Thread transcript projection", async () => {
+    const transcriptItem = {
+      version: "thread_transcript.v1", id: "event-1", canonical_id: "item-1",
+      run_id: "run-created", run_ordinal: 1, sequence: 9, activity_type: "read",
+      stage: "running", kind: "tool_call", source: "harness", title: "Tool started",
+      status: "running", verifiable: true, instruction_authorized: false,
+      tool_name: "read_file", stream_item_id: "item-1", provisional: false,
+      durable: true, created_at: "2026-08-24T00:01:00Z",
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-transcript", data: [transcriptItem],
+        page: { limit: 100 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-transcript-forged",
+        data: [{ ...transcriptItem, arguments: { path: "private.txt" } }],
+        page: { limit: 100 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret");
+
+    await expect(client.getPage("/threads/thread-created/transcript", { limit: 100 }))
+      .resolves.toMatchObject({ items: [transcriptItem] });
+    await expect(client.getPage("/threads/thread-created/transcript", { limit: 100 }))
+      .rejects.toThrow("transcript item is invalid");
+  });
+
   it("rejects forged Thread authority and cross-Thread projections", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({

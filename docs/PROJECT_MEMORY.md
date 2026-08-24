@@ -4,7 +4,20 @@
 
 Last updated: 2026-08-24
 
-## Current Single-Slice Checkpoint: Item-Level Model/Tool Streaming / Issue #152 / Schema v130
+## Current Single-Slice Checkpoint: Unified Thread Transcript / Issue #153 / Schema v130
+
+`thread_transcript.v1` 复用 schema-v129 Thread succession 与 schema-v130 item-stream ledger，按
+Run ordinal、durable event sequence 和 item position 投影用户消息、公开模型文本、Harness 事实、
+结构化工具阶段、审批、验证、检查点、交付与 Run 边界。opaque keyset cursor 与 exact route/filter
+绑定，追加事件、successor 和进程重启不会移动旧窗口；provisional 模型/工具项只在对应 durable
+identity 到达前出现，确认历史不重排。
+
+Thread 页面成为普通工作流入口，同屏提供 Composer、暂停/恢复、审批、继续与交付；专业审计页
+继续保留。Transcript 使用可变高度虚拟化和原生 disclosure；Composer 为独立 sticky sibling，
+覆盖窄屏、200% 等效高度、中文 IME、虚拟键盘与 reduced motion。投影不含参数、raw output、
+provider bytes、凭据或 private reasoning；React 不拥有 Supervisor authority。边界见 ADR 0134。
+
+## Previous Single-Slice Checkpoint: Item-Level Model/Tool Streaming / Issue #152 / Schema v130
 
 `llm.item_stream.v1` 将 OpenAI interleaved tool-call delta、Anthropic content block、Ollama/Mock
 complete-item 与 legacy `ChatChunk` 归一为严格有序 response/item/call 生命周期。Application

@@ -6,6 +6,17 @@
 
 ## 一、当前阶段
 
+2026-08-24 单切片 `Unified Thread Transcript（Issue #153）` 保持 SQLite v130。新增
+`thread_transcript.v1` 安全投影与 `/threads/{thread_id}/transcript` keyset route，以 Run ordinal、
+durable event sequence、item position 合并用户/公开模型消息、Harness 事实、schema-v130 工具
+阶段、审批、验证、检查点、交付和 successor 边界。provisional/durable identity 合并不解析模型
+自然语言、不重排确认历史，响应不能表示参数、raw provider bytes、凭据或 private reasoning。
+
+Thread React 页面同屏提供 Composer、Run 控制、审批和交付，长历史由可变高度 virtualizer 控制
+DOM；长细节用原生键盘 disclosure。真实 Chrome 覆盖桌面、390px 与 640x450 的 200% 等效/虚拟
+键盘布局，并完成发送、mock Standard Code 一步、durable 刷新和同页暂停；Composer 在所有场景
+保持 sticky/safe-area 可达。ADR 0134 固定 #140 packaged E2E 的 Thread URL 入口。
+
 2026-08-24 单切片 `Item-Level Model/Tool Streaming（Issue #152）` 推进到 SQLite v130。
 `llm.item_stream.v1` 将 OpenAI interleaved tool delta、Anthropic content block、Ollama/Mock
 complete-item 与 legacy `ChatChunk` 归一为严格有序、attempt-owned ID 的 response/item/call
