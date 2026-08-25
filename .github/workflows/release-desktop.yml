@@ -11,13 +11,18 @@ on:
   pull_request:
     paths:
       - '.github/workflows/release-desktop.yml'
+      - 'cmd/packagede2e/**'
       - 'cmd/releasegen/**'
+      - 'internal/packagede2e/**'
       - 'scripts/build-desktop.ps1'
       - 'scripts/check-windows-compat.ps1'
       - 'scripts/package-portable-zip.ps1'
       - 'scripts/release-desktop.ps1'
       - 'scripts/smoke-desktop-operator-preview.ps1'
+      - 'scripts/standard-code-packaged-e2e.ps1'
       - 'scripts/verify-portable-zip.ps1'
+      - 'docs/standard-code-packaged-e2e.md'
+      - 'docs/adr/0138-standard-code-packaged-e2e-foundation.md'
       - 'packaging/windows/**'
       - 'go.mod'
       - 'go.sum'
@@ -154,6 +159,10 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
+      - name: Install pinned Rust toolchain for the fixture oracle
+        shell: pwsh
+        run: rustup toolchain install 1.97.1 --profile minimal
+
       - name: Build Desktop twice and compare bytes
         shell: pwsh
         run: ./scripts/build-desktop.ps1 -Version '${{ steps.release.outputs.version }}' -VerifyReproducible
@@ -169,6 +178,13 @@ jobs:
             -ExpectedVersion '${{ steps.release.outputs.version }}' `
             -ExpectedRevision '${{ steps.release.outputs.revision }}' `
             -SmokeTest
+
+      - name: Exercise packaged Standard Code bootstrap and prepare attack matrix
+        shell: pwsh
+        run: |
+          ./scripts/standard-code-packaged-e2e.ps1 `
+            -ExpectedVersion '${{ steps.release.outputs.version }}' `
+            -ExpectedRevision '${{ steps.release.outputs.revision }}'
 
       - name: Package unsigned per-user MSIX candidate
         shell: pwsh
@@ -189,6 +205,7 @@ jobs:
             build/desktop/msix-manifest.json
             build/desktop/release-metadata.json
             build/desktop/windows-compatibility.json
+            build/desktop/standard-code-packaged-e2e.json
             build/desktop/sbom.json
             build/desktop/NOTICE
 
@@ -258,6 +275,7 @@ jobs:
             "build/desktop/portable-zip-manifest.json",
             "build/desktop/release-metadata.json",
             "build/desktop/windows-compatibility.json",
+            "build/desktop/standard-code-packaged-e2e.json",
             "build/desktop/sbom.json",
             "build/desktop/NOTICE"
           )

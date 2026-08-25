@@ -1,0 +1,3 @@
+* text eol=lf
+edge/crlf.txt text eol=crlf
+edge/sample.bin -text

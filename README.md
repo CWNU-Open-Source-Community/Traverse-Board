@@ -312,9 +312,9 @@ open build/desktop/Prayu.app
 
 ### 便携 ZIP 下载与验证 / Portable ZIP download and verification
 
-发布候选是未签名的便携 ZIP（`Prayu-portable-<version>-windows-amd64.zip`），包含 `TraverseBoard.exe`、操作者预览启动器、`LOCAL-TEST-GUIDE.txt`、`LICENSE`、第三方 `NOTICE`、CycloneDX `sbom.json` 与 `release-metadata.json`。正式 GitHub Release 也直接附带同一份 `TraverseBoard.exe`。发布件不带 API key、用户数据、缓存、调试日志或源映射。
+发布候选是未签名的便携 ZIP（`Prayu-portable-<version>-windows-amd64.zip`），包含 `TraverseBoard.exe`、操作者预览启动器、`LOCAL-TEST-GUIDE.txt`、`LICENSE`、第三方 `NOTICE`、CycloneDX `sbom.json` 与 `release-metadata.json`。正式 GitHub Release 也直接附带同一份 `TraverseBoard.exe`，并附带 path-free 的 `standard-code-packaged-e2e.json` bootstrap 证据。发布件不带 API key、用户数据、缓存、调试日志或源映射。
 
-The release candidate is an unsigned portable ZIP (`Prayu-portable-<version>-windows-amd64.zip`) containing `TraverseBoard.exe`, the operator-preview launcher, `LOCAL-TEST-GUIDE.txt`, `LICENSE`, a third-party `NOTICE`, the CycloneDX `sbom.json`, and `release-metadata.json`. The tagged GitHub Release also attaches the same `TraverseBoard.exe` directly. It carries no API key, user data, cache, debug log, or source map.
+The release candidate is an unsigned portable ZIP (`Prayu-portable-<version>-windows-amd64.zip`) containing `TraverseBoard.exe`, the operator-preview launcher, `LOCAL-TEST-GUIDE.txt`, `LICENSE`, a third-party `NOTICE`, the CycloneDX `sbom.json`, and `release-metadata.json`. The tagged GitHub Release also attaches the same `TraverseBoard.exe` and the path-free `standard-code-packaged-e2e.json` bootstrap evidence. It carries no API key, user data, cache, debug log, or source map.
 
 > [!NOTE]
 > “便携”表示程序文件免安装，并不表示数据跟随解压目录。默认数据仍位于 `%USERPROFILE%\.cyberagent-workbench`，因此重新下载或换目录解压会继续使用同一数据库。`v0.1.0-rc.2` 无法升级一枚正式固化前的 v97 Windows 预览历史；schema v125 在后续构建中精确兼容并事务化修复它，不删除或伪造旧数据。见 [ADR 0126](docs/adr/0126-legacy-v97-docker-trigger-compatibility.md)。
@@ -350,7 +350,9 @@ pwsh -NoProfile -File scripts/release-desktop.ps1 -Version v0.1.0-rc.2
 
 Canonical release CI pins Go 1.25.12, Node 24.16.0 (including its bundled npm), and Rust 1.97.1; `release-metadata.json` additionally binds those observed versions plus the Go, npm, Cargo, and embedded-analyzer hashes. 本地命令会记录实际工具链，正式 GitHub Release 只采用上述 CI 固定版本。
 
-`Desktop release` 工作流会在 PR 中重跑依赖边界、可复现构建、ZIP 完整性验证和解压启动冒烟；`workflow_dispatch` 只保留 Actions artifact，只有可追溯到 `main` 的 `v*` tag 才会创建 GitHub Release。带 `-` 的版本会发布为 prerelease。The `Desktop release` workflow reruns dependency boundaries, the reproducible build, ZIP integrity verification, and an extracted-executable startup smoke on pull requests. `workflow_dispatch` keeps only an Actions artifact; only a `v*` tag reachable from `main` creates a GitHub Release, and versions containing `-` are prereleases.
+`Desktop release` 工作流会在 PR 中重跑依赖边界、可复现构建、ZIP 完整性验证，以及四个固定 Go/Node.js/Python/Rust 仓库的 fail/repair/pass oracle；它再从确切 ZIP 启动默认模式与安全 operator preview，验证强杀重开、无宿主监听、固件不变和合成 credential sentinel 不落盘。这个 bootstrap 成功后仍如实报告 `needs_full_matrix`；40 项 Local/Docker/Approval/恢复攻击未全部取得不可变证据前，不能作为 #140 Beta gate 通过。完整合同见 [Standard Code packaged E2E](docs/standard-code-packaged-e2e.md) 与 [ADR 0138](docs/adr/0138-standard-code-packaged-e2e-foundation.md)。`workflow_dispatch` 只保留 Actions artifact，只有可追溯到 `main` 的 `v*` tag 才会创建 GitHub Release。带 `-` 的版本会发布为 prerelease。
+
+The `Desktop release` workflow reruns dependency boundaries, the reproducible build, ZIP integrity verification, and the fail/repair/pass oracle for four fixed Go, Node.js, Python, and Rust repositories. It then launches conservative default mode and safe operator preview from the exact ZIP and checks kill/reopen, absence of a host listener, fixture immutability, and synthetic credential-sentinel non-persistence. A successful bootstrap still reports `needs_full_matrix`; it is not the Issue #140 Beta gate until all 40 Local, Docker, Approval, and recovery attacks have immutable evidence. See [Standard Code packaged E2E](docs/standard-code-packaged-e2e.md) and [ADR 0138](docs/adr/0138-standard-code-packaged-e2e-foundation.md). `workflow_dispatch` keeps only an Actions artifact; only a `v*` tag reachable from `main` creates a GitHub Release, and versions containing `-` are prereleases.
 
 **SmartScreen 预期 / SmartScreen expectations**：便携 ZIP 与 EXE 均未签名，Windows SmartScreen 可能提示“未知发布者”。这是未签名候选的预期限制，不是构建缺陷；正式签名发行（MSIX）在另一条发布线完成。The ZIP and EXE are unsigned, so Windows SmartScreen may warn about an unknown publisher. This is the expected limitation of an unsigned candidate, not a build defect; the signed MSIX release is tracked separately.
 

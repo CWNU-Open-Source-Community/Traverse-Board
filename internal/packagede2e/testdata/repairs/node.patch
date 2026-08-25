@@ -1,0 +1,6 @@
+diff --git a/src/normalize.js b/src/normalize.js
+--- a/src/normalize.js
++++ b/src/normalize.js
+@@ -4 +4 @@ function normalizeTitle(value) {
+-  return value.trim().toLowerCase();
++  return value.trim().toLowerCase().replace(/\s+/gu, " ");

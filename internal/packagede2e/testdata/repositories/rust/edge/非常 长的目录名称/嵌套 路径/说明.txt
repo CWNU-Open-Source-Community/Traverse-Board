@@ -1,0 +1,1 @@
+Unicode, spaces, and a deliberately long relative path remain ordinary fixture data.

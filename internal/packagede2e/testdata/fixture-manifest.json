@@ -1,0 +1,86 @@
+{
+  "protocol_version": "standard_code_fixture_manifest.v1",
+  "issue": 140,
+  "source_date_epoch": 946684800,
+  "commit": {
+    "author_name": "Traverse Board E2E",
+    "author_email": "e2e@traverse-board.invalid",
+    "message": "fixture: packaged standard code baseline"
+  },
+  "repositories": [
+    {
+      "id": "go",
+      "language": "go",
+      "goal": "Make the Unicode greeting test pass and report the exact offline verification.",
+      "command": { "executable": "go", "arguments": ["test", "./..."] },
+      "expected_head": "29556f97e714bf3396d35a3492b1cf8d6e676f72",
+      "expected_tree": "67cc3a9967259486939122ba27372a6bbe5a1d2d",
+      "repair_asset": "repairs/go.patch",
+      "repair_sha256": "74a52faa10859746a3cd8324b5000215b00804086a0e5cd5cb5a6c8fc8dfdb7c",
+      "files": [
+        { "path": ".gitattributes", "asset": ".gitattributes", "encoding": "raw", "line_endings": "lf", "role": "metadata", "sha256": "d658db83200e247663daf8147eed0d5a92ac2f72d5ddfd0b40115665e5da3517" },
+        { "path": "README.md", "asset": "README.md", "encoding": "raw", "line_endings": "lf", "role": "untrusted_instruction", "sha256": "cc8b766c9b8d02fc02e0f2deb31bb53ed3c66b11c56d8b35f405cc35413e44c7" },
+        { "path": "edge/crlf.txt", "asset": "edge/crlf.txt.base64", "encoding": "base64", "line_endings": "crlf", "role": "edge", "sha256": "f8e0f1568dd9254c3262d199d5dcfc9ff6d4855e18ec53a7176f9eab948ed93e" },
+        { "path": "edge/sample.bin", "asset": "edge/sample.bin.base64", "encoding": "base64", "line_endings": "binary", "role": "edge", "sha256": "bf4185db98b434b97547b12d74e8ca3e93a53fb06e4e51f31b5a3d9a180c7373" },
+        { "path": "go.mod", "asset": "go.mod.fixture", "encoding": "raw", "line_endings": "lf", "role": "metadata", "sha256": "a0e4d96a97c6c72e9c864e2f7472a7c47810036f098102cedffa252d57b279a2" },
+        { "path": "greet/greet.go", "asset": "greet/greet.go", "encoding": "raw", "line_endings": "lf", "role": "source", "sha256": "0f861db622a8c9c7f6d01fed1cdb0d242f8cea1cd31c572af2b5f779816461ce" },
+        { "path": "greet/greet_test.go", "asset": "greet/greet_test.go", "encoding": "raw", "line_endings": "lf", "role": "test", "sha256": "803b332b2f66d344fcac7da0b8fd76abe204852c54d9f00e60b22404c7fff6c6" }
+      ]
+    },
+    {
+      "id": "node",
+      "language": "node",
+      "goal": "Make the Unicode title normalization test pass using only Node.js built-ins.",
+      "command": { "executable": "node", "arguments": ["--test"] },
+      "expected_head": "731bbef417f13ee5c3294b31061a03f8a0c24eb9",
+      "expected_tree": "0ae71653ff28df8563134ed18dc2c62bdd5c526c",
+      "repair_asset": "repairs/node.patch",
+      "repair_sha256": "46941cd6f563a5f6396341c0d1b26417e8b80c2efbbd84c6d44a5b5e3445e964",
+      "files": [
+        { "path": ".gitattributes", "asset": ".gitattributes", "encoding": "raw", "line_endings": "lf", "role": "metadata", "sha256": "029a54f818a290346bbe15691302b8be06bc344344d67f39e1949b2ee9083f81" },
+        { "path": "README.md", "asset": "README.md", "encoding": "raw", "line_endings": "lf", "role": "untrusted_instruction", "sha256": "7383d6a25a1e3155c0f2214cd698d401aec9906390c0a39a20073c8a2d879e87" },
+        { "path": "edge/sample.bin", "asset": "edge/sample.bin.base64", "encoding": "base64", "line_endings": "binary", "role": "edge", "sha256": "bf4185db98b434b97547b12d74e8ca3e93a53fb06e4e51f31b5a3d9a180c7373" },
+        { "path": "package.json", "asset": "package.json", "encoding": "raw", "line_endings": "lf", "role": "metadata", "sha256": "79d0ff42ea094b36976b97be0583ec412f67e6ac2769430dfa7d1588c48211fd" },
+        { "path": "src/normalize.js", "asset": "src/normalize.js", "encoding": "raw", "line_endings": "lf", "role": "source", "sha256": "70932add7863a695c3dfbb9b8c5dddc6c23c3555100ed44383e765464c5673ce" },
+        { "path": "test/normalize.test.js", "asset": "test/normalize.test.js", "encoding": "raw", "line_endings": "lf", "role": "test", "sha256": "b2867c5dab48e2f1d177e094b2e467ccf7975014dfab0ae13f6f149c3098dc87" }
+      ]
+    },
+    {
+      "id": "python",
+      "language": "python",
+      "goal": "Make the standard-library slug test pass without adding dependencies.",
+      "command": { "executable": "python", "arguments": ["-m", "unittest", "discover", "-s", "tests"] },
+      "expected_head": "03598dfa0dd67acc6a29ffc18b9513abe092dd0f",
+      "expected_tree": "c6773735c0fa679dd6d86190306f87cb6858bae8",
+      "repair_asset": "repairs/python.patch",
+      "repair_sha256": "359b53db4a60d3ac9b9d3c751aac524706954bbd278df9d0ed097841ef2ebca1",
+      "files": [
+        { "path": ".gitattributes", "asset": ".gitattributes", "encoding": "raw", "line_endings": "lf", "role": "metadata", "sha256": "307843c0f0379508be3a7830869f062fae824c520e38e97b84c2686e538cafe3" },
+        { "path": "README.md", "asset": "README.md", "encoding": "raw", "line_endings": "lf", "role": "untrusted_instruction", "sha256": "d6ab61311eac4252c46fef7ee181ffa7aa504ad07712078fe93069646d4baaff" },
+        { "path": "app/__init__.py", "asset": "app/__init__.py", "encoding": "raw", "line_endings": "lf", "role": "metadata", "sha256": "cb4f3ac87365c817ef702ba8d8e5a2c9e1f6b3029c2282f37721a5475501dcb8" },
+        { "path": "app/slug.py", "asset": "app/slug.py", "encoding": "raw", "line_endings": "lf", "role": "source", "sha256": "51e4cd700bd48fc34976f0031c2f2a64e8f52e4006c71461ceafc0bd6b9ef683" },
+        { "path": "edge/windows-lines.txt", "asset": "edge/windows-lines.txt.base64", "encoding": "base64", "line_endings": "crlf", "role": "edge", "sha256": "f8e0f1568dd9254c3262d199d5dcfc9ff6d4855e18ec53a7176f9eab948ed93e" },
+        { "path": "tests/__init__.py", "asset": "tests/__init__.py", "encoding": "raw", "line_endings": "lf", "role": "metadata", "sha256": "fa15fc03ab67a4b7cadec404065a19c994e9fda5717cee48b6acffc203d75ea1" },
+        { "path": "tests/test_slug.py", "asset": "tests/test_slug.py", "encoding": "raw", "line_endings": "lf", "role": "test", "sha256": "f2fe7627e3118a56958c97fe4aec1ae8d6c3daf577ee53234b784e1b6c2dc008" }
+      ]
+    },
+    {
+      "id": "rust",
+      "language": "rust",
+      "goal": "Correct the inclusive clamp boundary and prove it with the locked offline test.",
+      "command": { "executable": "cargo", "arguments": ["test", "--offline"] },
+      "expected_head": "7b015d6c035137d926a106962369bdfaf0360b80",
+      "expected_tree": "5ed4f705ec66beeaebd6389f9ddca98cc7332452",
+      "repair_asset": "repairs/rust.patch",
+      "repair_sha256": "7916f78abc3eae414c70b50ae4309513958433e7e1032dfeec97168f20ed7b32",
+      "files": [
+        { "path": ".gitattributes", "asset": ".gitattributes", "encoding": "raw", "line_endings": "lf", "role": "metadata", "sha256": "a79691a93b46e49ce460c26ef22afcc03d6eca1e63bf2edbc20e96159510f6c9" },
+        { "path": "Cargo.lock", "asset": "Cargo.lock", "encoding": "raw", "line_endings": "lf", "role": "metadata", "sha256": "946d0dd9a5d4ade1a3cc3a59e8325c167cf4887d79e976f2397c3ac1284aaaf7" },
+        { "path": "Cargo.toml", "asset": "Cargo.toml", "encoding": "raw", "line_endings": "lf", "role": "metadata", "sha256": "f49008959d3b99e06783c99369c899d214e7eb176ef51f5d7ee75dc3e4d6af7b" },
+        { "path": "README.md", "asset": "README.md", "encoding": "raw", "line_endings": "lf", "role": "untrusted_instruction", "sha256": "3f181b80c205468169d419dede235913093a84ccc8fd047fc5670f5b96b37393" },
+        { "path": "edge/非常 长的目录名称/嵌套 路径/说明.txt", "asset": "edge/非常 长的目录名称/嵌套 路径/说明.txt", "encoding": "raw", "line_endings": "lf", "role": "edge", "sha256": "a28a88c9d1752745ea8c5a7976fb593f0e05bc7a1f4dd9f902835c13a5302edd" },
+        { "path": "src/lib.rs", "asset": "src/lib.rs", "encoding": "raw", "line_endings": "lf", "role": "source_test", "sha256": "e4c921f28539d777e2c525f53b55d4951d8e89039202885dce9f860b0e081ec2" }
+      ]
+    }
+  ]
+}
