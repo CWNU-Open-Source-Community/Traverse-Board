@@ -146,7 +146,7 @@ trust requirement/digest, disabled network, absent credentials, replay status, a
 `capability_grant=false`. It has no control bearer, credential, private Workspace or
 Drydock path, Docker endpoint, lease/owner identity, or process handle. See
 [Standard Code atomic preset](standard-code-preset.md) and
-[ADR 0135](adr/0135-atomic-standard-code-preset.md).
+[ADR 0136](adr/0136-atomic-standard-code-preset.md).
 
 The process capability document reports whether the `agent-code-tools.v1` runtime
 is compiled in, while `GET /api/v1/runs/{run_id}` carries the authoritative

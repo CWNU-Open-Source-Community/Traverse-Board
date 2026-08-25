@@ -15,7 +15,7 @@ created/paused Run 必须无 active lease；running 先写 `waiting_for_pause` �
 等 lease 与 Supervisor quiescent 后将 pause 与所有快照/事件同事务提交。Surface 不兼容创建新
 Code Run。Drydock create 复用现有 WAL/ownership recovery；最终 fault injection 证明无半配置。
 CLI、HTTP/OpenAPI、Desktop/React 共用合同，模型/Skill/MCP/Plugin/Hook/仓库配置不具备入口。
-Drydock/worktree 不是安全沙箱；Local OS 或固定 Docker 提供隔离。见 ADR 0135。
+Drydock/worktree 不是安全沙箱；Local OS 或固定 Docker 提供隔离。见 ADR 0136。
 
 ## Previous Single-Slice Checkpoint: Unified Thread Transcript / Issue #153 / Schema v130
 

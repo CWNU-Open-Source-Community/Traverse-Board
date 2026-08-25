@@ -218,7 +218,7 @@ Control-token HTTP/OpenAPI and Desktop expose the same operation, response facts
 blockers, next steps, and events; React sends one request rather than sequencing old
 policy endpoints. See [Standard Code atomic preset](standard-code-preset.md) for
 commands, routes, trust confirmation, and recovery, and
-[ADR 0135](adr/0135-atomic-standard-code-preset.md) for the transaction boundary.
+[ADR 0136](adr/0136-atomic-standard-code-preset.md) for the transaction boundary.
 
 Schema v91 adds the independent `restricted|full_debug` browser-CDP selector described above. It does not inherit Shell authority from v88, and v88 does not inherit CDP authority from v91. A future concrete browser operation must recheck both its exact method/scope contract and the current process gates.
 

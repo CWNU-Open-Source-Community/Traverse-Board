@@ -17,7 +17,7 @@ pause-and-configure 意图，在 lease 与 Supervisor 真正静止后把 pause �
 Surface 不兼容创建新 Code/Plan Run。commit fault 会回滚全部新快照、事件和暂停变化；相同 key
 精确恢复，异意图冲突。CLI、control-token HTTP/OpenAPI、Desktop bridge 与 React 共用同一
 Application；响应无 bearer、路径、凭据或进程 identity，模型/Skill/MCP/仓库配置无调用入口。
-Drydock/worktree 仍只承担归属与恢复，隔离来自 Local OS 或固定 Docker。边界见 ADR 0135 与
+Drydock/worktree 仍只承担归属与恢复，隔离来自 Local OS 或固定 Docker。边界见 ADR 0136 与
 `docs/standard-code-preset.md`。
 
 上一检查点是 issue #153；SQLite 当时为 schema v130。`thread_transcript.v1` 以

@@ -15,7 +15,7 @@ ready Local 或显式 Docker、controlled、`workspace_access`、restricted CDP�
 禁网和无凭证作为一个幂等 Application 操作提交。created/paused 必须无 active lease；running
 使用 durable pause-and-configure 并等真正 quiescent；Surface 不兼容创建新 Code Run。CLI、
 HTTP/OpenAPI、Desktop/React 复用同一合同，任一 commit fault 全部回滚，模型/扩展/仓库配置
-不能调用或扩权。边界见 ADR 0135。
+不能调用或扩权。边界见 ADR 0136。
 
 上一基线为 Item 级模型/工具流（Issue #152 / schema v130），以 `llm.item_stream.v1` 统一 OpenAI 交错
 tool-call delta、Anthropic content block、Ollama/Mock 完整 item 与旧 `ChatChunk`。Application

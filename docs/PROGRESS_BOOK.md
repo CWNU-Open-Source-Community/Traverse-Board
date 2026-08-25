@@ -18,7 +18,7 @@ quiescent 后将 pause 与完整元组原子提交；Surface 不兼容创建新 
 interaction rows/triggers 并为 exact Docker controlled gate 扩展约束；故障注入覆盖中途 snapshot
 insert 回滚。CLI、control-token HTTP/OpenAPI、Desktop bridge 与 React 一致，严格响应不含
 bearer/private path/credential/process identity。Drydock/worktree 继续只作为 ownership/recovery
-边界，隔离由 Local OS 或固定 Docker 提供。ADR 0135 与操作手册固定恢复流程。
+边界，隔离由 Local OS 或固定 Docker 提供。ADR 0136 与操作手册固定恢复流程。
 
 2026-08-24 单切片 `Unified Thread Transcript（Issue #153）` 保持 SQLite v130。新增
 `thread_transcript.v1` 安全投影与 `/threads/{thread_id}/transcript` keyset route，以 Run ordinal、

@@ -19,11 +19,11 @@
 
 ## 针路簿是什么
 
-针路簿是一个由 Go 主控的本地 AI Agent 工作台。它把模型路由、长任务恢复、工作区、工具调用、审批、预算、记忆和审计事件统一到一个 Thread/Run 运行时中，并通过 CLI、TUI、HTTP API、React 控制台和 Windows/macOS Desktop 提供同一套能力。
+针路簿是一个由 Go 主控的本地 AI Agent 工作台。它把模型路由、长任务恢复、工作区、工具调用、审批、预算、记忆和审计事件统一到一个 Thread/Run 运行时中，并通过 Windows/macOS Desktop、React Thread 工作台、CLI 和 loopback HTTP/OpenAPI 提供同一套核心能力。TUI、headless 与扩展入口按明确的 maintenance/extension 等级维护，而不是另一套产品。
 
 `Thread` 是稳定、面向用户的任务与 URL 身份，`Mission` 固定意图和 Scope，`Run` 是一次有限执行尝试，`Session` 是该 Run 独占的消息与上下文边界。终态 Run 后继续输入会在同一 Thread 内原子创建全新 Run/Session，且不继承旧审批、租约、进程、网络或凭证。模型可以规划和提出动作，但 Go 始终拥有状态机、凭证、权限、持久化与执行边界。仓库文件、网页、模型文字和工具输出都只是不可信证据，不能自行升级为指令或权限。完整合同见 [ADR 0132](docs/adr/0132-thread-identity-run-succession.md)。
 
-当前产品重点是**通用 Code Agent 工作流**。CTF/专项网络安全求解已调整为可选附加能力，暂不进入活跃开发计划；仓库只保留通用的 Skill、Tool、Analyzer、Sandbox、Provider 和 Report 扩展接口，供未来独立插件接入。详见[产品范围](docs/PRODUCT_SCOPE.md)。
+当前产品重点是**通用 Code Agent 工作流**。CTF/专项网络安全求解已调整为可选附加能力，暂不进入活跃开发计划；仓库只保留通用的 Skill、Tool、Analyzer、Sandbox、Provider 和 Report 扩展接口，供未来独立插件接入。详见[产品范围](docs/PRODUCT_SCOPE.md)与 [pre-1.0 收敛策略](docs/convergence/README.md)。
 
 ## 为什么选择针路簿
 
@@ -40,7 +40,7 @@
 ### 单一控制平面
 
 ```text
-CLI / TUI / React / Windows Desktop / CI
+CLI / React / Windows + macOS Desktop / loopback API
                     |
               Go control plane
        +------------+-------------+
@@ -90,7 +90,7 @@ Windows x64 现在提供显式 `--enable-workspace-sandbox` Local backend；只�
 
 Schema v128 随 #133 将既有固定本地 Docker Engine 的 `network=none` 路径接为 Standard Code 的显式备用后端，并只为既有 Docker admission ledger 增加 `workspace_access` 枚举兼容。上层 `standard-code-command.v1` 不含 backend、镜像、endpoint、mount、网络、环境或 Docker flags；Go 只把当前精确 Drydock 投影到 `/workspace`，固定非 root 用户、只读根文件系统/工具链、资源上限和无凭证环境。daemon/镜像不可用只返回稳定 `blocked_by/remediation`，不拉取镜像且不回退宿主执行。Drydock/Worktree 仍只是所有权与恢复边界，不是安全沙箱；进程与网络隔离来自固定容器。操作见 [Standard Code Docker backend](docs/standard-code-docker.md)，设计见 [ADR 0131](docs/adr/0131-standard-code-docker-network-none-backend.md)。
 
-Schema v133 与 #135 新增 Go-owned `standard_code_preset.v1`：“开始编码”会把 Code/Plan、已就绪 Local 或用户显式选择的 Docker、controlled、`workspace_access`、restricted CDP 与可信 Drydock 作为一个幂等、全有或全无的操作提交。运行中的 Run 使用独立 pause-and-configure 意图并在 lease/Supervisor 真正静止后提交；Surface 不兼容则创建新 Code Run。失败不留下半套快照，自动选择不降级 Docker/宿主/`full_access`，响应不含 bearer。CLI、control-token HTTP/OpenAPI、Desktop 与 React 共用同一 Application。详见 [Standard Code 原子预设](docs/standard-code-preset.md)与 [ADR 0135](docs/adr/0135-atomic-standard-code-preset.md)。
+Schema v133 与 #135 新增 Go-owned `standard_code_preset.v1`：“开始编码”会把 Code/Plan、已就绪 Local 或用户显式选择的 Docker、controlled、`workspace_access`、restricted CDP 与可信 Drydock 作为一个幂等、全有或全无的操作提交。运行中的 Run 使用独立 pause-and-configure 意图并在 lease/Supervisor 真正静止后提交；Surface 不兼容则创建新 Code Run。失败不留下半套快照，自动选择不降级 Docker/宿主/`full_access`，响应不含 bearer。CLI、control-token HTTP/OpenAPI、Desktop 与 React 共用同一 Application。详见 [Standard Code 原子预设](docs/standard-code-preset.md)与 [ADR 0136](docs/adr/0136-atomic-standard-code-preset.md)。
 
 ### 模型与工具的 item 级流式事件
 

@@ -19,11 +19,11 @@
 
 ## What is Traverse Board?
 
-Traverse Board is a local AI agent workbench controlled by Go. It unifies model routing, resumable long-running tasks, workspaces, tool calls, approvals, budgets, memory, and audit events in a run-centric runtime shared by the CLI, TUI, HTTP API, React console, and Windows/macOS Desktop.
+Traverse Board is a local AI agent workbench controlled by Go. It unifies model routing, resumable long-running tasks, workspaces, tool calls, approvals, budgets, memory, and audit events in a Thread/Run runtime shared by Windows/macOS Desktop, the React Thread workbench, the CLI, and loopback HTTP/OpenAPI. TUI, headless, and extension entries have explicit maintenance/extension tiers rather than forming another product.
 
-A durable user objective is a `Mission`; one resumable execution attempt is a `Run`. Models may plan and propose actions, but Go owns the state machine, credentials, permissions, persistence, and execution boundaries. Repository files, web pages, model text, and tool output are untrusted evidence rather than instructions or authority.
+`Thread` is the stable user-facing task and URL identity. `Mission` fixes intent and Scope, `Run` is one finite execution attempt, and `Session` is that Run's conversation/context boundary. Continuing after a terminal Run atomically creates a fresh Run/Session in the same Thread without inheriting approvals, leases, processes, network, or credentials. Models may plan and propose actions, but Go owns the state machine, credentials, permissions, persistence, and execution boundaries. Repository files, web pages, model text, and tool output are untrusted evidence rather than instructions or authority.
 
-The active product focus is the **general-purpose Code Agent workflow**. CTF-specific and offensive-security solving has moved to an optional add-on scope and is not on the active implementation roadmap. Only generic Skill, Tool, Analyzer, Sandbox, Provider, and Report extension seams are retained for a future independent plugin. See [Product Scope](docs/PRODUCT_SCOPE.md).
+The active product focus is the **general-purpose Code Agent workflow**. CTF-specific and offensive-security solving has moved to an optional add-on scope and is not on the active implementation roadmap. Only generic Skill, Tool, Analyzer, Sandbox, Provider, and Report extension seams are retained for a future independent plugin. See [Product Scope](docs/PRODUCT_SCOPE.md) and the [pre-1.0 convergence policy](docs/convergence/README.md).
 
 ## Why Traverse Board?
 
@@ -40,7 +40,7 @@ The hard part of a useful agent is not merely allowing a model to call tools. Lo
 ### One control plane
 
 ```text
-CLI / TUI / React / Windows + macOS Desktop / CI
+CLI / React / Windows + macOS Desktop / loopback API
                     |
               Go control plane
        +------------+-------------+
@@ -90,7 +90,7 @@ Windows x64 now provides an explicit `--enable-workspace-sandbox` Local backend.
 
 Schema v128 and #133 connect the fixed local Docker Engine `network=none` path as the explicit Standard Code fallback; the migration only extends the existing immutable Docker admission ledger to accept `workspace_access`. The backend-neutral `standard-code-command.v1` has no backend, image, endpoint, mount, network, environment, credential, or Docker-flag field. Go projects only the exact current Drydock at `/workspace`, with a fixed non-root user, read-only root filesystem/toolchains, bounded resources, and no inherited credentials. Daemon or image failure produces stable `blocked_by/remediation`, never a pull or host fallback. A Drydock/worktree remains an ownership and recovery boundary rather than a security sandbox; the fixed container supplies process and network isolation. See [Standard Code Docker](docs/standard-code-docker.md) and [ADR 0131](docs/adr/0131-standard-code-docker-network-none-backend.md).
 
-Schema v133 and #135 add Go-owned `standard_code_preset.v1`. Start coding commits Code/Plan, a ready Local backend or explicitly selected Docker, controlled interaction, `workspace_access`, restricted CDP, and an exact trusted Drydock as one idempotent all-or-nothing operation. A running Run uses a distinct pause-and-configure intent and commits only after its lease and Supervisor work are quiescent; an incompatible Surface produces a new Code Run. Failure leaves no partial snapshot tuple, auto never falls back to Docker, a host runner, or `full_access`, and results carry no authority bearer. CLI, control-token HTTP/OpenAPI, Desktop, and React share the same Application service. See [Standard Code atomic preset](docs/standard-code-preset.md) and [ADR 0135](docs/adr/0135-atomic-standard-code-preset.md).
+Schema v133 and #135 add Go-owned `standard_code_preset.v1`. Start coding commits Code/Plan, a ready Local backend or explicitly selected Docker, controlled interaction, `workspace_access`, restricted CDP, and an exact trusted Drydock as one idempotent all-or-nothing operation. A running Run uses a distinct pause-and-configure intent and commits only after its lease and Supervisor work are quiescent; an incompatible Surface produces a new Code Run. Failure leaves no partial snapshot tuple, auto never falls back to Docker, a host runner, or `full_access`, and results carry no authority bearer. CLI, control-token HTTP/OpenAPI, Desktop, and React share the same Application service. See [Standard Code atomic preset](docs/standard-code-preset.md) and [ADR 0136](docs/adr/0136-atomic-standard-code-preset.md).
 
 ### Item-level model and tool streaming
 

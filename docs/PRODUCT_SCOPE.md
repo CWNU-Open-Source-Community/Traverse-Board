@@ -10,16 +10,33 @@ This document is the authority for current product scope. If a historical task, 
 
 针路簿当前开发的是通用、本地优先的 AI Agent Harness 与 Code Agent 产品面：
 
-- Mission、Run、Session、检查点、恢复、取消、预算和事件流；
+- Thread、Run、Step/Tool Item、Run-local Session、检查点、恢复、取消、预算和事件流；
 - Provider 路由、资格校验、公开流式回复、上下文压缩和结构化记忆；
 - Plan/Delivery、工作项、备注、受控 child、可交付 child 的隔离 Worktree/交付复核/本地顺序合并，以及只读 Fan-out；
 - Workspace、Repository、Diff、模型可调用的有界读取/搜索、人工审查的文件变更、Run-owned Drydock、Standard Code 原子预设、稳定 hunk、审批式 stash/rebase/cherry-pick/bisect、产品受管 worktree、验证、Journey 和 Handoff；
 - Tool Gateway、Skill、Policy、Scope、Approval、Capability 和权限档位；
 - Artifact、Finding、Evidence、Report、SARIF 和 Live Activity；
-- CLI、TUI、HTTP/OpenAPI、React/Vite 和 Windows Desktop；
-- Go 主控的 Rust Analyzer 与 Sandbox 扩展合同。
+- Windows/macOS Desktop、React/Vite Thread 工作台、CLI 与 loopback HTTP/OpenAPI；
+- Go 主控的 Browser、Git/GitHub Review、multi-agent 与 Sandbox 能力，以及可选的 MCP、Plugin/Hook、Skill、Rust/WASI Analyzer 扩展合同。
 
-The active product is a general-purpose, local-first AI Agent Harness and Code Agent surface covering resumable execution, models and context, planning, bounded model-callable Workspace reads and reviewed mutations, Run-owned Drydocks, the atomic Standard Code preset, approval-gated stable hunks/stash/rebase/cherry-pick/bisect, product-managed worktrees, isolated deliverable-child worktrees and local merge review, permissions, audit/reporting, and shared CLI/TUI/API/Desktop clients.
+The active product is a general-purpose, local-first AI Agent Harness and Code Agent workflow covering Thread-first resumable execution, models and context, planning, bounded model-callable Workspace reads and reviewed mutations, Run-owned Drydocks, the atomic Standard Code preset, approval-gated stable hunks/stash/rebase/cherry-pick/bisect, product-managed worktrees, isolated deliverable-child worktrees and local merge review, permissions, audit/reporting, and shared Desktop/React, CLI, and loopback HTTP/OpenAPI clients.
+
+## 支持等级 / Support tiers
+
+实现存在不等于同一产品承诺。pre-1.0 的完整清单、进入标准、移除窗口和非授权边界见
+[ADR 0135](adr/0135-pre-1-0-product-convergence.md) 与
+[Surface inventory](convergence/surface-inventory.md)。摘要如下：
+
+| Tier | 当前范围 / Current scope |
+|---|---|
+| Active | Windows/macOS Desktop、React Thread 工作台、`cyberagent` CLI、loopback HTTP/OpenAPI，以及通过同一 Go Application 合同进入的核心能力 |
+| Maintenance-only | Bubble Tea TUI、headless event/CI 命令、旧 Run/Session 诊断视图；只做安全、兼容、数据丢失和严重缺陷修复 |
+| Extension-only | MCP、Plugin/Hook、第三方 Skill、Rust/WASI Analyzer、CTF/cyber add-on skeleton；扩展合同受支持，但不是核心发布依赖 |
+| Deferred | hosted/multi-tenant、Linux/mobile/editor 原生全客户端、公开扩展市场与自主攻防包 |
+
+Backends such as Docker/AppContainer, Browser/CDP, Git/GitHub Review, and
+multi-agent coordination keep their active security and recovery obligations but do
+not count as additional user surfaces. A tier label never grants runtime authority.
 
 ## 可选附加范围 / Optional Add-on Scope
 
