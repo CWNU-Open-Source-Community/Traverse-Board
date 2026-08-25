@@ -1,0 +1,960 @@
+{
+  "version": "surface-tier-registry.v1",
+  "authority": "ADR 0135",
+  "evidence_baseline": "main@0751fadbe74feb7640750e4944643e14c41acaa2",
+  "reassess_by": "2026-11-30",
+  "governance": {
+    "entry_criteria": [
+      {
+        "id": "owner",
+        "description": "Name the product/maintenance owner and the release or CI owner."
+      },
+      {
+        "id": "user-problem",
+        "description": "Identify a user problem that is not already served by an existing Surface."
+      },
+      {
+        "id": "shared-go-application-contract",
+        "description": "Reuse the shared Go Application contract, or provide a bounded adapter decision and threat model; never introduce renderer-owned authority or a second state machine."
+      },
+      {
+        "id": "authority-impact",
+        "description": "Review Scope, policy, approval, credential, network, process, persistence, privacy, and recovery impact."
+      },
+      {
+        "id": "supported-platforms",
+        "description": "Declare the supported OS/runtime matrix together with accessibility and bilingual-copy obligations."
+      },
+      {
+        "id": "release-test-evidence",
+        "description": "Name normal, refusal, timeout, cancel, restart, upgrade, downgrade, cleanup, and release-blocking evidence proportional to the authority exposed."
+      },
+      {
+        "id": "compatibility-strategy",
+        "description": "Declare public and durable compatibility obligations, support signals, and an export path without assuming usage telemetry."
+      },
+      {
+        "id": "deprecation-window",
+        "description": "Declare the notice date/window and tagged prereleases required before downgrade or removal."
+      },
+      {
+        "id": "removal-rollback-plan",
+        "description": "Provide removal, recovery, and rollback plans that preserve published protocol and durable identity obligations."
+      },
+      {
+        "id": "independently-removable-slice",
+        "description": "Keep the implementation independently removable and prevent optional extensions from becoming startup dependencies."
+      }
+    ],
+    "default_deprecation_days": 90,
+    "minimum_tagged_prereleases": 2,
+    "authority_statement": "This registry describes product support levels only. It grants no file, process, network, browser, Docker, credential, approval, Scope, or runtime capability.",
+    "rollback_statement": "The registry/check may be reverted, but a revert cannot silently change a published protocol, durable identity, compatibility promise, or user-data recovery obligation."
+  },
+  "owners": [
+    {
+      "id": "desktop-product",
+      "name": "Desktop/Product maintainers",
+      "responsibilities": [
+        "Desktop and React product entry points",
+        "first-run and cross-platform user experience",
+        "packaged release evidence"
+      ]
+    },
+    {
+      "id": "runtime-supervisor",
+      "name": "Runtime/Supervisor maintainers",
+      "responsibilities": [
+        "Go Application contract",
+        "CLI and loopback HTTP controls",
+        "runtime recovery and compatibility"
+      ]
+    },
+    {
+      "id": "security-qa",
+      "name": "Security/QA maintainers",
+      "responsibilities": [
+        "extension and integration boundaries",
+        "authority and recovery evidence",
+        "release-gate review"
+      ]
+    }
+  ],
+  "tiers": [
+    {
+      "id": "active",
+      "product_commitment": "Core product work and release evidence through the shared Go Application contract.",
+      "allowed_changes": [
+        "features",
+        "security",
+        "compatibility",
+        "accessibility",
+        "recovery",
+        "release"
+      ],
+      "new_workflow_policy": "allowed",
+      "core_release_blocker": true
+    },
+    {
+      "id": "maintenance-only",
+      "product_commitment": "Existing users and automation remain supported; no new workflow is admitted at this tier.",
+      "allowed_changes": [
+        "security",
+        "compatibility",
+        "data-loss",
+        "severe-defect"
+      ],
+      "new_workflow_policy": "requires-active-promotion",
+      "core_release_blocker": false
+    },
+    {
+      "id": "extension-only",
+      "product_commitment": "The seam and its Go-owned safety boundary are supported; optional implementations are not core release requirements.",
+      "allowed_changes": [
+        "contract",
+        "security",
+        "compatibility",
+        "independently-approved-extension"
+      ],
+      "new_workflow_policy": "requires-independent-approval",
+      "core_release_blocker": false
+    },
+    {
+      "id": "deferred",
+      "product_commitment": "No current implementation or release promise.",
+      "allowed_changes": [
+        "research",
+        "adr"
+      ],
+      "new_workflow_policy": "requires-entry-review",
+      "core_release_blocker": false
+    }
+  ],
+  "entries": [
+    {
+      "id": "desktop",
+      "name": "Windows and macOS Wails Desktop",
+      "kind": "User surface",
+      "category": "user-surface",
+      "counts_as_product_surface": true,
+      "tier": "active",
+      "owner": "desktop-product",
+      "supported_platforms": [
+        "windows",
+        "macos"
+      ],
+      "application_contract": "The Wails shell uses the in-process authenticated Go HTTP handler and the same internal/application services as CLI and loopback Web.",
+      "authority_impact": "The renderer is presentation-only; Go retains Scope, policy, approval, credential, process, persistence, and recovery authority.",
+      "release_blocking_checks": [
+        "CI / Windows Desktop shell",
+        "CI / macOS Desktop shell",
+        "CI / Real Edge UI evidence"
+      ],
+      "contract_checks": [
+        "go test -tags desktop ./cmd/cyberagent-desktop ./internal/desktop ./internal/webui",
+        "scripts/build-desktop.ps1 -SkipFrontend -VerifyReproducible",
+        "scripts/build-desktop-darwin.sh -SkipFrontend -VerifyReproducible"
+      ],
+      "recovery_evidence": [
+        "internal/desktop/lifecycle_test.go",
+        "cmd/cyberagent-desktop/main_windows_test.go",
+        "cmd/cyberagent-desktop/main_darwin_test.go"
+      ],
+      "compatibility_strategy": "Keep Windows/macOS packaged startup, shared store access, and historical executable/data identities compatible; do not create a Desktop-only authority path.",
+      "deprecation_window": "Downgrade requires a separate decision and supported replacement; removal follows at least 90 days and two tagged prereleases at maintenance-only.",
+      "removal_rollback_plan": "Restore the packaged shell against the same Go handler and retained identities; never roll back by deleting user data or published protocol readers.",
+      "core_release_blocker": true,
+      "go_owned_controls": [
+        "policy",
+        "approval",
+        "scope",
+        "credentials",
+        "recovery"
+      ],
+      "boundary": "Primary packaged product; build, startup, renderer-integrity, and recovery checks are release-blocking.",
+      "lifecycle": {
+        "registered_tier": "active",
+        "registered_by": "docs/adr/0135-pre-1-0-product-convergence.md",
+        "status": "supported",
+        "transitions": []
+      }
+    },
+    {
+      "id": "thread-workbench",
+      "name": "React/Vite Thread workbench",
+      "kind": "User surface",
+      "category": "user-surface",
+      "counts_as_product_surface": true,
+      "tier": "active",
+      "owner": "desktop-product",
+      "supported_platforms": [
+        "windows-desktop",
+        "macos-desktop",
+        "authenticated-loopback-web"
+      ],
+      "application_contract": "One renderer consumes authenticated Go HTTP/bridge projections backed by internal/application; TypeScript cannot mint durable identity or authority.",
+      "authority_impact": "UI state is non-authorizing presentation; all mutations, permissions, approvals, and recovery decisions are validated in Go.",
+      "release_blocking_checks": [
+        "CI / TypeScript console",
+        "CI / Windows Desktop shell",
+        "CI / macOS Desktop shell",
+        "CI / Real Edge UI evidence"
+      ],
+      "contract_checks": [
+        "npm --prefix web run check:api",
+        "npm --prefix web test",
+        "npm --prefix web run build"
+      ],
+      "recovery_evidence": [
+        "internal/httpapi/ui_test.go",
+        "internal/desktop/control_plane_test.go",
+        "internal/browserruntime/ui_evidence_runtime_windows_test.go"
+      ],
+      "compatibility_strategy": "Keep the React renderer shared by Desktop and authenticated loopback Web, preserve API v1 projections, and converge primary navigation on Thread without renaming durable IDs.",
+      "deprecation_window": "Downgrade requires a supported user workflow replacement; removal follows at least 90 days and two tagged prereleases at maintenance-only.",
+      "removal_rollback_plan": "Restore the same renderer bundle and Go projections; preserve exported receipts, API compatibility, and user-data recovery.",
+      "core_release_blocker": true,
+      "go_owned_controls": [
+        "policy",
+        "approval",
+        "scope",
+        "persistence",
+        "recovery"
+      ],
+      "boundary": "Shared renderer for Desktop and authenticated loopback Web; Thread is primary and TypeScript remains presentation-only.",
+      "lifecycle": {
+        "registered_tier": "active",
+        "registered_by": "docs/adr/0135-pre-1-0-product-convergence.md",
+        "status": "supported",
+        "transitions": []
+      }
+    },
+    {
+      "id": "cli",
+      "name": "cyberagent CLI",
+      "kind": "User/control surface",
+      "category": "control-surface",
+      "counts_as_product_surface": true,
+      "tier": "active",
+      "owner": "runtime-supervisor",
+      "supported_platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "application_contract": "cmd/cyberagent delegates command handling to internal/app and the shared internal/application services and stores.",
+      "authority_impact": "CLI flags select requests only; Go-owned validation retains Scope, policy, approval, credential, process, persistence, and recovery authority.",
+      "release_blocking_checks": [
+        "CI / Go control plane"
+      ],
+      "contract_checks": [
+        "go test ./internal/app",
+        "go test ./internal/app -run CLI"
+      ],
+      "recovery_evidence": [
+        "internal/app/surface_contract_test.go",
+        "internal/app/context_continuity_command_test.go",
+        "internal/app/workspace_checkpoint_command_test.go"
+      ],
+      "compatibility_strategy": "The cyberagent executable name and established flags/output contracts remain compatibility identifiers while Thread/Run/Workspace presentation converges.",
+      "deprecation_window": "A successor must preserve automation and recovery before downgrade; removal follows at least 90 days and two tagged prereleases at maintenance-only.",
+      "removal_rollback_plan": "Restore command adapters over the same Application services and durable identities; retain old-client fixtures and machine-readable output compatibility.",
+      "core_release_blocker": true,
+      "go_owned_controls": [
+        "policy",
+        "approval",
+        "scope",
+        "credentials",
+        "recovery"
+      ],
+      "boundary": "Stable operator and automation entry; the executable name is a compatibility ID, not a second control plane.",
+      "lifecycle": {
+        "registered_tier": "active",
+        "registered_by": "docs/adr/0135-pre-1-0-product-convergence.md",
+        "status": "supported",
+        "transitions": []
+      }
+    },
+    {
+      "id": "loopback-http-openapi",
+      "name": "Loopback HTTP and OpenAPI /api/v1",
+      "kind": "Control surface and external contract",
+      "category": "control-surface",
+      "counts_as_product_surface": true,
+      "tier": "active",
+      "owner": "runtime-supervisor",
+      "supported_platforms": [
+        "windows",
+        "macos",
+        "linux-loopback"
+      ],
+      "application_contract": "internal/httpapi is an authenticated adapter over the shared internal/application contract used by Web and Desktop clients.",
+      "authority_impact": "Literal loopback binding and bearer separation gate access; handlers cannot widen Go-owned Scope, policy, approval, credential, or persistence decisions.",
+      "release_blocking_checks": [
+        "CI / Go control plane",
+        "CI / TypeScript console API drift check"
+      ],
+      "contract_checks": [
+        "go test ./internal/httpapi ./internal/app -run API",
+        "npm --prefix web run check:api"
+      ],
+      "recovery_evidence": [
+        "internal/app/api_command_test.go",
+        "internal/httpapi/api_test.go",
+        "internal/httpapi/thread_control_test.go"
+      ],
+      "compatibility_strategy": "Preserve /api/v1 routes, DTOs, generated OpenAPI, loopback-only binding, and process-local token separation; it is not a hosted service.",
+      "deprecation_window": "External route retirement follows protocol governance in addition to at least 90 days and two tagged prereleases after any Surface downgrade.",
+      "removal_rollback_plan": "Restore handlers over the same Application contract and retain old-client/OpenAPI fixtures; a Surface transition cannot delete published routes or durable readers.",
+      "core_release_blocker": true,
+      "go_owned_controls": [
+        "policy",
+        "approval",
+        "scope",
+        "credentials",
+        "recovery"
+      ],
+      "boundary": "Authenticated literal-loopback API used by first-party clients and integrations; never a multi-tenant remote control plane.",
+      "lifecycle": {
+        "registered_tier": "active",
+        "registered_by": "docs/adr/0135-pre-1-0-product-convergence.md",
+        "status": "supported",
+        "transitions": []
+      }
+    },
+    {
+      "id": "tui",
+      "name": "Bubble Tea TUI",
+      "kind": "User surface",
+      "category": "user-surface",
+      "counts_as_product_surface": true,
+      "tier": "maintenance-only",
+      "owner": "desktop-product",
+      "supported_platforms": [
+        "windows-terminal",
+        "macos-terminal",
+        "linux-terminal"
+      ],
+      "application_contract": "internal/tui consumes bounded projections and internal/app controls over the same Go stores and Application services.",
+      "authority_impact": "TUI selections do not mint identity or bypass Go policy, approval, Scope, credential, or persistence validation.",
+      "release_blocking_checks": [],
+      "contract_checks": [
+        "go test ./internal/tui ./internal/app -run TUI",
+        "go test ./internal/app -run SurfaceContract"
+      ],
+      "recovery_evidence": [
+        "internal/tui/model_test.go",
+        "internal/tui/run_event_stream_test.go",
+        "internal/app/surface_contract_test.go"
+      ],
+      "compatibility_strategy": "Accept only security, compatibility, data-loss, and severe-defect fixes; new primary workflows target Thread workbench and CLI after an explicit promotion.",
+      "deprecation_window": "Removal requires at least 90 days and two tagged prereleases after notice, plus a supported replacement.",
+      "removal_rollback_plan": "Retain terminal compatibility and recovery fixtures; restore the adapter without changing Go stores, authority, or durable identities.",
+      "core_release_blocker": false,
+      "go_owned_controls": [
+        "policy",
+        "approval",
+        "scope"
+      ],
+      "boundary": "Read/control compatibility and critical fixes remain supported; feature parity is not a beta release gate.",
+      "lifecycle": {
+        "registered_tier": "maintenance-only",
+        "registered_by": "docs/adr/0135-pre-1-0-product-convergence.md",
+        "status": "supported",
+        "transitions": []
+      }
+    },
+    {
+      "id": "headless-commands",
+      "name": "headless event/CI commands",
+      "kind": "Automation surface",
+      "category": "automation-surface",
+      "counts_as_product_surface": true,
+      "tier": "maintenance-only",
+      "owner": "runtime-supervisor",
+      "supported_platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "application_contract": "internal/app headless commands use the same Go Application lifecycle and event projections as interactive entry points.",
+      "authority_impact": "Automation input remains subject to Go-owned Scope, policy, approval, execution, and persistence checks.",
+      "release_blocking_checks": [],
+      "contract_checks": [
+        "go test ./internal/app -run Headless",
+        "go test ./internal/app -run SurfaceContract"
+      ],
+      "recovery_evidence": [
+        "internal/app/surface_contract_test.go",
+        "internal/app/context_continuity_command_test.go"
+      ],
+      "compatibility_strategy": "Keep deterministic events and existing scripts compatible; accept only security, compatibility, data-loss, and severe-defect fixes without promotion.",
+      "deprecation_window": "Removal requires at least 90 days and two tagged prereleases after notice, with replacement automation and old-client fixtures.",
+      "removal_rollback_plan": "Restore the headless adapter and event projection over unchanged Application services and durable identities.",
+      "core_release_blocker": false,
+      "go_owned_controls": [
+        "policy",
+        "approval",
+        "scope"
+      ],
+      "boundary": "Existing deterministic CI and event automation remains supported; it is not another interactive product or authority path.",
+      "lifecycle": {
+        "registered_tier": "maintenance-only",
+        "registered_by": "docs/adr/0135-pre-1-0-product-convergence.md",
+        "status": "supported",
+        "transitions": []
+      }
+    },
+    {
+      "id": "legacy-run-session-diagnostics",
+      "name": "/runs/{id} and /sessions/{id} diagnostic views/routes",
+      "kind": "Compatibility surface",
+      "category": "compatibility-surface",
+      "counts_as_product_surface": true,
+      "tier": "maintenance-only",
+      "owner": "runtime-supervisor",
+      "supported_platforms": [
+        "authenticated-loopback-web",
+        "api-v1-clients"
+      ],
+      "application_contract": "Legacy diagnostics are read/control projections over the shared Go Application and HTTP API contracts.",
+      "authority_impact": "Run/Session routes remain diagnostics and compatibility identities; they cannot become alternate task authority or bypass Thread/Run validation.",
+      "release_blocking_checks": [],
+      "contract_checks": [
+        "go test ./internal/httpapi -run Run.*Session",
+        "go test ./internal/app -run SurfaceContract"
+      ],
+      "recovery_evidence": [
+        "internal/app/surface_contract_test.go",
+        "internal/httpapi/api_test.go"
+      ],
+      "compatibility_strategy": "Retain API and diagnostic compatibility; accept only security, compatibility, data-loss, and severe-defect fixes, not new primary workflows.",
+      "deprecation_window": "Published routes also follow protocol retirement rules; Surface removal still requires at least 90 days and two tagged prereleases.",
+      "removal_rollback_plan": "Keep old-client and old-store fixtures and restore projections without renaming or deleting Run/Session durable identities.",
+      "core_release_blocker": false,
+      "go_owned_controls": [
+        "policy",
+        "approval",
+        "scope"
+      ],
+      "boundary": "Diagnostics and API compatibility only; these routes are not alternate stable task identities.",
+      "lifecycle": {
+        "registered_tier": "maintenance-only",
+        "registered_by": "docs/adr/0135-pre-1-0-product-convergence.md",
+        "status": "supported",
+        "transitions": []
+      }
+    },
+    {
+      "id": "mcp",
+      "name": "MCP client and Go-controlled MCP server",
+      "kind": "Extension seam",
+      "category": "extension-seam",
+      "counts_as_product_surface": false,
+      "tier": "extension-only",
+      "owner": "security-qa",
+      "supported_platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "application_contract": "internal/mcp negotiation and invocation enter only through reviewed Go tool/application adapters.",
+      "authority_impact": "Discovery is non-authorizing; Go retains policy, independent approval, Scope, timeout, audit, and credential boundaries.",
+      "release_blocking_checks": [],
+      "contract_checks": [
+        "go test ./internal/mcp",
+        "go test ./internal/app -run MCP"
+      ],
+      "recovery_evidence": [
+        "internal/mcp/server_test.go",
+        "internal/mcp/client_manager_test.go",
+        "internal/mcp/client_transport_test.go"
+      ],
+      "compatibility_strategy": "Keep protocol negotiation, parser, audit, timeout, and cancellation contracts compatible; core use and release never require an MCP server.",
+      "deprecation_window": "Contract retirement requires a separate decision, compatibility evidence, notice, and the registry default removal window unless a security advisory shortens it.",
+      "removal_rollback_plan": "Disable or restore the optional adapter without changing core startup, Go authority, durable identities, or non-MCP workflows.",
+      "core_release_blocker": false,
+      "go_owned_controls": [
+        "policy",
+        "approval",
+        "scope",
+        "audit"
+      ],
+      "boundary": "Optional discovery and invocation seam behind Go review and policy; never a core startup dependency.",
+      "lifecycle": {
+        "registered_tier": "extension-only",
+        "registered_by": "docs/adr/0135-pre-1-0-product-convergence.md",
+        "status": "supported",
+        "transitions": []
+      }
+    },
+    {
+      "id": "plugin-hook",
+      "name": "Signed Plugin and restricted Hook runtime",
+      "kind": "Extension seam",
+      "category": "extension-seam",
+      "counts_as_product_surface": false,
+      "tier": "extension-only",
+      "owner": "security-qa",
+      "supported_platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "application_contract": "internal/plugins produces inert reviewed content for Go-owned application and tool adapters; hooks remain explicitly restricted.",
+      "authority_impact": "Plugin/Hook bytes grant no process, network, credential, file, approval, or Scope authority; Go validates every later use.",
+      "release_blocking_checks": [],
+      "contract_checks": [
+        "go test ./internal/plugins",
+        "go test ./internal/skills"
+      ],
+      "recovery_evidence": [
+        "internal/plugins/package_test.go",
+        "internal/plugins/import_test.go",
+        "internal/skills/installation_test.go"
+      ],
+      "compatibility_strategy": "Support signed package/parser compatibility and security fixes while keeping imported content inert and optional.",
+      "deprecation_window": "Contract removal requires a separate supply-chain decision and the registry default notice window unless a security advisory applies.",
+      "removal_rollback_plan": "Disable the optional import/runtime seam while retaining readable package metadata and a recoverable uninstall/restore path.",
+      "core_release_blocker": false,
+      "go_owned_controls": [
+        "policy",
+        "approval",
+        "scope",
+        "provenance"
+      ],
+      "boundary": "Signed or reviewed content remains inert by default and cannot self-authorize host capabilities.",
+      "lifecycle": {
+        "registered_tier": "extension-only",
+        "registered_by": "docs/adr/0135-pre-1-0-product-convergence.md",
+        "status": "supported",
+        "transitions": []
+      }
+    },
+    {
+      "id": "skill-packages",
+      "name": "Skill packages and registries",
+      "kind": "Extension seam",
+      "category": "extension-seam",
+      "counts_as_product_surface": false,
+      "tier": "extension-only",
+      "owner": "security-qa",
+      "supported_platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "application_contract": "internal/skills contributes bounded manifests and content to Go-owned selection, policy, and application flows.",
+      "authority_impact": "Third-party packages are untrusted and optional; provenance and manifest fields cannot grant tool, process, network, credential, approval, or Scope authority.",
+      "release_blocking_checks": [],
+      "contract_checks": [
+        "go test ./internal/skills",
+        "go test ./internal/plugins"
+      ],
+      "recovery_evidence": [
+        "internal/skills/registry_test.go",
+        "internal/skills/compatibility_test.go",
+        "internal/skills/installation_test.go"
+      ],
+      "compatibility_strategy": "Built-in Skills may support core workflows, but third-party packages remain optional with signed/pinned provenance where required.",
+      "deprecation_window": "Package-format retirement requires reader compatibility, export/uninstall recovery, and the registry default notice window unless a security advisory applies.",
+      "removal_rollback_plan": "Restore the prior reader/registry while preserving inert package bytes and selections; never make third-party availability a startup dependency.",
+      "core_release_blocker": false,
+      "go_owned_controls": [
+        "policy",
+        "approval",
+        "scope",
+        "provenance"
+      ],
+      "boundary": "Third-party packages are untrusted optional extensions; package metadata never confers runtime authority.",
+      "lifecycle": {
+        "registered_tier": "extension-only",
+        "registered_by": "docs/adr/0135-pre-1-0-product-convergence.md",
+        "status": "supported",
+        "transitions": []
+      }
+    },
+    {
+      "id": "analyzer-contracts",
+      "name": "Rust/WASI and local analyzer contracts",
+      "kind": "Extension/backend seam",
+      "category": "extension-seam",
+      "counts_as_product_surface": false,
+      "tier": "extension-only",
+      "owner": "security-qa",
+      "supported_platforms": [
+        "windows",
+        "linux",
+        "embedded-wasi"
+      ],
+      "application_contract": "Analyzer candidates and results cross versioned contracts into Go-owned application admission, Scope/approval, staging, and recovery controls.",
+      "authority_impact": "Go is the sole control plane; analyzers cannot own Agent, Session, secret, host-process lifecycle, approval, or Scope.",
+      "release_blocking_checks": [],
+      "contract_checks": [
+        "CI / Rust analyzer fixtures",
+        "go test ./internal/analyzer"
+      ],
+      "recovery_evidence": [
+        "internal/analyzer/product_adapter_recovery_test.go",
+        "internal/analyzer/result_staging_conformance_test.go",
+        "internal/analyzer/isolation_boundary_conformance_test.go"
+      ],
+      "compatibility_strategy": "Keep analyzer formats, golden vectors, isolation checks, and recovery contracts supported without requiring an analyzer for core startup or release.",
+      "deprecation_window": "Format retirement follows protocol governance and the registry default notice window unless an emergency advisory applies.",
+      "removal_rollback_plan": "Disable the optional adapter and restore prior contract readers/golden vectors without widening Go authority or losing staged-result recovery.",
+      "core_release_blocker": false,
+      "go_owned_controls": [
+        "policy",
+        "approval",
+        "scope",
+        "recovery"
+      ],
+      "boundary": "Supported optional contracts and backend seam; analyzers cannot become a second control plane.",
+      "lifecycle": {
+        "registered_tier": "extension-only",
+        "registered_by": "docs/adr/0135-pre-1-0-product-convergence.md",
+        "status": "supported",
+        "transitions": []
+      }
+    },
+    {
+      "id": "execution-backends",
+      "name": "Windows AppContainer and fixed Docker Standard Code",
+      "kind": "Execution backend",
+      "category": "backend",
+      "counts_as_product_surface": false,
+      "tier": "active",
+      "owner": "runtime-supervisor",
+      "supported_platforms": [
+        "windows-appcontainer",
+        "windows-docker",
+        "linux-docker",
+        "macos-docker"
+      ],
+      "application_contract": "Backends are selected and driven only by Go-owned Application readiness, permission, Drydock, command-runtime, and supervisor contracts.",
+      "authority_impact": "Backend availability never grants execution; Scope, permission, approval, ownership, network containment, cleanup, and recovery remain Go-owned.",
+      "release_blocking_checks": [
+        "CI / Go control plane",
+        "CI / Windows Desktop shell local-sandbox gate"
+      ],
+      "contract_checks": [
+        "go test ./internal/sandbox ./internal/application -run StandardCode",
+        "go test ./internal/desktop -run WindowsControlPlane"
+      ],
+      "recovery_evidence": [
+        "internal/application/standard_code_docker_test.go",
+        "internal/application/drydock_service_test.go",
+        "internal/sandbox/local_backend_windows_test.go"
+      ],
+      "compatibility_strategy": "Keep active backend readiness, ownership, network-none/WFP, restart, and exact-cleanup evidence without marketing a new user Surface.",
+      "deprecation_window": "An active backend downgrade requires a supported execution replacement; removal follows the registry default maintenance window and protocol obligations.",
+      "removal_rollback_plan": "Restore the backend adapter behind the same Go gates; retain Drydock/checkpoint recovery and never delete user workspaces or durable receipts.",
+      "core_release_blocker": true,
+      "go_owned_controls": [
+        "policy",
+        "approval",
+        "scope",
+        "execution-permission",
+        "recovery"
+      ],
+      "boundary": "Active execution backends reached through existing Surfaces; they are not independent user entry points.",
+      "lifecycle": {
+        "registered_tier": "active",
+        "registered_by": "docs/adr/0135-pre-1-0-product-convergence.md",
+        "status": "supported",
+        "transitions": []
+      }
+    },
+    {
+      "id": "browser-cdp",
+      "name": "Browser/CDP runtime and real UI evidence",
+      "kind": "Capability/backend",
+      "category": "backend",
+      "counts_as_product_surface": false,
+      "tier": "active",
+      "owner": "security-qa",
+      "supported_platforms": [
+        "windows-edge"
+      ],
+      "application_contract": "Go Application permission/readiness controls issue bounded browser plans and consume evidence through internal/browserruntime and HTTP/tool adapters.",
+      "authority_impact": "Browser launch, network, CDP, profile, and evidence access require independent Go permission and containment gates; renderer state is non-authorizing.",
+      "release_blocking_checks": [
+        "CI / Go control plane",
+        "CI / Real Edge UI evidence"
+      ],
+      "contract_checks": [
+        "go test ./internal/browserruntime",
+        "go test ./internal/httpapi -run Browser"
+      ],
+      "recovery_evidence": [
+        "internal/browserruntime/runtime_lifecycle_test.go",
+        "internal/browserruntime/readiness_test.go",
+        "internal/browserruntime/ui_evidence_runtime_windows_test.go"
+      ],
+      "compatibility_strategy": "Keep the bounded capability active behind Go gates; do not infer a standalone browser product, arbitrary remote browsing, or renderer-owned CDP.",
+      "deprecation_window": "Capability downgrade requires replacement evidence for active workflows; removal follows the registry default maintenance window.",
+      "removal_rollback_plan": "Restore the bounded adapter while retaining profile cleanup/recovery evidence and unchanged Go permission ceilings.",
+      "core_release_blocker": true,
+      "go_owned_controls": [
+        "policy",
+        "approval",
+        "scope",
+        "network",
+        "recovery"
+      ],
+      "boundary": "Bounded active capability and backend; it is not a separate browser product or control plane.",
+      "lifecycle": {
+        "registered_tier": "active",
+        "registered_by": "docs/adr/0135-pre-1-0-product-convergence.md",
+        "status": "supported",
+        "transitions": []
+      }
+    },
+    {
+      "id": "workspace-git-github-review",
+      "name": "Workspace/Git/GitHub Review",
+      "kind": "Capability/integration",
+      "category": "capability",
+      "counts_as_product_surface": false,
+      "tier": "active",
+      "owner": "runtime-supervisor",
+      "supported_platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "application_contract": "Workspace, Git mutation, advanced Git, and GitHub Review flows are Go Application capabilities reached through existing CLI/HTTP/Desktop Surfaces.",
+      "authority_impact": "Workspace Scope, CAS/lease, credential, approval, network-write, and recovery checks remain Go-owned; GitHub availability is optional.",
+      "release_blocking_checks": [
+        "CI / Go control plane"
+      ],
+      "contract_checks": [
+        "go test ./internal/workspace ./internal/gitmutation ./internal/gitadvanced ./internal/githubreview",
+        "go test ./internal/application -run Git"
+      ],
+      "recovery_evidence": [
+        "internal/application/git_advanced_service_test.go",
+        "internal/application/git_mutation_service_test.go",
+        "internal/githubreview/write_test.go"
+      ],
+      "compatibility_strategy": "Keep active local Code workflows and optional credential-scoped GitHub integration without treating the integration as another product Surface.",
+      "deprecation_window": "Capability downgrade requires a supported local workflow replacement; external contract retirement remains separately governed.",
+      "removal_rollback_plan": "Restore adapters over the same Workspace/Git identity and recovery model; preserve worktrees, commits, receipts, and credential boundaries.",
+      "core_release_blocker": true,
+      "go_owned_controls": [
+        "policy",
+        "approval",
+        "scope",
+        "credentials",
+        "recovery"
+      ],
+      "boundary": "Active capabilities and optional integration reached through existing Surfaces; GitHub network writes remain scoped and approval-gated.",
+      "lifecycle": {
+        "registered_tier": "active",
+        "registered_by": "docs/adr/0135-pre-1-0-product-convergence.md",
+        "status": "supported",
+        "transitions": []
+      }
+    },
+    {
+      "id": "checkpoint-batch-multi-agent",
+      "name": "Checkpoints, batch delivery, and multi-agent coordination",
+      "kind": "Capability",
+      "category": "capability",
+      "counts_as_product_surface": false,
+      "tier": "active",
+      "owner": "runtime-supervisor",
+      "supported_platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "application_contract": "Run/Workspace Application services own checkpoints, child-agent scheduling, Drydock/worktree identity, mailbox delivery, merge review, and recovery.",
+      "authority_impact": "Child agents and worktrees inherit bounded Go-owned Scope, policy, approval, lease, and recovery; coordination cannot create a parallel control plane.",
+      "release_blocking_checks": [
+        "CI / Go control plane"
+      ],
+      "contract_checks": [
+        "go test ./internal/workspacecheckpoint ./internal/application -run Checkpoint",
+        "go test ./internal/domain ./internal/application"
+      ],
+      "recovery_evidence": [
+        "internal/workspacecheckpoint/restore_test.go",
+        "internal/application/workspace_checkpoints_test.go",
+        "internal/domain/batch_delivery_test.go"
+      ],
+      "compatibility_strategy": "Keep active Run/Workspace coordination and recovery semantics while exposing them only through existing product Surfaces.",
+      "deprecation_window": "Capability downgrade requires continuity and recovery replacements; removal follows the registry default maintenance window and durable protocol rules.",
+      "removal_rollback_plan": "Restore coordination adapters without deleting worktrees, checkpoints, mailbox records, receipts, or Run/Workspace identities.",
+      "core_release_blocker": true,
+      "go_owned_controls": [
+        "policy",
+        "approval",
+        "scope",
+        "lease",
+        "recovery"
+      ],
+      "boundary": "Active Run/Workspace capabilities; agents, worktrees, and mailboxes do not constitute another product or control plane.",
+      "lifecycle": {
+        "registered_tier": "active",
+        "registered_by": "docs/adr/0135-pre-1-0-product-convergence.md",
+        "status": "supported",
+        "transitions": []
+      }
+    },
+    {
+      "id": "ctf-offensive-skeletons",
+      "name": "ctf command, cyber labels, and offensive workflow skeletons",
+      "kind": "Compatibility/extension seam",
+      "category": "extension-seam",
+      "counts_as_product_surface": false,
+      "tier": "extension-only",
+      "owner": "security-qa",
+      "supported_platforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "application_contract": "Existing identifiers route only to bounded Go-owned modes and application controls; any real offensive pack requires separate extension admission.",
+      "authority_impact": "Names and skeletons grant no target, network, credential, process, approval, or Scope authority.",
+      "release_blocking_checks": [],
+      "contract_checks": [
+        "go test ./internal/modes/ctf ./internal/app"
+      ],
+      "recovery_evidence": [
+        "internal/modes/ctf/ctf.go",
+        "internal/app/surface_contract_test.go"
+      ],
+      "compatibility_strategy": "Keep historical identifiers readable; CTF solving and offensive automation are not core features and need an independently removable approved extension.",
+      "deprecation_window": "Identifier retirement follows compatibility governance and the registry default notice window unless a security advisory applies.",
+      "removal_rollback_plan": "Disable an optional extension while retaining safe parsing and historical identifiers; restore it only behind the same Go gates.",
+      "core_release_blocker": false,
+      "go_owned_controls": [
+        "policy",
+        "approval",
+        "scope"
+      ],
+      "boundary": "Compatibility names and skeletons only; no core offensive product or ambient authority is promised.",
+      "lifecycle": {
+        "registered_tier": "extension-only",
+        "registered_by": "docs/adr/0135-pre-1-0-product-convergence.md",
+        "status": "supported",
+        "transitions": []
+      }
+    },
+    {
+      "id": "hosted-control-plane",
+      "name": "Cloud/multi-tenant daemon, account sync, hosted control plane",
+      "kind": "Product surface",
+      "category": "product-surface",
+      "counts_as_product_surface": true,
+      "tier": "deferred",
+      "owner": "desktop-product",
+      "supported_platforms": [
+        "uncommitted"
+      ],
+      "application_contract": "No hosted contract exists; entry review must define a bounded adapter over shared Go Application policy without rebranding loopback HTTP.",
+      "authority_impact": "No authentication, tenancy, remote network, data residency, operations, credential, approval, or support authority is approved.",
+      "release_blocking_checks": [],
+      "contract_checks": [
+        "go run ./cmd/surfacecheck"
+      ],
+      "recovery_evidence": [
+        "Entry review must define tenant refusal, cancel, restart, export, incident recovery, and cleanup evidence before implementation."
+      ],
+      "compatibility_strategy": "No release promise exists; any future design must keep loopback API v1 compatibility and local-first data/export obligations explicit.",
+      "deprecation_window": "No implementation may begin until entry review declares a deprecation and removal window.",
+      "removal_rollback_plan": "Reject or withdraw the proposal without mutating runtime; any later implementation must be independently removable and preserve local user data.",
+      "core_release_blocker": false,
+      "go_owned_controls": [
+        "policy",
+        "approval",
+        "scope"
+      ],
+      "boundary": "No hosted or multi-tenant product commitment; authenticated loopback HTTP remains local-only.",
+      "lifecycle": {
+        "registered_tier": "deferred",
+        "registered_by": "docs/adr/0135-pre-1-0-product-convergence.md",
+        "status": "supported",
+        "transitions": []
+      }
+    },
+    {
+      "id": "native-new-clients",
+      "name": "Native Linux Desktop, mobile clients, editor-native full clients",
+      "kind": "Product surface",
+      "category": "product-surface",
+      "counts_as_product_surface": true,
+      "tier": "deferred",
+      "owner": "desktop-product",
+      "supported_platforms": [
+        "linux-uncommitted",
+        "mobile-uncommitted",
+        "editor-uncommitted"
+      ],
+      "application_contract": "No first-party client contract is approved; entry review must bind any client to shared Go Application/API authority rather than duplicate state machines.",
+      "authority_impact": "No native client may mint identity, persist authority, or bypass Go Scope, policy, approval, credential, network, and recovery controls.",
+      "release_blocking_checks": [],
+      "contract_checks": [
+        "go run ./cmd/surfacecheck"
+      ],
+      "recovery_evidence": [
+        "Entry review must define offline/refusal, cancel, restart, upgrade, downgrade, export, and cleanup evidence before implementation."
+      ],
+      "compatibility_strategy": "Thin third-party integrations may use the external API; a first-party full client has no release promise until entry review.",
+      "deprecation_window": "No implementation may begin until entry review declares a deprecation and removal window.",
+      "removal_rollback_plan": "Reject or withdraw the proposal without runtime change; a later client must be independently removable without changing server-side durable identities.",
+      "core_release_blocker": false,
+      "go_owned_controls": [
+        "policy",
+        "approval",
+        "scope"
+      ],
+      "boundary": "No native Linux, mobile, or editor full-client release promise; first-party implementation requires entry review.",
+      "lifecycle": {
+        "registered_tier": "deferred",
+        "registered_by": "docs/adr/0135-pre-1-0-product-convergence.md",
+        "status": "supported",
+        "transitions": []
+      }
+    },
+    {
+      "id": "marketplace-offensive-packs",
+      "name": "Public extension marketplace and autonomous offensive packs",
+      "kind": "Product/extension distribution",
+      "category": "distribution",
+      "counts_as_product_surface": true,
+      "tier": "deferred",
+      "owner": "security-qa",
+      "supported_platforms": [
+        "uncommitted"
+      ],
+      "application_contract": "No distribution contract is approved; entry review must retain Go-owned package admission, policy, approval, Scope, provenance, and removal controls.",
+      "authority_impact": "No marketplace, autonomous target, network, credential, process, moderation, legal, or supply-chain authority is approved.",
+      "release_blocking_checks": [],
+      "contract_checks": [
+        "go run ./cmd/surfacecheck"
+      ],
+      "recovery_evidence": [
+        "Entry review must define revocation, quarantine, uninstall, export, incident response, and exact cleanup evidence before implementation."
+      ],
+      "compatibility_strategy": "No public distribution promise exists; signed/pinned local extension compatibility remains separate from any future marketplace.",
+      "deprecation_window": "No implementation may begin until entry review declares moderation, revocation, deprecation, and removal windows.",
+      "removal_rollback_plan": "Reject or withdraw the proposal without runtime change; any future distribution must be independently disableable with recoverable package state.",
+      "core_release_blocker": false,
+      "go_owned_controls": [
+        "policy",
+        "approval",
+        "scope",
+        "provenance"
+      ],
+      "boundary": "No marketplace or autonomous offensive-pack commitment; supply-chain, moderation, legal, threat, and removal review is mandatory first.",
+      "lifecycle": {
+        "registered_tier": "deferred",
+        "registered_by": "docs/adr/0135-pre-1-0-product-convergence.md",
+        "status": "supported",
+        "transitions": []
+      }
+    }
+  ]
+}

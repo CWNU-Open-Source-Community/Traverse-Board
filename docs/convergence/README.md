@@ -18,7 +18,7 @@ so that counts alone never authorize removal or compatibility breakage.
 
 | Inventory | Question answered |
 | --- | --- |
-| [Surface inventory](surface-inventory.md) | What is active, maintenance-only, extension-only, or deferred? |
+| [Surface inventory](surface-inventory.md) ([registry](surface-registry.json)) | What is active, maintenance-only, extension-only, or deferred? |
 | [Schema and protocol inventory](protocol-inventory.md) | Which boundaries are external durable, internal durable, projections, or ephemeral? |
 | [Generated protocol registry](protocol-registry.md) | Which exact production identifiers belong to each family, and which test/golden identifiers are explicitly allowlisted? |
 | [Durable operation samples](durable-operation-inventory.md) | Where do identity, replay, authority, receipts, recovery, and cleanup repeat, and where must domains differ? |
@@ -53,6 +53,24 @@ drift. The registry is governance metadata only and never grants runtime authori
 All five are GitHub sub-issues of #155. Approval of this decision package does not
 approve a combined implementation PR; every follow-up remains independently
 reviewable, reversible, and testable.
+
+## Generated governance checks
+
+`docs/convergence/surface-registry.json` is the single machine-readable source for
+Surface tiers, owners, platform support, contracts, authority impact, release/test
+evidence, compatibility, and exit plans. Regenerate its human-readable inventory
+with:
+
+```console
+go run ./cmd/surfacecheck -write
+```
+
+CI runs the command without `-write`, comparing the proposal with the reviewed PR
+base after the initial registry bootstrap. It fails when an entry disappears instead
+of retaining a removal tombstone, reviewed transition history is rewritten, the
+registry is invalid, the inventory has drifted, or the PR template no longer requests
+the mandatory Surface entry/exit declarations. Registry metadata is governance
+evidence only and is never read by the product runtime to grant authority.
 
 ## Change control
 

@@ -29,7 +29,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [process-runtime-lifecycle](#process-runtime-lifecycle) | `internal-durable` | Command, model, terminal, and runner lifecycle maintainers | 46 | true |
 | [project-configuration-contract](#project-configuration-contract) | `external-durable` | Project configuration and instruction maintainers | 4 | true |
 | [provider-stream-presentation](#provider-stream-presentation) | `ephemeral` | Model streaming and renderer maintainers | 3 | false |
-| [registry-governance-contract](#registry-governance-contract) | `external-durable` | Protocol governance maintainers | 1 | true |
+| [registry-governance-contract](#registry-governance-contract) | `external-durable` | Protocol and Surface governance maintainers | 2 | true |
 | [release-and-packaging-contracts](#release-and-packaging-contracts) | `external-durable` | Desktop release and packaging maintainers | 3 | true |
 | [report-summary-projections](#report-summary-projections) | `projection` | Finding, repository, and summary maintainers | 5 | true |
 | [sandbox-docker-lifecycle](#sandbox-docker-lifecycle) | `internal-durable` | Sandbox and Docker lifecycle maintainers | 196 | true |
@@ -966,19 +966,22 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 ### registry-governance-contract
 
 - Class: `external-durable`
-- Owner: Protocol governance maintainers
-- Source of truth: `internal/protocolregistry`, `protocols`
+- Owner: Protocol and Surface governance maintainers
+- Source of truth: `docs/convergence/surface-registry.json`, `internal/protocolregistry`, `internal/surfacegovernance`, `protocols`
 - Persistence/export boundary: The versioned registry is committed review metadata and generated documentation, never runtime authority.
 - Compatibility rule: Evolve the schema additively, retain historical reader records, compare against the Git baseline, and fail closed on unknown fields.
 - Retirement gate (`migration-or-retention`): ADR-backed retirement decision and rollback path; Old-version fixtures remain until every supported source is migrated or retained; Reader history is append-only; retirement requires migration or retention evidence
 - Writers:
   - `registry-governance-contract-writer` (`v1`, write-current) at `internal/protocolregistry`
+  - `surface-tier-registry-writer` (`v1`, write-current) at `internal/surfacegovernance`
 - Readers:
   - `registry-governance-contract-reader` (`v1`, active) at `internal/protocolregistry`
+  - `surface-tier-registry-reader` (`v1`, active) at `internal/surfacegovernance`
 
-<details><summary>1 active identifiers</summary>
+<details><summary>2 active identifiers</summary>
 
 - `protocol-family-registry.v1`
+- `surface-tier-registry.v1`
 
 </details>
 

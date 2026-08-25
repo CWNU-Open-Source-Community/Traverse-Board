@@ -1537,9 +1537,11 @@
     {
       "id": "registry-governance-contract",
       "class": "external-durable",
-      "owner": "Protocol governance maintainers",
+      "owner": "Protocol and Surface governance maintainers",
       "source_of_truth": [
+        "docs/convergence/surface-registry.json",
         "internal/protocolregistry",
+        "internal/surfacegovernance",
         "protocols"
       ],
       "writers": [
@@ -1550,12 +1552,28 @@
             1
           ],
           "mode": "write-current"
+        },
+        {
+          "id": "surface-tier-registry-writer",
+          "source": "internal/surfacegovernance",
+          "versions": [
+            1
+          ],
+          "mode": "write-current"
         }
       ],
       "readers": [
         {
           "id": "registry-governance-contract-reader",
           "source": "internal/protocolregistry",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        },
+        {
+          "id": "surface-tier-registry-reader",
+          "source": "internal/surfacegovernance",
           "versions": [
             1
           ],
@@ -1574,7 +1592,8 @@
         ]
       },
       "active_identifiers": [
-        "protocol-family-registry.v1"
+        "protocol-family-registry.v1",
+        "surface-tier-registry.v1"
       ],
       "retired_identifiers": []
     },
