@@ -19,6 +19,8 @@ const (
 	RunExecutionInteractionSelectedEvent          = "run.execution_interaction_selected"
 	RunExecutionPermissionSelectedEvent           = "run.execution_permission_selected"
 	RunBrowserCDPPermissionSelectedEvent          = "run.browser_cdp_permission_selected"
+	StandardCodePresetIntentRecordedEvent         = "standard_code.preset_intent_recorded"
+	StandardCodePresetConfiguredEvent             = "standard_code.preset_configured"
 	RunProjectInstructionsRefreshedEvent          = "run.project_instructions_refreshed"
 	SessionContinuityNodeCreatedEvent             = "session.continuity_node.created"
 	ControlledCommandExecutionPreparedEvent       = "controlled_command.execution_prepared"

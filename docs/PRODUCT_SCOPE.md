@@ -1,6 +1,6 @@
 # Traverse Board · 针路簿产品范围 / Product Scope
 
-更新日期 / Last updated: 2026-08-22
+更新日期 / Last updated: 2026-08-25
 
 本文是当前产品范围的权威说明。历史任务书、进度百分比或兼容命令与本文冲突时，以本文、当前代码和相关 ADR 为准。
 
@@ -13,13 +13,13 @@ This document is the authority for current product scope. If a historical task, 
 - Mission、Run、Session、检查点、恢复、取消、预算和事件流；
 - Provider 路由、资格校验、公开流式回复、上下文压缩和结构化记忆；
 - Plan/Delivery、工作项、备注、受控 child、可交付 child 的隔离 Worktree/交付复核/本地顺序合并，以及只读 Fan-out；
-- Workspace、Repository、Diff、模型可调用的有界读取/搜索、人工审查的文件变更、Run-owned Drydock、稳定 hunk、审批式 stash/rebase/cherry-pick/bisect、产品受管 worktree、验证、Journey 和 Handoff；
+- Workspace、Repository、Diff、模型可调用的有界读取/搜索、人工审查的文件变更、Run-owned Drydock、Standard Code 原子预设、稳定 hunk、审批式 stash/rebase/cherry-pick/bisect、产品受管 worktree、验证、Journey 和 Handoff；
 - Tool Gateway、Skill、Policy、Scope、Approval、Capability 和权限档位；
 - Artifact、Finding、Evidence、Report、SARIF 和 Live Activity；
 - CLI、TUI、HTTP/OpenAPI、React/Vite 和 Windows Desktop；
 - Go 主控的 Rust Analyzer 与 Sandbox 扩展合同。
 
-The active product is a general-purpose, local-first AI Agent Harness and Code Agent surface covering resumable execution, models and context, planning, bounded model-callable Workspace reads and reviewed mutations, Run-owned Drydocks, approval-gated stable hunks/stash/rebase/cherry-pick/bisect, product-managed worktrees, isolated deliverable-child worktrees and local merge review, permissions, audit/reporting, and shared CLI/TUI/API/Desktop clients.
+The active product is a general-purpose, local-first AI Agent Harness and Code Agent surface covering resumable execution, models and context, planning, bounded model-callable Workspace reads and reviewed mutations, Run-owned Drydocks, the atomic Standard Code preset, approval-gated stable hunks/stash/rebase/cherry-pick/bisect, product-managed worktrees, isolated deliverable-child worktrees and local merge review, permissions, audit/reporting, and shared CLI/TUI/API/Desktop clients.
 
 ## 可选附加范围 / Optional Add-on Scope
 

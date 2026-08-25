@@ -92,6 +92,9 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 		if a.runCreationEnabled {
 			resources = append(resources, "run-creation-control")
 		}
+		if a.standardCodePresetEnabled {
+			resources = append(resources, "standard-code-preset-control")
+		}
 		if a.runCreationEnabled && a.sessionMessageEnabled {
 			resources = append(resources, "thread-creation-control", "thread-message-control",
 				"thread-lifecycle-control")

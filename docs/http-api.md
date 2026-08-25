@@ -115,6 +115,39 @@ endpoints, credentials, lease/owner identities, and raw errors, and fixes
 `capability_grant=false`. It cannot authorize a control POST or runtime operation.
 See [ADR 0128](adr/0128-go-owned-run-capability-readiness.md).
 
+### Standard Code 原子预设 / Atomic preset
+
+Schema v133 exposes the Go-owned preset only when the process has a distinct control
+token, Run/permission control, Drydock control, and at least one independently gated
+Workspace Sandbox path. The three strict POST routes are:
+
+```text
+POST /api/v1/standard-code/preset
+POST /api/v1/runs/{run_id}/standard-code/preset
+POST /api/v1/runs/{run_id}/standard-code/pause-and-configure
+```
+
+They require the control bearer, `Content-Type: application/json`, and an exact
+`Idempotency-Key`. The body uses `standard_code_preset.v1`, `backend_intent` from
+`auto|local|docker`, optional create-only `workspace_id`/`goal`, and the paired
+Workspace Trust confirmation fields. Unknown or duplicate fields, query parameters,
+invalid UTF-8, oversized bodies, changed intent under one key, and a mismatched trust
+digest fail closed.
+
+`auto` selects only ready Local. Docker requires explicit intent and its current fixed
+image/daemon readiness; neither path can request a host runner or `full_access`.
+Running Runs use only the pause-and-configure route, whose durable intent may be
+retried with the same key until the lease and Supervisor become quiescent. React and
+Desktop do not sequence the lower-level profile/interaction/permission routes.
+
+The accepted response reports the actual Run, configured snapshot views when
+complete, selected backend/reason, Local and Docker readiness, blockers, next steps,
+trust requirement/digest, disabled network, absent credentials, replay status, and
+`capability_grant=false`. It has no control bearer, credential, private Workspace or
+Drydock path, Docker endpoint, lease/owner identity, or process handle. See
+[Standard Code atomic preset](standard-code-preset.md) and
+[ADR 0135](adr/0135-atomic-standard-code-preset.md).
+
 The process capability document reports whether the `agent-code-tools.v1` runtime
 is compiled in, while `GET /api/v1/runs/{run_id}` carries the authoritative
 Run-specific generation and per-tool availability/refusal snapshot. The latter is

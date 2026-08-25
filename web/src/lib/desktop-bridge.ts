@@ -44,6 +44,7 @@ export interface DesktopConnectionBootstrap {
   command_runtime_adapter_ready: boolean;
   thread_control_enabled: boolean;
   run_creation_enabled: boolean;
+  standard_code_preset_enabled: boolean;
   session_message_enabled: boolean;
   session_steering_control_enabled: boolean;
   run_lifecycle_enabled: boolean;
@@ -728,7 +729,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     "protocol_version", "read_only_default",
     "plan_delivery_control_enabled", "read_token", "renderer_path_input_supported",
     "thread_control_enabled",
-    "run_creation_enabled", "shell_execution_enabled",
+    "run_creation_enabled", "standard_code_preset_enabled", "shell_execution_enabled",
     "run_execution_enabled", "run_lifecycle_enabled", "run_wake_control_enabled",
     "run_wake_execution_enabled", "run_wake_worker_enabled",
     "scheduled_job_control_enabled", "scheduled_job_worker_enabled",
@@ -759,6 +760,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     (!value.command_runtime_adapter_ready || value.command_runtime_adapter_installed) &&
     typeof value.thread_control_enabled === "boolean" &&
     typeof value.run_creation_enabled === "boolean" &&
+    typeof value.standard_code_preset_enabled === "boolean" &&
     typeof value.session_message_enabled === "boolean" &&
     typeof value.session_steering_control_enabled === "boolean" &&
     typeof value.run_lifecycle_enabled === "boolean" &&
@@ -793,6 +795,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     typeof value.workspace_import_enabled === "boolean" &&
     typeof value.workspace_open_enabled === "boolean" &&
     (value.control_token !== "") === (value.control_enabled || value.run_creation_enabled ||
+      value.standard_code_preset_enabled ||
       value.execution_permission_control_enabled ||
       value.browser_cdp_permission_control_enabled ||
       value.session_message_enabled || value.session_steering_control_enabled ||
@@ -841,6 +844,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     value.thread_control_enabled ===
       (value.run_creation_enabled && value.session_message_enabled) &&
     value.read_only_default === !(value.control_enabled || value.run_creation_enabled ||
+      value.standard_code_preset_enabled ||
       value.execution_permission_control_enabled ||
       value.browser_cdp_permission_control_enabled ||
       value.session_message_enabled || value.session_steering_control_enabled ||

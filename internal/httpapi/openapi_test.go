@@ -682,6 +682,20 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	standardCodeController := &standardCodePresetControllerStub{}
+	standardCodeAPI, err := New(fixture.store, Config{
+		AccessToken: testAccessToken, ControlToken: testControlToken,
+		RunControlEnabled: true, ExecutionPermissionControlEnabled: true,
+		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
+			WorkspaceSandboxEnabled: true,
+		},
+		StandardCodePresetEnabled:    true,
+		StandardCodePresetController: standardCodeController,
+		AppVersion:                   "openapi-standard-code-test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	replacements := map[string]string{
 		"{thread_id}":         openAPIThread.ID,
 		"{run_id}":            fixture.run.ID,
@@ -777,6 +791,12 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 			requestPath += "?connection_id=github-connection-openapi"
 		}
 		t.Run(spec.OperationID, func(t *testing.T) {
+			requestAPI := fixture.api
+			if spec.Path == StandardCodePresetCreatePath ||
+				spec.Path == StandardCodePresetRunPathTemplate ||
+				spec.Path == StandardCodePauseAndConfigurePathTemplate {
+				requestAPI = standardCodeAPI
+			}
 			var response *httptest.ResponseRecorder
 			expectedStatus := http.StatusOK
 			if spec.OperationID == "getRunFindingReport" {
@@ -945,6 +965,15 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 					}
 					body = `{"version":"thread_lifecycle.v1","expected_version":` +
 						fmt.Sprint(current.Version) + `}`
+				} else if spec.Path == StandardCodePresetCreatePath {
+					body = `{"version":"standard_code_preset.v1",` +
+						`"workspace_id":"` + fixture.workspace.ID + `",` +
+						`"goal":"OpenAPI Standard Code Run",` +
+						`"backend_intent":"auto","confirm_workspace_trust":false}`
+				} else if spec.Path == StandardCodePresetRunPathTemplate ||
+					spec.Path == StandardCodePauseAndConfigurePathTemplate {
+					body = `{"version":"standard_code_preset.v1",` +
+						`"backend_intent":"auto","confirm_workspace_trust":false}`
 				} else if spec.Path == RunCreationControlPath {
 					body = `{"version":"run_creation.v1","goal":"OpenAPI live Run",` +
 						`"workspace_id":"` + fixture.workspace.ID + `"}`
@@ -1134,7 +1163,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				if method == "" {
 					method = http.MethodPost
 				}
-				response = performControlMethodPathRequest(t, fixture.api, method, requestPath,
+				response = performControlMethodPathRequest(t, requestAPI, method, requestPath,
 					"openapi-live-operation-012345-"+spec.OperationID,
 					strings.NewReader(body))
 				status, statusErr := openAPISuccessStatus(spec)

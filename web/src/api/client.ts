@@ -130,6 +130,8 @@ import type {
   RunCreationControlRequestView,
   RunCreationControlView,
   RunCapabilityReadinessView,
+  StandardCodePresetControlRequestView,
+  StandardCodePresetControlView,
   RunExecutionControlRequestView,
   RunExecutionControlView,
   RunLifecycleControlRequestView,
@@ -214,6 +216,7 @@ export interface ClientCapabilities {
   commandRuntimeAdapterInstalled?: boolean;
   commandRuntimeAdapterReady?: boolean;
   runCreationEnabled?: boolean;
+  standardCodePresetEnabled?: boolean;
   sessionMessageEnabled?: boolean;
   threadControlEnabled?: boolean;
   sessionSteeringControlEnabled?: boolean;
@@ -1767,7 +1770,8 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
     "file_edit_apply_enabled", "file_edit_proposal_enabled",
     "file_edit_review_enabled", "model_control_enabled", "plan_delivery_control_enabled",
     "process_execution_enabled", "provider_credential_enabled", "protocol_version",
-    "run_control_enabled", "run_creation_enabled", "run_execution_enabled",
+    "run_control_enabled", "run_creation_enabled", "standard_code_preset_enabled",
+    "run_execution_enabled",
     "run_lifecycle_enabled", "run_wake_control_enabled", "run_wake_execution_enabled",
     "run_wake_worker_enabled", "scheduled_job_control_enabled",
     "scheduled_job_worker_enabled", "scheduled_job_worker", "session_message_enabled",
@@ -2024,6 +2028,93 @@ function parseRunCapabilityReadiness(value: unknown,
   return value as unknown as RunCapabilityReadinessView;
 }
 
+const standardCodeNextSteps = [
+  "confirm_workspace_trust", "pause_and_configure", "wait_for_quiescence",
+  "select_docker", "select_approval", "retry_readiness", "create_new_run",
+] as const;
+
+function parseStandardCodeBackendReadiness(value: unknown,
+  backend: "local" | "docker"): void {
+  if (!hasExactKeys(value, ["available", "backend", "blocked_by", "remediation"]) ||
+    value.backend !== backend || typeof value.available !== "boolean" ||
+    !Array.isArray(value.blocked_by) || !Array.isArray(value.remediation) ||
+    value.blocked_by.length > capabilityReadinessBlockers.length ||
+    value.remediation.length > capabilityReadinessRemediations.length ||
+    value.blocked_by.some((entry) => typeof entry !== "string" ||
+      !capabilityReadinessBlockers.includes(entry as ReadinessBlocker)) ||
+    value.remediation.some((entry) => typeof entry !== "string" ||
+      !capabilityReadinessRemediations.includes(entry as ReadinessRemediation)) ||
+    new Set(value.blocked_by).size !== value.blocked_by.length ||
+    new Set(value.remediation).size !== value.remediation.length ||
+    value.available !== (value.blocked_by.length === 0)) {
+    throw new APIRequestError("Standard Code backend readiness is invalid",
+      "INVALID_RESPONSE", 502);
+  }
+}
+
+function parseStandardCodePreset(value: unknown,
+  expectedAction: "configure" | "pause_and_configure"): StandardCodePresetControlView {
+  const required = ["action", "backend_intent", "blocked_by", "capability_grant",
+    "credentials", "docker_readiness", "drydock_ready", "local_readiness", "network",
+    "next_steps", "protocol_version", "replayed", "status", "trust_required",
+    "workspace_id"];
+  const optional = ["browser_cdp_permission", "execution_interaction",
+    "execution_permission", "execution_profile", "mode", "run", "run_id",
+    "selected_backend", "selection_reason", "trust_digest"];
+  if (!isRecord(value) || !hasOnlyKeys(value, [...required, ...optional]) ||
+    required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
+    value.protocol_version !== "standard_code_preset.v1" ||
+    value.action !== expectedAction ||
+    !["auto", "local", "docker"].includes(String(value.backend_intent)) ||
+    !["blocked", "waiting_for_pause", "configured"].includes(String(value.status)) ||
+    !boundedIdentity(value.workspace_id) || value.network !== "disabled" ||
+    value.credentials !== "none" || value.capability_grant !== false ||
+    typeof value.drydock_ready !== "boolean" || typeof value.replayed !== "boolean" ||
+    typeof value.trust_required !== "boolean" || !Array.isArray(value.blocked_by) ||
+    !Array.isArray(value.next_steps) ||
+    value.blocked_by.length > capabilityReadinessBlockers.length ||
+    value.next_steps.length > standardCodeNextSteps.length ||
+    value.blocked_by.some((entry) => typeof entry !== "string" ||
+      !capabilityReadinessBlockers.includes(entry as ReadinessBlocker)) ||
+    value.next_steps.some((entry) => typeof entry !== "string" ||
+      !standardCodeNextSteps.includes(entry as typeof standardCodeNextSteps[number])) ||
+    new Set(value.blocked_by).size !== value.blocked_by.length ||
+    new Set(value.next_steps).size !== value.next_steps.length) {
+    throw new APIRequestError("Standard Code preset response is invalid",
+      "INVALID_RESPONSE", 502);
+  }
+  parseStandardCodeBackendReadiness(value.local_readiness, "local");
+  parseStandardCodeBackendReadiness(value.docker_readiness, "docker");
+
+  const selected = value.selected_backend;
+  const reason = value.selection_reason;
+  const selectionValid = (selected === undefined && reason === undefined) ||
+    (selected === "local" &&
+      ((value.backend_intent === "auto" && reason === "auto_local_ready") ||
+        (value.backend_intent === "local" && reason === "explicit_local"))) ||
+    (selected === "docker" && value.backend_intent === "docker" &&
+      reason === "explicit_docker");
+  const trustDigestPresent = Object.prototype.hasOwnProperty.call(value, "trust_digest");
+  if (!selectionValid ||
+    (Object.prototype.hasOwnProperty.call(value, "run_id") && !boundedIdentity(value.run_id)) ||
+    trustDigestPresent !== value.trust_required ||
+    (trustDigestPresent && !isSHA256(value.trust_digest)) ||
+    (value.trust_required && (value.status !== "blocked" ||
+      !value.next_steps.includes("confirm_workspace_trust"))) ||
+    (value.status === "waiting_for_pause" &&
+      (!boundedIdentity(value.run_id) || selected === undefined)) ||
+    (value.status === "configured" &&
+      (!boundedIdentity(value.run_id) || selected === undefined || !value.drydock_ready ||
+        value.blocked_by.length !== 0 || value.next_steps.length !== 0 ||
+        !isRecord(value.run) || !isRecord(value.mode) || !isRecord(value.execution_profile) ||
+        !isRecord(value.execution_interaction) || !isRecord(value.execution_permission) ||
+        !isRecord(value.browser_cdp_permission)))) {
+    throw new APIRequestError("Standard Code preset response is inconsistent",
+      "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as StandardCodePresetControlView;
+}
+
 const safeWebReadinessBlockingReasons = [
   "evidence_missing", "evidence_version_mismatch", "executable_identity_mismatch",
   "acceptance_mismatch", "policy_version_mismatch", "adapter_mismatch",
@@ -2099,6 +2190,7 @@ export function clientCapabilitiesFromRuntime(value: RuntimeCapabilitiesView): C
     commandRuntimeAdapterInstalled: value.command_runtime_adapter_installed,
     commandRuntimeAdapterReady: value.command_runtime_adapter_ready,
     runCreationEnabled: value.run_creation_enabled,
+    standardCodePresetEnabled: value.standard_code_preset_enabled,
     sessionMessageEnabled: value.session_message_enabled,
     threadControlEnabled: value.thread_control_enabled,
     sessionSteeringControlEnabled: value.session_steering_control_enabled,
@@ -4662,6 +4754,7 @@ export class CyberAgentClient {
   readonly hasBrowserCDPPermissionControl: boolean;
   readonly hasFullCDPDebug: boolean;
   readonly hasRunCreation: boolean;
+  readonly hasStandardCodePreset: boolean;
   readonly hasSessionMessages: boolean;
   readonly hasThreadControl: boolean;
   readonly hasSessionSteeringControl: boolean;
@@ -4712,6 +4805,8 @@ export class CyberAgentClient {
     this.hasFullCDPDebug = this.hasBrowserCDPPermissionControl &&
       (capabilities.fullCDPDebugEnabled ?? false);
     this.hasRunCreation = controlPresent && (capabilities.runCreationEnabled ?? true);
+    this.hasStandardCodePreset = controlPresent &&
+      (capabilities.standardCodePresetEnabled ?? false);
     this.hasSessionMessages = controlPresent && (capabilities.sessionMessageEnabled ?? true);
     this.hasThreadControl = controlPresent &&
       (capabilities.threadControlEnabled ??
@@ -4788,6 +4883,28 @@ export class CyberAgentClient {
     }
     return parseRunCapabilityReadiness(await this.get<unknown>(
       `/runs/${encodeURIComponent(runID)}/capability-readiness`, {}, signal), runID);
+  }
+
+  async configureStandardCode(runID: string,
+    action: "configure" | "pause_and_configure",
+    body: StandardCodePresetControlRequestView, idempotencyKey: string,
+    signal?: AbortSignal): Promise<StandardCodePresetControlView> {
+    if (!this.hasStandardCodePreset) {
+      throw new Error("Standard Code preset capability is required for this operation");
+    }
+    if (!boundedIdentity(runID) || runID.trim() !== runID ||
+      body.version !== "standard_code_preset.v1" ||
+      !["auto", "local", "docker"].includes(body.backend_intent) ||
+      body.workspace_id !== undefined || body.goal !== undefined ||
+      body.confirm_workspace_trust !== (body.expected_trust_digest !== undefined) ||
+      (body.expected_trust_digest !== undefined && !isSHA256(body.expected_trust_digest))) {
+      throw new Error("A valid existing-Run Standard Code preset request is required");
+    }
+    const suffix = action === "pause_and_configure"
+      ? "/standard-code/pause-and-configure" : "/standard-code/preset";
+    const result = await this.sendControl<unknown>(
+      `/runs/${encodeURIComponent(runID)}${suffix}`, body, idempotencyKey, signal);
+    return parseStandardCodePreset(result, action);
   }
 
   async codeIntelInventory(workspaceID = "", signal?: AbortSignal):

@@ -25,6 +25,7 @@ interface ConnectionState {
   commandRuntimeAdapterInstalled: boolean;
   commandRuntimeAdapterReady: boolean;
   runCreationEnabled: boolean;
+  standardCodePresetEnabled: boolean;
   sessionMessageEnabled: boolean;
   threadControlEnabled: boolean;
   sessionSteeringControlEnabled: boolean;
@@ -90,6 +91,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   commandRuntimeAdapterInstalled: false,
   commandRuntimeAdapterReady: false,
   runCreationEnabled: false,
+  standardCodePresetEnabled: false,
   sessionMessageEnabled: false,
   threadControlEnabled: false,
   sessionSteeringControlEnabled: false,
@@ -145,6 +147,8 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
       commandRuntimeAdapterReady: present &&
         (capabilities.commandRuntimeAdapterReady ?? false),
       runCreationEnabled: present && (capabilities.runCreationEnabled ?? true),
+      standardCodePresetEnabled: present &&
+        (capabilities.standardCodePresetEnabled ?? false),
       sessionMessageEnabled: present && (capabilities.sessionMessageEnabled ?? true),
       threadControlEnabled: present && (capabilities.threadControlEnabled ??
         ((capabilities.runCreationEnabled ?? true) &&
@@ -195,7 +199,8 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
     });
   },
   disconnect: () => set({ token: "", controlToken: "", health: null,
-    runControlEnabled: false, runCreationEnabled: false, sessionMessageEnabled: false,
+    runControlEnabled: false, runCreationEnabled: false,
+    standardCodePresetEnabled: false, sessionMessageEnabled: false,
     threadControlEnabled: false,
     executionPermissionControlEnabled: false, workspaceSandboxEnabled: false,
     operatorApprovalEnabled: false,

@@ -117,6 +117,43 @@ type DrydockCreateResult struct {
 	Replayed        bool                            `json:"replayed"`
 }
 
+// DrydockWorkspaceInspection is a read-only source observation used by
+// composite product operations before they create a Run-owned Drydock. It is
+// internal control-plane evidence and must not be exposed without a narrowed
+// view because SourceIdentity contains host paths.
+type DrydockWorkspaceInspection struct {
+	WorkspaceID string
+	Source      drydock.SourceIdentity
+	SourceState drydock.SourceState
+	TrustDigest string
+}
+
+func (s *DrydockService) InspectWorkspace(ctx context.Context,
+	workspaceID string,
+) (DrydockWorkspaceInspection, error) {
+	workspaceID = strings.TrimSpace(workspaceID)
+	if s == nil || s.store == nil || s.executor == nil || workspaceID == "" {
+		return DrydockWorkspaceInspection{}, apperror.New(
+			apperror.CodeInvalidArgument, "Drydock Workspace inspection is invalid")
+	}
+	workspace, err := s.store.GetWorkspaceByID(ctx, workspaceID)
+	if err != nil {
+		return DrydockWorkspaceInspection{}, apperror.Normalize(err)
+	}
+	source, err := s.executor.InspectSource(ctx, workspace.ID, workspace.RootPath)
+	if err != nil {
+		return DrydockWorkspaceInspection{}, apperror.Normalize(err)
+	}
+	result := DrydockWorkspaceInspection{WorkspaceID: workspace.ID,
+		Source: source.Identity, SourceState: source.State,
+		TrustDigest: drydock.TrustConfirmationDigest(source.Identity, source.State)}
+	if source.State.SymlinkEntries != 0 || source.State.SubmoduleEntries != 0 {
+		return result, apperror.New(apperror.CodeFailedPrecondition,
+			"Drydock rejects source symlink/reparse and submodule entries")
+	}
+	return result, nil
+}
+
 type DrydockUseRequest struct {
 	RunID              string `json:"run_id"`
 	ExpectedGeneration int64  `json:"expected_generation"`

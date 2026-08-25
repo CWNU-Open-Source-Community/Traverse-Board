@@ -1,12 +1,26 @@
 # Project Status
 
-Last updated: 2026-08-24
+Last updated: 2026-08-25
 
 > **Scope authority:** active mainline work targets the general-purpose Agent Harness and Code workflow. CTF-specific solving and offensive automation are optional add-ons and have no active implementation schedule. Historical references and percentages below remain audit history, not queued work. See [Product Scope](PRODUCT_SCOPE.md).
 
 ## Resume Context
 
-当前检查点是 issue #153；SQLite 仍为 schema v130。`thread_transcript.v1` 以
+当前检查点是 issue #135 / schema v133。`standard_code_preset.v1` 以一个 Go-owned 幂等操作
+创建或配置 Standard Code Run：Code/Plan、已就绪 Local 或操作者显式选择的 Docker、
+controlled、`workspace_access`、restricted CDP、可信且 ready 的精确 Drydock、禁网与无凭证
+作为完整元组提交。自动选择只接受 Local；Local 不可用时只返回显式 Docker/Approval 选项，
+绝不回退宿主执行或 `full_access`。
+
+现有 Run 只在 created/paused 且无 active lease 时配置；running 使用独立持久
+pause-and-configure 意图，在 lease 与 Supervisor 真正静止后把 pause 和完整元组放入同一事务。
+Surface 不兼容创建新 Code/Plan Run。commit fault 会回滚全部新快照、事件和暂停变化；相同 key
+精确恢复，异意图冲突。CLI、control-token HTTP/OpenAPI、Desktop bridge 与 React 共用同一
+Application；响应无 bearer、路径、凭据或进程 identity，模型/Skill/MCP/仓库配置无调用入口。
+Drydock/worktree 仍只承担归属与恢复，隔离来自 Local OS 或固定 Docker。边界见 ADR 0135 与
+`docs/standard-code-preset.md`。
+
+上一检查点是 issue #153；SQLite 当时为 schema v130。`thread_transcript.v1` 以
 `(Thread Run ordinal, durable event sequence, projected item position)` 将用户消息、公开模型文本、
 Harness 事实、schema-v130 工具 item 阶段、审批、验证、检查点、交付和 successor 边界投影到
 稳定 Thread 主页面。route-scoped opaque keyset cursor 在追加事件、创建后继 Run 和重启后不漂移；

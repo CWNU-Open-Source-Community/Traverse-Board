@@ -2,9 +2,23 @@
 
 > 本文件是按时间追加的历史开发账本，不是待办列表。当前产品范围以 [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md) 为准；CTF 专用求解和攻防自动化已移出活跃路线图，本文中的旧 Cyber 百分比仅保留为历史快照。
 
-更新时间：2026-08-24
+更新时间：2026-08-25
 
 ## 一、当前阶段
+
+2026-08-25 单切片 `Standard Code 原子预设与 Pause-and-configure（Issue #135）` 推进到
+SQLite v133。`standard_code_preset.v1` 以 operation digest/request fingerprint 绑定请求、实际
+Run、Workspace、backend/reason、Drydock generation/Checkpoint、完整策略快照和事件范围；相同
+key 精确恢复、异意图冲突。默认 Code/Plan + ready Local + controlled + `workspace_access` +
+restricted CDP + trusted Drydock + network disabled + credentials none；Docker 只允许显式选择，
+无 host/`full_access` fallback。
+
+created/paused 只在无 active lease 时提交；running 先持久化等待意图，等 Supervisor/lease
+quiescent 后将 pause 与完整元组原子提交；Surface 不兼容创建新 Code Run。迁移保留既有
+interaction rows/triggers 并为 exact Docker controlled gate 扩展约束；故障注入覆盖中途 snapshot
+insert 回滚。CLI、control-token HTTP/OpenAPI、Desktop bridge 与 React 一致，严格响应不含
+bearer/private path/credential/process identity。Drydock/worktree 继续只作为 ownership/recovery
+边界，隔离由 Local OS 或固定 Docker 提供。ADR 0135 与操作手册固定恢复流程。
 
 2026-08-24 单切片 `Unified Thread Transcript（Issue #153）` 保持 SQLite v130。新增
 `thread_transcript.v1` 安全投影与 `/threads/{thread_id}/transcript` keyset route，以 Run ordinal、

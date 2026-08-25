@@ -15,6 +15,7 @@ This directory separates user-facing documentation, current engineering state, a
 | [使用手册 / Usage](usage.md) | CLI、Provider、Workspace、Run、审批和操作者工作流 |
 | [Workspace Checkpoints](workspace-checkpoints.md) | 检查点时间线、预览、Undo/Redo/Rewind、独立 Fork 与故障处理 |
 | [Drydock 工作目录](drydock.md) | Run-owned worktree、Workspace Trust、精确检查点、审阅交付与保守清理 |
+| [Standard Code 原子预设](standard-code-preset.md) | 一键 Code/Plan 组合、Local/显式 Docker、Workspace Trust、暂停配置与故障恢复 |
 | [Windows Local Sandbox](local-sandbox-windows.md) | AppContainer/WFP/Job/ACL 隔离、readiness 证据、恢复与操作说明 |
 | [高级 Git 工作流 / Advanced Git](git-advanced.md) | 稳定 hunk、stash、rebase/cherry-pick/bisect、受管 worktree、审批与恢复 |
 | [GitHub Review Provider](github-review.md) | GitHub App Device Flow、PR/CI 证据、本地映射、审批回写与恢复 |
@@ -50,6 +51,7 @@ This directory separates user-facing documentation, current engineering state, a
 | [ADR 0131 / Standard Code Docker](adr/0131-standard-code-docker-network-none-backend.md) | 固定 Docker `network=none` 后端、Drydock 投影、readiness 与恢复边界 |
 | [ADR 0132 / Thread Identity](adr/0132-thread-identity-run-succession.md) | 稳定 Thread 身份、Run succession、生命周期与无 authority 继承边界 |
 | [ADR 0133 / Item-level Model Streaming](adr/0133-item-level-model-tool-streaming.md) | Provider-neutral response/item/call 生命周期、Go 工具执行权威、脱敏公开/持久投影与恢复语义 |
+| [ADR 0135 / Standard Code Preset](adr/0135-atomic-standard-code-preset.md) | 原子预设、幂等恢复、暂停后配置、显式后端选择与非授权响应边界 |
 | [ADR 索引](adr/) | 权限、持久化、执行、浏览器、Desktop 等架构决策 |
 
 ## 当前工程上下文 / Current Engineering Context

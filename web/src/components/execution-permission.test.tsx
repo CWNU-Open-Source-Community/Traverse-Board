@@ -226,6 +226,8 @@ describe("ExecutionPermissionPanel", () => {
 });
 
 describe("StandardCodeReadinessPanel", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   it("shows protocol, installed adapter, backend readiness, and current Run grant separately", () => {
     const readiness = capabilityReadinessFixture();
     readiness.command_runtime = {
@@ -233,7 +235,12 @@ describe("StandardCodeReadinessPanel", () => {
       current_run_granted: true, adapter_kind: "sandboxed_workspace",
       backend: "local_windows_sandbox",
     };
-    render(<StandardCodeReadinessPanel readiness={readiness} />);
+    render(<QueryClientProvider client={new QueryClient()}>
+      <StandardCodeReadinessPanel
+        client={new CyberAgentClient("read", "/api/v1")}
+        detail={detail()}
+        readiness={readiness} />
+    </QueryClientProvider>);
 
     expect(screen.getByText("存在")).toBeInTheDocument();
     expect(screen.getByText("已安装")).toBeInTheDocument();
@@ -241,6 +248,109 @@ describe("StandardCodeReadinessPanel", () => {
     expect(screen.getByText("已授予")).toBeInTheDocument();
     expect(screen.getByText("sandboxed_workspace · local_windows_sandbox"))
       .toBeInTheDocument();
+  });
+
+  it("uses the atomic preset endpoint and requires exact Workspace source confirmation", async () => {
+    const trustDigest = "a".repeat(64);
+    const blocked = {
+      action: "configure", backend_intent: "auto",
+      blocked_by: ["workspace_untrusted"], capability_grant: false,
+      credentials: "none",
+      docker_readiness: { backend: "docker", available: false,
+        blocked_by: ["docker_unavailable"], remediation: ["install_or_start_docker"] },
+      drydock_ready: false,
+      local_readiness: { backend: "local", available: true,
+        blocked_by: [], remediation: [] },
+      network: "disabled", next_steps: ["confirm_workspace_trust"],
+      protocol_version: "standard_code_preset.v1", replayed: false,
+      run_id: "run-1", selected_backend: "local",
+      selection_reason: "auto_local_ready", status: "blocked",
+      trust_digest: trustDigest, trust_required: true, workspace_id: "workspace-1",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-standard-code", data: blocked,
+    }), { status: 202, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<QueryClientProvider client={new QueryClient()}>
+      <StandardCodeReadinessPanel
+        client={new CyberAgentClient("read", "/api/v1", "control", {
+          runControlEnabled: true, standardCodePresetEnabled: true,
+        })}
+        detail={detail()}
+        readiness={capabilityReadinessFixture()} />
+    </QueryClientProvider>);
+
+    await user.click(screen.getByRole("button", { name: /开始编码/ }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [firstURL, firstInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(firstURL).toContain("/runs/run-1/standard-code/preset");
+    expect(JSON.parse(String(firstInit.body))).toEqual({
+      version: "standard_code_preset.v1", backend_intent: "auto",
+      confirm_workspace_trust: false,
+    });
+    expect(screen.getByText("确认工作区来源")).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(trustDigest))).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "确认" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const [, secondInit] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(JSON.parse(String(secondInit.body))).toEqual({
+      version: "standard_code_preset.v1", backend_intent: "auto",
+      confirm_workspace_trust: true, expected_trust_digest: trustDigest,
+    });
+    expect(new Headers(firstInit.headers).get("Idempotency-Key"))
+      .not.toBe(new Headers(secondInit.headers).get("Idempotency-Key"));
+
+    await user.click(screen.getByRole("button", { name: "确认" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    const [, thirdInit] = fetchMock.mock.calls[2] as [string, RequestInit];
+    expect(new Headers(secondInit.headers).get("Idempotency-Key"))
+      .toBe(new Headers(thirdInit.headers).get("Idempotency-Key"));
+  });
+
+  it("preserves the incompatible source Run when Go creates a new Code Run", async () => {
+    const original = detail();
+    const successor = detail();
+    successor.run = { ...successor.run, id: "run-new-code" };
+    const configured = {
+      action: "configure", backend_intent: "auto", blocked_by: [],
+      capability_grant: false, credentials: "none",
+      docker_readiness: { backend: "docker", available: false,
+        blocked_by: ["docker_unavailable"], remediation: ["install_or_start_docker"] },
+      drydock_ready: true,
+      local_readiness: { backend: "local", available: true,
+        blocked_by: [], remediation: [] },
+      network: "disabled", next_steps: [], protocol_version: "standard_code_preset.v1",
+      replayed: false, run_id: "run-new-code", selected_backend: "local",
+      selection_reason: "auto_local_ready", status: "configured",
+      trust_required: false, workspace_id: "workspace-1",
+      run: successor.run, mode: successor.mode,
+      execution_profile: successor.execution_profile,
+      execution_interaction: successor.execution_interaction,
+      execution_permission: successor.execution_permission,
+      browser_cdp_permission: successor.browser_cdp_permission,
+    };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-standard-code-successor", data: configured,
+    }), { status: 202, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["run", "run-1"], original);
+    const user = userEvent.setup();
+    render(<QueryClientProvider client={queryClient}>
+      <StandardCodeReadinessPanel
+        client={new CyberAgentClient("read", "/api/v1", "control", {
+          runControlEnabled: true, standardCodePresetEnabled: true,
+        })}
+        detail={original}
+        readiness={capabilityReadinessFixture()} />
+    </QueryClientProvider>);
+
+    await user.click(screen.getByRole("button", { name: /开始编码/ }));
+    expect(await screen.findByText(/已创建新的 Code Run/)).toHaveTextContent("run-new-");
+    expect(queryClient.getQueryData<RunDetailView>(["run", "run-1"])?.run.id)
+      .toBe("run-1");
   });
 });
 

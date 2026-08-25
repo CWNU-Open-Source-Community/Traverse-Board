@@ -79,6 +79,10 @@ export type CapabilityReadinessOptionView =
   components["schemas"]["CapabilityReadinessOptionView"];
 export type RunCapabilityReadinessView =
   components["schemas"]["RunCapabilityReadinessView"];
+export type StandardCodePresetControlRequestView =
+  components["schemas"]["StandardCodePresetControlRequestView"];
+export type StandardCodePresetControlView =
+  components["schemas"]["StandardCodePresetControlView"];
 export type GitAdvancedAuthorityView = components["schemas"]["GitAdvancedAuthorityView"];
 export type GitAdvancedCapabilityView = components["schemas"]["GitAdvancedCapabilitySnapshot"];
 export type GitAdvancedConflictView = components["schemas"]["GitAdvancedConflictState"];

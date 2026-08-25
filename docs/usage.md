@@ -191,6 +191,35 @@ are absent. Docker/daemon/image failures remain blocked results and do not invok
 runner. See [Standard Code Docker](standard-code-docker.md) and
 [ADR 0131](adr/0131-standard-code-docker-network-none-backend.md).
 
+### Standard Code atomic preset
+
+Schema v133 adds `cyberagent run standard-code preset` as the ordinary Start-coding
+entry point. It calls one Go Application operation that creates or reuses a compatible
+Run and commits Code/Plan, a ready Local backend or explicitly requested Docker,
+controlled interaction, `workspace_access`, restricted browser CDP, and the exact
+trusted ready Drydock together. The preset fixes network to disabled and credentials
+to none. It does not start a process, enter Deliver, or grant a bearer.
+
+The first call without trust confirmation returns an exact `trust_digest` and does not
+persist a preset tuple. After reviewing the Workspace, use a new operation key with
+`--confirm-workspace-trust --expected-trust-digest <sha256>`. Exact replay of that
+confirmed key returns the same configured snapshot identities; changing an intent
+field conflicts. `auto` only selects ready Local. To use Docker after Local is
+unavailable, explicitly pass `--backend docker --enable-docker-execution`; no path
+falls back to a host runner or `full_access`.
+
+An existing Run must be created or paused with no active lease. A running Run returns
+the separate `pause-and-configure` next step. Invoke
+`cyberagent run standard-code pause-and-configure <run-id>` and retain the same
+operation key while it waits for lease and Supervisor quiescence. An incompatible
+Surface produces a new Code/Plan Run without changing the original Run identity.
+
+Control-token HTTP/OpenAPI and Desktop expose the same operation, response facts,
+blockers, next steps, and events; React sends one request rather than sequencing old
+policy endpoints. See [Standard Code atomic preset](standard-code-preset.md) for
+commands, routes, trust confirmation, and recovery, and
+[ADR 0135](adr/0135-atomic-standard-code-preset.md) for the transaction boundary.
+
 Schema v91 adds the independent `restricted|full_debug` browser-CDP selector described above. It does not inherit Shell authority from v88, and v88 does not inherit CDP authority from v91. A future concrete browser operation must recheck both its exact method/scope contract and the current process gates.
 
 Schema v119 supplies that concrete operation only for source-bound local UI
