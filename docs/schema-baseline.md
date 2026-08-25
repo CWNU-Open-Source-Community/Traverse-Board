@@ -40,8 +40,8 @@ transaction commit identifies completion. A statement error, cancellation, disk-
 condition, or process exit therefore leaves either the complete latest database or
 no baseline schema; it cannot leave a partial baseline marked as current.
 
-The current v135 artifact contains 354 tables, 242 explicit indexes, 898 triggers,
-and 2 views. Clean install has no application seed rows; the 135 canonical migration
+The current v136 artifact contains 360 tables, 245 explicit indexes, 912 triggers,
+and 2 views. Clean install has no application seed rows; the 136 canonical migration
 ledger rows are the only generated data.
 
 ## Backup and restore / 备份与恢复
@@ -58,9 +58,9 @@ that selects safe readers and migrations.
 
 ## Binary rollback boundary / 旧二进制回滚边界
 
-A baseline-created v135 database has the same schema objects and canonical migration
-ledger as a v1-to-v135 historical creation. A pre-baseline binary that already knows
-the identical v1-to-v135 plan can therefore open it. A binary whose
+A baseline-created v136 database has the same schema objects and canonical migration
+ledger as a v1-to-v136 historical creation. A pre-baseline binary that already knows
+the identical v1-to-v136 plan can therefore open it. A binary whose
 `LatestSchemaVersion` is below the database version cannot open it and is not made safe
 by this baseline. Use the offline pre-upgrade backup for that downgrade; do not delete
 newer ledger rows.
@@ -75,7 +75,7 @@ install safely returns to historical replay.
 2. Fix the underlying storage condition (free space, permissions, device health), then
    restart. A rolled-back empty database is eligible for a fresh atomic attempt.
 3. If a deterministic baseline defect affects a genuinely empty new profile, use the
-   last known-good binary that already supports schema v135. That binary retains the
+   last known-good binary that already supports schema v136. That binary retains the
    historical creation path and produces the same latest schema.
 4. If the database contains any user object or durable data, do not try to make it
    appear empty. Diagnose the historical migration error or restore the offline backup.

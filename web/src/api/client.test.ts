@@ -1975,7 +1975,7 @@ describe("CyberAgentClient", () => {
     await expect(client.hostCommandProposals("run-1"))
       .resolves.toMatchObject({ items: [pending], requestID: "request-host-proposals" });
     const body = { version: "host_command_review.v1", decision: "approve",
-      reason: "Operator verified the exact host command", confirm_execution: true };
+      reason: "Operator verified the exact host command", confirm_execution: true } as const;
     await expect(client.reviewHostCommandProposal(
       "run-1", "host-command-proposal-1", body, "web-host-command-operation-0001",
     )).resolves.toEqual(reviewed);
@@ -1989,6 +1989,94 @@ describe("CyberAgentClient", () => {
     await expect(client.reviewHostCommandProposal(
       "run-1", "host-command-proposal-1", body, "web-host-command-operation-0002",
     )).rejects.toThrow("boundary");
+  });
+
+  it("accepts durable risk escalation state and validates bounded current-Run grants", async () => {
+    const pending = {
+      id: "risk-escalation-0001", protocol_version: "risk_escalation.v1",
+      policy_version: "risk_escalation_policy.v1", run_id: "run-1",
+      mission_id: "mission-1", session_id: "session-1", workspace_id: "workspace-1",
+      executable_path: "C:\\Program Files\\Go\\bin\\go.exe",
+      executable_sha256: "a".repeat(64), argv: ["test", "./internal/application"],
+      working_directory: "D:\\GitProjects\\Prayu",
+      environment_policy: "sanitized_host_environment.v1", environment_keys: ["PATH"],
+      environment_sha256: "b".repeat(64), network_intent: "host",
+      timeout_milliseconds: 120_000, purpose: "Download a declared module and verify it",
+      spec_fingerprint: "c".repeat(64), permission_mode: "workspace_access",
+      permission_revision: 4, operator_review_required: true, non_sandboxed: true,
+      automatic_retry_allowed: false, instruction_authorized: false,
+      execution_authorized: false, capability_grant: false, fingerprint: "d".repeat(64),
+      created_at: "2026-08-09T00:00:00Z", evidence_instruction_authorized: false,
+      state: "waiting_approval", supervisor_turn: 2, supervisor_tool_call_id: "call-1",
+      tool_invocation_id: "invocation-1", mode_snapshot_id: "mode-1", mode_revision: 2,
+      interaction_snapshot_id: "interaction-1", interaction_revision: 3,
+      execution_profile_snapshot_id: "profile-1", execution_profile_revision: 3,
+      permission_snapshot_id: "permission-1", workspace_root_fingerprint: "e".repeat(64),
+      capability_generation: "f".repeat(64), scope_fingerprint: "1".repeat(64),
+      risk_kinds: ["credential", "host_path", "network", "policy_denial"],
+      network_targets: ["proxy.golang.org:443"], network_purpose: "Download declared module",
+      credential_kinds: ["system_proxy"], host_paths: ["C:\\ProgramData\\go\\cache"],
+      policy_code: "workspace_network_denied", policy_reason: "Workspace network is denied",
+      max_output_bytes: 64 * 1024 * 1024, active_process_limit: 32,
+      process_memory_bytes: 2 * 1024 * 1024 * 1024,
+      approval_id: "approval-1", approval_status: "pending",
+    };
+    const reviewed = {
+      ...pending, state: "completed", operator_review_required: false,
+      execution_authorized: true, capability_grant: true, approval_status: "approved",
+      grant_id: "grant-1", grant_generation: 1, grant_max_uses: 1,
+      grant_uses_remaining: 0, grant_expires_at: "2026-08-09T00:05:00Z",
+      grant_consumption_id: "consumption-1",
+      review: { id: "approval-1", decision: "approve", reviewed_by: "http_control_operator",
+        reason: "Operator approved bounded exact scope", single_use_execution_authorized: false,
+        capability_grant: true, created_at: "2026-08-09T00:01:00Z" },
+      result: { id: "result-1", status: "completed", source_kind: "go_command_result",
+        source_ref: "session-message-1", content_sha256: "2".repeat(64),
+        instruction_authorized: false, raw_output_persisted: false,
+        automatic_retry_allowed: false, created_at: "2026-08-09T00:01:01Z" },
+      receipt: {
+        request_id: "risk-exec-0001", backend: "windows-host-job-v1", exit_code: 0,
+        stdout_observed_bytes: 2, stdout_captured_bytes: 2,
+        stdout_prefix_sha256: "3".repeat(64), stdout_truncated: false,
+        stderr_observed_bytes: 0, stderr_captured_bytes: 0,
+        stderr_prefix_sha256: "0".repeat(64), stderr_truncated: false,
+        started_at: "2026-08-09T00:01:00Z", completed_at: "2026-08-09T00:01:01Z",
+        timed_out: false, cancelled: false, output_limit_exceeded: false, tree_reaped: true,
+        non_sandboxed: true, restricted_token: false, low_integrity_token: false,
+        job_assigned_at_creation: true, kill_on_job_close: true, active_process_limit: 32,
+        job_memory_limit: 2 * 1024 * 1024 * 1024, stdin_closed: true,
+        environment_inherited: false, network_requested: true, persistent_process: false,
+        product_execution_enabled: true,
+      },
+      untrusted_evidence: "UNTRUSTED APPROVED RISK ESCALATION RESULT\nstdout_begin\nok\nstdout_end",
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "request-risk-proposals", data: [pending],
+        page: { limit: 100 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "request-risk-review", data: reviewed,
+      }), { status: 202, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+      runControlEnabled: false, operatorApprovalEnabled: true,
+      hostCommandProposalControlEnabled: true,
+    });
+
+    await expect(client.hostCommandProposals("run-1"))
+      .resolves.toMatchObject({ items: [pending], requestID: "request-risk-proposals" });
+    const body = { version: "host_command_review.v1", decision: "approve",
+      authorization: "run_scope", reason: "Operator approved bounded exact scope",
+      confirm_execution: true, grant_ttl_seconds: 300, grant_max_uses: 1 } as const;
+    await expect(client.reviewHostCommandProposal(
+      "run-1", "risk-escalation-0001", body, "web-risk-escalation-operation-0001",
+    )).resolves.toEqual(reviewed);
+    const reviewInit = fetchMock.mock.calls[1]?.[1] as RequestInit;
+    expect(JSON.parse(String(reviewInit.body))).toEqual(body);
+    await expect(client.reviewHostCommandProposal("run-1", "risk-escalation-0001",
+      { ...body, grant_ttl_seconds: 901 }, "web-risk-escalation-operation-0002"))
+      .rejects.toThrow("exact host command review");
   });
 
   it("validates content-free model diagnostics and exact persisted routes", async () => {

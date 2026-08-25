@@ -436,7 +436,7 @@ The build script installs the locked frontend dependencies, checks the generated
 
 The resulting EXE may also be opened directly from File Explorer. Existing data is migrated transactionally in place and is never deleted or reset to recover startup. A portable ZIP makes the application files install-free; it does not move the data directory beside the EXE. Unless `CYBERAGENT_HOME` is explicitly set, every extracted copy uses `%USERPROFILE%\.cyberagent-workbench`. If a historical profile needs diagnosis, copy `~/.cyberagent-workbench/cyberagent.db` before launch and keep that copy outside the active filename. The known Windows-preview v30 and pre-final v97 checksums are accepted only for their exact migration versions and names; schema v125 then transactionally restores the canonical v97 cleanup trigger without rewriting the historical row. Unknown histories still fail closed. Do not delete the database, reset it, or edit its checksum as an upgrade workaround. ADR 0068 records the real Wails request shape and the v30-to-v84 data-preserving launch verification; [ADR 0126](adr/0126-legacy-v97-docker-trigger-compatibility.md) records the exact v97 compatibility boundary and repair.
 
-全新且经 SQLite 事务证明没有 `schema_migrations`、用户 table/index/trigger/view 的数据库使用生成式 latest-schema baseline；任何已有对象或证明缺失都继续走完整历史 migration。baseline 与旧链生成相同 v135 schema 和 canonical ledger，不会转换已有 profile。升级前须停止全部 Desktop/CLI/API 进程并离线备份数据库；只有已经支持相同 v135 历史计划的旧二进制才能读取 baseline 产物，更早版本必须恢复升级前备份。磁盘错误、取消或建库中断会整体回滚，恢复空间/权限后可重启；不要通过删除非空数据库或修改 ledger 强制重试。完整边界和 runbook 见 [SQLite 全新安装基线](schema-baseline.md) 与 [ADR 0139](adr/0139-clean-install-schema-baseline.md)。
+全新且经 SQLite 事务证明没有 `schema_migrations`、用户 table/index/trigger/view 的数据库使用生成式 latest-schema baseline；任何已有对象或证明缺失都继续走完整历史 migration。baseline 与旧链生成相同 v136 schema 和 canonical ledger，不会转换已有 profile。升级前须停止全部 Desktop/CLI/API 进程并离线备份数据库；只有已经支持相同 v136 历史计划的旧二进制才能读取 baseline 产物，更早版本必须恢复升级前备份。磁盘错误、取消或建库中断会整体回滚，恢复空间/权限后可重启；不要通过删除非空数据库或修改 ledger 强制重试。完整边界和 runbook 见 [SQLite 全新安装基线](schema-baseline.md) 与 [ADR 0139](adr/0139-clean-install-schema-baseline.md)。
 
 The shell opens the same `$CYBERAGENT_HOME/cyberagent.db` as the CLI and defaults to read-only. It generates an ephemeral read token in memory and calls the existing Go API through Wails' in-process AssetServer Handler, so no TCP port or copied bearer token is required. Run events use `/events/poll` on Windows because Wails v2 does not stream AssetServer responses there; this endpoint shares the SSE Run-bound high-water cursor, while ordinary Web clients continue to use SSE. Cursor/frame memory is bounded to 16 Runs and 500 frames per Run and never enters browser storage.
 
@@ -1449,6 +1449,29 @@ cyberagent run usage <run-id>
 
 The approval ledger stores identity, scope, mode, status, reviewer metadata, an optional Session grant ID, and a SHA-256 request fingerprint rather than duplicating command or file content. `approval.requested` is committed with the proposal. `approval.decided` and a domain-separated SHA-256 digest of the immutable review key are committed before ToolRun/FileEdit progression, so rerunning the same CLI approval after a process interruption resumes safely without persisting the raw client key. Grant create/revoke operations use separate domain-separated key digests and append `approval.grant_created` or `approval.grant_revoked`. A key cannot be reused for different intent, a revoked grant cannot authorize a new proposal, and a grant never overrides Policy.
 
+### Standard Code high-risk escalation
+
+When a `workspace_access` Standard Code root needs an exact network target, credential
+kind, host path, Policy-refused operation, non-whitelisted tool, or another bounded
+high-risk action, `host_command_propose` creates a durable `risk_escalation.v1`
+proposal and pauses only that Supervisor call. Inspect the approval panel's complete
+executable/argv/cwd, target and purpose, credential kinds (never values), host paths,
+resource limits, Run/call ownership, snapshots/revisions, root fingerprint, and scope
+fingerprint before choosing one of:
+
+- deny, which resumes the same call with an ordinary denied tool result;
+- approve this exact proposal once; or
+- grant the exact scope to the current Run for an explicitly selected 1-900 second TTL
+  and 1-8 total uses.
+
+The generic `approval grant create` CLI cannot create this grant. Existing bounded
+grants can be inspected and revoked with `approval grant list/show/revoke`; their IDs
+are audit metadata, not capability bearers. Renderer close or application restart keeps
+the Run visibly waiting but does not preserve process authority. Approval rechecks all
+bindings and consumes at most one use before execution. Drift invalidates the proposal;
+an execution intent without a terminal receipt becomes `execution_uncertain` and is
+never automatically retried. See [Durable risk escalation](risk-escalation.md).
+
 ## Context Compaction
 
 ```powershell
@@ -1734,7 +1757,7 @@ PowerShell: -NoLogo -NoProfile -NonInteractive -Command <exact line>
 Git Bash:   --noprofile --norc -c <exact line>
 ```
 
-The proposal starts nothing. The approval center displays the interpreter path and SHA-256, every argv item (including the complete command line), Workspace-contained cwd, environment names/digest, timeout, and unsandboxed host-network warning. A separate operator action approves one exact execution; any executable, environment, Run binding, or proposal fingerprint drift fails closed. The process cannot persist or own a background terminal, stdin is closed, output is bounded and redacted, and a prepared execution without a receipt is never retried automatically. Enable the review path with `--enable-permission-control --enable-host-command-proposals`; the safe operator preview also enables the review queue without enabling Debug or full access.
+The proposal starts nothing. The approval center displays the interpreter path and SHA-256, every argv item (including the complete command line), Workspace-contained cwd, environment names/digest, timeout, and unsandboxed host-network warning. A separate operator action approves one exact execution; any executable, environment, Run binding, or proposal fingerprint drift fails closed. Under `workspace_access`, the separately versioned `risk_escalation.v1` variant additionally requires categorized risk metadata and offers exact once or bounded-current-Run review; it does not change the Run to Full Access. The process cannot persist or own a background terminal, stdin is closed, output is bounded and redacted, and a prepared execution without a receipt is never retried automatically. Enable the review path with `--enable-permission-control --enable-host-command-proposals`; the safe operator preview also enables the review queue without enabling Debug or full access.
 
 
 ## Once Command Runner

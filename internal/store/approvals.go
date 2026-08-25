@@ -365,6 +365,20 @@ func validateApprovalProposalSourceTx(ctx context.Context, tx *sql.Tx, proposal 
 			operationStatus != string(githubreview.OperationProposed) || approvalID.Valid {
 			return errors.New("approval request does not match the stored GitHub review write preview")
 		}
+	case "host_command_propose":
+		var sessionID, workspaceID, proposalFingerprint string
+		if err := tx.QueryRowContext(ctx, `SELECT session_id, workspace_id,
+			proposal_fingerprint FROM risk_escalation_proposals WHERE id = ?`,
+			proposal.ProposalID).Scan(&sessionID, &workspaceID,
+			&proposalFingerprint); err != nil {
+			return err
+		}
+		if proposal.SessionID != sessionID || proposal.WorkspaceID != workspaceID ||
+			proposal.ActionClass != "risk_escalation" || proposal.Mode != "per_call" ||
+			proposal.Status != approval.StatusPending ||
+			proposal.RequestFingerprint != proposalFingerprint {
+			return errors.New("approval request does not match the stored risk escalation proposal")
+		}
 	default:
 		return fmt.Errorf("unsupported approval tool %q", proposal.ToolName)
 	}

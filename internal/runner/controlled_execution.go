@@ -540,8 +540,8 @@ func validExecutionOperator(value string) bool {
 		return false
 	}
 	switch strings.ToLower(value) {
-	case "agent", "llm", "model", "repository", "repo", "skill",
-		"supervisor", "run_supervisor":
+	case "agent", "llm", "model", "repository", "repository_content",
+		"repo", "repo_content", "skill", "mcp", "supervisor", "run_supervisor":
 		return false
 	default:
 		return true

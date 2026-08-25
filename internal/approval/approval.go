@@ -167,8 +167,9 @@ func (r DecisionRequest) Normalize() (DecisionRequest, error) {
 }
 
 type DecisionResult struct {
-	Approval Record
-	Replayed bool
+	Approval    Record
+	Replayed    bool
+	Consumption *GrantConsumption
 }
 
 type ListFilter struct {
@@ -214,6 +215,20 @@ func FileMutationFingerprint(toolName, sessionID, workspaceID, operation, source
 
 func DecisionFingerprint(request DecisionRequest) string {
 	return Fingerprint(request.ProposalID, string(request.Action), request.Reason, request.ReviewedBy)
+}
+
+func RecordFingerprint(record Record) string {
+	decidedAt := ""
+	if record.DecidedAt != nil {
+		decidedAt = record.DecidedAt.UTC().Format(time.RFC3339Nano)
+	}
+	return Fingerprint("approval_record.v1", record.ID, record.IdempotencyKey,
+		record.ProposalID, record.GrantID, record.RunID, record.SessionID,
+		record.WorkspaceID, record.ToolName, record.ActionClass, record.Mode,
+		string(record.Status), record.RequestFingerprint, record.DecisionReason,
+		record.RequestedBy, record.ReviewedBy, fmt.Sprint(record.Version),
+		record.CreatedAt.UTC().Format(time.RFC3339Nano),
+		record.UpdatedAt.UTC().Format(time.RFC3339Nano), decidedAt)
 }
 
 func OperationKeyDigest(idempotencyKey string) string {

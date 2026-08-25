@@ -9997,7 +9997,7 @@
       "get": {
         "operationId": "listHostCommandProposals",
         "summary": "List exact host command proposals",
-        "description": "Returns exact process or canonical PowerShell/Git Bash host command proposals for approval-mode Runs. Executable identity, every argv item, working directory, environment names and digest, host-network intent, and the non-sandboxed boundary are explicit; environment values and raw output are omitted.",
+        "description": "Returns exact process or canonical PowerShell/Git Bash host command proposals for approval-mode Runs and durable risk-escalation proposals for Workspace Access Runs. Executable identity, every argv item, working directory, environment names and digest, network targets and purpose, credential kinds without values, host paths, policy refusal, immutable Run/Supervisor/snapshot bindings, resource limits, and the non-sandboxed boundary are explicit; environment values, credential values, capability bearers, and raw output are omitted.",
         "tags": [
           "Control"
         ],
@@ -10089,7 +10089,7 @@
       "get": {
         "operationId": "getHostCommandProposal",
         "summary": "Inspect one exact host command proposal",
-        "description": "Returns the exact immutable command envelope, operator review, result, and metadata-only receipt. The command is non-sandboxed, may use host networking, cannot persist a terminal, and is never automatically retried.",
+        "description": "Returns the exact immutable command envelope, operator review, bounded current-Run grant and consumption metadata when present, invalidation state, result, and metadata-only receipt. A risk-escalation wait is durable across renderer close or application restart; a prepared execution without a durable result is uncertain and is never retried.",
         "tags": [
           "Control"
         ],
@@ -10179,7 +10179,7 @@
       "post": {
         "operationId": "reviewHostCommandProposal",
         "summary": "Approve or deny one exact host command proposal",
-        "description": "Records an independent operator decision. Approval executes only the reviewed executable SHA, argv, cwd, environment digest, network intent, and timeout once through the host runner. A prepared execution without a durable result is uncertain and cannot be retried automatically.",
+        "description": "Records an independent operator decision. Approval may authorize the exact call once or create an explicitly bounded current-Run grant with an operator-selected TTL and use count; the grant remains bound to the exact risk scope, Workspace root, mode, interaction, execution-profile and permission revisions, and capability generation. The same durable Supervisor call resumes after the decision. A prepared execution without a durable result is uncertain and cannot be retried automatically.",
         "tags": [
           "Control"
         ],
@@ -30583,6 +30583,10 @@
             "type": "string"
           },
           "status": {
+            "enum": [
+              "completed",
+              "failed"
+            ],
             "type": "string"
           }
         },
@@ -30602,16 +30606,43 @@
       "HostCommandProposalReviewRequestView": {
         "additionalProperties": false,
         "properties": {
+          "authorization": {
+            "enum": [
+              "once",
+              "run_scope"
+            ],
+            "type": "string"
+          },
           "confirm_execution": {
             "type": "boolean"
           },
           "decision": {
+            "enum": [
+              "approve",
+              "deny"
+            ],
             "type": "string"
           },
+          "grant_max_uses": {
+            "format": "int32",
+            "maximum": 8,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "grant_ttl_seconds": {
+            "format": "int32",
+            "maximum": 900,
+            "minimum": 1,
+            "type": "integer"
+          },
           "reason": {
+            "maxLength": 2048,
             "type": "string"
           },
           "version": {
+            "enum": [
+              "host_command_review.v1"
+            ],
             "type": "string"
           }
         },
@@ -30631,6 +30662,10 @@
             "type": "string"
           },
           "decision": {
+            "enum": [
+              "approve",
+              "deny"
+            ],
             "type": "string"
           },
           "id": {
@@ -30662,6 +30697,24 @@
       "HostCommandProposalView": {
         "additionalProperties": false,
         "properties": {
+          "active_process_limit": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "approval_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "approval_status": {
+            "enum": [
+              "pending",
+              "approved",
+              "denied"
+            ],
+            "type": "string"
+          },
           "argv": {
             "items": {
               "type": "string"
@@ -30671,11 +30724,26 @@
           "automatic_retry_allowed": {
             "type": "boolean"
           },
+          "capability_generation": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
           "capability_grant": {
             "type": "boolean"
           },
           "created_at": {
             "type": "string"
+          },
+          "credential_kinds": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
           },
           "environment_keys": {
             "items": {
@@ -30687,6 +30755,9 @@
             "type": "string"
           },
           "environment_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
             "type": "string"
           },
           "evidence_instruction_authorized": {
@@ -30696,16 +30767,71 @@
             "type": "string"
           },
           "executable_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
             "type": "string"
           },
           "execution_authorized": {
             "type": "boolean"
           },
+          "execution_profile_revision": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "execution_profile_snapshot_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
           "execution_replayed": {
             "type": "boolean"
           },
           "fingerprint": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
             "type": "string"
+          },
+          "grant_consumption_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "grant_expires_at": {
+            "type": "string"
+          },
+          "grant_generation": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "grant_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "grant_max_uses": {
+            "format": "int32",
+            "maximum": 8,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "grant_uses_remaining": {
+            "format": "int32",
+            "maximum": 8,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "host_paths": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
           },
           "id": {
             "maxLength": 256,
@@ -30715,13 +30841,57 @@
           "instruction_authorized": {
             "type": "boolean"
           },
+          "interaction_revision": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "interaction_snapshot_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "invalidation_reason": {
+            "type": "string"
+          },
+          "max_output_bytes": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
           "mission_id": {
             "maxLength": 256,
             "minLength": 1,
             "type": "string"
           },
-          "network_intent": {
+          "mode_revision": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "mode_snapshot_id": {
+            "maxLength": 256,
+            "minLength": 1,
             "type": "string"
+          },
+          "network_intent": {
+            "enum": [
+              "host"
+            ],
+            "type": "string"
+          },
+          "network_purpose": {
+            "maxLength": 1200,
+            "type": "string"
+          },
+          "network_targets": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
           },
           "non_sandboxed": {
             "type": "boolean"
@@ -30729,17 +30899,51 @@
           "operator_review_required": {
             "type": "boolean"
           },
+          "other_risk_reason": {
+            "maxLength": 1200,
+            "type": "string"
+          },
           "permission_mode": {
+            "enum": [
+              "approval",
+              "workspace_access"
+            ],
             "type": "string"
           },
           "permission_revision": {
             "format": "int64",
+            "minimum": 1,
             "type": "integer"
           },
-          "policy_version": {
+          "permission_snapshot_id": {
+            "maxLength": 256,
+            "minLength": 1,
             "type": "string"
           },
+          "policy_code": {
+            "type": "string"
+          },
+          "policy_reason": {
+            "maxLength": 1200,
+            "type": "string"
+          },
+          "policy_version": {
+            "enum": [
+              "host_command_policy.v1",
+              "risk_escalation_policy.v1"
+            ],
+            "type": "string"
+          },
+          "process_memory_bytes": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
           "protocol_version": {
+            "enum": [
+              "host_command_proposal.v1",
+              "risk_escalation.v1"
+            ],
             "type": "string"
           },
           "purpose": {
@@ -30747,6 +30951,9 @@
           },
           "receipt": {
             "$ref": "#/components/schemas/HostCommandExecutionReceiptView"
+          },
+          "requested_tool": {
+            "type": "string"
           },
           "result": {
             "$ref": "#/components/schemas/HostCommandProposalResultView"
@@ -30757,9 +30964,32 @@
           "review_replayed": {
             "type": "boolean"
           },
+          "risk_kinds": {
+            "items": {
+              "enum": [
+                "network",
+                "credential",
+                "host_path",
+                "policy_denial",
+                "non_whitelisted_tool",
+                "other_high_risk"
+              ],
+              "type": "string"
+            },
+            "maxItems": 6,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
           "run_id": {
             "maxLength": 256,
             "minLength": 1,
+            "type": "string"
+          },
+          "scope_fingerprint": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
             "type": "string"
           },
           "session_id": {
@@ -30768,11 +30998,44 @@
             "type": "string"
           },
           "spec_fingerprint": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
             "type": "string"
+          },
+          "state": {
+            "enum": [
+              "waiting_approval",
+              "approved",
+              "denied",
+              "completed",
+              "failed",
+              "invalidated"
+            ],
+            "type": "string"
+          },
+          "supervisor_tool_call_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "supervisor_turn": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
           },
           "timeout_milliseconds": {
             "format": "int64",
+            "minimum": 1,
             "type": "integer"
+          },
+          "tool_invocation_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "uncertain": {
+            "type": "boolean"
           },
           "untrusted_evidence": {
             "type": "string"
@@ -30783,6 +31046,12 @@
           "workspace_id": {
             "maxLength": 256,
             "minLength": 1,
+            "type": "string"
+          },
+          "workspace_root_fingerprint": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
             "type": "string"
           }
         },

@@ -117,7 +117,8 @@ func (c SupervisorToolCall) Validate() error {
 		return errors.New("supervisor tool payload must be bounded valid UTF-8 JSON")
 	}
 	if isAgentCodeSupervisorTool(c.ToolName) || isCodeIntelSupervisorTool(c.ToolName) ||
-		c.ToolName == "command_runtime" || isWebEvidenceSupervisorTool(c.ToolName) {
+		c.ToolName == "command_runtime" || isWebEvidenceSupervisorTool(c.ToolName) ||
+		isRiskEscalationSupervisorTool(c.ToolName, c.PayloadJSON) {
 		if len(c.AuthorityJSON) == 0 || len(c.AuthorityJSON) > MaxSupervisorToolAuthorityBytes ||
 			!utf8.ValidString(c.AuthorityJSON) || !json.Valid([]byte(c.AuthorityJSON)) {
 			return errors.New("authority-bound supervisor tool requires bounded durable authority JSON")
@@ -149,6 +150,17 @@ func (c SupervisorToolCall) Validate() error {
 		return errors.New("denied or failed supervisor tool call requires an error code")
 	}
 	return nil
+}
+
+func isRiskEscalationSupervisorTool(name string, payload string) bool {
+	if name != "host_command_propose" || !json.Valid([]byte(payload)) {
+		return false
+	}
+	var version struct {
+		Version string `json:"version"`
+	}
+	return json.Unmarshal([]byte(payload), &version) == nil &&
+		version.Version == "risk_escalation.v1"
 }
 
 func isAgentCodeSupervisorTool(name string) bool {

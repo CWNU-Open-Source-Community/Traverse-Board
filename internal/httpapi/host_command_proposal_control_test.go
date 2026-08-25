@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"cyberagent-workbench/internal/application"
+	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/runner"
 )
@@ -37,6 +38,25 @@ func (s *hostCommandProposalControllerStub) Review(
 	s.review = request
 	view := s.view
 	now := time.Now().UTC()
+	if view.RiskEscalation != nil {
+		view.Approval = &approval.Record{ID: "approval-risk-http-test",
+			ProposalID: view.RiskEscalation.ID, RunID: view.RiskEscalation.RunID,
+			Status: approval.StatusApproved, ReviewedBy: request.ReviewedBy,
+			DecisionReason: request.Reason, UpdatedAt: now, DecidedAt: &now}
+		view.Grant = &approval.SessionGrant{ID: "grant-risk-http-test",
+			Generation: 1, MaxUses: request.GrantMaxUses,
+			UsesRemaining: request.GrantMaxUses - 1, Status: approval.GrantActive}
+		view.GrantConsumption = &approval.GrantConsumption{
+			ID: "grant-consumption-risk-http-test"}
+		view.RiskResult = &runner.RiskEscalationResult{
+			ID: "risk-result-http-test", Status: "completed",
+			SourceKind: "go_command_result", SourceRef: "risk-message-http-test",
+			ContentSHA256: strings.Repeat("e", 64), CreatedAt: now}
+		view.Receipt = testHostCommandReceipt(now)
+		return application.ReviewHostCommandProposalResult{
+			View: view, EvidenceContent: "UNTRUSTED APPROVED RISK ESCALATION RESULT\nok",
+		}, nil
+	}
 	view.Review = &runner.HostCommandReview{
 		ID: "host-command-review-http-test", Decision: runner.HostCommandReviewDecision(request.Decision),
 		ReviewedBy: request.ReviewedBy, Reason: request.Reason,
@@ -47,7 +67,14 @@ func (s *hostCommandProposalControllerStub) Review(
 		SourceKind: "go_command_result", SourceRef: "message-http-test",
 		ContentSHA256: strings.Repeat("e", 64), CreatedAt: now,
 	}
-	view.Receipt = &runner.HostExecutionReceipt{
+	view.Receipt = testHostCommandReceipt(now)
+	return application.ReviewHostCommandProposalResult{
+		View: view, EvidenceContent: "UNTRUSTED HOST COMMAND RESULT\nok",
+	}, nil
+}
+
+func testHostCommandReceipt(now time.Time) *runner.HostExecutionReceipt {
+	return &runner.HostExecutionReceipt{
 		RequestID: "host-command-request-http-test", Backend: "windows-host-job-v1",
 		StdoutPrefixSHA256: strings.Repeat("f", 64), StderrPrefixSHA256: strings.Repeat("0", 64),
 		StartedAt: now, CompletedAt: now, TreeReaped: true, NonSandboxed: true,
@@ -56,9 +83,25 @@ func (s *hostCommandProposalControllerStub) Review(
 		JobMemoryLimit:     runner.MaxHostProcessMemoryBytes, StdinClosed: true,
 		NetworkRequested: true, ProductExecutionEnabled: true,
 	}
-	return application.ReviewHostCommandProposalResult{
-		View: view, EvidenceContent: "UNTRUSTED HOST COMMAND RESULT\nok",
-	}, nil
+}
+
+type riskEscalationResumeControllerStub struct {
+	calls   int
+	request application.ResumeRiskEscalationRequest
+}
+
+func (*riskEscalationResumeControllerStub) Execute(context.Context,
+	application.ExecuteRunHandoffRequest,
+) (application.ExecuteRunHandoffResult, error) {
+	return application.ExecuteRunHandoffResult{}, nil
+}
+
+func (s *riskEscalationResumeControllerStub) ResumeRiskEscalation(_ context.Context,
+	request application.ResumeRiskEscalationRequest,
+) (application.ResumeRiskEscalationResult, error) {
+	s.calls++
+	s.request = request
+	return application.ResumeRiskEscalationResult{}, nil
 }
 
 func testHostCommandProposalView(t *testing.T, runID, missionID, sessionID,
@@ -86,6 +129,42 @@ func testHostCommandProposalView(t *testing.T, runID, missionID, sessionID,
 		PermissionMode: domain.RunExecutionPermissionApproval, PermissionRevision: 3,
 		Spec: spec, Fingerprint: strings.Repeat("d", 64), CreatedAt: time.Now().UTC(),
 	}}
+}
+
+func testRiskEscalationHTTPView(t *testing.T, runID, missionID, sessionID,
+	workspaceID string,
+) application.HostCommandProposalView {
+	t.Helper()
+	legacy := testHostCommandProposalView(t, runID, missionID, sessionID, workspaceID)
+	scope, err := runner.NewRiskEscalationScope(runner.RiskEscalationScopeRequest{
+		Kinds: []runner.RiskEscalationKind{runner.RiskEscalationNetwork,
+			runner.RiskEscalationCredential},
+		NetworkTargets: []string{"api.example.test:443"},
+		NetworkPurpose: "submit one exact request", CredentialKinds: []string{"github_app"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal := &runner.RiskEscalationProposal{
+		ID: "risk-escalation-http-test", ProtocolVersion: runner.RiskEscalationProtocolVersion,
+		PolicyVersion: runner.RiskEscalationPolicyVersion,
+		RunID:         runID, MissionID: missionID, SessionID: sessionID, WorkspaceID: workspaceID,
+		RootAgentID: "root-risk-http", SupervisorTurn: 2,
+		SupervisorToolCallID: "tool-risk-http", ToolInvocationID: "invocation-risk-http",
+		ModeSnapshotID: "mode-risk-http", ModeRevision: 3,
+		InteractionSnapshotID: "interaction-risk-http", InteractionRevision: 4,
+		ExecutionProfileSnapshotID: "profile-risk-http", ExecutionProfileRevision: 5,
+		PermissionSnapshotID: "permission-risk-http", PermissionRevision: 6,
+		PermissionMode:           domain.RunExecutionPermissionWorkspaceAccess,
+		WorkspaceRootFingerprint: strings.Repeat("1", 64),
+		CapabilityGeneration:     strings.Repeat("2", 64),
+		Spec:                     legacy.Proposal.Spec, Scope: scope,
+		ResourceBudget: runner.NewRiskEscalationResourceBudget(legacy.Proposal.Spec),
+		Fingerprint:    strings.Repeat("3", 64), CreatedAt: time.Now().UTC(),
+	}
+	return application.HostCommandProposalView{RiskEscalation: proposal,
+		Approval: &approval.Record{ID: "approval-risk-http-test",
+			Status: approval.StatusPending}}
 }
 
 func TestHostCommandProposalHTTPUsesSplitAuthorizationAndExactEnvelope(t *testing.T) {
@@ -193,5 +272,65 @@ func TestHostCommandProposalHTTPRejectsDisabledInvalidAndMismatchedRequests(t *t
 	missingOperator.ExecutionPermissionCapabilities = domain.ExecutionPermissionRuntimeCapabilities{}
 	if _, err := New(fixture.store, missingOperator); err == nil {
 		t.Fatal("host command capability accepted a missing operator approval gate")
+	}
+}
+
+func TestRiskEscalationHTTPProjectsExactScopeAndResumesAfterBoundedReview(t *testing.T) {
+	fixture := newAPIFixture(t)
+	controller := &hostCommandProposalControllerStub{view: testRiskEscalationHTTPView(
+		t, fixture.run.ID, fixture.run.MissionID, fixture.run.SessionID, fixture.workspace.ID)}
+	resume := &riskEscalationResumeControllerStub{}
+	api, err := New(fixture.store, Config{
+		AccessToken: testAccessToken, ControlToken: testControlToken,
+		ExecutionPermissionControlEnabled: true,
+		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
+			WorkspaceSandboxEnabled: true, OperatorApprovalEnabled: true,
+		},
+		HostCommandProposalControlEnabled: true,
+		HostCommandProposalController:     controller, RunExecutionController: resume,
+		AppVersion: "risk-escalation-http-test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection := strings.ReplaceAll(HostCommandProposalCollectionPathTemplate,
+		"{run_id}", fixture.run.ID)
+	listed := performSessionMessageRequest(t, api, http.MethodGet, collection+"?limit=10",
+		testAccessToken, "", "", nil)
+	for _, expected := range []string{`"protocol_version":"risk_escalation.v1"`,
+		`"state":"waiting_approval"`, `"supervisor_tool_call_id":"tool-risk-http"`,
+		`"risk_kinds":["credential","network"]`,
+		`"network_targets":["api.example.test:443"]`,
+		`"credential_kinds":["github_app"]`} {
+		if listed.Code != http.StatusOK || !strings.Contains(listed.Body.String(), expected) {
+			t.Fatalf("risk escalation list lost %s: status=%d body=%s",
+				expected, listed.Code, listed.Body.String())
+		}
+	}
+	reviewPath := strings.ReplaceAll(HostCommandProposalReviewPathTemplate,
+		"{run_id}", fixture.run.ID)
+	reviewPath = strings.ReplaceAll(reviewPath, "{proposal_id}",
+		controller.view.RiskEscalation.ID)
+	approved := performSessionMessageRequest(t, api, http.MethodPost, reviewPath,
+		testControlToken, "risk-http-review-0001", "application/json",
+		strings.NewReader(`{"version":"host_command_review.v1","decision":"approve",`+
+			`"reason":"bounded exact scope","confirm_execution":true,`+
+			`"authorization":"run_scope","grant_ttl_seconds":120,"grant_max_uses":1}`))
+	if approved.Code != http.StatusAccepted ||
+		!strings.Contains(approved.Body.String(), `"state":"completed"`) ||
+		!strings.Contains(approved.Body.String(), `"grant_max_uses":1`) ||
+		!strings.Contains(approved.Body.String(), `"grant_uses_remaining":0`) ||
+		!strings.Contains(approved.Body.String(),
+			`"untrusted_evidence":"UNTRUSTED APPROVED RISK ESCALATION RESULT\nok"`) {
+		t.Fatalf("risk review response is invalid: status=%d body=%s",
+			approved.Code, approved.Body.String())
+	}
+	if controller.review.Authorization != "run_scope" ||
+		controller.review.GrantTTLSeconds != 120 || controller.review.GrantMaxUses != 1 ||
+		resume.calls != 1 || resume.request.RunID != fixture.run.ID ||
+		resume.request.ProposalID != controller.view.RiskEscalation.ID ||
+		resume.request.Version != application.RiskEscalationResumeProtocolVersion {
+		t.Fatalf("risk review/resume binding changed: review=%+v resume=%+v calls=%d",
+			controller.review, resume.request, resume.calls)
 	}
 }

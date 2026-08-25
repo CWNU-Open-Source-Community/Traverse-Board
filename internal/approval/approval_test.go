@@ -60,3 +60,36 @@ func TestDecisionRequestRejectsIdempotencyKeyReuseShapeChanges(t *testing.T) {
 		t.Fatal("decision fingerprint did not bind the proposal")
 	}
 }
+
+func TestGrantRequestFingerprintPreservesLegacyReplay(t *testing.T) {
+	legacy := CreateGrantRequest{SessionID: "session-test", WorkspaceID: "workspace-test",
+		ToolName: "shell", ActionClass: "shell", Reason: "trusted build",
+		GrantedBy: "operator"}
+	want := Fingerprint("session_grant.v1", legacy.SessionID, legacy.WorkspaceID,
+		legacy.ToolName, legacy.ActionClass, legacy.Reason, legacy.GrantedBy)
+	if got := GrantRequestFingerprint(legacy); got != want {
+		t.Fatalf("legacy grant fingerprint changed across schema v136: got=%s want=%s",
+			got, want)
+	}
+	bounded := legacy
+	bounded.ToolName = "host_command_propose"
+	bounded.ActionClass = "risk_escalation"
+	bounded.ScopeFingerprint = Fingerprint("risk-scope")
+	bounded.Generation = 1
+	bounded.MaxUses = 2
+	bounded.TTL = time.Minute
+	bounded.ModeSnapshotID = "mode-test"
+	bounded.ModeRevision = 1
+	bounded.InteractionSnapshotID = "interaction-test"
+	bounded.InteractionRevision = 1
+	bounded.ExecutionProfileSnapshotID = "profile-test"
+	bounded.ExecutionProfileRevision = 1
+	bounded.PermissionSnapshotID = "permission-test"
+	bounded.PermissionRevision = 1
+	bounded.PermissionMode = "workspace_access"
+	bounded.WorkspaceRootFingerprint = Fingerprint("root")
+	bounded.CapabilityGeneration = Fingerprint("capability")
+	if GrantRequestFingerprint(bounded) == want {
+		t.Fatal("bounded grant reused the legacy request fingerprint")
+	}
+}

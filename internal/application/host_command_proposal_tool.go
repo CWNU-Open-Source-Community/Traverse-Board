@@ -15,12 +15,14 @@ import (
 	"time"
 
 	"cyberagent-workbench/internal/apperror"
+	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/toolgateway"
+	workspacefs "cyberagent-workbench/internal/workspace"
 )
 
 type HostCommandProposalMutationStore interface {
@@ -39,17 +41,31 @@ type HostCommandProposalMutationStore interface {
 	) (runner.HostCommandProposal, bool, error)
 }
 
+type RiskEscalationMutationStore interface {
+	HostCommandProposalMutationStore
+	CreateRiskEscalationProposal(context.Context, runner.RiskEscalationOperation,
+		runner.RiskEscalationProposal) (runner.RiskEscalationProposal, bool, error)
+	GetApprovalByProposal(context.Context, string) (approval.Record, error)
+	GetRiskEscalationResult(context.Context, string) (runner.RiskEscalationResult, bool, error)
+	GetRiskEscalationExecutionIntentByProposal(context.Context, string) (runner.HostExecutionIntent, bool, error)
+	GetRiskEscalationInvalidation(context.Context, string) (runner.RiskEscalationInvalidation, bool, error)
+	ListSessionMessages(context.Context, string, bool) ([]session.Message, error)
+}
+
 type HostCommandProposalToolExecutor struct {
 	store        HostCommandProposalMutationStore
+	riskStore    RiskEscalationMutationStore
 	resolveShell func(string) (string, error)
 }
 
 func NewHostCommandProposalToolExecutor(
 	store HostCommandProposalMutationStore,
 ) *HostCommandProposalToolExecutor {
-	return &HostCommandProposalToolExecutor{
+	executor := &HostCommandProposalToolExecutor{
 		store: store, resolveShell: resolveProposalShellExecutable,
 	}
+	executor.riskStore, _ = any(store).(RiskEscalationMutationStore)
+	return executor
 }
 
 func (e *HostCommandProposalToolExecutor) ProposeHostCommand(ctx context.Context,
@@ -61,7 +77,11 @@ func (e *HostCommandProposalToolExecutor) ProposeHostCommand(ctx context.Context
 			apperror.CodeFailedPrecondition,
 			"host command proposal mutation store is required")
 	}
-	if err := scope.Validate(); err != nil {
+	validateScope := scope.Validate
+	if payload.Version == runner.RiskEscalationProtocolVersion {
+		validateScope = scope.ValidateRiskEscalation
+	}
+	if err := validateScope(); err != nil {
 		return toolgateway.HostCommandProposalResult{}, apperror.Wrap(
 			apperror.CodeInvalidArgument, err.Error(), err)
 	}
@@ -102,7 +122,16 @@ func (e *HostCommandProposalToolExecutor) ProposeHostCommand(ctx context.Context
 	if err != nil {
 		return toolgateway.HostCommandProposalResult{}, apperror.Normalize(err)
 	}
-	if permission.Mode != domain.RunExecutionPermissionApproval ||
+	isRiskEscalation := payload.Version == runner.RiskEscalationProtocolVersion
+	requiredPermission := domain.RunExecutionPermissionApproval
+	if isRiskEscalation {
+		if e.riskStore == nil {
+			return toolgateway.HostCommandProposalResult{}, apperror.New(
+				apperror.CodeFailedPrecondition, "risk escalation store is unavailable")
+		}
+		requiredPermission = domain.RunExecutionPermissionWorkspaceAccess
+	}
+	if permission.Mode != requiredPermission ||
 		mode.Surface != domain.ExecutionSurfaceCode ||
 		interaction.Mode != domain.RunExecutionInteractionControlled ||
 		interaction.Surface != domain.ExecutionSurfaceCode ||
@@ -112,9 +141,33 @@ func (e *HostCommandProposalToolExecutor) ProposeHostCommand(ctx context.Context
 		interaction.PersistentTerminal ||
 		profile.Profile != domain.RunExecutionProfileLocal ||
 		interaction.ExecutionProfileRevision != profile.Revision {
+		message := "host command proposals require a trusted Code Run in approval mode with controlled local one-shot execution"
+		if isRiskEscalation {
+			message = "risk escalation proposals require a trusted Standard Code Workspace Access Run with controlled local one-shot execution"
+		}
 		return toolgateway.HostCommandProposalResult{}, apperror.New(
 			apperror.CodePolicyDenied,
-			"host command proposals require a trusted Code Run in approval mode with controlled local one-shot execution")
+			message)
+	}
+	if isRiskEscalation {
+		rootFingerprint, fingerprintErr := workspacefs.AgentCodeRootFingerprint(workspace.RootPath)
+		if fingerprintErr != nil {
+			return toolgateway.HostCommandProposalResult{}, apperror.Normalize(fingerprintErr)
+		}
+		capability := toolgateway.AgentCodeCapabilities(toolgateway.AgentCodeCapabilityContext{
+			RunID: run.ID, MissionID: mission.ID, RootAgentID: scope.RootAgentID,
+			WorkspaceID: workspace.ID, RootFingerprint: rootFingerprint,
+			Surface: mode.Surface, Phase: mode.Phase, Role: domain.AgentRoleRoot,
+			Profile: mode.Profile, PermissionMode: permission.Mode,
+			ModeRevision: mode.Revision, PermissionRevision: permission.Revision,
+		})
+		if rootFingerprint != scope.RootFingerprint ||
+			capability.Generation != scope.CapabilityGeneration ||
+			mode.Revision != scope.ModeRevision ||
+			permission.Revision != scope.PermissionRevision {
+			return toolgateway.HostCommandProposalResult{}, apperror.New(
+				apperror.CodeConflict, "risk escalation Workspace capability binding is stale")
+		}
 	}
 	workingDirectory, err := proposalWorkspaceDirectory(
 		payload.WorkingDirectory, workspace.RootPath)
@@ -170,6 +223,53 @@ func (e *HostCommandProposalToolExecutor) ProposeHostCommand(ctx context.Context
 		string(toolgateway.HostCommandProposeTool), scope.RunID,
 		scope.OperationKey)
 	now := time.Now().UTC()
+	if isRiskEscalation {
+		riskScope, scopeErr := payload.RiskEscalationScope()
+		if scopeErr != nil {
+			return toolgateway.HostCommandProposalResult{}, apperror.Wrap(
+				apperror.CodeInvalidArgument, "risk escalation scope is invalid", scopeErr)
+		}
+		proposal, proposalErr := runner.NewRiskEscalationProposal(
+			runner.RiskEscalationProposalRequest{
+				ID: "risk-escalation-" + operationDigest[:24], RunID: run.ID,
+				MissionID: mission.ID, SessionID: scope.SessionID,
+				WorkspaceID: workspace.ID, RootAgentID: scope.RootAgentID,
+				SupervisorTurn:       scope.SupervisorTurn,
+				SupervisorToolCallID: scope.SupervisorToolCallID,
+				ToolInvocationID:     scope.InvocationID,
+				ModeSnapshotID:       mode.ID, ModeRevision: mode.Revision,
+				InteractionSnapshotID:      interaction.ID,
+				InteractionRevision:        interaction.Revision,
+				ExecutionProfileSnapshotID: profile.ID,
+				ExecutionProfileRevision:   profile.Revision,
+				Permission:                 permission,
+				WorkspaceRootFingerprint:   scope.RootFingerprint,
+				CapabilityGeneration:       scope.CapabilityGeneration,
+				Spec:                       spec, Scope: riskScope, RequestedBy: scope.RequestedBy,
+				CreatedAt: now,
+			})
+		if proposalErr != nil {
+			return toolgateway.HostCommandProposalResult{}, apperror.Wrap(
+				apperror.CodeInvalidArgument, "risk escalation proposal is invalid", proposalErr)
+		}
+		operation := runner.RiskEscalationOperation{
+			KeyDigest:          operationDigest,
+			RequestFingerprint: runner.RiskEscalationProposalRequestFingerprint(proposal),
+			InvocationID:       scope.InvocationID, ProposalID: proposal.ID,
+			RunID: proposal.RunID, SessionID: proposal.SessionID,
+			WorkspaceID: proposal.WorkspaceID, RootAgentID: proposal.RootAgentID,
+			SupervisorTurn:       proposal.SupervisorTurn,
+			SupervisorToolCallID: proposal.SupervisorToolCallID,
+			LeaseID:              scope.LeaseID, LeaseGeneration: scope.LeaseGeneration,
+			RequestedBy: scope.RequestedBy, CreatedAt: now,
+		}
+		stored, replayed, createErr := e.riskStore.CreateRiskEscalationProposal(
+			ctx, operation, proposal)
+		if createErr != nil {
+			return toolgateway.HostCommandProposalResult{}, apperror.Normalize(createErr)
+		}
+		return e.riskEscalationResult(ctx, stored, replayed)
+	}
 	proposal, err := runner.NewHostCommandProposal(
 		runner.HostCommandProposalRequest{
 			ID:    "host-command-proposal-" + operationDigest[:24],
@@ -201,8 +301,83 @@ func (e *HostCommandProposalToolExecutor) ProposeHostCommand(ctx context.Context
 	}
 	return toolgateway.HostCommandProposalResult{
 		ProposalID: stored.ID, SpecFingerprint: stored.Spec.Fingerprint,
-		Replayed: replayed,
+		Replayed: replayed, State: toolgateway.HostCommandProposalRecorded,
 	}, nil
+}
+
+func (e *HostCommandProposalToolExecutor) riskEscalationResult(ctx context.Context,
+	proposal runner.RiskEscalationProposal, replayed bool,
+) (toolgateway.HostCommandProposalResult, error) {
+	record, err := e.riskStore.GetApprovalByProposal(ctx, proposal.ID)
+	if err != nil {
+		return toolgateway.HostCommandProposalResult{}, apperror.Normalize(err)
+	}
+	base := toolgateway.HostCommandProposalResult{ProposalID: proposal.ID,
+		SpecFingerprint: proposal.Spec.Fingerprint, ApprovalID: record.ID,
+		GrantID: record.GrantID, Replayed: replayed}
+	if invalidation, found, loadErr := e.riskStore.GetRiskEscalationInvalidation(
+		ctx, proposal.ID); loadErr != nil {
+		return toolgateway.HostCommandProposalResult{}, apperror.Normalize(loadErr)
+	} else if found {
+		base.State = toolgateway.HostCommandProposalFailed
+		base.ErrorCode = invalidation.ReasonCode
+		base.Message = invalidation.Detail
+		base.Uncertain = invalidation.ReasonCode == "execution_uncertain"
+		return base, nil
+	}
+	switch record.Status {
+	case approval.StatusPending:
+		base.State = toolgateway.HostCommandProposalWaiting
+		return base, nil
+	case approval.StatusDenied:
+		base.State = toolgateway.HostCommandProposalDenied
+		base.Message = record.DecisionReason
+		if base.Message == "" {
+			base.Message = "operator denied the exact risk escalation"
+		}
+		return base, nil
+	case approval.StatusApproved:
+	default:
+		return toolgateway.HostCommandProposalResult{}, apperror.New(
+			apperror.CodeInternal, "risk escalation approval state is invalid")
+	}
+	result, found, err := e.riskStore.GetRiskEscalationResult(ctx, proposal.ID)
+	if err != nil {
+		return toolgateway.HostCommandProposalResult{}, apperror.Normalize(err)
+	}
+	if found {
+		base.State = toolgateway.HostCommandProposalCompleted
+		if result.Status == "failed" {
+			base.State = toolgateway.HostCommandProposalFailed
+			base.ErrorCode = result.ErrorCode
+			base.Message = "approved risk escalation command failed"
+		}
+		messages, loadErr := e.riskStore.ListSessionMessages(ctx, proposal.SessionID, true)
+		if loadErr != nil {
+			return toolgateway.HostCommandProposalResult{}, apperror.Normalize(loadErr)
+		}
+		for _, message := range messages {
+			if message.Provenance.SourceKind == result.SourceKind &&
+				message.Provenance.SourceRef == result.SourceRef &&
+				message.Provenance.ContentSHA256 == result.ContentSHA256 {
+				base.Evidence = message.Content
+				break
+			}
+		}
+		return base, nil
+	}
+	if _, found, err := e.riskStore.GetRiskEscalationExecutionIntentByProposal(
+		ctx, proposal.ID); err != nil {
+		return toolgateway.HostCommandProposalResult{}, apperror.Normalize(err)
+	} else if found {
+		base.State = toolgateway.HostCommandProposalFailed
+		base.ErrorCode = "execution_uncertain"
+		base.Message = "a durable write-ahead intent exists without a result; automatic retry is permanently disabled"
+		base.Uncertain = true
+		return base, nil
+	}
+	base.State = toolgateway.HostCommandProposalWaiting
+	return base, nil
 }
 
 func proposalWorkspaceDirectory(value string, workspaceRoot string) (string, error) {

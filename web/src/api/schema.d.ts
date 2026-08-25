@@ -1905,7 +1905,7 @@ export interface paths {
         };
         /**
          * List exact host command proposals
-         * @description Returns exact process or canonical PowerShell/Git Bash host command proposals for approval-mode Runs. Executable identity, every argv item, working directory, environment names and digest, host-network intent, and the non-sandboxed boundary are explicit; environment values and raw output are omitted.
+         * @description Returns exact process or canonical PowerShell/Git Bash host command proposals for approval-mode Runs and durable risk-escalation proposals for Workspace Access Runs. Executable identity, every argv item, working directory, environment names and digest, network targets and purpose, credential kinds without values, host paths, policy refusal, immutable Run/Supervisor/snapshot bindings, resource limits, and the non-sandboxed boundary are explicit; environment values, credential values, capability bearers, and raw output are omitted.
          */
         get: operations["listHostCommandProposals"];
         put?: never;
@@ -1925,7 +1925,7 @@ export interface paths {
         };
         /**
          * Inspect one exact host command proposal
-         * @description Returns the exact immutable command envelope, operator review, result, and metadata-only receipt. The command is non-sandboxed, may use host networking, cannot persist a terminal, and is never automatically retried.
+         * @description Returns the exact immutable command envelope, operator review, bounded current-Run grant and consumption metadata when present, invalidation state, result, and metadata-only receipt. A risk-escalation wait is durable across renderer close or application restart; a prepared execution without a durable result is uncertain and is never retried.
          */
         get: operations["getHostCommandProposal"];
         put?: never;
@@ -1947,7 +1947,7 @@ export interface paths {
         put?: never;
         /**
          * Approve or deny one exact host command proposal
-         * @description Records an independent operator decision. Approval executes only the reviewed executable SHA, argv, cwd, environment digest, network intent, and timeout once through the host runner. A prepared execution without a durable result is uncertain and cannot be retried automatically.
+         * @description Records an independent operator decision. Approval may authorize the exact call once or create an explicitly bounded current-Run grant with an operator-selected TTL and use count; the grant remains bound to the exact risk scope, Workspace root, mode, interaction, execution-profile and permission revisions, and capability generation. The same durable Supervisor call resumes after the decision. A prepared execution without a durable result is uncertain and cannot be retried automatically.
          */
         post: operations["reviewHostCommandProposal"];
         delete?: never;
@@ -6479,28 +6479,45 @@ export interface components {
             raw_output_persisted: boolean;
             source_kind: string;
             source_ref: string;
-            status: string;
+            /** @enum {string} */
+            status: "completed" | "failed";
         };
         HostCommandProposalReviewRequestView: {
+            /** @enum {string} */
+            authorization?: "once" | "run_scope";
             confirm_execution?: boolean;
-            decision: string;
+            /** @enum {string} */
+            decision: "approve" | "deny";
+            /** Format: int32 */
+            grant_max_uses?: number;
+            /** Format: int32 */
+            grant_ttl_seconds?: number;
             reason?: string;
-            version: string;
+            /** @enum {string} */
+            version: "host_command_review.v1";
         };
         HostCommandProposalReviewView: {
             capability_grant: boolean;
             created_at: string;
-            decision: string;
+            /** @enum {string} */
+            decision: "approve" | "deny";
             id: string;
             reason: string;
             reviewed_by: string;
             single_use_execution_authorized: boolean;
         };
         HostCommandProposalView: {
+            /** Format: int32 */
+            active_process_limit?: number;
+            approval_id?: string;
+            /** @enum {string} */
+            approval_status?: "pending" | "approved" | "denied";
             argv: string[];
             automatic_retry_allowed: boolean;
+            capability_generation?: string;
             capability_grant: boolean;
             created_at: string;
+            credential_kinds?: string[];
             environment_keys: string[];
             environment_policy: string;
             environment_sha256: string;
@@ -6508,32 +6525,77 @@ export interface components {
             executable_path: string;
             executable_sha256: string;
             execution_authorized: boolean;
+            /** Format: int64 */
+            execution_profile_revision?: number;
+            execution_profile_snapshot_id?: string;
             execution_replayed?: boolean;
             fingerprint: string;
+            grant_consumption_id?: string;
+            grant_expires_at?: string;
+            /** Format: int64 */
+            grant_generation?: number;
+            grant_id?: string;
+            /** Format: int32 */
+            grant_max_uses?: number;
+            /** Format: int32 */
+            grant_uses_remaining?: number;
+            host_paths?: string[];
             id: string;
             instruction_authorized: boolean;
+            /** Format: int64 */
+            interaction_revision?: number;
+            interaction_snapshot_id?: string;
+            invalidation_reason?: string;
+            /** Format: int64 */
+            max_output_bytes?: number;
             mission_id: string;
-            network_intent: string;
+            /** Format: int64 */
+            mode_revision?: number;
+            mode_snapshot_id?: string;
+            /** @enum {string} */
+            network_intent: "host";
+            network_purpose?: string;
+            network_targets?: string[];
             non_sandboxed: boolean;
             operator_review_required: boolean;
-            permission_mode: string;
+            other_risk_reason?: string;
+            /** @enum {string} */
+            permission_mode: "approval" | "workspace_access";
             /** Format: int64 */
             permission_revision: number;
-            policy_version: string;
-            protocol_version: string;
+            permission_snapshot_id?: string;
+            policy_code?: string;
+            policy_reason?: string;
+            /** @enum {string} */
+            policy_version: "host_command_policy.v1" | "risk_escalation_policy.v1";
+            /** Format: int64 */
+            process_memory_bytes?: number;
+            /** @enum {string} */
+            protocol_version: "host_command_proposal.v1" | "risk_escalation.v1";
             purpose: string;
             receipt?: components["schemas"]["HostCommandExecutionReceiptView"];
+            requested_tool?: string;
             result?: components["schemas"]["HostCommandProposalResultView"];
             review?: components["schemas"]["HostCommandProposalReviewView"];
             review_replayed?: boolean;
+            risk_kinds?: ("network" | "credential" | "host_path" | "policy_denial" | "non_whitelisted_tool" | "other_high_risk")[];
             run_id: string;
+            scope_fingerprint?: string;
             session_id: string;
             spec_fingerprint: string;
+            /** @enum {string} */
+            state?: "waiting_approval" | "approved" | "denied" | "completed" | "failed" | "invalidated";
+            supervisor_tool_call_id?: string;
+            /** Format: int32 */
+            supervisor_turn?: number;
             /** Format: int64 */
             timeout_milliseconds: number;
+            tool_invocation_id?: string;
+            uncertain?: boolean;
             untrusted_evidence?: string;
             working_directory: string;
             workspace_id: string;
+            workspace_root_fingerprint?: string;
         };
         IgnoredInstruction: {
             path: string;

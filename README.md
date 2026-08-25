@@ -94,6 +94,8 @@ Schema v133 与 #135 新增 Go-owned `standard_code_preset.v1`：“开始编码
 
 Schema v135 与 #137 在同一 `RunSupervisor` 内加入 `standard_code_supervisor.v1` 有界完成协议。Standard Code root 必须先完成两个连续只读轮次，经操作者选择 Plan 并进入 Deliver，再以已审阅 apply 的 after-Checkpoint 建立 mutation epoch；真实 Command Runtime 失败进入 Diagnose，修复后只有当前 epoch 的结构化成功才能进入 Deliver/finish。命令、Job、修复、输出、无进展和重复失败均有固定上限，重启重复副作用、权限/上下文漂移和陈旧 Job cursor 失败关闭，所有决定进入 append-only v135 账本。详见 [Standard Code 编码闭环](docs/standard-code-supervisor.md)与 [ADR 0137](docs/adr/0137-bounded-standard-code-supervisor.md)。
 
+Schema v136 与 #138 为 `workspace_access` Standard Code 增加 `risk_escalation.v1`。网络、凭据种类、宿主路径、Policy 拒绝、非白名单工具或其他高风险需求只能形成绑定精确命令、Run/Supervisor call、权限快照、Workspace root 与资源上限的持久提案；模型不能批准或选择授权范围。操作者可拒绝、批准一次，或向当前 Run 授予最多 15 分钟、8 次的精确 scope；每次使用均有不可变消费记录。Supervisor 在等待时释放 lease，重启后恢复同一未执行 call；write-ahead intent 后结果不确定时绝不自动重试，任何权限、Profile、Workspace、root 或 capability 漂移都会失效。详见[高风险升级协议](docs/risk-escalation.md)与 [ADR 0140](docs/adr/0140-durable-risk-escalation.md)。
+
 ### 模型与工具的 item 级流式事件
 
 Schema v130 与 `llm.item_stream.v1` 将 OpenAI 的交错 tool-call delta、Anthropic content block、Ollama/Mock 的完整 item，以及旧 `ChatChunk` 统一为有序的 response/item/call 生命周期。参数增量只在有界内存中拼接；Provider 只能声明调用已准备，不能签发 authority 或执行工具。Go 在完整 JSON 通过大小、敏感数据、Policy、预算与幂等检查后才记录执行开始/完成，并以稳定 response/item/call ID 对齐临时 UI 卡片与持久工具账本。
@@ -431,7 +433,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 完整逐切片原始记录保留在 [`PROGRESS_BOOK.md`](docs/PROGRESS_BOOK.md)，当前检查点与验收证据保留在 [`PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)，恢复上下文见 [`PROJECT_MEMORY.md`](docs/PROJECT_MEMORY.md)。这些账本是历史记录，不应被当作待重新执行的任务列表。
 
 <details>
-<summary><strong>SQLite Schema v1-v135 迁移审计表 / Migration ledger</strong></summary>
+<summary><strong>SQLite Schema v1-v136 迁移审计表 / Migration ledger</strong></summary>
 
 此表是 Store 防漏迁移测试使用的审计合同。新增 schema 时必须按顺序追加，不得改写或删除既有行。
 
@@ -572,6 +574,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 | v133 | 原子提交 Standard Code 预设，并持久化等待静止边界的暂停配置意图 | atomically commit the Standard Code preset and persist pause-and-configure intents awaiting a quiescent boundary |
 | v134 | 增加 Run 级 Web Search/Fetch/Citation 来源、不可变快照与幂等操作账本 | add Run-scoped Web Search/Fetch/Citation sources, immutable snapshots, and idempotent operation ledger |
 | v135 | 持久化 Standard Code root Supervisor 的有界 Inspect→Edit→Execute→Verify 状态、预算、拒绝和结构化证据，并补全 Code Intel 调用账本约束 | persist bounded Inspect→Edit→Execute→Verify state, budgets, denials, and structural evidence for the Standard Code root Supervisor and complete the Code Intel call-ledger constraints |
+| v136 | 增加精确高风险提案、有界 Run grant 消费、持久等待/恢复、write-ahead 不确定性与漂移失效账本 | add exact risk proposals, bounded Run-grant consumption, durable wait/resume, write-ahead uncertainty, and drift invalidation ledgers |
 
 </details>
 

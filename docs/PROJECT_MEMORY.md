@@ -2,9 +2,23 @@
 
 > Scope checkpoint (2026-08-13): continue only the general-purpose Agent Harness and Code workflow. CTF-specific solving/offensive automation is an optional add-on with no active slices; retain generic extension seams only. Historical Cyber percentages are not current planning metrics. See [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md).
 
-Last updated: 2026-08-25
+Last updated: 2026-08-26
 
-## Current Single-Slice Checkpoint: Atomic Standard Code Preset / Issue #135 / Schema v133
+## Current Single-Slice Checkpoint: Durable Risk Escalation / Issue #138 / Schema v136
+
+`risk_escalation.v1` 将 Workspace Access 之外的网络目标/用途、凭据种类、宿主路径、Policy
+拒绝、非白名单工具及其他高风险请求冻结为完整宿主命令、资源预算、Run/Workspace、
+Supervisor turn/call/invocation、执行快照/revision、root fingerprint、capability generation
+和规范化 scope fingerprint。模型只可提案；操作者可拒绝、批准一次，或给当前 Run 的精确
+scope 选择 1-900 秒、1-8 次上限。Grant 没有 bearer，每次 use/过期/撤销/失效均可审计。
+
+提案和既有 Approval 原子提交，Run durable waiting 并释放 lease；决策只恢复原未执行 call，
+拒绝是普通工具结果。host start 前持久化 intent；缺少终态 result 时永久 uncertain 且不自动
+重试。重启不恢复进程 authority；权限/Profile/Workspace/root/executable/capability 漂移使
+proposal 与匹配 grant 失效。继续复用 Approval/Grant、host proposal 和 lease 账本，不建立
+第二套决策源。见 ADR 0140 与 `docs/risk-escalation.md`。
+
+## Previous Single-Slice Checkpoint: Atomic Standard Code Preset / Issue #135 / Schema v133
 
 `standard_code_preset.v1` 由 Go Application 单点拥有，将 Code/Plan、ready Local 或显式 Docker、
 controlled、`workspace_access`、restricted CDP 与 exact trusted/ready Drydock 作为一个幂等元组

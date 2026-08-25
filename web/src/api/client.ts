@@ -1201,6 +1201,37 @@ function parseHostCommandProposalReceipt(value: unknown): boolean {
     value.persistent_process === false && value.product_execution_enabled === true;
 }
 
+const hostCommandRiskKinds = ["network", "credential", "host_path", "policy_denial",
+  "non_whitelisted_tool", "other_high_risk"] as const;
+
+const hostCommandRiskFields = ["state", "supervisor_turn", "supervisor_tool_call_id",
+  "tool_invocation_id", "mode_snapshot_id", "mode_revision", "interaction_snapshot_id",
+  "interaction_revision", "execution_profile_snapshot_id", "execution_profile_revision",
+  "permission_snapshot_id", "workspace_root_fingerprint", "capability_generation",
+  "scope_fingerprint", "risk_kinds", "network_targets", "network_purpose",
+  "credential_kinds", "host_paths", "policy_code", "policy_reason", "requested_tool",
+  "other_risk_reason", "max_output_bytes", "active_process_limit", "process_memory_bytes",
+  "approval_id", "approval_status", "grant_id", "grant_generation", "grant_max_uses",
+  "grant_uses_remaining", "grant_expires_at", "grant_consumption_id",
+  "invalidation_reason", "uncertain"];
+
+function boundedRiskText(value: unknown, maximum: number): value is string {
+  return boundedText(value, maximum) && !/[\u0000-\u001f\u007f]/u.test(value);
+}
+
+function parseRiskList(value: unknown, maximum: number): string[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length === 0 || value.length > maximum) return null;
+  const result: string[] = [];
+  for (const item of value) {
+    if (!boundedRiskText(item, 512)) return null;
+    result.push(item);
+  }
+  if (new Set(result).size !== result.length ||
+    result.some((item, index) => index > 0 && result[index - 1]! > item)) return null;
+  return result;
+}
+
 function parseHostCommandProposal(value: unknown, expectedRunID: string,
   expectedProposalID = ""): HostCommandProposalView {
   const required = ["argv", "automatic_retry_allowed", "capability_grant", "created_at",
@@ -1212,11 +1243,11 @@ function parseHostCommandProposal(value: unknown, expectedRunID: string,
     "session_id", "spec_fingerprint", "timeout_milliseconds", "working_directory",
     "workspace_id"];
   const optional = ["execution_replayed", "receipt", "result", "review", "review_replayed",
-    "untrusted_evidence"];
+    "untrusted_evidence", ...hostCommandRiskFields];
   if (!isRecord(value) || !hasOnlyKeys(value, [...required, ...optional]) ||
     required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
-    value.protocol_version !== "host_command_proposal.v1" ||
-    value.policy_version !== "host_command_policy.v1" || value.run_id !== expectedRunID ||
+    (value.protocol_version !== "host_command_proposal.v1" &&
+      value.protocol_version !== "risk_escalation.v1") || value.run_id !== expectedRunID ||
     (expectedProposalID !== "" && value.id !== expectedProposalID) ||
     boundedIdentity(value.id) !== value.id || boundedIdentity(value.run_id) !== value.run_id ||
     boundedIdentity(value.mission_id) !== value.mission_id ||
@@ -1232,28 +1263,50 @@ function parseHostCommandProposal(value: unknown, expectedRunID: string,
     !isSHA256(value.environment_sha256) || value.network_intent !== "host" ||
     !safePositiveInteger(value.timeout_milliseconds) || value.timeout_milliseconds > 600_000 ||
     !boundedText(value.purpose, 4_800) || !isSHA256(value.spec_fingerprint) ||
-    value.permission_mode !== "approval" || !safePositiveInteger(value.permission_revision) ||
-    value.operator_review_required !== true || value.non_sandboxed !== true ||
+    !safePositiveInteger(value.permission_revision) ||
+    typeof value.operator_review_required !== "boolean" || value.non_sandboxed !== true ||
     value.automatic_retry_allowed !== false || value.instruction_authorized !== false ||
-    value.execution_authorized !== false || value.capability_grant !== false ||
-    !isSHA256(value.fingerprint) || !validDate(value.created_at) ||
-    value.evidence_instruction_authorized !== false ||
+    typeof value.execution_authorized !== "boolean" ||
+    typeof value.capability_grant !== "boolean" || !isSHA256(value.fingerprint) ||
+    !validDate(value.created_at) || value.evidence_instruction_authorized !== false ||
     (value.review_replayed !== undefined && typeof value.review_replayed !== "boolean") ||
     (value.execution_replayed !== undefined && typeof value.execution_replayed !== "boolean") ||
     (value.untrusted_evidence !== undefined &&
-      (typeof value.untrusted_evidence !== "string" || value.untrusted_evidence.length > 16 * 1024 ||
-        !value.untrusted_evidence.startsWith("UNTRUSTED HOST COMMAND RESULT")))) {
+      (typeof value.untrusted_evidence !== "string" || value.untrusted_evidence.length > 16 * 1024))) {
     throw new APIRequestError("Host command proposal response is invalid", "INVALID_RESPONSE", 502);
   }
+
+  const risk = value.protocol_version === "risk_escalation.v1";
+  if (!risk) {
+    if (value.policy_version !== "host_command_policy.v1" || value.permission_mode !== "approval" ||
+      value.operator_review_required !== true || value.execution_authorized !== false ||
+      value.capability_grant !== false || hostCommandRiskFields.some((field) =>
+        Object.prototype.hasOwnProperty.call(value, field)) ||
+      (value.untrusted_evidence !== undefined &&
+        !value.untrusted_evidence.startsWith("UNTRUSTED HOST COMMAND RESULT"))) {
+      throw new APIRequestError("Legacy host command proposal widened its authority",
+        "INVALID_RESPONSE", 502);
+    }
+  } else {
+    validateRiskEscalationProposal(value);
+  }
+
   if (value.review !== undefined) {
     const review = value.review;
     if (!hasExactKeys(review, ["capability_grant", "created_at", "decision", "id", "reason",
       "reviewed_by", "single_use_execution_authorized"]) ||
-      boundedIdentity(review.id) !== review.id || boundedIdentity(review.reviewed_by) !== review.reviewed_by ||
+      boundedIdentity(review.id) !== review.id ||
+      boundedIdentity(review.reviewed_by) !== review.reviewed_by ||
       !boundedText(review.reason, 4_096) || !validDate(review.created_at) ||
       (review.decision !== "approve" && review.decision !== "deny") ||
-      review.single_use_execution_authorized !== (review.decision === "approve") ||
-      review.capability_grant !== false) {
+      (risk
+        ? (review.decision === "deny"
+          ? review.single_use_execution_authorized !== false || review.capability_grant !== false
+          : review.single_use_execution_authorized !== !value.capability_grant ||
+            review.capability_grant !== value.capability_grant)
+        : review.single_use_execution_authorized !== (review.decision === "approve") ||
+          review.capability_grant !== false) ||
+      (risk && review.id !== value.approval_id)) {
       throw new APIRequestError("Host command review response is invalid", "INVALID_RESPONSE", 502);
     }
   }
@@ -1261,7 +1314,8 @@ function parseHostCommandProposal(value: unknown, expectedRunID: string,
     const result = value.result;
     if (!hasExactKeys(result, ["automatic_retry_allowed", "content_sha256", "created_at", "id",
       "instruction_authorized", "raw_output_persisted", "source_kind", "source_ref", "status"]) ||
-      boundedIdentity(result.id) !== result.id || boundedIdentity(result.source_ref) !== result.source_ref ||
+      boundedIdentity(result.id) !== result.id ||
+      boundedIdentity(result.source_ref) !== result.source_ref ||
       (result.status !== "completed" && result.status !== "failed") ||
       result.source_kind !== "go_command_result" || !isSHA256(result.content_sha256) ||
       result.instruction_authorized !== false || result.raw_output_persisted !== false ||
@@ -1272,11 +1326,94 @@ function parseHostCommandProposal(value: unknown, expectedRunID: string,
   if ((value.result === undefined) !== (value.receipt === undefined) ||
     (value.receipt !== undefined && !parseHostCommandProposalReceipt(value.receipt)) ||
     value.result !== undefined && value.review === undefined ||
-    value.untrusted_evidence !== undefined && value.result === undefined) {
+    value.untrusted_evidence !== undefined && value.result === undefined ||
+    (risk && ((value.approval_status === "pending") !== (value.review === undefined) ||
+      value.result !== undefined && value.state !==
+        (isRecord(value.result) ? value.result.status : undefined) ||
+      value.untrusted_evidence !== undefined &&
+        !value.untrusted_evidence.startsWith("UNTRUSTED APPROVED RISK ESCALATION RESULT")))) {
     throw new APIRequestError("Host command proposal response crossed its execution boundary",
       "INVALID_RESPONSE", 502);
   }
   return value as unknown as HostCommandProposalView;
+}
+
+function validateRiskEscalationProposal(value: Record<string, unknown>): void {
+  const riskRequired = ["state", "supervisor_turn", "supervisor_tool_call_id",
+    "tool_invocation_id", "mode_snapshot_id", "mode_revision", "interaction_snapshot_id",
+    "interaction_revision", "execution_profile_snapshot_id", "execution_profile_revision",
+    "permission_snapshot_id", "workspace_root_fingerprint", "capability_generation",
+    "scope_fingerprint", "risk_kinds", "max_output_bytes", "active_process_limit",
+    "process_memory_bytes", "approval_id", "approval_status"];
+  const kinds = parseRiskList(value.risk_kinds, 6);
+  const networkTargets = parseRiskList(value.network_targets, 16);
+  const credentialKinds = parseRiskList(value.credential_kinds, 16);
+  const hostPaths = parseRiskList(value.host_paths, 16);
+  const validStates = ["waiting_approval", "approved", "denied", "completed", "failed",
+    "invalidated"];
+  const validApprovalStatuses = ["pending", "approved", "denied"];
+  const grantPresent = value.grant_id !== undefined;
+  if (riskRequired.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
+    value.policy_version !== "risk_escalation_policy.v1" ||
+    value.permission_mode !== "workspace_access" || !validStates.includes(String(value.state)) ||
+    !safePositiveInteger(value.supervisor_turn) ||
+    boundedIdentity(value.supervisor_tool_call_id) !== value.supervisor_tool_call_id ||
+    boundedIdentity(value.tool_invocation_id) !== value.tool_invocation_id ||
+    boundedIdentity(value.mode_snapshot_id) !== value.mode_snapshot_id ||
+    !safePositiveInteger(value.mode_revision) ||
+    boundedIdentity(value.interaction_snapshot_id) !== value.interaction_snapshot_id ||
+    !safePositiveInteger(value.interaction_revision) ||
+    boundedIdentity(value.execution_profile_snapshot_id) !== value.execution_profile_snapshot_id ||
+    !safePositiveInteger(value.execution_profile_revision) ||
+    boundedIdentity(value.permission_snapshot_id) !== value.permission_snapshot_id ||
+    !isSHA256(value.workspace_root_fingerprint) || !isSHA256(value.capability_generation) ||
+    !isSHA256(value.scope_fingerprint) || kinds === null || kinds.length === 0 ||
+    !kinds.every((kind) => hostCommandRiskKinds.includes(
+      kind as typeof hostCommandRiskKinds[number])) || networkTargets === null ||
+    credentialKinds === null || hostPaths === null ||
+    value.max_output_bytes !== 64 * 1024 * 1024 || value.active_process_limit !== 32 ||
+    value.process_memory_bytes !== 2 * 1024 * 1024 * 1024 ||
+    boundedIdentity(value.approval_id) !== value.approval_id ||
+    !validApprovalStatuses.includes(String(value.approval_status)) ||
+    value.operator_review_required !== (value.approval_status === "pending") ||
+    value.execution_authorized !== (value.approval_status === "approved") ||
+    value.capability_grant !== grantPresent ||
+    kinds.includes("network") !==
+      (networkTargets.length > 0 && boundedRiskText(value.network_purpose, 1_200)) ||
+    kinds.includes("credential") !== (credentialKinds.length > 0) ||
+    kinds.includes("host_path") !== (hostPaths.length > 0) ||
+    kinds.includes("policy_denial") !==
+      (boundedRiskText(value.policy_code, 512) && boundedRiskText(value.policy_reason, 1_200)) ||
+    kinds.includes("non_whitelisted_tool") !== boundedRiskText(value.requested_tool, 512) ||
+    kinds.includes("other_high_risk") !== boundedRiskText(value.other_risk_reason, 1_200) ||
+    (value.invalidation_reason !== undefined &&
+      (!boundedRiskText(value.invalidation_reason, 512) || value.state !== "invalidated")) ||
+    (value.state === "invalidated" && value.invalidation_reason === undefined) ||
+    (value.uncertain !== undefined && typeof value.uncertain !== "boolean") ||
+    (value.uncertain === true && value.state !== "invalidated" && value.state !== "failed") ||
+    (value.state === "waiting_approval" && value.approval_status !== "pending") ||
+    (value.state === "denied" && value.approval_status !== "denied") ||
+    (["approved", "completed", "failed"].includes(String(value.state)) &&
+      value.approval_status !== "approved")) {
+    throw new APIRequestError("Risk escalation proposal response is invalid",
+      "INVALID_RESPONSE", 502);
+  }
+  if (grantPresent) {
+    if (boundedIdentity(value.grant_id) !== value.grant_id ||
+      !safePositiveInteger(value.grant_generation) ||
+      !safePositiveInteger(value.grant_max_uses) || value.grant_max_uses > 8 ||
+      !safeBoundedCount(value.grant_uses_remaining, Number(value.grant_max_uses)) ||
+      !validDate(value.grant_expires_at) ||
+      boundedIdentity(value.grant_consumption_id) !== value.grant_consumption_id) {
+      throw new APIRequestError("Bounded risk escalation grant response is invalid",
+        "INVALID_RESPONSE", 502);
+    }
+  } else if (["grant_generation", "grant_max_uses", "grant_uses_remaining",
+    "grant_expires_at", "grant_consumption_id"].some((field) =>
+    Object.prototype.hasOwnProperty.call(value, field))) {
+    throw new APIRequestError("Risk escalation response contains detached grant metadata",
+      "INVALID_RESPONSE", 502);
+  }
 }
 
 function parseModelRouteControl(value: unknown, route: string,
@@ -6604,12 +6741,22 @@ export class CyberAgentClient {
   async reviewHostCommandProposal(runID: string, proposalID: string,
     body: HostCommandProposalReviewRequestView, idempotencyKey: string,
     signal?: AbortSignal): Promise<HostCommandProposalView> {
+    const boundedGrant = body.decision === "approve" && body.authorization === "run_scope";
+    const grantFieldsAbsent = body.grant_ttl_seconds === undefined &&
+      body.grant_max_uses === undefined;
     if (!this.hasHostCommandProposalControl ||
       !boundedIdentity(runID) || runID.trim() !== runID ||
       !boundedIdentity(proposalID) || proposalID.trim() !== proposalID ||
       body.version !== "host_command_review.v1" ||
       (body.decision !== "approve" && body.decision !== "deny") ||
       body.confirm_execution !== (body.decision === "approve") ||
+      (body.authorization !== undefined && body.authorization !== "once" &&
+        body.authorization !== "run_scope") ||
+      (body.decision === "deny" && (body.authorization !== undefined || !grantFieldsAbsent)) ||
+      (!boundedGrant && !grantFieldsAbsent) ||
+      (boundedGrant && (!safePositiveInteger(body.grant_ttl_seconds) ||
+        body.grant_ttl_seconds > 900 || !safePositiveInteger(body.grant_max_uses) ||
+        body.grant_max_uses > 8)) ||
       (body.reason !== undefined &&
         (!boundedText(body.reason, 4_096) || /[\u0000-\u001f\u007f]/u.test(body.reason)))) {
       throw new Error("An exact host command review request is required");

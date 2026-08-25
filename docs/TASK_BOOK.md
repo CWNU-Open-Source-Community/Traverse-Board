@@ -1,6 +1,6 @@
 # Prayu V2 任务书
 
-更新时间：2026-08-25
+更新时间：2026-08-26
 
 ## 目标
 
@@ -9,6 +9,15 @@
 当前任务书只推进通用 Agent Harness 与 Code 工作流。CTF 专用求解、自动化渗透和攻防工具链已经移出活跃路线图，不再排队开发；仓库仅保留 Run、Provider、Tool、Skill、Analyzer、Sandbox、Finding/Evidence/Report 等通用扩展接口，供未来经过独立 ADR 和安全复核的附加包接入。范围权威见 [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md)。
 
 ## 当前基线
+
+持久高风险升级（Issue #138 / schema v136）以 `risk_escalation.v1` 将 Workspace Access
+以外的网络、凭据种类、宿主路径、Policy 拒绝、非白名单工具和其他高风险请求冻结为
+精确 proposal。模型只能提案；操作者可拒绝、批准一次，或给当前 Run 的精确 scope
+选择 1-900 秒、1-8 次上限。Supervisor 持久等待并释放 lease，只恢复同一 turn/call；
+write-ahead intent 无终态 result 时永久 uncertain，不重试。Grant 使用、撤销、过期、
+耗尽、漂移和 proposal/result/receipt 共用 Approval/Grant/host proposal/lease 账本，可由
+Deck Log 与 Bell Book 重建；重启不恢复进程 authority。边界见 ADR 0140 与
+`docs/risk-escalation.md`。
 
 Standard Code 原子预设（Issue #135 / schema v133）以 `standard_code_preset.v1` 将 Code/Plan、
 ready Local 或显式 Docker、controlled、`workspace_access`、restricted CDP、可信 ready Drydock、

@@ -1319,6 +1319,29 @@ report denial/no-credentials only from current Local or Docker isolation readine
 The complete split is documented in
 [Command Runtime adapter split](architecture/command-runtime-adapter-split.md).
 
+## Durable Exact Risk Escalation
+
+Schema v136 adds `risk_escalation.v1` as a separate Workspace Access path for an
+exceptional network target/purpose, credential kind, exact host path, Policy refusal,
+non-whitelisted tool, or other bounded high-risk request. It extends the existing
+immutable host-command proposal and Approval/Grant ledgers rather than widening the
+ordinary Command Runtime or creating a second decision store. The proposal binds the
+exact executable, argv, cwd, environment-name digest, resource budget, normalized risk
+scope, Run/Session/Workspace, Supervisor turn/call/invocation, all execution snapshots,
+Workspace-root fingerprint, and capability generation.
+
+Only an operator may deny, approve once, or create an exact current-Run grant bounded
+to 1-900 seconds and 1-8 uses. A grant is metadata rather than a bearer; every use is an
+immutable consumption record, and model, Skill, MCP, repository content, or another Run
+cannot consume it. While review is pending, `RunSupervisor` persists the original call,
+sets `waiting_approval`, and releases its lease. Decision handling resumes only that
+same call. A write-ahead intent precedes host start; if no terminal result follows, the
+operation becomes permanently uncertain and is never retried. Restart restores records,
+not process-local authority. Permission, mode, Profile, Workspace/root, executable, or
+capability drift invalidates the proposal and related active grant. See
+[Durable risk escalation](risk-escalation.md) and
+[ADR 0140](adr/0140-durable-risk-escalation.md).
+
 ## Transactional Workspace Checkpoints
 
 ADR 0118 and schema v117 add `workspace-checkpoint.v1` as a storage and Application
