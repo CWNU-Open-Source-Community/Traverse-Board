@@ -4961,6 +4961,32 @@ export class CyberAgentClient {
     return parseStandardCodePreset(result, action);
   }
 
+  async createStandardCode(body: StandardCodePresetControlRequestView,
+    idempotencyKey: string, signal?: AbortSignal): Promise<StandardCodePresetControlView> {
+    if (!this.hasStandardCodePreset) {
+      throw new Error("Standard Code preset capability is required for this operation");
+    }
+    const workspaceID = boundedIdentity(body.workspace_id);
+    const goal = body.goal;
+    if (body.version !== "standard_code_preset.v1" ||
+      !["auto", "local", "docker"].includes(body.backend_intent) ||
+      workspaceID !== body.workspace_id || typeof goal !== "string" ||
+      goal.trim() !== goal || goal.length === 0 || goal.includes("\0") ||
+      new TextEncoder().encode(goal).byteLength > 4096 ||
+      body.confirm_workspace_trust !== (body.expected_trust_digest !== undefined) ||
+      (body.expected_trust_digest !== undefined && !isSHA256(body.expected_trust_digest))) {
+      throw new Error("A normalized Workspace, goal, and trust intent are required for Standard Code");
+    }
+    const result = parseStandardCodePreset(await this.sendControl<unknown>(
+      "/standard-code/preset", body, idempotencyKey, signal), "configure");
+    if (result.workspace_id !== workspaceID ||
+      result.backend_intent !== body.backend_intent) {
+      throw new APIRequestError("Standard Code preset response changed the requested target",
+        "INVALID_RESPONSE", 502);
+    }
+    return result;
+  }
+
   async codeIntelInventory(workspaceID = "", signal?: AbortSignal):
     Promise<CodeIntelInventoryView> {
     if (workspaceID !== "" && (!strictCodeIntelIdentity(workspaceID) ||

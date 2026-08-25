@@ -288,25 +288,25 @@ loopback `http`，默认 `http://127.0.0.1:11434`）与 `CYBERAGENT_OLLAMA_MODEL
 非 loopback、HTTPS、redirect 与代理绕过一律拒绝。tools/vision/JSON/context 能力按
 `/api/show` 探测结果失败关闭，不自动安装 Ollama、不 pull 模型、不扫描局域网。
 
-### Windows Desktop 预览
+### Windows Desktop
 
 ```powershell
 ./scripts/build-desktop.ps1
-./build/desktop/Start-Prayu-Operator-Preview.cmd
+./build/desktop/TraverseBoard.exe
 ```
 
-请使用操作者预览启动器。直接双击裸 `TraverseBoard.exe` 会按设计以最保守权限启动。完整人工测试步骤见 [`packaging/windows/LOCAL-TEST-GUIDE.txt`](packaging/windows/LOCAL-TEST-GUIDE.txt)。
+直接双击 `TraverseBoard.exe` 即可进入安全控制面与首次 Standard Code 向导，不再需要单独的 operator-preview 启动器；历史启动器文件名仅作兼容。只读入口为 `TraverseBoard.exe --safe-view`。默认入口不会开启 Full Access、Debug、Full CDP、后台 Worker 或 Agent 持久终端。完整人工测试步骤见 [`packaging/windows/LOCAL-TEST-GUIDE.txt`](packaging/windows/LOCAL-TEST-GUIDE.txt)。
 
 在 Windows Desktop 中点击“新建任务”会直接打开系统文件夹选择器，并按“选择目录 -> 注册 Workspace -> 创建 Run”完成创建；无需先通过 CLI 或设置页注册工作区。取消选择不会创建 Workspace 或 Run，所选绝对路径不会返回 React。
 
-### macOS Desktop 预览
+### macOS Desktop
 
 ```bash
 ./scripts/build-desktop-darwin.sh
 open build/desktop/Prayu.app
 ```
 
-请使用操作者预览启动器 `build/desktop/Start-Prayu-Operator-Preview.command`，或直接打开 `Prayu.app`（默认只读）。产物只有 ad-hoc 签名、未公证；从其他机器拷贝后首次打开可能需要在 Finder 中右键选择“打开”。系统凭证库尚未接入 macOS，请使用 `MIMO_API_KEY`、`DEEPSEEK_API_KEY`、`CYBERAGENT_ANTHROPIC_API_KEY` 等环境变量。用户终端默认关闭；带相应启动闸门时使用本地 Bash PTY，受限浏览器与完整 CDP 仍保持关闭。完整步骤见 [`packaging/macos/LOCAL-TEST-GUIDE.txt`](packaging/macos/LOCAL-TEST-GUIDE.txt)，边界见 [ADR 0097](docs/adr/0097-macos-desktop-portable-build.md) 与 [ADR 0114](docs/adr/0114-real-shell-transports-and-supervised-debug-terminal.md)。
+直接打开 `Prayu.app` 即进入安全控制面；历史 operator-preview 启动器文件名仅作兼容。显式只读入口为 app 内二进制加 `--safe-view`。Standard Code 首次向导只在 Go 证明平台 Local Sandbox adapter 可用时出现；当前 Windows-first adapter 在 macOS 上保持不可用，不伪造 readiness。产物只有 ad-hoc 签名、未公证；从其他机器拷贝后首次打开可能需要在 Finder 中右键选择“打开”。系统凭证库尚未接入 macOS，请使用 `MIMO_API_KEY`、`DEEPSEEK_API_KEY`、`CYBERAGENT_ANTHROPIC_API_KEY` 等环境变量。用户终端默认关闭；带相应启动闸门时使用本地 Bash PTY，受限浏览器与完整 CDP 仍保持关闭。完整步骤见 [`packaging/macos/LOCAL-TEST-GUIDE.txt`](packaging/macos/LOCAL-TEST-GUIDE.txt)，边界见 [ADR 0097](docs/adr/0097-macos-desktop-portable-build.md) 与 [ADR 0114](docs/adr/0114-real-shell-transports-and-supervised-debug-terminal.md)。
 
 更多命令与边界见[使用手册](docs/usage.md)。
 
@@ -337,9 +337,9 @@ $expectedExe = ((Get-Content .\SHA256SUMS | Where-Object { $_ -match "  $([regex
 $actualExe = (Get-FileHash ".\$exe" -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($actualExe -cne $expectedExe) { throw 'executable checksum mismatch' }
 
-# 解压后使用启动器，不要直接双击裸 EXE / extract and use the launcher
+# 解压后直接启动安全默认入口 / extract and launch the safe default directly
 Expand-Archive ".\$zip" -DestinationPath .\Prayu-portable
-.\Prayu-portable\Start-Prayu-Operator-Preview.cmd
+.\Prayu-portable\TraverseBoard.exe
 ```
 
 维护者从 clean checkout 生成同一套 ZIP、SBOM、NOTICE、校验和与清单只需一条命令：

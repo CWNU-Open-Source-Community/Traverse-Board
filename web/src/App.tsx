@@ -14,6 +14,7 @@ import {
 import { CyberAgentClient } from "./api/client";
 import { ConnectionGate } from "./components/connection-gate";
 import { DesktopSkillPreviewDialog } from "./components/desktop-skill-preview";
+import { FirstRunOnboarding } from "./components/first-run-onboarding";
 import { ModelAvailabilityDialog, ModelAvailabilityWorkspace } from "./components/model-availability-dialog";
 import { RunCreationDialog } from "./components/run-creation-dialog";
 import { ResourceSidebar, type WorkbenchSection } from "./components/resource-sidebar";
@@ -30,6 +31,7 @@ import { useLocale } from "./lib/locale";
 import { closeDesktopWindow, minimiseDesktopWindow,
   toggleDesktopWindowMaximised } from "./lib/desktop-window";
 import { useConnectionStore } from "./state/connection";
+import type { RunView } from "./api/types";
 
 const sidebarWidthStorageKey = "prayu.sidebar.width.v1";
 const narrowWorkspaceQuery = "(max-width: 760px)";
@@ -207,6 +209,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   const [runCreationOpen, setRunCreationOpen] = useState(false);
   const [runDraft, setRunDraft] = useState<Partial<NewRunDraft>>({});
   const [modelsOpen, setModelsOpen] = useState(false);
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
   const [workspaceSection, setWorkspaceSection] = useState<Exclude<WorkbenchSection, "new-task">>(
     "conversation");
@@ -264,6 +267,12 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   const selectThread = useConnectionStore((state) => state.selectThread);
   const selectRun = useConnectionStore((state) => state.selectRun);
   const selectSession = useConnectionStore((state) => state.selectSession);
+  const firstRunQuery = useQuery({
+    queryKey: ["onboarding", "runs"],
+    queryFn: ({ signal }) => client.getPage<RunView>("/runs", { limit: 1 }, "", signal),
+    enabled: desktop && client.hasStandardCodePreset,
+    staleTime: 5_000,
+  });
   const healthQuery = useQuery({
     queryKey: ["health"],
     queryFn: ({ signal }) => client.health(signal),
@@ -383,6 +392,17 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     setRunCreationOpen(true);
   };
 
+  const firstRunEligible = desktop && client.hasStandardCodePreset &&
+    firstRunQuery.data?.items.length === 0;
+  const resumableRunID = desktop && client.hasStandardCodePreset
+    ? firstRunQuery.data?.items[0]?.id ?? "" : "";
+  const completeOnboarding = (runID: string) => {
+    setOnboardingDismissed(true);
+    setSurface("workspace");
+    setWorkspaceSection("conversation");
+    selectRun(runID);
+  };
+
   const resizeSidebar = (value: number) => {
     const normalized = clampSidebarWidth(value);
     setSidebarWidth(normalized);
@@ -432,6 +452,8 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
             sessionID={selectedSessionID} />
         : <EmptyConversation client={client} creationEnabled={runCreationEnabled}
           onCreateRun={openRunCreation}
+          onContinueRun={resumableRunID ? () => selectRun(resumableRunID) : undefined}
+          onStartCoding={firstRunEligible ? () => setOnboardingDismissed(false) : undefined}
           onOpenPlugins={desktop ? () => setSkillPreviewOpen(true) : undefined} />;
 
   return (
@@ -511,6 +533,9 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
       <RunCreationDialog client={client} open={runCreationOpen}
         initialGoal={runDraft.goal} initialPhase={runDraft.phase}
         onClose={() => setRunCreationOpen(false)} />
+      <FirstRunOnboarding client={client}
+        open={Boolean(firstRunEligible && !onboardingDismissed)}
+        onComplete={completeOnboarding} onDismiss={() => setOnboardingDismissed(true)} />
     </>
   );
 }

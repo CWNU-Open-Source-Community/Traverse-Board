@@ -1,10 +1,10 @@
 # Traverse Board · 针路簿 Windows Desktop 测试矩阵 / Windows Desktop Test Matrix
 
-版本 / Version: desktop-test-matrix.v2
+版本 / Version: desktop-test-matrix.v3
 
 状态 / Status: #85 已用同一 clean r4 SHA 完成 Windows 11 双屏混合 DPI 与原始交互范围签字；更广的 Windows/高级 Git 矩阵仍按各自 Issue 跟踪 / issue #85 passed its original Windows 11 mixed-DPI and interactive scope against one clean r4 SHA; the broader Windows and Advanced Git matrix remains tracked separately
 
-对应 Issue / Issue: #55
+对应 Issue / Issue: #55, #136
 
 ## 目标 / Goal
 
@@ -27,7 +27,7 @@
 | 脚本 | 用途 |
 |---|---|
 | `scripts/desktop-test-matrix.ps1` | 校验候选 EXE 的 SHA-256/版本/commit/clean-build provenance，采集 OS、WebView2、逐屏 DPI/边界，跑冷启动/第二实例/正常退出/kill-重开，并输出脱敏 JSON |
-| `scripts/smoke-desktop-operator-preview.ps1` | 既有 operator-preview 冷启动烟测（隔离数据目录 + store 创建） |
+| `scripts/smoke-desktop-operator-preview.ps1` | 兼容文件名；实际以零参数直接启动候选 EXE，验证安全默认入口（隔离数据目录 + store 创建） |
 | `scripts/check-windows-compat.ps1` | 既有便携产物兼容性检查（SHA-256/PE/launcher/guide） |
 
 ## 场景与判定 / Scenarios and pass criteria
@@ -40,6 +40,9 @@
 | S4 | 强制 kill 后重开 | `Stop-Process -Force` → 非空 store 保留 → 同一候选 EXE 重开成功；Run/设置内容由人工确认 | 脚本记录 + 重开后 UI 确认 |
 | S5 | WebView2 缺失/过旧/损坏 | 只显示有界本机指导（`desktopWebView2Messages`），无空白/Forbidden，不隐式安装 | 脚本记录诊断文本 + 截图 |
 | S6 | 离线启动 | 断网下冷启动成功（不依赖外部网络） | 脚本记录 + 截图 |
+| S7 | 首次 Standard Code 向导 | 零 Run 数据目录直接双击 EXE 后依次显示语言、Provider/凭证、Harness、Workspace、readiness、Trust；选择目录不自动信任，摘要未确认时不创建 Run，确认后一次性创建受限 Code Run | React 自动契约 + Windows 真机录屏/截图 + 脱敏 store 计数 |
+| S8 | rc.3 数据恢复 | 用既有数据目录直接重开；不强制显示首启向导，不改写旧 Run 权限/Trust，不恢复旧高权限 runtime、审批决定、租约、终端或后台 Worker | 脚本 kill/reopen + Go 升级安全测试 + 人工权限页确认 |
+| S9 | 显式 Safe View | `TraverseBoard.exe --safe-view` 能启动只读界面，bootstrap 无 control token，不能打开首次创建流程；与任意控制启动参数组合时启动失败 | Windows 参数测试 + 人工界面确认 |
 
 ## UI checklist（人工）/ Manual UI checklist
 
@@ -47,6 +50,8 @@
 
 - [ ] 主题（浅/深）与 Acrylic 玻璃令牌
 - [ ] 语言切换（双语）
+- [ ] 首次向导全程仅键盘可达；每个灰态包含双语原因与处理方法
+- [ ] 中文 IME 组合输入不会提前提交目标，窄窗口下步骤、摘要与主按钮均可到达
 - [ ] 侧栏拖拽/折叠
 - [ ] Agent 输入框
 - [ ] 长对话滚动
@@ -62,6 +67,7 @@
 - [ ] Approval/审计：preview 不授权，review 后 pending Approval 可见；成功/冲突/中断 receipt 与 Checkpoint 可回读
 - [ ] 审批队列
 - [ ] 设置页（含"高度敏感权限"Full CDP 标签）
+- [ ] 权限页区分已选择、暂时锁定、启动不可用、后端不可用、不兼容与高级风险；高级能力默认折叠
 
 每次人工勾选必须同时记录候选 `sha256`、OS build、WebView2 版本、各显示器分辨率/DPI、窗口尺寸和证据文件名。未实际执行的项写 `not_run`，不得留空或按自动测试结果推断为通过。
 

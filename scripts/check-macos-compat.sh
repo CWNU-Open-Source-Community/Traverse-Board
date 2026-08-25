@@ -208,14 +208,15 @@ add_check(
 add_check(
     "operator_preview_safe_flags",
     "pass"
-    if "--operator-preview" in launcher_text
+    if "--operator-preview" not in launcher_text
     and "--enable-danger-full-access" not in launcher_text
     and "--enable-debug-maximum-access" not in launcher_text
     and "--enable-full-cdp-debug" not in launcher_text
     and "--enable-user-terminal" not in launcher_text
     and "--enable-wake-worker" not in launcher_text
+    and "--enable-scheduled-job-worker" not in launcher_text
     else "fail",
-    "operator-preview launcher does not add high-risk or persistent execution gates",
+    "compatibility launcher uses the direct safe default without high-risk or persistent workers",
 )
 add_check(
     "local_test_guide",

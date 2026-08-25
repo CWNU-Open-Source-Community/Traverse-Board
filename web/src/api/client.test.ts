@@ -93,6 +93,21 @@ function capabilityReadinessData() {
   };
 }
 
+function standardCodeTrustData(overrides: Record<string, unknown> = {}) {
+  return {
+    protocol_version: "standard_code_preset.v1", status: "blocked",
+    workspace_id: "workspace-1", action: "configure", backend_intent: "auto",
+    selected_backend: "local", selection_reason: "auto_local_ready",
+    local_readiness: { backend: "local", available: true, blocked_by: [], remediation: [] },
+    docker_readiness: { backend: "docker", available: false,
+      blocked_by: ["docker_unavailable"], remediation: ["install_or_start_docker"] },
+    blocked_by: ["workspace_untrusted"], next_steps: ["confirm_workspace_trust"],
+    trust_required: true, trust_digest: "a".repeat(64), drydock_ready: false,
+    network: "disabled", credentials: "none", replayed: false, capability_grant: false,
+    ...overrides,
+  };
+}
+
 function scheduledJobData(overrides: Record<string, unknown> = {}) {
   return {
     id: "scheduled-job-1", owner_run_id: "run-1", owner_root_agent_id: "agent-root",
@@ -558,6 +573,54 @@ describe("CyberAgentClient", () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/api/v1/runs/run-1/capability-readiness");
     expect(init.headers).toMatchObject({ Authorization: "Bearer read-secret" });
+  });
+
+  it("creates a first-run Standard Code target without leaking control authority", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-standard-code-create",
+      data: standardCodeTrustData(),
+    }), { status: 202, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+      runControlEnabled: false, standardCodePresetEnabled: true,
+    });
+
+    await expect(client.createStandardCode({ version: "standard_code_preset.v1",
+      workspace_id: "workspace-1", goal: "Implement the parser",
+      backend_intent: "auto", confirm_workspace_trust: false,
+    }, "web-standard-code-create-0001")).resolves.toMatchObject({
+      status: "blocked", trust_required: true, workspace_id: "workspace-1",
+      capability_grant: false,
+    });
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/standard-code/preset");
+    expect(url).not.toContain("control-secret");
+    expect(init.headers).toMatchObject({ Authorization: "Bearer control-secret",
+      "Idempotency-Key": "web-standard-code-create-0001" });
+    expect(String(init.body)).not.toContain("control-secret");
+  });
+
+  it("fails closed for an invalid or rebound first-run Standard Code target", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-standard-code-rebound",
+      data: standardCodeTrustData({ workspace_id: "workspace-other" }),
+    }), { status: 202, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CyberAgentClient("read-secret", "/api/v1", "control-secret", {
+      standardCodePresetEnabled: true,
+    });
+
+    await expect(client.createStandardCode({ version: "standard_code_preset.v1",
+      workspace_id: " workspace-1", goal: "Implement the parser",
+      backend_intent: "auto", confirm_workspace_trust: false,
+    }, "web-standard-code-create-0002")).rejects.toThrow("normalized Workspace");
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await expect(client.createStandardCode({ version: "standard_code_preset.v1",
+      workspace_id: "workspace-1", goal: "Implement the parser",
+      backend_intent: "auto", confirm_workspace_trust: false,
+    }, "web-standard-code-create-0003")).rejects.toThrow("changed the requested target");
   });
 
   it.each([

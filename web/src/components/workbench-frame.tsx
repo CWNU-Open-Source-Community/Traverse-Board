@@ -86,11 +86,14 @@ export interface NewRunDraft {
   phase: NonNullable<RunCreationControlRequestView["phase"]>;
 }
 
-export function EmptyConversation({ client, onCreateRun, creationEnabled, onOpenPlugins }: {
+export function EmptyConversation({ client, onCreateRun, creationEnabled, onOpenPlugins,
+  onStartCoding, onContinueRun }: {
   client: CyberAgentClient;
   onCreateRun: (draft: NewRunDraft) => void;
   creationEnabled: boolean;
   onOpenPlugins?: () => void;
+  onStartCoding?: () => void;
+  onContinueRun?: () => void;
 }) {
   const { t } = useLocale();
   const [goal, setGoal] = useState("");
@@ -102,6 +105,24 @@ export function EmptyConversation({ client, onCreateRun, creationEnabled, onOpen
     if (!creationEnabled || !normalized) return;
     onCreateRun({ goal: normalized, phase: planMode ? "plan" : "deliver" });
   };
+  if (onStartCoding || onContinueRun) {
+    const continuing = !onStartCoding && Boolean(onContinueRun);
+    return <div className="prayu-empty-conversation first-run-home-entry">
+      <div className="prayu-empty-heading">
+        <MessagesSquare aria-hidden="true" size={24} />
+        <h1>{continuing ? t("继续 Run", "Continue Run") : t("开始编码", "Start coding")}</h1>
+      </div>
+      <p>{continuing
+        ? t("返回最近的 Run，继续查看对话、审批与交付状态。",
+          "Return to the latest Run and continue its conversation, approvals, and delivery state.")
+        : t("完成安全的 Standard Code 首次设置，无需打开高级宿主机权限。",
+          "Complete the safe Standard Code setup without enabling advanced host permissions.")}</p>
+      <button className="command-button primary"
+        onClick={onStartCoding ?? onContinueRun} type="button">
+        {continuing ? t("继续 Run", "Continue Run") : t("开始编码", "Start coding")}
+      </button>
+    </div>;
+  }
   return (
     <div className="prayu-empty-conversation">
       <div className="prayu-empty-heading">

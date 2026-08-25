@@ -82,10 +82,19 @@ function detail(): RunDetailView {
   } as unknown as RunDetailView;
 }
 
+function standardCodeReadyReadiness() {
+  return patchCapabilityReadiness(capabilityReadinessFixture(),
+    "presets", "standard_code", {
+      selectable: true, runtime_available: true, blocked_by: [], remediation: [],
+      restart_required: false,
+    });
+}
+
 describe("ExecutionPermissionPanel", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("disables modes whose process-local startup gate is unavailable", () => {
+  it("disables modes whose process-local startup gate is unavailable and explains every blocker", async () => {
+    const user = userEvent.setup();
     render(<QueryClientProvider client={new QueryClient()}>
       <ExecutionPermissionPanel
         client={new CyberAgentClient("read", "/api/v1", "control", {
@@ -95,9 +104,16 @@ describe("ExecutionPermissionPanel", () => {
         readiness={capabilityReadinessFixture()}
       />
     </QueryClientProvider>);
-    expect(screen.getByRole("button", { name: /调试/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: /工作区执行/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /工作区执行/ })).toHaveTextContent(
+      "启动闸门未开启 · 沙箱隔离尚未证明 → 开启闸门并重启 · 安装并验证沙箱 · 需重启");
+    await user.click(screen.getByText("高级风险权限"));
+    expect(screen.getByRole("button", { name: /调试/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /调试/ }))
+      .toHaveTextContent("启动时不可用");
     expect(screen.getByRole("button", { name: /完全访问/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /完全访问/ }))
+      .toHaveTextContent("高级风险");
   });
 
   it("confirms Workspace Access without implying a host fallback", async () => {
@@ -178,6 +194,7 @@ describe("ExecutionPermissionPanel", () => {
         readiness={capabilityReadinessFixture()}
       />
     </QueryClientProvider>);
+    await user.click(screen.getByText("高级风险权限"));
     await user.click(screen.getByRole("button", { name: /完全访问/ }));
     expect(fetchMock).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "确认" }));
@@ -212,6 +229,7 @@ describe("ExecutionPermissionPanel", () => {
       <RunPermissionSettings client={client} runID="run-1" />
     </QueryClientProvider>);
 
+    await user.click(screen.getByText("高级风险权限"));
     await user.click(screen.getByRole("button", { name: /完全访问/ }));
     expect(screen.getByRole("button", { name: "确认" })).toBeInTheDocument();
 
@@ -278,7 +296,7 @@ describe("StandardCodeReadinessPanel", () => {
           runControlEnabled: true, standardCodePresetEnabled: true,
         })}
         detail={detail()}
-        readiness={capabilityReadinessFixture()} />
+        readiness={standardCodeReadyReadiness()} />
     </QueryClientProvider>);
 
     await user.click(screen.getByRole("button", { name: /开始编码/ }));
@@ -307,6 +325,53 @@ describe("StandardCodeReadinessPanel", () => {
     const [, thirdInit] = fetchMock.mock.calls[2] as [string, RequestInit];
     expect(new Headers(secondInit.headers).get("Idempotency-Key"))
       .toBe(new Headers(thirdInit.headers).get("Idempotency-Key"));
+  });
+
+  it("keeps pause-and-configure visibly incomplete until the lease is released", async () => {
+    const running = { ...detail(), run: { ...detail().run, status: "running" as const } };
+    const readiness = patchCapabilityReadiness(capabilityReadinessFixture(),
+      "presets", "standard_code", {
+        selectable: false, runtime_available: false,
+        blocked_by: ["run_not_quiescent", "execution_lease_active"],
+        remediation: ["pause_run", "wait_for_execution_lease"], restart_required: false,
+      });
+    const waiting = {
+      action: "pause_and_configure", backend_intent: "auto",
+      blocked_by: ["execution_lease_active"], capability_grant: false,
+      credentials: "none",
+      docker_readiness: { backend: "docker", available: false,
+        blocked_by: ["docker_unavailable"], remediation: ["install_or_start_docker"] },
+      drydock_ready: false,
+      local_readiness: { backend: "local", available: true,
+        blocked_by: [], remediation: [] },
+      network: "disabled", next_steps: ["wait_for_quiescence"],
+      protocol_version: "standard_code_preset.v1", replayed: false,
+      run_id: "run-1", selected_backend: "local",
+      selection_reason: "auto_local_ready", status: "waiting_for_pause",
+      trust_required: false, workspace_id: "workspace-1",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-standard-code-waiting", data: waiting,
+    }), { status: 202, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<QueryClientProvider client={new QueryClient()}>
+      <StandardCodeReadinessPanel
+        client={new CyberAgentClient("read", "/api/v1", "control", {
+          runControlEnabled: true, standardCodePresetEnabled: true,
+        })}
+        detail={running as RunDetailView} readiness={readiness} />
+    </QueryClientProvider>);
+
+    const start = screen.getByRole("button", { name: /暂停并开始编码/ });
+    expect(start).toBeEnabled();
+    expect(start).toHaveTextContent("暂时锁定");
+    await user.click(start);
+    expect(await screen.findByText("暂停尚未完成")).toBeInTheDocument();
+    expect(screen.getByText(/执行租约释放前不会提交 Standard Code 配置/))
+      .toBeInTheDocument();
+    expect(fetchMock.mock.calls[0]?.[0])
+      .toContain("/runs/run-1/standard-code/pause-and-configure");
   });
 
   it("preserves the incompatible source Run when Go creates a new Code Run", async () => {
@@ -344,7 +409,7 @@ describe("StandardCodeReadinessPanel", () => {
           runControlEnabled: true, standardCodePresetEnabled: true,
         })}
         detail={original}
-        readiness={capabilityReadinessFixture()} />
+        readiness={standardCodeReadyReadiness()} />
     </QueryClientProvider>);
 
     await user.click(screen.getByRole("button", { name: /开始编码/ }));
@@ -357,7 +422,8 @@ describe("StandardCodeReadinessPanel", () => {
 describe("BrowserCDPPermissionPanel", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("shows the sensitive warning and keeps full CDP disabled outside Debug", () => {
+  it("shows the sensitive warning and keeps full CDP disabled outside Debug", async () => {
+    const user = userEvent.setup();
     render(<QueryClientProvider client={new QueryClient()}>
       <BrowserCDPPermissionPanel
         client={new CyberAgentClient("read", "/api/v1", "control", {
@@ -368,6 +434,7 @@ describe("BrowserCDPPermissionPanel", () => {
         readiness={capabilityReadinessFixture()}
       />
     </QueryClientProvider>);
+    await user.click(screen.getByText("高级浏览器调试"));
     expect(screen.getByText("高度敏感权限")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /完整 CDP/ })).toBeDisabled();
     expect(screen.getByText(/浏览器启动、CDP 传输与运行时授权仍保持关闭/))
@@ -419,6 +486,7 @@ describe("BrowserCDPPermissionPanel", () => {
       />
     </QueryClientProvider>);
 
+    await user.click(screen.getByText("高级浏览器调试"));
     await user.click(screen.getByRole("button", { name: /完整 CDP/ }));
     expect(fetchMock).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "确认" }));

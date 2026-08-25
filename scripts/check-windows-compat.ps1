@@ -116,13 +116,14 @@ Add-Check "non_installing_boundary" $(if (-not $metadata.installer_included -and
 Add-Check "operator_preview_package" $(if ($metadata.operator_preview_included -and
     $launcherExists -and $metadata.operator_preview_launcher_sha256 -eq $launcherHash) { "pass" } else { "fail" }) `
     "portable package contains the hash-bound safe operator-preview launcher"
-Add-Check "operator_preview_safe_flags" $(if ($launcherText.Contains("--operator-preview") -and
+Add-Check "operator_preview_safe_flags" $(if (-not $launcherText.Contains("--operator-preview") -and
     -not $launcherText.Contains("--enable-danger-full-access") -and
     -not $launcherText.Contains("--enable-debug-maximum-access") -and
     -not $launcherText.Contains("--enable-full-cdp-debug") -and
     -not $launcherText.Contains("--enable-user-terminal") -and
-    -not $launcherText.Contains("--enable-wake-worker")) { "pass" } else { "fail" }) `
-    "operator-preview launcher does not add high-risk or persistent execution gates"
+    -not $launcherText.Contains("--enable-wake-worker") -and
+    -not $launcherText.Contains("--enable-scheduled-job-worker")) { "pass" } else { "fail" }) `
+    "compatibility launcher uses the direct safe default without high-risk or persistent workers"
 Add-Check "local_test_guide" $(if ($guideExists -and
     $metadata.local_test_guide_sha256 -eq $guideHash) { "pass" } else { "fail" }) `
     "portable package contains the hash-bound bilingual local test guide"

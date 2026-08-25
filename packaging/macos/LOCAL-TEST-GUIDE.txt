@@ -3,14 +3,17 @@ Traverse Board · 针路簿 macOS 本地试用说明
 
 推荐入口
 --------
-双击 Start-Prayu-Operator-Preview.command，或运行：
+直接打开应用：
 
     open build/desktop/Prayu.app
 
-这个入口只启用本地产品试用所需的安全操作者能力，不启用完全访问、Debug
-最大权限、完整 CDP、后台唤醒 Worker 或 Agent 持久终端。直接双击
-兼容文件名 `Prayu.app` 会按设计进入更保守的默认模式。启动器与指南位于 build/desktop/
-目录，仅用于本地产品测试，不是正式发行包。
+默认入口启用安全控制面；不启用完全访问、Debug 最大权限、完整
+CDP、后台唤醒/定时 Worker 或 Agent 持久终端。历史文件名
+Start-Prayu-Operator-Preview.command 只是同一默认入口的兼容快捷方式。显式只读入口为：
+
+    ./build/desktop/Prayu.app/Contents/MacOS/cyberagent-desktop --safe-view
+
+启动器与指南位于 build/desktop/ 目录，仅用于本地产品测试，不是正式发行包。
 
 从源码构建
 ----------
@@ -35,11 +38,14 @@ Node 版本不符时脚本会在前端检查前明确报错；如果 web/dist �
    http，默认 http://127.0.0.1:11434）与 CYBERAGENT_OLLAMA_MODEL；请先自行
    安装 Ollama 并 pull 模型，针路簿不会自动安装或下载。
 
-       DEEPSEEK_API_KEY=sk-... ./build/desktop/Prayu.app/Contents/MacOS/cyberagent-desktop --operator-preview
+       DEEPSEEK_API_KEY=sk-... ./build/desktop/Prayu.app/Contents/MacOS/cyberagent-desktop
 
 3. 依次点击 Provider 的"连接诊断"和"Harness 验证"。Harness 验证会发起最多
    两次真实、受限的模型请求，但不会执行 Shell、文件、浏览器或工具动作。
 4. 在"模型路由"中为 code（或所需路由）选择已验证的 Provider/模型并保存。
+
+当前 Standard Code 首次向导要求 Go 证明 Local Sandbox adapter 可用。该 adapter
+目前是 Windows-first，在 macOS 上保持不可用；界面不会伪造 readiness 或回退宿主执行。
 
 真实对话
 --------
@@ -73,16 +79,20 @@ Traverse Board macOS Local Test Guide
 
 Recommended entry point
 -----------------------
-Double-click Start-Prayu-Operator-Preview.command, or run:
+Open the application directly:
 
     open build/desktop/Prayu.app
 
-This launcher enables only the safe operator capabilities needed for local
-product testing. It does not enable danger-full-access, maximum Debug access,
-Full CDP, the background wake worker, or an Agent-controlled persistent
-terminal. Double-clicking the compatibility-named `Prayu.app` itself intentionally starts in the more
-conservative default mode. The launcher and this guide live under build/desktop/
-and exist only for local product testing; they are not a distribution package.
+The default enables the safe control plane. It does
+not enable danger-full-access, maximum Debug, Full CDP, background wake/scheduled
+workers, or an Agent-controlled persistent terminal. The historical
+Start-Prayu-Operator-Preview.command filename is only a compatibility shortcut.
+The explicit read-only entry is:
+
+    ./build/desktop/Prayu.app/Contents/MacOS/cyberagent-desktop --safe-view
+
+The launcher and this guide live under build/desktop/ and exist only for local
+product testing; they are not a distribution package.
 
 Building from source
 --------------------
@@ -111,13 +121,17 @@ Connect a real model
    explicitly. Install Ollama and pull the model yourself first; Traverse Board never
    installs or downloads.
 
-       DEEPSEEK_API_KEY=sk-... ./build/desktop/Prayu.app/Contents/MacOS/cyberagent-desktop --operator-preview
+       DEEPSEEK_API_KEY=sk-... ./build/desktop/Prayu.app/Contents/MacOS/cyberagent-desktop
 
 3. Run Provider diagnostics, then Harness qualification. Qualification
    performs at most two bounded real model calls and executes no shell, file,
    browser, or tool action.
 4. Select the qualified Provider/model for the code route (or another required
    route).
+
+The Standard Code first-run wizard requires a Go-proven Local Sandbox adapter.
+That adapter is currently Windows-first and remains unavailable on macOS; the UI
+does not fabricate readiness or fall back to host execution.
 
 Real chat
 ---------

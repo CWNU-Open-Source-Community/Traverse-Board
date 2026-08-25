@@ -17,9 +17,11 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
+	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/httpapi"
 	"cyberagent-workbench/internal/store"
+	"cyberagent-workbench/internal/toolrun"
 )
 
 const desktopControlPlaneTestToken = "desktop-control-plane-read-token-0123456789"
@@ -140,6 +142,141 @@ func TestControlPlanePublishesGoOwnedRunCapabilityReadiness(t *testing.T) {
 			string(application.CapabilityBlockerDockerUnavailable)) {
 		t.Fatalf("Desktop did not preserve selectable intent and unavailable runtime: %#v",
 			docker)
+	}
+}
+
+func TestControlPlaneReopenKeepsOldHighRiskIntentNonAuthorizing(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "desktop-upgrade-authority.db")
+	state, err := store.Open(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, run, err := application.NewRunService(state).Create(t.Context(),
+		application.CreateRunRequest{Goal: "preserve rc.3 audit facts", Profile: "code",
+			Surface: "code", Phase: "deliver", Budget: domain.Budget{MaxTurns: 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, err := application.NewRunExecutionPermissionService(state,
+		domain.ExecutionPermissionRuntimeCapabilities{
+			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+		}).Change(t.Context(), application.ChangeRunExecutionPermissionRequest{
+		RunID: run.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
+		OperationKey: "desktop-upgrade-old-full-access", RequestedBy: "test_operator",
+		Reason: "seed an old explicit high-risk selection", ConfirmDangerFullAccess: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldToolRun, err := state.SaveToolRun(t.Context(), toolrun.ToolRun{
+		ID: "desktop-upgrade-old-approved-shell", SessionID: run.SessionID,
+		ToolName: toolrun.ShellTool, Command: "echo historical approval",
+		Status: toolrun.StatusProposed,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldApproval, err := state.DecideApproval(t.Context(), approval.DecisionRequest{
+		ProposalID: oldToolRun.ID, IdempotencyKey: "desktop-upgrade-old-approval",
+		Action: approval.ActionApprove, ReviewedBy: "old_desktop_operator",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = application.NewRunService(state).Start(t.Context(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	acquired, err := state.AcquireRunExecutionLease(t.Context(),
+		domain.AcquireRunExecutionLeaseRequest{RunID: run.ID,
+			OwnerID: "desktop-upgrade-old-owner", TTL: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = state.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Reopen the same rc.3-style database with ordinary safe controls but no
+	// high-risk startup gates. Durable intent and lease rows remain audit facts;
+	// neither may become process-local execution authority in the new process.
+	plane, err := OpenControlPlane(ControlPlaneConfig{
+		DatabasePath: databasePath, ReadToken: desktopControlPlaneTestToken,
+		ControlToken: desktopControlPlaneControlToken, RunControlEnabled: true,
+		ExecutionPermissionControlEnabled: true, RunExecutionEnabled: true,
+		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
+			OperatorApprovalEnabled: true,
+		},
+		AppVersion: "desktop-upgrade-safe-default-test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = plane.Close() })
+
+	persisted, err := plane.stateStore.GetRunExecutionPermission(t.Context(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.ID != selected.Permission.ID ||
+		persisted.Revision != selected.Permission.Revision ||
+		persisted.Mode != domain.RunExecutionPermissionFullAccess ||
+		persisted.ProcessEnabled || persisted.ExecutionAuthorized ||
+		persisted.CapabilityGrant {
+		t.Fatalf("Desktop reopen changed or authorized old permission intent: %#v", persisted)
+	}
+	persistedLease, found, err := plane.stateStore.GetRunExecutionLease(t.Context(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || persistedLease.LeaseID != acquired.Lease.LeaseID ||
+		persistedLease.Generation != acquired.Lease.Generation {
+		t.Fatalf("Desktop reopen rewrote the historical lease: %#v found=%t",
+			persistedLease, found)
+	}
+	persistedApproval, err := plane.stateStore.GetApprovalByProposal(t.Context(), oldToolRun.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	persistedToolRun, err := plane.stateStore.GetToolRun(t.Context(), oldToolRun.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persistedApproval.Status != approval.StatusApproved ||
+		persistedApproval.Version != oldApproval.Approval.Version ||
+		persistedApproval.GrantID != "" || persistedToolRun.Status != toolrun.StatusProposed {
+		t.Fatalf("Desktop reopen converted an old approval into process authority: approval=%#v tool=%#v",
+			persistedApproval, persistedToolRun)
+	}
+
+	response := desktopAPIRequest(plane.Handler(), "/api/v1/runs/"+run.ID+
+		"/capability-readiness")
+	if response.Code != http.StatusOK {
+		t.Fatalf("Desktop upgrade readiness status=%d body=%s", response.Code,
+			response.Body.String())
+	}
+	var envelope desktopAPIEnvelope
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	var readiness httpapi.RunCapabilityReadinessView
+	if err := json.Unmarshal(envelope.Data, &readiness); err != nil {
+		t.Fatal(err)
+	}
+	var fullAccess httpapi.CapabilityReadinessOptionView
+	for _, option := range readiness.Permissions {
+		if option.Value == string(domain.RunExecutionPermissionFullAccess) {
+			fullAccess = option
+			break
+		}
+	}
+	if !fullAccess.Selected || fullAccess.RuntimeAvailable ||
+		!containsDesktopReadinessValue(fullAccess.BlockedBy,
+			string(application.CapabilityBlockerStartupGateClosed)) ||
+		readiness.CapabilityGrant || readiness.CommandRuntime.AdapterInstalled ||
+		readiness.CommandRuntime.AdapterReady ||
+		readiness.CommandRuntime.CurrentRunGranted {
+		t.Fatalf("Desktop reopen restored old runtime authority: option=%#v runtime=%#v grant=%t",
+			fullAccess, readiness.CommandRuntime, readiness.CapabilityGrant)
 	}
 }
 
