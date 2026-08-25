@@ -17,7 +17,7 @@ func removeSchemaV132ForTestStatements() []string {
 	createActions = replaceDockerLifecycleStdinMigrationFragment(createActions,
 		"CREATE TABLE sandbox_docker_lifecycle_actions (",
 		"CREATE TABLE sandbox_docker_lifecycle_actions_v131 (")
-	return []string{
+	return append(removeSchemaV133ForTestStatements(), []string{
 		`DROP TRIGGER trg_sandbox_docker_lifecycle_action_insert`,
 		`DROP TRIGGER trg_sandbox_docker_lifecycle_action_update_immutable`,
 		`DROP TRIGGER trg_sandbox_docker_lifecycle_action_delete_immutable`,
@@ -40,7 +40,7 @@ func removeSchemaV132ForTestStatements() []string {
 		requireMigrationTrigger("trg_sandbox_docker_lifecycle_cleanup_receipt_insert",
 			legacyDockerLifecycleCleanupTriggerCompatibilityStatements),
 		`DELETE FROM schema_migrations WHERE version = 132`,
-	}
+	}...)
 }
 
 func TestSchemaV132PreservesLifecycleActionsAndFencesStdinAttach(t *testing.T) {

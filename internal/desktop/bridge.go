@@ -51,6 +51,7 @@ type ConnectionBootstrap struct {
 	CommandRuntimeAdapterInstalled          bool   `json:"command_runtime_adapter_installed"`
 	CommandRuntimeAdapterReady              bool   `json:"command_runtime_adapter_ready"`
 	RunCreationEnabled                      bool   `json:"run_creation_enabled"`
+	StandardCodePresetEnabled               bool   `json:"standard_code_preset_enabled"`
 	SessionMessageEnabled                   bool   `json:"session_message_enabled"`
 	SessionSteeringControlEnabled           bool   `json:"session_steering_control_enabled"`
 	RunLifecycleEnabled                     bool   `json:"run_lifecycle_enabled"`
@@ -162,6 +163,7 @@ type DesktopBridgeConfig struct {
 	CommandRuntimeAdapterInstalled          bool
 	CommandRuntimeAdapterReady              bool
 	RunCreationEnabled                      bool
+	StandardCodePresetEnabled               bool
 	SessionMessageEnabled                   bool
 	SessionSteeringControlEnabled           bool
 	RunLifecycleEnabled                     bool
@@ -239,6 +241,7 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 	controlEnabled := config.RunControlEnabled ||
 		config.ExecutionPermissionControlEnabled ||
 		config.BrowserCDPPermissionControlEnabled || config.RunCreationEnabled ||
+		config.StandardCodePresetEnabled ||
 		config.SessionMessageEnabled ||
 		config.SessionSteeringControlEnabled || config.RunLifecycleEnabled ||
 		config.RunExecutionEnabled || config.PlanDeliveryControlEnabled ||
@@ -394,6 +397,7 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 			CommandRuntimeAdapterInstalled:          config.CommandRuntimeAdapterInstalled,
 			CommandRuntimeAdapterReady:              config.CommandRuntimeAdapterReady,
 			RunCreationEnabled:                      config.RunCreationEnabled,
+			StandardCodePresetEnabled:               config.StandardCodePresetEnabled,
 			SessionMessageEnabled:                   config.SessionMessageEnabled,
 			SessionSteeringControlEnabled:           config.SessionSteeringControlEnabled,
 			RunLifecycleEnabled:                     config.RunLifecycleEnabled,

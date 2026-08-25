@@ -52,10 +52,12 @@ func TestWindowsControlPlaneConsumesValidatedLocalSandboxReadiness(t *testing.T)
 		DatabasePath: filepath.Join(base, "desktop-local-readiness.db"),
 		ReadToken:    desktopControlPlaneTestToken, ControlToken: desktopControlPlaneControlToken,
 		RunControlEnabled: true, ExecutionPermissionControlEnabled: true,
+		RunExecutionEnabled: true,
 		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
 			WorkspaceSandboxEnabled: true, OperatorApprovalEnabled: true,
 		},
-		LocalSandboxReadiness: &readiness, AppVersion: "desktop-local-readiness-test",
+		LocalSandboxReadiness: &readiness, LocalSandboxBackend: backend,
+		AppVersion: "desktop-local-readiness-test",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -85,5 +87,24 @@ func TestWindowsControlPlaneConsumesValidatedLocalSandboxReadiness(t *testing.T)
 	if workspace.Value != string(domain.RunExecutionPermissionWorkspaceAccess) ||
 		!workspace.Selectable || !workspace.RuntimeAvailable || projection.CapabilityGrant {
 		t.Fatalf("Desktop did not consume Local readiness: %#v", workspace)
+	}
+	if !plane.StandardCodePresetEnabled() {
+		t.Fatal("Desktop did not expose the Go-owned Standard Code preset")
+	}
+	capabilityResponse := desktopAPIRequest(plane.Handler(), "/api/v1/capabilities")
+	if capabilityResponse.Code != http.StatusOK {
+		t.Fatalf("Desktop runtime capabilities status=%d body=%s",
+			capabilityResponse.Code, capabilityResponse.Body.String())
+	}
+	var capabilityEnvelope desktopAPIEnvelope
+	if err := json.Unmarshal(capabilityResponse.Body.Bytes(), &capabilityEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	var capabilities httpapi.RuntimeCapabilitiesView
+	if err := json.Unmarshal(capabilityEnvelope.Data, &capabilities); err != nil {
+		t.Fatal(err)
+	}
+	if !capabilities.StandardCodePresetEnabled {
+		t.Fatalf("Desktop omitted Standard Code from runtime capabilities: %#v", capabilities)
 	}
 }

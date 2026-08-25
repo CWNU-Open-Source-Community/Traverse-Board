@@ -29,6 +29,8 @@ import type {
   RunExecutionPermissionView,
   RunExecutionProfileControlView,
   RunExecutionProfileView,
+  StandardCodePresetControlRequestView,
+  StandardCodePresetControlView,
 } from "../api/types";
 import { shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
@@ -77,7 +79,8 @@ export function RunPermissionSettings({ client, runID }: {
       </div>
       <StatusBadge status={detail.execution_permission.risk_tier} />
     </div>
-    <StandardCodeReadinessPanel readiness={readiness} />
+    <StandardCodeReadinessPanel client={client} detail={detail} readiness={readiness}
+      key={`standard-code-${detail.run.id}`} />
     <ExecutionPermissionPanel client={client} detail={detail} readiness={readiness}
       key={`permission-${detail.run.id}`} />
     <BrowserCDPPermissionPanel client={client} detail={detail} readiness={readiness}
@@ -484,12 +487,90 @@ export function ExecutionInteractionPanel({ client, detail, readiness }: {
   );
 }
 
-export function StandardCodeReadinessPanel({ readiness }: {
+export function StandardCodeReadinessPanel({ client, detail, readiness }: {
+  client: CyberAgentClient;
+  detail: RunDetailView;
   readiness: RunCapabilityReadinessView;
 }) {
   const { t } = useLocale();
+  const queryClient = useQueryClient();
   const option = capabilityReadinessOption(readiness.presets, "standard_code");
   const runtime = readiness.command_runtime;
+  type PresetAction = "configure" | "pause_and_configure";
+  type PresetBackend = "auto" | "docker";
+  type PresetAttempt = {
+    action: PresetAction;
+    backend: PresetBackend;
+    confirm: boolean;
+    digest?: string;
+    operationKey: string;
+  };
+  const [result, setResult] = useState<StandardCodePresetControlView | null>(null);
+  const [pendingTrust, setPendingTrust] = useState<{
+    action: PresetAction;
+    backend: PresetBackend;
+    digest: string;
+    operationKey: string;
+  } | null>(null);
+  const [retryAttempt, setRetryAttempt] = useState<PresetAttempt | null>(null);
+  const action: PresetAction = detail.run.status === "running"
+    ? "pause_and_configure" : "configure";
+  const mutation = useMutation({
+    mutationFn: (attempt: PresetAttempt) => {
+      const body: StandardCodePresetControlRequestView = {
+        version: "standard_code_preset.v1",
+        backend_intent: attempt.backend,
+        confirm_workspace_trust: attempt.confirm,
+      };
+      if (attempt.digest !== undefined) body.expected_trust_digest = attempt.digest;
+      return client.configureStandardCode(detail.run.id, attempt.action, body,
+        attempt.operationKey);
+    },
+    onSuccess: (next, attempt) => {
+      setResult(next);
+      setRetryAttempt(next.status === "waiting_for_pause" ? attempt : null);
+      if (next.trust_required && next.trust_digest) {
+        setPendingTrust({ action: next.action as PresetAction,
+          backend: next.backend_intent as PresetBackend, digest: next.trust_digest,
+          operationKey: attempt.confirm ? attempt.operationKey :
+            `settings-standard-code-${globalThis.crypto.randomUUID()}` });
+      } else {
+        setPendingTrust(null);
+      }
+      if (next.status === "configured" && next.run && next.mode &&
+        next.execution_profile && next.execution_interaction &&
+        next.execution_permission && next.browser_cdp_permission) {
+        if (next.run.id === detail.run.id) {
+          queryClient.setQueryData<RunDetailView>(["run", detail.run.id], (current) => current
+            ? { ...current, run: next.run!, mode: next.mode!,
+                execution_profile: next.execution_profile!,
+                execution_interaction: next.execution_interaction!,
+                execution_permission: next.execution_permission!,
+                browser_cdp_permission: next.browser_cdp_permission! }
+            : current);
+        } else {
+          void queryClient.invalidateQueries({ queryKey: ["runs"] });
+          void queryClient.invalidateQueries({ queryKey: ["run", next.run.id] });
+        }
+      }
+      const resultRunID = next.run_id || detail.run.id;
+      void queryClient.invalidateQueries({ queryKey: ["run", resultRunID, "events"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["run", resultRunID, "capability-readiness"],
+      });
+    },
+  });
+  const invoke = (backend: PresetBackend, selectedAction = action,
+    confirm = false, digest?: string, operationKey?: string) => {
+    mutation.mutate({ action: selectedAction, backend, confirm, digest,
+      operationKey: operationKey ??
+        `settings-standard-code-${globalThis.crypto.randomUUID()}` });
+  };
+  const statusLabel = result
+    ? result.status === "configured" ? t("已配置", "configured")
+      : result.status === "waiting_for_pause" ? t("等待静止", "waiting for quiescence")
+        : t("被阻止", "blocked")
+    : option.runtime_available ? t("就绪", "ready") : t("未就绪", "not ready");
   return <section className="permission-control-card standard-code-readiness-section">
     <div className="section-heading">
       <div>
@@ -497,20 +578,39 @@ export function StandardCodeReadinessPanel({ readiness }: {
         <span>{capabilityReadinessSummary(option,
           t("原子预设 readiness", "Atomic preset readiness"), t)}</span>
       </div>
-      <StatusBadge status={option.runtime_available ? "ready" : "blocked"} />
+      <StatusBadge status={result?.status === "configured" || option.selected
+        ? "ready" : "blocked"} />
     </div>
     <div aria-label={t("Standard Code 预设", "Standard Code preset")}
       className="permission-option-grid permission-option-grid-two" role="group">
-      <button aria-pressed={option.selected} disabled type="button">
+      <button aria-pressed={option.selected}
+        disabled={!client.hasStandardCodePreset || mutation.isPending || option.selected}
+        onClick={() => invoke("auto")} type="button">
         <Code2 aria-hidden="true" size={17} />
         <span>
-          <strong>Standard Code</strong>
+          <strong>{detail.run.status === "running"
+            ? t("暂停并开始编码", "Pause and start coding")
+            : t("开始编码", "Start coding")}</strong>
           <small>{capabilityReadinessDetail(option,
             t("工作区执行与受控沙箱", "Workspace access with controlled sandbox"), t)}</small>
         </span>
         {option.selected && <Check aria-hidden="true" size={15} />}
       </button>
+      {result?.docker_readiness.available && result.next_steps.includes("select_docker") &&
+        <button disabled={mutation.isPending} onClick={() => invoke("docker")} type="button">
+          <Container aria-hidden="true" size={17} />
+          <span><strong>{t("显式使用 Docker", "Use Docker explicitly")}</strong>
+            <small>{t("固定 network=none 与无凭证", "Fixed network=none and no credentials")}</small>
+          </span>
+        </button>}
     </div>
+    {pendingTrust && <PermissionConfirmation
+      description={`${t("确认当前工作区来源摘要后，创建或复用受信任 Drydock 并一次性提交完整预设。",
+        "Confirm the reviewed Workspace source digest, then create or reuse the trusted Drydock and commit the complete preset once.")} ${pendingTrust.digest}`}
+      label={t("确认工作区来源", "Confirm Workspace source")}
+      loading={mutation.isPending} onCancel={() => setPendingTrust(null)}
+      onConfirm={() => invoke(pendingTrust.backend, pendingTrust.action, true,
+        pendingTrust.digest, pendingTrust.operationKey)} />}
     <dl className="permission-facts">
       <div><dt>{t("已选择", "Selected")}</dt><dd>{option.selected ? t("是", "yes") : t("否", "no")}</dd></div>
       <div><dt>{t("可选择", "Selectable")}</dt><dd>{option.selectable ? t("是", "yes") : t("否", "no")}</dd></div>
@@ -519,11 +619,49 @@ export function StandardCodeReadinessPanel({ readiness }: {
       <div><dt>{t("Adapter", "Adapter")}</dt><dd>{runtime.adapter_installed ? t("已安装", "installed") : t("未安装", "not installed")}</dd></div>
       <div><dt>{t("后端", "Backend")}</dt><dd>{runtime.adapter_ready ? t("就绪", "ready") : t("未就绪", "not ready")}</dd></div>
       <div><dt>{t("当前 Run", "Current Run")}</dt><dd>{runtime.current_run_granted ? t("已授予", "granted") : t("未授予", "not granted")}</dd></div>
+      <div><dt>{t("预设状态", "Preset status")}</dt><dd>{statusLabel}</dd></div>
+      <div><dt>{t("网络", "Network")}</dt><dd>{result?.network ?? "disabled"}</dd></div>
+      <div><dt>{t("凭证", "Credentials")}</dt><dd>{result?.credentials ?? "none"}</dd></div>
     </dl>
     {runtime.current_run_granted && <p className="permission-closed-note">
       {runtime.adapter_kind} · {runtime.backend}
     </p>}
+    {result && result.status !== "configured" && result.next_steps.length > 0 &&
+      <p className="permission-closed-note">
+        {t("下一步", "Next")}: {result.next_steps.map((step) =>
+          localizedStandardCodeNextStep(step, t)).join(" · ")}
+      </p>}
+    {result?.status === "configured" && result.run_id && result.run_id !== detail.run.id &&
+      <p className="permission-closed-note">
+        {t("已创建新的 Code Run", "Created a new Code Run")}: {shortID(result.run_id)}
+      </p>}
+    {result?.status === "waiting_for_pause" && retryAttempt &&
+      <button className="secondary-button" disabled={mutation.isPending}
+        onClick={() => mutation.mutate(retryAttempt)} type="button">
+        {mutation.isPending ? <LoaderCircle aria-hidden="true" className="spin" size={15} />
+          : t("重新检查静止状态", "Check quiescence again")}
+      </button>}
+    {!client.hasStandardCodePreset && <p className="permission-closed-note">
+      {t("此进程未启用 Standard Code 原子预设控制。",
+        "This process has not enabled Standard Code atomic preset control.")}
+    </p>}
+    {mutation.isError && <MutationError error={mutation.error}
+      fallback={t("Standard Code 预设失败", "Standard Code preset failed")} />}
   </section>;
+}
+
+function localizedStandardCodeNextStep(value: string, t: ReadinessTranslator): string {
+  const labels: Record<string, [string, string]> = {
+    confirm_workspace_trust: ["确认工作区来源", "Confirm Workspace source"],
+    pause_and_configure: ["显式暂停并配置", "Pause and configure explicitly"],
+    wait_for_quiescence: ["等待执行静止", "Wait for quiescence"],
+    select_docker: ["显式选择 Docker", "Select Docker explicitly"],
+    select_approval: ["改用逐命令审批", "Use per-command Approval"],
+    retry_readiness: ["修复后重试 readiness", "Repair and retry readiness"],
+    create_new_run: ["创建新的 Code Run", "Create a new Code Run"],
+  };
+  const label = labels[value];
+  return label ? t(label[0], label[1]) : value.replaceAll("_", " ");
 }
 
 type ReadinessTranslator = (chinese: string, english: string) => string;

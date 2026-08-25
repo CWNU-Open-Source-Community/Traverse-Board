@@ -518,10 +518,20 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 			readinessRuntime.DockerBackendReady = dockerReadiness.Ready
 		}
 	}
+	var standardCodePreset *application.StandardCodePresetService
+	if controlToken != "" && *permissionControl && commandRuntimeDrydocks != nil {
+		readinessRuntime.StandardCodePresetEnabled = true
+		standardCodePreset, err = application.NewStandardCodePresetService(a.store,
+			commandRuntimeDrydocks, readinessRuntime)
+		if err != nil {
+			return err
+		}
+	}
 	localReadinessRuntime = &readinessRuntime
 	api, err := httpapi.New(a.store, httpapi.Config{
 		AccessToken: accessToken, ControlToken: controlToken,
 		RunControlEnabled: controlToken != "", RunCreationEnabled: controlToken != "",
+		StandardCodePresetEnabled:               standardCodePreset != nil,
 		SessionMessageEnabled:                   controlToken != "",
 		SessionSteeringControlEnabled:           controlToken != "",
 		RunLifecycleEnabled:                     controlToken != "",
@@ -559,6 +569,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		ExtensionControlEnabled:                 controlToken != "",
 		LifecycleHooks:                          hookEngine,
 		RunLifecycleController:                  lifecycleControl,
+		StandardCodePresetController:            standardCodePreset,
 		RunExecutionController:                  executionControl,
 		PublicModelStreamSource:                 executionControl,
 		PlanDeliveryController:                  planDeliveryControl,

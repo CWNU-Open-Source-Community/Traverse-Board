@@ -56,6 +56,7 @@ type ControlPlane struct {
 	commandRuntimeManagers         []*runner.CommandRuntimeManager
 	commandRuntimeAdapterInstalled bool
 	commandRuntimeAdapterReady     bool
+	standardCodePresetEnabled      bool
 	codeIntelManager               *codeintel.Manager
 	terminalManager                *terminalruntime.Manager
 	boundaryMonitor                *terminalruntime.HostBoundaryMonitor
@@ -194,6 +195,33 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 			return nil, apperror.New(apperror.CodeInvalidArgument,
 				"desktop UI evidence requires full-access command runtime and restricted Safe Web")
 		}
+	}
+	// Consume caller-provided startup evidence before opening SQLite or
+	// constructing services. Schema migration and cold dependency startup must
+	// not make a proof that was current at this boundary expire mid-construction.
+	capabilityReadinessRuntime := application.CapabilityReadinessRuntime{
+		RunControlEnabled:   config.ControlToken != "" && config.RunControlEnabled,
+		RunExecutionEnabled: config.ControlToken != "" && config.RunExecutionEnabled,
+		ExecutionPermissionControlEnabled: config.ControlToken != "" &&
+			config.ExecutionPermissionControlEnabled,
+		BrowserCDPPermissionControlEnabled: config.ControlToken != "" &&
+			config.BrowserCDPPermissionControlEnabled,
+		ExecutionPermissionCapabilities:  config.ExecutionPermissionCapabilities,
+		BrowserCDPPermissionCapabilities: config.BrowserCDPPermissionCapabilities,
+		LocalSandboxInstalled: config.ExecutionPermissionCapabilities.
+			WorkspaceSandboxEnabled,
+		DockerStartupGateEnabled: config.DockerExecutionEnabled,
+		DockerAvailable:          config.DockerExecutionEnabled,
+	}
+	if config.LocalSandboxReadiness != nil {
+		projected, projectionErr := capabilityReadinessRuntime.
+			WithLocalSandboxReadiness(*config.LocalSandboxReadiness)
+		if projectionErr != nil || projected.ExecutionPermissionCapabilities !=
+			config.ExecutionPermissionCapabilities {
+			return nil, apperror.New(apperror.CodeInvalidArgument,
+				"desktop Local Sandbox readiness projection is invalid")
+		}
+		capabilityReadinessRuntime = projected
 	}
 	stateStore, err := store.Open(config.DatabasePath)
 	if err != nil {
@@ -350,11 +378,12 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		}
 		commandRuntimeDrydocks.WithCheckpointService(workspaceCheckpoints)
 	}
-	dockerSandbox, standardCodeRuntime, err := newDesktopDockerSandboxService(
-		context.Background(),
-		stateStore, home, config.DockerExecutionEnabled,
-		config.ExecutionPermissionCapabilities, commandRuntimeDrydocks,
-		strings.TrimSpace(config.StandardCodeDockerImageDigest))
+	dockerSandbox, standardCodeRuntime, standardCodeDockerReadiness, err :=
+		newDesktopDockerSandboxService(
+			context.Background(),
+			stateStore, home, config.DockerExecutionEnabled,
+			config.ExecutionPermissionCapabilities, commandRuntimeDrydocks,
+			strings.TrimSpace(config.StandardCodeDockerImageDigest))
 	if err != nil {
 		_ = stateStore.Close()
 		return nil, apperror.Wrap(apperror.CodeFailedPrecondition,
@@ -671,36 +700,31 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	hostCommandProposals := application.NewHostCommandProposalReviewService(
 		stateStore, hostCommandExecutor, config.ExecutionPermissionCapabilities)
 	embeddedAnalyzerExecution := application.NewEmbeddedAnalyzerExecutionService(stateStore)
-	capabilityReadinessRuntime := application.CapabilityReadinessRuntime{
-		RunControlEnabled:   config.ControlToken != "" && config.RunControlEnabled,
-		RunExecutionEnabled: config.ControlToken != "" && config.RunExecutionEnabled,
-		ExecutionPermissionControlEnabled: config.ControlToken != "" &&
-			config.ExecutionPermissionControlEnabled,
-		BrowserCDPPermissionControlEnabled: config.ControlToken != "" &&
-			config.BrowserCDPPermissionControlEnabled,
-		ExecutionPermissionCapabilities:  config.ExecutionPermissionCapabilities,
-		BrowserCDPPermissionCapabilities: config.BrowserCDPPermissionCapabilities,
-		LocalSandboxInstalled: config.ExecutionPermissionCapabilities.
-			WorkspaceSandboxEnabled,
-		DockerStartupGateEnabled: config.DockerExecutionEnabled,
-		DockerAvailable:          config.DockerExecutionEnabled,
+	if standardCodeDockerReadiness != nil {
+		capabilityReadinessRuntime.DockerReadiness = standardCodeDockerReadiness
+		capabilityReadinessRuntime.DockerAvailable =
+			standardCodeDockerReadiness.DaemonReachable
+		capabilityReadinessRuntime.DockerBackendReady =
+			standardCodeDockerReadiness.Ready
 	}
 	installedCommandRuntimeAdapters := []commandruntimeadapter.Identity{}
 	if commandRuntime != nil {
 		installedCommandRuntimeAdapters = commandRuntime.InstalledCommandRuntimeAdapters()
 	}
 	capabilityReadinessRuntime.CommandRuntimeAdapters = installedCommandRuntimeAdapters
-	if config.LocalSandboxReadiness != nil {
-		capabilityReadinessRuntime, err = capabilityReadinessRuntime.
-			WithLocalSandboxReadiness(*config.LocalSandboxReadiness)
-		if err != nil || capabilityReadinessRuntime.ExecutionPermissionCapabilities !=
-			config.ExecutionPermissionCapabilities {
+	var standardCodePreset *application.StandardCodePresetService
+	if config.ControlToken != "" && config.RunControlEnabled &&
+		config.ExecutionPermissionControlEnabled &&
+		commandRuntimeDrydocks != nil {
+		capabilityReadinessRuntime.StandardCodePresetEnabled = true
+		standardCodePreset, err = application.NewStandardCodePresetService(stateStore,
+			commandRuntimeDrydocks, capabilityReadinessRuntime)
+		if err != nil {
 			if terminalManager != nil {
 				_ = terminalManager.Shutdown()
 			}
 			_ = stateStore.Close()
-			return nil, apperror.New(apperror.CodeInvalidArgument,
-				"desktop Local Sandbox readiness projection is invalid")
+			return nil, err
 		}
 	}
 	commandRuntimeAdapterReady := false
@@ -725,6 +749,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		CommandRuntimeAdapters:                  installedCommandRuntimeAdapters,
 		CommandRuntimeAdvertiser:                commandRuntime,
 		RunCreationEnabled:                      config.RunCreationEnabled,
+		StandardCodePresetEnabled:               standardCodePreset != nil,
 		SessionMessageEnabled:                   config.SessionMessageEnabled,
 		SessionSteeringControlEnabled:           config.SessionSteeringControlEnabled,
 		RunLifecycleEnabled:                     config.RunLifecycleEnabled,
@@ -756,6 +781,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		LifecycleHooks:                          hookEngine,
 		UIEvidenceControlEnabled:                config.UIEvidenceControlEnabled,
 		RunLifecycleController:                  lifecycleControl,
+		StandardCodePresetController:            standardCodePreset,
 		RunExecutionController:                  executionControl,
 		PublicModelStreamSource:                 executionControl,
 		PlanDeliveryController:                  planDeliveryControl,
@@ -808,6 +834,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		commandRuntimeManagers:         commandManagers,
 		commandRuntimeAdapterInstalled: len(installedCommandRuntimeAdapters) > 0,
 		commandRuntimeAdapterReady:     commandRuntimeAdapterReady,
+		standardCodePresetEnabled:      standardCodePreset != nil,
 		codeIntelManager:               codeIntelManager,
 		terminalManager:                terminalManager, boundaryMonitor: boundaryMonitor,
 		wakeWorker: wakeWorker, scheduledJobWorker: scheduledJobWorker}, nil
@@ -821,6 +848,10 @@ func (c *ControlPlane) CommandRuntimeProcessStatus() (installed, ready bool) {
 		return false, false
 	}
 	return c.commandRuntimeAdapterInstalled, c.commandRuntimeAdapterReady
+}
+
+func (c *ControlPlane) StandardCodePresetEnabled() bool {
+	return c != nil && c.standardCodePresetEnabled
 }
 
 // RegisterWorkspaceDirectory keeps the selected host path entirely within Go

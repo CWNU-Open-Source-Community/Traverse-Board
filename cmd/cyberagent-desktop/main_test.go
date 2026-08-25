@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"cyberagent-workbench/internal/desktop"
+	"cyberagent-workbench/internal/sandbox"
 
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -61,6 +62,22 @@ func TestDesktopWindowMaximisesOnlyWhenTheDefaultSizeDoesNotFit(t *testing.T) {
 				t.Fatalf("shouldMaximiseDesktopWindow() = %t, want %t", got, current.want)
 			}
 		})
+	}
+}
+
+func TestDesktopWorkspaceSandboxAvailabilityRequiresValidatedReadiness(t *testing.T) {
+	requested := desktopOptions{workspaceSandbox: true}
+	if desktopWorkspaceSandboxRuntimeAvailable(requested, nil) ||
+		desktopWorkspaceSandboxRuntimeAvailable(requested,
+			&sandbox.LocalReadiness{Ready: false}) {
+		t.Fatal("a requested but unavailable Workspace Sandbox became runtime-available")
+	}
+	ready := &sandbox.LocalReadiness{Ready: true}
+	if !desktopWorkspaceSandboxRuntimeAvailable(requested, ready) {
+		t.Fatal("validated Workspace Sandbox readiness was not projected")
+	}
+	if desktopWorkspaceSandboxRuntimeAvailable(desktopOptions{}, ready) {
+		t.Fatal("unrequested Workspace Sandbox readiness became runtime-available")
 	}
 }
 

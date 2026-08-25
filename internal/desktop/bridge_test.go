@@ -164,7 +164,8 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		bootstrap.AppVersion != "test" || bootstrap.UIDigest != testDesktopUIDigest ||
 		bootstrap.ReadToken != testDesktopReadToken ||
 		bootstrap.ControlToken != testDesktopControlToken || !bootstrap.ControlEnabled ||
-		!bootstrap.ThreadControlEnabled || !bootstrap.RunCreationEnabled || !bootstrap.SessionMessageEnabled ||
+		!bootstrap.ThreadControlEnabled || !bootstrap.RunCreationEnabled ||
+		bootstrap.StandardCodePresetEnabled || !bootstrap.SessionMessageEnabled ||
 		!bootstrap.RunLifecycleEnabled || !bootstrap.RunExecutionEnabled ||
 		bootstrap.PlanDeliveryControlEnabled || bootstrap.ApprovalControlEnabled ||
 		bootstrap.ControlledCommandProposalControlEnabled ||
@@ -221,7 +222,7 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		"file_edit_apply_enabled",
 		"process_execution_enabled", "protocol_version", "read_only_default",
 		"plan_delivery_control_enabled", "read_token", "renderer_path_input_supported",
-		"run_creation_enabled", "shell_execution_enabled",
+		"run_creation_enabled", "standard_code_preset_enabled", "shell_execution_enabled",
 		"run_execution_enabled", "run_lifecycle_enabled", "run_wake_control_enabled",
 		"run_wake_execution_enabled", "run_wake_worker_enabled",
 		"scheduled_job_control_enabled", "scheduled_job_worker_enabled",

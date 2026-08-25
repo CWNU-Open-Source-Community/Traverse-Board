@@ -149,9 +149,10 @@ type CapabilityReadinessRuntime struct {
 	CommandRuntimeAdapters             []commandruntimeadapter.Identity
 }
 
-// WithLocalSandboxReadiness consumes a validated, non-authorizing backend
-// attestation. WorkspaceSandboxEnabled is opened only by a current ready proof;
-// a requested but unavailable backend remains fail-closed.
+// WithLocalSandboxReadiness consumes a validated, non-authorizing Local backend
+// attestation. A current proof may open the generic Workspace Sandbox gate; an
+// unavailable Local backend does not close a gate already opened explicitly for
+// an independent fixed backend.
 func (r CapabilityReadinessRuntime) WithLocalSandboxReadiness(
 	readiness sandbox.LocalReadiness,
 ) (CapabilityReadinessRuntime, error) {
@@ -163,7 +164,11 @@ func (r CapabilityReadinessRuntime) WithLocalSandboxReadiness(
 	current := !readiness.CheckedAt.After(now) && now.Before(readiness.ExpiresAt)
 	ready := readiness.FeatureEnabled && readiness.Ready &&
 		readiness.Status == sandbox.LocalReadinessReady && current
-	r.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled = ready
+	// A fixed Docker backend may already supply the generic Workspace Sandbox
+	// startup gate. A failed Local proof closes Local only; it must not erase an
+	// independently configured Docker gate.
+	r.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled =
+		r.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled || ready
 	r.LocalSandboxInstalled = ready || (readiness.FeatureEnabled &&
 		readiness.ReasonCode != sandbox.LocalReasonPlatformUnsupported &&
 		readiness.ReasonCode != sandbox.LocalReasonArchitectureUnsupported)
@@ -218,8 +223,8 @@ func (r CapabilityReadinessRuntime) Validate() error {
 		return errors.New("a ready browser backend requires restricted CDP control")
 	}
 	if r.StandardCodePresetEnabled && (!r.RunControlEnabled ||
-		!r.ExecutionPermissionControlEnabled || !r.BrowserCDPPermissionControlEnabled) {
-		return errors.New("standard code preset control requires all component controls")
+		!r.ExecutionPermissionControlEnabled) {
+		return errors.New("standard code preset control requires Run and permission controls")
 	}
 	return nil
 }
@@ -544,10 +549,15 @@ func (p capabilityReadinessProjection) interactionOptions() []CapabilityReadines
 		runtimeAvailable := true
 		if target != domain.RunExecutionInteractionPreview {
 			expectedSurface, expectedProfile := domain.ExecutionSurfaceCode,
-				domain.RunExecutionProfileLocal
+				p.profile.Profile
 			if target == domain.RunExecutionInteractionCyber {
 				expectedSurface, expectedProfile = domain.ExecutionSurfaceCyber,
 					domain.RunExecutionProfileDocker
+			} else if target == domain.RunExecutionInteractionDebug {
+				expectedProfile = domain.RunExecutionProfileLocal
+			} else if expectedProfile != domain.RunExecutionProfileLocal &&
+				expectedProfile != domain.RunExecutionProfileDocker {
+				expectedProfile = domain.RunExecutionProfileLocal
 			}
 			if p.mode.Surface != expectedSurface {
 				selectable, runtimeAvailable = false, false
@@ -564,7 +574,9 @@ func (p capabilityReadinessProjection) interactionOptions() []CapabilityReadines
 				builder.add(CapabilityBlockerWorkspaceUntrusted,
 					CapabilityRemediationTrustWorkspace)
 			}
-			if target == domain.RunExecutionInteractionCyber {
+			if target == domain.RunExecutionInteractionCyber ||
+				(target == domain.RunExecutionInteractionControlled &&
+					p.profile.Profile == domain.RunExecutionProfileDocker) {
 				if !p.addDockerBackendBlockers(builder) {
 					runtimeAvailable = false
 				}
@@ -627,10 +639,14 @@ func (p capabilityReadinessProjection) browserCDPOptions() []CapabilityReadiness
 
 func (p capabilityReadinessProjection) presetOptions() []CapabilityReadinessOption {
 	selected := p.mode.Surface == domain.ExecutionSurfaceCode &&
-		p.profile.Profile == domain.RunExecutionProfileLocal &&
+		p.mode.Phase == domain.ExecutionPhasePlan &&
+		(p.profile.Profile == domain.RunExecutionProfileLocal ||
+			p.profile.Profile == domain.RunExecutionProfileDocker) &&
 		p.interaction.Mode == domain.RunExecutionInteractionControlled &&
+		p.interaction.ExecutionProfile == p.profile.Profile &&
+		p.interaction.ExecutionProfileRevision == p.profile.Revision &&
 		p.permission.Mode == domain.RunExecutionPermissionWorkspaceAccess &&
-		p.cdp.Mode == domain.RunBrowserCDPPermissionRestricted
+		p.cdp.Mode == domain.RunBrowserCDPPermissionRestricted && p.drydockReady
 	builder := newReadinessOption(StandardCodePresetValue, selected)
 	selectable := p.runtime.StandardCodePresetEnabled && p.runQuiescent() && !p.activeLease
 	p.addRunStateBlocker(builder)
@@ -643,24 +659,19 @@ func (p capabilityReadinessProjection) presetOptions() []CapabilityReadinessOpti
 			CapabilityRemediationUpgradeApplication)
 	}
 	runtimeAvailable := p.runtime.StandardCodePresetEnabled
-	if !p.addLocalBackendBlockers(builder) {
+	backendReady := false
+	if selected && p.profile.Profile == domain.RunExecutionProfileDocker {
+		backendReady = p.addDockerBackendBlockers(builder)
+	} else {
+		backendReady = p.addLocalBackendBlockers(builder)
+	}
+	if !backendReady {
 		runtimeAvailable = false
 	}
-	if p.interaction.WorkspaceTrust != domain.WorkspaceTrustTrusted {
+	if p.interaction.WorkspaceTrust != domain.WorkspaceTrustTrusted || !p.drydockReady {
 		runtimeAvailable = false
 		builder.add(CapabilityBlockerWorkspaceUntrusted,
 			CapabilityRemediationTrustWorkspace)
-	}
-	if !p.runtime.BrowserCDPPermissionCapabilities.ControlEnabled ||
-		!p.runtime.BrowserBackendReady {
-		runtimeAvailable = false
-		if !p.runtime.BrowserCDPPermissionCapabilities.ControlEnabled {
-			builder.add(CapabilityBlockerStartupGateClosed,
-				CapabilityRemediationRestartWithStartupGate)
-		} else {
-			builder.add(CapabilityBlockerBackendNotReady,
-				CapabilityRemediationRetryBackendReadiness)
-		}
 	}
 	return []CapabilityReadinessOption{builder.finish(selectable, runtimeAvailable)}
 }

@@ -2200,6 +2200,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/standard-code/pause-and-configure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pause then configure a running Standard Code Run
+         * @description Records an explicit durable pause-and-configure intent, waits for the active execution lease and Supervisor work to become quiescent, then commits the pause and complete Standard Code tuple in one SQLite transaction. Retrying the same intent is idempotent.
+         */
+        post: operations["pauseAndConfigureStandardCodeRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/standard-code/preset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Configure an existing Run for Standard Code
+         * @description Idempotently applies the complete Standard Code tuple only to a created or paused quiescent Code Run. An incompatible Surface produces a new Code Run; a running Run returns the separate pause-and-configure next step. No partial policy tuple is committed.
+         */
+        post: operations["configureStandardCodeRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/tool-rounds": {
         parameters: {
             query?: never;
@@ -2906,6 +2946,26 @@ export interface paths {
          * @description Imports one explicitly confirmed, strictly validated, bounded archive into the content-addressed untrusted Skill Registry. Import executes no scripts, hooks, commands, tools, Provider calls, or network requests and grants no Run-selection or context-delivery authority.
          */
         post: operations["installSkillPackage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/standard-code/preset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create and configure a Standard Code Run
+         * @description Creates a Code Surface Run in Plan phase and atomically applies the controlled workspace-access preset after exact Workspace Trust and Drydock readiness checks. Auto selects only a ready Local backend; Docker always requires explicit intent. The receipt never grants runtime authority or returns a bearer token.
+         */
+        post: operations["createStandardCodeRun"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7705,7 +7765,7 @@ export interface components {
             /** @enum {string} */
             protocol_version: "run_execution_interaction.v1";
             /** @enum {string} */
-            required_gate: "none" | "local_os_sandbox_gate" | "debug_agent_input_lease" | "cyber_container_terminal_gate";
+            required_gate: "none" | "local_os_sandbox_gate" | "docker_sandbox_gate" | "debug_agent_input_lease" | "cyber_container_terminal_gate";
             /** Format: int64 */
             revision: number;
             /** @enum {string} */
@@ -8048,6 +8108,7 @@ export interface components {
             session_steering_control_enabled: boolean;
             shell_execution_enabled: boolean;
             skill_installation_enabled: boolean;
+            standard_code_preset_enabled: boolean;
             thread_control_enabled: boolean;
             ui_evidence_control_enabled: boolean;
             verification_evidence_enabled: boolean;
@@ -8419,6 +8480,58 @@ export interface components {
             run_id: string;
             /** @enum {string} */
             status: "pending" | "observed" | "resolved";
+        };
+        StandardCodeBackendReadinessView: {
+            available: boolean;
+            /** @enum {string} */
+            backend: "local" | "docker";
+            blocked_by: ("run_not_quiescent" | "execution_lease_active" | "startup_gate_closed" | "capability_not_implemented" | "surface_mismatch" | "profile_mismatch" | "permission_mismatch" | "workspace_untrusted" | "sandbox_unproven" | "docker_unavailable" | "backend_not_ready")[];
+            remediation: ("pause_run" | "create_new_run" | "wait_for_execution_lease" | "restart_with_startup_gate" | "upgrade_application" | "select_required_surface" | "select_required_profile" | "select_required_permission" | "trust_workspace" | "verify_sandbox" | "install_or_start_docker" | "retry_backend_readiness")[];
+        };
+        StandardCodePresetControlRequestView: {
+            /** @enum {string} */
+            backend_intent: "auto" | "local" | "docker";
+            confirm_workspace_trust: boolean;
+            expected_trust_digest?: string;
+            goal?: string;
+            /** @enum {string} */
+            version: "standard_code_preset.v1";
+            workspace_id?: string;
+        };
+        StandardCodePresetControlView: {
+            /** @enum {string} */
+            action: "configure" | "pause_and_configure";
+            /** @enum {string} */
+            backend_intent: "auto" | "local" | "docker";
+            blocked_by: ("run_not_quiescent" | "execution_lease_active" | "startup_gate_closed" | "capability_not_implemented" | "surface_mismatch" | "profile_mismatch" | "permission_mismatch" | "workspace_untrusted" | "sandbox_unproven" | "docker_unavailable" | "backend_not_ready")[];
+            browser_cdp_permission?: components["schemas"]["RunBrowserCDPPermissionView"];
+            capability_grant: boolean;
+            /** @enum {string} */
+            credentials: "none";
+            docker_readiness: components["schemas"]["StandardCodeBackendReadinessView"];
+            drydock_ready: boolean;
+            execution_interaction?: components["schemas"]["RunExecutionInteractionView"];
+            execution_permission?: components["schemas"]["RunExecutionPermissionView"];
+            execution_profile?: components["schemas"]["RunExecutionProfileView"];
+            local_readiness: components["schemas"]["StandardCodeBackendReadinessView"];
+            mode?: components["schemas"]["RunModeView"];
+            /** @enum {string} */
+            network: "disabled";
+            next_steps: ("confirm_workspace_trust" | "pause_and_configure" | "wait_for_quiescence" | "select_docker" | "select_approval" | "retry_readiness" | "create_new_run")[];
+            /** @enum {string} */
+            protocol_version: "standard_code_preset.v1";
+            replayed: boolean;
+            run?: components["schemas"]["RunView"];
+            run_id?: string;
+            /** @enum {string} */
+            selected_backend?: "local" | "docker";
+            /** @enum {string} */
+            selection_reason?: "auto_local_ready" | "explicit_local" | "explicit_docker";
+            /** @enum {string} */
+            status: "blocked" | "waiting_for_pause" | "configured";
+            trust_digest?: string;
+            trust_required: boolean;
+            workspace_id: string;
         };
         StorageUsage: {
             /** Format: int64 */
@@ -14677,6 +14790,98 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
+    pauseAndConfigureStandardCodeRun: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque Standard Code preset retry key; changed intent conflicts and only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StandardCodePresetControlRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["StandardCodePresetControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    configureStandardCodeRun: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque Standard Code preset retry key; changed intent conflicts and only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StandardCodePresetControlRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["StandardCodePresetControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     listRunToolRounds: {
         parameters: {
             query?: {
@@ -16389,6 +16594,48 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["SkillPackageInstallView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    createStandardCodeRun: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque Standard Code preset retry key; changed intent conflicts and only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StandardCodePresetControlRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["StandardCodePresetControlView"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";

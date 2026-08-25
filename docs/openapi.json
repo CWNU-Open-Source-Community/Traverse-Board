@@ -11800,6 +11800,240 @@
         "x-cyberagent-read-only": false
       }
     },
+    "/api/v1/runs/{run_id}/standard-code/pause-and-configure": {
+      "post": {
+        "operationId": "pauseAndConfigureStandardCodeRun",
+        "summary": "Pause then configure a running Standard Code Run",
+        "description": "Records an explicit durable pause-and-configure intent, waits for the active execution lease and Supervisor work to become quiescent, then commits the pause and complete Standard Code tuple in one SQLite transaction. Retrying the same intent is idempotent.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque Standard Code preset retry key; changed intent conflicts and only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/StandardCodePresetControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StandardCodePresetControlRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/standard-code/preset": {
+      "post": {
+        "operationId": "configureStandardCodeRun",
+        "summary": "Configure an existing Run for Standard Code",
+        "description": "Idempotently applies the complete Standard Code tuple only to a created or paused quiescent Code Run. An incompatible Surface produces a new Code Run; a running Run returns the separate pause-and-configure next step. No partial policy tuple is committed.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque Standard Code preset retry key; changed intent conflicts and only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/StandardCodePresetControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StandardCodePresetControlRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/runs/{run_id}/tool-rounds": {
       "get": {
         "operationId": "listRunToolRounds",
@@ -16052,6 +16286,108 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/SkillPackageInstallRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/standard-code/preset": {
+      "post": {
+        "operationId": "createStandardCodeRun",
+        "summary": "Create and configure a Standard Code Run",
+        "description": "Creates a Code Surface Run in Plan phase and atomically applies the controlled workspace-access preset after exact Workspace Trust and Drydock readiness checks. Auto selects only a ready Local backend; Docker always requires explicit intent. The receipt never grants runtime authority or returns a bearer token.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque Standard Code preset retry key; changed intent conflicts and only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/StandardCodePresetControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StandardCodePresetControlRequestView"
               }
             }
           }
@@ -35440,6 +35776,7 @@
             "enum": [
               "none",
               "local_os_sandbox_gate",
+              "docker_sandbox_gate",
               "debug_agent_input_lease",
               "cyber_container_terminal_gate"
             ],
@@ -36724,6 +37061,9 @@
           "skill_installation_enabled": {
             "type": "boolean"
           },
+          "standard_code_preset_enabled": {
+            "type": "boolean"
+          },
           "thread_control_enabled": {
             "type": "boolean"
           },
@@ -36759,6 +37099,7 @@
           "browser_cdp_permission_control_enabled",
           "full_cdp_debug_enabled",
           "run_creation_enabled",
+          "standard_code_preset_enabled",
           "session_message_enabled",
           "thread_control_enabled",
           "session_steering_control_enabled",
@@ -38228,6 +38569,279 @@
           "status",
           "requested_at",
           "replayed"
+        ],
+        "type": "object"
+      },
+      "StandardCodeBackendReadinessView": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "backend": {
+            "enum": [
+              "local",
+              "docker"
+            ],
+            "type": "string"
+          },
+          "blocked_by": {
+            "items": {
+              "enum": [
+                "run_not_quiescent",
+                "execution_lease_active",
+                "startup_gate_closed",
+                "capability_not_implemented",
+                "surface_mismatch",
+                "profile_mismatch",
+                "permission_mismatch",
+                "workspace_untrusted",
+                "sandbox_unproven",
+                "docker_unavailable",
+                "backend_not_ready"
+              ],
+              "type": "string"
+            },
+            "maxItems": 11,
+            "type": "array"
+          },
+          "remediation": {
+            "items": {
+              "enum": [
+                "pause_run",
+                "create_new_run",
+                "wait_for_execution_lease",
+                "restart_with_startup_gate",
+                "upgrade_application",
+                "select_required_surface",
+                "select_required_profile",
+                "select_required_permission",
+                "trust_workspace",
+                "verify_sandbox",
+                "install_or_start_docker",
+                "retry_backend_readiness"
+              ],
+              "type": "string"
+            },
+            "maxItems": 12,
+            "type": "array"
+          }
+        },
+        "required": [
+          "backend",
+          "available",
+          "blocked_by",
+          "remediation"
+        ],
+        "type": "object"
+      },
+      "StandardCodePresetControlRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "backend_intent": {
+            "enum": [
+              "auto",
+              "local",
+              "docker"
+            ],
+            "type": "string"
+          },
+          "confirm_workspace_trust": {
+            "type": "boolean"
+          },
+          "expected_trust_digest": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "goal": {
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              "standard_code_preset.v1"
+            ],
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "backend_intent",
+          "confirm_workspace_trust"
+        ],
+        "type": "object"
+      },
+      "StandardCodePresetControlView": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "configure",
+              "pause_and_configure"
+            ],
+            "type": "string"
+          },
+          "backend_intent": {
+            "enum": [
+              "auto",
+              "local",
+              "docker"
+            ],
+            "type": "string"
+          },
+          "blocked_by": {
+            "items": {
+              "enum": [
+                "run_not_quiescent",
+                "execution_lease_active",
+                "startup_gate_closed",
+                "capability_not_implemented",
+                "surface_mismatch",
+                "profile_mismatch",
+                "permission_mismatch",
+                "workspace_untrusted",
+                "sandbox_unproven",
+                "docker_unavailable",
+                "backend_not_ready"
+              ],
+              "type": "string"
+            },
+            "maxItems": 11,
+            "type": "array"
+          },
+          "browser_cdp_permission": {
+            "$ref": "#/components/schemas/RunBrowserCDPPermissionView"
+          },
+          "capability_grant": {
+            "type": "boolean"
+          },
+          "credentials": {
+            "enum": [
+              "none"
+            ],
+            "type": "string"
+          },
+          "docker_readiness": {
+            "$ref": "#/components/schemas/StandardCodeBackendReadinessView"
+          },
+          "drydock_ready": {
+            "type": "boolean"
+          },
+          "execution_interaction": {
+            "$ref": "#/components/schemas/RunExecutionInteractionView"
+          },
+          "execution_permission": {
+            "$ref": "#/components/schemas/RunExecutionPermissionView"
+          },
+          "execution_profile": {
+            "$ref": "#/components/schemas/RunExecutionProfileView"
+          },
+          "local_readiness": {
+            "$ref": "#/components/schemas/StandardCodeBackendReadinessView"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/RunModeView"
+          },
+          "network": {
+            "enum": [
+              "disabled"
+            ],
+            "type": "string"
+          },
+          "next_steps": {
+            "items": {
+              "enum": [
+                "confirm_workspace_trust",
+                "pause_and_configure",
+                "wait_for_quiescence",
+                "select_docker",
+                "select_approval",
+                "retry_readiness",
+                "create_new_run"
+              ],
+              "type": "string"
+            },
+            "maxItems": 7,
+            "type": "array"
+          },
+          "protocol_version": {
+            "enum": [
+              "standard_code_preset.v1"
+            ],
+            "type": "string"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "run": {
+            "$ref": "#/components/schemas/RunView"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "selected_backend": {
+            "enum": [
+              "local",
+              "docker"
+            ],
+            "type": "string"
+          },
+          "selection_reason": {
+            "enum": [
+              "auto_local_ready",
+              "explicit_local",
+              "explicit_docker"
+            ],
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "blocked",
+              "waiting_for_pause",
+              "configured"
+            ],
+            "type": "string"
+          },
+          "trust_digest": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "trust_required": {
+            "type": "boolean"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "status",
+          "workspace_id",
+          "action",
+          "backend_intent",
+          "local_readiness",
+          "docker_readiness",
+          "blocked_by",
+          "next_steps",
+          "trust_required",
+          "drydock_ready",
+          "network",
+          "credentials",
+          "replayed",
+          "capability_grant"
         ],
         "type": "object"
       },

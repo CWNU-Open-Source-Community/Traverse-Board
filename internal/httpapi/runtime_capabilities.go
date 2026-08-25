@@ -68,6 +68,7 @@ type RuntimeCapabilitiesView struct {
 	BrowserCDPPermissionControlEnabled bool                         `json:"browser_cdp_permission_control_enabled"`
 	FullCDPDebugEnabled                bool                         `json:"full_cdp_debug_enabled"`
 	RunCreationEnabled                 bool                         `json:"run_creation_enabled"`
+	StandardCodePresetEnabled          bool                         `json:"standard_code_preset_enabled"`
 	SessionMessageEnabled              bool                         `json:"session_message_enabled"`
 	ThreadControlEnabled               bool                         `json:"thread_control_enabled"`
 	SessionSteeringControlEnabled      bool                         `json:"session_steering_control_enabled"`
@@ -185,6 +186,7 @@ func (a *API) runtimeCapabilities(request *http.Request) (any, *Page, error) {
 	return RuntimeCapabilitiesView{
 		ProtocolVersion:   RuntimeCapabilitiesProtocolVersion,
 		RunControlEnabled: a.controlEnabled, RunCreationEnabled: a.runCreationEnabled,
+		StandardCodePresetEnabled:          a.standardCodePresetEnabled,
 		ExecutionPermissionControlEnabled:  a.executionPermissionControlEnabled,
 		WorkspaceSandboxEnabled:            a.executionPermissionCapabilities.WorkspaceSandboxEnabled,
 		OperatorApprovalEnabled:            a.executionPermissionCapabilities.OperatorApprovalEnabled,

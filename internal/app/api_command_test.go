@@ -79,7 +79,10 @@ func waitForAPIProcessOutput(t *testing.T, stdout *synchronizedBuffer,
 	t.Helper()
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
-	timer := time.NewTimer(15 * time.Second)
+	// Fresh Windows runners can spend more than 15 seconds opening and migrating
+	// a new control-plane database before the server publishes its first bounded
+	// metadata line. Keep the probe bounded, but cover the cold-start path.
+	timer := time.NewTimer(45 * time.Second)
 	defer timer.Stop()
 	for {
 		output := stdout.String()

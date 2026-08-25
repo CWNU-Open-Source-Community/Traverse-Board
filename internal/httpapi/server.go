@@ -272,6 +272,7 @@ type Config struct {
 	ExecutionPermissionControlEnabled       bool
 	BrowserCDPPermissionControlEnabled      bool
 	RunCreationEnabled                      bool
+	StandardCodePresetEnabled               bool
 	SessionMessageEnabled                   bool
 	SessionSteeringControlEnabled           bool
 	RunLifecycleEnabled                     bool
@@ -308,6 +309,7 @@ type Config struct {
 	CommandRuntimeAdapters                  []commandruntimeadapter.Identity
 	CommandRuntimeAdvertiser                toolgateway.CommandRuntimeAdvertiser
 	RunLifecycleController                  RunLifecycleController
+	StandardCodePresetController            StandardCodePresetController
 	RunExecutionController                  RunExecutionController
 	PublicModelStreamSource                 PublicModelStreamSource
 	PlanDeliveryController                  PlanDeliveryController
@@ -351,6 +353,7 @@ type API struct {
 	executionPermissionControlEnabled       bool
 	browserCDPPermissionControlEnabled      bool
 	runCreationEnabled                      bool
+	standardCodePresetEnabled               bool
 	sessionMessageEnabled                   bool
 	sessionSteeringControlEnabled           bool
 	runLifecycleEnabled                     bool
@@ -389,6 +392,7 @@ type API struct {
 	commandRuntimeAdapters                  []commandruntimeadapter.Identity
 	capabilityReadinessRuntime              application.CapabilityReadinessRuntime
 	runLifecycleController                  RunLifecycleController
+	standardCodePresetController            StandardCodePresetController
 	runExecutionController                  RunExecutionController
 	publicModelStreamSource                 PublicModelStreamSource
 	planDeliveryController                  PlanDeliveryController
@@ -451,7 +455,8 @@ func New(store Store, config Config) (*API, error) {
 	}
 	if (config.RunControlEnabled || config.ExecutionPermissionControlEnabled ||
 		config.BrowserCDPPermissionControlEnabled ||
-		config.RunCreationEnabled || config.SessionMessageEnabled ||
+		config.RunCreationEnabled || config.StandardCodePresetEnabled ||
+		config.SessionMessageEnabled ||
 		config.SessionSteeringControlEnabled || config.RunLifecycleEnabled ||
 		config.RunExecutionEnabled || config.PlanDeliveryControlEnabled ||
 		config.ApprovalControlEnabled || config.ModelControlEnabled ||
@@ -475,6 +480,10 @@ func New(store Store, config Config) (*API, error) {
 	if config.RunLifecycleEnabled && config.RunLifecycleController == nil {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API Run lifecycle controller is required when enabled")
+	}
+	if config.StandardCodePresetEnabled && config.StandardCodePresetController == nil {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"HTTP API Standard Code preset controller is required when enabled")
 	}
 	if config.RunExecutionEnabled && config.RunExecutionController == nil {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
@@ -651,6 +660,7 @@ func New(store Store, config Config) (*API, error) {
 		BrowserCDPPermissionControlEnabled: controlTokenPresent && config.BrowserCDPPermissionControlEnabled,
 		ExecutionPermissionCapabilities:    config.ExecutionPermissionCapabilities,
 		BrowserCDPPermissionCapabilities:   config.BrowserCDPPermissionCapabilities,
+		StandardCodePresetEnabled:          controlTokenPresent && config.StandardCodePresetEnabled,
 		LocalSandboxInstalled:              config.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled,
 		DockerStartupGateEnabled:           dockerExecutionEnabled,
 		DockerAvailable:                    dockerExecutionEnabled,
@@ -666,6 +676,8 @@ func New(store Store, config Config) (*API, error) {
 				(controlTokenPresent && config.ExecutionPermissionControlEnabled) ||
 			readinessRuntime.BrowserCDPPermissionControlEnabled !=
 				(controlTokenPresent && config.BrowserCDPPermissionControlEnabled) ||
+			readinessRuntime.StandardCodePresetEnabled !=
+				(controlTokenPresent && config.StandardCodePresetEnabled) ||
 			readinessRuntime.ExecutionPermissionCapabilities !=
 				config.ExecutionPermissionCapabilities ||
 			readinessRuntime.BrowserCDPPermissionCapabilities !=
@@ -709,7 +721,9 @@ func New(store Store, config Config) (*API, error) {
 			config.ExecutionPermissionControlEnabled,
 		browserCDPPermissionControlEnabled: controlTokenPresent &&
 			config.BrowserCDPPermissionControlEnabled,
-		runCreationEnabled: controlTokenPresent && config.RunCreationEnabled, appVersion: version,
+		runCreationEnabled:            controlTokenPresent && config.RunCreationEnabled,
+		standardCodePresetEnabled:     controlTokenPresent && config.StandardCodePresetEnabled,
+		appVersion:                    version,
 		sessionMessageEnabled:         controlTokenPresent && config.SessionMessageEnabled,
 		sessionSteeringControlEnabled: controlTokenPresent && config.SessionSteeringControlEnabled,
 		runLifecycleEnabled:           controlTokenPresent && config.RunLifecycleEnabled,
@@ -752,6 +766,7 @@ func New(store Store, config Config) (*API, error) {
 		commandRuntimeAdapters:              append([]commandruntimeadapter.Identity(nil), config.CommandRuntimeAdapters...),
 		capabilityReadinessRuntime:          readinessRuntime,
 		runLifecycleController:              config.RunLifecycleController,
+		standardCodePresetController:        config.StandardCodePresetController,
 		runExecutionController:              config.RunExecutionController,
 		publicModelStreamSource:             config.PublicModelStreamSource,
 		planDeliveryController:              config.PlanDeliveryController,
@@ -960,6 +975,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if sessionID, messageID, matched := matchSessionSteeringCancellationPath(request.URL.Path); matched {
 		a.serveSessionSteeringCancellation(tracked, request, requestID, sessionID, messageID)
+		return
+	}
+	if runID, action, matched := matchStandardCodePresetControlPath(request.URL.Path); matched {
+		a.serveStandardCodePresetControl(tracked, request, requestID, runID, action)
 		return
 	}
 	if runID, matched := matchRunLifecycleControlPath(request.URL.Path); matched {

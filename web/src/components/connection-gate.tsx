@@ -49,6 +49,7 @@ export function ConnectionGate() {
         commandRuntimeAdapterInstalled: bootstrap.command_runtime_adapter_installed,
         commandRuntimeAdapterReady: bootstrap.command_runtime_adapter_ready,
         runCreationEnabled: bootstrap.run_creation_enabled,
+        standardCodePresetEnabled: bootstrap.standard_code_preset_enabled,
         sessionMessageEnabled: bootstrap.session_message_enabled,
         threadControlEnabled: bootstrap.thread_control_enabled,
         sessionSteeringControlEnabled: bootstrap.session_steering_control_enabled,

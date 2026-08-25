@@ -1,6 +1,6 @@
 # Prayu V2 任务书
 
-更新时间：2026-08-24
+更新时间：2026-08-25
 
 ## 目标
 
@@ -10,7 +10,14 @@
 
 ## 当前基线
 
-Item 级模型/工具流（Issue #152 / schema v130）以 `llm.item_stream.v1` 统一 OpenAI 交错
+Standard Code 原子预设（Issue #135 / schema v133）以 `standard_code_preset.v1` 将 Code/Plan、
+ready Local 或显式 Docker、controlled、`workspace_access`、restricted CDP、可信 ready Drydock、
+禁网和无凭证作为一个幂等 Application 操作提交。created/paused 必须无 active lease；running
+使用 durable pause-and-configure 并等真正 quiescent；Surface 不兼容创建新 Code Run。CLI、
+HTTP/OpenAPI、Desktop/React 复用同一合同，任一 commit fault 全部回滚，模型/扩展/仓库配置
+不能调用或扩权。边界见 ADR 0136。
+
+上一基线为 Item 级模型/工具流（Issue #152 / schema v130），以 `llm.item_stream.v1` 统一 OpenAI 交错
 tool-call delta、Anthropic content block、Ollama/Mock 完整 item 与旧 `ChatChunk`。Application
 替换 provider ID 为 attempt-owned 稳定 ID；参数 delta 只在有界内存中拼接，完整 JSON 经 Go
 校验后才进入工具账本与执行链。`model_public_stream.v3`、`model.delta` 和执行事件只投影无正文

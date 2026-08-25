@@ -2,9 +2,22 @@
 
 > Scope checkpoint (2026-08-13): continue only the general-purpose Agent Harness and Code workflow. CTF-specific solving/offensive automation is an optional add-on with no active slices; retain generic extension seams only. Historical Cyber percentages are not current planning metrics. See [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md).
 
-Last updated: 2026-08-24
+Last updated: 2026-08-25
 
-## Current Single-Slice Checkpoint: Unified Thread Transcript / Issue #153 / Schema v130
+## Current Single-Slice Checkpoint: Atomic Standard Code Preset / Issue #135 / Schema v133
+
+`standard_code_preset.v1` 由 Go Application 单点拥有，将 Code/Plan、ready Local 或显式 Docker、
+controlled、`workspace_access`、restricted CDP 与 exact trusted/ready Drydock 作为一个幂等元组
+提交。`auto` 只选择 Local；不可用时只投影明确 Docker/Approval 下一步，不能回退 host 或
+`full_access`。响应固定禁网、无凭证、`capability_grant=false`，不携带 bearer/private path。
+
+created/paused Run 必须无 active lease；running 先写 `waiting_for_pause` 意图，精确 key 重试，
+等 lease 与 Supervisor quiescent 后将 pause 与所有快照/事件同事务提交。Surface 不兼容创建新
+Code Run。Drydock create 复用现有 WAL/ownership recovery；最终 fault injection 证明无半配置。
+CLI、HTTP/OpenAPI、Desktop/React 共用合同，模型/Skill/MCP/Plugin/Hook/仓库配置不具备入口。
+Drydock/worktree 不是安全沙箱；Local OS 或固定 Docker 提供隔离。见 ADR 0136。
+
+## Previous Single-Slice Checkpoint: Unified Thread Transcript / Issue #153 / Schema v130
 
 `thread_transcript.v1` 复用 schema-v129 Thread succession 与 schema-v130 item-stream ledger，按
 Run ordinal、durable event sequence 和 item position 投影用户消息、公开模型文本、Harness 事实、

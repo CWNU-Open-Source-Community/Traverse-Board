@@ -13,13 +13,13 @@ This document is the authority for current product scope. If a historical task, 
 - Thread、Run、Step/Tool Item、Run-local Session、检查点、恢复、取消、预算和事件流；
 - Provider 路由、资格校验、公开流式回复、上下文压缩和结构化记忆；
 - Plan/Delivery、工作项、备注、受控 child、可交付 child 的隔离 Worktree/交付复核/本地顺序合并，以及只读 Fan-out；
-- Workspace、Repository、Diff、模型可调用的有界读取/搜索、人工审查的文件变更、Run-owned Drydock、稳定 hunk、审批式 stash/rebase/cherry-pick/bisect、产品受管 worktree、验证、Journey 和 Handoff；
+- Workspace、Repository、Diff、模型可调用的有界读取/搜索、人工审查的文件变更、Run-owned Drydock、Standard Code 原子预设、稳定 hunk、审批式 stash/rebase/cherry-pick/bisect、产品受管 worktree、验证、Journey 和 Handoff；
 - Tool Gateway、Skill、Policy、Scope、Approval、Capability 和权限档位；
 - Artifact、Finding、Evidence、Report、SARIF 和 Live Activity；
 - Windows/macOS Desktop、React/Vite Thread 工作台、CLI 与 loopback HTTP/OpenAPI；
 - Go 主控的 Browser、Git/GitHub Review、multi-agent 与 Sandbox 能力，以及可选的 MCP、Plugin/Hook、Skill、Rust/WASI Analyzer 扩展合同。
 
-The active product is a general-purpose, local-first AI Agent Harness and Code Agent workflow covering Thread-first resumable execution, models and context, planning, bounded model-callable Workspace reads and reviewed mutations, Run-owned Drydocks, approval-gated stable hunks/stash/rebase/cherry-pick/bisect, product-managed worktrees, isolated deliverable-child worktrees and local merge review, permissions, audit/reporting, and shared Desktop/React, CLI, and loopback HTTP/OpenAPI clients.
+The active product is a general-purpose, local-first AI Agent Harness and Code Agent workflow covering Thread-first resumable execution, models and context, planning, bounded model-callable Workspace reads and reviewed mutations, Run-owned Drydocks, the atomic Standard Code preset, approval-gated stable hunks/stash/rebase/cherry-pick/bisect, product-managed worktrees, isolated deliverable-child worktrees and local merge review, permissions, audit/reporting, and shared Desktop/React, CLI, and loopback HTTP/OpenAPI clients.
 
 ## 支持等级 / Support tiers
 

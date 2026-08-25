@@ -90,6 +90,8 @@ Windows x64 现在提供显式 `--enable-workspace-sandbox` Local backend；只�
 
 Schema v128 随 #133 将既有固定本地 Docker Engine 的 `network=none` 路径接为 Standard Code 的显式备用后端，并只为既有 Docker admission ledger 增加 `workspace_access` 枚举兼容。上层 `standard-code-command.v1` 不含 backend、镜像、endpoint、mount、网络、环境或 Docker flags；Go 只把当前精确 Drydock 投影到 `/workspace`，固定非 root 用户、只读根文件系统/工具链、资源上限和无凭证环境。daemon/镜像不可用只返回稳定 `blocked_by/remediation`，不拉取镜像且不回退宿主执行。Drydock/Worktree 仍只是所有权与恢复边界，不是安全沙箱；进程与网络隔离来自固定容器。操作见 [Standard Code Docker backend](docs/standard-code-docker.md)，设计见 [ADR 0131](docs/adr/0131-standard-code-docker-network-none-backend.md)。
 
+Schema v133 与 #135 新增 Go-owned `standard_code_preset.v1`：“开始编码”会把 Code/Plan、已就绪 Local 或用户显式选择的 Docker、controlled、`workspace_access`、restricted CDP 与可信 Drydock 作为一个幂等、全有或全无的操作提交。运行中的 Run 使用独立 pause-and-configure 意图并在 lease/Supervisor 真正静止后提交；Surface 不兼容则创建新 Code Run。失败不留下半套快照，自动选择不降级 Docker/宿主/`full_access`，响应不含 bearer。CLI、control-token HTTP/OpenAPI、Desktop 与 React 共用同一 Application。详见 [Standard Code 原子预设](docs/standard-code-preset.md)与 [ADR 0136](docs/adr/0136-atomic-standard-code-preset.md)。
+
 ### 模型与工具的 item 级流式事件
 
 Schema v130 与 `llm.item_stream.v1` 将 OpenAI 的交错 tool-call delta、Anthropic content block、Ollama/Mock 的完整 item，以及旧 `ChatChunk` 统一为有序的 response/item/call 生命周期。参数增量只在有界内存中拼接；Provider 只能声明调用已准备，不能签发 authority 或执行工具。Go 在完整 JSON 通过大小、敏感数据、Policy、预算与幂等检查后才记录执行开始/完成，并以稳定 response/item/call ID 对齐临时 UI 卡片与持久工具账本。
@@ -419,7 +421,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 完整逐切片原始记录保留在 [`PROGRESS_BOOK.md`](docs/PROGRESS_BOOK.md)，当前检查点与验收证据保留在 [`PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)，恢复上下文见 [`PROJECT_MEMORY.md`](docs/PROJECT_MEMORY.md)。这些账本是历史记录，不应被当作待重新执行的任务列表。
 
 <details>
-<summary><strong>SQLite Schema v1-v131 迁移审计表 / Migration ledger</strong></summary>
+<summary><strong>SQLite Schema v1-v133 迁移审计表 / Migration ledger</strong></summary>
 
 此表是 Store 防漏迁移测试使用的审计合同。新增 schema 时必须按顺序追加，不得改写或删除既有行。
 
@@ -557,6 +559,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 | v130 | 增加 item 级流式工具调用的稳定响应、item 与 call 对齐标识 | add stable response, item, and call reconciliation identities for item-level streamed tool calls |
 | v131 | 将 Command Runtime Job、Supervisor 广告与执行回执绑定到 adapter identity，并把旧记录投影为只读 legacy_unbound | bind Command Runtime jobs, Supervisor advertisements, and receipts to adapter identity while projecting legacy records as read-only legacy_unbound |
 | v132 | 将 Docker Command Runtime 的进程内 stdin attach 绑定到不可变生命周期 WAL 与当前租约 | fence process-local Docker Command Runtime stdin attachment through the immutable lifecycle WAL and current lease |
+| v133 | 原子提交 Standard Code 预设，并持久化等待静止边界的暂停配置意图 | atomically commit the Standard Code preset and persist pause-and-configure intents awaiting a quiescent boundary |
 
 </details>
 

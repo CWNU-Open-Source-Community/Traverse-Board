@@ -26,6 +26,7 @@ const bootstrap = {
   command_runtime_adapter_ready: false,
   thread_control_enabled: false,
   run_creation_enabled: false,
+  standard_code_preset_enabled: false,
   session_message_enabled: false,
   session_steering_control_enabled: false,
   run_lifecycle_enabled: false,

@@ -44,6 +44,7 @@ type ExecutionInteractionGate string
 const (
 	ExecutionInteractionGateNone              ExecutionInteractionGate = "none"
 	ExecutionInteractionGateLocalOSSandbox    ExecutionInteractionGate = "local_os_sandbox_gate"
+	ExecutionInteractionGateDockerSandbox     ExecutionInteractionGate = "docker_sandbox_gate"
 	ExecutionInteractionGateDebugAgentLease   ExecutionInteractionGate = "debug_agent_input_lease"
 	ExecutionInteractionGateCyberContainerPTY ExecutionInteractionGate = "cyber_container_terminal_gate"
 )
@@ -164,8 +165,13 @@ func newRunExecutionInteractionSnapshot(id string, runID string, missionID strin
 ) RunExecutionInteractionSnapshot {
 	definition := runExecutionInteractionDefinitions[interactionMode]
 	executionProfile := definition.ExecutionProfile
+	requiredGate := definition.RequiredGate
 	if interactionMode == RunExecutionInteractionPreview {
 		executionProfile = profile.Profile
+	} else if interactionMode == RunExecutionInteractionControlled &&
+		profile.Profile == RunExecutionProfileDocker {
+		executionProfile = RunExecutionProfileDocker
+		requiredGate = ExecutionInteractionGateDockerSandbox
 	}
 	return RunExecutionInteractionSnapshot{
 		ID: strings.TrimSpace(id), RunID: runID, MissionID: missionID, Revision: revision,
@@ -174,7 +180,7 @@ func newRunExecutionInteractionSnapshot(id string, runID string, missionID strin
 		ExecutionProfileRevision: profile.Revision, WorkspaceTrust: trust,
 		CommandForm: definition.CommandForm, PersistentTerminal: definition.PersistentTerminal,
 		UserInputAvailable: definition.UserInputAvailable, AgentInputDefault: false,
-		NetworkScope: ExecutionNetworkDisabled, RequiredGate: definition.RequiredGate,
+		NetworkScope: ExecutionNetworkDisabled, RequiredGate: requiredGate,
 		PolicyVersion: RunExecutionInteractionPolicyVersion, OperatorConfirmed: confirmed,
 		ProcessEnabled: false, ExecutionAuthorized: false, CapabilityGrant: false,
 		RequestedBy: strings.TrimSpace(requestedBy), Reason: strings.TrimSpace(reason),
@@ -206,17 +212,22 @@ func (s RunExecutionInteractionSnapshot) Validate() error {
 		return fmt.Errorf("invalid Run execution interaction surface %q", s.Surface)
 	}
 	expectedProfile := definition.ExecutionProfile
+	expectedGate := definition.RequiredGate
 	if s.Mode == RunExecutionInteractionPreview {
 		if !s.ExecutionProfile.Valid() {
 			return fmt.Errorf("invalid preview execution profile %q", s.ExecutionProfile)
 		}
 		expectedProfile = s.ExecutionProfile
+	} else if s.Mode == RunExecutionInteractionControlled &&
+		s.ExecutionProfile == RunExecutionProfileDocker {
+		expectedProfile = RunExecutionProfileDocker
+		expectedGate = ExecutionInteractionGateDockerSandbox
 	}
 	if s.ExecutionProfile != expectedProfile || s.WorkspaceTrust != definition.Trust ||
 		s.CommandForm != definition.CommandForm ||
 		s.PersistentTerminal != definition.PersistentTerminal ||
 		s.UserInputAvailable != definition.UserInputAvailable ||
-		s.RequiredGate != definition.RequiredGate ||
+		s.RequiredGate != expectedGate ||
 		s.OperatorConfirmed != definition.OperatorConfirmation {
 		return errors.New("Run execution interaction controls do not match the selected mode")
 	}

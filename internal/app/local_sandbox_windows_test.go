@@ -99,15 +99,29 @@ func TestWindowsAPIServePublishesWorkspaceGateOnlyAfterLocalProbe(t *testing.T) 
 	t.Setenv(apiTokenEnvironment, "local-readiness-api-token-0123456789")
 	t.Setenv(apiControlTokenEnvironment, "local-readiness-control-token-012345")
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	var stdout synchronizedBuffer
 	var stderr synchronizedBuffer
 	done := make(chan int, 1)
 	go func() {
+		defer close(done)
 		done <- ExecuteContext(ctx, []string{"api", "serve", "--listen", "127.0.0.1:0",
 			"--enable-permission-control", "--enable-workspace-sandbox"},
 			&stdout, &stderr)
 	}()
+	// Stop and join the in-process server before t.TempDir cleanup even when the
+	// startup assertion fails. Otherwise Windows can observe the SQLite handle
+	// while it is still owned by the canceled control plane.
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case code, ok := <-done:
+			if ok && (code != 0 || stderr.String() != "") {
+				t.Errorf("API cleanup code=%d stderr=%s", code, stderr.String())
+			}
+		case <-time.After(10 * time.Second):
+			t.Error("API did not stop during Local Sandbox test cleanup")
+		}
+	})
 	output := waitForAPIProcessOutput(t, &stdout, &stderr, done, func(value string) bool {
 		return outputField(value, "api_url") != "" &&
 			strings.Contains(value, "workspace_sandbox_enabled: true")

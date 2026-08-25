@@ -53,6 +53,8 @@ export default function App() {
   const debugMaximumAccessEnabled = useConnectionStore((state) => state.debugMaximumAccessEnabled);
   const commandRuntimeEnabled = useConnectionStore((state) => state.commandRuntimeEnabled);
   const runCreationEnabled = useConnectionStore((state) => state.runCreationEnabled);
+  const standardCodePresetEnabled = useConnectionStore(
+    (state) => state.standardCodePresetEnabled);
   const sessionMessageEnabled = useConnectionStore((state) => state.sessionMessageEnabled);
   const threadControlEnabled = useConnectionStore((state) => state.threadControlEnabled);
   const sessionSteeringControlEnabled = useConnectionStore(
@@ -102,6 +104,7 @@ export default function App() {
   }
   return <ConnectedWorkbench token={token} controlToken={controlToken}
     runControlEnabled={runControlEnabled} runCreationEnabled={runCreationEnabled}
+    standardCodePresetEnabled={standardCodePresetEnabled}
     executionPermissionControlEnabled={executionPermissionControlEnabled}
     browserCDPPermissionControlEnabled={browserCDPPermissionControlEnabled}
     fullCDPDebugEnabled={fullCDPDebugEnabled}
@@ -138,6 +141,7 @@ export default function App() {
 }
 
 function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreationEnabled,
+  standardCodePresetEnabled,
   executionPermissionControlEnabled, operatorApprovalEnabled, dangerFullAccessEnabled,
   debugMaximumAccessEnabled, commandRuntimeEnabled,
   browserCDPPermissionControlEnabled, fullCDPDebugEnabled,
@@ -157,6 +161,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   controlToken: string;
   runControlEnabled: boolean;
   runCreationEnabled: boolean;
+  standardCodePresetEnabled: boolean;
   executionPermissionControlEnabled: boolean;
   browserCDPPermissionControlEnabled: boolean;
   fullCDPDebugEnabled: boolean;
@@ -208,7 +213,8 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   const desktop = desktopBridgeAvailable();
   const macTitlebar = desktopIsMacPlatform();
   const client = useMemo(() => new CyberAgentClient(token, undefined, controlToken, {
-    runControlEnabled, runCreationEnabled, sessionMessageEnabled, threadControlEnabled,
+    runControlEnabled, runCreationEnabled, standardCodePresetEnabled,
+    sessionMessageEnabled, threadControlEnabled,
     executionPermissionControlEnabled, operatorApprovalEnabled,
     dangerFullAccessEnabled, debugMaximumAccessEnabled, commandRuntimeEnabled,
     browserCDPPermissionControlEnabled, fullCDPDebugEnabled,
@@ -230,6 +236,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     agentCodeToolsEnabled,
     codeIntelEnabled,
   }), [token, controlToken, runControlEnabled, runCreationEnabled,
+    standardCodePresetEnabled,
     executionPermissionControlEnabled, operatorApprovalEnabled,
     dangerFullAccessEnabled, debugMaximumAccessEnabled, commandRuntimeEnabled,
     browserCDPPermissionControlEnabled, fullCDPDebugEnabled, sessionMessageEnabled,
