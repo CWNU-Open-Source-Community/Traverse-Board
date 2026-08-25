@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param(
     [string]$BinaryPath = "build/desktop/TraverseBoard.exe",
-    [ValidateRange(3, 60)][int]$StartupTimeoutSeconds = 15,
+    # Hosted Windows runners can take longer than 15 seconds to publish the
+    # Workspace Sandbox readiness gate during a cold portable-binary startup.
+    [ValidateRange(3, 60)][int]$StartupTimeoutSeconds = 45,
     [switch]$KeepData
 )
 
