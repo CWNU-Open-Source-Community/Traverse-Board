@@ -196,6 +196,33 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 				"desktop UI evidence requires full-access command runtime and restricted Safe Web")
 		}
 	}
+	// Consume caller-provided startup evidence before opening SQLite or
+	// constructing services. Schema migration and cold dependency startup must
+	// not make a proof that was current at this boundary expire mid-construction.
+	capabilityReadinessRuntime := application.CapabilityReadinessRuntime{
+		RunControlEnabled:   config.ControlToken != "" && config.RunControlEnabled,
+		RunExecutionEnabled: config.ControlToken != "" && config.RunExecutionEnabled,
+		ExecutionPermissionControlEnabled: config.ControlToken != "" &&
+			config.ExecutionPermissionControlEnabled,
+		BrowserCDPPermissionControlEnabled: config.ControlToken != "" &&
+			config.BrowserCDPPermissionControlEnabled,
+		ExecutionPermissionCapabilities:  config.ExecutionPermissionCapabilities,
+		BrowserCDPPermissionCapabilities: config.BrowserCDPPermissionCapabilities,
+		LocalSandboxInstalled: config.ExecutionPermissionCapabilities.
+			WorkspaceSandboxEnabled,
+		DockerStartupGateEnabled: config.DockerExecutionEnabled,
+		DockerAvailable:          config.DockerExecutionEnabled,
+	}
+	if config.LocalSandboxReadiness != nil {
+		projected, projectionErr := capabilityReadinessRuntime.
+			WithLocalSandboxReadiness(*config.LocalSandboxReadiness)
+		if projectionErr != nil || projected.ExecutionPermissionCapabilities !=
+			config.ExecutionPermissionCapabilities {
+			return nil, apperror.New(apperror.CodeInvalidArgument,
+				"desktop Local Sandbox readiness projection is invalid")
+		}
+		capabilityReadinessRuntime = projected
+	}
 	stateStore, err := store.Open(config.DatabasePath)
 	if err != nil {
 		return nil, err
@@ -673,20 +700,6 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	hostCommandProposals := application.NewHostCommandProposalReviewService(
 		stateStore, hostCommandExecutor, config.ExecutionPermissionCapabilities)
 	embeddedAnalyzerExecution := application.NewEmbeddedAnalyzerExecutionService(stateStore)
-	capabilityReadinessRuntime := application.CapabilityReadinessRuntime{
-		RunControlEnabled:   config.ControlToken != "" && config.RunControlEnabled,
-		RunExecutionEnabled: config.ControlToken != "" && config.RunExecutionEnabled,
-		ExecutionPermissionControlEnabled: config.ControlToken != "" &&
-			config.ExecutionPermissionControlEnabled,
-		BrowserCDPPermissionControlEnabled: config.ControlToken != "" &&
-			config.BrowserCDPPermissionControlEnabled,
-		ExecutionPermissionCapabilities:  config.ExecutionPermissionCapabilities,
-		BrowserCDPPermissionCapabilities: config.BrowserCDPPermissionCapabilities,
-		LocalSandboxInstalled: config.ExecutionPermissionCapabilities.
-			WorkspaceSandboxEnabled,
-		DockerStartupGateEnabled: config.DockerExecutionEnabled,
-		DockerAvailable:          config.DockerExecutionEnabled,
-	}
 	if standardCodeDockerReadiness != nil {
 		capabilityReadinessRuntime.DockerReadiness = standardCodeDockerReadiness
 		capabilityReadinessRuntime.DockerAvailable =
@@ -699,19 +712,6 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		installedCommandRuntimeAdapters = commandRuntime.InstalledCommandRuntimeAdapters()
 	}
 	capabilityReadinessRuntime.CommandRuntimeAdapters = installedCommandRuntimeAdapters
-	if config.LocalSandboxReadiness != nil {
-		capabilityReadinessRuntime, err = capabilityReadinessRuntime.
-			WithLocalSandboxReadiness(*config.LocalSandboxReadiness)
-		if err != nil || capabilityReadinessRuntime.ExecutionPermissionCapabilities !=
-			config.ExecutionPermissionCapabilities {
-			if terminalManager != nil {
-				_ = terminalManager.Shutdown()
-			}
-			_ = stateStore.Close()
-			return nil, apperror.New(apperror.CodeInvalidArgument,
-				"desktop Local Sandbox readiness projection is invalid")
-		}
-	}
 	var standardCodePreset *application.StandardCodePresetService
 	if config.ControlToken != "" && config.RunControlEnabled &&
 		config.ExecutionPermissionControlEnabled &&
