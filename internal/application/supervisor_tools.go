@@ -560,27 +560,69 @@ func supervisorToolOperationKey(runID string, turn int, name toolgateway.ToolNam
 }
 
 func (s *RunSupervisor) resumeSupervisorTools(ctx context.Context, turn domain.SupervisorTurn,
-	rounds []domain.SupervisorToolRound,
+	rounds []domain.SupervisorToolRound, standardCode ...*standardCodeSupervisorTurn,
 ) ([]domain.SupervisorToolRound, error) {
+	var completion *standardCodeSupervisorTurn
+	if len(standardCode) > 0 {
+		completion = standardCode[0]
+	}
 	for _, round := range rounds {
 		for _, call := range round.Calls {
 			if call.Status != domain.SupervisorToolPending {
+				if completion != nil {
+					if err := completion.ObserveCall(ctx, call); err != nil {
+						return rounds, apperror.Normalize(err)
+					}
+				}
 				continue
+			}
+			decision := standardCodeCallDecision{Allowed: true}
+			var err error
+			if completion != nil {
+				decision, err = completion.Authorize(ctx, call)
+				if err != nil {
+					return rounds, apperror.Normalize(err)
+				}
 			}
 			if _, err := s.store.RecordSupervisorToolExecutionStarted(ctx, turn.Checkpoint,
 				call.CallID); err != nil {
 				return rounds, apperror.Normalize(err)
 			}
-			result, err := s.invokeSupervisorTool(ctx, turn, call)
-			if err != nil {
-				return rounds, err
+			var result domain.SupervisorToolResult
+			if decision.Allowed {
+				result, err = s.invokeSupervisorTool(ctx, turn, call)
+				if err != nil {
+					return rounds, err
+				}
+			} else if decision.Result != nil {
+				result = *decision.Result
+			} else {
+				return rounds, apperror.New(apperror.CodeFailedPrecondition,
+					"Standard Code Supervisor denial omitted its durable result")
 			}
-			if _, _, err := s.store.RecordSupervisorToolResult(ctx, turn.Checkpoint, result); err != nil {
+			stored, _, err := s.store.RecordSupervisorToolResult(ctx, turn.Checkpoint, result)
+			if err != nil {
 				return rounds, apperror.Normalize(err)
+			}
+			if completion != nil {
+				if err := completion.ObserveCall(ctx, stored); err != nil {
+					return rounds, apperror.Normalize(err)
+				}
 			}
 		}
 	}
-	return s.store.ListSupervisorToolRounds(ctx, turn.Checkpoint)
+	stored, err := s.store.ListSupervisorToolRounds(ctx, turn.Checkpoint)
+	if err != nil {
+		return rounds, err
+	}
+	if completion != nil {
+		for _, round := range stored {
+			if err := completion.ObserveRound(ctx, round); err != nil {
+				return stored, apperror.Normalize(err)
+			}
+		}
+	}
+	return stored, nil
 }
 
 func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.SupervisorTurn,
