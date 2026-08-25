@@ -233,7 +233,7 @@ try {
     $env:CYBERAGENT_HOME = $isolatedHome
 
     # S1 cold start
-    $primary = Start-Process -FilePath $binary -ArgumentList "--operator-preview" -PassThru
+    $primary = Start-Process -FilePath $binary -PassThru
     [void]$startedProcessIDs.Add($primary.Id)
     $deadline = [DateTime]::UtcNow.AddSeconds($StartupTimeoutSeconds)
     $storeCreated = $false
@@ -258,7 +258,7 @@ try {
         })
 
     # S2 second instance yields to the first
-    $second = Start-Process -FilePath $binary -ArgumentList "--operator-preview" -PassThru
+    $second = Start-Process -FilePath $binary -PassThru
     [void]$startedProcessIDs.Add($second.Id)
     $secondExited = $false
     $secondDeadline = [DateTime]::UtcNow.AddSeconds(15)
@@ -323,7 +323,7 @@ try {
         })
 
     # S4 force kill then reopen with data retention
-    $primary = Start-Process -FilePath $binary -ArgumentList "--operator-preview" -PassThru
+    $primary = Start-Process -FilePath $binary -PassThru
     [void]$startedProcessIDs.Add($primary.Id)
     $reopenDeadline = [DateTime]::UtcNow.AddSeconds($StartupTimeoutSeconds)
     $killReady = $false
@@ -347,7 +347,7 @@ try {
     $primary.Dispose()
     $primary = $null
     $retained = Test-Path -LiteralPath $database -PathType Leaf
-    $primary = Start-Process -FilePath $binary -ArgumentList "--operator-preview" -PassThru
+    $primary = Start-Process -FilePath $binary -PassThru
     [void]$startedProcessIDs.Add($primary.Id)
     $reopenDeadline = [DateTime]::UtcNow.AddSeconds($StartupTimeoutSeconds)
     $reopened = $false

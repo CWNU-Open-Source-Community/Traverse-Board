@@ -6,6 +6,19 @@ Last updated: 2026-08-25
 
 ## Resume Context
 
+当前检查点是 issue #136，SQLite schema 保持 v133。正式 Desktop 零参数启动现在安装
+安全控制面与已证明的 Workspace Sandbox adapter；`--safe-view` 是显式且互斥的只读入口，
+高风险宿主、Debug、Full CDP、Cyber、自定义 startup gate 与后台 worker 均不随默认启动开启。
+零 Run 数据库进入语言、Provider、Harness、Workspace、Go readiness、Trust 与 Standard Code
+的一次性向导；路径只经原生 picker 进入 Go，Trust 使用精确 digest，renderer 不持久化 token
+或凭据。已有 Run 用户直接进入工作台，不会被重新向导、自动 Trust 或改写权限。
+
+权限设置完整消费 `run_capability_readiness.v1` 的全部 blocker/remediation，并区分当前选择、
+临时锁定、startup/backend 不可用、组合不兼容与高级风险。“暂停并配置”明确等待 Run 静止和
+lease 释放。rc.3 数据重开只保留旧选择、审批、lease 和 process 记录作为审计事实，不恢复
+process-local authority。Windows 直接启动、同库恢复、Safe View、高对比度、200% DPI、中文
+IME 与窄窗口矩阵见 `DESKTOP_TEST_MATRIX.md`；决策边界见 ADR 0137。
+
 当前检查点是 issue #135 / schema v133。`standard_code_preset.v1` 以一个 Go-owned 幂等操作
 创建或配置 Standard Code Run：Code/Plan、已就绪 Local 或操作者显式选择的 Docker、
 controlled、`workspace_access`、restricted CDP、可信且 ready 的精确 Drydock、禁网与无凭证

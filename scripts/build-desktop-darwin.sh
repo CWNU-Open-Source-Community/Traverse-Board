@@ -225,4 +225,5 @@ echo "desktop_reproducible: $(grep -o '"reproducible": [a-z]*' "$metadataPath" |
 echo "desktop_installer_included: false"
 echo "desktop_ad_hoc_signed: true"
 echo "desktop_notarized: false"
-echo "desktop_profile_control_default: false"
+echo "desktop_profile_control_default: true"
+echo "desktop_safe_view_flag: --safe-view"

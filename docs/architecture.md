@@ -47,7 +47,7 @@ CLI / React Web + Desktop / loopback API / maintenance TUI + headless
                   SQLite Event and State Store
 ```
 
-Desktop D0-A/D0-B is a presentation adapter, not another control plane. Wails v2.13.0 embeds the production React bundle and routes requests to the existing Go HTTP Handler in process without a listening socket. Its native binding surface is limited to memory-only bootstrap and pathless Skill-package selection/preview. The default Desktop grants no process, Shell, Docker, installation, Scope, Policy, or path-input authority. Schema v99 adds an explicit startup-only `--enable-docker-execution` option, which requires the independent permission capability and composes the same `DockerSandboxService` used by CLI/HTTP; the renderer still cannot manufacture the capability or submit Docker options. Ordinary Web retains SSE while Windows Desktop uses `run-event-poll.v1` with the same durable Run-bound high-water cursor and real event frames. Go owns same-database reopen, serialized window lifecycle, WebView2 prerequisite failure, and exact renderer-origin handling; renderer memory and navigation guards add no authority. See ADR 0034, ADR 0035, and ADR 0099.
+Desktop D0-A/D0-B is a presentation adapter, not another control plane. Wails v2.13.0 embeds the production React bundle and routes requests to the existing Go HTTP Handler in process without a listening socket. Its native binding surface uses a memory-only bootstrap and pathless, Go-owned selectors. The direct default exposes bounded controls and, only after a current platform proof, the sandboxed command runtime; it grants no unsandboxed host process, arbitrary Shell, Docker, Scope, Policy, or renderer path-input authority. Schema v99 adds an explicit startup-only `--enable-docker-execution` option, which requires the independent permission capability and composes the same `DockerSandboxService` used by CLI/HTTP; the renderer still cannot manufacture the capability or submit Docker options. Ordinary Web retains SSE while Windows Desktop uses `run-event-poll.v1` with the same durable Run-bound high-water cursor and real event frames. Go owns same-database reopen, serialized window lifecycle, WebView2 prerequisite failure, and exact renderer-origin handling; renderer memory and navigation guards add no authority. See ADR 0034, ADR 0035, and ADR 0099.
 
 Allowed external directions remain:
 
@@ -67,6 +67,18 @@ exact version and canonical disposition vocabulary but does not recompute
 authorization. `selected`, `selectable`, and `runtime_available` remain independent,
 and the envelope fixes `capability_grant=false`; it is never consumed as execution
 authority. See [ADR 0128](adr/0128-go-owned-run-capability-readiness.md).
+
+The zero-argument Desktop launch installs the safe control-plane bundle, probes
+the platform Workspace Sandbox adapter, and installs it only after a current
+readiness proof; `--safe-view` is the explicit mutually exclusive read-only
+entry. When that proof exposes Standard Code, a zero-Run database opens a
+renderer-only first-run guide that gathers Provider availability, Harness
+qualification, a pathless native Workspace selection, exact Trust confirmation,
+and Go-owned backend readiness before submitting `standard_code_preset.v1`. Reopening an older
+database does not trust a Workspace, rewrite Run permission intent, start a
+durable worker, or reinterpret persisted approval, lease, or process records as
+authority. High-risk host, Debug, Full CDP, Cyber, and custom startup gates stay
+explicit and outside the default bundle. See [ADR 0137](adr/0137-direct-safe-first-run-and-explainable-readiness.md).
 
 `code-intel-lsp.v1` adds one more Go-owned process boundary without changing that direction. An explicitly reviewed local language server communicates only through bounded stdio JSON-RPC. Go owns qualification, executable hashing, minimal environment, initialize/document synchronization, timeout/cancellation, restart, and process-tree cleanup; Tool Gateway reuses the exact `agent-code-tools.v1` Workspace-read authority. Server output is untrusted evidence and every returned URI is resolved again below the Workspace root. Capability inventory is process-local and metadata-only, so this feature adds no SQLite migration and no renderer-owned authority. The configured Server remains a real local process rather than an OS sandbox; see [Code Intelligence](code-intelligence.md).
 

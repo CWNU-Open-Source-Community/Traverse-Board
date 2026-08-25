@@ -79,6 +79,10 @@ export function RunPermissionSettings({ client, runID }: {
       </div>
       <StatusBadge status={detail.execution_permission.risk_tier} />
     </div>
+    <p className="permission-readiness-source">
+      {t("所有可用性与灰态均来自 Go readiness 投影；灰态会显示精确原因与处理方法，不会由界面推断或放宽。",
+        "All availability and disabled states come from the Go readiness projection. Disabled controls show exact reasons and remediation; the UI neither guesses nor widens authority.")}
+    </p>
     <StandardCodeReadinessPanel client={client} detail={detail} readiness={readiness}
       key={`standard-code-${detail.run.id}`} />
     <ExecutionPermissionPanel client={client} detail={detail} readiness={readiness}
@@ -157,7 +161,8 @@ export function ExecutionProfilePanel({ client, detail, readiness }: {
             disabled={mutation.isPending || option.selected || !option.selectable}
             key={id} onClick={() => mutation.mutate(id)} type="button">
             <Icon aria-hidden="true" size={17} />
-            <span><strong>{t(chinese, english)}</strong><small>{capabilityReadinessDetail(
+            <span><strong>{t(chinese, english)}</strong><CapabilityState option={option} />
+              <small>{capabilityReadinessDetail(
               option, t(detailChinese, detailEnglish), t)}</small></span>
             {option.selected && <Check aria-hidden="true" size={15} />}
           </button>
@@ -237,6 +242,28 @@ export function ExecutionPermissionPanel({ client, detail, readiness }: {
   const selectedReadiness = selectedCapabilityReadiness(readiness.permissions);
   const boundary = capabilityReadinessSummary(selectedReadiness,
     t("Run 策略快照", "Run policy snapshot"), t);
+  const renderOption = ({ id, chinese, english, detailChinese, detailEnglish,
+    icon: Icon }: typeof executionPermissions[number]) => {
+    const option = capabilityReadinessOption(readiness.permissions, id);
+    const advancedRisk = id === "full_access" || id === "debug";
+    return <button aria-pressed={option.selected}
+      className={advancedRisk ? "danger" : ""}
+      disabled={mutation.isPending || option.selected || !option.selectable}
+      key={id} onClick={() => choose(id)} type="button">
+      <Icon aria-hidden="true" size={17} />
+      <span><strong>{t(chinese, english)}</strong>
+        <CapabilityState advancedRisk={advancedRisk} option={option} />
+        <small>{capabilityReadinessDetail(option,
+          t(detailChinese, detailEnglish), t)}</small></span>
+      {option.selected && <Check aria-hidden="true" size={15} />}
+    </button>;
+  };
+  const safePermissions = executionPermissions.filter(({ id }) =>
+    id !== "full_access" && id !== "debug");
+  const advancedPermissions = executionPermissions.filter(({ id }) =>
+    id === "full_access" || id === "debug");
+  const advancedSelected = advancedPermissions.some(({ id }) =>
+    capabilityReadinessOption(readiness.permissions, id).selected);
   return (
     <section className="permission-control-card execution-permission-section">
       <div className="section-heading">
@@ -247,20 +274,20 @@ export function ExecutionPermissionPanel({ client, detail, readiness }: {
         <StatusBadge status={permission.risk_tier} />
       </div>
       <div aria-label={t("Run 执行权限", "Run execution permission")}
-        className="permission-option-grid permission-option-grid-five" role="group">
-        {executionPermissions.map(({ id, chinese, english, detailChinese, detailEnglish, icon: Icon }) => {
-          const option = capabilityReadinessOption(readiness.permissions, id);
-          return <button aria-pressed={option.selected}
-            className={id === "full_access" || id === "debug" ? "danger" : ""}
-            disabled={mutation.isPending || option.selected || !option.selectable}
-            key={id} onClick={() => choose(id)} type="button">
-            <Icon aria-hidden="true" size={17} />
-            <span><strong>{t(chinese, english)}</strong><small>{capabilityReadinessDetail(
-              option, t(detailChinese, detailEnglish), t)}</small></span>
-            {option.selected && <Check aria-hidden="true" size={15} />}
-          </button>;
-        })}
+        className="permission-option-grid permission-option-grid-three" role="group">
+        {safePermissions.map(renderOption)}
       </div>
+      <details className="permission-advanced-disclosure" open={advancedSelected || undefined}>
+        <summary><ShieldAlert aria-hidden="true" size={15} />
+          <span><strong>{t("高级风险权限", "Advanced risk permissions")}</strong>
+            <small>{t("Full Access 与 Debug 需要额外启动门和显式确认",
+              "Full Access and Debug require additional startup gates and explicit confirmation")}</small></span>
+        </summary>
+        <div aria-label={t("高级 Run 执行权限", "Advanced Run execution permissions")}
+          className="permission-option-grid permission-option-grid-two" role="group">
+          {advancedPermissions.map(renderOption)}
+        </div>
+      </details>
       {pendingMode && <PermissionConfirmation
         description={pendingMode === "workspace_access"
           ? t("只允许受控工作区读写与经过验证的沙箱命令；网络、凭证、主目录、宿主进程、持久终端和完整 CDP 均被拒绝。", "Allows controlled Workspace access and verified sandbox commands only; network, credentials, home, host processes, persistent terminals, and Full CDP are denied.")
@@ -338,6 +365,29 @@ export function BrowserCDPPermissionPanel({ client, detail, readiness }: {
   const selectedReadiness = selectedCapabilityReadiness(readiness.browser_cdp_permissions);
   const boundary = capabilityReadinessSummary(selectedReadiness,
     t("独立 CDP 权限上限", "Independent CDP permission ceiling"), t);
+  const renderOption = ({ id, chinese, english, detailChinese, detailEnglish,
+    dangerous }: typeof browserCDPPermissions[number]) => {
+    const option = capabilityReadinessOption(readiness.browser_cdp_permissions, id);
+    return <button aria-pressed={option.selected}
+      className={dangerous ? "danger" : ""}
+      disabled={mutation.isPending || option.selected || !option.selectable}
+      key={id} onClick={() => choose(id)} type="button">
+      {dangerous
+        ? <ShieldAlert aria-hidden="true" size={17} />
+        : <ShieldCheck aria-hidden="true" size={17} />}
+      <span>
+        <strong>{t(chinese, english)}</strong>
+        <CapabilityState advancedRisk={dangerous} option={option} />
+        {dangerous && <em className="sensitive-permission-label">
+          {t("高度敏感权限", "Highly sensitive permission")}</em>}
+        <small>{capabilityReadinessDetail(option,
+          t(detailChinese, detailEnglish), t)}</small>
+      </span>
+      {option.selected && <Check aria-hidden="true" size={15} />}
+    </button>;
+  };
+  const fullDebugReadiness = capabilityReadinessOption(
+    readiness.browser_cdp_permissions, "full_debug");
   return (
     <section className="permission-control-card browser-cdp-permission-section">
       <div className="section-heading">
@@ -349,25 +399,20 @@ export function BrowserCDPPermissionPanel({ client, detail, readiness }: {
       </div>
       <div aria-label={t("Run 浏览器 CDP 权限", "Run browser CDP permission")}
         className="permission-option-grid permission-option-grid-two" role="group">
-        {browserCDPPermissions.map(({ id, chinese, english, detailChinese, detailEnglish, dangerous }) => {
-          const option = capabilityReadinessOption(readiness.browser_cdp_permissions, id);
-          return <button aria-pressed={option.selected}
-            className={dangerous ? "danger" : ""}
-            disabled={mutation.isPending || option.selected || !option.selectable}
-            key={id} onClick={() => choose(id)} type="button">
-            {dangerous
-              ? <ShieldAlert aria-hidden="true" size={17} />
-              : <ShieldCheck aria-hidden="true" size={17} />}
-            <span>
-              <strong>{t(chinese, english)}</strong>
-              {dangerous && <em className="sensitive-permission-label">{t("高度敏感权限", "Highly sensitive permission")}</em>}
-              <small>{capabilityReadinessDetail(option,
-                t(detailChinese, detailEnglish), t)}</small>
-            </span>
-            {option.selected && <Check aria-hidden="true" size={15} />}
-          </button>;
-        })}
+        {browserCDPPermissions.filter(({ dangerous }) => !dangerous).map(renderOption)}
       </div>
+      <details className="permission-advanced-disclosure"
+        open={fullDebugReadiness.selected || undefined}>
+        <summary><ShieldAlert aria-hidden="true" size={15} />
+          <span><strong>{t("高级浏览器调试", "Advanced browser debugging")}</strong>
+            <small>{t("包含 Cookie、请求改写与任意 CDP 方法",
+              "Includes cookies, request rewriting, and arbitrary CDP methods")}</small></span>
+        </summary>
+        <div aria-label={t("高级浏览器 CDP 权限", "Advanced browser CDP permission")}
+          className="permission-option-grid permission-option-grid-two" role="group">
+          {browserCDPPermissions.filter(({ dangerous }) => dangerous).map(renderOption)}
+        </div>
+      </details>
       {confirmFull && <PermissionConfirmation
         description={t("允许请求捕获、改写与重放、Cookie 访问和任意 CDP 方法。选择不会自动启动浏览器。", "Allows request capture, rewriting and replay, cookie access, and arbitrary CDP methods. This selection does not launch a browser.")}
         label={t("完整 CDP（调试） · 高度敏感权限", "Full CDP (debug) · Highly sensitive permission")}
@@ -443,6 +488,28 @@ export function ExecutionInteractionPanel({ client, detail, readiness }: {
     else setPendingMode(target);
   };
   const selectedReadiness = selectedCapabilityReadiness(readiness.interactions);
+  const renderOption = ({ id, chinese, english, detailChinese, detailEnglish,
+    icon: Icon }: typeof interactionModes[number]) => {
+    const option = capabilityReadinessOption(readiness.interactions, id);
+    const advancedRisk = id === "debug" || id === "cyber";
+    return <button aria-pressed={option.selected}
+      className={advancedRisk ? "danger" : ""}
+      disabled={mutation.isPending || option.selected || !option.selectable}
+      key={id} onClick={() => choose(id)} type="button">
+      <Icon aria-hidden="true" size={17} />
+      <span><strong>{t(chinese, english)}</strong>
+        <CapabilityState advancedRisk={advancedRisk} option={option} />
+        <small>{capabilityReadinessDetail(option,
+          t(detailChinese, detailEnglish), t)}</small></span>
+      {option.selected && <Check aria-hidden="true" size={15} />}
+    </button>;
+  };
+  const safeInteractions = interactionModes.filter(({ id }) =>
+    id === "preview" || id === "controlled");
+  const advancedInteractions = interactionModes.filter(({ id }) =>
+    id === "debug" || id === "cyber");
+  const advancedSelected = advancedInteractions.some(({ id }) =>
+    capabilityReadinessOption(readiness.interactions, id).selected);
   return (
     <section className="permission-control-card execution-interaction-section">
       <div className="section-heading">
@@ -454,19 +521,20 @@ export function ExecutionInteractionPanel({ client, detail, readiness }: {
         <StatusBadge status={interaction.workspace_trust} />
       </div>
       <div aria-label={t("Run 执行交互", "Run execution interaction")}
-        className="permission-option-grid permission-option-grid-four" role="group">
-        {interactionModes.map(({ id, chinese, english, detailChinese, detailEnglish, icon: Icon }) => {
-          const option = capabilityReadinessOption(readiness.interactions, id);
-          return <button aria-pressed={option.selected}
-            disabled={mutation.isPending || option.selected || !option.selectable}
-            key={id} onClick={() => choose(id)} type="button">
-            <Icon aria-hidden="true" size={17} />
-            <span><strong>{t(chinese, english)}</strong><small>{capabilityReadinessDetail(
-              option, t(detailChinese, detailEnglish), t)}</small></span>
-            {option.selected && <Check aria-hidden="true" size={15} />}
-          </button>;
-        })}
+        className="permission-option-grid permission-option-grid-two" role="group">
+        {safeInteractions.map(renderOption)}
       </div>
+      <details className="permission-advanced-disclosure" open={advancedSelected || undefined}>
+        <summary><ShieldAlert aria-hidden="true" size={15} />
+          <span><strong>{t("高级交互模式", "Advanced interaction modes")}</strong>
+            <small>{t("Debug 与 Cyber 会扩大终端持续时间或容器边界",
+              "Debug and Cyber widen terminal lifetime or container boundaries")}</small></span>
+        </summary>
+        <div aria-label={t("高级 Run 执行交互", "Advanced Run execution interaction")}
+          className="permission-option-grid permission-option-grid-two" role="group">
+          {advancedInteractions.map(renderOption)}
+        </div>
+      </details>
       {pendingMode && <PermissionConfirmation
         description={pendingMode === "controlled"
           ? t("信任当前工作区并使用受控的一次性命令。", "Trust this workspace and use controlled one-shot commands.")
@@ -571,6 +639,9 @@ export function StandardCodeReadinessPanel({ client, detail, readiness }: {
       : result.status === "waiting_for_pause" ? t("等待静止", "waiting for quiescence")
         : t("被阻止", "blocked")
     : option.runtime_available ? t("就绪", "ready") : t("未就绪", "not ready");
+  const pauseCanResolve = detail.run.status === "running" &&
+    option.blocked_by.length > 0 && option.blocked_by.every((blocker) =>
+      blocker === "run_not_quiescent" || blocker === "execution_lease_active");
   return <section className="permission-control-card standard-code-readiness-section">
     <div className="section-heading">
       <div>
@@ -584,13 +655,15 @@ export function StandardCodeReadinessPanel({ client, detail, readiness }: {
     <div aria-label={t("Standard Code 预设", "Standard Code preset")}
       className="permission-option-grid permission-option-grid-two" role="group">
       <button aria-pressed={option.selected}
-        disabled={!client.hasStandardCodePreset || mutation.isPending || option.selected}
+        disabled={!client.hasStandardCodePreset || mutation.isPending || option.selected ||
+          (!option.selectable && !pauseCanResolve)}
         onClick={() => invoke("auto")} type="button">
         <Code2 aria-hidden="true" size={17} />
         <span>
           <strong>{detail.run.status === "running"
             ? t("暂停并开始编码", "Pause and start coding")
             : t("开始编码", "Start coding")}</strong>
+          <CapabilityState option={option} />
           <small>{capabilityReadinessDetail(option,
             t("工作区执行与受控沙箱", "Workspace access with controlled sandbox"), t)}</small>
         </span>
@@ -631,6 +704,14 @@ export function StandardCodeReadinessPanel({ client, detail, readiness }: {
         {t("下一步", "Next")}: {result.next_steps.map((step) =>
           localizedStandardCodeNextStep(step, t)).join(" · ")}
       </p>}
+    {result?.status === "waiting_for_pause" && <div className="permission-readiness-explanation"
+      role="status">
+      <strong>{t("暂停尚未完成", "Pause is not complete")}</strong>
+      <span>{t("控制面已请求暂停，但在 Run 完全静止且执行租约释放前不会提交 Standard Code 配置；这不是配置成功。",
+        "The control plane requested a pause, but Standard Code is not committed until the Run is fully quiescent and its execution lease is released. This is not a successful configuration.")}</span>
+      {result.blocked_by.length > 0 && <small>{result.blocked_by.map((blocker) =>
+        localizedReadinessValue(readinessBlockerLabels, blocker, t)).join(" · ")}</small>}
+    </div>}
     {result?.status === "configured" && result.run_id && result.run_id !== detail.run.id &&
       <p className="permission-closed-note">
         {t("已创建新的 Code Run", "Created a new Code Run")}: {shortID(result.run_id)}
@@ -727,12 +808,61 @@ function capabilityReadinessDetail(option: CapabilityReadinessOptionView,
   if (option.blocked_by.length === 0) {
     return option.runtime_available ? fallback : t("运行时不可用", "Runtime unavailable");
   }
-  const blocker = localizedReadinessValue(readinessBlockerLabels, option.blocked_by[0]!, t);
-  const remediation = localizedReadinessValue(readinessRemediationLabels,
-    option.remediation[0]!, t);
-  const additional = option.blocked_by.length > 1 ? ` +${option.blocked_by.length - 1}` : "";
+  const blockers = option.blocked_by.map((value) =>
+    localizedReadinessValue(readinessBlockerLabels, value, t)).join(" · ");
+  const remediation = option.remediation.map((value) =>
+    localizedReadinessValue(readinessRemediationLabels, value, t)).join(" · ");
   const restart = option.restart_required ? t(" · 需重启", " · restart required") : "";
-  return `${blocker}${additional} · ${remediation}${restart}`;
+  return `${blockers} → ${remediation}${restart}`;
+}
+
+type CapabilityPresentationState = "selected" | "temporarily_locked" |
+  "startup_unavailable" | "backend_unavailable" | "incompatible" |
+  "advanced_risk" | "action_required" | "available" | "unavailable";
+
+function capabilityPresentationState(option: CapabilityReadinessOptionView,
+  advancedRisk = false): CapabilityPresentationState {
+  if (option.selected) return "selected";
+  const blockers = new Set(option.blocked_by);
+  if (blockers.has("run_not_quiescent") || blockers.has("execution_lease_active")) {
+    return "temporarily_locked";
+  }
+  if (blockers.has("startup_gate_closed") || blockers.has("capability_not_implemented")) {
+    return "startup_unavailable";
+  }
+  if (blockers.has("backend_not_ready") || blockers.has("sandbox_unproven") ||
+    blockers.has("docker_unavailable")) {
+    return "backend_unavailable";
+  }
+  if (blockers.has("surface_mismatch") || blockers.has("profile_mismatch") ||
+    blockers.has("permission_mismatch")) {
+    return "incompatible";
+  }
+  if (blockers.has("workspace_untrusted")) return "action_required";
+  if (advancedRisk) return "advanced_risk";
+  if (!option.selectable || !option.runtime_available) return "unavailable";
+  return "available";
+}
+
+function CapabilityState({ option, advancedRisk = false }: {
+  option: CapabilityReadinessOptionView;
+  advancedRisk?: boolean;
+}) {
+  const { t } = useLocale();
+  const state = capabilityPresentationState(option, advancedRisk);
+  const labels: Record<CapabilityPresentationState, [string, string]> = {
+    selected: ["已选择", "Selected"],
+    temporarily_locked: ["暂时锁定", "Temporarily locked"],
+    startup_unavailable: ["启动时不可用", "Unavailable at startup"],
+    backend_unavailable: ["后端不可用", "Backend unavailable"],
+    incompatible: ["不兼容", "Incompatible"],
+    advanced_risk: ["高级风险", "Advanced risk"],
+    action_required: ["需要操作", "Action required"],
+    available: ["可用", "Available"],
+    unavailable: ["不可用", "Unavailable"],
+  };
+  return <em className={`capability-state capability-state-${state}`}
+    data-readiness-state={state}>{t(...labels[state])}</em>;
 }
 
 function localizedReadinessValue(labels: Record<string, [string, string]>,

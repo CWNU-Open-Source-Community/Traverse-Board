@@ -38,6 +38,7 @@ const (
 
 type desktopOptions struct {
 	operatorPreview        bool
+	safeView               bool
 	profileControl         bool
 	permissionControl      bool
 	workspaceSandbox       bool
@@ -226,7 +227,9 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 	fs := flag.NewFlagSet("cyberagent-desktop", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	operatorPreview := fs.Bool("operator-preview", false,
-		"enable the safe operator Desktop capability bundle for local product testing")
+		"compatibility mode for the legacy safe Desktop capability bundle")
+	safeView := fs.Bool("safe-view", false,
+		"launch the explicit read-only Desktop without control capabilities")
 	profileControl := fs.Bool("enable-profile-control", false,
 		"enable only the non-authorizing Run execution-profile control")
 	permissionControl := fs.Bool("enable-permission-control", false,
@@ -312,90 +315,12 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 	if fs.NArg() != 0 {
 		return desktopOptions{}, errors.New("cyberagent-desktop accepts no positional arguments")
 	}
-	if *operatorPreview {
-		*profileControl = true
-		*permissionControl = true
-		*workspaceSandbox = true
-		*browserCDPControl = true
-		*runCreation = true
-		*sessionMessages = true
-		*sessionSteeringControl = true
-		*runLifecycle = true
-		*runExecution = true
-		*planDeliveryControl = true
-		*approvalControl = true
-		*commandProposalControl = true
-		*hostCommandProposals = true
-		*modelControl = true
-		*providerCredentials = true
-		*fileEditReview = true
-		*fileEditProposals = true
-		*runWakeControl = true
-		*fileEditApply = true
-		*runWakeExecution = true
-		*scheduledJobControl = true
-		*scheduledJobWorker = true
-		*skillInstallation = true
-		*evidenceAttachment = true
-		*verificationEvidence = true
-		*embeddedAnalyzer = true
-		*batchDeliveryControl = true
-		*gitAdvanced = true
-		*githubReview = true
+	visited := make(map[string]struct{})
+	fs.Visit(func(current *flag.Flag) { visited[current.Name] = struct{}{} })
+	if *safeView && len(visited) != 1 {
+		return desktopOptions{}, errors.New("--safe-view cannot be combined with other Desktop options")
 	}
-	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled:   *permissionControl,
-		DangerFullAccessEnabled:   *dangerFullAccess,
-		DebugMaximumAccessEnabled: *debugMaximumAccess,
-	}
-	if err := capabilities.Validate(); err != nil {
-		return desktopOptions{}, err
-	}
-	if *debugMaximumAccess && !*userTerminal {
-		return desktopOptions{}, errors.New(
-			"debug maximum access requires --enable-user-terminal")
-	}
-	if *hostCommandProposals && !*permissionControl {
-		return desktopOptions{}, errors.New(
-			"host command proposals require --enable-permission-control")
-	}
-	if *workspaceSandbox && !*permissionControl {
-		return desktopOptions{}, errors.New(
-			"Workspace Sandbox requires --enable-permission-control")
-	}
-	if *dockerExecution && !*permissionControl {
-		return desktopOptions{}, errors.New(
-			"Docker execution requires --enable-permission-control")
-	}
-	if *gitAdvanced && !*permissionControl {
-		return desktopOptions{}, errors.New(
-			"Git advanced control requires --enable-permission-control")
-	}
-	if *githubReview && !*permissionControl {
-		return desktopOptions{}, errors.New(
-			"GitHub review control requires --enable-permission-control")
-	}
-	if strings.TrimSpace(*gitWorktreeRoot) != "" && !*gitAdvanced && !*githubReview {
-		return desktopOptions{}, errors.New(
-			"--git-worktree-root requires --enable-git-advanced or --enable-github-review")
-	}
-	if *batchValidation && (!*batchDeliveryControl || !*permissionControl || !*dangerFullAccess) {
-		return desktopOptions{}, errors.New(
-			"batch validation execution requires --enable-batch-delivery-control, --enable-permission-control, and --enable-danger-full-access")
-	}
-	if *fullCDPDebug && (!*browserCDPControl || !*debugMaximumAccess) {
-		return desktopOptions{}, errors.New(
-			"full CDP debug requires --enable-browser-cdp-control and --enable-debug-maximum-access")
-	}
-	if *scheduledJobWorker && !*scheduledJobControl {
-		return desktopOptions{}, errors.New(
-			"scheduled job worker requires --enable-scheduled-jobs")
-	}
-	if *uiEvidence && (!*runExecution || !*dangerFullAccess || !*browserCDPControl) {
-		return desktopOptions{}, errors.New(
-			"UI evidence requires --enable-run-execution, --enable-danger-full-access, and --enable-browser-cdp-control")
-	}
-	return desktopOptions{operatorPreview: *operatorPreview,
+	config := desktopOptions{operatorPreview: *operatorPreview, safeView: *safeView,
 		profileControl: *profileControl, runCreation: *runCreation,
 		permissionControl: *permissionControl, dangerFullAccess: *dangerFullAccess,
 		workspaceSandbox:       *workspaceSandbox,
@@ -433,7 +358,102 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		gitAdvanced:            *gitAdvanced,
 		githubReview:           *githubReview,
 		gitWorktreeRoot:        strings.TrimSpace(*gitWorktreeRoot),
-		version:                *version}, nil
+		version:                *version}
+	// A normal product launch has no arguments. Keep every explicit --enable-*
+	// invocation in the legacy granular mode so a single high-risk switch never
+	// inherits prerequisite authority from the product defaults.
+	if len(visited) == 0 || config.operatorPreview {
+		enableSafeDesktopProductBundle(&config)
+	}
+	if config.operatorPreview {
+		// Preserve the old preview launcher's explicit worker behavior. A normal
+		// double-click never resumes durable background work on upgrade.
+		config.scheduledJobWorker = true
+	}
+	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled:   config.permissionControl,
+		DangerFullAccessEnabled:   config.dangerFullAccess,
+		DebugMaximumAccessEnabled: config.debugMaximumAccess,
+	}
+	if err := capabilities.Validate(); err != nil {
+		return desktopOptions{}, err
+	}
+	if config.debugMaximumAccess && !config.userTerminal {
+		return desktopOptions{}, errors.New(
+			"debug maximum access requires --enable-user-terminal")
+	}
+	if config.hostCommandProposals && !config.permissionControl {
+		return desktopOptions{}, errors.New(
+			"host command proposals require --enable-permission-control")
+	}
+	if config.workspaceSandbox && !config.permissionControl {
+		return desktopOptions{}, errors.New(
+			"Workspace Sandbox requires --enable-permission-control")
+	}
+	if config.dockerExecution && !config.permissionControl {
+		return desktopOptions{}, errors.New(
+			"Docker execution requires --enable-permission-control")
+	}
+	if config.gitAdvanced && !config.permissionControl {
+		return desktopOptions{}, errors.New(
+			"Git advanced control requires --enable-permission-control")
+	}
+	if config.githubReview && !config.permissionControl {
+		return desktopOptions{}, errors.New(
+			"GitHub review control requires --enable-permission-control")
+	}
+	if config.gitWorktreeRoot != "" && !config.gitAdvanced && !config.githubReview {
+		return desktopOptions{}, errors.New(
+			"--git-worktree-root requires --enable-git-advanced or --enable-github-review")
+	}
+	if config.batchValidation && (!config.batchDeliveryControl || !config.permissionControl || !config.dangerFullAccess) {
+		return desktopOptions{}, errors.New(
+			"batch validation execution requires --enable-batch-delivery-control, --enable-permission-control, and --enable-danger-full-access")
+	}
+	if config.fullCDPDebug && (!config.browserCDPControl || !config.debugMaximumAccess) {
+		return desktopOptions{}, errors.New(
+			"full CDP debug requires --enable-browser-cdp-control and --enable-debug-maximum-access")
+	}
+	if config.scheduledJobWorker && !config.scheduledJobControl {
+		return desktopOptions{}, errors.New(
+			"scheduled job worker requires --enable-scheduled-jobs")
+	}
+	if config.uiEvidence && (!config.runExecution || !config.dangerFullAccess || !config.browserCDPControl) {
+		return desktopOptions{}, errors.New(
+			"UI evidence requires --enable-run-execution, --enable-danger-full-access, and --enable-browser-cdp-control")
+	}
+	return config, nil
+}
+
+func enableSafeDesktopProductBundle(config *desktopOptions) {
+	config.profileControl = true
+	config.permissionControl = true
+	config.workspaceSandbox = true
+	config.browserCDPControl = true
+	config.runCreation = true
+	config.sessionMessages = true
+	config.sessionSteeringControl = true
+	config.runLifecycle = true
+	config.runExecution = true
+	config.planDeliveryControl = true
+	config.approvalControl = true
+	config.commandProposalControl = true
+	config.hostCommandProposals = true
+	config.modelControl = true
+	config.providerCredentials = true
+	config.fileEditReview = true
+	config.fileEditProposals = true
+	config.runWakeControl = true
+	config.fileEditApply = true
+	config.runWakeExecution = true
+	config.scheduledJobControl = true
+	config.skillInstallation = true
+	config.evidenceAttachment = true
+	config.verificationEvidence = true
+	config.embeddedAnalyzer = true
+	config.batchDeliveryControl = true
+	config.gitAdvanced = true
+	config.githubReview = true
 }
 
 func desktopWorkspaceSandboxRuntimeAvailable(config desktopOptions,

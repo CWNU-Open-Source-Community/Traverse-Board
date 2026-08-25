@@ -3,25 +3,27 @@ Traverse Board · 针路簿 Windows 本地试用说明
 
 推荐入口
 --------
-双击 Start-Prayu-Operator-Preview.cmd。
+直接双击 TraverseBoard.exe。历史文件名 Start-Prayu-Operator-Preview.cmd 现在只是
+同一安全默认入口的兼容快捷方式，不再需要单独的预览启动参数。
 
-这个入口只启用本地产品试用所需的安全操作者能力，不启用完全访问、Debug
-最大权限、完整 CDP、后台唤醒 Worker 或 Agent 持久终端。直接双击
-TraverseBoard.exe 会按设计进入更保守的默认模式。
+默认入口启用首次编码所需的安全控制面与沙箱 adapter，不启用完全访问、Debug
+最大权限、完整 CDP、后台唤醒/定时 Worker 或 Agent 持久终端。若只需要查看，
+可从 PowerShell 运行 `./TraverseBoard.exe --safe-view`，该入口不创建 control token。
 
 首次接入真实模型
 ----------------
-1. 打开左侧“模型切换”，或进入“设置与账户 > 模型与配置”。
-2. 在“系统凭证”中为 mimo、deepseek 或 anthropic 输入 API 凭证并保存。
+1. 首次双击 EXE 后，按向导选择语言与 Provider。
+2. 在向导“系统凭证”中为 mimo、deepseek 或 anthropic 输入 API 凭证并保存。
    凭证由 Windows Credential Manager 保管，不写入 SQLite、日志或事件流。
-3. 如果界面提示需要重启，请关闭针路簿，然后再次双击本启动器。
+3. 如果界面提示需要重启，请关闭针路簿，然后再次双击 EXE。
 4. 依次点击 Provider 的“连接诊断”和“Harness 验证”。Harness 验证会发起
    最多两次真实、受限的模型请求，但不会执行 Shell、文件、浏览器或工具动作。
-5. 在“模型路由”中为 code（或所需路由）选择已验证的 Provider/模型并保存。
+5. 选择工作区、核对 Go 返回的后端 readiness 与工作区摘要，然后显式确认信任。
+   向导会原子创建 Standard Code Run；选择目录本身不会自动信任或修改文件。
 
 真实对话
 --------
-1. 点击“新建任务”，选择工作区并创建 Run。
+1. 在首次向导完成后点击“开始编码”，或从首页使用同名唯一入口。
 2. 在底部输入区输入消息并发送。
 3. 针路簿会创建或复用该 Run 的 Session，持久化用户消息，执行一个有界
    Supervisor step，并把真实 Provider 回复写回会话。刷新或重启后可继续读取。
@@ -46,26 +48,30 @@ Traverse Board Windows Local Test Guide
 
 Recommended entry point
 -----------------------
-Double-click Start-Prayu-Operator-Preview.cmd.
+Double-click TraverseBoard.exe directly. The historical
+Start-Prayu-Operator-Preview.cmd filename is now only a compatibility shortcut
+to the same safe default; a separate preview argument is no longer required.
 
-This launcher enables only the safe operator capabilities needed for local product
-testing. It does not enable danger-full-access, maximum Debug access, Full CDP,
-the background wake worker, or an Agent-controlled persistent terminal. Launching
-TraverseBoard.exe directly intentionally starts in the more conservative mode.
+The default enables the safe control plane and sandbox adapter needed for first-time
+coding. It does not enable danger-full-access, maximum Debug, Full CDP, background
+wake/scheduled workers, or an Agent-controlled persistent terminal. For read-only use,
+run `./TraverseBoard.exe --safe-view` from PowerShell; Safe View creates no control token.
 
 Connect a real model
 --------------------
-1. Open Model selection, or Settings and account > Models and providers.
+1. On the first direct launch, choose a language and Provider in the setup wizard.
 2. Store an API credential for mimo, deepseek, or anthropic under System credentials.
    Windows Credential Manager owns the secret; SQLite, logs, and events do not.
-3. Restart Traverse Board with this launcher if the interface requests a restart.
+3. Restart Traverse Board by double-clicking the EXE if the interface requests it.
 4. Run Provider diagnostics, then Harness qualification. Qualification performs at
    most two bounded real model calls and executes no shell, file, browser, or tool action.
-5. Select the qualified Provider/model for the code route (or another required route).
+5. Choose a Workspace, review Go-owned backend readiness and the Workspace digest,
+   then confirm trust explicitly. The wizard atomically creates a Standard Code Run;
+   choosing a directory alone neither trusts nor modifies it.
 
 Real chat
 ---------
-1. Choose New task, select a workspace, and create a Run.
+1. Choose Start coding when the wizard completes, or use the single matching home entry.
 2. Send a message from the composer.
 3. Traverse Board creates or reuses the Run Session, persists the user message, runs one bounded
    Supervisor step, and stores the real Provider response. Refresh and restart recovery

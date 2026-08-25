@@ -41,4 +41,26 @@ describe("EmptyConversation", () => {
     expect(fireEvent.keyDown(composer, { key: "Enter" })).toBe(false);
     expect(onCreateRun).toHaveBeenCalledWith({ goal: "检查当前项目", phase: "deliver" });
   });
+
+  it("uses one home action for first coding or resuming the latest Run", () => {
+    const onCreateRun = vi.fn();
+    const onStartCoding = vi.fn();
+    const first = render(<QueryClientProvider client={new QueryClient()}>
+      <EmptyConversation client={{} as CyberAgentClient} creationEnabled
+        onCreateRun={onCreateRun} onStartCoding={onStartCoding} />
+    </QueryClientProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "开始编码" }));
+    expect(onStartCoding).toHaveBeenCalledOnce();
+    expect(screen.queryByLabelText("描述任务")).not.toBeInTheDocument();
+    first.unmount();
+
+    const onContinueRun = vi.fn();
+    render(<QueryClientProvider client={new QueryClient()}>
+      <EmptyConversation client={{} as CyberAgentClient} creationEnabled
+        onContinueRun={onContinueRun} onCreateRun={onCreateRun} />
+    </QueryClientProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "继续 Run" }));
+    expect(onContinueRun).toHaveBeenCalledOnce();
+    expect(screen.queryByLabelText("描述任务")).not.toBeInTheDocument();
+  });
 });

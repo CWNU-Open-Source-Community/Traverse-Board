@@ -1613,8 +1613,9 @@ Code/Deliver/root, `workspace_access`, an active execution lease, a Run-owned
 Drydock, and either ready Local (`local + controlled`) or fixed Docker Standard
 Code (`docker`) isolation. A `host_unsandboxed` adapter requires Code/Local/Deliver,
 `full_access`, the active lease, and both permission-control and danger-full-access
-startup gates. The safe `--operator-preview` bundle intentionally does not install
-the host adapter.
+startup gates. The direct-launch safe bundle (and the legacy
+`--operator-preview` compatibility mode) intentionally does not install the host adapter.
+`--safe-view` creates no control token and exposes only read projections.
 
 ```powershell
 # Desktop: the Settings capability row will show “命令运行时 / Command runtime”.

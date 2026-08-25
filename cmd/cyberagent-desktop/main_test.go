@@ -81,13 +81,35 @@ func TestDesktopWorkspaceSandboxAvailabilityRequiresValidatedReadiness(t *testin
 	}
 }
 
-func TestDesktopOptionsDefaultToReadOnlyAndRequireExplicitCapabilities(t *testing.T) {
+func TestDesktopOptionsDefaultToSafeProductAndKeepGranularCapabilitiesExplicit(t *testing.T) {
 	defaults, err := parseDesktopOptions(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if defaults != (desktopOptions{}) {
-		t.Fatalf("unexpected defaults: %#v", defaults)
+	if !defaults.profileControl || !defaults.permissionControl ||
+		!defaults.workspaceSandbox || !defaults.browserCDPControl ||
+		!defaults.runCreation || !defaults.runExecution || !defaults.modelControl ||
+		!defaults.providerCredentials || !defaults.gitAdvanced ||
+		!defaults.githubReview {
+		t.Fatalf("default safe product capability bundle is incomplete: %#v", defaults)
+	}
+	if defaults.operatorPreview || defaults.safeView || defaults.dangerFullAccess ||
+		defaults.debugMaximumAccess || defaults.fullCDPDebug || defaults.userTerminal ||
+		defaults.dockerExecution || defaults.batchValidation || defaults.runWakeWorker ||
+		defaults.scheduledJobWorker {
+		t.Fatalf("default product launch silently enabled high-risk authority: %#v", defaults)
+	}
+	readOnly, err := parseDesktopOptions([]string{"--safe-view"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if readOnly != (desktopOptions{safeView: true}) {
+		t.Fatalf("explicit Safe View is not read-only: %#v", readOnly)
+	}
+	if _, err := parseDesktopOptions([]string{
+		"--safe-view", "--enable-run-creation",
+	}); err == nil {
+		t.Fatal("Safe View was combined with a control capability")
 	}
 	for _, current := range []struct {
 		flag string
@@ -249,7 +271,8 @@ func TestDesktopOperatorPreviewEnablesTheSafeProductBundleOnly(t *testing.T) {
 		!preview.runWakeExecution || !preview.skillInstallation ||
 		!preview.scheduledJobControl || !preview.scheduledJobWorker ||
 		!preview.evidenceAttachment || !preview.verificationEvidence ||
-		!preview.embeddedAnalyzer || !preview.batchDeliveryControl || !preview.gitAdvanced {
+		!preview.embeddedAnalyzer || !preview.batchDeliveryControl || !preview.gitAdvanced ||
+		!preview.githubReview {
 		t.Fatalf("operator preview capability bundle is incomplete: %+v", preview)
 	}
 	if preview.dangerFullAccess || preview.debugMaximumAccess || preview.fullCDPDebug ||
