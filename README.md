@@ -102,6 +102,12 @@ Schema v130 与 `llm.item_stream.v1` 将 OpenAI 的交错 tool-call delta、Anth
 
 Thread 页面同屏提供发送、暂停/恢复、审批、继续和交付查看；Events、Artifacts、Run 与 Session 页面继续作为专业审计面。长历史由有界可变高度虚拟列表承担，Composer 是独立 sticky 根布局区域，并覆盖窄屏、200% 等效缩放、中文 IME、虚拟键盘、safe area 和 reduced motion。安全投影不包含工具参数、raw output、provider bytes、凭据或私有推理。设计与恢复合同见 [ADR 0134](docs/adr/0134-unified-thread-transcript.md)。
 
+### Run 级 Web 证据
+
+Schema v134 的 `web_search`、`web_fetch` 与 `web_citation` 把公网资料发现、抓取和引用拆成三条 Go-owned 路径。Search 只返回不可引用的结果 stub；Fetch 在 Run allowlist、HTTPS/443、SSRF、DNS pinning、逐跳重定向复核、robots、超时、大小、MIME 与受控解析器边界内生成不可变快照；Citation 只能绑定同一 Run 中已抓取或 partial 的快照。网页正文、搜索片段和 PDF 文本始终是不可信证据，不能授权工具或覆盖系统指令。
+
+新 Run 默认保持网络关闭。需要搜索时必须显式配置 `CYBERAGENT_WEB_SEARCH_ENDPOINT` 指向 SearXNG JSON API，并在创建 Run 时使用 `--network allowlist` 与精确 `--allow-target`；缺少配置或授权时工具不发布，也不会回退到浏览器、Shell 或其他 Provider。Thread、`cyberagent web-evidence list` 和认证 HTTP API 共用只含链接、标题、状态、抓取时间与 digest 的安全投影。配置、故障处理、条款/版权说明见 [Web Evidence](docs/web-evidence.md)，设计见 [ADR 0137](docs/adr/0137-go-owned-web-evidence.md)。
+
 ### Run-owned Drydock 工作目录
 
 Schema v127 的 `drydock-workspace.v1` 从精确的 source Workspace、repository/common-dir、branch、base commit、root 指纹和 dirty/index 状态创建产品管理的独立 worktree。首次 create 只返回 Workspace Trust digest；操作者必须把该 digest 原样带入第二次确认，任何来源漂移都会失败关闭。来源未提交内容只进入 Trust 回执，不会被暗中复制。Trust 永远固定 `grants_process_authority=false`；Drydock 本身不提供进程、网络、凭证或宿主文件系统隔离。
@@ -560,6 +566,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 | v131 | 将 Command Runtime Job、Supervisor 广告与执行回执绑定到 adapter identity，并把旧记录投影为只读 legacy_unbound | bind Command Runtime jobs, Supervisor advertisements, and receipts to adapter identity while projecting legacy records as read-only legacy_unbound |
 | v132 | 将 Docker Command Runtime 的进程内 stdin attach 绑定到不可变生命周期 WAL 与当前租约 | fence process-local Docker Command Runtime stdin attachment through the immutable lifecycle WAL and current lease |
 | v133 | 原子提交 Standard Code 预设，并持久化等待静止边界的暂停配置意图 | atomically commit the Standard Code preset and persist pause-and-configure intents awaiting a quiescent boundary |
+| v134 | 增加 Run 级 Web Search/Fetch/Citation 来源、不可变快照与幂等操作账本 | add Run-scoped Web Search/Fetch/Citation sources, immutable snapshots, and idempotent operation ledger |
 
 </details>
 

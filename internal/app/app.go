@@ -33,6 +33,7 @@ import (
 	"cyberagent-workbench/internal/store"
 	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/tools"
+	"cyberagent-workbench/internal/webevidence"
 	"cyberagent-workbench/internal/workspace"
 )
 
@@ -43,6 +44,8 @@ const Name = buildinfo.ProductName
 const defaultDeepSeekModel = modelregistry.DefaultDeepSeekModel
 
 const codeIntelConfigEnvironment = "CYBERAGENT_CODE_INTEL_CONFIG"
+
+const webSearchEndpointEnvironment = "CYBERAGENT_WEB_SEARCH_ENDPOINT"
 
 type App struct {
 	home                  string
@@ -140,6 +143,9 @@ func (a *App) newRunSupervisor() *application.RunSupervisor {
 	if a.codeIntel != nil {
 		supervisor.WithCodeIntel(a.codeIntel)
 	}
+	if service := a.newWebEvidenceService(); service != nil {
+		supervisor.WithWebEvidence(service)
+	}
 	return supervisor
 }
 
@@ -176,7 +182,24 @@ func (a *App) newToolGateway() *toolgateway.Gateway {
 	if engine := a.newLifecycleHookEngine(); engine != nil {
 		gateway.WithLifecycleHooks(engine)
 	}
+	if service := a.newWebEvidenceService(); service != nil {
+		if executor, err := application.NewWebEvidenceToolExecutor(a.store, service); err == nil {
+			gateway.WithWebEvidenceExecutor(executor)
+		}
+	}
 	return gateway
+}
+
+func (a *App) newWebEvidenceService() *webevidence.Service {
+	if a == nil || a.store == nil {
+		return nil
+	}
+	client := webevidence.NewSafeHTTPClient()
+	var provider webevidence.SearchProvider
+	if endpoint := strings.TrimSpace(os.Getenv(webSearchEndpointEnvironment)); endpoint != "" {
+		provider, _ = webevidence.NewSearXNGProvider(client, endpoint)
+	}
+	return webevidence.NewService(a.store, provider, webevidence.NewFetcher(client))
 }
 
 func (a *App) newMCPClientManager() *mcp.Manager {
@@ -283,6 +306,8 @@ func (a *App) dispatch(ctx context.Context, args []string) error {
 		return a.artifactCommand(ctx, args[1:])
 	case "ui-evidence":
 		return a.uiEvidenceCommand(ctx, args[1:])
+	case "web-evidence":
+		return a.webEvidenceCommand(ctx, args[1:])
 	case "analyzer":
 		return a.analyzerCommand(ctx, args[1:])
 	case "report":
@@ -351,6 +376,7 @@ func (a *App) printHelp() {
 	fmt.Fprintln(a.out, "  cyberagent sandbox validate|template|local-readiness")
 	fmt.Fprintln(a.out, "  cyberagent artifact list|show|read|verify")
 	fmt.Fprintln(a.out, "  cyberagent ui-evidence list|show|artifact")
+	fmt.Fprintln(a.out, "  cyberagent web-evidence list --run <run-id> [--limit <n>]")
 	fmt.Fprintln(a.out, "  cyberagent analyzer execute")
 	fmt.Fprintln(a.out, "  cyberagent report show|finding|check")
 	fmt.Fprintln(a.out, "  cyberagent report finding attach|validate|reject|accept|remediation|fix|verify")

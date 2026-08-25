@@ -4760,6 +4760,31 @@ summary:focus-visible {
   background: var(--prayu-control, var(--surface-subtle));
   font-size: 8px;
 }
+.thread-web-evidence {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--prayu-accent, var(--accent)) 24%, var(--prayu-border, var(--line)));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--prayu-accent, var(--accent)) 5%, transparent);
+}
+.thread-web-evidence-heading,
+.thread-web-evidence-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.thread-web-evidence-heading a {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 5px;
+  color: var(--prayu-accent, var(--accent));
+  font-weight: 650;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.thread-web-evidence-heading a span { overflow-wrap: anywhere; }
+.thread-web-evidence-meta { color: var(--prayu-muted, var(--muted)); font-size: 10px; }
+.thread-web-evidence-meta code { font-size: 9px; }
+.thread-web-evidence > small { color: var(--prayu-muted, var(--muted)); }
 .thread-transcript-disclosure { margin-top: 5px; }
 .thread-transcript-disclosure > summary {
   min-height: 30px;

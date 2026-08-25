@@ -3,10 +3,13 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/commandruntimeadapter"
@@ -15,6 +18,7 @@ import (
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/toolgateway"
+	"cyberagent-workbench/internal/webevidence"
 )
 
 func (s *SQLiteStore) ListSupervisorToolRounds(ctx context.Context,
@@ -208,9 +212,22 @@ func normalizeSupervisorToolCallsForStore(calls []llm.ToolCall, runID string, tu
 					"command runtime supervisor tool authority is invalid")
 			}
 			normalized[index].Authority = canonicalAuthority
+		} else if toolgateway.IsWebEvidenceTool(name) {
+			authority, authorityErr := toolgateway.DecodeWebEvidenceCallAuthority(
+				normalized[index].Authority)
+			if authorityErr != nil || authority.RunID != runID {
+				return nil, apperror.New(apperror.CodeInvalidArgument,
+					"web evidence supervisor tool is missing its exact durable authority")
+			}
+			canonicalAuthority, authorityErr := toolgateway.EncodeWebEvidenceCallAuthority(authority)
+			if authorityErr != nil || len(canonicalAuthority) > domain.MaxSupervisorToolAuthorityBytes {
+				return nil, apperror.New(apperror.CodeInvalidArgument,
+					"web evidence supervisor tool authority is invalid")
+			}
+			normalized[index].Authority = canonicalAuthority
 		} else if len(normalized[index].Authority) != 0 {
 			return nil, apperror.New(apperror.CodeInvalidArgument,
-				"non-agent-code supervisor tool cannot carry authority")
+				"non-authority-bound supervisor tool cannot carry authority")
 		}
 		operationKey := runmutation.SupervisorToolOperationKey(runID, turn, normalized[index].Name, string(safe))
 		expectedID, err := runmutation.SupervisorToolCallID(operationKey, round)
@@ -316,7 +333,135 @@ func supervisorToolStreamEventPayload(call domain.SupervisorToolCall,
 		payload["provisional"] = false
 		payload["durable"] = true
 	}
+	if eventType == "" && toolgateway.IsWebEvidenceTool(toolgateway.ToolName(call.ToolName)) {
+		if presentation, ok := supervisorWebEvidenceEventPresentation(call); ok {
+			payload["web_evidence"] = presentation
+		}
+	}
 	return payload
+}
+
+func supervisorWebEvidenceEventPresentation(call domain.SupervisorToolCall) (map[string]any, bool) {
+	if call.Status != domain.SupervisorToolCompleted || strings.TrimSpace(call.ResultJSON) == "" {
+		return nil, false
+	}
+	if call.ToolName != string(toolgateway.WebFetchTool) &&
+		call.ToolName != string(toolgateway.WebCitationTool) {
+		return nil, false
+	}
+	var envelope struct {
+		Version  string            `json:"version"`
+		Tool     string            `json:"tool"`
+		Status   string            `json:"status"`
+		Metadata map[string]string `json:"metadata"`
+	}
+	if json.Unmarshal([]byte(call.ResultJSON), &envelope) != nil ||
+		envelope.Version != "supervisor_tool_result.v1" || envelope.Tool != call.ToolName ||
+		envelope.Status != string(domain.SupervisorToolCompleted) {
+		return nil, false
+	}
+	metadata := envelope.Metadata
+	canonical, err := webevidence.CanonicalizePublicHTTPSURL(metadata["url"])
+	if err != nil || canonical != metadata["url"] ||
+		!validSupervisorWebEvidenceIdentity(metadata["source_id"], false) ||
+		!validSupervisorWebEvidenceIdentity(metadata["snapshot_id"], false) ||
+		!validSupervisorWebEvidenceIdentity(metadata["citation_id"],
+			call.ToolName != string(toolgateway.WebCitationTool)) ||
+		!validSupervisorWebEvidenceTitle(metadata["title"]) ||
+		!validSupervisorWebEvidenceDigest(metadata["digest"]) {
+		return nil, false
+	}
+	fetchedAt, err := time.Parse(time.RFC3339Nano, metadata["fetched_at"])
+	if err != nil {
+		return nil, false
+	}
+	staleAt, err := time.Parse(time.RFC3339Nano, metadata["stale_at"])
+	if err != nil || staleAt.Before(fetchedAt) {
+		return nil, false
+	}
+	partial, partialOK := supervisorWebEvidenceBool(metadata["partial"])
+	stale, staleOK := supervisorWebEvidenceBool(metadata["stale"])
+	citeable, citeableOK := supervisorWebEvidenceBool(metadata["citeable"])
+	if !partialOK || !staleOK || !citeableOK {
+		return nil, false
+	}
+	state := strings.TrimSpace(metadata["state"])
+	switch state {
+	case "fetched":
+		if partial || stale || !citeable {
+			return nil, false
+		}
+	case "partial":
+		if !partial || stale || !citeable {
+			return nil, false
+		}
+	case "stale":
+		if !stale || !citeable {
+			return nil, false
+		}
+	case "blocked", "failed":
+		if partial || stale || citeable {
+			return nil, false
+		}
+	default:
+		return nil, false
+	}
+	return map[string]any{
+		"version": "web_evidence_presentation.v1", "url": canonical,
+		"title": metadata["title"], "state": state,
+		"source_id": metadata["source_id"], "snapshot_id": metadata["snapshot_id"],
+		"citation_id": metadata["citation_id"], "fetched_at": metadata["fetched_at"],
+		"stale_at": metadata["stale_at"], "digest": metadata["digest"],
+		"partial": partial, "stale": stale, "citeable": citeable, "untrusted": true,
+		"instruction_authorized": false,
+	}, true
+}
+
+func validSupervisorWebEvidenceIdentity(value string, optional bool) bool {
+	if value == "" {
+		return optional
+	}
+	if strings.TrimSpace(value) != value || !utf8.ValidString(value) ||
+		utf8.RuneCountInString(value) > 256 {
+		return false
+	}
+	for _, current := range value {
+		if unicode.IsControl(current) {
+			return false
+		}
+	}
+	return true
+}
+
+func validSupervisorWebEvidenceTitle(value string) bool {
+	if !utf8.ValidString(value) || utf8.RuneCountInString(value) > 1024 {
+		return false
+	}
+	for _, current := range value {
+		if unicode.IsControl(current) {
+			return false
+		}
+	}
+	return true
+}
+
+func validSupervisorWebEvidenceDigest(value string) bool {
+	if len(value) != 64 || strings.ToLower(value) != value {
+		return false
+	}
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == 32
+}
+
+func supervisorWebEvidenceBool(value string) (bool, bool) {
+	switch value {
+	case "true":
+		return true, true
+	case "false":
+		return false, true
+	default:
+		return false, false
+	}
 }
 
 func (s *SQLiteStore) RecordSupervisorToolResult(ctx context.Context, checkpoint domain.SupervisorCheckpoint,
@@ -333,7 +478,11 @@ func (s *SQLiteStore) RecordSupervisorToolResult(ctx context.Context, checkpoint
 		return domain.SupervisorToolCall{}, false, apperror.Wrap(apperror.CodeInvalidArgument,
 			"invalid supervisor tool result", err)
 	}
-	safeResult, err := redactJSONPayload(result.ResultJSON)
+	redactResult := redactJSONPayload
+	if supervisorWebEvidenceResultEnvelope(result.ResultJSON) {
+		redactResult = redactJSONPayloadWithoutHTMLEscape
+	}
+	safeResult, err := redactResult(result.ResultJSON)
 	if err != nil {
 		return domain.SupervisorToolCall{}, false, err
 	}
@@ -440,6 +589,18 @@ func (s *SQLiteStore) RecordSupervisorToolResult(ctx context.Context, checkpoint
 		return domain.SupervisorToolCall{}, false, err
 	}
 	return call, false, nil
+}
+
+func supervisorWebEvidenceResultEnvelope(raw string) bool {
+	var envelope struct {
+		Version string `json:"version"`
+		Tool    string `json:"tool"`
+	}
+	if json.Unmarshal([]byte(raw), &envelope) != nil ||
+		envelope.Version != "supervisor_tool_result.v1" {
+		return false
+	}
+	return toolgateway.IsWebEvidenceTool(toolgateway.ToolName(envelope.Tool))
 }
 
 func getSupervisorToolCallTx(ctx context.Context, tx *sql.Tx, checkpoint domain.SupervisorCheckpoint,

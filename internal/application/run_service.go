@@ -16,6 +16,7 @@ import (
 	"cyberagent-workbench/internal/projectconfig"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/session"
+	"cyberagent-workbench/internal/webevidence"
 )
 
 type RunStore interface {
@@ -41,16 +42,18 @@ type RunService struct {
 }
 
 type CreateRunRequest struct {
-	Goal        string
-	Profile     string
-	Surface     string
-	Phase       string
-	WorkspaceID string
-	SessionID   string
-	ModelRoute  string
-	Interactive bool
-	Budget      domain.Budget
-	RequestedBy string
+	Goal           string
+	Profile        string
+	Surface        string
+	Phase          string
+	WorkspaceID    string
+	SessionID      string
+	ModelRoute     string
+	Interactive    bool
+	NetworkMode    string
+	AllowedTargets []string
+	Budget         domain.Budget
+	RequestedBy    string
 	// ProjectConfig is the validated, narrowed .prayu snapshot. It can only
 	// reduce the requested budget and profiles; any widening was already
 	// rejected by the caller, and the Run pins this exact view at creation.
@@ -220,6 +223,29 @@ func prepareRun(ctx context.Context, req CreateRunRequest,
 		return preparedRun{}, err
 	}
 	workspaceID := strings.TrimSpace(req.WorkspaceID)
+	networkMode := strings.ToLower(strings.TrimSpace(req.NetworkMode))
+	if networkMode == "" {
+		networkMode = "disabled"
+	}
+	allowedTargets := make([]string, 0, len(req.AllowedTargets))
+	seenTargets := make(map[string]struct{}, len(req.AllowedTargets))
+	for _, rawTarget := range req.AllowedTargets {
+		target := strings.TrimSpace(rawTarget)
+		if target == "" {
+			return preparedRun{}, errors.New("Run network allowed targets cannot be empty")
+		}
+		if _, exists := seenTargets[target]; !exists {
+			seenTargets[target] = struct{}{}
+			allowedTargets = append(allowedTargets, target)
+		}
+	}
+	if networkMode == "disabled" && len(allowedTargets) != 0 {
+		return preparedRun{}, errors.New("disabled Run network mode cannot retain allowed targets")
+	}
+	if err := (webevidence.NetworkAuthority{Mode: networkMode,
+		AllowedTargets: allowedTargets}).Validate(); err != nil {
+		return preparedRun{}, fmt.Errorf("Run network scope: %w", err)
+	}
 	requestedSessionID := strings.TrimSpace(req.SessionID)
 	var linkedSession session.Session
 	createSession := requestedSessionID == ""
@@ -286,9 +312,10 @@ func prepareRun(ctx context.Context, req CreateRunRequest,
 		Goal:        goal,
 		Profile:     profile,
 		WorkspaceID: workspaceID,
-		Scope:       domain.DefaultScope(workspaceID),
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		Scope: domain.Scope{WorkspaceID: workspaceID, NetworkMode: networkMode,
+			AllowedTargets: append([]string(nil), allowedTargets...)},
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 	run := domain.Run{
 		ID:        idgen.New("run"),

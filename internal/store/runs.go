@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -535,6 +536,14 @@ func marshalRedactedJSON(value any) (string, error) {
 }
 
 func redactJSONPayload(payload string) (string, error) {
+	return redactJSONPayloadWithHTMLEscape(payload, true)
+}
+
+func redactJSONPayloadWithoutHTMLEscape(payload string) (string, error) {
+	return redactJSONPayloadWithHTMLEscape(payload, false)
+}
+
+func redactJSONPayloadWithHTMLEscape(payload string, escapeHTML bool) (string, error) {
 	if strings.TrimSpace(payload) == "" {
 		return "", nil
 	}
@@ -555,9 +564,17 @@ func redactJSONPayload(payload string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	encoded, err := json.Marshal(safeValue)
-	if err != nil {
-		return "", err
+	var encoded []byte
+	if escapeHTML {
+		encoded, err = json.Marshal(safeValue)
+	} else {
+		var buffer bytes.Buffer
+		encoder := json.NewEncoder(&buffer)
+		encoder.SetEscapeHTML(false)
+		if err := encoder.Encode(safeValue); err != nil {
+			return "", err
+		}
+		encoded = bytes.TrimSuffix(buffer.Bytes(), []byte("\n"))
 	}
 	if len(encoded) > maxStoreJSONPayloadBytes {
 		return "", fmt.Errorf("redacted event payload exceeds %d bytes", maxStoreJSONPayloadBytes)

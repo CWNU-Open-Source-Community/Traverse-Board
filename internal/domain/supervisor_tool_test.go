@@ -60,6 +60,9 @@ func TestSupervisorToolCallAcceptsEveryDurableToolName(t *testing.T) {
 		"debug_terminal",
 		"command_runtime",
 		"mcp_tool_call",
+		"web_search",
+		"web_fetch",
+		"web_citation",
 		"workspace_list",
 		"workspace_read",
 		"workspace_glob",
@@ -75,7 +78,8 @@ func TestSupervisorToolCallAcceptsEveryDurableToolName(t *testing.T) {
 				ToolName: toolName, PayloadJSON: `{}`, Status: SupervisorToolPending,
 				CreatedAt: now,
 			}
-			if isAgentCodeSupervisorTool(toolName) || toolName == "command_runtime" {
+			if isAgentCodeSupervisorTool(toolName) || toolName == "command_runtime" ||
+				isWebEvidenceSupervisorTool(toolName) {
 				call.AuthorityJSON = `{}`
 			}
 			if err := call.Validate(); err != nil {

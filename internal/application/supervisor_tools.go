@@ -1,6 +1,7 @@
 package application
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -18,6 +19,7 @@ import (
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/toolgateway"
+	"cyberagent-workbench/internal/webevidence"
 	"cyberagent-workbench/internal/workspace"
 )
 
@@ -40,11 +42,17 @@ type supervisorCommandRuntimeTools struct {
 	Authority json.RawMessage
 }
 
+type supervisorWebEvidenceTools struct {
+	Capabilities toolgateway.WebEvidenceCapabilities
+	Authority    json.RawMessage
+}
+
 type supervisorToolOptions struct {
 	CommandRuntime supervisorCommandRuntimeTools
 	AgentCode      supervisorAgentCodeTools
 	CodeIntel      supervisorCodeIntelTools
 	MCP            mcp.ScopedCapabilities
+	WebEvidence    supervisorWebEvidenceTools
 }
 
 type supervisorToolResultEnvelope struct {
@@ -57,6 +65,25 @@ type supervisorToolResultEnvelope struct {
 	Stdout    string            `json:"stdout,omitempty"`
 	Stderr    string            `json:"stderr,omitempty"`
 	Truncated bool              `json:"truncated,omitempty"`
+}
+
+func marshalSupervisorToolResultEnvelope(value supervisorToolResultEnvelope) ([]byte, error) {
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	// Web results are durable JSON and are never embedded as HTML. Keeping
+	// literal '<', '>', and '&' avoids a sixfold expansion of bounded evidence;
+	// all existing non-Web result encodings retain their prior canonical form.
+	if toolgateway.IsWebEvidenceTool(toolgateway.ToolName(value.Tool)) {
+		encoder.SetEscapeHTML(false)
+	}
+	if err := encoder.Encode(value); err != nil {
+		return nil, err
+	}
+	encoded := bytes.TrimSuffix(buffer.Bytes(), []byte("\n"))
+	if !json.Valid(encoded) || len(encoded) > domain.MaxSupervisorToolResultBytes {
+		return nil, errors.New("supervisor tool result envelope exceeds its durable JSON limit")
+	}
+	return encoded, nil
 }
 
 func supervisorStructuredToolSpecs(surface domain.ExecutionSurface,
@@ -111,6 +138,13 @@ func supervisorStructuredToolSpecs(surface domain.ExecutionSurface,
 			definition.InputSchema = supervisorMCPToolSchema(configured.MCP)
 			definition.Description += " Only the server/tool/fingerprint combinations encoded in this schema are available."
 		}
+		if toolgateway.IsWebEvidenceTool(definition.Name) {
+			if !configured.WebEvidence.Capabilities.Available ||
+				(definition.Name == toolgateway.WebSearchTool &&
+					!configured.WebEvidence.Capabilities.SearchAvailable) {
+				continue
+			}
+		}
 		out = append(out, llm.ToolSpec{
 			Name: string(definition.Name), Description: definition.Description,
 			Parameters: append(json.RawMessage(nil), definition.InputSchema...),
@@ -149,11 +183,15 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 	var agentCodeAuthority json.RawMessage
 	codeIntel := toolgateway.CodeIntelCapabilitySnapshot{}
 	var codeIntelAuthority json.RawMessage
+	webEvidence := toolgateway.WebEvidenceCapabilities{}
+	var webEvidenceAuthority json.RawMessage
 	if len(options) > 0 {
 		agentCode = configured.AgentCode.Capabilities
 		agentCodeAuthority = configured.AgentCode.Authority
 		codeIntel = configured.CodeIntel.Capabilities
 		codeIntelAuthority = configured.CodeIntel.Authority
+		webEvidence = configured.WebEvidence.Capabilities
+		webEvidenceAuthority = configured.WebEvidence.Authority
 	}
 	if len(calls) == 0 || len(calls) > domain.MaxSupervisorToolCallsPerRound {
 		return nil, fmt.Errorf("supervisor tool batch must contain 1 to %d calls",
@@ -178,7 +216,8 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 			name != toolgateway.SkillCandidateProposeTool &&
 			name != toolgateway.DebugTerminalTool &&
 			name != toolgateway.CommandRuntimeTool && name != toolgateway.MCPToolCallTool &&
-			!toolgateway.IsAgentCodeTool(name) && !toolgateway.IsCodeIntelTool(name) {
+			!toolgateway.IsAgentCodeTool(name) && !toolgateway.IsCodeIntelTool(name) &&
+			!toolgateway.IsWebEvidenceTool(name) {
 			return nil, fmt.Errorf("provider requested unsupported supervisor tool %q", call.Name)
 		}
 		if toolgateway.IsAgentCodeTool(name) {
@@ -197,6 +236,11 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 			surface != domain.ExecutionSurfaceCode ||
 			(phase != domain.ExecutionPhasePlan && phase != domain.ExecutionPhaseDeliver)) {
 			return nil, fmt.Errorf("provider requested unavailable code-intel tool %q", call.Name)
+		}
+		if toolgateway.IsWebEvidenceTool(name) && (!webEvidence.Available ||
+			len(webEvidenceAuthority) == 0 ||
+			(name == toolgateway.WebSearchTool && !webEvidence.SearchAvailable)) {
+			return nil, fmt.Errorf("provider requested unavailable web evidence tool %q", call.Name)
 		}
 		if name == toolgateway.PlanDeliveryProposeTool && phase != domain.ExecutionPhasePlan {
 			return nil, errors.New("provider requested Plan/Delivery proposal outside Plan phase")
@@ -279,8 +323,51 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 			}
 			out[index].Authority = append(json.RawMessage(nil), commandRuntimeAuthority...)
 		}
+		if toolgateway.IsWebEvidenceTool(name) {
+			authority, authorityErr := toolgateway.DecodeWebEvidenceCallAuthority(
+				webEvidenceAuthority)
+			if authorityErr != nil || authority.RunID != runID ||
+				authority.Generation != webEvidence.Generation {
+				return nil, errors.New("web evidence advertisement authority is invalid")
+			}
+			out[index].Authority = append(json.RawMessage(nil), webEvidenceAuthority...)
+		}
 	}
 	return out, nil
+}
+
+func (s *RunSupervisor) supervisorWebEvidenceCapabilities(
+	turn domain.SupervisorTurn, permission domain.RunExecutionPermissionSnapshot,
+) (toolgateway.WebEvidenceCapabilities, json.RawMessage, error) {
+	if s == nil || s.webEvidence == nil || turn.Agent.Role != domain.AgentRoleRoot {
+		return toolgateway.WebEvidenceCapabilities{}, nil, nil
+	}
+	networkAuthority := webevidence.NetworkAuthority{Mode: turn.Mode.Scope.NetworkMode,
+		AllowedTargets: append([]string(nil), turn.Mode.Scope.AllowedTargets...)}
+	providerFingerprint := s.webEvidence.SearchProviderFingerprintFor(networkAuthority)
+	context := toolgateway.WebEvidenceCapabilityContext{RunID: turn.Run.ID,
+		MissionID: turn.Mission.ID, SessionID: turn.Run.SessionID,
+		RootAgentID: turn.Agent.ID, WorkspaceID: turn.Mission.WorkspaceID,
+		Surface: turn.Mode.Surface, Phase: turn.Mode.Phase, Role: turn.Agent.Role,
+		Profile: turn.Mode.Profile, PermissionMode: permission.Mode,
+		PermissionRevision: permission.Revision, ModeRevision: turn.Mode.Revision,
+		NetworkMode:         turn.Mode.Scope.NetworkMode,
+		AllowedTargets:      append([]string(nil), turn.Mode.Scope.AllowedTargets...),
+		ProviderAvailable:   providerFingerprint != "",
+		ProviderFingerprint: providerFingerprint}
+	snapshot := toolgateway.WebEvidenceCapabilitySnapshot(context)
+	if !snapshot.Available {
+		return snapshot, nil, nil
+	}
+	authority, err := toolgateway.NewWebEvidenceCallAuthority(context)
+	if err != nil {
+		return toolgateway.WebEvidenceCapabilities{}, nil, err
+	}
+	encoded, err := toolgateway.EncodeWebEvidenceCallAuthority(authority)
+	if err != nil {
+		return toolgateway.WebEvidenceCapabilities{}, nil, err
+	}
+	return snapshot, encoded, nil
 }
 
 func (s *RunSupervisor) supervisorMCPCapabilities(ctx context.Context,
@@ -558,6 +645,26 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		toolCall.Profile = turn.Mode.Profile
 		toolCall.PermissionMode = permission.Mode
 	}
+	if toolgateway.IsWebEvidenceTool(name) {
+		authority, authorityErr := toolgateway.DecodeWebEvidenceCallAuthority(
+			json.RawMessage(call.AuthorityJSON))
+		if authorityErr != nil || authority.RunID != call.RunID ||
+			authority.RootAgentID != turn.Agent.ID || authority.SessionID != turn.Run.SessionID ||
+			authority.MissionID != turn.Mission.ID ||
+			authority.WorkspaceID != turn.Mission.WorkspaceID {
+			return domain.SupervisorToolResult{}, apperror.New(apperror.CodeFailedPrecondition,
+				"durable web evidence authority does not match the active Supervisor turn")
+		}
+		toolCall.MissionID = authority.MissionID
+		toolCall.Surface = authority.Surface
+		toolCall.Phase = authority.Phase
+		toolCall.Role = authority.Role
+		toolCall.Profile = authority.Profile
+		toolCall.PermissionMode = authority.PermissionMode
+		toolCall.ModeRevision = authority.ModeRevision
+		toolCall.PermissionRevision = authority.PermissionRevision
+		toolCall.CapabilityGeneration = authority.Generation
+	}
 	toolCtx, cancelTool := context.WithTimeout(ctx, supervisorToolCallTimeout)
 	outcome, err := s.tools.Invoke(toolCtx, toolCall)
 	toolContextErr := toolCtx.Err()
@@ -575,7 +682,7 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		if !recoverableSupervisorToolError(name, code) {
 			return domain.SupervisorToolResult{}, apperror.Normalize(err)
 		}
-		encoded, encodeErr := json.Marshal(supervisorToolResultEnvelope{
+		encoded, encodeErr := marshalSupervisorToolResultEnvelope(supervisorToolResultEnvelope{
 			Version: supervisorToolResultVersion, Tool: call.ToolName, Status: string(domain.SupervisorToolFailed),
 			Code: string(code), Message: boundedSupervisorToolMessage(err.Error()),
 		})
@@ -615,12 +722,13 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 	}
 	if name == toolgateway.DebugTerminalTool || name == toolgateway.CommandRuntimeTool ||
 		name == toolgateway.MCPToolCallTool ||
-		toolgateway.IsAgentCodeTool(name) || toolgateway.IsCodeIntelTool(name) {
+		toolgateway.IsAgentCodeTool(name) || toolgateway.IsCodeIntelTool(name) ||
+		toolgateway.IsWebEvidenceTool(name) {
 		envelope.Stdout = redact.String(outcome.Result.Stdout)
 		envelope.Stderr = redact.String(outcome.Result.Stderr)
 		envelope.Truncated = outcome.Result.Truncated
 	}
-	encoded, err := json.Marshal(envelope)
+	encoded, err := marshalSupervisorToolResultEnvelope(envelope)
 	if err != nil {
 		return domain.SupervisorToolResult{}, err
 	}
@@ -640,9 +748,10 @@ func recoverableSupervisorToolError(name toolgateway.ToolName,
 	case apperror.CodeFailedPrecondition, apperror.CodeNotFound, apperror.CodePolicyDenied:
 		return name == toolgateway.DebugTerminalTool || name == toolgateway.CommandRuntimeTool ||
 			name == toolgateway.MCPToolCallTool || toolgateway.IsAgentCodeTool(name) ||
+			toolgateway.IsWebEvidenceTool(name) ||
 			toolgateway.IsCodeIntelTool(name)
 	case apperror.CodeUnavailable:
-		return toolgateway.IsCodeIntelTool(name)
+		return toolgateway.IsCodeIntelTool(name) || toolgateway.IsWebEvidenceTool(name)
 	default:
 		return false
 	}

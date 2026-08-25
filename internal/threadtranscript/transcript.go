@@ -2,6 +2,7 @@ package threadtranscript
 
 import (
 	"cmp"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,12 +10,14 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/runactivity"
+	"cyberagent-workbench/internal/webevidence"
 )
 
 const (
@@ -90,9 +93,97 @@ type Item struct {
 	DurableCallID         string
 	SourceRef             string
 	BoundaryReason        string
+	WebEvidence           *WebEvidencePresentation
 	Provisional           bool
 	Durable               bool
 	CreatedAt             time.Time
+}
+
+type WebEvidencePresentation struct {
+	Version               string
+	SourceID              string
+	SnapshotID            string
+	CitationID            string
+	URL                   string
+	Title                 string
+	State                 string
+	FetchedAt             time.Time
+	StaleAt               time.Time
+	Digest                string
+	Partial               bool
+	Stale                 bool
+	Citeable              bool
+	Untrusted             bool
+	InstructionAuthorized bool
+}
+
+func (p WebEvidencePresentation) Validate() error {
+	canonical, err := webevidence.CanonicalizePublicHTTPSURL(p.URL)
+	if p.Version != "web_evidence_presentation.v1" || err != nil || canonical != p.URL ||
+		!validWebEvidenceIdentity(p.SourceID, false) ||
+		!validWebEvidenceIdentity(p.SnapshotID, false) ||
+		!validWebEvidenceIdentity(p.CitationID, true) || !validWebEvidenceTitle(p.Title) ||
+		p.FetchedAt.IsZero() || p.StaleAt.Before(p.FetchedAt) ||
+		!validWebEvidenceDigest(p.Digest) ||
+		!p.Untrusted || p.InstructionAuthorized {
+		return errors.New("web evidence transcript presentation is invalid")
+	}
+	switch p.State {
+	case "fetched":
+		if p.Partial || p.Stale || !p.Citeable {
+			return errors.New("web evidence fetched state is inconsistent")
+		}
+	case "partial":
+		if !p.Partial || p.Stale || !p.Citeable {
+			return errors.New("web evidence partial state is inconsistent")
+		}
+	case "stale":
+		if !p.Stale || !p.Citeable {
+			return errors.New("web evidence stale state is inconsistent")
+		}
+	case "blocked", "failed":
+		if p.Partial || p.Stale || p.Citeable {
+			return errors.New("web evidence failure state is inconsistent")
+		}
+	default:
+		return errors.New("web evidence transcript state is invalid")
+	}
+	return nil
+}
+
+func validWebEvidenceIdentity(value string, optional bool) bool {
+	if value == "" {
+		return optional
+	}
+	if safeIdentity(value) != value {
+		return false
+	}
+	for _, current := range value {
+		if unicode.IsControl(current) {
+			return false
+		}
+	}
+	return true
+}
+
+func validWebEvidenceTitle(value string) bool {
+	if !utf8.ValidString(value) || utf8.RuneCountInString(value) > 1024 {
+		return false
+	}
+	for _, current := range value {
+		if unicode.IsControl(current) {
+			return false
+		}
+	}
+	return true
+}
+
+func validWebEvidenceDigest(value string) bool {
+	if len(value) != 64 || strings.ToLower(value) != value {
+		return false
+	}
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == 32
 }
 
 func Build(threadID string, source []Source) ([]Item, error) {
@@ -273,6 +364,23 @@ func projectActivity(source Source, projected runactivity.Item) Item {
 			StreamItemID     string `json:"stream_item_id"`
 			StreamCallID     string `json:"stream_call_id"`
 			DurableCallID    string `json:"durable_call_id"`
+			WebEvidence      *struct {
+				Version               string    `json:"version"`
+				SourceID              string    `json:"source_id"`
+				SnapshotID            string    `json:"snapshot_id"`
+				CitationID            string    `json:"citation_id"`
+				URL                   string    `json:"url"`
+				Title                 string    `json:"title"`
+				State                 string    `json:"state"`
+				FetchedAt             time.Time `json:"fetched_at"`
+				StaleAt               time.Time `json:"stale_at"`
+				Digest                string    `json:"digest"`
+				Partial               bool      `json:"partial"`
+				Stale                 bool      `json:"stale"`
+				Citeable              bool      `json:"citeable"`
+				Untrusted             bool      `json:"untrusted"`
+				InstructionAuthorized bool      `json:"instruction_authorized"`
+			} `json:"web_evidence"`
 		}
 		_ = json.Unmarshal([]byte(source.Event.PayloadJSON), &payload)
 		item.ToolName = safeIdentity(payload.Tool)
@@ -283,6 +391,22 @@ func projectActivity(source Source, projected runactivity.Item) Item {
 		item.StreamItemID = safeIdentity(payload.StreamItemID)
 		item.StreamCallID = safeIdentity(payload.StreamCallID)
 		item.DurableCallID = safeIdentity(payload.DurableCallID)
+		if payload.WebEvidence != nil {
+			presentation := WebEvidencePresentation{
+				Version: payload.WebEvidence.Version, SourceID: safeIdentity(payload.WebEvidence.SourceID),
+				SnapshotID: safeIdentity(payload.WebEvidence.SnapshotID),
+				CitationID: safeIdentity(payload.WebEvidence.CitationID), URL: payload.WebEvidence.URL,
+				Title: payload.WebEvidence.Title, State: payload.WebEvidence.State,
+				FetchedAt: payload.WebEvidence.FetchedAt, StaleAt: payload.WebEvidence.StaleAt,
+				Digest: payload.WebEvidence.Digest, Partial: payload.WebEvidence.Partial,
+				Stale: payload.WebEvidence.Stale, Citeable: payload.WebEvidence.Citeable,
+				Untrusted:             payload.WebEvidence.Untrusted,
+				InstructionAuthorized: payload.WebEvidence.InstructionAuthorized,
+			}
+			if presentation.Validate() == nil {
+				item.WebEvidence = &presentation
+			}
+		}
 		if item.StreamItemID != "" {
 			item.CanonicalID = item.StreamItemID
 		}
@@ -330,10 +454,12 @@ func classifyTool(name string) ActivityType {
 	case "list_workspace", "workspace_list", "workspace_glob", "workspace_grep",
 		"workspace_search", "code_search", "search", "find_files",
 		"github_review_evidence_list", "code_workspace_symbols", "code_document_symbols",
-		"code_references", "code_implementation", "code_call_hierarchy", "code_type_hierarchy":
+		"code_references", "code_implementation", "code_call_hierarchy", "code_type_hierarchy",
+		"web_search":
 		return TypeSearch
 	case "read_file", "workspace_read", "note_get", "artifact_get",
-		"github_review_evidence_read", "code_definition", "code_hover", "code_signature_help":
+		"github_review_evidence_read", "code_definition", "code_hover", "code_signature_help",
+		"web_fetch", "web_citation":
 		return TypeRead
 	case "replace_file", "file_edit", "apply_patch", "workspace_restore",
 		"workspace_change", "workspace_apply", "workspace_delete":

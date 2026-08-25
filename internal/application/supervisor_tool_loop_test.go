@@ -22,6 +22,7 @@ import (
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/store"
 	"cyberagent-workbench/internal/toolgateway"
+	"cyberagent-workbench/internal/webevidence"
 )
 
 func TestRunSupervisorExecutesAllowlistedStructuredToolAndContinuesModel(t *testing.T) {
@@ -114,6 +115,82 @@ func TestRunSupervisorExecutesAllowlistedStructuredToolAndContinuesModel(t *test
 		if strings.Contains(message.Content, "下一步创建工作项") {
 			t.Fatalf("display-only commentary leaked into Session history: %#v", messages)
 		}
+	}
+}
+
+func TestRunSupervisorExecutesDurableRunScopedWebFetch(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-web-fetch.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	runService := application.NewRunService(st)
+	_, run, err := runService.Create(ctx, application.CreateRunRequest{
+		Goal: "fetch one public evidence source", Profile: "review",
+		Surface: "code", Phase: "deliver", ModelRoute: "tool-loop/model",
+		NetworkMode: "allowlist", AllowedTargets: []string{"docs.example.com"},
+		Budget: domain.Budget{MaxTurns: 3, MaxToolCalls: 3},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runService.Start(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	provider := &scriptedToolProvider{responses: []*llm.ChatResponse{
+		toolResponse("provider-web-fetch", string(toolgateway.WebFetchTool),
+			`{"version":"web_fetch.v1","url":"https://docs.example.com/report"}`),
+		textResponse(rootActionResponse(domain.RootActionContinue,
+			"public evidence fetched", "", "")),
+	}}
+	backend := &applicationWebFetchBackend{}
+	supervisor := newToolLoopSupervisor(st, provider).WithWebEvidence(
+		webevidence.NewService(st, nil, backend))
+	result, err := supervisor.Step(ctx, run.ID)
+	if err != nil || result.ToolRounds != 1 || result.ToolCalls != 1 ||
+		result.ModelAttempts != 2 || backend.calls != 1 ||
+		result.Text != "public evidence fetched" {
+		t.Fatalf("result=%#v fetches=%d err=%v", result, backend.calls, err)
+	}
+	requests := provider.Requests()
+	if len(requests) != 2 ||
+		!hasToolSpec(requests[0], string(toolgateway.WebFetchTool)) ||
+		!hasToolSpec(requests[0], string(toolgateway.WebCitationTool)) ||
+		hasToolSpec(requests[0], string(toolgateway.WebSearchTool)) ||
+		!hasToolResult(requests[1], "private bounded evidence body") {
+		t.Fatalf("provider Web evidence contract drifted: %#v", requests)
+	}
+	rounds, err := st.ListRunSupervisorToolRoundsPage(ctx, run.ID, 0, 2)
+	if err != nil || len(rounds) != 1 || len(rounds[0].Calls) != 1 ||
+		rounds[0].Calls[0].ToolName != string(toolgateway.WebFetchTool) ||
+		rounds[0].Calls[0].AuthorityJSON == "" || !rounds[0].Complete() {
+		t.Fatalf("durable Web evidence round=%#v err=%v", rounds, err)
+	}
+	inventory, err := webevidence.LoadInventory(ctx, st, run.ID, 10, time.Now().UTC())
+	if err != nil || len(inventory.Sources) != 1 || len(inventory.Snapshots) != 1 ||
+		!inventory.Snapshots[0].Citeable || !inventory.Untrusted ||
+		inventory.InstructionAuthorized {
+		t.Fatalf("inventory=%#v err=%v", inventory, err)
+	}
+	eventList, err := st.ListRunEvents(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundPresentation := false
+	for _, event := range eventList {
+		if strings.Contains(event.PayloadJSON, "private bounded evidence body") {
+			t.Fatalf("Web page body leaked into public event %s: %s", event.Type,
+				event.PayloadJSON)
+		}
+		if event.Type == events.SupervisorToolResultEvent &&
+			strings.Contains(event.PayloadJSON, `"web_evidence"`) &&
+			strings.Contains(event.PayloadJSON, `"instruction_authorized":false`) {
+			foundPresentation = true
+		}
+	}
+	if !foundPresentation {
+		t.Fatalf("public Web evidence presentation was not recorded: %#v", eventList)
 	}
 }
 

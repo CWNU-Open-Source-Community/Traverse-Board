@@ -580,6 +580,42 @@ siblings，在 390px 窄屏、200% 等效高度、中文 IME、Shift+Enter、虚
 reduced-motion 下保持可达。完整设计与 #140 packaged E2E 的稳定入口见
 [ADR 0134](adr/0134-unified-thread-transcript.md)。
 
+### Web Search, Fetch, and Citation / Web 证据
+
+Schema v134 adds three root-only model tools behind an explicit Run network allowlist.
+`web_search` asks one configured SearXNG JSON endpoint for discovery stubs;
+`web_fetch` retrieves exactly one same-Run source or authorized public HTTPS URL;
+`web_citation` binds a claim only to a fetched or partial snapshot from that Run.
+Search snippets are not citeable, and fetched text is always untrusted evidence rather
+than instructions.
+
+```powershell
+$env:CYBERAGENT_WEB_SEARCH_ENDPOINT = "https://search.example.org/search"
+cyberagent run create "Review the public specification" `
+  --workspace demo --profile review `
+  --network allowlist `
+  --allow-target search.example.org `
+  --allow-target docs.example.org
+
+cyberagent web-evidence list --run <run-id> --limit 100
+```
+
+Network stays disabled by default. Exact hosts, HTTPS origins, wildcard DNS suffixes,
+and the explicit broad `public_https` target are accepted; prefer exact hosts. The
+client permits public HTTPS/443 only, rejects local/private/metadata addresses, pins
+every DNS answer, rechecks up to three redirects, checks robots, uses a 15-second and
+2-MiB response boundary, and retains at most 128 KiB of sanitized HTML/text/JSON or
+conservative partial PDF text. Missing SearXNG configuration makes Search unavailable
+without a fallback, while a network-disabled Run publishes no Web tools.
+
+Thread source cards and `GET /api/v1/runs/{run_id}/web-evidence` use the same public
+projection as the CLI: canonical link, bounded title, status, fetch/stale time, digest,
+and partial/stale facts. They omit snippets, page bodies, citation claims, operation
+keys, DNS addresses, and call authority, and report `untrusted=true` plus
+`instruction_authorized=false`. Complete configuration, failure remediation,
+robots/terms/copyright guidance, and limits are in [Web Evidence](web-evidence.md);
+the security decision is [ADR 0137](adr/0137-go-owned-web-evidence.md).
+
 Repair transitions emit `supervisor.protocol_repair_requested/started/completed/failed`. The raw invalid output is never copied into the repair prompt, Session, or event payload. `run step` prints `model_attempts`, `protocol_repairs`, `model_outcome`, `stream_events`, and `stream_bytes`. Exhausted transient retries return unavailable exit code 6, rate limits return resource-exhausted exit code 8, cancellation returns 7, and deadline expiration returns 9.
 
 The application service exposes in-process active-call query, bounded metadata subscription, and idempotent cancellation operations. An explicit application cancellation first appends a redacted `model.cancel_requested` event and then signals the Go-owned Provider context. Subscribers receive no raw model text and are disconnected if their 32-event buffer fills. Bubble Tea consumes this interface through an adapter. Schema v18 extends cancellation across processes through a durable, exact-attempt request: a separately authorized API process records intent, and only the worker holding the private execution lease can observe it and cancel its local Provider context. Request, observation, and terminal resolution are audited without exposing the registry or fencing token.

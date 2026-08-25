@@ -1553,6 +1553,10 @@ func (a *App) runCreate(ctx context.Context, service *application.RunService, ar
 	route := fs.String("route", "", "model route")
 	sessionID := fs.String("session", "", "existing session id")
 	interactive := fs.Bool("interactive", false, "mark run as interactive")
+	networkMode := fs.String("network", "disabled", "Run network mode: disabled or allowlist")
+	var allowedTargets stringListFlag
+	fs.Var(&allowedTargets, "allow-target",
+		"public HTTPS host, wildcard suffix, or public_https; repeat for multiple values")
 	maxTurns := fs.Int("max-turns", domain.DefaultBudget().MaxTurns, "maximum agent turns")
 	maxTokens := fs.Int64("max-tokens", 0, "maximum model tokens; zero means unset")
 	maxToolCalls := fs.Int64("max-tool-calls", domain.DefaultBudget().MaxToolCalls, "maximum tool calls; zero means unlimited")
@@ -1572,6 +1576,8 @@ func (a *App) runCreate(ctx context.Context, service *application.RunService, ar
 		"route":                       true,
 		"session":                     true,
 		"interactive":                 false,
+		"network":                     true,
+		"allow-target":                true,
 		"max-turns":                   true,
 		"max-tokens":                  true,
 		"max-tool-calls":              true,
@@ -1584,7 +1590,7 @@ func (a *App) runCreate(ctx context.Context, service *application.RunService, ar
 		return err
 	}
 	if fs.NArg() == 0 {
-		return errors.New(`usage: cyberagent run create "goal" [--workspace <name>] [--profile code|review|learn|script] [--surface code|cyber] [--phase plan|deliver]`)
+		return errors.New(`usage: cyberagent run create "goal" [--workspace <name>] [--profile code|review|learn|script] [--surface code|cyber] [--phase plan|deliver] [--network disabled|allowlist] [--allow-target <public-host>]`)
 	}
 	workspaceID := ""
 	var workspaceRecord *store.WorkspaceRecord
@@ -1648,14 +1654,16 @@ func (a *App) runCreate(ctx context.Context, service *application.RunService, ar
 		projectInstructions = &discovered
 	}
 	mission, run, err := service.Create(ctx, application.CreateRunRequest{
-		Goal:        strings.Join(fs.Args(), " "),
-		Profile:     *profile,
-		Surface:     *surface,
-		Phase:       *phase,
-		WorkspaceID: workspaceID,
-		SessionID:   *sessionID,
-		ModelRoute:  *route,
-		Interactive: *interactive,
+		Goal:           strings.Join(fs.Args(), " "),
+		Profile:        *profile,
+		Surface:        *surface,
+		Phase:          *phase,
+		WorkspaceID:    workspaceID,
+		SessionID:      *sessionID,
+		ModelRoute:     *route,
+		Interactive:    *interactive,
+		NetworkMode:    *networkMode,
+		AllowedTargets: append([]string(nil), allowedTargets.values...),
 		Budget: domain.Budget{
 			MaxTurns:       *maxTurns,
 			MaxTokens:      *maxTokens,
