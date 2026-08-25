@@ -1,0 +1,6 @@
+diff --git a/app/slug.py b/app/slug.py
+--- a/app/slug.py
++++ b/app/slug.py
+@@ -3 +3 @@ def slugify(value: str) -> str:
+-    return value.lower().replace(" ", "_")
++    return "-".join(value.lower().split())

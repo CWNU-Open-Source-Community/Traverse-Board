@@ -1,0 +1,3 @@
+module fixture.invalid/standard-code-packaged-go
+
+go 1.25.0

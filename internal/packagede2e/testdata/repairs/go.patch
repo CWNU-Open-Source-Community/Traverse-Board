@@ -1,0 +1,6 @@
+diff --git a/greet/greet.go b/greet/greet.go
+--- a/greet/greet.go
++++ b/greet/greet.go
+@@ -5 +5 @@ func Greeting(name string) string {
+-	return "hello " + name
++	return "Hello, " + name + "!"

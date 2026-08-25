@@ -1,0 +1,6 @@
+diff --git a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -2 +2 @@ pub fn clamp_score(value: i32, maximum: i32) -> i32 {
+-    value.min(maximum - 1)
++    value.min(maximum)
