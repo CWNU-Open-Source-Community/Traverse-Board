@@ -4,6 +4,7 @@
 - Evidence baseline: `main@0751fadbe74feb7640750e4944643e14c41acaa2`
 - Current database schema: v132
 - Authority: [ADR 0135](../adr/0135-pre-1-0-product-convergence.md)
+- Enforced registry: [generated view](protocol-registry.md) / [machine source](../../protocols/registry.json)
 
 This inventory classifies compatibility *families*, not every `*.vN` token. A raw
 scan also sees tests, golden vectors, policy labels, operation hash separators, and

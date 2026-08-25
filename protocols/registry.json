@@ -1,0 +1,2978 @@
+{
+  "schema": "protocol-family-registry.v1",
+  "authority": {
+    "scope": "governance-and-tests-only",
+    "runtime_authority": "never",
+    "capability_grant": "never",
+    "automatic_protocol_deletion": "never",
+    "automatic_data_migration": "never",
+    "historical_checksum_mutation": "never"
+  },
+  "scan": {
+    "roots": [
+      "analyzers/fixture",
+      "analyzers/testdata",
+      "cmd",
+      "configs",
+      "docs/openapi.json",
+      "internal",
+      "packaging",
+      "scripts",
+      "web/src"
+    ],
+    "extensions": [
+      ".go",
+      ".js",
+      ".json",
+      ".mjs",
+      ".ps1",
+      ".rs",
+      ".sh",
+      ".sql",
+      ".toml",
+      ".ts",
+      ".tsx",
+      ".yaml",
+      ".yml"
+    ]
+  },
+  "families": [
+    {
+      "id": "activity-event-projection",
+      "class": "projection",
+      "owner": "Run activity and HTTP maintainers",
+      "source_of_truth": [
+        "internal/runactivity",
+        "internal/store"
+      ],
+      "writers": [
+        {
+          "id": "activity-event-projection-writer",
+          "source": "internal/store",
+          "versions": [
+            1
+          ],
+          "mode": "write-current"
+        }
+      ],
+      "readers": [
+        {
+          "id": "activity-event-projection-reader",
+          "source": "internal/runactivity",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "Materialized or queried activity DTOs may persist, but durable Run/event rows remain authoritative.",
+      "compatibility_rule": "Rebuild from durable Run and event rows while preserving stable order, high-water cursors, and redaction.",
+      "retirement_gate": {
+        "mode": "rebuild-from-source",
+        "requirements": [
+          "Rebuild source remains retained and independently verifiable",
+          "Replacement preserves ordering, cursor, invalidation, and redaction behavior",
+          "Retirement evidence proves a complete rebuild from the named source"
+        ]
+      },
+      "rebuild_source": "Durable Run, lifecycle, and redacted event rows in internal/store.",
+      "active_identifiers": [
+        "operator_action_center.v1",
+        "operator_action_item.v1",
+        "run-event-poll.v1",
+        "run-events.v1",
+        "run_activity.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "agent-scheduling-delivery-ledgers",
+      "class": "internal-durable",
+      "owner": "Agent graph, scheduler, and batch-delivery maintainers",
+      "source_of_truth": [
+        "internal/application",
+        "internal/domain",
+        "internal/store"
+      ],
+      "writers": [
+        {
+          "id": "agent-scheduling-delivery-ledgers-writer",
+          "source": "internal/application",
+          "versions": [
+            1,
+            2
+          ],
+          "mode": "write-new"
+        }
+      ],
+      "readers": [
+        {
+          "id": "agent-scheduling-delivery-ledgers-reader",
+          "source": "internal/store",
+          "versions": [
+            1,
+            2
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "SQLite retains agent ownership, attempts, dependencies, wakes, mailboxes, and delivery decisions.",
+      "compatibility_rule": "Add versions without reinterpreting generations or exactly-once keys; retain old readers until migration or indefinite support is proven.",
+      "retirement_gate": {
+        "mode": "migration-or-retention",
+        "requirements": [
+          "ADR-backed retirement decision and rollback path",
+          "Old-version fixtures remain until every supported source is migrated or retained",
+          "Reader history is append-only; retirement requires migration or retention evidence"
+        ]
+      },
+      "active_identifiers": [
+        "agent-code-edit.v1",
+        "agent_admission_operation.v1",
+        "agent_admission_request.v1",
+        "agent_attempt.v1",
+        "agent_attempt_continue.v1",
+        "agent_attempt_crash.v1",
+        "agent_attempt_failure.v1",
+        "agent_attempt_operation.v1",
+        "agent_attempt_start.v1",
+        "agent_attempt_usage.v1",
+        "agent_completion.v1",
+        "agent_completion_operation.v1",
+        "agent_completion_request.v1",
+        "agent_dependency.v1",
+        "agent_dependency_edge_operation.v1",
+        "agent_dependency_edge_request.v1",
+        "agent_message_operation.v1",
+        "agent_message_request.v1",
+        "batch-deliveries-list.v1",
+        "batch-delivery-edit.v1",
+        "batch-delivery-mailbox-request.v1",
+        "batch-delivery-mailbox.v1",
+        "batch-delivery-merge-queue.v1",
+        "batch-delivery-merge-request.v1",
+        "batch-delivery-receipt-request.v1",
+        "batch-delivery-receipt.v1",
+        "batch-delivery-request.v1",
+        "batch-delivery-review-request.v1",
+        "batch-delivery-review.v1",
+        "batch-delivery-tools.v1",
+        "batch-delivery-workspace-tools.v1",
+        "batch-validation-output.v2",
+        "batch-validation-process.v1",
+        "batch_delivery_cancel.v1",
+        "batch_delivery_merge.v1",
+        "batch_delivery_prepare.v1",
+        "batch_delivery_reconcile.v1",
+        "batch_delivery_renew_owner.v1",
+        "batch_delivery_review_control.v1",
+        "child_task_admit.v1",
+        "child_task_dedup.v1",
+        "child_task_proposal.v1",
+        "child_task_proposals.v1",
+        "child_task_request.v1",
+        "child_task_review.v1",
+        "child_task_review_request.v1",
+        "delivery_checkpoint.v1",
+        "delivery_checkpoint_request.v1",
+        "delivery_source.v1",
+        "plan_delivery_proposal_request.v1",
+        "plan_delivery_selection_request.v1",
+        "readonly_fanout.v1",
+        "readonly_fanout_cancel.v1",
+        "readonly_fanout_capabilities.v1",
+        "readonly_fanout_execution_request.v1",
+        "readonly_fanout_executions.v1",
+        "readonly_fanout_finding.v1",
+        "readonly_fanout_model_input.v1",
+        "readonly_fanout_plan_request.v1",
+        "readonly_fanout_report.v1",
+        "readonly_fanout_shard.v1",
+        "readonly_fanout_snapshot.v1",
+        "run_wake_cancel_request.v1",
+        "run_wake_consumption.v1",
+        "run_wake_consumption_handoff.v1",
+        "run_wake_operation.v1",
+        "run_wake_schedule_request.v1",
+        "run_wake_worker.v1",
+        "specialist_delegation.v1",
+        "specialist_delegation_application_policy.v1",
+        "specialist_delegation_application_request.v1",
+        "specialist_delegation_request.v1",
+        "specialist_delegation_review.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "analyzer-interchange",
+      "class": "external-durable",
+      "owner": "Analyzer contract maintainers",
+      "source_of_truth": [
+        "analyzers/fixture/src",
+        "analyzers/testdata",
+        "internal/analyzer"
+      ],
+      "writers": [
+        {
+          "id": "analyzer-interchange-writer",
+          "source": "internal/analyzer",
+          "versions": [
+            1
+          ],
+          "mode": "write-current"
+        }
+      ],
+      "readers": [
+        {
+          "id": "analyzer-interchange-reader",
+          "source": "internal/analyzer",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "Analyzer descriptors, requests, results, release metadata, and evidence cross the Go/Rust or third-party boundary.",
+      "compatibility_rule": "Write the newest reviewed format, dual-read supported old formats, keep shared vectors, and reject unknown versions.",
+      "retirement_gate": {
+        "mode": "migration-or-retention",
+        "requirements": [
+          "ADR-backed retirement decision and rollback path",
+          "Old-version fixtures remain until every supported source is migrated or retained",
+          "Reader history is append-only; retirement requires migration or retention evidence"
+        ]
+      },
+      "active_identifiers": [
+        "analyzer_artifact_candidate.v1",
+        "analyzer_descriptor.v1",
+        "analyzer_durable_start_request.v1",
+        "analyzer_embedded_wasi_execution.v1",
+        "analyzer_embedded_wasi_invocation_ownership.v1",
+        "analyzer_embedded_wasi_isolation_profile.v1",
+        "analyzer_embedded_wasi_module_assessment.v1",
+        "analyzer_embedded_wasi_release_decision.v1",
+        "analyzer_error.v1",
+        "analyzer_executable_format.v1",
+        "analyzer_executable_identity.v1",
+        "analyzer_execution_capability.v1",
+        "analyzer_execution_consumption.v1",
+        "analyzer_execution_record.v1",
+        "analyzer_invocation.v1",
+        "analyzer_invocation_outcome.v1",
+        "analyzer_invocation_preflight.v1",
+        "analyzer_launch_plan.v1",
+        "analyzer_launch_plan_review.v1",
+        "analyzer_operator_start_capability_contract.v1",
+        "analyzer_operator_start_capability_request.v1",
+        "analyzer_product_adapter_admission_matrix.v1",
+        "analyzer_product_adapter_recovery_acceptance.v1",
+        "analyzer_product_adapter_threat_model.v1",
+        "analyzer_protocol.v1",
+        "analyzer_provenance_statement.v1",
+        "analyzer_provenance_verification.v1",
+        "analyzer_release_allowlist.v1",
+        "analyzer_release_candidate.v1",
+        "analyzer_release_manifest.v1",
+        "analyzer_result.v1",
+        "analyzer_scope_limits_approval.v1",
+        "analyzer_start_intent.v1",
+        "analyzer_start_lifecycle_receipt.v1",
+        "analyzer_validated_result_candidate.v1",
+        "ed25519.v1",
+        "embedded_analyzer_execution_control.v1",
+        "embedded_analyzer_operator_request.v1",
+        "embedded_wazero_wasip1.v1",
+        "fixture.digest.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "authority-approval-ledgers",
+      "class": "internal-durable",
+      "owner": "Execution authority and approval maintainers",
+      "source_of_truth": [
+        "internal/approval",
+        "internal/executionauth",
+        "internal/store"
+      ],
+      "writers": [
+        {
+          "id": "authority-approval-ledgers-writer",
+          "source": "internal/application",
+          "versions": [
+            1
+          ],
+          "mode": "write-current"
+        }
+      ],
+      "readers": [
+        {
+          "id": "authority-approval-ledgers-reader",
+          "source": "internal/store",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "SQLite snapshots preserve permission, profile, interaction, approval, lease, and generation facts.",
+      "compatibility_rule": "Authority changes are additive and fail closed; old readers remain for every supported stored snapshot.",
+      "retirement_gate": {
+        "mode": "migration-or-retention",
+        "requirements": [
+          "ADR-backed retirement decision and rollback path",
+          "Old-version fixtures remain until every supported source is migrated or retained",
+          "Reader history is append-only; retirement requires migration or retention evidence"
+        ]
+      },
+      "active_identifiers": [
+        "approval_grant_operation_key.v1",
+        "approval_operation_key.v1",
+        "once_command.v1",
+        "once_command_approval.v1",
+        "once_command_policy.v1",
+        "once_command_request.v1",
+        "once_command_spec.v1",
+        "operator_steering_cancellation_operation.v1",
+        "operator_steering_cancellation_request.v1",
+        "operator_steering_operation.v1",
+        "operator_steering_request.v1",
+        "run_browser_cdp_permission_change_request.v1",
+        "run_browser_cdp_permission_operation.v1",
+        "run_execution_handoff_operation.v1",
+        "run_execution_handoff_request.v1",
+        "run_execution_interaction_change_request.v1",
+        "run_execution_interaction_operation.v1",
+        "run_execution_permission_change_request.v1",
+        "run_execution_permission_operation.v1",
+        "run_execution_profile_change_request.v1",
+        "run_execution_profile_operation.v1",
+        "run_mode_operation.v1",
+        "run_phase_change_request.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "browser-cdp-process-session",
+      "class": "ephemeral",
+      "owner": "Browser runtime maintainers",
+      "source_of_truth": [
+        "internal/browserruntime"
+      ],
+      "writers": [
+        {
+          "id": "browser-cdp-process-session-writer",
+          "source": "internal/browserruntime",
+          "versions": [
+            1
+          ],
+          "mode": "write-current"
+        }
+      ],
+      "readers": [
+        {
+          "id": "browser-cdp-process-session-reader",
+          "source": "internal/browserruntime",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": false,
+      "persistence_boundary": "CDP requests and target handles exist only for one admitted browser generation.",
+      "compatibility_rule": "Re-admit and rebind every request after restart; unknown versions fail closed.",
+      "retirement_gate": {
+        "mode": "restart-non-persistence",
+        "requirements": [
+          "Restart tests prove no handle, token, stream, or authority is adopted",
+          "Runtime metadata cannot substitute for a fresh admission",
+          "Shutdown and crash recovery discard process-local state"
+        ]
+      },
+      "restart_persistence_proof": "Browser runtime restart tests create a fresh generation and never adopt prior CDP targets or request handles.",
+      "active_identifiers": [
+        "browser_cdp_outcome.v1",
+        "browser_cdp_request.v1",
+        "browser_target_scope.v1",
+        "full_cdp_cookie_access.v1",
+        "full_cdp_request_capture.v1",
+        "restricted_browser_dom_metadata.v1",
+        "restricted_browser_navigation.v1",
+        "restricted_browser_screenshot.v1",
+        "restricted_cdp_authorization.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "browser-ui-evidence-ledgers",
+      "class": "internal-durable",
+      "owner": "Browser and UI evidence maintainers",
+      "source_of_truth": [
+        "internal/browserruntime",
+        "internal/store",
+        "internal/uievidence"
+      ],
+      "writers": [
+        {
+          "id": "browser-ui-evidence-ledgers-writer",
+          "source": "internal/browserruntime",
+          "versions": [
+            1
+          ],
+          "mode": "write-current"
+        }
+      ],
+      "readers": [
+        {
+          "id": "browser-ui-evidence-ledgers-reader",
+          "source": "internal/store",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "SQLite and receipts retain launch, containment, ownership, cleanup, capture, and source-binding evidence.",
+      "compatibility_rule": "Preserve generation, source, redaction, and cleanup bindings until durable migration or retention is proven.",
+      "retirement_gate": {
+        "mode": "migration-or-retention",
+        "requirements": [
+          "ADR-backed retirement decision and rollback path",
+          "Old-version fixtures remain until every supported source is migrated or retained",
+          "Reader history is append-only; retirement requires migration or retention evidence"
+        ]
+      },
+      "active_identifiers": [
+        "browser-launch-budget.v1",
+        "browser-launch-lease-owner-request.v1",
+        "browser-launch-owner.v1",
+        "browser-launch-preparation-operation.v1",
+        "browser-launch-preparation-request.v1",
+        "browser-launch-review-operation.v1",
+        "browser-launch-review-request.v1",
+        "browser-launch-reviewer-request.v1",
+        "browser-launch-reviewer.v1",
+        "browser-network-evidence-operation.v1",
+        "browser-network-evidence-request.v1",
+        "browser-network-review-operation.v1",
+        "browser-network-review-request.v1",
+        "browser-profile-marker.v1",
+        "browser-profile-owner.v1",
+        "browser-synthetic-process.v1",
+        "browser_executable_acceptance.v1",
+        "browser_executable_identity.v1",
+        "browser_full_cdp_authorization.v1",
+        "browser_full_cdp_start_authorization.v1",
+        "browser_launch_attempt.v1",
+        "browser_launch_lease.v1",
+        "browser_launch_review.v1",
+        "browser_lifecycle_observation.v1",
+        "browser_lifecycle_reconciliation.v1",
+        "browser_network_containment_plan.v1",
+        "browser_network_containment_review.v1",
+        "browser_process_exit.v1",
+        "browser_profile.v1",
+        "browser_profile_cleanup.v1",
+        "browser_profile_marker.v1",
+        "browser_profile_observation.v1",
+        "browser_profile_ownership.v1",
+        "browser_profile_reconciliation.v1",
+        "browser_profile_runtime_lease.v1",
+        "browser_publisher_policy.v1",
+        "browser_runtime_checkpoint.v1",
+        "browser_runtime_receipt.v1",
+        "browser_session_plan.v1",
+        "browser_start_authorization.v1",
+        "browser_start_spec.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "capability-readiness-projection",
+      "class": "projection",
+      "owner": "Application readiness maintainers",
+      "source_of_truth": [
+        "internal/application",
+        "internal/store"
+      ],
+      "writers": [
+        {
+          "id": "capability-readiness-projection-writer",
+          "source": "internal/application",
+          "versions": [
+            1,
+            2
+          ],
+          "mode": "write-new"
+        }
+      ],
+      "readers": [
+        {
+          "id": "capability-readiness-projection-reader",
+          "source": "internal/httpapi",
+          "versions": [
+            1,
+            2
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "Readiness documents are non-authorizing status projections and may be persisted or exported.",
+      "compatibility_rule": "Rebuild from current selections, leases, startup gates, backend evidence, and Go policy; capability_grant stays false.",
+      "retirement_gate": {
+        "mode": "rebuild-from-source",
+        "requirements": [
+          "Rebuild source remains retained and independently verifiable",
+          "Replacement preserves ordering, cursor, invalidation, and redaction behavior",
+          "Retirement evidence proves a complete rebuild from the named source"
+        ]
+      },
+      "rebuild_source": "Current persisted Run selections, leases, startup gates, backend evidence, and Go-owned policy.",
+      "active_identifiers": [
+        "model_availability.v2",
+        "run_capability_readiness.v1",
+        "runtime_capabilities.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "cli-headless-contract",
+      "class": "external-durable",
+      "owner": "CLI and headless surface maintainers",
+      "source_of_truth": [
+        "cmd/cyberagent",
+        "internal/headless"
+      ],
+      "writers": [
+        {
+          "id": "cli-headless-contract-writer",
+          "source": "internal/headless",
+          "versions": [
+            1
+          ],
+          "mode": "write-current"
+        }
+      ],
+      "readers": [
+        {
+          "id": "cli-headless-contract-reader",
+          "source": "internal/headless",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "Machine-readable CLI/headless output and diagnostics are exported to scripts and operators.",
+      "compatibility_rule": "Add fields and aliases compatibly; preserve command and exit categories and reject unknown machine formats.",
+      "retirement_gate": {
+        "mode": "migration-or-retention",
+        "requirements": [
+          "ADR-backed retirement decision and rollback path",
+          "Old-version fixtures remain until every supported source is migrated or retained",
+          "Reader history is append-only; retirement requires migration or retention evidence"
+        ]
+      },
+      "active_identifiers": [
+        "drydock-api.v1",
+        "headless.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "control-plane-ledgers",
+      "class": "internal-durable",
+      "owner": "Core Go control-plane maintainers",
+      "source_of_truth": [
+        "internal/application",
+        "internal/domain",
+        "internal/store"
+      ],
+      "writers": [
+        {
+          "id": "control-plane-ledgers-writer",
+          "source": "internal/application",
+          "versions": [
+            1,
+            2,
+            3
+          ],
+          "mode": "write-new"
+        }
+      ],
+      "readers": [
+        {
+          "id": "control-plane-ledgers-reader",
+          "source": "internal/store",
+          "versions": [
+            1,
+            2,
+            3
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "Reviewed cross-domain separators and lifecycle records remain audit/recovery evidence.",
+      "compatibility_rule": "Preserve identity, replay, generation, cleanup, and unknown-version refusal; narrower registered families take precedence.",
+      "retirement_gate": {
+        "mode": "migration-or-retention",
+        "requirements": [
+          "ADR-backed retirement decision and rollback path",
+          "Old-version fixtures remain until every supported source is migrated or retained",
+          "Reader history is append-only; retirement requires migration or retention evidence"
+        ]
+      },
+      "active_identifiers": [
+        "drydock-checkpoint-request.v1",
+        "drydock-checkpoint.v1",
+        "drydock-cleanup-request.v1",
+        "drydock-create-request.v1",
+        "drydock-delivery-proposal.v1",
+        "drydock-delivery-request.v1",
+        "drydock-fork-request.v1",
+        "drydock-lifecycle-receipt.v1",
+        "drydock-reconcile.v1",
+        "drydock-rewind-request.v1",
+        "drydock-use-request.v1",
+        "drydock-workspace-trust.v1",
+        "drydock-workspace.v1",
+        "finding_acceptance_request.v1",
+        "finding_facts.v1",
+        "finding_fix_request.v1",
+        "finding_report.v1",
+        "finding_validation_request.v1",
+        "macos_portable_compatibility.v1",
+        "msix_manifest.v1",
+        "sanitized_host_environment.v1",
+        "scheduled-job-worker.v1",
+        "scheduled_job_create_request.v1",
+        "scheduled_job_observation.v1",
+        "scheduled_job_operation.v1",
+        "scheduled_job_transition_request.v1",
+        "script_process.v1",
+        "script_process_approval.v1",
+        "script_process_operation_key.v1",
+        "script_process_proposal.v1",
+        "script_run_create.v1",
+        "specialist_context.v1",
+        "specialist_lifecycle.v1",
+        "specialist_model_action.v1",
+        "specialist_model_cancellation_operation.v1",
+        "specialist_model_cancellation_request.v1",
+        "specialist_model_input.v1",
+        "specialist_operator_schedule_request.v1",
+        "specialist_skill_assignment.v1",
+        "specialist_skill_context.v1",
+        "standard-code-backend-readiness.v1",
+        "standard-code-command-result.v1",
+        "standard-code-command.v1",
+        "standard-code-docker-runner.v1",
+        "standard-code-docker-runner.v2",
+        "standard-code-git-metadata-mask.v1",
+        "standard_code_attack_matrix.v1",
+        "standard_code_command_failure.v1",
+        "standard_code_docker_capability.v1",
+        "standard_code_docker_operation.v1",
+        "standard_code_mutation_checkpoint.v1",
+        "standard_code_preset_operation.v1",
+        "standard_code_preset_request.v1",
+        "standard_code_supervisor.v1",
+        "standard_code_supervisor_intent.v1",
+        "standard_code_supervisor_ledger.v1",
+        "standard_code_supervisor_ledger_request.v1",
+        "standard_code_supervisor_snapshot.v1",
+        "structured_tool_operation.v1",
+        "supervisor_structured_tool.v1",
+        "supervisor_tool_call_id.v1",
+        "supervisor_tool_result.v1",
+        "untrusted_context.v1",
+        "user_terminal_policy.v1",
+        "user_terminal_session.v1",
+        "wazero_interpreter_wasip1.v1",
+        "web-evidence-tools.v1",
+        "web-ui.v1",
+        "web_citation.v1",
+        "web_evidence_operation.v1",
+        "web_evidence_presentation.v1",
+        "web_fetch.v1",
+        "web_search.v1",
+        "windows_browser_job.v2",
+        "windows_portable_compatibility.v1",
+        "windows_restricted_token_job_candidate.v1",
+        "work_board.v1",
+        "work_item_create.v1",
+        "workspace-checkpoint-api.v1",
+        "workspace-checkpoint-transaction.v1",
+        "workspace-checkpoint.v1",
+        "yaml.v3"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "credential-provider-ledgers",
+      "class": "internal-durable",
+      "owner": "Credential, provider, model-route, and pricing maintainers",
+      "source_of_truth": [
+        "internal/credential",
+        "internal/modelregistry",
+        "internal/store"
+      ],
+      "writers": [
+        {
+          "id": "credential-provider-ledgers-writer",
+          "source": "internal/application",
+          "versions": [
+            1
+          ],
+          "mode": "write-current"
+        }
+      ],
+      "readers": [
+        {
+          "id": "credential-provider-ledgers-reader",
+          "source": "internal/store",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "Secret-free references, provider diagnostics, qualifications, and declared snapshots survive restart.",
+      "compatibility_rule": "Never weaken credential separation or qualification; retain readers for every supported stored snapshot.",
+      "retirement_gate": {
+        "mode": "migration-or-retention",
+        "requirements": [
+          "ADR-backed retirement decision and rollback path",
+          "Old-version fixtures remain until every supported source is migrated or retained",
+          "Reader history is append-only; retirement requires migration or retention evidence"
+        ]
+      },
+      "active_identifiers": [
+        "model_cancellation_operation.v1",
+        "model_cancellation_request.v1",
+        "model_context_window.v1",
+        "model_harness_probe.v1",
+        "provider_registry_reload.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "desktop-web-presentation-state",
+      "class": "projection",
+      "owner": "Desktop and React workbench maintainers",
+      "source_of_truth": [
+        "internal/desktop",
+        "web/src"
+      ],
+      "writers": [
+        {
+          "id": "desktop-web-presentation-state-writer",
+          "source": "web/src",
+          "versions": [
+            1
+          ],
+          "mode": "write-current"
+        }
+      ],
+      "readers": [
+        {
+          "id": "desktop-web-presentation-state-reader",
+          "source": "web/src",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "Renderer settings and Desktop DTO projections may be stored locally but grant no execution authority.",
+      "compatibility_rule": "Rebuild or default from Go-owned state while preserving user presentation settings and redaction.",
+      "retirement_gate": {
+        "mode": "rebuild-from-source",
+        "requirements": [
+          "Rebuild source remains retained and independently verifiable",
+          "Replacement preserves ordering, cursor, invalidation, and redaction behavior",
+          "Retirement evidence proves a complete rebuild from the named source"
+        ]
+      },
+      "rebuild_source": "Go Application DTOs plus explicitly user-owned local presentation settings.",
+      "active_identifiers": [
+        "desktop_connection_bootstrap.v1",
+        "desktop_debug_terminal_agent_input.v1",
+        "desktop_file_selection.v1",
+        "desktop_skill_package_dialog.v1",
+        "desktop_skill_package_install.v1",
+        "desktop_skill_package_preview.v1",
+        "desktop_user_terminal.v1",
+        "desktop_workspace_import.v1",
+        "desktop_workspace_launcher_list.v1",
+        "desktop_workspace_open.v1",
+        "prayu.run-navigation.v1",
+        "prayu.settings.sidebar.width.v1",
+        "prayu.sidebar.width.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "docker-attach-process-session",
+      "class": "ephemeral",
+      "owner": "Docker runtime transport maintainers",
+      "source_of_truth": [
+        "internal/sandbox"
+      ],
+      "writers": [
+        {
+          "id": "docker-attach-process-session-writer",
+          "source": "internal/sandbox",
+          "versions": [
+            2
+          ],
+          "mode": "write-current"
+        }
+      ],
+      "readers": [
+        {
+          "id": "docker-attach-process-session-reader",
+          "source": "internal/sandbox",
+          "versions": [
+            2
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": false,
+      "persistence_boundary": "Attach/stdin writers and live transport handles exist only in one process generation.",
+      "compatibility_rule": "Restart closes live writers and requires fresh durable admission and container-generation checks.",
+      "retirement_gate": {
+        "mode": "restart-non-persistence",
+        "requirements": [
+          "Restart tests prove no handle, token, stream, or authority is adopted",
+          "Runtime metadata cannot substitute for a fresh admission",
+          "Shutdown and crash recovery discard process-local state"
+        ]
+      },
+      "restart_persistence_proof": "Docker restart tests reject process-local stdin writers and require fresh durable admission.",
+      "active_identifiers": [
+        "command_runtime_stdin.v2"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "exported-evidence-and-handoff",
+      "class": "external-durable",
+      "owner": "Evidence, verification, report, and handoff maintainers",
+      "source_of_truth": [
+        "internal/report",
+        "internal/runner",
+        "internal/verification"
+      ],
+      "writers": [
+        {
+          "id": "exported-evidence-and-handoff-writer",
+          "source": "internal/application",
+          "versions": [
+            1
+          ],
+          "mode": "write-current"
+        }
+      ],
+      "readers": [
+        {
+          "id": "exported-evidence-and-handoff-reader",
+          "source": "internal/report",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "Receipts, evidence envelopes, reports, snapshots, and handoffs are exported user/audit data.",
+      "compatibility_rule": "Use additive formats or new versions, keep old fixtures/readers, preserve hashes/redaction, and reject unknown versions.",
+      "retirement_gate": {
+        "mode": "migration-or-retention",
+        "requirements": [
+          "ADR-backed retirement decision and rollback path",
+          "Old-version fixtures remain until every supported source is migrated or retained",
+          "Reader history is append-only; retirement requires migration or retention evidence"
+        ]
+      },
+      "active_identifiers": [
+        "browser_network_containment_evidence.v1",
+        "code_handoff_export.v1",
+        "context_memory_export.v1",
+        "finding_artifact_evidence.v1",
+        "finding_artifact_evidence_request.v1",
+        "finding_remediation_evidence.v1",
+        "finding_remediation_evidence_request.v1",
+        "github-review-evidence.v1",
+        "operator_verification_evidence_operation.v1",
+        "operator_verification_evidence_request.v1",
+        "operator_verification_plan.v1",
+        "operator_verification_plan_evidence_association.v1",
+        "operator_verification_plan_evidence_association_operation.v1",
+        "operator_verification_plan_evidence_association_request.v1",
+        "operator_verification_plan_inventory.v1",
+        "operator_verification_plan_item.v1",
+        "operator_verification_plan_item_snapshot_receipt_operation.v1",
+        "operator_verification_plan_item_snapshot_receipt_request.v1",
+        "operator_verification_plan_item_snapshot_receipt_review_operation.v1",
+        "operator_verification_plan_item_snapshot_receipt_review_request.v1",
+        "operator_verification_plan_operation.v1",
+        "operator_verification_plan_request.v1",
+        "runner_deadline_budget_evidence.v1",
+        "runner_evidence_set_receipt.v1",
+        "runner_exit_evidence.v1",
+        "runner_lifecycle_contract.v1",
+        "runner_lifecycle_timeline_evidence.v1",
+        "runner_resource_limit_evidence.v1",
+        "runner_runtime_evidence.v1",
+        "runner_termination_cause_evidence.v1",
+        "sandbox_backend_evidence.v1",
+        "sandbox_docker_production_evidence.v1",
+        "standard_code_command_evidence.v1",
+        "standard_code_tool_evidence.v1",
+        "web_evidence.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "extension-package-contracts",
+      "class": "external-durable",
+      "owner": "Skill, Plugin, Hook, and extension maintainers",
+      "source_of_truth": [
+        "internal/hooks",
+        "internal/plugins",
+        "internal/skills"
+      ],
+      "writers": [
+        {
+          "id": "extension-package-contracts-writer",
+          "source": "internal/skills",
+          "versions": [
+            1,
+            2
+          ],
+          "mode": "write-new"
+        }
+      ],
+      "readers": [
+        {
+          "id": "extension-package-contracts-reader",
+          "source": "internal/skills",
+          "versions": [
+            1,
+            2
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "Signed packages, manifests, installations, and selections cross independently versioned extension boundaries.",
+      "compatibility_rule": "Treat packages as untrusted; write new versions, retain bounded inert readers, and never weaken signature meaning.",
+      "retirement_gate": {
+        "mode": "migration-or-retention",
+        "requirements": [
+          "ADR-backed retirement decision and rollback path",
+          "Old-version fixtures remain until every supported source is migrated or retained",
+          "Reader history is append-only; retirement requires migration or retention evidence"
+        ]
+      },
+      "active_identifiers": [
+        "extension-control.v1",
+        "extension-inventory.v1",
+        "external_skill_context.v1",
+        "external_skill_guidance.v1",
+        "external_skill_selection.v1",
+        "external_skill_selection_intent.v1",
+        "external_skill_selection_operation.v1",
+        "external_specialist_skill_context.v1",
+        "plugin-installation.v1",
+        "plugin-publisher-trust.v1",
+        "plugin-signature.v1",
+        "plugin.v1",
+        "restricted-hooks.v1",
+        "skill.v1",
+        "skill_candidate.v1",
+        "skill_candidate_import.v1",
+        "skill_candidate_import_operation.v1",
+        "skill_candidate_import_request.v1",
+        "skill_candidate_proposal.v1",
+        "skill_candidate_request.v1",
+        "skill_candidate_review.v1",
+        "skill_candidate_review_operation.v1",
+        "skill_candidate_review_request.v1",
+        "skill_context.v1",
+        "skill_mode.v1",
+        "skill_package.v1",
+        "skill_package.v2",
+        "skill_package_install_operation.v1",
+        "skill_package_install_result.v1",
+        "skill_package_installation_intent.v1",
+        "skill_package_installation_intent.v2",
+        "skill_package_object.v1",
+        "skill_package_removal.v1",
+        "skill_package_removal_intent.v1",
+        "skill_package_remove_operation.v1",
+        "skill_package_signature.v1",
+        "skill_selection.v1",
+        "skill_selection_operation.v1",
+        "skill_selection_request.v1",
+        "specialist_instruction.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "http-openapi-contract",
+      "class": "external-durable",
+      "owner": "HTTP/OpenAPI and generated-client maintainers",
+      "source_of_truth": [
+        "docs/openapi.json",
+        "internal/httpapi/openapi.go"
+      ],
+      "writers": [
+        {
+          "id": "http-openapi-contract-writer",
+          "source": "internal/httpapi/openapi.go",
+          "versions": [
+            0,
+            1,
+            2
+          ],
+          "mode": "write-new"
+        }
+      ],
+      "readers": [
+        {
+          "id": "http-openapi-contract-reader",
+          "source": "web/src/api",
+          "versions": [
+            0,
+            1,
+            2
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "Loopback HTTP DTO protocol values are exported through OpenAPI to generated TypeScript.",
+      "compatibility_rule": "Keep API v1 additive, regenerate clients from Go, retain old readers, and reject unknown authority-bearing values.",
+      "retirement_gate": {
+        "mode": "migration-or-retention",
+        "requirements": [
+          "ADR-backed retirement decision and rollback path",
+          "Old-version fixtures remain until every supported source is migrated or retained",
+          "Reader history is append-only; retirement requires migration or retention evidence"
+        ]
+      },
+      "active_identifiers": [
+        "agent-code-tools.v1",
+        "agent_graph.v1",
+        "api.v1",
+        "approval_control.v1",
+        "approval_queue.v1",
+        "batch-delivery.v1",
+        "browser_cdp_permission_policy.v1",
+        "browser_network_containment_policy.v2",
+        "browser_safe_web_readiness.v1",
+        "code-intel-lsp.v1",
+        "code_handoff.v1",
+        "command-runtime.v2",
+        "context_provenance.v0",
+        "context_provenance.v1",
+        "debug-query.v1",
+        "diagnostic-bundle.v1",
+        "doctor-snapshot.v1",
+        "execution_interaction_policy.v1",
+        "execution_permission_policy.v1",
+        "execution_profile_policy.v1",
+        "file_edit_apply.v1",
+        "file_edit_change_set.v1",
+        "file_edit_proposal.v1",
+        "file_edit_proposal_recovery.v1",
+        "file_edit_review.v1",
+        "mode_policy.v1",
+        "model_harness.v1",
+        "model_harness_qualification.v1",
+        "model_route_control.v1",
+        "operation_receipt.v1",
+        "operator_verification_evidence.v1",
+        "operator_verification_inventory.v1",
+        "operator_verification_plan_coverage.v1",
+        "operator_verification_plan_item_coverage.v1",
+        "operator_verification_plan_item_snapshot.v1",
+        "operator_verification_plan_item_snapshot_export.v1",
+        "operator_verification_plan_item_snapshot_receipt.v1",
+        "operator_verification_plan_item_snapshot_receipt_inventory.v1",
+        "operator_verification_plan_item_snapshot_receipt_review.v1",
+        "operator_verification_plan_item_snapshot_receipt_review_inventory.v1",
+        "plan_delivery.v1",
+        "plan_delivery_control.v1",
+        "provider_credential.v1",
+        "provider_diagnostic.v1",
+        "repository_commit_comparison.v1",
+        "repository_commit_file_preview.v1",
+        "repository_diff.v1",
+        "repository_file_history.v1",
+        "repository_state.v1",
+        "restricted-cdp-ui-evidence.v1",
+        "run_browser_cdp_permission.v1",
+        "run_creation.v1",
+        "run_execution_handoff.v1",
+        "run_execution_interaction.v1",
+        "run_execution_permission.v1",
+        "run_execution_profile.v1",
+        "run_lifecycle_control.v1",
+        "run_mode.v1",
+        "run_wake_consumer.v1",
+        "run_wake_control.v1",
+        "run_wake_intent.v1",
+        "run_wake_worker_health.v1",
+        "sandbox.readiness.v1",
+        "scheduled-job-authorization.v1",
+        "scheduled-job-control.v1",
+        "scheduled-job-round.v1",
+        "scheduled-job-worker-health.v1",
+        "scheduled-job.v1",
+        "session_evidence_attachment.v1",
+        "session_evidence_inventory.v1",
+        "session_message_submission.v1",
+        "session_steering_cancellation.v1",
+        "skill_package_installation.v1",
+        "standard_code_preset.v1",
+        "thread.v1",
+        "thread_creation.v1",
+        "thread_export.v1",
+        "thread_lifecycle.v1",
+        "thread_message_submission.v1",
+        "ui-evidence-artifact.v1",
+        "ui-evidence-attempt.v1",
+        "ui-evidence-step.v1",
+        "ui-evidence.v1",
+        "windows_wfp_dynamic.v1",
+        "workspace_explorer.v1",
+        "workspace_search.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "in-memory-token-session",
+      "class": "ephemeral",
+      "owner": "Credential and bootstrap maintainers",
+      "source_of_truth": [
+        "internal/credential",
+        "internal/desktop"
+      ],
+      "writers": [
+        {
+          "id": "in-memory-token-session-writer",
+          "source": "internal/desktop",
+          "versions": [
+            1
+          ],
+          "mode": "write-current"
+        }
+      ],
+      "readers": [
+        {
+          "id": "in-memory-token-session-reader",
+          "source": "internal/desktop",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": false,
+      "persistence_boundary": "Access tokens, bootstrap secrets, and process ownership tokens last one process generation.",
+      "compatibility_rule": "Rotate on restart, never persist secret material, and never treat token metadata as authority.",
+      "retirement_gate": {
+        "mode": "restart-non-persistence",
+        "requirements": [
+          "Restart tests prove no handle, token, stream, or authority is adopted",
+          "Runtime metadata cannot substitute for a fresh admission",
+          "Shutdown and crash recovery discard process-local state"
+        ]
+      },
+      "restart_persistence_proof": "Credential and Desktop restart tests rotate secrets and retain only non-secret metadata.",
+      "active_identifiers": [
+        "browser-profile-token.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "lsp-process-session",
+      "class": "ephemeral",
+      "owner": "Code intelligence maintainers",
+      "source_of_truth": [
+        "internal/codeintel"
+      ],
+      "writers": [
+        {
+          "id": "lsp-process-session-writer",
+          "source": "internal/codeintel",
+          "versions": [
+            1
+          ],
+          "mode": "write-current"
+        }
+      ],
+      "readers": [
+        {
+          "id": "lsp-process-session-reader",
+          "source": "internal/codeintel",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": false,
+      "persistence_boundary": "LSP JSON-RPC sessions and qualified executable handles live for one language-server process.",
+      "compatibility_rule": "Restart re-qualifies executable/config identity and rebinds Workspace URIs without inherited authority.",
+      "retirement_gate": {
+        "mode": "restart-non-persistence",
+        "requirements": [
+          "Restart tests prove no handle, token, stream, or authority is adopted",
+          "Runtime metadata cannot substitute for a fresh admission",
+          "Shutdown and crash recovery discard process-local state"
+        ]
+      },
+      "restart_persistence_proof": "Code-intelligence restart tests establish a new process identity and discard prior JSON-RPC handles.",
+      "active_identifiers": [
+        "code-intel-config.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "mcp-interchange",
+      "class": "external-durable",
+      "owner": "MCP client/server maintainers",
+      "source_of_truth": [
+        "internal/mcp",
+        "internal/toolgateway"
+      ],
+      "writers": [
+        {
+          "id": "mcp-interchange-writer",
+          "source": "internal/mcp",
+          "versions": [
+            1
+          ],
+          "mode": "write-current"
+        }
+      ],
+      "readers": [
+        {
+          "id": "mcp-interchange-reader",
+          "source": "internal/mcp",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "MCP messages and local extension DTOs cross process/version boundaries; audit records may persist.",
+      "compatibility_rule": "Follow upstream negotiation and bounded local parsing; negotiated capabilities never grant local Go authority.",
+      "retirement_gate": {
+        "mode": "migration-or-retention",
+        "requirements": [
+          "ADR-backed retirement decision and rollback path",
+          "Old-version fixtures remain until every supported source is migrated or retained",
+          "Reader history is append-only; retirement requires migration or retention evidence"
+        ]
+      },
+      "active_identifiers": [
+        "mcp-client-call-audit.v1",
+        "mcp-client-server.v1",
+        "mcp-client.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "operation-receipt-projection",
+      "class": "projection",
+      "owner": "Operation receipt maintainers",
+      "source_of_truth": [
+        "internal/operationreceipt",
+        "internal/store"
+      ],
+      "writers": [
+        {
+          "id": "operation-receipt-projection-writer",
+          "source": "internal/operationreceipt",
+          "versions": [
+            1
+          ],
+          "mode": "write-current"
+        }
+      ],
+      "readers": [
+        {
+          "id": "operation-receipt-projection-reader",
+          "source": "internal/httpapi",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "Receipt history is a content-free projection over authoritative operations and receipts.",
+      "compatibility_rule": "Rebuild from domain operation/receipt rows; never infer transaction success or authority from the projection.",
+      "retirement_gate": {
+        "mode": "rebuild-from-source",
+        "requirements": [
+          "Rebuild source remains retained and independently verifiable",
+          "Replacement preserves ordering, cursor, invalidation, and redaction behavior",
+          "Retirement evidence proves a complete rebuild from the named source"
+        ]
+      },
+      "rebuild_source": "Authoritative domain operation rows and immutable receipts in internal/store.",
+      "active_identifiers": [
+        "operation_receipt_history.v1",
+        "operation_receipt_history_item.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "process-runtime-lifecycle",
+      "class": "internal-durable",
+      "owner": "Command, model, terminal, and runner lifecycle maintainers",
+      "source_of_truth": [
+        "internal/application",
+        "internal/runner",
+        "internal/store"
+      ],
+      "writers": [
+        {
+          "id": "process-runtime-lifecycle-writer",
+          "source": "internal/application",
+          "versions": [
+            1,
+            2
+          ],
+          "mode": "write-new"
+        }
+      ],
+      "readers": [
+        {
+          "id": "process-runtime-lifecycle-reader",
+          "source": "internal/store",
+          "versions": [
+            1,
+            2
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "Durable intent, executable identity, bounds, cancellation, terminal state, and cleanup survive failure.",
+      "compatibility_rule": "Preserve write-ahead intent, generation fencing, result binding, and cleanup; retain supported readers.",
+      "retirement_gate": {
+        "mode": "migration-or-retention",
+        "requirements": [
+          "ADR-backed retirement decision and rollback path",
+          "Old-version fixtures remain until every supported source is migrated or retained",
+          "Reader history is append-only; retirement requires migration or retention evidence"
+        ]
+      },
+      "active_identifiers": [
+        "application_docker_container_lifecycle_post_exit.v1",
+        "application_docker_container_lifecycle_running.v1",
+        "application_docker_container_lifecycle_start_authority.v1",
+        "command-runtime-adapter-authority.v1",
+        "command-runtime-batch.v2",
+        "command-runtime-policy.v2",
+        "command-runtime-result.v2",
+        "command-runtime-workspace-boundary.v1",
+        "command_runtime_adapter_generation.v1",
+        "command_runtime_docker_adapter_operation.v1",
+        "command_runtime_local_sandbox_operation.v1",
+        "command_runtime_operation.v2",
+        "command_runtime_request.v2",
+        "controlled_command_execution.v1",
+        "controlled_command_execution_intent.v1",
+        "controlled_command_execution_operation.v1",
+        "controlled_command_execution_policy.v1",
+        "controlled_command_plan.v1",
+        "controlled_command_policy.v1",
+        "controlled_command_proposal.v1",
+        "controlled_command_proposal_policy.v1",
+        "controlled_command_proposal_result.v1",
+        "controlled_command_proposal_review.v1",
+        "controlled_command_proposal_review_operation.v1",
+        "debug_terminal.v1",
+        "debug_terminal_agent_input.v1",
+        "debug_terminal_agent_input_audit_record.v1",
+        "debug_terminal_agent_input_operation.v1",
+        "debug_terminal_agent_input_policy.v1",
+        "host-process.v1",
+        "host_command.v1",
+        "host_command_execution.v1",
+        "host_command_execution_intent.v1",
+        "host_command_execution_operation.v1",
+        "host_command_execution_policy.v1",
+        "host_command_execution_receipt.v1",
+        "host_command_policy.v1",
+        "host_command_proposal.v1",
+        "host_command_proposal_execution_operation.v1",
+        "host_command_proposal_result.v1",
+        "host_command_proposal_review_operation.v1",
+        "host_command_review.v1",
+        "once_execution.v1",
+        "terminal_agent_input_audit.v1",
+        "terminal_agent_input_bridge.v1",
+        "terminal_input_lease.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "project-configuration-contract",
+      "class": "external-durable",
+      "owner": "Project configuration and instruction maintainers",
+      "source_of_truth": [
+        "configs",
+        "internal/projectconfig"
+      ],
+      "writers": [
+        {
+          "id": "project-configuration-contract-writer",
+          "source": "internal/projectconfig",
+          "versions": [
+            1
+          ],
+          "mode": "write-current"
+        }
+      ],
+      "readers": [
+        {
+          "id": "project-configuration-contract-reader",
+          "source": "internal/projectconfig",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": ".prayu configuration, instruction precedence, and fingerprints persist in user projects and automation.",
+      "compatibility_rule": "Use deterministic dual-read for path/precedence changes, reject conflicts, and keep old-project fixtures.",
+      "retirement_gate": {
+        "mode": "migration-or-retention",
+        "requirements": [
+          "ADR-backed retirement decision and rollback path",
+          "Old-version fixtures remain until every supported source is migrated or retained",
+          "Reader history is append-only; retirement requires migration or retention evidence"
+        ]
+      },
+      "active_identifiers": [
+        "prayu.locale.v1",
+        "project_config.v1",
+        "project_instruction_guidance.v1",
+        "project_instruction_snapshot.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "provider-stream-presentation",
+      "class": "ephemeral",
+      "owner": "Model streaming and renderer maintainers",
+      "source_of_truth": [
+        "internal/llm",
+        "web/src"
+      ],
+      "writers": [
+        {
+          "id": "provider-stream-presentation-writer",
+          "source": "internal/llm",
+          "versions": [
+            1,
+            3
+          ],
+          "mode": "write-new"
+        }
+      ],
+      "readers": [
+        {
+          "id": "provider-stream-presentation-reader",
+          "source": "web/src",
+          "versions": [
+            1,
+            3
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": false,
+      "persistence_boundary": "Provider deltas and pending renderer cards last only until durable reconciliation.",
+      "compatibility_rule": "Discard incomplete deltas on restart, redact private reasoning, and reconcile only by durable item identity.",
+      "retirement_gate": {
+        "mode": "restart-non-persistence",
+        "requirements": [
+          "Restart tests prove no handle, token, stream, or authority is adopted",
+          "Runtime metadata cannot substitute for a fresh admission",
+          "Shutdown and crash recovery discard process-local state"
+        ]
+      },
+      "restart_persistence_proof": "Streaming tests discard unmatched deltas/cards and reconstruct presentation from durable items after restart.",
+      "active_identifiers": [
+        "llm.item_stream.v1",
+        "model_public_commentary.v1",
+        "model_public_stream.v3"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "registry-governance-contract",
+      "class": "external-durable",
+      "owner": "Protocol governance maintainers",
+      "source_of_truth": [
+        "internal/protocolregistry",
+        "protocols"
+      ],
+      "writers": [
+        {
+          "id": "registry-governance-contract-writer",
+          "source": "internal/protocolregistry",
+          "versions": [
+            1
+          ],
+          "mode": "write-current"
+        }
+      ],
+      "readers": [
+        {
+          "id": "registry-governance-contract-reader",
+          "source": "internal/protocolregistry",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "The versioned registry is committed review metadata and generated documentation, never runtime authority.",
+      "compatibility_rule": "Evolve the schema additively, retain historical reader records, compare against the Git baseline, and fail closed on unknown fields.",
+      "retirement_gate": {
+        "mode": "migration-or-retention",
+        "requirements": [
+          "ADR-backed retirement decision and rollback path",
+          "Old-version fixtures remain until every supported source is migrated or retained",
+          "Reader history is append-only; retirement requires migration or retention evidence"
+        ]
+      },
+      "active_identifiers": [
+        "protocol-family-registry.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "release-and-packaging-contracts",
+      "class": "external-durable",
+      "owner": "Desktop release and packaging maintainers",
+      "source_of_truth": [
+        "internal/buildinfo",
+        "packaging",
+        "scripts"
+      ],
+      "writers": [
+        {
+          "id": "release-and-packaging-contracts-writer",
+          "source": "scripts",
+          "versions": [
+            1
+          ],
+          "mode": "write-current"
+        }
+      ],
+      "readers": [
+        {
+          "id": "release-and-packaging-contracts-reader",
+          "source": "internal/buildinfo",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "Release manifests, identities, checksums, SBOMs, and compatibility documents are exported artifacts.",
+      "compatibility_rule": "Historical artifacts are immutable; identity changes require upgrade/downgrade evidence and reader retention.",
+      "retirement_gate": {
+        "mode": "migration-or-retention",
+        "requirements": [
+          "ADR-backed retirement decision and rollback path",
+          "Old-version fixtures remain until every supported source is migrated or retained",
+          "Reader history is append-only; retirement requires migration or retention evidence"
+        ]
+      },
+      "active_identifiers": [
+        "portable_build_diagnostic.v1",
+        "portable_release_metadata.v1",
+        "portable_zip_manifest.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "report-summary-projections",
+      "class": "projection",
+      "owner": "Finding, repository, and summary maintainers",
+      "source_of_truth": [
+        "internal/report",
+        "internal/store"
+      ],
+      "writers": [
+        {
+          "id": "report-summary-projections-writer",
+          "source": "internal/report",
+          "versions": [
+            1
+          ],
+          "mode": "write-current"
+        }
+      ],
+      "readers": [
+        {
+          "id": "report-summary-projections-reader",
+          "source": "internal/httpapi",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "Generated summaries may be exported or cached while findings, Git objects, and evidence stay authoritative.",
+      "compatibility_rule": "Rebuild from content-addressed sources and preserve annotations, ordering, and redaction.",
+      "retirement_gate": {
+        "mode": "rebuild-from-source",
+        "requirements": [
+          "Rebuild source remains retained and independently verifiable",
+          "Replacement preserves ordering, cursor, invalidation, and redaction behavior",
+          "Retirement evidence proves a complete rebuild from the named source"
+        ]
+      },
+      "rebuild_source": "Content-addressed findings, evidence, Git objects, installations, and accepted review decisions.",
+      "active_identifiers": [
+        "external_skill_projection.v1",
+        "finding_report_projection.v1",
+        "price_snapshot.v1",
+        "price_snapshot_list.v1",
+        "sandbox_docker_input_projection.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "sandbox-docker-lifecycle",
+      "class": "internal-durable",
+      "owner": "Sandbox and Docker lifecycle maintainers",
+      "source_of_truth": [
+        "internal/sandbox",
+        "internal/store"
+      ],
+      "writers": [
+        {
+          "id": "sandbox-docker-lifecycle-writer",
+          "source": "internal/sandbox",
+          "versions": [
+            1,
+            2
+          ],
+          "mode": "write-new"
+        }
+      ],
+      "readers": [
+        {
+          "id": "sandbox-docker-lifecycle-reader",
+          "source": "internal/store",
+          "versions": [
+            1,
+            2
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "Admission, plan, intent, observation, ownership, output, and cleanup records persist across restart.",
+      "compatibility_rule": "Preserve container/image/config identity, lease fencing, external-effect order, and cleanup-first recovery.",
+      "retirement_gate": {
+        "mode": "migration-or-retention",
+        "requirements": [
+          "ADR-backed retirement decision and rollback path",
+          "Old-version fixtures remain until every supported source is migrated or retained",
+          "Reader history is append-only; retirement requires migration or retention evidence"
+        ]
+      },
+      "active_identifiers": [
+        "docker-standard-code.v1",
+        "docker_sandbox_admission.v1",
+        "docker_sandbox_admission_operation.v1",
+        "docker_sandbox_admission_request.v1",
+        "docker_sandbox_cancel_operation.v1",
+        "docker_sandbox_cancellation.v1",
+        "docker_sandbox_denial.v1",
+        "docker_sandbox_launch.v1",
+        "docker_sandbox_lifecycle_key.v1",
+        "docker_sandbox_output_commit_operation.v1",
+        "docker_sandbox_receipt.v1",
+        "docker_sandbox_runtime_epoch.v1",
+        "docker_sandbox_start.v1",
+        "docker_sandbox_start_operation.v1",
+        "docker_sandbox_start_request.v1",
+        "drydock_lifecycle.v1",
+        "linux_namespace_seccomp_candidate.v1",
+        "local-host-path.v1",
+        "local-profile-proof.v1",
+        "local-profile.v1",
+        "local-readiness-binding.v1",
+        "local-readiness-owner.v1",
+        "local-root-identity.v1",
+        "local-run-owner.v1",
+        "local-runtime-generation.v1",
+        "local_sandbox_execution.v1",
+        "local_sandbox_owner.v1",
+        "local_sandbox_readiness.v1",
+        "sandbox_authorization.v1",
+        "sandbox_backend_evidence_item.v1",
+        "sandbox_backend_evidence_operation.v1",
+        "sandbox_backend_evidence_request.v1",
+        "sandbox_backend_handshake.v1",
+        "sandbox_cleanup.v1",
+        "sandbox_cleanup_operation.v1",
+        "sandbox_cleanup_request.v1",
+        "sandbox_container_identity.v1",
+        "sandbox_docker_capability_observation.v1",
+        "sandbox_docker_command.v1",
+        "sandbox_docker_container_attempt_completion.v1",
+        "sandbox_docker_container_attempt_failure.v1",
+        "sandbox_docker_container_authority.v1",
+        "sandbox_docker_container_cleanup.v1",
+        "sandbox_docker_container_cleanup_checkpoint.v1",
+        "sandbox_docker_container_config.v1",
+        "sandbox_docker_container_control.v1",
+        "sandbox_docker_container_control_matrix.v1",
+        "sandbox_docker_container_id.v1",
+        "sandbox_docker_container_inspection.v1",
+        "sandbox_docker_container_lifecycle_observation.v1",
+        "sandbox_docker_container_lifecycle_ownership.v1",
+        "sandbox_docker_container_lifecycle_probe_request.v1",
+        "sandbox_docker_container_lifecycle_probe_result.v1",
+        "sandbox_docker_container_name.v1",
+        "sandbox_docker_container_plan.v1",
+        "sandbox_docker_container_plan_operation.v1",
+        "sandbox_docker_container_plan_request.v1",
+        "sandbox_docker_container_rehearsal.v1",
+        "sandbox_docker_container_rehearsal_attempt.v1",
+        "sandbox_docker_container_rehearsal_operation.v1",
+        "sandbox_docker_container_rehearsal_request.v1",
+        "sandbox_docker_container_spec.v1",
+        "sandbox_docker_container_stage.v1",
+        "sandbox_docker_container_stage_checkpoint.v1",
+        "sandbox_docker_daemon_identity.v1",
+        "sandbox_docker_fake_write_step.v1",
+        "sandbox_docker_host_input_carrier_name.v1",
+        "sandbox_docker_host_input_handoff.v1",
+        "sandbox_docker_host_input_handoff_intent.v1",
+        "sandbox_docker_host_input_handoff_operation.v1",
+        "sandbox_docker_host_input_handoff_request.v1",
+        "sandbox_docker_host_input_handoff_requirement.v1",
+        "sandbox_docker_host_input_requirement.v1",
+        "sandbox_docker_host_input_staging.v1",
+        "sandbox_docker_host_input_staging_intent.v1",
+        "sandbox_docker_host_input_staging_operation.v1",
+        "sandbox_docker_host_input_volume_name.v1",
+        "sandbox_docker_host_mounts.v1",
+        "sandbox_docker_image_observation.v1",
+        "sandbox_docker_label_plan.v1",
+        "sandbox_docker_lifecycle_action.v1",
+        "sandbox_docker_lifecycle_intent.v1",
+        "sandbox_docker_lifecycle_operation.v1",
+        "sandbox_docker_lifecycle_receipt.v1",
+        "sandbox_docker_lifecycle_transition.v1",
+        "sandbox_docker_log_capture.v1",
+        "sandbox_docker_mount_plan.v1",
+        "sandbox_docker_network_plan.v1",
+        "sandbox_docker_observation.v1",
+        "sandbox_docker_observation_binding.v1",
+        "sandbox_docker_observation_item.v1",
+        "sandbox_docker_observation_operation.v1",
+        "sandbox_docker_observation_request.v1",
+        "sandbox_docker_orphan_plan.v1",
+        "sandbox_docker_output_commit.v1",
+        "sandbox_docker_output_staging.v1",
+        "sandbox_docker_process_lifecycle_blueprint.v1",
+        "sandbox_docker_production_environment.v1",
+        "sandbox_docker_production_environment.v2",
+        "sandbox_docker_production_evidence_attempt.v1",
+        "sandbox_docker_production_evidence_attempt_failure.v1",
+        "sandbox_docker_production_evidence_attempt_result.v1",
+        "sandbox_docker_production_evidence_capability.v1",
+        "sandbox_docker_production_evidence_daemon_identity.v1",
+        "sandbox_docker_production_evidence_harness_intent.v1",
+        "sandbox_docker_production_evidence_harness_inventory.v1",
+        "sandbox_docker_production_evidence_harness_label.v1",
+        "sandbox_docker_production_evidence_harness_reconciliation.v1",
+        "sandbox_docker_production_evidence_harness_resource.v1",
+        "sandbox_docker_production_evidence_harness_result.v1",
+        "sandbox_docker_production_evidence_image.v1",
+        "sandbox_docker_production_evidence_operation.v1",
+        "sandbox_docker_production_evidence_reconciliation.v1",
+        "sandbox_docker_production_evidence_review.v1",
+        "sandbox_docker_production_evidence_review_operation.v1",
+        "sandbox_docker_production_evidence_suite.v1",
+        "sandbox_docker_readiness_fingerprint.v1",
+        "sandbox_docker_readonly_endpoint.v1",
+        "sandbox_docker_resource_plan.v1",
+        "sandbox_docker_run_proposal.v1",
+        "sandbox_docker_runtime_input_application_failure.v1",
+        "sandbox_docker_runtime_input_application_intent.v1",
+        "sandbox_docker_runtime_input_application_operation.v1",
+        "sandbox_docker_runtime_input_application_request.v1",
+        "sandbox_docker_runtime_input_application_result.v1",
+        "sandbox_docker_runtime_input_archive_root.v1",
+        "sandbox_docker_runtime_input_carrier_name.v1",
+        "sandbox_docker_runtime_input_projection_content.v1",
+        "sandbox_docker_runtime_input_projection_item.v1",
+        "sandbox_docker_runtime_input_projection_operation.v1",
+        "sandbox_docker_runtime_input_projection_plan.v1",
+        "sandbox_docker_runtime_input_relative_path.v1",
+        "sandbox_docker_runtime_input_resource_cleanup_failure.v1",
+        "sandbox_docker_runtime_input_resource_cleanup_intent.v1",
+        "sandbox_docker_runtime_input_resource_cleanup_operation.v1",
+        "sandbox_docker_runtime_input_resource_cleanup_result.v1",
+        "sandbox_docker_runtime_input_resource_descriptor.v1",
+        "sandbox_docker_runtime_input_resource_inspection.v1",
+        "sandbox_docker_runtime_input_resource_inspection_operation.v1",
+        "sandbox_docker_runtime_input_target.v1",
+        "sandbox_docker_runtime_input_target_container.v1",
+        "sandbox_docker_runtime_input_target_inspection.v1",
+        "sandbox_docker_runtime_input_volume.v1",
+        "sandbox_docker_runtime_input_volume_name.v1",
+        "sandbox_docker_secret_plan.v1",
+        "sandbox_docker_start_gate_authority.v1",
+        "sandbox_docker_start_gate_review.v1",
+        "sandbox_docker_start_gate_review_operation.v1",
+        "sandbox_docker_termination_plan.v1",
+        "sandbox_docker_write_transaction.v1",
+        "sandbox_docker_write_transport.v1",
+        "sandbox_docker_write_transport_step.v1",
+        "sandbox_execution.v1",
+        "sandbox_execution_cancel.v1",
+        "sandbox_execution_cancel_operation.v1",
+        "sandbox_execution_cancel_request.v1",
+        "sandbox_execution_candidate.v1",
+        "sandbox_execution_candidate.v2",
+        "sandbox_execution_candidate_operation.v1",
+        "sandbox_execution_candidate_request.v1",
+        "sandbox_execution_candidate_request.v2",
+        "sandbox_execution_operation.v1",
+        "sandbox_execution_request.v1",
+        "sandbox_fake_container_config.v1",
+        "sandbox_fake_daemon_capabilities.v1",
+        "sandbox_fake_mount_plan.v1",
+        "sandbox_fake_network_plan.v1",
+        "sandbox_fake_orphan_plan.v1",
+        "sandbox_fake_output_artifact.v1",
+        "sandbox_fake_resource_plan.v1",
+        "sandbox_fake_secret_plan.v1",
+        "sandbox_fake_termination_plan.v1",
+        "sandbox_host_input_archive_path.v1",
+        "sandbox_host_input_artifact_payloads.v1",
+        "sandbox_host_input_bundle.v1",
+        "sandbox_host_input_directory.v1",
+        "sandbox_host_input_source_snapshot.v1",
+        "sandbox_input_artifact_bindings.v1",
+        "sandbox_intent_request.v1",
+        "sandbox_manifest.v1",
+        "sandbox_manifest_operation.v1",
+        "sandbox_mount_binding.v1",
+        "sandbox_output_capture_plan.v1",
+        "sandbox_output_export_plan.v1",
+        "sandbox_output_locator.v1",
+        "sandbox_output_simulation.v1",
+        "sandbox_output_simulation_operation.v1",
+        "sandbox_output_simulation_request.v1",
+        "sandbox_policy_decision.v1",
+        "sandbox_preflight.v1",
+        "sandbox_preflight_operation.v1",
+        "sandbox_preflight_request.v1",
+        "sandbox_scope_binding.v1",
+        "sandbox_validation.v1",
+        "sandbox_workspace_binding.v1",
+        "windows_appcontainer_policy.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "thread-run-session-ledgers",
+      "class": "internal-durable",
+      "owner": "Thread, Run, Session, context, and message maintainers",
+      "source_of_truth": [
+        "internal/session",
+        "internal/store"
+      ],
+      "writers": [
+        {
+          "id": "thread-run-session-ledgers-writer",
+          "source": "internal/application",
+          "versions": [
+            0,
+            1
+          ],
+          "mode": "write-new"
+        }
+      ],
+      "readers": [
+        {
+          "id": "thread-run-session-ledgers-reader",
+          "source": "internal/store",
+          "versions": [
+            0,
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "SQLite preserves user history, ordering, Run succession, provenance, notes, and messages.",
+      "compatibility_rule": "Add versions without rewriting identity/history; retain every reader needed by supported databases and exports.",
+      "retirement_gate": {
+        "mode": "migration-or-retention",
+        "requirements": [
+          "ADR-backed retirement decision and rollback path",
+          "Old-version fixtures remain until every supported source is migrated or retained",
+          "Reader history is append-only; retirement requires migration or retention evidence"
+        ]
+      },
+      "active_identifiers": [
+        "context_memory.v1",
+        "continuity_context.v1",
+        "continuity_snapshot.v1",
+        "deterministic_id.v1",
+        "handoff_memory.v0",
+        "handoff_memory.v1",
+        "llm.item_stream.identity.v1",
+        "long_term_memory.v1",
+        "note_context.v1",
+        "root_inbox_context.v1",
+        "root_lifecycle.v1",
+        "run_creation_operation.v1",
+        "run_creation_request.v1",
+        "run_lifecycle_operation.v1",
+        "run_lifecycle_request.v1",
+        "run_progress_guard.v1",
+        "session_archive.v1",
+        "session_continuity_node.v1",
+        "session_evidence_attachment_operation.v1",
+        "session_evidence_attachment_request.v1",
+        "session_grant.v1",
+        "session_grant_revoke.v1",
+        "session_tree.v1",
+        "thread_lifecycle_operation.v1",
+        "thread_lifecycle_request.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "thread-transcript-projection",
+      "class": "projection",
+      "owner": "Thread transcript maintainers",
+      "source_of_truth": [
+        "internal/store",
+        "internal/threadtranscript"
+      ],
+      "writers": [
+        {
+          "id": "thread-transcript-projection-writer",
+          "source": "internal/threadtranscript",
+          "versions": [
+            1
+          ],
+          "mode": "write-current"
+        }
+      ],
+      "readers": [
+        {
+          "id": "thread-transcript-projection-reader",
+          "source": "internal/httpapi",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "Transcript pages regenerate while source messages, events, approvals, and delivery rows remain durable.",
+      "compatibility_rule": "Rebuild with stable keyset order, replacement identity, redaction, and Run boundaries.",
+      "retirement_gate": {
+        "mode": "rebuild-from-source",
+        "requirements": [
+          "Rebuild source remains retained and independently verifiable",
+          "Replacement preserves ordering, cursor, invalidation, and redaction behavior",
+          "Retirement evidence proves a complete rebuild from the named source"
+        ]
+      },
+      "rebuild_source": "Immutable Thread/Run/Session messages, events, model/tool items, approvals, verification, checkpoints, and delivery rows.",
+      "active_identifiers": [
+        "thread_transcript.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "tool-mutation-ledgers",
+      "class": "internal-durable",
+      "owner": "Tool gateway, file edit, Git, and mutation maintainers",
+      "source_of_truth": [
+        "internal/fileedit",
+        "internal/gitmutation",
+        "internal/store",
+        "internal/toolgateway"
+      ],
+      "writers": [
+        {
+          "id": "tool-mutation-ledgers-writer",
+          "source": "internal/application",
+          "versions": [
+            1
+          ],
+          "mode": "write-current"
+        }
+      ],
+      "readers": [
+        {
+          "id": "tool-mutation-ledgers-reader",
+          "source": "internal/store",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "Tool intents, fingerprints, reviews, results, and Git/file receipts persist for replay and recovery.",
+      "compatibility_rule": "Keep replay/conflict, approval, revision/generation fencing, and write-ahead/result bindings compatible.",
+      "retirement_gate": {
+        "mode": "migration-or-retention",
+        "requirements": [
+          "ADR-backed retirement decision and rollback path",
+          "Old-version fixtures remain until every supported source is migrated or retained",
+          "Reader history is append-only; retirement requires migration or retention evidence"
+        ]
+      },
+      "active_identifiers": [
+        "file_edit_apply_operation.v1",
+        "file_edit_apply_request.v1",
+        "file_mutation.v1",
+        "git-advanced-api.v1",
+        "git-advanced-authority.v1",
+        "git-advanced-capability.v1",
+        "git-advanced-preview.v1",
+        "git-advanced-receipt.v1",
+        "git-advanced-sequence.v1",
+        "git-advanced.v1",
+        "git-managed-worktree.v1",
+        "git-review-diff-evidence.v1",
+        "git_advanced_operation.v1",
+        "git_mutation_operation.v1",
+        "git_mutation_request.v1",
+        "git_remote_operation.v1",
+        "git_remote_request.v1",
+        "github-review-api.v1",
+        "github-review-capability.v1",
+        "github-review-connection.v1",
+        "github-review-device-flow.v1",
+        "github-review-provider.v1",
+        "github-review-receipt.v1",
+        "github-review-snapshot.v1",
+        "github-review-write.v1",
+        "github_review_write.v1",
+        "note_create.v1",
+        "repository_mutation.v1",
+        "repository_mutation_binding.v1",
+        "repository_remote.v1",
+        "repository_remote_binding.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "workspace-repository-ledgers",
+      "class": "internal-durable",
+      "owner": "Workspace and repository maintainers",
+      "source_of_truth": [
+        "internal/repository",
+        "internal/store",
+        "internal/workspace"
+      ],
+      "writers": [
+        {
+          "id": "workspace-repository-ledgers-writer",
+          "source": "internal/application",
+          "versions": [
+            1
+          ],
+          "mode": "write-current"
+        }
+      ],
+      "readers": [
+        {
+          "id": "workspace-repository-ledgers-reader",
+          "source": "internal/store",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "Workspace identity, repository bindings, checkpoints, remotes, worktrees, and ownership survive where declared.",
+      "compatibility_rule": "Preserve root/commit identity, source binding, generation, and conflict refusal; retain durable readers.",
+      "retirement_gate": {
+        "mode": "migration-or-retention",
+        "requirements": [
+          "ADR-backed retirement decision and rollback path",
+          "Old-version fixtures remain until every supported source is migrated or retained",
+          "Reader history is append-only; retirement requires migration or retention evidence"
+        ]
+      },
+      "active_identifiers": [
+        "repository_commit_detail.v1",
+        "repository_history.v1",
+        "workspace_checkpoint_manual.v1",
+        "workspace_fork_operation.v1",
+        "workspace_fork_request.v1",
+        "workspace_mutation_boundary.v1",
+        "workspace_mutation_boundary_request.v1",
+        "workspace_restore_operation.v1",
+        "workspace_restore_request.v1"
+      ],
+      "retired_identifiers": []
+    }
+  ],
+  "test_and_golden_allowlist": [
+    {
+      "identifier": "TraverseBoard.LocalSandbox.Test.Host.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/sandboxtest/null_device_windows.go"
+      ],
+      "reason": "Windows Local Sandbox disposable test-host marker."
+    },
+    {
+      "identifier": "agent_completion.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/domain/agent_completion_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "analyzer_descriptor.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/analyzer/descriptor_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "analyzer_executable_format.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/analyzer/executable_format_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "analyzer_executable_identity.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/analyzer/executable_identity_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "analyzer_filesystem_boundary_conformance.test.v1",
+      "kind": "conformance-test",
+      "sources": [
+        "internal/analyzer/product_adapter_admission.go"
+      ],
+      "reason": "Named analyzer test-conformance evidence source; production admission treats it as non-authorizing."
+    },
+    {
+      "identifier": "analyzer_immutable_handle_conformance.test.v1",
+      "kind": "conformance-test",
+      "sources": [
+        "internal/analyzer/product_adapter_admission.go"
+      ],
+      "reason": "Named analyzer test-conformance evidence source; production admission treats it as non-authorizing."
+    },
+    {
+      "identifier": "analyzer_invocation.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/analyzer/invocation_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "analyzer_invocation_failure_vectors.v1",
+      "kind": "golden-vector",
+      "sources": [
+        "internal/analyzer/invocation_test.go",
+        "internal/analyzer/testdata/invocation_failure_vectors.json"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "analyzer_invocation_outcome.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/analyzer/invocation_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "analyzer_invocation_preflight.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/analyzer/executable_identity_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "analyzer_launch_plan.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/analyzer/launch_plan_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "analyzer_low_privilege_context_conformance.test.v1",
+      "kind": "conformance-test",
+      "sources": [
+        "internal/analyzer/product_adapter_admission.go"
+      ],
+      "reason": "Named analyzer test-conformance evidence source; production admission treats it as non-authorizing."
+    },
+    {
+      "identifier": "analyzer_operator_start_capability_contract.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/analyzer/operator_start_capability_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "analyzer_product_adapter_admission_matrix.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/analyzer/product_adapter_admission_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "analyzer_product_adapter_recovery_acceptance.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/analyzer/product_adapter_recovery_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "analyzer_product_adapter_threat_model.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/analyzer/product_adapter_threat_model_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "analyzer_protocol.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "analyzers/testdata/analyzer_protocol_v1_vectors.json",
+        "internal/analyzer/protocol_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "analyzer_protocol_golden_vectors.v1",
+      "kind": "golden-vector",
+      "sources": [
+        "analyzers/fixture/tests/shared_vectors.rs",
+        "analyzers/testdata/analyzer_protocol_v1_vectors.json",
+        "internal/analyzer/golden_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "analyzer_provenance_verification.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/analyzer/provenance_verification_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "analyzer_release_candidate.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/analyzer/release_manifest_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "analyzer_result.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/analyzer/invocation_test.go",
+        "internal/analyzer/protocol_test.go",
+        "internal/analyzer/subprocess_conformance_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "analyzer_result_stage_test.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/analyzer/result_staging_conformance_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "analyzer_result_staging_conformance.test.v1",
+      "kind": "conformance-test",
+      "sources": [
+        "internal/analyzer/product_adapter_admission.go"
+      ],
+      "reason": "Named analyzer test-conformance evidence source; production admission treats it as non-authorizing."
+    },
+    {
+      "identifier": "analyzer_sandbox_enforcement_conformance.test.v1",
+      "kind": "conformance-test",
+      "sources": [
+        "internal/analyzer/product_adapter_admission.go"
+      ],
+      "reason": "Named analyzer test-conformance evidence source; production admission treats it as non-authorizing."
+    },
+    {
+      "identifier": "analyzer_sandbox_recovery_conformance.test.v1",
+      "kind": "conformance-test",
+      "sources": [
+        "internal/analyzer/product_adapter_admission.go"
+      ],
+      "reason": "Named analyzer test-conformance evidence source; production admission treats it as non-authorizing."
+    },
+    {
+      "identifier": "analyzer_scope_limits_approval.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/analyzer/scope_approval_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "analyzer_subprocess_conformance.test.v1",
+      "kind": "conformance-test",
+      "sources": [
+        "internal/analyzer/product_adapter_admission.go"
+      ],
+      "reason": "Named analyzer test-conformance evidence source; production admission treats it as non-authorizing."
+    },
+    {
+      "identifier": "analyzer_validated_result_candidate.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/analyzer/result_candidate_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "archive.inspect.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/analyzer/protocol_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "archive.inventory.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "analyzers/fixture/src/lib.rs",
+        "analyzers/testdata/archive_inventory_v1_vectors.json",
+        "internal/analyzer/descriptor.go"
+      ],
+      "reason": "Analyzer ZIP inventory is retained only for protocol/test conformance vectors."
+    },
+    {
+      "identifier": "archive.zip.inventory.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "analyzers/fixture/src/lib.rs",
+        "analyzers/testdata/archive_inventory_v1_vectors.json",
+        "internal/analyzer/descriptor.go"
+      ],
+      "reason": "Analyzer ZIP inventory implementation is retained only for protocol/test conformance."
+    },
+    {
+      "identifier": "archive_inventory_golden_vectors.v1",
+      "kind": "golden-vector",
+      "sources": [
+        "analyzers/fixture/tests/shared_vectors.rs",
+        "analyzers/testdata/archive_inventory_v1_vectors.json",
+        "internal/analyzer/archive_golden_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "batch-mailbox.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/store/batch_delivery_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "batch-owner-token.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/store/batch_delivery_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "batch-receipt.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/store/batch_delivery_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "batch-review.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/store/batch_delivery_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "browser_network_containment_evidence.v0",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/browserruntime/readiness_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "browser_network_containment_policy.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/browserruntime/readiness_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "call.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/store/batch_delivery_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "controlled_command_proposal.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/toolgateway/controlled_command_proposal_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "desktop_test_matrix.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "scripts/desktop-test-matrix.ps1"
+      ],
+      "reason": "CI/Desktop test-matrix report identifier, not a product runtime protocol."
+    },
+    {
+      "identifier": "detached_signature.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/analyzer/release_manifest_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "diff.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/store/batch_delivery_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "docker-standard-code.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/runner/command_runtime_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "docker_container_plan_store_test.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/store/docker_container_plan_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "docker_container_rehearsal_store_test.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/store/docker_container_rehearsal_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "docker_lifecycle_test.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/sandbox/docker_container_lifecycle_ownership_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "docker_observation_store_test.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/store/docker_observation_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "docker_sandbox_product_lifecycle_test.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/store/docker_sandbox_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "fake-browser-process.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/browserruntime/production_runtime_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "fixture.wrong.v1",
+      "kind": "negative-version-fixture",
+      "sources": [
+        "internal/analyzer/subprocess_conformance_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "linux_ephemeral_user_namespace.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/analyzer/isolation_boundary_conformance_linux_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "linux_inherited_read_fd.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/analyzer/isolation_boundary_conformance_linux_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "linux_user_namespace_landlock.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/analyzer/isolation_boundary_conformance_linux_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "local-windows-lpac.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/application/standard_code_preset_test.go",
+        "internal/application/standard_code_supervisor_test.go",
+        "internal/commandruntimeadapter/adapter_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "next.good.v4",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/protocolregistry/registry_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "ok.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/protocolregistry/registry_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "other.v1",
+      "kind": "negative-version-fixture",
+      "sources": [
+        "internal/application/session_message_submission_test.go",
+        "internal/httpapi/session_message_control_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "plan_delivery.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/domain/plan_delivery_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "project_config.v9",
+      "kind": "negative-version-fixture",
+      "sources": [
+        "internal/projectconfig/projectconfig_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "protocol_registry_example.v1",
+      "kind": "compatibility-example",
+      "sources": [
+        "internal/protocolregistry/registry_test.go",
+        "internal/protocolregistry/testdata/compatibility_v1.json"
+      ],
+      "reason": "Old v1 compatibility fixture retained to prove dual-read behavior."
+    },
+    {
+      "identifier": "protocol_registry_example.v2",
+      "kind": "compatibility-example",
+      "sources": [
+        "internal/protocolregistry/registry_test.go"
+      ],
+      "reason": "Write-new v2 compatibility example identifier."
+    },
+    {
+      "identifier": "protocol_registry_example.v3",
+      "kind": "negative-version-fixture",
+      "sources": [
+        "internal/protocolregistry/registry_test.go"
+      ],
+      "reason": "Unknown-version fixture retained to prove fail-closed decoding."
+    },
+    {
+      "identifier": "run_capability_readiness.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "web/src/api/client.test.ts"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "run_creation.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/application/run_creation_test.go",
+        "internal/domain/run_creation_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "runner_evidence_set_receipt.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/runner/testdata/evidence_set_receipt_compatibility_vectors.json"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "runner_evidence_set_receipt_compatibility_rejection_vectors.v1",
+      "kind": "golden-vector",
+      "sources": [
+        "internal/runner/evidence_set_receipt_compatibility_test.go",
+        "internal/runner/testdata/evidence_set_receipt_compatibility_vectors.json"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "runner_evidence_set_receipt_envelope_golden_vectors.v1",
+      "kind": "golden-vector",
+      "sources": [
+        "internal/runner/evidence_set_receipt_envelope_golden_test.go",
+        "internal/runner/testdata/evidence_set_receipt_envelope_vectors.json"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "runner_evidence_set_receipt_golden_vectors.v1",
+      "kind": "golden-vector",
+      "sources": [
+        "internal/runner/evidence_set_receipt_golden_test.go",
+        "internal/runner/testdata/evidence_set_receipt_vectors.json"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "runner_exit_evidence.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/runner/testdata/evidence_set_receipt_compatibility_vectors.json"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "sandbox_docker_lifecycle_store_test.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/store/docker_container_lifecycle_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "sandbox_output_fixture.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "configs/sandbox-output-fixture.example.json",
+        "internal/app/sandbox_command_test.go",
+        "internal/sandbox/output_simulation.go",
+        "internal/sandbox/output_simulation_test.go"
+      ],
+      "reason": "Explicit sandbox output-simulation fixture input; it grants no production execution authority."
+    },
+    {
+      "identifier": "scheduled-store-observation.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/store/scheduled_jobs_concurrency_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "skill.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/skills/manifest_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "slsa_provenance.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/analyzer/provenance_verification_test.go",
+        "internal/analyzer/release_manifest_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "specialist_delegation.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/domain/specialist_delegation_test.go",
+        "internal/toolgateway/specialist_delegation_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "specialist_instruction.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/domain/agent_context_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "standard_code_fixture_manifest.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/packagede2e/manifest.go",
+        "internal/packagede2e/testdata/fixture-manifest.json"
+      ],
+      "reason": "Packaged E2E fixed-repository fixture manifest."
+    },
+    {
+      "identifier": "standard_code_fixture_set.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/packagede2e/manifest.go",
+        "scripts/standard-code-packaged-e2e.ps1"
+      ],
+      "reason": "Packaged E2E fixed-repository fixture set."
+    },
+    {
+      "identifier": "standard_code_packaged_e2e.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/packagede2e/manifest.go",
+        "scripts/standard-code-packaged-e2e.ps1"
+      ],
+      "reason": "Packaged E2E harness report, not a shipped product protocol."
+    },
+    {
+      "identifier": "standard_code_test_root.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/application/standard_code_supervisor_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "test-output.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/store/batch_delivery_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "ui-evidence-ci-launch.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/browserruntime/ui_evidence_runtime_windows_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "ui-evidence-ci-smoke.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/browserruntime/ui_evidence_runtime_windows_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "ui-evidence-ci-startup-diagnostic.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/browserruntime/ui_evidence_runtime_windows_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "unknown.v1",
+      "kind": "negative-version-fixture",
+      "sources": [
+        "internal/analyzer/descriptor_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "web_search.v0",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/toolgateway/web_evidence_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "windows-local-sandbox.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/application/command_runtime_test.go",
+        "internal/application/supervisor_tool_permission_test.go",
+        "internal/store/supervisor_tool_registry_migration_test.go",
+        "internal/store/supervisor_tools_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "windows_appcontainer.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/runner/command_runtime_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "windows_appcontainer.windows_appcontainer_policy.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/store/migration_v131_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "windows_inherited_read_handle.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/analyzer/isolation_boundary_conformance_windows_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "windows_low_integrity_acl_staging.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/analyzer/isolation_boundary_conformance_windows_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "windows_restricted_low_integrity_primary_token.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/analyzer/isolation_boundary_conformance_windows_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "workspace-fork-crash-test.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/application/workspace_checkpoints_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "workspace-fork-drift-test.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/application/workspace_checkpoints_test.go"
+      ],
+      "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    }
+  ],
+  "compatibility_examples": [
+    {
+      "id": "dual-read-write-new",
+      "description": "A bounded envelope reader accepts v1 and v2, the writer emits v2, an old v1 fixture remains readable, unknown v3 fails closed, and registry evolution rejects reader deletion.",
+      "old_fixture": "internal/protocolregistry/testdata/compatibility_v1.json",
+      "reader_versions": [
+        1,
+        2
+      ],
+      "writer_version": 2,
+      "unknown_version_behavior": "fail-closed",
+      "reader_retirement_check": "ValidateEvolution retains reader history and requires decision, migration or retention evidence, and rollback before durable retirement."
+    }
+  ]
+}
