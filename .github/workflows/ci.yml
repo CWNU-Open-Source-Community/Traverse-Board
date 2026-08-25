@@ -33,9 +33,10 @@ jobs:
         run: go test -count=1 ./internal/analyzer -run 'Test(AnalyzerProtocol|ArchiveInventory)SharedGoldenVectors'
       - name: Run complete Go suite
         # The migration-heavy Store package can exceed 30 minutes on a shared
-        # Linux runner after a forward schema is added. Keep the complete
-        # uncached suite with a bounded deadline that covers the observed case.
-        run: go test -timeout 45m -count=1 ./...
+        # Linux runner after a forward schema is added. Shared-runner variance
+        # has pushed the Store package past 45 minutes, so retain a bounded
+        # deadline without turning a slow package into a skip or waiver.
+        run: go test -timeout 60m -count=1 ./...
       - name: Race-check Workspace Access permission and authority fencing
         run: >-
           go test -race -timeout 15m -count=1

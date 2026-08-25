@@ -436,22 +436,70 @@ func TestCommandRuntimeForegroundCancellationReapsProcessTree(t *testing.T) {
 			Purpose:             "prove foreground cancellation reaps the process tree",
 		}},
 	}
-	callCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	callCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	_, err = service.ExecuteCommandRuntime(callCtx,
-		commandRuntimeTestScope(service, runRecord, root, lease,
-			"command-runtime-cancel-foreground"), input)
-	if errors.Is(err, runner.ErrCommandRuntimeUnavailable) {
-		t.Skipf("%s is unavailable: %v", profile, err)
+	executionErr := make(chan error, 1)
+	go func() {
+		_, executeErr := service.ExecuteCommandRuntime(callCtx,
+			commandRuntimeTestScope(service, runRecord, root, lease,
+				"command-runtime-cancel-foreground"), input)
+		executionErr <- executeErr
+	}()
+	startupDeadline := time.Now().Add(10 * time.Second)
+	for {
+		jobs, listErr := state.ListCommandRuntimeJobs(ctx,
+			runner.CommandRuntimeListFilter{RunID: runRecord.ID, Limit: 10})
+		if listErr != nil {
+			t.Fatal(listErr)
+		}
+		// The durable running row is visible before Start installs its
+		// process-local entry. Require both signals so cancellation exercises
+		// foreground cleanup instead of racing the startup commit.
+		if len(jobs) == 1 && jobs[0].State == runner.CommandRuntimeJobRunning &&
+			manager.OwnsActiveJob(jobs[0]) {
+			break
+		}
+		select {
+		case executeErr := <-executionErr:
+			if errors.Is(executeErr, runner.ErrCommandRuntimeUnavailable) {
+				t.Skipf("%s is unavailable: %v", profile, executeErr)
+			}
+			t.Fatalf("foreground command returned before durable startup: jobs=%#v err=%v",
+				jobs, executeErr)
+		default:
+		}
+		if time.Now().After(startupDeadline) {
+			t.Fatalf("foreground command did not reach durable owned running state: jobs=%#v",
+				jobs)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("foreground cancellation error=%v", err)
+	cancel()
+	var cancellationErr error
+	select {
+	case cancellationErr = <-executionErr:
+		if !errors.Is(cancellationErr, context.Canceled) {
+			t.Fatalf("foreground cancellation error=%v", cancellationErr)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("foreground cancellation did not return after durable startup")
 	}
-	jobs, err := state.ListCommandRuntimeJobs(ctx,
-		runner.CommandRuntimeListFilter{RunID: runRecord.ID, Limit: 10})
-	if err != nil || len(jobs) != 1 || jobs[0].State != runner.CommandRuntimeJobCancelled ||
-		!jobs[0].TreeReaped {
-		t.Fatalf("cancelled foreground job=%#v err=%v", jobs, err)
+	durableDeadline := time.Now().Add(10 * time.Second)
+	for {
+		jobs, listErr := state.ListCommandRuntimeJobs(ctx,
+			runner.CommandRuntimeListFilter{RunID: runRecord.ID, Limit: 10})
+		if listErr != nil {
+			t.Fatal(listErr)
+		}
+		if len(jobs) == 1 && jobs[0].State == runner.CommandRuntimeJobCancelled &&
+			jobs[0].TreeReaped {
+			break
+		}
+		if time.Now().After(durableDeadline) {
+			t.Fatalf("foreground cancellation was not durably reaped: jobs=%#v execution_err=%v",
+				jobs, cancellationErr)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
