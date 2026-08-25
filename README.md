@@ -92,6 +92,8 @@ Schema v128 随 #133 将既有固定本地 Docker Engine 的 `network=none` 路�
 
 Schema v133 与 #135 新增 Go-owned `standard_code_preset.v1`：“开始编码”会把 Code/Plan、已就绪 Local 或用户显式选择的 Docker、controlled、`workspace_access`、restricted CDP 与可信 Drydock 作为一个幂等、全有或全无的操作提交。运行中的 Run 使用独立 pause-and-configure 意图并在 lease/Supervisor 真正静止后提交；Surface 不兼容则创建新 Code Run。失败不留下半套快照，自动选择不降级 Docker/宿主/`full_access`，响应不含 bearer。CLI、control-token HTTP/OpenAPI、Desktop 与 React 共用同一 Application。详见 [Standard Code 原子预设](docs/standard-code-preset.md)与 [ADR 0136](docs/adr/0136-atomic-standard-code-preset.md)。
 
+Schema v135 与 #137 在同一 `RunSupervisor` 内加入 `standard_code_supervisor.v1` 有界完成协议。Standard Code root 必须先完成两个连续只读轮次，经操作者选择 Plan 并进入 Deliver，再以已审阅 apply 的 after-Checkpoint 建立 mutation epoch；真实 Command Runtime 失败进入 Diagnose，修复后只有当前 epoch 的结构化成功才能进入 Deliver/finish。命令、Job、修复、输出、无进展和重复失败均有固定上限，重启重复副作用、权限/上下文漂移和陈旧 Job cursor 失败关闭，所有决定进入 append-only v135 账本。详见 [Standard Code 编码闭环](docs/standard-code-supervisor.md)与 [ADR 0137](docs/adr/0137-bounded-standard-code-supervisor.md)。
+
 ### 模型与工具的 item 级流式事件
 
 Schema v130 与 `llm.item_stream.v1` 将 OpenAI 的交错 tool-call delta、Anthropic content block、Ollama/Mock 的完整 item，以及旧 `ChatChunk` 统一为有序的 response/item/call 生命周期。参数增量只在有界内存中拼接；Provider 只能声明调用已准备，不能签发 authority 或执行工具。Go 在完整 JSON 通过大小、敏感数据、Policy、预算与幂等检查后才记录执行开始/完成，并以稳定 response/item/call ID 对齐临时 UI 卡片与持久工具账本。
@@ -427,7 +429,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 完整逐切片原始记录保留在 [`PROGRESS_BOOK.md`](docs/PROGRESS_BOOK.md)，当前检查点与验收证据保留在 [`PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)，恢复上下文见 [`PROJECT_MEMORY.md`](docs/PROJECT_MEMORY.md)。这些账本是历史记录，不应被当作待重新执行的任务列表。
 
 <details>
-<summary><strong>SQLite Schema v1-v133 迁移审计表 / Migration ledger</strong></summary>
+<summary><strong>SQLite Schema v1-v135 迁移审计表 / Migration ledger</strong></summary>
 
 此表是 Store 防漏迁移测试使用的审计合同。新增 schema 时必须按顺序追加，不得改写或删除既有行。
 
@@ -567,6 +569,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 | v132 | 将 Docker Command Runtime 的进程内 stdin attach 绑定到不可变生命周期 WAL 与当前租约 | fence process-local Docker Command Runtime stdin attachment through the immutable lifecycle WAL and current lease |
 | v133 | 原子提交 Standard Code 预设，并持久化等待静止边界的暂停配置意图 | atomically commit the Standard Code preset and persist pause-and-configure intents awaiting a quiescent boundary |
 | v134 | 增加 Run 级 Web Search/Fetch/Citation 来源、不可变快照与幂等操作账本 | add Run-scoped Web Search/Fetch/Citation sources, immutable snapshots, and idempotent operation ledger |
+| v135 | 持久化 Standard Code root Supervisor 的有界 Inspect→Edit→Execute→Verify 状态、预算、拒绝和结构化证据，并补全 Code Intel 调用账本约束 | persist bounded Inspect→Edit→Execute→Verify state, budgets, denials, and structural evidence for the Standard Code root Supervisor and complete the Code Intel call-ledger constraints |
 
 </details>
 

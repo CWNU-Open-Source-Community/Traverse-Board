@@ -109,15 +109,15 @@ func (c SupervisorToolCall) Validate() error {
 		c.ToolName != "workspace_list" && c.ToolName != "workspace_read" &&
 		c.ToolName != "workspace_glob" && c.ToolName != "workspace_grep" &&
 		c.ToolName != "workspace_change" && c.ToolName != "workspace_apply" &&
-		c.ToolName != "workspace_delete" {
+		c.ToolName != "workspace_delete" && !isCodeIntelSupervisorTool(c.ToolName) {
 		return fmt.Errorf("unsupported supervisor tool %q", c.ToolName)
 	}
 	if len(c.PayloadJSON) == 0 || len(c.PayloadJSON) > MaxSupervisorToolPayloadBytes ||
 		!utf8.ValidString(c.PayloadJSON) || !json.Valid([]byte(c.PayloadJSON)) {
 		return errors.New("supervisor tool payload must be bounded valid UTF-8 JSON")
 	}
-	if isAgentCodeSupervisorTool(c.ToolName) || c.ToolName == "command_runtime" ||
-		isWebEvidenceSupervisorTool(c.ToolName) {
+	if isAgentCodeSupervisorTool(c.ToolName) || isCodeIntelSupervisorTool(c.ToolName) ||
+		c.ToolName == "command_runtime" || isWebEvidenceSupervisorTool(c.ToolName) {
 		if len(c.AuthorityJSON) == 0 || len(c.AuthorityJSON) > MaxSupervisorToolAuthorityBytes ||
 			!utf8.ValidString(c.AuthorityJSON) || !json.Valid([]byte(c.AuthorityJSON)) {
 			return errors.New("authority-bound supervisor tool requires bounded durable authority JSON")
@@ -155,6 +155,18 @@ func isAgentCodeSupervisorTool(name string) bool {
 	switch name {
 	case "workspace_list", "workspace_read", "workspace_glob", "workspace_grep",
 		"workspace_change", "workspace_apply", "workspace_delete":
+		return true
+	default:
+		return false
+	}
+}
+
+func isCodeIntelSupervisorTool(name string) bool {
+	switch name {
+	case "code_workspace_symbols", "code_document_symbols", "code_definition",
+		"code_references", "code_implementation", "code_hover",
+		"code_signature_help", "code_diagnostics", "code_call_hierarchy",
+		"code_type_hierarchy":
 		return true
 	default:
 		return false

@@ -220,6 +220,27 @@ policy endpoints. See [Standard Code atomic preset](standard-code-preset.md) for
 commands, routes, trust confirmation, and recovery, and
 [ADR 0136](adr/0136-atomic-standard-code-preset.md) for the transaction boundary.
 
+### Standard Code bounded completion loop
+
+After the preset is configured, the root Supervisor uses the existing tool loop
+under `standard_code_supervisor.v1`. In Plan it must complete two consecutive
+Workspace/Code Intel read rounds before proposing directions. Only an explicit
+operator selection and Plan-to-Deliver transition unlock reviewed Workspace
+proposals/apply and the sandboxed Command Runtime.
+
+An applied edit is progress only when its receipt owns a completed after-Checkpoint.
+The Supervisor then chooses repository-derived build/test/lint commands; a failed
+exit enters Diagnose, a fix advances the mutation epoch, and only successful
+structural verification of the current epoch permits `finish`. Persistent failure,
+budget exhaustion, permission/context drift, or missing evidence stops with a stable
+reason and requires `wait`, never a completion claim.
+
+Background `start/read/wait/write_stdin/cancel/kill` calls retain their Run owner,
+permission revision, mutation epoch, and exact output cursor across turns. Exact
+recovery reuses existing receipts; a different call repeating an already handled
+side effect is not invoked. See [Standard Code bounded completion loop](standard-code-supervisor.md)
+and [ADR 0137](adr/0137-bounded-standard-code-supervisor.md).
+
 Schema v91 adds the independent `restricted|full_debug` browser-CDP selector described above. It does not inherit Shell authority from v88, and v88 does not inherit CDP authority from v91. A future concrete browser operation must recheck both its exact method/scope contract and the current process gates.
 
 Schema v119 supplies that concrete operation only for source-bound local UI

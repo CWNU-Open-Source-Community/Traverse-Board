@@ -522,6 +522,25 @@ recovery boundary; Local OS or fixed Docker supplies isolation. See
 [Standard Code atomic preset](standard-code-preset.md) and
 [ADR 0136](adr/0136-atomic-standard-code-preset.md).
 
+Schema v135 adds `standard_code_supervisor.v1` inside the existing root
+`RunSupervisor`. It persists a bounded Inspect/Plan/Checkpoint/Edit/Execute/
+Observe/Diagnose/Deliver projection and gates every Standard Code call before the
+ordinary tool gateway. Two consecutive read-only rounds and an explicit selected
+Plan precede mutation. A mutation is counted only through its exact completed
+after-Checkpoint; Command Runtime exit/Job/cursor/digest/Artifact facts verify only
+that mutation epoch. Text output remains untrusted evidence.
+
+The append-only ledger binds each transition to the preset, root, Run/Mission/
+Workspace, mode, execution-profile, interaction, permission, and browser-CDP
+revisions, turn/attempt, active lease, existing Supervisor call, and Run event.
+Deterministic intent fingerprints suppress new calls
+that repeat handled writes or process actions, while recovery of the same call uses
+the existing execution and runtime receipts. Background Jobs retain permission and
+cursor ownership across turns. Fixed budgets and drift produce a durable stop rather
+than an inferred success. Other Profiles, Cyber, Plan mutation, child, and Specialist
+matrices are unchanged and fail closed. See [Standard Code bounded completion loop](standard-code-supervisor.md)
+and [ADR 0137](adr/0137-bounded-standard-code-supervisor.md).
+
 Schema v98 adds the bounded I/O contract without changing that authority boundary. Read-only input projection, fixed non-streaming attach, per-stream byte/line/deadline limits, strict output-archive walking, process-local staging, re-hashing, and atomic output commit are all bound to the exact lifecycle attempt/generation. Raw logs do not persist and the Workspace is never a writable container mount. See [ADR 0098](adr/0098-bounded-docker-container-io-contract.md).
 
 Schema v99 is the distinct product-composition layer. One Go-owned
@@ -752,6 +771,10 @@ The same Go adapter owns read projections for the bounded Agent graph, operator-
 ## Persistence
 
 SQLite remains the local source of truth. Schema migration `v1` records the legacy baseline, `v2`-`v18` establish the Run/Supervisor/memory/tool/Artifact/lease control plane, `v19`-`v38` add bounded Agent coordination, reviewed delegation, read-only Fan-out, Findings, and operator scheduling, and `v39`-`v47` add immutable Skill selection/context, Run modes, Plan/Delivery, provenance, checkpoints, steering, and Specialist minimization. Schemas `v48`-`v63` build the still-disabled Sandbox evidence and recovery chain; `v64`-`v68` add non-authorizing execution-profile and Docker production-evidence decisions; `v69`-`v71` add the inert user Skill Registry, exact Run selection/context, and read-only provenance; `v72`-`v113` continue the audited Run, Desktop, Provider, browser, Analyzer, Docker, dependency, MCP, project-config, Git, external-Skill, and Debug-terminal control planes; `v114` adds explicit long-term memory plus immutable instruction/continuity ledgers without authority restoration; `v115` adds model-callable workspace tools and hash-guarded file mutations; `v116` adds the Run-owned ordinary command runtime and its Supervisor call ledger; `v117` adds content-addressed transactional Workspace Checkpoints; `v118` adds isolated batch delivery; `v119` adds source-bound real-browser UI-evidence attempts, steps, and artifacts; `v120` adds the reviewed MCP Client ledger; `v121` adds inert Plugin installation, publisher trust, rollback, and restricted-Hook audits; `v122` adds durable bounded scheduled monitoring and structured-diagnostics records; `v123` adds immutable advanced-Git operations/sequences plus the managed-worktree registry; `v124` adds generation-CAS GitHub connections, immutable PR/CI snapshots and local evidence graphs, plus Approval-bound remote-write recovery receipts; `v125` repairs one pinned preview migration history; `v126` adds Workspace Access; `v127` adds Run-owned Drydocks; `v128` admits fixed Docker Standard Code under Workspace Access; `v129` adds stable Thread identity and Run succession; `v130` adds item-level streamed tool reconciliation identities; `v131` binds Command Runtime jobs and advertisements to exact sandboxed/host adapter identities while projecting legacy rows as non-executable evidence; `v132` fences process-local Docker stdin attachment; and `v133` adds atomic Standard Code preset and pause-intent receipts. Non-schema D1-B1 exposes the existing v69 Registry through inert HTTP/Desktop confirmation and adds no migration. Migrations are ordered, checksummed, transactional, and safe to apply repeatedly; legacy databases are upgraded without deleting their data or fabricating new operator decisions.
+
+Schema `v134` adds Run-scoped Web search, fetched snapshots, and citations.
+Schema `v135` adds the bounded Standard Code root completion ledger;
+it preserves every earlier migration and does not fabricate completion history.
 
 ## Go-Owned GitHub Review Provider
 

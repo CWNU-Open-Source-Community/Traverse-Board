@@ -38,6 +38,26 @@ func (s *SQLiteStore) GetStandardCodePresetOperation(ctx context.Context,
 	return getStandardCodePresetOperation(ctx, s.db, keyDigest)
 }
 
+func (s *SQLiteStore) GetConfiguredStandardCodePresetOperation(ctx context.Context,
+	runID string,
+) (domain.StandardCodePresetOperation, bool, error) {
+	runID = strings.TrimSpace(runID)
+	if !domain.ValidAgentID(runID) {
+		return domain.StandardCodePresetOperation{}, false, apperror.New(
+			apperror.CodeInvalidArgument, "Standard Code preset Run id is invalid")
+	}
+	operation, err := scanStandardCodePresetOperation(s.db.QueryRowContext(ctx,
+		standardCodePresetOperationSelect+` WHERE run_id = ? AND status = 'configured'
+			ORDER BY event_sequence_end DESC LIMIT 1`, runID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.StandardCodePresetOperation{}, false, nil
+	}
+	if err != nil {
+		return domain.StandardCodePresetOperation{}, false, err
+	}
+	return operation, true, nil
+}
+
 func (s *SQLiteStore) BeginStandardCodePreset(ctx context.Context,
 	operation domain.StandardCodePresetOperation,
 ) (domain.StandardCodePresetOperation, bool, error) {
@@ -453,13 +473,24 @@ func insertStandardCodePresetIntentTx(ctx context.Context, tx *sql.Tx,
 func getStandardCodePresetOperation(ctx context.Context,
 	queryer standardCodePresetQueryer, keyDigest string,
 ) (domain.StandardCodePresetOperation, bool, error) {
+	operation, err := scanStandardCodePresetOperation(queryer.QueryRowContext(ctx,
+		standardCodePresetOperationSelect+` WHERE operation_key_digest = ?`, keyDigest))
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.StandardCodePresetOperation{}, false, nil
+	}
+	if err != nil {
+		return domain.StandardCodePresetOperation{}, false, err
+	}
+	return operation, true, nil
+}
+
+func scanStandardCodePresetOperation(row scanner) (domain.StandardCodePresetOperation, error) {
 	var operation domain.StandardCodePresetOperation
 	var drydockID, drydockCheckpointID, modeID, profileID, interactionID,
 		permissionID, browserCDPID sql.NullString
 	var drydockGeneration sql.NullInt64
 	var createdAt, updatedAt string
-	err := queryer.QueryRowContext(ctx, standardCodePresetOperationSelect+
-		` WHERE operation_key_digest = ?`, keyDigest).Scan(
+	err := row.Scan(
 		&operation.ProtocolVersion, &operation.KeyDigest,
 		&operation.RequestFingerprint, &operation.RequestedRunID, &operation.RunID,
 		&operation.MissionID, &operation.WorkspaceID, &operation.Action,
@@ -469,11 +500,8 @@ func getStandardCodePresetOperation(ctx context.Context,
 		&interactionID, &permissionID, &browserCDPID,
 		&operation.EventSequenceStart, &operation.EventSequenceEnd,
 		&operation.RequestedBy, &operation.CapabilityGrant, &createdAt, &updatedAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		return domain.StandardCodePresetOperation{}, false, nil
-	}
 	if err != nil {
-		return domain.StandardCodePresetOperation{}, false, err
+		return domain.StandardCodePresetOperation{}, err
 	}
 	operation.DrydockID = drydockID.String
 	operation.DrydockGeneration = drydockGeneration.Int64
@@ -486,10 +514,10 @@ func getStandardCodePresetOperation(ctx context.Context,
 	operation.CreatedAt = parseTS(createdAt)
 	operation.UpdatedAt = parseTS(updatedAt)
 	if err := operation.Validate(); err != nil {
-		return domain.StandardCodePresetOperation{}, false,
+		return domain.StandardCodePresetOperation{},
 			fmt.Errorf("validate stored Standard Code preset operation: %w", err)
 	}
-	return operation, true, nil
+	return operation, nil
 }
 
 func sameStandardCodePresetIntent(existing, requested domain.StandardCodePresetOperation) error {

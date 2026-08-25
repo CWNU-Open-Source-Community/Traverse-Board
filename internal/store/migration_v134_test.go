@@ -13,7 +13,7 @@ func removeSchemaV134ForTestStatements() []string {
 	createCalls = replaceCommandRuntimeMigrationFragment(createCalls,
 		"CREATE TABLE run_supervisor_tool_calls_v131 (",
 		"CREATE TABLE run_supervisor_tool_calls_v133 (")
-	return []string{
+	removeV134 := []string{
 		`DROP TRIGGER trg_supervisor_tool_call_model_attempt`,
 		`DROP TRIGGER trg_supervisor_tool_round_completion`,
 		`DROP TRIGGER trg_supervisor_tool_stream_identity_immutable`,
@@ -47,6 +47,7 @@ func removeSchemaV134ForTestStatements() []string {
 		`DROP TABLE web_evidence_sources`,
 		`DELETE FROM schema_migrations WHERE version = 134`,
 	}
+	return append(removeSchemaV135ForTestStatements(), removeV134...)
 }
 
 func TestSchemaV134UpgradesV133Database(t *testing.T) {

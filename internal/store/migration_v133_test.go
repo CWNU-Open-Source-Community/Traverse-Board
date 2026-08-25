@@ -65,10 +65,11 @@ func removeSchemaV133ForTestStatements() []string {
 		statements = append(statements,
 			requireMigrationTrigger(name, runExecutionInteractionStatements))
 	}
-	return append(removeSchemaV134ForTestStatements(), append(statements,
+	removeV133 := append(statements,
 		`DELETE FROM schema_migrations WHERE version = 133`,
 		`PRAGMA legacy_alter_table = OFF`,
-		`PRAGMA foreign_keys = ON`)...)
+		`PRAGMA foreign_keys = ON`)
+	return append(removeSchemaV134ForTestStatements(), removeV133...)
 }
 
 func TestSchemaV133PreservesControlledInteractionAndDependentTriggers(t *testing.T) {

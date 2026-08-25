@@ -1,0 +1,996 @@
+package application
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	"cyberagent-workbench/internal/apperror"
+	"cyberagent-workbench/internal/commandruntimeadapter"
+	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/llm"
+	"cyberagent-workbench/internal/runmutation"
+	"cyberagent-workbench/internal/runner"
+	"cyberagent-workbench/internal/toolgateway"
+	"cyberagent-workbench/internal/workspacecheckpoint"
+)
+
+type standardCodeSupervisorMemoryStore struct {
+	snapshot     domain.StandardCodeSupervisorSnapshot
+	ledger       []domain.StandardCodeSupervisorLedgerEntry
+	transactions []workspacecheckpoint.Transaction
+	checkpoints  map[string]workspacecheckpoint.Checkpoint
+}
+
+func (s *standardCodeSupervisorMemoryStore) GetConfiguredStandardCodePresetOperation(
+	context.Context, string,
+) (domain.StandardCodePresetOperation, bool, error) {
+	return domain.StandardCodePresetOperation{}, false, nil
+}
+
+func (s *standardCodeSupervisorMemoryStore) GetRunExecutionProfile(
+	context.Context, string,
+) (domain.RunExecutionProfileSnapshot, error) {
+	return domain.RunExecutionProfileSnapshot{ID: s.snapshot.ProfileSnapshotID,
+		RunID: s.snapshot.RunID, MissionID: s.snapshot.MissionID,
+		Revision: s.snapshot.ProfileRevision}, nil
+}
+
+func (s *standardCodeSupervisorMemoryStore) GetRunExecutionInteraction(
+	context.Context, string,
+) (domain.RunExecutionInteractionSnapshot, error) {
+	return domain.RunExecutionInteractionSnapshot{ID: s.snapshot.InteractionSnapshotID,
+		RunID: s.snapshot.RunID, MissionID: s.snapshot.MissionID,
+		Revision: s.snapshot.InteractionRevision}, nil
+}
+
+func (s *standardCodeSupervisorMemoryStore) GetRunBrowserCDPPermission(
+	context.Context, string,
+) (domain.RunBrowserCDPPermissionSnapshot, error) {
+	return domain.RunBrowserCDPPermissionSnapshot{ID: s.snapshot.BrowserCDPSnapshotID,
+		RunID: s.snapshot.RunID, MissionID: s.snapshot.MissionID,
+		Revision: s.snapshot.BrowserCDPRevision}, nil
+}
+
+func (s *standardCodeSupervisorMemoryStore) GetStandardCodeSupervisorSnapshot(
+	context.Context, string,
+) (domain.StandardCodeSupervisorSnapshot, bool, error) {
+	return s.snapshot, s.snapshot.Version > 0, nil
+}
+
+func (s *standardCodeSupervisorMemoryStore) ListStandardCodeSupervisorLedger(
+	context.Context, string, int,
+) ([]domain.StandardCodeSupervisorLedgerEntry, error) {
+	return append([]domain.StandardCodeSupervisorLedgerEntry(nil), s.ledger...), nil
+}
+
+func (s *standardCodeSupervisorMemoryStore) AppendStandardCodeSupervisorLedger(
+	_ context.Context, expectedVersion int64, entry domain.StandardCodeSupervisorLedgerEntry,
+) (domain.StandardCodeSupervisorLedgerEntry, bool, error) {
+	if expectedVersion != s.snapshot.Version {
+		return domain.StandardCodeSupervisorLedgerEntry{}, false,
+			fmt.Errorf("version=%d want=%d", expectedVersion, s.snapshot.Version)
+	}
+	entry.EventSequence = int64(len(s.ledger) + 1)
+	if err := entry.Validate(); err != nil {
+		return domain.StandardCodeSupervisorLedgerEntry{}, false, err
+	}
+	s.snapshot = entry.Snapshot
+	s.ledger = append(s.ledger, entry)
+	return entry, false, nil
+}
+
+func (s *standardCodeSupervisorMemoryStore) GetPlanDeliverySelectionByRun(
+	context.Context, string,
+) (domain.PlanDeliverySelection, bool, error) {
+	return domain.PlanDeliverySelection{}, false, nil
+}
+
+func (s *standardCodeSupervisorMemoryStore) ListWorkspaceCheckpointTransactions(
+	context.Context, string, int,
+) ([]workspacecheckpoint.Transaction, error) {
+	return append([]workspacecheckpoint.Transaction(nil), s.transactions...), nil
+}
+
+func (s *standardCodeSupervisorMemoryStore) GetWorkspaceCheckpoint(
+	_ context.Context, id string,
+) (workspacecheckpoint.Checkpoint, error) {
+	checkpoint, found := s.checkpoints[id]
+	if !found {
+		return workspacecheckpoint.Checkpoint{}, fmt.Errorf("checkpoint %s is missing", id)
+	}
+	return checkpoint, nil
+}
+
+func newStandardCodeSupervisorTestMachine(state domain.StandardCodeSupervisorState,
+	phase domain.ExecutionPhase,
+) (*standardCodeSupervisorTurn, *standardCodeSupervisorMemoryStore) {
+	now := time.Now().UTC()
+	inspectionComplete := phase == domain.ExecutionPhaseDeliver
+	readRounds := 0
+	selectionID := ""
+	if inspectionComplete {
+		readRounds = domain.StandardCodeSupervisorMinimumReadRounds
+		selectionID = "selection-1"
+	}
+	snapshot := domain.StandardCodeSupervisorSnapshot{
+		ProtocolVersion: domain.StandardCodeSupervisorProtocolVersion,
+		RunID:           "run-1", MissionID: "mission-1", WorkspaceID: "workspace-1",
+		RootAgentID: "root-1", PresetOperationKeyDigest: strings.Repeat("a", 64),
+		State: state, ModeSnapshotID: "mode-1", ModeRevision: 1,
+		ProfileSnapshotID: "profile-1", ProfileRevision: 1,
+		InteractionSnapshotID: "interaction-1", InteractionRevision: 1,
+		PermissionSnapshotID: "permission-1", PermissionRevision: 1,
+		BrowserCDPSnapshotID: "browser-cdp-1", BrowserCDPRevision: 1,
+		WorkspaceRootFingerprint: strings.Repeat("f", 64), PlanSelectionID: selectionID,
+		Turn: 1, AttemptID: "attempt-1", TotalToolRounds: readRounds,
+		ConsecutiveReadRounds: readRounds, InspectionComplete: inspectionComplete,
+		RunTokenLimit: 10_000, RunTimeoutMillis: 60_000, RunToolCallLimit: 100,
+		Limits: domain.DefaultStandardCodeSupervisorLimits(), CreatedAt: now, UpdatedAt: now,
+	}
+	store := &standardCodeSupervisorMemoryStore{snapshot: snapshot,
+		checkpoints: make(map[string]workspacecheckpoint.Checkpoint)}
+	turn := domain.SupervisorTurn{
+		Run: domain.Run{ID: snapshot.RunID, MissionID: snapshot.MissionID,
+			Budget: domain.Budget{MaxTurns: 10, MaxTokens: snapshot.RunTokenLimit,
+				MaxToolCalls: snapshot.RunToolCallLimit, TimeoutSeconds: 60}},
+		Mission: domain.Mission{ID: snapshot.MissionID, WorkspaceID: snapshot.WorkspaceID},
+		Mode: domain.RunModeSnapshot{ID: snapshot.ModeSnapshotID, Revision: 1,
+			Surface: domain.ExecutionSurfaceCode, Phase: phase, Profile: domain.ProfileCode},
+		Agent: domain.AgentNode{ID: snapshot.RootAgentID, Role: domain.AgentRoleRoot},
+		Checkpoint: domain.SupervisorCheckpoint{RunID: snapshot.RunID,
+			LeaseID: "lease-1", LeaseGeneration: 1, NextTurn: 1,
+			Phase: domain.SupervisorTurnStarted, AttemptID: snapshot.AttemptID, UpdatedAt: now},
+	}
+	permission := domain.RunExecutionPermissionSnapshot{ID: snapshot.PermissionSnapshotID,
+		RunID: snapshot.RunID, MissionID: snapshot.MissionID,
+		Revision: snapshot.PermissionRevision,
+		Mode:     domain.RunExecutionPermissionWorkspaceAccess}
+	snapshot.CapabilityGeneration = toolgateway.AgentCodeCapabilities(
+		toolgateway.AgentCodeCapabilityContext{
+			RunID: snapshot.RunID, MissionID: snapshot.MissionID,
+			RootAgentID: snapshot.RootAgentID, WorkspaceID: snapshot.WorkspaceID,
+			RootFingerprint: snapshot.WorkspaceRootFingerprint,
+			Surface:         turn.Mode.Surface, Phase: turn.Mode.Phase, Role: turn.Agent.Role,
+			Profile: turn.Mode.Profile, PermissionMode: permission.Mode,
+			ModeRevision: turn.Mode.Revision, PermissionRevision: permission.Revision,
+		}).Generation
+	store.snapshot = snapshot
+	return &standardCodeSupervisorTurn{store: store, turn: turn,
+		permission: permission, snapshot: snapshot}, store
+}
+
+func standardCodePendingCall(id, toolName, payload string) domain.SupervisorToolCall {
+	return domain.SupervisorToolCall{RunID: "run-1", Turn: 1,
+		AttemptID: "attempt-1", Round: 1, Position: 1, ModelAttempt: 1,
+		CallID: id, ToolName: toolName, PayloadJSON: payload,
+		Status: domain.SupervisorToolPending, CreatedAt: time.Now().UTC()}
+}
+
+func standardCodeCompleteCall(t testing.TB, call domain.SupervisorToolCall,
+	status domain.SupervisorToolCallStatus, metadata map[string]string,
+	stdout, errorCode string,
+) domain.SupervisorToolCall {
+	t.Helper()
+	encoded, err := json.Marshal(supervisorToolResultEnvelope{
+		Version: supervisorToolResultVersion, Tool: call.ToolName,
+		Status: string(status), Metadata: metadata, Code: errorCode, Stdout: stdout,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	call.Status = status
+	call.ResultJSON = string(encoded)
+	call.ErrorCode = errorCode
+	call.CompletedAt = &now
+	return call
+}
+
+func standardCodeObserveCompleted(t testing.TB, machine *standardCodeSupervisorTurn,
+	call domain.SupervisorToolCall, metadata map[string]string, stdout string,
+) domain.SupervisorToolCall {
+	t.Helper()
+	decision, err := machine.Authorize(context.Background(), call)
+	if err != nil || !decision.Allowed || decision.Result != nil {
+		t.Fatalf("authorize %s: decision=%+v err=%v", call.CallID, decision, err)
+	}
+	call = standardCodeCompleteCall(t, call, domain.SupervisorToolCompleted,
+		metadata, stdout, "")
+	if err := machine.ObserveCall(context.Background(), call); err != nil {
+		t.Fatalf("observe %s: %v", call.CallID, err)
+	}
+	return call
+}
+
+func standardCodeWorkspaceProposal(t testing.TB, id string) domain.SupervisorToolCall {
+	t.Helper()
+	payload, err := json.Marshal(toolgateway.WorkspaceChangePayload{
+		Version: toolgateway.AgentCodeRegistryVersion, Action: "create",
+		Path: "issue-137.txt", Content: id,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return standardCodePendingCall(id, string(toolgateway.WorkspaceChangeTool), string(payload))
+}
+
+func standardCodeWorkspaceApply(t testing.TB, id, editID string) domain.SupervisorToolCall {
+	t.Helper()
+	payload, err := json.Marshal(toolgateway.WorkspaceApplyPayload{
+		Version: toolgateway.AgentCodeRegistryVersion, EditID: editID,
+		ExpectedAction: "create", ExpectedOriginalSHA256: strings.Repeat("0", 64),
+		ExpectedProposedSHA256: strings.Repeat("c", 64),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return standardCodePendingCall(id, string(toolgateway.WorkspaceApplyTool), string(payload))
+}
+
+func standardCodeAddCheckpoint(machine *standardCodeSupervisorTurn,
+	store *standardCodeSupervisorMemoryStore, editID string,
+) {
+	afterID := "after-" + editID
+	store.transactions = append(store.transactions, workspacecheckpoint.Transaction{
+		ID: "transaction-" + editID, RunID: "run-1", WorkspaceID: "workspace-1",
+		Kind: workspacecheckpoint.TransactionFileTool, TriggerReceiptID: editID,
+		BeforeCheckpointID: "before-" + editID, AfterCheckpointID: afterID,
+		Status: workspacecheckpoint.TransactionCompleted,
+	})
+	store.checkpoints[afterID] = workspacecheckpoint.Checkpoint{
+		ID: afterID, RunID: machine.snapshot.RunID, MissionID: machine.snapshot.MissionID,
+		WorkspaceID: machine.snapshot.WorkspaceID, AttemptID: machine.snapshot.AttemptID,
+		CapabilityGeneration: machine.snapshot.CapabilityGeneration,
+		TriggerReceiptID:     editID, Phase: workspacecheckpoint.PhaseAfter,
+		RootFingerprint: runmutation.Fingerprint("standard_code_test_root.v1", editID),
+	}
+}
+
+func standardCodeCommandCall(t testing.TB, id, action, script, jobID string,
+	cursor uint64,
+) domain.SupervisorToolCall {
+	t.Helper()
+	input := toolgateway.CommandRuntimeInput{Version: toolgateway.CommandRuntimeToolProtocolVersion,
+		Action: action, JobID: jobID}
+	switch action {
+	case toolgateway.CommandRuntimeActionRun, toolgateway.CommandRuntimeActionStart:
+		input.Commands = []runner.CommandRuntimeSpec{{
+			Version: runner.CommandRuntimeProtocolVersion, Profile: runner.CommandRuntimeBash,
+			Script: script, WorkingDirectory: ".", Environment: []runner.CommandRuntimeEnvironment{},
+			StdinPolicy: runner.CommandRuntimeStdinClosed, CloseInitialStdin: true,
+			TimeoutMilliseconds: 1_000,
+			Output:              runner.CommandRuntimeOutputPolicy{InlineBytes: 4_096, ArtifactBytes: 4_096},
+			Network:             runner.CommandRuntimeNetworkDisabled,
+			Credentials:         runner.CommandRuntimeCredentialsNone, Purpose: "verify repository change",
+		}}
+		if action == toolgateway.CommandRuntimeActionRun {
+			maxBytes := 4_096
+			input.FailurePolicy = toolgateway.CommandRuntimeFailFast
+			input.MaxBytes = &maxBytes
+		}
+	case toolgateway.CommandRuntimeActionRead, toolgateway.CommandRuntimeActionWait:
+		maxBytes := 4_096
+		wait := 0
+		if action == toolgateway.CommandRuntimeActionWait {
+			wait = 100
+		}
+		input.Cursor = &cursor
+		input.MaxBytes = &maxBytes
+		input.WaitMilliseconds = &wait
+	case toolgateway.CommandRuntimeActionCancel:
+		wait := 100
+		input.WaitMilliseconds = &wait
+	}
+	payload, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return standardCodePendingCall(id, string(toolgateway.CommandRuntimeTool), string(payload))
+}
+
+func standardCodeCommandOutput(t testing.TB, action string,
+	jobs []runner.CommandRuntimeJobSnapshot, pages []runner.CommandRuntimeOutputPage,
+) string {
+	t.Helper()
+	encoded, err := json.Marshal(standardCodeCommandProjection{
+		Version: runner.CommandRuntimeResultVersion, Action: action, Jobs: jobs, Pages: pages,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(encoded)
+}
+
+func TestStandardCodeSupervisorDeliverTransitionChecksContextAndPermissionDrift(
+	t *testing.T,
+) {
+	machine, _ := newStandardCodeSupervisorTestMachine(
+		domain.StandardCodeSupervisorPlan, domain.ExecutionPhasePlan)
+	machine.snapshot.ConsecutiveReadRounds = domain.StandardCodeSupervisorMinimumReadRounds
+	machine.snapshot.InspectionComplete = true
+	machine.turn.Mode.ID = "mode-2"
+	machine.turn.Mode.Revision = 2
+	machine.turn.Mode.Phase = domain.ExecutionPhaseDeliver
+	profile := domain.RunExecutionProfileSnapshot{ID: machine.snapshot.ProfileSnapshotID,
+		Revision: machine.snapshot.ProfileRevision}
+	interaction := domain.RunExecutionInteractionSnapshot{
+		ID: machine.snapshot.InteractionSnapshotID, Revision: machine.snapshot.InteractionRevision}
+	browserCDP := domain.RunBrowserCDPPermissionSnapshot{
+		ID: machine.snapshot.BrowserCDPSnapshotID, Revision: machine.snapshot.BrowserCDPRevision}
+	deliverGeneration := toolgateway.AgentCodeCapabilities(
+		toolgateway.AgentCodeCapabilityContext{
+			RunID: machine.snapshot.RunID, MissionID: machine.snapshot.MissionID,
+			RootAgentID: machine.snapshot.RootAgentID, WorkspaceID: machine.snapshot.WorkspaceID,
+			RootFingerprint: machine.snapshot.WorkspaceRootFingerprint,
+			Surface:         machine.turn.Mode.Surface, Phase: machine.turn.Mode.Phase,
+			Role: machine.turn.Agent.Role, Profile: machine.turn.Mode.Profile,
+			PermissionMode:     machine.permission.Mode,
+			ModeRevision:       machine.turn.Mode.Revision,
+			PermissionRevision: machine.permission.Revision,
+		}).Generation
+
+	reason, expected := standardCodeTurnDriftReason(machine.snapshot, machine.turn,
+		profile, interaction, machine.permission, browserCDP, true,
+		machine.snapshot.WorkspaceRootFingerprint,
+		deliverGeneration)
+	if reason != "" || !expected {
+		t.Fatalf("exact Plan to Deliver transition was rejected: reason=%q expected=%t",
+			reason, expected)
+	}
+	reason, expected = standardCodeTurnDriftReason(machine.snapshot, machine.turn,
+		profile, interaction, machine.permission, browserCDP, true,
+		machine.snapshot.WorkspaceRootFingerprint,
+		strings.Repeat("c", 64))
+	if reason != "workspace_context_drift" || !expected {
+		t.Fatalf("Deliver transition bypassed capability drift: reason=%q expected=%t",
+			reason, expected)
+	}
+	machine.turn.Mode.Revision = 3
+	reason, expected = standardCodeTurnDriftReason(machine.snapshot, machine.turn,
+		profile, interaction, machine.permission, browserCDP, true,
+		machine.snapshot.WorkspaceRootFingerprint,
+		machine.snapshot.CapabilityGeneration)
+	if reason != "mode_or_context_drift" || expected {
+		t.Fatalf("multi-revision Deliver jump was accepted: reason=%q expected=%t",
+			reason, expected)
+	}
+	machine.turn.Mode.Revision = 2
+	machine.turn.Mode.Surface = domain.ExecutionSurfaceCyber
+	reason, expected = standardCodeTurnDriftReason(machine.snapshot, machine.turn,
+		profile, interaction, machine.permission, browserCDP, true,
+		machine.snapshot.WorkspaceRootFingerprint,
+		machine.snapshot.CapabilityGeneration)
+	if reason != "mode_or_context_drift" || expected {
+		t.Fatalf("cross-surface Deliver transition was accepted: reason=%q expected=%t",
+			reason, expected)
+	}
+	machine.turn.Mode.Surface = domain.ExecutionSurfaceCode
+	profile.ID = "profile-drifted"
+	reason, expected = standardCodeTurnDriftReason(machine.snapshot, machine.turn,
+		profile, interaction, machine.permission, browserCDP, true,
+		machine.snapshot.WorkspaceRootFingerprint,
+		machine.snapshot.CapabilityGeneration)
+	if reason != "execution_context_drift" || !expected {
+		t.Fatalf("execution tuple drift was missed: reason=%q expected=%t",
+			reason, expected)
+	}
+	profile.ID = machine.snapshot.ProfileSnapshotID
+	driftedPermission := machine.permission
+	driftedPermission.Revision++
+	reason, expected = standardCodeTurnDriftReason(machine.snapshot, machine.turn,
+		profile, interaction, driftedPermission, browserCDP, true,
+		machine.snapshot.WorkspaceRootFingerprint, deliverGeneration)
+	if reason != "permission_drift" || !expected {
+		t.Fatalf("permission drift was missed: reason=%q expected=%t", reason, expected)
+	}
+}
+
+func TestStandardCodeSupervisorRequiresTwoConsecutiveReadRounds(t *testing.T) {
+	machine, _ := newStandardCodeSupervisorTestMachine(
+		domain.StandardCodeSupervisorInspect, domain.ExecutionPhasePlan)
+	ctx := context.Background()
+	for round := 1; round <= 2; round++ {
+		toolName := string(toolgateway.WorkspaceReadTool)
+		payload := `{"version":"agent-code-tools.v1"}`
+		if round == 2 {
+			toolName = string(toolgateway.CodeWorkspaceSymbolsTool)
+			payload = `{"version":"code-intel-lsp.v1"}`
+		}
+		call := standardCodePendingCall(fmt.Sprintf("read-%d", round),
+			toolName, payload)
+		call.Round = round
+		call = standardCodeObserveCompleted(t, machine, call, nil,
+			fmt.Sprintf("evidence-%d", round))
+		completedAt := time.Now().UTC()
+		if err := machine.ObserveRound(ctx, domain.SupervisorToolRound{
+			RunID: call.RunID, Turn: call.Turn, AttemptID: call.AttemptID,
+			Round: round, ModelAttempt: 1, Calls: []domain.SupervisorToolCall{call},
+			CreatedAt: call.CreatedAt, CompletedAt: &completedAt,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if round == 1 && machine.snapshot.InspectionComplete {
+			t.Fatal("one read round unexpectedly completed inspection")
+		}
+	}
+	if !machine.snapshot.InspectionComplete ||
+		machine.snapshot.State != domain.StandardCodeSupervisorPlan {
+		t.Fatalf("inspection state=%s complete=%t rounds=%d",
+			machine.snapshot.State, machine.snapshot.InspectionComplete,
+			machine.snapshot.ConsecutiveReadRounds)
+	}
+	plan := standardCodePendingCall("plan-1", string(toolgateway.PlanDeliveryProposeTool), `{}`)
+	if decision, err := machine.Authorize(ctx, plan); err != nil || !decision.Allowed {
+		t.Fatalf("completed inspection did not authorize plan: %+v err=%v", decision, err)
+	}
+}
+
+func TestStandardCodeSupervisorDeniedResultCannotAdvanceState(t *testing.T) {
+	machine, _ := newStandardCodeSupervisorTestMachine(
+		domain.StandardCodeSupervisorInspect, domain.ExecutionPhasePlan)
+	call := standardCodeWorkspaceApply(t, "denied-apply", "unreviewed-edit")
+	decision, err := machine.Authorize(context.Background(), call)
+	if err != nil || decision.Allowed || decision.Result == nil {
+		t.Fatalf("unreviewed Plan apply was not denied: decision=%+v err=%v",
+			decision, err)
+	}
+	call = standardCodeCompleteCall(t, call, domain.SupervisorToolDenied, nil, "",
+		string(apperror.CodePolicyDenied))
+	if err := machine.ObserveCall(context.Background(), call); err != nil {
+		t.Fatal(err)
+	}
+	if machine.snapshot.State != domain.StandardCodeSupervisorInspect ||
+		machine.snapshot.MutationEpoch != 0 {
+		t.Fatalf("denied result advanced completion state: %+v", machine.snapshot)
+	}
+}
+
+func TestStandardCodeSupervisorStoppedRestartDoesNotReviveAuthorizedCommand(t *testing.T) {
+	machine, store := newStandardCodeSupervisorTestMachine(
+		domain.StandardCodeSupervisorExecute, domain.ExecutionPhaseDeliver)
+	machine.snapshot.MutationEpoch = 1
+	store.snapshot = machine.snapshot
+	call := standardCodeCommandCall(t, "authorized-before-stop",
+		toolgateway.CommandRuntimeActionRun, "go test ./...", "", 0)
+	decision, err := machine.Authorize(context.Background(), call)
+	if err != nil || !decision.Allowed {
+		t.Fatalf("initial command authorization failed: decision=%+v err=%v", decision, err)
+	}
+	previous := machine.snapshot.State
+	machine.snapshot.State = domain.StandardCodeSupervisorStopped
+	machine.snapshot.StopReason = "permission_drift"
+	if err := machine.appendFrom(context.Background(), previous,
+		domain.StandardCodeSupervisorStoppedRecord, domain.StandardCodeSupervisorDenied,
+		"", "", "", domain.StandardCodeToolOther, "", "", "", "",
+		machine.snapshot.StopReason); err != nil {
+		t.Fatal(err)
+	}
+	decision, err = machine.Authorize(context.Background(), call)
+	if err != nil || decision.Allowed || decision.Result == nil {
+		t.Fatalf("stopped restart revived an authorized command: decision=%+v err=%v",
+			decision, err)
+	}
+}
+
+func TestStandardCodeSupervisorUnfencedReadCannotSatisfyInspection(t *testing.T) {
+	machine, _ := newStandardCodeSupervisorTestMachine(
+		domain.StandardCodeSupervisorInspect, domain.ExecutionPhasePlan)
+	call := standardCodePendingCall("legacy-read", string(toolgateway.WorkspaceReadTool),
+		`{"version":"agent-code-tools.v1"}`)
+	call = standardCodeCompleteCall(t, call, domain.SupervisorToolCompleted, nil,
+		"legacy evidence", "")
+	if err := machine.ObserveCall(context.Background(), call); err != nil {
+		t.Fatal(err)
+	}
+	completedAt := time.Now().UTC()
+	if err := machine.ObserveRound(context.Background(), domain.SupervisorToolRound{
+		RunID: call.RunID, Turn: call.Turn, AttemptID: call.AttemptID,
+		Round: call.Round, ModelAttempt: call.ModelAttempt,
+		Calls: []domain.SupervisorToolCall{call}, CreatedAt: call.CreatedAt,
+		CompletedAt: &completedAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if machine.snapshot.ConsecutiveReadRounds != 0 || machine.snapshot.InspectionComplete {
+		t.Fatalf("unfenced legacy read satisfied inspection: %+v", machine.snapshot)
+	}
+}
+
+func TestStandardCodeSupervisorAcceptsOnlyCheckpointProjectedCapabilityRefresh(t *testing.T) {
+	machine, _ := newStandardCodeSupervisorTestMachine(
+		domain.StandardCodeSupervisorExecute, domain.ExecutionPhaseDeliver)
+	current := machine.snapshot.CapabilityGeneration
+	next := runmutation.Fingerprint("next-checkpoint-capability")
+	if !standardCodeCapabilityGenerationMatches(machine.snapshot, current) ||
+		standardCodeCapabilityGenerationMatches(machine.snapshot, next) {
+		t.Fatal("unmodified Workspace capability binding was not exact")
+	}
+	machine.snapshot.MutationEpoch = 1
+	machine.snapshot.ExpectedCapabilityGeneration = next
+	if !standardCodeCapabilityGenerationMatches(machine.snapshot, next) ||
+		standardCodeCapabilityGenerationMatches(machine.snapshot, current) ||
+		standardCodeCapabilityGenerationMatches(machine.snapshot,
+			runmutation.Fingerprint("unrelated-workspace-drift")) {
+		t.Fatal("checkpoint-projected capability refresh accepted stale or unrelated drift")
+	}
+}
+
+func TestStandardCodeSupervisorFailureFixAndCurrentVerification(t *testing.T) {
+	machine, store := newStandardCodeSupervisorTestMachine(
+		domain.StandardCodeSupervisorCheckpoint, domain.ExecutionPhaseDeliver)
+	standardCodeObserveCompleted(t, machine, standardCodeWorkspaceProposal(t, "proposal-1"), nil, "reviewed")
+	standardCodeAddCheckpoint(machine, store, "edit-1")
+	apply := standardCodeWorkspaceApply(t, "apply-1", "edit-1")
+	standardCodeObserveCompleted(t, machine, apply, map[string]string{"status": "applied"}, "applied")
+	if machine.snapshot.MutationEpoch != 1 ||
+		machine.snapshot.State != domain.StandardCodeSupervisorExecute {
+		t.Fatalf("first mutation state=%s epoch=%d", machine.snapshot.State,
+			machine.snapshot.MutationEpoch)
+	}
+
+	failedExit := 1
+	failed := standardCodeCommandCall(t, "command-failed", toolgateway.CommandRuntimeActionRun,
+		"go test ./...", "", 0)
+	standardCodeObserveCompleted(t, machine, failed, nil,
+		standardCodeCommandOutput(t, toolgateway.CommandRuntimeActionRun,
+			[]runner.CommandRuntimeJobSnapshot{{ID: "job-failed", State: runner.CommandRuntimeJobFailed,
+				ExitCode: &failedExit, TreeReaped: true}}, nil))
+	if machine.snapshot.State != domain.StandardCodeSupervisorDiagnose ||
+		machine.snapshot.VerifiedMutationEpoch != 0 {
+		t.Fatalf("failure was not diagnosed: state=%s verified=%d",
+			machine.snapshot.State, machine.snapshot.VerifiedMutationEpoch)
+	}
+
+	standardCodeObserveCompleted(t, machine, standardCodeWorkspaceProposal(t, "proposal-fix"), nil, "reviewed fix")
+	standardCodeAddCheckpoint(machine, store, "edit-fix")
+	standardCodeObserveCompleted(t, machine,
+		standardCodeWorkspaceApply(t, "apply-fix", "edit-fix"),
+		map[string]string{"status": "applied"}, "fixed")
+	if machine.snapshot.MutationEpoch != 2 || machine.snapshot.FixRounds != 1 {
+		t.Fatalf("fix was not recorded: epoch=%d fixes=%d",
+			machine.snapshot.MutationEpoch, machine.snapshot.FixRounds)
+	}
+
+	successExit := 0
+	success := standardCodeCommandCall(t, "command-success", toolgateway.CommandRuntimeActionRun,
+		"go test ./...", "", 0)
+	standardCodeObserveCompleted(t, machine, success, nil,
+		standardCodeCommandOutput(t, toolgateway.CommandRuntimeActionRun,
+			[]runner.CommandRuntimeJobSnapshot{{ID: "job-success",
+				State: runner.CommandRuntimeJobCompleted, ExitCode: &successExit,
+				TreeReaped: true, StdoutSHA256: strings.Repeat("d", 64)}}, nil))
+	if !machine.snapshot.CanDeliver() || machine.snapshot.VerifiedMutationEpoch != 2 {
+		t.Fatalf("current mutation was not verified: %+v", machine.snapshot)
+	}
+	if err := machine.ValidateAction(context.Background(), domain.RootAction{
+		Version: domain.RootLifecycleVersion, Kind: domain.RootActionFinish,
+		Message: "done", Summary: "verified",
+	}); err != nil {
+		t.Fatalf("verified finish denied: %v", err)
+	}
+
+	restarted := &standardCodeSupervisorTurn{store: store, turn: machine.turn,
+		permission: machine.permission, snapshot: store.snapshot,
+		ledger: append([]domain.StandardCodeSupervisorLedgerEntry(nil), store.ledger...)}
+	duplicate := standardCodeWorkspaceApply(t, "apply-duplicate", "edit-1")
+	decision, err := restarted.Authorize(context.Background(), duplicate)
+	if err != nil || !decision.Replayed || decision.Result == nil || decision.Allowed {
+		t.Fatalf("restart did not suppress duplicate apply: %+v err=%v", decision, err)
+	}
+}
+
+func TestStandardCodeSupervisorPersistentFailureStopsAtFixBudget(t *testing.T) {
+	machine, store := newStandardCodeSupervisorTestMachine(
+		domain.StandardCodeSupervisorEdit, domain.ExecutionPhaseDeliver)
+	standardCodeAddCheckpoint(machine, store, "initial-edit")
+	standardCodeObserveCompleted(t, machine,
+		standardCodeWorkspaceApply(t, "initial-apply", "initial-edit"),
+		map[string]string{"status": "applied"}, "applied")
+	failedExit := 1
+	for attempt := 0; attempt <= domain.StandardCodeSupervisorMaximumFixRounds; attempt++ {
+		command := standardCodeCommandCall(t, fmt.Sprintf("failure-%d", attempt),
+			toolgateway.CommandRuntimeActionRun, fmt.Sprintf("go test ./... #%d", attempt), "", 0)
+		standardCodeObserveCompleted(t, machine, command, nil,
+			standardCodeCommandOutput(t, toolgateway.CommandRuntimeActionRun,
+				[]runner.CommandRuntimeJobSnapshot{{ID: fmt.Sprintf("failed-job-%d", attempt),
+					State: runner.CommandRuntimeJobFailed, ExitCode: &failedExit, TreeReaped: true,
+					StderrSHA256: runmutation.Fingerprint("distinct-failure", fmt.Sprint(attempt))}}, nil))
+		if machine.snapshot.State != domain.StandardCodeSupervisorDiagnose {
+			t.Fatalf("attempt %d left diagnose state: %s", attempt, machine.snapshot.State)
+		}
+		if attempt == domain.StandardCodeSupervisorMaximumFixRounds {
+			break
+		}
+		editID := fmt.Sprintf("fix-edit-%d", attempt)
+		standardCodeObserveCompleted(t, machine,
+			standardCodeWorkspaceProposal(t, fmt.Sprintf("fix-proposal-%d", attempt)), nil, "reviewed")
+		standardCodeAddCheckpoint(machine, store, editID)
+		standardCodeObserveCompleted(t, machine,
+			standardCodeWorkspaceApply(t, fmt.Sprintf("fix-apply-%d", attempt), editID),
+			map[string]string{"status": "applied"}, "fixed")
+	}
+	standardCodeObserveCompleted(t, machine,
+		standardCodeWorkspaceProposal(t, "exhausted-proposal"), nil, "reviewed")
+	decision, err := machine.Authorize(context.Background(),
+		standardCodeWorkspaceApply(t, "exhausted-apply", "exhausted-edit"))
+	if err != nil || decision.Allowed || decision.Result == nil ||
+		machine.snapshot.State != domain.StandardCodeSupervisorStopped ||
+		machine.snapshot.StopReason != "fix_round_budget_exhausted" ||
+		machine.snapshot.CanDeliver() {
+		t.Fatalf("persistent failure was not stopped: decision=%+v snapshot=%+v err=%v",
+			decision, machine.snapshot, err)
+	}
+	if err := machine.ValidateAction(context.Background(), domain.RootAction{
+		Version: domain.RootLifecycleVersion, Kind: domain.RootActionFinish,
+		Message: "done", Summary: "not verified",
+	}); err == nil {
+		t.Fatal("persistent failure reported false success")
+	}
+}
+
+func TestStandardCodeSupervisorCommandJobAndOutputBudgetsStop(t *testing.T) {
+	commandMachine, _ := newStandardCodeSupervisorTestMachine(
+		domain.StandardCodeSupervisorExecute, domain.ExecutionPhaseDeliver)
+	commandMachine.snapshot.MutationEpoch = 1
+	commandMachine.snapshot.CommandsUsed = commandMachine.snapshot.Limits.MaximumCommands
+	decision, err := commandMachine.Authorize(context.Background(),
+		standardCodeCommandCall(t, "command-budget", toolgateway.CommandRuntimeActionRun,
+			"go test ./...", "", 0))
+	if err != nil || decision.Allowed || decision.Result == nil ||
+		commandMachine.snapshot.State != domain.StandardCodeSupervisorStopped ||
+		commandMachine.snapshot.StopReason != "command_budget_exhausted" {
+		t.Fatalf("command budget did not stop: decision=%+v snapshot=%+v err=%v",
+			decision, commandMachine.snapshot, err)
+	}
+
+	jobMachine, _ := newStandardCodeSupervisorTestMachine(
+		domain.StandardCodeSupervisorExecute, domain.ExecutionPhaseDeliver)
+	jobMachine.snapshot.MutationEpoch = 1
+	jobMachine.snapshot.JobsStarted = jobMachine.snapshot.Limits.MaximumJobs
+	decision, err = jobMachine.Authorize(context.Background(),
+		standardCodeCommandCall(t, "job-budget", toolgateway.CommandRuntimeActionStart,
+			"go test ./...", "", 0))
+	if err != nil || decision.Allowed || decision.Result == nil ||
+		jobMachine.snapshot.State != domain.StandardCodeSupervisorStopped ||
+		jobMachine.snapshot.StopReason != "background_job_budget_exhausted" {
+		t.Fatalf("Job budget did not stop: decision=%+v snapshot=%+v err=%v",
+			decision, jobMachine.snapshot, err)
+	}
+
+	outputMachine, _ := newStandardCodeSupervisorTestMachine(
+		domain.StandardCodeSupervisorInspect, domain.ExecutionPhasePlan)
+	outputMachine.snapshot.OutputBytes = outputMachine.snapshot.Limits.MaximumOutputBytes - 1
+	standardCodeObserveCompleted(t, outputMachine,
+		standardCodePendingCall("output-budget", string(toolgateway.WorkspaceReadTool),
+			`{"version":"agent-code-tools.v1"}`), nil, "xx")
+	if outputMachine.snapshot.State != domain.StandardCodeSupervisorStopped ||
+		outputMachine.snapshot.StopReason != "output_budget_exhausted" ||
+		outputMachine.snapshot.OutputBytes != outputMachine.snapshot.Limits.MaximumOutputBytes {
+		t.Fatalf("output budget did not stop: %+v", outputMachine.snapshot)
+	}
+}
+
+func TestStandardCodeSupervisorEquivalentFailuresStopAtRepeatBudget(t *testing.T) {
+	machine, store := newStandardCodeSupervisorTestMachine(
+		domain.StandardCodeSupervisorEdit, domain.ExecutionPhaseDeliver)
+	standardCodeAddCheckpoint(machine, store, "repeat-initial")
+	standardCodeObserveCompleted(t, machine,
+		standardCodeWorkspaceApply(t, "repeat-initial-apply", "repeat-initial"),
+		map[string]string{"status": "applied"}, "applied")
+	failedExit := 1
+	failureDigest := runmutation.Fingerprint("same-failure-output")
+	for attempt := 0; attempt < domain.StandardCodeSupervisorMaximumRepeatedFailures; attempt++ {
+		standardCodeObserveCompleted(t, machine,
+			standardCodeCommandCall(t, fmt.Sprintf("repeat-command-%d", attempt),
+				toolgateway.CommandRuntimeActionRun, "go test ./...", "", 0), nil,
+			standardCodeCommandOutput(t, toolgateway.CommandRuntimeActionRun,
+				[]runner.CommandRuntimeJobSnapshot{{ID: fmt.Sprintf("repeat-job-%d", attempt),
+					State: runner.CommandRuntimeJobFailed, ExitCode: &failedExit,
+					TreeReaped: true, StderrSHA256: failureDigest}}, nil))
+		if attempt == domain.StandardCodeSupervisorMaximumRepeatedFailures-1 {
+			break
+		}
+		editID := fmt.Sprintf("repeat-fix-%d", attempt)
+		standardCodeObserveCompleted(t, machine,
+			standardCodeWorkspaceProposal(t, fmt.Sprintf("repeat-proposal-%d", attempt)),
+			nil, "reviewed")
+		standardCodeAddCheckpoint(machine, store, editID)
+		standardCodeObserveCompleted(t, machine,
+			standardCodeWorkspaceApply(t, fmt.Sprintf("repeat-apply-%d", attempt), editID),
+			map[string]string{"status": "applied"}, "fixed")
+	}
+	if machine.snapshot.State != domain.StandardCodeSupervisorStopped ||
+		machine.snapshot.StopReason != "repeated_failure_budget_exhausted" ||
+		machine.snapshot.RepeatedFailureCount !=
+			domain.StandardCodeSupervisorMaximumRepeatedFailures ||
+		machine.snapshot.CanDeliver() {
+		t.Fatalf("equivalent failures did not stop safely: %+v", machine.snapshot)
+	}
+}
+
+func TestStandardCodeSupervisorBackgroundJobOwnershipAcrossRestart(t *testing.T) {
+	machine, store := newStandardCodeSupervisorTestMachine(
+		domain.StandardCodeSupervisorExecute, domain.ExecutionPhaseDeliver)
+	machine.snapshot.MutationEpoch = 1
+	store.snapshot = machine.snapshot
+	start := standardCodeCommandCall(t, "start-1", toolgateway.CommandRuntimeActionStart,
+		"go test ./...", "", 0)
+	standardCodeObserveCompleted(t, machine, start, nil,
+		standardCodeCommandOutput(t, toolgateway.CommandRuntimeActionStart,
+			[]runner.CommandRuntimeJobSnapshot{{ID: "job-1", State: runner.CommandRuntimeJobRunning,
+				OutputBaseCursor: 0, OutputCursor: 0}}, nil))
+	if len(machine.snapshot.Jobs) != 1 || machine.snapshot.Jobs[0].JobID != "job-1" {
+		t.Fatalf("background owner was not persisted: %+v", machine.snapshot.Jobs)
+	}
+
+	restarted := &standardCodeSupervisorTurn{store: store, turn: machine.turn,
+		permission: machine.permission, snapshot: store.snapshot,
+		ledger: append([]domain.StandardCodeSupervisorLedgerEntry(nil), store.ledger...)}
+	read := standardCodeCommandCall(t, "read-1", toolgateway.CommandRuntimeActionRead,
+		"", "job-1", 0)
+	standardCodeObserveCompleted(t, restarted, read, nil,
+		standardCodeCommandOutput(t, toolgateway.CommandRuntimeActionRead,
+			[]runner.CommandRuntimeJobSnapshot{{ID: "job-1", State: runner.CommandRuntimeJobRunning,
+				OutputBaseCursor: 0, OutputCursor: 5}},
+			[]runner.CommandRuntimeOutputPage{{JobID: "job-1", BaseCursor: 0,
+				NextCursor: 5, EndCursor: 5, State: runner.CommandRuntimeJobRunning}}))
+	if restarted.snapshot.Jobs[0].LastCursor != 5 {
+		t.Fatalf("read cursor was not persisted: %+v", restarted.snapshot.Jobs[0])
+	}
+
+	stale := standardCodeCommandCall(t, "wait-stale", toolgateway.CommandRuntimeActionWait,
+		"", "job-1", 0)
+	if decision, err := restarted.Authorize(context.Background(), stale); err != nil ||
+		decision.Allowed || decision.Result == nil {
+		t.Fatalf("stale cursor was not denied: %+v err=%v", decision, err)
+	}
+	wait := standardCodeCommandCall(t, "wait-1", toolgateway.CommandRuntimeActionWait,
+		"", "job-1", 5)
+	exitCode := 0
+	standardCodeObserveCompleted(t, restarted, wait, nil,
+		standardCodeCommandOutput(t, toolgateway.CommandRuntimeActionWait,
+			[]runner.CommandRuntimeJobSnapshot{{ID: "job-1", State: runner.CommandRuntimeJobCompleted,
+				ExitCode: &exitCode, OutputBaseCursor: 0, OutputCursor: 5, TreeReaped: true}},
+			[]runner.CommandRuntimeOutputPage{{JobID: "job-1", BaseCursor: 0,
+				NextCursor: 5, EndCursor: 5, State: runner.CommandRuntimeJobCompleted,
+				ExitCode: &exitCode}}))
+	if !restarted.snapshot.CanDeliver() {
+		t.Fatalf("terminal background verification did not deliver: %+v", restarted.snapshot)
+	}
+	restarted.snapshot.MutationEpoch++
+	restarted.snapshot.State = domain.StandardCodeSupervisorExecute
+	staleEpoch := standardCodeCommandCall(t, "wait-stale-epoch",
+		toolgateway.CommandRuntimeActionWait, "", "job-1", 5)
+	standardCodeObserveCompleted(t, restarted, staleEpoch, nil,
+		standardCodeCommandOutput(t, toolgateway.CommandRuntimeActionWait,
+			[]runner.CommandRuntimeJobSnapshot{{ID: "job-1",
+				State: runner.CommandRuntimeJobCompleted, ExitCode: &exitCode,
+				OutputBaseCursor: 0, OutputCursor: 5, TreeReaped: true}},
+			[]runner.CommandRuntimeOutputPage{{JobID: "job-1", BaseCursor: 0,
+				NextCursor: 5, EndCursor: 5, State: runner.CommandRuntimeJobCompleted,
+				ExitCode: &exitCode}}))
+	if restarted.snapshot.State != domain.StandardCodeSupervisorExecute ||
+		restarted.snapshot.VerifiedMutationEpoch == restarted.snapshot.MutationEpoch ||
+		restarted.snapshot.CanDeliver() {
+		t.Fatalf("stale background Job verified a newer mutation: %+v", restarted.snapshot)
+	}
+
+	drifted := &standardCodeSupervisorTurn{store: store, turn: restarted.turn,
+		permission: restarted.permission, snapshot: store.snapshot,
+		ledger: append([]domain.StandardCodeSupervisorLedgerEntry(nil), store.ledger...)}
+	drifted.permission.Revision++
+	if decision, err := drifted.Authorize(context.Background(),
+		standardCodeCommandCall(t, "read-drift", toolgateway.CommandRuntimeActionRead,
+			"", "job-1", 5)); err != nil || decision.Allowed || decision.Result == nil {
+		t.Fatalf("permission drift did not deny job access: %+v err=%v", decision, err)
+	}
+
+	// Rehydrate after the concurrent denied decision, just as the supervisor
+	// does at the next durable continuation boundary.
+	restarted.snapshot = store.snapshot
+	restarted.ledger = append([]domain.StandardCodeSupervisorLedgerEntry(nil), store.ledger...)
+	cancel := standardCodeCommandCall(t, "cancel-1", toolgateway.CommandRuntimeActionCancel,
+		"", "job-1", 0)
+	standardCodeObserveCompleted(t, restarted, cancel, nil,
+		standardCodeCommandOutput(t, toolgateway.CommandRuntimeActionCancel,
+			[]runner.CommandRuntimeJobSnapshot{{ID: "job-1", State: runner.CommandRuntimeJobCancelled,
+				ExitCode: &exitCode, OutputCursor: 5, TreeReaped: true}}, nil))
+	replayed := &standardCodeSupervisorTurn{store: store, turn: restarted.turn,
+		permission: restarted.permission, snapshot: store.snapshot,
+		ledger: append([]domain.StandardCodeSupervisorLedgerEntry(nil), store.ledger...)}
+	decision, err := replayed.Authorize(context.Background(),
+		standardCodeCommandCall(t, "cancel-duplicate", toolgateway.CommandRuntimeActionCancel,
+			"", "job-1", 0))
+	if err != nil || !decision.Replayed || decision.Result == nil || decision.Allowed {
+		t.Fatalf("duplicate cancel was not suppressed: %+v err=%v", decision, err)
+	}
+	previous := replayed.snapshot.State
+	replayed.snapshot.State = domain.StandardCodeSupervisorStopped
+	replayed.snapshot.StopReason = "no_progress_budget_exhausted"
+	replayed.snapshot.NoProgressCount = replayed.snapshot.Limits.MaximumNoProgress
+	if err := replayed.appendFrom(context.Background(), previous,
+		domain.StandardCodeSupervisorStoppedRecord, domain.StandardCodeSupervisorDenied,
+		"", "", "", domain.StandardCodeToolOther, "", "", "", "",
+		replayed.snapshot.StopReason); err != nil {
+		t.Fatal(err)
+	}
+	kill := standardCodeCommandCall(t, "kill-after-stop", toolgateway.CommandRuntimeActionKill,
+		"", "job-1", 0)
+	standardCodeObserveCompleted(t, replayed, kill, nil,
+		standardCodeCommandOutput(t, toolgateway.CommandRuntimeActionKill,
+			[]runner.CommandRuntimeJobSnapshot{{ID: "job-1", State: runner.CommandRuntimeJobKilled,
+				ExitCode: &exitCode, OutputCursor: 5, TreeReaped: true}}, nil))
+	if replayed.snapshot.State != domain.StandardCodeSupervisorStopped ||
+		replayed.snapshot.StopReason != "no_progress_budget_exhausted" ||
+		replayed.snapshot.Jobs[0].State != string(runner.CommandRuntimeJobKilled) {
+		t.Fatalf("stopped cleanup changed completion decision or lost Job state: %+v",
+			replayed.snapshot)
+	}
+}
+
+func TestStandardCodeSupervisorPersistsInitialStateWithExactPresetBinding(t *testing.T) {
+	fixture := newDrydockApplicationFixture(t, "standard-code-supervisor-ledger")
+	runtime := CapabilityReadinessRuntime{
+		RunControlEnabled:                 true,
+		RunExecutionEnabled:               true,
+		ExecutionPermissionControlEnabled: true,
+		StandardCodePresetEnabled:         true,
+		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
+			WorkspaceSandboxEnabled: true, OperatorApprovalEnabled: true,
+		},
+		LocalSandboxInstalled: true, LocalSandboxProven: true, LocalBackendReady: true,
+		CommandRuntimeAdapters: []commandruntimeadapter.Identity{
+			commandruntimeadapter.SandboxedWorkspace(
+				CommandRuntimeLocalSandboxBackend, "local-windows-lpac.v1",
+				"standard-code-supervisor-test-generation"),
+		},
+	}
+	presets, err := NewStandardCodePresetService(fixture.state, fixture.service, runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err := presets.Configure(t.Context(), ConfigureStandardCodeRequest{
+		Version: domain.StandardCodePresetProtocolVersion, RunID: fixture.run.ID,
+		BackendIntent: "auto", Action: "configure",
+		OperationKey: "supervisor-ledger-preview-0001", RequestedBy: "operator",
+	})
+	if err != nil || !preview.TrustRequired || preview.TrustDigest == "" {
+		t.Fatalf("preset preview=%+v err=%v", preview, err)
+	}
+	if _, err := presets.Configure(t.Context(), ConfigureStandardCodeRequest{
+		Version: domain.StandardCodePresetProtocolVersion, RunID: fixture.run.ID,
+		BackendIntent: "auto", Action: "configure",
+		OperationKey: "supervisor-ledger-configure-0001", RequestedBy: "operator",
+		ConfirmWorkspaceTrust: true, ExpectedTrustDigest: preview.TrustDigest,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewRunService(fixture.state).Start(t.Context(), fixture.run.ID); err != nil {
+		t.Fatal(err)
+	}
+	lease, err := fixture.state.AcquireRunExecutionLease(t.Context(),
+		domain.AcquireRunExecutionLeaseRequest{RunID: fixture.run.ID,
+			OwnerID: "standard-code-supervisor-test", TTL: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn, err := fixture.state.BeginSupervisorTurn(t.Context(), lease.Lease,
+		"inspect the repository")
+	if err != nil {
+		t.Fatal(err)
+	}
+	permission, err := fixture.state.GetRunExecutionPermission(t.Context(), fixture.run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	supervisor := &RunSupervisor{store: fixture.state}
+	capabilities, authority, err := supervisor.supervisorAgentCodeCapabilities(
+		t.Context(), turn, permission)
+	if err != nil || capabilities.Generation == "" {
+		t.Fatalf("agent code capabilities=%+v err=%v", capabilities, err)
+	}
+	machine, err := supervisor.prepareStandardCodeSupervisor(t.Context(), turn,
+		permission, capabilities.Generation, authority)
+	if err != nil || machine == nil || machine.snapshot.Version != 1 ||
+		machine.snapshot.State != domain.StandardCodeSupervisorInspect {
+		t.Fatalf("prepared machine=%+v err=%v", machine, err)
+	}
+	ledger, err := fixture.state.ListStandardCodeSupervisorLedger(t.Context(),
+		fixture.run.ID, domain.StandardCodeSupervisorMaximumLedgerEntries)
+	if err != nil || len(ledger) != 1 ||
+		ledger[0].Kind != domain.StandardCodeSupervisorInitialized ||
+		ledger[0].Snapshot.PresetOperationKeyDigest == "" {
+		t.Fatalf("persisted ledger=%+v err=%v", ledger, err)
+	}
+	replayed, err := supervisor.prepareStandardCodeSupervisor(t.Context(), turn,
+		permission, capabilities.Generation, authority)
+	if err != nil || replayed == nil || replayed.snapshot.Version != 1 {
+		t.Fatalf("same turn preparation did not replay: machine=%+v err=%v", replayed, err)
+	}
+	payload, err := toolgateway.NormalizeAgentCodePayload(toolgateway.WorkspaceReadTool,
+		json.RawMessage(`{"version":"agent-code-tools.v1","path":"tracked.txt","start_line":1,"end_line":1}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	operationKey := runmutation.SupervisorToolOperationKey(turn.Run.ID,
+		turn.Checkpoint.NextTurn, string(toolgateway.WorkspaceReadTool), string(payload))
+	callID, err := runmutation.SupervisorToolCallID(operationKey, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt := llm.ModelAttempt{Number: 1, TransportAttempt: 1, MaxAttempts: 1,
+		Provider: "test", Model: "model"}
+	if inserted, err := fixture.state.RecordSupervisorModelStarted(t.Context(),
+		turn.Checkpoint, attempt); err != nil || !inserted {
+		t.Fatalf("record model start: inserted=%t err=%v", inserted, err)
+	}
+	attempt.Outcome = llm.OutcomeSuccess
+	checkpoint, err := fixture.state.RecordSupervisorModelCompleted(t.Context(),
+		turn.Checkpoint, attempt, llm.ChatResponse{Provider: "test", Model: "model",
+			Usage: llm.Usage{InputTokens: 1, OutputTokens: 1, TotalTokens: 2},
+			ToolCalls: []llm.ToolCall{{ID: callID,
+				Name: string(toolgateway.WorkspaceReadTool), Arguments: payload,
+				Authority: authority}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rounds, err := fixture.state.ListSupervisorToolRounds(t.Context(), checkpoint)
+	if err != nil || len(rounds) != 1 || len(rounds[0].Calls) != 1 {
+		t.Fatalf("pending read round=%+v err=%v", rounds, err)
+	}
+	call := rounds[0].Calls[0]
+	if decision, err := machine.Authorize(t.Context(), call); err != nil || !decision.Allowed {
+		t.Fatalf("persist call authorization: %+v err=%v", decision, err)
+	}
+	if inserted, err := fixture.state.RecordSupervisorToolExecutionStarted(t.Context(),
+		checkpoint, call.CallID); err != nil || !inserted {
+		t.Fatalf("record tool start: inserted=%t err=%v", inserted, err)
+	}
+	resultJSON, err := json.Marshal(supervisorToolResultEnvelope{
+		Version: supervisorToolResultVersion, Tool: call.ToolName,
+		Status: string(domain.SupervisorToolCompleted), Stdout: "bounded read evidence",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	storedCall, replayedResult, err := fixture.state.RecordSupervisorToolResult(t.Context(),
+		checkpoint, domain.SupervisorToolResult{CallID: call.CallID,
+			Status: domain.SupervisorToolCompleted, ResultJSON: string(resultJSON),
+			CompletedAt: time.Now().UTC()})
+	if err != nil || replayedResult {
+		t.Fatalf("record tool result: replayed=%t call=%+v err=%v",
+			replayedResult, storedCall, err)
+	}
+	if err := machine.ObserveCall(t.Context(), storedCall); err != nil {
+		t.Fatal(err)
+	}
+	rounds, err = fixture.state.ListSupervisorToolRounds(t.Context(), checkpoint)
+	if err != nil || len(rounds) != 1 || !rounds[0].Complete() {
+		t.Fatalf("completed read round=%+v err=%v", rounds, err)
+	}
+	if err := machine.ObserveRound(t.Context(), rounds[0]); err != nil {
+		t.Fatal(err)
+	}
+	ledger, err = fixture.state.ListStandardCodeSupervisorLedger(t.Context(),
+		fixture.run.ID, domain.StandardCodeSupervisorMaximumLedgerEntries)
+	if err != nil || len(ledger) != 4 ||
+		ledger[1].Kind != domain.StandardCodeSupervisorCallAuthorized ||
+		ledger[2].Kind != domain.StandardCodeSupervisorCallObserved ||
+		ledger[3].Kind != domain.StandardCodeSupervisorRoundObserved {
+		t.Fatalf("durable call/observation ledger=%+v err=%v", ledger, err)
+	}
+	forged := *machine
+	forged.snapshot = machine.snapshot
+	forged.snapshot.ProfileSnapshotID = "forged-profile-snapshot"
+	forged.ledger = append([]domain.StandardCodeSupervisorLedgerEntry(nil), machine.ledger...)
+	if err := forged.appendFrom(t.Context(), forged.snapshot.State,
+		domain.StandardCodeSupervisorActionRecorded, domain.StandardCodeSupervisorAllowed,
+		"", "", string(domain.RootActionContinue), domain.StandardCodeToolOther,
+		"", "", "", "", "forged_execution_tuple"); err == nil {
+		t.Fatal("durable ledger accepted a non-current execution profile snapshot")
+	}
+}
