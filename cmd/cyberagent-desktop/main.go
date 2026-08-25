@@ -436,6 +436,12 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		version:                *version}, nil
 }
 
+func desktopWorkspaceSandboxRuntimeAvailable(config desktopOptions,
+	readiness *sandbox.LocalReadiness,
+) bool {
+	return config.workspaceSandbox && readiness != nil && readiness.Ready
+}
+
 func runDesktop(config desktopOptions) error {
 	if err := checkDesktopPrerequisites(); err != nil {
 		return err
@@ -456,6 +462,8 @@ func runDesktop(config desktopOptions) error {
 		}
 		localReadiness = &readiness
 	}
+	workspaceSandboxAvailable := desktopWorkspaceSandboxRuntimeAvailable(config,
+		localReadiness)
 	bundle, err := webui.LoadEmbeddedFS(webassets.Files, "dist")
 	if err != nil {
 		return apperror.Wrap(apperror.CodeFailedPrecondition,
@@ -494,7 +502,7 @@ func runDesktop(config desktopOptions) error {
 		RunControlEnabled: config.profileControl, RunCreationEnabled: config.runCreation,
 		ExecutionPermissionControlEnabled: config.permissionControl,
 		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
-			WorkspaceSandboxEnabled:   config.workspaceSandbox,
+			WorkspaceSandboxEnabled:   workspaceSandboxAvailable,
 			OperatorApprovalEnabled:   config.permissionControl,
 			DangerFullAccessEnabled:   config.dangerFullAccess,
 			DebugMaximumAccessEnabled: config.debugMaximumAccess,
@@ -579,7 +587,7 @@ func runDesktop(config desktopOptions) error {
 		RunControlEnabled: config.profileControl, RunCreationEnabled: config.runCreation,
 		StandardCodePresetEnabled:               controlPlane.StandardCodePresetEnabled(),
 		ExecutionPermissionControlEnabled:       config.permissionControl,
-		WorkspaceSandboxEnabled:                 config.workspaceSandbox,
+		WorkspaceSandboxEnabled:                 workspaceSandboxAvailable,
 		BrowserCDPPermissionControlEnabled:      config.browserCDPControl,
 		FullCDPDebugEnabled:                     config.fullCDPDebug,
 		OperatorApprovalEnabled:                 config.permissionControl,
