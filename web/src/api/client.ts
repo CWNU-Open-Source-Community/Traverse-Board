@@ -501,13 +501,57 @@ const threadTranscriptKinds = ["harness_status", "model_update", "operator_input
   "tool_call", "approval", "file_change", "plan", "dependency", "browser"];
 const threadTranscriptSources = ["harness", "model", "operator"];
 
+function validWebEvidenceURL(value: unknown): value is string {
+  if (typeof value !== "string" || value.length === 0 || value.length > 4_096 ||
+    /[\u0000-\u001f\u007f]/u.test(value)) return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" && parsed.hostname.length > 0 &&
+      parsed.username === "" && parsed.password === "" &&
+      (parsed.port === "" || parsed.port === "443") && parsed.hash === "";
+  } catch {
+    return false;
+  }
+}
+
+function validThreadWebEvidence(value: unknown): boolean {
+  const required = ["citeable", "digest", "fetched_at", "instruction_authorized", "partial",
+    "snapshot_id", "source_id", "stale", "stale_at", "state", "untrusted", "url", "version"];
+  const optional = ["citation_id", "title"];
+  if (!isRecord(value) || !hasOnlyKeys(value, [...required, ...optional]) ||
+    required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
+    value.version !== "web_evidence_presentation.v1" || !boundedIdentity(value.source_id) ||
+    !boundedIdentity(value.snapshot_id) ||
+    (value.citation_id !== undefined && !boundedIdentity(value.citation_id)) ||
+    !validWebEvidenceURL(value.url) ||
+    (value.title !== undefined && !boundedText(value.title, 1_024)) ||
+    !isSHA256(value.digest) || !validDate(value.fetched_at) || !validDate(value.stale_at) ||
+    Date.parse(String(value.stale_at)) < Date.parse(String(value.fetched_at)) ||
+    typeof value.partial !== "boolean" || typeof value.stale !== "boolean" ||
+    typeof value.citeable !== "boolean" || value.untrusted !== true ||
+    value.instruction_authorized !== false) return false;
+  switch (value.state) {
+    case "fetched":
+      return !value.partial && !value.stale && value.citeable;
+    case "partial":
+      return value.partial && !value.stale && value.citeable;
+    case "stale":
+      return value.stale && value.citeable;
+    case "blocked":
+    case "failed":
+      return !value.partial && !value.stale && !value.citeable;
+    default:
+      return false;
+  }
+}
+
 function parseThreadTranscriptItem(value: unknown): ThreadTranscriptItemView {
   const required = ["activity_type", "canonical_id", "created_at", "durable", "id",
     "instruction_authorized", "kind", "provisional", "run_id", "run_ordinal", "sequence",
     "source", "stage", "title", "verifiable", "version"];
   const optional = ["attempt_id", "boundary_reason", "detail", "durable_call_id",
     "model_attempt", "position", "source_ref", "status", "stream_call_id", "stream_item_id",
-    "stream_response_id", "tool_name", "tool_round"];
+    "stream_response_id", "tool_name", "tool_round", "web_evidence"];
   if (!isRecord(value) || !hasOnlyKeys(value, [...required, ...optional]) ||
     required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
     value.version !== "thread_transcript.v1" || !boundedIdentity(value.id) ||
@@ -541,6 +585,16 @@ function parseThreadTranscriptItem(value: unknown): ThreadTranscriptItemView {
     (value.source === "harness" && value.verifiable !== true) ||
     (value.source === "model" && value.verifiable !== false)) {
     throw new APIRequestError("Thread transcript provenance is invalid", "INVALID_RESPONSE", 502);
+  }
+  if (value.web_evidence !== undefined && (!validThreadWebEvidence(value.web_evidence) ||
+    value.kind !== "tool_call" || value.source !== "harness" || value.stage !== "result" ||
+    value.verifiable !== true || value.instruction_authorized !== false ||
+    !["web_fetch", "web_citation"].includes(String(value.tool_name)) ||
+    (value.tool_name === "web_fetch" &&
+      isRecord(value.web_evidence) && value.web_evidence.citation_id !== undefined) ||
+    (value.tool_name === "web_citation" &&
+      (!isRecord(value.web_evidence) || !boundedIdentity(value.web_evidence.citation_id))))) {
+    throw new APIRequestError("Thread Web evidence is invalid", "INVALID_RESPONSE", 502);
   }
   return value as unknown as ThreadTranscriptItemView;
 }

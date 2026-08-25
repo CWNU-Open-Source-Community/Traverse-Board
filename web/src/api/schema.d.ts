@@ -2524,6 +2524,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/web-evidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect Run-local Web evidence
+         * @description Returns bounded source, snapshot, and citation presentation metadata from the immutable Run-local Web evidence ledger. It never returns page bodies, search snippets, credentials, cookies, tool arguments, or authorization. Every entry remains untrusted and non-instructional; only fetched or partial snapshots are citeable.
+         */
+        get: operations["getRunWebEvidence"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/work-items": {
         parameters: {
             query?: never;
@@ -4095,6 +4115,24 @@ export interface components {
             token_limit: number;
             /** Format: int64 */
             turn_limit: number;
+        };
+        CitationPresentation: {
+            citation_id: string;
+            citeable: boolean;
+            digest: string;
+            /** Format: date-time */
+            fetched_at: string;
+            instruction_authorized: boolean;
+            partial: boolean;
+            snapshot_id: string;
+            source_id: string;
+            stale: boolean;
+            /** Format: date-time */
+            stale_at: string;
+            status: string;
+            title?: string;
+            untrusted: boolean;
+            url: string;
         };
         CodeHandoffActionReferenceView: {
             /** Format: date-time */
@@ -6574,6 +6612,15 @@ export interface components {
             trust: string;
             why_effective: string;
         };
+        Inventory: {
+            citations: components["schemas"]["CitationPresentation"][];
+            instruction_authorized: boolean;
+            protocol_version: string;
+            run_id: string;
+            snapshots: components["schemas"]["SnapshotPresentation"][];
+            sources: components["schemas"]["SourcePresentation"][];
+            untrusted: boolean;
+        };
         Manifest: {
             backend: string;
             cancellation: components["schemas"]["CancellationSpec"];
@@ -8468,6 +8515,39 @@ export interface components {
             Providers: components["schemas"]["ProviderAvailability"][];
             Routes: components["schemas"]["RouteAvailability"][];
         };
+        SnapshotPresentation: {
+            citeable: boolean;
+            digest: string;
+            /** Format: date-time */
+            fetched_at: string;
+            instruction_authorized: boolean;
+            mime: string;
+            partial: boolean;
+            provider: string;
+            robots: string;
+            snapshot_id: string;
+            source_id: string;
+            stale: boolean;
+            /** Format: date-time */
+            stale_at: string;
+            status: string;
+            title?: string;
+            truncated: boolean;
+            untrusted: boolean;
+            url: string;
+        };
+        SourcePresentation: {
+            citeable: boolean;
+            /** Format: date-time */
+            discovered_at: string;
+            instruction_authorized: boolean;
+            provider: string;
+            source_id: string;
+            state: string;
+            title?: string;
+            untrusted: boolean;
+            url: string;
+        };
         SpecialistModelCancellationView: {
             agent_id: string;
             attempt_id: string;
@@ -8767,6 +8847,7 @@ export interface components {
             verifiable: boolean;
             /** @enum {string} */
             version: "thread_transcript.v1";
+            web_evidence?: components["schemas"]["ThreadWebEvidenceView"];
         };
         ThreadView: {
             active_run_id?: string;
@@ -8791,6 +8872,25 @@ export interface components {
             /** Format: int64 */
             version: number;
             workspace_id?: string;
+        };
+        ThreadWebEvidenceView: {
+            citation_id?: string;
+            citeable: boolean;
+            digest: string;
+            /** Format: date-time */
+            fetched_at: string;
+            instruction_authorized: boolean;
+            partial: boolean;
+            snapshot_id: string;
+            source_id: string;
+            stale: boolean;
+            /** Format: date-time */
+            stale_at: string;
+            state: string;
+            title?: string;
+            untrusted: boolean;
+            url: string;
+            version: string;
         };
         ToolUsageView: {
             /** Format: int64 */
@@ -15664,6 +15764,44 @@ export interface operations {
             413: components["responses"]["RequestEntityTooLarge"];
             414: components["responses"]["RequestTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getRunWebEvidence: {
+        parameters: {
+            query?: {
+                /** @description Maximum entries loaded from each Web evidence ledger */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Inventory"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
         };

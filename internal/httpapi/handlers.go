@@ -22,6 +22,7 @@ import (
 	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/runactivity"
 	"cyberagent-workbench/internal/toolgateway"
+	"cyberagent-workbench/internal/webevidence"
 	"cyberagent-workbench/internal/workspace"
 )
 
@@ -56,7 +57,7 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 			"project-instructions", "long-term-memories", "session-tree",
 			"repository-state", "repository-diff", "repository-history", "repository-file-history", "repository-commit-detail", "repository-commit-comparison", "repository-commit-file-preview", "verification-evidence", "verification-plan", "verification-plan-coverage", "verification-snapshot-export", "verification-snapshot-receipts", "code-handoff", "code-handoff-export",
 			"operation-receipts", "operator-actions", "evidence-inventory",
-			"run-activity", "run-capability-readiness", "event-stream", "event-poll", "capabilities", "openapi",
+			"run-activity", "web-evidence", "run-capability-readiness", "event-stream", "event-poll", "capabilities", "openapi",
 			"doctor", "debug", "diagnostic-bundle"}
 		if a.scheduledJobController != nil {
 			resources = append(resources, "scheduled-jobs")
@@ -507,6 +508,8 @@ func (a *API) routeRuns(request *http.Request, segments []string) (any, *Page, e
 			return a.runEvents(request, segments[1])
 		case "activity":
 			return a.runActivity(request, segments[1])
+		case "web-evidence":
+			return a.runWebEvidence(request, segments[1])
 		case "capability-readiness":
 			return a.runCapabilityReadiness(request, segments[1])
 		case "work-items":
@@ -576,6 +579,32 @@ func (a *API) routeRuns(request *http.Request, segments []string) (any, *Page, e
 		}
 	}
 	return nil, nil, apperror.New(apperror.CodeNotFound, "Run HTTP API endpoint was not found")
+}
+
+func (a *API) runWebEvidence(request *http.Request, runID string) (any, *Page, error) {
+	values := request.URL.Query()
+	if err := validateSingleQueryValues(values, "limit"); err != nil {
+		return nil, nil, err
+	}
+	if _, err := a.store.GetRun(request.Context(), runID); err != nil {
+		return nil, nil, err
+	}
+	limit := 100
+	if raw, ok := singleQueryValue(values, "limit"); ok {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > webevidence.MaxInventoryItems {
+			return nil, nil, apperror.New(apperror.CodeInvalidArgument,
+				fmt.Sprintf("web evidence limit must be between 1 and %d",
+					webevidence.MaxInventoryItems))
+		}
+		limit = parsed
+	}
+	inventory, err := webevidence.LoadInventory(request.Context(), a.store, runID,
+		limit, time.Now().UTC())
+	if err != nil {
+		return nil, nil, err
+	}
+	return inventory, nil, nil
 }
 
 func (a *API) runFileEditChangeSet(request *http.Request,

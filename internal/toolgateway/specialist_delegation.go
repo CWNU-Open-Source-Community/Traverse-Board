@@ -118,7 +118,8 @@ func SupervisorToolDefinitions() []ToolDefinition {
 		commandRuntime.InputSchema...)
 	definitions = append(definitions, commandRuntime)
 	mcpCall := MCPToolDefinition()
-	return append(definitions, mcpCall)
+	definitions = append(definitions, mcpCall)
+	return append(definitions, WebEvidenceToolDefinitions()...)
 }
 
 func SupervisorToolDefinition(name ToolName) (ToolDefinition, bool) {
@@ -168,6 +169,9 @@ func SupervisorToolDefinition(name ToolName) (ToolDefinition, bool) {
 	}
 	if name == MCPToolCallTool {
 		return MCPToolDefinition(), true
+	}
+	if definition, found := WebEvidenceToolDefinition(name); found {
+		return definition, true
 	}
 	if name == ChildTaskProposeTool {
 		definition := childTaskProposeDefinition
@@ -238,6 +242,9 @@ func NormalizeSupervisorToolPayload(name ToolName, payload json.RawMessage) (jso
 	if name == MCPToolCallTool {
 		_, canonical, err := NormalizeMCPToolPayload(payload)
 		return canonical, err
+	}
+	if IsWebEvidenceTool(name) {
+		return NormalizeWebEvidencePayload(name, payload)
 	}
 	return NormalizeStructuredMemoryPayload(name, payload)
 }

@@ -3,6 +3,7 @@ import {
   Check,
   CircleDot,
   FilePenLine,
+  ExternalLink,
   ListChecks,
   Milestone,
   PackageCheck,
@@ -175,10 +176,10 @@ function classifyLiveTool(name: string): ThreadTranscriptItemView["activity_type
   case "workspace_search": case "code_search": case "search": case "find_files":
   case "github_review_evidence_list": case "code_workspace_symbols": case "code_document_symbols":
   case "code_references": case "code_implementation": case "code_call_hierarchy":
-  case "code_type_hierarchy": return "search";
+  case "code_type_hierarchy": case "web_search": return "search";
   case "read_file": case "workspace_read": case "note_get": case "artifact_get":
   case "github_review_evidence_read": case "code_definition": case "code_hover":
-  case "code_signature_help": return "read";
+  case "code_signature_help": case "web_fetch": case "web_citation": return "read";
   case "replace_file": case "file_edit": case "apply_patch": case "workspace_restore":
   case "workspace_change": case "workspace_apply": case "workspace_delete": return "edit";
   case "verification_record": case "verification_plan": case "ui_evidence": case "run_tests":
@@ -369,6 +370,7 @@ function TranscriptItem({ item, t }: { item: ThreadTranscriptItemView; t: Transl
       <h3>{item.tool_name || item.title}</h3>
       {item.detail && <TranscriptDetail detail={item.detail} markdown={isMessage && item.source === "model"}
         t={t} />}
+      {item.web_evidence && <WebEvidenceCard evidence={item.web_evidence} t={t} />}
       {item.kind === "tool_call" && <small>{t(
         "参数与原始输出保持隐藏；状态来自结构化 item 事件。",
         "Arguments and raw output stay hidden; status comes from structured item events.")}</small>}
@@ -386,6 +388,34 @@ function TranscriptItem({ item, t }: { item: ThreadTranscriptItemView; t: Transl
       </div>}
     </div>
   </article>;
+}
+
+function WebEvidenceCard({ evidence, t }: {
+  evidence: NonNullable<ThreadTranscriptItemView["web_evidence"]>;
+  t: Translator;
+}) {
+  const staleAt = Date.parse(evidence.stale_at);
+  const stale = evidence.citeable &&
+    (evidence.stale || (Number.isFinite(staleAt) && Date.now() >= staleAt));
+  const status = stale ? "stale" : evidence.state;
+  return <aside aria-label={t("网页证据来源", "Web evidence source")}
+    className={`thread-web-evidence state-${status}`}>
+    <div className="thread-web-evidence-heading">
+      <a href={evidence.url} rel="noopener noreferrer" target="_blank">
+        <span>{evidence.title || evidence.url}</span><ExternalLink aria-hidden="true" size={13} />
+      </a>
+      <StatusBadge status={status} />
+    </div>
+    <div className="thread-web-evidence-meta">
+      <span>{t("获取于", "Fetched")} <time dateTime={evidence.fetched_at}>
+        {formatDate(evidence.fetched_at)}</time></span>
+      <code>sha256 {evidence.digest.slice(0, 12)}</code>
+      {evidence.partial && <span>{t("部分内容", "Partial")}</span>}
+      {stale && <span>{t("已过期", "Stale")}</span>}
+    </div>
+    <small>{t("不可信、非授权网页证据；打开原网页不会授予权限。",
+      "Untrusted, non-authorizing Web evidence; opening the source grants no permission.")}</small>
+  </aside>;
 }
 
 function TranscriptDetail({ detail, markdown, t }: {

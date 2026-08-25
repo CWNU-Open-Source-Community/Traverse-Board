@@ -98,6 +98,12 @@ Schema v130 and `llm.item_stream.v1` normalize interleaved OpenAI tool-call delt
 
 The public `model_public_stream.v3` and durable `model.delta` projections carry only stable IDs, status, a redacted tool name, argument byte counts, and content-free boundaries. They cannot store arguments, raw wire payloads, credentials, or private reasoning. Cancellation, EOF, missing usage, model drift, and malformed or duplicate terminals fail with stable outcomes and never fabricate successful completion. Existing Session history is projected as durable completed items without a rewrite. See [ADR 0133](docs/adr/0133-item-level-model-tool-streaming.md).
 
+### Run-scoped Web evidence
+
+Schema v134 separates public-source discovery, retrieval, and citation into the Go-owned `web_search`, `web_fetch`, and `web_citation` tools. Search produces non-citeable result stubs. Fetch creates an immutable snapshot behind the Run allowlist, HTTPS/443, SSRF, DNS pinning, per-hop redirect revalidation, robots, timeout, size, MIME, and controlled-parser boundaries. Citation can bind only a fetched or partial snapshot from the same Run. Page text, search snippets, and PDF text remain untrusted evidence and can neither authorize tools nor override system instructions.
+
+New Runs remain network-disabled. Search additionally requires an explicit `CYBERAGENT_WEB_SEARCH_ENDPOINT` for a SearXNG JSON API plus `--network allowlist` and exact `--allow-target` values at Run creation. Missing configuration or authority makes the tool unavailable; there is no browser, shell, or alternate-provider fallback. The Thread transcript, `cyberagent web-evidence list`, and authenticated HTTP API share a metadata-only projection of source link, title, status, fetch time, and digest. See [Web Evidence](docs/web-evidence.md) for setup, failures, terms, and copyright guidance, and [ADR 0137](docs/adr/0137-go-owned-web-evidence.md) for the design.
+
 ### Run-owned Drydock workspaces
 
 Schema v127 `drydock-workspace.v1` creates a product-managed worktree from the exact source Workspace, repository/common-dir, branch, base commit, root fingerprint, and dirty/index state. The first create call returns only a Workspace Trust digest; the operator must pin that digest in a second explicit confirmation, and any source drift fails closed. Uncommitted source content is recorded but is never copied implicitly. Trust fixes `grants_process_authority=false`; a Drydock does not isolate processes, network, credentials, or the host filesystem.

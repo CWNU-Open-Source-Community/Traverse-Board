@@ -54,3 +54,21 @@ func TestRedactJSONPayloadRejectsResourceExhaustion(t *testing.T) {
 		t.Fatalf("expected JSON size rejection, got %v", err)
 	}
 }
+
+func TestWebEvidenceResultRedactionDoesNotExpandSafeHTMLCharacters(t *testing.T) {
+	body := strings.Repeat("<", 128*1024)
+	raw := `{"version":"supervisor_tool_result.v1","tool":"web_fetch","stdout":"` +
+		body + `"}`
+	if !supervisorWebEvidenceResultEnvelope(raw) {
+		t.Fatal("Web evidence result envelope was not recognized")
+	}
+	safe, err := redactJSONPayloadWithoutHTMLEscape(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !json.Valid([]byte(safe)) || strings.Contains(safe, `\u003c`) ||
+		!strings.Contains(safe, body) || len(safe) > 140*1024 {
+		t.Fatalf("unescaped Web evidence result bytes=%d valid=%t", len(safe),
+			json.Valid([]byte(safe)))
+	}
+}

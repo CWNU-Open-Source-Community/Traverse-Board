@@ -104,6 +104,8 @@ func (c SupervisorToolCall) Validate() error {
 		c.ToolName != "debug_terminal" &&
 		c.ToolName != "command_runtime" &&
 		c.ToolName != "mcp_tool_call" &&
+		c.ToolName != "web_search" && c.ToolName != "web_fetch" &&
+		c.ToolName != "web_citation" &&
 		c.ToolName != "workspace_list" && c.ToolName != "workspace_read" &&
 		c.ToolName != "workspace_glob" && c.ToolName != "workspace_grep" &&
 		c.ToolName != "workspace_change" && c.ToolName != "workspace_apply" &&
@@ -114,7 +116,8 @@ func (c SupervisorToolCall) Validate() error {
 		!utf8.ValidString(c.PayloadJSON) || !json.Valid([]byte(c.PayloadJSON)) {
 		return errors.New("supervisor tool payload must be bounded valid UTF-8 JSON")
 	}
-	if isAgentCodeSupervisorTool(c.ToolName) || c.ToolName == "command_runtime" {
+	if isAgentCodeSupervisorTool(c.ToolName) || c.ToolName == "command_runtime" ||
+		isWebEvidenceSupervisorTool(c.ToolName) {
 		if len(c.AuthorityJSON) == 0 || len(c.AuthorityJSON) > MaxSupervisorToolAuthorityBytes ||
 			!utf8.ValidString(c.AuthorityJSON) || !json.Valid([]byte(c.AuthorityJSON)) {
 			return errors.New("authority-bound supervisor tool requires bounded durable authority JSON")
@@ -156,6 +159,10 @@ func isAgentCodeSupervisorTool(name string) bool {
 	default:
 		return false
 	}
+}
+
+func isWebEvidenceSupervisorTool(name string) bool {
+	return name == "web_search" || name == "web_fetch" || name == "web_citation"
 }
 
 type SupervisorToolRound struct {

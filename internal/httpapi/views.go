@@ -1132,35 +1132,54 @@ type ThreadMessageView struct {
 }
 
 type ThreadTranscriptItemView struct {
+	Version               string                 `json:"version"`
+	ID                    string                 `json:"id"`
+	CanonicalID           string                 `json:"canonical_id"`
+	RunID                 string                 `json:"run_id"`
+	RunOrdinal            int64                  `json:"run_ordinal"`
+	Sequence              int64                  `json:"sequence"`
+	Position              int                    `json:"position,omitempty"`
+	ActivityType          string                 `json:"activity_type"`
+	Stage                 string                 `json:"stage"`
+	Kind                  string                 `json:"kind"`
+	Source                string                 `json:"source"`
+	Title                 string                 `json:"title"`
+	Detail                string                 `json:"detail,omitempty"`
+	Status                string                 `json:"status,omitempty"`
+	Verifiable            bool                   `json:"verifiable"`
+	InstructionAuthorized bool                   `json:"instruction_authorized"`
+	AttemptID             string                 `json:"attempt_id,omitempty"`
+	ModelAttempt          int                    `json:"model_attempt,omitempty"`
+	ToolRound             int                    `json:"tool_round,omitempty"`
+	ToolName              string                 `json:"tool_name,omitempty"`
+	StreamResponseID      string                 `json:"stream_response_id,omitempty"`
+	StreamItemID          string                 `json:"stream_item_id,omitempty"`
+	StreamCallID          string                 `json:"stream_call_id,omitempty"`
+	DurableCallID         string                 `json:"durable_call_id,omitempty"`
+	SourceRef             string                 `json:"source_ref,omitempty"`
+	BoundaryReason        string                 `json:"boundary_reason,omitempty"`
+	WebEvidence           *ThreadWebEvidenceView `json:"web_evidence,omitempty"`
+	Provisional           bool                   `json:"provisional"`
+	Durable               bool                   `json:"durable"`
+	CreatedAt             time.Time              `json:"created_at"`
+}
+
+type ThreadWebEvidenceView struct {
 	Version               string    `json:"version"`
-	ID                    string    `json:"id"`
-	CanonicalID           string    `json:"canonical_id"`
-	RunID                 string    `json:"run_id"`
-	RunOrdinal            int64     `json:"run_ordinal"`
-	Sequence              int64     `json:"sequence"`
-	Position              int       `json:"position,omitempty"`
-	ActivityType          string    `json:"activity_type"`
-	Stage                 string    `json:"stage"`
-	Kind                  string    `json:"kind"`
-	Source                string    `json:"source"`
-	Title                 string    `json:"title"`
-	Detail                string    `json:"detail,omitempty"`
-	Status                string    `json:"status,omitempty"`
-	Verifiable            bool      `json:"verifiable"`
+	SourceID              string    `json:"source_id"`
+	SnapshotID            string    `json:"snapshot_id"`
+	CitationID            string    `json:"citation_id,omitempty"`
+	URL                   string    `json:"url"`
+	Title                 string    `json:"title,omitempty"`
+	State                 string    `json:"state"`
+	FetchedAt             time.Time `json:"fetched_at"`
+	StaleAt               time.Time `json:"stale_at"`
+	Digest                string    `json:"digest"`
+	Partial               bool      `json:"partial"`
+	Stale                 bool      `json:"stale"`
+	Citeable              bool      `json:"citeable"`
+	Untrusted             bool      `json:"untrusted"`
 	InstructionAuthorized bool      `json:"instruction_authorized"`
-	AttemptID             string    `json:"attempt_id,omitempty"`
-	ModelAttempt          int       `json:"model_attempt,omitempty"`
-	ToolRound             int       `json:"tool_round,omitempty"`
-	ToolName              string    `json:"tool_name,omitempty"`
-	StreamResponseID      string    `json:"stream_response_id,omitempty"`
-	StreamItemID          string    `json:"stream_item_id,omitempty"`
-	StreamCallID          string    `json:"stream_call_id,omitempty"`
-	DurableCallID         string    `json:"durable_call_id,omitempty"`
-	SourceRef             string    `json:"source_ref,omitempty"`
-	BoundaryReason        string    `json:"boundary_reason,omitempty"`
-	Provisional           bool      `json:"provisional"`
-	Durable               bool      `json:"durable"`
-	CreatedAt             time.Time `json:"created_at"`
 }
 
 type ThreadEventView struct {
@@ -1612,7 +1631,7 @@ func threadMessageView(value domain.ThreadMessage) ThreadMessageView {
 }
 
 func threadTranscriptItemView(value threadtranscript.Item) ThreadTranscriptItemView {
-	return ThreadTranscriptItemView{
+	view := ThreadTranscriptItemView{
 		Version: value.Version, ID: value.ID, CanonicalID: value.CanonicalID,
 		RunID: value.RunID, RunOrdinal: value.RunOrdinal, Sequence: value.Sequence,
 		Position: value.Position, ActivityType: string(value.Type), Stage: string(value.Stage),
@@ -1626,6 +1645,23 @@ func threadTranscriptItemView(value threadtranscript.Item) ThreadTranscriptItemV
 		BoundaryReason: value.BoundaryReason, Provisional: value.Provisional,
 		Durable: value.Durable, CreatedAt: value.CreatedAt,
 	}
+	if value.WebEvidence != nil {
+		presentation := value.WebEvidence
+		state, stale := presentation.State, presentation.Stale
+		if presentation.Citeable && !time.Now().UTC().Before(presentation.StaleAt.UTC()) {
+			state, stale = "stale", true
+		}
+		view.WebEvidence = &ThreadWebEvidenceView{Version: presentation.Version,
+			SourceID: presentation.SourceID, SnapshotID: presentation.SnapshotID,
+			CitationID: presentation.CitationID, URL: presentation.URL,
+			Title: presentation.Title, State: state,
+			FetchedAt: presentation.FetchedAt, StaleAt: presentation.StaleAt,
+			Digest: presentation.Digest, Partial: presentation.Partial,
+			Stale: stale, Citeable: presentation.Citeable,
+			Untrusted:             presentation.Untrusted,
+			InstructionAuthorized: presentation.InstructionAuthorized}
+	}
+	return view
 }
 
 func messageView(value session.Message) MessageView {

@@ -40,6 +40,7 @@ import (
 	"cyberagent-workbench/internal/toolbudget"
 	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/verification"
+	"cyberagent-workbench/internal/webevidence"
 )
 
 const (
@@ -65,6 +66,9 @@ type Store interface {
 		int) ([]domain.ThreadMessage, error)
 	ListThreadTranscriptSourceBefore(context.Context, string, int64, int64,
 		int) ([]threadtranscript.Source, error)
+	ListWebSources(context.Context, string, int) ([]webevidence.Source, error)
+	ListWebSnapshots(context.Context, string, int) ([]webevidence.Snapshot, error)
+	ListWebCitations(context.Context, string, int) ([]webevidence.Citation, error)
 	EnsureThreadSuccessor(context.Context, string, string, domain.Mission, domain.Run,
 		domain.RunModeSnapshot, session.Session, []events.Event) (domain.Thread, domain.Run, bool, error)
 	TransitionThreadWithOperationKey(context.Context, string, domain.ThreadLifecycleAction,

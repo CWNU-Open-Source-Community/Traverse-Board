@@ -34,7 +34,7 @@ func (s *specialistDelegationExecutorStub) ProposeSpecialists(_ context.Context,
 
 func TestSpecialistDelegationDefinitionAndPayloadAreStrict(t *testing.T) {
 	definitions := SupervisorToolDefinitions()
-	if len(definitions) != 12 {
+	if len(definitions) != 15 {
 		t.Fatalf("unexpected Supervisor tool definitions: %#v", definitions)
 	}
 	definition, found := SupervisorToolDefinition(SpecialistDelegationProposeTool)

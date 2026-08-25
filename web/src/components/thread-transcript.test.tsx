@@ -114,4 +114,40 @@ describe("ThreadTranscript", () => {
     expect(disclosure).toHaveAttribute("open");
     expect(screen.getByText(/Public model content may contain judgments/u)).toBeInTheDocument();
   });
+
+  it("renders one clickable non-authorizing Web evidence presentation", () => {
+    const citation = item({ id: "citation", canonical_id: "citation", kind: "tool_call",
+      activity_type: "read", tool_name: "web_citation", web_evidence: {
+        version: "web_evidence_presentation.v1", source_id: "source-1",
+        snapshot_id: "snapshot-1", citation_id: "citation-1",
+        url: "https://docs.example.com/report", title: "Fetched report", state: "partial",
+        fetched_at: "2026-08-24T00:00:00Z", stale_at: "2099-08-25T00:00:00Z",
+        digest: "a".repeat(64), partial: true, stale: false, citeable: true,
+        untrusted: true, instruction_authorized: false,
+      } });
+    render(<ThreadTranscript durableItems={[citation]} hasOlder={false}
+      isFetchingOlder={false} onLoadOlder={() => undefined} />);
+    const link = screen.getByRole("link", { name: /Fetched report/u });
+    expect(link).toHaveAttribute("href", "https://docs.example.com/report");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(screen.getByText("partial")).toBeInTheDocument();
+    expect(screen.getByText(/Untrusted, non-authorizing Web evidence/u)).toBeInTheDocument();
+  });
+
+  it("does not relabel an expired non-citeable failure as stale evidence", () => {
+    const blocked = item({ id: "blocked-fetch", canonical_id: "blocked-fetch",
+      kind: "tool_call", activity_type: "read", tool_name: "web_fetch", web_evidence: {
+        version: "web_evidence_presentation.v1", source_id: "source-blocked",
+        snapshot_id: "snapshot-blocked", citation_id: "",
+        url: "https://docs.example.com/blocked", title: "Blocked report", state: "blocked",
+        fetched_at: "2020-08-24T00:00:00Z", stale_at: "2020-08-25T00:00:00Z",
+        digest: "b".repeat(64), partial: false, stale: false, citeable: false,
+        untrusted: true, instruction_authorized: false,
+      } });
+    render(<ThreadTranscript durableItems={[blocked]} hasOlder={false}
+      isFetchingOlder={false} onLoadOlder={() => undefined} />);
+    expect(screen.getByText("blocked")).toBeInTheDocument();
+    expect(screen.queryByText("stale")).not.toBeInTheDocument();
+  });
 });

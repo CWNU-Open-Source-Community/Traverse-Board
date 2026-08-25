@@ -14,6 +14,7 @@ This directory separates user-facing documentation, current engineering state, a
 | [产品范围 / Product Scope](PRODUCT_SCOPE.md) | 当前核心范围、可选附加能力和扩展接口 |
 | [Pre-1.0 产品收敛](convergence/README.md) | Surface tier、协议冻结等级、Durable Operation 边界、规范词汇与有界后续 Issue |
 | [使用手册 / Usage](usage.md) | CLI、Provider、Workspace、Run、审批和操作者工作流 |
+| [Web Evidence / Web 证据](web-evidence.md) | SearXNG 配置、Run 网络 allowlist、Search/Fetch/Citation、故障与条款边界 |
 | [Workspace Checkpoints](workspace-checkpoints.md) | 检查点时间线、预览、Undo/Redo/Rewind、独立 Fork 与故障处理 |
 | [Drydock 工作目录](drydock.md) | Run-owned worktree、Workspace Trust、精确检查点、审阅交付与保守清理 |
 | [Standard Code 原子预设](standard-code-preset.md) | 一键 Code/Plan 组合、Local/显式 Docker、Workspace Trust、暂停配置与故障恢复 |
@@ -52,9 +53,10 @@ This directory separates user-facing documentation, current engineering state, a
 | [ADR 0131 / Standard Code Docker](adr/0131-standard-code-docker-network-none-backend.md) | 固定 Docker `network=none` 后端、Drydock 投影、readiness 与恢复边界 |
 | [ADR 0132 / Thread Identity](adr/0132-thread-identity-run-succession.md) | 稳定 Thread 身份、Run succession、生命周期与无 authority 继承边界 |
 | [ADR 0133 / Item-level Model Streaming](adr/0133-item-level-model-tool-streaming.md) | Provider-neutral response/item/call 生命周期、Go 工具执行权威、脱敏公开/持久投影与恢复语义 |
-| [ADR 0134 / Unified Thread Transcript](adr/0134-unified-thread-transcript.md) | 跨 Run 的统一叙事、稳定游标、临时/持久 item reconciliation 与 Thread 主工作面 |
+| [ADR 0134 / Unified Thread Transcript](adr/0134-unified-thread-transcript.md) | 多 Run 主叙事、游标、live/durable 替换、虚拟化与 Composer 布局合同 |
 | [ADR 0135 / Pre-1.0 Product Convergence](adr/0135-pre-1-0-product-convergence.md) | Surface 支持等级、Schema/Protocol 冻结等级、最小 Durable Operation 抽象和兼容词汇 |
 | [ADR 0136 / Standard Code Preset](adr/0136-atomic-standard-code-preset.md) | 原子预设、幂等恢复、暂停后配置、显式后端选择与非授权响应边界 |
+| [ADR 0137 / Web Evidence](adr/0137-go-owned-web-evidence.md) | Run 级网络授权、Search/Fetch/Citation 状态机、SSRF/解析器/法律边界与安全投影 |
 | [ADR 索引](adr/) | 权限、持久化、执行、浏览器、Desktop 等架构决策 |
 
 ## 当前工程上下文 / Current Engineering Context

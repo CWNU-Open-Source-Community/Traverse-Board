@@ -71,6 +71,7 @@ type Gateway struct {
 	agentCode                  AgentCodeExecutor
 	codeIntel                  CodeIntelExecutor
 	mcp                        MCPExecutor
+	webEvidence                WebEvidenceExecutor
 	lifecycleHooks             *hooks.Engine
 	waitGraph                  *waitgraph.Graph
 }
@@ -234,6 +235,9 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (outcome Outcome, r
 	if normalized.Name == MCPToolCallTool && g.mcp == nil {
 		return Outcome{}, errors.New("MCP client executor is required")
 	}
+	if IsWebEvidenceTool(normalized.Name) && g.webEvidence == nil {
+		return Outcome{}, errors.New("web evidence executor is required")
+	}
 	if isAgentCodeTool(normalized.Name) && g.agentCode == nil {
 		return Outcome{}, errors.New("agent code tool executor is required")
 	}
@@ -305,6 +309,8 @@ func (g *Gateway) Invoke(ctx context.Context, call ToolCall) (outcome Outcome, r
 		return g.invokeCommandRuntime(ctx, normalized)
 	case MCPToolCallTool:
 		return g.invokeMCP(ctx, normalized)
+	case WebSearchTool, WebFetchTool, WebCitationTool:
+		return g.invokeWebEvidence(ctx, normalized)
 	default:
 		return Outcome{}, fmt.Errorf("unsupported tool %q", normalized.Name)
 	}
@@ -873,7 +879,7 @@ func validateToolArguments(call ToolCall) error {
 		call.Name == SkillCandidateProposeTool ||
 		call.Name == DebugTerminalTool ||
 		call.Name == CommandRuntimeTool ||
-		call.Name == MCPToolCallTool {
+		call.Name == MCPToolCallTool || IsWebEvidenceTool(call.Name) {
 		if len(call.Arguments) != 0 {
 			return fmt.Errorf("tool %s accepts a JSON payload instead of string arguments", call.Name)
 		}
@@ -961,6 +967,13 @@ func validateToolArguments(call ToolCall) error {
 				return errors.New("MCP tool calls require a fenced root Supervisor")
 			}
 			_, _, err := NormalizeMCPToolPayload(call.Payload)
+			return err
+		case WebSearchTool, WebFetchTool, WebCitationTool:
+			if call.RequestedBy != "run_supervisor" || call.AgentID == "" ||
+				call.MissionID == "" || call.LeaseID == "" {
+				return errors.New("web evidence calls require a fenced root Supervisor")
+			}
+			_, err := NormalizeWebEvidencePayload(call.Name, call.Payload)
 			return err
 		}
 	}

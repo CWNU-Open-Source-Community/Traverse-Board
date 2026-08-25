@@ -84,7 +84,10 @@ func TestClassifyToolUsesExactCurrentToolRegistryNames(t *testing.T) {
 		"workspace_list":              TypeSearch,
 		"workspace_glob":              TypeSearch,
 		"code_references":             TypeSearch,
+		"web_search":                  TypeSearch,
 		"workspace_read":              TypeRead,
+		"web_fetch":                   TypeRead,
+		"web_citation":                TypeRead,
 		"github_review_evidence_read": TypeRead,
 		"workspace_apply":             TypeEdit,
 		"code_diagnostics":            TypeVerify,
@@ -97,6 +100,42 @@ func TestClassifyToolUsesExactCurrentToolRegistryNames(t *testing.T) {
 		if got := classifyTool(name); got != want {
 			t.Errorf("classifyTool(%q) = %q, want %q", name, got, want)
 		}
+	}
+}
+
+func TestBuildProjectsOnlyValidatedWebEvidencePresentation(t *testing.T) {
+	now := time.Date(2026, 8, 25, 0, 0, 0, 0, time.UTC)
+	payload, _ := json.Marshal(map[string]any{
+		"tool": "web_citation", "status": "completed",
+		"stream_response_id": "response-web", "stream_item_id": "item-web",
+		"stream_call_id": "stream-call-web", "durable_call_id": "call-web",
+		"web_evidence": map[string]any{
+			"version": "web_evidence_presentation.v1", "source_id": "source-web",
+			"snapshot_id": "snapshot-web", "citation_id": "citation-web",
+			"url": "https://docs.example.com/report", "title": "Fetched report",
+			"state": "partial", "fetched_at": now,
+			"stale_at": now.Add(24 * time.Hour),
+			"digest":   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"partial":  true, "stale": false, "citeable": true,
+			"untrusted": true, "instruction_authorized": false,
+		},
+	})
+	var raw map[string]any
+	_ = json.Unmarshal(payload, &raw)
+	presentation := raw["web_evidence"].(map[string]any)
+	items, err := Build("thread-web", []Source{eventSource("run-web", 1, 1,
+		events.SupervisorToolResultEvent, string(payload), now)})
+	if err != nil || len(items) != 1 || items[0].WebEvidence == nil ||
+		items[0].WebEvidence.URL != "https://docs.example.com/report" ||
+		!items[0].WebEvidence.Untrusted || items[0].WebEvidence.InstructionAuthorized {
+		t.Fatalf("web presentation items=%#v err=%v", items, err)
+	}
+	presentation["url"] = "http://127.0.0.1/private"
+	payload, _ = json.Marshal(raw)
+	items, err = Build("thread-web", []Source{eventSource("run-web", 1, 1,
+		events.SupervisorToolResultEvent, string(payload), now)})
+	if err != nil || len(items) != 1 || items[0].WebEvidence != nil {
+		t.Fatalf("unsafe presentation items=%#v err=%v", items, err)
 	}
 }
 

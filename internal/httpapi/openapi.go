@@ -35,6 +35,7 @@ import (
 	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/uievidence"
 	"cyberagent-workbench/internal/verification"
+	"cyberagent-workbench/internal/webevidence"
 	"cyberagent-workbench/internal/workspace"
 	"cyberagent-workbench/internal/workspacecheckpoint"
 )
@@ -1050,6 +1051,14 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 					Schema: map[string]any{"type": "integer", "minimum": 1,
 						"maximum": runactivity.MaxSourceEvents,
 						"default": runactivity.MaxSourceEvents}}}},
+		{Path: "/api/v1/runs/{run_id}/web-evidence", OperationID: "getRunWebEvidence",
+			Summary: "Inspect Run-local Web evidence", Tag: "Runs",
+			Description: "Returns bounded source, snapshot, and citation presentation metadata from the immutable Run-local Web evidence ledger. It never returns page bodies, search snippets, credentials, cookies, tool arguments, or authorization. Every entry remains untrusted and non-instructional; only fetched or partial snapshots are citeable.",
+			DataType:    reflect.TypeOf(webevidence.Inventory{}), NotFound: true,
+			Parameters: []openAPIParameter{runID,
+				{Name: "limit", In: "query", Description: "Maximum entries loaded from each Web evidence ledger",
+					Schema: map[string]any{"type": "integer", "minimum": 1,
+						"maximum": webevidence.MaxInventoryItems, "default": 100}}}},
 		{Path: "/api/v1/runs/{run_id}/agent-graph", OperationID: "getRunAgentGraph",
 			Summary: "Inspect the bounded Agent graph", Tag: "Agents",
 			Description: "Returns root and Specialist projections plus completion summaries without lease or fencing state.",

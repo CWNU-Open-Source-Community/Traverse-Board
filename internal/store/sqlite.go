@@ -365,6 +365,7 @@ func migrationPlan() []migration {
 		{Version: 131, Name: "Command Runtime adapter authority and legacy projection", Statements: commandRuntimeAdapterStatements, DisableForeignKeys: true},
 		{Version: 132, Name: "fenced Docker Command Runtime stdin attachment", Statements: dockerLifecycleStdinActionStatements, DisableForeignKeys: true},
 		{Version: 133, Name: "atomic Standard Code preset and pause intent", Statements: standardCodePresetStatements, DisableForeignKeys: true},
+		{Version: 134, Name: "Run-scoped web search fetch and citation evidence", Statements: webEvidenceStatements, DisableForeignKeys: true},
 	}
 }
 

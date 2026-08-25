@@ -13975,6 +13975,95 @@
         "x-cyberagent-read-only": false
       }
     },
+    "/api/v1/runs/{run_id}/web-evidence": {
+      "get": {
+        "operationId": "getRunWebEvidence",
+        "summary": "Inspect Run-local Web evidence",
+        "description": "Returns bounded source, snapshot, and citation presentation metadata from the immutable Run-local Web evidence ledger. It never returns page bodies, search snippets, credentials, cookies, tool arguments, or authorization. Every entry remains untrusted and non-instructional; only fetched or partial snapshots are citeable.",
+        "tags": [
+          "Runs"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum entries loaded from each Web evidence ledger",
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Inventory"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
     "/api/v1/runs/{run_id}/work-items": {
       "get": {
         "operationId": "listRunWorkItems",
@@ -21370,6 +21459,77 @@
           "turn_limit",
           "token_limit",
           "timeout_millis"
+        ],
+        "type": "object"
+      },
+      "CitationPresentation": {
+        "additionalProperties": false,
+        "properties": {
+          "citation_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "citeable": {
+            "type": "boolean"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "fetched_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "instruction_authorized": {
+            "type": "boolean"
+          },
+          "partial": {
+            "type": "boolean"
+          },
+          "snapshot_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "stale_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "untrusted": {
+            "type": "boolean"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "citation_id",
+          "source_id",
+          "snapshot_id",
+          "url",
+          "status",
+          "fetched_at",
+          "stale_at",
+          "digest",
+          "partial",
+          "stale",
+          "citeable",
+          "untrusted",
+          "instruction_authorized"
         ],
         "type": "object"
       },
@@ -30964,6 +31124,53 @@
         ],
         "type": "object"
       },
+      "Inventory": {
+        "additionalProperties": false,
+        "properties": {
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/CitationPresentation"
+            },
+            "type": "array"
+          },
+          "instruction_authorized": {
+            "type": "boolean"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "snapshots": {
+            "items": {
+              "$ref": "#/components/schemas/SnapshotPresentation"
+            },
+            "type": "array"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourcePresentation"
+            },
+            "type": "array"
+          },
+          "untrusted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "run_id",
+          "sources",
+          "snapshots",
+          "citations",
+          "untrusted",
+          "instruction_authorized"
+        ],
+        "type": "object"
+      },
       "Manifest": {
         "additionalProperties": false,
         "properties": {
@@ -38516,6 +38723,133 @@
         ],
         "type": "object"
       },
+      "SnapshotPresentation": {
+        "additionalProperties": false,
+        "properties": {
+          "citeable": {
+            "type": "boolean"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "fetched_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "instruction_authorized": {
+            "type": "boolean"
+          },
+          "mime": {
+            "type": "string"
+          },
+          "partial": {
+            "type": "boolean"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "robots": {
+            "type": "string"
+          },
+          "snapshot_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "stale_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "untrusted": {
+            "type": "boolean"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "snapshot_id",
+          "url",
+          "status",
+          "fetched_at",
+          "stale_at",
+          "digest",
+          "mime",
+          "provider",
+          "robots",
+          "partial",
+          "stale",
+          "truncated",
+          "citeable",
+          "untrusted",
+          "instruction_authorized"
+        ],
+        "type": "object"
+      },
+      "SourcePresentation": {
+        "additionalProperties": false,
+        "properties": {
+          "citeable": {
+            "type": "boolean"
+          },
+          "discovered_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "instruction_authorized": {
+            "type": "boolean"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "source_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "untrusted": {
+            "type": "boolean"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "url",
+          "state",
+          "provider",
+          "discovered_at",
+          "citeable",
+          "untrusted",
+          "instruction_authorized"
+        ],
+        "type": "object"
+      },
       "SpecialistModelCancellationView": {
         "additionalProperties": false,
         "properties": {
@@ -39749,6 +40083,9 @@
               "thread_transcript.v1"
             ],
             "type": "string"
+          },
+          "web_evidence": {
+            "$ref": "#/components/schemas/ThreadWebEvidenceView"
           }
         },
         "required": [
@@ -39858,6 +40195,80 @@
           "composer_state",
           "created_at",
           "updated_at"
+        ],
+        "type": "object"
+      },
+      "ThreadWebEvidenceView": {
+        "additionalProperties": false,
+        "properties": {
+          "citation_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "citeable": {
+            "type": "boolean"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "fetched_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "instruction_authorized": {
+            "type": "boolean"
+          },
+          "partial": {
+            "type": "boolean"
+          },
+          "snapshot_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "stale_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "untrusted": {
+            "type": "boolean"
+          },
+          "url": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "source_id",
+          "snapshot_id",
+          "url",
+          "state",
+          "fetched_at",
+          "stale_at",
+          "digest",
+          "partial",
+          "stale",
+          "citeable",
+          "untrusted",
+          "instruction_authorized"
         ],
         "type": "object"
       },

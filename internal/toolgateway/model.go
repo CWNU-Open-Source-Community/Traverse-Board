@@ -50,6 +50,9 @@ const (
 	DebugTerminalTool               ToolName = "debug_terminal"
 	CommandRuntimeTool              ToolName = "command_runtime"
 	MCPToolCallTool                 ToolName = "mcp_tool_call"
+	WebSearchTool                   ToolName = "web_search"
+	WebFetchTool                    ToolName = "web_fetch"
+	WebCitationTool                 ToolName = "web_citation"
 	OneShotCommandProposeTool       ToolName = "one_shot_command_propose"
 	DockerSandboxRunProposeTool     ToolName = "sandbox_docker_run_propose"
 	SkillCandidateProposeTool       ToolName = "skill_candidate_propose"
@@ -79,6 +82,9 @@ func TypedActionIDs() map[string]struct{} {
 	for _, name := range codeIntelToolNames() {
 		out[string(name)] = struct{}{}
 	}
+	for _, name := range WebEvidenceToolNames() {
+		out[string(name)] = struct{}{}
+	}
 	return out
 }
 
@@ -93,7 +99,7 @@ func (n ToolName) Valid() bool {
 		OneShotCommandProposeTool, DockerSandboxRunProposeTool,
 		SkillCandidateProposeTool, DebugTerminalTool, CommandRuntimeTool:
 		return true
-	case MCPToolCallTool:
+	case MCPToolCallTool, WebSearchTool, WebFetchTool, WebCitationTool:
 		return true
 	case HostCommandProposeTool:
 		// Host commands remain proposals at this layer; execution is owned by
@@ -113,12 +119,13 @@ const (
 	ClassProcess        ActionClass = "process"
 	ClassRunMemory      ActionClass = "run_memory"
 	ClassAgentProposal  ActionClass = "agent_proposal"
+	ClassNetworkRead    ActionClass = "network_read"
 )
 
 func (c ActionClass) Valid() bool {
 	switch c {
 	case ClassWorkspaceRead, ClassWorkspaceWrite, ClassShell, ClassProcess, ClassRunMemory,
-		ClassAgentProposal:
+		ClassAgentProposal, ClassNetworkRead:
 		return true
 	default:
 		return false
@@ -147,6 +154,8 @@ func ClassForTool(name ToolName) (ActionClass, bool) {
 		return ClassProcess, true
 	case MCPToolCallTool:
 		return ClassProcess, true
+	case WebSearchTool, WebFetchTool, WebCitationTool:
+		return ClassNetworkRead, true
 	case WorkItemCreateTool, NoteCreateTool:
 		return ClassRunMemory, true
 	case PlanDeliveryProposeTool, SpecialistDelegationProposeTool, ChildTaskProposeTool,
@@ -266,7 +275,7 @@ func NormalizeToolCall(call ToolCall) (ToolCall, error) {
 	if call.ModeRevision < 0 || call.PermissionRevision < 0 {
 		return ToolCall{}, errors.New("tool capability revisions cannot be negative")
 	}
-	if isAgentCodeTool(call.Name) || IsCodeIntelTool(call.Name) ||
+	if isAgentCodeTool(call.Name) || IsCodeIntelTool(call.Name) || IsWebEvidenceTool(call.Name) ||
 		call.Name == CommandRuntimeTool {
 		if !call.Surface.Valid() || !call.Phase.Valid() || !domain.ValidAgentRole(call.Role) ||
 			!call.PermissionMode.Valid() || call.ModeRevision <= 0 ||

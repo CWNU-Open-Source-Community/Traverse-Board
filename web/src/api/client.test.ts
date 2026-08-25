@@ -1099,14 +1099,35 @@ describe("CyberAgentClient", () => {
       tool_name: "read_file", stream_item_id: "item-1", provisional: false,
       durable: true, created_at: "2026-08-24T00:01:00Z",
     };
+    const evidenceItem = {
+      ...transcriptItem, sequence: 10, stage: "result", title: "Web evidence fetched",
+      tool_name: "web_fetch", web_evidence: {
+        version: "web_evidence_presentation.v1", source_id: "source-web-1",
+        snapshot_id: "snapshot-web-1", url: "https://docs.example.com/report",
+        title: "Fetched report", state: "partial", fetched_at: "2026-08-24T00:01:00Z",
+        stale_at: "2026-08-25T00:01:00Z", digest: "a".repeat(64), partial: true,
+        stale: false, citeable: true, untrusted: true, instruction_authorized: false,
+      },
+    };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
         version: "api.v1", request_id: "req-transcript", data: [transcriptItem],
         page: { limit: 100 },
       }), { status: 200, headers: { "Content-Type": "application/json" } }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-transcript-evidence", data: [evidenceItem],
+        page: { limit: 100 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
         version: "api.v1", request_id: "req-transcript-forged",
         data: [{ ...transcriptItem, arguments: { path: "private.txt" } }],
+        page: { limit: 100 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        version: "api.v1", request_id: "req-transcript-unsafe-evidence",
+        data: [{ ...evidenceItem, web_evidence: {
+          ...evidenceItem.web_evidence, url: "javascript:alert(1)",
+        } }],
         page: { limit: 100 },
       }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
@@ -1115,7 +1136,11 @@ describe("CyberAgentClient", () => {
     await expect(client.getPage("/threads/thread-created/transcript", { limit: 100 }))
       .resolves.toMatchObject({ items: [transcriptItem] });
     await expect(client.getPage("/threads/thread-created/transcript", { limit: 100 }))
+      .resolves.toMatchObject({ items: [evidenceItem] });
+    await expect(client.getPage("/threads/thread-created/transcript", { limit: 100 }))
       .rejects.toThrow("transcript item is invalid");
+    await expect(client.getPage("/threads/thread-created/transcript", { limit: 100 }))
+      .rejects.toThrow("Thread Web evidence is invalid");
   });
 
   it("rejects forged Thread authority and cross-Thread projections", async () => {
