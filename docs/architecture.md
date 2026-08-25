@@ -2,23 +2,23 @@
 
 Traverse Board · 针路簿 is evolving from a CLI-first agent scaffold into a run-centric, resumable AI workbench. The redesign keeps the existing Go implementation and safety boundaries while organizing them around explicit execution ownership.
 
-> **Current scope:** the active product is the general-purpose Agent Harness and Code workflow. CTF-specific solving and offensive automation are optional add-ons with no active implementation schedule. Only generic Provider, Tool, Skill, Analyzer, Sandbox, and Report extension seams remain in the core. See [Product Scope](PRODUCT_SCOPE.md).
+> **Current scope:** the active product is the general-purpose Agent Harness and Code workflow. CTF-specific solving and offensive automation are optional add-ons with no active implementation schedule. Only generic Provider, Tool, Skill, Analyzer, Sandbox, and Report extension seams remain in the core. User/control entries, backends, integrations, and extensions have separate support tiers; see [Product Scope](PRODUCT_SCOPE.md) and [ADR 0135](adr/0135-pre-1-0-product-convergence.md).
 
 ## Design Goals
 
 - Go remains the sole control plane.
-- One user objective is a `Mission`; one execution attempt is a `Run`.
+- One stable user task is a `Thread`; its `Mission` fixes intent and Scope; one execution attempt is a `Run` with one Run-local `Session`.
 - Every state change is auditable and recoverable from SQLite.
 - Agent concurrency is coordinated by one owner, not by agents calling each other directly.
 - Privileged actions always cross policy, approval, scope, and sandbox boundaries.
-- CLI, TUI, browser React/Vite, Windows Desktop React/Vite, and CI use the same Go-owned application and HTTP services.
+- Active Desktop/React, CLI, and loopback HTTP/OpenAPI entries use the same Go-owned Application contract; maintenance TUI/headless adapters reuse it without creating a second product surface.
 - Rust analyzers remain deterministic tools behind Go.
 - CTF-specific behavior is outside the active core roadmap and may return only as a separately reviewed add-on profile.
 
 ## Control Plane
 
 ```text
-CLI / Bubble Tea TUI / Headless CI / Browser UI / Windows Desktop UI
+CLI / React Web + Desktop / loopback API / maintenance TUI + headless
                               |
                     Go Application Services
                               |
