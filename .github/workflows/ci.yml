@@ -18,6 +18,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Protocol reader history is compared with the exact PR/push baseline.
+          fetch-depth: 0
       - name: Set up current Go 1.25 patch
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -29,6 +32,12 @@ jobs:
       - run: go mod verify
       - name: Verify Go module graph is tidy
         run: go mod tidy -diff
+      - name: Verify classified protocol registry and reader history
+        env:
+          PROTOCOL_REGISTRY_BASELINE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: >-
+          go run ./cmd/protocolregistry -check
+          -baseline "$PROTOCOL_REGISTRY_BASELINE"
       - name: Verify Go analyzer compatibility vectors
         run: go test -count=1 ./internal/analyzer -run 'Test(AnalyzerProtocol|ArchiveInventory)SharedGoldenVectors'
       - name: Run complete Go suite

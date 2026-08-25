@@ -20,6 +20,7 @@ so that counts alone never authorize removal or compatibility breakage.
 | --- | --- |
 | [Surface inventory](surface-inventory.md) | What is active, maintenance-only, extension-only, or deferred? |
 | [Schema and protocol inventory](protocol-inventory.md) | Which boundaries are external durable, internal durable, projections, or ephemeral? |
+| [Generated protocol registry](protocol-registry.md) | Which exact production identifiers belong to each family, and which test/golden identifiers are explicitly allowlisted? |
 | [Durable operation samples](durable-operation-inventory.md) | Where do identity, replay, authority, receipts, recovery, and cleanup repeat, and where must domains differ? |
 | [Canonical vocabulary](vocabulary.md) | Which words are user concepts, internal identities, or compatibility labels? |
 
@@ -34,8 +35,10 @@ identity, and 58 mentioning a receipt shape or receipt table. These are search
 measurements, not protocol classifications or deletion targets.
 
 The inventories therefore use representative protocol *families* and concrete
-operation flows. [Issue #167](https://github.com/CWNU-Open-Source-Community/Traverse-Board/issues/167)
-will replace the raw scan with a machine-readable, drift-checked registry.
+operation flows. The [machine-readable registry](../../protocols/registry.json) and
+its generated readable view now classify exact production identifiers, bind every
+test/golden exemption to exact files, and fail CI on inventory or reader-history
+drift. The registry is governance metadata only and never grants runtime authority.
 
 ## Approved bounded follow-ups
 
