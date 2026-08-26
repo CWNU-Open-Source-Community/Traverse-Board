@@ -28,8 +28,10 @@ import (
 	"cyberagent-workbench/internal/drydock"
 	"cyberagent-workbench/internal/httpapi"
 	"cyberagent-workbench/internal/packagede2e"
+	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/sandbox"
+	"cyberagent-workbench/internal/standardcode"
 	"cyberagent-workbench/internal/toolgateway"
 )
 
@@ -73,15 +75,25 @@ type standardCodeSecurityProbeReceipt struct {
 	Detail   string `json:"detail"`
 }
 
+type standardCodeSecurityCommandRuntimeReceipt struct {
+	Version string                             `json:"version"`
+	Action  string                             `json:"action"`
+	Jobs    []runner.CommandRuntimeJobSnapshot `json:"jobs"`
+	Pages   []runner.CommandRuntimeOutputPage  `json:"pages,omitempty"`
+}
+
 type standardCodeSecurityObservation struct {
-	outcome  toolgateway.Outcome
-	job      runner.CommandRuntimeJob
-	stdout   *artifact.Blob
-	stderr   *artifact.Blob
-	receipt  standardCodeSecurityProbeReceipt
-	recovery *standardCodeSecurityRecoveryReceipt
-	observed bool
-	detail   string
+	outcome      toolgateway.Outcome
+	job          runner.CommandRuntimeJob
+	stdout       *artifact.Blob
+	stderr       *artifact.Blob
+	receipt      standardCodeSecurityProbeReceipt
+	dockerResult *standardcode.Result
+	dockerRecord *domain.DockerSandboxRecord
+	dockerLogs   *sandbox.DockerLogCaptureReceipt
+	recovery     *standardCodeSecurityRecoveryReceipt
+	observed     bool
+	detail       string
 }
 
 // NewStandardCodeSecurityDriver returns the fixed packaged-only #181 driver.
@@ -395,17 +407,26 @@ func (d *standardCodeSecurityDriver) runProbe(ctx context.Context,
 		executable = d.localProbeExecutable
 		arguments = []string{request.Attack.ID, probeArgument}
 	}
+	action := toolgateway.CommandRuntimeActionRun
+	timeoutMilliseconds := int64(24_000)
+	if request.Backend == "docker" {
+		// Docker admission, container lifecycle, bounded log capture, cleanup,
+		// and the final Drydock checkpoint are intentionally asynchronous. Use
+		// the product's background Job path instead of exceeding the 25-second
+		// foreground budget or retrying a timed-out execution.
+		action = toolgateway.CommandRuntimeActionStart
+		timeoutMilliseconds = int64((60 * time.Second).Milliseconds())
+	}
 	input := toolgateway.CommandRuntimeInput{
-		Version:       toolgateway.CommandRuntimeToolProtocolVersion,
-		Action:        toolgateway.CommandRuntimeActionRun,
-		FailurePolicy: toolgateway.CommandRuntimeFailFast, MaxBytes: &maxBytes,
+		Version: toolgateway.CommandRuntimeToolProtocolVersion,
+		Action:  action,
 		Commands: []runner.CommandRuntimeSpec{{
 			Version: runner.CommandRuntimeProtocolVersion,
 			Profile: runner.CommandRuntimeProcess, Executable: executable,
 			Arguments:        arguments,
 			WorkingDirectory: ".", Environment: []runner.CommandRuntimeEnvironment{},
 			StdinPolicy: runner.CommandRuntimeStdinClosed, CloseInitialStdin: true,
-			TimeoutMilliseconds: 24_000,
+			TimeoutMilliseconds: timeoutMilliseconds,
 			Output: runner.CommandRuntimeOutputPolicy{InlineBytes: 32 * 1024,
 				ArtifactBytes: artifactBytes},
 			Network:     runner.CommandRuntimeNetworkDisabled,
@@ -413,11 +434,12 @@ func (d *standardCodeSecurityDriver) runProbe(ctx context.Context,
 			Purpose:     "execute one fixed packaged Standard Code matrix probe",
 		}},
 	}
-	call, err := d.commandRuntimeCall(ctx, run, request.Ordinal, input)
-	if err != nil {
-		return standardCodeSecurityObservation{}, err
+	if action == toolgateway.CommandRuntimeActionRun {
+		input.FailurePolicy = toolgateway.CommandRuntimeFailFast
+		input.MaxBytes = &maxBytes
 	}
-	outcome, err := d.gateway.Invoke(ctx, call)
+	outcome, jobID, err := d.invokeStandardCodeSecurityCommand(ctx, run,
+		request.Ordinal, input)
 	if err != nil {
 		return standardCodeSecurityObservation{}, err
 	}
@@ -425,7 +447,6 @@ func (d *standardCodeSecurityDriver) runProbe(ctx context.Context,
 	if outcome.Result == nil || outcome.Result.Status != toolgateway.StatusCompleted {
 		return observation, errors.New("fixed probe did not produce a completed tool receipt")
 	}
-	jobID := outcome.Result.Metadata["job_1_id"]
 	if jobID == "" {
 		return observation, errors.New("fixed probe omitted its durable Job identity")
 	}
@@ -452,9 +473,17 @@ func (d *standardCodeSecurityDriver) runProbe(ctx context.Context,
 		observation.job.Credentials != runner.CommandRuntimeCredentialsNone {
 		return observation, errors.New("fixed probe process boundary is incomplete")
 	}
-	observation.receipt = parseSecurityProbeReceipt(observation.stdout, request.Attack.ID)
-	observation.observed = observation.receipt.Protocol == standardCodeSecurityProbeProtocol &&
-		observation.receipt.Case == request.Attack.ID && observation.receipt.Blocked
+	if request.Backend == "docker" {
+		if err := d.observeStandardCodeSecurityDocker(ctx, run, request,
+			arguments, &observation); err != nil {
+			return observation, err
+		}
+	} else {
+		observation.receipt = parseSecurityProbeReceipt(observation.stdout,
+			request.Attack.ID)
+		observation.observed = observation.receipt.Protocol == standardCodeSecurityProbeProtocol &&
+			observation.receipt.Case == request.Attack.ID && observation.receipt.Blocked
+	}
 	observation.detail = observation.receipt.Detail
 	if verifyHostBoundary != nil {
 		if err := verifyHostBoundary(); err != nil {
@@ -462,6 +491,428 @@ func (d *standardCodeSecurityDriver) runProbe(ctx context.Context,
 		}
 	}
 	return observation, nil
+}
+
+func (d *standardCodeSecurityDriver) invokeStandardCodeSecurityCommand(ctx context.Context,
+	run *standardCodeSecurityRun, ordinal int, input toolgateway.CommandRuntimeInput,
+) (toolgateway.Outcome, string, error) {
+	call, err := d.commandRuntimeCall(ctx, run, ordinal, input)
+	if err != nil {
+		return toolgateway.Outcome{}, "", err
+	}
+	outcome, err := d.gateway.Invoke(ctx, call)
+	if err != nil {
+		return toolgateway.Outcome{}, "", err
+	}
+	if input.Action != toolgateway.CommandRuntimeActionStart {
+		if outcome.Result == nil {
+			return outcome, "", errors.New("fixed foreground probe omitted its result")
+		}
+		return outcome, outcome.Result.Metadata["job_1_id"], nil
+	}
+	receipt, err := decodeStandardCodeSecurityCommandRuntimeReceipt(outcome,
+		toolgateway.CommandRuntimeActionStart)
+	if err != nil || len(receipt.Jobs) != 1 || receipt.Jobs[0].ID == "" {
+		return outcome, "", errors.Join(err,
+			errors.New("fixed background probe omitted its durable Job identity"))
+	}
+	jobID := receipt.Jobs[0].ID
+	waitCtx, cancel := context.WithTimeout(ctx, 75*time.Second)
+	defer cancel()
+	poll := time.NewTicker(250 * time.Millisecond)
+	defer poll.Stop()
+	for !receipt.Jobs[0].State.Terminal() {
+		job, loadErr := d.plane.stateStore.GetCommandRuntimeJob(waitCtx, jobID)
+		if loadErr != nil {
+			return outcome, jobID, loadErr
+		}
+		if job.State.Terminal() {
+			break
+		}
+		select {
+		case <-waitCtx.Done():
+			return outcome, jobID, waitCtx.Err()
+		case <-poll.C:
+		}
+	}
+	// A Wait call charges the Run's tool-call budget. Issuing it while Docker
+	// admission is in flight would intentionally invalidate that candidate's
+	// frozen budget snapshot. Read the durable Job until terminal, then make one
+	// public Wait projection so Artifacts and cursor evidence are still produced.
+	cursor := uint64(0)
+	// The public wait protocol requires a positive wait budget. Because the Job
+	// is already terminal this returns immediately; one millisecond is only the
+	// smallest valid projection value, not an execution-time relaxation.
+	waitMilliseconds := 1
+	maxBytes := 32 * 1024
+	waitInput := toolgateway.CommandRuntimeInput{
+		Version:          toolgateway.CommandRuntimeToolProtocolVersion,
+		Action:           toolgateway.CommandRuntimeActionWait,
+		JobID:            jobID,
+		Cursor:           &cursor,
+		MaxBytes:         &maxBytes,
+		WaitMilliseconds: &waitMilliseconds,
+	}
+	waitCall, err := d.commandRuntimeCall(waitCtx, run, ordinal, waitInput)
+	if err != nil {
+		return outcome, jobID, err
+	}
+	outcome, err = d.gateway.Invoke(waitCtx, waitCall)
+	if err != nil {
+		return outcome, jobID, err
+	}
+	receipt, err = decodeStandardCodeSecurityCommandRuntimeReceipt(outcome,
+		toolgateway.CommandRuntimeActionWait)
+	if err != nil || len(receipt.Jobs) != 1 || receipt.Jobs[0].ID != jobID ||
+		!receipt.Jobs[0].State.Terminal() {
+		return outcome, jobID, errors.Join(err,
+			errors.New("fixed background probe wait receipt changed terminal Job identity"))
+	}
+	return outcome, jobID, nil
+}
+
+func decodeStandardCodeSecurityCommandRuntimeReceipt(outcome toolgateway.Outcome,
+	expectedAction string,
+) (standardCodeSecurityCommandRuntimeReceipt, error) {
+	var receipt standardCodeSecurityCommandRuntimeReceipt
+	if outcome.Result == nil || outcome.Result.Status != toolgateway.StatusCompleted ||
+		outcome.Result.Truncated || json.Unmarshal([]byte(outcome.Result.Stdout), &receipt) != nil ||
+		receipt.Version != runner.CommandRuntimeResultVersion ||
+		receipt.Action != expectedAction {
+		return receipt, errors.New("fixed background probe receipt is invalid")
+	}
+	return receipt, nil
+}
+
+func (d *standardCodeSecurityDriver) observeStandardCodeSecurityDocker(
+	ctx context.Context, run *standardCodeSecurityRun,
+	request packagede2e.SecurityDriverCase, expectedArguments []string,
+	observation *standardCodeSecurityObservation,
+) error {
+	if d == nil || d.plane == nil || run == nil || observation == nil ||
+		request.Backend != "docker" || len(expectedArguments) == 0 {
+		return errors.New("fixed Docker security observation is invalid")
+	}
+	var result standardcode.Result
+	hasResult := json.Unmarshal([]byte(strings.TrimSpace(observation.job.Stdout)),
+		&result) == nil && result.Validate() == nil
+	var record domain.DockerSandboxRecord
+	var err error
+	if hasResult {
+		if result.Backend != standardcode.BackendDocker ||
+			result.RunID != run.run.ID || result.Status != standardcode.StatusSucceeded ||
+			result.ExitCode == nil || *result.ExitCode != 0 ||
+			result.Network != standardcode.NetworkDisabled ||
+			result.Credentials != standardcode.CredentialsNone {
+			return errors.New("fixed Docker probe returned an unexpected Standard Code result")
+		}
+		var found bool
+		record, found, err = d.plane.stateStore.GetDockerSandboxRecordByLifecycleIntent(
+			ctx, result.ExecutionID)
+		if err != nil || !found {
+			return errors.Join(err,
+				errors.New("fixed Docker probe omitted its product lifecycle record"))
+		}
+	} else {
+		if request.Attack.ID != "output_artifact_limit" {
+			return errors.New("fixed Docker probe omitted its Standard Code result")
+		}
+		record, err = d.findStandardCodeSecurityDockerRecord(ctx, run,
+			expectedArguments)
+		if err != nil {
+			return err
+		}
+	}
+	if err := validateStandardCodeSecurityDockerRecord(record, run,
+		observation.job, expectedArguments); err != nil {
+		return err
+	}
+	if hasResult {
+		manifest, decodeErr := sandbox.DecodeManifest(
+			[]byte(record.Admission.ManifestJSON))
+		binding, exact := sandbox.ParseDockerStandardCodeManifest(manifest)
+		if decodeErr != nil || !exact || result.ExecutionID != record.Receipt.LifecycleIntentID ||
+			result.DrydockID != binding.DrydockID ||
+			result.Checkpoint.DrydockID != binding.DrydockID ||
+			result.Checkpoint.GenerationBefore != binding.DrydockGeneration ||
+			result.Checkpoint.BeforeID != binding.CheckpointID {
+			return errors.Join(decodeErr,
+				errors.New("fixed Docker result changed its Drydock or lifecycle binding"))
+		}
+	}
+	observation.dockerRecord = &record
+
+	if request.Attack.ID == "output_artifact_limit" {
+		if hasResult || record.Receipt == nil || record.Receipt.ExitCode == nil ||
+			*record.Receipt.ExitCode != 125 ||
+			record.Receipt.Outcome != domain.DockerSandboxOutcomeFailed ||
+			record.Receipt.ReasonCode != domain.DockerSandboxReasonIOFailed ||
+			record.Receipt.LogReceiptID != "" ||
+			observation.job.State != runner.CommandRuntimeJobFailed ||
+			observation.job.ExitCode == nil || *observation.job.ExitCode != 125 ||
+			!strings.Contains(observation.job.Stderr,
+				"untracked worktree state exceeds safe capture bounds") {
+			return errors.New("fixed Docker workspace growth did not fail closed")
+		}
+		if err := d.verifyStandardCodeSecurityDockerEntryGrowth(ctx, run); err != nil {
+			return err
+		}
+		observation.receipt = standardCodeSecurityProbeReceipt{
+			Protocol: standardCodeSecurityProbeProtocol, Case: request.Attack.ID,
+			Blocked: true, Detail: "workspace-growth-denied",
+		}
+		observation.observed = true
+		return nil
+	}
+
+	if record.Receipt == nil || record.Receipt.ExitCode == nil ||
+		*record.Receipt.ExitCode != 0 ||
+		record.Receipt.Outcome != domain.DockerSandboxOutcomeSucceeded ||
+		record.Receipt.ReasonCode != domain.DockerSandboxReasonCompleted ||
+		record.Receipt.LogReceiptID == "" {
+		return errors.New("fixed Docker probe did not complete with bounded logs")
+	}
+	logs, found, err := d.plane.stateStore.GetDockerLogCaptureReceiptByAttempt(ctx,
+		record.Receipt.AttemptID)
+	if err != nil || !found || logs.Validate() != nil ||
+		logs.ID != record.Receipt.LogReceiptID || logs.RunID != run.run.ID {
+		return errors.Join(err,
+			errors.New("fixed Docker probe log receipt is unavailable or unbound"))
+	}
+	receipt, err := matchStandardCodeSecurityDockerProbeLogs(request.Attack.ID, logs)
+	if err != nil {
+		return err
+	}
+	if !standardCodeSecurityDockerResultBindsLogs(result, logs) {
+		return errors.New("fixed Docker Standard Code result did not bind its log receipt")
+	}
+	observation.dockerResult = &result
+	observation.dockerLogs = &logs
+	observation.receipt = receipt
+	observation.observed = receipt.Blocked
+	return nil
+}
+
+func (d *standardCodeSecurityDriver) findStandardCodeSecurityDockerRecord(
+	ctx context.Context, run *standardCodeSecurityRun, expectedArguments []string,
+) (domain.DockerSandboxRecord, error) {
+	records, err := d.plane.stateStore.ListCompletedStandardCodeDockerSandboxes(ctx, 100)
+	if err != nil {
+		return domain.DockerSandboxRecord{}, err
+	}
+	var matched *domain.DockerSandboxRecord
+	for index := range records {
+		record := records[index]
+		if record.Admission.RunID != run.run.ID ||
+			!standardCodeSecurityDockerBindingMatches(record, run,
+				expectedArguments) {
+			continue
+		}
+		if matched != nil {
+			return domain.DockerSandboxRecord{},
+				errors.New("fixed Docker probe resolved more than one product lifecycle")
+		}
+		copy := record
+		matched = &copy
+	}
+	if matched == nil {
+		return domain.DockerSandboxRecord{},
+			errors.New("fixed Docker probe product lifecycle is unavailable")
+	}
+	return *matched, nil
+}
+
+func validateStandardCodeSecurityDockerRecord(record domain.DockerSandboxRecord,
+	run *standardCodeSecurityRun, job runner.CommandRuntimeJob,
+	expectedArguments []string,
+) error {
+	if run == nil || record.Validate() != nil || record.Launch == nil ||
+		record.Receipt == nil || !record.Receipt.CleanupComplete ||
+		record.Admission.RunID != run.run.ID ||
+		record.Admission.WorkspaceID != run.workspaceID ||
+		record.Admission.NetworkMode != "disabled" ||
+		record.Admission.NetworkTargetCount != 0 ||
+		record.Admission.PermissionMode != domain.RunExecutionPermissionWorkspaceAccess ||
+		!record.Admission.ProductEntryEnabled || !record.Admission.ExecutionAuthorized ||
+		record.Receipt.LifecycleIntentID != record.Launch.LifecycleIntentID ||
+		record.Receipt.AttemptID != record.Launch.AttemptID ||
+		record.Receipt.RunID != run.run.ID ||
+		record.Receipt.WorkspaceID != run.workspaceID ||
+		job.RunID != run.run.ID || !job.Adapter.SameBackend(run.adapter) ||
+		!standardCodeSecurityDockerBindingMatches(record, run, expectedArguments) {
+		return errors.New("fixed Docker probe lifecycle is not bound to exact authority")
+	}
+	return nil
+}
+
+func standardCodeSecurityDockerBindingMatches(record domain.DockerSandboxRecord,
+	run *standardCodeSecurityRun, expectedArguments []string,
+) bool {
+	if run == nil {
+		return false
+	}
+	manifest, err := sandbox.DecodeManifest([]byte(record.Admission.ManifestJSON))
+	if err != nil {
+		return false
+	}
+	binding, exact := sandbox.ParseDockerStandardCodeManifest(manifest)
+	if !exact || binding.RunID != run.run.ID ||
+		binding.MissionID != run.run.MissionID ||
+		binding.SessionID != run.run.SessionID ||
+		binding.WorkspaceID != run.workspaceID ||
+		binding.CapabilityGeneration != run.adapter.Generation ||
+		binding.Toolchain != sandbox.DockerStandardCodeToolchainGo ||
+		binding.WorkingDirectory != "." ||
+		len(binding.Arguments) != len(expectedArguments) {
+		return false
+	}
+	for index := range expectedArguments {
+		if binding.Arguments[index] != expectedArguments[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func standardCodeSecurityDockerResultBindsLogs(result standardcode.Result,
+	logs sandbox.DockerLogCaptureReceipt,
+) bool {
+	if result.Validate() != nil || logs.Validate() != nil ||
+		len(result.Artifacts) != 1 {
+		return false
+	}
+	value := result.Artifacts[0]
+	return value.ID == logs.ID && value.Kind == "logs" &&
+		value.SHA256 == logs.ReceiptFingerprint &&
+		value.SizeBytes == logs.TotalBytes && value.FileCount == logs.StreamCount &&
+		value.Redacted == (logs.RedactedSegments > 0)
+}
+
+func (d *standardCodeSecurityDriver) verifyStandardCodeSecurityDockerEntryGrowth(
+	ctx context.Context, run *standardCodeSecurityRun,
+) error {
+	workspace, found, err := d.plane.stateStore.GetDrydockByRun(ctx, run.run.ID)
+	if err != nil || !found {
+		return errors.Join(err,
+			errors.New("reload fixed Docker resource-limit Drydock"))
+	}
+	entries, err := os.ReadDir(filepath.Join(workspace.Path,
+		".standard-code-security", "output-artifact-limit"))
+	if err != nil || len(entries) < sandbox.DockerStandardCodeWorkspaceGrowthEntries {
+		return errors.Join(err,
+			errors.New("fixed Docker entry growth did not reach the product limit"))
+	}
+	return nil
+}
+
+func matchStandardCodeSecurityDockerProbeLogs(caseID string,
+	logs sandbox.DockerLogCaptureReceipt,
+) (standardCodeSecurityProbeReceipt, error) {
+	if len(logs.Streams) != 2 {
+		return standardCodeSecurityProbeReceipt{},
+			errors.New("fixed Docker log receipt omitted a stream digest")
+	}
+	for _, detail := range standardCodeSecurityExpectedProbeDetails(caseID) {
+		receipt := standardCodeSecurityProbeReceipt{Protocol: standardCodeSecurityProbeProtocol,
+			Case: caseID, Blocked: true, Detail: detail}
+		stdout, stderr := standardCodeSecurityExpectedProbeStreams(receipt)
+		if standardCodeSecurityDockerStreamMatches(logs.Streams[0], stdout) &&
+			standardCodeSecurityDockerStreamMatches(logs.Streams[1], stderr) &&
+			logs.Status == sandbox.DockerLogCaptureStatusCompleted {
+			return receipt, nil
+		}
+	}
+	return standardCodeSecurityProbeReceipt{},
+		errors.New("fixed Docker log digests did not prove the expected probe receipt")
+}
+
+func standardCodeSecurityDockerStreamMatches(record sandbox.DockerLogStreamRecord,
+	raw string,
+) bool {
+	safe := redact.String(raw)
+	digest := sha256.Sum256([]byte(safe))
+	return record.ByteCount == int64(len([]byte(raw))) &&
+		record.LineCount == strings.Count(raw, "\n") &&
+		!record.TruncatedBytes && !record.TruncatedLines &&
+		!record.TruncatedDeadline && record.UTF8Violations == 0 &&
+		record.RedactedSegments == strings.Count(safe, "[REDACTED:") &&
+		record.ContentDigest == hex.EncodeToString(digest[:])
+}
+
+func standardCodeSecurityExpectedProbeStreams(
+	receipt standardCodeSecurityProbeReceipt,
+) (string, string) {
+	encoded, _ := json.Marshal(receipt)
+	line := string(encoded) + "\n"
+	switch receipt.Case {
+	case "output_secret_redaction":
+		return "sk-Issue181SyntheticSentinel000000\n" + line,
+			"GITHUB_TOKEN=Issue181SyntheticSentinel000000\n"
+	case "output_control_ansi":
+		return "visible\x1b[2J\x1b[Hhidden\rrewrite\u202e" + line, ""
+	case "output_stream_limit":
+		var value strings.Builder
+		for index := 0; index < 1000; index++ {
+			fmt.Fprintf(&value,
+				"bounded-stream-%05d-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n", index)
+		}
+		value.WriteString(line)
+		return value.String(), ""
+	default:
+		return line, ""
+	}
+}
+
+func standardCodeSecurityExpectedProbeDetails(caseID string) []string {
+	switch caseID {
+	case "filesystem_parent_traversal", "credential_home_profile":
+		return []string{"outside-read"}
+	case "filesystem_drive_root":
+		return []string{"volume-root"}
+	case "filesystem_unc_root":
+		return []string{"unc-root"}
+	case "filesystem_device_path":
+		return []string{"device-root"}
+	case "filesystem_symlink_reparse_escape":
+		return []string{"indirect-root"}
+	case "filesystem_long_path_overflow":
+		return []string{"path-bound"}
+	case "credential_manager":
+		return []string{"credential-manager-delete-denied"}
+	case "credential_git_helper":
+		return []string{"git-helper"}
+	case "credential_ssh_agent":
+		return []string{"ssh-agent"}
+	case "credential_cloud_environment":
+		return []string{"host-sentinels-absent"}
+	case "network_dns":
+		return []string{"dns-disabled"}
+	case "network_tcp", "network_loopback":
+		return []string{"tcp-disabled"}
+	case "network_udp":
+		return []string{"udp-disabled", "udp-no-response"}
+	case "network_proxy_environment":
+		return []string{"proxy-empty"}
+	case "process_detached_child", "process_background_job", "process_group_escape":
+		return []string{"child-start-denied", "child-owned-by-runtime"}
+	case "process_inherited_handle":
+		return []string{"host-named-object-denied"}
+	case "output_secret_redaction":
+		return []string{"secret-shaped-output"}
+	case "output_control_ansi":
+		return []string{"control-output"}
+	case "output_stream_limit":
+		return []string{"stream-bound"}
+	case "output_artifact_limit":
+		return []string{"workspace-growth-submitted", "workspace-growth-denied"}
+	default:
+		for _, prefix := range []string{"prompt_", "authority_", "approval_", "recovery_"} {
+			if strings.HasPrefix(caseID, prefix) {
+				return []string{"application-boundary"}
+			}
+		}
+	}
+	return nil
 }
 
 func (d *standardCodeSecurityDriver) commandRuntimeCall(ctx context.Context,
@@ -516,20 +967,47 @@ func (d *standardCodeSecurityDriver) verifyCaseSpecificBoundary(ctx context.Cont
 	case "output_safety":
 		switch request.Attack.ID {
 		case "output_secret_redaction":
-			observation.observed = observation.stdout != nil && observation.stderr != nil &&
-				observation.stdout.Redacted && observation.stderr.Redacted &&
-				!strings.Contains(observation.stdout.Content, "Issue181SyntheticSentinel") &&
-				!strings.Contains(observation.stderr.Content, "Issue181SyntheticSentinel")
+			if request.Backend == "docker" {
+				observation.observed = observation.observed &&
+					observation.dockerResult != nil && observation.dockerLogs != nil &&
+					observation.dockerLogs.RedactedSegments >= 2 &&
+					observation.dockerResult.Artifacts[0].Redacted &&
+					(observation.stdout == nil || !strings.Contains(
+						observation.stdout.Content, "Issue181SyntheticSentinel")) &&
+					(observation.stderr == nil || !strings.Contains(
+						observation.stderr.Content, "Issue181SyntheticSentinel"))
+			} else {
+				observation.observed = observation.stdout != nil && observation.stderr != nil &&
+					observation.stdout.Redacted && observation.stderr.Redacted &&
+					!strings.Contains(observation.stdout.Content, "Issue181SyntheticSentinel") &&
+					!strings.Contains(observation.stderr.Content, "Issue181SyntheticSentinel")
+			}
 		case "output_control_ansi":
-			observation.observed = observation.stdout != nil &&
+			observation.observed = observation.observed && observation.stdout != nil &&
 				!strings.ContainsAny(observation.stdout.Content, "\x1b\r") &&
 				!strings.ContainsRune(observation.stdout.Content, '\u202e')
 		case "output_stream_limit", "output_artifact_limit":
 			if request.Attack.ID == "output_stream_limit" {
+				if request.Backend == "docker" {
+					observation.observed = observation.observed &&
+						observation.dockerLogs != nil &&
+						observation.dockerLogs.Streams[0].ByteCount >
+							int64(observation.job.InlineLimitBytes) &&
+						observation.dockerLogs.Streams[0].ByteCount <=
+							int64(observation.job.ArtifactLimitBytes) &&
+						observation.dockerLogs.Status == sandbox.DockerLogCaptureStatusCompleted
+				} else {
+					observation.observed = observation.observed &&
+						observation.job.TruncationReason == "inline_window" &&
+						observation.job.StdoutObservedBytes > int64(observation.job.InlineLimitBytes) &&
+						observation.job.StdoutObservedBytes <= int64(observation.job.ArtifactLimitBytes)
+				}
+			} else if request.Backend == "docker" {
 				observation.observed = observation.observed &&
-					observation.job.TruncationReason == "inline_window" &&
-					observation.job.StdoutObservedBytes > int64(observation.job.InlineLimitBytes) &&
-					observation.job.StdoutObservedBytes <= int64(observation.job.ArtifactLimitBytes)
+					observation.receipt.Detail == "workspace-growth-denied" &&
+					observation.dockerRecord != nil &&
+					observation.job.State == runner.CommandRuntimeJobFailed &&
+					observation.job.ExitCode != nil && *observation.job.ExitCode == 125
 			} else {
 				observation.observed = observation.observed &&
 					observation.receipt.Detail == "workspace-growth-submitted" &&
@@ -764,15 +1242,25 @@ func (d *standardCodeSecurityDriver) securityEvidence(ctx context.Context,
 		"operator_ui":      {"desktop.projection", uiHash},
 		"immutable_event":  {"run.event", hashSecurityValue(events)},
 		"workspace_digest": {"drydock.observation", hashSecurityValue(projection)},
-		"process_receipt":  {"command_runtime.receipt", hashSecurityValue(observation.job)},
+		"process_receipt": {"command_runtime.receipt", hashSecurityValue(struct {
+			Job          runner.CommandRuntimeJob         `json:"job"`
+			DockerResult *standardcode.Result             `json:"docker_result,omitempty"`
+			DockerRecord *domain.DockerSandboxRecord      `json:"docker_record,omitempty"`
+			DockerLogs   *sandbox.DockerLogCaptureReceipt `json:"docker_logs,omitempty"`
+		}{observation.job, observation.dockerResult,
+			observation.dockerRecord, observation.dockerLogs})},
 		"network_observation": {"sandbox.network", hashSecurityValue(struct {
-			Adapter commandruntimeadapter.Identity `json:"adapter"`
-			Job     runner.CommandRuntimeJob       `json:"job"`
-		}{run.adapter, observation.job})},
+			Adapter      commandruntimeadapter.Identity   `json:"adapter"`
+			Job          runner.CommandRuntimeJob         `json:"job"`
+			DockerRecord *domain.DockerSandboxRecord      `json:"docker_record,omitempty"`
+			DockerLogs   *sandbox.DockerLogCaptureReceipt `json:"docker_logs,omitempty"`
+		}{run.adapter, observation.job, observation.dockerRecord,
+			observation.dockerLogs})},
 		"artifact_digest": {"artifact.store", hashSecurityValue(struct {
-			Stdout *artifact.Blob `json:"stdout,omitempty"`
-			Stderr *artifact.Blob `json:"stderr,omitempty"`
-		}{observation.stdout, observation.stderr})},
+			Stdout     *artifact.Blob                   `json:"stdout,omitempty"`
+			Stderr     *artifact.Blob                   `json:"stderr,omitempty"`
+			DockerLogs *sandbox.DockerLogCaptureReceipt `json:"docker_logs,omitempty"`
+		}{observation.stdout, observation.stderr, observation.dockerLogs})},
 		"thread_transcript": {"thread.projection", hashSecurityValue(events)},
 		"checkpoint":        {"workspace.checkpoint", hashSecurityValue(checkpoint)},
 	}

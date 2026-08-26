@@ -4,11 +4,17 @@ package desktop
 
 import (
 	"bytes"
+	"context"
+	"encoding/binary"
 	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"cyberagent-workbench/internal/packagede2e"
+	"cyberagent-workbench/internal/sandbox"
 
 	"golang.org/x/sys/windows"
 )
@@ -139,4 +145,74 @@ func TestSeedStandardCodeSecurityConcurrentEdit(t *testing.T) {
 	if err != nil || !bytes.Equal(untracked, []byte{0x00, 0x18, 0x01, 0xff}) {
 		t.Fatalf("untracked concurrent edit was not preserved: %v err=%v", untracked, err)
 	}
+}
+
+func TestStandardCodeSecurityExpectedProbeDetailsCoverFrozenMatrix(t *testing.T) {
+	definition, err := packagede2e.LoadDefinition()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, attack := range definition.AttackMatrix.Cases {
+		if details := standardCodeSecurityExpectedProbeDetails(attack.ID); len(details) == 0 {
+			t.Fatalf("frozen attack %q has no exact probe detail", attack.ID)
+		}
+	}
+	if details := standardCodeSecurityExpectedProbeDetails("not-in-frozen-matrix"); len(details) != 0 {
+		t.Fatalf("unknown probe acquired expected details: %v", details)
+	}
+}
+
+func TestMatchStandardCodeSecurityDockerProbeLogsUsesContentFreeDigests(t *testing.T) {
+	for _, caseID := range []string{
+		"filesystem_parent_traversal",
+		"output_secret_redaction",
+		"output_control_ansi",
+		"output_stream_limit",
+	} {
+		detail := standardCodeSecurityExpectedProbeDetails(caseID)[0]
+		expected := standardCodeSecurityProbeReceipt{
+			Protocol: standardCodeSecurityProbeProtocol, Case: caseID,
+			Blocked: true, Detail: detail,
+		}
+		stdout, stderr := standardCodeSecurityExpectedProbeStreams(expected)
+		plan, err := sandbox.NewDockerLogCapturePlan(
+			"sandbox-docker-attempt-issue181", 1, "run-issue181-digest-test",
+			strings.Repeat("a", 64), sandbox.MaxDockerLogCaptureBytes,
+			sandbox.MaxDockerLogCaptureLines, 30)
+		if err != nil {
+			t.Fatal(err)
+		}
+		streams, status, err := sandbox.DecodeDockerLogFrames(context.Background(),
+			plan, bytes.NewReader(standardCodeSecurityDockerFrames(stdout, stderr)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		logs := sandbox.DockerLogCaptureReceipt{Status: status, Streams: streams}
+		receipt, err := matchStandardCodeSecurityDockerProbeLogs(caseID, logs)
+		if err != nil || receipt != expected {
+			t.Fatalf("match %s=%+v err=%v streams=%+v", caseID, receipt, err, streams)
+		}
+		if caseID == "output_secret_redaction" &&
+			(streams[0].RedactedSegments == 0 || streams[1].RedactedSegments == 0) {
+			t.Fatalf("secret streams were not independently redacted: %+v", streams)
+		}
+		if caseID == "output_stream_limit" && streams[0].ByteCount <= 32*1024 {
+			t.Fatalf("stream-limit probe did not cross public window: %+v", streams[0])
+		}
+	}
+}
+
+func standardCodeSecurityDockerFrames(stdout, stderr string) []byte {
+	var result bytes.Buffer
+	for index, value := range []string{stdout, stderr} {
+		if value == "" {
+			continue
+		}
+		header := make([]byte, 8)
+		header[0] = byte(index + 1)
+		binary.BigEndian.PutUint32(header[4:], uint32(len([]byte(value))))
+		result.Write(header)
+		result.WriteString(value)
+	}
+	return result.Bytes()
 }
