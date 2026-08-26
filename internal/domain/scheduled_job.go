@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"cyberagent-workbench/internal/durableoperation"
 )
 
 const (
@@ -13,6 +15,7 @@ const (
 	ScheduledJobControlProtocolVersion = "scheduled-job-control.v1"
 	ScheduledJobRoundProtocolVersion   = "scheduled-job-round.v1"
 	ScheduledJobAuthProtocolVersion    = "scheduled-job-authorization.v1"
+	scheduledJobReplayDomain           = "scheduled_job_operation.v1"
 
 	MinScheduledJobIntervalSeconds = 1
 	MaxScheduledJobIntervalSeconds = 30 * 24 * 60 * 60
@@ -379,8 +382,10 @@ type ScheduledJobOperation struct {
 
 func (o ScheduledJobOperation) Validate() error {
 	if o.ProtocolVersion != ScheduledJobControlProtocolVersion || !o.Action.Valid() ||
-		!validLowerHexDigest(o.KeyDigest) || !validLowerHexDigest(o.RequestFingerprint) ||
 		o.ExpectedRevision < 0 || o.CreatedAt.IsZero() {
+		return errors.New("scheduled job operation protocol, action, digest, revision, or time is invalid")
+	}
+	if _, err := o.ReplayIdentity(); err != nil {
 		return errors.New("scheduled job operation protocol, action, digest, revision, or time is invalid")
 	}
 	for _, value := range []string{o.JobID, o.RunID, o.RequestedBy} {
@@ -389,6 +394,17 @@ func (o ScheduledJobOperation) Validate() error {
 		}
 	}
 	return nil
+}
+
+// ReplayIdentity returns only the identity subset shared by the pilot. Job
+// ownership, revision, authorization, scheduling, leases, rounds, and events
+// remain domain-owned.
+func (o ScheduledJobOperation) ReplayIdentity() (durableoperation.Identity, error) {
+	if o.ProtocolVersion != ScheduledJobControlProtocolVersion {
+		return durableoperation.Identity{}, errors.New("scheduled job operation protocol is invalid")
+	}
+	return durableoperation.NewIdentity(scheduledJobReplayDomain, o.KeyDigest,
+		o.RequestFingerprint)
 }
 
 type ScheduledJobRoundStatus string

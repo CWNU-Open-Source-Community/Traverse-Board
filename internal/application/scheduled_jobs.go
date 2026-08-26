@@ -12,6 +12,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/durableoperation"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/runmutation"
@@ -564,8 +565,15 @@ func (s *ScheduledJobService) loadReplay(ctx context.Context, keyDigest string,
 	if err != nil || !found {
 		return ScheduledJobControlResult{}, found, apperror.Normalize(err)
 	}
+	storedIdentity, storedErr := operation.ReplayIdentity()
+	requestedIdentity, requestedErr := (domain.ScheduledJobOperation{
+		ProtocolVersion: domain.ScheduledJobControlProtocolVersion,
+		KeyDigest:       keyDigest, RequestFingerprint: fingerprint,
+	}).ReplayIdentity()
+	decision, decisionErr := durableoperation.Decide(storedIdentity, requestedIdentity)
 	if operation.ProtocolVersion != domain.ScheduledJobControlProtocolVersion ||
-		operation.RequestFingerprint != fingerprint || operation.Action != action ||
+		storedErr != nil || requestedErr != nil || decisionErr != nil ||
+		decision != durableoperation.DecisionReplay || operation.Action != action ||
 		operation.RunID != runID || operation.RequestedBy != requestedBy ||
 		operation.ExpectedRevision != expectedRevision ||
 		(jobID != "" && operation.JobID != jobID) {

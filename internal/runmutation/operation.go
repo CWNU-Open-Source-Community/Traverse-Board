@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"cyberagent-workbench/internal/durableoperation"
 )
 
 const MaxIdentityRunes = 256
@@ -88,13 +90,13 @@ func OperationKeyDigest(toolName string, runID string, operationKey string) stri
 }
 
 func RunCreationOperationDigest(operationKey string) string {
-	return Fingerprint("run_creation_operation.v1", operationKey)
+	return pilotFingerprint("run_creation_operation.v1", operationKey)
 }
 
 func RunCreationRequestFingerprint(goal string, workspaceID string, profile string,
 	surface string, phase string, requestedBy string,
 ) string {
-	return Fingerprint("run_creation_request.v1", goal, workspaceID, profile,
+	return pilotFingerprint("run_creation_request.v1", goal, workspaceID, profile,
 		surface, phase, requestedBy)
 }
 
@@ -139,21 +141,32 @@ func RunWakeCancelRequestFingerprint(runID string, requestedBy string) string {
 }
 
 func ScheduledJobOperationDigest(runID string, operationKey string) string {
-	return Fingerprint("scheduled_job_operation.v1", runID, operationKey)
+	return pilotFingerprint("scheduled_job_operation.v1", runID, operationKey)
 }
 
 func ScheduledJobCreateRequestFingerprint(runID string, specJSON string,
 	requestedBy string, repairConfirmed bool,
 ) string {
-	return Fingerprint("scheduled_job_create_request.v1", runID, specJSON,
+	return pilotFingerprint("scheduled_job_create_request.v1", runID, specJSON,
 		requestedBy, strconv.FormatBool(repairConfirmed))
 }
 
 func ScheduledJobTransitionRequestFingerprint(runID string, jobID string,
 	action string, expectedRevision int64, requestedBy string,
 ) string {
-	return Fingerprint("scheduled_job_transition_request.v1", runID, jobID,
+	return pilotFingerprint("scheduled_job_transition_request.v1", runID, jobID,
 		action, strconv.FormatInt(expectedRevision, 10), requestedBy)
+}
+
+// pilotFingerprint preserves the established digest API while making an
+// invalid hard-coded domain fail closed as an empty digest. Domain operation
+// validation rejects that value before persistence.
+func pilotFingerprint(domainSeparator string, fields ...string) string {
+	value, err := durableoperation.Fingerprint(domainSeparator, fields...)
+	if err != nil {
+		return ""
+	}
+	return value
 }
 
 func RunWakeConsumptionOperationKey(intentID string, generation int) string {

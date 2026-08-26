@@ -22,6 +22,23 @@ func TestOperationFingerprintIsDomainSeparatedAndStable(t *testing.T) {
 	}
 }
 
+func TestDurableOperationPilotHelpersPreserveReleasedDigests(t *testing.T) {
+	if got := RunCreationOperationDigest("run-create-operation-0001"); got != "9b2ff570e61ef169aa472e8efa7681b161e11a03c72890feb35321d07f74e82d" {
+		t.Fatalf("Run creation operation digest=%s", got)
+	}
+	if got := RunCreationRequestFingerprint("Implement the parser",
+		"workspace-controlled-create", "code", "code", "plan", "http_control"); got != "dd5310aa4cfa7866278471cebd0f680e0586d01760e70932e46fb47e88fcef4e" {
+		t.Fatalf("Run creation request fingerprint=%s", got)
+	}
+	if got := ScheduledJobOperationDigest("first", "second"); got != "f27b338c6ab1740eb1a700b3118cfe81b70496ad731cb63e653f6fd5aa746e50" {
+		t.Fatalf("scheduled job operation digest=%s", got)
+	}
+	if got := ScheduledJobCreateRequestFingerprint("run-東京",
+		`{"message":"修复","empty":""}`, "operator-é", false); got != "89c086217f03a7597266d0c7d018397fc221f2b35a9ca39821e323e60feeffb2" {
+		t.Fatalf("scheduled job request fingerprint=%s", got)
+	}
+}
+
 func TestOperationValidation(t *testing.T) {
 	operation := Operation{
 		KeyDigest: Fingerprint("key"), RequestFingerprint: Fingerprint("request"),

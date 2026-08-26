@@ -14,6 +14,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/durableoperation"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/redact"
@@ -1482,6 +1483,9 @@ func scanScheduledJobRound(row scanner) (domain.ScheduledJobRound, error) {
 func requireScheduledJobOperationReplay(stored domain.ScheduledJobOperation,
 	requested domain.ScheduledJobOperation,
 ) error {
+	storedIdentity, storedErr := stored.ReplayIdentity()
+	requestedIdentity, requestedErr := requested.ReplayIdentity()
+	decision, decisionErr := durableoperation.Decide(storedIdentity, requestedIdentity)
 	jobIdentityMatches := stored.JobID == requested.JobID
 	// A create assigns the Job ID as an output after the caller has supplied
 	// its semantic intent. Concurrent creators therefore generate different
@@ -1492,8 +1496,8 @@ func requireScheduledJobOperationReplay(stored domain.ScheduledJobOperation,
 		jobIdentityMatches = true
 	}
 	if stored.ProtocolVersion != requested.ProtocolVersion ||
-		stored.KeyDigest != requested.KeyDigest ||
-		stored.RequestFingerprint != requested.RequestFingerprint ||
+		storedErr != nil || requestedErr != nil || decisionErr != nil ||
+		decision != durableoperation.DecisionReplay ||
 		stored.Action != requested.Action || !jobIdentityMatches ||
 		stored.RunID != requested.RunID ||
 		stored.ExpectedRevision != requested.ExpectedRevision ||

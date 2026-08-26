@@ -46,7 +46,7 @@ drift. The registry is governance metadata only and never grants runtime authori
 | --- | --- | --- |
 | [#163](https://github.com/CWNU-Open-Source-Community/Traverse-Board/issues/163) | Enforce Surface entry/exit gates | No feature removal or runtime capability |
 | [#164](https://github.com/CWNU-Open-Source-Community/Traverse-Board/issues/164) | [Clean-install consolidated schema baseline](../schema-baseline.md) | No legacy squash, renumbering, or checksum rewrite |
-| [#165](https://github.com/CWNU-Open-Source-Community/Traverse-Board/issues/165) | Pilot a minimal operation identity/replay validator | No generic persistence or universal state machine |
+| [#165](https://github.com/CWNU-Open-Source-Community/Traverse-Board/issues/165) | [Pilot a minimal operation identity/replay validator](../adr/0141-minimal-durable-operation-identity.md) | No generic persistence or universal state machine |
 | [#166](https://github.com/CWNU-Open-Source-Community/Traverse-Board/issues/166) | Presentation-first vocabulary convergence | No API, database, protocol, executable, or authority rename |
 | [#167](https://github.com/CWNU-Open-Source-Community/Traverse-Board/issues/167) | Classified protocol registry and drift check | No automatic reader deletion or data migration |
 
