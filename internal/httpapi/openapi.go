@@ -31,6 +31,7 @@ import (
 	"cyberagent-workbench/internal/scheduler"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/skills"
+	"cyberagent-workbench/internal/standardcodedelivery"
 	"cyberagent-workbench/internal/threadtranscript"
 	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/uievidence"
@@ -374,7 +375,21 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			DataType: reflect.TypeOf(application.WorkspaceCheckpointTimeline{}), NotFound: true,
 			Parameters: []openAPIParameter{runID, {Name: "limit", In: "query",
 				Description: "Maximum checkpoints and transactions", Schema: map[string]any{
-					"type": "integer", "minimum": 1, "maximum": 2000, "default": 100}}}},
+					"type": "integer", "minimum": 1, "maximum": 2000, "default": 100}},
+				{Name: "checkpoint_id", In: "query",
+					Description: "Require one exact checkpoint in the returned timeline",
+					Schema:      map[string]any{"type": "string", "minLength": 1, "maxLength": 256}}}},
+		{Path: StandardCodeDeliveryPathTemplate,
+			OperationID: "getStandardCodeDelivery", Summary: "Inspect the Standard Code delivery truth receipt",
+			Tag: "Runs", Description: "Returns the one durable standard_code_delivery.v1 projection shared by Desktop, CLI, Code Handoff, GitHub Review, and final completion. The live observation marks a previously passed receipt stale when the current Drydock Workspace revision no longer matches; no Agent prose or CI check name is treated as verification evidence.",
+			DataType: reflect.TypeOf(standardcodedelivery.Report{}), NotFound: true,
+			Parameters: []openAPIParameter{runID}},
+		{Path: StandardCodeDeliveryPathTemplate, Method: http.MethodPost,
+			OperationID: "recordStandardCodeDelivery", Summary: "Record a Standard Code delivery truth receipt",
+			Tag: "Control", Description: "Creates an immutable final Checkpoint, binds the exact Diff and Command Runtime artifacts to the current Drydock Workspace revision, and records a closed delivery conclusion. This operation does not commit, push, merge, overwrite the source Workspace, or retain raw output, environment, reasoning, or host paths.",
+			DataType:    reflect.TypeOf(application.StandardCodeDeliveryRecordResult{}),
+			RequestType: reflect.TypeOf(StandardCodeDeliveryRecordView{}), Control: true,
+			NotFound: true, Parameters: []openAPIParameter{runID}, SuccessStatus: http.StatusOK},
 		{Path: "/api/v1/runs/{run_id}/workspace-checkpoints", Method: http.MethodPost,
 			OperationID: "createWorkspaceCheckpoint", Summary: "Create a manual Workspace checkpoint",
 			Tag: "Control", Description: "Captures a bounded content-addressed manifest and exact Git index under an idempotency key; excluded content and incomplete attribution remain explicit.",
@@ -1938,6 +1953,9 @@ func (r *openAPISchemaRegistry) ref(valueType reflect.Type) map[string]any {
 	if strings.HasSuffix(valueType.PkgPath(), "/githubreview") {
 		name = "GitHubReview" + name
 	}
+	if strings.HasSuffix(valueType.PkgPath(), "/standardcodedelivery") {
+		name = "StandardCodeDelivery" + name
+	}
 	return r.refNamed(name, valueType)
 }
 
@@ -1999,6 +2017,10 @@ func (r *openAPISchemaRegistry) schema(valueType reflect.Type) map[string]any {
 func (r *openAPISchemaRegistry) objectSchema(valueType reflect.Type) map[string]any {
 	properties := make(map[string]any)
 	required := make([]string, 0, valueType.NumField())
+	metadataTypeName := valueType.Name()
+	if strings.HasSuffix(valueType.PkgPath(), "/standardcodedelivery") {
+		metadataTypeName = "StandardCodeDelivery" + metadataTypeName
+	}
 	for index := 0; index < valueType.NumField(); index++ {
 		field := valueType.Field(index)
 		if field.PkgPath != "" {
@@ -2009,7 +2031,7 @@ func (r *openAPISchemaRegistry) objectSchema(valueType reflect.Type) map[string]
 			continue
 		}
 		property := r.ref(field.Type)
-		applyOpenAPIFieldMetadata(valueType.Name(), name, property)
+		applyOpenAPIFieldMetadata(metadataTypeName, name, property)
 		properties[name] = property
 		if !omitEmpty {
 			required = append(required, name)
@@ -2057,6 +2079,29 @@ func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[str
 	}
 	if maximum, ok := openAPIFieldMaxLengths[typeName+"."+fieldName]; ok {
 		schema["maxLength"] = maximum
+	}
+	if strings.HasPrefix(typeName, "StandardCodeDelivery") &&
+		(schema["type"] == "string" || schema["type"] == nil) {
+		switch {
+		case strings.HasSuffix(fieldName, "_sha256") || fieldName == "request_fingerprint" ||
+			fieldName == "root_fingerprint":
+			schema["minLength"] = 64
+			schema["maxLength"] = 64
+			schema["pattern"] = "^[0-9a-f]{64}$"
+		case fieldName == "base_commit" || fieldName == "head_commit":
+			schema["minLength"] = 40
+			schema["maxLength"] = 64
+			schema["pattern"] = "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+		case fieldName == "path":
+			schema["maxLength"] = standardcodedelivery.MaxPathRunes
+		case fieldName == "summary":
+			schema["maxLength"] = standardcodedelivery.MaxTextRunes
+		case strings.HasSuffix(fieldName, "_url") || fieldName == "url" ||
+			fieldName == "self" || fieldName == "checkpoint" ||
+			fieldName == "checkpoint_timeline" || fieldName == "undo" ||
+			fieldName == "rewind" || fieldName == "fork":
+			schema["maxLength"] = 2048
+		}
 	}
 	if strings.HasSuffix(fieldName, "_id") || fieldName == "id" || fieldName == "event_id" {
 		if _, ref := schema["$ref"]; !ref {
@@ -2176,6 +2221,26 @@ func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[str
 	}
 	if typeName == "CodeHandoffView" && fieldName == "report_references" {
 		schema["maxItems"] = application.MaxCodeHandoffReportReferences
+	}
+	if typeName == "StandardCodeDeliveryDiff" && fieldName == "files" {
+		schema["maxItems"] = standardcodedelivery.MaxChangedFiles
+	}
+	if typeName == "StandardCodeDeliveryReport" {
+		switch fieldName {
+		case "verifications":
+			schema["maxItems"] = standardcodedelivery.MaxVerifications
+		case "reasons":
+			schema["minItems"] = 1
+			schema["maxItems"] = standardcodedelivery.MaxReasons
+		case "uncovered_items":
+			schema["maxItems"] = standardcodedelivery.MaxUncoveredItems
+		}
+	}
+	if typeName == "StandardCodeDeliveryVerification" && fieldName == "artifacts" {
+		schema["maxItems"] = standardcodedelivery.MaxArtifactsPerCommand
+	}
+	if typeName == "StandardCodeDeliveryCheckpoint" && fieldName == "incomplete_reason_sha256" {
+		schema["maxItems"] = standardcodedelivery.MaxReasons
 	}
 	if typeName == "ProviderCredentialListView" && fieldName == "items" {
 		schema["minItems"] = 4
@@ -2455,6 +2520,15 @@ var openAPIFieldEnums = map[string][]string{
 	"VerificationEvidenceInventoryView.protocol_version":       {verification.InventoryProtocolVersion},
 	"VerificationPlanItemCoverageDetailView.protocol_version":  {verification.PlanItemCoverageProtocolVersion},
 	"VerificationAssociationReferenceView.evidence_outcome":    {string(verification.OutcomePass), string(verification.OutcomeFail), string(verification.OutcomeUnknown)},
+	"StandardCodeDeliveryReport.protocol_version":              {standardcodedelivery.ProtocolVersion},
+	"StandardCodeDeliveryReport.status":                        {string(standardcodedelivery.StatusPassed), string(standardcodedelivery.StatusFailed), string(standardcodedelivery.StatusPartial), string(standardcodedelivery.StatusNotRun), string(standardcodedelivery.StatusBlocked), string(standardcodedelivery.StatusStale)},
+	"StandardCodeDeliveryReport.receipt_status":                {string(standardcodedelivery.StatusPassed), string(standardcodedelivery.StatusFailed), string(standardcodedelivery.StatusPartial), string(standardcodedelivery.StatusNotRun), string(standardcodedelivery.StatusBlocked), string(standardcodedelivery.StatusStale)},
+	"StandardCodeDeliveryReport.declaration":                   {string(standardcodedelivery.DeclarationNoApplicableTests), string(standardcodedelivery.DeclarationUserSkipped), string(standardcodedelivery.DeclarationBudgetExhausted), string(standardcodedelivery.DeclarationMissingDependency), string(standardcodedelivery.DeclarationApprovalDenied)},
+	"StandardCodeDeliveryVerification.conclusion":              {string(standardcodedelivery.StatusPassed), string(standardcodedelivery.StatusFailed), string(standardcodedelivery.StatusPartial), string(standardcodedelivery.StatusBlocked), string(standardcodedelivery.StatusStale)},
+	"StandardCodeDeliveryVerification.state":                   {string(runner.CommandRuntimeJobPrepared), string(runner.CommandRuntimeJobRunning), string(runner.CommandRuntimeJobStopping), string(runner.CommandRuntimeJobCompleted), string(runner.CommandRuntimeJobFailed), string(runner.CommandRuntimeJobTimedOut), string(runner.CommandRuntimeJobCancelled), string(runner.CommandRuntimeJobKilled), string(runner.CommandRuntimeJobInterrupted)},
+	"StandardCodeDeliveryArtifact.stream":                      {string(artifact.StreamStdout), string(artifact.StreamStderr)},
+	"StandardCodeDeliveryCheckpoint.recovery_level":            {string(workspacecheckpoint.RecoveryComplete), string(workspacecheckpoint.RecoveryPartial), string(workspacecheckpoint.RecoveryUnavailable)},
+	"StandardCodeDeliveryRecordView.declaration":               {string(standardcodedelivery.DeclarationNoApplicableTests), string(standardcodedelivery.DeclarationUserSkipped), string(standardcodedelivery.DeclarationBudgetExhausted), string(standardcodedelivery.DeclarationMissingDependency), string(standardcodedelivery.DeclarationApprovalDenied)},
 	"CodeHandoffView.protocol_version":                         {application.CodeHandoffProtocolVersion},
 	"CodeHandoffView.run_status":                               runStatuses(),
 	"CodeHandoffView.surface":                                  {string(domain.ExecutionSurfaceCode)},

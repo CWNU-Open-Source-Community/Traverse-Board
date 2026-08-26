@@ -57,6 +57,20 @@ type DrydockDeliveryEvidence struct {
 	Patch           string
 	DiffStat        string
 	ChangedPaths    []string
+	PathStates      []DrydockDeliveryPathState
+}
+
+// DrydockDeliveryPathState is an exact, read-only projection of the Git
+// locations contributing to the combined delivery Diff. Paths remain private
+// application data until a public projector applies repository.PublicPath.
+type DrydockDeliveryPathState struct {
+	Path            string
+	Tracked         bool
+	Committed       bool
+	IndexChanged    bool
+	WorktreeChanged bool
+	Untracked       bool
+	Conflicted      bool
 }
 
 func NewDrydockExecutor(managedRoot string) (*DrydockExecutor, error) {
@@ -332,6 +346,10 @@ func (e *DrydockExecutor) CaptureDelivery(ctx context.Context, root,
 	if len(paths) > drydock.MaxChangedPaths {
 		return DrydockDeliveryEvidence{}, errors.New("Drydock delivery exceeds its changed-path bound")
 	}
+	pathStates, err := e.captureDeliveryPathStates(ctx, root, baseCommit, before.Head, paths)
+	if err != nil {
+		return DrydockDeliveryEvidence{}, err
+	}
 	after, err := e.advanced.CaptureAdvancedBinding(ctx, root)
 	if err != nil {
 		return DrydockDeliveryEvidence{}, err
@@ -341,7 +359,60 @@ func (e *DrydockExecutor) CaptureDelivery(ctx context.Context, root,
 	}
 	return DrydockDeliveryEvidence{Binding: after, HeadCommit: after.Head,
 		MergeBaseCommit: baseCommit, Patch: patch, DiffStat: strings.TrimSpace(diffStat),
-		ChangedPaths: paths}, nil
+		ChangedPaths: paths, PathStates: pathStates}, nil
+}
+
+func (e *DrydockExecutor) captureDeliveryPathStates(ctx context.Context, root,
+	baseCommit, headCommit string, combined []string,
+) ([]DrydockDeliveryPathState, error) {
+	type pathSet map[string]struct{}
+	read := func(args ...string) (pathSet, error) {
+		value, err := e.drydockGit(ctx, root, nil, args...)
+		if err != nil {
+			return nil, err
+		}
+		result := make(pathSet)
+		for _, current := range splitDrydockPaths(value) {
+			result[current] = struct{}{}
+		}
+		return result, nil
+	}
+	committed, err := read("diff", "--name-only", "-z", "--no-renames",
+		baseCommit, headCommit, "--")
+	if err != nil {
+		return nil, err
+	}
+	index, err := read("diff", "--cached", "--name-only", "-z", "--no-renames",
+		headCommit, "--")
+	if err != nil {
+		return nil, err
+	}
+	worktree, err := read("diff", "--name-only", "-z", "--no-renames", "--")
+	if err != nil {
+		return nil, err
+	}
+	untracked, err := read("ls-files", "--others", "--exclude-standard", "-z", "--")
+	if err != nil {
+		return nil, err
+	}
+	conflicted, err := read("diff", "--name-only", "-z", "--diff-filter=U", "--")
+	if err != nil {
+		return nil, err
+	}
+	states := make([]DrydockDeliveryPathState, 0, len(combined))
+	for _, current := range combined {
+		_, isCommitted := committed[current]
+		_, isIndex := index[current]
+		_, isWorktree := worktree[current]
+		_, isUntracked := untracked[current]
+		_, isConflict := conflicted[current]
+		states = append(states, DrydockDeliveryPathState{Path: current,
+			Tracked:   isCommitted || isIndex || isWorktree || isConflict,
+			Committed: isCommitted, IndexChanged: isIndex,
+			WorktreeChanged: isWorktree, Untracked: isUntracked,
+			Conflicted: isConflict})
+	}
+	return states, nil
 }
 
 // cleanupDrydockReviewTemporary never recurses. If the directory identity

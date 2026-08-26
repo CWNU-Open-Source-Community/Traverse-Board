@@ -90,6 +90,15 @@ func (s *RunExecutionHandoffService) WithCommandRuntime(
 	return s
 }
 
+func (s *RunExecutionHandoffService) WithStandardCodeDelivery(
+	delivery *StandardCodeDeliveryService,
+) *RunExecutionHandoffService {
+	if s != nil && s.supervisor != nil {
+		s.supervisor.WithStandardCodeDelivery(delivery)
+	}
+	return s
+}
+
 func (s *RunExecutionHandoffService) WithMCPClient(
 	manager *mcp.Manager,
 ) *RunExecutionHandoffService {

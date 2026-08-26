@@ -200,11 +200,19 @@ func (a *API) serveWorkspaceCheckpointTimeline(writer http.ResponseWriter,
 			"read-only HTTP API requests cannot contain a body"), 0)
 		return
 	}
-	if err := validateSingleQueryValues(request.URL.Query(), "limit"); err != nil {
+	if err := validateSingleQueryValues(request.URL.Query(), "limit", "checkpoint_id"); err != nil {
 		a.writeError(writer, requestID, err, 0)
 		return
 	}
 	limit := 100
+	checkpointID := request.URL.Query().Get("checkpoint_id")
+	if checkpointID != "" {
+		if err := validatePathIdentity(checkpointID); err != nil {
+			a.writeError(writer, requestID, err, 0)
+			return
+		}
+		limit = 2_000
+	}
 	if raw := request.URL.Query().Get("limit"); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil {
@@ -218,6 +226,20 @@ func (a *API) serveWorkspaceCheckpointTimeline(writer http.ResponseWriter,
 	if err != nil {
 		a.writeError(writer, requestID, err, 0)
 		return
+	}
+	if checkpointID != "" {
+		found := false
+		for _, checkpoint := range value.Checkpoints {
+			if checkpoint.ID == checkpointID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			a.writeError(writer, requestID, apperror.New(apperror.CodeNotFound,
+				"Workspace checkpoint was not found in this Run timeline"), http.StatusNotFound)
+			return
+		}
 	}
 	a.writeSuccess(writer, requestID, value, nil)
 }

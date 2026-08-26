@@ -248,6 +248,11 @@ type StandardCodeSupervisorSnapshot struct {
 	LastIntentFingerprint        string                       `json:"last_intent_fingerprint,omitempty"`
 	LastEvidenceFingerprint      string                       `json:"last_evidence_fingerprint,omitempty"`
 	LastFailureFingerprint       string                       `json:"last_failure_fingerprint,omitempty"`
+	VerificationJobIDs           []string                     `json:"verification_job_ids,omitempty"`
+	DeliveryID                   string                       `json:"delivery_id,omitempty"`
+	DeliveryReceiptSHA256        string                       `json:"delivery_receipt_sha256,omitempty"`
+	DeliveryCheckpointID         string                       `json:"delivery_checkpoint_id,omitempty"`
+	DeliveryRevisionSHA256       string                       `json:"delivery_revision_sha256,omitempty"`
 	StopReason                   string                       `json:"stop_reason,omitempty"`
 	RunTokenLimit                int64                        `json:"run_token_limit"`
 	RunTimeoutMillis             int64                        `json:"run_timeout_millis"`
@@ -289,7 +294,7 @@ func (s StandardCodeSupervisorSnapshot) Validate() error {
 		return errors.New("Standard Code Supervisor expected authority digest is invalid")
 	}
 	for _, digest := range []string{s.LastIntentFingerprint, s.LastEvidenceFingerprint,
-		s.LastFailureFingerprint} {
+		s.LastFailureFingerprint, s.DeliveryReceiptSHA256, s.DeliveryRevisionSHA256} {
 		if digest != "" && !validLowerHexDigest(digest) {
 			return errors.New("Standard Code Supervisor evidence digest is invalid")
 		}
@@ -316,8 +321,18 @@ func (s StandardCodeSupervisorSnapshot) Validate() error {
 		return errors.New("Standard Code Supervisor inspection proof is inconsistent")
 	}
 	if s.State == StandardCodeSupervisorDeliver &&
-		(s.MutationEpoch <= 0 || s.VerifiedMutationEpoch != s.MutationEpoch) {
+		(s.MutationEpoch <= 0 || s.VerifiedMutationEpoch != s.MutationEpoch ||
+			len(s.VerificationJobIDs) == 0) {
 		return errors.New("Standard Code Supervisor cannot deliver without current verification")
+	}
+	deliveryBound := s.DeliveryID != "" || s.DeliveryReceiptSHA256 != "" ||
+		s.DeliveryCheckpointID != "" || s.DeliveryRevisionSHA256 != ""
+	if deliveryBound && (!ValidAgentID(s.DeliveryID) ||
+		!ValidAgentID(s.DeliveryCheckpointID) ||
+		!validLowerHexDigest(s.DeliveryReceiptSHA256) ||
+		!validLowerHexDigest(s.DeliveryRevisionSHA256) ||
+		s.State != StandardCodeSupervisorDeliver) {
+		return errors.New("Standard Code Supervisor delivery receipt binding is invalid")
 	}
 	if s.ExpectedCapabilityGeneration != "" && s.MutationEpoch <= 0 {
 		return errors.New("Standard Code Supervisor capability refresh requires a mutation")
@@ -336,12 +351,23 @@ func (s StandardCodeSupervisorSnapshot) Validate() error {
 		}
 		seenJobs[job.JobID] = struct{}{}
 	}
+	seenVerificationJobs := make(map[string]struct{}, len(s.VerificationJobIDs))
+	for _, id := range s.VerificationJobIDs {
+		if !ValidAgentID(id) {
+			return errors.New("Standard Code Supervisor verification Job id is invalid")
+		}
+		if _, exists := seenVerificationJobs[id]; exists {
+			return errors.New("Standard Code Supervisor verification Job id is duplicated")
+		}
+		seenVerificationJobs[id] = struct{}{}
+	}
 	return nil
 }
 
 func (s StandardCodeSupervisorSnapshot) CanDeliver() bool {
 	return s.State == StandardCodeSupervisorDeliver && s.MutationEpoch > 0 &&
-		s.VerifiedMutationEpoch == s.MutationEpoch && s.StopReason == ""
+		s.VerifiedMutationEpoch == s.MutationEpoch && len(s.VerificationJobIDs) > 0 &&
+		s.StopReason == ""
 }
 
 type StandardCodeSupervisorLedgerEntry struct {

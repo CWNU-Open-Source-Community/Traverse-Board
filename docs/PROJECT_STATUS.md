@@ -6,6 +6,20 @@ Last updated: 2026-08-26
 
 ## Resume Context
 
+当前检查点是 issue #139 / SQLite schema v137。`standard_code_delivery.v1` 将最终
+Checkpoint、base/head、真实 committed/index/worktree/untracked/conflict Diff、Command Runtime
+终态/exit/tree-reaped、输出摘要与 Artifact、重试次数、permission/backend generation 及未覆盖项
+收敛为同一不可变 receipt。只有全部验证对应当前 Drydock Workspace revision 且证据完整时才为
+`passed/verified`；失败、截断、取消、超时、审批拒绝、无测试和用户跳过分别投影为封闭状态。
+
+读取时重新核对 Workspace、Drydock generation、权限/能力/后端绑定和 Supervisor mutation epoch；
+漂移把旧 receipt 动态显示为 `stale`，不改写历史。Standard Code finish 和 Run complete 都要求当前
+passed receipt。Desktop Delivery、CLI/HTTP、Code Handoff/export、GitHub Review 与最终回复复用同一
+Go 投影，并可进入相对文件、Artifact 与 Checkpoint/Undo/Rewind/Fork。公共内容不含控制字符、
+secret-like 值、绝对宿主路径、raw environment/output 或 private reasoning。记录不自动 commit、
+push、merge、覆盖来源或删除无法证明归属的文件；Checkpoint 不承诺回滚 Workspace 外副作用。
+操作与边界见 `docs/standard-code-delivery.md` 与 ADR 0142。
+
 当前检查点是 issue #138 / SQLite schema v136。`risk_escalation.v1` 把
 `workspace_access` Standard Code 的网络目标/用途、凭据种类、宿主路径、Policy 拒绝、
 非白名单工具和其他高风险需求收敛为精确、不可变的宿主命令提案。提案绑定完整

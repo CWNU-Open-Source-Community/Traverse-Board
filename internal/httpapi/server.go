@@ -314,6 +314,7 @@ type Config struct {
 	CommandRuntimeAdvertiser                toolgateway.CommandRuntimeAdvertiser
 	RunLifecycleController                  RunLifecycleController
 	StandardCodePresetController            StandardCodePresetController
+	StandardCodeDeliveryController          StandardCodeDeliveryController
 	RunExecutionController                  RunExecutionController
 	PublicModelStreamSource                 PublicModelStreamSource
 	PlanDeliveryController                  PlanDeliveryController
@@ -397,6 +398,7 @@ type API struct {
 	capabilityReadinessRuntime              application.CapabilityReadinessRuntime
 	runLifecycleController                  RunLifecycleController
 	standardCodePresetController            StandardCodePresetController
+	standardCodeDeliveryController          StandardCodeDeliveryController
 	runExecutionController                  RunExecutionController
 	publicModelStreamSource                 PublicModelStreamSource
 	planDeliveryController                  PlanDeliveryController
@@ -771,6 +773,7 @@ func New(store Store, config Config) (*API, error) {
 		capabilityReadinessRuntime:          readinessRuntime,
 		runLifecycleController:              config.RunLifecycleController,
 		standardCodePresetController:        config.StandardCodePresetController,
+		standardCodeDeliveryController:      config.StandardCodeDeliveryController,
 		runExecutionController:              config.RunExecutionController,
 		publicModelStreamSource:             config.PublicModelStreamSource,
 		planDeliveryController:              config.PlanDeliveryController,
@@ -937,6 +940,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if runID, action, matched := matchWorkspaceCheckpointPath(request.URL.Path); matched {
 		a.serveWorkspaceCheckpoint(tracked, request, requestID, runID, action)
+		return
+	}
+	if runID, matched := matchStandardCodeDeliveryPath(request.URL.Path); matched {
+		a.serveStandardCodeDelivery(tracked, request, requestID, runID)
 		return
 	}
 	if runID, action, matched := matchGitAdvancedPath(request.URL.Path); matched {

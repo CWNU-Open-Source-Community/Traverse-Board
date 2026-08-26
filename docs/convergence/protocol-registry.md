@@ -33,6 +33,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [release-and-packaging-contracts](#release-and-packaging-contracts) | `external-durable` | Desktop release and packaging maintainers | 3 | true |
 | [report-summary-projections](#report-summary-projections) | `projection` | Finding, repository, and summary maintainers | 5 | true |
 | [sandbox-docker-lifecycle](#sandbox-docker-lifecycle) | `internal-durable` | Sandbox and Docker lifecycle maintainers | 196 | true |
+| [standard-code-delivery-ledger](#standard-code-delivery-ledger) | `external-durable` | Standard Code delivery and public projection maintainers | 8 | true |
 | [thread-run-session-ledgers](#thread-run-session-ledgers) | `internal-durable` | Thread, Run, Session, context, and message maintainers | 25 | true |
 | [thread-transcript-projection](#thread-transcript-projection) | `projection` | Thread transcript maintainers | 1 | true |
 | [tool-mutation-ledgers](#tool-mutation-ledgers) | `internal-durable` | Tool gateway, file edit, Git, and mutation maintainers | 31 | true |
@@ -1249,6 +1250,34 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `sandbox_validation.v1`
 - `sandbox_workspace_binding.v1`
 - `windows_appcontainer_policy.v1`
+
+</details>
+
+### standard-code-delivery-ledger
+
+- Class: `external-durable`
+- Owner: Standard Code delivery and public projection maintainers
+- Source of truth: `internal/application`, `internal/standardcodedelivery`, `internal/store`
+- Persistence/export boundary: SQLite retains immutable metadata-only receipts; HTTP, CLI, Desktop, Code Handoff, GitHub Review, and final completion export the same freshness-aware projection.
+- Compatibility rule: Retain old readers and exact receipt, revision, Diff, Checkpoint, Artifact, binding, redaction, and stale semantics until every stored receipt is migrated or indefinitely supported.
+- Retirement gate (`migration-or-retention`): ADR-backed retirement decision and rollback path; Old-version fixtures remain until every stored receipt and exported consumer is migrated or retained; Receipt hashes and historical conclusions remain independently verifiable
+- Writers:
+  - `standard-code-delivery-ledger-writer` (`v1`, write-current) at `internal/store`
+- Readers:
+  - `standard-code-delivery-go-reader` (`v1`, active) at `internal/standardcodedelivery`
+  - `standard-code-delivery-http-reader` (`v1`, active) at `internal/httpapi`
+  - `standard-code-delivery-web-reader` (`v1`, active) at `web/src`
+
+<details><summary>8 active identifiers</summary>
+
+- `command-runtime-backend-generation.v1`
+- `standard-code-backend.v1`
+- `standard-code-delivery-reason.v1`
+- `standard-code-workspace-revision.v1`
+- `standard_code_delivery.v1`
+- `standard_code_delivery_record.v1`
+- `standard_code_delivery_request.v1`
+- `standard_code_supervisor_finish.v1`
 
 </details>
 

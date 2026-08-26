@@ -30,6 +30,7 @@ import (
 	"cyberagent-workbench/internal/pricing"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/skills"
+	"cyberagent-workbench/internal/standardcodedelivery"
 	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/uievidence"
 	"cyberagent-workbench/internal/verification"
@@ -283,6 +284,13 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	fixture.api.gitAdvancedControlEnabled = true
 	fixture.api.githubReviewController = &githubReviewControllerStub{}
 	fixture.api.githubReviewControlEnabled = true
+	fixture.api.standardCodeDeliveryController = &standardCodeDeliveryControllerStub{
+		binding: standardcodedelivery.Binding{
+			MissionID:         fixture.run.MissionID,
+			SessionID:         fixture.run.SessionID,
+			SourceWorkspaceID: fixture.workspace.ID,
+		},
+	}
 	childRun, child, childAttempt, childModel :=
 		prepareOpenAPISpecialistCancellationTarget(t, fixture)
 	_, profileRun, err := application.NewRunService(fixture.store).Create(t.Context(),
@@ -909,6 +917,10 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				} else if spec.OperationID == "createWorkspaceCheckpoint" {
 					body = `{"operation_key":"openapi-workspace-checkpoint-create-0001",` +
 						`"title":"OpenAPI Workspace checkpoint"}`
+				} else if spec.OperationID == "recordStandardCodeDelivery" {
+					body = `{"operation_key":"openapi-standard-code-delivery-0001",` +
+						`"declaration":"no_applicable_tests",` +
+						`"verification_job_ids":[],"uncovered_items":[]}`
 				} else if spec.OperationID == "startRunUIEvidence" {
 					body = `{}`
 				} else if spec.OperationID == "cancelUIEvidence" {

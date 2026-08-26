@@ -2200,6 +2200,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/standard-code-delivery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect the Standard Code delivery truth receipt
+         * @description Returns the one durable standard_code_delivery.v1 projection shared by Desktop, CLI, Code Handoff, GitHub Review, and final completion. The live observation marks a previously passed receipt stale when the current Drydock Workspace revision no longer matches; no Agent prose or CI check name is treated as verification evidence.
+         */
+        get: operations["getStandardCodeDelivery"];
+        put?: never;
+        /**
+         * Record a Standard Code delivery truth receipt
+         * @description Creates an immutable final Checkpoint, binds the exact Diff and Command Runtime artifacts to the current Drydock Workspace revision, and records a closed delivery conclusion. This operation does not commit, push, merge, overwrite the source Workspace, or retain raw output, environment, reasoning, or host paths.
+         */
+        post: operations["recordStandardCodeDelivery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/standard-code/pause-and-configure": {
         parameters: {
             query?: never;
@@ -4372,6 +4396,7 @@ export interface components {
             session_id: string;
             /** Format: int64 */
             source_event_sequence: number;
+            standard_code_delivery?: components["schemas"]["StandardCodeDeliveryReport"];
             /** @enum {string} */
             surface: "code";
             verification: components["schemas"]["CodeHandoffVerificationView"];
@@ -6166,6 +6191,7 @@ export interface components {
             protocol_version: string;
             run_id: string;
             snapshots: components["schemas"]["GitHubReviewSnapshot"][];
+            standard_code_delivery?: components["schemas"]["StandardCodeDeliveryReport"];
             writes: components["schemas"]["GitHubReviewWriteRecord"][];
         };
         GitHubReviewPullRequestIdentity: {
@@ -8629,6 +8655,192 @@ export interface components {
             backend: "local" | "docker";
             blocked_by: ("run_not_quiescent" | "execution_lease_active" | "startup_gate_closed" | "capability_not_implemented" | "surface_mismatch" | "profile_mismatch" | "permission_mismatch" | "workspace_untrusted" | "sandbox_unproven" | "docker_unavailable" | "backend_not_ready")[];
             remediation: ("pause_run" | "create_new_run" | "wait_for_execution_lease" | "restart_with_startup_gate" | "upgrade_application" | "select_required_surface" | "select_required_profile" | "select_required_permission" | "trust_workspace" | "verify_sandbox" | "install_or_start_docker" | "retry_backend_readiness")[];
+        };
+        StandardCodeDeliveryArtifact: {
+            id: string;
+            redacted: boolean;
+            sha256: string;
+            /** Format: int64 */
+            size_bytes: number;
+            /** @enum {string} */
+            stream: "stdout" | "stderr";
+            url: string;
+        };
+        StandardCodeDeliveryBinding: {
+            backend: string;
+            backend_generation_sha256: string;
+            capability_generation_sha256: string;
+            /** Format: int64 */
+            drydock_generation: number;
+            drydock_id: string;
+            drydock_workspace_id: string;
+            mission_id: string;
+            /** Format: int64 */
+            permission_revision: number;
+            permission_snapshot_id: string;
+            preset_operation_sha256: string;
+            run_id: string;
+            session_id: string;
+            source_workspace_id: string;
+            /** Format: int32 */
+            supervisor_mutation_epoch: number;
+        };
+        StandardCodeDeliveryChangedFile: {
+            committed: boolean;
+            conflicted: boolean;
+            file_url?: string;
+            index_changed: boolean;
+            path?: string;
+            path_redacted: boolean;
+            path_sha256: string;
+            tracked: boolean;
+            untracked: boolean;
+            worktree_changed: boolean;
+        };
+        StandardCodeDeliveryCheckpoint: {
+            branch_sha256: string;
+            /** Format: date-time */
+            created_at: string;
+            head_commit: string;
+            id: string;
+            incomplete_reason_sha256: string[];
+            index_sha256: string;
+            manifest_sha256: string;
+            /** @enum {string} */
+            recovery_level: "complete" | "partial" | "unavailable";
+            revision_sha256: string;
+            root_fingerprint: string;
+            root_path_sha256: string;
+        };
+        StandardCodeDeliveryDiff: {
+            /** Format: int32 */
+            bytes: number;
+            /** Format: int32 */
+            changed_count: number;
+            /** Format: int32 */
+            committed_count: number;
+            /** Format: int32 */
+            conflict_count: number;
+            files: components["schemas"]["StandardCodeDeliveryChangedFile"][];
+            /** Format: int32 */
+            index_count: number;
+            /** Format: int32 */
+            redacted_count: number;
+            sha256: string;
+            /** Format: int32 */
+            tracked_count: number;
+            /** Format: int32 */
+            untracked_count: number;
+            /** Format: int32 */
+            worktree_count: number;
+        };
+        StandardCodeDeliveryLinks: {
+            checkpoint: string;
+            checkpoint_timeline: string;
+            fork: string;
+            rewind: string;
+            self: string;
+            undo: string;
+        };
+        StandardCodeDeliveryObservation: {
+            /** Format: date-time */
+            observed_at?: string;
+            reason_code?: string;
+            revision_sha256?: string;
+        };
+        StandardCodeDeliveryReason: {
+            code: string;
+            provenance_sha256: string;
+        };
+        StandardCodeDeliveryRecordResult: {
+            replayed: boolean;
+            report: components["schemas"]["StandardCodeDeliveryReport"];
+        };
+        StandardCodeDeliveryRecordView: {
+            /** @enum {string} */
+            declaration?: "no_applicable_tests" | "user_skipped" | "budget_exhausted" | "missing_dependency" | "approval_denied";
+            operation_key: string;
+            uncovered_items: string[];
+            verification_job_ids: string[];
+        };
+        StandardCodeDeliveryReport: {
+            base_commit: string;
+            binding: components["schemas"]["StandardCodeDeliveryBinding"];
+            /** Format: date-time */
+            created_at: string;
+            /** @enum {string} */
+            declaration?: "no_applicable_tests" | "user_skipped" | "budget_exhausted" | "missing_dependency" | "approval_denied";
+            diff: components["schemas"]["StandardCodeDeliveryDiff"];
+            /** Format: int64 */
+            event_sequence: number;
+            final_checkpoint: components["schemas"]["StandardCodeDeliveryCheckpoint"];
+            head_commit: string;
+            id: string;
+            links: components["schemas"]["StandardCodeDeliveryLinks"];
+            observation?: components["schemas"]["StandardCodeDeliveryObservation"];
+            operation_key_sha256: string;
+            /** @enum {string} */
+            protocol_version: "standard_code_delivery.v1";
+            reasons: components["schemas"]["StandardCodeDeliveryReason"][];
+            receipt_sha256: string;
+            /** @enum {string} */
+            receipt_status: "passed" | "failed" | "partial" | "not_run" | "blocked" | "stale";
+            request_fingerprint: string;
+            safeguards: components["schemas"]["StandardCodeDeliverySafeguards"];
+            /** @enum {string} */
+            status: "passed" | "failed" | "partial" | "not_run" | "blocked" | "stale";
+            uncovered_items: components["schemas"]["StandardCodeDeliveryUncoveredItem"][];
+            verifications: components["schemas"]["StandardCodeDeliveryVerification"][];
+            verified: boolean;
+        };
+        StandardCodeDeliverySafeguards: {
+            absolute_paths_exposed: boolean;
+            automatic_commit: boolean;
+            automatic_merge: boolean;
+            automatic_push: boolean;
+            private_reasoning_stored: boolean;
+            raw_environment_stored: boolean;
+            raw_output_stored: boolean;
+            source_overwrite: boolean;
+        };
+        StandardCodeDeliveryUncoveredItem: {
+            summary: string;
+            summary_sha256: string;
+        };
+        StandardCodeDeliveryVerification: {
+            artifacts: components["schemas"]["StandardCodeDeliveryArtifact"][];
+            backend: string;
+            backend_generation_sha256: string;
+            checkpoint_id: string;
+            /** Format: date-time */
+            completed_at?: string;
+            /** @enum {string} */
+            conclusion: "passed" | "failed" | "partial" | "blocked" | "stale";
+            current_revision: boolean;
+            environment_sha256: string;
+            executable_sha256: string;
+            /** Format: int32 */
+            exit_code?: number;
+            job_id: string;
+            output_truncated: boolean;
+            /** Format: int64 */
+            permission_revision: number;
+            reason_code: string;
+            /** Format: int32 */
+            retry_count: number;
+            revision_sha256: string;
+            spec_sha256: string;
+            /** Format: date-time */
+            started_at?: string;
+            /** @enum {string} */
+            state: "prepared" | "running" | "stopping" | "completed" | "failed" | "timed_out" | "cancelled" | "killed" | "interrupted";
+            /** Format: int64 */
+            stderr_observed_bytes: number;
+            stderr_sha256: string;
+            /** Format: int64 */
+            stdout_observed_bytes: number;
+            stdout_sha256: string;
+            tree_reaped: boolean;
         };
         StandardCodePresetControlRequestView: {
             /** @enum {string} */
@@ -14952,6 +15164,84 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
+    getStandardCodeDelivery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["StandardCodeDeliveryReport"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    recordStandardCodeDelivery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StandardCodeDeliveryRecordView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["StandardCodeDeliveryRecordResult"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     pauseAndConfigureStandardCodeRun: {
         parameters: {
             query?: never;
@@ -15920,6 +16210,8 @@ export interface operations {
             query?: {
                 /** @description Maximum checkpoints and transactions */
                 limit?: number;
+                /** @description Require one exact checkpoint in the returned timeline */
+                checkpoint_id?: string;
             };
             header?: never;
             path: {

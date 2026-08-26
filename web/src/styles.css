@@ -273,7 +273,7 @@ code, pre { font-family: var(--prayu-font-mono); }
 .status-running, .status-active, .status-completed, .status-live, .status-passed { border-color: #9ccdbb; background: #e9f7f1; color: #146c4e; }
 .status-failed, .status-cancelled, .status-denied { border-color: #e3b1ac; background: #fff0ee; color: var(--danger); }
 .status-critical, .status-high, .status-rejected, .status-aborted { border-color: #e3b1ac; background: #fff0ee; color: var(--danger); }
-.status-medium, .status-partial { border-color: #e4c68e; background: #fff7e5; color: #855000; }
+.status-medium, .status-partial, .status-stale, .status-not-run, .status-blocked { border-color: #e4c68e; background: #fff7e5; color: #855000; }
 .status-approved, .status-applied, .status-instructed, .status-succeeded, .status-fixed, .status-validated, .status-accepted { border-color: #9ccdbb; background: #e9f7f1; color: #146c4e; }
 .status-waiting-approval, .status-paused, .status-pending, .status-reconnecting { border-color: #e4c68e; background: #fff7e5; color: #855000; }
 .status-compacted { border-color: #b7c7de; background: #eff4fb; color: #365d86; }
@@ -730,6 +730,51 @@ td code { font-size: 11px; }
 .handoff-reference-list code, .handoff-reference-list small { color: var(--muted); font-size: 10px; }
 .handoff-reference-actions { display: flex; align-items: center; gap: 7px; }
 .handoff-reference-actions .icon-button { width: 30px; height: 30px; }
+.delivery-handoff-truth,
+.github-review-delivery-truth { min-width: 0; display: flex; align-items: center; gap: 9px; padding: 10px; border-bottom: 1px solid var(--border); background: var(--surface-subtle); }
+.delivery-handoff-truth > span,
+.github-review-delivery-truth > span { min-width: 0; flex: 1; display: grid; gap: 3px; }
+.delivery-handoff-truth code,
+.github-review-delivery-truth code { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.github-review-delivery-truth small { color: var(--muted); font-size: 10px; }
+.standard-code-delivery-panel { min-width: 0; }
+.standard-code-delivery-panel > header { min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border); }
+.standard-code-delivery-panel > header > div { display: flex; align-items: center; gap: 8px; }
+.standard-code-delivery-panel h2 { margin: 0; font-size: 14px; }
+.delivery-truth-summary { min-width: 0; display: flex; align-items: center; gap: 14px; padding: 14px; border-left: 3px solid var(--warning); border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--warning) 7%, var(--surface)); }
+.delivery-truth-summary > div { min-width: 0; flex: 1; }
+.delivery-truth-summary strong { font-size: 13px; }
+.delivery-truth-summary p { margin: 5px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.delivery-truth-passed { border-left-color: var(--prayu-success, #168f82); background: color-mix(in srgb, var(--prayu-success, #168f82) 7%, var(--surface)); }
+.delivery-truth-identities { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-bottom: 1px solid var(--border); }
+.delivery-truth-identities > div { min-width: 0; display: grid; gap: 4px; padding: 10px; border-right: 1px solid var(--border); border-top: 1px solid var(--border); }
+.delivery-truth-identities span { color: var(--muted); font-size: 9px; text-transform: uppercase; }
+.delivery-truth-identities code { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.delivery-truth-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; padding: 16px 0; border-bottom: 1px solid var(--border); }
+.delivery-truth-columns > section { min-width: 0; }
+.delivery-truth-columns h3,
+.delivery-truth-reasons h3 { display: flex; align-items: center; gap: 5px; margin: 0 0 8px; font-size: 12px; }
+.delivery-truth-list { display: grid; }
+.delivery-truth-list > div { min-width: 0; min-height: 48px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 9px; border-top: 1px solid var(--border); }
+.delivery-truth-list > div > span { min-width: 0; display: grid; gap: 3px; }
+.delivery-truth-list small { color: var(--muted); font-size: 9px; }
+.delivery-truth-list code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link-button { width: fit-content; max-width: 100%; padding: 0; overflow: hidden; border: 0; background: transparent; color: var(--accent); cursor: pointer; font: inherit; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.link-button:hover { text-decoration: underline; }
+.delivery-truth-reasons { padding: 13px 0; border-bottom: 1px solid var(--border); }
+.delivery-truth-reasons > div { display: flex; flex-wrap: wrap; gap: 5px; }
+.delivery-truth-reasons p { margin: 7px 0 0; font-size: 10px; }
+.delivery-truth-recovery { display: flex; align-items: center; gap: 12px; padding: 13px 0; border-bottom: 1px solid var(--border); }
+.delivery-truth-recovery > div:first-child { min-width: 0; flex: 1; display: flex; align-items: center; gap: 9px; }
+.delivery-truth-recovery span { min-width: 0; display: grid; gap: 3px; }
+.delivery-truth-recovery small { color: var(--muted); font-size: 9px; }
+.delivery-truth-recovery > div:last-child { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.delivery-truth-boundary { margin: 0; padding: 12px 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+@media (max-width: 760px) {
+  .delivery-truth-columns,
+  .delivery-truth-identities { grid-template-columns: 1fr; }
+  .delivery-truth-recovery { align-items: flex-start; flex-direction: column; }
+}
 .code-journey { min-width: 0; }
 .code-journey > header { min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border); }
 .code-journey > header > div { display: flex; align-items: center; gap: 8px; }
@@ -5751,6 +5796,9 @@ samp {
 
 .status-medium,
 .status-partial,
+.status-stale,
+.status-not-run,
+.status-blocked,
 .status-waiting-approval,
 .status-paused,
 .status-pending,

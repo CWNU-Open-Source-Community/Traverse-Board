@@ -17,6 +17,12 @@ func removeSchemaV136ForTestStatements() []string {
 	prefix := []string{
 		`PRAGMA foreign_keys = OFF`,
 		`PRAGMA legacy_alter_table = ON`,
+		`DROP TRIGGER trg_standard_code_delivery_insert`,
+		`DROP TRIGGER trg_standard_code_delivery_update_immutable`,
+		`DROP TRIGGER trg_standard_code_delivery_delete_immutable`,
+		`DROP INDEX idx_standard_code_deliveries_run_event`,
+		`DROP TABLE standard_code_deliveries`,
+		`DELETE FROM schema_migrations WHERE version = 137`,
 		`DROP TRIGGER trg_risk_escalation_supervisor_authority_insert`,
 		`DROP TRIGGER trg_host_command_supervisor_envelope_immutable`,
 		`DROP TRIGGER trg_risk_escalation_proposal_update_immutable`,
@@ -101,8 +107,9 @@ func TestSchemaV136AddsDurableRiskEscalationLedger(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer upgraded.Close()
-	if version, err := upgraded.SchemaVersion(ctx); err != nil || version != 136 {
-		t.Fatalf("upgraded schema version=%d want=136 err=%v", version, err)
+	if version, err := upgraded.SchemaVersion(ctx); err != nil || version != LatestSchemaVersion {
+		t.Fatalf("upgraded schema version=%d want=%d err=%v", version,
+			LatestSchemaVersion, err)
 	}
 	for _, table := range []string{
 		"approval_grant_consumptions", "risk_escalation_proposals",

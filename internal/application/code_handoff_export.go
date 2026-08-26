@@ -48,6 +48,15 @@ func NewCodeHandoffExportService(store CodeHandoffStore) *CodeHandoffExportServi
 	return &CodeHandoffExportService{handoff: NewCodeHandoffService(store)}
 }
 
+func (s *CodeHandoffExportService) WithStandardCodeDelivery(
+	delivery StandardCodeDeliveryProjector,
+) *CodeHandoffExportService {
+	if s != nil && s.handoff != nil {
+		s.handoff.WithStandardCodeDelivery(delivery)
+	}
+	return s
+}
+
 func (s *CodeHandoffExportService) Build(ctx context.Context, runID string,
 	format string,
 ) (CodeHandoffExport, error) {
@@ -129,6 +138,14 @@ func renderCodeHandoffMarkdown(value CodeHandoff) string {
 		value.ChangeSet.Proposed, value.ChangeSet.Approved, value.ChangeSet.Applied,
 		value.ChangeSet.Denied, value.ChangeSet.Failed, value.ChangeSet.TotalDiffBytes,
 		markdownTruncation(value.ChangeSet.Truncated))
+	if value.StandardCodeDelivery != nil {
+		delivery := value.StandardCodeDelivery
+		fmt.Fprintf(&output,
+			"Standard Code truth receipt: **%s** (`%s`), %d affected files, %d command verifications. [Report](%s) · [Recovery](%s)\n\n",
+			markdownCell(string(delivery.Status)), markdownCell(delivery.ReceiptSHA256),
+			delivery.Diff.ChangedCount, len(delivery.Verifications),
+			markdownCell(delivery.Links.Self), markdownCell(delivery.Links.CheckpointTimeline))
+	}
 
 	output.WriteString("## Verification\n\n")
 	fmt.Fprintf(&output, "Evidence: %d pass, %d fail, %d unknown%s.\n\n",

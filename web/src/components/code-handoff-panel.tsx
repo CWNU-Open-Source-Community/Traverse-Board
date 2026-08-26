@@ -7,9 +7,10 @@ import { useLocale } from "../lib/locale";
 import { EmptyState, ErrorState, KeyValue, LoadingState, StatusBadge } from "./common";
 import type { ReceiptReviewNavigationTarget } from "./receipt-review-navigation";
 
-export function CodeHandoffPanel({ client, runID, onOpenReceiptReview }: {
+export function CodeHandoffPanel({ client, runID, onOpenDelivery, onOpenReceiptReview }: {
   client: CyberAgentClient;
   runID: string;
+  onOpenDelivery?: () => void;
   onOpenReceiptReview: (target: ReceiptReviewNavigationTarget) => void;
 }) {
   const { t } = useLocale();
@@ -48,7 +49,23 @@ export function CodeHandoffPanel({ client, runID, onOpenReceiptReview }: {
         <KeyValue label={t("待办操作", "Actions")} value={query.data.pending_action_count} />
         <KeyValue label={t("事件高水位", "Event high-water")} value={query.data.source_event_sequence} />
         <KeyValue label={t("生成时间", "Generated")} value={formatDate(query.data.generated_at)} />
+        {query.data.standard_code_delivery && <>
+          <KeyValue label={t("交付真实性", "Delivery truth")}
+            value={<StatusBadge status={query.data.standard_code_delivery.status} />} />
+          <KeyValue label={t("交付收据", "Delivery receipt")}
+            value={shortID(query.data.standard_code_delivery.receipt_sha256)} />
+          <KeyValue label={t("交付文件", "Delivery files")}
+            value={query.data.standard_code_delivery.diff.changed_count} />
+          <KeyValue label={t("交付命令", "Delivery commands")}
+            value={query.data.standard_code_delivery.verifications.length} />
+        </>}
       </dl>
+      {query.data.standard_code_delivery && <div className="delivery-handoff-truth">
+        <span><strong>{t("同一交付投影", "Shared delivery projection")}</strong>
+          <code>{query.data.standard_code_delivery.receipt_sha256}</code></span>
+        {onOpenDelivery && <button className="compact-command" onClick={onOpenDelivery} type="button">
+          {t("打开交付页", "Open delivery")}</button>}
+      </div>}
       <div className="handoff-export-actions">
         <span>{t("经 SHA-256 校验的下载", "SHA-256 verified download")}</span>
         <button className="compact-command" disabled={exportHandoff.isPending}

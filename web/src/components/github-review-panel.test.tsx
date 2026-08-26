@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CyberAgentClient } from "../api/client";
 import type { GitHubReviewWriteReviewResultView } from "../api/types";
+import { standardCodeDeliveryFixture } from "../test/standard-code-delivery";
 import { GitHubReviewPanel } from "./github-review-panel";
 
 const oid = "1".repeat(40);
@@ -44,13 +45,14 @@ function projection() {
       requested_reviewers: [], files: [], reviews: [], threads: [], loose_comments: [],
       check_suites: [], check_runs: [], jobs: [], artifacts: [], pagination: [],
       state: "verified", omissions: [], fingerprint: digest, fetched_at: now }],
-    evidence: [], writes: [],
+    evidence: [], writes: [], standard_code_delivery: standardCodeDeliveryFixture(),
   };
 }
 
 describe("GitHubReviewPanel", () => {
   it("retains an exact approved write across repository-panel remounts", async () => {
     const user = userEvent.setup();
+    const onOpenDelivery = vi.fn();
     const retained = { protocol_version: "github-review-api.v1",
       preview: { protocol_version: "github-review-write.v1", operation: "submit_review",
         approval_fingerprint: digest }, operation: { id: "write-1" },
@@ -62,9 +64,13 @@ describe("GitHubReviewPanel", () => {
         credential: projection().credential }]),
       githubReviewProjection: vi.fn().mockResolvedValue(projection()),
       executeGitHubWrite } as unknown as CyberAgentClient,
-    retained as unknown as GitHubReviewWriteReviewResultView);
+    retained as unknown as GitHubReviewWriteReviewResultView, onOpenDelivery);
 
     expect(await screen.findByText(digest)).toBeInTheDocument();
+    expect(screen.getByText("Delivery truth")).toBeInTheDocument();
+    expect(screen.getByText("f".repeat(64))).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Open delivery" }));
+    expect(onOpenDelivery).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole("button", { name: "Execute approved write" }));
     await waitFor(() => expect(executeGitHubWrite).toHaveBeenCalledWith(
       "run-1", "write-1", "approval-1"));
@@ -72,12 +78,14 @@ describe("GitHubReviewPanel", () => {
 });
 
 function renderPanel(client: CyberAgentClient,
-  retainedReview?: GitHubReviewWriteReviewResultView | null) {
+  retainedReview?: GitHubReviewWriteReviewResultView | null,
+  onOpenDelivery: () => void = vi.fn()) {
   const queryClient = new QueryClient({ defaultOptions: {
     queries: { retry: false }, mutations: { retry: false },
   } });
   return render(<QueryClientProvider client={queryClient}>
     <GitHubReviewPanel client={client} onOpenApprovals={vi.fn()}
+      onOpenDelivery={onOpenDelivery}
       retainedReview={retainedReview} runID="run-1" />
   </QueryClientProvider>);
 }

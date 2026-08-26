@@ -10,6 +10,7 @@ import type {
   GitHubReviewWriteExecuteResultView,
   GitHubReviewWriteReviewResultView,
 } from "./types";
+import { parseStandardCodeDelivery } from "./standard-code-delivery";
 
 const digest = /^[0-9a-f]{64}$/u;
 const objectID = /^[0-9a-f]{40,64}$/u;
@@ -141,6 +142,11 @@ export function parseGitHubProjection(value: unknown, runID: string): GitHubRevi
     !Array.isArray(value.evidence) || !value.evidence.every(evidence) ||
     !Array.isArray(value.writes) || !value.writes.every(write)) {
     throw new Error("Invalid GitHub review projection");
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "standard_code_delivery")) {
+    return { ...value,
+      standard_code_delivery: parseStandardCodeDelivery(value.standard_code_delivery, runID),
+    } as unknown as GitHubReviewProjectionView;
   }
   return value as unknown as GitHubReviewProjectionView;
 }

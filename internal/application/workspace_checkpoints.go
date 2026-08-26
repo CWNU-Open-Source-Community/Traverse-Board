@@ -1786,12 +1786,32 @@ func (s *WorkspaceCheckpointService) findUndoSource(ctx context.Context,
 		return workspacecheckpoint.Transaction{}, apperror.New(
 			apperror.CodeFailedPrecondition, "workspace checkpoint cursor is not initialized")
 	}
+	// A final delivery checkpoint is a read-only recovery anchor. Follow its
+	// bounded manual-parent chain so it does not hide the most recent reversible
+	// mutation from Undo.
+	cursorID := state.CurrentCheckpointID
+	for depth := 0; depth < 64; depth++ {
+		checkpoint, checkpointErr := s.store.GetWorkspaceCheckpoint(ctx, cursorID)
+		if checkpointErr != nil {
+			return workspacecheckpoint.Transaction{}, apperror.Normalize(checkpointErr)
+		}
+		if checkpoint.RunID != runID || checkpoint.WorkspaceID != state.WorkspaceID {
+			return workspacecheckpoint.Transaction{}, apperror.New(
+				apperror.CodeConflict, "workspace checkpoint cursor escaped its Run binding")
+		}
+		if checkpoint.Trigger != workspacecheckpoint.TriggerManual ||
+			checkpoint.Phase != workspacecheckpoint.PhaseStandalone ||
+			checkpoint.ParentCheckpointID == "" {
+			break
+		}
+		cursorID = checkpoint.ParentCheckpointID
+	}
 	transactions, err := s.store.ListWorkspaceCheckpointTransactions(ctx, runID, 2_000)
 	if err != nil {
 		return workspacecheckpoint.Transaction{}, apperror.Normalize(err)
 	}
 	for _, transaction := range transactions {
-		if transaction.AfterCheckpointID == state.CurrentCheckpointID &&
+		if transaction.AfterCheckpointID == cursorID &&
 			(transaction.Kind == workspacecheckpoint.TransactionFileTool ||
 				transaction.Kind == workspacecheckpoint.TransactionCommandBatch ||
 				transaction.Kind == workspacecheckpoint.TransactionGitMutation ||
@@ -2153,7 +2173,7 @@ func defaultWorkspaceForkRoot(sourceRoot, operationDigest string) (string, error
 func normalizeWorkspaceCheckpointOperator(value string) string {
 	value = strings.TrimSpace(value)
 	switch value {
-	case "cli_operator", "desktop_operator", "api_operator":
+	case "cli_operator", "desktop_operator", "api_operator", "run_supervisor":
 		return value
 	default:
 		return ""

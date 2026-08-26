@@ -504,7 +504,9 @@ func (a *API) runCodeHandoff(request *http.Request, runID string) (any, *Page, e
 	if err := rejectQuery(request.URL.Query()); err != nil {
 		return nil, nil, err
 	}
-	value, err := application.NewCodeHandoffService(a.store).Build(request.Context(), runID)
+	value, err := application.NewCodeHandoffService(a.store).
+		WithStandardCodeDelivery(a.standardCodeDeliveryController).
+		Build(request.Context(), runID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -625,7 +627,8 @@ func (a *API) runCodeHandoffExport(request *http.Request,
 			"Code handoff export format must appear exactly once")
 	}
 	format := formats[0]
-	value, err := application.NewCodeHandoffExportService(a.store).Build(
+	value, err := application.NewCodeHandoffExportService(a.store).
+		WithStandardCodeDelivery(a.standardCodeDeliveryController).Build(
 		request.Context(), runID, format)
 	if err != nil {
 		return nil, nil, err
@@ -1279,6 +1282,7 @@ func codeHandoffView(value application.CodeHandoff) CodeHandoffView {
 		DurableSources:        value.DurableSources,
 		PrivateBodiesIncluded: value.PrivateBodiesIncluded,
 		CompositeMutation:     value.CompositeMutation, ResumeAuthorized: value.ResumeAuthorized,
-		ExecutionStarted: value.ExecutionStarted,
+		ExecutionStarted:     value.ExecutionStarted,
+		StandardCodeDelivery: value.StandardCodeDelivery,
 	}
 }
