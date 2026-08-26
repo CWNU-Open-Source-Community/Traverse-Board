@@ -63,6 +63,7 @@ This directory separates user-facing documentation, current engineering state, a
 | [ADR 0138 / Standard Code packaged E2E](adr/0138-standard-code-packaged-e2e-foundation.md) | 摘要绑定固件、攻击矩阵、确切 ZIP bootstrap 与不把未执行项伪装成通过的发布语义 |
 | [ADR 0139 / Clean-install Schema Baseline](adr/0139-clean-install-schema-baseline.md) | 严格空库证明、生成式 schema 等价、原 migration ledger、原子失败与旧二进制回滚边界 |
 | [ADR 0140 / Durable Risk Escalation](adr/0140-durable-risk-escalation.md) | 精确风险 scope、有界 grant、Supervisor 等待/恢复、write-ahead fence 与漂移失效 |
+| [ADR 0141 / Durable-operation Identity Pilot](adr/0141-minimal-durable-operation-identity.md) | 无存储共享身份值对象、长度分隔摘要、Run creation / Scheduled Job 回放试点与领域 authority 边界 |
 | [ADR 索引](adr/) | 权限、持久化、执行、浏览器、Desktop 等架构决策 |
 
 ## 当前工程上下文 / Current Engineering Context

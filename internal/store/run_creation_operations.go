@@ -9,6 +9,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/durableoperation"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/session"
@@ -169,9 +170,12 @@ func validateControlledRunCreation(mission domain.Mission, run domain.Run,
 func validateRunCreationReplay(existing domain.RunCreationOperation,
 	requested domain.RunCreationOperation,
 ) error {
+	existingIdentity, existingErr := existing.ReplayIdentity()
+	requestedIdentity, requestedErr := requested.ReplayIdentity()
+	decision, decisionErr := durableoperation.Decide(existingIdentity, requestedIdentity)
 	if existing.ProtocolVersion != requested.ProtocolVersion ||
-		existing.KeyDigest != requested.KeyDigest ||
-		existing.RequestFingerprint != requested.RequestFingerprint ||
+		existingErr != nil || requestedErr != nil || decisionErr != nil ||
+		decision != durableoperation.DecisionReplay ||
 		existing.WorkspaceID != requested.WorkspaceID ||
 		existing.RequestedBy != requested.RequestedBy {
 		return apperror.New(apperror.CodeConflict,

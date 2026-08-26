@@ -54,6 +54,22 @@ durable operation kernel.
   changes. Expansion requires evidence from another independent flow and a separate
   review; it is not automatic after the pilot.
 
+## #165 pilot result
+
+[ADR 0141](../adr/0141-minimal-durable-operation-identity.md) implements the approved
+pilot with Controlled Run creation and Scheduled Job control. The shared package owns
+only validated digest identity, the existing length-delimited encoding, and the
+replay/conflict decision. Run creation retains Mission/Run/Session/mode construction,
+initial events, and its atomic transaction. Scheduled Jobs retain owner/root binding,
+authorization, revision fencing, schedules, leases, rounds, recovery, and events.
+
+Released digest bytes are pinned by cross-platform golden vectors. A populated v122
+fixture upgrades and restarts before replaying Run creation, Scheduled Job create, and
+Scheduled Job pause without adding ledger rows or events; changed intent preserves the
+original conflict category and text. Existing two-connection concurrency tests still
+converge on one durable identity for both pilots. No schema, trigger, receipt, or public
+contract changed, and this result does not approve another adopter automatically.
+
 ## Required invariant matrix for any consolidation
 
 | Case | Required outcome |

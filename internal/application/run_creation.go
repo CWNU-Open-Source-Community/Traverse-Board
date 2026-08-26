@@ -8,6 +8,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/durableoperation"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/hooks"
 	"cyberagent-workbench/internal/projectconfig"
@@ -94,7 +95,7 @@ func (s *ControlledRunCreationService) Create(ctx context.Context,
 	if existing, found, err := s.store.GetRunCreationOperation(ctx, keyDigest); err != nil {
 		return ControlledRunCreationResult{}, apperror.Normalize(err)
 	} else if found {
-		if err := validateControlledRunCreationIntent(existing, requestFingerprint,
+		if err := validateControlledRunCreationIntent(existing, keyDigest, requestFingerprint,
 			normalized.WorkspaceID, normalized.RequestedBy); err != nil {
 			return ControlledRunCreationResult{}, err
 		}
@@ -145,7 +146,7 @@ func (s *ControlledRunCreationService) Create(ctx context.Context,
 	if err != nil {
 		return ControlledRunCreationResult{}, apperror.Normalize(err)
 	}
-	if err := validateControlledRunCreationIntent(stored, requestFingerprint,
+	if err := validateControlledRunCreationIntent(stored, keyDigest, requestFingerprint,
 		normalized.WorkspaceID, normalized.RequestedBy); err != nil {
 		return ControlledRunCreationResult{}, err
 	}
@@ -290,13 +291,20 @@ func normalizeControlledRunCreationRequest(request ControlledRunCreationRequest)
 }
 
 func validateControlledRunCreationIntent(operation domain.RunCreationOperation,
-	requestFingerprint string, workspaceID string, requestedBy string,
+	keyDigest string, requestFingerprint string, workspaceID string, requestedBy string,
 ) error {
 	if err := operation.Validate(); err != nil {
 		return apperror.Wrap(apperror.CodeConflict,
 			"stored Run creation operation is invalid", err)
 	}
-	if operation.RequestFingerprint != requestFingerprint ||
+	storedIdentity, storedErr := operation.ReplayIdentity()
+	requestedIdentity, requestedErr := (domain.RunCreationOperation{
+		ProtocolVersion: domain.RunCreationProtocolVersion,
+		KeyDigest:       keyDigest, RequestFingerprint: requestFingerprint,
+	}).ReplayIdentity()
+	decision, decisionErr := durableoperation.Decide(storedIdentity, requestedIdentity)
+	if storedErr != nil || requestedErr != nil || decisionErr != nil ||
+		decision != durableoperation.DecisionReplay ||
 		operation.WorkspaceID != workspaceID || operation.RequestedBy != requestedBy {
 		return apperror.New(apperror.CodeConflict,
 			"Run creation idempotency key was already used for a different request")

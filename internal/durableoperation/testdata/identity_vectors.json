@@ -1,0 +1,52 @@
+{
+  "vectors": [
+    {
+      "name": "run_creation_key",
+      "domain": "run_creation_operation.v1",
+      "fields": ["run-create-operation-0001"],
+      "sha256": "9b2ff570e61ef169aa472e8efa7681b161e11a03c72890feb35321d07f74e82d"
+    },
+    {
+      "name": "run_creation_request",
+      "domain": "run_creation_request.v1",
+      "fields": ["Implement the parser", "workspace-controlled-create", "code", "code", "plan", "http_control"],
+      "sha256": "dd5310aa4cfa7866278471cebd0f680e0586d01760e70932e46fb47e88fcef4e"
+    },
+    {
+      "name": "scheduled_unicode",
+      "domain": "scheduled_job_create_request.v1",
+      "fields": ["run-東京", "{\"message\":\"修复\",\"empty\":\"\"}", "operator-é", "false"],
+      "sha256": "89c086217f03a7597266d0c7d018397fc221f2b35a9ca39821e323e60feeffb2"
+    },
+    {
+      "name": "boundary_left",
+      "domain": "run_creation_request.v1",
+      "fields": ["ab", "c"],
+      "sha256": "f046122e17074491171b1b6c1478ff14e5b08fdf360b4e0b022e9b231fb75bfb"
+    },
+    {
+      "name": "boundary_right",
+      "domain": "run_creation_request.v1",
+      "fields": ["a", "bc"],
+      "sha256": "7cc787edb650a0a4cf8213386acb34a3cc061bffe8470209784679ee437aae1a"
+    },
+    {
+      "name": "empty_middle",
+      "domain": "scheduled_job_transition_request.v1",
+      "fields": ["alpha", "", "omega"],
+      "sha256": "5f6bc831e8cc4f85b1d763964d162517c4456f6d41b8ba099b12e21bedec557f"
+    },
+    {
+      "name": "order_forward",
+      "domain": "scheduled_job_operation.v1",
+      "fields": ["first", "second"],
+      "sha256": "f27b338c6ab1740eb1a700b3118cfe81b70496ad731cb63e653f6fd5aa746e50"
+    },
+    {
+      "name": "order_reverse",
+      "domain": "scheduled_job_operation.v1",
+      "fields": ["second", "first"],
+      "sha256": "515cd68b773f162a4b98f85576a33cce7ea28c36701127a0e0b479026ba28390"
+    }
+  ]
+}
