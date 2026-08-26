@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 
+	"cyberagent-workbench/internal/artifact"
+	"cyberagent-workbench/internal/outputsafe"
 	"cyberagent-workbench/internal/packagede2e"
 	"cyberagent-workbench/internal/sandbox"
 
@@ -159,6 +161,24 @@ func TestStandardCodeSecurityExpectedProbeDetailsCoverFrozenMatrix(t *testing.T)
 	}
 	if details := standardCodeSecurityExpectedProbeDetails("not-in-frozen-matrix"); len(details) != 0 {
 		t.Fatalf("unknown probe acquired expected details: %v", details)
+	}
+}
+
+func TestStandardCodeSecurityControlOutputRetainsFramedReceiptAfterSanitizing(t *testing.T) {
+	receipt := standardCodeSecurityProbeReceipt{
+		Protocol: standardCodeSecurityProbeProtocol,
+		Case:     "output_control_ansi",
+		Blocked:  true,
+		Detail:   "control-output",
+	}
+	stdout, _ := standardCodeSecurityExpectedProbeStreams(receipt)
+	sanitizer := &outputsafe.RedactingStream{}
+	safe := sanitizer.Feed([]byte(stdout)) + sanitizer.Flush()
+	if strings.ContainsAny(safe, "\x1b\r") || strings.ContainsRune(safe, '\u202e') {
+		t.Fatalf("control output remained unsafe: %q", safe)
+	}
+	if got := parseSecurityProbeReceipt(&artifact.Blob{Content: safe}, receipt.Case); got != receipt {
+		t.Fatalf("framed receipt=%+v, want %+v; output=%q", got, receipt, safe)
 	}
 }
 

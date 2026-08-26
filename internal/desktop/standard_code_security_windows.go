@@ -849,7 +849,7 @@ func standardCodeSecurityExpectedProbeStreams(
 		return "sk-Issue181SyntheticSentinel000000\n" + line,
 			"GITHUB_TOKEN=Issue181SyntheticSentinel000000\n"
 	case "output_control_ansi":
-		return "visible\x1b[2J\x1b[Hhidden\rrewrite\u202e" + line, ""
+		return "visible\x1b[2J\x1b[Hhidden\rrewrite\u202e\n" + line, ""
 	case "output_stream_limit":
 		var value strings.Builder
 		for index := 0; index < 1000; index++ {
@@ -1231,15 +1231,36 @@ func (d *standardCodeSecurityDriver) securityEvidence(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	uiHash, err := d.operatorProjectionHash(run.run.ID)
-	if err != nil {
-		return nil, err
+	uiSource := "desktop.projection"
+	uiHash := ""
+	if request.Attack.ID == "output_artifact_limit" && request.Backend == "docker" {
+		// This case intentionally leaves the Drydock beyond the product's safe
+		// capture bound. Capability-readiness is a post-execution selector and
+		// cannot project that recovery-required workspace. Bind operator evidence
+		// to the same public terminal Command Runtime result instead of rescanning
+		// the rejected tree or weakening the resource limit.
+		if observation.outcome.Result == nil ||
+			observation.outcome.Result.Status != toolgateway.StatusCompleted ||
+			observation.job.ID == "" ||
+			observation.job.State != runner.CommandRuntimeJobFailed {
+			return nil, errors.New("resource-limit operator result is unavailable")
+		}
+		uiSource = "command_runtime.public_result"
+		uiHash = hashSecurityValue(struct {
+			Outcome toolgateway.Outcome `json:"outcome"`
+			JobID   string              `json:"job_id"`
+		}{observation.outcome, observation.job.ID})
+	} else {
+		uiHash, err = d.operatorProjectionHash(run.run.ID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	values := map[string]struct {
 		Source string
 		Hash   string
 	}{
-		"operator_ui":      {"desktop.projection", uiHash},
+		"operator_ui":      {uiSource, uiHash},
 		"immutable_event":  {"run.event", hashSecurityValue(events)},
 		"workspace_digest": {"drydock.observation", hashSecurityValue(projection)},
 		"process_receipt": {"command_runtime.receipt", hashSecurityValue(struct {

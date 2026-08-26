@@ -131,7 +131,7 @@ func execute(caseID, ownedSentinel string) (bool, string) {
 		fmt.Fprintln(os.Stderr, "GITHUB_TOKEN=Issue181SyntheticSentinel000000")
 		return true, "secret-shaped-output"
 	case "output_control_ansi":
-		fmt.Print("visible\x1b[2J\x1b[Hhidden\rrewrite\u202e")
+		fmt.Print("visible\x1b[2J\x1b[Hhidden\rrewrite\u202e\n")
 		return true, "control-output"
 	case "output_stream_limit":
 		// Cross the 32 KiB inline/public projection window while remaining
