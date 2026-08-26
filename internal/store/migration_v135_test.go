@@ -10,7 +10,7 @@ import (
 func removeSchemaV135ForTestStatements() []string {
 	createCalls := standardCodeSupervisorToolCallCreate(
 		"run_supervisor_tool_calls_v134", false)
-	return []string{
+	removeV135 := []string{
 		`PRAGMA foreign_keys = OFF`,
 		`PRAGMA legacy_alter_table = ON`,
 		`DROP TRIGGER trg_standard_code_supervisor_ledger_insert`,
@@ -51,6 +51,7 @@ func removeSchemaV135ForTestStatements() []string {
 		`PRAGMA legacy_alter_table = OFF`,
 		`PRAGMA foreign_keys = ON`,
 	}
+	return append(removeSchemaV136ForTestStatements(), removeV135...)
 }
 
 func TestSchemaV135AddsEmptyImmutableStandardCodeSupervisorLedger(t *testing.T) {
@@ -60,7 +61,8 @@ func TestSchemaV135AddsEmptyImmutableStandardCodeSupervisorLedger(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range removeSchemaV135ForTestStatements() {
+	downStatements := removeSchemaV135ForTestStatements()
+	for _, statement := range downStatements {
 		if _, err := state.db.ExecContext(ctx, statement); err != nil {
 			state.Close()
 			t.Fatalf("restore schema v134 with %q: %v", statement, err)
@@ -95,8 +97,9 @@ func TestSchemaV135AddsEmptyImmutableStandardCodeSupervisorLedger(t *testing.T) 
 		t.Fatal(err)
 	}
 	defer upgraded.Close()
-	if version, err := upgraded.SchemaVersion(ctx); err != nil || version != 135 {
-		t.Fatalf("upgraded schema version=%d want=135 err=%v", version, err)
+	if version, err := upgraded.SchemaVersion(ctx); err != nil || version != LatestSchemaVersion {
+		t.Fatalf("upgraded schema version=%d want=%d err=%v", version,
+			LatestSchemaVersion, err)
 	}
 	var count int
 	if err := upgraded.db.QueryRowContext(ctx,

@@ -1386,7 +1386,7 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 		{Path: HostCommandProposalCollectionPathTemplate,
 			OperationID: "listHostCommandProposals",
 			Summary:     "List exact host command proposals", Tag: "Control",
-			Description: "Returns exact process or canonical PowerShell/Git Bash host command proposals for approval-mode Runs. Executable identity, every argv item, working directory, environment names and digest, host-network intent, and the non-sandboxed boundary are explicit; environment values and raw output are omitted.",
+			Description: "Returns exact process or canonical PowerShell/Git Bash host command proposals for approval-mode Runs and durable risk-escalation proposals for Workspace Access Runs. Executable identity, every argv item, working directory, environment names and digest, network targets and purpose, credential kinds without values, host paths, policy refusal, immutable Run/Supervisor/snapshot bindings, resource limits, and the non-sandboxed boundary are explicit; environment values, credential values, capability bearers, and raw output are omitted.",
 			DataType:    reflect.TypeOf(HostCommandProposalView{}),
 			Collection:  true, NotFound: true,
 			Parameters: []openAPIParameter{runID,
@@ -1397,7 +1397,7 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 		{Path: HostCommandProposalDetailPathTemplate,
 			OperationID: "getHostCommandProposal",
 			Summary:     "Inspect one exact host command proposal", Tag: "Control",
-			Description: "Returns the exact immutable command envelope, operator review, result, and metadata-only receipt. The command is non-sandboxed, may use host networking, cannot persist a terminal, and is never automatically retried.",
+			Description: "Returns the exact immutable command envelope, operator review, bounded current-Run grant and consumption metadata when present, invalidation state, result, and metadata-only receipt. A risk-escalation wait is durable across renderer close or application restart; a prepared execution without a durable result is uncertain and is never retried.",
 			DataType:    reflect.TypeOf(HostCommandProposalView{}),
 			NotFound:    true, Parameters: []openAPIParameter{runID, proposalID}},
 		{Path: HostCommandProposalReviewPathTemplate,
@@ -1405,7 +1405,7 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			OperationID: "reviewHostCommandProposal",
 			Summary:     "Approve or deny one exact host command proposal",
 			Tag:         "Control",
-			Description: "Records an independent operator decision. Approval executes only the reviewed executable SHA, argv, cwd, environment digest, network intent, and timeout once through the host runner. A prepared execution without a durable result is uncertain and cannot be retried automatically.",
+			Description: "Records an independent operator decision. Approval may authorize the exact call once or create an explicitly bounded current-Run grant with an operator-selected TTL and use count; the grant remains bound to the exact risk scope, Workspace root, mode, interaction, execution-profile and permission revisions, and capability generation. The same durable Supervisor call resumes after the decision. A prepared execution without a durable result is uncertain and cannot be retried automatically.",
 			DataType:    reflect.TypeOf(HostCommandProposalView{}),
 			RequestType: reflect.TypeOf(HostCommandProposalReviewRequestView{}),
 			Control:     true, NotFound: true,
@@ -2089,6 +2089,24 @@ func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[str
 	if typeName == "StandardCodePresetControlView" && fieldName == "next_steps" {
 		schema["maxItems"] = 7
 	}
+	if typeName == "HostCommandProposalView" {
+		switch fieldName {
+		case "risk_kinds":
+			schema["minItems"] = 1
+			schema["maxItems"] = 6
+			schema["uniqueItems"] = true
+		case "network_targets", "credential_kinds", "host_paths":
+			schema["minItems"] = 1
+			schema["maxItems"] = runner.MaxRiskEscalationItems
+			schema["uniqueItems"] = true
+		case "executable_sha256", "environment_sha256", "spec_fingerprint",
+			"fingerprint", "workspace_root_fingerprint", "capability_generation",
+			"scope_fingerprint":
+			schema["minLength"] = 64
+			schema["maxLength"] = 64
+			schema["pattern"] = "^[0-9a-f]{64}$"
+		}
+	}
 	if typeName == "StandardCodeBackendReadinessView" && fieldName == "blocked_by" {
 		schema["maxItems"] = len(openAPIFieldEnums["StandardCodeBackendReadinessView.blocked_by"])
 	}
@@ -2556,6 +2574,18 @@ var openAPIFieldEnums = map[string][]string{
 	"ApprovalDecisionControlView.version":                      {application.ApprovalControlProtocolVersion},
 	"ApprovalDecisionControlView.action":                       {string(application.ApprovalControlApproveOnce), string(application.ApprovalControlDeny)},
 	"ApprovalDecisionControlView.status":                       {string(approval.StatusApproved), string(approval.StatusDenied)},
+	"HostCommandProposalReviewRequestView.version":             {runner.HostCommandReviewProtocolVersion},
+	"HostCommandProposalReviewRequestView.decision":            {string(runner.HostCommandReviewApprove), string(runner.HostCommandReviewDeny)},
+	"HostCommandProposalReviewRequestView.authorization":       {"once", "run_scope"},
+	"HostCommandProposalReviewView.decision":                   {string(runner.HostCommandReviewApprove), string(runner.HostCommandReviewDeny)},
+	"HostCommandProposalView.protocol_version":                 {runner.HostCommandProposalProtocolVersion, runner.RiskEscalationProtocolVersion},
+	"HostCommandProposalView.policy_version":                   {runner.HostCommandPolicyVersion, runner.RiskEscalationPolicyVersion},
+	"HostCommandProposalView.permission_mode":                  {string(domain.RunExecutionPermissionApproval), string(domain.RunExecutionPermissionWorkspaceAccess)},
+	"HostCommandProposalView.network_intent":                   {string(runner.HostNetworkIntentHost)},
+	"HostCommandProposalView.state":                            {"waiting_approval", "approved", "denied", "completed", "failed", "invalidated"},
+	"HostCommandProposalView.approval_status":                  {string(approval.StatusPending), string(approval.StatusApproved), string(approval.StatusDenied)},
+	"HostCommandProposalView.risk_kinds":                       {string(runner.RiskEscalationNetwork), string(runner.RiskEscalationCredential), string(runner.RiskEscalationHostPath), string(runner.RiskEscalationPolicyDenial), string(runner.RiskEscalationNonWhitelistedTool), string(runner.RiskEscalationOtherHighRisk)},
+	"HostCommandProposalResultView.status":                     {"completed", "failed"},
 	"SupervisorCheckpointView.phase":                           {"idle", "turn_started", "turn_failed", "waiting", "run_completed", "run_failed"},
 	"SupervisorCheckpointView.repair_phase":                    {"pending", "exhausted"},
 	"RunExecutionLeaseView.status":                             {string(domain.RunExecutionLeaseActive), string(domain.RunExecutionLeaseReleased)},
@@ -2726,6 +2756,20 @@ var openAPIFieldMinimums = map[string]float64{
 	"PlanDirectionControlView.direction":                                        1,
 	"PlanDirectionControlView.work_item_count":                                  1,
 	"ApprovalQueueItemView.version":                                             1,
+	"HostCommandProposalReviewRequestView.grant_ttl_seconds":                    1,
+	"HostCommandProposalReviewRequestView.grant_max_uses":                       1,
+	"HostCommandProposalView.timeout_milliseconds":                              1,
+	"HostCommandProposalView.permission_revision":                               1,
+	"HostCommandProposalView.supervisor_turn":                                   1,
+	"HostCommandProposalView.mode_revision":                                     1,
+	"HostCommandProposalView.interaction_revision":                              1,
+	"HostCommandProposalView.execution_profile_revision":                        1,
+	"HostCommandProposalView.max_output_bytes":                                  1,
+	"HostCommandProposalView.active_process_limit":                              1,
+	"HostCommandProposalView.process_memory_bytes":                              1,
+	"HostCommandProposalView.grant_generation":                                  1,
+	"HostCommandProposalView.grant_max_uses":                                    1,
+	"HostCommandProposalView.grant_uses_remaining":                              0,
 	"ProviderDiagnosticView.duration_ms":                                        0,
 	"RunWakeScheduleRequestView.max_attempts":                                   1,
 	"RunWakeScheduleRequestView.initial_delay_seconds":                          0,
@@ -2828,6 +2872,10 @@ var openAPIFieldMinimums = map[string]float64{
 }
 
 var openAPIFieldMaximums = map[string]float64{
+	"HostCommandProposalReviewRequestView.grant_ttl_seconds":            runner.MaxRiskEscalationGrantTTL.Seconds(),
+	"HostCommandProposalReviewRequestView.grant_max_uses":               runner.MaxRiskEscalationGrantUses,
+	"HostCommandProposalView.grant_max_uses":                            runner.MaxRiskEscalationGrantUses,
+	"HostCommandProposalView.grant_uses_remaining":                      runner.MaxRiskEscalationGrantUses,
 	"ScheduledJobScheduleRequestView.interval_seconds":                  domain.MaxScheduledJobIntervalSeconds,
 	"ScheduledJobCreateRequestView.max_rounds":                          domain.MaxScheduledJobRounds,
 	"ScheduledJobCreateRequestView.max_model_calls":                     domain.MaxScheduledJobModelCalls,
@@ -2926,6 +2974,10 @@ var openAPIFieldMaximums = map[string]float64{
 }
 
 var openAPIFieldMaxLengths = map[string]int{
+	"HostCommandProposalReviewRequestView.reason":                approval.MaxReasonRunes,
+	"HostCommandProposalView.network_purpose":                    runner.MaxRiskEscalationReasonRunes,
+	"HostCommandProposalView.policy_reason":                      runner.MaxRiskEscalationReasonRunes,
+	"HostCommandProposalView.other_risk_reason":                  runner.MaxRiskEscalationReasonRunes,
 	"StandardCodePresetControlRequestView.goal":                  domain.MaxRunCreationGoalBytes,
 	"StandardCodePresetControlRequestView.expected_trust_digest": 64,
 	"StandardCodePresetControlView.trust_digest":                 64,

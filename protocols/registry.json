@@ -330,8 +330,10 @@
         ]
       },
       "active_identifiers": [
+        "approval_grant_consumption.v1",
         "approval_grant_operation_key.v1",
         "approval_operation_key.v1",
+        "approval_record.v1",
         "once_command.v1",
         "once_command_approval.v1",
         "once_command_policy.v1",
@@ -1432,6 +1434,12 @@
         "host_command_proposal_review_operation.v1",
         "host_command_review.v1",
         "once_execution.v1",
+        "risk_escalation.v1",
+        "risk_escalation_execution.v1",
+        "risk_escalation_invalidation.v1",
+        "risk_escalation_policy.v1",
+        "risk_escalation_result.v1",
+        "risk_escalation_resume.v1",
         "terminal_agent_input_audit.v1",
         "terminal_agent_input_bridge.v1",
         "terminal_input_lease.v1"

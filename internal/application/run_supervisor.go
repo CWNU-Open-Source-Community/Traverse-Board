@@ -762,9 +762,13 @@ func (s *RunSupervisor) stepWithLeaseMode(ctx context.Context, lease domain.RunE
 		return result, failure
 	}
 	if len(toolRounds) > 0 {
-		toolRounds, err = s.resumeSupervisorTools(ctx, turn, toolRounds, standardCode)
+		var waitingApproval bool
+		toolRounds, waitingApproval, err = s.resumeSupervisorTools(ctx, turn, toolRounds, standardCode)
 		if err != nil {
 			return result, apperror.Normalize(err)
+		}
+		if waitingApproval {
+			return supervisorApprovalWaitingResult(result, toolRounds), nil
 		}
 	}
 	refreshStandardCodeSupervisorRequest(&baseRequest, standardCode)
@@ -927,10 +931,14 @@ func (s *RunSupervisor) stepWithLeaseMode(ctx context.Context, lease domain.RunE
 				if storeErr != nil {
 					return result, apperror.Normalize(storeErr)
 				}
-				toolRounds, storeErr = s.resumeSupervisorTools(ctx, turn, toolRounds,
+				var waitingApproval bool
+				toolRounds, waitingApproval, storeErr = s.resumeSupervisorTools(ctx, turn, toolRounds,
 					standardCode)
 				if storeErr != nil {
 					return result, apperror.Normalize(storeErr)
+				}
+				if waitingApproval {
+					return supervisorApprovalWaitingResult(result, toolRounds), nil
 				}
 				workItems, storeErr = s.store.ListWorkItems(ctx, domain.WorkItemFilter{
 					RunID: turn.Run.ID,
@@ -1204,6 +1212,10 @@ func (s *RunSupervisor) drainOperatorSteeringWithLease(ctx context.Context,
 			return err
 		}
 		result.RunStatus = step.RunStatus
+		if step.RunStatus == domain.RunWaitingApproval {
+			result.StopReason = "waiting_approval"
+			return nil
+		}
 		if step.Action.Kind == domain.RootActionFinish {
 			result.StopReason = "root_finish"
 			return nil
@@ -1228,6 +1240,20 @@ func (s *RunSupervisor) drainOperatorSteeringWithLease(ctx context.Context,
 		result.StopReason = "step_limit"
 	}
 	return nil
+}
+
+func supervisorApprovalWaitingResult(result LifecycleResult,
+	rounds []domain.SupervisorToolRound,
+) LifecycleResult {
+	result.Status = LifecycleTurnCompleted
+	result.RunStatus = domain.RunWaitingApproval
+	result.Action = domain.RootAction{Version: domain.RootLifecycleVersion,
+		Kind:    domain.RootActionWait,
+		Message: "Waiting for operator review of the exact high-risk action.",
+		Reason:  "waiting_approval:risk_escalation"}
+	result.Text = result.Action.Message
+	result.ToolRounds, result.ToolCalls = supervisorToolStats(rounds)
+	return result
 }
 
 func (s *RunSupervisor) executeWithLease(ctx context.Context, lease domain.RunExecutionLease,

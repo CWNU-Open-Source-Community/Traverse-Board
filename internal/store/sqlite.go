@@ -376,6 +376,7 @@ func migrationPlan() []migration {
 		{Version: 133, Name: "atomic Standard Code preset and pause intent", Statements: standardCodePresetStatements, DisableForeignKeys: true},
 		{Version: 134, Name: "Run-scoped web search fetch and citation evidence", Statements: webEvidenceStatements, DisableForeignKeys: true},
 		{Version: 135, Name: "bounded Standard Code Supervisor completion and Code Intel call ledger", Statements: standardCodeSupervisorStatements, DisableForeignKeys: true},
+		{Version: 136, Name: "durable exact risk escalation approvals and bounded grants", Statements: riskEscalationStatements},
 	}
 }
 

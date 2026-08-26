@@ -17,6 +17,7 @@ import (
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/runmutation"
+	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/webevidence"
 )
@@ -186,17 +187,26 @@ func normalizeSupervisorToolCallsForStore(calls []llm.ToolCall, runID string, tu
 				"supervisor tool payload exceeds its durable limit")
 		}
 		normalized[index].Arguments = append(json.RawMessage(nil), safe...)
-		if toolgateway.IsAgentCodeTool(name) {
+		riskEscalationAuthority := false
+		if name == toolgateway.HostCommandProposeTool {
+			hostSpec, _, hostErr := toolgateway.NormalizeHostCommandProposalPayload(safe)
+			if hostErr != nil {
+				return nil, apperror.Wrap(apperror.CodeInvalidArgument,
+					"host command supervisor payload is invalid", hostErr)
+			}
+			riskEscalationAuthority = hostSpec.Version == runner.RiskEscalationProtocolVersion
+		}
+		if toolgateway.IsAgentCodeTool(name) || riskEscalationAuthority {
 			authority, authorityErr := toolgateway.DecodeAgentCodeCallAuthority(
 				normalized[index].Authority)
 			if authorityErr != nil || authority.RunID != runID {
 				return nil, apperror.New(apperror.CodeInvalidArgument,
-					"agent code supervisor tool is missing its exact durable authority")
+					"agent code or risk escalation supervisor tool is missing its exact durable authority")
 			}
 			canonicalAuthority, authorityErr := toolgateway.EncodeAgentCodeCallAuthority(authority)
 			if authorityErr != nil || len(canonicalAuthority) > domain.MaxSupervisorToolAuthorityBytes {
 				return nil, apperror.New(apperror.CodeInvalidArgument,
-					"agent code supervisor tool authority is invalid")
+					"agent code or risk escalation supervisor tool authority is invalid")
 			}
 			normalized[index].Authority = canonicalAuthority
 		} else if name == toolgateway.CommandRuntimeTool {

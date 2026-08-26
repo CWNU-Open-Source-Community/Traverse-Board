@@ -18,6 +18,7 @@ import (
 	"cyberagent-workbench/internal/mcp"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/runmutation"
+	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/webevidence"
 	"cyberagent-workbench/internal/workspace"
@@ -26,6 +27,8 @@ import (
 const supervisorToolResultVersion = "supervisor_tool_result.v1"
 
 const supervisorToolCallTimeout = 30 * time.Second
+
+var errSupervisorWaitingApproval = errors.New("Supervisor tool is waiting for operator approval")
 
 type supervisorAgentCodeTools struct {
 	Capabilities toolgateway.AgentCodeCapabilitySnapshot
@@ -113,7 +116,8 @@ func supervisorStructuredToolSpecs(surface domain.ExecutionSurface,
 			continue
 		}
 		if definition.Name == toolgateway.HostCommandProposeTool &&
-			(permissionMode != domain.RunExecutionPermissionApproval ||
+			(permissionMode != domain.RunExecutionPermissionApproval &&
+				permissionMode != domain.RunExecutionPermissionWorkspaceAccess ||
 				surface != domain.ExecutionSurfaceCode) {
 			continue
 		}
@@ -253,10 +257,11 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 				"provider requested Skill candidate proposal without the explicit generator Skill")
 		}
 		if name == toolgateway.HostCommandProposeTool &&
-			(permissionMode != domain.RunExecutionPermissionApproval ||
+			(permissionMode != domain.RunExecutionPermissionApproval &&
+				permissionMode != domain.RunExecutionPermissionWorkspaceAccess ||
 				surface != domain.ExecutionSurfaceCode) {
 			return nil, errors.New(
-				"provider requested host command proposal outside Code/approval mode")
+				"provider requested host command proposal outside Code approval or Workspace Access mode")
 		}
 		if name == toolgateway.DebugTerminalTool &&
 			(!debugTerminalEnabled || surface != domain.ExecutionSurfaceCode ||
@@ -281,6 +286,16 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 		payload, err := toolgateway.NormalizeSupervisorToolPayload(name, call.Arguments)
 		if err != nil {
 			return nil, err
+		}
+		if name == toolgateway.HostCommandProposeTool {
+			hostSpec, _, hostErr := toolgateway.NormalizeHostCommandProposalPayload(payload)
+			if hostErr != nil {
+				return nil, hostErr
+			}
+			if (permissionMode == domain.RunExecutionPermissionWorkspaceAccess) !=
+				(hostSpec.Version == runner.RiskEscalationProtocolVersion) {
+				return nil, errors.New("host command proposal protocol does not match the current permission mode")
+			}
 		}
 		if toolgateway.IsCodeIntelTool(name) {
 			input, _, _ := toolgateway.NormalizeCodeIntelPayload(name, payload)
@@ -309,6 +324,13 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 			StreamResponseID: call.StreamResponseID, StreamItemID: call.StreamItemID,
 			StreamCallID: call.StreamCallID}
 		if toolgateway.IsAgentCodeTool(name) {
+			out[index].Authority = append(json.RawMessage(nil), agentCodeAuthority...)
+		}
+		if name == toolgateway.HostCommandProposeTool &&
+			permissionMode == domain.RunExecutionPermissionWorkspaceAccess {
+			if len(agentCodeAuthority) == 0 {
+				return nil, errors.New("risk escalation requires current Agent Code authority")
+			}
 			out[index].Authority = append(json.RawMessage(nil), agentCodeAuthority...)
 		}
 		if toolgateway.IsCodeIntelTool(name) {
@@ -561,7 +583,7 @@ func supervisorToolOperationKey(runID string, turn int, name toolgateway.ToolNam
 
 func (s *RunSupervisor) resumeSupervisorTools(ctx context.Context, turn domain.SupervisorTurn,
 	rounds []domain.SupervisorToolRound, standardCode ...*standardCodeSupervisorTurn,
-) ([]domain.SupervisorToolRound, error) {
+) ([]domain.SupervisorToolRound, bool, error) {
 	var completion *standardCodeSupervisorTurn
 	if len(standardCode) > 0 {
 		completion = standardCode[0]
@@ -571,7 +593,7 @@ func (s *RunSupervisor) resumeSupervisorTools(ctx context.Context, turn domain.S
 			if call.Status != domain.SupervisorToolPending {
 				if completion != nil {
 					if err := completion.ObserveCall(ctx, call); err != nil {
-						return rounds, apperror.Normalize(err)
+						return rounds, false, apperror.Normalize(err)
 					}
 				}
 				continue
@@ -581,48 +603,51 @@ func (s *RunSupervisor) resumeSupervisorTools(ctx context.Context, turn domain.S
 			if completion != nil {
 				decision, err = completion.Authorize(ctx, call)
 				if err != nil {
-					return rounds, apperror.Normalize(err)
+					return rounds, false, apperror.Normalize(err)
 				}
 			}
 			if _, err := s.store.RecordSupervisorToolExecutionStarted(ctx, turn.Checkpoint,
 				call.CallID); err != nil {
-				return rounds, apperror.Normalize(err)
+				return rounds, false, apperror.Normalize(err)
 			}
 			var result domain.SupervisorToolResult
 			if decision.Allowed {
 				result, err = s.invokeSupervisorTool(ctx, turn, call)
 				if err != nil {
-					return rounds, err
+					if errors.Is(err, errSupervisorWaitingApproval) {
+						return rounds, true, nil
+					}
+					return rounds, false, err
 				}
 			} else if decision.Result != nil {
 				result = *decision.Result
 			} else {
-				return rounds, apperror.New(apperror.CodeFailedPrecondition,
+				return rounds, false, apperror.New(apperror.CodeFailedPrecondition,
 					"Standard Code Supervisor denial omitted its durable result")
 			}
 			stored, _, err := s.store.RecordSupervisorToolResult(ctx, turn.Checkpoint, result)
 			if err != nil {
-				return rounds, apperror.Normalize(err)
+				return rounds, false, apperror.Normalize(err)
 			}
 			if completion != nil {
 				if err := completion.ObserveCall(ctx, stored); err != nil {
-					return rounds, apperror.Normalize(err)
+					return rounds, false, apperror.Normalize(err)
 				}
 			}
 		}
 	}
 	stored, err := s.store.ListSupervisorToolRounds(ctx, turn.Checkpoint)
 	if err != nil {
-		return rounds, err
+		return rounds, false, err
 	}
 	if completion != nil {
 		for _, round := range stored {
 			if err := completion.ObserveRound(ctx, round); err != nil {
-				return stored, apperror.Normalize(err)
+				return stored, false, apperror.Normalize(err)
 			}
 		}
 	}
-	return stored, nil
+	return stored, false, nil
 }
 
 func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.SupervisorTurn,
@@ -635,7 +660,30 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		RunID: call.RunID, AgentID: turn.Agent.ID, SessionID: turn.Run.SessionID,
 		WorkspaceID: turn.Mission.WorkspaceID,
 		LeaseID:     turn.Checkpoint.LeaseID, LeaseGeneration: turn.Checkpoint.LeaseGeneration,
-		RequestedBy: "run_supervisor",
+		RequestedBy:    "run_supervisor",
+		SupervisorTurn: call.Turn, SupervisorToolCallID: call.CallID,
+	}
+	if name == toolgateway.HostCommandProposeTool && len(call.AuthorityJSON) > 0 {
+		authority, authorityErr := toolgateway.DecodeAgentCodeCallAuthority(
+			json.RawMessage(call.AuthorityJSON))
+		if authorityErr != nil || authority.RunID != call.RunID ||
+			authority.RootAgentID != turn.Agent.ID || authority.SessionID != turn.Run.SessionID ||
+			authority.MissionID != turn.Mission.ID ||
+			authority.WorkspaceID != turn.Mission.WorkspaceID ||
+			authority.PermissionMode != domain.RunExecutionPermissionWorkspaceAccess {
+			return domain.SupervisorToolResult{}, apperror.New(apperror.CodeFailedPrecondition,
+				"durable risk escalation authority does not match the active Supervisor turn")
+		}
+		toolCall.MissionID = authority.MissionID
+		toolCall.RootFingerprint = authority.RootFingerprint
+		toolCall.Surface = authority.Surface
+		toolCall.Phase = authority.Phase
+		toolCall.Role = authority.Role
+		toolCall.Profile = authority.Profile
+		toolCall.PermissionMode = authority.PermissionMode
+		toolCall.ModeRevision = authority.ModeRevision
+		toolCall.PermissionRevision = authority.PermissionRevision
+		toolCall.CapabilityGeneration = authority.CapabilityGeneration
 	}
 	if toolgateway.IsAgentCodeTool(name) || toolgateway.IsCodeIntelTool(name) {
 		authority, authorityErr := toolgateway.DecodeAgentCodeCallAuthority(
@@ -735,6 +783,10 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 			CallID: call.CallID, Status: domain.SupervisorToolFailed, ResultJSON: string(encoded),
 			ErrorCode: string(code), CompletedAt: completedAt,
 		}, nil
+	}
+	if outcome.Proposal != nil && outcome.Proposal.Status == toolgateway.StatusProposed &&
+		name == toolgateway.HostCommandProposeTool {
+		return domain.SupervisorToolResult{}, errSupervisorWaitingApproval
 	}
 	if outcome.Result == nil {
 		return domain.SupervisorToolResult{}, apperror.New(apperror.CodeInternal,

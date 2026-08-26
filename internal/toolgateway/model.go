@@ -225,6 +225,8 @@ type ToolCall struct {
 	ModeRevision          int64                             `json:"mode_revision,omitempty"`
 	PermissionRevision    int64                             `json:"permission_revision,omitempty"`
 	CapabilityGeneration  string                            `json:"capability_generation,omitempty"`
+	SupervisorTurn        int                               `json:"-"`
+	SupervisorToolCallID  string                            `json:"-"`
 	LeaseID               string                            `json:"-"`
 	LeaseGeneration       int64                             `json:"-"`
 	WorkspaceRoot         string                            `json:"-"`
@@ -249,6 +251,7 @@ func NormalizeToolCall(call ToolCall) (ToolCall, error) {
 	call.Profile = domain.Profile(strings.TrimSpace(string(call.Profile)))
 	call.PermissionMode = domain.RunExecutionPermissionMode(strings.TrimSpace(string(call.PermissionMode)))
 	call.CapabilityGeneration = strings.TrimSpace(call.CapabilityGeneration)
+	call.SupervisorToolCallID = strings.TrimSpace(call.SupervisorToolCallID)
 	call.LeaseID = strings.TrimSpace(call.LeaseID)
 	call.WorkspaceRoot = strings.TrimSpace(call.WorkspaceRoot)
 	call.RequestedBy = strings.TrimSpace(redact.String(call.RequestedBy))
@@ -260,7 +263,8 @@ func NormalizeToolCall(call ToolCall) (ToolCall, error) {
 		"run id": call.RunID, "agent id": call.AgentID, "session id": call.SessionID,
 		"workspace id": call.WorkspaceID, "lease id": call.LeaseID, "requester": call.RequestedBy,
 		"mission id": call.MissionID, "root fingerprint": call.RootFingerprint,
-		"capability generation": call.CapabilityGeneration,
+		"capability generation":   call.CapabilityGeneration,
+		"supervisor tool call id": call.SupervisorToolCallID,
 	} {
 		if !utf8.ValidString(value) {
 			return ToolCall{}, fmt.Errorf("tool %s must be valid UTF-8", label)
@@ -274,6 +278,10 @@ func NormalizeToolCall(call ToolCall) (ToolCall, error) {
 	}
 	if call.ModeRevision < 0 || call.PermissionRevision < 0 {
 		return ToolCall{}, errors.New("tool capability revisions cannot be negative")
+	}
+	if call.SupervisorTurn < 0 ||
+		(call.SupervisorTurn == 0) != (call.SupervisorToolCallID == "") {
+		return ToolCall{}, errors.New("Supervisor turn and tool call identity are inconsistent")
 	}
 	if isAgentCodeTool(call.Name) || IsCodeIntelTool(call.Name) || IsWebEvidenceTool(call.Name) ||
 		call.Name == CommandRuntimeTool {
@@ -339,6 +347,8 @@ func (c ToolCall) Validate() error {
 		normalized.Profile != c.Profile || normalized.PermissionMode != c.PermissionMode ||
 		normalized.ModeRevision != c.ModeRevision || normalized.PermissionRevision != c.PermissionRevision ||
 		normalized.CapabilityGeneration != c.CapabilityGeneration ||
+		normalized.SupervisorTurn != c.SupervisorTurn ||
+		normalized.SupervisorToolCallID != c.SupervisorToolCallID ||
 		normalized.LeaseGeneration != c.LeaseGeneration || normalized.WorkspaceRoot != c.WorkspaceRoot ||
 		normalized.RequestedBy != c.RequestedBy ||
 		!maps.Equal(normalized.Arguments, c.Arguments) {

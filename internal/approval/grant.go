@@ -21,29 +21,48 @@ func (s GrantStatus) Valid() bool {
 }
 
 type SessionGrant struct {
-	ID                 string
-	RunID              string
-	SessionID          string
-	WorkspaceID        string
-	ToolName           string
-	ActionClass        string
-	Status             GrantStatus
-	RequestFingerprint string
-	Reason             string
-	RevocationReason   string
-	GrantedBy          string
-	RevokedBy          string
-	Version            int64
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	RevokedAt          *time.Time
+	ID                         string
+	RunID                      string
+	SessionID                  string
+	WorkspaceID                string
+	ToolName                   string
+	ActionClass                string
+	Status                     GrantStatus
+	RequestFingerprint         string
+	ScopeFingerprint           string
+	Generation                 int64
+	MaxUses                    int
+	UsesRemaining              int
+	ExpiresAt                  *time.Time
+	ModeSnapshotID             string
+	ModeRevision               int64
+	InteractionSnapshotID      string
+	InteractionRevision        int64
+	ExecutionProfileSnapshotID string
+	ExecutionProfileRevision   int64
+	PermissionSnapshotID       string
+	PermissionRevision         int64
+	PermissionMode             string
+	WorkspaceRootFingerprint   string
+	CapabilityGeneration       string
+	Reason                     string
+	RevocationReason           string
+	GrantedBy                  string
+	RevokedBy                  string
+	Version                    int64
+	CreatedAt                  time.Time
+	UpdatedAt                  time.Time
+	RevokedAt                  *time.Time
 }
 
 func (g SessionGrant) Validate() error {
 	for label, value := range map[string]string{
 		"id": g.ID, "run id": g.RunID, "session id": g.SessionID, "workspace id": g.WorkspaceID,
 		"tool name": g.ToolName, "action class": g.ActionClass, "granted by": g.GrantedBy,
-		"revoked by": g.RevokedBy,
+		"revoked by": g.RevokedBy, "mode snapshot id": g.ModeSnapshotID,
+		"interaction snapshot id":       g.InteractionSnapshotID,
+		"execution profile snapshot id": g.ExecutionProfileSnapshotID,
+		"permission snapshot id":        g.PermissionSnapshotID,
 	} {
 		if strings.TrimSpace(value) != value || !utf8.ValidString(value) || len([]rune(value)) > MaxIdentityRunes {
 			return fmt.Errorf("approval grant %s must be normalized and bounded UTF-8", label)
@@ -57,6 +76,33 @@ func (g SessionGrant) Validate() error {
 	}
 	if !validFingerprint(g.RequestFingerprint) {
 		return errors.New("approval grant request fingerprint must be a SHA-256 hex digest")
+	}
+	if g.Bounded() {
+		for _, value := range []string{g.ScopeFingerprint,
+			g.WorkspaceRootFingerprint, g.CapabilityGeneration} {
+			if !validFingerprint(value) {
+				return errors.New("bounded approval grant fingerprints must be SHA-256 hex digests")
+			}
+		}
+		if g.Generation <= 0 || g.MaxUses <= 0 ||
+			g.MaxUses > 8 || g.UsesRemaining < 0 ||
+			g.UsesRemaining > g.MaxUses || g.ExpiresAt == nil ||
+			g.ExpiresAt.After(g.CreatedAt.Add(15*time.Minute)) ||
+			!g.ExpiresAt.After(g.CreatedAt) || g.ModeSnapshotID == "" ||
+			g.InteractionSnapshotID == "" || g.ExecutionProfileSnapshotID == "" ||
+			g.PermissionSnapshotID == "" || g.ModeRevision <= 0 ||
+			g.InteractionRevision <= 0 || g.ExecutionProfileRevision <= 0 ||
+			g.PermissionRevision <= 0 || g.PermissionMode != "workspace_access" {
+			return errors.New("bounded approval grant exact scope, TTL, use count, generation, and snapshots are invalid")
+		}
+	} else if g.Generation != 0 || g.MaxUses != 0 || g.UsesRemaining != 0 ||
+		g.ExpiresAt != nil || g.ModeSnapshotID != "" || g.ModeRevision != 0 ||
+		g.InteractionSnapshotID != "" || g.InteractionRevision != 0 ||
+		g.ExecutionProfileSnapshotID != "" || g.ExecutionProfileRevision != 0 ||
+		g.PermissionSnapshotID != "" || g.PermissionRevision != 0 ||
+		g.PermissionMode != "" || g.WorkspaceRootFingerprint != "" ||
+		g.CapabilityGeneration != "" {
+		return errors.New("legacy approval grant cannot carry bounded escalation authority")
 	}
 	if !utf8.ValidString(g.Reason) || len([]rune(g.Reason)) > MaxReasonRunes ||
 		!utf8.ValidString(g.RevocationReason) || len([]rune(g.RevocationReason)) > MaxReasonRunes {
@@ -75,14 +121,33 @@ func (g SessionGrant) Validate() error {
 	return nil
 }
 
+func (g SessionGrant) Bounded() bool {
+	return g.ScopeFingerprint != ""
+}
+
 type CreateGrantRequest struct {
-	SessionID      string
-	WorkspaceID    string
-	ToolName       string
-	ActionClass    string
-	Reason         string
-	GrantedBy      string
-	IdempotencyKey string
+	SessionID                  string
+	WorkspaceID                string
+	ToolName                   string
+	ActionClass                string
+	Reason                     string
+	GrantedBy                  string
+	IdempotencyKey             string
+	ScopeFingerprint           string
+	Generation                 int64
+	MaxUses                    int
+	TTL                        time.Duration
+	ModeSnapshotID             string
+	ModeRevision               int64
+	InteractionSnapshotID      string
+	InteractionRevision        int64
+	ExecutionProfileSnapshotID string
+	ExecutionProfileRevision   int64
+	PermissionSnapshotID       string
+	PermissionRevision         int64
+	PermissionMode             string
+	WorkspaceRootFingerprint   string
+	CapabilityGeneration       string
 }
 
 func (r CreateGrantRequest) Normalize() (CreateGrantRequest, error) {
@@ -93,9 +158,21 @@ func (r CreateGrantRequest) Normalize() (CreateGrantRequest, error) {
 	r.Reason = strings.TrimSpace(r.Reason)
 	r.GrantedBy = strings.TrimSpace(r.GrantedBy)
 	r.IdempotencyKey = strings.TrimSpace(r.IdempotencyKey)
+	r.ScopeFingerprint = strings.ToLower(strings.TrimSpace(r.ScopeFingerprint))
+	r.ModeSnapshotID = strings.TrimSpace(r.ModeSnapshotID)
+	r.InteractionSnapshotID = strings.TrimSpace(r.InteractionSnapshotID)
+	r.ExecutionProfileSnapshotID = strings.TrimSpace(r.ExecutionProfileSnapshotID)
+	r.PermissionSnapshotID = strings.TrimSpace(r.PermissionSnapshotID)
+	r.PermissionMode = strings.TrimSpace(r.PermissionMode)
+	r.WorkspaceRootFingerprint = strings.ToLower(strings.TrimSpace(r.WorkspaceRootFingerprint))
+	r.CapabilityGeneration = strings.ToLower(strings.TrimSpace(r.CapabilityGeneration))
 	for label, value := range map[string]string{
 		"session id": r.SessionID, "workspace id": r.WorkspaceID, "tool name": r.ToolName,
 		"action class": r.ActionClass, "grantor": r.GrantedBy, "idempotency key": r.IdempotencyKey,
+		"mode snapshot id":              r.ModeSnapshotID,
+		"interaction snapshot id":       r.InteractionSnapshotID,
+		"execution profile snapshot id": r.ExecutionProfileSnapshotID,
+		"permission snapshot id":        r.PermissionSnapshotID,
 	} {
 		if !utf8.ValidString(value) || len([]rune(value)) > MaxIdentityRunes {
 			return CreateGrantRequest{}, fmt.Errorf("approval grant %s must be bounded UTF-8", label)
@@ -106,6 +183,29 @@ func (r CreateGrantRequest) Normalize() (CreateGrantRequest, error) {
 	}
 	if !utf8.ValidString(r.Reason) || len([]rune(r.Reason)) > MaxReasonRunes {
 		return CreateGrantRequest{}, fmt.Errorf("approval grant reason exceeds %d characters", MaxReasonRunes)
+	}
+	if r.ScopeFingerprint != "" {
+		for _, value := range []string{r.ScopeFingerprint,
+			r.WorkspaceRootFingerprint, r.CapabilityGeneration} {
+			if !validFingerprint(value) {
+				return CreateGrantRequest{}, errors.New("bounded approval grant fingerprints must be SHA-256 hex digests")
+			}
+		}
+		if r.Generation <= 0 || r.MaxUses <= 0 || r.MaxUses > 8 ||
+			r.TTL <= 0 || r.TTL > 15*time.Minute || r.ModeSnapshotID == "" ||
+			r.InteractionSnapshotID == "" || r.ExecutionProfileSnapshotID == "" ||
+			r.PermissionSnapshotID == "" || r.ModeRevision <= 0 ||
+			r.InteractionRevision <= 0 || r.ExecutionProfileRevision <= 0 ||
+			r.PermissionRevision <= 0 || r.PermissionMode != "workspace_access" {
+			return CreateGrantRequest{}, errors.New("bounded approval grant requires exact scope, short TTL, use count, generation, and snapshots")
+		}
+	} else if r.Generation != 0 || r.MaxUses != 0 || r.TTL != 0 ||
+		r.ModeSnapshotID != "" || r.ModeRevision != 0 || r.InteractionSnapshotID != "" ||
+		r.InteractionRevision != 0 || r.ExecutionProfileSnapshotID != "" ||
+		r.ExecutionProfileRevision != 0 || r.PermissionSnapshotID != "" ||
+		r.PermissionRevision != 0 || r.PermissionMode != "" ||
+		r.WorkspaceRootFingerprint != "" || r.CapabilityGeneration != "" {
+		return CreateGrantRequest{}, errors.New("legacy approval grant cannot request bounded escalation fields")
 	}
 	return r, nil
 }
@@ -141,11 +241,58 @@ type GrantResult struct {
 }
 
 type GrantQuery struct {
-	RunID       string
-	SessionID   string
-	WorkspaceID string
-	ToolName    string
-	ActionClass string
+	RunID                      string
+	SessionID                  string
+	WorkspaceID                string
+	ToolName                   string
+	ActionClass                string
+	ScopeFingerprint           string
+	ModeSnapshotID             string
+	ModeRevision               int64
+	InteractionSnapshotID      string
+	InteractionRevision        int64
+	ExecutionProfileSnapshotID string
+	ExecutionProfileRevision   int64
+	PermissionSnapshotID       string
+	PermissionRevision         int64
+	PermissionMode             string
+	WorkspaceRootFingerprint   string
+	CapabilityGeneration       string
+}
+
+type GrantConsumption struct {
+	ID               string
+	GrantID          string
+	ProposalID       string
+	ApprovalID       string
+	RunID            string
+	ScopeFingerprint string
+	GrantGeneration  int64
+	UseOrdinal       int
+	Fingerprint      string
+	CreatedAt        time.Time
+}
+
+func (c GrantConsumption) Validate() error {
+	for _, value := range []string{c.ID, c.GrantID, c.ProposalID, c.ApprovalID, c.RunID} {
+		if strings.TrimSpace(value) != value || value == "" || !utf8.ValidString(value) ||
+			len([]rune(value)) > MaxIdentityRunes {
+			return errors.New("approval grant consumption identities are invalid")
+		}
+	}
+	if !validFingerprint(c.ScopeFingerprint) || !validFingerprint(c.Fingerprint) ||
+		c.GrantGeneration <= 0 || c.UseOrdinal <= 0 || c.CreatedAt.IsZero() ||
+		GrantConsumptionFingerprint(c) != c.Fingerprint {
+		return errors.New("approval grant consumption binding is invalid")
+	}
+	return nil
+}
+
+func GrantConsumptionFingerprint(value GrantConsumption) string {
+	return Fingerprint("approval_grant_consumption.v1", value.ID, value.GrantID,
+		value.ProposalID, value.ApprovalID, value.RunID, value.ScopeFingerprint,
+		fmt.Sprint(value.GrantGeneration), fmt.Sprint(value.UseOrdinal),
+		value.CreatedAt.UTC().Format(time.RFC3339Nano))
 }
 
 type GrantListFilter struct {
@@ -166,8 +313,22 @@ type GrantStore interface {
 }
 
 func GrantRequestFingerprint(request CreateGrantRequest) string {
+	// Keep the released legacy grant fingerprint byte-for-byte stable. Schema
+	// v136 appends bounded risk-escalation fields, but an upgraded database must
+	// still replay a pre-v136 Shell/FileEdit grant operation with its original
+	// idempotency key.
+	if request.ScopeFingerprint == "" {
+		return Fingerprint("session_grant.v1", request.SessionID, request.WorkspaceID,
+			request.ToolName, request.ActionClass, request.Reason, request.GrantedBy)
+	}
 	return Fingerprint("session_grant.v1", request.SessionID, request.WorkspaceID, request.ToolName,
-		request.ActionClass, request.Reason, request.GrantedBy)
+		request.ActionClass, request.Reason, request.GrantedBy, request.ScopeFingerprint,
+		fmt.Sprint(request.Generation), fmt.Sprint(request.MaxUses), request.TTL.String(),
+		request.ModeSnapshotID, fmt.Sprint(request.ModeRevision), request.InteractionSnapshotID,
+		fmt.Sprint(request.InteractionRevision), request.ExecutionProfileSnapshotID,
+		fmt.Sprint(request.ExecutionProfileRevision), request.PermissionSnapshotID,
+		fmt.Sprint(request.PermissionRevision), request.PermissionMode,
+		request.WorkspaceRootFingerprint, request.CapabilityGeneration)
 }
 
 func GrantRevocationFingerprint(request RevokeGrantRequest) string {

@@ -2,9 +2,23 @@
 
 > 本文件是按时间追加的历史开发账本，不是待办列表。当前产品范围以 [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md) 为准；CTF 专用求解和攻防自动化已移出活跃路线图，本文中的旧 Cyber 百分比仅保留为历史快照。
 
-更新时间：2026-08-25
+更新时间：2026-08-26
 
 ## 一、当前阶段
+
+2026-08-26 单切片 `Standard Code 持久高风险升级（Issue #138）` 推进到 SQLite v136。
+`risk_escalation.v1` 把网络、凭据种类、宿主路径、Policy 拒绝、非白名单工具及其他高风险
+需求规范化为稳定 scope，并与完整宿主命令、资源预算、Run/Workspace、Supervisor call、
+四类执行快照、root fingerprint 和 capability generation 一起冻结。模型只可提案；操作者
+可拒绝、批准一次，或向当前 Run 授予最多 15 分钟、8 次的精确 scope。每次使用、过期、
+撤销、耗尽和漂移都有不可变 Grant 事实/事件，且继续复用既有 Approval 决策账本。
+
+Supervisor 在 proposal/Approval 原子提交后进入 durable `waiting_approval` 并释放 lease；
+renderer 或应用重启后仍显示同一 call。决策只恢复原 turn/call，拒绝作为普通工具结果，
+终态 replay 不重复执行。host start 前提交 write-ahead intent；缺少终态 result 时永久
+`execution_uncertain` 且禁止自动重试。权限/Profile/Workspace/root/executable/capability
+漂移会先使 proposal 与匹配 grant 失效。HTTP/OpenAPI、Desktop/React、CLI grant 检查、
+Deck Log/Bell Book 重建说明和 ADR 0140 共用同一合同。
 
 2026-08-25 单切片 `Standard Code 原子预设与 Pause-and-configure（Issue #135）` 推进到
 SQLite v133。`standard_code_preset.v1` 以 operation digest/request fingerprint 绑定请求、实际

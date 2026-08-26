@@ -4,7 +4,7 @@
 - Date: 2026-08-26
 - Scope: GitHub issue #164; SQLite initialization only
 - Parent policy: [ADR 0135](0135-pre-1-0-product-convergence.md)
-- Schema evidence: v135, generated from the complete v1-to-v135 plan
+- Schema evidence: v136, generated from the complete v1-to-v136 plan
 
 ## Context
 
@@ -70,20 +70,20 @@ includes declared foreign keys and CHECK constraints; every fixture also runs
 browser-runtime fixture separately preserves immutable Run audit events, the closed
 execution-authority snapshot, exactly-once launch preparation, success and recovery
 receipts, process/network/profile cleanup facts, and the restart recovery projection
-through the v133-v135 legacy upgrade.
+through the v133-v136 legacy upgrade.
 
-On a Windows Intel Core Ultra 9 275HX development host, five-iteration non-gating
-benchmarks measured approximately 171 ms/op for consolidated construction versus
-2.275 s/op for historical v1-to-v135 replay (about 13.3x faster). This observation is
-not an admission threshold and cannot override any equivalence or failure test.
+On a Windows Intel Core Ultra 9 275HX development host, the original v135 artifact's
+five-iteration non-gating benchmarks measured approximately 171 ms/op for consolidated
+construction versus 2.275 s/op for historical v1-to-v135 replay (about 13.3x faster).
+This observation is not an admission threshold and cannot override any equivalence or
+failure test.
 
 ## Rollback and recovery
 
 A baseline-created database is readable by an older binary only when that binary
-already supports the same latest version and identical historical plan. In particular,
-the immediately preceding v135 implementation can read the v135 baseline output and
-can create an empty profile through historical replay if the new baseline implementation
-is rolled back. A binary below v135 remains incompatible with a v135 database.
+already supports the same latest version and identical historical plan. The regenerated
+v136 artifact is schema- and ledger-equivalent to historical v1-to-v136 replay; a v135
+binary must reject that newer database and requires the offline pre-upgrade backup.
 
 Operators must take an offline database backup before a version-changing upgrade.
 Recovery never deletes a non-empty database or edits its ledger. Detailed steps are in

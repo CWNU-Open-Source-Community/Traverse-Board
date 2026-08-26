@@ -10,6 +10,12 @@ returns a search snippet, page body, citation claim, operation key, DNS address,
 private authority. Network execution remains available only through the Supervisor's
 separately gated Web tools; see [Web Evidence](web-evidence.md).
 
+Schema v136 extends the existing host-command proposal surface with durable
+`risk_escalation.v1` proposals for Workspace Access Standard Code. It reuses the
+Approval/Grant ledgers and does not add a generic command endpoint or switch a Run to
+Full Access. Exact operator review may authorize once or create a bounded grant only
+for the current Run and exact risk scope. See [Durable risk escalation](risk-escalation.md).
+
 ## 启动 / Start
 
 省略 `CYBERAGENT_API_TOKEN` 时，进程会生成并打印一个临时只读 token。全部 control POST 默认关闭；只有设置不同的 `CYBERAGENT_API_CONTROL_TOKEN` 并启用相应 Go capability 才能访问。两个 token 都必须是 32 到 512 字节的规范 UTF-8，不能包含空白或控制字符，且不能相同；CLI 不会回显环境提供的值。
@@ -71,6 +77,27 @@ bindings and current process gates before one restricted execution. No endpoint
 accepts Shell, argv, environment, or network intent. The approving response may
 return up to 16 KiB of redacted untrusted evidence; later reads return metadata
 only.
+
+The separately existing host-command proposal routes also carry the schema-v136
+risk variant:
+
+```text
+GET  /api/v1/runs/{run_id}/host-command-proposals
+GET  /api/v1/runs/{run_id}/host-command-proposals/{proposal_id}
+POST /api/v1/runs/{run_id}/host-command-proposals/{proposal_id}/review
+```
+
+The risk proposal is created only by the Run Supervisor and exposes the complete
+immutable executable/argv/cwd envelope, categorized network target and purpose,
+credential kinds without values, host paths, Policy refusal, resource bounds,
+Supervisor call ownership, snapshots/revisions, Workspace-root and scope
+fingerprints, grant consumption, invalidation, uncertainty, result, and receipt.
+The control POST accepts `deny`, exact `once`, or `run_scope`; `run_scope` requires
+an explicit TTL of 1-900 seconds and total-use count of 1-8. It cannot accept a new
+command, risk scope, reviewer identity, grant ID/generation, credential value, or
+capability bearer. Review revalidates every binding and resumes only the same durable
+Supervisor call. Replaying a terminal review is idempotent; an uncertain prepared
+execution is never retried.
 
 The command prints:
 

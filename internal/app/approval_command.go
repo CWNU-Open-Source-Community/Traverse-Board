@@ -252,6 +252,27 @@ func printSessionGrant(out io.Writer, grant approval.SessionGrant) {
 	fmt.Fprintf(out, "tool: %s\n", grant.ToolName)
 	fmt.Fprintf(out, "action_class: %s\n", grant.ActionClass)
 	fmt.Fprintf(out, "request_fingerprint: %s\n", grant.RequestFingerprint)
+	if grant.Bounded() {
+		fmt.Fprintf(out, "scope_fingerprint: %s\n", grant.ScopeFingerprint)
+		fmt.Fprintf(out, "generation: %d\n", grant.Generation)
+		fmt.Fprintf(out, "max_uses: %d\n", grant.MaxUses)
+		fmt.Fprintf(out, "uses_remaining: %d\n", grant.UsesRemaining)
+		if grant.ExpiresAt != nil {
+			fmt.Fprintf(out, "expires_at: %s\n",
+				grant.ExpiresAt.Format("2006-01-02T15:04:05Z07:00"))
+		}
+		fmt.Fprintf(out, "mode_snapshot: %s@%d\n", grant.ModeSnapshotID, grant.ModeRevision)
+		fmt.Fprintf(out, "interaction_snapshot: %s@%d\n",
+			grant.InteractionSnapshotID, grant.InteractionRevision)
+		fmt.Fprintf(out, "execution_profile_snapshot: %s@%d\n",
+			grant.ExecutionProfileSnapshotID, grant.ExecutionProfileRevision)
+		fmt.Fprintf(out, "permission_snapshot: %s@%d\n",
+			grant.PermissionSnapshotID, grant.PermissionRevision)
+		fmt.Fprintf(out, "permission_mode: %s\n", grant.PermissionMode)
+		fmt.Fprintf(out, "workspace_root_fingerprint: %s\n",
+			grant.WorkspaceRootFingerprint)
+		fmt.Fprintf(out, "capability_generation: %s\n", grant.CapabilityGeneration)
+	}
 	fmt.Fprintf(out, "granted_by: %s\n", grant.GrantedBy)
 	if grant.Reason != "" {
 		fmt.Fprintf(out, "reason: %s\n", grant.Reason)

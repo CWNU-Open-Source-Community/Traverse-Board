@@ -1,10 +1,25 @@
 # Project Status
 
-Last updated: 2026-08-25
+Last updated: 2026-08-26
 
 > **Scope authority:** active mainline work targets the general-purpose Agent Harness and Code workflow. CTF-specific solving and offensive automation are optional add-ons and have no active implementation schedule. Historical references and percentages below remain audit history, not queued work. See [Product Scope](PRODUCT_SCOPE.md).
 
 ## Resume Context
+
+当前检查点是 issue #138 / SQLite schema v136。`risk_escalation.v1` 把
+`workspace_access` Standard Code 的网络目标/用途、凭据种类、宿主路径、Policy 拒绝、
+非白名单工具和其他高风险需求收敛为精确、不可变的宿主命令提案。提案绑定完整
+executable/argv/cwd、资源上限、Run/Session/Workspace、Supervisor turn/call/invocation、
+四类执行快照与 revision、Workspace root fingerprint、capability generation 及规范化
+risk-scope fingerprint；模型、Skill、MCP、仓库内容和其他 Run 不能审批或持有 grant bearer。
+
+操作者可以拒绝、批准一次，或向当前 Run 授予 1-900 秒、1-8 次的精确 scope；每次授权
+有不可变 consumption，失效/过期/撤销有独立事件，决策继续复用唯一 `tool_approvals`
+账本。Supervisor 持久等待同一未执行 call 并释放 lease；拒绝作为普通工具结果返回。
+write-ahead intent 后无终态结果永久标记 `execution_uncertain`，不自动重试。重启只恢复
+proposal/Approval/Grant/intent/result/receipt/invalidation 事实，不恢复进程 authority；权限、
+Profile、Workspace、root、executable 或 capability 漂移失败关闭。操作和重建顺序见
+`docs/risk-escalation.md` 与 ADR 0140。
 
 当前检查点是 issue #136，SQLite schema 保持 v133。正式 Desktop 零参数启动现在安装
 安全控制面与已证明的 Workspace Sandbox adapter；`--safe-view` 是显式且互斥的只读入口，
