@@ -20,6 +20,7 @@ This directory separates user-facing documentation, current engineering state, a
 | [Drydock 工作目录](drydock.md) | Run-owned worktree、Workspace Trust、精确检查点、审阅交付与保守清理 |
 | [Standard Code 原子预设](standard-code-preset.md) | 一键 Code/Plan 组合、Local/显式 Docker、Workspace Trust、暂停配置与故障恢复 |
 | [Standard Code packaged E2E](standard-code-packaged-e2e.md) | 四个固定 Git 仓库、40 项攻击矩阵、portable ZIP bootstrap 与完整发布门边界 |
+| [Standard Code packaged product E2E](standard-code-product-e2e.md) | 从零参数发布 EXE 验证四语言闭环、交付投影、Thread 连续性与 Windows UX 证据 |
 | [高风险升级 / Durable Risk Escalation](risk-escalation.md) | Standard Code 精确风险提案、一次/有界 Run 授权、持久等待恢复与不确定性处理 |
 | [Windows Local Sandbox](local-sandbox-windows.md) | AppContainer/WFP/Job/ACL 隔离、readiness 证据、恢复与操作说明 |
 | [高级 Git 工作流 / Advanced Git](git-advanced.md) | 稳定 hunk、stash、rebase/cherry-pick/bisect、受管 worktree、审批与恢复 |

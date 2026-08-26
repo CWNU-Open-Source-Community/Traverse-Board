@@ -180,6 +180,12 @@ func validateFixtureSetReport(report FixtureSetReport) error {
 	return nil
 }
 
+// ValidateFixtureSetReport lets independent issue #140 evidence producers
+// consume the frozen fixture oracle without redefining or weakening it.
+func ValidateFixtureSetReport(report FixtureSetReport) error {
+	return validateFixtureSetReport(report)
+}
+
 func validateNewOutputRoot(value string) (string, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
