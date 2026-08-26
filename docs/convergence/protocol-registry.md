@@ -1507,6 +1507,10 @@ These identifiers remain inside the scan. Each exemption is bound to exact files
 | `standard_code_fixture_manifest.v1` | `test-fixture` | `internal/packagede2e/manifest.go`, `internal/packagede2e/testdata/fixture-manifest.json` | Packaged E2E fixed-repository fixture manifest. |
 | `standard_code_fixture_set.v1` | `test-fixture` | `internal/packagede2e/manifest.go`, `scripts/standard-code-packaged-e2e.ps1` | Packaged E2E fixed-repository fixture set. |
 | `standard_code_packaged_e2e.v1` | `test-fixture` | `internal/packagede2e/manifest.go`, `scripts/standard-code-packaged-e2e.ps1` | Packaged E2E harness report, not a shipped product protocol. |
+| `standard_code_product_e2e.v1` | `test-fixture` | `internal/producte2e/model.go` | Issue #182 path-free packaged product evidence report, not a shipped product protocol. |
+| `standard_code_product_launch.v1` | `test-fixture` | `internal/producte2e/model_test.go`, `internal/producte2e/producer.go`, `scripts/standard-code-product-e2e.ps1` | Issue #182 zero-argument candidate launch evidence. |
+| `standard_code_product_runbook.v1` | `test-fixture` | `internal/producte2e/model.go` | Issue #182 candidate-bound operator evidence runbook. |
+| `standard_code_product_session.v1` | `test-fixture` | `scripts/standard-code-product-e2e.ps1` | Local-only issue #182 packaged product session orchestration state. |
 | `standard_code_test_root.v1` | `test-fixture` | `internal/application/standard_code_supervisor_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `test-output.v1` | `test-fixture` | `internal/store/batch_delivery_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `ui-evidence-ci-launch.v1` | `test-fixture` | `internal/browserruntime/ui_evidence_runtime_windows_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |

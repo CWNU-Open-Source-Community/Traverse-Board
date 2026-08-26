@@ -2933,6 +2933,40 @@
       "reason": "Packaged E2E harness report, not a shipped product protocol."
     },
     {
+      "identifier": "standard_code_product_e2e.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/producte2e/model.go"
+      ],
+      "reason": "Issue #182 path-free packaged product evidence report, not a shipped product protocol."
+    },
+    {
+      "identifier": "standard_code_product_launch.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/producte2e/model_test.go",
+        "internal/producte2e/producer.go",
+        "scripts/standard-code-product-e2e.ps1"
+      ],
+      "reason": "Issue #182 zero-argument candidate launch evidence."
+    },
+    {
+      "identifier": "standard_code_product_runbook.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/producte2e/model.go"
+      ],
+      "reason": "Issue #182 candidate-bound operator evidence runbook."
+    },
+    {
+      "identifier": "standard_code_product_session.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "scripts/standard-code-product-e2e.ps1"
+      ],
+      "reason": "Local-only issue #182 packaged product session orchestration state."
+    },
+    {
       "identifier": "standard_code_test_root.v1",
       "kind": "test-fixture",
       "sources": [
