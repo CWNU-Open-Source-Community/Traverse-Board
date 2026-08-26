@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CyberAgentClient } from "../api/client";
 import { downloadTextFile } from "../lib/download";
+import { standardCodeDeliveryFixture } from "../test/standard-code-delivery";
 import { CodeHandoffPanel } from "./code-handoff-panel";
 
 vi.mock("../lib/download", () => ({ downloadTextFile: vi.fn() }));
@@ -63,14 +64,17 @@ describe("CodeHandoffPanel", () => {
         created_at: "2026-07-19T11:45:00Z" }],
       regenerable: true, durable_sources: true, private_bodies_included: false,
       composite_mutation: false, resume_authorized: false, execution_started: false,
+      standard_code_delivery: standardCodeDeliveryFixture(),
     });
     const codeHandoffExport = vi.fn().mockResolvedValue({ filename: "handoff.md",
       mime_type: "text/markdown; charset=utf-8", content: "handoff" });
     const onOpenReceiptReview = vi.fn();
+    const onOpenDelivery = vi.fn();
     const client = { codeHandoff, codeHandoffExport } as unknown as CyberAgentClient;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={queryClient}>
       <CodeHandoffPanel client={client} runID="run-1"
+        onOpenDelivery={onOpenDelivery}
         onOpenReceiptReview={onOpenReceiptReview} />
     </QueryClientProvider>);
     expect(await screen.findByText("selected")).toBeInTheDocument();
@@ -81,6 +85,10 @@ describe("CodeHandoffPanel", () => {
     expect(screen.getByText("1 confirmed / 0 disputed")).toBeInTheDocument();
     expect(screen.getByText("metadata confirmed")).toBeInTheDocument();
     expect(screen.getByText("42")).toBeInTheDocument();
+    expect(screen.getByText("Shared delivery projection")).toBeInTheDocument();
+    expect(screen.getByText("f".repeat(64))).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Open delivery" }));
+    expect(onOpenDelivery).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole("button", {
       name: "Open receipt review verification-snapshot-receipt-review-1 in Verify",
     }));
@@ -95,6 +103,7 @@ describe("CodeHandoffPanel", () => {
     expect(codeHandoffExport).toHaveBeenCalledWith("run-1", "markdown");
     expect(downloadTextFile).toHaveBeenCalledWith("handoff.md",
       "text/markdown; charset=utf-8", "handoff");
-    expect(screen.queryByText(/proposal body|verification summary|command/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/proposal body|verification summary|secret-command/i))
+      .not.toBeInTheDocument();
   });
 });

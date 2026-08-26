@@ -24,10 +24,12 @@ import (
 	"cyberagent-workbench/internal/pricing"
 	"cyberagent-workbench/internal/projectconfig"
 	"cyberagent-workbench/internal/redact"
+	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/sandbox"
 	"cyberagent-workbench/internal/standardcode"
+	"cyberagent-workbench/internal/standardcodedelivery"
 	"cyberagent-workbench/internal/store"
 	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/workspace"
@@ -441,9 +443,13 @@ func (a *App) runOperatorSteering(ctx context.Context, args []string) error {
 
 func (a *App) runDeliveryCheckpoint(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: cyberagent run delivery checkpoint|list|show")
+		return errors.New("usage: cyberagent run delivery report|record|checkpoint|list|show")
 	}
 	switch args[0] {
+	case "report":
+		return a.runStandardCodeDeliveryReport(ctx, args[1:])
+	case "record":
+		return a.runStandardCodeDeliveryRecord(ctx, args[1:])
 	case "checkpoint":
 		return a.runDeliveryCheckpointRecord(ctx, args[1:])
 	case "list":
@@ -453,6 +459,140 @@ func (a *App) runDeliveryCheckpoint(ctx context.Context, args []string) error {
 	default:
 		return fmt.Errorf("unknown run delivery subcommand %q", args[0])
 	}
+}
+
+func (a *App) runStandardCodeDeliveryReport(ctx context.Context, args []string) error {
+	fs := newFlagSet("run delivery report", a.errOut)
+	jsonOutput := fs.Bool("json", false, "print the exact JSON projection")
+	if err := fs.Parse(reorderFlags(args, map[string]bool{"json": false})); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return errors.New("usage: cyberagent run delivery report <run-id> [--json]")
+	}
+	service, err := a.newStandardCodeDeliveryService(ctx, fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	report, found, err := service.Current(ctx, fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	if !found {
+		return apperror.New(apperror.CodeNotFound,
+			"Standard Code delivery report was not found")
+	}
+	if *jsonOutput {
+		return json.NewEncoder(a.out).Encode(report)
+	}
+	fmt.Fprintf(a.out, "protocol: %s\nrun: %s\nstatus: %s\nverified: %t\nreceipt: %s\nrevision: %s\ndiff: %s\naffected_files: %d\nverification_commands: %d\ncheckpoint: %s\nreport: %s\ntest_output_links: %d\nrecovery: %s\n",
+		report.ProtocolVersion, report.Binding.RunID, report.Status, report.Verified,
+		report.ReceiptSHA256, report.FinalCheckpoint.RevisionSHA256,
+		report.Diff.SHA256, report.Diff.ChangedCount, len(report.Verifications),
+		report.FinalCheckpoint.ID, report.Links.Self,
+		standardCodeDeliveryArtifactCount(report), report.Links.CheckpointTimeline)
+	return nil
+}
+
+func (a *App) runStandardCodeDeliveryRecord(ctx context.Context, args []string) error {
+	fs := newFlagSet("run delivery record", a.errOut)
+	operationKey := fs.String("operation-key", "", "stable delivery operation key")
+	declaration := fs.String("declaration", "", "no_applicable_tests|user_skipped|budget_exhausted|missing_dependency|approval_denied")
+	verificationJobs := fs.String("verification-jobs", "", "comma-separated Command Runtime Job ids")
+	uncovered := fs.String("uncovered", "", "bounded uncovered item summary")
+	jsonOutput := fs.Bool("json", false, "print the exact JSON projection")
+	if err := fs.Parse(reorderFlags(args, map[string]bool{"operation-key": true,
+		"declaration": true, "verification-jobs": true, "uncovered": true,
+		"json": false})); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 || strings.TrimSpace(*operationKey) == "" {
+		return errors.New("usage: cyberagent run delivery record <run-id> --operation-key <key> [--declaration <value>] [--verification-jobs <id,...>] [--uncovered <summary>] [--json]")
+	}
+	service, err := a.newStandardCodeDeliveryService(ctx, fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	items := []string{}
+	if strings.TrimSpace(*uncovered) != "" {
+		items = append(items, strings.TrimSpace(*uncovered))
+	}
+	result, err := service.Record(ctx, application.StandardCodeDeliveryRecordRequest{
+		RunID: fs.Arg(0), OperationKey: *operationKey, RequestedBy: "cli_operator",
+		Declaration:        standardcodedelivery.Declaration(strings.TrimSpace(*declaration)),
+		VerificationJobIDs: splitCommaSeparated(*verificationJobs),
+		UncoveredItems:     items})
+	if err != nil {
+		return err
+	}
+	if *jsonOutput {
+		return json.NewEncoder(a.out).Encode(result.Report)
+	}
+	fmt.Fprintf(a.out, "delivery: %s\nstatus: %s\nverified: %t\nreceipt: %s\ncheckpoint: %s\nreplayed: %t\n",
+		result.Report.ID, result.Report.Status, result.Report.Verified,
+		result.Report.ReceiptSHA256, result.Report.FinalCheckpoint.ID, result.Replayed)
+	return nil
+}
+
+func (a *App) newStandardCodeDeliveryService(ctx context.Context,
+	runID string,
+) (*application.StandardCodeDeliveryService, error) {
+	if _, configured, err := a.store.GetConfiguredStandardCodePresetOperation(ctx,
+		strings.TrimSpace(runID)); err != nil {
+		return nil, err
+	} else if !configured {
+		return nil, apperror.New(apperror.CodeFailedPrecondition,
+			"Run has no configured Standard Code preset")
+	}
+	executor, err := repository.NewDrydockExecutor(filepath.Join(a.home, "drydocks"))
+	if err != nil {
+		return nil, err
+	}
+	drydocks, err := application.NewDrydockService(a.store, executor)
+	if err != nil {
+		return nil, err
+	}
+	checkpoints, err := application.NewWorkspaceCheckpointService(a.store,
+		domain.ExecutionPermissionRuntimeCapabilities{})
+	if err != nil {
+		return nil, err
+	}
+	drydocks.WithCheckpointService(checkpoints)
+	return application.NewStandardCodeDeliveryService(a.store, drydocks)
+}
+
+func (a *App) attachStandardCodeDelivery(ctx context.Context,
+	supervisor *application.RunSupervisor, runID string,
+) error {
+	_, configured, err := a.store.GetConfiguredStandardCodePresetOperation(ctx,
+		strings.TrimSpace(runID))
+	if err != nil || !configured {
+		return err
+	}
+	delivery, err := a.newStandardCodeDeliveryService(ctx, runID)
+	if err != nil {
+		return err
+	}
+	supervisor.WithStandardCodeDelivery(delivery)
+	return nil
+}
+
+func standardCodeDeliveryArtifactCount(report standardcodedelivery.Report) int {
+	count := 0
+	for _, verification := range report.Verifications {
+		count += len(verification.Artifacts)
+	}
+	return count
+}
+
+func splitCommaSeparated(value string) []string {
+	result := make([]string, 0)
+	for _, current := range strings.Split(value, ",") {
+		if current = strings.TrimSpace(current); current != "" {
+			result = append(result, current)
+		}
+	}
+	return result
 }
 
 func (a *App) runDeliveryCheckpointRecord(ctx context.Context, args []string) error {
@@ -1282,6 +1422,9 @@ func (a *App) runSupervisorStep(ctx context.Context, args []string) (resultErr e
 		return errors.New("usage: cyberagent run step <run-id> [--enable-permission-control --enable-danger-full-access]")
 	}
 	supervisor := a.newRunSupervisor()
+	if err := a.attachStandardCodeDelivery(ctx, supervisor, fs.Arg(0)); err != nil {
+		return err
+	}
 	manager, commandRuntime, err := a.newCLICommandRuntime(ctx,
 		*enablePermissionControl, *enableFullAccess)
 	if err != nil {
@@ -1355,6 +1498,9 @@ func (a *App) runSupervisorExecute(ctx context.Context, args []string) (resultEr
 		return errors.New("usage: cyberagent run execute <run-id> [--max-steps <n>] [--finish] [--summary <text>] [--enable-permission-control --enable-danger-full-access]")
 	}
 	supervisor := a.newRunSupervisor()
+	if err := a.attachStandardCodeDelivery(ctx, supervisor, fs.Arg(0)); err != nil {
+		return err
+	}
 	manager, commandRuntime, err := a.newCLICommandRuntime(ctx,
 		*enablePermissionControl, *enableFullAccess)
 	if err != nil {
@@ -1485,7 +1631,11 @@ func (a *App) runSupervisorFinalize(ctx context.Context, outcome application.Lif
 	if fs.NArg() != 1 {
 		return fmt.Errorf("usage: cyberagent run %s <run-id> [--%s <text>]", name, flagName)
 	}
-	result, err := a.newRunSupervisor().Finalize(ctx, fs.Arg(0), outcome, *text)
+	supervisor := a.newRunSupervisor()
+	if err := a.attachStandardCodeDelivery(ctx, supervisor, fs.Arg(0)); err != nil {
+		return err
+	}
+	result, err := supervisor.Finalize(ctx, fs.Arg(0), outcome, *text)
 	if err != nil {
 		return err
 	}

@@ -11,6 +11,7 @@ import {
   Container,
   Database,
   FileArchive,
+  FileCheck2,
   FileDiff,
   FolderOpen,
   Gauge,
@@ -97,8 +98,9 @@ import { DockerSandboxPanel } from "./docker-sandbox-panel";
 import { ContextContinuityPanel } from "./context-continuity-panel";
 import { WorkspaceCheckpointPanel } from "./workspace-checkpoint-panel";
 import { UIEvidencePanel } from "./ui-evidence-panel";
+import { StandardCodeDeliveryPanel } from "./standard-code-delivery-panel";
 
-export type RunTab = "activity" | "overview" | "journey" | "actions" | "approvals" | "diffs" | "repository" | "files" | "evidence" | "verify" | "handoff" |
+export type RunTab = "activity" | "overview" | "journey" | "actions" | "approvals" | "diffs" | "repository" | "files" | "evidence" | "verify" | "delivery" | "handoff" |
   "receipts" | "agents" | "delegations" | "fanout" | "findings" | "events" | "work" |
   "context" | "checkpoints" | "notes" | "artifacts" | "tools" | "analyzer" | "child-tasks" | "sandbox" | "ui-evidence";
 
@@ -113,6 +115,7 @@ const tabs: Array<{ id: RunTab; label: [string, string]; icon: typeof Activity }
   { id: "files", label: ["文件", "Files"], icon: FolderOpen },
   { id: "evidence", label: ["证据", "Evidence"], icon: Paperclip },
   { id: "verify", label: ["验证", "Verify"], icon: ClipboardCheck },
+  { id: "delivery", label: ["交付", "Delivery"], icon: FileCheck2 },
   { id: "ui-evidence", label: ["UI 证据", "UI evidence"], icon: View },
   { id: "handoff", label: ["交接", "Handoff"], icon: BookOpenCheck },
   { id: "receipts", label: ["操作收据", "Receipts"], icon: History },
@@ -132,7 +135,7 @@ const tabs: Array<{ id: RunTab; label: [string, string]; icon: typeof Activity }
   { id: "sandbox", label: ["沙箱", "Sandbox"], icon: Server },
 ];
 
-const compactTabs = new Set<RunTab>(["activity", "approvals", "diffs", "repository", "files", "checkpoints"]);
+const compactTabs = new Set<RunTab>(["activity", "approvals", "diffs", "repository", "files", "delivery", "checkpoints"]);
 
 export function RunWorkspaceTabs({ activeTab, ariaLabel, children, items, onSelect }: {
   activeTab: RunTab;
@@ -307,7 +310,7 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
     if (navigationMode === "compact" && !compactTabs.has(id)) return false;
     if (id === "analyzer" && !client.hasEmbeddedAnalyzerExecution) return false;
     return detailQuery.data?.mode.surface !== "cyber" ||
-      !["journey", "verify", "handoff"].includes(id);
+      !["journey", "verify", "delivery", "handoff"].includes(id);
   }), [client, detailQuery.data?.mode.surface, navigationMode]);
 
   useEffect(() => {
@@ -382,6 +385,7 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
             onRetainedReviewChange={setGitAdvancedReview} retainedReview={gitAdvancedReview}
             runID={runID} />
           <GitHubReviewPanel client={client} onOpenApprovals={() => setTab("approvals")}
+            onOpenDelivery={() => setTab("delivery")}
             onRetainedReviewChange={setGitHubReview} retainedReview={gitHubReview}
             runID={runID} />
           <RepositoryHistoryPanel client={client} workspaceID={detail.mission.workspace_id ?? ""} />
@@ -400,9 +404,18 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
           <div className="projection-stack"><VerificationPlan client={client} runID={runID}
             receiptReviewTarget={receiptReviewTarget ?? undefined} />
             <VerificationEvidence client={client} runID={runID} /></div>}
+        {tab === "delivery" && detail.mode.surface === "code" &&
+          <StandardCodeDeliveryPanel client={client} runID={runID}
+            onOpenArtifacts={() => setTab("artifacts")}
+            onOpenCheckpoints={() => setTab("checkpoints")}
+            onOpenFile={(path) => {
+              setFileTarget({ runID, path });
+              setTab("files");
+            }} />}
         {tab === "ui-evidence" && <UIEvidencePanel client={client} runID={runID} />}
         {tab === "handoff" && detail.mode.surface === "code" &&
           <CodeHandoffPanel client={client} runID={runID}
+            onOpenDelivery={() => setTab("delivery")}
             onOpenReceiptReview={openReceiptReview} />}
         {tab === "receipts" && <OperationReceiptHistory client={client} runID={runID} />}
         {tab === "checkpoints" && <WorkspaceCheckpointPanel client={client} runID={runID}

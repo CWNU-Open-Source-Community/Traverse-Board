@@ -55,6 +55,10 @@ cyberagent run delivery checkpoint <work-id> --operation-key <stable-key> --focu
 cyberagent run delivery checkpoint <final-work-id> --operation-key <stable-key> --focused "focused tests passed" --diff-audit "diff reviewed" --security-audit "security reviewed" --handoff "module handoff" --functional "full suite passed" --robustness "race and failure paths passed"
 cyberagent run delivery list <run-id>
 cyberagent run delivery show <checkpoint-id>
+cyberagent run delivery report <run-id>
+cyberagent run delivery report <run-id> --json
+cyberagent run delivery record <run-id> --operation-key <stable-key> --verification-jobs <job-id-1>,<job-id-2> --json
+cyberagent run delivery record <run-id> --operation-key <stable-key> --declaration no_applicable_tests
 cyberagent run steer enqueue <run-id> "review the current diff" --operation-key <stable-key>
 cyberagent run steer cancel <steering-id> --operation-key <stable-key> --reason "requirement withdrawn"
 cyberagent run steer drain <run-id> --max-steps 1
@@ -101,6 +105,19 @@ cyberagent ui-evidence list --run <run-id> [--status <status>] [--limit <n>]
 cyberagent ui-evidence show <attempt-id>
 cyberagent ui-evidence artifact <attempt-id> <artifact-id> --output <new-path>
 ```
+
+`run delivery report` reads the same freshness-aware
+`standard_code_delivery.v1` projection used by Desktop, authenticated HTTP,
+Code Handoff, GitHub Review, and Standard Code completion. `run delivery record`
+first creates an aligned final Checkpoint and then seals selected terminal
+Command Runtime Jobs. Use `--declaration user_skipped|budget_exhausted|missing_dependency|approval_denied`
+when that explicit non-test outcome applies; a declaration cannot be combined
+with Job ids. Only `passed` is verified. Changes after verification, including a
+Supervisor mutation epoch change, make the old receipt `stale` and require a new
+verification. The report links affected relative files, output Artifacts and
+Checkpoint recovery operations. It does not use Agent prose or CI names as
+evidence and does not commit, push, merge, overwrite source files, or reverse
+effects outside the Workspace. See [Standard Code Delivery Truth Gate](standard-code-delivery.md).
 
 Schema v115 exposes `agent-code-tools.v1` to the root Supervisor during ordinary
 `run step` or `run execute` model rounds. It is not a separate user command and it

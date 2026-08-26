@@ -378,6 +378,18 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		}
 		commandRuntimeDrydocks.WithCheckpointService(workspaceCheckpoints)
 	}
+	var standardCodeDelivery *application.StandardCodeDeliveryService
+	if commandRuntimeDrydocks != nil {
+		standardCodeDelivery, err = application.NewStandardCodeDeliveryService(
+			stateStore, commandRuntimeDrydocks)
+		if err != nil {
+			_ = stateStore.Close()
+			return nil, err
+		}
+		if githubReview != nil {
+			githubReview.WithStandardCodeDelivery(standardCodeDelivery)
+		}
+	}
 	dockerSandbox, standardCodeRuntime, standardCodeDockerReadiness, err :=
 		newDesktopDockerSandboxService(
 			context.Background(),
@@ -395,6 +407,9 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		models.Router(), checker).WithActiveCalls(
 		application.NewActiveCallRegistry()).WithMCPClient(mcpClient).
 		WithLifecycleHooks(hookEngine)
+	if standardCodeDelivery != nil {
+		executionControl.WithStandardCodeDelivery(standardCodeDelivery)
+	}
 	if codeIntelManager != nil {
 		executionControl.WithCodeIntel(codeIntelManager)
 	}
@@ -782,6 +797,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		UIEvidenceControlEnabled:                config.UIEvidenceControlEnabled,
 		RunLifecycleController:                  lifecycleControl,
 		StandardCodePresetController:            standardCodePreset,
+		StandardCodeDeliveryController:          standardCodeDelivery,
 		RunExecutionController:                  executionControl,
 		PublicModelStreamSource:                 executionControl,
 		PlanDeliveryController:                  planDeliveryControl,

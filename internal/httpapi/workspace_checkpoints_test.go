@@ -18,6 +18,7 @@ type workspaceCheckpointControllerStub struct {
 	restoreRequest application.WorkspaceRestoreRequest
 	forkRequest    application.WorkspaceForkRequest
 	action         string
+	timelineLimit  int
 }
 
 func (s *workspaceCheckpointControllerStub) Capture(_ context.Context,
@@ -29,8 +30,9 @@ func (s *workspaceCheckpointControllerStub) Capture(_ context.Context,
 }
 
 func (s *workspaceCheckpointControllerStub) Timeline(_ context.Context, runID string,
-	_ int,
+	limit int,
 ) (application.WorkspaceCheckpointTimeline, error) {
+	s.timelineLimit = limit
 	return application.WorkspaceCheckpointTimeline{
 		ProtocolVersion: application.WorkspaceCheckpointAPIProtocolVersion,
 		RunID:           runID,
@@ -102,6 +104,12 @@ func TestWorkspaceCheckpointHTTPRoutesAuthenticateAndBindIntent(t *testing.T) {
 	timeline := fixture.get(t, "/api/v1/runs/"+fixture.run.ID+"/workspace-checkpoints?limit=7")
 	if timeline.Code != http.StatusOK || !strings.Contains(timeline.Body.String(), "checkpoint-current") {
 		t.Fatalf("timeline status=%d body=%s", timeline.Code, timeline.Body.String())
+	}
+	exact := fixture.get(t, "/api/v1/runs/"+fixture.run.ID+
+		"/workspace-checkpoints?checkpoint_id=checkpoint-current")
+	if exact.Code != http.StatusOK || controller.timelineLimit != 2_000 {
+		t.Fatalf("exact checkpoint navigation status=%d limit=%d body=%s",
+			exact.Code, controller.timelineLimit, exact.Body.String())
 	}
 
 	capture := performControlMethodPathRequest(t, fixture.api, http.MethodPost,

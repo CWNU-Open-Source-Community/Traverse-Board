@@ -68,6 +68,12 @@ func (a *API) route(request *http.Request) (any, *Page, error) {
 		if a.batchDeliveryController != nil {
 			resources = append(resources, "batch-deliveries")
 		}
+		if a.standardCodeDeliveryController != nil {
+			resources = append(resources, "standard-code-delivery")
+			if a.controlEnabled {
+				resources = append(resources, "standard-code-delivery-control")
+			}
+		}
 		if a.extensionController != nil {
 			resources = append(resources, "extensions")
 		}
@@ -548,6 +554,8 @@ func (a *API) routeRuns(request *http.Request, segments []string) (any, *Page, e
 			return a.runVerificationSnapshotReceiptReviews(request, segments[1])
 		case "code-handoff":
 			return a.runCodeHandoff(request, segments[1])
+		case "standard-code-delivery":
+			return a.runStandardCodeDelivery(request, segments[1])
 		case "project-instructions":
 			return a.runProjectInstructions(request, segments[1])
 		}

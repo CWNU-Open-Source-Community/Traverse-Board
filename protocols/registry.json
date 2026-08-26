@@ -1943,6 +1943,74 @@
       "retired_identifiers": []
     },
     {
+      "id": "standard-code-delivery-ledger",
+      "class": "external-durable",
+      "owner": "Standard Code delivery and public projection maintainers",
+      "source_of_truth": [
+        "internal/application",
+        "internal/standardcodedelivery",
+        "internal/store"
+      ],
+      "writers": [
+        {
+          "id": "standard-code-delivery-ledger-writer",
+          "source": "internal/store",
+          "versions": [
+            1
+          ],
+          "mode": "write-current"
+        }
+      ],
+      "readers": [
+        {
+          "id": "standard-code-delivery-go-reader",
+          "source": "internal/standardcodedelivery",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        },
+        {
+          "id": "standard-code-delivery-http-reader",
+          "source": "internal/httpapi",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        },
+        {
+          "id": "standard-code-delivery-web-reader",
+          "source": "web/src",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "SQLite retains immutable metadata-only receipts; HTTP, CLI, Desktop, Code Handoff, GitHub Review, and final completion export the same freshness-aware projection.",
+      "compatibility_rule": "Retain old readers and exact receipt, revision, Diff, Checkpoint, Artifact, binding, redaction, and stale semantics until every stored receipt is migrated or indefinitely supported.",
+      "retirement_gate": {
+        "mode": "migration-or-retention",
+        "requirements": [
+          "ADR-backed retirement decision and rollback path",
+          "Old-version fixtures remain until every stored receipt and exported consumer is migrated or retained",
+          "Receipt hashes and historical conclusions remain independently verifiable"
+        ]
+      },
+      "active_identifiers": [
+        "command-runtime-backend-generation.v1",
+        "standard-code-backend.v1",
+        "standard-code-delivery-reason.v1",
+        "standard-code-workspace-revision.v1",
+        "standard_code_delivery.v1",
+        "standard_code_delivery_record.v1",
+        "standard_code_delivery_request.v1",
+        "standard_code_supervisor_finish.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
       "id": "thread-run-session-ledgers",
       "class": "internal-durable",
       "owner": "Thread, Run, Session, context, and message maintainers",

@@ -22,6 +22,7 @@ import (
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/skills"
+	"cyberagent-workbench/internal/standardcodedelivery"
 	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/waitgraph"
 	"cyberagent-workbench/internal/webevidence"
@@ -206,6 +207,7 @@ type RunSupervisor struct {
 	codeIntel                *codeintel.Manager
 	lifecycleHooks           *hooks.Engine
 	webEvidence              *webevidence.Service
+	standardCodeDelivery     *StandardCodeDeliveryService
 }
 
 func NewRunSupervisor(store RunSupervisorStore, router *llm.Router, checker policy.Checker) *RunSupervisor {
@@ -246,6 +248,15 @@ func NewRunSupervisor(store RunSupervisorStore, router *llm.Router, checker poli
 		skillRegistry: skillRegistry, skillRegistryErr: skillRegistryErr,
 		webEvidence: webService,
 	}
+}
+
+func (s *RunSupervisor) WithStandardCodeDelivery(
+	delivery *StandardCodeDeliveryService,
+) *RunSupervisor {
+	if s != nil {
+		s.standardCodeDelivery = delivery
+	}
+	return s
 }
 
 func (s *RunSupervisor) WithWebEvidence(service *webevidence.Service) *RunSupervisor {
@@ -972,6 +983,9 @@ func (s *RunSupervisor) stepWithLeaseMode(ctx context.Context, lease domain.RunE
 			}
 			if parseErr == nil && standardCode != nil {
 				parseErr = standardCode.ValidateAction(ctx, action)
+				if parseErr == nil && action.Kind == domain.RootActionFinish {
+					action = standardCode.ProjectDeliveryAction(action)
+				}
 			}
 		}
 		if parseErr != nil {
@@ -1344,6 +1358,25 @@ func (s *RunSupervisor) Finalize(ctx context.Context, runID string, outcome Life
 		if mode.Phase == domain.ExecutionPhasePlan {
 			return FinalizationResult{}, apperror.New(apperror.CodeFailedPrecondition,
 				"plan-phase Run cannot be completed; switch to deliver or cancel it")
+		}
+		if presetStore, ok := s.store.(standardCodeSupervisorStore); ok {
+			if _, configured, presetErr := presetStore.GetConfiguredStandardCodePresetOperation(
+				ctx, current.ID); presetErr != nil {
+				return FinalizationResult{}, apperror.Normalize(presetErr)
+			} else if configured {
+				if s.standardCodeDelivery == nil {
+					return FinalizationResult{}, apperror.New(apperror.CodeFailedPrecondition,
+						"Standard Code completion requires the delivery truth gate")
+				}
+				report, found, deliveryErr := s.standardCodeDelivery.Current(ctx, current.ID)
+				if deliveryErr != nil {
+					return FinalizationResult{}, deliveryErr
+				}
+				if !found || report.Status != standardcodedelivery.StatusPassed || !report.Verified {
+					return FinalizationResult{}, apperror.New(apperror.CodeFailedPrecondition,
+						"Standard Code completion requires a current passed delivery receipt")
+				}
+			}
 		}
 	}
 	mission, err := s.store.GetMission(ctx, current.MissionID)

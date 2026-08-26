@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"cyberagent-workbench/internal/operatoraction"
+	"cyberagent-workbench/internal/standardcodedelivery"
 )
 
 type VerificationEvidenceRequestView struct {
@@ -658,6 +659,7 @@ type CodeHandoffView struct {
 	CompositeMutation                  bool                                  `json:"composite_mutation"`
 	ResumeAuthorized                   bool                                  `json:"resume_authorized"`
 	ExecutionStarted                   bool                                  `json:"execution_started"`
+	StandardCodeDelivery               *standardcodedelivery.Report          `json:"standard_code_delivery,omitempty"`
 }
 
 type CodeHandoffExportView struct {

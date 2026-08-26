@@ -307,6 +307,17 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		}
 		commandRuntimeDrydocks.WithCheckpointService(workspaceCheckpoints)
 	}
+	var standardCodeDelivery *application.StandardCodeDeliveryService
+	if commandRuntimeDrydocks != nil {
+		standardCodeDelivery, err = application.NewStandardCodeDeliveryService(
+			a.store, commandRuntimeDrydocks)
+		if err != nil {
+			return err
+		}
+		if githubReviewService != nil {
+			githubReviewService.WithStandardCodeDelivery(standardCodeDelivery)
+		}
+	}
 	dockerSandbox, standardCodeRuntime, err :=
 		a.newDockerSandboxServiceWithStandardCode(*dockerExecution,
 			permissionCapabilities, commandRuntimeDrydocks)
@@ -322,6 +333,9 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 	executionControl := application.NewRunExecutionHandoffService(a.store, a.router,
 		a.checker).WithActiveCalls(a.calls).WithMCPClient(mcpClient).
 		WithLifecycleHooks(hookEngine)
+	if standardCodeDelivery != nil {
+		executionControl.WithStandardCodeDelivery(standardCodeDelivery)
+	}
 	if a.codeIntel != nil {
 		executionControl.WithCodeIntel(a.codeIntel)
 	}
@@ -570,6 +584,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) error {
 		LifecycleHooks:                          hookEngine,
 		RunLifecycleController:                  lifecycleControl,
 		StandardCodePresetController:            standardCodePreset,
+		StandardCodeDeliveryController:          standardCodeDelivery,
 		RunExecutionController:                  executionControl,
 		PublicModelStreamSource:                 executionControl,
 		PlanDeliveryController:                  planDeliveryControl,

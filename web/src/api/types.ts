@@ -83,6 +83,12 @@ export type StandardCodePresetControlRequestView =
   components["schemas"]["StandardCodePresetControlRequestView"];
 export type StandardCodePresetControlView =
   components["schemas"]["StandardCodePresetControlView"];
+export type StandardCodeDeliveryView =
+  components["schemas"]["StandardCodeDeliveryReport"];
+export type StandardCodeDeliveryRecordRequestView =
+  components["schemas"]["StandardCodeDeliveryRecordView"];
+export type StandardCodeDeliveryRecordResultView =
+  components["schemas"]["StandardCodeDeliveryRecordResult"];
 export type GitAdvancedAuthorityView = components["schemas"]["GitAdvancedAuthorityView"];
 export type GitAdvancedCapabilityView = components["schemas"]["GitAdvancedCapabilitySnapshot"];
 export type GitAdvancedConflictView = components["schemas"]["GitAdvancedConflictState"];

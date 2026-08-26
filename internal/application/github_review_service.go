@@ -20,6 +20,7 @@ import (
 	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/session"
+	"cyberagent-workbench/internal/standardcodedelivery"
 )
 
 const GitHubReviewAPIProtocolVersion = "github-review-api.v1"
@@ -89,6 +90,16 @@ type GitHubReviewService struct {
 	clientFactory          githubReviewClientFactory
 	mu                     sync.Mutex
 	clients                map[string]githubReviewClientEntry
+	delivery               StandardCodeDeliveryProjector
+}
+
+func (s *GitHubReviewService) WithStandardCodeDelivery(
+	delivery StandardCodeDeliveryProjector,
+) *GitHubReviewService {
+	if s != nil {
+		s.delivery = delivery
+	}
+	return s
 }
 
 func NewGitHubReviewService(store GitHubReviewStore, credentials credential.Store,
@@ -723,13 +734,14 @@ func (s *GitHubReviewService) ExecuteWrite(ctx context.Context,
 }
 
 type GitHubReviewProjection struct {
-	ProtocolVersion string                        `json:"protocol_version"`
-	RunID           string                        `json:"run_id"`
-	Connection      githubreview.Connection       `json:"connection"`
-	Credential      githubreview.CredentialStatus `json:"credential"`
-	Snapshots       []githubreview.Snapshot       `json:"snapshots"`
-	Evidence        []githubreview.EvidenceRecord `json:"evidence"`
-	Writes          []githubreview.WriteRecord    `json:"writes"`
+	ProtocolVersion      string                        `json:"protocol_version"`
+	RunID                string                        `json:"run_id"`
+	Connection           githubreview.Connection       `json:"connection"`
+	Credential           githubreview.CredentialStatus `json:"credential"`
+	Snapshots            []githubreview.Snapshot       `json:"snapshots"`
+	Evidence             []githubreview.EvidenceRecord `json:"evidence"`
+	Writes               []githubreview.WriteRecord    `json:"writes"`
+	StandardCodeDelivery *standardcodedelivery.Report  `json:"standard_code_delivery,omitempty"`
 }
 
 func (s *GitHubReviewService) Projection(ctx context.Context, runID,
@@ -765,9 +777,26 @@ func (s *GitHubReviewService) Projection(ctx context.Context, runID,
 	if err != nil {
 		return GitHubReviewProjection{}, apperror.Normalize(err)
 	}
-	return GitHubReviewProjection{ProtocolVersion: GitHubReviewAPIProtocolVersion,
+	projection := GitHubReviewProjection{ProtocolVersion: GitHubReviewAPIProtocolVersion,
 		RunID: authority.run.ID, Connection: connection, Credential: status,
-		Snapshots: snapshots, Evidence: evidence, Writes: writes}, nil
+		Snapshots: snapshots, Evidence: evidence, Writes: writes}
+	if s.delivery != nil {
+		report, found, deliveryErr := s.delivery.Current(ctx, authority.run.ID)
+		if deliveryErr != nil {
+			return GitHubReviewProjection{}, deliveryErr
+		}
+		if found {
+			if report.Binding.RunID != authority.run.ID ||
+				report.Binding.MissionID != authority.mission.ID ||
+				report.Binding.SessionID != authority.session.ID ||
+				report.Binding.SourceWorkspaceID != authority.workspace.ID {
+				return GitHubReviewProjection{}, apperror.New(apperror.CodeConflict,
+					"Standard Code delivery escaped its GitHub Review binding")
+			}
+			projection.StandardCodeDelivery = &report
+		}
+	}
+	return projection, nil
 }
 
 type GitHubReviewReconcileResult struct {

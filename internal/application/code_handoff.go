@@ -9,6 +9,7 @@ import (
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/fileedit"
 	"cyberagent-workbench/internal/operatoraction"
+	"cyberagent-workbench/internal/standardcodedelivery"
 	"cyberagent-workbench/internal/verification"
 )
 
@@ -40,8 +41,13 @@ type CodeHandoffStore interface {
 }
 
 type CodeHandoffService struct {
-	store CodeHandoffStore
-	now   func() time.Time
+	store    CodeHandoffStore
+	now      func() time.Time
+	delivery StandardCodeDeliveryProjector
+}
+
+type StandardCodeDeliveryProjector interface {
+	Current(context.Context, string) (standardcodedelivery.Report, bool, error)
 }
 
 type CodeHandoffPlan struct {
@@ -213,11 +219,21 @@ type CodeHandoff struct {
 	CompositeMutation                  bool                              `json:"composite_mutation"`
 	ResumeAuthorized                   bool                              `json:"resume_authorized"`
 	ExecutionStarted                   bool                              `json:"execution_started"`
+	StandardCodeDelivery               *standardcodedelivery.Report      `json:"standard_code_delivery,omitempty"`
 }
 
 func NewCodeHandoffService(store CodeHandoffStore) *CodeHandoffService {
 	return &CodeHandoffService{store: store,
 		now: func() time.Time { return time.Now().UTC() }}
+}
+
+func (s *CodeHandoffService) WithStandardCodeDelivery(
+	delivery StandardCodeDeliveryProjector,
+) *CodeHandoffService {
+	if s != nil {
+		s.delivery = delivery
+	}
+	return s
 }
 
 func (s *CodeHandoffService) Build(ctx context.Context, runID string) (CodeHandoff, error) {
@@ -323,6 +339,21 @@ func (s *CodeHandoffService) buildOnce(ctx context.Context, runID string) (CodeH
 	}
 	if err := s.addReports(ctx, &result); err != nil {
 		return CodeHandoff{}, err
+	}
+	if s.delivery != nil {
+		report, found, err := s.delivery.Current(ctx, run.ID)
+		if err != nil {
+			return CodeHandoff{}, err
+		}
+		if found {
+			if report.Binding.RunID != run.ID || report.Binding.MissionID != mission.ID ||
+				report.Binding.SessionID != run.SessionID ||
+				report.Binding.SourceWorkspaceID != mission.WorkspaceID {
+				return CodeHandoff{}, apperror.New(apperror.CodeConflict,
+					"Standard Code delivery escaped its Code Handoff binding")
+			}
+			result.StandardCodeDelivery = &report
+		}
 	}
 	return result, nil
 }

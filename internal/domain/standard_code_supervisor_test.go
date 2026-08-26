@@ -46,6 +46,10 @@ func TestStandardCodeSupervisorSnapshotRequiresInspectionAndCurrentVerification(
 		t.Fatal("stale verification was accepted for a newer mutation")
 	}
 	snapshot.VerifiedMutationEpoch = 2
+	if err := snapshot.Validate(); err == nil || snapshot.CanDeliver() {
+		t.Fatal("current mutation epoch without verification Job evidence was accepted")
+	}
+	snapshot.VerificationJobIDs = []string{"verification-job-standard-code"}
 	if err := snapshot.Validate(); err != nil || !snapshot.CanDeliver() {
 		t.Fatalf("current structural verification was rejected: %v", err)
 	}

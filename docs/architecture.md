@@ -770,6 +770,7 @@ approval.requested / approval.decided
 approval.grant_created / approval.grant_revoked
 finding.changed
 artifact.created
+standard_code.delivery_recorded
 policy.decided
 budget.changed
 supervisor.action_committed
@@ -785,8 +786,39 @@ The same Go adapter owns read projections for the bounded Agent graph, operator-
 SQLite remains the local source of truth. Schema migration `v1` records the legacy baseline, `v2`-`v18` establish the Run/Supervisor/memory/tool/Artifact/lease control plane, `v19`-`v38` add bounded Agent coordination, reviewed delegation, read-only Fan-out, Findings, and operator scheduling, and `v39`-`v47` add immutable Skill selection/context, Run modes, Plan/Delivery, provenance, checkpoints, steering, and Specialist minimization. Schemas `v48`-`v63` build the still-disabled Sandbox evidence and recovery chain; `v64`-`v68` add non-authorizing execution-profile and Docker production-evidence decisions; `v69`-`v71` add the inert user Skill Registry, exact Run selection/context, and read-only provenance; `v72`-`v113` continue the audited Run, Desktop, Provider, browser, Analyzer, Docker, dependency, MCP, project-config, Git, external-Skill, and Debug-terminal control planes; `v114` adds explicit long-term memory plus immutable instruction/continuity ledgers without authority restoration; `v115` adds model-callable workspace tools and hash-guarded file mutations; `v116` adds the Run-owned ordinary command runtime and its Supervisor call ledger; `v117` adds content-addressed transactional Workspace Checkpoints; `v118` adds isolated batch delivery; `v119` adds source-bound real-browser UI-evidence attempts, steps, and artifacts; `v120` adds the reviewed MCP Client ledger; `v121` adds inert Plugin installation, publisher trust, rollback, and restricted-Hook audits; `v122` adds durable bounded scheduled monitoring and structured-diagnostics records; `v123` adds immutable advanced-Git operations/sequences plus the managed-worktree registry; `v124` adds generation-CAS GitHub connections, immutable PR/CI snapshots and local evidence graphs, plus Approval-bound remote-write recovery receipts; `v125` repairs one pinned preview migration history; `v126` adds Workspace Access; `v127` adds Run-owned Drydocks; `v128` admits fixed Docker Standard Code under Workspace Access; `v129` adds stable Thread identity and Run succession; `v130` adds item-level streamed tool reconciliation identities; `v131` binds Command Runtime jobs and advertisements to exact sandboxed/host adapter identities while projecting legacy rows as non-executable evidence; `v132` fences process-local Docker stdin attachment; and `v133` adds atomic Standard Code preset and pause-intent receipts. Non-schema D1-B1 exposes the existing v69 Registry through inert HTTP/Desktop confirmation and adds no migration. Migrations are ordered, checksummed, transactional, and safe to apply repeatedly; legacy databases are upgraded without deleting their data or fabricating new operator decisions.
 
 Schema `v134` adds Run-scoped Web search, fetched snapshots, and citations.
-Schema `v135` adds the bounded Standard Code root completion ledger;
-it preserves every earlier migration and does not fabricate completion history.
+Schema `v135` adds the bounded Standard Code root completion ledger; `v136` adds
+durable risk escalation, grants, consumption and uncertain-execution recovery;
+and `v137` adds immutable Standard Code delivery truth receipts. Every migration
+preserves earlier history and fabricates no completion, approval, or verification fact.
+
+## Standard Code delivery truth gate
+
+`standard_code_delivery.v1` is the sole Standard Code completion projection.
+The Application captures a final Run-owned Drydock Checkpoint, renders one
+combined committed/index/worktree/untracked/conflict Diff from the exact base,
+and re-observes the Workspace before sealing. Each verification binds a durable
+Command Runtime Job, terminal state and exit, tree-reaped fact, executable and
+environment digests, permission and backend generation, post-command
+Checkpoint revision, bounded output digests and Artifact references. Store
+foreign keys and triggers align the Run/Mission/Session/Workspace/Drydock,
+event sequence, final Checkpoint, Diff and receipt hashes and make the row
+immutable.
+
+The closed public states are `passed|failed|partial|not_run|blocked|stale`.
+Only complete terminal success for the current revision is verified. Freshness
+is re-evaluated on every read against Workspace content, Drydock generation,
+permission/capability/backend bindings and Supervisor mutation epoch; a mismatch
+adds a stale observation without rewriting the historical receipt. Agent prose
+and CI check names do not participate in evaluation.
+
+Desktop Delivery, CLI/HTTP, Code Handoff/export, GitHub Review and the final
+Standard Code response all consume the same Go model. Relative changed files,
+Artifact output and Checkpoint/Undo/Rewind/Fork are navigable. Public projection
+validation excludes control characters, secrets, absolute host paths, raw
+environment/output and private reasoning. Recording does not commit, push,
+merge, overwrite source files, or claim that Checkpoint can reverse effects
+outside the Workspace. See [Standard Code Delivery Truth Gate](standard-code-delivery.md)
+and [ADR 0142](adr/0142-standard-code-delivery-truth-gate.md).
 
 ## Go-Owned GitHub Review Provider
 

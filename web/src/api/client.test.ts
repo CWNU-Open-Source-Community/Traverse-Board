@@ -1,6 +1,7 @@
 import { CyberAgentClient, clientCapabilitiesFromRuntime } from "./client";
 import type { RunEventStreamView, RunLifecycleControlView,
   ScheduledJobCreateRequestView, UIEvidenceArtifactMetadata } from "./types";
+import { standardCodeDeliveryFixture } from "../test/standard-code-delivery";
 
 const healthEnvelope = {
   version: "api.v1",
@@ -2443,7 +2444,8 @@ describe("CyberAgentClient", () => {
       pending_action_count: 0, pending_actions_truncated: false, pending_actions: [],
       report_references_truncated: false, report_references: [], regenerable: true,
       durable_sources: true, private_bodies_included: false, composite_mutation: false,
-      resume_authorized: false, execution_started: false };
+      resume_authorized: false, execution_started: false,
+      standard_code_delivery: standardCodeDeliveryFixture() };
     const envelope = (requestID: string, data: unknown, status = 200) =>
       new Response(JSON.stringify({ version: "api.v1", request_id: requestID, data }),
         { status, headers: { "Content-Type": "application/json" } });
@@ -2462,6 +2464,12 @@ describe("CyberAgentClient", () => {
         verification_snapshot_receipt_reviews: {
           ...handoff.verification_snapshot_receipt_reviews,
           operator_identity_included: true,
+        },
+      }))
+      .mockResolvedValueOnce(envelope("req-forged-delivery-handoff", { ...handoff,
+        standard_code_delivery: { ...handoff.standard_code_delivery,
+          safeguards: { ...handoff.standard_code_delivery.safeguards,
+            private_reasoning_stored: true },
         },
       }));
     vi.stubGlobal("fetch", fetchMock);
@@ -2485,6 +2493,8 @@ describe("CyberAgentClient", () => {
       .rejects.toThrow("widened navigation");
     await expect(client.codeHandoff("run-1"))
       .rejects.toThrow("receipt reviews widened authority");
+    await expect(client.codeHandoff("run-1"))
+      .rejects.toThrow("delivery truth projection");
     await expect(client.recordVerificationEvidence("run-1", {
       version: "operator_verification_evidence.v1", outcome: "pass",
       title: "Focused tests", summary: "line one\rline two",

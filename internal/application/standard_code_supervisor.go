@@ -14,6 +14,7 @@ import (
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/runner"
+	"cyberagent-workbench/internal/standardcodedelivery"
 	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/workspacecheckpoint"
 )
@@ -53,6 +54,8 @@ type standardCodeSupervisorTurn struct {
 	preset     domain.StandardCodePresetOperation
 	snapshot   domain.StandardCodeSupervisorSnapshot
 	ledger     []domain.StandardCodeSupervisorLedgerEntry
+	delivery   *StandardCodeDeliveryService
+	report     *standardcodedelivery.Report
 }
 
 type standardCodeCallDecision struct {
@@ -143,7 +146,7 @@ func (s *RunSupervisor) prepareStandardCodeSupervisor(ctx context.Context,
 		return nil, apperror.Normalize(err)
 	}
 	machine := &standardCodeSupervisorTurn{store: store, turn: turn,
-		permission: permission, preset: preset}
+		permission: permission, preset: preset, delivery: s.standardCodeDelivery}
 	machine.ledger, err = store.ListStandardCodeSupervisorLedger(ctx, turn.Run.ID,
 		domain.StandardCodeSupervisorMaximumLedgerEntries)
 	if err != nil {
@@ -826,6 +829,11 @@ func (m *standardCodeSupervisorTurn) observeWorkspaceMutation(ctx context.Contex
 		m.snapshot.FixRounds++
 	}
 	m.snapshot.MutationEpoch++
+	m.snapshot.VerificationJobIDs = nil
+	m.snapshot.DeliveryID = ""
+	m.snapshot.DeliveryReceiptSHA256 = ""
+	m.snapshot.DeliveryCheckpointID = ""
+	m.snapshot.DeliveryRevisionSHA256 = ""
 	m.snapshot.ExpectedCapabilityGeneration = expectedCapabilityGeneration
 	m.snapshot.State = domain.StandardCodeSupervisorExecute
 	m.snapshot.NoProgressCount = 0
@@ -939,6 +947,11 @@ func (m *standardCodeSupervisorTurn) observeCommand(call domain.SupervisorToolCa
 		}
 	}
 	if success {
+		m.snapshot.VerificationJobIDs = make([]string, 0, len(projection.Jobs))
+		for _, job := range projection.Jobs {
+			m.snapshot.VerificationJobIDs = append(m.snapshot.VerificationJobIDs, job.ID)
+		}
+		slices.Sort(m.snapshot.VerificationJobIDs)
 		m.snapshot.VerifiedMutationEpoch = m.snapshot.MutationEpoch
 		m.snapshot.State = domain.StandardCodeSupervisorDeliver
 		m.snapshot.LastFailureFingerprint = ""
@@ -946,6 +959,7 @@ func (m *standardCodeSupervisorTurn) observeCommand(call domain.SupervisorToolCa
 		m.snapshot.NoProgressCount = 0
 		return "current_mutation_verified", structural, nil
 	}
+	m.snapshot.VerificationJobIDs = nil
 	m.observeFailure(failureFingerprint)
 	m.snapshot.State = domain.StandardCodeSupervisorDiagnose
 	return "command_verification_failed", structural, nil
@@ -1018,6 +1032,19 @@ func (m *standardCodeSupervisorTurn) ValidateAction(ctx context.Context,
 			entry.Snapshot.AttemptID == m.snapshot.AttemptID &&
 			entry.ToolAction == string(action.Kind) {
 			if entry.Decision == domain.StandardCodeSupervisorAllowed {
+				if action.Kind != domain.RootActionFinish || m.delivery == nil {
+					return nil
+				}
+				report, found, err := m.delivery.Current(ctx, m.snapshot.RunID)
+				if err != nil {
+					return err
+				}
+				if !found || report.ID != entry.Snapshot.DeliveryID ||
+					report.ReceiptSHA256 != entry.Snapshot.DeliveryReceiptSHA256 ||
+					report.Status != standardcodedelivery.StatusPassed || !report.Verified {
+					return errors.New("finish_requires_current_passed_delivery_receipt")
+				}
+				m.report = &report
 				return nil
 			}
 			return errors.New(entry.ReasonCode)
@@ -1028,6 +1055,37 @@ func (m *standardCodeSupervisorTurn) ValidateAction(ctx context.Context,
 	if action.Kind == domain.RootActionFinish && !m.snapshot.CanDeliver() {
 		allowed = false
 		reason = "finish_requires_current_structural_verification"
+	}
+	if action.Kind == domain.RootActionFinish && allowed {
+		if m.delivery == nil {
+			allowed = false
+			reason = "finish_delivery_gate_unavailable"
+		} else {
+			result, err := m.delivery.Record(ctx, StandardCodeDeliveryRecordRequest{
+				RunID: m.snapshot.RunID,
+				OperationKey: runmutation.Fingerprint("standard_code_supervisor_finish.v1",
+					m.snapshot.RunID, m.snapshot.AttemptID,
+					strconv.Itoa(m.snapshot.MutationEpoch),
+					strings.Join(m.snapshot.VerificationJobIDs, "\x00")),
+				RequestedBy:        "run_supervisor",
+				VerificationJobIDs: append([]string(nil), m.snapshot.VerificationJobIDs...),
+			})
+			if err != nil {
+				return err
+			}
+			report := result.Report
+			m.report = &report
+			if report.Status != standardcodedelivery.StatusPassed || !report.Verified {
+				allowed = false
+				reason = "finish_delivery_status_" + string(report.Status)
+			} else {
+				m.snapshot.DeliveryID = report.ID
+				m.snapshot.DeliveryReceiptSHA256 = report.ReceiptSHA256
+				m.snapshot.DeliveryCheckpointID = report.FinalCheckpoint.ID
+				m.snapshot.DeliveryRevisionSHA256 = report.FinalCheckpoint.RevisionSHA256
+				reason = "current_passed_delivery_receipt"
+			}
+		}
 	}
 	if m.snapshot.State == domain.StandardCodeSupervisorStopped &&
 		action.Kind != domain.RootActionWait {
@@ -1048,6 +1106,21 @@ func (m *standardCodeSupervisorTurn) ValidateAction(ctx context.Context,
 		return errors.New(reason)
 	}
 	return nil
+}
+
+func (m *standardCodeSupervisorTurn) ProjectDeliveryAction(action domain.RootAction) domain.RootAction {
+	if m == nil || m.report == nil || action.Kind != domain.RootActionFinish ||
+		m.report.Status != standardcodedelivery.StatusPassed || !m.report.Verified {
+		return action
+	}
+	report := *m.report
+	action.Message = fmt.Sprintf(
+		"Standard Code delivery verified: %d affected file(s), %d verification command(s). Report: %s Test output and recovery actions are linked from the report.",
+		report.Diff.ChangedCount, len(report.Verifications), report.Links.Self)
+	action.Summary = fmt.Sprintf("verified delivery %s at checkpoint %s",
+		report.ReceiptSHA256[:12], report.FinalCheckpoint.ID)
+	action.Reason = "current_passed_delivery_receipt"
+	return action
 }
 
 func describeStandardCodeCall(call domain.SupervisorToolCall,
@@ -1341,6 +1414,9 @@ func (m *standardCodeSupervisorTurn) appendFrom(ctx context.Context,
 		strconv.Itoa(m.snapshot.MutationEpoch), strconv.Itoa(m.snapshot.VerifiedMutationEpoch),
 		m.snapshot.ExpectedCapabilityGeneration,
 		strconv.FormatInt(m.snapshot.OutputBytes, 10), m.snapshot.StopReason,
+		strings.Join(m.snapshot.VerificationJobIDs, "\x00"), m.snapshot.DeliveryID,
+		m.snapshot.DeliveryReceiptSHA256, m.snapshot.DeliveryCheckpointID,
+		m.snapshot.DeliveryRevisionSHA256,
 		intent, evidence, string(resultStatus), errorCode)
 	entry := domain.StandardCodeSupervisorLedgerEntry{
 		ID: "scs_" + operation[:24], OperationKeyDigest: operation,

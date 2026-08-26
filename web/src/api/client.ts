@@ -18,6 +18,7 @@ import {
   parseGitHubWriteExecute,
   parseGitHubWriteReview,
 } from "./github-review";
+import { parseStandardCodeDelivery } from "./standard-code-delivery";
 import type {
   ApprovalDecisionControlRequestView,
   ChildTaskAdmitRequestView,
@@ -132,6 +133,9 @@ import type {
   RunCapabilityReadinessView,
   StandardCodePresetControlRequestView,
   StandardCodePresetControlView,
+  StandardCodeDeliveryRecordRequestView,
+  StandardCodeDeliveryRecordResultView,
+  StandardCodeDeliveryView,
   RunExecutionControlRequestView,
   RunExecutionControlView,
   RunLifecycleControlRequestView,
@@ -3990,6 +3994,9 @@ function parseCodeHandoff(value: unknown, runID: string): CodeHandoffView {
     "resume_authorized", "run_id", "run_status", "session_id", "source_event_sequence",
     "surface", "verification", "verification_coverage", "verification_plans",
     "verification_snapshot_receipt_reviews", "workspace_id"];
+  const hasStandardCodeDelivery = isRecord(value) &&
+    Object.prototype.hasOwnProperty.call(value, "standard_code_delivery");
+  if (hasStandardCodeDelivery) keys.push("standard_code_delivery");
   if (!hasExactKeys(value, keys) || value.protocol_version !== "code_handoff.v1" ||
     value.run_id !== runID || !boundedIdentity(value.mission_id) || !boundedIdentity(value.session_id) ||
     !boundedIdentity(value.workspace_id) || value.surface !== "code" ||
@@ -4261,6 +4268,11 @@ function parseCodeHandoff(value: unknown, runID: string): CodeHandoffView {
         "INVALID_RESPONSE", 502);
     }
     reportIDs.add(String(report.id));
+  }
+  if (hasStandardCodeDelivery) {
+    return { ...value,
+      standard_code_delivery: parseStandardCodeDelivery(value.standard_code_delivery, runID),
+    } as unknown as CodeHandoffView;
   }
   return value as unknown as CodeHandoffView;
 }
@@ -5855,6 +5867,35 @@ export class CyberAgentClient {
     return parseCodeHandoff(await this.get<unknown>(
       `/runs/${encodeURIComponent(runID)}/code-handoff`, {}, signal,
     ), runID);
+  }
+
+  async standardCodeDelivery(runID: string,
+    signal?: AbortSignal): Promise<StandardCodeDeliveryView> {
+    if (!boundedIdentity(runID) || runID.trim() !== runID) {
+      throw new Error("A normalized Run identity is required");
+    }
+    return parseStandardCodeDelivery(await this.get<unknown>(
+      `/runs/${encodeURIComponent(runID)}/standard-code-delivery`, {}, signal,
+    ), runID);
+  }
+
+  async recordStandardCodeDelivery(runID: string, body: StandardCodeDeliveryRecordRequestView,
+    idempotencyKey: string, signal?: AbortSignal): Promise<StandardCodeDeliveryRecordResultView> {
+    if (!this.hasWorkspaceCheckpointControl || !boundedIdentity(runID) ||
+      runID.trim() !== runID || typeof body.operation_key !== "string" ||
+      body.operation_key.trim() !== body.operation_key || body.operation_key.length === 0 ||
+      !Array.isArray(body.verification_job_ids) || !Array.isArray(body.uncovered_items)) {
+      throw new Error("Standard Code delivery control and a bounded exact intent are required");
+    }
+    const value = await this.sendControl<unknown>(
+      `/runs/${encodeURIComponent(runID)}/standard-code-delivery`, body, idempotencyKey, signal);
+    if (!isRecord(value) || !hasExactKeys(value, ["replayed", "report"]) ||
+      typeof value.replayed !== "boolean") {
+      throw new APIRequestError("Invalid Standard Code delivery record response",
+        "INVALID_RESPONSE", 502);
+    }
+    return { replayed: value.replayed,
+      report: parseStandardCodeDelivery(value.report, runID) };
   }
 
   async codeHandoffExport(runID: string, format: "json" | "markdown",

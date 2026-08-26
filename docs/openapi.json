@@ -11800,6 +11800,187 @@
         "x-cyberagent-read-only": false
       }
     },
+    "/api/v1/runs/{run_id}/standard-code-delivery": {
+      "get": {
+        "operationId": "getStandardCodeDelivery",
+        "summary": "Inspect the Standard Code delivery truth receipt",
+        "description": "Returns the one durable standard_code_delivery.v1 projection shared by Desktop, CLI, Code Handoff, GitHub Review, and final completion. The live observation marks a previously passed receipt stale when the current Drydock Workspace revision no longer matches; no Agent prose or CI check name is treated as verification evidence.",
+        "tags": [
+          "Runs"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/StandardCodeDeliveryReport"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      },
+      "post": {
+        "operationId": "recordStandardCodeDelivery",
+        "summary": "Record a Standard Code delivery truth receipt",
+        "description": "Creates an immutable final Checkpoint, binds the exact Diff and Command Runtime artifacts to the current Drydock Workspace revision, and records a closed delivery conclusion. This operation does not commit, push, merge, overwrite the source Workspace, or retain raw output, environment, reasoning, or host paths.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/StandardCodeDeliveryRecordResult"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StandardCodeDeliveryRecordView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/runs/{run_id}/standard-code/pause-and-configure": {
       "post": {
         "operationId": "pauseAndConfigureStandardCodeRun",
@@ -14244,6 +14425,16 @@
               "maximum": 2000,
               "minimum": 1,
               "type": "integer"
+            }
+          },
+          {
+            "name": "checkpoint_id",
+            "in": "query",
+            "description": "Require one exact checkpoint in the returned timeline",
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
             }
           }
         ],
@@ -22435,6 +22626,9 @@
             "format": "int64",
             "type": "integer"
           },
+          "standard_code_delivery": {
+            "$ref": "#/components/schemas/StandardCodeDeliveryReport"
+          },
           "surface": {
             "enum": [
               "code"
@@ -29349,6 +29543,9 @@
               "$ref": "#/components/schemas/GitHubReviewSnapshot"
             },
             "type": "array"
+          },
+          "standard_code_delivery": {
+            "$ref": "#/components/schemas/StandardCodeDeliveryReport"
           },
           "writes": {
             "items": {
@@ -39235,6 +39432,832 @@
           "available",
           "blocked_by",
           "remediation"
+        ],
+        "type": "object"
+      },
+      "StandardCodeDeliveryArtifact": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "redacted": {
+            "type": "boolean"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "stream": {
+            "enum": [
+              "stdout",
+              "stderr"
+            ],
+            "type": "string"
+          },
+          "url": {
+            "maxLength": 2048,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "stream",
+          "sha256",
+          "size_bytes",
+          "redacted",
+          "url"
+        ],
+        "type": "object"
+      },
+      "StandardCodeDeliveryBinding": {
+        "additionalProperties": false,
+        "properties": {
+          "backend": {
+            "type": "string"
+          },
+          "backend_generation_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "capability_generation_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "drydock_generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "drydock_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "drydock_workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "mission_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "permission_revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "permission_snapshot_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "preset_operation_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "supervisor_mutation_epoch": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "run_id",
+          "mission_id",
+          "session_id",
+          "source_workspace_id",
+          "drydock_workspace_id",
+          "drydock_id",
+          "drydock_generation",
+          "preset_operation_sha256",
+          "permission_snapshot_id",
+          "permission_revision",
+          "backend",
+          "backend_generation_sha256",
+          "capability_generation_sha256",
+          "supervisor_mutation_epoch"
+        ],
+        "type": "object"
+      },
+      "StandardCodeDeliveryChangedFile": {
+        "additionalProperties": false,
+        "properties": {
+          "committed": {
+            "type": "boolean"
+          },
+          "conflicted": {
+            "type": "boolean"
+          },
+          "file_url": {
+            "maxLength": 2048,
+            "type": "string"
+          },
+          "index_changed": {
+            "type": "boolean"
+          },
+          "path": {
+            "maxLength": 1024,
+            "type": "string"
+          },
+          "path_redacted": {
+            "type": "boolean"
+          },
+          "path_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "tracked": {
+            "type": "boolean"
+          },
+          "untracked": {
+            "type": "boolean"
+          },
+          "worktree_changed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path_sha256",
+          "tracked",
+          "committed",
+          "index_changed",
+          "worktree_changed",
+          "untracked",
+          "conflicted",
+          "path_redacted"
+        ],
+        "type": "object"
+      },
+      "StandardCodeDeliveryCheckpoint": {
+        "additionalProperties": false,
+        "properties": {
+          "branch_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "head_commit": {
+            "maxLength": 64,
+            "minLength": 40,
+            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "incomplete_reason_sha256": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64,
+            "type": "array"
+          },
+          "index_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "manifest_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "recovery_level": {
+            "enum": [
+              "complete",
+              "partial",
+              "unavailable"
+            ],
+            "type": "string"
+          },
+          "revision_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "root_fingerprint": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "root_path_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "manifest_sha256",
+          "index_sha256",
+          "root_fingerprint",
+          "root_path_sha256",
+          "head_commit",
+          "branch_sha256",
+          "revision_sha256",
+          "recovery_level",
+          "incomplete_reason_sha256",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "StandardCodeDeliveryDiff": {
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "changed_count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "committed_count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "conflict_count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/StandardCodeDeliveryChangedFile"
+            },
+            "maxItems": 2000,
+            "type": "array"
+          },
+          "index_count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "redacted_count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "tracked_count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "untracked_count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "worktree_count": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sha256",
+          "bytes",
+          "changed_count",
+          "tracked_count",
+          "committed_count",
+          "index_count",
+          "worktree_count",
+          "untracked_count",
+          "conflict_count",
+          "redacted_count",
+          "files"
+        ],
+        "type": "object"
+      },
+      "StandardCodeDeliveryLinks": {
+        "additionalProperties": false,
+        "properties": {
+          "checkpoint": {
+            "maxLength": 2048,
+            "type": "string"
+          },
+          "checkpoint_timeline": {
+            "maxLength": 2048,
+            "type": "string"
+          },
+          "fork": {
+            "maxLength": 2048,
+            "type": "string"
+          },
+          "rewind": {
+            "maxLength": 2048,
+            "type": "string"
+          },
+          "self": {
+            "maxLength": 2048,
+            "type": "string"
+          },
+          "undo": {
+            "maxLength": 2048,
+            "type": "string"
+          }
+        },
+        "required": [
+          "self",
+          "checkpoint",
+          "checkpoint_timeline",
+          "undo",
+          "rewind",
+          "fork"
+        ],
+        "type": "object"
+      },
+      "StandardCodeDeliveryObservation": {
+        "additionalProperties": false,
+        "properties": {
+          "observed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "reason_code": {
+            "type": "string"
+          },
+          "revision_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "StandardCodeDeliveryReason": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "provenance_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "provenance_sha256"
+        ],
+        "type": "object"
+      },
+      "StandardCodeDeliveryRecordResult": {
+        "additionalProperties": false,
+        "properties": {
+          "replayed": {
+            "type": "boolean"
+          },
+          "report": {
+            "$ref": "#/components/schemas/StandardCodeDeliveryReport"
+          }
+        },
+        "required": [
+          "report",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "StandardCodeDeliveryRecordView": {
+        "additionalProperties": false,
+        "properties": {
+          "declaration": {
+            "enum": [
+              "no_applicable_tests",
+              "user_skipped",
+              "budget_exhausted",
+              "missing_dependency",
+              "approval_denied"
+            ],
+            "type": "string"
+          },
+          "operation_key": {
+            "type": "string"
+          },
+          "uncovered_items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "verification_job_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "operation_key",
+          "verification_job_ids",
+          "uncovered_items"
+        ],
+        "type": "object"
+      },
+      "StandardCodeDeliveryReport": {
+        "additionalProperties": false,
+        "properties": {
+          "base_commit": {
+            "maxLength": 64,
+            "minLength": 40,
+            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+            "type": "string"
+          },
+          "binding": {
+            "$ref": "#/components/schemas/StandardCodeDeliveryBinding"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "declaration": {
+            "enum": [
+              "no_applicable_tests",
+              "user_skipped",
+              "budget_exhausted",
+              "missing_dependency",
+              "approval_denied"
+            ],
+            "type": "string"
+          },
+          "diff": {
+            "$ref": "#/components/schemas/StandardCodeDeliveryDiff"
+          },
+          "event_sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "final_checkpoint": {
+            "$ref": "#/components/schemas/StandardCodeDeliveryCheckpoint"
+          },
+          "head_commit": {
+            "maxLength": 64,
+            "minLength": 40,
+            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "links": {
+            "$ref": "#/components/schemas/StandardCodeDeliveryLinks"
+          },
+          "observation": {
+            "$ref": "#/components/schemas/StandardCodeDeliveryObservation"
+          },
+          "operation_key_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "protocol_version": {
+            "enum": [
+              "standard_code_delivery.v1"
+            ],
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "$ref": "#/components/schemas/StandardCodeDeliveryReason"
+            },
+            "maxItems": 64,
+            "minItems": 1,
+            "type": "array"
+          },
+          "receipt_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "receipt_status": {
+            "enum": [
+              "passed",
+              "failed",
+              "partial",
+              "not_run",
+              "blocked",
+              "stale"
+            ],
+            "type": "string"
+          },
+          "request_fingerprint": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "safeguards": {
+            "$ref": "#/components/schemas/StandardCodeDeliverySafeguards"
+          },
+          "status": {
+            "enum": [
+              "passed",
+              "failed",
+              "partial",
+              "not_run",
+              "blocked",
+              "stale"
+            ],
+            "type": "string"
+          },
+          "uncovered_items": {
+            "items": {
+              "$ref": "#/components/schemas/StandardCodeDeliveryUncoveredItem"
+            },
+            "maxItems": 64,
+            "type": "array"
+          },
+          "verifications": {
+            "items": {
+              "$ref": "#/components/schemas/StandardCodeDeliveryVerification"
+            },
+            "maxItems": 64,
+            "type": "array"
+          },
+          "verified": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "protocol_version",
+          "operation_key_sha256",
+          "request_fingerprint",
+          "status",
+          "receipt_status",
+          "verified",
+          "binding",
+          "base_commit",
+          "head_commit",
+          "diff",
+          "final_checkpoint",
+          "verifications",
+          "reasons",
+          "uncovered_items",
+          "links",
+          "safeguards",
+          "receipt_sha256",
+          "event_sequence",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "StandardCodeDeliverySafeguards": {
+        "additionalProperties": false,
+        "properties": {
+          "absolute_paths_exposed": {
+            "type": "boolean"
+          },
+          "automatic_commit": {
+            "type": "boolean"
+          },
+          "automatic_merge": {
+            "type": "boolean"
+          },
+          "automatic_push": {
+            "type": "boolean"
+          },
+          "private_reasoning_stored": {
+            "type": "boolean"
+          },
+          "raw_environment_stored": {
+            "type": "boolean"
+          },
+          "raw_output_stored": {
+            "type": "boolean"
+          },
+          "source_overwrite": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "automatic_commit",
+          "automatic_push",
+          "automatic_merge",
+          "source_overwrite",
+          "raw_environment_stored",
+          "raw_output_stored",
+          "private_reasoning_stored",
+          "absolute_paths_exposed"
+        ],
+        "type": "object"
+      },
+      "StandardCodeDeliveryUncoveredItem": {
+        "additionalProperties": false,
+        "properties": {
+          "summary": {
+            "maxLength": 512,
+            "type": "string"
+          },
+          "summary_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "summary_sha256"
+        ],
+        "type": "object"
+      },
+      "StandardCodeDeliveryVerification": {
+        "additionalProperties": false,
+        "properties": {
+          "artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/StandardCodeDeliveryArtifact"
+            },
+            "maxItems": 4,
+            "type": "array"
+          },
+          "backend": {
+            "type": "string"
+          },
+          "backend_generation_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "checkpoint_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "completed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "conclusion": {
+            "enum": [
+              "passed",
+              "failed",
+              "partial",
+              "blocked",
+              "stale"
+            ],
+            "type": "string"
+          },
+          "current_revision": {
+            "type": "boolean"
+          },
+          "environment_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "executable_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "exit_code": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "job_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "output_truncated": {
+            "type": "boolean"
+          },
+          "permission_revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "reason_code": {
+            "type": "string"
+          },
+          "retry_count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "revision_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "spec_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "prepared",
+              "running",
+              "stopping",
+              "completed",
+              "failed",
+              "timed_out",
+              "cancelled",
+              "killed",
+              "interrupted"
+            ],
+            "type": "string"
+          },
+          "stderr_observed_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "stderr_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "stdout_observed_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "stdout_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "tree_reaped": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "job_id",
+          "conclusion",
+          "reason_code",
+          "state",
+          "spec_sha256",
+          "executable_sha256",
+          "environment_sha256",
+          "permission_revision",
+          "backend",
+          "backend_generation_sha256",
+          "checkpoint_id",
+          "revision_sha256",
+          "current_revision",
+          "retry_count",
+          "stdout_sha256",
+          "stderr_sha256",
+          "stdout_observed_bytes",
+          "stderr_observed_bytes",
+          "output_truncated",
+          "tree_reaped",
+          "artifacts"
         ],
         "type": "object"
       },

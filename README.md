@@ -62,7 +62,7 @@ CLI / React / Windows + macOS Desktop / loopback API
 | 模型与上下文 | Mock、Anthropic-compatible、OpenAI-compatible 与 loopback-only Ollama Provider、模型路由、资格校验、能力探测、流式响应、上下文压缩、层级项目指令、显式 user/project 长期记忆与 Session 恢复树 |
 | 计划与协作 | Plan/Delivery、Plan item（兼容 identity 为 `WorkItem`/`work_item`）、备注、最多两个核心 child、`batch-delivery.v1` 独立 Worktree/分支/邮箱/交付复核/顺序合并，以及 1/2/4/6 档只读 Fan-out |
 | 工具与权限 | Tool Gateway、JSON Schema 校验、Policy、Scope、人工审批、五档 Run 权限上限、受控固定命令、普通模式 Run-owned 命令运行时、逐条审批 PowerShell/Git Bash，以及限时 Debug 终端输入 |
-| 代码工作流 | 系统目录选择与 Workspace 导入、工作区浏览、仓库状态、提交历史、Diff 审阅、文件编辑提案、只读 `code-intel-lsp.v1` 语义工具、事务化 Workspace Checkpoint、Run-owned Drydock、稳定 hunk、stash/rebase/cherry-pick/bisect、受管 worktree、GitHub App PR/CI 证据与审批回写、Undo/Redo/Rewind、独立 Fork、验证计划、Code Journey 与 Handoff |
+| 代码工作流 | 系统目录选择与 Workspace 导入、工作区浏览、仓库状态、提交历史、Diff 审阅、文件编辑提案、只读 `code-intel-lsp.v1` 语义工具、事务化 Workspace Checkpoint、Run-owned Drydock、稳定 hunk、stash/rebase/cherry-pick/bisect、受管 worktree、GitHub App PR/CI 证据与审批回写、Undo/Redo/Rewind、独立 Fork、验证计划、`standard_code_delivery.v1` 交付真实性、Code Journey 与 Handoff |
 | 可观测性 | 追加式 Run 事件、Live Activity、公开模型进度、Harness 事实、Artifact、Finding/Evidence/Report、SARIF、持久化有界计划任务与脱敏结构化诊断包 |
 | 扩展 | 模式感知的惰性 Skill 包、生成候选人工审查、两阶段 MCP Client、签名 `plugin.v1`、受限生命周期 Hooks、Provider/Tool 接口、Go/Rust JSON 协议、内嵌 WASI Analyzer、Sandbox 合同与默认关闭的 network-none Docker 产品执行 |
 | 客户端 | `cyberagent` CLI、Bubble Tea TUI、认证 HTTP/OpenAPI、React/Vite、Windows/macOS Desktop 便携预览 |
@@ -95,6 +95,8 @@ Schema v133 与 #135 新增 Go-owned `standard_code_preset.v1`：“开始编码
 Schema v135 与 #137 在同一 `RunSupervisor` 内加入 `standard_code_supervisor.v1` 有界完成协议。Standard Code root 必须先完成两个连续只读轮次，经操作者选择 Plan 并进入 Deliver，再以已审阅 apply 的 after-Checkpoint 建立 mutation epoch；真实 Command Runtime 失败进入 Diagnose，修复后只有当前 epoch 的结构化成功才能进入 Deliver/finish。命令、Job、修复、输出、无进展和重复失败均有固定上限，重启重复副作用、权限/上下文漂移和陈旧 Job cursor 失败关闭，所有决定进入 append-only v135 账本。详见 [Standard Code 编码闭环](docs/standard-code-supervisor.md)与 [ADR 0137](docs/adr/0137-bounded-standard-code-supervisor.md)。
 
 Schema v136 与 #138 为 `workspace_access` Standard Code 增加 `risk_escalation.v1`。网络、凭据种类、宿主路径、Policy 拒绝、非白名单工具或其他高风险需求只能形成绑定精确命令、Run/Supervisor call、权限快照、Workspace root 与资源上限的持久提案；模型不能批准或选择授权范围。操作者可拒绝、批准一次，或向当前 Run 授予最多 15 分钟、8 次的精确 scope；每次使用均有不可变消费记录。Supervisor 在等待时释放 lease，重启后恢复同一未执行 call；write-ahead intent 后结果不确定时绝不自动重试，任何权限、Profile、Workspace、root 或 capability 漂移都会失效。详见[高风险升级协议](docs/risk-escalation.md)与 [ADR 0140](docs/adr/0140-durable-risk-escalation.md)。
+
+Schema v137 与 #139 新增 `standard_code_delivery.v1` 交付真实性门。最终 Checkpoint、base/head、真实 committed/index/worktree/untracked/conflict Diff、Command Runtime 终态/exit/tree-reaped、输出摘要与 Artifact、重试、permission/backend generation 和未覆盖项进入同一不可变 receipt；只有当前 Workspace revision 的完整终态成功可为 `passed/verified`。修改、权限或后端漂移会在读取时把旧 receipt 投影为 `stale`，而不改写历史；失败、截断、取消、超时、审批拒绝与无测试均有明确状态。Desktop、CLI/HTTP、Code Handoff、GitHub Review 与最终回复消费同一投影，并链接文件、测试输出及 Checkpoint/Undo/Rewind/Fork。记录不会自动 commit、push、merge、覆盖来源或删除无法证明归属的文件。详见[交付真实性门](docs/standard-code-delivery.md)与 [ADR 0142](docs/adr/0142-standard-code-delivery-truth-gate.md)。
 
 ### 模型与工具的 item 级流式事件
 
@@ -575,6 +577,7 @@ Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessag
 | v134 | 增加 Run 级 Web Search/Fetch/Citation 来源、不可变快照与幂等操作账本 | add Run-scoped Web Search/Fetch/Citation sources, immutable snapshots, and idempotent operation ledger |
 | v135 | 持久化 Standard Code root Supervisor 的有界 Inspect→Edit→Execute→Verify 状态、预算、拒绝和结构化证据，并补全 Code Intel 调用账本约束 | persist bounded Inspect→Edit→Execute→Verify state, budgets, denials, and structural evidence for the Standard Code root Supervisor and complete the Code Intel call-ledger constraints |
 | v136 | 增加精确高风险提案、有界 Run grant 消费、持久等待/恢复、write-ahead 不确定性与漂移失效账本 | add exact risk proposals, bounded Run-grant consumption, durable wait/resume, write-ahead uncertainty, and drift invalidation ledgers |
+| v137 | 增加 Standard Code 最终 Checkpoint、Diff/Command Artifact 对齐、不可变完成收据与动态 stale 投影 | add the Standard Code final Checkpoint, aligned Diff/Command Artifacts, immutable completion receipts, and dynamic stale projection |
 
 </details>
 

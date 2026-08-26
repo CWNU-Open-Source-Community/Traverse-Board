@@ -14,6 +14,7 @@ import (
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/runner"
+	"cyberagent-workbench/internal/standardcodedelivery"
 	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/workspacecheckpoint"
 )
@@ -569,8 +570,8 @@ func TestStandardCodeSupervisorFailureFixAndCurrentVerification(t *testing.T) {
 	if err := machine.ValidateAction(context.Background(), domain.RootAction{
 		Version: domain.RootLifecycleVersion, Kind: domain.RootActionFinish,
 		Message: "done", Summary: "verified",
-	}); err != nil {
-		t.Fatalf("verified finish denied: %v", err)
+	}); err == nil || err.Error() != "finish_delivery_gate_unavailable" {
+		t.Fatalf("structural verification bypassed the delivery truth gate: %v", err)
 	}
 
 	restarted := &standardCodeSupervisorTurn{store: store, turn: machine.turn,
@@ -580,6 +581,27 @@ func TestStandardCodeSupervisorFailureFixAndCurrentVerification(t *testing.T) {
 	decision, err := restarted.Authorize(context.Background(), duplicate)
 	if err != nil || !decision.Replayed || decision.Result == nil || decision.Allowed {
 		t.Fatalf("restart did not suppress duplicate apply: %+v err=%v", decision, err)
+	}
+}
+
+func TestStandardCodeSupervisorFinalResponseUsesDeliveryProjection(t *testing.T) {
+	machine, _ := newStandardCodeSupervisorTestMachine(
+		domain.StandardCodeSupervisorDeliver, domain.ExecutionPhaseDeliver)
+	machine.report = &standardcodedelivery.Report{Status: standardcodedelivery.StatusPassed,
+		Verified: true, ReceiptSHA256: strings.Repeat("a", 64),
+		Diff:            standardcodedelivery.Diff{ChangedCount: 3},
+		Verifications:   []standardcodedelivery.Verification{{JobID: "job-1"}},
+		FinalCheckpoint: standardcodedelivery.Checkpoint{ID: "checkpoint-final"},
+		Links:           standardcodedelivery.Links{Self: "/api/v1/runs/run-1/standard-code-delivery"}}
+	projected := machine.ProjectDeliveryAction(domain.RootAction{
+		Version: domain.RootLifecycleVersion, Kind: domain.RootActionFinish,
+		Message: "Agent says everything passed", Summary: "Agent-only claim"})
+	if !strings.Contains(projected.Message, "3 affected file(s)") ||
+		!strings.Contains(projected.Message, "1 verification command(s)") ||
+		!strings.Contains(projected.Message, machine.report.Links.Self) ||
+		strings.Contains(projected.Message, "Agent says") ||
+		projected.Reason != "current_passed_delivery_receipt" {
+		t.Fatalf("final response did not use delivery projection: %+v", projected)
 	}
 }
 

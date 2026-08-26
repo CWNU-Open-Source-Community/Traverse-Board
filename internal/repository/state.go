@@ -280,6 +280,14 @@ func safePath(value string) (string, int, bool) {
 	return cleaned, redactions, true
 }
 
+// PublicPath returns a normalized repository-relative path only when it is
+// safe for a public projection. Absolute, secret-shaped, control-bearing, and
+// traversal paths are omitted rather than rewritten into a different identity.
+func PublicPath(value string) (string, bool) {
+	canonical, _, ok := safePath(value)
+	return canonical, ok
+}
+
 func safeReference(value string, truncated bool, redactionCount int) (string, bool, int) {
 	if value == "" || !utf8.ValidString(value) || utf8.RuneCountInString(value) > MaxReferenceRunes ||
 		strings.ContainsRune(value, 0) {

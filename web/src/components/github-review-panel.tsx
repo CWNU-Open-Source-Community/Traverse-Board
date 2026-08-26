@@ -15,10 +15,11 @@ function operationKey(): string {
 }
 
 export function GitHubReviewPanel({ client, runID, onOpenApprovals,
-  retainedReview, onRetainedReviewChange }: {
+  onOpenDelivery, retainedReview, onRetainedReviewChange }: {
   client: CyberAgentClient;
   runID: string;
   onOpenApprovals: () => void;
+  onOpenDelivery?: () => void;
   retainedReview?: GitHubReviewWriteReviewResultView | null;
   onRetainedReviewChange?: (value: GitHubReviewWriteReviewResultView | null) => void;
 }) {
@@ -183,6 +184,14 @@ export function GitHubReviewPanel({ client, runID, onOpenApprovals,
         {qualify.data.qualification.diagnostics.map((item) => <small key={item.code}>{item.code}: {item.message}</small>)}</div>}
       {projection.isLoading && <LoadingState />}
       {projection.isError && <ErrorState error={projection.error} />}
+      {projection.data?.standard_code_delivery && <div className="github-review-delivery-truth">
+        <span><strong>{t("交付真实性", "Delivery truth")}</strong>
+          <code>{projection.data.standard_code_delivery.receipt_sha256}</code>
+          <small>{projection.data.standard_code_delivery.diff.changed_count} {t("个文件", "files")} · {projection.data.standard_code_delivery.verifications.length} {t("条命令", "commands")}</small></span>
+        <StatusBadge status={projection.data.standard_code_delivery.status} />
+        {onOpenDelivery && <button className="compact-command" onClick={onOpenDelivery} type="button">
+          {t("打开交付页", "Open delivery")}</button>}
+      </div>}
       {latest && <><dl className="repository-reference github-review-stats">
         <KeyValue label="PR" value={`#${latest.identity.number} ${latest.title.text}`} />
         <KeyValue label="HEAD" value={shortID(latest.identity.head_sha)} />

@@ -407,7 +407,7 @@ func (a *App) printHelp() {
 	fmt.Fprintln(a.out, "  cyberagent run plan show|choose|selection")
 	fmt.Fprintln(a.out, "  cyberagent run sandbox docker-readiness|docker-admit|docker-start|docker-cancel|docker-status")
 	fmt.Fprintln(a.out, "  cyberagent run standard-code docker-readiness|docker-prepare|docker-execute|docker-cancel|docker-recover")
-	fmt.Fprintln(a.out, "  cyberagent run delivery checkpoint|list|show")
+	fmt.Fprintln(a.out, "  cyberagent run delivery report|record|checkpoint|list|show")
 	fmt.Fprintln(a.out, "  cyberagent run fanout plan|execute|show|execution|report")
 	fmt.Fprintln(a.out, "  cyberagent todo create|list|show|update|start|block|reopen|complete|cancel")
 	fmt.Fprintln(a.out, "  cyberagent note create|list|show|update|archive|restore")
