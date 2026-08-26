@@ -1,0 +1,41 @@
+{
+  "registered_tier": "active",
+  "registered_by": "docs/adr/0135-pre-1-0-product-convergence.md",
+  "status": "removed",
+  "transitions": [
+    {
+      "from": "active",
+      "to": "maintenance-only",
+      "decision": "docs/adr/0200-example-surface-deprecation.md",
+      "entry_review": "",
+      "effective_on": "2026-01-01",
+      "release_notes": "releases/v0.2.0-beta.1.md",
+      "rollback_plan": "Restore the active adapter while retaining the replacement.",
+      "replacement": "thread-workbench",
+      "deprecation_notice_on": "2026-01-01",
+      "removal_eligible_on": "",
+      "tagged_prereleases": [],
+      "export_recovery_evidence": [],
+      "old_client_fixtures": [],
+      "old_store_fixtures": [],
+      "emergency_advisory": ""
+    },
+    {
+      "from": "maintenance-only",
+      "to": "removed",
+      "decision": "docs/adr/0201-example-surface-removal.md",
+      "entry_review": "",
+      "effective_on": "2026-04-01",
+      "release_notes": "releases/v0.2.0-beta.3.md",
+      "rollback_plan": "Restore the compatibility adapter without changing durable identities.",
+      "replacement": "thread-workbench",
+      "deprecation_notice_on": "2026-01-01",
+      "removal_eligible_on": "2026-04-01",
+      "tagged_prereleases": ["v0.2.0-beta.1", "v0.2.0-beta.2"],
+      "export_recovery_evidence": ["testdata/export-recovery.json"],
+      "old_client_fixtures": ["testdata/old-client.json"],
+      "old_store_fixtures": ["testdata/old-store.db"],
+      "emergency_advisory": ""
+    }
+  ]
+}
