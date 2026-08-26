@@ -771,7 +771,7 @@ func validateEdgeFacts(values []EdgeEvidence, factsByRun map[string]runFacts,
 		if err != nil {
 			return fmt.Errorf("edge %q: %w", value.Kind, err)
 		}
-		content, err := os.ReadFile(target)
+		content, err := readBoundedFile(target, maximumManualEvidenceBytes)
 		if err != nil || digestBytes(content) != value.ExpectedSHA256 {
 			return fmt.Errorf("edge %q content was not preserved", value.Kind)
 		}

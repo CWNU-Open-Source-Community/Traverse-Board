@@ -167,6 +167,16 @@ func TestReportSealRejectsTamperingAndIncompleteTruth(t *testing.T) {
 	if err := tampered.Validate(); err == nil {
 		t.Fatal("skip was accepted as product evidence")
 	}
+	divergent := validReport()
+	divergent.Scenarios[0].Backend = "docker"
+	if _, err := divergent.Seal(); err == nil {
+		t.Fatal("scenario was accepted for an Approval-only backend")
+	}
+	divergent = validReport()
+	divergent.Coverage.RealProcessJobs++
+	if _, err := divergent.Seal(); err == nil {
+		t.Fatal("fabricated real-process Job count was accepted")
+	}
 	path := filepath.Join(t.TempDir(), "report.json")
 	if err := WriteReport(path, sealed); err != nil {
 		t.Fatal(err)

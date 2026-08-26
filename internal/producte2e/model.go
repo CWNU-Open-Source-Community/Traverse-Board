@@ -494,6 +494,7 @@ func (r Report) Validate() error {
 		return errors.New("product E2E fixture oracle evidence is invalid")
 	}
 	seenBackends := map[string]bool{}
+	backendStates := map[string]string{}
 	for _, backend := range r.Backends {
 		if seenBackends[backend.Backend] || !contains(requiredBackends, backend.Backend) ||
 			(backend.State != "ready" && backend.State != "approval_required") ||
@@ -511,14 +512,21 @@ func (r Report) Validate() error {
 			return errors.New("Approval product E2E backend summary is inconsistent")
 		}
 		seenBackends[backend.Backend] = true
+		backendStates[backend.Backend] = backend.State
 	}
 	seenScenarios := map[string]bool{}
 	seenRunIDs := map[string]bool{}
 	languageCoverage := map[string]bool{}
+	backendScenarioCounts := map[string]int{}
+	backendLanguages := map[string]bool{}
+	realFailureRetries, realProcessJobs := 0, 0
 	for _, scenario := range r.Scenarios {
+		backendLanguage := scenario.Backend + "\x00" + scenario.Language
 		if !validIdentity(scenario.ID) || seenScenarios[scenario.ID] ||
 			!contains(requiredLanguages, scenario.Language) ||
 			!contains(requiredBackends, scenario.Backend) ||
+			backendStates[scenario.Backend] != "ready" ||
+			backendLanguages[backendLanguage] ||
 			!validIdentity(scenario.RunID) || seenRunIDs[scenario.RunID] ||
 			!validIdentity(scenario.ThreadID) || !validIdentity(scenario.SessionID) ||
 			!validGitObject(scenario.FixtureHead) ||
@@ -534,6 +542,19 @@ func (r Report) Validate() error {
 		seenScenarios[scenario.ID] = true
 		seenRunIDs[scenario.RunID] = true
 		languageCoverage[scenario.Language] = true
+		backendLanguages[backendLanguage] = true
+		backendScenarioCounts[scenario.Backend]++
+		realFailureRetries += scenario.FailedJobs
+		realProcessJobs += scenario.FailedJobs + scenario.PassedJobs
+	}
+	for backend, state := range backendStates {
+		expected := 0
+		if state == "ready" {
+			expected = len(requiredLanguages)
+		}
+		if backendScenarioCounts[backend] != expected {
+			return errors.New("product E2E backend and scenario summaries diverge")
+		}
 	}
 	for _, language := range requiredLanguages {
 		if !languageCoverage[language] {
@@ -573,7 +594,9 @@ func (r Report) Validate() error {
 		!sameStrings(r.Coverage.OperatingSystems, []string{"windows_10", "windows_11"}) ||
 		len(r.Coverage.DPIPercents) != 2 || r.Coverage.DPIPercents[0] != 100 ||
 		r.Coverage.DPIPercents[1] != 200 || r.Coverage.RealFailureRetries < 4 ||
-		r.Coverage.RealProcessJobs < 8 {
+		r.Coverage.RealProcessJobs < 8 ||
+		r.Coverage.RealFailureRetries != realFailureRetries ||
+		r.Coverage.RealProcessJobs != realProcessJobs {
 		return errors.New("product E2E coverage is incomplete")
 	}
 	if !r.Safeguards.NetworkDisabled || !r.Safeguards.CredentialsAbsent ||
