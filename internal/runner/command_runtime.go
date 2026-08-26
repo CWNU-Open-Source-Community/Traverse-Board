@@ -242,7 +242,8 @@ func NormalizeCommandRuntimeSpec(spec CommandRuntimeSpec,
 		if !commandRuntimeNativeExecutableAllowed(executablePath) {
 			return CommandRuntimeResolvedSpec{}, fmt.Errorf("%w: process profile cannot select a shell or script interpreter", ErrCommandRuntimeBoundary)
 		}
-		if within, withinErr := pathWithin(filepath.Dir(executablePath), root); withinErr != nil || within {
+		outside, outsideErr := commandRuntimeExecutableOutsideWorkspace(executablePath, root)
+		if outsideErr != nil || !outside {
 			return CommandRuntimeResolvedSpec{}, fmt.Errorf("%w: process executable must be outside the workspace", ErrCommandRuntimeBoundary)
 		}
 		canonicalArgv = cloneCommandRuntimeStrings(spec.Arguments)
@@ -272,6 +273,23 @@ func NormalizeCommandRuntimeSpec(spec CommandRuntimeSpec,
 		ExecutablePinned:    true, ProfileStartupFiles: false,
 		EnvironmentInherited: false,
 	}, nil
+}
+
+func commandRuntimeExecutableOutsideWorkspace(executablePath, workspaceRoot string) (
+	bool, error,
+) {
+	executablePath, workspaceRoot = filepath.Clean(executablePath), filepath.Clean(workspaceRoot)
+	executableVolume, workspaceVolume := filepath.VolumeName(executablePath),
+		filepath.VolumeName(workspaceRoot)
+	if executableVolume != "" && workspaceVolume != "" &&
+		!strings.EqualFold(executableVolume, workspaceVolume) {
+		// Windows volumes are disjoint namespaces. filepath.Rel reports an
+		// error for this safe, common portable-layout case, but the executable
+		// is conclusively outside the Workspace rather than unresolvable.
+		return true, nil
+	}
+	within, err := pathWithin(executablePath, workspaceRoot)
+	return !within, err
 }
 
 func CommandRuntimeSpecFingerprint(spec CommandRuntimeResolvedSpec) string {

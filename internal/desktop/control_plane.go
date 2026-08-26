@@ -51,6 +51,9 @@ type ControlPlane struct {
 	userTerminal                   *desktopUserTerminalService
 	debugAgentInput                application.DebugTerminalAgentInputController
 	commandRuntime                 application.CommandRuntimeRuntime
+	standardCodeDrydocks           *application.DrydockService
+	standardCodePreset             *application.StandardCodePresetService
+	policyChecker                  policy.Checker
 	uiEvidence                     *application.UIEvidenceService
 	commandRuntimeManager          *runner.CommandRuntimeManager
 	commandRuntimeManagers         []*runner.CommandRuntimeManager
@@ -309,7 +312,29 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		return nil, err
 	}
 	workspaceCheckpoints.WithLifecycleHooks(hookEngine)
-	if _, err := workspaceCheckpoints.Reconcile(context.Background()); err != nil {
+	var commandRuntimeDrydocks *application.DrydockService
+	if config.RunExecutionEnabled &&
+		config.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled {
+		drydockExecutor, executorErr := repository.NewDrydockExecutor(
+			filepath.Join(home, "drydocks"))
+		if executorErr != nil {
+			_ = stateStore.Close()
+			return nil, executorErr
+		}
+		commandRuntimeDrydocks, err = application.NewDrydockService(stateStore,
+			drydockExecutor)
+		if err != nil {
+			_ = stateStore.Close()
+			return nil, err
+		}
+		commandRuntimeDrydocks.WithCheckpointService(workspaceCheckpoints)
+	}
+	if commandRuntimeDrydocks != nil {
+		_, err = commandRuntimeDrydocks.ReconcileWorkspaceCheckpoints(context.Background())
+	} else {
+		_, err = workspaceCheckpoints.Reconcile(context.Background())
+	}
+	if err != nil {
 		_ = stateStore.Close()
 		return nil, apperror.Wrap(apperror.CodeUnavailable,
 			"desktop Workspace checkpoint startup reconciliation failed", err)
@@ -360,23 +385,6 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		_ = stateStore.Close()
 		return nil, apperror.Wrap(apperror.CodeUnavailable,
 			"desktop batch delivery startup reconciliation failed", err)
-	}
-	var commandRuntimeDrydocks *application.DrydockService
-	if config.RunExecutionEnabled &&
-		config.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled {
-		drydockExecutor, executorErr := repository.NewDrydockExecutor(
-			filepath.Join(home, "drydocks"))
-		if executorErr != nil {
-			_ = stateStore.Close()
-			return nil, executorErr
-		}
-		commandRuntimeDrydocks, err = application.NewDrydockService(stateStore,
-			drydockExecutor)
-		if err != nil {
-			_ = stateStore.Close()
-			return nil, err
-		}
-		commandRuntimeDrydocks.WithCheckpointService(workspaceCheckpoints)
 	}
 	var standardCodeDelivery *application.StandardCodeDeliveryService
 	if commandRuntimeDrydocks != nil {
@@ -843,9 +851,13 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	return &ControlPlane{stateStore: stateStore, workspaceManager: workspaceManager,
 		handler:        api.Handler(),
 		skillInstaller: skillInstaller, dockerSandbox: dockerSandbox,
-		userTerminal:    userTerminal,
-		debugAgentInput: debugAgentInput,
-		commandRuntime:  commandRuntime, uiEvidence: uiEvidence,
+		userTerminal:                   userTerminal,
+		debugAgentInput:                debugAgentInput,
+		commandRuntime:                 commandRuntime,
+		standardCodeDrydocks:           commandRuntimeDrydocks,
+		standardCodePreset:             standardCodePreset,
+		policyChecker:                  checker,
+		uiEvidence:                     uiEvidence,
 		commandRuntimeManager:          commandManager,
 		commandRuntimeManagers:         commandManagers,
 		commandRuntimeAdapterInstalled: len(installedCommandRuntimeAdapters) > 0,

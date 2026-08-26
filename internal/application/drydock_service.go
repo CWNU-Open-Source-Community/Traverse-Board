@@ -95,6 +95,18 @@ func (s *DrydockService) WithCheckpointService(
 	return s
 }
 
+// ReconcileWorkspaceCheckpoints restores interrupted checkpoint transactions
+// with the Run-owned Drydock Workspace resolver installed. The resolver falls
+// back to the ordinary source Workspace for Runs that do not own a Drydock, so
+// one startup pass safely covers both binding kinds.
+func (s *DrydockService) ReconcileWorkspaceCheckpoints(ctx context.Context) (int, error) {
+	if s == nil || s.checkpoints == nil {
+		return 0, apperror.New(apperror.CodeFailedPrecondition,
+			"Drydock Workspace checkpoint recovery is unavailable")
+	}
+	return s.checkpoints.Reconcile(ctx)
+}
+
 type DrydockCreateRequest struct {
 	RunID                 string `json:"run_id"`
 	OperationKey          string `json:"operation_key"`

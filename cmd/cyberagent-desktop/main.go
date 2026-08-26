@@ -18,6 +18,7 @@ import (
 	"cyberagent-workbench/internal/desktop"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/httpapi"
+	"cyberagent-workbench/internal/packagede2e"
 	"cyberagent-workbench/internal/sandbox"
 	"cyberagent-workbench/internal/webui"
 	webassets "cyberagent-workbench/web"
@@ -37,48 +38,56 @@ const (
 )
 
 type desktopOptions struct {
-	operatorPreview        bool
-	safeView               bool
-	profileControl         bool
-	permissionControl      bool
-	workspaceSandbox       bool
-	dangerFullAccess       bool
-	debugMaximumAccess     bool
-	browserCDPControl      bool
-	fullCDPDebug           bool
-	runCreation            bool
-	sessionMessages        bool
-	sessionSteeringControl bool
-	runLifecycle           bool
-	runExecution           bool
-	planDeliveryControl    bool
-	approvalControl        bool
-	commandProposalControl bool
-	hostCommandProposals   bool
-	modelControl           bool
-	providerCredentials    bool
-	fileEditReview         bool
-	fileEditProposals      bool
-	runWakeControl         bool
-	fileEditApply          bool
-	runWakeExecution       bool
-	runWakeWorker          bool
-	scheduledJobControl    bool
-	scheduledJobWorker     bool
-	skillInstallation      bool
-	evidenceAttachment     bool
-	verificationEvidence   bool
-	embeddedAnalyzer       bool
-	batchDeliveryControl   bool
-	batchValidation        bool
-	uiEvidence             bool
-	userTerminal           bool
-	dockerExecution        bool
-	codeIntelConfig        string
-	gitAdvanced            bool
-	githubReview           bool
-	gitWorktreeRoot        string
-	version                bool
+	operatorPreview         bool
+	safeView                bool
+	profileControl          bool
+	permissionControl       bool
+	workspaceSandbox        bool
+	dangerFullAccess        bool
+	debugMaximumAccess      bool
+	browserCDPControl       bool
+	fullCDPDebug            bool
+	runCreation             bool
+	sessionMessages         bool
+	sessionSteeringControl  bool
+	runLifecycle            bool
+	runExecution            bool
+	planDeliveryControl     bool
+	approvalControl         bool
+	commandProposalControl  bool
+	hostCommandProposals    bool
+	modelControl            bool
+	providerCredentials     bool
+	fileEditReview          bool
+	fileEditProposals       bool
+	runWakeControl          bool
+	fileEditApply           bool
+	runWakeExecution        bool
+	runWakeWorker           bool
+	scheduledJobControl     bool
+	scheduledJobWorker      bool
+	skillInstallation       bool
+	evidenceAttachment      bool
+	verificationEvidence    bool
+	embeddedAnalyzer        bool
+	batchDeliveryControl    bool
+	batchValidation         bool
+	uiEvidence              bool
+	userTerminal            bool
+	dockerExecution         bool
+	codeIntelConfig         string
+	gitAdvanced             bool
+	githubReview            bool
+	gitWorktreeRoot         string
+	securityMatrix          bool
+	securityMatrixRoot      string
+	securityCandidate       string
+	securityRecoveryWorker  bool
+	securityRecoveryRoot    string
+	securityRecoveryCase    string
+	securityRecoveryBackend string
+	securityRecoveryPhase   string
+	version                 bool
 }
 
 type nativeSkillPackagePicker struct{}
@@ -217,6 +226,33 @@ func main() {
 		fmt.Fprintf(os.Stdout, "%s desktop %s\n", app.Name, app.Version)
 		return
 	}
+	if config.securityRecoveryWorker {
+		if workerErr := desktop.RunStandardCodeSecurityRecoveryWorker(
+			context.Background(), desktop.StandardCodeSecurityRecoveryWorkerConfig{
+				Root: config.securityRecoveryRoot, CaseID: config.securityRecoveryCase,
+				Backend: config.securityRecoveryBackend, Phase: config.securityRecoveryPhase,
+			}); workerErr != nil {
+			fmt.Fprintf(os.Stderr, "packaged security recovery failed: %v\n", workerErr)
+			os.Exit(1)
+		}
+		return
+	}
+	if config.securityMatrix {
+		report, runErr := packagede2e.RunStandardCodeSecurityMatrix(
+			context.Background(), packagede2e.SecurityMatrixOptions{
+				HarnessRoot:      config.securityMatrixRoot,
+				CandidateArchive: config.securityCandidate,
+			}, desktop.NewStandardCodeSecurityDriver(strings.TrimSpace(
+				os.Getenv(standardCodeDockerImageEnvironment))))
+		if runErr != nil {
+			fmt.Fprintf(os.Stderr, "packaged security matrix failed: %v\n", runErr)
+			os.Exit(1)
+		}
+		fmt.Fprintf(os.Stdout, "%s status=%s report_sha256=%s runs=%d\n",
+			report.ProtocolVersion, report.Status, report.ReportSHA256,
+			report.Summary.RequiredBackendRuns)
+		return
+	}
 	if err := runDesktop(config); err != nil {
 		reportDesktopStartupFailure(err)
 		os.Exit(1)
@@ -308,6 +344,22 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 		"enable GitHub App review evidence and approval-gated write-back")
 	gitWorktreeRoot := fs.String("git-worktree-root", "",
 		"product-managed Git worktree root; defaults below CYBERAGENT_HOME")
+	securityMatrix := fs.Bool("standard-code-attack-matrix", false,
+		"execute only the fixed packaged Standard Code security matrix")
+	securityMatrixRoot := fs.String("attack-matrix-root", "",
+		"new harness-owned standard-code-attack-* evidence directory")
+	securityCandidate := fs.String("candidate-archive", "",
+		"portable candidate ZIP containing this exact executable")
+	securityRecoveryWorker := fs.Bool("standard-code-attack-recovery-worker", false,
+		"execute one fixed internal packaged recovery lifecycle")
+	securityRecoveryRoot := fs.String("recovery-worker-root", "",
+		"harness-owned fixed recovery directory")
+	securityRecoveryCase := fs.String("recovery-worker-case", "",
+		"frozen Standard Code recovery case")
+	securityRecoveryBackend := fs.String("recovery-worker-backend", "",
+		"frozen Local or Docker recovery backend")
+	securityRecoveryPhase := fs.String("recovery-worker-phase", "",
+		"fixed prepare or recover phase")
 	version := fs.Bool("version", false, "print version and exit")
 	if err := fs.Parse(args); err != nil {
 		return desktopOptions{}, err
@@ -320,49 +372,88 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 	if *safeView && len(visited) != 1 {
 		return desktopOptions{}, errors.New("--safe-view cannot be combined with other Desktop options")
 	}
+	_, matrixFlag := visited["standard-code-attack-matrix"]
+	_, matrixRootFlag := visited["attack-matrix-root"]
+	_, candidateFlag := visited["candidate-archive"]
+	if matrixFlag || matrixRootFlag || candidateFlag {
+		if !*securityMatrix || !matrixRootFlag || !candidateFlag || len(visited) != 3 ||
+			strings.TrimSpace(*securityMatrixRoot) == "" ||
+			strings.TrimSpace(*securityCandidate) == "" {
+			return desktopOptions{}, errors.New(
+				"packaged security mode requires exactly --standard-code-attack-matrix, --attack-matrix-root, and --candidate-archive")
+		}
+	}
+	workerNames := []string{"standard-code-attack-recovery-worker",
+		"recovery-worker-root", "recovery-worker-case", "recovery-worker-backend",
+		"recovery-worker-phase"}
+	workerFlags := 0
+	for _, name := range workerNames {
+		if _, ok := visited[name]; ok {
+			workerFlags++
+		}
+	}
+	if workerFlags != 0 {
+		if workerFlags != len(workerNames) || len(visited) != len(workerNames) ||
+			!*securityRecoveryWorker || strings.TrimSpace(*securityRecoveryRoot) == "" ||
+			strings.TrimSpace(*securityRecoveryCase) == "" ||
+			strings.TrimSpace(*securityRecoveryBackend) == "" ||
+			strings.TrimSpace(*securityRecoveryPhase) == "" {
+			return desktopOptions{}, errors.New(
+				"packaged recovery worker requires its exact five fixed arguments")
+		}
+	}
 	config := desktopOptions{operatorPreview: *operatorPreview, safeView: *safeView,
 		profileControl: *profileControl, runCreation: *runCreation,
 		permissionControl: *permissionControl, dangerFullAccess: *dangerFullAccess,
-		workspaceSandbox:       *workspaceSandbox,
-		debugMaximumAccess:     *debugMaximumAccess,
-		browserCDPControl:      *browserCDPControl,
-		fullCDPDebug:           *fullCDPDebug,
-		sessionMessages:        *sessionMessages,
-		sessionSteeringControl: *sessionSteeringControl,
-		runLifecycle:           *runLifecycle,
-		runExecution:           *runExecution,
-		planDeliveryControl:    *planDeliveryControl,
-		approvalControl:        *approvalControl,
-		commandProposalControl: *commandProposalControl,
-		hostCommandProposals:   *hostCommandProposals,
-		modelControl:           *modelControl,
-		providerCredentials:    *providerCredentials,
-		fileEditReview:         *fileEditReview,
-		fileEditProposals:      *fileEditProposals,
-		runWakeControl:         *runWakeControl,
-		fileEditApply:          *fileEditApply,
-		runWakeExecution:       *runWakeExecution,
-		runWakeWorker:          *runWakeWorker,
-		scheduledJobControl:    *scheduledJobControl,
-		scheduledJobWorker:     *scheduledJobWorker,
-		skillInstallation:      *skillInstallation,
-		evidenceAttachment:     *evidenceAttachment,
-		verificationEvidence:   *verificationEvidence,
-		embeddedAnalyzer:       *embeddedAnalyzer,
-		batchDeliveryControl:   *batchDeliveryControl,
-		batchValidation:        *batchValidation,
-		uiEvidence:             *uiEvidence,
-		userTerminal:           *userTerminal,
-		dockerExecution:        *dockerExecution,
-		codeIntelConfig:        strings.TrimSpace(*codeIntelConfig),
-		gitAdvanced:            *gitAdvanced,
-		githubReview:           *githubReview,
-		gitWorktreeRoot:        strings.TrimSpace(*gitWorktreeRoot),
-		version:                *version}
+		workspaceSandbox:        *workspaceSandbox,
+		debugMaximumAccess:      *debugMaximumAccess,
+		browserCDPControl:       *browserCDPControl,
+		fullCDPDebug:            *fullCDPDebug,
+		sessionMessages:         *sessionMessages,
+		sessionSteeringControl:  *sessionSteeringControl,
+		runLifecycle:            *runLifecycle,
+		runExecution:            *runExecution,
+		planDeliveryControl:     *planDeliveryControl,
+		approvalControl:         *approvalControl,
+		commandProposalControl:  *commandProposalControl,
+		hostCommandProposals:    *hostCommandProposals,
+		modelControl:            *modelControl,
+		providerCredentials:     *providerCredentials,
+		fileEditReview:          *fileEditReview,
+		fileEditProposals:       *fileEditProposals,
+		runWakeControl:          *runWakeControl,
+		fileEditApply:           *fileEditApply,
+		runWakeExecution:        *runWakeExecution,
+		runWakeWorker:           *runWakeWorker,
+		scheduledJobControl:     *scheduledJobControl,
+		scheduledJobWorker:      *scheduledJobWorker,
+		skillInstallation:       *skillInstallation,
+		evidenceAttachment:      *evidenceAttachment,
+		verificationEvidence:    *verificationEvidence,
+		embeddedAnalyzer:        *embeddedAnalyzer,
+		batchDeliveryControl:    *batchDeliveryControl,
+		batchValidation:         *batchValidation,
+		uiEvidence:              *uiEvidence,
+		userTerminal:            *userTerminal,
+		dockerExecution:         *dockerExecution,
+		codeIntelConfig:         strings.TrimSpace(*codeIntelConfig),
+		gitAdvanced:             *gitAdvanced,
+		githubReview:            *githubReview,
+		gitWorktreeRoot:         strings.TrimSpace(*gitWorktreeRoot),
+		securityMatrix:          *securityMatrix,
+		securityMatrixRoot:      strings.TrimSpace(*securityMatrixRoot),
+		securityCandidate:       strings.TrimSpace(*securityCandidate),
+		securityRecoveryWorker:  *securityRecoveryWorker,
+		securityRecoveryRoot:    strings.TrimSpace(*securityRecoveryRoot),
+		securityRecoveryCase:    strings.TrimSpace(*securityRecoveryCase),
+		securityRecoveryBackend: strings.TrimSpace(*securityRecoveryBackend),
+		securityRecoveryPhase:   strings.TrimSpace(*securityRecoveryPhase),
+		version:                 *version}
 	// A normal product launch has no arguments. Keep every explicit --enable-*
 	// invocation in the legacy granular mode so a single high-risk switch never
 	// inherits prerequisite authority from the product defaults.
-	if len(visited) == 0 || config.operatorPreview {
+	if (len(visited) == 0 || config.operatorPreview) && !config.securityMatrix &&
+		!config.securityRecoveryWorker {
 		enableSafeDesktopProductBundle(&config)
 	}
 	if config.operatorPreview {

@@ -13,6 +13,7 @@
 
 # Hash-bound packaged E2E assets must keep the same bytes on Windows and POSIX.
 internal/packagede2e/testdata/** text eol=lf
+internal/desktop/testdata/standard-code-security/** text eol=lf
 scripts/standard-code-packaged-e2e.ps1 text eol=lf
 
 # Runtime verifies the generated baseline byte digest before using it.

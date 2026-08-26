@@ -721,6 +721,8 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		toolCall.Role = turn.Agent.Role
 		toolCall.Profile = turn.Mode.Profile
 		toolCall.PermissionMode = permission.Mode
+		toolCall.ModeRevision = turn.Mode.Revision
+		toolCall.PermissionRevision = permission.Revision
 		toolCall.CapabilityGeneration = authority.Adapter.Generation
 		toolCall.CommandRuntimeAdapter = authority.Adapter
 	}

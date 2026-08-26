@@ -44,6 +44,17 @@ func (transport localDockerContainerIOTransport) ExportOwnedOutputs(ctx context.
 	return transport.inner.ExportOwnedOutputs(ctx, request, plan)
 }
 
+func (transport localDockerContainerIOTransport) AttachOwnedStdin(ctx context.Context,
+	request DockerContainerLifecycleRequest, stdin io.ReadCloser,
+	fence DockerContainerLifecycleFence,
+) error {
+	return transport.inner.AttachOwnedStdin(ctx, request, stdin, fence)
+}
+
+func (transport localDockerContainerIOTransport) SupportsOwnedStdin() bool {
+	return transport.inner.SupportsOwnedStdin()
+}
+
 // NewLocalDockerContainerIOTransport returns the fixed Docker Desktop Linux
 // engine named-pipe transport. No daemon endpoint can be supplied by a caller.
 func NewLocalDockerContainerIOTransport() DockerContainerOwnedIOTransport {

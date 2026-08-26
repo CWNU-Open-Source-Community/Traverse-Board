@@ -308,6 +308,67 @@ func TestDesktopDockerExecutionRequiresAnExplicitPermissionGate(t *testing.T) {
 	}
 }
 
+func TestPackagedSecurityModeIsExactAndCannotInheritDesktopAuthority(t *testing.T) {
+	options, err := parseDesktopOptions([]string{
+		"--standard-code-attack-matrix",
+		"--attack-matrix-root", `D:\harness\standard-code-attack-181`,
+		"--candidate-archive", `D:\candidate\TraverseBoard.zip`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !options.securityMatrix || options.securityMatrixRoot == "" ||
+		options.securityCandidate == "" || options.profileControl ||
+		options.permissionControl || options.workspaceSandbox || options.runExecution ||
+		options.dangerFullAccess || options.debugMaximumAccess || options.userTerminal ||
+		options.dockerExecution {
+		t.Fatalf("packaged security mode inherited product authority: %+v", options)
+	}
+	for _, arguments := range [][]string{
+		{"--standard-code-attack-matrix"},
+		{"--attack-matrix-root", `D:\harness\standard-code-attack-181`},
+		{"--standard-code-attack-matrix", "--attack-matrix-root",
+			`D:\harness\standard-code-attack-181`, "--candidate-archive",
+			`D:\candidate\TraverseBoard.zip`, "--enable-danger-full-access"},
+	} {
+		if _, err := parseDesktopOptions(arguments); err == nil {
+			t.Fatalf("incomplete or widened packaged security arguments were accepted: %v",
+				arguments)
+		}
+	}
+}
+
+func TestPackagedRecoveryWorkerModeIsExactAndInternalOnly(t *testing.T) {
+	arguments := []string{
+		"--standard-code-attack-recovery-worker",
+		"--recovery-worker-root", `D:\harness\standard-code-attack-181\runtime\recovery\recovery-recovery_force_termination-local`,
+		"--recovery-worker-case", "recovery_force_termination",
+		"--recovery-worker-backend", "local",
+		"--recovery-worker-phase", "prepare",
+	}
+	options, err := parseDesktopOptions(arguments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !options.securityRecoveryWorker || options.securityRecoveryRoot == "" ||
+		options.securityRecoveryCase != "recovery_force_termination" ||
+		options.securityRecoveryBackend != "local" ||
+		options.securityRecoveryPhase != "prepare" || options.securityMatrix ||
+		options.permissionControl || options.workspaceSandbox || options.runExecution ||
+		options.dangerFullAccess || options.debugMaximumAccess || options.dockerExecution {
+		t.Fatalf("packaged recovery worker inherited Desktop authority: %+v", options)
+	}
+	for _, invalid := range [][]string{
+		arguments[:1],
+		append(append([]string(nil), arguments...), "--enable-danger-full-access"),
+		{"--recovery-worker-root", arguments[2]},
+	} {
+		if _, err := parseDesktopOptions(invalid); err == nil {
+			t.Fatalf("incomplete or widened recovery worker arguments were accepted: %v", invalid)
+		}
+	}
+}
+
 func TestSecondInstanceHandlerIgnoresArgumentsAndRecoversAfterStartup(t *testing.T) {
 	restorer := &testWindowRestorer{}
 	lifecycle := desktop.NewLifecycle(restorer)

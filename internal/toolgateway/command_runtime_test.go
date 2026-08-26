@@ -98,6 +98,13 @@ func TestCommandRuntimeGatewayUsesFencedScopeAndSanitizesUntrustedFrames(t *test
 	}
 	if executor.calls != 1 || executor.scope.LeaseID != "lease-1" ||
 		executor.scope.LeaseGeneration != 7 || executor.input.Action != CommandRuntimeActionRun ||
+		executor.scope.MissionID != "mission-1" ||
+		executor.scope.Surface != domain.ExecutionSurfaceCode ||
+		executor.scope.Phase != domain.ExecutionPhaseDeliver ||
+		executor.scope.Role != domain.AgentRoleRoot ||
+		executor.scope.Profile != domain.ProfileCode ||
+		executor.scope.PermissionMode != domain.RunExecutionPermissionFullAccess ||
+		executor.scope.ModeRevision != 1 || executor.scope.PermissionRevision != 1 ||
 		outcome.Result == nil || outcome.Result.Status != StatusCompleted ||
 		outcome.Result.Metadata["owner"] != "host_unsandboxed" ||
 		outcome.Result.Metadata["job_1_artifact_stdout_id"] == "" ||
@@ -192,7 +199,8 @@ func commandRuntimeToolCall(payload json.RawMessage) ToolCall {
 	adapter := commandruntimeadapter.HostUnsandboxed(strings.Repeat("a", 64))
 	return ToolCall{Name: CommandRuntimeTool, Payload: payload,
 		OperationKey: "command-runtime-operation-0001", RunID: "run-1",
-		AgentID: "agent-root-1", SessionID: "session-1", WorkspaceID: "workspace-1",
+		MissionID: "mission-1", AgentID: "agent-root-1",
+		SessionID: "session-1", WorkspaceID: "workspace-1",
 		Surface: domain.ExecutionSurfaceCode, Phase: domain.ExecutionPhaseDeliver,
 		Role: domain.AgentRoleRoot, Profile: domain.ProfileCode,
 		PermissionMode: domain.RunExecutionPermissionFullAccess,

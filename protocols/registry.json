@@ -2933,6 +2933,14 @@
       "reason": "Packaged E2E harness report, not a shipped product protocol."
     },
     {
+      "identifier": "standard_code_packaged_security_evidence.v1",
+      "kind": "conformance-test",
+      "sources": [
+        "internal/packagede2e/security_evidence.go"
+      ],
+      "reason": "Issue 181 packaged attack-matrix evidence; immutable release input but never runtime authority or the parent release verdict."
+    },
+    {
       "identifier": "standard_code_product_e2e.v1",
       "kind": "test-fixture",
       "sources": [
@@ -2965,6 +2973,22 @@
         "scripts/standard-code-product-e2e.ps1"
       ],
       "reason": "Local-only issue #182 packaged product session orchestration state."
+    },
+    {
+      "identifier": "standard_code_security_probe.v1",
+      "kind": "conformance-test",
+      "sources": [
+        "internal/desktop/standard_code_security_windows.go"
+      ],
+      "reason": "Fixed packaged-only Standard Code attack probe receipt; not a model-facing tool, arbitrary command entry, or capability grant."
+    },
+    {
+      "identifier": "standard_code_security_recovery.v1",
+      "kind": "conformance-test",
+      "sources": [
+        "internal/desktop/standard_code_security_recovery_windows.go"
+      ],
+      "reason": "Fixed packaged-only Standard Code crash/restart evidence; contains hashes and bounded lifecycle facts but grants no runtime or release authority."
     },
     {
       "identifier": "standard_code_test_root.v1",

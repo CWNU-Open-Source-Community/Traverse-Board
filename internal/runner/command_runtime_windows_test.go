@@ -15,6 +15,20 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+func TestCommandRuntimeProcessExecutableOnAnotherVolumeIsOutsideWorkspace(t *testing.T) {
+	outside, err := commandRuntimeExecutableOutsideWorkspace(
+		`C:\Program Files\Go\bin\go.exe`, `D:\standard-code-attack-181\runtime`)
+	if err != nil || !outside {
+		t.Fatalf("cross-volume executable outside=%t err=%v", outside, err)
+	}
+	outside, err = commandRuntimeExecutableOutsideWorkspace(
+		`D:\standard-code-attack-181\runtime\tool.exe`,
+		`D:\standard-code-attack-181\runtime`)
+	if err != nil || outside {
+		t.Fatalf("workspace executable outside=%t err=%v", outside, err)
+	}
+}
+
 func TestCommandRuntimeWindowsPowerShell5PowerShell7AndGitBashSmoke(t *testing.T) {
 	root := t.TempDir()
 	var powershell5 string

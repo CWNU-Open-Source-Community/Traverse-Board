@@ -329,6 +329,7 @@ func TestStandardCodeDockerServiceExecutesIntoDrydockCheckpoint(t *testing.T) {
 	runtimeScope := toolgateway.CommandRuntimeContext{
 		InvocationID: "command-runtime-docker-invocation",
 		OperationKey: "command-runtime-docker-operation", RunID: runRecord.ID,
+		MissionID:   runRecord.MissionID,
 		RootAgentID: root.ID, SessionID: runRecord.SessionID,
 		WorkspaceID:          fixture.workspace.ID,
 		CapabilityGeneration: advertised.Generation,
@@ -337,6 +338,36 @@ func TestStandardCodeDockerServiceExecutesIntoDrydockCheckpoint(t *testing.T) {
 		PolicyDecision: toolgateway.Decision{Allowed: true,
 			Approval: toolgateway.ApprovalAutomatic, Risk: "medium",
 			Reason: "test exact Docker sandbox adapter"},
+	}
+	if err := runtimeScope.Validate(); err != nil {
+		t.Fatalf("Docker Command Runtime context is invalid before execution: %v", err)
+	}
+	bindings, err := commandRuntime.loadAuthorizedBindings(ctx, runtimeScope)
+	if err != nil {
+		t.Fatalf("Docker Command Runtime bindings are invalid before execution: %v", err)
+	}
+	resolved, err := runner.NormalizeCommandRuntimeSpec(runner.CommandRuntimeSpec{
+		Version: runner.CommandRuntimeProtocolVersion,
+		Profile: runner.CommandRuntimeProcess, Executable: goExecutable,
+		Arguments: []string{"version"}, WorkingDirectory: ".",
+		Environment: []runner.CommandRuntimeEnvironment{},
+		StdinPolicy: runner.CommandRuntimeStdinClosed, CloseInitialStdin: true,
+		TimeoutMilliseconds: 60_000,
+		Output: runner.CommandRuntimeOutputPolicy{InlineBytes: 4096,
+			ArtifactBytes: 64 * 1024},
+		Network:     runner.CommandRuntimeNetworkDisabled,
+		Credentials: runner.CommandRuntimeCredentialsNone,
+		Purpose:     "exercise Command Runtime through fixed Docker Standard Code",
+	}, bindings.rootPath)
+	if err != nil {
+		t.Fatalf("Docker Command Runtime spec is invalid before execution: %v", err)
+	}
+	runnerScope := commandRuntime.runnerScope(runtimeScope, bindings,
+		runtimeScope.OperationKey)
+	if err := runnerScope.Validate(); err != nil ||
+		resolved.WorkspaceRootSHA256 != runnerScope.WorkspaceRootSHA256 {
+		t.Fatalf("Docker Command Runtime runner boundary is invalid before execution: scope=%+v resolved_root=%s err=%v",
+			runnerScope, resolved.WorkspaceRootSHA256, err)
 	}
 	runtimeResult, err := commandRuntime.ExecuteCommandRuntime(ctx, runtimeScope,
 		toolgateway.CommandRuntimeInput{

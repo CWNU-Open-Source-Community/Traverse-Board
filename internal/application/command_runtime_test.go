@@ -212,6 +212,7 @@ func TestCommandRuntimeServiceRunsAndReplaysFencedForegroundCommand(t *testing.T
 	scope := toolgateway.CommandRuntimeContext{
 		InvocationID: "command-runtime-invocation-1",
 		OperationKey: "command-runtime-operation-1", RunID: runRecord.ID,
+		MissionID:   runRecord.MissionID,
 		RootAgentID: root.ID, SessionID: runRecord.SessionID,
 		WorkspaceID: "workspace-command-runtime-app", LeaseID: lease.LeaseID,
 		CapabilityGeneration: service.adapter.Generation,
@@ -239,6 +240,34 @@ func TestCommandRuntimeServiceRunsAndReplaysFencedForegroundCommand(t *testing.T
 		replayed.Jobs[0].ID != result.Jobs[0].ID ||
 		replayed.Jobs[0].State != runner.CommandRuntimeJobCompleted {
 		t.Fatalf("foreground replay duplicated or changed the job: %#v err=%v", replayed, err)
+	}
+	mode, err := state.GetRunMode(ctx, runRecord.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	permission, err := state.GetRunExecutionPermission(ctx, runRecord.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := scope
+	stale.InvocationID = "command-runtime-invocation-stale-permission"
+	stale.OperationKey = "command-runtime-operation-stale-permission"
+	stale.Surface, stale.Phase = mode.Surface, mode.Phase
+	stale.Role, stale.Profile = root.Role, mode.Profile
+	stale.PermissionMode = permission.Mode
+	stale.ModeRevision = mode.Revision
+	stale.PermissionRevision = permission.Revision + 1
+	if _, err := service.ExecuteCommandRuntime(ctx, stale, input); err == nil ||
+		apperror.CodeOf(err) != apperror.CodeConflict {
+		t.Fatalf("stale supplied permission revision did not fail closed: %v", err)
+	}
+	staleBackend := scope
+	staleBackend.InvocationID = "command-runtime-invocation-stale-backend"
+	staleBackend.OperationKey = "command-runtime-operation-stale-backend"
+	staleBackend.CapabilityGeneration = strings.Repeat("0", 64)
+	if _, err := service.ExecuteCommandRuntime(ctx, staleBackend, input); err == nil ||
+		apperror.CodeOf(err) != apperror.CodeConflict {
+		t.Fatalf("stale supplied backend generation did not fail closed: %v", err)
 	}
 	stored, err := state.GetCommandRuntimeJob(ctx, result.Jobs[0].ID)
 	if err != nil || stored.State != runner.CommandRuntimeJobCompleted ||
@@ -833,7 +862,8 @@ func commandRuntimeTestScope(service *CommandRuntimeService,
 ) toolgateway.CommandRuntimeContext {
 	return toolgateway.CommandRuntimeContext{
 		InvocationID: "command-runtime-invocation-" + operationKey,
-		OperationKey: operationKey, RunID: runRecord.ID, RootAgentID: root.ID,
+		OperationKey: operationKey, RunID: runRecord.ID,
+		MissionID: runRecord.MissionID, RootAgentID: root.ID,
 		SessionID: runRecord.SessionID, WorkspaceID: "workspace-command-runtime-app",
 		CapabilityGeneration: service.adapter.Generation,
 		LeaseID:              lease.LeaseID, LeaseGeneration: lease.Generation,

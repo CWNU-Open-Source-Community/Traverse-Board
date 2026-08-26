@@ -313,6 +313,7 @@ func runToolchain(parent context.Context, root string, command FixtureCommand) e
 	ctx, cancel := context.WithTimeout(parent, commandTimeout)
 	defer cancel()
 	process := exec.CommandContext(ctx, command.Executable, command.Arguments...)
+	configurePackagedE2EProcess(process)
 	process.Dir = root
 	cacheRoot := filepath.Join(root, ".e2e-cache")
 	process.Env = append(filteredEnvironment(),
@@ -350,6 +351,7 @@ func runGitWithEnvironment(ctx context.Context, root string, stdin []byte,
 		"-c", "core.autocrlf=false", "-c", "core.filemode=false",
 		"-c", "core.symlinks=false", "-c", "commit.gpgsign=false",
 	}, arguments...)...)
+	configurePackagedE2EProcess(command)
 	command.Dir = root
 	command.Env = append(filteredEnvironment(), "GIT_CONFIG_NOSYSTEM=1",
 		"GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=Never")

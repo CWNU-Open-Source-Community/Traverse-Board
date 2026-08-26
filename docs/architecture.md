@@ -820,6 +820,26 @@ merge, overwrite source files, or claim that Checkpoint can reverse effects
 outside the Workspace. See [Standard Code Delivery Truth Gate](standard-code-delivery.md)
 and [ADR 0142](adr/0142-standard-code-delivery-truth-gate.md).
 
+## Packaged Standard Code security matrix
+
+`standard_code_packaged_security_evidence.v1` is the independent #181 security
+slice for the #140 release gate. A byte-identical portable `TraverseBoard.exe`
+executes the frozen 40-case/75-backend matrix through Tool Gateway and the
+Application-owned Local/Docker Command Runtime path. Evidence binds the clean
+source revision, EXE/ZIP, fixture/matrix, OS, backend identity/generation,
+durable Jobs, events, Artifacts, Drydock observations, Checkpoints, cleanup and
+an append-only record chain. Unavailable or unexecuted work fails closed and
+never becomes a pass or Full Access fallback.
+
+Recovery uses a mutually exclusive, fixed packaged worker rather than a
+general command runner. The parent injects normal exit, force termination,
+restart-equivalent, lease expiry, renderer detach and concurrent edits; a
+fresh process reopens the same SQLite/Drydock state twice and verifies terminal
+tree-reaped Jobs and preserved user changes. The worker and evidence are
+conformance-test inputs only and cannot grant runtime or #140 release
+authority. See [packaged E2E](standard-code-packaged-e2e.md) and
+[ADR 0143](adr/0143-standard-code-packaged-security-matrix.md).
+
 ## Go-Owned GitHub Review Provider
 
 ADR 0123 keeps GitHub authentication, REST versioning, pagination, sanitization, evidence mapping and write recovery behind Go. The fixed `github.com` network adapter resolves only OS credential references and returns immutable bounded evidence. React receives connection/credential status, never token material. Model tools read only evidence records already bound to their exact Code/root Run and Workspace; network fetch and write-back are not model tools. Review writes use a separate exact preview and Approval, persist `running` before I/O, and recover by observing idempotency markers without replay. Typed Git push and PR create/update retain their existing local-Git authority and receipts. See [GitHub Review Provider](github-review.md).
