@@ -31,7 +31,7 @@ describe("EmptyConversation", () => {
       <EmptyConversation client={{} as CyberAgentClient} creationEnabled
         onCreateRun={onCreateRun} />
     </QueryClientProvider>);
-    const composer = screen.getByLabelText("描述任务");
+    const composer = screen.getByLabelText("描述 Thread 目标");
     fireEvent.change(composer, { target: { value: "检查当前项目" } });
 
     expect(fireEvent.keyDown(composer, { key: "Enter", shiftKey: true })).toBe(true);
@@ -51,7 +51,7 @@ describe("EmptyConversation", () => {
     </QueryClientProvider>);
     fireEvent.click(screen.getByRole("button", { name: "开始编码" }));
     expect(onStartCoding).toHaveBeenCalledOnce();
-    expect(screen.queryByLabelText("描述任务")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("描述 Thread 目标")).not.toBeInTheDocument();
     first.unmount();
 
     const onContinueRun = vi.fn();
@@ -61,6 +61,6 @@ describe("EmptyConversation", () => {
     </QueryClientProvider>);
     fireEvent.click(screen.getByRole("button", { name: "继续 Run" }));
     expect(onContinueRun).toHaveBeenCalledOnce();
-    expect(screen.queryByLabelText("描述任务")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("描述 Thread 目标")).not.toBeInTheDocument();
   });
 });

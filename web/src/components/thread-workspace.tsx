@@ -66,9 +66,9 @@ export function ThreadWorkspace({ client, threadID }: {
 
   if (!threadID) {
     return <div className="workspace-empty"><MessagesSquare aria-hidden="true" size={24} />
-      <h1>{t("选择一个任务", "Select a task")}</h1></div>;
+      <h1>{t("选择一个 Thread（任务）", "Select a Thread")}</h1></div>;
   }
-  if (detailQuery.isLoading) return <LoadingState label={t("加载任务", "Loading task")} />;
+  if (detailQuery.isLoading) return <LoadingState label={t("加载 Thread", "Loading Thread")} />;
   if (detailQuery.isError || !detailQuery.data) return <ErrorState error={detailQuery.error} />;
   const detail = detailQuery.data;
   const currentRun = detail.active_run ?? detail.last_run;
@@ -150,7 +150,7 @@ function ThreadWorkspaceReady({ client, currentRunID, detail, durableItems, pend
         <div className="workspace-kicker">Thread {shortID(detail.thread.id)}</div>
         <h1>{detail.thread.title}</h1>
         <div className="header-meta"><StatusBadge status={detail.thread.status} />
-          <span>{t("稳定任务身份", "Stable task identity")}</span>
+          <span>{t("稳定 Thread 身份", "Stable Thread identity")}</span>
           <span>{t("输入", "Composer")}: {detail.thread.composer_state}</span>
           {deliveryCount > 0 && <span>{t("交付", "Delivery")}: {deliveryCount}</span>}</div>
       </div>
@@ -271,7 +271,7 @@ function ThreadComposer({ client, detail, onQueued }: {
     mutation.mutate({ request, intent: retryIntent.current });
   };
   return <form className="session-composer" onSubmit={submit}>
-    <textarea aria-label={t("继续此任务", "Continue this task")} disabled={mutation.isPending}
+    <textarea aria-label={t("继续此 Thread", "Continue this Thread")} disabled={mutation.isPending}
       onChange={(event) => { setContent(event.target.value); mutation.reset(); }}
       onKeyDown={submitComposerOnEnter}
       placeholder={detail.active_run ? t("发送后继续当前 Run", "Send and continue the current Run") :

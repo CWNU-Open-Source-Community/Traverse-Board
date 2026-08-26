@@ -75,15 +75,15 @@ function ComposerAddMenu({ planMode, targetMode, onPlanModeChange, onTargetModeC
     <button aria-expanded={open} aria-haspopup="menu" aria-label={t("添加", "Add")}
       className="composer-icon-button" onClick={() => setOpen((current) => !current)}
       title={t("添加", "Add")} type="button"><Plus aria-hidden="true" size={19} /></button>
-    {open && <div aria-label={t("添加到任务", "Add to task")} className="composer-popover composer-add-popover" role="menu">
+    {open && <div aria-label={t("添加到 Thread", "Add to Thread")} className="composer-popover composer-add-popover" role="menu">
       <span className="composer-popover-heading">{t("添加", "Add")}</span>
       <button disabled={!onOpenFiles} onClick={() => select(onOpenFiles)} role="menuitem" type="button">
         <Paperclip aria-hidden="true" size={16} /><span><strong>{t("文件和文件夹", "Files and folders")}</strong>
-          <small>{onOpenFiles ? t("浏览当前工作区", "Browse current workspace") : t("创建或选择任务后可用", "Available after selecting a task")}</small></span>
+          <small>{onOpenFiles ? t("浏览当前工作区", "Browse current workspace") : t("创建或选择 Thread 后可用", "Available after selecting a Thread")}</small></span>
       </button>
       <button aria-pressed={targetMode} disabled={!onTargetModeChange}
         onClick={() => select(() => onTargetModeChange?.(!targetMode))} role="menuitem" type="button">
-        <Target aria-hidden="true" size={16} /><span><strong>{t("目标", "Goal")}</strong><small>{t("设置持续追求的任务目标", "Set a persistent task goal")}</small></span>
+        <Target aria-hidden="true" size={16} /><span><strong>{t("目标", "Goal")}</strong><small>{t("设置持续追求的 Thread 目标", "Set a persistent Thread goal")}</small></span>
         {targetMode && <Check aria-hidden="true" size={15} />}
       </button>
       <button aria-pressed={planMode} disabled={!onPlanModeChange}

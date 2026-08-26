@@ -22,7 +22,7 @@ const blockerLabels: Record<string, [string, string]> = {
   execution_lease_active: ["执行租约仍在释放", "Execution lease is still releasing"],
   startup_gate_closed: ["启动时能力门未开启", "Startup capability gate is closed"],
   capability_not_implemented: ["当前版本尚未实现", "Not implemented by this version"],
-  surface_mismatch: ["任务工作面不兼容", "Task surface is incompatible"],
+  surface_mismatch: ["当前 Run 工作面不兼容", "Current Run surface is incompatible"],
   profile_mismatch: ["执行档位不兼容", "Execution profile is incompatible"],
   permission_mismatch: ["权限档位不兼容", "Permission profile is incompatible"],
   workspace_untrusted: ["工作区尚未受信任", "Workspace trust is required"],

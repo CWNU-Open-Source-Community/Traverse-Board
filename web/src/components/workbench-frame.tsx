@@ -127,18 +127,18 @@ export function EmptyConversation({ client, onCreateRun, creationEnabled, onOpen
     <div className="prayu-empty-conversation">
       <div className="prayu-empty-heading">
         <MessagesSquare aria-hidden="true" size={24} />
-        <h1>{t("开始一项任务", "Start a task")}</h1>
+        <h1>{t("开始一个 Thread（任务）", "Start a Thread")}</h1>
       </div>
       <form className="prayu-starter-composer" onSubmit={submit}>
-        <textarea aria-label={t("描述任务", "Describe task")} disabled={!creationEnabled}
+        <textarea aria-label={t("描述 Thread 目标", "Describe the Thread goal")} disabled={!creationEnabled}
           onChange={(event) => setGoal(event.target.value)} onKeyDown={submitComposerOnEnter}
           placeholder={t("描述你想完成的工作", "Describe the work you want to complete")}
           rows={2} value={goal} />
         <AgentComposerControls client={client} onOpenPlugins={onOpenPlugins}
           onPlanModeChange={setPlanMode} onTargetModeChange={setTargetMode}
           planMode={planMode} route="code" targetMode={targetMode}
-          trailing={<button aria-label={t("创建任务", "Create task")} className="composer-send-button"
-            disabled={!creationEnabled || !normalized} title={t("创建任务", "Create task")} type="submit">
+          trailing={<button aria-label={t("创建 Thread", "Create Thread")} className="composer-send-button"
+            disabled={!creationEnabled || !normalized} title={t("创建 Thread", "Create Thread")} type="submit">
             <ArrowUp aria-hidden="true" size={16} />
           </button>} />
       </form>
@@ -154,7 +154,7 @@ const utilityViews: Record<UtilityKind, {
   icon: typeof GitPullRequest;
 }> = {
   "pull-requests": { title: ["拉取请求", "Pull requests"], empty: ["暂无拉取请求", "No pull requests"], icon: GitPullRequest },
-  schedule: { title: ["自动定时", "Scheduled tasks"], empty: ["暂无自动任务", "No scheduled tasks"], icon: CalendarClock },
+  schedule: { title: ["定时 Run", "Scheduled Runs"], empty: ["暂无定时 Run", "No scheduled Runs"], icon: CalendarClock },
   plugins: { title: ["插件", "Plugins"], empty: ["暂无已打开的插件", "No open plugins"], icon: PackageSearch },
 };
 

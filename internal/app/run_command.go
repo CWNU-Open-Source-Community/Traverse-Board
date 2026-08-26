@@ -1539,7 +1539,7 @@ func (a *App) runAdaptTask(ctx context.Context, args []string) error {
 	if result.Created {
 		action = "adapted"
 	}
-	fmt.Fprintf(a.out, "task %s %s\nmission: %s\nrun: %s\nsession: %s\nstatus: %s\nprofile: %s\n",
+	fmt.Fprintf(a.out, "legacy task %s %s\nmission (diagnostic): %s\nrun: %s\nrun-local session: %s\nstatus: %s\nprofile: %s\n",
 		result.Source.ID, action, result.Mission.ID, result.Run.ID, result.Run.SessionID, result.Run.Status, result.Mission.Profile)
 	return nil
 }

@@ -91,7 +91,7 @@ export function ScheduledTasksWorkspace({ client, initialRunID = "" }: {
         !Number.isSafeInteger(rounds) || rounds < 1 || rounds > 1_000 ||
         (kind === "periodic" && (!Number.isSafeInteger(interval) || interval < 1 ||
           interval > 30 * 24 * 60))) {
-        throw new Error(t("请填写有效的任务、时间与轮次上限", "Enter a valid task, time window, and round limit"));
+        throw new Error(t("请填写有效的 Run、时间与轮次上限", "Enter a valid Run, time window, and round limit"));
       }
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
       const schedule: ScheduledJobCreateRequestView["schedule"] = {
@@ -144,10 +144,10 @@ export function ScheduledTasksWorkspace({ client, initialRunID = "" }: {
     <section className="utility-workspace scheduled-tasks-workspace">
       <header>
         <CalendarClock aria-hidden="true" size={18} />
-        <div><h1>{t("自动定时", "Scheduled tasks")}</h1>
+        <div><h1>{t("定时 Run", "Scheduled Runs")}</h1>
           <small>{workerLabel} · {t("固定并发度 1，不会后台提权", "Concurrency 1; no background authority elevation")}</small>
         </div>
-        <button aria-label={t("刷新计划任务", "Refresh scheduled tasks")}
+        <button aria-label={t("刷新定时 Run", "Refresh scheduled Runs")}
           className="compact-command" disabled={list.isFetching}
           onClick={() => void list.refetch()} type="button">
           <RefreshCw aria-hidden="true" className={list.isFetching ? "spin" : ""} size={14} />
@@ -155,7 +155,7 @@ export function ScheduledTasksWorkspace({ client, initialRunID = "" }: {
         </button>
       </header>
 
-      <div className="scheduled-summary" aria-label={t("计划任务摘要", "Scheduled task summary")}>
+      <div className="scheduled-summary" aria-label={t("定时 Run 摘要", "Scheduled Run summary")}>
         <span>{t("全部", "Total")} <strong>{jobs.length}</strong></span>
         <span>{t("活动", "Active")} <strong>{counts.active}</strong></span>
         <span>{t("已停止", "Stopped")} <strong>{counts.stopped}</strong></span>
@@ -165,8 +165,8 @@ export function ScheduledTasksWorkspace({ client, initialRunID = "" }: {
       <form className="scheduled-create-form" onSubmit={submit}>
         <div className="scheduled-form-heading"><Plus aria-hidden="true" size={15} />
           <strong>{t("新建有界监控", "Create bounded monitor")}</strong></div>
-        <label>{t("目标任务 ID", "Target task ID")}
-          <input aria-label={t("目标任务 ID", "Target task ID")} maxLength={256}
+        <label>{t("目标 Run ID", "Target Run ID")}
+          <input aria-label={t("目标 Run ID", "Target Run ID")} maxLength={256}
             onChange={(event) => setRunID(event.target.value)} placeholder="run-…" value={runID} />
         </label>
         <label>{t("调度类型", "Schedule type")}
@@ -210,14 +210,14 @@ export function ScheduledTasksWorkspace({ client, initialRunID = "" }: {
       </form>
 
       {!client.hasScheduledJobControl && <p className="inline-warning">{t(
-        "本次启动未开放计划任务控制；列表和诊断仍保持只读。",
-        "Scheduled task control was not enabled for this launch; listing and diagnostics remain read-only.")}</p>}
+        "本次启动未开放定时 Run 控制；列表和诊断仍保持只读。",
+        "Scheduled Run control was not enabled for this launch; listing and diagnostics remain read-only.")}</p>}
       {error && <p className="inline-warning" role="alert">
-        {error instanceof Error ? error.message : t("计划任务操作失败", "Scheduled task operation failed")}
+        {error instanceof Error ? error.message : t("定时 Run 操作失败", "Scheduled Run operation failed")}
       </p>}
 
       <div className="scheduled-task-layout">
-        <div className="scheduled-task-list" aria-label={t("计划任务列表", "Scheduled task list")}>
+        <div className="scheduled-task-list" aria-label={t("定时 Run 列表", "Scheduled Run list")}>
           {jobs.map((job) => <button className={job.id === selectedJobID ? "selected" : ""}
             key={job.id} onClick={() => setSelectedJobID(job.id)} type="button">
             <span><strong>{job.id}</strong><span className="status-badge">{job.status}</span></span>
@@ -226,7 +226,7 @@ export function ScheduledTasksWorkspace({ client, initialRunID = "" }: {
           </button>)}
           {!list.isLoading && jobs.length === 0 && <div className="utility-empty-state">
             <CalendarClock aria-hidden="true" size={25} />
-            <strong>{t("暂无自动任务", "No scheduled tasks")}</strong>
+            <strong>{t("暂无定时 Run", "No scheduled Runs")}</strong>
           </div>}
         </div>
 
@@ -266,7 +266,7 @@ export function ScheduledTasksWorkspace({ client, initialRunID = "" }: {
             </section> : null}
           </> : <div className="utility-empty-state">
             <CalendarClock aria-hidden="true" size={25} />
-            <strong>{t("选择任务查看执行窗口", "Select a task to inspect its execution window")}</strong>
+            <strong>{t("选择定时 Run 查看执行窗口", "Select a scheduled Run to inspect its execution window")}</strong>
           </div>}
         </div>
       </div>

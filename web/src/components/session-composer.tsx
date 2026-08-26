@@ -32,11 +32,13 @@ interface SessionTurnResult {
   execution: RunExecutionControlView | null;
 }
 
-export function SessionSteeringQueue({ client, sessionID, state, run = null }: {
+export function SessionSteeringQueue({ client, sessionID, state, run = null,
+  diagnosticSession = false }: {
   client: CyberAgentClient;
   sessionID: string;
   state: OperatorSteeringQueueView | null;
   run?: RunView | null;
+  diagnosticSession?: boolean;
 }) {
   const { t } = useLocale();
   const queryClient = useQueryClient();
@@ -111,7 +113,9 @@ export function SessionSteeringQueue({ client, sessionID, state, run = null }: {
     (run.status === "running" || ((run.status === "created" || run.status === "paused") &&
       client.hasRunLifecycle)));
   return (
-    <section aria-label={t("排队的 Session 消息", "Queued Session messages")} className="session-steering-queue">
+    <section aria-label={diagnosticSession
+      ? t("排队的 Run 内 Session 消息", "Queued Run-local Session messages")
+      : t("排队的 Run 消息", "Queued Run messages")} className="session-steering-queue">
       <div className="session-steering-heading">
         <span>{t("等待下一个安全边界", "Queued for next safe boundary")}</span><strong>{pending.length}</strong>
         {canContinue && <button className="compact-command" disabled={continuation.isPending ||
@@ -141,13 +145,14 @@ export function SessionSteeringQueue({ client, sessionID, state, run = null }: {
 }
 
 export function SessionComposer({ client, sessionID, run, workspaceID = "", contextTokens = 0,
-  contextPartial = false, phase, onOpenPlugins, publicModelStream }: {
+  contextPartial = false, diagnosticSession = false, phase, onOpenPlugins, publicModelStream }: {
   client: CyberAgentClient;
   sessionID: string;
   run: RunView | null;
   workspaceID?: string;
   contextTokens?: number;
   contextPartial?: boolean;
+  diagnosticSession?: boolean;
   phase?: "plan" | "deliver";
   onOpenPlugins?: () => void;
   publicModelStream?: PublicModelStreamState;
@@ -384,7 +389,9 @@ export function SessionComposer({ client, sessionID, run, workspaceID = "", cont
       </footer>
     </section>}
     <form className="session-composer" onSubmit={submit}>
-      <textarea aria-label={t("Session 消息", "Session message")} autoComplete="off"
+      <textarea aria-label={diagnosticSession
+        ? t("Run 内 Session 消息", "Run-local Session message")
+        : t("向当前 Run 发送消息", "Message current Run")} autoComplete="off"
         disabled={!mutable || busy} onChange={(event) => changeContent(event.target.value)}
         onKeyDown={submitComposerOnEnter}
         placeholder={t("向这个 Run 发送消息", "Message this Run")} rows={3} spellCheck value={content} />
@@ -424,5 +431,5 @@ export function SessionComposer({ client, sessionID, run, workspaceID = "", cont
 }
 
 function errorMessage(value: unknown): string {
-  return value instanceof Error && value.message.trim() ? value.message : "Session message failed";
+  return value instanceof Error && value.message.trim() ? value.message : "Run message failed";
 }

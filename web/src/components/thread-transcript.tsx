@@ -70,13 +70,13 @@ export function ThreadTranscript({ durableItems, hasOlder, isFetchingOlder,
     durableItems, pendingItems, liveSnapshot, liveStatus),
   [durableItems, liveSnapshot, liveStatus, pendingItems]);
   return (
-    <section aria-label={t("任务对话与活动", "Task conversation and activity")}
+    <section aria-label={t("Thread 对话与活动", "Thread conversation and activity")}
       className="thread-transcript-shell">
       <header className="thread-transcript-header">
         <div>
-          <h2>{t("任务记录", "Task transcript")}</h2>
-          <p>{t("消息、Run 边界与 Go 记录的结构化执行事实",
-            "Messages, Run boundaries, and structured execution facts recorded by Go")}</p>
+          <h2>{t("Thread 记录", "Thread transcript")}</h2>
+          <p>{t("消息、Run 边界、步骤、工具项与 Go 记录的结构化执行事实",
+            "Messages, Run boundaries, Steps, Tool Items, and structured execution facts recorded by Go")}</p>
         </div>
         <span className="thread-transcript-safety"
           title={t("仅显示公开模型内容与白名单事实，不显示或推断私有思维链",

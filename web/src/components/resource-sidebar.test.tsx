@@ -106,16 +106,20 @@ describe("ResourceSidebar", () => {
     expect(screen.getByRole("img", { name: "针路簿" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "工作台导航" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "模型切换" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "自动定时" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "定时 Run" })).toBeInTheDocument();
+    const diagnosticSummary = screen.getByText("高级诊断与兼容视图");
+    expect(diagnosticSummary.tagName).toBe("SUMMARY");
+    expect(diagnosticSummary.closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByText(/Session 只保存该 Run 的上下文与授权边界/)).toBeInTheDocument();
     expect(screen.getByText("修复登录回归")).toBeInTheDocument();
     expect(screen.getAllByText(new RegExp(formatCompactDate("2026-07-13T00:00:00Z"))).length)
       .toBeGreaterThan(0);
     expect(screen.queryByText(new RegExp(formatCompactDate("2026-07-13T00:01:00Z"))))
       .not.toBeInTheDocument();
     expect(container.querySelector(".resource-row.selected strong"))
-      .toHaveTextContent("任务");
+      .toHaveTextContent("Run run-paused");
 
-    fireEvent.click(screen.getByRole("button", { name: /新建任务/ }));
+    fireEvent.click(screen.getByRole("button", { name: /新建 Thread/ }));
     fireEvent.click(screen.getByRole("button", { name: "模型切换" }));
     fireEvent.click(screen.getByRole("button", { name: /本地操作者/ }));
     expect(onCreateRun).toHaveBeenCalledTimes(1);
@@ -143,6 +147,7 @@ describe("ResourceSidebar", () => {
     </QueryClientProvider>);
 
     await screen.findByText("修复登录回归");
+    fireEvent.click(screen.getByText("高级诊断与兼容视图"));
     fireEvent.click(screen.getByRole("button", { name: "删除对话 修复登录回归" }));
     expect(screen.getByRole("dialog", { name: "删除对话" })).toHaveTextContent("审计记录仍会保留");
     fireEvent.click(screen.getByRole("button", { name: "删除" }));

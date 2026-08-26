@@ -95,7 +95,7 @@ describe("ThreadWorkspace", () => {
   it("keeps the composer open on a terminal Run and starts its authority-free successor", async () => {
     const controls = renderThread(detail("failed"), continuation(true));
     const user = userEvent.setup();
-    const composer = await screen.findByLabelText("Continue this task");
+    const composer = await screen.findByLabelText("Continue this Thread");
     expect(composer).toHaveAttribute("placeholder",
       "This Run ended; sending creates a safe successor Run");
     await user.type(composer, "continue");
@@ -119,7 +119,7 @@ describe("ThreadWorkspace", () => {
     const controls = renderThread(detail("waiting_approval"), continuation(false), "", [],
       [approval]);
     const user = userEvent.setup();
-    const composer = await screen.findByLabelText("Continue this task");
+    const composer = await screen.findByLabelText("Continue this Thread");
     await user.type(composer, "continue");
     await user.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(controls.submitThreadMessage).toHaveBeenCalledTimes(1));
@@ -135,7 +135,7 @@ describe("ThreadWorkspace", () => {
       successor_created: false, replayed: true } as ThreadMessageControlView;
     const controls = renderThread(detail("failed"), replay, "created");
     const user = userEvent.setup();
-    await user.type(await screen.findByLabelText("Continue this task"), "retry continuation");
+    await user.type(await screen.findByLabelText("Continue this Thread"), "retry continuation");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() => expect(controls.get).toHaveBeenCalledWith(
@@ -150,7 +150,7 @@ describe("ThreadWorkspace", () => {
 
   it("sends with Enter while leaving Shift+Enter and Chinese IME composition untouched", async () => {
     const controls = renderThread(detail("failed"), continuation(true));
-    const composer = await screen.findByLabelText("Continue this task");
+    const composer = await screen.findByLabelText("Continue this Thread");
     await userEvent.type(composer, "继续");
     expect(fireEvent.keyDown(composer, { key: "Enter", shiftKey: true })).toBe(true);
     expect(controls.submitThreadMessage).not.toHaveBeenCalled();
@@ -167,7 +167,7 @@ describe("ThreadWorkspace", () => {
       finishExecution = () => resolve({ run_id: "run-successor" });
     }));
     const user = userEvent.setup();
-    await user.type(await screen.findByLabelText("Continue this task"),
+    await user.type(await screen.findByLabelText("Continue this Thread"),
       "visible while execution is pending");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
@@ -175,7 +175,7 @@ describe("ThreadWorkspace", () => {
       .toHaveTextContent("visible while execution is pending");
     expect(controls.executeRun).toHaveBeenCalledTimes(1);
     finishExecution();
-    await waitFor(() => expect(screen.getByLabelText("Continue this task")).toHaveValue(""));
+    await waitFor(() => expect(screen.getByLabelText("Continue this Thread")).toHaveValue(""));
   });
 
   it("exposes pause, structured tool state, delivery, and Composer on the primary Thread page", async () => {
@@ -199,7 +199,7 @@ describe("ThreadWorkspace", () => {
     expect(await screen.findByRole("button", { name: "Pause" })).toBeInTheDocument();
     expect(await screen.findByText("replace_file")).toBeInTheDocument();
     expect(screen.getByText("Delivery ready")).toBeInTheDocument();
-    expect(screen.getByLabelText("Continue this task")).toBeInTheDocument();
+    expect(screen.getByLabelText("Continue this Thread")).toBeInTheDocument();
     expect(screen.getAllByText("Harness fact").length).toBeGreaterThan(0);
   });
 });

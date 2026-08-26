@@ -6,6 +6,7 @@ import type { MessageView, RunDetailView, SessionDetailView } from "../api/types
 import { usePagedResource } from "../hooks/use-paged-resource";
 import { formatDate, formatNumber, shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
+import { diagnosticVocabulary } from "../lib/vocabulary";
 import { EmptyState, ErrorState, KeyValue, LoadMoreButton, LoadingState, StatusBadge } from "./common";
 import { SessionComposer, SessionSteeringQueue } from "./session-composer";
 import { SafeMarkdown } from "./safe-markdown";
@@ -35,10 +36,10 @@ export function SessionWorkspace({ client, sessionID, onOpenPlugins }: {
   });
 
   if (!sessionID) {
-    return <div className="workspace-empty"><MessagesSquare aria-hidden="true" size={24} /><h1>{t("选择一个 Session", "Select a Session")}</h1></div>;
+    return <div className="workspace-empty"><MessagesSquare aria-hidden="true" size={24} /><h1>{t("选择一个 Session 诊断", "Select a Session diagnostic")}</h1></div>;
   }
   if (detailQuery.isLoading) {
-    return <LoadingState label={t("加载 Session", "Loading Session")} />;
+    return <LoadingState label={t("加载 Session 诊断", "Loading Session diagnostic")} />;
   }
   if (detailQuery.isError || !detailQuery.data) {
     return <ErrorState error={detailQuery.error} />;
@@ -50,11 +51,18 @@ export function SessionWorkspace({ client, sessionID, onOpenPlugins }: {
     <div className="workspace-view">
       <header className="workspace-header">
         <div>
-          <div className="workspace-kicker">Session {shortID(detail.session.id)}</div>
+          <div className="workspace-kicker">{t(...diagnosticVocabulary.session)} {shortID(detail.session.id)}</div>
           <h1>{detail.session.title}</h1>
           <div className="header-meta"><StatusBadge status={detail.session.status} /><span>{detail.session.route}</span></div>
         </div>
       </header>
+      <aside className="inline-warning" role="note">
+        <strong>{t("高级诊断 / 兼容视图", "Advanced diagnostics / compatibility view")}</strong>
+        {" · "}
+        <span>{t(
+          "Session 是当前 Run 独占的上下文与 authority 边界；它不是 Thread，也不会跨 Run 合并。",
+          "A Session is the current Run's local context and authority boundary. It is not a Thread and is never merged across Runs.")}</span>
+      </aside>
       <div className="session-summary">
         <dl className="detail-grid">
           <KeyValue label={t("工作区", "Workspace")} value={detail.session.workspace_id} />
@@ -79,10 +87,10 @@ export function SessionWorkspace({ client, sessionID, onOpenPlugins }: {
         </div>
         <LoadMoreButton hasNextPage={Boolean(messagesQuery.hasNextPage)} isFetching={messagesQuery.isFetchingNextPage} onClick={() => void messagesQuery.fetchNextPage()} />
       </div>
-      <SessionSteeringQueue client={client} sessionID={sessionID}
+      <SessionSteeringQueue client={client} diagnosticSession sessionID={sessionID}
         run={boundRun}
         state={runQuery.data?.operator_steering ?? null} />
-      <SessionComposer client={client} contextPartial={Boolean(messagesQuery.hasNextPage)}
+      <SessionComposer client={client} contextPartial={Boolean(messagesQuery.hasNextPage)} diagnosticSession
         contextTokens={contextTokens} key={sessionID} onOpenPlugins={onOpenPlugins}
         phase={runQuery.data?.mode.phase} run={boundRun} sessionID={sessionID}
         workspaceID={detail.session.workspace_id ?? ""} />

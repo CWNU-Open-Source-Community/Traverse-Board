@@ -34,6 +34,7 @@ import {
 } from "../lib/desktop-bridge";
 import { formatCompactDate, shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
+import { canonicalVocabulary } from "../lib/vocabulary";
 import { usePagedResource } from "../hooks/use-paged-resource";
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from "./common";
 import { RepositoryDiffPanel } from "./repository-diff-panel";
@@ -65,7 +66,7 @@ const sidecarItems: Array<{
   { id: "review", label: ["审阅", "Review"], group: "workspace", shortcut: "Ctrl+Shift+G", icon: FileDiff, availability: "ready" },
   { id: "files", label: ["文件", "Files"], group: "workspace", shortcut: "Ctrl+P", icon: Folder, availability: "ready" },
   { id: "terminal", label: ["终端", "Terminal"], group: "run", shortcut: "", icon: SquareTerminal, availability: "ready" },
-  { id: "tasks", label: ["侧边任务", "Side tasks"], group: "run", shortcut: "Ctrl+Alt+S", icon: Bot, availability: "ready" },
+  { id: "tasks", label: [...canonicalVocabulary.planItem], group: "run", shortcut: "Ctrl+Alt+S", icon: Bot, availability: "ready" },
   { id: "browser", label: ["浏览器", "Browser"], group: "reserved", shortcut: "", icon: Globe2, availability: "reserved" },
 ];
 
@@ -282,23 +283,24 @@ function WorkbenchSummary({ client, context }: {
   client: CyberAgentClient;
   context: WorkbenchContext;
 }) {
+  const { t } = useLocale();
   const repository = useQuery({
     queryKey: ["workspace", context.workspaceID, "repository-state"],
     queryFn: ({ signal }) => client.repositoryState(context.workspaceID, signal),
     enabled: Boolean(context.workspaceID),
   });
-  return <aside aria-label="摘要" className="workbench-summary">
-    <header><span>环境信息</span></header>
+  return <aside aria-label={t("摘要", "Summary")} className="workbench-summary">
+    <header><span>{t("环境信息", "Environment")}</span></header>
     <SummaryRepository query={repository} workspaceID={context.workspaceID} />
     <section>
-      <h2>当前任务</h2>
+      <h2>{t("当前 Thread / Run", "Current Thread / Run")}</h2>
       {context.resourceLabel ? <>
         <div className="summary-item-heading"><strong>{context.resourceLabel}</strong>
           {context.status && <StatusBadge status={context.status} />}</div>
         {context.goal && <p>{context.goal}</p>}
         <dl><div><dt>模式</dt><dd>{context.mode || "-"}</dd></div>
           <div><dt>更新</dt><dd>{context.updatedAt ? formatCompactDate(context.updatedAt) : "-"}</dd></div></dl>
-      </> : <EmptyState>尚未选择任务</EmptyState>}
+      </> : <EmptyState>{t("尚未选择 Thread 或 Run", "No Thread or Run selected")}</EmptyState>}
     </section>
     <section>
       <h2>后台活动</h2>
@@ -312,7 +314,8 @@ function SummaryRepository({ query, workspaceID }: {
   query: UseQueryResult<RepositoryStateView, Error>;
   workspaceID: string;
 }) {
-  if (!workspaceID) return <section><EmptyState>当前任务未绑定 Workspace</EmptyState></section>;
+  const { t } = useLocale();
+  if (!workspaceID) return <section><EmptyState>{t("当前 Thread / Run 未绑定 Workspace", "Current Thread / Run has no Workspace")}</EmptyState></section>;
   if (query.isLoading) return <section><LoadingState label="加载仓库摘要" /></section>;
   if (query.isError || !query.data) return <section><ErrorState error={query.error} /></section>;
   if (!query.data.available) return <section><p>当前 Workspace 不是 Git 仓库</p></section>;
@@ -355,9 +358,10 @@ function SidecarContent({ client, context, runID, tab }: {
   runID: string;
   tab: SidecarTab;
 }) {
+  const { t } = useLocale();
   if (tab === "review") {
     return context.workspaceID ? <RepositoryDiffPanel client={client} workspaceID={context.workspaceID} /> :
-      <EmptyState>当前任务未绑定 Workspace</EmptyState>;
+      <EmptyState>{t("当前 Thread / Run 未绑定 Workspace", "Current Thread / Run has no Workspace")}</EmptyState>;
   }
   if (tab === "files") {
     return <WorkspaceExplorer client={client} runID={runID} workspaceID={context.workspaceID} />;
@@ -374,13 +378,14 @@ function SidecarContent({ client, context, runID, tab }: {
 }
 
 function SideTaskPanel({ client, runID }: { client: CyberAgentClient; runID: string }) {
+  const { t } = useLocale();
   const query = usePagedResource<WorkItemView>(client, ["run", runID, "sidecar-work-items"],
     `/runs/${encodeURIComponent(runID)}/work-items`, { limit: 50 }, Boolean(runID));
   const items = useMemo(() => query.data?.pages.flatMap((page) => page.items) ?? [], [query.data]);
   if (!runID) return <EmptyState>当前未选择 Run</EmptyState>;
-  if (query.isLoading) return <LoadingState label="加载侧边任务" />;
+  if (query.isLoading) return <LoadingState label={t("加载计划项", "Loading Plan items")} />;
   if (query.isError) return <ErrorState error={query.error} />;
-  if (items.length === 0) return <EmptyState>暂无侧边任务</EmptyState>;
+  if (items.length === 0) return <EmptyState>{t("暂无计划项", "No Plan items")}</EmptyState>;
   return <div className="workbench-side-task-list">
     {items.map((item) => <article key={item.id}>
       <div><Bot aria-hidden="true" size={15} /><strong>{item.title}</strong></div>
@@ -424,7 +429,7 @@ function useWorkbenchContext(client: CyberAgentClient, resourceKind: WorkbenchRe
     return {
       goal: session.data.session.title,
       mode: session.data.session.route,
-      resourceLabel: `Session ${shortID(session.data.session.id)}`,
+      resourceLabel: `Run-local Session ${shortID(session.data.session.id)}`,
       status: session.data.session.status,
       updatedAt: session.data.session.updated_at,
       workspaceID: session.data.session.workspace_id ?? "",

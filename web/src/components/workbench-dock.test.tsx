@@ -26,7 +26,7 @@ describe("WorkbenchDock", () => {
 
     fireEvent.click(sidecar);
     expect(screen.getByRole("complementary", { name: "右侧工具栏" })).toBeInTheDocument();
-    expect(screen.getByText("当前任务未绑定 Workspace")).toBeInTheDocument();
+    expect(screen.getByText("当前 Thread / Run 未绑定 Workspace")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "关闭右侧栏" }));
     expect(screen.queryByRole("complementary", { name: "右侧工具栏" })).not.toBeInTheDocument();
@@ -39,7 +39,7 @@ describe("WorkbenchDock", () => {
 
     fireEvent.keyDown(window, { key: "g", ctrlKey: true, shiftKey: true });
     expect(screen.getByText("审阅")).toBeInTheDocument();
-    expect(screen.getByText("当前任务未绑定 Workspace")).toBeInTheDocument();
+    expect(screen.getByText("当前 Thread / Run 未绑定 Workspace")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "添加右侧工具" }));
     expect(screen.getByRole("group", { name: "工作区" })).toBeInTheDocument();

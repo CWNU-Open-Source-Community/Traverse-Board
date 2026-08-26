@@ -15,13 +15,13 @@
   </p>
 </div>
 
-> **命名说明：** 产品与界面名称是 **Traverse Board · 针路簿**，GitHub 仓库是 `Qiyuanqiii/Traverse-Board`。`cyberagent` CLI、Go module、`.prayu` 配置、数据目录、环境变量、安装 identity 和现有发布件文件名继续作为兼容标识保留；它们不是第二套产品。Windows 对外主程序从 `v0.1.0-rc.2` 起使用 `TraverseBoard.exe`。完整边界见 [ADR 0124](docs/adr/0124-traverse-board-branding-migration.md) 与 [ADR 0125](docs/adr/0125-traverse-board-windows-executable-name.md)。
+> **命名说明：** 产品与界面名称是 **Traverse Board · 针路簿**，GitHub 仓库是 `Qiyuanqiii/Traverse-Board`。`cyberagent` CLI、`cyberagent-workbench` Go module、`CYBERAGENT_*` 环境变量、`.prayu/...` 项目配置、数据目录、安装 identity 和现有发布件文件名继续作为兼容标识保留；它们不是第二套产品。Windows 对外主程序从 `v0.1.0-rc.2` 起使用 `TraverseBoard.exe`。完整边界见 [ADR 0124](docs/adr/0124-traverse-board-branding-migration.md) 与 [ADR 0125](docs/adr/0125-traverse-board-windows-executable-name.md)。
 
 ## 针路簿是什么
 
 针路簿是一个由 Go 主控的本地 AI Agent 工作台。它把模型路由、长任务恢复、工作区、工具调用、审批、预算、记忆和审计事件统一到一个 Thread/Run 运行时中，并通过 Windows/macOS Desktop、React Thread 工作台、CLI 和 loopback HTTP/OpenAPI 提供同一套核心能力。TUI、headless 与扩展入口按明确的 maintenance/extension 等级维护，而不是另一套产品。
 
-`Thread` 是稳定、面向用户的任务与 URL 身份，`Mission` 固定意图和 Scope，`Run` 是一次有限执行尝试，`Session` 是该 Run 独占的消息与上下文边界。终态 Run 后继续输入会在同一 Thread 内原子创建全新 Run/Session，且不继承旧审批、租约、进程、网络或凭证。模型可以规划和提出动作，但 Go 始终拥有状态机、凭证、权限、持久化与执行边界。仓库文件、网页、模型文字和工具输出都只是不可信证据，不能自行升级为指令或权限。完整合同见 [ADR 0132](docs/adr/0132-thread-identity-run-succession.md)。
+面向用户的规范词汇是：`Thread（任务）` 表示稳定任务与历史身份，`Run` 表示一次有限执行尝试，`Step` 与 `Tool Item` 表示 Run 中的叙事步骤与结构化工具项，`Workspace` 表示操作者选择的源码范围，`Plan item（计划项）` 表示 Plan/Delivery 中的有界条目。`Mission`（不可变意图与 Scope）和 `Session`（Run 独占的上下文与授权边界）只在高级诊断或兼容语境出现。终态 Run 后继续输入会在同一 Thread 内原子创建全新 Run 及其 Session，且不继承旧审批、租约、进程、网络或凭证。模型可以规划和提出动作，但 Go 始终拥有状态机、凭证、权限、持久化与执行边界。仓库文件、网页、模型文字和工具输出都只是不可信证据，不能自行升级为指令或权限。完整词汇映射见[规范词汇表](docs/convergence/vocabulary.md)，运行合同见 [ADR 0132](docs/adr/0132-thread-identity-run-succession.md)。
 
 当前产品重点是**通用 Code Agent 工作流**。CTF/专项网络安全求解已调整为可选附加能力，暂不进入活跃开发计划；仓库只保留通用的 Skill、Tool、Analyzer、Sandbox、Provider 和 Report 扩展接口，供未来独立插件接入。详见[产品范围](docs/PRODUCT_SCOPE.md)与 [pre-1.0 收敛策略](docs/convergence/README.md)。
 
@@ -58,9 +58,9 @@ CLI / React / Windows + macOS Desktop / loopback API
 
 | 领域 | 当前能力 |
 |---|---|
-| Agent 运行时 | 稳定 Thread 身份、Mission/Run/Session 边界、无授权继承的 Run succession、可恢复 Supervisor、严格生命周期、检查点、取消、重试、预算和执行租约 |
+| Agent 运行时 | 稳定 Thread 身份、有限 Run 尝试、Step/Tool Item、无授权继承的 Run succession，以及高级诊断中的 Mission/Run-local Session 边界 |
 | 模型与上下文 | Mock、Anthropic-compatible、OpenAI-compatible 与 loopback-only Ollama Provider、模型路由、资格校验、能力探测、流式响应、上下文压缩、层级项目指令、显式 user/project 长期记忆与 Session 恢复树 |
-| 计划与协作 | Plan/Delivery、工作项、备注、最多两个核心 child、`batch-delivery.v1` 独立 Worktree/分支/邮箱/交付复核/顺序合并，以及 1/2/4/6 档只读 Fan-out |
+| 计划与协作 | Plan/Delivery、Plan item（兼容 identity 为 `WorkItem`/`work_item`）、备注、最多两个核心 child、`batch-delivery.v1` 独立 Worktree/分支/邮箱/交付复核/顺序合并，以及 1/2/4/6 档只读 Fan-out |
 | 工具与权限 | Tool Gateway、JSON Schema 校验、Policy、Scope、人工审批、五档 Run 权限上限、受控固定命令、普通模式 Run-owned 命令运行时、逐条审批 PowerShell/Git Bash，以及限时 Debug 终端输入 |
 | 代码工作流 | 系统目录选择与 Workspace 导入、工作区浏览、仓库状态、提交历史、Diff 审阅、文件编辑提案、只读 `code-intel-lsp.v1` 语义工具、事务化 Workspace Checkpoint、Run-owned Drydock、稳定 hunk、stash/rebase/cherry-pick/bisect、受管 worktree、GitHub App PR/CI 证据与审批回写、Undo/Redo/Rewind、独立 Fork、验证计划、Code Journey 与 Handoff |
 | 可观测性 | 追加式 Run 事件、Live Activity、公开模型进度、Harness 事实、Artifact、Finding/Evidence/Report、SARIF、持久化有界计划任务与脱敏结构化诊断包 |

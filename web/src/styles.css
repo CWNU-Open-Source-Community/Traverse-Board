@@ -1830,7 +1830,31 @@ body { background: transparent; }
   scrollbar-width: thin;
 }
 
-.sidebar-history > section + section { margin-top: 13px; }
+.sidebar-history > section + section,
+.sidebar-history > details + section { margin-top: 13px; }
+
+.sidebar-diagnostics {
+  margin-top: 13px;
+  padding: 3px;
+  border: 1px solid color-mix(in srgb, var(--prayu-border) 78%, transparent);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--prayu-control) 52%, transparent);
+  backdrop-filter: blur(18px) saturate(125%);
+}
+.sidebar-diagnostics > summary {
+  padding: 7px 8px;
+  color: var(--prayu-muted);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sidebar-diagnostics > p {
+  margin: 2px 8px 8px;
+  color: var(--prayu-muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+.sidebar-diagnostics > section + section { margin-top: 10px; }
 
 .sidebar-history-heading {
   min-height: 28px;

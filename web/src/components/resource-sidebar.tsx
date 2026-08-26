@@ -43,7 +43,7 @@ const navigationItems: Array<{
 }> = [
   { id: "pull-requests", label: ["拉取请求", "Pull requests"], icon: GitPullRequest },
   { id: "models", label: ["模型切换", "Models"], icon: Cpu },
-  { id: "schedule", label: ["自动定时", "Scheduled tasks"], icon: CalendarClock },
+  { id: "schedule", label: ["定时 Run", "Scheduled Runs"], icon: CalendarClock },
   { id: "plugins", label: ["插件", "Plugins"], icon: PackageSearch },
 ];
 
@@ -171,8 +171,8 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
     <aside className="resource-sidebar prayu-sidebar">
       <div className="sidebar-brand">
         <PrayuBrand />
-        <button aria-label={t("搜索历史对话", "Search conversation history")} className="sidebar-brand-action"
-          onClick={() => setSearchOpen((open) => !open)} title={t("搜索历史对话", "Search conversation history")} type="button">
+        <button aria-label={t("搜索 Thread 历史", "Search Thread history")} className="sidebar-brand-action"
+          onClick={() => setSearchOpen((open) => !open)} title={t("搜索 Thread 历史", "Search Thread history")} type="button">
           {searchOpen ? <X aria-hidden="true" size={16} /> : <Search aria-hidden="true" size={16} />}
         </button>
       </div>
@@ -180,7 +180,7 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
       <nav aria-label={t("工作台导航", "Workbench navigation")} className="sidebar-primary-navigation">
         {onCreateRun && <button className={activeSection === "new-task" ? "active" : ""}
           onClick={onCreateRun} type="button">
-          <SquarePen aria-hidden="true" size={16} /><span>{t("新建任务", "New task")}</span>
+          <SquarePen aria-hidden="true" size={16} /><span>{t("新建 Thread", "New Thread")}</span>
         </button>}
         {navigationItems.map(({ id, label, icon: Icon }) => (
           <button aria-current={activeSection === id ? "page" : undefined}
@@ -193,24 +193,24 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
 
       {searchOpen && <label className="sidebar-history-search">
         <Search aria-hidden="true" size={14} />
-        <input aria-label={t("搜索历史对话", "Search conversation history")} autoFocus onChange={(event) => setSearch(event.target.value)}
-          placeholder={t("搜索对话与任务", "Search conversations and tasks")} type="search" value={search} />
+        <input aria-label={t("搜索 Thread 历史", "Search Thread history")} autoFocus onChange={(event) => setSearch(event.target.value)}
+          placeholder={t("搜索 Thread 与 Run", "Search Threads and Runs")} type="search" value={search} />
       </label>}
 
       <div className="sidebar-history">
         <section aria-labelledby="thread-history-heading">
           <header className="sidebar-history-heading">
-            <span id="thread-history-heading">{t("任务历史", "Task history")}</span>
+            <span id="thread-history-heading">{t("Thread（任务）历史", "Thread history")}</span>
             <button aria-label={t("刷新历史记录", "Refresh history")} disabled={historyBusy}
               onClick={refreshHistory} title={t("刷新历史记录", "Refresh history")} type="button">
               <RefreshCw aria-hidden="true" className={historyBusy ? "spin" : ""} size={13} />
             </button>
           </header>
-          {threadsQuery.isLoading && <LoadingState label={t("加载任务历史", "Loading task history")} />}
+          {threadsQuery.isLoading && <LoadingState label={t("加载 Thread 历史", "Loading Thread history")} />}
           {threadsQuery.isError && <ErrorState error={threadsQuery.error} />}
           {!threadsQuery.isLoading && !threadsQuery.isError && visibleThreads.length === 0 &&
             <div className="sidebar-history-empty"><Archive aria-hidden="true" size={15} />
-              {t("暂无任务", "No tasks")}</div>}
+              {t("暂无 Thread", "No Threads")}</div>}
           {visibleThreads.map((thread) => <div className={`sidebar-history-row-shell ${
             selectedThreadID === thread.id && activeSection === "conversation" ? "selected" : ""}`}
             key={thread.id}>
@@ -222,11 +222,11 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
               <i aria-label={thread.composer_state}
                 className={`history-status status-${thread.composer_state}`} />
             </button>
-            <button aria-label={`${t("归档任务", "Archive task")} ${thread.title}`}
+            <button aria-label={`${t("归档 Thread", "Archive Thread")} ${thread.title}`}
               className="sidebar-history-delete" onClick={() => {
                 threadArchiveMutation.reset();
                 setThreadArchiveCandidate(thread);
-              }} title={t("归档任务", "Archive task")} type="button">
+              }} title={t("归档 Thread", "Archive Thread")} type="button">
               <Trash2 aria-hidden="true" size={13} />
             </button>
           </div>)}
@@ -235,18 +235,22 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
             onClick={() => void threadsQuery.fetchNextPage()} />
         </section>
 
+        <details className="sidebar-diagnostics">
+          <summary>{t("高级诊断与兼容视图", "Advanced diagnostics & compatibility")}</summary>
+          <p>{t("Run 是一次有限执行尝试；Session 只保存该 Run 的上下文与授权边界。兼容路由 /runs 与 /sessions 保持不变。",
+            "A Run is one finite attempt. A Session is only that Run's context and authority boundary. Compatibility routes /runs and /sessions remain unchanged.")}</p>
         <section aria-labelledby="session-history-heading">
           <header className="sidebar-history-heading">
-            <span id="session-history-heading">{t("历史对话", "Conversation history")}</span>
+            <span id="session-history-heading">{t("Run 内 Session 诊断", "Run-local Session diagnostics")}</span>
             <button aria-label={t("刷新历史记录", "Refresh history")} disabled={historyBusy} onClick={refreshHistory}
               title={t("刷新历史记录", "Refresh history")} type="button">
               <RefreshCw aria-hidden="true" className={historyBusy ? "spin" : ""} size={13} />
             </button>
           </header>
-          {sessionsQuery.isLoading && <LoadingState label={t("加载历史对话", "Loading conversations")} />}
+          {sessionsQuery.isLoading && <LoadingState label={t("加载 Session 诊断", "Loading Session diagnostics")} />}
           {sessionsQuery.isError && <ErrorState error={sessionsQuery.error} />}
           {!sessionsQuery.isLoading && !sessionsQuery.isError && visibleSessions.length === 0 &&
-            <div className="sidebar-history-empty"><Archive aria-hidden="true" size={15} />{t("暂无对话", "No conversations")}</div>}
+            <div className="sidebar-history-empty"><Archive aria-hidden="true" size={15} />{t("暂无 Session", "No Sessions")}</div>}
           {visibleSessions.map((session) => (
             <div className={`sidebar-history-row-shell ${selectedSessionID === session.id &&
               activeSection === "conversation" ? "selected" : ""}`} key={session.id}>
@@ -272,23 +276,24 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
             isFetching={sessionsQuery.isFetchingNextPage}
             onClick={() => void sessionsQuery.fetchNextPage()} />
         </section>
+        </details>
 
         <section aria-labelledby="run-history-heading">
           <header className="sidebar-history-heading">
-            <span id="run-history-heading">{t("运行记录", "Run history")}</span><small>{visibleRuns.length}</small>
+            <span id="run-history-heading">{t("Run 执行尝试", "Run attempts")}</span><small>{visibleRuns.length}</small>
           </header>
           {runsQuery.isLoading && <LoadingState label={t("加载运行记录", "Loading runs")} />}
           {runsQuery.isError && <ErrorState error={runsQuery.error} />}
           {!runsQuery.isLoading && !runsQuery.isError && visibleRuns.length === 0 &&
-            <div className="sidebar-history-empty"><Archive aria-hidden="true" size={15} />{t("暂无任务", "No tasks")}</div>}
+            <div className="sidebar-history-empty"><Archive aria-hidden="true" size={15} />{t("暂无 Run", "No Runs")}</div>}
           {visibleRuns.map((run) => (
             <button className={`resource-row sidebar-history-row ${selectedRunID === run.id &&
               activeSection === "conversation" ? "selected" : ""}`} key={run.id}
               onClick={() => selectConversation(() => selectRun(run.id))} type="button">
               <ListTree aria-hidden="true" size={15} />
               <span className="sidebar-history-copy">
-                <strong>{t("任务", "Task")} {shortID(run.mission_id)}</strong>
-                <small>{shortID(run.id)} · {formatCompactDate(run.created_at)}</small>
+                <strong>Run {shortID(run.id)}</strong>
+                <small>{run.status} · {formatCompactDate(run.created_at)}</small>
               </span>
               <i aria-label={run.status} className={`history-status status-${run.status}`} />
             </button>
@@ -341,18 +346,18 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
           className="desktop-dialog archive-session-dialog" ref={threadArchiveDialogRef}
           role="dialog" tabIndex={-1}>
           <header><div><span className="dialog-icon"><Trash2 aria-hidden="true" size={17} /></span>
-            <div><h2 id="archive-thread-title">{t("归档任务", "Archive task")}</h2>
+            <div><h2 id="archive-thread-title">{t("归档 Thread", "Archive Thread")}</h2>
               <small>{threadArchiveCandidate.title}</small></div></div>
             <button aria-label={t("关闭", "Close")} className="icon-button"
               disabled={threadArchiveMutation.isPending}
               onClick={() => setThreadArchiveCandidate(null)} type="button">
               <X aria-hidden="true" size={16} /></button></header>
           <div className="desktop-dialog-body archive-session-copy">
-            <p>{t("任务会从活动历史中移除；其所有 Run、消息和审计记录仍保持绑定，可恢复或导出。",
-              "The task leaves active history; every Run, message, and audit record stays bound for restore or export.")}</p>
+            <p>{t("Thread 会从活动历史中移除；其所有 Run、消息和审计记录仍保持绑定，可恢复或导出。",
+              "The Thread leaves active history; every Run, message, and audit record stays bound for restore or export.")}</p>
             {threadArchiveMutation.isError && <p className="connection-error">
               {threadArchiveMutation.error instanceof Error ? threadArchiveMutation.error.message :
-                t("归档任务失败", "Could not archive task")}</p>}
+                t("归档 Thread 失败", "Could not archive Thread")}</p>}
           </div>
           <footer><span /><div className="desktop-dialog-actions">
             <button className="dialog-secondary" disabled={threadArchiveMutation.isPending}

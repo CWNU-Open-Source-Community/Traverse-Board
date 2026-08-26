@@ -28,7 +28,8 @@ describe("SessionWorkspace", () => {
     await waitFor(() => expect(client.get).toHaveBeenCalledWith("/runs/run-1", {},
       expect.any(AbortSignal)));
     expect(await screen.findByText("completed")).toBeInTheDocument();
-    expect(screen.getByLabelText("Session message")).toBeDisabled();
+    expect(screen.getByRole("note")).toHaveTextContent("Session is the current Run's local context and authority boundary");
+    expect(screen.getByLabelText("Run-local Session message")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Queue message" })).toBeDisabled();
     expect(client.controlRunLifecycle).not.toHaveBeenCalled();
     expect(client.executeRun).not.toHaveBeenCalled();
@@ -40,7 +41,7 @@ describe("SessionWorkspace", () => {
 
     renderWorkspace(client);
 
-    const composer = await screen.findByLabelText("Session message");
+    const composer = await screen.findByLabelText("Run-local Session message");
     await waitFor(() => expect(composer).toBeEnabled());
     await user.type(composer, "Inspect the latest changes");
     await user.click(screen.getByRole("button", { name: "Queue message" }));

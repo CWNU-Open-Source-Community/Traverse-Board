@@ -28,6 +28,7 @@ import { EmptyConversation, SidebarResizeHandle, UtilityWorkspace,
   type NewRunDraft } from "./components/workbench-frame";
 import { desktopBridgeAvailable, desktopIsMacPlatform } from "./lib/desktop-bridge";
 import { useLocale } from "./lib/locale";
+import { diagnosticVocabulary } from "./lib/vocabulary";
 import { closeDesktopWindow, minimiseDesktopWindow,
   toggleDesktopWindowMaximised } from "./lib/desktop-window";
 import { useConnectionStore } from "./state/connection";
@@ -286,8 +287,8 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     { id: "full-access", label: t("完全访问", "Full access"), enabled: dangerFullAccessEnabled },
     { id: "debug-access", label: t("调试权限", "Debug access"), enabled: debugMaximumAccessEnabled },
     { id: "command-runtime", label: t("命令运行时", "Command runtime"), enabled: commandRuntimeEnabled },
-    { id: "run-creation", label: t("创建任务", "Create task"), enabled: runCreationEnabled },
-    { id: "session-message", label: t("会话消息", "Session messages"), enabled: sessionMessageEnabled },
+    { id: "run-creation", label: t("创建 Thread", "Create Thread"), enabled: runCreationEnabled },
+    { id: "session-message", label: t("Run 消息", "Run messages"), enabled: sessionMessageEnabled },
     { id: "steering", label: t("队列引导", "Queue steering"), enabled: sessionSteeringControlEnabled },
     { id: "lifecycle", label: t("Run 生命周期", "Run lifecycle"), enabled: runLifecycleEnabled },
     { id: "execution", label: t("有界执行", "Bounded execution"), enabled: runExecutionEnabled },
@@ -427,11 +428,11 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     resourceKind === "run" ? selectedRunID : selectedSessionID;
   const panelTitle = workspaceSection === "conversation"
     ? selectedResourceID
-      ? `${resourceKind === "thread" ? t("任务", "Task") : resourceKind === "run" ? "Run" : "Session"} / ${selectedResourceID.slice(0, 18)}`
+      ? `${resourceKind === "thread" ? "Thread" : resourceKind === "run" ? "Run" : t(...diagnosticVocabulary.session)} / ${selectedResourceID.slice(0, 18)}`
       : t("针路簿工作台", "Traverse Board Workbench")
     : workspaceSection === "pull-requests" ? t("拉取请求", "Pull requests")
       : workspaceSection === "models" ? t("模型切换", "Models")
-        : workspaceSection === "schedule" ? t("自动定时", "Scheduled tasks") : t("插件", "Plugins");
+        : workspaceSection === "schedule" ? t("定时 Run", "Scheduled Runs") : t("插件", "Plugins");
 
   const workspaceContent = workspaceSection === "models"
     ? <ModelAvailabilityWorkspace client={client} />
@@ -474,7 +475,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
             </button>
             <nav aria-label={t("应用菜单", "Application menu")} className="titlebar-menu">
               <button disabled={!runCreationEnabled} onClick={() => openRunCreation()}
-                title={t("新建任务", "New task")} type="button">{t("文件", "File")}</button>
+                title={t("新建 Thread", "New Thread")} type="button">{t("文件", "File")}</button>
               <button onClick={() => navigateWorkspace("models")} title={t("模型与 Provider", "Models and providers")}
                 type="button">{t("编辑", "Edit")}</button>
               <button disabled={surface === "settings"}
