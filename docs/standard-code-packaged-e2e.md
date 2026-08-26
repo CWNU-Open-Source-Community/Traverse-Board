@@ -108,12 +108,69 @@ CI 产物 `standard-code-packaged-e2e.json` 使用
 冒充某个真实 Local/Docker 攻击调用。脚本失败会写 `bootstrap_status=fail` 并以非零
 退出；脚本成功也仍是 `needs_full_matrix`。报告不允许 `skip` 或 waiver 成为发布证据。
 
-## 完整 #140 发布门仍需完成
+## #181 packaged 攻击与恢复 executor
 
-进入 Beta gate 前，还必须由真实 packaged EXE 对矩阵逐项生成来源绑定、不可变的
-call/event/UI evidence，完成 Local Sandbox、Docker `network=none`、Approval fallback
-和 Windows VM recovery 组合（包括可见窗口的正常退出），并核对失败码、操作者可见状态、generation fencing、
-产物/SBOM/复现说明。正式代码签名与 Microsoft Store 分发仍属于独立发布线。
+Issue #181 增加独立的 packaged-only executor。入口属于固定 conformance harness，只有
+下面三个参数同时且单独出现时才会运行；它不会继承 Desktop 默认 capability bundle：
+
+```powershell
+$env:CYBERAGENT_STANDARD_CODE_DOCKER_IMAGE_DIGEST = `
+  'sha256:<reviewed-fixed-image-digest>'
+
+& .\TraverseBoard.exe `
+  --standard-code-attack-matrix `
+  --attack-matrix-root 'D:\evidence\standard-code-attack-<new-id>' `
+  --candidate-archive 'D:\release\Prayu-portable-v0.1.0-windows-amd64.zip'
+```
+
+`--attack-matrix-root` 必须是不存在的 `standard-code-attack-*` 目录，ZIP 中的
+`TraverseBoard.exe` 必须与正在运行的 EXE 逐字节一致，release metadata 必须绑定干净的
+40 位 source commit 并证明 EXE/ZIP reproducible。executor 随后在同一候选程序内：
+
+1. 重新 materialize 固定四仓库与 40 项矩阵，固定 manifest/matrix SHA-256；
+2. 经公开 `command_runtime` Tool Gateway、Go Application 和当前 Standard Code
+   adapter 执行 75 个 case/backend 组合，而不是直接调用底层 sandbox；
+3. 对 Local Sandbox 与固定 digest Docker 分别记录 backend identity、generation、
+   `network=disabled`、`credentials=none` 与 `full_access_enabled=false`；
+4. 用真实 Job、Artifact、Run event、operator projection、Drydock observation 与
+   Checkpoint 生成所需 evidence reference；报告仅保留 hash/provenance；
+5. 对 permission、mode/profile、Drydock root、backend capability、lease 与跨 Run
+   authority snapshot 做调用前 fence；任何漂移必须在创建进程前以稳定冲突失败；
+6. 从同一个 packaged EXE 的固定内部 recovery worker 启动后台 Job，注入 renderer
+   detach、正常 Desktop 退出、强杀、重启等价、lease 过期及 dirty/untracked 并发修改，
+   然后复用同一 SQLite/Drydock 重启两次，核验 `terminal`、`tree_reaped`、Checkpoint
+   和用户修改保留；worker 不接受任意命令、环境、权限、Workspace 或 Docker 参数；
+7. 只 rewind/cleanup harness 创建的 Drydock、Job、worker 与目录，不按 PID 名称、镜像
+   名称或宽泛路径清理其他资源。
+
+Windows 上由 packaged harness 启动的 Git、固定工具链和 recovery worker 均使用
+`CREATE_NO_WINDOW`/hidden window；专用 matrix/worker 入口失败时只写入被父进程捕获的
+stderr，不弹出 Desktop 原生启动错误框，也不抢占操作者桌面。
+
+最终文件 `standard-code-security-evidence.json` 使用
+`standard_code_packaged_security_evidence.v1`，create-exclusive 写入。它固定包含 40 个
+case、75 个 backend run 与 append-only SHA-256 chain。最终 `status=passed` 必须同时满足：
+
+- 每个 required case/backend 都真实执行且 evidence 完整；`unexecuted`、`skip`、
+  backend unavailable、synthetic result 或 expected outcome/code 不一致均失败；
+- Docker 不可用只记录 `approval_required` / `approval_fallback=true`，不会切换到
+  Full Access，也不能使整份 #181 报告通过；
+- 所有启动的 harness-owned Job 都终态且完整回收，orphan/foreign kill 为零；
+- JSON 不含 secret-shaped 内容、控制序列、原始凭据或私有绝对路径；
+- report self-hash、逐记录 chain、EXE/ZIP/source/matrix/fixture/backend identity 均可重算。
+
+恢复 worker 的参数是父 executor 生成的内部协议，不是新产品 Surface。它只接受父目录中
+已存在且 exact-owner marker 匹配的固定 case/backend root；恢复 receipt 只作为 #181
+conformance evidence，不能签发执行权限或宣布发布门通过。架构决定见
+[ADR 0143](adr/0143-standard-code-packaged-security-matrix.md)。
+
+## #140 最终发布门仍由聚合 owner 完成
+
+#181 只产生安全切片证据，不修改中央
+`.github/workflows/release-desktop.yml`、`scripts/standard-code-packaged-e2e.ps1`、聚合报告或
+最终 gate 状态，也不会关闭 #140。进入 Beta gate 前，release owner 仍需把该不可变报告与
+bootstrap、四语言修复、交付真实性、产物/SBOM、Windows host/可见窗口及复现说明在同一
+候选上聚合。正式代码签名与 Microsoft Store 分发仍属于独立发布线。
 
 任何一次矩阵 case 缺失、环境不具备、取证不完整或结果不确定，都应使 gate 失败，
 而不是改成 skip、expected failure 或手工豁免。测试只能使用合成 sentinel；禁止把

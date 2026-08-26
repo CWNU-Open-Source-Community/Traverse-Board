@@ -77,7 +77,7 @@ func NewAdvancedExecutor(managedRoot string, enabled bool) (*AdvancedExecutor, e
 	}
 	return &AdvancedExecutor{gitPath: gitPath, managedRoot: root,
 		capability: capability, maxDuration: MaxAdvancedGitDuration,
-		commandContext: exec.CommandContext,
+		commandContext: repositoryCommandContext,
 		recipeStarter:  runner.NewPlatformOnceProcessStarter(),
 		now:            func() time.Time { return time.Now().UTC() }}, nil
 }
@@ -449,7 +449,7 @@ func (e *AdvancedExecutor) git(ctx context.Context, root string, stdin []byte,
 	defer cancel()
 	commandContext := e.commandContext
 	if commandContext == nil {
-		commandContext = exec.CommandContext
+		commandContext = repositoryCommandContext
 	}
 	base := []string{"-C", root, "--no-optional-locks", "-c", "core.autocrlf=false",
 		"-c", "submodule.recurse=false", "-c", "rebase.autoStash=false",

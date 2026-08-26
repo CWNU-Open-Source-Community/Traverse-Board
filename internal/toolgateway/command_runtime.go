@@ -143,9 +143,17 @@ type CommandRuntimeContext struct {
 	InvocationID         string
 	OperationKey         string
 	RunID                string
+	MissionID            string
 	RootAgentID          string
 	SessionID            string
 	WorkspaceID          string
+	Surface              domain.ExecutionSurface
+	Phase                domain.ExecutionPhase
+	Role                 domain.AgentRole
+	Profile              domain.Profile
+	PermissionMode       domain.RunExecutionPermissionMode
+	ModeRevision         int64
+	PermissionRevision   int64
 	CapabilityGeneration string
 	LeaseID              string
 	LeaseGeneration      int64
@@ -156,7 +164,8 @@ type CommandRuntimeContext struct {
 
 func (c CommandRuntimeContext) Validate() error {
 	for _, value := range []string{c.InvocationID, c.OperationKey, c.RunID,
-		c.RootAgentID, c.SessionID, c.WorkspaceID, c.LeaseID, c.RequestedBy} {
+		c.MissionID, c.RootAgentID, c.SessionID, c.WorkspaceID, c.LeaseID,
+		c.RequestedBy} {
 		if value == "" || strings.TrimSpace(value) != value ||
 			!utf8.ValidString(value) || len([]rune(value)) > MaxToolIdentityRunes {
 			return errors.New("command runtime requires normalized bounded identities")
@@ -168,6 +177,18 @@ func (c CommandRuntimeContext) Validate() error {
 		c.RequestedBy != "run_supervisor" || c.PolicyDecision.Validate() != nil ||
 		!c.PolicyDecision.Allowed || c.PolicyDecision.Approval != ApprovalAutomatic {
 		return errors.New("command runtime requires an automatically authorized fenced root scope")
+	}
+	// Gateway-originated command runtime calls carry the already-published
+	// workspace-affecting authority tuple. Direct internal recovery callers may
+	// omit the tuple, but a partial tuple is always invalid.
+	hasAuthority := c.ModeRevision != 0 || c.PermissionRevision != 0 ||
+		c.Surface != "" || c.Phase != "" || c.Role != "" || c.Profile != "" ||
+		c.PermissionMode != ""
+	if hasAuthority && (!c.Surface.Valid() || !c.Phase.Valid() ||
+		!domain.ValidAgentRole(c.Role) || c.Role != domain.AgentRoleRoot ||
+		c.Profile != domain.ProfileCode || !c.PermissionMode.Valid() ||
+		c.ModeRevision <= 0 || c.PermissionRevision <= 0) {
+		return errors.New("command runtime authority tuple is invalid or partial")
 	}
 	return nil
 }
@@ -490,8 +511,12 @@ func (g *Gateway) invokeCommandRuntime(ctx context.Context, call ToolCall) (
 		return Outcome{}, err
 	}
 	scope := CommandRuntimeContext{InvocationID: call.InvocationID,
-		OperationKey: call.OperationKey, RunID: call.RunID, RootAgentID: call.AgentID,
-		SessionID: call.SessionID, WorkspaceID: call.WorkspaceID,
+		OperationKey: call.OperationKey, RunID: call.RunID, MissionID: call.MissionID,
+		RootAgentID: call.AgentID,
+		SessionID:   call.SessionID, WorkspaceID: call.WorkspaceID,
+		Surface: call.Surface, Phase: call.Phase, Role: call.Role,
+		Profile: call.Profile, PermissionMode: call.PermissionMode,
+		ModeRevision: call.ModeRevision, PermissionRevision: call.PermissionRevision,
 		CapabilityGeneration: call.CapabilityGeneration,
 		LeaseID:              call.LeaseID, LeaseGeneration: call.LeaseGeneration,
 		RequestedBy: call.RequestedBy, PolicyDecision: decision,

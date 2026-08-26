@@ -237,12 +237,13 @@ func (s *CommandRuntimeService) ExecuteCommandRuntime(ctx context.Context,
 ) (toolgateway.CommandRuntimeExecutionResult, error) {
 	if s == nil || s.store == nil || s.manager == nil || ctx == nil ||
 		ctx.Err() != nil || scope.Validate() != nil || input.Validate() != nil ||
-		!scope.Adapter.SameBackend(s.adapter) ||
-		scope.CapabilityGeneration != s.adapter.Generation {
+		scope.Adapter.Validate() != nil {
 		return toolgateway.CommandRuntimeExecutionResult{}, apperror.New(
 			apperror.CodeInvalidArgument, "command runtime request is invalid")
 	}
-	if !s.commandRuntimeAdapterCurrent() {
+	if !scope.Adapter.SameBackend(s.adapter) ||
+		scope.CapabilityGeneration != s.adapter.Generation ||
+		!s.commandRuntimeAdapterCurrent() {
 		return toolgateway.CommandRuntimeExecutionResult{}, apperror.New(
 			apperror.CodeConflict, "command runtime adapter authority is stale")
 	}
@@ -720,7 +721,8 @@ func (s *CommandRuntimeService) loadAuthorizedBindings(ctx context.Context,
 	}
 	if !leaseFound || !rootFound || value.run.Terminal() ||
 		value.run.Status != domain.RunRunning ||
-		value.run.ID != scope.RunID || value.run.SessionID != scope.SessionID ||
+		value.run.ID != scope.RunID || value.run.MissionID != scope.MissionID ||
+		value.run.SessionID != scope.SessionID ||
 		value.run.MissionID != value.mission.ID ||
 		value.mission.WorkspaceID != scope.WorkspaceID ||
 		value.workspace.ID != scope.WorkspaceID || value.root.ID != scope.RootAgentID ||
@@ -741,6 +743,14 @@ func (s *CommandRuntimeService) loadAuthorizedBindings(ctx context.Context,
 		!value.lease.ExpiresAt.After(time.Now().UTC()) {
 		return value, apperror.New(apperror.CodeConflict,
 			"command runtime durable binding is stale")
+	}
+	if scope.ModeRevision != 0 && (value.mode.Surface != scope.Surface ||
+		value.mode.Phase != scope.Phase || value.mode.Profile != scope.Profile ||
+		value.mode.Revision != scope.ModeRevision || value.root.Role != scope.Role ||
+		value.permission.Mode != scope.PermissionMode ||
+		value.permission.Revision != scope.PermissionRevision) {
+		return value, apperror.New(apperror.CodeConflict,
+			"command runtime supplied authority snapshot is stale")
 	}
 	request := executionauth.PermissionRequest{Network: false, BackgroundProcess: true}
 	if s.adapter.Kind == commandruntimeadapter.KindSandboxedWorkspace {

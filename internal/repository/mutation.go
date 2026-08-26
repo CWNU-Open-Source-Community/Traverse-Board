@@ -107,7 +107,7 @@ func NewMutationExecutor() (*MutationExecutor, error) {
 		return nil, fmt.Errorf("git binary is unavailable: %w", err)
 	}
 	return &MutationExecutor{
-		gitPath: path, maxDuration: MaxGitDuration, commandContext: exec.CommandContext,
+		gitPath: path, maxDuration: MaxGitDuration, commandContext: repositoryCommandContext,
 	}, nil
 }
 
@@ -250,7 +250,7 @@ func (e *MutationExecutor) runGit(ctx context.Context, root string, spec Mutatio
 	defer cancel()
 	commandContext := e.commandContext
 	if commandContext == nil {
-		commandContext = exec.CommandContext
+		commandContext = repositoryCommandContext
 	}
 	command := commandContext(commandCtx, e.gitPath, args...)
 	command.Dir = root
@@ -383,7 +383,7 @@ func bindingCurrent(left, right MutationBinding) bool {
 
 func (e *MutationExecutor) gitOutput(ctx context.Context, root string, args ...string) (string, error) {
 	full := append([]string{"-C", root, "--no-optional-locks"}, args...)
-	command := exec.CommandContext(ctx, e.gitPath, full...)
+	command := repositoryCommandContext(ctx, e.gitPath, full...)
 	command.Env = hardenedGitEnvironment()
 	command.Dir = root
 	var stdout, stderr boundedBuffer
@@ -511,7 +511,7 @@ func validateHardenedGitRepository(ctx context.Context, gitPath, root string) er
 	}
 	commandCtx, cancel := context.WithTimeout(ctx, MaxGitDuration)
 	defer cancel()
-	command := exec.CommandContext(commandCtx, gitPath, "-C", root,
+	command := repositoryCommandContext(commandCtx, gitPath, "-C", root,
 		"--no-optional-locks", "config", "--local", "--null", "--get-regexp",
 		`^(filter|diff|merge)\..*\.(clean|smudge|process|required|command|textconv|driver)$`)
 	command.Dir, command.Env = root, hardenedGitEnvironment()

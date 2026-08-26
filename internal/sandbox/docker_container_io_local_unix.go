@@ -42,6 +42,17 @@ func (transport localDockerContainerIOTransport) ExportOwnedOutputs(ctx context.
 	return transport.inner.ExportOwnedOutputs(ctx, request, plan)
 }
 
+func (transport localDockerContainerIOTransport) AttachOwnedStdin(ctx context.Context,
+	request DockerContainerLifecycleRequest, stdin io.ReadCloser,
+	fence DockerContainerLifecycleFence,
+) error {
+	return transport.inner.AttachOwnedStdin(ctx, request, stdin, fence)
+}
+
+func (transport localDockerContainerIOTransport) SupportsOwnedStdin() bool {
+	return transport.inner.SupportsOwnedStdin()
+}
+
 // NewLocalDockerContainerIOTransport returns the fixed local Docker I/O
 // transport. The endpoint is not caller-configurable, proxy discovery is
 // disabled, and redirects are rejected.

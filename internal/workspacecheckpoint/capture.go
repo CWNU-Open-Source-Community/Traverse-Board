@@ -619,7 +619,7 @@ func walkNonGitFiles(ctx context.Context, root string) ([]string, bool, error) {
 func captureGitOutput(ctx context.Context, gitPath, root string, args ...string) ([]byte, error) {
 	base := []string{"-C", root, "--no-optional-locks", "-c", "core.autocrlf=false",
 		"-c", "core.hooksPath=", "-c", "diff.external=", "-c", "core.fsmonitor=false"}
-	command := exec.CommandContext(ctx, gitPath, append(base, args...)...)
+	command := checkpointCommandContext(ctx, gitPath, append(base, args...)...)
 	command.Dir = root
 	command.Env = captureGitEnvironment()
 	var stdout, stderr limitedCaptureBuffer

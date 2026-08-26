@@ -16,6 +16,7 @@ import (
 	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/sandbox"
 	"cyberagent-workbench/internal/store"
+	"cyberagent-workbench/internal/workspacecheckpoint"
 )
 
 func TestDrydockLifecycleCoversDirtySourceCheckpointDeliveryAndReceipts(t *testing.T) {
@@ -770,6 +771,52 @@ func TestDrydockForkUsesCheckpointAndCreatesAuthorityResetRun(t *testing.T) {
 		sourceTimeline.Current.CurrentCheckpointID != sourceCheckpoint.ID {
 		t.Fatalf("Drydock fork leaked into source timeline: timeline=%+v err=%v",
 			sourceTimeline, err)
+	}
+}
+
+func TestDrydockReconcilesInterruptedCheckpointWithOwnedWorkspaceBinding(t *testing.T) {
+	fixture := newDrydockApplicationFixture(t, "checkpoint startup recovery")
+	checkpoints, err := NewWorkspaceCheckpointService(fixture.state,
+		domain.ExecutionPermissionRuntimeCapabilities{WorkspaceSandboxEnabled: true,
+			OperatorApprovalEnabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.service.WithCheckpointService(checkpoints)
+	workspace := mustCreateDrydock(t, fixture)
+	boundary, err := fixture.service.checkpoints.BeginBoundary(t.Context(),
+		WorkspaceMutationBoundaryRequest{RunID: fixture.run.ID,
+			Kind:             workspacecheckpoint.TransactionCommandBatch,
+			OperationKey:     "drydock-interrupted-command-0001",
+			TriggerReceiptID: "command-runtime-job-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeDrydockTestFile(t, filepath.Join(workspace.Path, "interrupted.txt"),
+		"preserved after restart\n")
+
+	reconciled, err := fixture.service.ReconcileWorkspaceCheckpoints(t.Context())
+	if err != nil || reconciled != 1 {
+		t.Fatalf("Drydock checkpoint reconciliation count=%d err=%v", reconciled, err)
+	}
+	transaction, found, err := fixture.state.GetWorkspaceCheckpointTransaction(t.Context(),
+		boundary.Transaction.ID)
+	if err != nil || !found || transaction.Status != workspacecheckpoint.TransactionInterrupted ||
+		transaction.AfterCheckpointID == "" {
+		t.Fatalf("reconciled transaction=%+v found=%t err=%v", transaction, found, err)
+	}
+	after, err := fixture.state.GetWorkspaceCheckpointSnapshot(t.Context(),
+		transaction.AfterCheckpointID)
+	if err != nil || after.Checkpoint.WorkspaceID != workspace.WorkspaceID ||
+		after.Checkpoint.ParentCheckpointID != boundary.Before.ID {
+		t.Fatalf("reconciled Drydock checkpoint=%+v err=%v", after.Checkpoint, err)
+	}
+	foundPreserved := false
+	for _, entry := range after.Entries {
+		foundPreserved = foundPreserved || entry.Path == "interrupted.txt"
+	}
+	if !foundPreserved {
+		t.Fatal("reconciled Drydock checkpoint omitted the interrupted file")
 	}
 }
 

@@ -98,6 +98,8 @@ Schema v136 与 #138 为 `workspace_access` Standard Code 增加 `risk_escalatio
 
 Schema v137 与 #139 新增 `standard_code_delivery.v1` 交付真实性门。最终 Checkpoint、base/head、真实 committed/index/worktree/untracked/conflict Diff、Command Runtime 终态/exit/tree-reaped、输出摘要与 Artifact、重试、permission/backend generation 和未覆盖项进入同一不可变 receipt；只有当前 Workspace revision 的完整终态成功可为 `passed/verified`。修改、权限或后端漂移会在读取时把旧 receipt 投影为 `stale`，而不改写历史；失败、截断、取消、超时、审批拒绝与无测试均有明确状态。Desktop、CLI/HTTP、Code Handoff、GitHub Review 与最终回复消费同一投影，并链接文件、测试输出及 Checkpoint/Undo/Rewind/Fork。记录不会自动 commit、push、merge、覆盖来源或删除无法证明归属的文件。详见[交付真实性门](docs/standard-code-delivery.md)与 [ADR 0142](docs/adr/0142-standard-code-delivery-truth-gate.md)。
 
+#181 增加独立 packaged Standard Code 安全矩阵 executor：portable ZIP 中逐字节一致的 `TraverseBoard.exe` 经 Tool Gateway 与 Go Application 对固定 40 项矩阵执行 75 个 Local/Docker 组合，并绑定 source/EXE/ZIP/matrix/backend generation、Job/Event/Artifact/Checkpoint、恢复与精确 cleanup 的不可变 hash chain。未执行、后端不可用、证据不全或权限/lease/root/backend 漂移全部失败关闭；Docker 不可用只产生 `approval_required` 事实，不会静默切换 Full Access。固定 recovery worker 会在 harness 自有目录内注入退出、强杀、重启等价、lease 过期及并发 Drydock 修改，再由新进程复核终态 tree-reaped Job 和用户改动保留。该报告只供 #140 owner 聚合，不能自行宣布发布门通过。详见[packaged E2E 与安全矩阵](docs/standard-code-packaged-e2e.md)及 [ADR 0143](docs/adr/0143-standard-code-packaged-security-matrix.md)。
+
 ### 模型与工具的 item 级流式事件
 
 Schema v130 与 `llm.item_stream.v1` 将 OpenAI 的交错 tool-call delta、Anthropic content block、Ollama/Mock 的完整 item，以及旧 `ChatChunk` 统一为有序的 response/item/call 生命周期。参数增量只在有界内存中拼接；Provider 只能声明调用已准备，不能签发 authority 或执行工具。Go 在完整 JSON 通过大小、敏感数据、Policy、预算与幂等检查后才记录执行开始/完成，并以稳定 response/item/call ID 对齐临时 UI 卡片与持久工具账本。

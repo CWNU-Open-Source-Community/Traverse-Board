@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -542,7 +541,7 @@ func (e *DrydockExecutor) drydockGit(ctx context.Context, root string,
 	defer cancel()
 	base := []string{"-C", root, "--no-optional-locks", "-c", "core.autocrlf=false",
 		"-c", "submodule.recurse=false", "--literal-pathspecs"}
-	command := exec.CommandContext(commandCtx, e.advanced.gitPath, append(base, args...)...)
+	command := repositoryCommandContext(commandCtx, e.advanced.gitPath, append(base, args...)...)
 	command.Dir = root
 	command.Env = append(hardenedGitEnvironment(), extraEnv...)
 	stdout := advancedBoundedBuffer{max: drydock.MaxPatchBytes + 1}

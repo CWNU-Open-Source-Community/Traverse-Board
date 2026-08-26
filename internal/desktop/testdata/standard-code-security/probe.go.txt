@@ -1,0 +1,181 @@
+package main
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+const protocol = "standard_code_security_probe.v1"
+
+type receipt struct {
+	Protocol string `json:"protocol"`
+	Case     string `json:"case"`
+	Blocked  bool   `json:"blocked"`
+	Detail   string `json:"detail"`
+}
+
+func main() {
+	if len(os.Args) >= 3 && os.Args[1] == "child" {
+		time.Sleep(1500 * time.Millisecond)
+		_ = os.WriteFile(os.Args[2], []byte("owned-child-survived\n"), 0o600)
+		return
+	}
+	if len(os.Args) != 3 {
+		os.Exit(64)
+	}
+	caseID, ownedSentinel := os.Args[1], os.Args[2]
+	blocked, detail := execute(caseID, ownedSentinel)
+	encoded, _ := json.Marshal(receipt{Protocol: protocol, Case: caseID,
+		Blocked: blocked, Detail: detail})
+	fmt.Println(string(encoded))
+	if !blocked {
+		os.Exit(23)
+	}
+}
+
+func execute(caseID, ownedSentinel string) (bool, string) {
+	switch caseID {
+	case "recovery_hold":
+		// This fixed, argument-free hold is used only by the packaged recovery
+		// worker. The command-runtime Job owns the process tree and must reap it
+		// on normal shutdown, lease loss, forced termination, or restart.
+		time.Sleep(10 * time.Minute)
+		return true, "recovery-hold-completed"
+	case "filesystem_parent_traversal", "credential_home_profile":
+		_, err := os.ReadFile(ownedSentinel)
+		return err != nil, "outside-read"
+	case "filesystem_drive_root":
+		root := filepath.VolumeName(mustWorkingDirectory()) + string(filepath.Separator)
+		_, err := os.ReadDir(root)
+		return err != nil, "volume-root"
+	case "filesystem_unc_root":
+		_, err := os.ReadDir(`\\localhost\c$`)
+		return err != nil, "unc-root"
+	case "filesystem_device_path":
+		_, err := os.Open(`\\.\GLOBALROOT\Device\HarddiskVolumeShadowCopy181`)
+		return err != nil, "device-root"
+	case "filesystem_symlink_reparse_escape":
+		_, err := os.ReadFile(filepath.Join(".standard-code-security", "outside-link"))
+		return err != nil, "indirect-root"
+	case "filesystem_long_path_overflow":
+		name := filepath.Join(".standard-code-security", strings.Repeat("长 path ", 700))
+		err := os.WriteFile(name, []byte("must-not-land"), 0o600)
+		if err == nil {
+			_ = os.Remove(name)
+		}
+		return err != nil, "path-bound"
+	case "credential_manager":
+		// The packaged parent creates one random, session-only synthetic
+		// credential and supplies its exact target. Deleting it succeeds only if
+		// this AppContainer can reach the host user's Credential Manager.
+		command := exec.Command("cmdkey.exe", "/delete:"+ownedSentinel)
+		return command.Run() != nil, "credential-manager-delete-denied"
+	case "credential_git_helper":
+		command := exec.Command("git", "config", "--global", "--get", "credential.helper")
+		output, err := command.Output()
+		return err != nil || strings.TrimSpace(string(output)) == "", "git-helper"
+	case "credential_ssh_agent":
+		return strings.TrimSpace(os.Getenv("SSH_AUTH_SOCK")) == "", "ssh-agent"
+	case "credential_cloud_environment":
+		cloudLeaked := os.Getenv("AWS_ACCESS_KEY_ID") == "Issue181HostCloudSentinel"
+		proxyLeaked := os.Getenv("HTTP_PROXY") == "http://issue181.invalid:181"
+		return !cloudLeaked && !proxyLeaked, "host-sentinels-absent"
+	case "network_dns":
+		_, err := net.LookupHost("standard-code-issue181.invalid")
+		return err != nil, "dns-disabled"
+	case "network_tcp", "network_loopback":
+		connection, err := net.DialTimeout("tcp", "127.0.0.1:9", 300*time.Millisecond)
+		if err == nil {
+			_ = connection.Close()
+		}
+		return err != nil, "tcp-disabled"
+	case "network_udp":
+		connection, err := net.DialTimeout("udp", "127.0.0.1:9", 300*time.Millisecond)
+		if err != nil {
+			return true, "udp-disabled"
+		}
+		defer connection.Close()
+		_ = connection.SetDeadline(time.Now().Add(300 * time.Millisecond))
+		_, writeErr := connection.Write([]byte("issue181-synthetic"))
+		buffer := make([]byte, 1)
+		_, readErr := connection.Read(buffer)
+		return writeErr != nil || readErr != nil, "udp-no-response"
+	case "network_proxy_environment":
+		return os.Getenv("HTTP_PROXY") == "" && os.Getenv("HTTPS_PROXY") == "" &&
+			os.Getenv("ALL_PROXY") == "", "proxy-empty"
+	case "process_detached_child", "process_background_job", "process_group_escape":
+		marker := filepath.Join(".standard-code-security", caseID+".marker")
+		command := exec.Command(os.Args[0], "child", marker)
+		err := command.Start()
+		if err != nil {
+			return true, "child-start-denied"
+		}
+		_ = command.Process.Release()
+		return true, "child-owned-by-runtime"
+	case "process_inherited_handle":
+		file, err := os.OpenFile(ownedSentinel, os.O_RDWR, 0)
+		if err != nil {
+			return true, "host-named-object-denied"
+		}
+		_ = file.Close()
+		return false, "host-named-object-opened"
+	case "output_secret_redaction":
+		fmt.Println("sk-Issue181SyntheticSentinel000000")
+		fmt.Fprintln(os.Stderr, "GITHUB_TOKEN=Issue181SyntheticSentinel000000")
+		return true, "secret-shaped-output"
+	case "output_control_ansi":
+		fmt.Print("visible\x1b[2J\x1b[Hhidden\rrewrite\u202e")
+		return true, "control-output"
+	case "output_stream_limit":
+		// Cross the 32 KiB inline/public projection window while remaining
+		// beneath the 64 KiB artifact and sandbox stream bounds.
+		for index := 0; index < 1000; index++ {
+			fmt.Printf("bounded-stream-%05d-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n", index)
+		}
+		return true, "stream-bound"
+	case "output_artifact_limit":
+		root := filepath.Join(".standard-code-security", "output-artifact-limit")
+		if err := os.MkdirAll(root, 0o700); err != nil {
+			return true, "workspace-growth-denied"
+		}
+		for index := 0; index < 4100; index++ {
+			name := filepath.Join(root, fmt.Sprintf("entry-%05d", index))
+			if err := os.WriteFile(name, []byte("x"), 0o600); err != nil {
+				return true, "workspace-entry-growth-denied"
+			}
+		}
+		oversized := filepath.Join(root, "oversized.bin")
+		file, err := os.OpenFile(oversized, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err != nil {
+			return true, "workspace-file-growth-denied"
+		}
+		truncateErr := file.Truncate(17*1024*1024 + 1)
+		closeErr := file.Close()
+		if truncateErr != nil || closeErr != nil {
+			return true, "workspace-file-growth-denied"
+		}
+		return true, "workspace-growth-submitted"
+	default:
+		for _, prefix := range []string{"prompt_", "authority_", "approval_", "recovery_"} {
+			if strings.HasPrefix(caseID, prefix) {
+				return true, "application-boundary"
+			}
+		}
+		return false, errors.New("unsupported fixed probe case").Error()
+	}
+}
+
+func mustWorkingDirectory() string {
+	value, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+	return value
+}

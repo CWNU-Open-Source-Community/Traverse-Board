@@ -535,4 +535,12 @@ func TestDockerContainerIOErrors(t *testing.T) {
 	}
 }
 
+func TestLocalDockerContainerIOTransportExposesOwnedStdin(t *testing.T) {
+	transport := NewLocalDockerContainerIOTransport()
+	stdin, ok := transport.(DockerContainerStdinTransport)
+	if !ok || !stdin.SupportsOwnedStdin() || stdin.Endpoint() != transport.Endpoint() {
+		t.Fatalf("fixed local Docker transport omitted owned stdin: %T", transport)
+	}
+}
+
 var _ = io.EOF

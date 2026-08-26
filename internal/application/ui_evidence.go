@@ -1023,8 +1023,9 @@ func (s *UIEvidenceService) commandScope(prepared preparedUIEvidence,
 	return toolgateway.CommandRuntimeContext{
 		InvocationID: identity,
 		OperationKey: identity,
-		RunID:        prepared.run.ID, RootAgentID: prepared.root.ID,
-		SessionID: prepared.run.SessionID, WorkspaceID: prepared.mission.WorkspaceID,
+		RunID:        prepared.run.ID, MissionID: prepared.mission.ID,
+		RootAgentID: prepared.root.ID,
+		SessionID:   prepared.run.SessionID, WorkspaceID: prepared.mission.WorkspaceID,
 		CapabilityGeneration: prepared.adapter.Generation,
 		LeaseID:              prepared.lease.LeaseID, LeaseGeneration: prepared.lease.Generation,
 		RequestedBy: "run_supervisor", PolicyDecision: toolgateway.Decision{
