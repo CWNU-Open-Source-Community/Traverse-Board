@@ -12,7 +12,7 @@ This document is the authority for current product scope. If a historical task, 
 
 - Thread、Run、Step/Tool Item、Run-local Session、检查点、恢复、取消、预算和事件流；
 - Provider 路由、资格校验、公开流式回复、上下文压缩和结构化记忆；
-- Plan/Delivery、工作项、备注、受控 child、可交付 child 的隔离 Worktree/交付复核/本地顺序合并，以及只读 Fan-out；
+- Plan/Delivery、Plan item（计划项；兼容 identity 为 `WorkItem`/`work_item`）、备注、受控 child、可交付 child 的隔离 Worktree/交付复核/本地顺序合并，以及只读 Fan-out；
 - Workspace、Repository、Diff、模型可调用的有界读取/搜索、人工审查的文件变更、Run-owned Drydock、Standard Code 原子预设、稳定 hunk、审批式 stash/rebase/cherry-pick/bisect、产品受管 worktree、验证、Journey 和 Handoff；
 - 默认关闭、Run allowlist 约束的公网 Web Search/Fetch/Citation 与不可变来源快照；
 - Tool Gateway、Skill、Policy、Scope、Approval、Capability 和权限档位；

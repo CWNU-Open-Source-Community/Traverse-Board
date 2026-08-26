@@ -356,8 +356,8 @@ export function ContextContinuityPanel({ client, runID, sessionID, workspaceID }
     <section className="context-section">
       <header className="context-section-header">
         <div><History aria-hidden="true" size={17} />
-          <span><strong>{t("会话树与检查点", "Session tree and checkpoints")}</strong>
-            <small>{t("分支会复制有界上下文，但创建全新的 Run 与 Session", "Branches copy bounded context into a new Run and Session")}</small>
+          <span><strong>{t("Run 内 Session 树与检查点", "Run-local Session tree and checkpoints")}</strong>
+            <small>{t("分支会复制有界上下文，但创建全新的 Run 及其专属 Session", "Branches copy bounded context into a new Run and its Run-local Session")}</small>
           </span>
         </div>
       </header>
@@ -375,11 +375,11 @@ export function ContextContinuityPanel({ client, runID, sessionID, workspaceID }
       </div>
       <input aria-label={t("新分支目标", "New branch goal")} className="context-branch-goal"
         maxLength={4096} onChange={(event) => setBranchGoal(event.target.value)}
-        placeholder={t("可选：为 Fork/Resume 覆盖任务目标", "Optional: override the task goal for Fork/Resume")}
+        placeholder={t("可选：为 Fork/Resume 覆盖 Thread 目标", "Optional: override the Thread goal for Fork/Resume")}
         value={branchGoal} />
       {createCheckpoint.error && <div className="inline-warning">{humanError(createCheckpoint.error)}</div>}
       {branch.error && <div className="inline-warning">{humanError(branch.error)}</div>}
-      {treeQuery.isLoading ? <LoadingState label={t("加载会话树", "Loading session tree")} /> :
+      {treeQuery.isLoading ? <LoadingState label={t("加载 Run 内 Session 树", "Loading Run-local Session tree")} /> :
         treeQuery.isError ? <ErrorState error={treeQuery.error} /> : <>
           <div className="continuity-tree" role="tree">
             {treeNodes.map((node) => <article key={node.id} role="treeitem"
@@ -424,7 +424,7 @@ export function ContextContinuityPanel({ client, runID, sessionID, workspaceID }
                 {compareLeft.fingerprint === compareRight.fingerprint ? t("相同", "same") : t("不同", "different")}
               </dd>
               <dt>Run</dt><dd>{shortID(compareLeft.run_id)} → {shortID(compareRight.run_id)}</dd>
-              <dt>Session</dt><dd>{shortID(compareLeft.session_id)} → {shortID(compareRight.session_id)}</dd>
+              <dt>{t("Run 内 Session", "Run-local Session")}</dt><dd>{shortID(compareLeft.session_id)} → {shortID(compareRight.session_id)}</dd>
               <dt>{t("项目配置", "Project config")}</dt><dd>
                 {shortFingerprint(compareLeft.project_config_fingerprint)} → {shortFingerprint(compareRight.project_config_fingerprint)}
               </dd>

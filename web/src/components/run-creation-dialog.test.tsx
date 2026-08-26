@@ -59,7 +59,7 @@ describe("RunCreationDialog", () => {
     expect(await screen.findByText("selected-project")).toBeInTheDocument();
     expect(getPage).not.toHaveBeenCalled();
     await user.type(screen.getByLabelText("Goal"), "Create parser");
-    await user.click(screen.getByRole("button", { name: "Create task" }));
+    await user.click(screen.getByRole("button", { name: "Create Thread" }));
     await waitFor(() => expect(createThread).toHaveBeenCalledTimes(1));
     expect(createThread.mock.calls[0]?.[0]).toMatchObject({
       version: "thread_creation.v1",
@@ -86,9 +86,9 @@ describe("RunCreationDialog", () => {
 
     await waitFor(() => expect(screen.getByLabelText("Workspace")).toHaveValue("workspace-1"));
     await user.type(screen.getByLabelText("Goal"), "Create parser");
-    await user.click(screen.getByRole("button", { name: "Create task" }));
+    await user.click(screen.getByRole("button", { name: "Create Thread" }));
     await screen.findByText("connection interrupted");
-    await user.click(screen.getByRole("button", { name: "Create task" }));
+    await user.click(screen.getByRole("button", { name: "Create Thread" }));
     await waitFor(() => expect(createThread).toHaveBeenCalledTimes(2));
 
     const firstKey = createThread.mock.calls[0]?.[1];
@@ -115,7 +115,7 @@ describe("RunCreationDialog", () => {
     await waitFor(() => expect(screen.getByLabelText("Workspace")).toHaveValue("workspace-1"));
     fireEvent.change(screen.getByLabelText("Goal"), { target: { value: "界".repeat(1366) } });
     expect(screen.getByText("Goal exceeds 4096 UTF-8 bytes")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create task" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Create Thread" })).toBeDisabled();
     expect(createThread).not.toHaveBeenCalled();
   });
 
@@ -134,7 +134,7 @@ describe("RunCreationDialog", () => {
 
     await waitFor(() => expect(screen.getByLabelText("Goal")).toHaveValue("Audit the parser"));
     expect(screen.queryByText("Phase")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Create task" }));
+    await user.click(screen.getByRole("button", { name: "Create Thread" }));
     await waitFor(() => expect(createThread).toHaveBeenCalledTimes(1));
     expect(createThread.mock.calls[0]?.[0]).toMatchObject({ phase: "plan" });
   });

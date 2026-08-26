@@ -17,6 +17,7 @@ import type {
 import { usePagedResource } from "../hooks/use-paged-resource";
 import { formatBytes, formatDate, formatNumber, shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
+import { diagnosticVocabulary } from "../lib/vocabulary";
 import { EmptyState, ErrorState, LoadMoreButton, LoadingState, StatusBadge } from "./common";
 
 export function ExternalSkillsPanel({ projection }: { projection: ExternalSkillProjectionView }) {
@@ -93,7 +94,7 @@ export function AgentGraphPanel({ client, runID }: ProjectionProps) {
             <StatusBadge status={root.status} />
           </header>
           <dl className="projection-metrics">
-            <Metric label="Session" value={shortID(root.session_id)} />
+            <Metric label={t(...diagnosticVocabulary.session)} value={shortID(root.session_id)} />
             <Metric label={t("配置档", "Profile")} value={root.profile} />
             <Metric label={t("回合", "Turns")} value={`${formatNumber(root.turns_used)} / ${formatNumber(root.turn_limit)}`} />
             <Metric label="Tokens" value={`${formatNumber(root.tokens_used)} / ${formatNumber(root.token_limit)}`} />
@@ -110,7 +111,7 @@ export function AgentGraphPanel({ client, runID }: ProjectionProps) {
             <StatusBadge status={node.status} />
           </header>
           <dl className="projection-metrics">
-            <Metric label="Session" value={shortID(node.session_id)} />
+            <Metric label={t(...diagnosticVocabulary.session)} value={shortID(node.session_id)} />
             <Metric label={t("配置档", "Profile")} value={node.profile} />
             <Metric label={t("回合", "Turns")} value={`${formatNumber(node.turns_used)} / ${formatNumber(node.turn_limit)}`} />
             <Metric label="Tokens" value={`${formatNumber(node.tokens_used)} / ${formatNumber(node.token_limit)}`} />
@@ -389,7 +390,7 @@ export function ChildTasksPanel({ client, runID }: ProjectionProps) {
               <button className="command-button" disabled={admit.isPending}
                 onClick={() => admit.mutate(item.id)} type="button">
                 {admit.isPending ? <LoaderCircle aria-hidden="true" className="spin" size={15} /> : <Network aria-hidden="true" size={15} />}
-                {t("准入子任务", "Admit tasks")}
+                {t("准入子任务", "Admit child tasks")}
               </button>
             </div>
           )}

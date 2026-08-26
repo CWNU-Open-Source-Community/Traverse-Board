@@ -1,5 +1,26 @@
 # Usage
 
+## Canonical product vocabulary / 规范产品词汇
+
+| User term / 用户词汇 | Meaning / 含义 |
+| --- | --- |
+| Thread（任务） | Stable task, URL, Run succession, and history identity / 稳定任务、URL、Run 后继与历史身份 |
+| Run（执行尝试） | One finite execution attempt / 一次有限执行尝试 |
+| Step / Tool Item（步骤 / 工具项） | User-readable grouping / one structured tool lifecycle / 用户可读分组 / 单个结构化工具生命周期 |
+| Workspace（工作区） | Operator-selected source scope; not a sandbox or permission / 操作者选择的源码范围；不等于沙箱或权限 |
+| Plan item（计划项） | User label for one Plan/Delivery `WorkItem` / Plan/Delivery 中一个 `WorkItem` 的用户标签 |
+
+`Mission` is the immutable Thread intent/Profile/Workspace/Scope object, and
+`Session` is one Run-local context and authority boundary. They appear in advanced
+diagnostics and compatibility commands only; a Session is never merged across Runs.
+`Mission` 是 Thread 的不可变意图/Profile/Workspace/Scope 对象；`Session` 是单个
+Run 独占的上下文与授权边界。二者只用于高级诊断和兼容命令，Session 不跨 Run 合并。
+
+`cyberagent`, `cyberagent-workbench`, `CYBERAGENT_*`, and `.prayu/...` are stable
+compatibility identifiers. The CLI binary and commands, `/api/v1/runs`,
+`/api/v1/sessions`, OpenAPI schemas, event types, and SQLite `work_item` identities
+remain unchanged. / 上述 CLI、API、协议、事件与 SQLite 标识保持不变。
+
 ## Portable Build Diagnostics
 
 ```powershell
@@ -15,7 +36,7 @@ runs the PE/hash/module/non-installing checklist. Automated checks do not replac
 manual Windows 10/WebView2/display/launch/recovery matrix, so release readiness remains
 false until that matrix is signed.
 
-## Missions and Runs
+## Threads, Runs, and advanced diagnostics / Thread、Run 与高级诊断
 
 ```powershell
 cyberagent run create "review this workspace" --workspace demo --profile review --surface code --phase plan
@@ -138,7 +159,7 @@ explicit non-sandbox trust boundary are documented in
 `runtime_authorized=false` 与 `capability_grant=false`，因此上述命令不会启动
 浏览器、访问网络或创建 Profile。
 
-A Mission is the stable goal and authorization scope. A Run is one resumable execution attempt. Each new Run creates a dedicated active Session unless `--session <id>` selects an unattached active Session. Session creation or attachment, Run creation, and their initial events commit together in SQLite.
+A Thread is the stable user task and history identity; a Run is one finite execution attempt. The `run create` and `--session` paths retain compatibility behavior: internally each new Run normally receives a dedicated Run-local Session, while Mission and Session creation/attachment plus initial events commit together in SQLite. Use `thread` commands for canonical user history, `run` commands for attempts, `session` commands for diagnostics or compatibility, and `run adapt-task` only for a qualified legacy `agent.Task`.
 
 Schema v86 separates execution interaction intent from general runtime authority. `preview` is the default. `controlled` requires a Code-surface Run, the Local execution profile, explicit operator trust, and an explicit Workspace-boundary confirmation. `debug` additionally requests a user-owned ConPTY terminal, while `cyber` requires a Cyber-surface Run and Docker profile. Models, Agents, Skills, and repository content cannot select these modes. Every interaction snapshot still fixes process execution, network, capability grants, and execution authorization to false. Schema v87 records the separate, closed one-shot command path with write-ahead intents and immutable metadata-only receipts rather than widening that snapshot.
 
@@ -681,7 +702,7 @@ curl.exe -N -H "Authorization: Bearer $env:CYBERAGENT_API_TOKEN" http://127.0.0.
 
 `api serve` exposes authenticated, bodyless `GET` routes under `/api/v1` for durable Runs, Sessions, events, a bounded resumable SSE Run-event projection, the process-local redacted active-call projection, WorkItems, Notes, Artifact metadata, Supervisor tool rounds, token-free execution-lease status, and the raw OpenAPI 3.1 document. The listener, request Host, and client must all be loopback. The optional schema v18 root and schema v29 Specialist cancellation POST routes are disabled until `CYBERAGENT_API_CONTROL_TOKEN` is set; that token must differ from the read token and cannot authorize GET. Both POST routes require exact attempt identity, strict JSON, and `Idempotency-Key`, and never accept a fencing token. There is no CORS, Artifact-content route, checkpoint pending input, raw/private model stream, HTTP tool execution, or general mutation API. `api openapi` deterministically exports the same Go-generated contract without opening SQLite or reading a token. Neither process token is stored. See [http-api.md](http-api.md) for the complete contract.
 
-## Work Board
+## Plan items / 计划项
 
 ```powershell
 cyberagent todo create <run-id> "inspect parser" --priority high --owner reviewer
@@ -701,9 +722,9 @@ cyberagent todo complete <work-id>
 cyberagent todo cancel <work-id>
 ```
 
-WorkItems belong to exactly one Run. `--owner` remains a free-form compatibility label; `--owner-agent` is an authoritative reference to a nonterminal Agent in that same Run, and both may coexist. Dependencies must already exist in that same Run, cannot form a cycle, and must be completed before a dependent item starts or completes. Statuses are `pending`, `in_progress`, `blocked`, `completed`, and `cancelled`; priorities are `low`, `normal`, `high`, and `critical`. Blocked items require a reason, while completed and cancelled items are terminal.
+Plan items belong to exactly one Run. Their API/DB/Go compatibility identity remains `WorkItem`/`work_item`. `--owner` remains a free-form compatibility label; `--owner-agent` is an authoritative reference to a nonterminal Agent in that same Run, and both may coexist. Dependencies must already exist in that same Run, cannot form a cycle, and must be completed before a dependent item starts or completes. Statuses are `pending`, `in_progress`, `blocked`, `completed`, and `cancelled`; priorities are `low`, `normal`, `high`, and `critical`. Blocked items require a reason, while completed and cancelled items are terminal.
 
-Every item starts at version 1. Mutation commands accept optional `--version <n>` optimistic locking; omitting it uses the version read immediately before the transaction, while an explicit stale value returns conflict exit code 4. `--acceptance` and `--depends-on` may be repeated. `--clear-acceptance` and `--clear-dependencies` replace those lists with empty values. WorkItem records and `work_item.created/changed` Run events commit atomically, and terminal Runs reject later board mutation.
+Every Plan item starts at version 1. Mutation commands accept optional `--version <n>` optimistic locking; omitting it uses the version read immediately before the transaction, while an explicit stale value returns conflict exit code 4. `--acceptance` and `--depends-on` may be repeated. `--clear-acceptance` and `--clear-dependencies` replace those lists with empty values. Compatibility `WorkItem` records and `work_item.created/changed` Run events commit atomically, and terminal Runs reject later Plan mutation.
 
 ## Notes
 
@@ -776,7 +797,7 @@ cyberagent report finding fix <finding-id> --operation-key <stable-key> --reason
 cyberagent report finding verify <finding-id>
 ```
 
-`work_item_create` creates one pending WorkItem; `note_create` creates one active Note. They accept strict JSON with unknown fields and trailing data rejected before budget charging. The Run must already have an attached Session, and the CLI derives Session/Workspace scope from persisted Run state instead of accepting caller-supplied scope. `--payload` is also supported, while `--payload-file` avoids native-shell JSON quoting differences and is bounded to 96 KiB of valid UTF-8.
+`work_item_create` creates one pending Plan item while retaining its compatibility `WorkItem`/`work_item` identity; `note_create` creates one active Note. They accept strict JSON with unknown fields and trailing data rejected before budget charging. The Run must already have an attached Run-local Session, and the CLI derives Session/Workspace scope from persisted Run state instead of accepting caller-supplied scope. `--payload` is also supported, while `--payload-file` avoids native-shell JSON quoting differences and is bounded to 96 KiB of valid UTF-8.
 
 An operation key is mandatory and should remain stable across retries. The raw key is never persisted: schema v15 stores a domain-separated SHA-256 digest and a fingerprint of the normalized, redacted intent. Repeating the same tool, Run, key, and intent returns the original entity with `replayed: true`; changing intent under the same key returns conflict exit code 4. Replay, conflict, authoritative scope mismatch, and Policy-denied attempts each consume a tool-call budget entry because they are well-formed invocations. Malformed JSON, unknown fields, missing identities, and invalid field values are rejected before charging. Successful creation commits the entity, Policy decision, domain event, `tool.completed`, and operation ledger atomically. A failed event write leaves no entity or operation row.
 
@@ -1340,7 +1361,7 @@ TUI text layout uses terminal-cell-aware grapheme wrapping, so wide Unicode text
 
 When a session has an attached workspace, the TUI side panel shows workspace identity, root path, and lightweight counts for `attachments`, `scripts`, `outputs`, `logs`, and `writeups`. This is metadata only; the panel does not read file contents.
 
-## Agent Sessions
+## Run-local Session diagnostics / Run 内 Session 诊断
 
 ```powershell
 cyberagent session create --workspace demo --title "Agent basics" --route learn
@@ -1360,7 +1381,7 @@ cyberagent session history <session-id>
 cyberagent session history <session-id> --all
 ```
 
-Session chat is the main path for generic AI agent features. Ordinary text in a Run-bound Session is supervised and consumes that Run's turn, token, and model-time budgets. Older Sessions created directly with `session create` have no Run and temporarily retain the legacy direct Router path for compatibility. Slash commands remain explicit command paths, but `/ls`, `/read`, `/write`, and `/run` now enter the same Go Tool Gateway used by the CLI and TUI and consume the Run tool-call budget. Workspace commands require an attached workspace; `/read` responses are bounded and redacted before persistence or model use. `/write` and `/run` normally create reviewable proposals. A matching active Session grant may apply a file edit immediately or complete Shell as a dry run; Shell is never executed on the host.
+Thread history and its Run composer are the primary path for generic AI agent features. The `session` command is an advanced diagnostic and compatibility path for one Run-local context/authority boundary. Ordinary text in a Run-bound Session is supervised and consumes that Run's turn, token, and model-time budgets. Older Sessions created directly with `session create` have no Run and temporarily retain the legacy direct Router path for compatibility. Slash commands remain explicit command paths, but `/ls`, `/read`, `/write`, and `/run` now enter the same Go Tool Gateway used by the CLI and TUI and consume the Run tool-call budget. Workspace commands require an attached workspace; `/read` responses are bounded and redacted before persistence or model use. `/write` and `/run` normally create reviewable proposals. A matching active Run-local Session grant may apply a file edit immediately or complete Shell as a dry run; Shell is never executed on the host.
 
 ## Unified Tool Gateway
 
@@ -1749,7 +1770,7 @@ cyberagent once-command run --run <run-id> --executable <abs-path> --approved --
 The protocol is structured (`once_command.v1`): executable + literal argv + cwd + allowlisted env, never a shell string. The executable must be a native binary outside the Workspace (shell interpreters like cmd/powershell/bash and script targets like .bat/.cmd are rejected); the working directory must resolve inside the Workspace (symlink/junction escapes are rejected); the environment only accepts SystemRoot/WINDIR/TEMP/TMP and never loads PowerShell/Bash profiles. Output is capped at 64 KiB, UTF-8-repaired, and secret-redacted; the Run event `once_command.executed` records metadata only. Tier behavior: conservative denies; workspace access also denies this host runner and waits for its separate sandbox adapter; approval requires `--approved` per command; full access runs with audit (requires `--enable-danger-full-access`); debug never opens a persistent shell. Windows termination uses a kill-on-close Job Object bound at process creation, so timeout/cancel reaps the whole process tree.
 
 
-## Scheduled Jobs and Diagnostics
+## Scheduled Runs and diagnostics / 定时 Run 与诊断
 
 Use `cyberagent run schedule create` for a durable one-shot or elapsed-period monitor of
 one explicit Run. `--at`, `--deadline`, and `--operation-key` are mandatory; budgets,

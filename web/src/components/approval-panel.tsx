@@ -77,7 +77,7 @@ export function ApprovalPanel({ client, runID, threadID = "" }: {
         <span>{query.data.items.length}{query.data.truncated ? "+" : ""}</span>
       </header>
       <div className="approval-boundary-line">
-        <span>{t("进程执行：关闭", "Process execution: off")}</span><span>{t("Session 授权：无", "Session grant: none")}</span><span>{t("能力授权：无", "Capability grant: none")}</span>
+        <span>{t("进程执行：关闭", "Process execution: off")}</span><span>{t("Run 内 Session 授权：无", "Run-local Session grant: none")}</span><span>{t("能力授权：无", "Capability grant: none")}</span>
       </div>
       {query.data.items.length === 0 ? <EmptyState>{t("没有待处理审批", "No pending approvals")}</EmptyState> : (
         <div className="approval-list">

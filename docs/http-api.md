@@ -4,6 +4,20 @@ CyberAgent Workbench 提供由 Go 控制的本地 `api.v1`，用于检查 SQLite
 
 CyberAgent Workbench exposes a Go-controlled local `api.v1` for durable SQLite state and resumable Run-event projections. Independent capabilities permit controlled Run/Session/Plan/approval operations, fixed-command proposal review, Provider diagnostics/routes/system credentials, operator price-snapshot import and listing, FileEdit propose/read-only recovery/review/apply, wake intent/foreground consumption, immutable operator verification, metadata-only snapshot receipts and their non-authorizing review, inert Skill installation, the schema-v116 Run-owned ordinary command runtime, schema-v117 Workspace Checkpoint timeline/restore/Fork operations, schema-v118 deliverable-child worktree/review/local-merge operations, schema-v119 source-bound real-browser UI evidence, the redacted schema-v120-v121 MCP/Plugin control plane, schema-v122 durable schedules/structured diagnostics, and schema-v123 approval-gated advanced Git/hunks/conflict sequences/managed worktrees. A process-local read-only `code-intel-lsp.v1` projection exposes only reviewed-server metadata and qualification and adds no SQLite schema. Schema-v99 exact Docker Sandbox execution remains disabled by default. Read-only surfaces also expose capabilities/worker health, exact-root Repository state and redacted Diffs, non-atomic multi-file FileEdit summaries, deterministic per-check verification snapshot downloads/receipt history, and a regenerable Code handoff with bounded review metadata. There is no direct generic HTTP Shell/argv/stdin, raw Git argv, or Job-mutation endpoint. UI evidence start accepts only the complete reviewed bounded recipe/fixture/step contract, and the same Tool Gateway/Application service rechecks the applicable Code/Local/Deliver/full-access, current lease, Policy, no-external-network/no-credential, restricted-CDP, and process-startup gates.
 
+## 词汇与兼容身份 / Vocabulary and durable compatibility
+
+`Thread` 是稳定的用户任务、URL 与历史身份，`Run` 是一次有限执行尝试，
+`Step`/`Tool Item` 是用户叙事分组与结构化工具生命周期，`Workspace` 是操作者选择的
+源码范围，`Plan item` 是 `WorkItem`/`work_item` 的展示名称。`Mission` 只表示绑定到
+Thread 的不可变意图/Profile/Workspace/Scope；`Session` 只表示单个 Run 的上下文与
+authority 边界，绝不跨 Run 合并。
+
+`/api/v1/threads` is the canonical user-history route. `/api/v1/runs` and
+`/api/v1/sessions` remain supported diagnostic and compatibility routes throughout
+API v1. OpenAPI schema names, event types, JSON fields, SQLite tables/columns,
+`work_item`, the `cyberagent` CLI, `CYBERAGENT_*`, and `.prayu/...` are durable
+compatibility identities and are not renamed by presentation vocabulary.
+
 Schema v134 additionally exposes one read-only metadata projection for Go-owned,
 Run-scoped Web Search/Fetch/Citation evidence. It never accepts a network request or
 returns a search snippet, page body, citation claim, operation key, DNS address, or

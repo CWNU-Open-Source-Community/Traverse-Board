@@ -47,14 +47,14 @@ func (a *App) todoCommand(ctx context.Context, args []string) error {
 
 func (a *App) todoCreate(ctx context.Context, service *application.WorkItemService, args []string) error {
 	fs := newFlagSet("todo create", a.errOut)
-	description := fs.String("description", "", "work item description")
+	description := fs.String("description", "", "plan item description")
 	priority := fs.String("priority", string(domain.WorkItemPriorityNormal), "low, normal, high, or critical")
-	owner := fs.String("owner", "", "work item owner")
-	ownerAgent := fs.String("owner-agent", "", "same-Run Agent id that owns the work item")
+	owner := fs.String("owner", "", "plan item owner")
+	ownerAgent := fs.String("owner-agent", "", "same-Run Agent id that owns the plan item")
 	var acceptance stringListFlag
 	var dependencies stringListFlag
 	fs.Var(&acceptance, "acceptance", "acceptance criterion; repeat for multiple values")
-	fs.Var(&dependencies, "depends-on", "dependency work item id; repeat for multiple values")
+	fs.Var(&dependencies, "depends-on", "dependency plan item id; repeat for multiple values")
 	if err := fs.Parse(reorderFlags(args, map[string]bool{
 		"description": true, "priority": true, "owner": true, "owner-agent": true,
 		"acceptance": true, "depends-on": true,
@@ -78,7 +78,7 @@ func (a *App) todoCreate(ctx context.Context, service *application.WorkItemServi
 
 func (a *App) todoList(ctx context.Context, service *application.WorkItemService, args []string) error {
 	fs := newFlagSet("todo list", a.errOut)
-	statusValue := fs.String("status", "", "comma-separated work item statuses")
+	statusValue := fs.String("status", "", "comma-separated plan item statuses")
 	owner := fs.String("owner", "", "exact owner filter")
 	ownerAgent := fs.String("owner-agent", "", "exact owner Agent id filter")
 	limit := fs.Int("limit", 100, "maximum rows")
@@ -91,7 +91,7 @@ func (a *App) todoList(ctx context.Context, service *application.WorkItemService
 		return errors.New("usage: cyberagent todo list <run-id> [--status pending,blocked] [--owner <owner>] [--limit <n>]")
 	}
 	if *limit <= 0 || *limit > 500 {
-		return errors.New("work item list limit must be between 1 and 500")
+		return errors.New("plan item list limit must be between 1 and 500")
 	}
 	statuses, err := parseWorkItemStatuses(*statusValue)
 	if err != nil {
@@ -104,7 +104,7 @@ func (a *App) todoList(ctx context.Context, service *application.WorkItemService
 		return err
 	}
 	if len(items) == 0 {
-		fmt.Fprintln(a.out, "no work items")
+		fmt.Fprintln(a.out, "no plan items")
 		return nil
 	}
 	for _, item := range items {
@@ -229,7 +229,7 @@ func (a *App) todoTransition(ctx context.Context, service *application.WorkItemS
 		return fmt.Errorf("usage: cyberagent todo %s <work-id> [--version <n>]", name)
 	}
 	if target == domain.WorkItemBlocked && strings.TrimSpace(*reason) == "" {
-		return errors.New("work item block reason is required")
+		return errors.New("plan item block reason is required")
 	}
 	item, err := service.Transition(ctx, fs.Arg(0), *version, target, *reason)
 	if err != nil {
@@ -273,7 +273,7 @@ func parseWorkItemStatuses(value string) ([]domain.WorkItemStatus, error) {
 	for _, part := range parts {
 		status, err := domain.ParseWorkItemStatus(part)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("invalid plan item status %q", strings.TrimSpace(part))
 		}
 		statuses = append(statuses, status)
 	}
@@ -289,7 +289,7 @@ func visitedFlags(fs *flag.FlagSet) map[string]bool {
 func printWorkItemSummary(out interface {
 	Write([]byte) (int, error)
 }, action string, item domain.WorkItem) {
-	fmt.Fprintf(out, "work item %s %s\nrun: %s\nstatus: %s\npriority: %s\nversion: %d\n",
+	fmt.Fprintf(out, "plan item %s %s\nrun: %s\nstatus: %s\npriority: %s\nversion: %d\n",
 		item.ID, action, item.RunID, item.Status, item.Priority, item.Version)
 }
 

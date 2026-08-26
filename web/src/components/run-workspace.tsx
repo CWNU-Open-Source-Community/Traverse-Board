@@ -68,6 +68,7 @@ import { useRunEventStream } from "../hooks/use-run-event-stream";
 import { usePublicModelStream } from "../hooks/use-public-model-stream";
 import { formatBytes, formatDate, formatNumber, shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
+import { canonicalVocabulary, diagnosticVocabulary } from "../lib/vocabulary";
 import { readRunNavigationMode, subscribeRunNavigationMode } from "../lib/run-navigation";
 import { EmptyState, ErrorState, KeyValue, LoadMoreButton, LoadingState, StatusBadge } from "./common";
 import { ApprovalPanel } from "./approval-panel";
@@ -122,7 +123,7 @@ const tabs: Array<{ id: RunTab; label: [string, string]; icon: typeof Activity }
   { id: "child-tasks", label: ["子任务与交付", "Child tasks & delivery"], icon: Network },
   { id: "findings", label: ["发现", "Findings"], icon: ShieldAlert },
   { id: "events", label: ["事件", "Events"], icon: Activity },
-  { id: "work", label: ["任务", "Work"], icon: ClipboardList },
+  { id: "work", label: [...canonicalVocabulary.planItem], icon: ClipboardList },
   { id: "context", label: ["上下文", "Context"], icon: Database },
   { id: "notes", label: ["运行笔记", "Run notes"], icon: StickyNote },
   { id: "artifacts", label: ["产物", "Artifacts"], icon: FileArchive },
@@ -423,7 +424,7 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
           </CollectionState>
         )}
         {tab === "work" && (
-          <CollectionState query={workQuery} empty="暂无任务">
+          <CollectionState query={workQuery} empty={t("暂无计划项", "No Plan items")}>
             <WorkTable client={client} items={work} />
             <LoadMoreButton hasNextPage={Boolean(workQuery.hasNextPage)} isFetching={workQuery.isFetchingNextPage} onClick={() => void workQuery.fetchNextPage()} />
           </CollectionState>
@@ -477,7 +478,7 @@ function RunOverview({ client, detail }: { client: CyberAgentClient; detail: Run
       <section className="detail-section">
         <h2>目标与范围</h2>
         <dl className="detail-grid">
-          <KeyValue label={t("Mission", "Mission")} value={detail.mission.id} />
+          <KeyValue label={t(...diagnosticVocabulary.mission)} value={detail.mission.id} />
           <KeyValue label={t("工作区", "Workspace")} value={detail.mission.workspace_id} />
           <KeyValue label={t("工作模式", "Surface")} value={detail.mode.surface} />
           <KeyValue label={t("执行阶段", "Execution phase")} value={detail.mode.phase} />
@@ -911,7 +912,7 @@ export function PlanDeliveryPanel({ state, client, detail }: {
             <div className="delivery-checkpoint-row" key={checkpoint.id}>
               <span>{t("切片", "Slice")} {checkpoint.module_ordinal}/{checkpoint.module_count}</span>
               <code>{shortID(checkpoint.work_item_id)}</code>
-              <span>{t("模式", "mode")} r{checkpoint.mode_revision} / {t("任务", "work")} v{checkpoint.work_item_version}</span>
+              <span>{t("模式", "mode")} r{checkpoint.mode_revision} / {t(...canonicalVocabulary.planItem)} v{checkpoint.work_item_version}</span>
               {checkpoint.full_gate_required && <span>{t("完整门禁", "full gate")}</span>}
               <StatusBadge status={checkpoint.gate_ready ? "ready" : "stale"} />
             </div>
@@ -947,10 +948,10 @@ function WorkTable({ client, items }: { client: CyberAgentClient; items: WorkIte
   const { t } = useLocale();
   const [expanded, setExpanded] = useState<string | null>(null);
   if (items.length === 0) {
-    return <EmptyState>暂无任务</EmptyState>;
+    return <EmptyState>{t("暂无计划项", "No Plan items")}</EmptyState>;
   }
   return (
-    <div className="table-scroll"><table><thead><tr><th>{t("任务", "Task")}</th><th>{t("状态", "Status")}</th><th>{t("优先级", "Priority")}</th><th>{t("负责人", "Owner")}</th><th>{t("版本", "Version")}</th><th aria-label={t("详情", "Details")} /></tr></thead><tbody>
+    <div className="table-scroll"><table><thead><tr><th>{t(...canonicalVocabulary.planItem)}</th><th>{t("状态", "Status")}</th><th>{t("优先级", "Priority")}</th><th>{t("负责人", "Owner")}</th><th>{t("版本", "Version")}</th><th aria-label={t("详情", "Details")} /></tr></thead><tbody>
       {items.map((item) => (
         <Fragment key={item.id}>
           <tr>
@@ -972,7 +973,7 @@ function WorkItemDetail({ client, id }: { client: CyberAgentClient; id: string }
   const { t } = useLocale();
   const query = useQuery({ queryKey: ["work-item", id], queryFn: ({ signal }) => client.getWorkItem(id, signal) });
   if (query.isLoading) {
-    return <LoadingState label={t("加载任务详情", "Loading task details")} />;
+    return <LoadingState label={t("加载计划项详情", "Loading Plan item details")} />;
   }
   if (query.isError || !query.data) {
     return <ErrorState error={query.error} />;
@@ -1077,7 +1078,7 @@ function ArtifactDetail({ client, id }: { client: CyberAgentClient; id: string }
     <dl className="detail-grid">
       <KeyValue label="ID" value={item.id} />
       <KeyValue label="Run" value={item.run_id} />
-      <KeyValue label="Session" value={item.session_id} />
+      <KeyValue label={t("Run 内 Session", "Run-local Session")} value={item.session_id} />
       <KeyValue label="Workspace" value={item.workspace_id} />
       <KeyValue label={t("类型", "Kind")} value={item.kind} />
       <KeyValue label={t("来源", "Source")} value={item.source_id} />

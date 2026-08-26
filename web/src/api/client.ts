@@ -624,7 +624,7 @@ function parseSessionMessageControl(value: unknown,
     value.execution_started !== false || value.model_called !== false ||
     value.tool_called !== false || value.capability_grant !== false ||
     !isValidOperatorSteeringMessage(value.steering)) {
-    throw new APIRequestError("Session message response is invalid", "INVALID_RESPONSE", 502);
+    throw new APIRequestError("Run message response is invalid", "INVALID_RESPONSE", 502);
   }
   return value as unknown as SessionMessageControlView;
 }
@@ -635,7 +635,7 @@ function parseSessionArchiveControl(value: unknown,
     value.version !== "session_archive.v1" || value.session_id !== expectedSessionID ||
     !boundedIdentity(value.session_id) || value.status !== "archived" ||
     typeof value.replayed !== "boolean") {
-    throw new APIRequestError("Session archive response is invalid", "INVALID_RESPONSE", 502);
+    throw new APIRequestError("Run-local Session archive response is invalid", "INVALID_RESPONSE", 502);
   }
   return value as unknown as SessionArchiveControlView;
 }
@@ -662,7 +662,7 @@ function parseSessionSteeringCancellation(value: unknown,
     typeof value.steering.cancelled_at !== "string" ||
     !Number.isFinite(Date.parse(value.steering.cancelled_at)) ||
     value.steering.committed_at !== undefined) {
-    throw new APIRequestError("Session steering cancellation response is invalid",
+    throw new APIRequestError("Run-local Session steering cancellation response is invalid",
       "INVALID_RESPONSE", 502);
   }
   return value as unknown as SessionSteeringCancellationView;
@@ -5390,13 +5390,13 @@ export class CyberAgentClient {
   async getWorkItem(workItemID: string, signal?: AbortSignal): Promise<WorkItemView> {
     const normalized = boundedIdentity(workItemID);
     if (!normalized || normalized !== workItemID) {
-      throw new Error("A normalized work item identity is required");
+      throw new Error("A normalized Plan item identity is required");
     }
     const value = await this.get<unknown>(
       `/work-items/${encodeURIComponent(workItemID)}`, {}, signal,
     );
     if (!isRecord(value) || value.id !== workItemID || !boundedIdentity(value.run_id)) {
-      throw new APIRequestError("Work item response is invalid", "INVALID_RESPONSE", 502);
+      throw new APIRequestError("Plan item response is invalid", "INVALID_RESPONSE", 502);
     }
     return value as unknown as WorkItemView;
   }
@@ -6114,11 +6114,11 @@ export class CyberAgentClient {
   async submitSessionMessage(sessionID: string, body: SessionMessageControlRequestView,
     idempotencyKey: string, signal?: AbortSignal): Promise<SessionMessageControlView> {
     if (!this.hasSessionMessages) {
-      throw new Error("Session message capability is required for this operation");
+      throw new Error("Run messaging capability is required for this operation");
     }
     const normalizedSessionID = boundedIdentity(sessionID);
     if (!normalizedSessionID || normalizedSessionID !== sessionID) {
-      throw new Error("A normalized Session identity is required");
+      throw new Error("A normalized Run-local Session identity is required");
     }
     const result = await this.sendControl<unknown>(
       `/sessions/${encodeURIComponent(sessionID)}/messages`, body, idempotencyKey, signal,
@@ -6130,7 +6130,7 @@ export class CyberAgentClient {
     signal?: AbortSignal): Promise<SessionArchiveControlView> {
     if (!this.hasSessionMessages || !boundedIdentity(sessionID) || sessionID.trim() !== sessionID ||
       body.version !== "session_archive.v1" || body.confirm !== true) {
-      throw new Error("Confirmed Session archive capability and a normalized Session are required");
+      throw new Error("Confirmed Run-local Session archive capability and identity are required");
     }
     return parseSessionArchiveControl(await this.sendControlRequest<unknown>(
       `/sessions/${encodeURIComponent(sessionID)}/archive`, body, signal,
@@ -6141,13 +6141,13 @@ export class CyberAgentClient {
     body: SessionSteeringCancellationRequestView, idempotencyKey: string,
     signal?: AbortSignal): Promise<SessionSteeringCancellationView> {
     if (!this.hasSessionSteeringControl) {
-      throw new Error("Session steering cancellation capability is required for this operation");
+      throw new Error("Run-local Session steering cancellation capability is required for this operation");
     }
     const normalizedSessionID = boundedIdentity(sessionID);
     const normalizedMessageID = boundedIdentity(messageID);
     if (!normalizedSessionID || normalizedSessionID !== sessionID ||
       !normalizedMessageID || normalizedMessageID !== messageID) {
-      throw new Error("Normalized Session and steering identities are required");
+      throw new Error("Normalized Run-local Session and steering identities are required");
     }
     const result = await this.sendControl<unknown>(
       `/sessions/${encodeURIComponent(sessionID)}/messages/${encodeURIComponent(messageID)}/cancel`,

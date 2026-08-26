@@ -60,7 +60,7 @@ describe("SessionComposer", () => {
     const user = userEvent.setup();
     renderComposer(client, runningRun);
 
-    await user.type(screen.getByLabelText("Session message"), "Review the latest diff");
+    await user.type(screen.getByLabelText("Message current Run"), "Review the latest diff");
     await user.click(screen.getByRole("button", { name: "Queue message" }));
     await screen.findByText("response unavailable");
     await user.click(screen.getByRole("button", { name: "Queue message" }));
@@ -74,7 +74,7 @@ describe("SessionComposer", () => {
       version: "session_message_submission.v1", content: "Review the latest diff",
     });
     expect(first?.[2]).toBe(second?.[2]);
-    expect(screen.getByLabelText("Session message")).toHaveValue("");
+    expect(screen.getByLabelText("Message current Run")).toHaveValue("");
     expect(Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)))
       .toEqual(["prayu.locale.v1"]);
     expect(sessionStorage.length).toBe(0);
@@ -103,7 +103,7 @@ describe("SessionComposer", () => {
     const user = userEvent.setup();
     renderComposer(client, { id: "run-1", status: "created" } as RunView);
 
-    await user.type(screen.getByLabelText("Session message"), "Inspect the repository");
+    await user.type(screen.getByLabelText("Message current Run"), "Inspect the repository");
     await user.click(screen.getByRole("button", { name: "Queue message" }));
     await screen.findByText("Model reply committed");
 
@@ -166,7 +166,7 @@ describe("SessionComposer", () => {
     const user = userEvent.setup();
     renderComposer(client, runningRun);
 
-    await user.type(screen.getByLabelText("Session message"), "Inspect this change");
+    await user.type(screen.getByLabelText("Message current Run"), "Inspect this change");
     await user.click(screen.getByRole("button", { name: "Queue message" }));
     await screen.findByText("Visible safe model answer");
     expect(screen.getByText("read_file")).toBeInTheDocument();
@@ -192,7 +192,7 @@ describe("SessionComposer", () => {
       submitSessionMessage,
     } as unknown as CyberAgentClient;
     renderComposer(client, runningRun);
-    const composer = screen.getByLabelText("Session message");
+    const composer = screen.getByLabelText("Message current Run");
     fireEvent.change(composer, { target: { value: "Review the current branch" } });
 
     expect(fireEvent.keyDown(composer, { key: "Enter", shiftKey: true })).toBe(true);
@@ -232,13 +232,13 @@ describe("SessionComposer", () => {
     const user = userEvent.setup();
     renderComposer(client, runningRun);
 
-    await user.type(screen.getByLabelText("Session message"), "Read the linked review");
+    await user.type(screen.getByLabelText("Message current Run"), "Read the linked review");
     await user.click(screen.getByRole("button", { name: "Queue message" }));
     await user.click(await screen.findByRole("button", { name: "Stop" }));
 
     await screen.findByText(/submitted message remains queued/);
     expect(firstSignal?.aborted).toBe(true);
-    expect(screen.getByLabelText("Session message")).toHaveValue("Read the linked review");
+    expect(screen.getByLabelText("Message current Run")).toHaveValue("Read the linked review");
 
     await user.click(screen.getByRole("button", { name: "Queue message" }));
     await screen.findByText("Model reply committed");
@@ -293,7 +293,7 @@ describe("SessionComposer", () => {
     } as unknown as CyberAgentClient;
     renderComposer(client, runningRun);
 
-    fireEvent.change(screen.getByLabelText("Session message"), {
+    fireEvent.change(screen.getByLabelText("Message current Run"), {
       target: { value: "测".repeat(6000) },
     });
     expect(screen.getByText("Message exceeds 16384 UTF-8 bytes")).toBeInTheDocument();
@@ -307,7 +307,7 @@ describe("SessionComposer", () => {
       submitSessionMessage: vi.fn(),
     } as unknown as CyberAgentClient;
     const { rerender } = renderComposer(disabled, runningRun);
-    expect(screen.queryByLabelText("Session message")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Message current Run")).not.toBeInTheDocument();
 
     const enabled = {
       hasSessionMessages: true,
@@ -317,7 +317,7 @@ describe("SessionComposer", () => {
     } as unknown as CyberAgentClient;
     rerender(withProvider(<SessionComposer client={enabled} sessionID="sess-1"
       run={{ ...runningRun, status: "created" }} />));
-    await waitFor(() => expect(screen.getByLabelText("Session message")).toBeDisabled());
+    await waitFor(() => expect(screen.getByLabelText("Message current Run")).toBeDisabled());
     expect(screen.getByText("Run unavailable")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Queue message" })).toBeDisabled();
   });
@@ -370,7 +370,7 @@ describe("SessionSteeringQueue", () => {
       messages: [{ id: "steer-1", sequence: 1, status: "pending", prepared: false,
         created_at: "2026-07-18T00:00:00Z" }],
     }} />));
-    expect(screen.queryByLabelText("Queued Session messages")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Queued Run messages")).not.toBeInTheDocument();
   });
 
   it("does not offer cancellation for an already prepared message", () => {
@@ -380,7 +380,7 @@ describe("SessionSteeringQueue", () => {
       messages: [{ id: "steer-prepared", sequence: 1, status: "pending", prepared: true,
         created_at: "2026-07-18T00:00:00Z" }],
     }} />));
-    expect(screen.queryByLabelText("Queued Session messages")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Queued Run messages")).not.toBeInTheDocument();
   });
 
   it("continues one queued message through a fresh bounded execution handoff", async () => {

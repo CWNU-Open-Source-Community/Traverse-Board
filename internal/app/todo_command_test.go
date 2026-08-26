@@ -36,6 +36,9 @@ func TestTodoCLIEndToEndWorkBoard(t *testing.T) {
 	if dependencyID == "" || !strings.Contains(createdDependency, "version: 1") {
 		t.Fatalf("unexpected dependency output: %s", createdDependency)
 	}
+	if !strings.Contains(createdDependency, "plan item ") || strings.Contains(createdDependency, "work item ") {
+		t.Fatalf("todo presentation did not use Plan item: %s", createdDependency)
+	}
 	createdItem, stderr, code := executeTestCommand(t, "todo", "create", runID, "implement parser",
 		"--priority", "critical", "--owner", "coder", "--owner-agent", rootAgentID,
 		"--depends-on", dependencyID,
@@ -114,7 +117,7 @@ func TestTodoCLIHelpAndValidation(t *testing.T) {
 	if code != 0 || stderr != "" || !strings.Contains(help, "cyberagent todo create|list|show|update") {
 		t.Fatalf("todo command missing from help output=%s stderr=%s code=%d", help, stderr, code)
 	}
-	if _, stderr, code := executeTestCommand(t, "todo", "list", "run-missing", "--status", "not-real"); code != 2 || !strings.Contains(stderr, "invalid work item status") {
+	if _, stderr, code := executeTestCommand(t, "todo", "list", "run-missing", "--status", "not-real"); code != 2 || !strings.Contains(stderr, "invalid plan item status") {
 		t.Fatalf("invalid status returned code=%d stderr=%s", code, stderr)
 	}
 }
