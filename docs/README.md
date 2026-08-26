@@ -13,6 +13,7 @@ This directory separates user-facing documentation, current engineering state, a
 | [README 中文](../README.md) / [README English](../README.en.md) | 产品定位、核心能力、快速开始和历史阶段索引 |
 | [产品范围 / Product Scope](PRODUCT_SCOPE.md) | 当前核心范围、可选附加能力和扩展接口 |
 | [Pre-1.0 产品收敛](convergence/README.md) | Surface tier、协议冻结等级、Durable Operation 边界、规范词汇与有界后续 Issue |
+| [SQLite 全新安装基线](schema-baseline.md) | 严格空库准入、事务化 latest-schema 建库、备份/旧二进制回滚与失败恢复 |
 | [使用手册 / Usage](usage.md) | CLI、Provider、Workspace、Run、审批和操作者工作流 |
 | [Web Evidence / Web 证据](web-evidence.md) | SearXNG 配置、Run 网络 allowlist、Search/Fetch/Citation、故障与条款边界 |
 | [Workspace Checkpoints](workspace-checkpoints.md) | 检查点时间线、预览、Undo/Redo/Rewind、独立 Fork 与故障处理 |
@@ -59,6 +60,7 @@ This directory separates user-facing documentation, current engineering state, a
 | [ADR 0136 / Standard Code Preset](adr/0136-atomic-standard-code-preset.md) | 原子预设、幂等恢复、暂停后配置、显式后端选择与非授权响应边界 |
 | [ADR 0137 / Web Evidence](adr/0137-go-owned-web-evidence.md) | Run 级网络授权、Search/Fetch/Citation 状态机、SSRF/解析器/法律边界与安全投影 |
 | [ADR 0138 / Standard Code packaged E2E](adr/0138-standard-code-packaged-e2e-foundation.md) | 摘要绑定固件、攻击矩阵、确切 ZIP bootstrap 与不把未执行项伪装成通过的发布语义 |
+| [ADR 0139 / Clean-install Schema Baseline](adr/0139-clean-install-schema-baseline.md) | 严格空库证明、生成式 schema 等价、原 migration ledger、原子失败与旧二进制回滚边界 |
 | [ADR 索引](adr/) | 权限、持久化、执行、浏览器、Desktop 等架构决策 |
 
 ## 当前工程上下文 / Current Engineering Context

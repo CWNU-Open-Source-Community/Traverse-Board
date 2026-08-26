@@ -8905,7 +8905,11 @@ func (s *SQLiteStore) applyMigration(ctx context.Context, item migration) error 
 }
 
 func (s *SQLiteStore) loadAppliedMigrations(ctx context.Context) (map[int]appliedMigration, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT version, name, checksum FROM schema_migrations ORDER BY version`)
+	return loadAppliedMigrationsFrom(ctx, s.db)
+}
+
+func loadAppliedMigrationsFrom(ctx context.Context, queryer sqliteQueryer) (map[int]appliedMigration, error) {
+	rows, err := queryer.QueryContext(ctx, `SELECT version, name, checksum FROM schema_migrations ORDER BY version`)
 	if err != nil {
 		return nil, err
 	}

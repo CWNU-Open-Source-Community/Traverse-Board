@@ -113,7 +113,16 @@ func (s *SQLiteStore) Close() error {
 }
 
 func (s *SQLiteStore) Migrate(ctx context.Context) error {
-	if err := s.applyMigrations(ctx, migrationPlan()); err != nil {
+	plan := migrationPlan()
+	usedBaseline, err := s.tryCleanInstallBaseline(ctx, plan)
+	if err != nil {
+		return err
+	}
+	if usedBaseline {
+		s.hideDrydockWorkspaces = true
+		return nil
+	}
+	if err := s.applyMigrations(ctx, plan); err != nil {
 		return err
 	}
 	s.hideDrydockWorkspaces = true
