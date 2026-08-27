@@ -3,8 +3,9 @@ Traverse Board · 针路簿 Windows 本地试用说明
 
 推荐入口
 --------
-直接双击 TraverseBoard.exe。历史文件名 Start-Prayu-Operator-Preview.cmd 现在只是
-同一安全默认入口的兼容快捷方式，不再需要单独的预览启动参数。
+直接双击 TraverseBoard.exe。这是面向用户的完整入口，不需要解压 ZIP、命令脚本、
+启动参数或另行启动后端。当前源码和新 Release 都不再提供 Start 命令脚本；开发者
+也直接运行 build\desktop\TraverseBoard.exe。
 
 默认入口启用首次编码所需的安全控制面与沙箱 adapter，不启用完全访问、Debug
 最大权限、完整 CDP、后台唤醒/定时 Worker 或 Agent 持久终端。若只需要查看，
@@ -48,9 +49,10 @@ Traverse Board Windows Local Test Guide
 
 Recommended entry point
 -----------------------
-Double-click TraverseBoard.exe directly. The historical
-Start-Prayu-Operator-Preview.cmd filename is now only a compatibility shortcut
-to the same safe default; a separate preview argument is no longer required.
+Double-click TraverseBoard.exe directly. It is the complete user-facing entry and requires no
+ZIP extraction, command script, startup flag, or separately started backend. Current source and
+new releases provide no Start command script; developers also run
+build\desktop\TraverseBoard.exe directly.
 
 The default enables the safe control plane and sandbox adapter needed for first-time
 coding. It does not enable danger-full-access, maximum Debug, Full CDP, background

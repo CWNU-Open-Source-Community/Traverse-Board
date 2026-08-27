@@ -458,6 +458,7 @@ func validateEvidenceFiles(root string, runbook Runbook) error {
 type launchRecord struct {
 	ProtocolVersion  string    `json:"protocol_version"`
 	CandidateSHA256  string    `json:"candidate_sha256"`
+	ExecutableName   string    `json:"executable_name"`
 	ExecutableSHA256 string    `json:"executable_sha256"`
 	Arguments        []string  `json:"arguments"`
 	ProcessID        int       `json:"process_id"`
@@ -475,6 +476,7 @@ func validateLaunchRecord(path, candidate string) error {
 	}
 	if record.ProtocolVersion != "standard_code_product_launch.v1" ||
 		record.CandidateSHA256 != candidate || record.ExecutableSHA256 != candidate ||
+		record.ExecutableName != "TraverseBoard.exe" ||
 		len(record.Arguments) != 0 || record.ProcessID <= 0 || record.StartedAt.IsZero() {
 		return errors.New("zero-argument launch record is invalid or candidate-mismatched")
 	}

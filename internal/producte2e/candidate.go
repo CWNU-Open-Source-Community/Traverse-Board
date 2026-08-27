@@ -247,8 +247,9 @@ func validateCandidateMetadata(manifest portableManifest, metadata releaseMetada
 		!manifest.ZipTimestampsReproducible || !metadata.ReproducibilityChecked ||
 		!metadata.Reproducible || !metadata.Trimpath || metadata.TargetOS != "windows" ||
 		metadata.TargetArch != "amd64" || metadata.BinaryName != "TraverseBoard.exe" ||
-		!metadata.OperatorPreviewIncluded || metadata.DefaultUILanguage != "zh-CN" ||
-		metadata.OperatorPreviewLauncherName != "Start-Prayu-Operator-Preview.cmd" ||
+		metadata.OperatorPreviewIncluded || metadata.OperatorPreviewLauncherName != "" ||
+		metadata.OperatorPreviewLauncherSHA256 != "" ||
+		metadata.DefaultUILanguage != "zh-CN" ||
 		metadata.LocalTestGuideName != "LOCAL-TEST-GUIDE.txt" ||
 		metadata.InstallerIncluded || metadata.RegistryWrites || metadata.StartupTask ||
 		metadata.AutoUpdateEnabled || !metadata.ManualWindows10MatrixRequired {
@@ -256,21 +257,20 @@ func validateCandidateMetadata(manifest portableManifest, metadata releaseMetada
 	}
 	for _, value := range []string{manifest.SBOMSHA256, manifest.NoticeSHA256,
 		metadata.GoSumSHA256, metadata.NodeLockSHA256, metadata.CargoLockSHA256,
-		metadata.EmbeddedAnalyzerSHA256, metadata.OperatorPreviewLauncherSHA256,
-		metadata.LocalTestGuideSHA256} {
+		metadata.EmbeddedAnalyzerSHA256, metadata.LocalTestGuideSHA256} {
 		if !validDigest(value) {
 			return errors.New("candidate dependency or companion digest is invalid")
 		}
 	}
 	for _, value := range []string{metadata.GoVersion, metadata.NodeVersion,
 		metadata.NPMVersion, metadata.RustVersion, metadata.CGOEnabled,
-		metadata.OperatorPreviewLauncherName, metadata.LocalTestGuideName} {
+		metadata.LocalTestGuideName} {
 		if !validText(value, 256) {
 			return errors.New("candidate toolchain or companion identity is invalid")
 		}
 	}
-	expectedContents := []string{"TraverseBoard.exe", "Start-Prayu-Operator-Preview.cmd",
-		"LOCAL-TEST-GUIDE.txt", "LICENSE", "README.md", "NOTICE", "sbom.json",
+	expectedContents := []string{"TraverseBoard.exe", "LOCAL-TEST-GUIDE.txt",
+		"LICENSE", "README.md", "NOTICE", "sbom.json",
 		"release-metadata.json"}
 	if !sameOrderedStrings(manifest.Contents, expectedContents) ||
 		len(manifest.Entries) != len(expectedContents) {
@@ -288,8 +288,6 @@ func validateCandidateMetadata(manifest portableManifest, metadata releaseMetada
 		entries["release-metadata.json"].SHA256 != digestBytes(metadataBytes) ||
 		entries["sbom.json"].SHA256 != manifest.SBOMSHA256 ||
 		entries["NOTICE"].SHA256 != manifest.NoticeSHA256 ||
-		entries["Start-Prayu-Operator-Preview.cmd"].SHA256 !=
-			metadata.OperatorPreviewLauncherSHA256 ||
 		entries["LOCAL-TEST-GUIDE.txt"].SHA256 != metadata.LocalTestGuideSHA256 {
 		return errors.New("portable ZIP entry hashes are not bound to candidate metadata")
 	}

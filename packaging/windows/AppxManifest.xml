@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Per-user MSIX manifest for Traverse Board Desktop. Identity.Name and
-  Identity.Publisher are the stable package identity; Publisher must match the
-  code-signing certificate subject. Version is Major.Minor.Build.Revision.
+  Per-user MSIX manifest for Traverse Board Desktop. The checked-in identity is
+  development-only. scripts/package-msix.ps1 replaces Name, Publisher, and
+  PublisherDisplayName with the exact Partner Center values for Store output.
+  Publisher must match the signing certificate subject for non-Store signing.
+  Version is Major.Minor.Build.Revision.
   WebView2 Evergreen Runtime is a framework dependency, and the desktop app
   additionally runs its own bounded runtime precheck.
 -->
@@ -12,7 +14,8 @@
          xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10">
   <Identity Name="PrayuDesktop"
             Publisher="CN=Prayu"
-            Version="0.1.0.0" />
+            Version="0.1.0.0"
+            ProcessorArchitecture="x64" />
   <Properties>
     <DisplayName>Traverse Board</DisplayName>
     <PublisherDisplayName>Traverse Board</PublisherDisplayName>

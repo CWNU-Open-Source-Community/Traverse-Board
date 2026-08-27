@@ -15,7 +15,7 @@
   </p>
 </div>
 
-> **命名说明：** 产品与界面名称是 **Traverse Board · 针路簿**，GitHub 仓库是 `Qiyuanqiii/Traverse-Board`。`cyberagent` CLI、`cyberagent-workbench` Go module、`CYBERAGENT_*` 环境变量、`.prayu/...` 项目配置、数据目录、安装 identity 和现有发布件文件名继续作为兼容标识保留；它们不是第二套产品。Windows 对外主程序从 `v0.1.0-rc.2` 起使用 `TraverseBoard.exe`。完整边界见 [ADR 0124](docs/adr/0124-traverse-board-branding-migration.md) 与 [ADR 0125](docs/adr/0125-traverse-board-windows-executable-name.md)。
+> **命名说明：** 产品与界面名称是 **Traverse Board · 针路簿**，GitHub 仓库是 `Qiyuanqiii/Traverse-Board`。`cyberagent` CLI、`cyberagent-workbench` Go module、`CYBERAGENT_*` 环境变量、`.prayu/...` 项目配置、数据目录、安装 identity 和历史发布件名称继续作为兼容标识保留；它们不是第二套产品。Windows 对外主程序从 `v0.1.0-rc.2` 起使用 `TraverseBoard.exe`，当前用户成品边界见 [ADR 0145](docs/adr/0145-windows-two-deliverable-release-contract.md)。完整命名边界见 [ADR 0124](docs/adr/0124-traverse-board-branding-migration.md) 与 [ADR 0125](docs/adr/0125-traverse-board-windows-executable-name.md)。
 
 ## 针路簿是什么
 
@@ -301,7 +301,7 @@ loopback `http`，默认 `http://127.0.0.1:11434`）与 `CYBERAGENT_OLLAMA_MODEL
 ./build/desktop/TraverseBoard.exe
 ```
 
-直接双击 `TraverseBoard.exe` 即可进入安全控制面与首次 Standard Code 向导，不再需要单独的 operator-preview 启动器；历史启动器文件名仅作兼容。只读入口为 `TraverseBoard.exe --safe-view`。默认入口不会开启 Full Access、Debug、Full CDP、后台 Worker 或 Agent 持久终端。完整人工测试步骤见 [`packaging/windows/LOCAL-TEST-GUIDE.txt`](packaging/windows/LOCAL-TEST-GUIDE.txt)。
+直接双击 `TraverseBoard.exe` 即可进入安全控制面与首次 Standard Code 向导，不需要 ZIP、CMD、额外参数或另行启动后端。只读开发入口为 `TraverseBoard.exe --safe-view`。默认入口不会开启 Full Access、Debug、Full CDP、后台 Worker 或 Agent 持久终端。源码与新 Release 都不再提供 `Start-*.cmd`；开发者也直接运行 `build/desktop/TraverseBoard.exe`。完整人工测试步骤见 [`packaging/windows/LOCAL-TEST-GUIDE.txt`](packaging/windows/LOCAL-TEST-GUIDE.txt)。
 
 在 Windows Desktop 中点击“新建任务”会直接打开系统文件夹选择器，并按“选择目录 -> 注册 Workspace -> 创建 Run”完成创建；无需先通过 CLI 或设置页注册工作区。取消选择不会创建 Workspace 或 Run，所选绝对路径不会返回 React。
 
@@ -316,69 +316,76 @@ open build/desktop/Prayu.app
 
 更多命令与边界见[使用手册](docs/usage.md)。
 
-### 便携 ZIP 下载与验证 / Portable ZIP download and verification
+### Windows 成品 / Windows deliverables
 
-发布候选是未签名的便携 ZIP（`Prayu-portable-<version>-windows-amd64.zip`），包含 `TraverseBoard.exe`、操作者预览启动器、`LOCAL-TEST-GUIDE.txt`、`LICENSE`、第三方 `NOTICE`、CycloneDX `sbom.json` 与 `release-metadata.json`。正式 GitHub Release 也直接附带同一份 `TraverseBoard.exe`，并附带 path-free 的 `standard-code-packaged-e2e.json` bootstrap 证据。发布件不带 API key、用户数据、缓存、调试日志或源映射。
+Windows 面向普通用户只提供两个成品；某个版本实际提供哪一项，必须以该版本的 GitHub
+Release 和 Microsoft Store 页面为准：
 
-The release candidate is an unsigned portable ZIP (`Prayu-portable-<version>-windows-amd64.zip`) containing `TraverseBoard.exe`, the operator-preview launcher, `LOCAL-TEST-GUIDE.txt`, `LICENSE`, a third-party `NOTICE`, the CycloneDX `sbom.json`, and `release-metadata.json`. The tagged GitHub Release also attaches the same `TraverseBoard.exe` and the path-free `standard-code-packaged-e2e.json` bootstrap evidence. It carries no API key, user data, cache, debug log, or source map.
+1. **Microsoft Store 包**：从 Store 安装和更新。提交候选必须使用 Partner Center
+   分配的精确 identity 并声明真实处理器架构；只有 Partner Center 接收且认证通过后
+   才能称为 Store 成品。仓库生成的 `PrayuDesktop.msix`、Actions artifact 或本地旁加载
+   包都不能证明 Store 已通过，也不能证明正式签名已经取得。
+2. **唯一的直发入口 `TraverseBoard.exe`**：从 GitHub Release 直接下载并双击，无需
+   ZIP、CMD、参数或单独后端。稳定直发版本需要可信 Authenticode 签名；未签名构建
+   只能明确标记为预发布候选，并可能出现 SmartScreen“未知发布者”提示。
 
-> [!NOTE]
-> “便携”表示程序文件免安装，并不表示数据跟随解压目录。默认数据仍位于 `%USERPROFILE%\.cyberagent-workbench`，因此重新下载或换目录解压会继续使用同一数据库。`v0.1.0-rc.2` 无法升级一枚正式固化前的 v97 Windows 预览历史；schema v125 在后续构建中精确兼容并事务化修复它，不删除或伪造旧数据。见 [ADR 0126](docs/adr/0126-legacy-v97-docker-trigger-compatibility.md)。
+There are exactly two user-facing Windows deliverables. Availability for a particular version
+must be read from that version's GitHub Release and Microsoft Store listing:
 
-**下载后校验 / Verify after download**（PowerShell）：
+1. **Microsoft Store package**, installed and updated through Store. Its submission candidate
+   must use the exact Partner Center identity and real processor architecture. A repository-built
+   `PrayuDesktop.msix`, Actions artifact, or sideload package does not prove Store certification
+   or production signing.
+2. **The sole direct entry, `TraverseBoard.exe`**, downloaded from GitHub Release and started by
+   double-click, with no ZIP, CMD, flags, or separate backend. A stable direct release requires
+   trusted Authenticode signing; an unsigned build remains an explicitly labelled prerelease
+   candidate and may trigger SmartScreen.
 
-```powershell
-# 从 GitHub Release 下载 ZIP 与伴随证明文件 / download the ZIP and companions
-gh release download v0.1.0-rc.2 --pattern 'TraverseBoard.exe' --pattern 'Prayu-portable-*' --pattern 'SHA256SUMS'
+两者使用同一版本、源码提交、内嵌前端和发布门证据；Authenticode 签名导致字节变化时，
+证据同时保留 Store 内可复现 payload hash 与公开签名 EXE 的 artifact hash，并由 GitHub
+provenance/SBOM attestation 绑定最终对象。MSIX 的设计合同将安装文件与外部用户数据目录
+分开；在称为 Store 成品前，仍必须用 Windows 10/11 实机矩阵验证
+升级、卸载与重装时的 Workspace、凭证及 SQLite 行为。WebView2 缺失或版本过旧时，
+应用只显示有界本机指导，不隐式安装依赖。
 
-# 与 SHA256SUMS 精确比对 / compare exactly against SHA256SUMS
-$zip = 'Prayu-portable-v0.1.0-rc.2-windows-amd64.zip'
-$expected = ((Get-Content .\SHA256SUMS | Where-Object { $_ -match "  $([regex]::Escape($zip))$" }) -split '\s+')[0]
-$actual = (Get-FileHash ".\$zip" -Algorithm SHA256).Hash.ToLowerInvariant()
-if ($actual -cne $expected) { throw 'portable ZIP checksum mismatch' }
+便携 ZIP 仅供 CI、兼容性、packaged E2E 与可复现性验证，不是第三种产品，也不能上传
+到 Store。`SHA256SUMS`、SBOM、NOTICE、release metadata、manifest 与 Standard Code
+报告属于校验/来源 sidecar，不是可启动产品。稳定版还会公开签名 request、handoff 与
+signing evidence sidecar；签名服务返回的 `TraverseBoard-signed.exe` 只用于受控接收，
+不会作为第二个 EXE 发布。源码与新 Release 均不再提供
+`Start-Prayu-Operator-Preview.cmd` 或其他 Start 脚本；历史 Release 的旧 ZIP、旧启动器
+名称和校验和保持不变。
 
-# 同时校验可直接下载的 EXE / verify the directly downloadable EXE too
-$exe = 'TraverseBoard.exe'
-$expectedExe = ((Get-Content .\SHA256SUMS | Where-Object { $_ -match "  $([regex]::Escape($exe))$" }) -split '\s+')[0]
-$actualExe = (Get-FileHash ".\$exe" -Algorithm SHA256).Hash.ToLowerInvariant()
-if ($actualExe -cne $expectedExe) { throw 'executable checksum mismatch' }
+The portable ZIP is retained only for CI, compatibility, packaged E2E, and reproducibility
+checks; it is neither a third product nor a Store upload. Checksums, SBOM, NOTICE, metadata,
+manifests, and Standard Code reports are verification/provenance sidecars. A stable release also
+publishes the signing request, handoff, and signing evidence as public sidecars; the signer-returned
+`TraverseBoard-signed.exe` is intake-only and is not published as a second executable. Source and
+new releases provide neither `Start-Prayu-Operator-Preview.cmd` nor another Start script, and
+historical Release assets remain immutable.
 
-# 解压后直接启动安全默认入口 / extract and launch the safe default directly
-Expand-Archive ".\$zip" -DestinationPath .\Prayu-portable
-.\Prayu-portable\TraverseBoard.exe
-```
+稳定版自动化会消费受保护的外部签名 handoff，复核允许的 signer 与 RFC 3161 时间戳，
+记录签名前后 hash，并由独立最小权限 job 生成 GitHub provenance/SBOM attestation。Store
+完成态还要求实际安装包为 `SignatureKind=Store`，identity/version/architecture/payload 精确
+匹配，并具备四条 Windows 10/11 × 100%/200% DPI × 中文 IME 生命周期 row。Partner Center
+export、截图和操作者生命周期记录仍是 reviewer-attested 外部证据；hash 只能发现后续漂移，
+不能把它们变成加密证明。因此
+[Issue #123](https://github.com/CWNU-Open-Source-Community/Traverse-Board/issues/123) 会保持开启，
+直到同一真实候选补齐并通过全部证据门。
 
-维护者从 clean checkout 生成同一套 ZIP、SBOM、NOTICE、校验和与清单只需一条命令：
+Stable automation consumes a protected external signing handoff, verifies the approved signer and
+RFC 3161 timestamp, records pre/post-sign hashes, and generates permission-scoped GitHub
+provenance/SBOM attestations. Store completion additionally requires a real installed package with
+`SignatureKind=Store`, the exact identity/version/architecture/payload, and four hash-bound Windows
+10/11 × 100%/200% DPI × Chinese-IME lifecycle rows. Partner Center exports, screenshots, and
+operator lifecycle records remain reviewer-attested external evidence: hashing them detects later
+drift but does not turn them into cryptographic proof. [Issue #123](https://github.com/CWNU-Open-Source-Community/Traverse-Board/issues/123)
+therefore remains open until one real candidate supplies and passes all of this evidence.
 
-```powershell
-pwsh -NoProfile -File scripts/release-desktop.ps1 -Version v0.1.0-rc.2
-```
-
-Canonical release CI pins Go 1.25.12, Node 24.16.0 (including its bundled npm), and Rust 1.97.1; `release-metadata.json` additionally binds those observed versions plus the Go, npm, Cargo, and embedded-analyzer hashes. 本地命令会记录实际工具链，正式 GitHub Release 只采用上述 CI 固定版本。
-
-`Desktop release` 工作流会在 PR 中重跑依赖边界、可复现构建、ZIP 完整性验证，以及四个固定 Go/Node.js/Python/Rust 仓库的 fail/repair/pass oracle；它再从确切 ZIP 启动默认模式与安全 operator preview，验证强杀重开、无宿主监听、固件不变和合成 credential sentinel 不落盘。这个 bootstrap 成功后仍如实报告 `needs_full_matrix`。非 PR 的 release run 还必须从同版本 Draft Release 取得 #182 产品报告与 #181 安全报告，并把两者的 self-hash、40 case/75 backend run、四语言交付、Windows 10/11 UX 证据与当前 EXE/ZIP/revision 聚合为 `standard_code_release_gate.v1`；缺失、篡改、跨候选 replay、skip 或 waiver 都会阻断发布。完整合同见 [Standard Code packaged E2E](docs/standard-code-packaged-e2e.md)、[Beta release gate](docs/standard-code-release-gate.md) 与 [ADR 0144](docs/adr/0144-standard-code-release-gate-aggregation.md)。`workflow_dispatch` 只保留 Actions artifact；只有通过 aggregate 且版本包含 prerelease 标识（`-`）的 `v*` tag 才会把原 Draft 发布为 GitHub Pre-release。
-
-The `Desktop release` workflow reruns dependency boundaries, the reproducible build, ZIP integrity verification, and the fail/repair/pass oracle for four fixed Go, Node.js, Python, and Rust repositories. It then launches conservative default mode and safe operator preview from the exact ZIP and checks kill/reopen, absence of a host listener, fixture immutability, and synthetic credential-sentinel non-persistence. A successful bootstrap still reports `needs_full_matrix`. A non-PR release run must additionally obtain the #182 product report and #181 security report from the matching Draft Release, then bind their self-hashes, 40 cases/75 backend runs, four-language delivery, Windows 10/11 UX evidence, and the current EXE/ZIP/revision into `standard_code_release_gate.v1`. Missing, tampered, replayed, skipped, or waived evidence blocks publication. See [Standard Code packaged E2E](docs/standard-code-packaged-e2e.md), the [Beta release gate](docs/standard-code-release-gate.md), and [ADR 0144](docs/adr/0144-standard-code-release-gate-aggregation.md). `workflow_dispatch` keeps an Actions artifact only; only a `v*` tag containing a prerelease identifier (`-`) can publish the existing Draft as a GitHub Pre-release after the aggregate passes.
-
-**SmartScreen 预期 / SmartScreen expectations**：便携 ZIP 与 EXE 均未签名，Windows SmartScreen 可能提示“未知发布者”。这是未签名候选的预期限制，不是构建缺陷；正式签名发行（MSIX）在另一条发布线完成。The ZIP and EXE are unsigned, so Windows SmartScreen may warn about an unknown publisher. This is the expected limitation of an unsigned candidate, not a build defect; the signed MSIX release is tracked separately.
-
-### MSIX 安装 / MSIX installation
-
-发布候选的 per-user MSIX（`PrayuDesktop.msix`）是正式安装包：它把安装文件放进包目录、把用户数据（Workspace、凭证、SQLite）留在包数据目录外，升级时保留、卸载时默认不删。便携 ZIP 是明确区分的免安装替代品，适合只读预览；MSIX 适合需要稳定安装/升级/卸载身份的日常使用。
-
-The per-user MSIX (`PrayuDesktop.msix`) is the formal installer: it keeps install files inside the package directory and user data (Workspace, credentials, SQLite) outside it, preserved on upgrade and not deleted by the default uninstall. The portable ZIP is a distinct, install-free alternative for read-only preview; the MSIX suits everyday use that needs a stable install/upgrade/uninstall identity.
-
-**校验签名 / Verify the signature**（PowerShell）：
-
-```powershell
-Get-AuthenticodeSignature .\PrayuDesktop.msix | Format-List Status, StatusMessage, SignerCertificate
-```
-
-**安装 / Install**：双击 `PrayuDesktop.msix`，或 `Add-AppxPackage .\PrayuDesktop.msix`。**升级 / Upgrade** 用更高 `Version` 的同一 identity 覆盖安装；**降级 / Downgrade** 会被 Windows 拒绝。**卸载 / Uninstall**：`Remove-AppxPackage PrayuDesktop`（默认保留用户数据；删除数据需另作明确确认）。
-
-**WebView2 诊断 / WebView2 diagnosis**：缺 WebView2 或版本过旧时，应用只显示有界本机指导（不空白、不 Forbidden），且不会隐式安装。If WebView2 is missing or too old, the app shows only a bounded local instruction (no blank window, no `Forbidden`) and never installs it implicitly.
-
-**签名 / Signing**：正式发行需要受保护的代码签名证书；未签名 MSIX 只能作为本地开发候选。The formal release requires a protected code-signing certificate; an unsigned MSIX is only a local development candidate.
+具体发布边界见 [ADR 0145](docs/adr/0145-windows-two-deliverable-release-contract.md)。
+The exact release boundary is defined by [ADR 0145](docs/adr/0145-windows-two-deliverable-release-contract.md).
+Partner Center 的 identity、版本、上传与 `runFullTrust` 认证步骤见
+[Microsoft Store submission runbook](packaging/windows/STORE-SUBMISSION.md)。
 
 ## 项目结构
 

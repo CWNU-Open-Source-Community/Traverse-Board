@@ -67,6 +67,8 @@ This directory separates user-facing documentation, current engineering state, a
 | [ADR 0140 / Durable Risk Escalation](adr/0140-durable-risk-escalation.md) | 精确风险 scope、有界 grant、Supervisor 等待/恢复、write-ahead fence 与漂移失效 |
 | [ADR 0141 / Durable-operation Identity Pilot](adr/0141-minimal-durable-operation-identity.md) | 无存储共享身份值对象、长度分隔摘要、Run creation / Scheduled Job 回放试点与领域 authority 边界 |
 | [ADR 0144 / Standard Code Release Gate](adr/0144-standard-code-release-gate-aggregation.md) | 同候选 packaged/product/security 证据聚合、Draft Release 传递、确定性复核与 Beta-only 发布边界 |
+| [ADR 0145 / Windows Two-Deliverable Release](adr/0145-windows-two-deliverable-release-contract.md) | Microsoft Store 包、可直接双击 EXE、内部 ZIP/sidecar 与启动器的发布边界 |
+| [Microsoft Store submission runbook](../packaging/windows/STORE-SUBMISSION.md) | Partner Center identity、Store version、`runFullTrust` 说明、上传与完成证据 |
 | [ADR 索引](adr/) | 权限、持久化、执行、浏览器、Desktop 等架构决策 |
 
 ## 当前工程上下文 / Current Engineering Context

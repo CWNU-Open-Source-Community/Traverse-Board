@@ -3,8 +3,9 @@ package packagede2e
 import (
 	"archive/zip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
-	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -137,7 +138,49 @@ func TestSecurityExecutorCannotTurnUnexecutedCaseIntoPass(t *testing.T) {
 	}
 }
 
+func TestSecurityCandidateRejectsScriptLauncherAndPreviewMetadata(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyStandardCodeSecurityCandidate(executable,
+		packagedSecurityTestArchive(t)); err != nil {
+		t.Fatal(err)
+	}
+	t.Run("script launcher", func(t *testing.T) {
+		archive := packagedSecurityTestArchiveWithOptions(t, packagedSecurityArchiveOptions{
+			ExtraFiles: map[string][]byte{"Start-Traverse-Board.cmd": []byte("@echo off\r\n")},
+		})
+		if _, err := VerifyStandardCodeSecurityCandidate(executable, archive); err == nil {
+			t.Fatal("portable archive with a script launcher was accepted")
+		}
+	})
+	t.Run("preview metadata", func(t *testing.T) {
+		archive := packagedSecurityTestArchiveWithOptions(t, packagedSecurityArchiveOptions{
+			MutateMetadata: func(metadata *portableReleaseMetadata) {
+				metadata.OperatorPreviewIncluded = true
+				metadata.OperatorPreviewLauncherName = "legacy-preview.cmd"
+				metadata.OperatorPreviewLauncherSHA256 = strings.Repeat("d", 64)
+			},
+		})
+		if _, err := VerifyStandardCodeSecurityCandidate(executable, archive); err == nil {
+			t.Fatal("operator-preview launcher metadata was accepted")
+		}
+	})
+}
+
+type packagedSecurityArchiveOptions struct {
+	ExtraFiles     map[string][]byte
+	MutateMetadata func(*portableReleaseMetadata)
+}
+
 func packagedSecurityTestArchive(t *testing.T) string {
+	return packagedSecurityTestArchiveWithOptions(t, packagedSecurityArchiveOptions{})
+}
+
+func packagedSecurityTestArchiveWithOptions(t *testing.T,
+	options packagedSecurityArchiveOptions,
+) string {
 	t.Helper()
 	executable, err := os.Executable()
 	if err != nil {
@@ -152,24 +195,13 @@ func packagedSecurityTestArchive(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writer := zip.NewWriter(file)
-	entry, err := writer.Create("TraverseBoard.exe")
+	binary, err := os.ReadFile(executable)
 	if err != nil {
 		t.Fatal(err)
 	}
-	binary, err := os.Open(executable)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := io.Copy(entry, binary); err != nil {
-		t.Fatal(err)
-	}
-	_ = binary.Close()
-	metadataEntry, err := writer.Create("release-metadata.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	metadata, _ := json.Marshal(portableReleaseMetadata{
+	guide := []byte("Packaged test guide\r\n")
+	guideDigest := sha256.Sum256(guide)
+	metadataValue := portableReleaseMetadata{
 		ProtocolVersion: "portable_release_metadata.v1", AppVersion: "security-test",
 		Revision: strings.Repeat("c", 40), SourceDateEpoch: 1,
 		GoVersion: "go1.26.5", NodeVersion: "v24.14.0", NPMVersion: "11.9.0",
@@ -177,14 +209,42 @@ func packagedSecurityTestArchive(t *testing.T) string {
 		NodeLockSHA256: strings.Repeat("d", 64), CargoLockSHA256: strings.Repeat("d", 64),
 		EmbeddedAnalyzerSHA256: strings.Repeat("d", 64), TargetOS: runtime.GOOS,
 		TargetArch: runtime.GOARCH, CGOEnabled: "0", Trimpath: true,
-		BinaryName: "TraverseBoard.exe", SHA256: executableSHA, OperatorPreviewIncluded: true,
-		OperatorPreviewLauncherName:   "Start-Prayu-Operator-Preview.cmd",
-		OperatorPreviewLauncherSHA256: strings.Repeat("d", 64),
-		LocalTestGuideName:            "LOCAL-TEST-GUIDE.txt", LocalTestGuideSHA256: strings.Repeat("d", 64),
-		DefaultUILanguage: "zh-CN", ReproducibilityChecked: true, Reproducible: true,
-		ManualWindows10MatrixRequired: true})
-	if _, err := metadataEntry.Write(metadata); err != nil {
+		BinaryName: "TraverseBoard.exe", SHA256: executableSHA, OperatorPreviewIncluded: false,
+		OperatorPreviewLauncherName: "", OperatorPreviewLauncherSHA256: "",
+		LocalTestGuideName:   "LOCAL-TEST-GUIDE.txt",
+		LocalTestGuideSHA256: hex.EncodeToString(guideDigest[:]),
+		DefaultUILanguage:    "zh-CN", ReproducibilityChecked: true, Reproducible: true,
+		ManualWindows10MatrixRequired: true}
+	if options.MutateMetadata != nil {
+		options.MutateMetadata(&metadataValue)
+	}
+	metadata, err := json.Marshal(metadataValue)
+	if err != nil {
 		t.Fatal(err)
+	}
+	files := map[string][]byte{
+		"TraverseBoard.exe":     binary,
+		"LOCAL-TEST-GUIDE.txt":  guide,
+		"LICENSE":               []byte("test license\n"),
+		"README.md":             []byte("test readme\n"),
+		"NOTICE":                []byte("test notice\n"),
+		"sbom.json":             []byte(`{"bomFormat":"CycloneDX"}`),
+		"release-metadata.json": metadata,
+	}
+	names := append([]string(nil), securityCandidateArchiveEntries[:]...)
+	for name, content := range options.ExtraFiles {
+		files[name] = content
+		names = append(names, name)
+	}
+	writer := zip.NewWriter(file)
+	for _, name := range names {
+		entry, err := writer.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write(files[name]); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)

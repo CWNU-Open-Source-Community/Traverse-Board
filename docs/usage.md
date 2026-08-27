@@ -463,7 +463,7 @@ Every catalog mutation appends a bounded audit row (`catalog.trusted`, `catalog.
 
 ## Windows Desktop D0-A Through D1-G13/V12
 
-Build the unsigned development/portable-test shell from the repository root:
+Build the Windows product candidate from the repository root:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/build-desktop.ps1
@@ -472,11 +472,26 @@ powershell -ExecutionPolicy Bypass -File scripts/build-desktop.ps1
 
 The build script installs the locked frontend dependencies, checks the generated API contract, runs frontend and focused Go tests, builds the production renderer, and then compiles the Windows GUI binary with the mandatory `desktop,production,wv2runtime.error` tags. The machine needs Windows 10/11 and WebView2 Evergreen Runtime `94.0.992.31` or newer. The binary checks that prerequisite before opening SQLite and never downloads or installs it. `web/dist` is generated and ignored by Git; a direct Desktop build intentionally fails if the production bundle or secure WebView2 strategy tag is absent.
 
-The resulting EXE may also be opened directly from File Explorer. Existing data is migrated transactionally in place and is never deleted or reset to recover startup. A portable ZIP makes the application files install-free; it does not move the data directory beside the EXE. Unless `CYBERAGENT_HOME` is explicitly set, every extracted copy uses `%USERPROFILE%\.cyberagent-workbench`. If a historical profile needs diagnosis, copy `~/.cyberagent-workbench/cyberagent.db` before launch and keep that copy outside the active filename. The known Windows-preview v30 and pre-final v97 checksums are accepted only for their exact migration versions and names; schema v125 then transactionally restores the canonical v97 cleanup trigger without rewriting the historical row. Unknown histories still fail closed. Do not delete the database, reset it, or edit its checksum as an upgrade workaround. ADR 0068 records the real Wails request shape and the v30-to-v84 data-preserving launch verification; [ADR 0126](adr/0126-legacy-v97-docker-trigger-compatibility.md) records the exact v97 compatibility boundary and repair.
+The resulting `TraverseBoard.exe` is the sole zero-argument direct product entry and may be opened
+from File Explorer. New source trees and release packages ship neither
+`Start-Prayu-Operator-Preview.cmd` nor a renamed Start helper. Existing data is migrated
+transactionally in place and is never deleted or reset to recover startup. The portable ZIP is an
+internal reproducibility and compatibility container, not the ordinary user download; it does not
+move the data directory beside the EXE. Unless `CYBERAGENT_HOME` is explicitly set, every copy uses
+`%USERPROFILE%\.cyberagent-workbench`. If a historical profile needs diagnosis, copy
+`~/.cyberagent-workbench/cyberagent.db` before launch and keep that copy outside the active
+filename. The known Windows-preview v30 and pre-final v97 checksums are accepted only for their
+exact migration versions and names; schema v125 then transactionally restores the canonical v97
+cleanup trigger without rewriting the historical row. Unknown histories still fail closed. Do not
+delete the database, reset it, or edit its checksum as an upgrade workaround. ADR 0068 records the
+real Wails request shape and the v30-to-v84 data-preserving launch verification;
+[ADR 0126](adr/0126-legacy-v97-docker-trigger-compatibility.md) records the exact v97 compatibility
+boundary and repair. The two-product publication and Store-completion rules are defined by
+[ADR 0145](adr/0145-windows-two-deliverable-release-contract.md).
 
 全新且经 SQLite 事务证明没有 `schema_migrations`、用户 table/index/trigger/view 的数据库使用生成式 latest-schema baseline；任何已有对象或证明缺失都继续走完整历史 migration。baseline 与旧链生成相同 v136 schema 和 canonical ledger，不会转换已有 profile。升级前须停止全部 Desktop/CLI/API 进程并离线备份数据库；只有已经支持相同 v136 历史计划的旧二进制才能读取 baseline 产物，更早版本必须恢复升级前备份。磁盘错误、取消或建库中断会整体回滚，恢复空间/权限后可重启；不要通过删除非空数据库或修改 ledger 强制重试。完整边界和 runbook 见 [SQLite 全新安装基线](schema-baseline.md) 与 [ADR 0139](adr/0139-clean-install-schema-baseline.md)。
 
-The shell opens the same `$CYBERAGENT_HOME/cyberagent.db` as the CLI and defaults to read-only. It generates an ephemeral read token in memory and calls the existing Go API through Wails' in-process AssetServer Handler, so no TCP port or copied bearer token is required. Run events use `/events/poll` on Windows because Wails v2 does not stream AssetServer responses there; this endpoint shares the SSE Run-bound high-water cursor, while ordinary Web clients continue to use SSE. Cursor/frame memory is bounded to 16 Runs and 500 frames per Run and never enters browser storage.
+With no flags, the Desktop opens the safe product bundle and first-use path; it does not silently enable Full Access, debug controls, Full CDP, a background worker, or a persistent terminal. `--safe-view` remains the explicit read-only diagnostic surface. Both modes open the same `$CYBERAGENT_HOME/cyberagent.db` as the CLI. The app generates an ephemeral in-memory token and calls the existing Go API through Wails' in-process AssetServer Handler, so no TCP port or copied bearer token is required. Run events use `/events/poll` on Windows because Wails v2 does not stream AssetServer responses there; this endpoint shares the SSE Run-bound high-water cursor, while ordinary Web clients continue to use SSE. Cursor/frame memory is bounded to 16 Runs and 500 frames per Run and never enters browser storage.
 
 To expose only the existing schema-v64 profile selector, launch explicitly:
 

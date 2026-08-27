@@ -40,17 +40,13 @@ function Resolve-PackageLeaf {
     return Join-Path $packageRoot $value
 }
 
-$launcher = Resolve-PackageLeaf $metadata.operator_preview_launcher_name
 $guide = Resolve-PackageLeaf $metadata.local_test_guide_name
-$launcherExists = $null -ne $launcher -and (Test-Path -LiteralPath $launcher -PathType Leaf)
 $guideExists = $null -ne $guide -and (Test-Path -LiteralPath $guide -PathType Leaf)
-$launcherHash = if ($launcherExists) {
-    (Get-FileHash -Algorithm SHA256 -LiteralPath $launcher).Hash.ToLowerInvariant()
-} else { "" }
 $guideHash = if ($guideExists) {
     (Get-FileHash -Algorithm SHA256 -LiteralPath $guide).Hash.ToLowerInvariant()
 } else { "" }
-$launcherText = if ($launcherExists) { Get-Content -LiteralPath $launcher -Raw } else { "" }
+$generatedLaunchers = @(Get-ChildItem -LiteralPath $packageRoot -File -Filter "Start-*.cmd" `
+    -ErrorAction SilentlyContinue)
 
 $stream = [System.IO.File]::Open($binary, [System.IO.FileMode]::Open,
     [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
@@ -113,17 +109,12 @@ Add-Check "non_installing_boundary" $(if (-not $metadata.installer_included -and
     -not $metadata.registry_writes -and -not $metadata.startup_task -and
     -not $metadata.auto_update_enabled) { "pass" } else { "fail" }) `
     "build has no installer, registry, startup-task, or auto-update authority"
-Add-Check "operator_preview_package" $(if ($metadata.operator_preview_included -and
-    $launcherExists -and $metadata.operator_preview_launcher_sha256 -eq $launcherHash) { "pass" } else { "fail" }) `
-    "portable package contains the hash-bound safe operator-preview launcher"
-Add-Check "operator_preview_safe_flags" $(if (-not $launcherText.Contains("--operator-preview") -and
-    -not $launcherText.Contains("--enable-danger-full-access") -and
-    -not $launcherText.Contains("--enable-debug-maximum-access") -and
-    -not $launcherText.Contains("--enable-full-cdp-debug") -and
-    -not $launcherText.Contains("--enable-user-terminal") -and
-    -not $launcherText.Contains("--enable-wake-worker") -and
-    -not $launcherText.Contains("--enable-scheduled-job-worker")) { "pass" } else { "fail" }) `
-    "compatibility launcher uses the direct safe default without high-risk or persistent workers"
+Add-Check "direct_executable_entry" $(if ($metadata.binary_name -ceq "TraverseBoard.exe" -and
+    -not [bool]$metadata.operator_preview_included -and
+    [string]::IsNullOrEmpty([string]$metadata.operator_preview_launcher_name) -and
+    [string]::IsNullOrEmpty([string]$metadata.operator_preview_launcher_sha256) -and
+    $generatedLaunchers.Count -eq 0) { "pass" } else { "fail" }) `
+    "TraverseBoard.exe is the only generated launch entry; no Start script is required"
 Add-Check "local_test_guide" $(if ($guideExists -and
     $metadata.local_test_guide_sha256 -eq $guideHash) { "pass" } else { "fail" }) `
     "portable package contains the hash-bound bilingual local test guide"
