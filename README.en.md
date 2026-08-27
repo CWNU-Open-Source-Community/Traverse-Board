@@ -286,6 +286,8 @@ Local Ollama is the only keyless Provider and enables only when `CYBERAGENT_OLLA
 
 Use the operator-preview launcher. Opening the bare `TraverseBoard.exe` intentionally starts with the most conservative permissions. See [`packaging/windows/LOCAL-TEST-GUIDE.txt`](packaging/windows/LOCAL-TEST-GUIDE.txt) for the full manual test flow.
 
+The `Desktop release` workflow keeps pull-request evidence honest: its packaged bootstrap remains `needs_full_matrix`. A non-PR Beta candidate must obtain the independently produced #182 product report and #181 security report from the matching Draft Release, bind both reports to the current EXE, ZIP, source revision, fixture, and attack matrix in `standard_code_release_gate.v1`, and reverify that aggregate before publication. Missing, tampered, replayed, skipped, or waived evidence fails closed. Only versions with a prerelease identifier (`-`) can be published, and signing/Microsoft Store distribution remain separate. See the [Beta release gate](docs/standard-code-release-gate.md) and [ADR 0144](docs/adr/0144-standard-code-release-gate-aggregation.md).
+
 > [!NOTE]
 > Portable means install-free application files, not directory-local data. The default data home remains `%USERPROFILE%\.cyberagent-workbench`, so extracting another ZIP reuses the same database. `v0.1.0-rc.2` cannot upgrade one exact pre-final Windows preview v97 history; schema v125 in later builds accepts that exact history and transactionally restores the canonical trigger without deleting or falsifying old data. See [ADR 0126](docs/adr/0126-legacy-v97-docker-trigger-compatibility.md).
 

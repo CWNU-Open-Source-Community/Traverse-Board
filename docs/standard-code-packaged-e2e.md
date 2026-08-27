@@ -164,13 +164,15 @@ case、75 个 backend run 与 append-only SHA-256 chain。最终 `status=passed`
 conformance evidence，不能签发执行权限或宣布发布门通过。架构决定见
 [ADR 0143](adr/0143-standard-code-packaged-security-matrix.md)。
 
-## #140 最终发布门仍由聚合 owner 完成
+## #140 最终发布门
 
-#181 只产生安全切片证据，不修改中央
-`.github/workflows/release-desktop.yml`、`scripts/standard-code-packaged-e2e.ps1`、聚合报告或
-最终 gate 状态，也不会关闭 #140。进入 Beta gate 前，release owner 仍需把该不可变报告与
-bootstrap、四语言修复、交付真实性、产物/SBOM、Windows host/可见窗口及复现说明在同一
-候选上聚合。正式代码签名与 Microsoft Store 分发仍属于独立发布线。
+#181 只产生安全切片证据；#140 的中央 owner 将该不可变报告与 bootstrap、#182 的四语言
+修复/交付真实性、Windows host/可见窗口及当前 release artifacts 交叉绑定为
+`standard_code_release_gate.v1`。非 PR 的中央 workflow 必须从同版本 Draft Release 取得两份
+独立 producer report，并在当前 EXE/ZIP 上重新计算 identity；最终 publish job 下载 artifact
+后再次验证 aggregate。完整 runbook 见
+[Standard Code Beta release gate](standard-code-release-gate.md)。正式代码签名与 Microsoft
+Store 分发仍属于独立发布线。
 
 任何一次矩阵 case 缺失、环境不具备、取证不完整或结果不确定，都应使 gate 失败，
 而不是改成 skip、expected failure 或手工豁免。测试只能使用合成 sentinel；禁止把

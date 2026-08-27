@@ -146,4 +146,5 @@ evidence/
 `scripts/standard-code-packaged-e2e.ps1`、聚合报告与最终 release gate 由 #140 的 C owner
 串行接线。集成方只能在精确 candidate hash 与 revision 相同时消费本报告；不能把本报告
 的 `pass` 改写成 #140 已通过，也不能用缺失报告、Approval fallback 或人工 waiver 代替
-完整发布矩阵。
+完整发布矩阵。中央取证传输、交叉绑定和发布流程见
+[Standard Code Beta release gate](standard-code-release-gate.md)。

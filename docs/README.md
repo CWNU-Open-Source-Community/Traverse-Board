@@ -21,6 +21,7 @@ This directory separates user-facing documentation, current engineering state, a
 | [Standard Code 原子预设](standard-code-preset.md) | 一键 Code/Plan 组合、Local/显式 Docker、Workspace Trust、暂停配置与故障恢复 |
 | [Standard Code packaged E2E](standard-code-packaged-e2e.md) | 四个固定 Git 仓库、40 项攻击矩阵、portable ZIP bootstrap 与完整发布门边界 |
 | [Standard Code packaged product E2E](standard-code-product-e2e.md) | 从零参数发布 EXE 验证四语言闭环、交付投影、Thread 连续性与 Windows UX 证据 |
+| [Standard Code Beta release gate](standard-code-release-gate.md) | 将同一候选的 packaged bootstrap、产品与安全证据聚合为唯一 fail-closed 发布结论 |
 | [高风险升级 / Durable Risk Escalation](risk-escalation.md) | Standard Code 精确风险提案、一次/有界 Run 授权、持久等待恢复与不确定性处理 |
 | [Windows Local Sandbox](local-sandbox-windows.md) | AppContainer/WFP/Job/ACL 隔离、readiness 证据、恢复与操作说明 |
 | [高级 Git 工作流 / Advanced Git](git-advanced.md) | 稳定 hunk、stash、rebase/cherry-pick/bisect、受管 worktree、审批与恢复 |
@@ -65,6 +66,7 @@ This directory separates user-facing documentation, current engineering state, a
 | [ADR 0139 / Clean-install Schema Baseline](adr/0139-clean-install-schema-baseline.md) | 严格空库证明、生成式 schema 等价、原 migration ledger、原子失败与旧二进制回滚边界 |
 | [ADR 0140 / Durable Risk Escalation](adr/0140-durable-risk-escalation.md) | 精确风险 scope、有界 grant、Supervisor 等待/恢复、write-ahead fence 与漂移失效 |
 | [ADR 0141 / Durable-operation Identity Pilot](adr/0141-minimal-durable-operation-identity.md) | 无存储共享身份值对象、长度分隔摘要、Run creation / Scheduled Job 回放试点与领域 authority 边界 |
+| [ADR 0144 / Standard Code Release Gate](adr/0144-standard-code-release-gate-aggregation.md) | 同候选 packaged/product/security 证据聚合、Draft Release 传递、确定性复核与 Beta-only 发布边界 |
 | [ADR 索引](adr/) | 权限、持久化、执行、浏览器、Desktop 等架构决策 |
 
 ## 当前工程上下文 / Current Engineering Context
