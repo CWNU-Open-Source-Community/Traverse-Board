@@ -1,6 +1,10 @@
 :root {
-  --prayu-font-ui: "JetBrains Mono Variable", "JetBrains Mono", "Microsoft YaHei UI",
-    "PingFang SC", "Segoe UI", monospace;
+  --prayu-font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text",
+    "Segoe UI", "Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC",
+    "Noto Sans SC", sans-serif;
+  --prayu-font-display: "Segoe UI Variable Display", "SF Pro Display", system-ui,
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI", "PingFang SC",
+    "Noto Sans CJK SC", "Noto Sans SC", sans-serif;
   --prayu-font-mono: "JetBrains Mono Variable", "JetBrains Mono", "Cascadia Code",
     Consolas, monospace;
   font-family: var(--prayu-font-ui);
@@ -185,7 +189,7 @@ code, pre { font-family: var(--prayu-font-mono); }
 .plan-direction summary strong { font-size: 12px; }
 .plan-direction summary small, .plan-direction summary > span:nth-child(3) { color: var(--muted); font-size: 10px; line-height: 1.4; }
 .plan-direction summary .status-badge { grid-column: 2; }
-.plan-ordinal { width: 22px; height: 22px; display: grid; place-items: center; border: 1px solid var(--border-strong); border-radius: 50%; color: var(--muted); font: 11px "Cascadia Code", Consolas, monospace; }
+.plan-ordinal { width: 22px; height: 22px; display: grid; place-items: center; border: 1px solid var(--border-strong); border-radius: 50%; color: var(--muted); font: 11px var(--prayu-font-mono); }
 .plan-direction-body { display: grid; gap: 15px; padding: 0 12px 13px 45px; border-top: 1px solid var(--border); }
 .plan-direction-body h3 { margin: 12px 0 7px; color: var(--muted); font-size: 10px; text-transform: uppercase; }
 .plan-direction-body ul, .plan-direction-body ol { margin: 0; padding-left: 18px; }
@@ -883,7 +887,7 @@ td code { font-size: 11px; }
 .ui-evidence-failure { display: grid; gap: 3px; margin-top: 10px; padding: 9px 10px; border-left: 3px solid var(--danger); background: #fff0ee; color: var(--danger); font-size: 11px; }
 .ui-evidence-detail details { margin-top: 10px; }
 .ui-evidence-detail details summary { color: var(--muted); cursor: pointer; font-size: 11px; }
-.ui-evidence-detail pre { max-height: 280px; margin: 7px 0 0; padding: 9px; overflow: auto; border: 1px solid var(--border); background: var(--surface-subtle); font: 9px/1.5 "Cascadia Code", Consolas, monospace; }
+.ui-evidence-detail pre { max-height: 280px; margin: 7px 0 0; padding: 9px; overflow: auto; border: 1px solid var(--border); background: var(--surface-subtle); font: 9px/1.5 var(--prayu-font-mono); }
 .ui-evidence-steps, .ui-evidence-artifacts { margin-top: 14px; }
 .ui-evidence-steps h3, .ui-evidence-artifacts h3 { margin: 0 0 6px; font-size: 12px; }
 .ui-evidence-steps > div, .ui-evidence-artifacts > div { min-height: 48px; display: grid; grid-template-columns: minmax(0, 1fr) max-content; align-items: center; gap: 8px; padding: 7px 2px; border-bottom: 1px solid var(--border); }
@@ -893,7 +897,7 @@ td code { font-size: 11px; }
 .ui-evidence-launch > summary { cursor: pointer; font-size: 12px; font-weight: 600; }
 .ui-evidence-launch > p { color: var(--muted); font-size: 11px; line-height: 1.5; }
 .ui-evidence-launch form { display: grid; gap: 10px; margin-top: 10px; }
-.ui-evidence-launch textarea { width: 100%; min-height: 300px; padding: 10px; resize: vertical; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--surface); color: var(--ink); font: 10px/1.5 "Cascadia Code", Consolas, monospace; }
+.ui-evidence-launch textarea { width: 100%; min-height: 300px; padding: 10px; resize: vertical; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--surface); color: var(--ink); font: 10px/1.5 var(--prayu-font-mono); }
 .ui-evidence-launch label { display: flex; align-items: flex-start; gap: 8px; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .ui-evidence-launch label input { flex: 0 0 auto; width: 15px; height: 15px; margin: 0; accent-color: var(--accent); }
 @media (max-width: 860px) {
@@ -932,7 +936,7 @@ td code { font-size: 11px; }
 .command-proposal-evidence > strong { display: flex; align-items: center; gap: 7px; padding: 9px 10px;
   border-bottom: 1px solid #d4932c; color: #714800; font-size: 11px; }
 .command-proposal-evidence pre { max-height: 240px; margin: 0; padding: 10px; overflow: auto;
-  color: var(--ink); font: 10px/1.55 "Cascadia Code", Consolas, monospace;
+  color: var(--ink); font: 10px/1.55 var(--prayu-font-mono);
   white-space: pre-wrap; word-break: break-word; }
 .host-command-risk { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 10px 12px;
   border: 1px solid #b83b35; border-radius: 5px; background: #fff0ef; color: #8d211c; font-size: 11px; }
@@ -941,7 +945,7 @@ td code { font-size: 11px; }
 .host-command-envelope dt { color: var(--muted); font-size: 10px; }
 .host-command-envelope dd { min-width: 0; margin: 0; color: var(--text); font-size: 11px; }
 .host-command-envelope code { display: inline-block; max-width: 100%; overflow-wrap: anywhere;
-  color: var(--ink); font: 10px/1.5 "Cascadia Code", Consolas, monospace; }
+  color: var(--ink); font: 10px/1.5 var(--prayu-font-mono); }
 .host-command-envelope ol { display: grid; gap: 3px; margin: 0; padding-left: 24px; }
 .host-command-env-key { margin: 0 6px 4px 0; padding: 1px 4px; border: 1px solid var(--border); }
 .host-command-verification { display: flex; align-items: flex-start; gap: 8px; margin-top: 12px;
@@ -1268,7 +1272,7 @@ body { background: transparent; }
 .titlebar-navigation { gap: 5px; }
 .titlebar-menu { gap: 2px; margin-left: 9px; }
 .titlebar-product { position: absolute; left: 50%; gap: 7px; transform: translateX(-50%); }
-.titlebar-product span { color: currentColor; font: 700 16px/1 "SF Pro Display", "Segoe UI Variable Display", sans-serif; }
+.titlebar-product span { color: currentColor; font: 700 16px/1 var(--prayu-font-display); }
 .titlebar-product strong { font-size: 12px; font-weight: 600; }
 .titlebar-icon,
 .titlebar-menu button {
@@ -2458,8 +2462,7 @@ body { background: transparent; }
 .workbench-sidecar-menu { top: calc(100% + 5px); right: -34px; min-width: 220px; }
 .workbench-sidecar-menu kbd {
   color: #91867c;
-  font: inherit;
-  font-size: 9px;
+  font: 500 9px/1.3 var(--prayu-font-mono);
 }
 .workbench-sidecar-body {
   min-height: 0;
@@ -2777,7 +2780,7 @@ body { background: transparent; }
 .public-model-tool-item strong {
   min-width: 0;
   overflow: hidden;
-  font: 600 11px/1.4 var(--font-mono, monospace);
+  font: 600 11px/1.4 var(--prayu-font-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3356,7 +3359,8 @@ summary:focus-visible {
   align-items: center;
   gap: 12px;
   color: var(--prayu-text);
-  font-family: var(--prayu-font-ui);
+  font-family: var(--prayu-font-display);
+  font-optical-sizing: auto;
 }
 
 .prayu-brand-icon {
@@ -3378,15 +3382,34 @@ summary:focus-visible {
   overflow: hidden;
   font-size: 19px;
   font-weight: 650;
-  line-height: 1.05;
+  line-height: 1.12;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prayu-brand-name { display: block; }
+.prayu-brand-name-latin { font-weight: 650; letter-spacing: -.018em; }
+.prayu-brand-name-cjk { font-weight: 500; letter-spacing: 0; }
+
+.prayu-brand-compact .prayu-brand-name {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .prayu-brand-copy small {
   overflow: hidden;
+  display: flex;
+  align-items: baseline;
+  gap: .38em;
   color: var(--prayu-muted);
-  font-size: 10px;
+  color: color-mix(in srgb, var(--prayu-text) 64%, var(--prayu-muted));
+  font-family: var(--prayu-font-ui);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: .015em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3408,7 +3431,7 @@ summary:focus-visible {
   text-overflow: clip;
   white-space: normal;
 }
-.prayu-brand-hero .prayu-brand-copy small { font-size: 11px; }
+.prayu-brand-hero .prayu-brand-copy small { font-size: 12px; }
 
 @media (max-width: 480px) {
   .connection-brand.prayu-brand-hero { gap: 12px; }
@@ -4333,7 +4356,6 @@ summary:focus-visible {
   font-family: var(--prayu-font-ui);
 }
 
-.prayu-brand,
 .workspace-kicker,
 .event-sequence,
 .run-activity-sequence,
@@ -4565,11 +4587,15 @@ summary:focus-visible {
   opacity: .62;
 }
 
-.workbench-sidecar-menu-group > button small,
-.workbench-sidecar-menu-group > button kbd {
+.workbench-sidecar-menu-group > button small {
   color: var(--prayu-muted);
   font: inherit;
   font-size: 9px;
+}
+
+.workbench-sidecar-menu-group > button kbd {
+  color: var(--prayu-muted);
+  font: 500 9px/1.3 var(--prayu-font-mono);
 }
 
 @media (prefers-reduced-transparency: reduce) {
