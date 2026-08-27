@@ -13,7 +13,8 @@ schema v71 的 External Skills 面板只读显示 Run 固定选择的 surface/pr
 ## 针路簿桌面界面 / Traverse Board Desktop Surface
 
 D1-UX1/UX2/UX3 建立了最初的双表面工作台；D1-UX10/UX11 已用原生 Acrylic 和组件令牌替代
-旧背景与艺术字。当前 `PrayuBrand` 是 CSS/React 绘制的圆角应用标识，不读取截图或字标图片。
+旧背景与艺术字。当前 `PrayuBrand` 使用维护者批准的 `traverse-board-mark.png` 规范图片派生资产，
+不读取截图或旧字标图片。
 任务、Run、设置导航和分段控制共享苹果风液态玻璃语义：空闲态透明、悬停态半透明、选中态为
 纯白不透明圆角表面和深色图标文字。旧橙色笔刷的渐变、裁切与伪元素已从源码删除。设置页显示
 真实 API、schema、版本、surface 与 capability 投影，只持久化外观和紧凑度，不保存凭证或
@@ -26,11 +27,12 @@ D1-UX4/UX5/UX6 增加 Wails 无边框窗口和原生最小化/最大化/关闭�
 `reasoning_effort`，所以“高/最高”只展示为禁用能力，不会伪造已生效状态。桌面与移动布局都保持
 无横向溢出。
 
-The current Traverse Board shell uses a CSS/React app mark rather than a screenshot or wordmark
-asset. Task, Run, Settings, and segmented selections share one Apple-inspired liquid-glass
-language: transparent at rest, translucent on hover, and opaque white with dark ink when
-selected. The legacy orange-brush gradients, clipping paths, and pseudo-elements have been
-deleted. D1-UX4/UX5/UX6 add a frameless Wails window, native window controls,
+The current Traverse Board shell uses the maintainer-approved `traverse-board-mark.png` image
+derivative rather than a screenshot or legacy wordmark asset. Task, Run, Settings, and segmented
+selections share one Apple-inspired liquid-glass language: transparent at rest, translucent on
+hover, and opaque white with dark ink when selected. The legacy orange-brush gradients, clipping
+paths, and pseudo-elements have been deleted. D1-UX4/UX5/UX6 add a frameless Wails window,
+native window controls,
 a bounded and persisted resizable sidebar with a transparent drag target, and composer
 controls for attachments, target/plan modes, installed Skills, lazy Go-backed model routing,
 truthful reasoning capability state, and conservative context usage. Settings remains a

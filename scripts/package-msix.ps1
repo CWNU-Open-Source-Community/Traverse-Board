@@ -170,6 +170,8 @@ $directSigningHandoffPath = Join-Path $outputRoot "direct-exe-signing-handoff.js
 $directSigningEvidencePath = Join-Path $outputRoot "direct-exe-signing.json"
 $manifestPath = Join-Path $repositoryRoot "packaging/windows/AppxManifest.xml"
 $assetRoot = Join-Path $repositoryRoot "packaging/windows/Assets"
+$visualAssetHelperPath = Join-Path $repositoryRoot "scripts/windows-visual-assets.ps1"
+$priConfigPath = Join-Path $repositoryRoot "packaging/windows/priconfig.xml"
 $storeRunbookRelativePath = "packaging/windows/STORE-SUBMISSION.md"
 $storeRunbookPath = Join-Path $repositoryRoot $storeRunbookRelativePath
 $runFullTrustJustification = "Traverse Board is a packaged classic Win32 local development workbench. runFullTrust launches the primary desktop process and, only after the user explicitly selects and trusts a workspace and approves the relevant permission, invokes local developer tools. It runs as the current user, requests no administrator elevation, installs no service or driver, does not modify system security policy, and does not declare allowElevation."
@@ -190,14 +192,18 @@ foreach ($required in @(
         $releaseMetadataPath,
         $manifestPath,
         $storeRunbookPath,
-        (Join-Path $assetRoot "StoreLogo.png"),
-        (Join-Path $assetRoot "Square150x150Logo.png"),
-        (Join-Path $assetRoot "Square44x44Logo.png")
+        $visualAssetHelperPath,
+        $priConfigPath
     )) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "MSIX input is missing: $required"
     }
 }
+
+. $visualAssetHelperPath
+$sourceVisualAssetInventory = @(
+    Get-WindowsVisualAssetDirectoryInventory -AssetRoot $assetRoot
+)
 
 $releaseMetadata = Get-Content -LiteralPath $releaseMetadataPath -Raw | ConvertFrom-Json
 foreach ($booleanField in @("modified", "reproducibility_checked", "reproducible")) {
@@ -453,18 +459,44 @@ $msixUploadPath = if ($isStore) { Join-Path $outputRoot $msixUploadName } else {
 
 $makeappx = Find-SDKTool "makeappx"
 if ($null -eq $makeappx) { throw "makeappx.exe was not found in the Windows SDK" }
+$makepri = Join-Path (Split-Path -Parent $makeappx) "makepri.exe"
+if (-not (Test-Path -LiteralPath $makepri -PathType Leaf)) {
+    throw "makepri.exe was not found alongside makeappx.exe in the Windows SDK"
+}
 
 $staging = Join-Path $outputRoot (".msix-staging-" + [guid]::NewGuid().ToString("N"))
 $unpackRoot = Join-Path $outputRoot (".msix-unpack-" + [guid]::NewGuid().ToString("N"))
 $uploadRoot = Join-Path $outputRoot (".msix-upload-" + [guid]::NewGuid().ToString("N"))
+$priAuditRoot = Join-Path $outputRoot (".msix-pri-audit-" + [guid]::NewGuid().ToString("N"))
 [System.IO.Directory]::CreateDirectory((Join-Path $staging "Assets")) | Out-Null
+[System.IO.Directory]::CreateDirectory($priAuditRoot) | Out-Null
 try {
     Copy-Item -LiteralPath $binaryPath -Destination (Join-Path $staging "TraverseBoard.exe")
-    Write-ManifestXML -Document $manifestDocument -Path (Join-Path $staging "AppxManifest.xml")
-    foreach ($assetName in @("StoreLogo.png", "Square150x150Logo.png", "Square44x44Logo.png")) {
-        Copy-Item -LiteralPath (Join-Path $assetRoot $assetName) -Destination (
-            Join-Path $staging "Assets\$assetName")
+    $stagedManifestPath = Join-Path $staging "AppxManifest.xml"
+    Write-ManifestXML -Document $manifestDocument -Path $stagedManifestPath
+    foreach ($asset in $sourceVisualAssetInventory) {
+        Copy-Item -LiteralPath (Join-Path $assetRoot ([string]$asset.name)) -Destination (
+            Join-Path (Join-Path $staging "Assets") ([string]$asset.name))
     }
+    $stagedVisualAssetInventory = @(
+        Get-WindowsVisualAssetDirectoryInventory -AssetRoot (Join-Path $staging "Assets")
+    )
+    Assert-WindowsVisualAssetInventoriesEqual -Expected $sourceVisualAssetInventory `
+        -Actual $stagedVisualAssetInventory -Label "MSIX staging"
+
+    $stagedPRIPath = Join-Path $staging "resources.pri"
+    & $makepri new /pr $staging /cf $priConfigPath /mn $stagedManifestPath `
+        /of $stagedPRIPath /o
+    if ($LASTEXITCODE -ne 0) { throw "makepri new failed" }
+    $stagedPRIFiles = @(Get-ChildItem -LiteralPath $staging -Recurse -File -Filter "*.pri")
+    if ($stagedPRIFiles.Count -ne 1 -or
+        -not $stagedPRIFiles[0].FullName.Equals(
+            $stagedPRIPath, [System.StringComparison]::Ordinal)) {
+        throw "MakePri must produce exactly one root resources.pri"
+    }
+    $stagedPRIHash = Assert-WindowsVisualAssetsPRI -PRIPath $stagedPRIPath `
+        -PackageIdentityName $PackageIdentityName -MakePriPath $makepri `
+        -DumpPath (Join-Path $priAuditRoot "staged-resources.xml")
 
     if (Test-Path -LiteralPath $msixPath -PathType Leaf) {
         Remove-Item -LiteralPath $msixPath -Force
@@ -513,6 +545,22 @@ try {
         -not (Test-Path -LiteralPath $unpackedBinaryPath -PathType Leaf)) {
         throw "MSIX verification could not recover its manifest and executable"
     }
+    $unpackedVisualAssetInventory = @(
+        Get-WindowsVisualAssetDirectoryInventory -AssetRoot (Join-Path $unpackRoot "Assets")
+    )
+    Assert-WindowsVisualAssetInventoriesEqual -Expected $sourceVisualAssetInventory `
+        -Actual $unpackedVisualAssetInventory -Label "unpacked MSIX"
+    $unpackedPRIPath = Join-Path $unpackRoot "resources.pri"
+    $unpackedPRIFiles = @(Get-ChildItem -LiteralPath $unpackRoot -Recurse -File -Filter "*.pri")
+    if ($unpackedPRIFiles.Count -ne 1 -or
+        -not $unpackedPRIFiles[0].FullName.Equals(
+            $unpackedPRIPath, [System.StringComparison]::Ordinal) -or
+        (Get-SHA256 $unpackedPRIPath) -cne $stagedPRIHash) {
+        throw "Packed MSIX must preserve the exact single root resources.pri"
+    }
+    $null = Assert-WindowsVisualAssetsPRI -PRIPath $unpackedPRIPath `
+        -PackageIdentityName $PackageIdentityName -MakePriPath $makepri `
+        -DumpPath (Join-Path $priAuditRoot "unpacked-resources.xml")
     [xml]$unpackedManifest = [System.IO.File]::ReadAllText($unpackedManifestPath)
     $unpackedNamespace = [System.Xml.XmlNamespaceManager]::new($unpackedManifest.NameTable)
     $unpackedNamespace.AddNamespace(
@@ -641,7 +689,7 @@ try {
     Write-Output "msix_manifest: $manifestOut"
 }
 finally {
-    foreach ($temporaryRoot in @($staging, $unpackRoot, $uploadRoot)) {
+    foreach ($temporaryRoot in @($staging, $unpackRoot, $uploadRoot, $priAuditRoot)) {
         if (-not [string]::IsNullOrWhiteSpace($temporaryRoot) -and
             (Test-Path -LiteralPath $temporaryRoot)) {
             Remove-Item -LiteralPath $temporaryRoot -Recurse -Force

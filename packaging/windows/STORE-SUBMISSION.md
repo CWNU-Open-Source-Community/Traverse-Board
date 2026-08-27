@@ -230,7 +230,7 @@ under a reviewed workspace, then run:
   -StoreListingZhCNPath <listing.zh-CN.md> `
   -StoreListingEnUSPath <listing.en-US.md> `
   -PrivacyPolicyPath <privacy-policy.md> `
-  -StoreIconPath <store-icon.png> `
+  -StoreIconPath packaging/windows/StoreListingIcon.png `
   -StoreListingReadbackPath <listing-readback.json> `
   -GitHubReleaseReadbackPath <github-release-readback.md> `
   -ArtifactAttestationIndexPath <artifact-attestations.json> `

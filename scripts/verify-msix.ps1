@@ -85,6 +85,8 @@ function Get-PEProcessorArchitecture {
 
 $repositoryRoot = [System.IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 $manifestFile = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $ManifestPath))
+$assetRoot = Join-Path $repositoryRoot "packaging/windows/Assets"
+$visualAssetHelperPath = Join-Path $repositoryRoot "scripts/windows-visual-assets.ps1"
 $repositoryPrefix = $repositoryRoot.TrimEnd('\', '/') +
     [System.IO.Path]::DirectorySeparatorChar
 if (-not $manifestFile.StartsWith($repositoryPrefix,
@@ -114,6 +116,22 @@ if ([string]$evidence.protocol_version -ceq "msix_manifest.v2") {
         if ($null -eq $property -or $property.Value -isnot [bool]) {
             throw "MSIX evidence field must be a JSON boolean: $booleanField"
         }
+    }
+}
+
+$sourceVisualAssetInventory = @()
+$makepri = ""
+if ([string]$evidence.protocol_version -ceq "msix_manifest.v2") {
+    if (-not (Test-Path -LiteralPath $visualAssetHelperPath -PathType Leaf)) {
+        throw "Windows visual-asset verifier is missing: $visualAssetHelperPath"
+    }
+    . $visualAssetHelperPath
+    $sourceVisualAssetInventory = @(
+        Get-WindowsVisualAssetDirectoryInventory -AssetRoot $assetRoot
+    )
+    $makepri = Find-WindowsVisualAssetSDKTool -Name "makepri"
+    if ($null -eq $makepri) {
+        throw "makepri.exe is required for independent resources.pri verification"
     }
 }
 
@@ -234,6 +252,47 @@ function Inspect-Package {
             $executableEntries.Count -ne 1 -or
             $launchers.Count -ne 0) {
             throw "MSIX must contain one manifest, only TraverseBoard.exe, and no launcher scripts"
+        }
+        if ([string]$evidence.protocol_version -ceq "msix_manifest.v2") {
+            $archiveVisualAssetInventory = @(
+                Get-WindowsVisualAssetArchiveInventory -Archive $archive
+            )
+            Assert-WindowsVisualAssetInventoriesEqual `
+                -Expected $sourceVisualAssetInventory `
+                -Actual $archiveVisualAssetInventory -Label "MSIX archive"
+
+            $priEntries = @($archive.Entries | Where-Object {
+                    [System.IO.Path]::GetExtension([string]$_.FullName) -ieq ".pri"
+                })
+            if ($priEntries.Count -ne 1 -or
+                [string]$priEntries[0].FullName -cne "resources.pri" -or
+                [int64]$priEntries[0].Length -le 0) {
+                throw "MSIX must contain exactly one non-empty root resources.pri"
+            }
+            $priAuditRoot = Join-Path ([System.IO.Path]::GetTempPath()) (
+                "TraverseBoard-msix-pri-audit-" + [guid]::NewGuid().ToString("N"))
+            [System.IO.Directory]::CreateDirectory($priAuditRoot) | Out-Null
+            try {
+                $extractedPRIPath = Join-Path $priAuditRoot "resources.pri"
+                $priInput = $priEntries[0].Open()
+                $priOutput = [System.IO.File]::Create($extractedPRIPath)
+                try {
+                    $priInput.CopyTo($priOutput)
+                }
+                finally {
+                    $priOutput.Dispose()
+                    $priInput.Dispose()
+                }
+                $null = Assert-WindowsVisualAssetsPRI `
+                    -PRIPath $extractedPRIPath -PackageIdentityName $packageName `
+                    -MakePriPath $makepri `
+                    -DumpPath (Join-Path $priAuditRoot "resources.xml")
+            }
+            finally {
+                if (Test-Path -LiteralPath $priAuditRoot -PathType Container) {
+                    Remove-Item -LiteralPath $priAuditRoot -Recurse -Force
+                }
+            }
         }
         $manifestStream = $manifestEntries[0].Open()
         $reader = [System.IO.StreamReader]::new(
