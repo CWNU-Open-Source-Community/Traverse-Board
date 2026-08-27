@@ -15,6 +15,7 @@ func removeSchemaV136ForTestStatements() []string {
 		"CREATE TABLE approval_session_grants (",
 		"CREATE TABLE approval_session_grants_v135_restore (", 1)
 	prefix := []string{
+		`DELETE FROM schema_migrations WHERE version = 138`,
 		`PRAGMA foreign_keys = OFF`,
 		`PRAGMA legacy_alter_table = ON`,
 		`DROP TRIGGER trg_standard_code_delivery_insert`,

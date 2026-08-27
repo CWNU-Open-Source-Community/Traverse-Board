@@ -378,6 +378,7 @@ func migrationPlan() []migration {
 		{Version: 135, Name: "bounded Standard Code Supervisor completion and Code Intel call ledger", Statements: standardCodeSupervisorStatements, DisableForeignKeys: true},
 		{Version: 136, Name: "durable exact risk escalation approvals and bounded grants", Statements: riskEscalationStatements},
 		{Version: 137, Name: "immutable Standard Code delivery truth receipts", Statements: standardCodeDeliveryStatements},
+		{Version: 138, Name: "legacy v136 Supervisor authority trigger repair", Statements: legacyRiskEscalationSupervisorTriggerRepairStatements},
 	}
 }
 
