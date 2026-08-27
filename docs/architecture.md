@@ -788,7 +788,9 @@ SQLite remains the local source of truth. Schema migration `v1` records the lega
 Schema `v134` adds Run-scoped Web search, fetched snapshots, and citations.
 Schema `v135` adds the bounded Standard Code root completion ledger; `v136` adds
 durable risk escalation, grants, consumption and uncertain-execution recovery;
-and `v137` adds immutable Standard Code delivery truth receipts. Every migration
+`v137` adds immutable Standard Code delivery truth receipts; and `v138` accepts
+one exact intermediate Windows preview v136 checksum before rebuilding its two
+missing Supervisor risk-authority triggers. Every migration
 preserves earlier history and fabricates no completion, approval, or verification fact.
 
 ## Standard Code delivery truth gate

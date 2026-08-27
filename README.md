@@ -444,7 +444,7 @@ Partner Center 的 identity、版本、上传与 `runFullTrust` 认证步骤见
 完整逐切片原始记录保留在 [`PROGRESS_BOOK.md`](docs/PROGRESS_BOOK.md)，当前检查点与验收证据保留在 [`PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)，恢复上下文见 [`PROJECT_MEMORY.md`](docs/PROJECT_MEMORY.md)。这些账本是历史记录，不应被当作待重新执行的任务列表。
 
 <details>
-<summary><strong>SQLite Schema v1-v136 迁移审计表 / Migration ledger</strong></summary>
+<summary><strong>SQLite Schema v1-v138 迁移审计表 / Migration ledger</strong></summary>
 
 此表是 Store 防漏迁移测试使用的审计合同。新增 schema 时必须按顺序追加，不得改写或删除既有行。
 
@@ -587,6 +587,7 @@ Partner Center 的 identity、版本、上传与 `runFullTrust` 认证步骤见
 | v135 | 持久化 Standard Code root Supervisor 的有界 Inspect→Edit→Execute→Verify 状态、预算、拒绝和结构化证据，并补全 Code Intel 调用账本约束 | persist bounded Inspect→Edit→Execute→Verify state, budgets, denials, and structural evidence for the Standard Code root Supervisor and complete the Code Intel call-ledger constraints |
 | v136 | 增加精确高风险提案、有界 Run grant 消费、持久等待/恢复、write-ahead 不确定性与漂移失效账本 | add exact risk proposals, bounded Run-grant consumption, durable wait/resume, write-ahead uncertainty, and drift invalidation ledgers |
 | v137 | 增加 Standard Code 最终 Checkpoint、Diff/Command Artifact 对齐、不可变完成收据与动态 stale 投影 | add the Standard Code final Checkpoint, aligned Diff/Command Artifacts, immutable completion receipts, and dynamic stale projection |
+| v138 | 精确兼容 v136 Windows 中间预览历史，并重建缺失的 Supervisor 高风险提案权限触发器 | accept the exact intermediate Windows preview v136 history and rebuild its missing Supervisor risk-authority triggers |
 
 </details>
 

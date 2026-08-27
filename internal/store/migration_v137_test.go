@@ -9,6 +9,7 @@ import (
 
 func removeSchemaV137ForTestStatements() []string {
 	return []string{
+		`DELETE FROM schema_migrations WHERE version = 138`,
 		`DROP TRIGGER trg_standard_code_delivery_insert`,
 		`DROP TRIGGER trg_standard_code_delivery_update_immutable`,
 		`DROP TRIGGER trg_standard_code_delivery_delete_immutable`,

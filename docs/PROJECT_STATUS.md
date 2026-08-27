@@ -1,12 +1,22 @@
 # Project Status
 
-Last updated: 2026-08-26
+Last updated: 2026-08-28
 
 > **Scope authority:** active mainline work targets the general-purpose Agent Harness and Code workflow. CTF-specific solving and offensive automation are optional add-ons and have no active implementation schedule. Historical references and percentages below remain audit history, not queued work. See [Product Scope](PRODUCT_SCOPE.md).
 
 ## Resume Context
 
-当前检查点是 issue #139 / SQLite schema v137。`standard_code_delivery.v1` 将最终
+当前数据库检查点是 SQLite schema v138。一个正式 v136 固化前的 Windows Desktop
+预览版写入了精确 checksum
+`5cccad921f47d44ac37f2206e91b355d55ce221d6c9c61e25e7fc08f1cbb6dbd`；其余 v136
+结构与正式定义一致，但缺少 `trg_risk_escalation_supervisor_authority_insert` 和
+`trg_host_command_supervisor_envelope_immutable`。迁移校验只为 version 136、正式 migration
+名称和这一个 checksum 开放窄兼容路径；任意其他 checksum、错误名称、版本断层或未知历史仍
+失败关闭。v138 在同一事务内重建两枚正式 trigger，不改写既有 v136 ledger，不删除、重置或
+替换业务数据。受影响数据库可原地前向升级，正式 v136/v137 数据库也收敛到同一最终定义；
+决策与回滚边界见 ADR 0146。
+
+上一功能检查点是 issue #139 / SQLite schema v137。`standard_code_delivery.v1` 将最终
 Checkpoint、base/head、真实 committed/index/worktree/untracked/conflict Diff、Command Runtime
 终态/exit/tree-reaped、输出摘要与 Artifact、重试次数、permission/backend generation 及未覆盖项
 收敛为同一不可变 receipt。只有全部验证对应当前 Drydock Workspace revision 且证据完整时才为

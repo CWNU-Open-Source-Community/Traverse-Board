@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const LatestSchemaVersion = 137
+const LatestSchemaVersion = 138
 
 type migration struct {
 	Version            int
@@ -8965,19 +8965,23 @@ func validateMigrationPlan(migrations []migration, applied map[int]appliedMigrat
 }
 
 const (
-	legacyWindowsPreviewMigration30Checksum = "bef87a078e337c7c78f020b0470b5d3c8a889a42c3f5993ef62f16e761018ae7"
-	legacyWindowsPreviewMigration97Checksum = "844427411efc98247ebf521badb98a8c96e3a17b8aa5c7d429b7192d4dcad83b"
+	legacyWindowsPreviewMigration30Checksum  = "bef87a078e337c7c78f020b0470b5d3c8a889a42c3f5993ef62f16e761018ae7"
+	legacyWindowsPreviewMigration97Checksum  = "844427411efc98247ebf521badb98a8c96e3a17b8aa5c7d429b7192d4dcad83b"
+	legacyWindowsPreviewMigration136Checksum = "5cccad921f47d44ac37f2206e91b355d55ce221d6c9c61e25e7fc08f1cbb6dbd"
 )
 
 func acceptedMigrationChecksum(item migration, recorded string) bool {
 	if recorded == migrationChecksum(item) {
 		return true
 	}
-	// Two Windows preview profiles recorded these exact released histories.
-	// Migration v125 repairs the legacy v97 cleanup trigger after validation.
-	// The compatibility path is immutable and cannot be widened at runtime.
+	// Windows preview profiles recorded these exact released histories.
+	// Migration v125 repairs the legacy v97 cleanup trigger after validation;
+	// v138 repairs the two Supervisor authority triggers absent from the pinned
+	// intermediate v136 history. The compatibility path remains exact and cannot
+	// be widened at runtime.
 	return (item.Version == 30 && recorded == legacyWindowsPreviewMigration30Checksum) ||
-		(item.Version == 97 && recorded == legacyWindowsPreviewMigration97Checksum)
+		(item.Version == 97 && recorded == legacyWindowsPreviewMigration97Checksum) ||
+		(item.Version == 136 && recorded == legacyWindowsPreviewMigration136Checksum)
 }
 
 func migrationChecksum(item migration) string {
