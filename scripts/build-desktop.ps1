@@ -13,11 +13,8 @@ $repositoryFull = [System.IO.Path]::GetFullPath($repositoryRoot)
 $binaryPath = Join-Path $outputRoot "TraverseBoard.exe"
 $reproBinaryPath = Join-Path $outputRoot "TraverseBoard.repro.exe"
 $metadataPath = Join-Path $outputRoot "release-metadata.json"
-$launcherName = "Start-Prayu-Operator-Preview.cmd"
 $guideName = "LOCAL-TEST-GUIDE.txt"
-$launcherSourcePath = Join-Path $repositoryRoot "packaging/windows/$launcherName"
 $guideSourcePath = Join-Path $repositoryRoot "packaging/windows/$guideName"
-$launcherPath = Join-Path $outputRoot $launcherName
 $guidePath = Join-Path $outputRoot $guideName
 $goSumPath = Join-Path $repositoryRoot "go.sum"
 $nodeLockPath = Join-Path $repositoryRoot "web/package-lock.json"
@@ -35,9 +32,8 @@ if (-not $outputRoot.StartsWith($repositoryFull + [System.IO.Path]::DirectorySep
 if ($Version -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$') {
     throw "Desktop release version is invalid"
 }
-if (-not (Test-Path -LiteralPath $launcherSourcePath -PathType Leaf) -or
-    -not (Test-Path -LiteralPath $guideSourcePath -PathType Leaf)) {
-    throw "Desktop operator-preview launcher and local test guide are required"
+if (-not (Test-Path -LiteralPath $guideSourcePath -PathType Leaf)) {
+    throw "Desktop local test guide is required"
 }
 foreach ($provenanceInput in @($goSumPath, $nodeLockPath, $cargoLockPath,
         $rustToolchainPath, $embeddedAnalyzerPath)) {
@@ -151,7 +147,18 @@ try {
     }
 
     New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
-    Copy-Item -LiteralPath $launcherSourcePath -Destination $launcherPath -Force
+    # Current end-user builds launch TraverseBoard.exe directly. Remove stale
+    # generated shortcuts so an incremental build cannot accidentally publish
+    # either the pre-brand or current-brand developer launcher.
+    foreach ($staleLauncher in @(
+            "Start-Prayu-Operator-Preview.cmd",
+            "Start-Traverse-Board.cmd"
+        )) {
+        $staleLauncherPath = Join-Path $outputRoot $staleLauncher
+        if (Test-Path -LiteralPath $staleLauncherPath -PathType Leaf) {
+            Remove-Item -LiteralPath $staleLauncherPath -Force
+        }
+    }
     Copy-Item -LiteralPath $guideSourcePath -Destination $guidePath -Force
     $ldflags = @(
         "-s", "-w", "-H=windowsgui",
@@ -190,7 +197,6 @@ try {
     }
 
     $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $binaryPath).Hash.ToLowerInvariant()
-    $launcherHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $launcherPath).Hash.ToLowerInvariant()
     $guideHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $guidePath).Hash.ToLowerInvariant()
     $metadata = [ordered]@{
         protocol_version = "portable_release_metadata.v1"
@@ -212,9 +218,9 @@ try {
         trimpath = $true
         binary_name = "TraverseBoard.exe"
         sha256 = $hash
-        operator_preview_included = $true
-        operator_preview_launcher_name = $launcherName
-        operator_preview_launcher_sha256 = $launcherHash
+        operator_preview_included = $false
+        operator_preview_launcher_name = ""
+        operator_preview_launcher_sha256 = ""
         local_test_guide_name = $guideName
         local_test_guide_sha256 = $guideHash
         default_ui_language = "zh-CN"
@@ -241,7 +247,7 @@ finally {
 Write-Output "desktop_binary: $binaryPath"
 Write-Output "desktop_sha256: $hash"
 Write-Output "release_metadata: $metadataPath"
-Write-Output "operator_preview_launcher: $launcherPath"
+Write-Output "desktop_launch_contract: direct TraverseBoard.exe with no launcher script"
 Write-Output "local_test_guide: $guidePath"
 Write-Output "desktop_reproducible: $reproducible"
 Write-Output "desktop_installer_included: false"

@@ -19,6 +19,7 @@ canonical repository URLs while preserving compatibility identifiers.
 | [Compatibility and migration matrix](compatibility-matrix.md) | 展示名、仓库地址、协议、数据目录、包身份和发布件的迁移边界 |
 | [ADR 0124](../adr/0124-traverse-board-branding-migration.md) | 品牌决策、仓库 slug、后果与兼容边界 |
 | [ADR 0125](../adr/0125-traverse-board-windows-executable-name.md) | `v0.1.0-rc.2` Windows 对外 EXE 文件名迁移 |
+| [ADR 0145](../adr/0145-windows-two-deliverable-release-contract.md) | Windows Store 包、直发 EXE 与内部验证件边界 |
 
 ## 官方图形标志 / Official Mark
 
@@ -56,6 +57,9 @@ transparent master above; generative redraws and letter placeholders are not can
   避免与 `rust-analyzer` 语言服务器混淆。
 - 从 `v0.1.0-rc.2` 开始，Windows 对外可执行文件名为 `TraverseBoard.exe`；内部 Go
   入口、数据与安装 identity 继续遵循兼容边界，详见 ADR 0125。
+- 当前 Windows 用户成品仅指 Microsoft Store 包与可直接双击的 `TraverseBoard.exe`；
+  便携 ZIP/sidecar 属于内部验证或证据，源码与新 Release 不再提供 Start 脚本，详见
+  ADR 0145。该边界不表示 Store 认证或正式签名已经完成。
 
 ## 授权边界 / Authorization Boundary
 

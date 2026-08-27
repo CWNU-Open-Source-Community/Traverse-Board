@@ -43,9 +43,11 @@ ASCII-only and cannot contain spaces, the middle dot, or Chinese characters.
 | Browser storage keys | `prayu.*` | Existing UI preferences |
 | CSS/component internals | `prayu-*`, `PrayuBrand` | Non-user-visible; churn has no migration value |
 | npm package name | `prayu-web` | Build-only package identity |
-| Windows MSIX identity | `PrayuDesktop` | ADR 0110 upgrade/uninstall identity |
+| Historical/local MSIX identity | `PrayuDesktop` | Preserve existing local-test evidence; it is not proof of the Partner Center identity |
+| Microsoft Store MSIX identity | Exact Partner Center-assigned values | ADR 0145 Store submission identity; value and acceptance must be read back, never guessed |
 | macOS bundle identifier | `workbench.prayu.desktop` | Installed-app identity and future signing/notarization |
-| Current artifact names | `Prayu-portable-*`, `PrayuDesktop.msix`, `Start-Prayu-*` | Download scripts and verification patterns |
+| Historical artifact names | `Prayu-portable-*`, `PrayuDesktop.msix`, `Start-Prayu-*` | Published Release assets stay immutable; they are not current product naming guidance |
+| Current Windows Start helper | none | ADR 0145 makes direct `TraverseBoard.exe` the source and release entry |
 
 An internal identifier may retain an old brand indefinitely if changing it creates risk but no
 user benefit. Documentation must identify it as a compatibility identifier, not unfinished
@@ -63,6 +65,12 @@ This filename migration does not rename `cmd/cyberagent-desktop`, the `cyberagen
 module, data/configuration paths, environment variables, protocols, `PrayuDesktop` MSIX identity,
 or the macOS bundle executable.
 
+[ADR 0145](../adr/0145-windows-two-deliverable-release-contract.md) later narrows the current
+Windows user-facing release surface to a Store-certified package and a directly double-clickable
+`TraverseBoard.exe`. The portable ZIP and provenance sidecars are internal validation/evidence.
+There is no current source Start helper; the historical `Start-Prayu-Operator-Preview.cmd` is not
+published in new user-facing packages.
+
 ## 3. Later migration requirements
 
 ### `.prayu` project files
@@ -76,18 +84,23 @@ explicit retirement window. A one-release global rename is not acceptable.
 Changing either identity creates a new installed application rather than a display-only rename.
 It requires a separate ADR, clean-install and upgrade/downgrade/uninstall matrices, data-root and
 credential discovery tests, signing/notarization decisions, and explicit handling of side-by-side
-old/new installations. ADR 0110 remains authoritative until superseded.
+old/new installations. ADR 0145 is the separate decision for a Store-bound MSIX: its manifest
+must take the exact identity assigned by Partner Center, while the literal `PrayuDesktop`
+development identity remains historical/local unless Partner Center assigns that same value.
+ADR 0110 remains authoritative for compatible per-user install/data lifecycle, not as evidence
+that Store identity, certification, or signing has been granted.
 
-### Artifact and launcher names
+### Historical artifact names and current launcher
 
 The published `v0.1.0-rc.1` prerelease contains
 `Prayu-portable-v0.1.0-rc.1-windows-amd64.zip` plus checksums, SBOM, metadata, and manifests.
 Those immutable historical assets keep their original names; changing a release title or replacing
 an asset would not rename already downloaded files and could make provenance less clear. Future
-artifact naming, if desired, must update workflows, packaging scripts, checksums, SBOM metadata,
-verification scripts, README patterns, Windows/macOS guides, and smoke tests in one reviewed
-change. ADR 0125 is the scoped exception for the Windows executable inside and alongside those
-artifacts. Package identity remains a separate decision from artifact filename.
+artifact naming must update workflows, packaging scripts, checksums, SBOM metadata, verification
+scripts, README patterns, Windows/macOS guides, and smoke tests in one reviewed change. ADR 0125
+is the scoped exception for the Windows executable inside and alongside those artifacts. ADR 0145
+removes the current helper without a renamed replacement and forbids publishing launch scripts as
+new user-facing assets. Package identity remains a separate decision from artifact filename.
 
 ### CLI, module, environment and data directories
 

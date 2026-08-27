@@ -199,6 +199,7 @@ if ($Mode -eq "Prepare") {
     $launchRecord = [pscustomobject][ordered]@{
         protocol_version = "standard_code_product_launch.v1"
         candidate_sha256 = $candidateSHA
+        executable_name = "TraverseBoard.exe"
         executable_sha256 = $candidateSHA
         arguments = @()
         process_id = [int]$process.Id

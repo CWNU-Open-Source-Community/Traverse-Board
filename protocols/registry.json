@@ -654,6 +654,7 @@
         "finding_validation_request.v1",
         "macos_portable_compatibility.v1",
         "msix_manifest.v1",
+        "msix_manifest.v2",
         "sanitized_host_environment.v1",
         "scheduled-job-worker.v1",
         "scheduled_job_create_request.v1",

@@ -17,9 +17,20 @@ import (
 )
 
 const (
-	maximumCandidateMetadataBytes = 64 << 10
-	maximumCandidateBinaryBytes   = 512 << 20
+	maximumCandidateMetadataBytes  = 64 << 10
+	maximumCandidateCompanionBytes = 4 << 20
+	maximumCandidateBinaryBytes    = 512 << 20
 )
+
+var securityCandidateArchiveEntries = [...]string{
+	"TraverseBoard.exe",
+	"LOCAL-TEST-GUIDE.txt",
+	"LICENSE",
+	"README.md",
+	"NOTICE",
+	"sbom.json",
+	"release-metadata.json",
+}
 
 type SecurityMatrixOptions struct {
 	HarnessRoot      string
@@ -263,34 +274,51 @@ func VerifyStandardCodeSecurityCandidate(executablePath, archivePath string) (
 	}
 	defer reader.Close()
 	var metadata portableReleaseMetadata
+	allowed := make(map[string]bool, len(securityCandidateArchiveEntries))
+	for _, name := range securityCandidateArchiveEntries {
+		allowed[name] = true
+	}
+	seen := make(map[string]bool, len(securityCandidateArchiveEntries))
 	binaryMatches, metadataFound := false, false
+	localTestGuideSHA := ""
 	for _, entry := range reader.File {
 		if entry.Name != filepath.ToSlash(entry.Name) || strings.Contains(entry.Name, "../") ||
-			strings.HasPrefix(entry.Name, "/") || strings.ContainsRune(entry.Name, 0) {
+			strings.HasPrefix(entry.Name, "/") || strings.ContainsRune(entry.Name, 0) ||
+			filepath.Base(entry.Name) != entry.Name {
 			return SecurityCandidateEvidence{}, errors.New("candidate archive entry is unsafe")
 		}
+		if !allowed[entry.Name] || seen[entry.Name] {
+			return SecurityCandidateEvidence{},
+				fmt.Errorf("candidate archive entry %q is duplicate or not allowlisted", entry.Name)
+		}
+		seen[entry.Name] = true
 		switch entry.Name {
 		case "TraverseBoard.exe":
-			if binaryMatches {
-				return SecurityCandidateEvidence{}, errors.New("candidate archive has duplicate executable")
-			}
 			digest, err := hashZipEntry(entry, maximumCandidateBinaryBytes)
 			if err != nil || digest != executableSHA {
 				return SecurityCandidateEvidence{}, errors.New("running executable does not match candidate archive")
 			}
 			binaryMatches = true
-		case "release-metadata.json":
-			if metadataFound {
-				return SecurityCandidateEvidence{}, errors.New("candidate archive has duplicate release metadata")
+		case "LOCAL-TEST-GUIDE.txt":
+			localTestGuideSHA, err = hashZipEntry(entry, maximumCandidateCompanionBytes)
+			if err != nil {
+				return SecurityCandidateEvidence{}, errors.New("candidate local test guide is invalid")
 			}
+		case "release-metadata.json":
 			raw, err := readZipEntry(entry, maximumCandidateMetadataBytes)
 			if err != nil || strictJSON(raw, &metadata) != nil {
 				return SecurityCandidateEvidence{}, errors.New("candidate release metadata is invalid")
 			}
 			metadataFound = true
+		default:
+			if _, err := hashZipEntry(entry, maximumCandidateCompanionBytes); err != nil {
+				return SecurityCandidateEvidence{},
+					fmt.Errorf("candidate archive entry %q is invalid", entry.Name)
+			}
 		}
 	}
-	if !binaryMatches || !metadataFound || metadata.ProtocolVersion != "portable_release_metadata.v1" ||
+	if len(seen) != len(securityCandidateArchiveEntries) || !binaryMatches || !metadataFound ||
+		localTestGuideSHA == "" || metadata.ProtocolVersion != "portable_release_metadata.v1" ||
 		!lowercaseObjectPattern.MatchString(metadata.Revision) || metadata.SourceDateEpoch <= 0 ||
 		metadata.Modified || !metadata.ReproducibilityChecked || !metadata.Reproducible ||
 		!safeSecurityText(metadata.AppVersion, 128) || !safeSecurityText(metadata.GoVersion, 128) ||
@@ -303,11 +331,10 @@ func VerifyStandardCodeSecurityCandidate(executablePath, archivePath string) (
 		metadata.TargetOS != runtime.GOOS || metadata.TargetArch != runtime.GOARCH ||
 		(metadata.CGOEnabled != "0" && metadata.CGOEnabled != "1") || !metadata.Trimpath ||
 		metadata.BinaryName != "TraverseBoard.exe" || metadata.SHA256 != executableSHA ||
-		!metadata.OperatorPreviewIncluded ||
-		metadata.OperatorPreviewLauncherName != "Start-Prayu-Operator-Preview.cmd" ||
-		!lowercaseDigestPattern.MatchString(metadata.OperatorPreviewLauncherSHA256) ||
+		metadata.OperatorPreviewIncluded || metadata.OperatorPreviewLauncherName != "" ||
+		metadata.OperatorPreviewLauncherSHA256 != "" ||
 		metadata.LocalTestGuideName != "LOCAL-TEST-GUIDE.txt" ||
-		!lowercaseDigestPattern.MatchString(metadata.LocalTestGuideSHA256) ||
+		metadata.LocalTestGuideSHA256 != localTestGuideSHA ||
 		metadata.DefaultUILanguage != "zh-CN" || metadata.InstallerIncluded ||
 		metadata.RegistryWrites || metadata.StartupTask || metadata.AutoUpdateEnabled ||
 		!metadata.ManualWindows10MatrixRequired {

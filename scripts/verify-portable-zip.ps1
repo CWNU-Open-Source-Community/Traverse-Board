@@ -37,13 +37,28 @@ function Get-SHA256 {
     return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
 }
 
+function Assert-JSONBooleanFields {
+    param(
+        [object]$Value,
+        [string[]]$Names,
+        [string]$Label
+    )
+    foreach ($name in $Names) {
+        $property = $Value.PSObject.Properties[$name]
+        Assert-ReleaseCondition ($null -ne $property -and $property.Value -is [bool]) `
+            "$Label field must be a JSON boolean: $name"
+    }
+}
+
 $manifestPath = Join-Path $outputRoot "portable-zip-manifest.json"
 $metadataPath = Join-Path $outputRoot "release-metadata.json"
-$sumsPath = Join-Path $outputRoot "SHA256SUMS"
+$sumsPath = Join-Path $outputRoot "verification-SHA256SUMS"
+$publicSumsPath = Join-Path $outputRoot "SHA256SUMS"
 $binaryPath = Join-Path $outputRoot "TraverseBoard.exe"
 $sbomPath = Join-Path $outputRoot "sbom.json"
 $noticePath = Join-Path $outputRoot "NOTICE"
-foreach ($required in @($manifestPath, $metadataPath, $sumsPath, $binaryPath, $sbomPath, $noticePath)) {
+foreach ($required in @($manifestPath, $metadataPath, $sumsPath, $publicSumsPath,
+        $binaryPath, $sbomPath, $noticePath)) {
     Assert-ReleaseCondition (Test-Path -LiteralPath $required -PathType Leaf) `
         "Portable verification input is missing: $required"
 }
@@ -51,6 +66,14 @@ foreach ($required in @($manifestPath, $metadataPath, $sumsPath, $binaryPath, $s
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 $metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
 $sbom = Get-Content -LiteralPath $sbomPath -Raw | ConvertFrom-Json
+Assert-JSONBooleanFields -Value $manifest -Names @(
+    "zip_reproducibility_checked", "zip_timestamps_reproducible"
+) -Label "Portable manifest"
+Assert-JSONBooleanFields -Value $metadata -Names @(
+    "modified", "reproducibility_checked", "reproducible", "trimpath",
+    "operator_preview_included", "installer_included", "registry_writes",
+    "startup_task", "auto_update_enabled", "manual_windows_10_matrix_required"
+) -Label "Release metadata"
 
 Assert-ReleaseCondition ($manifest.protocol_version -eq "portable_zip_manifest.v1") `
     "Portable manifest protocol is unsupported"
@@ -62,8 +85,8 @@ Assert-ReleaseCondition ($manifest.version -eq $metadata.app_version) `
     "Portable manifest and release metadata versions differ"
 Assert-ReleaseCondition ($manifest.revision -eq $metadata.revision) `
     "Portable manifest and release metadata revisions differ"
-Assert-ReleaseCondition ([bool]$manifest.zip_reproducibility_checked -and
-    [bool]$manifest.zip_timestamps_reproducible) `
+Assert-ReleaseCondition ($manifest.zip_reproducibility_checked -and
+    $manifest.zip_timestamps_reproducible) `
     "Portable ZIP reproducibility was not checked"
 if (-not [string]::IsNullOrWhiteSpace($ExpectedVersion)) {
     Assert-ReleaseCondition ($manifest.version -ceq $ExpectedVersion) `
@@ -74,8 +97,12 @@ if (-not [string]::IsNullOrWhiteSpace($ExpectedRevision)) {
         "Portable release revision does not match the expected revision"
 }
 Assert-ReleaseCondition ($metadata.revision -match '^[0-9a-f]{40}$' -and
-    -not [bool]$metadata.modified -and [bool]$metadata.reproducibility_checked -and
-    [bool]$metadata.reproducible) "Release metadata is not clean and reproducible"
+    -not $metadata.modified -and $metadata.reproducibility_checked -and
+    $metadata.reproducible) "Release metadata is not clean and reproducible"
+Assert-ReleaseCondition (-not $metadata.operator_preview_included -and
+    [string]::IsNullOrEmpty([string]$metadata.operator_preview_launcher_name) -and
+    [string]::IsNullOrEmpty([string]$metadata.operator_preview_launcher_sha256)) `
+    "Windows release metadata still requires an operator-preview launcher"
 Assert-ReleaseCondition ($metadata.go_version -match '^go[0-9]+\.[0-9]+' -and
     $metadata.node_version -match '^v[0-9]+\.[0-9]+\.[0-9]+' -and
     $metadata.npm_version -match '^[0-9]+\.[0-9]+\.[0-9]+' -and
@@ -94,8 +121,7 @@ Assert-ReleaseCondition (Test-Path -LiteralPath $zipPath -PathType Leaf) `
     "Portable ZIP is missing: $zipName"
 
 $allowedContents = @(
-    "TraverseBoard.exe", "Start-Prayu-Operator-Preview.cmd",
-    "LOCAL-TEST-GUIDE.txt", "LICENSE", "README.md", "NOTICE",
+    "TraverseBoard.exe", "LOCAL-TEST-GUIDE.txt", "LICENSE", "README.md", "NOTICE",
     "sbom.json", "release-metadata.json"
 )
 $contents = @($manifest.contents | ForEach-Object { [string]$_ })
@@ -184,6 +210,26 @@ foreach ($line in $sumLines) {
     Assert-ReleaseCondition ($seenSums.Add($name)) "SHA256SUMS contains a duplicate entry: $name"
     Assert-ReleaseCondition ($expectedSums.ContainsKey($name) -and
         $expectedSums[$name] -ceq $match.Groups['hash'].Value) "SHA256SUMS differs for: $name"
+}
+
+$expectedPublicSums = [System.Collections.Generic.Dictionary[string, string]]::new(
+    [System.StringComparer]::Ordinal)
+$expectedPublicSums.Add("TraverseBoard.exe", $binaryHash)
+$expectedPublicSums.Add("sbom.json", $sbomHash)
+$expectedPublicSums.Add("NOTICE", $noticeHash)
+$expectedPublicSums.Add("release-metadata.json", $metadataHash)
+$publicSumLines = @([System.IO.File]::ReadAllLines($publicSumsPath) |
+    Where-Object { $_.Length -ne 0 })
+Assert-ReleaseCondition ($publicSumLines.Count -eq $expectedPublicSums.Count) "Public SHA256SUMS entry count is invalid"
+$seenPublicSums = [System.Collections.Generic.HashSet[string]]::new(
+    [System.StringComparer]::Ordinal)
+foreach ($line in $publicSumLines) {
+    $match = [regex]::Match($line, '^(?<hash>[0-9a-f]{64})  (?<name>[^\\/:]+)$')
+    Assert-ReleaseCondition $match.Success "Public SHA256SUMS contains an invalid line"
+    $name = $match.Groups['name'].Value
+    Assert-ReleaseCondition ($seenPublicSums.Add($name)) "Public SHA256SUMS contains a duplicate entry: $name"
+    Assert-ReleaseCondition ($expectedPublicSums.ContainsKey($name) -and
+        [string]$expectedPublicSums[$name] -ceq $match.Groups['hash'].Value) "Public SHA256SUMS differs for: $name"
 }
 
 $notice = [System.IO.File]::ReadAllText($noticePath)

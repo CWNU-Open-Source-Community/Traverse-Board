@@ -68,6 +68,7 @@ func TestEvidenceFilesBindLaunchAndEveryManualProjection(t *testing.T) {
 	runbook := validRunbook()
 	launch := launchRecord{ProtocolVersion: "standard_code_product_launch.v1",
 		CandidateSHA256:  runbook.CandidateSHA256,
+		ExecutableName:   "TraverseBoard.exe",
 		ExecutableSHA256: runbook.CandidateSHA256, Arguments: []string{},
 		ProcessID: 4242, StartedAt: time.Now().UTC()}
 	launchBytes, err := json.Marshal(launch)
@@ -130,6 +131,17 @@ func TestEvidenceFilesBindLaunchAndEveryManualProjection(t *testing.T) {
 	runbook.Platforms[0].EvidencePath = "windows_10/repaired.png"
 	runbook.Platforms[0].EvidenceSHA256 = writeEvidence(runbook.Platforms[0].EvidencePath,
 		[]byte("repaired platform evidence"))
+	launch.ExecutableName = "Start-Traverse-Board.cmd"
+	launchBytes, err = json.Marshal(launch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runbook.DefaultLaunch.EvidenceSHA256 = writeEvidence(
+		runbook.DefaultLaunch.EvidencePath, launchBytes)
+	if err := validateEvidenceFiles(root, runbook); err == nil {
+		t.Fatal("script launcher was accepted as the direct product entry")
+	}
+	launch.ExecutableName = "TraverseBoard.exe"
 	launch.Arguments = []string{"--operator-preview"}
 	launchBytes, err = json.Marshal(launch)
 	if err != nil {
@@ -189,7 +201,7 @@ func TestReportSealRejectsTamperingAndIncompleteTruth(t *testing.T) {
 func TestValidateCandidateBindsExactPortableFilesAndOracle(t *testing.T) {
 	root := t.TempDir()
 	binaryPath := filepath.Join(root, "TraverseBoard.exe")
-	zipPath := filepath.Join(root, "Prayu-portable-v0.1.0-test-windows-amd64.zip")
+	zipPath := filepath.Join(root, "TraverseBoard-portable-v0.1.0-test-windows-amd64.zip")
 	metadataPath := filepath.Join(root, "release-metadata.json")
 	manifestPath := filepath.Join(root, "portable-zip-manifest.json")
 	fixturePath := filepath.Join(root, "fixture-set.json")
@@ -201,7 +213,6 @@ func TestValidateCandidateBindsExactPortableFilesAndOracle(t *testing.T) {
 	}
 	digest := strings.Repeat("a", 64)
 	revision := strings.Repeat("b", 40)
-	launcher := []byte("@echo off\r\n")
 	guide := []byte("Packaged test guide\r\n")
 	metadata := releaseMetadata{ProtocolVersion: "portable_release_metadata.v1",
 		AppVersion: "v0.1.0-test", Revision: revision, SourceDateEpoch: 946684800,
@@ -210,9 +221,9 @@ func TestValidateCandidateBindsExactPortableFilesAndOracle(t *testing.T) {
 		CargoLockSHA256: digest, EmbeddedAnalyzerSHA256: digest, TargetOS: "windows",
 		TargetArch: "amd64", CGOEnabled: "1", Trimpath: true,
 		BinaryName: "TraverseBoard.exe", SHA256: binaryHash,
-		OperatorPreviewIncluded:       true,
-		OperatorPreviewLauncherName:   "Start-Prayu-Operator-Preview.cmd",
-		OperatorPreviewLauncherSHA256: digestBytes(launcher),
+		OperatorPreviewIncluded:       false,
+		OperatorPreviewLauncherName:   "",
+		OperatorPreviewLauncherSHA256: "",
 		LocalTestGuideName:            "LOCAL-TEST-GUIDE.txt", LocalTestGuideSHA256: digestBytes(guide),
 		DefaultUILanguage: "zh-CN", ReproducibilityChecked: true, Reproducible: true,
 		ManualWindows10MatrixRequired: true}
@@ -221,18 +232,17 @@ func TestValidateCandidateBindsExactPortableFilesAndOracle(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeTestFile(t, metadataPath, metadataBytes)
-	contents := []string{"TraverseBoard.exe", "Start-Prayu-Operator-Preview.cmd",
-		"LOCAL-TEST-GUIDE.txt", "LICENSE", "README.md", "NOTICE", "sbom.json",
+	contents := []string{"TraverseBoard.exe", "LOCAL-TEST-GUIDE.txt",
+		"LICENSE", "README.md", "NOTICE", "sbom.json",
 		"release-metadata.json"}
 	archiveFiles := map[string][]byte{
-		"TraverseBoard.exe":                binaryBytes,
-		"Start-Prayu-Operator-Preview.cmd": launcher,
-		"LOCAL-TEST-GUIDE.txt":             guide,
-		"LICENSE":                          []byte("test license\n"),
-		"README.md":                        []byte("test readme\n"),
-		"NOTICE":                           []byte("test notice\n"),
-		"sbom.json":                        []byte(`{"bomFormat":"CycloneDX"}`),
-		"release-metadata.json":            metadataBytes,
+		"TraverseBoard.exe":     binaryBytes,
+		"LOCAL-TEST-GUIDE.txt":  guide,
+		"LICENSE":               []byte("test license\n"),
+		"README.md":             []byte("test readme\n"),
+		"NOTICE":                []byte("test notice\n"),
+		"sbom.json":             []byte(`{"bomFormat":"CycloneDX"}`),
+		"release-metadata.json": metadataBytes,
 	}
 	entries := make([]portableEntry, 0, len(contents))
 	for _, name := range contents {
@@ -284,6 +294,37 @@ func TestValidateCandidateBindsExactPortableFilesAndOracle(t *testing.T) {
 		oracle.ManifestSHA256 != definition.ManifestSHA256 {
 		t.Fatalf("unexpected candidate/oracle: %#v %#v", candidate, oracle)
 	}
+	legacyLauncherName := "Start-Traverse-Board.cmd"
+	legacyLauncher := []byte("@echo off\r\n")
+	legacyContents := append(append([]string(nil), contents...), legacyLauncherName)
+	archiveFiles[legacyLauncherName] = legacyLauncher
+	legacyEntries := append(append([]portableEntry(nil), entries...), portableEntry{
+		Name: legacyLauncherName, Size: int64(len(legacyLauncher)),
+		SHA256: digestBytes(legacyLauncher),
+	})
+	writeTestZip(t, zipPath, legacyContents, archiveFiles)
+	manifest.Contents = legacyContents
+	manifest.Entries = legacyEntries
+	manifest.ZipSHA256, _, err = fileDigest(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeJSON(t, manifestPath, manifest)
+	if _, _, err := ValidateCandidate(CandidateOptions{BinaryPath: binaryPath,
+		ZipPath: zipPath, PortableManifestPath: manifestPath,
+		ReleaseMetadataPath: metadataPath, FixtureReportPath: fixturePath,
+		ExpectedRevision: revision}); err == nil {
+		t.Fatal("portable ZIP with a CMD launcher was accepted")
+	}
+	delete(archiveFiles, legacyLauncherName)
+	writeTestZip(t, zipPath, contents, archiveFiles)
+	manifest.Contents = contents
+	manifest.Entries = entries
+	manifest.ZipSHA256, _, err = fileDigest(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeJSON(t, manifestPath, manifest)
 	writeTestFile(t, binaryPath, []byte("tampered-candidate"))
 	if _, _, err := ValidateCandidate(CandidateOptions{BinaryPath: binaryPath,
 		ZipPath: zipPath, PortableManifestPath: manifestPath,

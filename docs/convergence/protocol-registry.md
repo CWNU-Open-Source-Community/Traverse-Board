@@ -15,7 +15,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [browser-ui-evidence-ledgers](#browser-ui-evidence-ledgers) | `internal-durable` | Browser and UI evidence maintainers | 41 | true |
 | [capability-readiness-projection](#capability-readiness-projection) | `projection` | Application readiness maintainers | 3 | true |
 | [cli-headless-contract](#cli-headless-contract) | `external-durable` | CLI and headless surface maintainers | 2 | true |
-| [control-plane-ledgers](#control-plane-ledgers) | `internal-durable` | Core Go control-plane maintainers | 82 | true |
+| [control-plane-ledgers](#control-plane-ledgers) | `internal-durable` | Core Go control-plane maintainers | 83 | true |
 | [credential-provider-ledgers](#credential-provider-ledgers) | `internal-durable` | Credential, provider, model-route, and pricing maintainers | 5 | true |
 | [desktop-web-presentation-state](#desktop-web-presentation-state) | `projection` | Desktop and React workbench maintainers | 13 | true |
 | [docker-attach-process-session](#docker-attach-process-session) | `ephemeral` | Docker runtime transport maintainers | 1 | false |
@@ -399,7 +399,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `control-plane-ledgers-reader` (`v1, v2, v3`, active) at `internal/store`
 
-<details><summary>82 active identifiers</summary>
+<details><summary>83 active identifiers</summary>
 
 - `drydock-checkpoint-request.v1`
 - `drydock-checkpoint.v1`
@@ -421,6 +421,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `finding_validation_request.v1`
 - `macos_portable_compatibility.v1`
 - `msix_manifest.v1`
+- `msix_manifest.v2`
 - `sanitized_host_environment.v1`
 - `scheduled-job-worker.v1`
 - `scheduled_job_create_request.v1`

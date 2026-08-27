@@ -79,5 +79,8 @@ go run ./cmd/releasegate `
 
 ## 不在本门内的发布声明
 
-本门允许将通过候选标记为 Beta/Pre-release，但不伪造 #123 的正式代码签名、Microsoft Store
-分发或更广平台认证。Full Access、Debug Maximum Access 与 Full CDP 仍是高级、默认关闭能力。
+本门是预发布与稳定发布共同的候选前置门，但不伪造 #123 的正式代码签名、Microsoft Store
+分发或更广平台认证。稳定直发 EXE 还必须独立通过 ADR 0145 的 Authenticode 门；Store 候选
+还必须通过精确 Partner Center identity、显式 Store version 与架构门，且只有 Partner Center
+接收和认证结果能证明 Store 成品完成。Full Access、Debug Maximum Access 与 Full CDP 仍是
+高级、默认关闭能力。

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Portable release version (for example v0.1.0-rc.1)
+        description: Windows release version (for example v0.1.0-rc.1)
         required: true
         default: v0.1.0-rc.1
         type: string
@@ -20,12 +20,14 @@ on:
       - 'internal/releasegate/**'
       - 'scripts/build-desktop.ps1'
       - 'scripts/check-windows-compat.ps1'
+      - 'scripts/package-msix.ps1'
       - 'scripts/package-portable-zip.ps1'
       - 'scripts/release-desktop.ps1'
       - 'scripts/smoke-desktop-operator-preview.ps1'
       - 'scripts/standard-code-packaged-e2e.ps1'
       - 'scripts/standard-code-product-e2e.ps1'
       - 'scripts/verify-portable-zip.ps1'
+      - 'scripts/verify-msix.ps1'
       - 'docs/standard-code-packaged-e2e.md'
       - 'docs/standard-code-product-e2e.md'
       - 'docs/standard-code-release-gate.md'
@@ -125,16 +127,21 @@ jobs:
             internal/analyzer/embedded/cyberagent-analyzer-fixture.wasm
 
   portable-zip:
-    name: Portable ZIP (reproducible + verified)
+    name: Windows dual-product candidate
     needs: dependency-boundaries
     runs-on: windows-latest
     env:
       TRAVERSE_BOARD_LOCAL_SANDBOX_TEST_HOST_PREP: '1'
+      STORE_PACKAGE_IDENTITY_NAME: ${{ vars.STORE_PACKAGE_IDENTITY_NAME }}
+      STORE_PACKAGE_PUBLISHER: ${{ vars.STORE_PACKAGE_PUBLISHER }}
+      STORE_PUBLISHER_DISPLAY_NAME: ${{ vars.STORE_PUBLISHER_DISPLAY_NAME }}
+      STORE_PACKAGE_VERSION: ${{ vars.STORE_PACKAGE_VERSION }}
     outputs:
       version: ${{ steps.release.outputs.version }}
       msix_version: ${{ steps.release.outputs.msix_version }}
       revision: ${{ steps.release.outputs.revision }}
       artifact_name: ${{ steps.release.outputs.artifact_name }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
     steps:
       - name: Checkout exact source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -162,14 +169,12 @@ jobs:
           } else {
             throw "Unsupported Desktop release event"
           }
-          if ($version -notmatch '^v(?<major>[0-9]+)\.(?<minor>[0-9]+)\.(?<patch>[0-9]+)(?:[-+][0-9A-Za-z.-]+)?$') {
+          if ($version -notmatch '^v(?<major>[0-9]+)\.(?<minor>[0-9]+)\.(?<patch>[0-9]+)(?:(?<prerelease>-[0-9A-Za-z.-]+)|(?<build>\+[0-9A-Za-z.-]+))?$') {
             throw "Desktop release version is invalid"
           }
+          $isPrerelease = -not [string]::IsNullOrEmpty([string]$Matches.prerelease)
           foreach ($part in @($Matches.major, $Matches.minor, $Matches.patch)) {
             if ([int64]$part -gt 65535) { throw "MSIX release version component is too large" }
-          }
-          if ($env:EVENT_NAME -ne "pull_request" -and -not $version.Contains("-")) {
-            throw "Standard Code Beta releases must use a prerelease version"
           }
           $msixVersion = "$($Matches.major).$($Matches.minor).$($Matches.patch).0"
           $revision = (git rev-parse HEAD).Trim()
@@ -184,7 +189,8 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
           "msix_version=$msixVersion" >> $env:GITHUB_OUTPUT
           "revision=$revision" >> $env:GITHUB_OUTPUT
-          "artifact_name=Prayu-desktop-release-$artifactVersion" >> $env:GITHUB_OUTPUT
+          "artifact_name=TraverseBoard-windows-release-$artifactVersion" >> $env:GITHUB_OUTPUT
+          "prerelease=$($isPrerelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
       - name: Set up pinned Go 1.25.12
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -210,11 +216,55 @@ jobs:
         shell: pwsh
         run: ./scripts/build-desktop.ps1 -Version '${{ steps.release.outputs.version }}' -VerifyReproducible
 
-      - name: Package portable ZIP with SBOM, NOTICE, checksums, and manifest
+      - name: Validate Store configuration and formal direct-EXE trust
+        if: ${{ github.event_name != 'pull_request' }}
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          IS_PRERELEASE: ${{ steps.release.outputs.prerelease }}
+        run: |
+          $storeValues = @(
+            $env:STORE_PACKAGE_IDENTITY_NAME,
+            $env:STORE_PACKAGE_PUBLISHER,
+            $env:STORE_PUBLISHER_DISPLAY_NAME,
+            $env:STORE_PACKAGE_VERSION
+          )
+          $configured = @($storeValues | Where-Object {
+              -not [string]::IsNullOrWhiteSpace([string]$_)
+            }).Count
+          if ($configured -ne 0 -and $configured -ne $storeValues.Count) {
+            throw "Store identity configuration is partial"
+          }
+          if ($env:IS_PRERELEASE -notin @("true", "false")) {
+            throw "Resolved prerelease state is invalid"
+          }
+          $stable = $env:IS_PRERELEASE -ceq "false"
+          if ($stable -and $configured -ne $storeValues.Count) {
+            throw "A stable release requires the exact Partner Center identity and an explicit Store package version"
+          }
+          if ($configured -eq $storeValues.Count) {
+            $parts = @($env:STORE_PACKAGE_VERSION.Split("."))
+            if ($parts.Count -ne 4 -or $parts[0] -notmatch '^[1-9][0-9]*$' -or
+                $parts[1] -notmatch '^[0-9]+$' -or $parts[2] -notmatch '^[0-9]+$' -or
+                $parts[3] -cne "0") {
+              throw "Store package version must be explicit, four-part, Major >= 1, and Revision = 0"
+            }
+            foreach ($part in $parts) {
+              if ([uint64]$part -gt 65535) { throw "Store package version component is too large" }
+            }
+          }
+          if ($stable) {
+            $signature = Get-AuthenticodeSignature -LiteralPath build/desktop/TraverseBoard.exe
+            if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+              throw "A stable direct EXE release requires a valid Authenticode signature"
+            }
+          }
+
+      - name: Package internal verification ZIP with evidence
         shell: pwsh
         run: ./scripts/package-portable-zip.ps1 -Version '${{ steps.release.outputs.version }}' -VerifyReproducible
 
-      - name: Verify downloaded-shape artifact and start extracted executable
+      - name: Verify direct executable through the internal archive
         shell: pwsh
         run: |
           ./scripts/verify-portable-zip.ps1 `
@@ -241,6 +291,9 @@ jobs:
             "standard-code-security-evidence.json"
           )
           $assets = @($release.assets)
+          if ($assets.Count -ne $required.Count) {
+            throw "The candidate evidence Draft Release must contain exactly the two required evidence assets"
+          }
           foreach ($name in $required) {
             $matches = @($assets | Where-Object { [string]$_.name -ceq $name })
             if ($matches.Count -ne 1 -or [int64]$matches[0].size -le 0 -or
@@ -288,11 +341,47 @@ jobs:
             -AggregateOutputPath 'build/desktop/standard-code-release-gate.json' `
             -RequireReleaseGate
 
-      - name: Package unsigned per-user MSIX candidate
+      - name: Package unsigned development MSIX candidate
+        if: ${{ github.event_name == 'pull_request' || vars.STORE_PACKAGE_IDENTITY_NAME == '' || vars.STORE_PACKAGE_PUBLISHER == '' || vars.STORE_PUBLISHER_DISPLAY_NAME == '' || vars.STORE_PACKAGE_VERSION == '' }}
         shell: pwsh
         run: ./scripts/package-msix.ps1 -Version '${{ steps.release.outputs.msix_version }}'
 
-      - name: Upload exact Desktop release candidates
+      - name: Inspect development MSIX candidate
+        if: ${{ github.event_name == 'pull_request' || vars.STORE_PACKAGE_IDENTITY_NAME == '' || vars.STORE_PACKAGE_PUBLISHER == '' || vars.STORE_PUBLISHER_DISPLAY_NAME == '' || vars.STORE_PACKAGE_VERSION == '' }}
+        shell: pwsh
+        run: ./scripts/verify-msix.ps1 -Action inspect
+
+      - name: Exercise synthetic Partner Center contract on pull requests
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: pwsh
+        run: |
+          ./scripts/package-msix.ps1 `
+            -Distribution MicrosoftStore `
+            -ContractTest `
+            -Version 1.0.0.0 `
+            -PackageIdentityName TraverseBoard.CI.Contract `
+            -PackagePublisher 'CN=Traverse Board CI Contract' `
+            -PublisherDisplayName 'Traverse Board CI Contract'
+          ./scripts/verify-msix.ps1 -Action inspect
+
+      - name: Restore development MSIX evidence after synthetic Store check
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: pwsh
+        run: |
+          ./scripts/package-msix.ps1 -Version '${{ steps.release.outputs.msix_version }}'
+          ./scripts/verify-msix.ps1 -Action inspect
+
+      - name: Package Partner Center-bound Store upload
+        if: ${{ github.event_name != 'pull_request' && vars.STORE_PACKAGE_IDENTITY_NAME != '' && vars.STORE_PACKAGE_PUBLISHER != '' && vars.STORE_PUBLISHER_DISPLAY_NAME != '' && vars.STORE_PACKAGE_VERSION != '' }}
+        shell: pwsh
+        run: ./scripts/package-msix.ps1 -Distribution MicrosoftStore -Version $env:STORE_PACKAGE_VERSION -PackageIdentityName $env:STORE_PACKAGE_IDENTITY_NAME -PackagePublisher $env:STORE_PACKAGE_PUBLISHER -PublisherDisplayName $env:STORE_PUBLISHER_DISPLAY_NAME
+
+      - name: Inspect Partner Center-bound Store upload
+        if: ${{ github.event_name != 'pull_request' && vars.STORE_PACKAGE_IDENTITY_NAME != '' && vars.STORE_PACKAGE_PUBLISHER != '' && vars.STORE_PUBLISHER_DISPLAY_NAME != '' && vars.STORE_PACKAGE_VERSION != '' }}
+        shell: pwsh
+        run: ./scripts/verify-msix.ps1 -Action inspect
+
+      - name: Upload exact Desktop verification and direct-EXE candidate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.release.outputs.artifact_name }}
@@ -301,10 +390,9 @@ jobs:
           path: |
             build/desktop/TraverseBoard.exe
             build/desktop/Prayu-portable-*.zip
-            build/desktop/PrayuDesktop.msix
             build/desktop/SHA256SUMS
+            build/desktop/verification-SHA256SUMS
             build/desktop/portable-zip-manifest.json
-            build/desktop/msix-manifest.json
             build/desktop/release-metadata.json
             build/desktop/windows-compatibility.json
             build/desktop/standard-code-packaged-e2e.json
@@ -313,6 +401,44 @@ jobs:
             build/desktop/standard-code-release-gate.json
             build/desktop/sbom.json
             build/desktop/NOTICE
+
+      - name: Upload isolated development MSIX validation artifact
+        if: ${{ github.event_name == 'pull_request' || vars.STORE_PACKAGE_IDENTITY_NAME == '' || vars.STORE_PACKAGE_PUBLISHER == '' || vars.STORE_PUBLISHER_DISPLAY_NAME == '' || vars.STORE_PACKAGE_VERSION == '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.release.outputs.artifact_name }}-development-msix
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            build/desktop/TraverseBoard.exe
+            build/desktop/PrayuDesktop.msix
+            build/desktop/msix-manifest.json
+            build/desktop/release-metadata.json
+
+      - name: Upload isolated Partner Center submission artifact
+        if: ${{ github.event_name != 'pull_request' && vars.STORE_PACKAGE_IDENTITY_NAME != '' && vars.STORE_PACKAGE_PUBLISHER != '' && vars.STORE_PUBLISHER_DISPLAY_NAME != '' && vars.STORE_PACKAGE_VERSION != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.release.outputs.artifact_name }}-partner-center
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            build/desktop/TraverseBoard.exe
+            build/desktop/TraverseBoard_${{ env.STORE_PACKAGE_VERSION }}_x64.msix
+            build/desktop/TraverseBoard_${{ env.STORE_PACKAGE_VERSION }}_x64.msixupload
+            build/desktop/msix-manifest.json
+            build/desktop/release-metadata.json
+            build/desktop/Prayu-portable-*.zip
+            build/desktop/portable-zip-manifest.json
+            build/desktop/standard-code-packaged-e2e.json
+            build/desktop/standard-code-product-e2e.json
+            build/desktop/standard-code-security-evidence.json
+            build/desktop/standard-code-release-gate.json
+            build/desktop/sbom.json
+            build/desktop/NOTICE
+            build/desktop/windows-compatibility.json
+            build/desktop/SHA256SUMS
+            build/desktop/verification-SHA256SUMS
 
   publish:
     name: Publish verified GitHub Release
@@ -324,8 +450,6 @@ jobs:
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
-      MSIX_CERTIFICATE_BASE64: ${{ secrets.MSIX_CERTIFICATE_BASE64 }}
-      MSIX_CERTIFICATE_PASSWORD: ${{ secrets.MSIX_CERTIFICATE_PASSWORD }}
     steps:
       - name: Checkout released source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -372,26 +496,6 @@ jobs:
             --verify-report build/desktop/standard-code-release-gate.json
           if ($LASTEXITCODE -ne 0) { throw "Aggregate Standard Code release gate revalidation failed" }
 
-      - name: Sign MSIX when the protected certificate is configured
-        if: ${{ env.MSIX_CERTIFICATE_BASE64 != '' }}
-        shell: pwsh
-        run: |
-          $certificate = Join-Path $env:RUNNER_TEMP "msix-cert.pfx"
-          try {
-            [System.IO.File]::WriteAllBytes(
-              $certificate,
-              [System.Convert]::FromBase64String($env:MSIX_CERTIFICATE_BASE64)
-            )
-            ./scripts/package-msix.ps1 `
-              -Version '${{ needs.portable-zip.outputs.msix_version }}' `
-              -CertificatePath $certificate `
-              -CertificatePassword $env:MSIX_CERTIFICATE_PASSWORD
-          } finally {
-            if (Test-Path -LiteralPath $certificate) {
-              Remove-Item -LiteralPath $certificate -Force
-            }
-          }
-
       - name: Create verified release asset set
         shell: pwsh
         env:
@@ -399,9 +503,7 @@ jobs:
         run: |
           $assets = @(
             "build/desktop/TraverseBoard.exe",
-            "build/desktop/Prayu-portable-$env:RELEASE_VERSION-windows-amd64.zip",
             "build/desktop/SHA256SUMS",
-            "build/desktop/portable-zip-manifest.json",
             "build/desktop/release-metadata.json",
             "build/desktop/windows-compatibility.json",
             "build/desktop/standard-code-packaged-e2e.json",
@@ -411,11 +513,6 @@ jobs:
             "build/desktop/sbom.json",
             "build/desktop/NOTICE"
           )
-          $msixManifest = "build/desktop/msix-manifest.json"
-          if ((Test-Path -LiteralPath $msixManifest -PathType Leaf) -and
-              (Get-Content -LiteralPath $msixManifest -Raw | ConvertFrom-Json).signed) {
-            $assets += "build/desktop/PrayuDesktop.msix", $msixManifest
-          }
           foreach ($asset in $assets) {
             if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) {
               throw "Release asset is missing: $asset"
@@ -432,12 +529,25 @@ jobs:
           )
           & gh @upload
           if ($LASTEXITCODE -ne 0) { throw "Verified release asset upload failed" }
+          $inventoryJSON = gh release view $env:RELEASE_VERSION `
+            --repo $env:GITHUB_REPOSITORY --json assets
+          if ($LASTEXITCODE -ne 0) { throw "Published release asset readback failed" }
+          $uploaded = @(($inventoryJSON | ConvertFrom-Json).assets | ForEach-Object {
+              [string]$_.name
+            })
+          $expected = @($assets | ForEach-Object { Split-Path -Leaf $_ })
+          $unexpected = @($uploaded | Where-Object { $_ -cnotin $expected })
+          $missing = @($expected | Where-Object { $_ -cnotin $uploaded })
+          if ($uploaded.Count -ne $expected.Count -or $unexpected.Count -ne 0 -or
+              $missing.Count -ne 0) {
+            throw "Published release asset inventory differs from the exact public allowlist"
+          }
           $publish = @(
             "release", "edit", $env:RELEASE_VERSION,
             "--repo", $env:GITHUB_REPOSITORY,
             "--verify-tag", "--draft=false",
-            "--prerelease",
             "--title", "Traverse Board Desktop $env:RELEASE_VERSION"
           )
+          $publish += "--prerelease=${{ needs.portable-zip.outputs.prerelease }}"
           & gh @publish
           if ($LASTEXITCODE -ne 0) { throw "Verified Draft Release publication failed" }
