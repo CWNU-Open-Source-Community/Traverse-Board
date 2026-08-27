@@ -34,7 +34,7 @@ portable manifest、release metadata 和三份报告的 SHA-256，然后要求�
 2. 按 [packaged product E2E](standard-code-product-e2e.md) 生成
    `standard-code-product-e2e.json`；按 [packaged security matrix](standard-code-packaged-e2e.md)
    生成 `standard-code-security-evidence.json`。
-3. 为同一版本建立 Draft Release，并只上传这两份 path-free 报告：
+3. 为同一版本建立 Draft Release，并先上传这两份 path-free 报告：
 
    ```powershell
    $revision = (git rev-parse HEAD).Trim()
@@ -46,12 +46,19 @@ portable manifest、release metadata 和三份报告的 SHA-256，然后要求�
      build/desktop/standard-code-security-evidence.json --clobber
    ```
 
-4. 等待该 revision 在 `main` 的中央 `CI` push run 成功；随后从该候选 ref 手动运行
-   `Desktop release`，或在 exact tag push 前准备好同名 Draft Release。
-5. workflow 只接受两个固定名称、各不超过 4 MiB 的 Draft asset；它重新构建候选、运行
-   bootstrap、生成 aggregate，并把报告与 release artifacts 放入同一个 Actions artifact。
-6. tag push 的 publish job 重新验证 ZIP 与 aggregate，上传已验证资产并把原 Draft 转为
-   Release。任一步失败都会保留 Draft，不会发布。
+4. 稳定版先从该候选 ref 手动运行 `Desktop release` 的 `phase=prepare`，下载隔离的 signing
+   request artifact，再由受保护外部签名者对精确 payload 签名。将未改动的
+   `direct-exe-signing-request.json`、返回的 `TraverseBoard-signed.exe` 和
+   `direct-exe-signing-handoff.json` 上传到同名 Draft。预发布不执行这一步。
+5. 等待该 revision 在 `main` 的中央 `CI` push run 成功；随后手动运行 `phase=finalize`，
+   或在 exact tag push 前准备好同名 Draft Release。workflow 的 Draft allowlist 按 channel
+   固定：预发布恰好两份产品/安全报告，稳定版恰好再加上述三份签名 intake asset；额外、
+   缺失、重名或超限文件都会失败关闭。
+6. workflow 重新构建候选、运行 bootstrap、生成 aggregate，并在独立权限 job 中为最终
+   EXE 与 Store upload 生成 GitHub attestation。publish job 再次验证内部 ZIP、aggregate、
+   签名和 attestation，仅公开唯一的 `TraverseBoard.exe` 入口及验证 sidecar；
+   `TraverseBoard-signed.exe` 在发布前移除，内部 ZIP 不进入公开 Release。任一步失败都会
+   保留 Draft，不会发布。
 
 Pull Request 事件没有发布候选身份，也没有人工产品证据，因此只运行 producer/aggregate 合同
 测试和 bootstrap。它不会写 `passed` aggregate，publish job 也不会运行；这不是 skip 或 waiver，
@@ -79,8 +86,15 @@ go run ./cmd/releasegate `
 
 ## 不在本门内的发布声明
 
-本门是预发布与稳定发布共同的候选前置门，但不伪造 #123 的正式代码签名、Microsoft Store
-分发或更广平台认证。稳定直发 EXE 还必须独立通过 ADR 0145 的 Authenticode 门；Store 候选
-还必须通过精确 Partner Center identity、显式 Store version 与架构门，且只有 Partner Center
-接收和认证结果能证明 Store 成品完成。Full Access、Debug Maximum Access 与 Full CDP 仍是
-高级、默认关闭能力。
+本门是预发布与稳定发布共同的候选前置门，但不完成 #123 的正式代码签名、Microsoft Store
+分发或更广平台认证。稳定直发 EXE 还必须独立通过 ADR 0145 的 signer/RFC 3161、签名前后
+hash、公开 signing handoff 与 GitHub provenance/SBOM attestation 门；Store 候选还必须
+通过精确 Partner Center identity、显式 Store version 与架构门。Store 最终验收要求
+finalizer 在实际安装包上读到唯一健康的 `SignatureKind=Store`、精确
+identity/version/architecture/payload，并接受四条 hash-bound 生命周期 row。
+
+Partner Center export、Store 截图、listing/privacy/age-rating 记录和操作者编写的生命周期
+记录仍是 reviewer-attested 外部证据；hash 绑定只能发现后续漂移，不能把它们变成加密
+证明。只有 Authenticode 与 GitHub/Sigstore bundle 走独立加密验证。以上真实外部证据
+尚未齐备时 #123 保持开启。Full Access、Debug Maximum Access 与 Full CDP 仍是高级、
+默认关闭能力。

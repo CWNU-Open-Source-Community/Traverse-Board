@@ -159,6 +159,18 @@ try {
             Remove-Item -LiteralPath $staleLauncherPath -Force
         }
     }
+    foreach ($staleReleaseBinding in @(
+            "TraverseBoard.direct.exe",
+            "direct-exe-signing-request.json",
+            "direct-exe-signing-handoff.json",
+            "direct-exe-signing.json",
+            "windows-release-completion.json"
+        )) {
+        $staleReleaseBindingPath = Join-Path $outputRoot $staleReleaseBinding
+        if (Test-Path -LiteralPath $staleReleaseBindingPath -PathType Leaf) {
+            Remove-Item -LiteralPath $staleReleaseBindingPath -Force
+        }
+    }
     Copy-Item -LiteralPath $guideSourcePath -Destination $guidePath -Force
     $ldflags = @(
         "-s", "-w", "-H=windowsgui",

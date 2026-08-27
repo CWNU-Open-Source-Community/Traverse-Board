@@ -9,6 +9,8 @@ param(
     [string]$PackageIdentityName = "",
     [string]$PackagePublisher = "",
     [string]$PublisherDisplayName = "",
+    [string]$ExpectedDirectSignerSubject = "",
+    [string]$ExpectedDirectSignerThumbprint = "",
     [string]$CertificatePath = "",
     [string]$CertificatePassword = "",
     [string]$TimestampURL = "http://timestamp.digicert.com",
@@ -162,6 +164,10 @@ if (-not $outputRoot.StartsWith($repositoryPrefix,
 
 $binaryPath = Join-Path $outputRoot "TraverseBoard.exe"
 $releaseMetadataPath = Join-Path $outputRoot "release-metadata.json"
+$directArtifactPath = Join-Path $outputRoot "TraverseBoard.direct.exe"
+$directSigningRequestPath = Join-Path $outputRoot "direct-exe-signing-request.json"
+$directSigningHandoffPath = Join-Path $outputRoot "direct-exe-signing-handoff.json"
+$directSigningEvidencePath = Join-Path $outputRoot "direct-exe-signing.json"
 $manifestPath = Join-Path $repositoryRoot "packaging/windows/AppxManifest.xml"
 $assetRoot = Join-Path $repositoryRoot "packaging/windows/Assets"
 $storeRunbookRelativePath = "packaging/windows/STORE-SUBMISSION.md"
@@ -211,6 +217,89 @@ $peArchitecture = Get-PEProcessorArchitecture $binaryPath
 if ($peArchitecture -cne $ProcessorArchitecture) {
     throw "MSIX ProcessorArchitecture does not match the TraverseBoard.exe PE machine type"
 }
+
+$directArtifactPresent = Test-Path -LiteralPath $directArtifactPath -PathType Leaf
+$directEvidencePresent = Test-Path -LiteralPath $directSigningEvidencePath -PathType Leaf
+if ($directArtifactPresent -ne $directEvidencePresent) {
+    throw "Direct-download artifact and signing evidence must be staged together"
+}
+$directArtifactName = "TraverseBoard.exe"
+$directArtifactHash = $binaryHash
+$directSigningEvidenceName = ""
+$directSigningEvidenceHash = ""
+$directSigningRequestName = ""
+$directSigningRequestHash = ""
+$directSigningHandoffName = ""
+$directSigningHandoffHash = ""
+$directPayloadBindingVerified = $true
+if ($directArtifactPresent) {
+    foreach ($directInput in @($directArtifactPath, $directSigningEvidencePath)) {
+        if (-not $directInput.StartsWith($repositoryPrefix,
+                [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Direct-download evidence must remain inside the repository"
+        }
+    }
+    & (Join-Path $PSScriptRoot "stage-direct-exe.ps1") `
+        -OutputDirectory $OutputDirectory `
+        -ExpectedVersion ([string]$releaseMetadata.app_version) `
+        -ExpectedRevision ([string]$releaseMetadata.revision) `
+        -ExpectedSignerSubject $ExpectedDirectSignerSubject `
+        -ExpectedSignerThumbprint $ExpectedDirectSignerThumbprint `
+        -VerifyOnly
+    $directEvidence = Get-Content -LiteralPath $directSigningEvidencePath -Raw |
+        ConvertFrom-Json
+    foreach ($booleanField in @("trusted_release", "prerelease",
+            "payload_binding_verified", "timestamp_present", "signtool_verified")) {
+        $property = $directEvidence.PSObject.Properties[$booleanField]
+        if ($null -eq $property -or $property.Value -isnot [bool]) {
+            throw "Direct EXE signing evidence field must be a JSON boolean: $booleanField"
+        }
+    }
+    $directArtifactName = [System.IO.Path]::GetFileName($directArtifactPath)
+    $directArtifactHash = Get-SHA256 $directArtifactPath
+    $directSigningEvidenceName = [System.IO.Path]::GetFileName($directSigningEvidencePath)
+    $directSigningEvidenceHash = Get-SHA256 $directSigningEvidencePath
+    $directPayloadBindingVerified = [bool]$directEvidence.payload_binding_verified
+    if ([string]$directEvidence.protocol_version -cne "direct_exe_signing.v1" -or
+        [string]$directEvidence.payload_sha256 -cne $binaryHash -or
+        [string]$directEvidence.artifact_sha256 -cne $directArtifactHash -or
+        [string]$directEvidence.release_version -cne [string]$releaseMetadata.app_version -or
+        [string]$directEvidence.release_revision -cne [string]$releaseMetadata.revision -or
+        -not $directPayloadBindingVerified) {
+        throw "Direct-download signing evidence does not bind the MSIX payload"
+    }
+    if ($directEvidence.trusted_release) {
+        if ([string]$directEvidence.signing_request_name -cne
+                "direct-exe-signing-request.json" -or
+            -not (Test-Path -LiteralPath $directSigningRequestPath -PathType Leaf) -or
+            (Get-SHA256 $directSigningRequestPath) -cne
+                [string]$directEvidence.signing_request_sha256) {
+            throw "Trusted direct-download evidence is missing its signing request"
+        }
+        $directSigningRequestName = "direct-exe-signing-request.json"
+        $directSigningRequestHash = Get-SHA256 $directSigningRequestPath
+        if ([string]$directEvidence.signing_handoff_name -cne
+                "direct-exe-signing-handoff.json" -or
+            -not (Test-Path -LiteralPath $directSigningHandoffPath -PathType Leaf) -or
+            (Get-SHA256 $directSigningHandoffPath) -cne
+                [string]$directEvidence.signing_handoff_sha256) {
+            throw "Trusted direct-download evidence is missing its signing handoff"
+        }
+        $directSigningHandoffName = "direct-exe-signing-handoff.json"
+        $directSigningHandoffHash = Get-SHA256 $directSigningHandoffPath
+    }
+    elseif (-not [string]::IsNullOrEmpty([string]$directEvidence.signing_request_name) -or
+        -not [string]::IsNullOrEmpty([string]$directEvidence.signing_request_sha256) -or
+        -not [string]::IsNullOrEmpty([string]$directEvidence.signing_handoff_name) -or
+        -not [string]::IsNullOrEmpty([string]$directEvidence.signing_handoff_sha256)) {
+        throw "Untrusted prerelease evidence cannot claim a signing handoff"
+    }
+}
+if ($isStoreSubmission -and (-not $directArtifactPresent -or
+        -not $directEvidence.trusted_release -or $directEvidence.prerelease -or
+        -not $directEvidence.timestamp_present -or -not $directEvidence.signtool_verified)) {
+    throw "A real Store submission requires the trusted direct-EXE signing handoff"
+}
 if ($isStore -and ($releaseMetadata.modified -or
         -not $releaseMetadata.reproducibility_checked -or
         -not $releaseMetadata.reproducible)) {
@@ -233,6 +322,10 @@ if ($isStoreSubmission) {
             (Join-Path $outputRoot "sbom.json"),
             (Join-Path $outputRoot "NOTICE"),
             (Join-Path $outputRoot "windows-compatibility.json"),
+            $directArtifactPath,
+            $directSigningRequestPath,
+            $directSigningHandoffPath,
+            $directSigningEvidencePath,
             (Join-Path $outputRoot "SHA256SUMS"),
             (Join-Path $outputRoot "verification-SHA256SUMS")
         )) {
@@ -274,6 +367,9 @@ if ($isStoreSubmission) {
         "sbom.json",
         "NOTICE",
         "windows-compatibility.json",
+        $directSigningRequestName,
+        $directSigningHandoffName,
+        $directSigningEvidenceName,
         "SHA256SUMS",
         "verification-SHA256SUMS"
     )
@@ -489,7 +585,16 @@ try {
         publisher_display_name = $PublisherDisplayName
         binary_name = "TraverseBoard.exe"
         binary_sha256 = $binaryHash
-        binary_matches_direct_download = $true
+        direct_download_name = $directArtifactName
+        direct_download_sha256 = $directArtifactHash
+        direct_exe_signing_evidence_name = $directSigningEvidenceName
+        direct_exe_signing_evidence_sha256 = $directSigningEvidenceHash
+        direct_exe_signing_request_name = $directSigningRequestName
+        direct_exe_signing_request_sha256 = $directSigningRequestHash
+        direct_exe_signing_handoff_name = $directSigningHandoffName
+        direct_exe_signing_handoff_sha256 = $directSigningHandoffHash
+        direct_exe_payload_binding_verified = $directPayloadBindingVerified
+        binary_matches_direct_download = ($binaryHash -ceq $directArtifactHash)
         release_metadata_sha256 = (Get-SHA256 $releaseMetadataPath)
         signed = $signed
         signature_status = [string]$signature.Status

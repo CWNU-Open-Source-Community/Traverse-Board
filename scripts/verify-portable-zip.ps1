@@ -3,6 +3,8 @@ param(
     [string]$OutputDirectory = "build/desktop",
     [string]$ExpectedVersion = "",
     [string]$ExpectedRevision = "",
+    [string]$ExpectedDirectSignerSubject = "",
+    [string]$ExpectedDirectSignerThumbprint = "",
     [switch]$SmokeTest
 )
 
@@ -55,6 +57,8 @@ $metadataPath = Join-Path $outputRoot "release-metadata.json"
 $sumsPath = Join-Path $outputRoot "verification-SHA256SUMS"
 $publicSumsPath = Join-Path $outputRoot "SHA256SUMS"
 $binaryPath = Join-Path $outputRoot "TraverseBoard.exe"
+$directBinaryPath = Join-Path $outputRoot "TraverseBoard.direct.exe"
+$directSigningEvidencePath = Join-Path $outputRoot "direct-exe-signing.json"
 $sbomPath = Join-Path $outputRoot "sbom.json"
 $noticePath = Join-Path $outputRoot "NOTICE"
 foreach ($required in @($manifestPath, $metadataPath, $sumsPath, $publicSumsPath,
@@ -214,7 +218,38 @@ foreach ($line in $sumLines) {
 
 $expectedPublicSums = [System.Collections.Generic.Dictionary[string, string]]::new(
     [System.StringComparer]::Ordinal)
-$expectedPublicSums.Add("TraverseBoard.exe", $binaryHash)
+$directBinaryPresent = Test-Path -LiteralPath $directBinaryPath -PathType Leaf
+$directEvidencePresent = Test-Path -LiteralPath $directSigningEvidencePath -PathType Leaf
+Assert-ReleaseCondition ($directBinaryPresent -eq $directEvidencePresent) `
+    "Direct EXE and signing evidence must be staged together"
+if ($directBinaryPresent) {
+    & (Join-Path $PSScriptRoot "stage-direct-exe.ps1") `
+        -OutputDirectory $OutputDirectory `
+        -ExpectedVersion $ExpectedVersion `
+        -ExpectedRevision $ExpectedRevision `
+        -ExpectedSignerSubject $ExpectedDirectSignerSubject `
+        -ExpectedSignerThumbprint $ExpectedDirectSignerThumbprint `
+        -VerifyOnly
+    $expectedPublicSums.Add("TraverseBoard.exe", (Get-SHA256 $directBinaryPath))
+    $expectedPublicSums.Add("direct-exe-signing.json", (Get-SHA256 $directSigningEvidencePath))
+    $directSigningEvidence = Get-Content -LiteralPath $directSigningEvidencePath -Raw |
+        ConvertFrom-Json
+    if ($directSigningEvidence.trusted_release) {
+        $directSigningRequestPath = Join-Path $outputRoot "direct-exe-signing-request.json"
+        Assert-ReleaseCondition (Test-Path -LiteralPath $directSigningRequestPath -PathType Leaf) `
+            "Trusted direct EXE signing request is missing"
+        $expectedPublicSums.Add("direct-exe-signing-request.json",
+            (Get-SHA256 $directSigningRequestPath))
+        $directSigningHandoffPath = Join-Path $outputRoot "direct-exe-signing-handoff.json"
+        Assert-ReleaseCondition (Test-Path -LiteralPath $directSigningHandoffPath -PathType Leaf) `
+            "Trusted direct EXE signing handoff is missing"
+        $expectedPublicSums.Add("direct-exe-signing-handoff.json",
+            (Get-SHA256 $directSigningHandoffPath))
+    }
+}
+else {
+    $expectedPublicSums.Add("TraverseBoard.exe", $binaryHash)
+}
 $expectedPublicSums.Add("sbom.json", $sbomHash)
 $expectedPublicSums.Add("NOTICE", $noticeHash)
 $expectedPublicSums.Add("release-metadata.json", $metadataHash)

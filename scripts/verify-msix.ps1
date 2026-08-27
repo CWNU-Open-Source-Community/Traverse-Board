@@ -4,6 +4,8 @@ param(
     [string]$ManifestPath = "build/desktop/msix-manifest.json",
     [ValidateSet("inspect", "install", "uninstall", "verify")]
     [string]$Action = "inspect",
+    [string]$ExpectedDirectSignerSubject = "",
+    [string]$ExpectedDirectSignerThumbprint = "",
     [switch]$AllowUnsigned,
     [switch]$AllowLegacyV1
 )
@@ -102,7 +104,8 @@ if ([string]$evidence.protocol_version -ceq "msix_manifest.v1" -and
 }
 if ([string]$evidence.protocol_version -ceq "msix_manifest.v2") {
     foreach ($booleanField in @(
-            "binary_matches_direct_download", "signed", "contract_test",
+            "binary_matches_direct_download", "direct_exe_payload_binding_verified",
+            "signed", "contract_test",
             "store_submission_candidate", "release_gate_complete",
             "microsoft_store_resigning_expected", "symbols_included",
             "restricted_capability_justification_required", "lifecycle_validation_required"
@@ -173,6 +176,7 @@ if ([string]$evidence.protocol_version -ceq "msix_manifest.v2") {
         [string]$evidence.lifecycle_validation_status -cne "not_run" -or
         -not [string]::IsNullOrEmpty([string]$evidence.lifecycle_evidence_sha256) -or
         $evidence.symbols_included -or
+        -not $evidence.direct_exe_payload_binding_verified -or
         $restrictedCapabilities.Count -ne 1 -or
         $restrictedCapabilities[0] -cne "runFullTrust" -or
         ($storeCandidate -and $storeContractTest)) {
@@ -310,18 +314,114 @@ function Inspect-Package {
                 $null -eq $publisherDisplay -or
                 [string]$publisherDisplay.InnerText -cne
                     [string]$evidence.publisher_display_name -or
-                (Get-ZipEntrySHA256 $binaryEntries[0]) -cne [string]$evidence.binary_sha256 -or
-                -not $evidence.binary_matches_direct_download) {
+                (Get-ZipEntrySHA256 $binaryEntries[0]) -cne [string]$evidence.binary_sha256) {
                 throw "Embedded MSIX publisher, architecture, or EXE binding differs"
             }
-            $directBinary = Join-Path $manifestDirectory "TraverseBoard.exe"
-            if (-not (Test-Path -LiteralPath $directBinary -PathType Leaf) -or
-                (Get-SHA256 $directBinary) -cne [string]$evidence.binary_sha256) {
-                throw "MSIX payload no longer matches the direct-download TraverseBoard.exe"
+            $payloadBinary = Join-Path $manifestDirectory "TraverseBoard.exe"
+            if (-not (Test-Path -LiteralPath $payloadBinary -PathType Leaf) -or
+                (Get-SHA256 $payloadBinary) -cne [string]$evidence.binary_sha256) {
+                throw "MSIX payload no longer matches its reproducible TraverseBoard.exe"
             }
-            if ((Get-PEProcessorArchitecture $directBinary) -cne
+            if ((Get-PEProcessorArchitecture $payloadBinary) -cne
                 [string]$evidence.processor_architecture) {
                 throw "MSIX architecture differs from the direct executable PE machine type"
+            }
+            $directName = [string]$evidence.direct_download_name
+            if ([string]::IsNullOrWhiteSpace($directName) -or
+                [System.IO.Path]::GetFileName($directName) -cne $directName) {
+                throw "MSIX evidence contains an unsafe direct-download filename"
+            }
+            $directBinary = Join-Path $manifestDirectory $directName
+            if (-not (Test-Path -LiteralPath $directBinary -PathType Leaf) -or
+                (Get-SHA256 $directBinary) -cne [string]$evidence.direct_download_sha256 -or
+                $evidence.binary_matches_direct_download -ne
+                    ((Get-SHA256 $directBinary) -ceq [string]$evidence.binary_sha256)) {
+                throw "MSIX direct-download artifact differs from its pre/post-sign binding"
+            }
+            $directEvidenceName = [string]$evidence.direct_exe_signing_evidence_name
+            $directEvidenceHash = [string]$evidence.direct_exe_signing_evidence_sha256
+            if ([string]::IsNullOrEmpty($directEvidenceName)) {
+                if (-not [string]::IsNullOrEmpty($directEvidenceHash) -or
+                    -not [string]::IsNullOrEmpty(
+                        [string]$evidence.direct_exe_signing_request_name) -or
+                    -not [string]::IsNullOrEmpty(
+                        [string]$evidence.direct_exe_signing_request_sha256) -or
+                    -not [string]::IsNullOrEmpty(
+                        [string]$evidence.direct_exe_signing_handoff_name) -or
+                    -not [string]::IsNullOrEmpty(
+                        [string]$evidence.direct_exe_signing_handoff_sha256) -or
+                    $directName -cne "TraverseBoard.exe" -or
+                    -not $evidence.binary_matches_direct_download) {
+                    throw "MSIX evidence omits a required direct-EXE signing binding"
+                }
+            }
+            else {
+                if ([System.IO.Path]::GetFileName($directEvidenceName) -cne
+                        $directEvidenceName -or
+                    $directEvidenceName -cne "direct-exe-signing.json") {
+                    throw "MSIX evidence contains an unsafe direct-EXE evidence filename"
+                }
+                $directEvidencePath = Join-Path $manifestDirectory $directEvidenceName
+                if (-not (Test-Path -LiteralPath $directEvidencePath -PathType Leaf) -or
+                    (Get-SHA256 $directEvidencePath) -cne $directEvidenceHash) {
+                    throw "MSIX direct-EXE signing evidence differs from its bound hash"
+                }
+                $manifestDirectoryRelative = $manifestDirectory.Substring(
+                    $repositoryPrefix.Length).Replace('\', '/')
+                & (Join-Path $PSScriptRoot "stage-direct-exe.ps1") `
+                    -OutputDirectory $manifestDirectoryRelative `
+                    -ExpectedVersion ([string]$evidence.marketing_version) `
+                    -ExpectedRevision ([string]$evidence.release_revision) `
+                    -ExpectedSignerSubject $ExpectedDirectSignerSubject `
+                    -ExpectedSignerThumbprint $ExpectedDirectSignerThumbprint `
+                    -VerifyOnly
+                $directSigning = Get-Content -LiteralPath $directEvidencePath -Raw |
+                    ConvertFrom-Json
+                if ([string]$directSigning.payload_sha256 -cne
+                        [string]$evidence.binary_sha256 -or
+                    [string]$directSigning.artifact_sha256 -cne
+                        [string]$evidence.direct_download_sha256) {
+                    throw "MSIX direct-EXE signing evidence does not bind both binary hashes"
+                }
+                $requestName = [string]$evidence.direct_exe_signing_request_name
+                $requestHash = [string]$evidence.direct_exe_signing_request_sha256
+                if ($directSigning.trusted_release) {
+                    if ($requestName -cne "direct-exe-signing-request.json" -or
+                        [string]$directSigning.signing_request_name -cne $requestName -or
+                        [string]$directSigning.signing_request_sha256 -cne $requestHash) {
+                        throw "MSIX direct-EXE signing request binding is incomplete"
+                    }
+                    $requestPath = Join-Path $manifestDirectory $requestName
+                    if (-not (Test-Path -LiteralPath $requestPath -PathType Leaf) -or
+                        (Get-SHA256 $requestPath) -cne $requestHash) {
+                        throw "MSIX direct-EXE signing request differs from its bound hash"
+                    }
+                    $handoffName = [string]$evidence.direct_exe_signing_handoff_name
+                    $handoffHash = [string]$evidence.direct_exe_signing_handoff_sha256
+                    if ($handoffName -cne "direct-exe-signing-handoff.json" -or
+                        [string]$directSigning.signing_handoff_name -cne $handoffName -or
+                        [string]$directSigning.signing_handoff_sha256 -cne $handoffHash) {
+                        throw "MSIX direct-EXE signing handoff binding is incomplete"
+                    }
+                    $handoffPath = Join-Path $manifestDirectory $handoffName
+                    if (-not (Test-Path -LiteralPath $handoffPath -PathType Leaf) -or
+                        (Get-SHA256 $handoffPath) -cne $handoffHash) {
+                        throw "MSIX direct-EXE signing handoff differs from its bound hash"
+                    }
+                }
+                elseif (-not [string]::IsNullOrEmpty($requestName) -or
+                    -not [string]::IsNullOrEmpty($requestHash) -or
+                    -not [string]::IsNullOrEmpty(
+                        [string]$evidence.direct_exe_signing_handoff_name) -or
+                    -not [string]::IsNullOrEmpty(
+                        [string]$evidence.direct_exe_signing_handoff_sha256)) {
+                    throw "Untrusted direct EXE cannot claim a signing handoff"
+                }
+                if ($storeCandidate -and (-not $directSigning.trusted_release -or
+                        $directSigning.prerelease -or -not $directSigning.timestamp_present -or
+                        -not $directSigning.signtool_verified)) {
+                    throw "Store candidate does not bind a trusted direct-EXE release"
+                }
             }
             $releaseMetadataPath = Join-Path $manifestDirectory "release-metadata.json"
             if (-not (Test-Path -LiteralPath $releaseMetadataPath -PathType Leaf) -or
@@ -458,6 +558,9 @@ function Inspect-Package {
                         "sbom.json",
                         "NOTICE",
                         "windows-compatibility.json",
+                        "direct-exe-signing-request.json",
+                        "direct-exe-signing-handoff.json",
+                        "direct-exe-signing.json",
                         "SHA256SUMS",
                         "verification-SHA256SUMS"
                     )
@@ -479,7 +582,7 @@ function Inspect-Package {
                         }
                     }
                     & go -C $repositoryRoot run ./cmd/releasegate `
-                        --binary $directBinary `
+                        --binary $payloadBinary `
                         --archive (Join-Path $manifestDirectory $portableZipName) `
                         --portable-manifest $portableManifestPath `
                         --release-metadata $releaseMetadataPath `

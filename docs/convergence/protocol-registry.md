@@ -15,7 +15,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [browser-ui-evidence-ledgers](#browser-ui-evidence-ledgers) | `internal-durable` | Browser and UI evidence maintainers | 41 | true |
 | [capability-readiness-projection](#capability-readiness-projection) | `projection` | Application readiness maintainers | 3 | true |
 | [cli-headless-contract](#cli-headless-contract) | `external-durable` | CLI and headless surface maintainers | 2 | true |
-| [control-plane-ledgers](#control-plane-ledgers) | `internal-durable` | Core Go control-plane maintainers | 83 | true |
+| [control-plane-ledgers](#control-plane-ledgers) | `internal-durable` | Core Go control-plane maintainers | 95 | true |
 | [credential-provider-ledgers](#credential-provider-ledgers) | `internal-durable` | Credential, provider, model-route, and pricing maintainers | 5 | true |
 | [desktop-web-presentation-state](#desktop-web-presentation-state) | `projection` | Desktop and React workbench maintainers | 13 | true |
 | [docker-attach-process-session](#docker-attach-process-session) | `ephemeral` | Docker runtime transport maintainers | 1 | false |
@@ -399,8 +399,12 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `control-plane-ledgers-reader` (`v1, v2, v3`, active) at `internal/store`
 
-<details><summary>83 active identifiers</summary>
+<details><summary>95 active identifiers</summary>
 
+- `byte_identical.v1`
+- `direct_exe_signing.v1`
+- `direct_exe_signing_handoff.v1`
+- `direct_exe_signing_request.v1`
 - `drydock-checkpoint-request.v1`
 - `drydock-checkpoint.v1`
 - `drydock-cleanup-request.v1`
@@ -422,6 +426,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `macos_portable_compatibility.v1`
 - `msix_manifest.v1`
 - `msix_manifest.v2`
+- `pe_authenticode_normalized.v1`
 - `sanitized_host_environment.v1`
 - `scheduled-job-worker.v1`
 - `scheduled_job_create_request.v1`
@@ -475,9 +480,16 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `web_evidence_presentation.v1`
 - `web_fetch.v1`
 - `web_search.v1`
+- `windows-two-deliverable-contract.v1`
+- `windows_artifact_attestations.v1`
 - `windows_browser_job.v2`
 - `windows_portable_compatibility.v1`
+- `windows_release_completion.v1`
 - `windows_restricted_token_job_candidate.v1`
+- `windows_store_lifecycle.v1`
+- `windows_store_lifecycle_row.v1`
+- `windows_store_listing_readback.v1`
+- `windows_store_readback.v1`
 - `work_board.v1`
 - `work_item_create.v1`
 - `workspace-checkpoint-api.v1`

@@ -284,14 +284,31 @@ Local Ollama is the only keyless Provider and enables only when `CYBERAGENT_OLLA
 ./build/desktop/TraverseBoard.exe
 ```
 
-Double-click `TraverseBoard.exe` to enter the safe control plane and first Standard Code wizard.
-It requires no ZIP, CMD, startup flag, or separately started backend. The read-only development
-entry is `TraverseBoard.exe --safe-view`. Source and new releases provide no Start command
-script; developers also run `build/desktop/TraverseBoard.exe` directly. See
+Double-click `TraverseBoard.exe`, the sole zero-argument direct entry, to enter the safe control
+plane and first Standard Code wizard. It requires no ZIP, CMD, startup flag, or separately started
+backend. The read-only development entry is `TraverseBoard.exe --safe-view`. Source and new
+releases ship neither `Start-Prayu-Operator-Preview.cmd` nor a renamed Start command script;
+developers also run `build/desktop/TraverseBoard.exe` directly. See
 [`packaging/windows/LOCAL-TEST-GUIDE.txt`](packaging/windows/LOCAL-TEST-GUIDE.txt) for the full
 manual test flow.
 
-The `Desktop release` workflow keeps pull-request evidence honest: its packaged bootstrap remains `needs_full_matrix`. A non-PR candidate must obtain the independently produced #182 product report and #181 security report from the matching Draft Release, bind both reports to the current EXE, internal verification ZIP, source revision, fixture, and attack matrix in `standard_code_release_gate.v1`, and reverify that aggregate before publication. Missing, tampered, replayed, skipped, or waived evidence fails closed. Prerelease versions remain explicitly marked; a stable release additionally requires trusted Authenticode signing for the direct EXE plus complete Partner Center identity and Store-version configuration. Store certification remains external. See the [Beta release gate](docs/standard-code-release-gate.md), [ADR 0144](docs/adr/0144-standard-code-release-gate-aggregation.md), and [ADR 0145](docs/adr/0145-windows-two-deliverable-release-contract.md).
+The `Desktop release` workflow keeps pull-request evidence honest: its packaged bootstrap remains
+`needs_full_matrix`. A non-PR candidate must obtain the independently produced #182 product report
+and #181 security report from the matching Draft Release, bind both reports to the current EXE,
+internal verification ZIP, source revision, fixture, and attack matrix in
+`standard_code_release_gate.v1`, and reverify that aggregate before publication. Missing,
+tampered, replayed, skipped, or waived evidence fails closed. Prerelease versions remain explicitly
+marked. A stable release additionally consumes a protected external Authenticode handoff, verifies
+the approved signer and RFC 3161 timestamp, records pre-sign payload and post-sign artifact hashes,
+and requires complete Partner Center identity/version configuration. The stable public Release
+retains the signing request, handoff, and verified signing result as public sidecars; the returned
+`TraverseBoard-signed.exe` is intake-only. A separate permission-scoped job creates GitHub
+provenance and SBOM attestations. Store certification stays external until
+`finalize-windows-release.ps1` verifies a real installed package with `SignatureKind=Store`, the
+exact identity/version/architecture/payload, and the four Windows/DPI/IME lifecycle rows. See the
+[Beta release gate](docs/standard-code-release-gate.md),
+[ADR 0144](docs/adr/0144-standard-code-release-gate-aggregation.md), and
+[ADR 0145](docs/adr/0145-windows-two-deliverable-release-contract.md).
 
 > [!NOTE]
 > Portable means install-free application files, not directory-local data. The default data home remains `%USERPROFILE%\.cyberagent-workbench`, so extracting another ZIP reuses the same database. `v0.1.0-rc.2` cannot upgrade one exact pre-final Windows preview v97 history; schema v125 in later builds accepts that exact history and transactionally restores the canonical trigger without deleting or falsifying old data. See [ADR 0126](docs/adr/0126-legacy-v97-docker-trigger-compatibility.md).
@@ -308,22 +325,34 @@ must be read from that version's GitHub Release and Microsoft Store listing:
    repository-built `PrayuDesktop.msix`, Actions artifact, or local sideload package does not
    prove that Partner Center accepted it, Store certification passed, or production signing was
    obtained.
-2. **Direct `TraverseBoard.exe`.** Users download it from GitHub Release and double-click it.
-   It requires no archive, command launcher, flags, or separate backend. A stable direct release
-   requires trusted Authenticode signing. An unsigned build remains an explicitly labelled
-   prerelease candidate and may trigger a SmartScreen unknown-publisher warning.
+2. **The sole direct entry, `TraverseBoard.exe`.** Users download it from GitHub Release and
+   double-click it. It requires no archive, command launcher, flags, or separate backend. A stable
+   direct release requires trusted Authenticode signing. An unsigned build remains an explicitly
+   labelled prerelease candidate and may trigger a SmartScreen unknown-publisher warning.
 
 Both products bind the same version, source revision, embedded frontend, and release-gate
-evidence. The MSIX design contract separates installed files from the external user-data home;
+evidence. When Authenticode changes the direct EXE bytes, the evidence preserves both the
+reproducible Store payload hash and signed public-artifact hash. GitHub provenance/SBOM
+attestations bind the final subjects. The MSIX design contract separates installed files from the
+external user-data home;
 before it is called a Store product, a Windows 10/11 machine matrix must still verify Workspace,
 credential, and SQLite behavior across upgrade, uninstall, and reinstall. Missing or outdated
 WebView2 produces bounded local guidance and no implicit install.
 
 The portable ZIP is retained only for CI, compatibility, packaged E2E, and reproducibility
 checks. It is neither a third product nor a Store upload. `SHA256SUMS`, SBOM, NOTICE, release
-metadata, manifests, and Standard Code reports are verification/provenance sidecars, not launch
-choices. Source and new releases provide no Start script. Historical Release assets, including
-old ZIP and launcher names, remain immutable. See
+metadata, manifests, Standard Code reports, and—for stable releases—the signing request, handoff,
+and result are public verification/provenance sidecars, not launch choices. The signer-returned
+`TraverseBoard-signed.exe` remains intake-only. Source and new releases ship neither
+`Start-Prayu-Operator-Preview.cmd` nor a renamed Start script. Historical Release assets,
+including old ZIP and launcher names, remain immutable.
+
+Partner Center exports, screenshots, and operator-authored lifecycle rows are reviewer-attested
+external evidence. Their hashes detect later drift but do not make them cryptographic proof;
+GitHub/Sigstore bundles and Authenticode are verified separately. Accordingly,
+[issue #123](https://github.com/CWNU-Open-Source-Community/Traverse-Board/issues/123) remains open
+until one real candidate passes the direct-EXE trust gate and the installed-Store completion gate.
+See
 [ADR 0145](docs/adr/0145-windows-two-deliverable-release-contract.md) and the
 [Microsoft Store submission runbook](packaging/windows/STORE-SUBMISSION.md).
 

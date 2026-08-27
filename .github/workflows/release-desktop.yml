@@ -8,6 +8,14 @@ on:
         required: true
         default: v0.1.0-rc.1
         type: string
+      phase:
+        description: Prepare a stable signing request, or finalize a release candidate
+        required: true
+        default: finalize
+        type: choice
+        options:
+          - prepare
+          - finalize
   pull_request:
     paths:
       - '.github/workflows/release-desktop.yml'
@@ -20,9 +28,11 @@ on:
       - 'internal/releasegate/**'
       - 'scripts/build-desktop.ps1'
       - 'scripts/check-windows-compat.ps1'
+      - 'scripts/finalize-windows-release.ps1'
       - 'scripts/package-msix.ps1'
       - 'scripts/package-portable-zip.ps1'
       - 'scripts/release-desktop.ps1'
+      - 'scripts/stage-direct-exe.ps1'
       - 'scripts/smoke-desktop-operator-preview.ps1'
       - 'scripts/standard-code-packaged-e2e.ps1'
       - 'scripts/standard-code-product-e2e.ps1'
@@ -35,6 +45,7 @@ on:
       - 'docs/adr/0144-standard-code-release-gate-aggregation.md'
       - 'docs/convergence/protocol-registry.md'
       - 'packaging/windows/**'
+      - 'packaging/windows/RELEASE-NOTES.md'
       - 'protocols/registry.json'
       - 'go.mod'
       - 'go.sum'
@@ -136,12 +147,16 @@ jobs:
       STORE_PACKAGE_PUBLISHER: ${{ vars.STORE_PACKAGE_PUBLISHER }}
       STORE_PUBLISHER_DISPLAY_NAME: ${{ vars.STORE_PUBLISHER_DISPLAY_NAME }}
       STORE_PACKAGE_VERSION: ${{ vars.STORE_PACKAGE_VERSION }}
+      DIRECT_EXE_SIGNER_SUBJECT: ${{ vars.DIRECT_EXE_SIGNER_SUBJECT }}
+      DIRECT_EXE_SIGNER_THUMBPRINT: ${{ vars.DIRECT_EXE_SIGNER_THUMBPRINT }}
     outputs:
       version: ${{ steps.release.outputs.version }}
       msix_version: ${{ steps.release.outputs.msix_version }}
       revision: ${{ steps.release.outputs.revision }}
       artifact_name: ${{ steps.release.outputs.artifact_name }}
       prerelease: ${{ steps.release.outputs.prerelease }}
+      phase: ${{ steps.release.outputs.phase }}
+      signing_prepare: ${{ steps.release.outputs.signing_prepare }}
     steps:
       - name: Checkout exact source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -156,16 +171,23 @@ jobs:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
           INPUT_VERSION: ${{ inputs.version }}
+          INPUT_PHASE: ${{ inputs.phase }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           if ($env:EVENT_NAME -eq "push") {
             if ($env:REF_TYPE -ne "tag") { throw "Release pushes must be tags" }
             $version = $env:REF_NAME
+            $phase = "finalize"
           } elseif ($env:EVENT_NAME -eq "workflow_dispatch") {
             $version = $env:INPUT_VERSION
+            $phase = $env:INPUT_PHASE
+            if ($phase -cnotin @("prepare", "finalize")) {
+              throw "Desktop release phase is invalid"
+            }
           } elseif ($env:EVENT_NAME -eq "pull_request") {
             if ($env:PR_NUMBER -notmatch '^[1-9][0-9]*$') { throw "Pull request number is invalid" }
             $version = "v0.1.0-pr.$($env:PR_NUMBER)"
+            $phase = "validate"
           } else {
             throw "Unsupported Desktop release event"
           }
@@ -186,11 +208,18 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "Release revision is not reachable from origin/main" }
           }
           $artifactVersion = $version -replace '[^0-9A-Za-z._-]', '_'
+          $signingPrepare = $env:EVENT_NAME -eq "workflow_dispatch" -and
+            $phase -ceq "prepare" -and -not $isPrerelease
+          if ($phase -ceq "prepare" -and $isPrerelease) {
+            throw "The prepare phase is only valid for a stable signing request"
+          }
           "version=$version" >> $env:GITHUB_OUTPUT
           "msix_version=$msixVersion" >> $env:GITHUB_OUTPUT
           "revision=$revision" >> $env:GITHUB_OUTPUT
           "artifact_name=TraverseBoard-windows-release-$artifactVersion" >> $env:GITHUB_OUTPUT
           "prerelease=$($isPrerelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "phase=$phase" >> $env:GITHUB_OUTPUT
+          "signing_prepare=$($signingPrepare.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
       - name: Set up pinned Go 1.25.12
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -216,12 +245,13 @@ jobs:
         shell: pwsh
         run: ./scripts/build-desktop.ps1 -Version '${{ steps.release.outputs.version }}' -VerifyReproducible
 
-      - name: Validate Store configuration and formal direct-EXE trust
+      - name: Validate Store and direct-EXE signing configuration
         if: ${{ github.event_name != 'pull_request' }}
         shell: pwsh
         env:
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
           IS_PRERELEASE: ${{ steps.release.outputs.prerelease }}
+          RELEASE_PHASE: ${{ steps.release.outputs.phase }}
         run: |
           $storeValues = @(
             $env:STORE_PACKAGE_IDENTITY_NAME,
@@ -239,7 +269,21 @@ jobs:
             throw "Resolved prerelease state is invalid"
           }
           $stable = $env:IS_PRERELEASE -ceq "false"
-          if ($stable -and $configured -ne $storeValues.Count) {
+          $signerValues = @(
+            $env:DIRECT_EXE_SIGNER_SUBJECT,
+            $env:DIRECT_EXE_SIGNER_THUMBPRINT
+          )
+          $signerConfigured = @($signerValues | Where-Object {
+              -not [string]::IsNullOrWhiteSpace([string]$_)
+            }).Count
+          if ($signerConfigured -ne 0 -and $signerConfigured -ne $signerValues.Count) {
+            throw "Direct EXE signer identity configuration is partial"
+          }
+          if ($stable -and $signerConfigured -ne $signerValues.Count) {
+            throw "A stable release requires the exact direct EXE signer Subject and thumbprint"
+          }
+          if ($stable -and $env:RELEASE_PHASE -ceq 'finalize' -and
+              $configured -ne $storeValues.Count) {
             throw "A stable release requires the exact Partner Center identity and an explicit Store package version"
           }
           if ($configured -eq $storeValues.Count) {
@@ -253,18 +297,38 @@ jobs:
               if ([uint64]$part -gt 65535) { throw "Store package version component is too large" }
             }
           }
-          if ($stable) {
-            $signature = Get-AuthenticodeSignature -LiteralPath build/desktop/TraverseBoard.exe
-            if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
-              throw "A stable direct EXE release requires a valid Authenticode signature"
-            }
-          }
+
+      - name: Prepare protected direct-EXE signing request
+        if: ${{ steps.release.outputs.signing_prepare == 'true' }}
+        shell: pwsh
+        run: |
+          ./scripts/stage-direct-exe.ps1 `
+            -Channel stable `
+            -PrepareSigningRequest `
+            -ExpectedVersion '${{ steps.release.outputs.version }}' `
+            -ExpectedRevision '${{ steps.release.outputs.revision }}' `
+            -ExpectedSignerSubject $env:DIRECT_EXE_SIGNER_SUBJECT `
+            -ExpectedSignerThumbprint $env:DIRECT_EXE_SIGNER_THUMBPRINT
+
+      - name: Upload isolated direct-EXE signing request
+        if: ${{ steps.release.outputs.signing_prepare == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.release.outputs.artifact_name }}-direct-exe-signing-request
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            build/desktop/TraverseBoard.exe
+            build/desktop/release-metadata.json
+            build/desktop/direct-exe-signing-request.json
 
       - name: Package internal verification ZIP with evidence
+        if: ${{ steps.release.outputs.signing_prepare != 'true' }}
         shell: pwsh
         run: ./scripts/package-portable-zip.ps1 -Version '${{ steps.release.outputs.version }}' -VerifyReproducible
 
       - name: Verify direct executable through the internal archive
+        if: ${{ steps.release.outputs.signing_prepare != 'true' }}
         shell: pwsh
         run: |
           ./scripts/verify-portable-zip.ps1 `
@@ -273,7 +337,7 @@ jobs:
             -SmokeTest
 
       - name: Validate Draft Release evidence intake
-        if: ${{ github.event_name != 'pull_request' }}
+        if: ${{ github.event_name != 'pull_request' && steps.release.outputs.signing_prepare != 'true' }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -290,18 +354,35 @@ jobs:
             "standard-code-product-e2e.json",
             "standard-code-security-evidence.json"
           )
+          $stable = '${{ steps.release.outputs.prerelease }}' -ceq 'false'
+          if ($stable) {
+            $required += @(
+              "direct-exe-signing-request.json",
+              "TraverseBoard-signed.exe",
+              "direct-exe-signing-handoff.json"
+            )
+          }
           $assets = @($release.assets)
           if ($assets.Count -ne $required.Count) {
-            throw "The candidate evidence Draft Release must contain exactly the two required evidence assets"
+            throw "The candidate evidence Draft Release differs from the exact channel-bound intake allowlist"
           }
           foreach ($name in $required) {
             $matches = @($assets | Where-Object { [string]$_.name -ceq $name })
+            $maximumSize = switch ($name) {
+              "TraverseBoard-signed.exe" { 536870912 }
+              "direct-exe-signing-request.json" { 1048576 }
+              "direct-exe-signing-handoff.json" { 1048576 }
+              default { 4194304 }
+            }
             if ($matches.Count -ne 1 -or [int64]$matches[0].size -le 0 -or
-                [int64]$matches[0].size -gt 4194304) {
+                [int64]$matches[0].size -gt $maximumSize) {
               throw "Draft Release evidence asset is missing, duplicated, empty, or oversized: $name"
             }
           }
-          foreach ($name in $required) {
+          foreach ($name in @(
+              "standard-code-product-e2e.json",
+              "standard-code-security-evidence.json"
+            )) {
             $target = Join-Path "build/desktop" $name
             if (Test-Path -LiteralPath $target) {
               throw "Evidence intake target already exists: $name"
@@ -313,16 +394,43 @@ jobs:
             --pattern 'standard-code-security-evidence.json' `
             --dir build/desktop
           if ($LASTEXITCODE -ne 0) { throw "Draft Release evidence download failed" }
-          foreach ($name in $required) {
+          foreach ($name in @(
+              "standard-code-product-e2e.json",
+              "standard-code-security-evidence.json"
+            )) {
             $item = Get-Item -LiteralPath (Join-Path "build/desktop" $name) -Force
             if (-not $item.PSIsContainer -and
                 -not ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -and
                 $item.Length -gt 0 -and $item.Length -le 4194304) { continue }
             throw "Downloaded evidence asset is unsafe: $name"
           }
+          if ($stable) {
+            New-Item -ItemType Directory -Force -Path build/signing | Out-Null
+            gh release download $env:RELEASE_VERSION `
+              --repo $env:GITHUB_REPOSITORY `
+              --pattern 'direct-exe-signing-request.json' `
+              --pattern 'TraverseBoard-signed.exe' `
+              --pattern 'direct-exe-signing-handoff.json' `
+              --dir build/signing
+            if ($LASTEXITCODE -ne 0) { throw "Stable signing handoff download failed" }
+            $request = Get-Item -LiteralPath build/signing/direct-exe-signing-request.json -Force
+            $signed = Get-Item -LiteralPath build/signing/TraverseBoard-signed.exe -Force
+            $handoff = Get-Item -LiteralPath build/signing/direct-exe-signing-handoff.json -Force
+            foreach ($item in @($request, $signed, $handoff)) {
+              if ($item.PSIsContainer -or
+                  ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -or
+                  $item.Length -le 0) {
+                throw "Downloaded signing handoff input is unsafe: $($item.Name)"
+              }
+            }
+            if ($request.Length -gt 1048576 -or $signed.Length -gt 536870912 -or
+                $handoff.Length -gt 1048576) {
+              throw "Downloaded signing handoff input is oversized"
+            }
+          }
 
       - name: Exercise packaged Standard Code bootstrap
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ github.event_name == 'pull_request' && steps.release.outputs.signing_prepare != 'true' }}
         shell: pwsh
         run: |
           ./scripts/standard-code-packaged-e2e.ps1 `
@@ -330,7 +438,7 @@ jobs:
             -ExpectedRevision '${{ steps.release.outputs.revision }}'
 
       - name: Aggregate candidate-bound Standard Code release evidence
-        if: ${{ github.event_name != 'pull_request' }}
+        if: ${{ github.event_name != 'pull_request' && steps.release.outputs.signing_prepare != 'true' }}
         shell: pwsh
         run: |
           ./scripts/standard-code-packaged-e2e.ps1 `
@@ -341,18 +449,58 @@ jobs:
             -AggregateOutputPath 'build/desktop/standard-code-release-gate.json' `
             -RequireReleaseGate
 
+      - name: Stage prerelease direct executable
+        if: ${{ steps.release.outputs.signing_prepare != 'true' && steps.release.outputs.prerelease == 'true' }}
+        shell: pwsh
+        run: |
+          ./scripts/stage-direct-exe.ps1 `
+            -Channel prerelease `
+            -ExpectedVersion '${{ steps.release.outputs.version }}' `
+            -ExpectedRevision '${{ steps.release.outputs.revision }}'
+
+      - name: Stage trusted stable direct executable
+        if: ${{ github.event_name != 'pull_request' && steps.release.outputs.signing_prepare != 'true' && steps.release.outputs.prerelease == 'false' }}
+        shell: pwsh
+        run: |
+          ./scripts/stage-direct-exe.ps1 `
+            -Channel stable `
+            -SigningRequestPath build/signing/direct-exe-signing-request.json `
+            -SignedArtifactPath build/signing/TraverseBoard-signed.exe `
+            -SigningHandoffPath build/signing/direct-exe-signing-handoff.json `
+            -ExpectedVersion '${{ steps.release.outputs.version }}' `
+            -ExpectedRevision '${{ steps.release.outputs.revision }}' `
+            -ExpectedSignerSubject $env:DIRECT_EXE_SIGNER_SUBJECT `
+            -ExpectedSignerThumbprint $env:DIRECT_EXE_SIGNER_THUMBPRINT
+
+      - name: Reverify staged direct executable
+        if: ${{ steps.release.outputs.signing_prepare != 'true' }}
+        shell: pwsh
+        env:
+          IS_PRERELEASE: ${{ steps.release.outputs.prerelease }}
+        run: |
+          $parameters = @{
+            ExpectedVersion = '${{ steps.release.outputs.version }}'
+            ExpectedRevision = '${{ steps.release.outputs.revision }}'
+            VerifyOnly = $true
+          }
+          if ($env:IS_PRERELEASE -ceq 'false') {
+            $parameters.ExpectedSignerSubject = $env:DIRECT_EXE_SIGNER_SUBJECT
+            $parameters.ExpectedSignerThumbprint = $env:DIRECT_EXE_SIGNER_THUMBPRINT
+          }
+          ./scripts/stage-direct-exe.ps1 @parameters
+
       - name: Package unsigned development MSIX candidate
-        if: ${{ github.event_name == 'pull_request' || vars.STORE_PACKAGE_IDENTITY_NAME == '' || vars.STORE_PACKAGE_PUBLISHER == '' || vars.STORE_PUBLISHER_DISPLAY_NAME == '' || vars.STORE_PACKAGE_VERSION == '' }}
+        if: ${{ steps.release.outputs.signing_prepare != 'true' && (github.event_name == 'pull_request' || steps.release.outputs.prerelease == 'true' || vars.STORE_PACKAGE_IDENTITY_NAME == '' || vars.STORE_PACKAGE_PUBLISHER == '' || vars.STORE_PUBLISHER_DISPLAY_NAME == '' || vars.STORE_PACKAGE_VERSION == '') }}
         shell: pwsh
         run: ./scripts/package-msix.ps1 -Version '${{ steps.release.outputs.msix_version }}'
 
       - name: Inspect development MSIX candidate
-        if: ${{ github.event_name == 'pull_request' || vars.STORE_PACKAGE_IDENTITY_NAME == '' || vars.STORE_PACKAGE_PUBLISHER == '' || vars.STORE_PUBLISHER_DISPLAY_NAME == '' || vars.STORE_PACKAGE_VERSION == '' }}
+        if: ${{ steps.release.outputs.signing_prepare != 'true' && (github.event_name == 'pull_request' || steps.release.outputs.prerelease == 'true' || vars.STORE_PACKAGE_IDENTITY_NAME == '' || vars.STORE_PACKAGE_PUBLISHER == '' || vars.STORE_PUBLISHER_DISPLAY_NAME == '' || vars.STORE_PACKAGE_VERSION == '') }}
         shell: pwsh
         run: ./scripts/verify-msix.ps1 -Action inspect
 
       - name: Exercise synthetic Partner Center contract on pull requests
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ github.event_name == 'pull_request' && steps.release.outputs.signing_prepare != 'true' }}
         shell: pwsh
         run: |
           ./scripts/package-msix.ps1 `
@@ -365,23 +513,24 @@ jobs:
           ./scripts/verify-msix.ps1 -Action inspect
 
       - name: Restore development MSIX evidence after synthetic Store check
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ github.event_name == 'pull_request' && steps.release.outputs.signing_prepare != 'true' }}
         shell: pwsh
         run: |
           ./scripts/package-msix.ps1 -Version '${{ steps.release.outputs.msix_version }}'
           ./scripts/verify-msix.ps1 -Action inspect
 
       - name: Package Partner Center-bound Store upload
-        if: ${{ github.event_name != 'pull_request' && vars.STORE_PACKAGE_IDENTITY_NAME != '' && vars.STORE_PACKAGE_PUBLISHER != '' && vars.STORE_PUBLISHER_DISPLAY_NAME != '' && vars.STORE_PACKAGE_VERSION != '' }}
+        if: ${{ github.event_name != 'pull_request' && steps.release.outputs.signing_prepare != 'true' && steps.release.outputs.prerelease == 'false' && vars.STORE_PACKAGE_IDENTITY_NAME != '' && vars.STORE_PACKAGE_PUBLISHER != '' && vars.STORE_PUBLISHER_DISPLAY_NAME != '' && vars.STORE_PACKAGE_VERSION != '' }}
         shell: pwsh
-        run: ./scripts/package-msix.ps1 -Distribution MicrosoftStore -Version $env:STORE_PACKAGE_VERSION -PackageIdentityName $env:STORE_PACKAGE_IDENTITY_NAME -PackagePublisher $env:STORE_PACKAGE_PUBLISHER -PublisherDisplayName $env:STORE_PUBLISHER_DISPLAY_NAME
+        run: ./scripts/package-msix.ps1 -Distribution MicrosoftStore -Version $env:STORE_PACKAGE_VERSION -PackageIdentityName $env:STORE_PACKAGE_IDENTITY_NAME -PackagePublisher $env:STORE_PACKAGE_PUBLISHER -PublisherDisplayName $env:STORE_PUBLISHER_DISPLAY_NAME -ExpectedDirectSignerSubject $env:DIRECT_EXE_SIGNER_SUBJECT -ExpectedDirectSignerThumbprint $env:DIRECT_EXE_SIGNER_THUMBPRINT
 
       - name: Inspect Partner Center-bound Store upload
-        if: ${{ github.event_name != 'pull_request' && vars.STORE_PACKAGE_IDENTITY_NAME != '' && vars.STORE_PACKAGE_PUBLISHER != '' && vars.STORE_PUBLISHER_DISPLAY_NAME != '' && vars.STORE_PACKAGE_VERSION != '' }}
+        if: ${{ github.event_name != 'pull_request' && steps.release.outputs.signing_prepare != 'true' && steps.release.outputs.prerelease == 'false' && vars.STORE_PACKAGE_IDENTITY_NAME != '' && vars.STORE_PACKAGE_PUBLISHER != '' && vars.STORE_PUBLISHER_DISPLAY_NAME != '' && vars.STORE_PACKAGE_VERSION != '' }}
         shell: pwsh
-        run: ./scripts/verify-msix.ps1 -Action inspect
+        run: ./scripts/verify-msix.ps1 -Action inspect -ExpectedDirectSignerSubject $env:DIRECT_EXE_SIGNER_SUBJECT -ExpectedDirectSignerThumbprint $env:DIRECT_EXE_SIGNER_THUMBPRINT
 
       - name: Upload exact Desktop verification and direct-EXE candidate
+        if: ${{ steps.release.outputs.signing_prepare != 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.release.outputs.artifact_name }}
@@ -389,6 +538,10 @@ jobs:
           retention-days: 14
           path: |
             build/desktop/TraverseBoard.exe
+            build/desktop/TraverseBoard.direct.exe
+            build/desktop/direct-exe-signing.json
+            build/desktop/direct-exe-signing-request.json
+            build/desktop/direct-exe-signing-handoff.json
             build/desktop/Prayu-portable-*.zip
             build/desktop/SHA256SUMS
             build/desktop/verification-SHA256SUMS
@@ -403,7 +556,7 @@ jobs:
             build/desktop/NOTICE
 
       - name: Upload isolated development MSIX validation artifact
-        if: ${{ github.event_name == 'pull_request' || vars.STORE_PACKAGE_IDENTITY_NAME == '' || vars.STORE_PACKAGE_PUBLISHER == '' || vars.STORE_PUBLISHER_DISPLAY_NAME == '' || vars.STORE_PACKAGE_VERSION == '' }}
+        if: ${{ steps.release.outputs.signing_prepare != 'true' && (github.event_name == 'pull_request' || steps.release.outputs.prerelease == 'true' || vars.STORE_PACKAGE_IDENTITY_NAME == '' || vars.STORE_PACKAGE_PUBLISHER == '' || vars.STORE_PUBLISHER_DISPLAY_NAME == '' || vars.STORE_PACKAGE_VERSION == '') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.release.outputs.artifact_name }}-development-msix
@@ -411,12 +564,14 @@ jobs:
           retention-days: 7
           path: |
             build/desktop/TraverseBoard.exe
+            build/desktop/TraverseBoard.direct.exe
+            build/desktop/direct-exe-signing.json
             build/desktop/PrayuDesktop.msix
             build/desktop/msix-manifest.json
             build/desktop/release-metadata.json
 
       - name: Upload isolated Partner Center submission artifact
-        if: ${{ github.event_name != 'pull_request' && vars.STORE_PACKAGE_IDENTITY_NAME != '' && vars.STORE_PACKAGE_PUBLISHER != '' && vars.STORE_PUBLISHER_DISPLAY_NAME != '' && vars.STORE_PACKAGE_VERSION != '' }}
+        if: ${{ github.event_name != 'pull_request' && steps.release.outputs.signing_prepare != 'true' && steps.release.outputs.prerelease == 'false' && vars.STORE_PACKAGE_IDENTITY_NAME != '' && vars.STORE_PACKAGE_PUBLISHER != '' && vars.STORE_PUBLISHER_DISPLAY_NAME != '' && vars.STORE_PACKAGE_VERSION != '' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.release.outputs.artifact_name }}-partner-center
@@ -424,6 +579,10 @@ jobs:
           retention-days: 14
           path: |
             build/desktop/TraverseBoard.exe
+            build/desktop/TraverseBoard.direct.exe
+            build/desktop/direct-exe-signing.json
+            build/desktop/direct-exe-signing-request.json
+            build/desktop/direct-exe-signing-handoff.json
             build/desktop/TraverseBoard_${{ env.STORE_PACKAGE_VERSION }}_x64.msix
             build/desktop/TraverseBoard_${{ env.STORE_PACKAGE_VERSION }}_x64.msixupload
             build/desktop/msix-manifest.json
@@ -440,16 +599,311 @@ jobs:
             build/desktop/SHA256SUMS
             build/desktop/verification-SHA256SUMS
 
+  attest-windows-artifacts:
+    name: Attest Windows release artifacts
+    if: ${{ github.event_name != 'pull_request' && needs.portable-zip.outputs.phase != 'prepare' && needs.portable-zip.outputs.signing_prepare != 'true' }}
+    needs: portable-zip
+    runs-on: windows-latest
+    permissions:
+      actions: read
+      artifact-metadata: write
+      attestations: write
+      contents: read
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DIRECT_EXE_SIGNER_SUBJECT: ${{ vars.DIRECT_EXE_SIGNER_SUBJECT }}
+      DIRECT_EXE_SIGNER_THUMBPRINT: ${{ vars.DIRECT_EXE_SIGNER_THUMBPRINT }}
+    steps:
+      - name: Checkout attested source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Download exact Windows candidate
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build/desktop | Out-Null
+          gh run download $env:GITHUB_RUN_ID `
+            --repo $env:GITHUB_REPOSITORY `
+            --name '${{ needs.portable-zip.outputs.artifact_name }}' `
+            --dir build/desktop
+          if ($LASTEXITCODE -ne 0) { throw "Exact Windows candidate download failed" }
+
+      - name: Set up pinned Go 1.25.12
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25.12'
+          cache: true
+
+      - name: Reverify downloaded Windows candidate
+        shell: pwsh
+        env:
+          IS_PRERELEASE: ${{ needs.portable-zip.outputs.prerelease }}
+        run: |
+          $portableParameters = @{
+            ExpectedVersion = '${{ needs.portable-zip.outputs.version }}'
+            ExpectedRevision = '${{ needs.portable-zip.outputs.revision }}'
+          }
+          if ($env:IS_PRERELEASE -ceq 'false') {
+            $portableParameters.ExpectedDirectSignerSubject = $env:DIRECT_EXE_SIGNER_SUBJECT
+            $portableParameters.ExpectedDirectSignerThumbprint = $env:DIRECT_EXE_SIGNER_THUMBPRINT
+          }
+          ./scripts/verify-portable-zip.ps1 @portableParameters
+          $directParameters = @{
+            ExpectedVersion = '${{ needs.portable-zip.outputs.version }}'
+            ExpectedRevision = '${{ needs.portable-zip.outputs.revision }}'
+            VerifyOnly = $true
+          }
+          if ($env:IS_PRERELEASE -ceq 'false') {
+            $directParameters.ExpectedSignerSubject = $env:DIRECT_EXE_SIGNER_SUBJECT
+            $directParameters.ExpectedSignerThumbprint = $env:DIRECT_EXE_SIGNER_THUMBPRINT
+          }
+          ./scripts/stage-direct-exe.ps1 @directParameters
+          $manifest = Get-Content -LiteralPath build/desktop/portable-zip-manifest.json `
+            -Raw | ConvertFrom-Json
+          $archive = Join-Path build/desktop ([string]$manifest.zip_name)
+          go run ./cmd/releasegate `
+            --binary build/desktop/TraverseBoard.exe `
+            --archive $archive `
+            --portable-manifest build/desktop/portable-zip-manifest.json `
+            --release-metadata build/desktop/release-metadata.json `
+            --bootstrap build/desktop/standard-code-packaged-e2e.json `
+            --product build/desktop/standard-code-product-e2e.json `
+            --security build/desktop/standard-code-security-evidence.json `
+            --expected-revision '${{ needs.portable-zip.outputs.revision }}' `
+            --verify-report build/desktop/standard-code-release-gate.json
+          if ($LASTEXITCODE -ne 0) { throw "Attestation candidate release-gate revalidation failed" }
+
+      - name: Download and reverify stable Store submission
+        if: ${{ needs.portable-zip.outputs.prerelease == 'false' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build/store | Out-Null
+          gh run download $env:GITHUB_RUN_ID `
+            --repo $env:GITHUB_REPOSITORY `
+            --name '${{ needs.portable-zip.outputs.artifact_name }}-partner-center' `
+            --dir build/store
+          if ($LASTEXITCODE -ne 0) { throw "Partner Center submission artifact download failed" }
+          ./scripts/verify-msix.ps1 `
+            -ManifestPath build/store/msix-manifest.json `
+            -Action inspect `
+            -ExpectedDirectSignerSubject $env:DIRECT_EXE_SIGNER_SUBJECT `
+            -ExpectedDirectSignerThumbprint $env:DIRECT_EXE_SIGNER_THUMBPRINT
+
+      - name: Prepare exact attestation subjects
+        id: subjects
+        shell: pwsh
+        env:
+          IS_PRERELEASE: ${{ needs.portable-zip.outputs.prerelease }}
+        run: |
+          New-Item -ItemType Directory -Force -Path build/attestation-subjects | Out-Null
+          Copy-Item -LiteralPath build/desktop/TraverseBoard.direct.exe `
+            -Destination build/attestation-subjects/TraverseBoard.exe
+          $directHash = (Get-FileHash -Algorithm SHA256 `
+            -LiteralPath build/attestation-subjects/TraverseBoard.exe).Hash.ToLowerInvariant()
+          "direct_sha256=$directHash" >> $env:GITHUB_OUTPUT
+          if ($env:IS_PRERELEASE -ceq 'false') {
+            $storeEvidence = Get-Content -LiteralPath build/store/msix-manifest.json `
+              -Raw | ConvertFrom-Json
+            $uploadName = [string]$storeEvidence.msixupload_name
+            if ([string]::IsNullOrWhiteSpace($uploadName) -or
+                [System.IO.Path]::GetFileName($uploadName) -cne $uploadName) {
+              throw "Store attestation subject filename is unsafe"
+            }
+            $storePath = Join-Path build/store $uploadName
+            if (-not (Test-Path -LiteralPath $storePath -PathType Leaf)) {
+              throw "Store attestation subject is missing"
+            }
+            $storeHash = (Get-FileHash -Algorithm SHA256 `
+              -LiteralPath $storePath).Hash.ToLowerInvariant()
+            "store_present=true" >> $env:GITHUB_OUTPUT
+            "store_subject=build/store/$uploadName" >> $env:GITHUB_OUTPUT
+            "store_name=$uploadName" >> $env:GITHUB_OUTPUT
+            "store_sha256=$storeHash" >> $env:GITHUB_OUTPUT
+          } else {
+            "store_present=false" >> $env:GITHUB_OUTPUT
+            "store_subject=" >> $env:GITHUB_OUTPUT
+            "store_name=" >> $env:GITHUB_OUTPUT
+            "store_sha256=" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Attest direct EXE provenance
+        id: direct_provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: build/attestation-subjects/TraverseBoard.exe
+
+      - name: Attest direct EXE SBOM
+        id: direct_sbom
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: build/attestation-subjects/TraverseBoard.exe
+          sbom-path: build/desktop/sbom.json
+
+      - name: Attest Store upload provenance
+        id: store_provenance
+        if: ${{ steps.subjects.outputs.store_present == 'true' }}
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: ${{ steps.subjects.outputs.store_subject }}
+
+      - name: Verify bundles and write hash-bound attestation index
+        shell: pwsh
+        env:
+          DIRECT_SHA256: ${{ steps.subjects.outputs.direct_sha256 }}
+          STORE_PRESENT: ${{ steps.subjects.outputs.store_present }}
+          STORE_SUBJECT: ${{ steps.subjects.outputs.store_subject }}
+          STORE_NAME: ${{ steps.subjects.outputs.store_name }}
+          STORE_SHA256: ${{ steps.subjects.outputs.store_sha256 }}
+          DIRECT_PROVENANCE_BUNDLE: ${{ steps.direct_provenance.outputs.bundle-path }}
+          DIRECT_PROVENANCE_ID: ${{ steps.direct_provenance.outputs.attestation-id }}
+          DIRECT_PROVENANCE_URL: ${{ steps.direct_provenance.outputs.attestation-url }}
+          DIRECT_SBOM_BUNDLE: ${{ steps.direct_sbom.outputs.bundle-path }}
+          DIRECT_SBOM_ID: ${{ steps.direct_sbom.outputs.attestation-id }}
+          DIRECT_SBOM_URL: ${{ steps.direct_sbom.outputs.attestation-url }}
+          STORE_PROVENANCE_BUNDLE: ${{ steps.store_provenance.outputs.bundle-path }}
+          STORE_PROVENANCE_ID: ${{ steps.store_provenance.outputs.attestation-id }}
+          STORE_PROVENANCE_URL: ${{ steps.store_provenance.outputs.attestation-url }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path build/attestations | Out-Null
+          function Get-SHA256([string]$Path) {
+            return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+          }
+          function Get-Statement([string]$BundlePath) {
+            $bundle = Get-Content -LiteralPath $BundlePath -Raw | ConvertFrom-Json
+            $payload = [string]$bundle.dsseEnvelope.payload
+            if ([string]::IsNullOrWhiteSpace($payload)) {
+              throw "Attestation bundle has no DSSE payload"
+            }
+            $json = [System.Text.Encoding]::UTF8.GetString(
+              [System.Convert]::FromBase64String($payload))
+            return ($json | ConvertFrom-Json)
+          }
+          function New-AttestationEntry(
+              [string]$Kind,
+              [string]$SubjectPath,
+              [string]$SubjectName,
+              [string]$SubjectHash,
+              [string]$SourceBundle,
+              [string]$BundleName,
+              [string]$AttestationID,
+              [string]$AttestationURL) {
+            if ([string]::IsNullOrWhiteSpace($SourceBundle) -or
+                -not (Test-Path -LiteralPath $SourceBundle -PathType Leaf) -or
+                [string]::IsNullOrWhiteSpace($AttestationID) -or
+                $AttestationURL -notmatch '^https://github\.com/') {
+              throw "Attestation action outputs are incomplete for $Kind"
+            }
+            $bundlePath = Join-Path build/attestations $BundleName
+            Copy-Item -LiteralPath $SourceBundle -Destination $bundlePath
+            $statement = Get-Statement $bundlePath
+            $predicateType = [string]$statement.predicateType
+            $subjects = @($statement.subject)
+            if ([string]::IsNullOrWhiteSpace($predicateType) -or
+                $subjects.Count -ne 1 -or
+                [string]$subjects[0].name -cne $SubjectName -or
+                [string]$subjects[0].digest.sha256 -cne $SubjectHash) {
+              throw "Attestation bundle subject differs for $Kind"
+            }
+            if ($Kind -like '*_provenance' -and
+                $predicateType -cne 'https://slsa.dev/provenance/v1') {
+              throw "Provenance attestation predicate differs for $Kind"
+            }
+            if ($Kind -ceq 'direct_exe_sbom' -and
+                $predicateType -cne 'https://cyclonedx.org/bom') {
+              throw "Direct EXE SBOM attestation predicate differs"
+            }
+            gh attestation verify $SubjectPath `
+              --bundle $bundlePath `
+              --repo $env:GITHUB_REPOSITORY `
+              --signer-workflow "$env:GITHUB_REPOSITORY/.github/workflows/release-desktop.yml" `
+              --source-digest '${{ needs.portable-zip.outputs.revision }}' `
+              --predicate-type $predicateType | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "Attestation verification failed for $Kind" }
+            return [ordered]@{
+              kind = $Kind
+              predicate_type = $predicateType
+              subject_name = $SubjectName
+              subject_sha256 = $SubjectHash
+              attestation_id = $AttestationID
+              attestation_url = $AttestationURL
+              bundle_name = $BundleName
+              bundle_sha256 = (Get-SHA256 $bundlePath)
+            }
+          }
+          $entries = [System.Collections.Generic.List[object]]::new()
+          $entries.Add((New-AttestationEntry `
+            -Kind direct_exe_provenance `
+            -SubjectPath build/attestation-subjects/TraverseBoard.exe `
+            -SubjectName TraverseBoard.exe `
+            -SubjectHash $env:DIRECT_SHA256 `
+            -SourceBundle $env:DIRECT_PROVENANCE_BUNDLE `
+            -BundleName direct-exe-provenance.bundle.json `
+            -AttestationID $env:DIRECT_PROVENANCE_ID `
+            -AttestationURL $env:DIRECT_PROVENANCE_URL))
+          $entries.Add((New-AttestationEntry `
+            -Kind direct_exe_sbom `
+            -SubjectPath build/attestation-subjects/TraverseBoard.exe `
+            -SubjectName TraverseBoard.exe `
+            -SubjectHash $env:DIRECT_SHA256 `
+            -SourceBundle $env:DIRECT_SBOM_BUNDLE `
+            -BundleName direct-exe-sbom.bundle.json `
+            -AttestationID $env:DIRECT_SBOM_ID `
+            -AttestationURL $env:DIRECT_SBOM_URL))
+          if ($env:STORE_PRESENT -ceq 'true') {
+            $entries.Add((New-AttestationEntry `
+              -Kind store_msixupload_provenance `
+              -SubjectPath $env:STORE_SUBJECT `
+              -SubjectName $env:STORE_NAME `
+              -SubjectHash $env:STORE_SHA256 `
+              -SourceBundle $env:STORE_PROVENANCE_BUNDLE `
+              -BundleName store-msixupload-provenance.bundle.json `
+              -AttestationID $env:STORE_PROVENANCE_ID `
+              -AttestationURL $env:STORE_PROVENANCE_URL))
+          }
+          $storeIndexHash = ''
+          if ($env:STORE_PRESENT -ceq 'true') {
+            $storeIndexHash = $env:STORE_SHA256
+          }
+          $index = [ordered]@{
+            protocol_version = 'windows_artifact_attestations.v1'
+            release_version = '${{ needs.portable-zip.outputs.version }}'
+            release_revision = '${{ needs.portable-zip.outputs.revision }}'
+            direct_exe_sha256 = $env:DIRECT_SHA256
+            store_msixupload_sha256 = $storeIndexHash
+            attestations = @($entries)
+          }
+          [System.IO.File]::WriteAllText(
+            (Join-Path build/attestations artifact-attestations.json),
+            (($index | ConvertTo-Json -Depth 6) + [System.Environment]::NewLine),
+            [System.Text.UTF8Encoding]::new($false))
+
+      - name: Upload exact attestation bundles and index
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ needs.portable-zip.outputs.artifact_name }}-attestations
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            build/attestations/artifact-attestations.json
+            build/attestations/*.bundle.json
+
   publish:
     name: Publish verified GitHub Release
-    if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
-    needs: portable-zip
+    if: ${{ github.event_name == 'push' && github.ref_type == 'tag' && needs.portable-zip.outputs.phase == 'finalize' && needs.portable-zip.outputs.signing_prepare != 'true' }}
+    needs:
+      - portable-zip
+      - attest-windows-artifacts
     runs-on: windows-latest
     permissions:
       actions: read
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
+      DIRECT_EXE_SIGNER_SUBJECT: ${{ vars.DIRECT_EXE_SIGNER_SUBJECT }}
+      DIRECT_EXE_SIGNER_THUMBPRINT: ${{ vars.DIRECT_EXE_SIGNER_THUMBPRINT }}
     steps:
       - name: Checkout released source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -464,6 +918,24 @@ jobs:
             --repo $env:GITHUB_REPOSITORY `
             --name '${{ needs.portable-zip.outputs.artifact_name }}' `
             --dir build/desktop
+          if ($LASTEXITCODE -ne 0) { throw "Exact Windows candidate download failed" }
+          New-Item -ItemType Directory -Force -Path build/attestations | Out-Null
+          gh run download $env:GITHUB_RUN_ID `
+            --repo $env:GITHUB_REPOSITORY `
+            --name '${{ needs.portable-zip.outputs.artifact_name }}-attestations' `
+            --dir build/attestations
+          if ($LASTEXITCODE -ne 0) { throw "Exact attestation artifact download failed" }
+
+      - name: Download stable Store submission from this run
+        if: ${{ needs.portable-zip.outputs.prerelease == 'false' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build/store | Out-Null
+          gh run download $env:GITHUB_RUN_ID `
+            --repo $env:GITHUB_REPOSITORY `
+            --name '${{ needs.portable-zip.outputs.artifact_name }}-partner-center' `
+            --dir build/store
+          if ($LASTEXITCODE -ne 0) { throw "Exact Partner Center artifact download failed" }
 
       - name: Set up pinned Go 1.25.12
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -473,10 +945,35 @@ jobs:
 
       - name: Reverify downloaded candidate
         shell: pwsh
+        env:
+          IS_PRERELEASE: ${{ needs.portable-zip.outputs.prerelease }}
         run: |
-          ./scripts/verify-portable-zip.ps1 `
-            -ExpectedVersion '${{ needs.portable-zip.outputs.version }}' `
-            -ExpectedRevision '${{ needs.portable-zip.outputs.revision }}'
+          $portableParameters = @{
+            ExpectedVersion = '${{ needs.portable-zip.outputs.version }}'
+            ExpectedRevision = '${{ needs.portable-zip.outputs.revision }}'
+          }
+          if ($env:IS_PRERELEASE -ceq 'false') {
+            $portableParameters.ExpectedDirectSignerSubject = $env:DIRECT_EXE_SIGNER_SUBJECT
+            $portableParameters.ExpectedDirectSignerThumbprint = $env:DIRECT_EXE_SIGNER_THUMBPRINT
+          }
+          ./scripts/verify-portable-zip.ps1 @portableParameters
+          $directParameters = @{
+            ExpectedVersion = '${{ needs.portable-zip.outputs.version }}'
+            ExpectedRevision = '${{ needs.portable-zip.outputs.revision }}'
+            VerifyOnly = $true
+          }
+          if ($env:IS_PRERELEASE -ceq 'false') {
+            $directParameters.ExpectedSignerSubject = $env:DIRECT_EXE_SIGNER_SUBJECT
+            $directParameters.ExpectedSignerThumbprint = $env:DIRECT_EXE_SIGNER_THUMBPRINT
+          }
+          ./scripts/stage-direct-exe.ps1 @directParameters
+          if ($env:IS_PRERELEASE -ceq 'false') {
+            ./scripts/verify-msix.ps1 `
+              -ManifestPath build/store/msix-manifest.json `
+              -Action inspect `
+              -ExpectedDirectSignerSubject $env:DIRECT_EXE_SIGNER_SUBJECT `
+              -ExpectedDirectSignerThumbprint $env:DIRECT_EXE_SIGNER_THUMBPRINT
+          }
 
       - name: Reverify aggregate Standard Code release gate
         shell: pwsh
@@ -496,13 +993,146 @@ jobs:
             --verify-report build/desktop/standard-code-release-gate.json
           if ($LASTEXITCODE -ne 0) { throw "Aggregate Standard Code release gate revalidation failed" }
 
+      - name: Reverify artifact attestation index and bundles
+        shell: pwsh
+        env:
+          IS_PRERELEASE: ${{ needs.portable-zip.outputs.prerelease }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Get-SHA256([string]$Path) {
+            return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+          }
+          function Get-Statement([string]$BundlePath) {
+            $bundle = Get-Content -LiteralPath $BundlePath -Raw | ConvertFrom-Json
+            $payload = [string]$bundle.dsseEnvelope.payload
+            if ([string]::IsNullOrWhiteSpace($payload)) {
+              throw "Attestation bundle has no DSSE payload"
+            }
+            $json = [System.Text.Encoding]::UTF8.GetString(
+              [System.Convert]::FromBase64String($payload))
+            return ($json | ConvertFrom-Json)
+          }
+          $indexPath = 'build/attestations/artifact-attestations.json'
+          if (-not (Test-Path -LiteralPath $indexPath -PathType Leaf)) {
+            throw "Artifact attestation index is missing"
+          }
+          $index = Get-Content -LiteralPath $indexPath -Raw | ConvertFrom-Json
+          $stable = $env:IS_PRERELEASE -ceq 'false'
+          if ($env:IS_PRERELEASE -notin @('true', 'false') -or
+              [string]$index.protocol_version -cne 'windows_artifact_attestations.v1' -or
+              [string]$index.release_version -cne '${{ needs.portable-zip.outputs.version }}' -or
+              [string]$index.release_revision -cne '${{ needs.portable-zip.outputs.revision }}') {
+            throw "Artifact attestation index release identity is invalid"
+          }
+          New-Item -ItemType Directory -Force -Path build/public | Out-Null
+          Copy-Item -LiteralPath build/desktop/TraverseBoard.direct.exe `
+            -Destination build/public/TraverseBoard.exe
+          $directHash = Get-SHA256 build/public/TraverseBoard.exe
+          if ([string]$index.direct_exe_sha256 -cne $directHash) {
+            throw "Attestation index differs from the staged direct EXE"
+          }
+          $storePath = ''
+          $storeName = ''
+          $storeHash = ''
+          if ($stable) {
+            $storeEvidence = Get-Content -LiteralPath build/store/msix-manifest.json `
+              -Raw | ConvertFrom-Json
+            $storeName = [string]$storeEvidence.msixupload_name
+            if ([System.IO.Path]::GetFileName($storeName) -cne $storeName) {
+              throw "Attested Store upload filename is unsafe"
+            }
+            $storePath = Join-Path build/store $storeName
+            $storeHash = Get-SHA256 $storePath
+            if ([string]$index.store_msixupload_sha256 -cne $storeHash) {
+              throw "Attestation index differs from the Store upload"
+            }
+          } elseif (-not [string]::IsNullOrEmpty(
+              [string]$index.store_msixupload_sha256)) {
+            throw "Prerelease attestation index unexpectedly binds a Store upload"
+          }
+          $expectedKinds = @('direct_exe_provenance', 'direct_exe_sbom')
+          if ($stable) { $expectedKinds += 'store_msixupload_provenance' }
+          $expectedBundles = @{
+            direct_exe_provenance = 'direct-exe-provenance.bundle.json'
+            direct_exe_sbom = 'direct-exe-sbom.bundle.json'
+            store_msixupload_provenance = 'store-msixupload-provenance.bundle.json'
+          }
+          $expectedPredicates = @{
+            direct_exe_provenance = 'https://slsa.dev/provenance/v1'
+            direct_exe_sbom = 'https://cyclonedx.org/bom'
+            store_msixupload_provenance = 'https://slsa.dev/provenance/v1'
+          }
+          $entries = @($index.attestations)
+          if ($entries.Count -ne $expectedKinds.Count) {
+            throw "Artifact attestation entry count differs from the channel contract"
+          }
+          $seenKinds = [System.Collections.Generic.HashSet[string]]::new(
+            [System.StringComparer]::Ordinal)
+          $seenBundles = [System.Collections.Generic.HashSet[string]]::new(
+            [System.StringComparer]::Ordinal)
+          foreach ($entry in $entries) {
+            $kind = [string]$entry.kind
+            $predicateType = [string]$entry.predicate_type
+            $bundleName = [string]$entry.bundle_name
+            if ($kind -cnotin $expectedKinds -or -not $seenKinds.Add($kind) -or
+                $predicateType -cne [string]$expectedPredicates[$kind] -or
+                $bundleName -cne [string]$expectedBundles[$kind] -or
+                [System.IO.Path]::GetFileName($bundleName) -cne $bundleName -or
+                -not $seenBundles.Add($bundleName) -or
+                [string]::IsNullOrWhiteSpace([string]$entry.attestation_id) -or
+                [string]$entry.attestation_url -notmatch '^https://github\.com/') {
+              throw "Artifact attestation entry metadata is invalid"
+            }
+            $subjectPath = 'build/public/TraverseBoard.exe'
+            $subjectName = 'TraverseBoard.exe'
+            $subjectHash = $directHash
+            if ($kind -ceq 'store_msixupload_provenance') {
+              $subjectPath = $storePath
+              $subjectName = $storeName
+              $subjectHash = $storeHash
+            }
+            if ([string]$entry.subject_name -cne $subjectName -or
+                [string]$entry.subject_sha256 -cne $subjectHash) {
+              throw "Artifact attestation entry subject differs from its exact file"
+            }
+            $bundlePath = Join-Path build/attestations $bundleName
+            if (-not (Test-Path -LiteralPath $bundlePath -PathType Leaf) -or
+                (Get-SHA256 $bundlePath) -cne [string]$entry.bundle_sha256) {
+              throw "Artifact attestation bundle differs from its index"
+            }
+            $statement = Get-Statement $bundlePath
+            $subjects = @($statement.subject)
+            if ([string]$statement.predicateType -cne $predicateType -or
+                $subjects.Count -ne 1 -or
+                [string]$subjects[0].name -cne $subjectName -or
+                [string]$subjects[0].digest.sha256 -cne $subjectHash -or
+                ($kind -like '*_provenance' -and
+                  $predicateType -cne 'https://slsa.dev/provenance/v1')) {
+              throw "Artifact attestation bundle statement differs from its index"
+            }
+            gh attestation verify $subjectPath `
+              --bundle $bundlePath `
+              --repo $env:GITHUB_REPOSITORY `
+              --signer-workflow "$env:GITHUB_REPOSITORY/.github/workflows/release-desktop.yml" `
+              --source-digest '${{ needs.portable-zip.outputs.revision }}' `
+              --predicate-type $predicateType
+            if ($LASTEXITCODE -ne 0) { throw "Published attestation verification failed for $kind" }
+          }
+          foreach ($kind in $expectedKinds) {
+            if (-not $seenKinds.Contains($kind)) {
+              throw "Required artifact attestation is missing: $kind"
+            }
+          }
+
       - name: Create verified release asset set
         shell: pwsh
         env:
           RELEASE_VERSION: ${{ needs.portable-zip.outputs.version }}
+          IS_PRERELEASE: ${{ needs.portable-zip.outputs.prerelease }}
         run: |
           $assets = @(
-            "build/desktop/TraverseBoard.exe",
+            "build/public/TraverseBoard.exe",
+            "build/desktop/direct-exe-signing.json",
             "build/desktop/SHA256SUMS",
             "build/desktop/release-metadata.json",
             "build/desktop/windows-compatibility.json",
@@ -511,18 +1141,96 @@ jobs:
             "build/desktop/standard-code-security-evidence.json",
             "build/desktop/standard-code-release-gate.json",
             "build/desktop/sbom.json",
-            "build/desktop/NOTICE"
+            "build/desktop/NOTICE",
+            "build/attestations/artifact-attestations.json"
           )
+          if ($env:IS_PRERELEASE -notin @('true', 'false')) {
+            throw "Release notes channel state is invalid"
+          }
+          $stable = $env:IS_PRERELEASE -ceq 'false'
+          if ($stable) {
+            $assets += @(
+              "build/desktop/direct-exe-signing-request.json",
+              "build/desktop/direct-exe-signing-handoff.json"
+            )
+          }
+          $attestationIndex = Get-Content `
+            -LiteralPath build/attestations/artifact-attestations.json `
+            -Raw | ConvertFrom-Json
+          foreach ($entry in @($attestationIndex.attestations)) {
+            $bundleName = [string]$entry.bundle_name
+            if ([System.IO.Path]::GetFileName($bundleName) -cne $bundleName) {
+              throw "Release attestation bundle filename is unsafe"
+            }
+            $assets += Join-Path build/attestations $bundleName
+          }
           foreach ($asset in $assets) {
             if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) {
               throw "Release asset is missing: $asset"
             }
           }
+          $templatePath = 'packaging/windows/RELEASE-NOTES.md'
+          if (-not (Test-Path -LiteralPath $templatePath -PathType Leaf)) {
+            throw "Canonical Windows release-notes template is missing"
+          }
+          $template = [System.IO.File]::ReadAllText($templatePath)
+          $template = $template.Replace("`r`n", "`n").Replace("`r", "`n")
+          foreach ($marker in @(
+              '<!-- windows-two-deliverable-contract.v1 -->',
+              'Windows 下载 / Windows downloads',
+              '本版本面向 Windows 用户只定义两个成品：',
+              'This version defines exactly two Windows user products:',
+              '直接 EXE 信任状态 / Direct-EXE trust state:',
+              'Development MSIX、内部 portable ZIP',
+              'development MSIX, internal portable ZIP'
+            )) {
+            if (-not $template.Contains($marker)) {
+              throw "Windows release-notes template is missing a bilingual product-contract marker"
+            }
+          }
+          foreach ($placeholder in @('{{VERSION}}', '{{TRUST_STATE}}')) {
+            if ([regex]::Matches($template, [regex]::Escape($placeholder)).Count -ne 1) {
+              throw "Windows release-notes template placeholder is missing or duplicated: $placeholder"
+            }
+          }
+          $signingEvidence = Get-Content `
+            -LiteralPath build/desktop/direct-exe-signing.json `
+            -Raw | ConvertFrom-Json
+          $trustedProperty = $signingEvidence.PSObject.Properties['trusted_release']
+          if ($null -eq $trustedProperty -or $trustedProperty.Value -isnot [bool] -or
+              [bool]$trustedProperty.Value -ne $stable) {
+            throw "Windows release-notes trust state differs from direct-EXE evidence"
+          }
+          $trustState = if ($stable) {
+            '已由受保护发布签名者签署，并通过 Authenticode、SHA-256 与 GitHub attestation 复验 / signed by the protected release signer and reverified with Authenticode, SHA-256, and GitHub attestations'
+          } else {
+            '未签名预发布候选；通过 SHA-256 与 GitHub attestation 绑定 / unsigned prerelease candidate; bound by SHA-256 and GitHub attestations'
+          }
+          $renderedNotes = $template.Replace('{{VERSION}}', $env:RELEASE_VERSION)
+          $renderedNotes = $renderedNotes.Replace('{{TRUST_STATE}}', $trustState)
+          if ([regex]::IsMatch($renderedNotes, '\{\{[^{}\r\n]+\}\}')) {
+            throw "Windows release notes contain an unexpanded placeholder"
+          }
+          $renderedNotes = $renderedNotes.TrimEnd([char[]]"`r`n")
+          $notesPath = 'build/public/windows-release-notes.md'
+          [System.IO.File]::WriteAllText(
+            $notesPath,
+            $renderedNotes,
+            [System.Text.UTF8Encoding]::new($false))
           $release = gh release view $env:RELEASE_VERSION `
             --repo $env:GITHUB_REPOSITORY --json isDraft,tagName | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0 -or -not [bool]$release.isDraft -or
               [string]$release.tagName -cne $env:RELEASE_VERSION) {
             throw "The candidate evidence Draft Release is no longer available"
+          }
+          if ($env:IS_PRERELEASE -ceq 'false') {
+            foreach ($intakeOnly in @('TraverseBoard-signed.exe')) {
+              gh release delete-asset $env:RELEASE_VERSION $intakeOnly `
+                --repo $env:GITHUB_REPOSITORY --yes
+              if ($LASTEXITCODE -ne 0) {
+                throw "Stable signing intake asset cleanup failed: $intakeOnly"
+              }
+            }
           }
           $upload = @("release", "upload", $env:RELEASE_VERSION) + $assets + @(
             "--repo", $env:GITHUB_REPOSITORY, "--clobber"
@@ -546,8 +1254,23 @@ jobs:
             "release", "edit", $env:RELEASE_VERSION,
             "--repo", $env:GITHUB_REPOSITORY,
             "--verify-tag", "--draft=false",
-            "--title", "Traverse Board Desktop $env:RELEASE_VERSION"
+            "--title", "Traverse Board Desktop $env:RELEASE_VERSION",
+            "--notes-file", $notesPath
           )
           $publish += "--prerelease=${{ needs.portable-zip.outputs.prerelease }}"
           & gh @publish
           if ($LASTEXITCODE -ne 0) { throw "Verified Draft Release publication failed" }
+          $publishedJSON = gh release view $env:RELEASE_VERSION `
+            --repo $env:GITHUB_REPOSITORY `
+            --json body,isDraft,isPrerelease,tagName
+          if ($LASTEXITCODE -ne 0) { throw "Published release body readback failed" }
+          $published = $publishedJSON | ConvertFrom-Json
+          $publishedBody = ([string]$published.body).Replace("`r`n", "`n")
+          $publishedBody = $publishedBody.Replace("`r", "`n").TrimEnd([char[]]"`r`n")
+          $expectedPrerelease = $env:IS_PRERELEASE -ceq 'true'
+          if ([string]$published.tagName -cne $env:RELEASE_VERSION -or
+              [bool]$published.isDraft -or
+              [bool]$published.isPrerelease -ne $expectedPrerelease -or
+              $publishedBody -cne $renderedNotes) {
+            throw "Published release metadata or canonical bilingual body differs after readback"
+          }
