@@ -707,6 +707,7 @@ func TestMinimalLSPEnvironmentDropsAmbientSecrets(t *testing.T) {
 func TestHealthForErrorClassifiesOwnedProcessFailures(t *testing.T) {
 	if healthForError(io.EOF) != HealthUnavailable ||
 		healthForError(errors.New("read LSP message: EOF")) != HealthCrashed ||
+		healthForError(fmt.Errorf("read LSP message: %w", os.ErrClosed)) != HealthCrashed ||
 		healthForError(context.DeadlineExceeded) != HealthTimedOut ||
 		healthForError(errors.New("invalid JSON-RPC envelope")) != HealthProtocolErr {
 		t.Fatal("LSP failure health classification changed")
