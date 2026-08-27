@@ -4,7 +4,11 @@ param(
     [string]$ExpectedVersion = "",
     [string]$ExpectedRevision = "",
     [ValidateRange(5, 60)][int]$StartupTimeoutSeconds = 20,
-    [string]$OutputPath = ""
+    [string]$OutputPath = "",
+    [string]$ProductReportPath = "",
+    [string]$SecurityReportPath = "",
+    [string]$AggregateOutputPath = "",
+    [switch]$RequireReleaseGate
 )
 
 <#
@@ -18,9 +22,10 @@ verified portable ZIP, and exercises default and safe operator-preview startup
 against an isolated CYBERAGENT_HOME.
 
 This is a packaged bootstrap for issue #140. It deliberately reports
-needs_full_matrix until every required Local Sandbox, Docker, and manual host
-attack case has immutable evidence. It never labels an unexecuted case as pass
-or skip.
+needs_full_matrix until both independent product and security reports are
+supplied. When both reports are present, the Go-owned aggregate gate strictly
+revalidates their self hashes and binds them to this exact candidate. It never
+labels an unexecuted case as pass or skip.
 #>
 
 $ErrorActionPreference = "Stop"
@@ -74,6 +79,18 @@ if (-not $outputRoot.StartsWith($repositoryPrefix,
         [System.StringComparison]::OrdinalIgnoreCase)) {
     throw "Packaged E2E release input must remain inside the repository"
 }
+$outputPrefix = $outputRoot.TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+$productReportProvided = -not [string]::IsNullOrWhiteSpace($ProductReportPath)
+$securityReportProvided = -not [string]::IsNullOrWhiteSpace($SecurityReportPath)
+if ($productReportProvided -ne $securityReportProvided) {
+    throw "Product and security reports must be supplied together"
+}
+if ($RequireReleaseGate -and -not $productReportProvided) {
+    throw "The complete release gate requires product and security reports"
+}
+if (-not $productReportProvided -and -not [string]::IsNullOrWhiteSpace($AggregateOutputPath)) {
+    throw "AggregateOutputPath requires product and security reports"
+}
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
     $OutputPath = Join-Path $outputRoot "standard-code-packaged-e2e.json"
 }
@@ -88,6 +105,49 @@ if (-not $output.StartsWith($repositoryPrefix,
 }
 if (Test-Path -LiteralPath $output) {
     throw "Packaged E2E evidence output must not already exist"
+}
+
+function Resolve-GateEvidenceInput {
+    param([Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label)
+    $resolved = if ([System.IO.Path]::IsPathRooted($Path)) {
+        [System.IO.Path]::GetFullPath($Path)
+    } else {
+        [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $Path))
+    }
+    if (-not $resolved.StartsWith($outputPrefix,
+            [System.StringComparison]::OrdinalIgnoreCase) -or
+        -not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
+        throw "$Label must be an existing file below the release output directory"
+    }
+    $item = Get-Item -LiteralPath $resolved -Force
+    if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+        throw "$Label must not be a reparse point"
+    }
+    return $resolved
+}
+
+$productEvidence = $null
+$securityEvidence = $null
+$aggregateOutput = $null
+if ($productReportProvided) {
+    $productEvidence = Resolve-GateEvidenceInput -Path $ProductReportPath `
+        -Label "Product evidence"
+    $securityEvidence = Resolve-GateEvidenceInput -Path $SecurityReportPath `
+        -Label "Security evidence"
+    if ([string]::IsNullOrWhiteSpace($AggregateOutputPath)) {
+        $AggregateOutputPath = Join-Path $outputRoot "standard-code-release-gate.json"
+    }
+    $aggregateOutput = if ([System.IO.Path]::IsPathRooted($AggregateOutputPath)) {
+        [System.IO.Path]::GetFullPath($AggregateOutputPath)
+    } else {
+        [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $AggregateOutputPath))
+    }
+    if (-not $aggregateOutput.StartsWith($outputPrefix,
+            [System.StringComparison]::OrdinalIgnoreCase) -or
+        (Test-Path -LiteralPath $aggregateOutput)) {
+        throw "Aggregate release gate output must be a new file below the release output directory"
+    }
 }
 
 function Assert-E2ECondition {
@@ -644,3 +704,25 @@ Write-Output "standard_code_packaged_e2e_written: $output"
 Write-Output "standard_code_packaged_e2e_bootstrap: $(if ($bootstrapFailed) { 'fail' } else { 'pass' })"
 Write-Output "standard_code_packaged_e2e_release_gate: $(if ($bootstrapFailed) { 'fail' } else { 'needs_full_matrix' })"
 if ($bootstrapFailed) { throw "Standard Code packaged E2E bootstrap failed" }
+
+if ($productReportProvided) {
+    $candidateBinary = Join-Path $outputRoot "TraverseBoard.exe"
+    $candidateArchive = Join-Path $outputRoot ([string]$manifest.zip_name)
+    Push-Location $repositoryRoot
+    try {
+        & go run ./cmd/releasegate `
+            --binary $candidateBinary `
+            --archive $candidateArchive `
+            --portable-manifest (Join-Path $outputRoot "portable-zip-manifest.json") `
+            --release-metadata (Join-Path $outputRoot "release-metadata.json") `
+            --bootstrap $output `
+            --product $productEvidence `
+            --security $securityEvidence `
+            --expected-revision ([string]$manifest.revision) `
+            --report $aggregateOutput
+        if ($LASTEXITCODE -ne 0) { throw "Standard Code aggregate release gate failed" }
+    }
+    finally { Pop-Location }
+    Write-Output "standard_code_release_gate_written: $aggregateOutput"
+    Write-Output "standard_code_release_gate: passed"
+}

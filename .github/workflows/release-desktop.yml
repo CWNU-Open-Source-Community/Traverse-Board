@@ -12,18 +12,28 @@ on:
     paths:
       - '.github/workflows/release-desktop.yml'
       - 'cmd/packagede2e/**'
+      - 'cmd/producte2e/**'
+      - 'cmd/releasegate/**'
       - 'cmd/releasegen/**'
       - 'internal/packagede2e/**'
+      - 'internal/producte2e/**'
+      - 'internal/releasegate/**'
       - 'scripts/build-desktop.ps1'
       - 'scripts/check-windows-compat.ps1'
       - 'scripts/package-portable-zip.ps1'
       - 'scripts/release-desktop.ps1'
       - 'scripts/smoke-desktop-operator-preview.ps1'
       - 'scripts/standard-code-packaged-e2e.ps1'
+      - 'scripts/standard-code-product-e2e.ps1'
       - 'scripts/verify-portable-zip.ps1'
       - 'docs/standard-code-packaged-e2e.md'
+      - 'docs/standard-code-product-e2e.md'
+      - 'docs/standard-code-release-gate.md'
       - 'docs/adr/0138-standard-code-packaged-e2e-foundation.md'
+      - 'docs/adr/0144-standard-code-release-gate-aggregation.md'
+      - 'docs/convergence/protocol-registry.md'
       - 'packaging/windows/**'
+      - 'protocols/registry.json'
       - 'go.mod'
       - 'go.sum'
       - 'web/package.json'
@@ -33,11 +43,13 @@ on:
       - 'analyzers/rust-toolchain.toml'
       - 'internal/analyzer/embedded/**'
       - 'README.md'
+      - 'README.en.md'
   push:
     tags:
       - 'v*'
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -53,6 +65,31 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+
+      - name: Require successful central CI for the exact release revision
+        if: ${{ github.event_name != 'pull_request' }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $revision = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $revision -notmatch '^[0-9a-f]{40}$') {
+            throw "Release CI revision is invalid"
+          }
+          $endpoint = "repos/$env:GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" +
+            "?head_sha=$revision&event=push&status=completed&per_page=100"
+          $response = gh api $endpoint
+          if ($LASTEXITCODE -ne 0) { throw "Central CI provenance lookup failed" }
+          $runs = ($response | Out-String) | ConvertFrom-Json
+          $successful = @($runs.workflow_runs | Where-Object {
+              [string]$_.head_sha -ceq $revision -and
+              [string]$_.event -ceq "push" -and
+              [string]$_.status -ceq "completed" -and
+              [string]$_.conclusion -ceq "success"
+            })
+          if ($successful.Count -lt 1) {
+            throw "The exact release revision has no successful central CI push run"
+          }
 
       - name: Set up pinned Go 1.25.12
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -131,14 +168,17 @@ jobs:
           foreach ($part in @($Matches.major, $Matches.minor, $Matches.patch)) {
             if ([int64]$part -gt 65535) { throw "MSIX release version component is too large" }
           }
+          if ($env:EVENT_NAME -ne "pull_request" -and -not $version.Contains("-")) {
+            throw "Standard Code Beta releases must use a prerelease version"
+          }
           $msixVersion = "$($Matches.major).$($Matches.minor).$($Matches.patch).0"
           $revision = (git rev-parse HEAD).Trim()
           if ($LASTEXITCODE -ne 0 -or $revision -notmatch '^[0-9a-f]{40}$') {
             throw "Release revision is invalid"
           }
-          if ($env:EVENT_NAME -eq "push") {
+          if ($env:EVENT_NAME -ne "pull_request") {
             git merge-base --is-ancestor $revision origin/main
-            if ($LASTEXITCODE -ne 0) { throw "Release tag is not reachable from origin/main" }
+            if ($LASTEXITCODE -ne 0) { throw "Release revision is not reachable from origin/main" }
           }
           $artifactVersion = $version -replace '[^0-9A-Za-z._-]', '_'
           "version=$version" >> $env:GITHUB_OUTPUT
@@ -163,6 +203,9 @@ jobs:
         shell: pwsh
         run: rustup toolchain install 1.97.1 --profile minimal
 
+      - name: Verify fail-closed Standard Code release-gate contract
+        run: go test -count=1 ./cmd/releasegate ./internal/releasegate ./internal/producte2e ./internal/packagede2e
+
       - name: Build Desktop twice and compare bytes
         shell: pwsh
         run: ./scripts/build-desktop.ps1 -Version '${{ steps.release.outputs.version }}' -VerifyReproducible
@@ -179,12 +222,71 @@ jobs:
             -ExpectedRevision '${{ steps.release.outputs.revision }}' `
             -SmokeTest
 
-      - name: Exercise packaged Standard Code bootstrap and prepare attack matrix
+      - name: Validate Draft Release evidence intake
+        if: ${{ github.event_name != 'pull_request' }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          $release = gh release view $env:RELEASE_VERSION `
+            --repo $env:GITHUB_REPOSITORY `
+            --json isDraft,tagName,assets | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or -not [bool]$release.isDraft -or
+              [string]$release.tagName -cne $env:RELEASE_VERSION) {
+            throw "A matching Draft Release is required for candidate-bound evidence intake"
+          }
+          $required = @(
+            "standard-code-product-e2e.json",
+            "standard-code-security-evidence.json"
+          )
+          $assets = @($release.assets)
+          foreach ($name in $required) {
+            $matches = @($assets | Where-Object { [string]$_.name -ceq $name })
+            if ($matches.Count -ne 1 -or [int64]$matches[0].size -le 0 -or
+                [int64]$matches[0].size -gt 4194304) {
+              throw "Draft Release evidence asset is missing, duplicated, empty, or oversized: $name"
+            }
+          }
+          foreach ($name in $required) {
+            $target = Join-Path "build/desktop" $name
+            if (Test-Path -LiteralPath $target) {
+              throw "Evidence intake target already exists: $name"
+            }
+          }
+          gh release download $env:RELEASE_VERSION `
+            --repo $env:GITHUB_REPOSITORY `
+            --pattern 'standard-code-product-e2e.json' `
+            --pattern 'standard-code-security-evidence.json' `
+            --dir build/desktop
+          if ($LASTEXITCODE -ne 0) { throw "Draft Release evidence download failed" }
+          foreach ($name in $required) {
+            $item = Get-Item -LiteralPath (Join-Path "build/desktop" $name) -Force
+            if (-not $item.PSIsContainer -and
+                -not ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -and
+                $item.Length -gt 0 -and $item.Length -le 4194304) { continue }
+            throw "Downloaded evidence asset is unsafe: $name"
+          }
+
+      - name: Exercise packaged Standard Code bootstrap
+        if: ${{ github.event_name == 'pull_request' }}
         shell: pwsh
         run: |
           ./scripts/standard-code-packaged-e2e.ps1 `
             -ExpectedVersion '${{ steps.release.outputs.version }}' `
             -ExpectedRevision '${{ steps.release.outputs.revision }}'
+
+      - name: Aggregate candidate-bound Standard Code release evidence
+        if: ${{ github.event_name != 'pull_request' }}
+        shell: pwsh
+        run: |
+          ./scripts/standard-code-packaged-e2e.ps1 `
+            -ExpectedVersion '${{ steps.release.outputs.version }}' `
+            -ExpectedRevision '${{ steps.release.outputs.revision }}' `
+            -ProductReportPath 'build/desktop/standard-code-product-e2e.json' `
+            -SecurityReportPath 'build/desktop/standard-code-security-evidence.json' `
+            -AggregateOutputPath 'build/desktop/standard-code-release-gate.json' `
+            -RequireReleaseGate
 
       - name: Package unsigned per-user MSIX candidate
         shell: pwsh
@@ -206,6 +308,9 @@ jobs:
             build/desktop/release-metadata.json
             build/desktop/windows-compatibility.json
             build/desktop/standard-code-packaged-e2e.json
+            build/desktop/standard-code-product-e2e.json
+            build/desktop/standard-code-security-evidence.json
+            build/desktop/standard-code-release-gate.json
             build/desktop/sbom.json
             build/desktop/NOTICE
 
@@ -236,12 +341,36 @@ jobs:
             --name '${{ needs.portable-zip.outputs.artifact_name }}' `
             --dir build/desktop
 
+      - name: Set up pinned Go 1.25.12
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25.12'
+          cache: true
+
       - name: Reverify downloaded candidate
         shell: pwsh
         run: |
           ./scripts/verify-portable-zip.ps1 `
             -ExpectedVersion '${{ needs.portable-zip.outputs.version }}' `
             -ExpectedRevision '${{ needs.portable-zip.outputs.revision }}'
+
+      - name: Reverify aggregate Standard Code release gate
+        shell: pwsh
+        run: |
+          $manifest = Get-Content -LiteralPath build/desktop/portable-zip-manifest.json `
+            -Raw | ConvertFrom-Json
+          $archive = Join-Path build/desktop ([string]$manifest.zip_name)
+          go run ./cmd/releasegate `
+            --binary build/desktop/TraverseBoard.exe `
+            --archive $archive `
+            --portable-manifest build/desktop/portable-zip-manifest.json `
+            --release-metadata build/desktop/release-metadata.json `
+            --bootstrap build/desktop/standard-code-packaged-e2e.json `
+            --product build/desktop/standard-code-product-e2e.json `
+            --security build/desktop/standard-code-security-evidence.json `
+            --expected-revision '${{ needs.portable-zip.outputs.revision }}' `
+            --verify-report build/desktop/standard-code-release-gate.json
+          if ($LASTEXITCODE -ne 0) { throw "Aggregate Standard Code release gate revalidation failed" }
 
       - name: Sign MSIX when the protected certificate is configured
         if: ${{ env.MSIX_CERTIFICATE_BASE64 != '' }}
@@ -276,6 +405,9 @@ jobs:
             "build/desktop/release-metadata.json",
             "build/desktop/windows-compatibility.json",
             "build/desktop/standard-code-packaged-e2e.json",
+            "build/desktop/standard-code-product-e2e.json",
+            "build/desktop/standard-code-security-evidence.json",
+            "build/desktop/standard-code-release-gate.json",
             "build/desktop/sbom.json",
             "build/desktop/NOTICE"
           )
@@ -289,14 +421,23 @@ jobs:
               throw "Release asset is missing: $asset"
             }
           }
-          $arguments = @(
-            "release", "create", $env:RELEASE_VERSION
-          ) + $assets + @(
+          $release = gh release view $env:RELEASE_VERSION `
+            --repo $env:GITHUB_REPOSITORY --json isDraft,tagName | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or -not [bool]$release.isDraft -or
+              [string]$release.tagName -cne $env:RELEASE_VERSION) {
+            throw "The candidate evidence Draft Release is no longer available"
+          }
+          $upload = @("release", "upload", $env:RELEASE_VERSION) + $assets + @(
+            "--repo", $env:GITHUB_REPOSITORY, "--clobber"
+          )
+          & gh @upload
+          if ($LASTEXITCODE -ne 0) { throw "Verified release asset upload failed" }
+          $publish = @(
+            "release", "edit", $env:RELEASE_VERSION,
             "--repo", $env:GITHUB_REPOSITORY,
-            "--verify-tag",
-            "--generate-notes",
+            "--verify-tag", "--draft=false",
+            "--prerelease",
             "--title", "Traverse Board Desktop $env:RELEASE_VERSION"
           )
-          if ($env:RELEASE_VERSION.Contains("-")) { $arguments += "--prerelease" }
-          & gh @arguments
-          if ($LASTEXITCODE -ne 0) { throw "GitHub Release creation failed" }
+          & gh @publish
+          if ($LASTEXITCODE -ne 0) { throw "Verified Draft Release publication failed" }

@@ -2975,6 +2975,14 @@
       "reason": "Local-only issue #182 packaged product session orchestration state."
     },
     {
+      "identifier": "standard_code_release_gate.v1",
+      "kind": "conformance-test",
+      "sources": [
+        "internal/releasegate/model.go"
+      ],
+      "reason": "Issue #140 deterministic candidate-bound aggregate of independently validated bootstrap, product, and security evidence; it grants no runtime authority."
+    },
+    {
       "identifier": "standard_code_security_probe.v1",
       "kind": "conformance-test",
       "sources": [
