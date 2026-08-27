@@ -23,24 +23,25 @@ canonical repository URLs while preserving compatibility identifiers.
 
 ## 官方图形标志 / Official Mark
 
-维护者提供的航向玫瑰、星图与航迹卷轴图形是项目的正式图标。规范母版位于
+维护者提供的罗盘、帆船、星点与水纹图形是项目的正式图标。规范母版位于
 [`assets/branding/traverse-board-mark.png`](../../assets/branding/traverse-board-mark.png)，
-尺寸为 1254×1254，保留透明背景；SHA-256 为
-`fb1260a41b49d7959dc731f4455d2022e55008bef9f73be6cbd674b08fa59a14`。
+尺寸为 1254×1254，保留原始白色圆角承托；SHA-256 为
+`c63b452ca86ccb9a2003ab9711329491185a42825df6d9ca03aaebc078d250b3`。
 
-Web、Windows 与 macOS 资产只允许从该母版进行确定性的缩放和容器格式转换，
-不得用字母 `T`、旧 `P` 标志或生成式重绘替代。小尺寸界面使用图形标志本身，
-并由周围的可访问名称提供完整产品名。
+Web、Windows 与 macOS 资产只允许从该母版进行确定性的缩放、圆角透明遮罩和容器
+格式转换，不得用字母 `T`、旧 `P` 标志或生成式重绘替代。小尺寸界面使用图形标志
+本身，并由周围的可访问名称提供完整产品名。运行
+`pwsh ./scripts/generate-brand-assets.ps1` 可一次重建所有受版本控制的平台派生件。
 
-The maintainer-supplied compass rose, celestial chart, and route-scroll artwork is the
-official project icon. Platform assets are deterministic size/container derivatives of the
-transparent master above; generative redraws and letter placeholders are not canonical.
+The maintainer-supplied compass, sail, stars, and water artwork is the official project icon.
+Platform assets are deterministic resize, rounded-alpha-mask, and container derivatives of
+the exact supplied master above; generative redraws and letter placeholders are not canonical.
 
 | Surface | Derived assets |
 |---|---|
 | React/Web | `web/src/assets/traverse-board-mark.png`, 32px favicon, 180px touch icon |
-| Windows | MSIX Store/44/150px PNGs, multi-resolution ICO, amd64/arm64 executable resources |
-| macOS | Multi-resolution `TraverseBoard.icns` copied into the signed app bundle |
+| Windows | MSIX Store/44/150px PNGs, 300px Partner Center listing icon, multi-resolution ICO, amd64/arm64 executable resources |
+| macOS | Complete 16px–1024px `TraverseBoard.icns` copied into the signed app bundle |
 
 ## 当前结论 / Current Decision
 

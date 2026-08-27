@@ -18,10 +18,11 @@ func TestBundleLoadsImmutableSnapshotAndServesBoundedRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bundle.AssetCount() != 2 || len(bundle.Digest()) != 64 || bundle.Source() == "" {
+	if bundle.AssetCount() != 4 || len(bundle.Digest()) != 64 || bundle.Source() == "" {
 		t.Fatalf("unexpected bundle metadata: source=%q assets=%d digest=%q",
 			bundle.Source(), bundle.AssetCount(), bundle.Digest())
 	}
+	assertRootBrandAssetsServed(t, bundle)
 
 	index := requestBundle(t, bundle, http.MethodGet, "/", "", "")
 	if index.Code != http.StatusOK || index.Body.String() != testIndexBody ||
@@ -120,6 +121,7 @@ func TestBundleRejectsUnsafeOrMalformedTrees(t *testing.T) {
 	for _, current := range tests {
 		t.Run(current.name, func(t *testing.T) {
 			directory := t.TempDir()
+			writeTestRootAssets(t, directory)
 			current.setup(t, directory)
 			if bundle, err := LoadDirectory(directory); err == nil || bundle != nil {
 				t.Fatalf("unsafe bundle loaded: %#v", bundle)
@@ -137,6 +139,7 @@ func TestBundleRejectsAssetSymlink(t *testing.T) {
 		t.Skip("ordinary Windows test users may not have symbolic-link privilege")
 	}
 	directory := t.TempDir()
+	writeTestRootAssets(t, directory)
 	writeBundleFile(t, directory, "index.html", []byte(testIndexBody))
 	writeBundleFile(t, directory, "real-AbCd1234.js", []byte("outside assets"))
 	if err := os.MkdirAll(filepath.Join(directory, "assets"), 0o700); err != nil {
@@ -153,18 +156,22 @@ func TestBundleRejectsAssetSymlink(t *testing.T) {
 
 func TestEmbeddedBundleLoadsOneImmutableBoundedSnapshot(t *testing.T) {
 	source := fstest.MapFS{
-		"dist/index.html":                &fstest.MapFile{Data: []byte(testIndexBody)},
-		"dist/assets/index-AbCd1234.js":  &fstest.MapFile{Data: []byte(testScriptBody)},
-		"dist/assets/index-D0TcvGy-.css": &fstest.MapFile{Data: []byte("body { color: black; }")},
+		"dist/index.html":                    &fstest.MapFile{Data: []byte(testIndexBody)},
+		"dist/apple-touch-icon.png":          &fstest.MapFile{Data: []byte(testAppleTouchIconBody)},
+		"dist/traverse-board-favicon-32.png": &fstest.MapFile{Data: []byte(testFaviconBody)},
+		"dist/unlisted-root-icon.png":        &fstest.MapFile{Data: []byte("not allowlisted")},
+		"dist/assets/index-AbCd1234.js":      &fstest.MapFile{Data: []byte(testScriptBody)},
+		"dist/assets/index-D0TcvGy-.css":     &fstest.MapFile{Data: []byte("body { color: black; }")},
 	}
 	bundle, err := LoadEmbeddedFS(source, "dist")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bundle.Source() != "embedded:dist" || bundle.AssetCount() != 2 || len(bundle.Digest()) != 64 {
+	if bundle.Source() != "embedded:dist" || bundle.AssetCount() != 4 || len(bundle.Digest()) != 64 {
 		t.Fatalf("unexpected embedded bundle: source=%q count=%d digest=%q",
 			bundle.Source(), bundle.AssetCount(), bundle.Digest())
 	}
+	assertRootBrandAssetsServed(t, bundle)
 	delete(source, "dist/assets/index-AbCd1234.js")
 	response := requestBundle(t, bundle, http.MethodGet, "/assets/index-AbCd1234.js", "", "")
 	if response.Code != http.StatusOK || response.Body.String() != testScriptBody {
@@ -176,8 +183,10 @@ func TestEmbeddedBundleLoadsOneImmutableBoundedSnapshot(t *testing.T) {
 func TestEmbeddedBundleRejectsMalformedOrExecutableTrees(t *testing.T) {
 	valid := func() fstest.MapFS {
 		return fstest.MapFS{
-			"dist/index.html":               &fstest.MapFile{Data: []byte(testIndexBody)},
-			"dist/assets/index-AbCd1234.js": &fstest.MapFile{Data: []byte(testScriptBody)},
+			"dist/index.html":                    &fstest.MapFile{Data: []byte(testIndexBody)},
+			"dist/apple-touch-icon.png":          &fstest.MapFile{Data: []byte(testAppleTouchIconBody)},
+			"dist/traverse-board-favicon-32.png": &fstest.MapFile{Data: []byte(testFaviconBody)},
+			"dist/assets/index-AbCd1234.js":      &fstest.MapFile{Data: []byte(testScriptBody)},
 		}
 	}
 	tests := []struct {
@@ -222,14 +231,55 @@ func TestEmbeddedBundleRejectsMalformedOrExecutableTrees(t *testing.T) {
 
 const testIndexBody = "<!doctype html><script type=\"module\" src=\"/assets/index-AbCd1234.js\"></script>"
 const testScriptBody = "document.body.dataset.ready = 'yes';"
+const testFaviconBody = "test Traverse Board favicon"
+const testAppleTouchIconBody = "test Traverse Board Apple touch icon"
 
 func writeTestBundle(t *testing.T) string {
 	t.Helper()
 	directory := t.TempDir()
 	writeBundleFile(t, directory, "index.html", []byte(testIndexBody))
+	writeTestRootAssets(t, directory)
+	writeBundleFile(t, directory, "unlisted-root-icon.png", []byte("not allowlisted"))
 	writeBundleFile(t, directory, "assets/index-AbCd1234.js", []byte(testScriptBody))
 	writeBundleFile(t, directory, "assets/index-D0TcvGy-.css", []byte("body { color: black; }"))
 	return directory
+}
+
+func writeTestRootAssets(t *testing.T, directory string) {
+	t.Helper()
+	writeBundleFile(t, directory, "apple-touch-icon.png", []byte(testAppleTouchIconBody))
+	writeBundleFile(t, directory, "traverse-board-favicon-32.png", []byte(testFaviconBody))
+}
+
+func assertRootBrandAssetsServed(t *testing.T, bundle *Bundle) {
+	t.Helper()
+	for _, current := range []struct {
+		path string
+		body string
+	}{
+		{path: "/apple-touch-icon.png", body: testAppleTouchIconBody},
+		{path: "/traverse-board-favicon-32.png", body: testFaviconBody},
+	} {
+		response := requestBundle(t, bundle, http.MethodGet, current.path, "", "")
+		if response.Code != http.StatusOK || response.Body.String() != current.body ||
+			response.Header().Get("Content-Type") != "image/png" ||
+			response.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("unexpected root brand asset response for %s: status=%d headers=%#v body=%q",
+				current.path, response.Code, response.Header(), response.Body.String())
+		}
+		head := requestBundle(t, bundle, http.MethodHead, current.path, "", "")
+		if head.Code != http.StatusOK || head.Body.Len() != 0 ||
+			head.Header().Get("Content-Length") != response.Header().Get("Content-Length") {
+			t.Fatalf("unexpected root brand asset HEAD response for %s: status=%d headers=%#v body=%q",
+				current.path, head.Code, head.Header(), head.Body.String())
+		}
+	}
+
+	unknown := requestBundle(t, bundle, http.MethodGet, "/unlisted-root-icon.png", "text/html", "")
+	if unknown.Code != http.StatusNotFound {
+		t.Fatalf("unlisted root asset status=%d want=%d body=%q",
+			unknown.Code, http.StatusNotFound, unknown.Body.String())
+	}
 }
 
 func writeBundleFile(t *testing.T, directory string, name string, body []byte) {

@@ -44,6 +44,14 @@ var allowedAssetTypes = map[string]string{
 	".woff2": "font/woff2",
 }
 
+var allowedRootAssets = []struct {
+	name        string
+	contentType string
+}{
+	{name: "apple-touch-icon.png", contentType: "image/png"},
+	{name: "traverse-board-favicon-32.png", contentType: "image/png"},
+}
+
 type asset struct {
 	body        []byte
 	contentType string
@@ -101,6 +109,21 @@ func LoadDirectory(directory string) (*Bundle, error) {
 		index:  makeAsset(indexBody, "text/html; charset=utf-8", false),
 	}
 	totalBytes := int64(len(indexBody))
+	for _, spec := range allowedRootAssets {
+		body, err := readRegularFile(root, spec.name, MaxAssetBytes)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("load Web UI root asset %q: %w", spec.name, err)
+		}
+		totalBytes += int64(len(body))
+		if totalBytes > MaxBundleBytes {
+			return nil, fmt.Errorf("web UI bundle exceeds %d bytes", MaxBundleBytes)
+		}
+		bundle.assets["/"+spec.name] = makeAsset(body, spec.contentType, false)
+	}
+	hashedAssetCount := 0
 	err = fs.WalkDir(root.FS(), "assets", func(name string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -142,12 +165,13 @@ func LoadDirectory(directory string) (*Bundle, error) {
 		}
 		urlPath := "/" + path.Clean(filepath.ToSlash(name))
 		bundle.assets[urlPath] = makeAsset(body, contentType, true)
+		hashedAssetCount++
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	if len(bundle.assets) == 0 {
+	if hashedAssetCount == 0 {
 		return nil, errors.New("web UI bundle must contain at least one hashed asset")
 	}
 	bundle.digest = bundleDigest(bundle.index, bundle.assets)
@@ -194,6 +218,21 @@ func LoadEmbeddedFS(source fs.FS, root string) (*Bundle, error) {
 		index:  makeAsset(indexBody, "text/html; charset=utf-8", false),
 	}
 	totalBytes := int64(len(indexBody))
+	for _, spec := range allowedRootAssets {
+		body, err := readEmbeddedRegularFile(sub, spec.name, MaxAssetBytes)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("load embedded Web UI root asset %q: %w", spec.name, err)
+		}
+		totalBytes += int64(len(body))
+		if totalBytes > MaxBundleBytes {
+			return nil, fmt.Errorf("embedded Web UI bundle exceeds %d bytes", MaxBundleBytes)
+		}
+		bundle.assets["/"+spec.name] = makeAsset(body, spec.contentType, false)
+	}
+	hashedAssetCount := 0
 	err = fs.WalkDir(sub, "assets", func(name string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -235,12 +274,13 @@ func LoadEmbeddedFS(source fs.FS, root string) (*Bundle, error) {
 		}
 		urlPath := "/" + path.Clean(name)
 		bundle.assets[urlPath] = makeAsset(body, contentType, true)
+		hashedAssetCount++
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	if len(bundle.assets) == 0 {
+	if hashedAssetCount == 0 {
 		return nil, errors.New("embedded Web UI bundle must contain at least one hashed asset")
 	}
 	bundle.digest = bundleDigest(bundle.index, bundle.assets)

@@ -87,6 +87,35 @@ Add-Check "coff_timestamp_zero" $(if ($coffTimestamp -eq 0) { "pass" } else { "f
     "PE COFF timestamp is zero for deterministic Go linking"
 Add-Check "sha256_binding" $(if ($metadata.sha256 -eq $sha256) { "pass" } else { "fail" }) `
     "binary SHA-256 matches release metadata"
+
+$expectedIconPath = Join-Path (Split-Path -Parent $PSScriptRoot) `
+    "web/public/traverse-board-favicon-32.png"
+$embeddedIconMatches = $false
+$iconCheckPath = Join-Path $packageRoot (".embedded-icon-" + [guid]::NewGuid().ToString("N") + ".png")
+if (Test-Path -LiteralPath $expectedIconPath -PathType Leaf) {
+    Add-Type -AssemblyName System.Drawing
+    $embeddedIcon = [System.Drawing.Icon]::ExtractAssociatedIcon($binary)
+    if ($null -ne $embeddedIcon) {
+        try {
+            $iconBitmap = $embeddedIcon.ToBitmap()
+            try {
+                $iconBitmap.Save($iconCheckPath, [System.Drawing.Imaging.ImageFormat]::Png)
+                $embeddedIconMatches = $iconBitmap.Width -eq 32 -and $iconBitmap.Height -eq 32 -and
+                    (Get-FileHash -Algorithm SHA256 -LiteralPath $iconCheckPath).Hash -ceq
+                    (Get-FileHash -Algorithm SHA256 -LiteralPath $expectedIconPath).Hash
+            } finally {
+                $iconBitmap.Dispose()
+            }
+        } finally {
+            $embeddedIcon.Dispose()
+            if (Test-Path -LiteralPath $iconCheckPath -PathType Leaf) {
+                [System.IO.File]::Delete($iconCheckPath)
+            }
+        }
+    }
+}
+Add-Check "pe_icon_resource" $(if ($embeddedIconMatches) { "pass" } else { "fail" }) `
+    "PE embeds the exact approved 32px Traverse Board icon resource"
 Add-Check "release_identity" $(if ($metadata.protocol_version -eq "portable_release_metadata.v1" -and
     $metadata.app_version -match '^v[0-9]+\.[0-9]+\.[0-9]+' -and
     $metadata.revision -match '^[0-9a-f]{40}$' -and
