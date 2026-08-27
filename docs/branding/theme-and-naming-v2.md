@@ -39,6 +39,19 @@ decision, not a trademark opinion.
   `assets/branding/traverse-board-mark.png`，不用孤立字母代替
 - accessibility name：始终包含当前 locale 的完整产品名
 
+#### 2.1.1 排版角色 / Typography roles
+
+- 产品名、标题、导航、按钮、表单与普通正文使用平台比例 UI 字体；中文与英文必须处在
+  同一语义字重和颜色层级，不把等宽 Latin 与 CJK fallback 混作一个界面字体。
+- 大号品牌名可以使用平台 display 字体，并按文字脚本分别设置字距；混排片段应带准确的
+  `lang`，但不能依赖远程字体或改变既有 CSP。
+- JetBrains Mono 等等宽字体只用于代码、终端、Diff、指纹、精确 ID、序号、原始证据与
+  键盘快捷键，不用于品牌、副标题或普通界面文案。
+
+Product names, controls, navigation and prose use proportional platform UI fonts. A platform
+display face may be used for the large brand lockup with script-aware spacing. Monospaced fonts
+are reserved for technical data such as code, terminals, diffs, exact identifiers and shortcuts.
+
 ### 2.2 产品与架构层
 
 主题名首次出现必须带技术副标题，例如：
