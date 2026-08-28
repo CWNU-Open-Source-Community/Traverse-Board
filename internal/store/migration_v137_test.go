@@ -8,7 +8,7 @@ import (
 )
 
 func removeSchemaV137ForTestStatements() []string {
-	return []string{
+	return append(removeSchemaV139ForTestStatements(), []string{
 		`DELETE FROM schema_migrations WHERE version = 138`,
 		`DROP TRIGGER trg_standard_code_delivery_insert`,
 		`DROP TRIGGER trg_standard_code_delivery_update_immutable`,
@@ -16,7 +16,7 @@ func removeSchemaV137ForTestStatements() []string {
 		`DROP INDEX idx_standard_code_deliveries_run_event`,
 		`DROP TABLE standard_code_deliveries`,
 		`DELETE FROM schema_migrations WHERE version = 137`,
-	}
+	}...)
 }
 
 func TestSchemaV137AddsEmptyImmutableStandardCodeDeliveryLedger(t *testing.T) {

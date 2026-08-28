@@ -29,6 +29,7 @@ import (
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/pricing"
 	"cyberagent-workbench/internal/runner"
+	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/skills"
 	"cyberagent-workbench/internal/standardcodedelivery"
 	"cyberagent-workbench/internal/toolgateway"
@@ -676,6 +677,11 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	legacyArchiveSession := session.New(fixture.workspace.ID,
+		"OpenAPI legacy archive fixture", "review")
+	if err := fixture.store.SaveSession(t.Context(), legacyArchiveSession); err != nil {
+		t.Fatal(err)
+	}
 	_, deleteThreadRun, err := application.NewRunService(fixture.store).Create(t.Context(),
 		application.CreateRunRequest{Goal: "OpenAPI delete Thread fixture", Profile: "review",
 			WorkspaceID: fixture.workspace.ID, Budget: domain.Budget{MaxTurns: 2}})
@@ -746,6 +752,10 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", profileRun.ID)
 		} else if spec.Path == RunExecutionPermissionControlPathTemplate {
 			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", profileRun.ID)
+		} else if spec.Path == ThreadExecutionPermissionControlPathTemplate {
+			requestPath = strings.ReplaceAll(spec.Path, "{thread_id}", openAPIThread.ID)
+		} else if spec.Path == SessionArchiveControlPathTemplate {
+			requestPath = strings.ReplaceAll(spec.Path, "{session_id}", legacyArchiveSession.ID)
 		} else if spec.Path == RunBrowserCDPPermissionControlPathTemplate {
 			requestPath = strings.ReplaceAll(spec.Path, "{run_id}", profileRun.ID)
 		} else if spec.Path == RunExecutionInteractionControlPathTemplate {
@@ -1154,6 +1164,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 						`"confirm_non_authorizing_review":true}`
 				} else if spec.Path == RunExecutionPermissionControlPathTemplate {
 					body = `{"mode":"full_access","confirm_danger_full_access":true}`
+				} else if spec.Path == ThreadExecutionPermissionControlPathTemplate {
+					body = `{"mode":"conservative"}`
 				} else if spec.Path == RunBrowserCDPPermissionControlPathTemplate {
 					body = `{"mode":"restricted"}`
 				} else if spec.Path == RunExecutionInteractionControlPathTemplate {

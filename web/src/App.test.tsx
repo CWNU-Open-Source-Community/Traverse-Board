@@ -156,6 +156,19 @@ describe("App capability wiring", () => {
     expect(screen.getByRole("img", { name: "Docker 沙箱: 启用" })).toBeInTheDocument();
   });
 
+  it("never targets a stale Thread while viewing Run diagnostics", () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
+    useConnectionStore.getState().selectThread("thread-stale");
+    useConnectionStore.getState().selectRun("run-diagnostic");
+    render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
+
+    fireEvent.click(screen.getByRole("button", { name: "设置" }));
+    fireEvent.click(screen.getByRole("button", { name: "权限" }));
+
+    expect(screen.getByText("从侧栏打开一个 Thread")).toBeInTheDocument();
+    expect(screen.queryByText(/Thread thread-stale/)).not.toBeInTheDocument();
+  });
+
   it("remounts Run-scoped drafts and operation state when the selected Run changes", () => {
     vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
     render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
@@ -223,6 +236,10 @@ describe("App capability wiring", () => {
     expect(useConnectionStore.getState().resourceKind).toBe("thread");
     expect(useConnectionStore.getState().selectedThreadID).toBe("thread-from-url");
 
+    act(() => useConnectionStore.getState().selectThread(""));
+    expect(useConnectionStore.getState().selectedThreadID).toBe("");
+    expect(window.location.pathname).toBe("/");
+
     act(() => {
       window.history.pushState({}, "", "/threads/thread-from-history");
       window.dispatchEvent(new PopStateEvent("popstate"));
@@ -230,5 +247,13 @@ describe("App capability wiring", () => {
     expect(screen.getByTestId("thread-identity")).toHaveTextContent("thread-from-history");
     expect(useConnectionStore.getState().selectedThreadID).toBe("thread-from-history");
     expect(window.location.pathname).toBe("/threads/thread-from-history");
+
+    act(() => {
+      window.history.pushState({}, "", "/");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(useConnectionStore.getState().resourceKind).toBe("thread");
+    expect(useConnectionStore.getState().selectedThreadID).toBe("");
+    expect(window.location.pathname).toBe("/");
   });
 });

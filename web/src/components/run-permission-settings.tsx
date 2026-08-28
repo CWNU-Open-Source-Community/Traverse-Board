@@ -871,7 +871,7 @@ function localizedReadinessValue(labels: Record<string, [string, string]>,
   return label ? t(label[0], label[1]) : value.replaceAll("_", " ");
 }
 
-function PermissionConfirmation({ description, label, loading, onCancel, onConfirm }: {
+export function PermissionConfirmation({ description, label, loading, onCancel, onConfirm }: {
   description: string;
   label: string;
   loading: boolean;

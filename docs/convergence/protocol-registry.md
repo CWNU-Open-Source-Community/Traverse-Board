@@ -10,7 +10,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [activity-event-projection](#activity-event-projection) | `projection` | Run activity and HTTP maintainers | 5 | true |
 | [agent-scheduling-delivery-ledgers](#agent-scheduling-delivery-ledgers) | `internal-durable` | Agent graph, scheduler, and batch-delivery maintainers | 73 | true |
 | [analyzer-interchange](#analyzer-interchange) | `external-durable` | Analyzer contract maintainers | 40 | true |
-| [authority-approval-ledgers](#authority-approval-ledgers) | `internal-durable` | Execution authority and approval maintainers | 25 | true |
+| [authority-approval-ledgers](#authority-approval-ledgers) | `internal-durable` | Execution authority and approval maintainers | 30 | true |
 | [browser-cdp-process-session](#browser-cdp-process-session) | `ephemeral` | Browser runtime maintainers | 9 | false |
 | [browser-ui-evidence-ledgers](#browser-ui-evidence-ledgers) | `internal-durable` | Browser and UI evidence maintainers | 41 | true |
 | [capability-readiness-projection](#capability-readiness-projection) | `projection` | Application readiness maintainers | 3 | true |
@@ -227,7 +227,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `authority-approval-ledgers-reader` (`v1`, active) at `internal/store`
 
-<details><summary>25 active identifiers</summary>
+<details><summary>30 active identifiers</summary>
 
 - `approval_grant_consumption.v1`
 - `approval_grant_operation_key.v1`
@@ -254,6 +254,11 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `run_execution_profile_operation.v1`
 - `run_mode_operation.v1`
 - `run_phase_change_request.v1`
+- `thread_execution_permission.v1`
+- `thread_execution_permission_change_request.v1`
+- `thread_execution_permission_current_run_operation.v1`
+- `thread_execution_permission_materialization_operation.v1`
+- `thread_execution_permission_operation.v1`
 
 </details>
 

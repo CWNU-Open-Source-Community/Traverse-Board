@@ -15933,8 +15933,8 @@
     "/api/v1/sessions/{session_id}/archive": {
       "post": {
         "operationId": "archiveSession",
-        "summary": "Archive a Session",
-        "description": "Removes a Session from active conversation history while retaining its messages and audit records. Replays are idempotent.",
+        "summary": "Archive a legacy unbound Session",
+        "description": "Archives only a legacy Session that is not owned by a Thread while retaining its messages and audit records. Thread-backed conversations must use the Thread lifecycle endpoints so Run, Session, message, and archive state cannot diverge. Replays are idempotent.",
         "tags": [
           "Control"
         ],
@@ -17193,6 +17193,199 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ThreadLifecycleControlRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/threads/{thread_id}/execution-permission": {
+      "get": {
+        "operationId": "getThreadExecutionPermission",
+        "summary": "Inspect a Thread execution permission preference",
+        "description": "Returns the immutable, non-authorizing Thread permission preference and whether the current active Run has the same exact policy. Future successor Runs materialize this preference without inheriting a lease, approval, process, adapter, network, credential, or capability grant.",
+        "tags": [
+          "Threads"
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "description": "Thread identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ThreadExecutionPermissionControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-cyberagent-read-only": true
+      },
+      "post": {
+        "operationId": "selectThreadExecutionPermission",
+        "summary": "Select the execution permission for a Thread",
+        "description": "Records an explicit operator preference under the same exact risk confirmation and process-local startup gate as a Run permission selection. The transaction applies it to a created or paused current Run, safely pauses an idle running Run before applying it, fails closed while an execution lease or non-quiescent work is active, and materializes it into future successor Runs. No runtime authority is inherited or granted.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "description": "Thread identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque operation key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ThreadExecutionPermissionControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThreadExecutionPermissionControlRequestView"
               }
             }
           }
@@ -40849,6 +41042,238 @@
         ],
         "type": "object"
       },
+      "ThreadExecutionPermissionControlRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm_danger_full_access": {
+            "type": "boolean"
+          },
+          "confirm_debug_access": {
+            "type": "boolean"
+          },
+          "confirm_user_approval": {
+            "type": "boolean"
+          },
+          "confirm_workspace_access": {
+            "type": "boolean"
+          },
+          "mode": {
+            "enum": [
+              "conservative",
+              "workspace_access",
+              "approval",
+              "full_access",
+              "debug"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 1024,
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "type": "object"
+      },
+      "ThreadExecutionPermissionControlView": {
+        "additionalProperties": false,
+        "properties": {
+          "current_run_effect": {
+            "enum": [
+              "applied",
+              "paused_and_applied",
+              "no_active_run",
+              "pending"
+            ],
+            "type": "string"
+          },
+          "current_run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "current_run_mode": {
+            "enum": [
+              "conservative",
+              "workspace_access",
+              "approval",
+              "full_access",
+              "debug"
+            ],
+            "type": "string"
+          },
+          "current_run_synchronized": {
+            "type": "boolean"
+          },
+          "execution_permission": {
+            "$ref": "#/components/schemas/ThreadExecutionPermissionView"
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "execution_permission",
+          "current_run_synchronized",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "ThreadExecutionPermissionView": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_terminal_input": {
+            "type": "boolean"
+          },
+          "applies_to_current_run": {
+            "type": "boolean"
+          },
+          "applies_to_future_successor_runs": {
+            "type": "boolean"
+          },
+          "approval_policy": {
+            "enum": [
+              "fixed_templates",
+              "out_of_scope_exact_once",
+              "per_command",
+              "none"
+            ],
+            "type": "string"
+          },
+          "background_process": {
+            "type": "boolean"
+          },
+          "capability_grant": {
+            "type": "boolean"
+          },
+          "capability_matrix": {
+            "$ref": "#/components/schemas/ExecutionPermissionCapabilityMatrixView"
+          },
+          "command_scope": {
+            "enum": [
+              "fixed_templates",
+              "sandboxed_workspace",
+              "arbitrary_stateless",
+              "arbitrary_persistent"
+            ],
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "execution_authorized": {
+            "type": "boolean"
+          },
+          "filesystem_scope": {
+            "enum": [
+              "workspace_guarded",
+              "host_full"
+            ],
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "conservative",
+              "workspace_access",
+              "approval",
+              "full_access",
+              "debug"
+            ],
+            "type": "string"
+          },
+          "network_scope": {
+            "enum": [
+              "disabled",
+              "host"
+            ],
+            "type": "string"
+          },
+          "operator_confirmed": {
+            "type": "boolean"
+          },
+          "persistent_terminal": {
+            "type": "boolean"
+          },
+          "policy_version": {
+            "enum": [
+              "execution_permission_policy.v1"
+            ],
+            "type": "string"
+          },
+          "process_enabled": {
+            "type": "boolean"
+          },
+          "protocol_version": {
+            "enum": [
+              "thread_execution_permission.v1"
+            ],
+            "type": "string"
+          },
+          "required_gate": {
+            "enum": [
+              "conservative_control",
+              "workspace_sandbox_adapter",
+              "operator_approval",
+              "danger_full_access",
+              "debug_maximum_access"
+            ],
+            "type": "string"
+          },
+          "revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "risk_tier": {
+            "enum": [
+              "minimal",
+              "elevated",
+              "high"
+            ],
+            "type": "string"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/ExecutionPermissionRuntimeView"
+          },
+          "runtime_gate_available": {
+            "type": "boolean"
+          },
+          "thread_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "thread_id",
+          "protocol_version",
+          "revision",
+          "mode",
+          "approval_policy",
+          "command_scope",
+          "filesystem_scope",
+          "network_scope",
+          "persistent_terminal",
+          "background_process",
+          "agent_terminal_input",
+          "risk_tier",
+          "required_gate",
+          "policy_version",
+          "operator_confirmed",
+          "runtime_gate_available",
+          "runtime",
+          "capability_matrix",
+          "created_at",
+          "process_enabled",
+          "execution_authorized",
+          "capability_grant",
+          "applies_to_current_run",
+          "applies_to_future_successor_runs"
+        ],
+        "type": "object"
+      },
       "ThreadExportView": {
         "additionalProperties": false,
         "properties": {
@@ -41109,7 +41534,8 @@
           "status": {
             "enum": [
               "pending",
-              "committed"
+              "committed",
+              "cancelled"
             ],
             "type": "string"
           },

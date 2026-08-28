@@ -2902,8 +2902,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Archive a Session
-         * @description Removes a Session from active conversation history while retaining its messages and audit records. Replays are idempotent.
+         * Archive a legacy unbound Session
+         * @description Archives only a legacy Session that is not owned by a Thread while retaining its messages and audit records. Thread-backed conversations must use the Thread lifecycle endpoints so Run, Session, message, and archive state cannot diverge. Replays are idempotent.
          */
         post: operations["archiveSession"];
         delete?: never;
@@ -3094,6 +3094,30 @@ export interface paths {
          * @description Removes the Thread from ordinary lists while retaining a lossless exportable Run, Session, message, and audit graph.
          */
         post: operations["deleteThread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/threads/{thread_id}/execution-permission": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect a Thread execution permission preference
+         * @description Returns the immutable, non-authorizing Thread permission preference and whether the current active Run has the same exact policy. Future successor Runs materialize this preference without inheriting a lease, approval, process, adapter, network, credential, or capability grant.
+         */
+        get: operations["getThreadExecutionPermission"];
+        put?: never;
+        /**
+         * Select the execution permission for a Thread
+         * @description Records an explicit operator preference under the same exact risk confirmation and process-local startup gate as a Run permission selection. The transaction applies it to a created or paused current Run, safely pauses an idle running Run before applying it, fails closed while an execution lease or non-quiescent work is active, and materializes it into future successor Runs. No runtime authority is inherited or granted.
+         */
+        post: operations["selectThreadExecutionPermission"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8990,6 +9014,62 @@ export interface components {
             thread_id: string;
             type: string;
         };
+        ThreadExecutionPermissionControlRequestView: {
+            confirm_danger_full_access?: boolean;
+            confirm_debug_access?: boolean;
+            confirm_user_approval?: boolean;
+            confirm_workspace_access?: boolean;
+            /** @enum {string} */
+            mode: "conservative" | "workspace_access" | "approval" | "full_access" | "debug";
+            reason?: string;
+        };
+        ThreadExecutionPermissionControlView: {
+            /** @enum {string} */
+            current_run_effect?: "applied" | "paused_and_applied" | "no_active_run" | "pending";
+            current_run_id?: string;
+            /** @enum {string} */
+            current_run_mode?: "conservative" | "workspace_access" | "approval" | "full_access" | "debug";
+            current_run_synchronized: boolean;
+            execution_permission: components["schemas"]["ThreadExecutionPermissionView"];
+            replayed: boolean;
+        };
+        ThreadExecutionPermissionView: {
+            agent_terminal_input: boolean;
+            applies_to_current_run: boolean;
+            applies_to_future_successor_runs: boolean;
+            /** @enum {string} */
+            approval_policy: "fixed_templates" | "out_of_scope_exact_once" | "per_command" | "none";
+            background_process: boolean;
+            capability_grant: boolean;
+            capability_matrix: components["schemas"]["ExecutionPermissionCapabilityMatrixView"];
+            /** @enum {string} */
+            command_scope: "fixed_templates" | "sandboxed_workspace" | "arbitrary_stateless" | "arbitrary_persistent";
+            /** Format: date-time */
+            created_at: string;
+            execution_authorized: boolean;
+            /** @enum {string} */
+            filesystem_scope: "workspace_guarded" | "host_full";
+            /** @enum {string} */
+            mode: "conservative" | "workspace_access" | "approval" | "full_access" | "debug";
+            /** @enum {string} */
+            network_scope: "disabled" | "host";
+            operator_confirmed: boolean;
+            persistent_terminal: boolean;
+            /** @enum {string} */
+            policy_version: "execution_permission_policy.v1";
+            process_enabled: boolean;
+            /** @enum {string} */
+            protocol_version: "thread_execution_permission.v1";
+            /** @enum {string} */
+            required_gate: "conservative_control" | "workspace_sandbox_adapter" | "operator_approval" | "danger_full_access" | "debug_maximum_access";
+            /** Format: int64 */
+            revision: number;
+            /** @enum {string} */
+            risk_tier: "minimal" | "elevated" | "high";
+            runtime: components["schemas"]["ExecutionPermissionRuntimeView"];
+            runtime_gate_available: boolean;
+            thread_id: string;
+        };
         ThreadExportView: {
             audit_events: components["schemas"]["ThreadRunAuditEventView"][];
             events: components["schemas"]["ThreadEventView"][];
@@ -9053,7 +9133,7 @@ export interface components {
             source_kind: "operator_message" | "model_response" | "go_control" | "workspace_file" | "workspace_listing" | "workspace_diff" | "tool_result" | "go_command_result";
             source_ref?: string;
             /** @enum {string} */
-            status: "pending" | "committed";
+            status: "pending" | "committed" | "cancelled";
             thread_id: string;
             /** Format: int32 */
             token_estimate: number;
@@ -17337,6 +17417,87 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["ThreadLifecycleControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getThreadExecutionPermission: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadExecutionPermissionControlView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    selectThreadExecutionPermission: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque operation key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Thread identity */
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadExecutionPermissionControlRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadExecutionPermissionControlView"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";

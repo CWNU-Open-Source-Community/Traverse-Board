@@ -214,6 +214,11 @@ func TestThreadLifecycleAndExportNeverOrphanHistory(t *testing.T) {
 	if err != nil || archived.Status != domain.ThreadArchived {
 		t.Fatalf("archive=%#v err=%v", archived, err)
 	}
+	cancelled, err := st.GetRun(ctx, run.ID)
+	if err != nil || cancelled.Status != domain.RunCancelled || archived.ActiveRunID != "" {
+		t.Fatalf("archive did not safely cancel created Run: Run=%#v Thread=%#v err=%v",
+			cancelled, archived, err)
+	}
 	replayed, err := st.TransitionThreadWithOperationKey(ctx, threadRecord.ID,
 		domain.ThreadArchive, threadRecord.Version, "test_operator",
 		"thread-lifecycle-archive-operation-0001", archiveAt.Add(time.Hour))
@@ -249,9 +254,6 @@ func TestThreadLifecycleAndExportNeverOrphanHistory(t *testing.T) {
 		exported.Messages[0].ContentSHA256 == "" ||
 		!exported.Messages[0].InstructionAuthorized {
 		t.Fatalf("export message provenance=%#v", exported.Messages[0])
-	}
-	if _, err := application.NewRunService(st).Cancel(ctx, run.ID); err != nil {
-		t.Fatal(err)
 	}
 	terminalThread, err := st.GetThread(ctx, restored.ID)
 	if err != nil {

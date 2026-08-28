@@ -47,7 +47,7 @@ func TestSchemaV138RepairsExactLegacyWindowsPreviewV136(t *testing.T) {
 		state.Close()
 		t.Fatal(err)
 	}
-	for _, statement := range []string{
+	for _, statement := range append(removeSchemaV139ForTestStatements(), []string{
 		`DELETE FROM schema_migrations WHERE version = 138`,
 		`DROP TRIGGER trg_standard_code_delivery_insert`,
 		`DROP TRIGGER trg_standard_code_delivery_update_immutable`,
@@ -57,7 +57,7 @@ func TestSchemaV138RepairsExactLegacyWindowsPreviewV136(t *testing.T) {
 		`DELETE FROM schema_migrations WHERE version = 137`,
 		`DROP TRIGGER trg_risk_escalation_supervisor_authority_insert`,
 		`DROP TRIGGER trg_host_command_supervisor_envelope_immutable`,
-	} {
+	}...) {
 		if _, err := state.db.ExecContext(ctx, statement); err != nil {
 			state.Close()
 			t.Fatalf("restore legacy v136 with %q: %v", statement, err)

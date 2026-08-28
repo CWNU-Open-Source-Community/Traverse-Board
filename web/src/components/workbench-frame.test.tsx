@@ -42,16 +42,21 @@ describe("EmptyConversation", () => {
     expect(onCreateRun).toHaveBeenCalledWith({ goal: "检查当前项目", phase: "deliver" });
   });
 
-  it("uses one home action for first coding or resuming the latest Run", () => {
+  it("keeps the new Thread composer visible beside setup and continue actions", () => {
     const onCreateRun = vi.fn();
     const onStartCoding = vi.fn();
     const first = render(<QueryClientProvider client={new QueryClient()}>
       <EmptyConversation client={{} as CyberAgentClient} creationEnabled
         onCreateRun={onCreateRun} onStartCoding={onStartCoding} />
     </QueryClientProvider>);
-    fireEvent.click(screen.getByRole("button", { name: "开始编码" }));
+    fireEvent.click(screen.getByRole("button", { name: "设置" }));
     expect(onStartCoding).toHaveBeenCalledOnce();
-    expect(screen.queryByLabelText("描述 Thread 目标")).not.toBeInTheDocument();
+    const setupComposer = screen.getByLabelText("描述 Thread 目标");
+    expect(setupComposer).toBeInTheDocument();
+    fireEvent.change(setupComposer, { target: { value: "不要让设置挡住任务输入" } });
+    fireEvent.keyDown(setupComposer, { key: "Enter" });
+    expect(onCreateRun).toHaveBeenCalledWith({ goal: "不要让设置挡住任务输入",
+      phase: "deliver" });
     first.unmount();
 
     const onContinueRun = vi.fn();
@@ -59,8 +64,12 @@ describe("EmptyConversation", () => {
       <EmptyConversation client={{} as CyberAgentClient} creationEnabled
         onContinueRun={onContinueRun} onCreateRun={onCreateRun} />
     </QueryClientProvider>);
-    fireEvent.click(screen.getByRole("button", { name: "继续 Run" }));
+    fireEvent.click(screen.getByRole("button", { name: "继续" }));
     expect(onContinueRun).toHaveBeenCalledOnce();
-    expect(screen.queryByLabelText("描述 Thread 目标")).not.toBeInTheDocument();
+    const continueComposer = screen.getByLabelText("描述 Thread 目标");
+    expect(continueComposer).toBeInTheDocument();
+    fireEvent.change(continueComposer, { target: { value: "开始另一个任务" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建 Thread" }));
+    expect(onCreateRun).toHaveBeenCalledWith({ goal: "开始另一个任务", phase: "deliver" });
   });
 });

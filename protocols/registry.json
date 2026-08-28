@@ -354,7 +354,12 @@
         "run_execution_profile_change_request.v1",
         "run_execution_profile_operation.v1",
         "run_mode_operation.v1",
-        "run_phase_change_request.v1"
+        "run_phase_change_request.v1",
+        "thread_execution_permission.v1",
+        "thread_execution_permission_change_request.v1",
+        "thread_execution_permission_current_run_operation.v1",
+        "thread_execution_permission_materialization_operation.v1",
+        "thread_execution_permission_operation.v1"
       ],
       "retired_identifiers": []
     },

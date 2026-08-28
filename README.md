@@ -444,7 +444,7 @@ Partner Center 的 identity、版本、上传与 `runFullTrust` 认证步骤见
 完整逐切片原始记录保留在 [`PROGRESS_BOOK.md`](docs/PROGRESS_BOOK.md)，当前检查点与验收证据保留在 [`PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)，恢复上下文见 [`PROJECT_MEMORY.md`](docs/PROJECT_MEMORY.md)。这些账本是历史记录，不应被当作待重新执行的任务列表。
 
 <details>
-<summary><strong>SQLite Schema v1-v138 迁移审计表 / Migration ledger</strong></summary>
+<summary><strong>SQLite Schema v1-v139 迁移审计表 / Migration ledger</strong></summary>
 
 此表是 Store 防漏迁移测试使用的审计合同。新增 schema 时必须按顺序追加，不得改写或删除既有行。
 
@@ -588,6 +588,8 @@ Partner Center 的 identity、版本、上传与 `runFullTrust` 认证步骤见
 | v136 | 增加精确高风险提案、有界 Run grant 消费、持久等待/恢复、write-ahead 不确定性与漂移失效账本 | add exact risk proposals, bounded Run-grant consumption, durable wait/resume, write-ahead uncertainty, and drift invalidation ledgers |
 | v137 | 增加 Standard Code 最终 Checkpoint、Diff/Command Artifact 对齐、不可变完成收据与动态 stale 投影 | add the Standard Code final Checkpoint, aligned Diff/Command Artifacts, immutable completion receipts, and dynamic stale projection |
 | v138 | 精确兼容 v136 Windows 中间预览历史，并重建缺失的 Supervisor 高风险提案权限触发器 | accept the exact intermediate Windows preview v136 history and rebuild its missing Supervisor risk-authority triggers |
+| v139 | 为 Thread 增加保守默认、不可变且不授权的执行权限偏好；在安全边界同步当前 Run，并在未来后继 Run 中物化 | add conservative-by-default immutable non-authorizing Thread execution-permission preferences, synchronized to the current Run at a safe boundary and materialized into future successor Runs |
+| v140 | 以 Thread 为唯一聊天生命周期边界，原子归档、恢复或删除其 Run 与 Session 投影，同时保留消息和审计证据 | make Thread the sole chat lifecycle boundary, atomically archiving, restoring, or deleting its Run and Session projections while retaining messages and audit evidence |
 
 </details>
 

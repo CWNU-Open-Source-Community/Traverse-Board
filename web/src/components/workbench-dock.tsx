@@ -171,7 +171,9 @@ export function WorkbenchDock({ children, client, desktop, resourceKind, runID, 
     <div className={`workbench-dock-layout ${sidecarVisible ? "with-sidecar" : ""}`}>
       <div className="workbench-center-stack">
         <div className={`workbench-center-row ${summaryVisible ? "with-summary" : ""}`}>
-          <div className="workspace-panel-stage">{children}</div>
+          <div className={`workspace-panel-stage workspace-panel-stage-${resourceKind}`}>
+            {children}
+          </div>
           {summaryVisible && <WorkbenchSummary client={client} context={context} />}
         </div>
         {bottomVisible && <BottomPanel desktop={desktop} runID={effectiveRunID}

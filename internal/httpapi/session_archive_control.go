@@ -114,6 +114,15 @@ func (a *API) serveSessionArchiveControl(writer http.ResponseWriter,
 		a.writeError(writer, requestID, apperror.Normalize(err), 0)
 		return
 	}
+	if threadRecord, threadErr := a.store.GetThreadBySession(request.Context(), sessionID); threadErr == nil {
+		a.writeError(writer, requestID, apperror.New(apperror.CodeFailedPrecondition,
+			"Thread-bound conversations must be archived through Thread lifecycle: "+
+				threadRecord.ID), 0)
+		return
+	} else if normalized := apperror.Normalize(threadErr); apperror.CodeOf(normalized) != apperror.CodeNotFound {
+		a.writeError(writer, requestID, normalized, 0)
+		return
+	}
 	replayed := record.Status == session.StatusArchived
 	if !replayed {
 		if _, hookErr := hooks.ExecuteBoundary(request.Context(), a.lifecycleHooks,

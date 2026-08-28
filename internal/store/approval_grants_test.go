@@ -357,13 +357,12 @@ func TestArchivedSessionCannotCreateOrConsumeGrant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sess, err := st.GetSession(ctx, run.SessionID)
+	threadRecord, err := st.GetThreadByRun(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	sess.Status = session.StatusArchived
-	sess.UpdatedAt = time.Now().UTC()
-	if err := st.SaveSession(ctx, sess); err != nil {
+	if _, err := st.TransitionThread(ctx, threadRecord.ID, domain.ThreadArchive,
+		threadRecord.Version, "test_operator", time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	if _, found, err := st.FindActiveSessionGrant(ctx, approval.GrantQuery{
@@ -375,7 +374,8 @@ func TestArchivedSessionCannotCreateOrConsumeGrant(t *testing.T) {
 		SessionID: run.SessionID, ToolName: "replace_file", ActionClass: "workspace_write", GrantedBy: "operator",
 		IdempotencyKey: "archived-session-new-grant",
 	})
-	if err == nil || !strings.Contains(err.Error(), "not active") {
+	if err == nil || (!strings.Contains(err.Error(), "not active") &&
+		!strings.Contains(err.Error(), "terminal")) {
 		t.Fatalf("archived session accepted a new grant: %v", err)
 	}
 }

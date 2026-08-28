@@ -12,7 +12,6 @@ import (
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/runmutation"
-	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/verification"
 )
 
@@ -168,13 +167,12 @@ func TestRecordVerificationEvidenceRechecksActiveSessionInsideTransaction(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	linkedSession, err := state.GetSession(ctx, run.SessionID)
+	threadRecord, err := state.GetThreadByRun(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	linkedSession.Status = session.StatusArchived
-	linkedSession.UpdatedAt = time.Now().UTC()
-	if err := state.SaveSession(ctx, linkedSession); err != nil {
+	if _, err := state.TransitionThread(ctx, threadRecord.ID, domain.ThreadArchive,
+		threadRecord.Version, "test_operator", time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	summary := "focused verification passed"

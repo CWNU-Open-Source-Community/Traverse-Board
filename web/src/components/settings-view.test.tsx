@@ -38,7 +38,7 @@ describe("SettingsView", () => {
 
   it("projects real runtime facts and moves the selected state with navigation", () => {
     renderSettings({ capabilities, client, desktop: true, health,
-      selectedRunID: "", onBack: vi.fn(), onOpenModels: vi.fn(), onOpenSkills: vi.fn() });
+      selectedRunID: "", selectedThreadID: "", onBack: vi.fn(), onOpenModels: vi.fn(), onOpenSkills: vi.fn() });
 
     expect(screen.getByRole("button", { name: "常规" })).toHaveClass("active");
     expect(screen.getByRole("button", { name: "个人资料" })).not.toHaveClass("active");
@@ -55,7 +55,7 @@ describe("SettingsView", () => {
     const onOpenModels = vi.fn();
     const onOpenSkills = vi.fn();
     renderSettings({ capabilities, client, desktop: true, health,
-      selectedRunID: "", onBack: vi.fn(), onOpenModels, onOpenSkills });
+      selectedRunID: "", selectedThreadID: "", onBack: vi.fn(), onOpenModels, onOpenSkills });
 
     fireEvent.click(screen.getByRole("button", { name: "外观" }));
     fireEvent.click(screen.getByRole("button", { name: "透明玻璃" }));
@@ -75,13 +75,40 @@ describe("SettingsView", () => {
 
   it("keeps advanced Run diagnostics behind an explicit Workbench preference", () => {
     renderSettings({ capabilities, client, desktop: true, health,
-      selectedRunID: "", onBack: vi.fn(), onOpenModels: vi.fn(), onOpenSkills: vi.fn() });
+      selectedRunID: "", selectedThreadID: "", onBack: vi.fn(), onOpenModels: vi.fn(), onOpenSkills: vi.fn() });
 
     fireEvent.click(screen.getByRole("button", { name: "工作台" }));
     expect(screen.getByRole("button", { name: "精简" }))
       .toHaveAttribute("aria-pressed", "true");
     fireEvent.click(screen.getByRole("button", { name: "完整" }));
     expect(window.localStorage.getItem("prayu.run-navigation.v1")).toBe("diagnostic");
+  });
+
+  it("opens archived chats without requiring a selected Run", async () => {
+    const archiveClient = new CyberAgentClient("read-token");
+    const getPage = vi.spyOn(archiveClient, "getPage").mockResolvedValue({
+      items: [], page: { limit: 50 }, requestID: "request-archived-settings",
+    });
+    renderSettings({ capabilities, client: archiveClient, desktop: true, health,
+      selectedRunID: "", selectedThreadID: "", onBack: vi.fn(), onOpenModels: vi.fn(), onOpenSkills: vi.fn() });
+
+    fireEvent.click(screen.getByRole("button", { name: "已归档的聊天" }));
+    expect(await screen.findByRole("heading", { name: "已归档的聊天" }))
+      .toBeInTheDocument();
+    expect(screen.queryByText("选择一个 Run")).not.toBeInTheDocument();
+    expect(getPage).toHaveBeenCalledWith("/threads", { limit: 50, status: "archived" },
+      "", expect.any(AbortSignal));
+  });
+
+  it("never uses a stale selected Run as the Thread permission target", () => {
+    renderSettings({ capabilities, client, desktop: true, health,
+      selectedRunID: "run-stale-diagnostic", selectedThreadID: "", onBack: vi.fn(),
+      onOpenModels: vi.fn(), onOpenSkills: vi.fn() });
+
+    fireEvent.click(screen.getByRole("button", { name: "权限" }));
+    expect(screen.getByText("从侧栏打开一个 Thread")).toBeInTheDocument();
+    expect(screen.queryByText("选择一个 Run")).not.toBeInTheDocument();
+    expect(screen.queryByText("run-stale-diagnostic")).not.toBeInTheDocument();
   });
 
   it("falls back safely when browser storage is unavailable", () => {
@@ -92,7 +119,7 @@ describe("SettingsView", () => {
       throw new DOMException("storage disabled", "SecurityError");
     });
 
-    expect(() => renderSettings({ capabilities, client, desktop: true, health, selectedRunID: "",
+    expect(() => renderSettings({ capabilities, client, desktop: true, health, selectedRunID: "", selectedThreadID: "",
       onBack: vi.fn(), onOpenModels: vi.fn(), onOpenSkills: vi.fn() })).not.toThrow();
     fireEvent.click(screen.getByRole("button", { name: "外观" }));
     expect(screen.getByRole("button", { name: "舒展" })).toHaveAttribute("aria-pressed", "true");
@@ -157,7 +184,7 @@ describe("SettingsView", () => {
     });
 
     renderSettings({ capabilities, client: controlClient, desktop: true, health,
-      selectedRunID: "run-extensions", onBack: vi.fn(), onOpenModels: vi.fn(),
+      selectedRunID: "run-extensions", selectedThreadID: "thread-extensions", onBack: vi.fn(), onOpenModels: vi.fn(),
       onOpenSkills: vi.fn() });
     fireEvent.click(screen.getByRole("button", { name: "Code Intel、MCP 与 Plugin" }));
 

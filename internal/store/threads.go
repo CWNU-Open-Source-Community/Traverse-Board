@@ -13,6 +13,7 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
+	"cyberagent-workbench/internal/idgen"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/session"
@@ -53,6 +54,31 @@ func insertInitialThreadTx(ctx context.Context, tx *sql.Tx, mission domain.Missi
 		VALUES (?, ?, ?, 1, NULL, ?)`, threadID, run.ID, run.SessionID,
 		ts(run.CreatedAt)); err != nil {
 		return err
+	}
+	// Old migration-prefix fixtures intentionally create Runs before v139. A
+	// fully migrated database always has this table and records a conservative,
+	// non-authorizing Thread preference in the same creation transaction.
+	var permissionTableExists int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master
+		WHERE type = 'table' AND name = 'thread_execution_permission_snapshots'`).
+		Scan(&permissionTableExists); err != nil {
+		return err
+	}
+	if permissionTableExists != 0 {
+		threadRecord, err := scanThread(tx.QueryRowContext(ctx,
+			threadSelect+` WHERE id = ?`, threadID))
+		if err != nil {
+			return err
+		}
+		preference, err := domain.NewInitialThreadExecutionPermissionSnapshot(
+			idgen.New("thread-exec-permission"), threadRecord, "run_creation", run.CreatedAt)
+		if err != nil {
+			return err
+		}
+		if err := insertInitialThreadExecutionPermissionSnapshotTx(
+			ctx, tx, preference, threadRecord); err != nil {
+			return err
+		}
 	}
 	payload, _ := json.Marshal(map[string]any{"run_id": run.ID, "backfilled": false})
 	_, err := tx.ExecContext(ctx, `INSERT INTO thread_events
@@ -183,7 +209,7 @@ func (s *SQLiteStore) ListThreadMessagesPage(ctx context.Context, threadID strin
 				0 AS compacted, steering.created_at
 			FROM thread_runs binding JOIN operator_steering_messages steering
 				ON steering.run_id = binding.run_id AND steering.session_id = binding.session_id
-			WHERE binding.thread_id = ? AND steering.status = 'pending'
+			WHERE binding.thread_id = ? AND steering.status IN ('pending', 'cancelled')
 		) ORDER BY run_ordinal, sort_time, identity`
 	args = append(args, session.ContextProvenanceVersion, session.SourceOperatorMessage,
 		strings.TrimSpace(threadID))
@@ -431,9 +457,17 @@ func (s *SQLiteStore) EnsureThreadSuccessor(ctx context.Context, threadID,
 		ordinal, predecessor.ID, ts(candidate.CreatedAt)); err != nil {
 		return domain.Thread{}, domain.Run{}, false, err
 	}
+	materializedPermission, permissionMaterialized, err :=
+		materializeThreadExecutionPermissionForSuccessorTx(ctx, tx, threadRecord, candidate)
+	if err != nil {
+		return domain.Thread{}, domain.Run{}, false, err
+	}
 	payload, _ := json.Marshal(map[string]any{
 		"predecessor_run_id": predecessor.ID, "successor_run_id": candidate.ID,
-		"authority_inherited": false,
+		"authority_inherited": false, "runtime_authority_inherited": false,
+		"execution_permission_materialized": permissionMaterialized,
+		"execution_permission_mode":         materializedPermission.Mode,
+		"execution_permission_snapshot_id":  materializedPermission.ID,
 	})
 	if _, err := tx.ExecContext(ctx, `INSERT INTO thread_events
 		(thread_id, run_id, type, source, payload_json, created_at)
@@ -591,6 +625,7 @@ func (s *SQLiteStore) transitionThread(ctx context.Context, id string,
 		return domain.Thread{}, apperror.New(apperror.CodeInvalidArgument,
 			"unsupported Thread lifecycle action")
 	}
+	lifecycleRunID := current.ActiveRunID
 	if current.ActiveRunID != "" && action != domain.ThreadRestore {
 		active, err := scanRun(tx.QueryRowContext(ctx, `SELECT id, mission_id, session_id,
 			status, config_json, budget_json, started_at, finished_at, created_at, updated_at
@@ -598,13 +633,54 @@ func (s *SQLiteStore) transitionThread(ctx context.Context, id string,
 		if err != nil {
 			return domain.Thread{}, err
 		}
-		if action == domain.ThreadDelete {
-			return domain.Thread{}, apperror.New(apperror.CodeFailedPrecondition,
-				"a Thread with a live Run must be cancelled before deletion")
+		if active.Terminal() {
+			return domain.Thread{}, apperror.New(apperror.CodeConflict,
+				"Thread active Run projection is terminal")
 		}
-		if active.Status == domain.RunPreparing || active.Status == domain.RunRunning {
-			return domain.Thread{}, apperror.New(apperror.CodeFailedPrecondition,
-				"a preparing or running Thread must be paused or cancelled first")
+		if err := requireThreadLifecycleRunQuiescentTx(ctx, tx, active.ID, at); err != nil {
+			return domain.Thread{}, err
+		}
+		targetRunStatus := domain.RunStatus("")
+		reason := "Thread archived by explicit operator request"
+		if action == domain.ThreadDelete {
+			targetRunStatus = domain.RunCancelled
+			reason = "Thread deleted by explicit operator request"
+		} else {
+			switch active.Status {
+			case domain.RunCreated, domain.RunPreparing:
+				targetRunStatus = domain.RunCancelled
+			case domain.RunRunning:
+				targetRunStatus = domain.RunPaused
+			case domain.RunWaitingApproval:
+				// Preserve the approval gate itself. Turning a real pending approval
+				// into a generic paused Run would strand its decision record and let
+				// ordinary resume semantics bypass the dedicated approval flow.
+			case domain.RunPaused:
+				// A restored Thread keeps its paused Run until the user explicitly
+				// continues it. Archiving an already paused Run is a no-op.
+			default:
+				return domain.Thread{}, apperror.New(apperror.CodeFailedPrecondition,
+					"Thread active Run cannot be safely quiesced")
+			}
+		}
+		if targetRunStatus != "" {
+			if err := transitionThreadLifecycleRunTx(ctx, tx, &active,
+				targetRunStatus, reason, at); err != nil {
+				return domain.Thread{}, err
+			}
+			if err := syncControlledRunRootTx(ctx, tx, active); err != nil {
+				return domain.Thread{}, err
+			}
+		}
+		if targetRunStatus == domain.RunCancelled {
+			// The v129 terminal projection trigger clears active_run_id and bumps
+			// the Thread version in this transaction. Reload before applying the
+			// requested Thread transition so optimistic versioning remains exact.
+			current, err = scanThread(tx.QueryRowContext(ctx,
+				threadSelect+` WHERE id = ?`, current.ID))
+			if err != nil {
+				return domain.Thread{}, err
+			}
 		}
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE threads SET status = ?, version = version + 1,
@@ -620,20 +696,27 @@ func (s *SQLiteStore) transitionThread(ctx context.Context, id string,
 		return domain.Thread{}, apperror.New(apperror.CodeConflict,
 			"Thread lifecycle changed concurrently")
 	}
-	sessionStatus := session.StatusArchived
 	if target == domain.ThreadActive {
-		sessionStatus = session.StatusActive
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET status = ?, updated_at = ?
+		// Restoring a Thread reactivates only its current nonterminal Run
+		// Session. Historical terminal Run Sessions retain their archived state.
+		if current.ActiveRunID != "" {
+			if _, err := tx.ExecContext(ctx, `UPDATE sessions SET status = ?, updated_at = ?
+				WHERE id = (SELECT session_id FROM thread_runs
+					WHERE thread_id = ? AND run_id = ?)`, session.StatusActive,
+				ts(at), current.ID, current.ActiveRunID); err != nil {
+				return domain.Thread{}, err
+			}
+		}
+	} else if _, err := tx.ExecContext(ctx, `UPDATE sessions SET status = ?, updated_at = ?
 		WHERE id IN (SELECT session_id FROM thread_runs WHERE thread_id = ?)`,
-		sessionStatus, ts(at), current.ID); err != nil {
+		session.StatusArchived, ts(at), current.ID); err != nil {
 		return domain.Thread{}, err
 	}
 	payload, _ := json.Marshal(map[string]any{"status": target, "requested_by": requestedBy})
 	if _, err := tx.ExecContext(ctx, `INSERT INTO thread_events
 		(thread_id, run_id, type, source, payload_json, created_at)
 		VALUES (?, ?, ?, 'thread_lifecycle', ?, ?)`, current.ID,
-		nullableString(current.ActiveRunID), "thread."+string(action), string(payload),
+		nullableString(lifecycleRunID), "thread."+string(action), string(payload),
 		ts(at)); err != nil {
 		return domain.Thread{}, err
 	}
@@ -642,6 +725,98 @@ func (s *SQLiteStore) transitionThread(ctx context.Context, id string,
 		return domain.Thread{}, err
 	}
 	return commitResult(updated)
+}
+
+// requireThreadLifecycleRunQuiescentTx closes every durable execution surface
+// before a Thread lifecycle transition changes its Run or Session projection.
+// An execution lease is necessary but not sufficient evidence of activity:
+// persistent command-runtime Jobs and user terminal Sessions can outlive a
+// Supervisor turn and must independently settle first.
+func requireThreadLifecycleRunQuiescentTx(ctx context.Context, tx *sql.Tx,
+	runID string, at time.Time,
+) error {
+	if err := requireNoActiveRunControlLeaseTx(ctx, tx, runID, at); err != nil {
+		return err
+	}
+	if err := requireQuiescentRunPauseTx(ctx, tx, runID); err != nil {
+		return err
+	}
+	var activeCommandJobs int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM command_runtime_jobs
+		WHERE run_id = ? AND state IN ('prepared', 'running', 'stopping')`, runID).
+		Scan(&activeCommandJobs); err != nil {
+		return err
+	}
+	if activeCommandJobs != 0 {
+		return apperror.New(apperror.CodeFailedPrecondition,
+			"Thread lifecycle requires command runtime Jobs to stop")
+	}
+	var activeTerminalSessions int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM terminal_sessions
+		WHERE run_id = ? AND state IN ('starting', 'running')`, runID).
+		Scan(&activeTerminalSessions); err != nil {
+		return err
+	}
+	if activeTerminalSessions != 0 {
+		return apperror.New(apperror.CodeFailedPrecondition,
+			"Thread lifecycle requires terminal Sessions to stop")
+	}
+	return nil
+}
+
+func transitionThreadLifecycleRunTx(ctx context.Context, tx *sql.Tx,
+	run *domain.Run, target domain.RunStatus, reason string, at time.Time,
+) error {
+	if run == nil {
+		return apperror.New(apperror.CodeFailedPrecondition,
+			"Thread lifecycle Run is required")
+	}
+	expected := run.Status
+	if err := run.Transition(target, at); err != nil {
+		return apperror.Wrap(apperror.CodeFailedPrecondition, err.Error(), err)
+	}
+	configJSON, err := marshalRedactedJSON(run.Config)
+	if err != nil {
+		return err
+	}
+	budgetJSON, err := marshalRedactedJSON(run.Budget)
+	if err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE runs SET status = ?, config_json = ?,
+		budget_json = ?, started_at = ?, finished_at = ?, updated_at = ?
+		WHERE id = ? AND status = ?`, run.Status, configJSON, budgetJSON,
+		nullableTS(run.StartedAt), nullableTS(run.FinishedAt), ts(run.UpdatedAt),
+		run.ID, expected)
+	if err != nil {
+		return err
+	}
+	if rows, err := result.RowsAffected(); err != nil || rows != 1 {
+		if err != nil {
+			return err
+		}
+		return apperror.New(apperror.CodeConflict,
+			"Run changed before Thread lifecycle transition")
+	}
+	if target == domain.RunCancelled {
+		if _, err := cancelOperatorSteeringTx(ctx, tx, *run,
+			"thread_lifecycle", reason, at); err != nil {
+			return err
+		}
+	}
+	statusEvent, err := events.New(run.ID, run.MissionID,
+		events.RunStatusChangedEvent, "thread_lifecycle", run.ID, map[string]any{
+			"from": expected, "to": target,
+			"reason": redact.String(strings.TrimSpace(reason)),
+		})
+	if err != nil {
+		return err
+	}
+	statusEvent.CreatedAt = at.UTC()
+	if _, err := insertRunEventTx(ctx, tx, statusEvent); err != nil {
+		return err
+	}
+	return abortSpecialistDelegationApplicationsTx(ctx, tx, *run, at)
 }
 
 func (s *SQLiteStore) ExportThread(ctx context.Context, threadID string) (domain.ThreadExport, error) {

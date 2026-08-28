@@ -252,6 +252,11 @@ try:
     ]
     business_tables = []
     for table_name in table_names:
+        # Session status is the one legacy business value that v140 is allowed
+        # to repair. It is checked row-by-row below against Thread ownership;
+        # every other pre-existing business table remains byte-for-byte strict.
+        if table_name == "sessions":
+            continue
         hashes = [
             row_digest(row)
             for row in connection.execute("SELECT * FROM " + quote_identifier(table_name))
@@ -267,6 +272,90 @@ try:
             "content_sha256": content.hexdigest(),
         })
 
+    if "sessions" not in table_names:
+        raise RuntimeError("sessions table is missing from the seed database")
+    session_columns = [
+        row[1] for row in connection.execute("PRAGMA table_info(sessions)")
+    ]
+    required_session_columns = {
+        "id", "status", "updated_at", "workspace_id", "title", "route", "created_at"
+    }
+    if not required_session_columns.issubset(set(session_columns)):
+        raise RuntimeError("sessions table does not expose the required lifecycle columns")
+    session_id_index = session_columns.index("id")
+    session_status_index = session_columns.index("status")
+    session_updated_at_index = session_columns.index("updated_at")
+    stable_session_indexes = [
+        index for index, name in enumerate(session_columns)
+        if name not in ("status", "updated_at")
+    ]
+    session_topology = {}
+    if {"threads", "thread_runs", "runs"}.issubset(set(table_names)):
+        for row in connection.execute(
+            "SELECT session_record.id, thread_record.id, thread_record.status, "
+            "thread_record.updated_at, binding.run_id, thread_record.active_run_id, "
+            "run.status FROM sessions session_record "
+            "LEFT JOIN thread_runs binding ON binding.session_id = session_record.id "
+            "LEFT JOIN threads thread_record ON thread_record.id = binding.thread_id "
+            "LEFT JOIN runs run ON run.id = binding.run_id ORDER BY session_record.id"
+        ):
+            session_topology[row[0]] = {
+                "thread_id": row[1],
+                "thread_status": row[2],
+                "thread_updated_at": row[3],
+                "bound_run_id": row[4],
+                "active_run_id": row[5],
+                "run_status": row[6],
+            }
+
+    session_rows = []
+    terminal_run_statuses = {"completed", "failed", "cancelled"}
+    for row in connection.execute("SELECT * FROM sessions ORDER BY id"):
+        session_id = row[session_id_index]
+        status = row[session_status_index]
+        updated_at = row[session_updated_at_index]
+        topology = session_topology.get(session_id, {
+            "thread_id": None,
+            "thread_status": None,
+            "thread_updated_at": None,
+            "bound_run_id": None,
+            "active_run_id": None,
+            "run_status": None,
+        })
+        expected_status = status
+        expected_updated_at = updated_at
+        repair_kind = "none"
+        if topology["thread_status"] in ("archived", "deleted") and status != "archived":
+            expected_status = "archived"
+            repair_kind = "archive_bound_session"
+        elif (
+            topology["thread_status"] == "active"
+            and topology["bound_run_id"] == topology["active_run_id"]
+            and topology["run_status"] not in terminal_run_statuses
+            and status != "active"
+        ):
+            expected_status = "active"
+            repair_kind = "reactivate_current_session"
+        if repair_kind != "none":
+            expected_updated_at = connection.execute(
+                "SELECT CASE WHEN julianday(?) >= julianday(?) THEN ? ELSE ? END",
+                (updated_at, topology["thread_updated_at"], updated_at,
+                 topology["thread_updated_at"]),
+            ).fetchone()[0]
+        stable_values = tuple(row[index] for index in stable_session_indexes)
+        session_rows.append({
+            "id": session_id,
+            "status": status,
+            "updated_at": updated_at,
+            "stable_sha256": row_digest(stable_values).hex(),
+            "expected_status_after_upgrade": expected_status,
+            "expected_updated_at_after_upgrade": expected_updated_at,
+            "repair_kind": repair_kind,
+            "thread_id": topology["thread_id"],
+            "bound_run_id": topology["bound_run_id"],
+            "run_status": topology["run_status"],
+        })
+
     sentinel = connection.execute(
         "SELECT id, name, root_path, created_at FROM workspaces WHERE id = ?",
         (sys.argv[2],),
@@ -274,6 +363,9 @@ try:
     trigger_names = (
         "trg_risk_escalation_supervisor_authority_insert",
         "trg_host_command_supervisor_envelope_immutable",
+        "trg_thread_bound_session_status_guard",
+        "trg_thread_status_projects_bound_sessions",
+        "trg_thread_run_insert_session_lifecycle",
     )
     triggers = []
     for trigger_name in trigger_names:
@@ -289,6 +381,7 @@ try:
         "schema_version": versions[-1],
         "ledger": ledger,
         "business_tables": business_tables,
+        "session_rows": session_rows,
         "sentinel": None if sentinel is None else {
             "id": sentinel[0],
             "name": sentinel[1],
@@ -338,7 +431,10 @@ function Read-CanonicalRepairTriggers {
     $result = @{}
     foreach ($name in @(
             "trg_risk_escalation_supervisor_authority_insert",
-            "trg_host_command_supervisor_envelope_immutable")) {
+            "trg_host_command_supervisor_envelope_immutable",
+            "trg_thread_bound_session_status_guard",
+            "trg_thread_status_projects_bound_sessions",
+            "trg_thread_run_insert_session_lifecycle")) {
         $pattern = '^CREATE TRIGGER ' + [regex]::Escape($name) + '(?:\s|$)'
         $matches = @($blocks | Where-Object {
                 [regex]::IsMatch($_.Trim(), $pattern)
@@ -401,6 +497,44 @@ function Assert-SeededUpgradePreserved {
         if ([long]$observed.row_count -ne [long]$expected.row_count -or
                 [string]$observed.content_sha256 -cne [string]$expected.content_sha256) {
             throw "Desktop database upgrade changed existing business data in table: $name"
+        }
+    }
+
+    $beforeSessions = @{}
+    foreach ($item in @($Before.session_rows)) {
+        $id = [string]$item.id
+        if ([string]::IsNullOrWhiteSpace($id) -or $beforeSessions.ContainsKey($id)) {
+            throw "Seeded upgrade snapshot contains an invalid or duplicate Session: $id"
+        }
+        $beforeSessions[$id] = $item
+    }
+    $afterSessions = @{}
+    foreach ($item in @($After.session_rows)) {
+        $id = [string]$item.id
+        if ([string]::IsNullOrWhiteSpace($id) -or $afterSessions.ContainsKey($id)) {
+            throw "Upgraded snapshot contains an invalid or duplicate Session: $id"
+        }
+        $afterSessions[$id] = $item
+    }
+    if ($afterSessions.Count -ne $beforeSessions.Count) {
+        throw "Desktop database upgrade changed the Session row count"
+    }
+    foreach ($id in $beforeSessions.Keys) {
+        if (-not $afterSessions.ContainsKey($id)) {
+            throw "Desktop database upgrade removed an existing Session: $id"
+        }
+        $expected = $beforeSessions[$id]
+        $observed = $afterSessions[$id]
+        if ([string]$observed.stable_sha256 -cne [string]$expected.stable_sha256) {
+            throw "Desktop database upgrade changed non-lifecycle Session data: $id"
+        }
+        if ([string]$observed.status -cne
+                [string]$expected.expected_status_after_upgrade) {
+            throw "Desktop database upgrade made an unauthorized Session status change: $id"
+        }
+        if ([string]$observed.updated_at -cne
+                [string]$expected.expected_updated_at_after_upgrade) {
+            throw "Desktop database upgrade made an unauthorized Session timestamp change: $id"
         }
     }
 
@@ -648,6 +782,7 @@ if ($null -ne $seedDatabase) {
     Write-Output "desktop_direct_launch_expected_schema_version: $latestSchemaVersion"
     Write-Output "desktop_direct_launch_seed_source_unchanged: true"
     Write-Output "desktop_direct_launch_existing_business_data_preserved: true"
+    Write-Output "desktop_direct_launch_thread_session_lifecycle_repair_validated: true"
     Write-Output "desktop_direct_launch_historical_ledger_preserved: true"
     Write-Output "desktop_direct_launch_repair_triggers_canonical: true"
 }
