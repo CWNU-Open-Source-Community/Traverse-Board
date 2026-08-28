@@ -47,7 +47,7 @@ func TestBuildOrdersRunBoundariesMessagesAndStructuredToolStages(t *testing.T) {
 	}
 }
 
-func TestBuildProjectsOnlyPendingComposerInputAndBoundsIt(t *testing.T) {
+func TestBuildProjectsPendingAndCancelledComposerInputWithoutDuplicatingCommittedInput(t *testing.T) {
 	now := time.Now().UTC()
 	queued := eventSource("run-1", 1, 1, events.OperatorSteeringQueuedEvent, `{}`, now)
 	queued.Event.SubjectID = "steering-1"
@@ -57,6 +57,13 @@ func TestBuildProjectsOnlyPendingComposerInputAndBoundsIt(t *testing.T) {
 	if err != nil || len(items) != 1 || items[0].SourceRef != "steering-1" ||
 		items[0].Detail != "continue safely" || !items[0].InstructionAuthorized {
 		t.Fatalf("pending Composer projection is wrong: items=%#v err=%v", items, err)
+	}
+	queued.OperatorStatus = "cancelled"
+	items, err = Build("thread-1", []Source{queued})
+	if err != nil || len(items) != 1 || items[0].Status != "cancelled" ||
+		items[0].Stage != StageBlocked || items[0].InstructionAuthorized ||
+		items[0].Title != "用户消息已取消" || items[0].Detail != "continue safely" {
+		t.Fatalf("cancelled Composer projection is wrong: items=%#v err=%v", items, err)
 	}
 	queued.OperatorStatus = "committed"
 	items, err = Build("thread-1", []Source{queued})

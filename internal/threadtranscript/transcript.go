@@ -217,8 +217,9 @@ func Build(threadID string, source []Source) ([]Item, error) {
 			continue
 		}
 		if record.Event.Type == events.OperatorSteeringQueuedEvent &&
-			record.OperatorStatus == "pending" && strings.TrimSpace(record.OperatorContent) != "" {
-			items = append(items, projectPendingOperatorMessage(record))
+			(record.OperatorStatus == "pending" || record.OperatorStatus == "cancelled") &&
+			strings.TrimSpace(record.OperatorContent) != "" {
+			items = append(items, projectOperatorMessage(record))
 			continue
 		}
 		if record.Event.Type == events.SupervisorToolBatchEvent {
@@ -236,20 +237,29 @@ func Build(threadID string, source []Source) ([]Item, error) {
 	return items, nil
 }
 
-func projectPendingOperatorMessage(source Source) Item {
+func projectOperatorMessage(source Source) Item {
 	detail := strings.TrimSpace(redact.String(source.OperatorContent))
 	if utf8.RuneCountInString(detail) > runactivity.MaxDetailRunes {
 		runes := []rune(detail)
 		detail = string(runes[:runactivity.MaxDetailRunes-1]) + "…"
 	}
+	title := "用户消息已排队"
+	stage := StageStarted
+	instructionAuthorized := true
+	if source.OperatorStatus == "cancelled" {
+		title = "用户消息已取消"
+		stage = StageBlocked
+		instructionAuthorized = false
+	}
 	return Item{
 		Version: ProtocolVersion, ID: source.Event.EventID,
 		CanonicalID: source.Event.SubjectID, RunID: source.RunID,
 		RunOrdinal: source.Ordinal, Sequence: source.Sequence, Type: TypeMessage,
-		Stage: StageStarted, Kind: runactivity.KindOperatorInput,
-		Source: runactivity.SourceOperator, Title: "用户消息已排队", Detail: detail,
-		Status: "pending", Verifiable: true, InstructionAuthorized: true,
-		SourceRef: source.Event.SubjectID, Durable: true, CreatedAt: source.CreatedAt,
+		Stage: stage, Kind: runactivity.KindOperatorInput,
+		Source: runactivity.SourceOperator, Title: title, Detail: detail,
+		Status: source.OperatorStatus, Verifiable: true,
+		InstructionAuthorized: instructionAuthorized,
+		SourceRef:             source.Event.SubjectID, Durable: true, CreatedAt: source.CreatedAt,
 	}
 }
 

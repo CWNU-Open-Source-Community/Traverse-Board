@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties,
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  Archive,
   Ban,
   CircleUserRound,
   Cpu,
@@ -30,7 +31,8 @@ import { useLocale } from "../lib/locale";
 import { applyRunNavigationMode, readRunNavigationMode,
   type RunNavigationMode } from "../lib/run-navigation";
 import { PrayuBrand } from "./prayu-brand";
-import { RunPermissionSettings } from "./run-permission-settings";
+import { ArchivedThreadsSettings } from "./archived-threads-settings";
+import { ThreadPermissionSettings } from "./thread-permission-settings";
 import { SafeWebReadinessPanel } from "./safe-web-readiness";
 import { SidebarResizeHandle, clampSidebarWidth, defaultSidebarWidth } from "./workbench-frame";
 
@@ -41,7 +43,7 @@ export type SettingsCapability = {
 };
 
 type SettingsSection = "profile" | "general" | "permissions" | "appearance" |
-  "workspace" | "shortcuts" | "extensions" | "about";
+  "workspace" | "shortcuts" | "extensions" | "archived" | "about";
 type Density = "comfortable" | "compact";
 
 const densityStorageKey = "prayu.ui-density";
@@ -118,6 +120,7 @@ export function SettingsView({
   desktop,
   health,
   selectedRunID,
+  selectedThreadID,
   onBack,
   onOpenModels,
   onOpenSkills,
@@ -127,6 +130,7 @@ export function SettingsView({
   desktop: boolean;
   health: HealthView | null;
   selectedRunID: string;
+  selectedThreadID: string;
   onBack: () => void;
   onOpenModels: () => void;
   onOpenSkills: () => void;
@@ -144,6 +148,9 @@ export function SettingsView({
   const extensionNavigation = {
     id: "extensions" as const,
     label: t("Code Intel、MCP 与 Plugin", "Code Intel, MCP and Plugins"), icon: PlugZap,
+  };
+  const archivedNavigation = {
+    id: "archived" as const, label: t("已归档的聊天", "Archived chats"), icon: Archive,
   };
   const [section, setSection] = useState<SettingsSection>("general");
   const [query, setQuery] = useState("");
@@ -217,11 +224,19 @@ export function SettingsView({
           </button>
           {!desktop && client.hasSkillInstallation && <WebSkillInstall client={client} />}
         </nav>
+        <span className="settings-group-label">{t("归档", "Archive")}</span>
+        <nav aria-label={t("针路簿归档", "Traverse Board archive")}>
+          <button className={section === "archived" ? "active" : ""}
+            onClick={() => setSection("archived")} type="button">
+            <Archive aria-hidden="true" size={16} /><span>{archivedNavigation.label}</span>
+          </button>
+        </nav>
       </aside>
       <SidebarResizeHandle onChange={resizeSidebar} value={sidebarWidth} />
       <main className="settings-main">
         <header className="settings-header">
           <strong>{section === "extensions" ? extensionNavigation.label :
+            section === "archived" ? archivedNavigation.label :
             navigation.find((item) => item.id === section)?.label}</strong>
           <div>
             <button className="settings-action" onClick={onOpenModels} type="button">
@@ -237,8 +252,9 @@ export function SettingsView({
             desktop={desktop} health={health} client={client} />}
           {section === "general" && <GeneralSettings capabilities={capabilities}
             desktop={desktop} health={health} />}
-          {section === "permissions" && <RunPermissionSettings client={client}
-            runID={selectedRunID} />}
+          {section === "permissions" && <ThreadPermissionSettings client={client}
+            key={selectedThreadID || "no-thread"}
+            threadID={selectedThreadID} />}
           {section === "appearance" && <AppearanceSettings density={density} theme={theme}
             onDensityChange={setDensity} onThemeChange={setTheme} />}
           {section === "workspace" && <WorkbenchSettings mode={runNavigationMode}
@@ -246,6 +262,7 @@ export function SettingsView({
           {section === "shortcuts" && <ShortcutSettings />}
           {section === "extensions" && <ExtensionSettings client={client}
             selectedRunID={selectedRunID} />}
+          {section === "archived" && <ArchivedThreadsSettings client={client} />}
           {section === "about" && <AboutSettings desktop={desktop} health={health} />}
         </div>
       </main>

@@ -14,7 +14,7 @@ func removeSchemaV136ForTestStatements() []string {
 	createLegacyGrants = strings.Replace(createLegacyGrants,
 		"CREATE TABLE approval_session_grants (",
 		"CREATE TABLE approval_session_grants_v135_restore (", 1)
-	prefix := []string{
+	prefix := append(removeSchemaV139ForTestStatements(), []string{
 		`DELETE FROM schema_migrations WHERE version = 138`,
 		`PRAGMA foreign_keys = OFF`,
 		`PRAGMA legacy_alter_table = ON`,
@@ -44,7 +44,7 @@ func removeSchemaV136ForTestStatements() []string {
 		`DROP TABLE risk_escalation_operations`,
 		`DROP TABLE risk_escalation_proposals`,
 		`DROP TABLE approval_grant_consumptions`,
-	}
+	}...)
 	restoreCalls := rebuildRiskEscalationSupervisorToolCalls(
 		standardCodeSupervisorToolCallCreate("run_supervisor_tool_calls_v135_restore", true),
 		"run_supervisor_tool_calls_v135_restore", "run_supervisor_tool_calls_v136_restore")

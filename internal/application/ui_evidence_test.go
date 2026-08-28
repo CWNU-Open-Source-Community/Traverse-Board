@@ -325,7 +325,10 @@ func TestUIEvidenceDeadlineReapsBuildJobBeforeApplicationLaunch(t *testing.T) {
 	build := request.Start
 	build.Purpose = "build deterministic fixture"
 	request.Build = &build
-	deadlineContext, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	// Source revalidation includes a real Git snapshot. Give slower Windows
+	// filesystems enough time to reach the deliberately blocking build job so
+	// this test measures build cleanup rather than pre-build hashing latency.
+	deadlineContext, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	attempt, err := service.Run(deadlineContext, request)
 	if err != nil || attempt.Status != uievidence.StatusTimedOut ||

@@ -50,7 +50,7 @@ function continuation(successor: boolean): ThreadMessageControlView {
 
 function renderThread(current: ThreadDetailView, result: ThreadMessageControlView,
   resolvedRunStatus = "", transcriptItems: ThreadTranscriptItemView[] = [],
-  approvalItems: ApprovalQueueItemView[] = []) {
+  approvalItems: ApprovalQueueItemView[] = [], hasThreadControl = true) {
   const submitThreadMessage = vi.fn().mockResolvedValue(result);
   const controlRunLifecycle = vi.fn().mockResolvedValue({ run: { status: "running" } });
   const executeRun = vi.fn().mockResolvedValue({ run_id: result.run_id });
@@ -72,7 +72,7 @@ function renderThread(current: ThreadDetailView, result: ThreadMessageControlVie
         { once: true });
     });
   const client = {
-    hasThreadControl: true, hasRunLifecycle: true, hasRunExecution: true,
+    hasThreadControl, hasRunLifecycle: true, hasRunExecution: true,
     hasApprovalControl: true,
     get,
     getPage: vi.fn().mockResolvedValue({ items: transcriptItems,
@@ -97,7 +97,7 @@ describe("ThreadWorkspace", () => {
     const user = userEvent.setup();
     const composer = await screen.findByLabelText("Continue this Thread");
     expect(composer).toHaveAttribute("placeholder",
-      "This Run ended; sending creates a safe successor Run");
+      "Type an instruction and continue this task");
     await user.type(composer, "continue");
     await user.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(controls.submitThreadMessage).toHaveBeenCalledTimes(1));
@@ -201,5 +201,31 @@ describe("ThreadWorkspace", () => {
     expect(screen.getByText("Delivery ready")).toBeInTheDocument();
     expect(screen.getByLabelText("Continue this Thread")).toBeInTheDocument();
     expect(screen.getAllByText("Harness fact").length).toBeGreaterThan(0);
+  });
+
+  it("keeps a disabled composer visible with an explanation on a read-only connection", async () => {
+    renderThread(detail("failed"), continuation(true), "", [], [], false);
+
+    const composer = await screen.findByLabelText("Continue this Thread");
+    expect(composer).toBeDisabled();
+    expect(composer).toHaveAttribute("placeholder",
+      "This connection is read-only and cannot send messages");
+    expect(screen.getByText("Read-only connection: use Desktop control mode"))
+      .toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+  });
+
+  it("keeps a disabled composer visible with restore guidance for an archived Thread", async () => {
+    const archived = detail("failed");
+    archived.thread = { ...archived.thread, status: "archived", composer_state: "unavailable",
+      archived_at: "2026-08-28T03:00:00Z" };
+    renderThread(archived, continuation(true));
+
+    const composer = await screen.findByLabelText("Continue this Thread");
+    expect(composer).toBeDisabled();
+    expect(composer).toHaveAttribute("placeholder",
+      "This Thread is archived; restore it to continue");
+    expect(screen.getByText("Restore this Thread to continue")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
   });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -32,7 +32,7 @@ import { diagnosticVocabulary } from "./lib/vocabulary";
 import { closeDesktopWindow, minimiseDesktopWindow,
   toggleDesktopWindowMaximised } from "./lib/desktop-window";
 import { useConnectionStore } from "./state/connection";
-import type { RunView } from "./api/types";
+import type { RunView, ThreadView } from "./api/types";
 
 const sidebarWidthStorageKey = "prayu.sidebar.width.v1";
 const narrowWorkspaceQuery = "(max-width: 760px)";
@@ -203,6 +203,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   agentCodeToolsEnabled: boolean;
   codeIntelEnabled: boolean;
 }) {
+  const initialLocationRestoredRef = useRef(false);
   const { t } = useLocale();
   const [surface, setSurface] = useState<"workspace" | "settings">("workspace");
   const [sidebarVisible, setSidebarVisible] = useState(initialSidebarVisibility);
@@ -348,10 +349,16 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
   }, []);
 
   useEffect(() => {
-    const restoreLocation = (force: boolean) => {
-      if (!force && (selectedThreadID || selectedRunID || selectedSessionID)) return;
+    const restoreLocation = (clearRoot: boolean) => {
       const selection = workspaceSelectionFromPath(window.location.pathname);
-      if (!selection) return;
+      if (!selection) {
+        if (clearRoot && window.location.pathname === "/") {
+          selectThread("");
+          setSurface("workspace");
+          setWorkspaceSection("conversation");
+        }
+        return;
+      }
       if (selection.kind === "thread") selectThread(selection.id);
       else if (selection.kind === "run") selectRun(selection.id);
       else selectSession(selection.id);
@@ -359,17 +366,24 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
       setWorkspaceSection("conversation");
     };
     const onPopState = () => restoreLocation(true);
-    restoreLocation(false);
+    if (!initialLocationRestoredRef.current) {
+      initialLocationRestoredRef.current = true;
+      restoreLocation(false);
+    }
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, [selectRun, selectSession, selectThread, selectedRunID, selectedSessionID,
-    selectedThreadID]);
+  }, [selectRun, selectSession, selectThread]);
 
   useEffect(() => {
     if (workspaceSection !== "conversation") return;
     const selectedID = resourceKind === "thread" ? selectedThreadID :
       resourceKind === "run" ? selectedRunID : selectedSessionID;
-    if (!selectedID) return;
+    if (!selectedID) {
+      if (window.location.pathname !== "/") {
+        window.history.replaceState({}, "", "/");
+      }
+      return;
+    }
     const nextPath = `/${resourceKind}s/${encodeURIComponent(selectedID)}`;
     if (window.location.pathname !== nextPath) {
       window.history.replaceState({ resourceKind, selectedID }, "", nextPath);
@@ -401,7 +415,18 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
     setOnboardingDismissed(true);
     setSurface("workspace");
     setWorkspaceSection("conversation");
-    selectRun(runID);
+    // Standard Code creates a Thread-backed Run. Keep onboarding on the product's
+    // Thread-first path even when the list refresh has not completed yet.
+    selectThread("");
+    void client.getPage<ThreadView>("/threads", { limit: 100, status: "active" })
+      .then((page) => {
+        const thread = page.items.find((item) =>
+          item.active_run_id === runID || item.last_run_id === runID);
+        if (thread) selectThread(thread.id);
+      })
+      .catch(() => {
+        // The empty Thread workspace remains usable; never fall back to Run diagnostics.
+      });
   };
 
   const resizeSidebar = (value: number) => {
@@ -453,7 +478,7 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
             sessionID={selectedSessionID} />
         : <EmptyConversation client={client} creationEnabled={runCreationEnabled}
           onCreateRun={openRunCreation}
-          onContinueRun={resumableRunID ? () => selectRun(resumableRunID) : undefined}
+          onContinueRun={resumableRunID ? () => completeOnboarding(resumableRunID) : undefined}
           onStartCoding={firstRunEligible ? () => setOnboardingDismissed(false) : undefined}
           onOpenPlugins={desktop ? () => setSkillPreviewOpen(true) : undefined} />;
 
@@ -525,7 +550,8 @@ function ConnectedWorkbench({ token, controlToken, runControlEnabled, runCreatio
         </div> : <SettingsView capabilities={settingsCapabilities} client={client} desktop={desktop}
           health={healthQuery.data ?? health ?? null} onBack={() => setSurface("workspace")}
           onOpenModels={() => setModelsOpen(true)}
-          onOpenSkills={() => setSkillPreviewOpen(true)} selectedRunID={selectedRunID} />}
+          onOpenSkills={() => setSkillPreviewOpen(true)} selectedRunID={selectedRunID}
+          selectedThreadID={resourceKind === "thread" ? selectedThreadID : ""} />}
       </div>
       <DesktopSkillPreviewDialog installationEnabled={skillInstallationEnabled}
         open={skillPreviewOpen} onClose={() => setSkillPreviewOpen(false)} />

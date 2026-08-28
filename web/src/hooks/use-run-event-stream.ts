@@ -129,7 +129,6 @@ export function useRunEventStream(client: CyberAgentClient, runID: string) {
       void poll();
       return () => {
         controller.abort();
-        setStatus("stopped");
       };
     }
     setFrames([]);
@@ -175,7 +174,6 @@ export function useRunEventStream(client: CyberAgentClient, runID: string) {
 
     return () => {
       controller.abort();
-      setStatus("stopped");
     };
   }, [client, runID]);
 

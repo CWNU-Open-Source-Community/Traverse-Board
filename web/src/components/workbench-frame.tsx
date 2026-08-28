@@ -105,34 +105,32 @@ export function EmptyConversation({ client, onCreateRun, creationEnabled, onOpen
     if (!creationEnabled || !normalized) return;
     onCreateRun({ goal: normalized, phase: planMode ? "plan" : "deliver" });
   };
-  if (onStartCoding || onContinueRun) {
-    const continuing = !onStartCoding && Boolean(onContinueRun);
-    return <div className="prayu-empty-conversation first-run-home-entry">
-      <div className="prayu-empty-heading">
-        <MessagesSquare aria-hidden="true" size={24} />
-        <h1>{continuing ? t("继续 Run", "Continue Run") : t("开始编码", "Start coding")}</h1>
-      </div>
-      <p>{continuing
-        ? t("返回最近的 Run，继续查看对话、审批与交付状态。",
-          "Return to the latest Run and continue its conversation, approvals, and delivery state.")
-        : t("完成安全的 Standard Code 首次设置，无需打开高级宿主机权限。",
-          "Complete the safe Standard Code setup without enabling advanced host permissions.")}</p>
-      <button className="command-button primary"
-        onClick={onStartCoding ?? onContinueRun} type="button">
-        {continuing ? t("继续 Run", "Continue Run") : t("开始编码", "Start coding")}
-      </button>
-    </div>;
-  }
+  const continuing = !onStartCoding && Boolean(onContinueRun);
   return (
     <div className="prayu-empty-conversation">
-      <div className="prayu-empty-heading">
-        <MessagesSquare aria-hidden="true" size={24} />
-        <h1>{t("开始一个 Thread（任务）", "Start a Thread")}</h1>
+      <div className="prayu-empty-content">
+        <div className="prayu-empty-heading">
+          <MessagesSquare aria-hidden="true" size={24} />
+          <h1>{t("开始一个 Thread（任务）", "Start a Thread")}</h1>
+        </div>
+        {(onStartCoding || onContinueRun) && <aside className="first-run-home-entry"
+          aria-label={continuing ? t("继续最近的 Thread", "Continue recent Thread") :
+            t("首次使用设置", "First-use setup")}>
+          <div><strong>{continuing ? t("继续最近的 Thread", "Continue recent Thread") :
+            t("完成首次使用设置", "Finish first-use setup")}</strong>
+            <span>{continuing
+              ? t("也可以直接在下方输入，开始一个新任务。",
+                "Or type below to start a new task.")
+              : t("设置不会挡住下方的新任务输入。",
+                "Setup never blocks the new-task composer below.")}</span></div>
+          <button className="command-button" onClick={onStartCoding ?? onContinueRun}
+            type="button">{continuing ? t("继续", "Continue") : t("设置", "Set up")}</button>
+        </aside>}
       </div>
       <form className="prayu-starter-composer" onSubmit={submit}>
         <textarea aria-label={t("描述 Thread 目标", "Describe the Thread goal")} disabled={!creationEnabled}
           onChange={(event) => setGoal(event.target.value)} onKeyDown={submitComposerOnEnter}
-          placeholder={t("描述你想完成的工作", "Describe the work you want to complete")}
+          placeholder={t("输入你想让针路簿完成的任务", "Tell Traverse Board what you want done")}
           rows={2} value={goal} />
         <AgentComposerControls client={client} onOpenPlugins={onOpenPlugins}
           onPlanModeChange={setPlanMode} onTargetModeChange={setTargetMode}

@@ -379,6 +379,8 @@ func migrationPlan() []migration {
 		{Version: 136, Name: "durable exact risk escalation approvals and bounded grants", Statements: riskEscalationStatements},
 		{Version: 137, Name: "immutable Standard Code delivery truth receipts", Statements: standardCodeDeliveryStatements},
 		{Version: 138, Name: "legacy v136 Supervisor authority trigger repair", Statements: legacyRiskEscalationSupervisorTriggerRepairStatements},
+		{Version: 139, Name: "durable Thread execution permission preferences", Statements: threadExecutionPermissionStatements},
+		{Version: 140, Name: "canonical Thread and Session lifecycle consistency", Statements: threadSessionLifecycleStatements},
 	}
 }
 

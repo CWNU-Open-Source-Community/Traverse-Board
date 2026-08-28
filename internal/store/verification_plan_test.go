@@ -13,7 +13,6 @@ import (
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/runmutation"
-	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/verification"
 )
 
@@ -173,13 +172,12 @@ func TestRecordVerificationPlanRechecksActiveCodeSessionInsideTransaction(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	linked, err := state.GetSession(ctx, run.SessionID)
+	threadRecord, err := state.GetThreadByRun(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	linked.Status = session.StatusArchived
-	linked.UpdatedAt = time.Now().UTC()
-	if err := state.SaveSession(ctx, linked); err != nil {
+	if _, err := state.TransitionThread(ctx, threadRecord.ID, domain.ThreadArchive,
+		threadRecord.Version, "test_operator", time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	items := []verification.PlanItem{{Ordinal: 1, Title: "Focused tests",

@@ -103,6 +103,17 @@ type Store interface {
 		snapshot domain.RunExecutionPermissionSnapshot,
 		operation domain.RunExecutionPermissionOperation,
 		event events.Event) (domain.RunExecutionPermissionSnapshot, bool, error)
+	GetThreadExecutionPermission(ctx context.Context,
+		threadID string) (domain.ThreadExecutionPermissionSnapshot, error)
+	GetThreadExecutionPermissionSnapshot(ctx context.Context,
+		id string) (domain.ThreadExecutionPermissionSnapshot, error)
+	GetThreadExecutionPermissionOperation(ctx context.Context,
+		keyDigest string) (domain.ThreadExecutionPermissionOperation, bool, error)
+	TransitionThreadExecutionPermission(ctx context.Context,
+		snapshot domain.ThreadExecutionPermissionSnapshot,
+		operation domain.ThreadExecutionPermissionOperation) (
+		domain.ThreadExecutionPermissionSnapshot,
+		domain.ThreadExecutionPermissionOperation, bool, error)
 	GetRunBrowserCDPPermission(ctx context.Context,
 		runID string) (domain.RunBrowserCDPPermissionSnapshot, error)
 	GetRunBrowserCDPPermissionSnapshot(ctx context.Context,
@@ -1110,6 +1121,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if runID, matched := matchRunExecutionPermissionControlPath(request.URL.Path); matched {
 		a.serveRunExecutionPermissionControl(tracked, request, requestID, runID)
+		return
+	}
+	if threadID, matched := matchThreadExecutionPermissionControlPath(request.URL.Path); matched {
+		a.serveThreadExecutionPermissionControl(tracked, request, requestID, threadID)
 		return
 	}
 	if runID, matched := matchRunBrowserCDPPermissionControlPath(request.URL.Path); matched {

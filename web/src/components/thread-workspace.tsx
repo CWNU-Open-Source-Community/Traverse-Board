@@ -249,10 +249,11 @@ function ThreadComposer({ client, detail, onQueued }: {
       void queryClient.invalidateQueries({ queryKey: ["run", result.submission.run_id] });
     },
   });
-  if (!client.hasThreadControl || detail.thread.status !== "active") return null;
+  const composerAvailable = client.hasThreadControl && detail.thread.status === "active";
   const normalized = content.trim();
   const contentBytes = new TextEncoder().encode(normalized).byteLength;
-  const ready = contentBytes > 0 && contentBytes <= maximumContentBytes && !mutation.isPending;
+  const ready = composerAvailable && contentBytes > 0 &&
+    contentBytes <= maximumContentBytes && !mutation.isPending;
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!ready) return;
@@ -271,15 +272,24 @@ function ThreadComposer({ client, detail, onQueued }: {
     mutation.mutate({ request, intent: retryIntent.current });
   };
   return <form className="session-composer" onSubmit={submit}>
-    <textarea aria-label={t("继续此 Thread", "Continue this Thread")} disabled={mutation.isPending}
+    <textarea aria-label={t("继续此 Thread", "Continue this Thread")}
+      disabled={!composerAvailable || mutation.isPending}
       onChange={(event) => { setContent(event.target.value); mutation.reset(); }}
       onKeyDown={submitComposerOnEnter}
-      placeholder={detail.active_run ? t("发送后继续当前 Run", "Send and continue the current Run") :
-        t("此 Run 已结束；发送后会安全创建后继 Run", "This Run ended; sending creates a safe successor Run")}
+      placeholder={!composerAvailable
+        ? detail.thread.status !== "active"
+          ? t("此 Thread 已归档；恢复后可继续发送消息", "This Thread is archived; restore it to continue")
+          : t("当前连接为只读模式，无法发送消息", "This connection is read-only and cannot send messages")
+        : detail.active_run ? t("输入指令，发送后继续当前任务", "Type an instruction and continue this task") :
+          t("输入指令，发送后继续此任务", "Type an instruction and continue this task")}
       rows={3} value={content} />
     <div className="session-composer-footer">
       <div className="session-composer-state" aria-live="polite"><span>
-        {detail.thread.composer_state === "waiting_approval" ?
+        {!composerAvailable ?
+          (detail.thread.status !== "active"
+            ? t("恢复此 Thread 后即可继续", "Restore this Thread to continue")
+            : t("只读连接：请使用带控制权限的桌面模式", "Read-only connection: use Desktop control mode")) :
+        detail.thread.composer_state === "waiting_approval" ?
           t("消息会排队等待审批完成", "The message will queue until approval resolves") :
           detail.active_run ? t("继续当前 Run", "Continue current Run") :
             t("创建无授权继承的后继 Run", "Create successor without inherited authority")}

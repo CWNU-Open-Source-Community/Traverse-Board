@@ -13,7 +13,6 @@ import {
   Search,
   Settings,
   SquarePen,
-  Trash2,
   X,
 } from "lucide-react";
 import type { CyberAgentClient } from "../api/client";
@@ -58,9 +57,7 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
   const { t } = useLocale();
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
-  const [archiveCandidate, setArchiveCandidate] = useState<SessionView | null>(null);
   const [threadArchiveCandidate, setThreadArchiveCandidate] = useState<ThreadView | null>(null);
-  const [hiddenSessionIDs, setHiddenSessionIDs] = useState<Set<string>>(() => new Set());
   const queryClient = useQueryClient();
   const kind = useConnectionStore((state) => state.resourceKind);
   const selectedRunID = useConnectionStore((state) => state.selectedRunID);
@@ -82,7 +79,7 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
   const threads = useMemo(() => threadsQuery.data?.pages.flatMap((page) => page.items) ?? [],
     [threadsQuery.data]);
   const activeSessions = useMemo(() => sessions.filter((session) =>
-    session.status !== "archived" && !hiddenSessionIDs.has(session.id)), [hiddenSessionIDs, sessions]);
+    session.status !== "archived"), [sessions]);
   const normalizedSearch = search.trim().toLowerCase();
   const visibleRuns = runs.filter((run) => !normalizedSearch ||
     `${run.id} ${run.mission_id} ${run.status}`.toLowerCase().includes(normalizedSearch));
@@ -100,45 +97,15 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
       if (kind === "thread" && selectedThreadID === result.thread.id) {
         const fallback = threads.find((thread) => thread.id !== result.thread.id);
         if (fallback) selectThread(fallback.id);
-        else if (runs[0]) selectRun(runs[0].id);
-        else if (activeSessions[0]) selectSession(activeSessions[0].id);
+        else selectThread("");
       }
       void queryClient.invalidateQueries({ queryKey: ["threads"] });
       void queryClient.invalidateQueries({ queryKey: ["thread", result.thread.id] });
     },
   });
 
-  const archiveMutation = useMutation({
-    mutationFn: (session: SessionView) => client.archiveSession(session.id, {
-      version: "session_archive.v1",
-      confirm: true,
-    }),
-    onSuccess: (result) => {
-      setHiddenSessionIDs((current) => new Set(current).add(result.session_id));
-      setArchiveCandidate(null);
-      if (kind === "session" && selectedSessionID === result.session_id) {
-        const fallbackSession = activeSessions.find((session) => session.id !== result.session_id);
-        if (fallbackSession) selectSession(fallbackSession.id);
-        else if (runs[0]) selectRun(runs[0].id);
-      }
-      void queryClient.invalidateQueries({ queryKey: ["sessions"] });
-      void queryClient.invalidateQueries({ queryKey: ["session", result.session_id] });
-    },
-  });
-  const archiveDialogRef = useModalFocusTrap<HTMLElement>(Boolean(archiveCandidate),
-    () => setArchiveCandidate(null), archiveMutation.isPending);
   const threadArchiveDialogRef = useModalFocusTrap<HTMLElement>(Boolean(threadArchiveCandidate),
     () => setThreadArchiveCandidate(null), threadArchiveMutation.isPending);
-
-  useEffect(() => {
-    if (kind === "thread" && !threadsQuery.isLoading && !threadsQuery.isFetching &&
-      !threads.some((thread) => thread.id === selectedThreadID)) {
-      if (threads[0]) selectThread(threads[0].id);
-      else if (runs[0]) selectRun(runs[0].id);
-      else if (activeSessions[0]) selectSession(activeSessions[0].id);
-    }
-  }, [activeSessions, kind, runs, selectRun, selectSession, selectedThreadID,
-    selectThread, threads, threadsQuery.isFetching, threadsQuery.isLoading]);
 
   useEffect(() => {
     if (kind === "run" && !runsQuery.isLoading && !runsQuery.isFetching &&
@@ -227,7 +194,7 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
                 threadArchiveMutation.reset();
                 setThreadArchiveCandidate(thread);
               }} title={t("归档 Thread", "Archive Thread")} type="button">
-              <Trash2 aria-hidden="true" size={13} />
+              <Archive aria-hidden="true" size={13} />
             </button>
           </div>)}
           <LoadMoreButton hasNextPage={Boolean(threadsQuery.hasNextPage)}
@@ -263,20 +230,12 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
                 </span>
                 <i aria-label={session.status} className={`history-status status-${session.status}`} />
               </button>
-              <button aria-label={`${t("删除对话", "Delete conversation")} ${session.title}`}
-                className="sidebar-history-delete" onClick={() => {
-                  archiveMutation.reset();
-                  setArchiveCandidate(session);
-                }} title={t("删除对话", "Delete conversation")} type="button">
-                <Trash2 aria-hidden="true" size={13} />
-              </button>
             </div>
           ))}
           <LoadMoreButton hasNextPage={Boolean(sessionsQuery.hasNextPage)}
             isFetching={sessionsQuery.isFetchingNextPage}
             onClick={() => void sessionsQuery.fetchNextPage()} />
         </section>
-        </details>
 
         <section aria-labelledby="run-history-heading">
           <header className="sidebar-history-heading">
@@ -302,6 +261,7 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
             isFetching={runsQuery.isFetchingNextPage}
             onClick={() => void runsQuery.fetchNextPage()} />
         </section>
+        </details>
       </div>
 
       <button className="sidebar-profile" onClick={onOpenSettings} type="button">
@@ -310,42 +270,11 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
         <Settings aria-hidden="true" size={15} />
       </button>
 
-      {archiveCandidate && <div className="desktop-dialog-backdrop" role="presentation">
-        <section aria-labelledby="archive-session-title" aria-modal="true"
-          className="desktop-dialog archive-session-dialog" ref={archiveDialogRef}
-          role="dialog" tabIndex={-1}>
-          <header>
-            <div><span className="dialog-icon"><Trash2 aria-hidden="true" size={17} /></span>
-              <div><h2 id="archive-session-title">{t("删除对话", "Delete conversation")}</h2>
-                <small>{archiveCandidate.title}</small></div></div>
-            <button aria-label={t("关闭", "Close")} className="icon-button"
-              disabled={archiveMutation.isPending} onClick={() => setArchiveCandidate(null)}
-              type="button"><X aria-hidden="true" size={16} /></button>
-          </header>
-          <div className="desktop-dialog-body archive-session-copy">
-            <p>{t("此对话将从历史列表中移除。Run、消息和审计记录仍会保留。",
-              "This conversation will be removed from history. Its Run, messages, and audit records remain available.")}</p>
-            {archiveMutation.isError && <p className="connection-error">{archiveMutation.error instanceof Error
-              ? archiveMutation.error.message : t("删除对话失败", "Could not delete conversation")}</p>}
-          </div>
-          <footer>
-            <span />
-            <div className="desktop-dialog-actions">
-              <button className="dialog-secondary" disabled={archiveMutation.isPending}
-                onClick={() => setArchiveCandidate(null)} type="button">{t("取消", "Cancel")}</button>
-              <button className="dialog-danger" disabled={archiveMutation.isPending}
-                onClick={() => archiveMutation.mutate(archiveCandidate)} type="button">
-                <Trash2 aria-hidden="true" size={15} />{t("删除", "Delete")}
-              </button>
-            </div>
-          </footer>
-        </section>
-      </div>}
       {threadArchiveCandidate && <div className="desktop-dialog-backdrop" role="presentation">
         <section aria-labelledby="archive-thread-title" aria-modal="true"
           className="desktop-dialog archive-session-dialog" ref={threadArchiveDialogRef}
           role="dialog" tabIndex={-1}>
-          <header><div><span className="dialog-icon"><Trash2 aria-hidden="true" size={17} /></span>
+          <header><div><span className="dialog-icon"><Archive aria-hidden="true" size={17} /></span>
             <div><h2 id="archive-thread-title">{t("归档 Thread", "Archive Thread")}</h2>
               <small>{threadArchiveCandidate.title}</small></div></div>
             <button aria-label={t("关闭", "Close")} className="icon-button"
@@ -353,8 +282,8 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
               onClick={() => setThreadArchiveCandidate(null)} type="button">
               <X aria-hidden="true" size={16} /></button></header>
           <div className="desktop-dialog-body archive-session-copy">
-            <p>{t("Thread 会从活动历史中移除；其所有 Run、消息和审计记录仍保持绑定，可恢复或导出。",
-              "The Thread leaves active history; every Run, message, and audit record stays bound for restore or export.")}</p>
+            <p>{t("Thread 会从活动历史中移除；若任务仍在运行会先安全暂停。所有消息和审计记录都会保留，可在设置中恢复。",
+              "The Thread leaves active history; if it is running, it is safely paused first. Messages and audit records remain available for restore in Settings.")}</p>
             {threadArchiveMutation.isError && <p className="connection-error">
               {threadArchiveMutation.error instanceof Error ? threadArchiveMutation.error.message :
                 t("归档 Thread 失败", "Could not archive Thread")}</p>}
@@ -364,7 +293,7 @@ export function ResourceSidebar({ client, activeSection, onCreateRun, onNavigate
               onClick={() => setThreadArchiveCandidate(null)} type="button">{t("取消", "Cancel")}</button>
             <button className="dialog-danger" disabled={threadArchiveMutation.isPending}
               onClick={() => threadArchiveMutation.mutate(threadArchiveCandidate)} type="button">
-              <Trash2 aria-hidden="true" size={15} />{t("归档", "Archive")}</button>
+              <Archive aria-hidden="true" size={15} />{t("归档", "Archive")}</button>
           </div></footer>
         </section>
       </div>}
