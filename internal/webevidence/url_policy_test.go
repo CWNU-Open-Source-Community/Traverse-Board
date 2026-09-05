@@ -81,6 +81,31 @@ func TestNetworkAuthorityIsExplicitAndFailClosed(t *testing.T) {
 	}
 }
 
+func TestNormalizeExactAuthorityTargetsCanonicalizesAndRejectsBroadGrants(t *testing.T) {
+	targets, err := NormalizeExactAuthorityTargets([]string{
+		" HTTPS://Docs.Example.COM:443/ ", "api.example.com", "docs.example.com",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(targets, ","); got != "api.example.com,docs.example.com" {
+		t.Fatalf("canonical targets=%q", got)
+	}
+	for _, raw := range [][]string{
+		nil,
+		{""},
+		{"*.example.com"},
+		{PublicHTTPSTarget},
+		{"http://docs.example.com"},
+		{"https://docs.example.com/path"},
+		{"localhost"},
+	} {
+		if normalized, err := NormalizeExactAuthorityTargets(raw); err == nil {
+			t.Fatalf("accepted broad or invalid exact targets %#v as %#v", raw, normalized)
+		}
+	}
+}
+
 func TestIsPublicAddressRejectsSpecialRanges(t *testing.T) {
 	for _, raw := range []string{"0.0.0.1", "100.64.0.1", "169.254.170.2",
 		"192.0.2.1", "198.18.0.1", "198.51.100.1", "203.0.113.1", "240.0.0.1",

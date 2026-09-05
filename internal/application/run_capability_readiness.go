@@ -209,9 +209,9 @@ func (r CapabilityReadinessRuntime) Validate() error {
 	seenAdapters := make(map[commandruntimeadapter.Identity]struct{},
 		len(r.CommandRuntimeAdapters))
 	for _, adapter := range r.CommandRuntimeAdapters {
-		permission := commandRuntimePermission(adapter)
-		if adapter.Validate() != nil || !adapter.Executable() || permission == "" ||
-			!r.ExecutionPermissionCapabilities.Allows(permission) {
+		if adapter.Validate() != nil || !adapter.Executable() ||
+			!commandRuntimeStartupAvailable(adapter,
+				r.ExecutionPermissionCapabilities) {
 			return errors.New("Command Runtime installed adapter is invalid")
 		}
 		if _, duplicate := seenAdapters[adapter]; duplicate {
@@ -412,7 +412,7 @@ func (p capabilityReadinessProjection) commandRuntimeReadiness() CommandRuntimeR
 			ready = p.runtime.DockerBackendReady
 		}
 		result.AdapterReady = result.AdapterReady || ready
-		if commandRuntimePermission(adapter) != p.permission.Mode ||
+		if !adapter.AllowsPermission(p.permission.Mode) ||
 			commandRuntimeExecutionProfile(adapter) != p.profile.Profile {
 			continue
 		}
@@ -489,6 +489,13 @@ func (p capabilityReadinessProjection) permissionOptions() []CapabilityReadiness
 			runtimeAvailable = false
 			builder.add(CapabilityBlockerSandboxUnproven,
 				CapabilityRemediationVerifySandbox)
+		}
+		if target == domain.RunExecutionPermissionFullAccess &&
+			p.permission.Mode == target &&
+			!p.runtime.ExecutionPermissionCapabilities.AllowsSnapshot(p.permission) {
+			runtimeAvailable = false
+			builder.add(CapabilityBlockerPermissionMismatch,
+				CapabilityRemediationSelectRequiredPermission)
 		}
 		options = append(options, builder.finish(selectable, runtimeAvailable))
 	}
@@ -607,10 +614,16 @@ func (p capabilityReadinessProjection) browserCDPOptions() []CapabilityReadiness
 	options := make([]CapabilityReadinessOption, 0, len(modes))
 	for _, target := range modes {
 		builder := newReadinessOption(string(target), p.cdp.Mode == target)
-		selectable := p.runQuiescent() && !p.activeLease &&
+		stateAllowsChange := p.runQuiescent() ||
+			(target == domain.RunBrowserCDPPermissionRestricted && !p.run.Terminal())
+		leaseBlocksChange := target == domain.RunBrowserCDPPermissionFullDebug &&
+			p.activeLease
+		selectable := stateAllowsChange && !leaseBlocksChange &&
 			p.runtime.BrowserCDPPermissionCapabilities.Allows(target)
-		p.addRunStateBlocker(builder)
-		if p.activeLease {
+		if !stateAllowsChange {
+			p.addRunStateBlocker(builder)
+		}
+		if leaseBlocksChange {
 			builder.add(CapabilityBlockerExecutionLeaseActive,
 				CapabilityRemediationWaitForExecutionLease)
 		}
@@ -626,11 +639,17 @@ func (p capabilityReadinessProjection) browserCDPOptions() []CapabilityReadiness
 			builder.add(CapabilityBlockerBackendNotReady,
 				CapabilityRemediationRetryBackendReadiness)
 		}
-		if target == domain.RunBrowserCDPPermissionFullDebug &&
-			p.permission.Mode != domain.RunExecutionPermissionDebug {
-			selectable, runtimeAvailable = false, false
-			builder.add(CapabilityBlockerPermissionMismatch,
-				CapabilityRemediationSelectRequiredPermission)
+		if target == domain.RunBrowserCDPPermissionFullDebug {
+			executionCeilingSelected :=
+				p.permission.Mode == domain.RunExecutionPermissionFullAccess ||
+					p.permission.Mode == domain.RunExecutionPermissionDebug
+			executionLive := executionCeilingSelected &&
+				p.runtime.ExecutionPermissionCapabilities.AllowsSnapshot(p.permission)
+			if !executionLive {
+				selectable, runtimeAvailable = false, false
+				builder.add(CapabilityBlockerPermissionMismatch,
+					CapabilityRemediationSelectRequiredPermission)
+			}
 		}
 		options = append(options, builder.finish(selectable, runtimeAvailable))
 	}

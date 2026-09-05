@@ -42,6 +42,9 @@ func (s SupervisorToolCallStatus) Terminal() bool {
 
 type SupervisorToolCall struct {
 	RunID            string
+	AgentID          string
+	AgentAttemptID   string
+	AgentAttribution AgentAttributionSource
 	Turn             int
 	AttemptID        string
 	Round            int
@@ -73,6 +76,20 @@ func (c SupervisorToolCall) Validate() error {
 	}
 	if c.RunID == "" || c.AttemptID == "" || c.CallID == "" || c.ToolName == "" {
 		return errors.New("supervisor tool Run, attempt, call, and tool identities are required")
+	}
+	// Empty attribution is accepted only for transient/legacy call values that
+	// have not passed through the v151 actor ledger. Public projections and new
+	// durable writes validate a concrete attribution separately.
+	if c.AgentAttribution != "" {
+		if c.AgentAttribution == AgentAttributionOperatorRoot {
+			return errors.New("operator attribution cannot be projected as a Supervisor tool call")
+		}
+		if err := (AgentAttribution{AgentID: c.AgentID,
+			AgentAttemptID: c.AgentAttemptID, Source: c.AgentAttribution}).Validate(); err != nil {
+			return err
+		}
+	} else if c.AgentID != "" || c.AgentAttemptID != "" {
+		return errors.New("supervisor tool Agent identity requires an attribution source")
 	}
 	streamIDs := []string{c.StreamResponseID, c.StreamItemID, c.StreamCallID}
 	streamCount := 0
@@ -109,7 +126,11 @@ func (c SupervisorToolCall) Validate() error {
 		c.ToolName != "workspace_list" && c.ToolName != "workspace_read" &&
 		c.ToolName != "workspace_glob" && c.ToolName != "workspace_grep" &&
 		c.ToolName != "workspace_change" && c.ToolName != "workspace_apply" &&
-		c.ToolName != "workspace_delete" && !isCodeIntelSupervisorTool(c.ToolName) {
+		c.ToolName != "workspace_delete" &&
+		c.ToolName != "github_review_evidence_list" &&
+		c.ToolName != "github_review_evidence_read" &&
+		!isCodeIntelSupervisorTool(c.ToolName) &&
+		!isBrowserActionSupervisorTool(c.ToolName) {
 		return fmt.Errorf("unsupported supervisor tool %q", c.ToolName)
 	}
 	if len(c.PayloadJSON) == 0 || len(c.PayloadJSON) > MaxSupervisorToolPayloadBytes ||
@@ -117,7 +138,9 @@ func (c SupervisorToolCall) Validate() error {
 		return errors.New("supervisor tool payload must be bounded valid UTF-8 JSON")
 	}
 	if isAgentCodeSupervisorTool(c.ToolName) || isCodeIntelSupervisorTool(c.ToolName) ||
-		c.ToolName == "command_runtime" || isWebEvidenceSupervisorTool(c.ToolName) ||
+		c.ToolName == "command_runtime" || c.ToolName == "mcp_tool_call" ||
+		isWebEvidenceSupervisorTool(c.ToolName) ||
+		isBrowserActionSupervisorTool(c.ToolName) ||
 		isRiskEscalationSupervisorTool(c.ToolName, c.PayloadJSON) {
 		if len(c.AuthorityJSON) == 0 || len(c.AuthorityJSON) > MaxSupervisorToolAuthorityBytes ||
 			!utf8.ValidString(c.AuthorityJSON) || !json.Valid([]byte(c.AuthorityJSON)) {
@@ -166,7 +189,8 @@ func isRiskEscalationSupervisorTool(name string, payload string) bool {
 func isAgentCodeSupervisorTool(name string) bool {
 	switch name {
 	case "workspace_list", "workspace_read", "workspace_glob", "workspace_grep",
-		"workspace_change", "workspace_apply", "workspace_delete":
+		"workspace_change", "workspace_apply", "workspace_delete",
+		"github_review_evidence_list", "github_review_evidence_read":
 		return true
 	default:
 		return false
@@ -187,6 +211,16 @@ func isCodeIntelSupervisorTool(name string) bool {
 
 func isWebEvidenceSupervisorTool(name string) bool {
 	return name == "web_search" || name == "web_fetch" || name == "web_citation"
+}
+
+func isBrowserActionSupervisorTool(name string) bool {
+	switch name {
+	case "browser_status", "browser_navigate", "browser_snapshot",
+		"browser_click", "browser_type", "browser_screenshot":
+		return true
+	default:
+		return false
+	}
 }
 
 type SupervisorToolRound struct {

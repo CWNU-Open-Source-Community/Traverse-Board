@@ -22,7 +22,8 @@ const (
 	Version             = "web-ui.v1"
 	MaxIndexBytes       = 1024 * 1024
 	MaxAssetBytes       = 8 * 1024 * 1024
-	MaxBundleBytes      = 32 * 1024 * 1024
+	MaxTTFAssetBytes    = 9 * 1024 * 1024
+	MaxBundleBytes      = 64 * 1024 * 1024
 	MaxAssetCount       = 256
 	MaxFallbackSegments = 8
 )
@@ -50,6 +51,8 @@ var allowedRootAssets = []struct {
 }{
 	{name: "apple-touch-icon.png", contentType: "image/png"},
 	{name: "traverse-board-favicon-32.png", contentType: "image/png"},
+	{name: "THIRD-PARTY-NOTICES.txt", contentType: "text/plain; charset=utf-8"},
+	{name: "licenses/HarmonyOS-Sans.txt", contentType: "text/plain; charset=utf-8"},
 }
 
 type asset struct {
@@ -155,7 +158,7 @@ func LoadDirectory(directory string) (*Bundle, error) {
 		if !assetNameHasDigest(filepath.Base(name), extension) {
 			return fmt.Errorf("web UI asset %q does not have a content-hashed name", name)
 		}
-		body, err := readRegularFile(root, filepath.ToSlash(name), MaxAssetBytes)
+		body, err := readRegularFile(root, filepath.ToSlash(name), maxAssetBytes(extension))
 		if err != nil {
 			return fmt.Errorf("load Web UI asset %q: %w", name, err)
 		}
@@ -264,7 +267,7 @@ func LoadEmbeddedFS(source fs.FS, root string) (*Bundle, error) {
 		if !assetNameHasDigest(path.Base(name), extension) {
 			return fmt.Errorf("embedded Web UI asset %q does not have a content-hashed name", name)
 		}
-		body, err := readEmbeddedRegularFile(sub, name, MaxAssetBytes)
+		body, err := readEmbeddedRegularFile(sub, name, maxAssetBytes(extension))
 		if err != nil {
 			return fmt.Errorf("load embedded Web UI asset %q: %w", name, err)
 		}
@@ -332,6 +335,13 @@ func (b *Bundle) AssetCount() int {
 		return 0
 	}
 	return len(b.assets)
+}
+
+func maxAssetBytes(extension string) int64 {
+	if extension == ".ttf" {
+		return MaxTTFAssetBytes
+	}
+	return MaxAssetBytes
 }
 
 func readRegularFile(root *os.Root, name string, limit int64) ([]byte, error) {

@@ -12,7 +12,19 @@ import (
 	"cyberagent-workbench/internal/llm"
 	"cyberagent-workbench/internal/mcp"
 	"cyberagent-workbench/internal/toolgateway"
+	"cyberagent-workbench/internal/webevidence"
 )
+
+func TestSupervisorWebSearchTimeoutOutlivesCredentialedProviderRequest(t *testing.T) {
+	searchTimeout := supervisorToolExecutionTimeout(toolgateway.WebSearchTool)
+	if searchTimeout <= webevidence.ProviderSearchRequestTimeout {
+		t.Fatalf("web_search timeout=%s provider request timeout=%s",
+			searchTimeout, webevidence.ProviderSearchRequestTimeout)
+	}
+	if timeout := supervisorToolExecutionTimeout(toolgateway.WebFetchTool); timeout != supervisorToolCallTimeout {
+		t.Fatalf("web_fetch timeout=%s want=%s", timeout, supervisorToolCallTimeout)
+	}
+}
 
 func TestSupervisorHostCommandToolIsExposedOnlyInApprovalPermission(t *testing.T) {
 	for _, test := range []struct {
@@ -259,7 +271,7 @@ func TestSupervisorCommandRuntimeRequiresCodeDeliverFullAccessAndRuntime(t *test
 			mode:  domain.RunExecutionPermissionApproval, enabled: true},
 		{name: "Debug permission", surface: domain.ExecutionSurfaceCode,
 			phase: domain.ExecutionPhaseDeliver,
-			mode:  domain.RunExecutionPermissionDebug, enabled: true},
+			mode:  domain.RunExecutionPermissionDebug, enabled: true, want: true},
 		{name: "Cyber surface", surface: domain.ExecutionSurfaceCyber,
 			phase: domain.ExecutionPhaseDeliver,
 			mode:  domain.RunExecutionPermissionFullAccess, enabled: true},
@@ -291,6 +303,12 @@ func TestSupervisorCommandRuntimeRequiresCodeDeliverFullAccessAndRuntime(t *test
 		domain.RunExecutionPermissionFullAccess, false, false,
 		runtimeOptions(true)); err != nil {
 		t.Fatalf("authorized command runtime call was rejected: %v", err)
+	}
+	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
+		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
+		domain.RunExecutionPermissionDebug, false, false,
+		runtimeOptions(true)); err != nil {
+		t.Fatalf("Debug did not inherit the authorized command runtime: %v", err)
 	}
 	if !recoverableSupervisorToolError(toolgateway.CommandRuntimeTool,
 		apperror.CodeFailedPrecondition) {
@@ -357,7 +375,17 @@ func TestSupervisorMCPRequiresReviewedSnapshotAndExactRuntimeScope(t *testing.T)
 			Tools: []mcp.RemoteTool{{Name: "lookup", Description: "Look up a document.",
 				InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["query"],"properties":{"query":{"type":"string"}}}`)}},
 		}}}
-	options := supervisorToolOptions{MCP: capabilities}
+	authority, err := mcp.EncodeSupervisorCallAuthority(mcp.SupervisorCallAuthority{
+		Version: mcp.SupervisorCallAuthorityVersion,
+		RunID:   "run-1", MissionID: "mission-1", WorkspaceID: "workspace-1",
+		PermissionSnapshotID: "permission-1", PermissionRevision: 1,
+		PermissionMode: domain.RunExecutionPermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := supervisorToolOptions{MCP: supervisorMCPTools{
+		Capabilities: capabilities, Authority: authority}}
 	visible := func(surface domain.ExecutionSurface, phase domain.ExecutionPhase,
 		permission domain.RunExecutionPermissionMode, configured supervisorToolOptions,
 	) (bool, json.RawMessage) {
@@ -375,6 +403,10 @@ func TestSupervisorMCPRequiresReviewedSnapshotAndExactRuntimeScope(t *testing.T)
 		!strings.Contains(string(schema), `"const":"lookup"`) ||
 		!strings.Contains(string(schema), `"const":"`+fingerprint+`"`) {
 		t.Fatalf("reviewed MCP capability was not encoded exactly: %s", schema)
+	}
+	if found, _ := visible(domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
+		domain.RunExecutionPermissionDebug, options); !found {
+		t.Fatal("Debug did not inherit the reviewed MCP capability")
 	}
 	for _, test := range []struct {
 		surface    domain.ExecutionSurface
@@ -403,12 +435,40 @@ func TestSupervisorMCPRequiresReviewedSnapshotAndExactRuntimeScope(t *testing.T)
 		domain.RunExecutionPermissionFullAccess, false, false, options); err != nil {
 		t.Fatalf("exact reviewed MCP call was rejected: %v", err)
 	}
+	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
+		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
+		domain.RunExecutionPermissionDebug, false, false, options); err != nil {
+		t.Fatalf("Debug did not inherit the exact reviewed MCP call: %v", err)
+	}
 	forged := options
-	forged.MCP.Servers[0].CapabilityFingerprint = strings.Repeat("c", 64)
+	forged.MCP.Capabilities.Servers[0].CapabilityFingerprint = strings.Repeat("c", 64)
 	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
 		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
 		domain.RunExecutionPermissionFullAccess, false, false, forged); err == nil {
 		t.Fatal("stale MCP capability fingerprint was accepted")
+	}
+	wrongRunAuthority, err := mcp.EncodeSupervisorCallAuthority(mcp.SupervisorCallAuthority{
+		Version: mcp.SupervisorCallAuthorityVersion,
+		RunID:   "run-other", MissionID: "mission-1", WorkspaceID: "workspace-1",
+		PermissionSnapshotID: "permission-1", PermissionRevision: 1,
+		PermissionMode: domain.RunExecutionPermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongRun := options
+	wrongRun.MCP.Authority = wrongRunAuthority
+	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
+		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
+		domain.RunExecutionPermissionFullAccess, false, false, wrongRun); err == nil {
+		t.Fatal("MCP advertisement authority for another Run was accepted")
+	}
+	malformed := options
+	malformed.MCP.Authority = json.RawMessage(`{"version":1}`)
+	if _, err := prepareSupervisorToolCalls(calls, "run-1", 1, 1,
+		domain.ExecutionSurfaceCode, domain.ExecutionPhaseDeliver,
+		domain.RunExecutionPermissionFullAccess, false, false, malformed); err == nil {
+		t.Fatal("malformed MCP advertisement authority was accepted")
 	}
 	if !recoverableSupervisorToolError(toolgateway.MCPToolCallTool,
 		apperror.CodeFailedPrecondition) {

@@ -1,7 +1,8 @@
 // Command releasegen emits a deterministic CycloneDX SBOM and a third-party
-// NOTICE for the Go module graph. It is used by the Desktop portable ZIP
-// packaging step; output contains no absolute personal paths, timestamps, or
-// random identifiers beyond a content-derived serial number.
+// NOTICE for the Go module graph and bundled non-Go assets. It is used by the
+// Desktop portable ZIP packaging step; output contains no absolute personal
+// paths, timestamps, or random identifiers beyond a content-derived serial
+// number.
 package main
 
 import (
@@ -30,6 +31,24 @@ type license struct {
 	SPDXID string
 	Text   string
 	Found  bool
+}
+
+type bundledAssetNotice struct {
+	Name        string
+	NoticeText  string
+	LicenseText string
+}
+
+var bundledAssetNoticeSources = []struct {
+	Name        string
+	NoticePath  string
+	LicensePath string
+}{
+	{
+		Name:        "HarmonyOS Sans Fonts",
+		NoticePath:  "web/public/THIRD-PARTY-NOTICES.txt",
+		LicensePath: "web/public/licenses/HarmonyOS-Sans.txt",
+	},
 }
 
 var licenseNames = []string{
@@ -69,6 +88,7 @@ func main() {
 	appVersion := flag.String("version", "v0.1.0", "application version for the SBOM component")
 	pkg := flag.String("pkg", "./cmd/cyberagent-desktop", "Go package whose build list the SBOM covers")
 	buildTags := flag.String("tags", "desktop,production,wv2runtime.error", "Go build tags for the dependency list")
+	sourceRoot := flag.String("source-root", ".", "repository root containing bundled asset notices")
 	zipSource := flag.String("zip", "", "if set, create a deterministic ZIP of this directory into --out/<zip-name>")
 	zipName := flag.String("zip-name", "portable.zip", "output ZIP file name")
 	flag.Parse()
@@ -91,12 +111,17 @@ func main() {
 		fmt.Fprintln(os.Stderr, "releasegen:", err)
 		os.Exit(1)
 	}
+	bundledNotices, err := loadBundledAssetNotices(*sourceRoot)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "releasegen:", err)
+		os.Exit(1)
+	}
 	sbom, err := buildSBOM(modules, *appVersion)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "releasegen:", err)
 		os.Exit(1)
 	}
-	notice := buildNotice(modules)
+	notice := buildNotice(modules, bundledNotices)
 	if err := os.MkdirAll(*outDir, 0o755); err != nil {
 		fmt.Fprintln(os.Stderr, "releasegen:", err)
 		os.Exit(1)
@@ -259,7 +284,53 @@ func sortedModules(modules []module) []module {
 	return copyModules
 }
 
-func buildNotice(modules []module) []byte {
+func loadBundledAssetNotices(sourceRoot string) ([]bundledAssetNotice, error) {
+	notices := make([]bundledAssetNotice, 0, len(bundledAssetNoticeSources))
+	for _, source := range bundledAssetNoticeSources {
+		noticeText, err := readRequiredNoticeText(sourceRoot, source.NoticePath)
+		if err != nil {
+			return nil, fmt.Errorf("%s notice: %w", source.Name, err)
+		}
+		licenseText, err := readRequiredNoticeText(sourceRoot, source.LicensePath)
+		if err != nil {
+			return nil, fmt.Errorf("%s license: %w", source.Name, err)
+		}
+		if !strings.Contains(noticeText, "HarmonyOS Sans Fonts") {
+			return nil, fmt.Errorf("%s notice is missing its product-use statement", source.Name)
+		}
+		if !strings.Contains(licenseText, "HarmonyOS Sans Fonts License Agreement") ||
+			!strings.Contains(licenseText, "Copyright 2021 Huawei Device Co., Ltd.") {
+			return nil, fmt.Errorf("%s license is incomplete", source.Name)
+		}
+		notices = append(notices, bundledAssetNotice{
+			Name:        source.Name,
+			NoticeText:  noticeText,
+			LicenseText: licenseText,
+		})
+	}
+	sort.Slice(notices, func(i, j int) bool { return notices[i].Name < notices[j].Name })
+	return notices, nil
+}
+
+func readRequiredNoticeText(sourceRoot, relativePath string) (string, error) {
+	content, err := os.ReadFile(filepath.Join(sourceRoot, filepath.FromSlash(relativePath)))
+	if err != nil {
+		return "", err
+	}
+	text := normalizeNoticeText(string(content))
+	if strings.TrimSpace(text) == "" {
+		return "", fmt.Errorf("%s is empty", relativePath)
+	}
+	return text, nil
+}
+
+func normalizeNoticeText(text string) string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	return strings.TrimRight(text, "\n") + "\n"
+}
+
+func buildNotice(modules []module, bundledNotices []bundledAssetNotice) []byte {
 	modules = sortedModules(modules)
 	var builder strings.Builder
 	builder.WriteString("Traverse Board Desktop — Third-Party Notices\n\n")
@@ -280,6 +351,18 @@ func buildNotice(modules []module) []byte {
 			continue
 		}
 		fmt.Fprintf(&builder, "== %s@%s ==\n%s\n\n", module.Path, module.Version, lic.Text)
+	}
+	if len(bundledNotices) != 0 {
+		builder.WriteString("--- Bundled UI asset notices ---\n\n")
+		for _, notice := range bundledNotices {
+			fmt.Fprintf(&builder, "== %s ==\n%s\n", notice.Name,
+				normalizeNoticeText(notice.NoticeText))
+		}
+		builder.WriteString("--- Bundled UI asset license texts ---\n\n")
+		for _, notice := range bundledNotices {
+			fmt.Fprintf(&builder, "== %s ==\n%s\n", notice.Name,
+				normalizeNoticeText(notice.LicenseText))
+		}
 	}
 	return []byte(builder.String())
 }

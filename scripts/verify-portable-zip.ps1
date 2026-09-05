@@ -16,8 +16,8 @@ optionally starts the extracted desktop executable.
 .DESCRIPTION
 Fails closed on stale metadata, unexpected or duplicate ZIP entries, unsafe
 paths, per-entry hash/size drift, checksum drift, missing toolchain provenance,
-or a startup smoke failure. Verification never reads files outside the
-repository output directory except the checked-in smoke-test script.
+incomplete bundled-asset notices, or a startup smoke failure. Verification only
+reads checked-in release-policy inputs outside the repository output directory.
 #>
 
 $ErrorActionPreference = "Stop"
@@ -37,6 +37,12 @@ function Assert-ReleaseCondition {
 function Get-SHA256 {
     param([string]$Path)
     return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+}
+
+function ConvertTo-LFText {
+    param([string]$Value)
+    $normalized = $Value.Replace("`r`n", "`n").Replace("`r", "`n")
+    return $normalized.TrimEnd([char[]]"`r`n") + "`n"
 }
 
 function Assert-JSONBooleanFields {
@@ -61,8 +67,10 @@ $directBinaryPath = Join-Path $outputRoot "TraverseBoard.direct.exe"
 $directSigningEvidencePath = Join-Path $outputRoot "direct-exe-signing.json"
 $sbomPath = Join-Path $outputRoot "sbom.json"
 $noticePath = Join-Path $outputRoot "NOTICE"
+$fontUseNoticePath = Join-Path $repositoryRoot "web/public/THIRD-PARTY-NOTICES.txt"
+$fontLicensePath = Join-Path $repositoryRoot "web/public/licenses/HarmonyOS-Sans.txt"
 foreach ($required in @($manifestPath, $metadataPath, $sumsPath, $publicSumsPath,
-        $binaryPath, $sbomPath, $noticePath)) {
+        $binaryPath, $sbomPath, $noticePath, $fontUseNoticePath, $fontLicensePath)) {
     Assert-ReleaseCondition (Test-Path -LiteralPath $required -PathType Leaf) `
         "Portable verification input is missing: $required"
 }
@@ -267,9 +275,17 @@ foreach ($line in $publicSumLines) {
         [string]$expectedPublicSums[$name] -ceq $match.Groups['hash'].Value) "Public SHA256SUMS differs for: $name"
 }
 
-$notice = [System.IO.File]::ReadAllText($noticePath)
+$notice = ConvertTo-LFText ([System.IO.File]::ReadAllText($noticePath))
 Assert-ReleaseCondition (-not [regex]::IsMatch($notice, '(?m)^- .+ \(unknown\)$')) `
     "NOTICE contains a dependency without a recognized license"
+$fontUseNotice = ConvertTo-LFText ([System.IO.File]::ReadAllText($fontUseNoticePath))
+$fontLicense = ConvertTo-LFText ([System.IO.File]::ReadAllText($fontLicensePath))
+Assert-ReleaseCondition ($notice.IndexOf($fontUseNotice,
+        [System.StringComparison]::Ordinal) -ge 0) `
+    "NOTICE does not contain the complete HarmonyOS Sans product-use statement"
+Assert-ReleaseCondition ($notice.IndexOf($fontLicense,
+        [System.StringComparison]::Ordinal) -ge 0) `
+    "NOTICE does not contain the complete HarmonyOS Sans license agreement"
 
 if ($SmokeTest) {
     $smokeRoot = Join-Path $outputRoot (".portable-smoke-" + [guid]::NewGuid().ToString("N"))

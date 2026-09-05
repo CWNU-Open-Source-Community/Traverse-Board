@@ -16,9 +16,16 @@ import (
 )
 
 type fakeFullCDPStore struct {
-	run        domain.Run
-	mission    domain.Mission
-	permission domain.RunBrowserCDPPermissionSnapshot
+	run                 domain.Run
+	mission             domain.Mission
+	permission          domain.RunBrowserCDPPermissionSnapshot
+	executionPermission domain.RunExecutionPermissionSnapshot
+}
+
+func (f *fakeFullCDPStore) GetRunExecutionPermission(context.Context,
+	string,
+) (domain.RunExecutionPermissionSnapshot, error) {
+	return f.executionPermission, nil
 }
 
 func (f *fakeFullCDPStore) GetRun(context.Context, string) (domain.Run, error) {
@@ -119,20 +126,41 @@ func TestFullCDPServiceRefusesWithoutConfirmation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	executionInitial, err := domain.NewInitialRunExecutionPermissionSnapshot(
+		"execution-permission-initial", domain.Run{ID: "run-full-service",
+			MissionID: "mission-full-service", Status: domain.RunCreated, CreatedAt: now},
+		domain.Mission{ID: "mission-full-service", CreatedAt: now},
+		"runtime-operator", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executionFull, err := executionInitial.Next("execution-permission-full",
+		domain.RunExecutionPermissionFullAccess, true, "runtime-operator",
+		"full access", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority := domain.NewExecutionPermissionRuntimeAuthority()
+	if _, err := authority.ActivateRunFullAccess(executionFull); err != nil {
+		t.Fatal(err)
+	}
+	executionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: authority,
+	}
 	store := &fakeFullCDPStore{
 		run: domain.Run{ID: "run-full-service", MissionID: "mission-full-service",
 			SessionID: "session-full-service", Status: domain.RunCreated, CreatedAt: now},
 		mission: domain.Mission{ID: "mission-full-service",
 			WorkspaceID: "workspace-full-service", CreatedAt: now},
-		permission: full,
+		permission: full, executionPermission: executionFull,
 	}
-	service := NewFullCDPService(store,
-		browserruntime.ProductionRuntimeCapabilities{
-			SafeWebStartEnabled: true, DisposableProfileEnabled: true,
-			NetworkContainmentEnabled: true, RestrictedCDPEnabled: true,
+	service := NewFullCDPServiceWithExecutionCapabilities(store,
+		browserruntime.FullCDPRuntimeCapabilities{
+			StartEnabled: true, DisposableProfileEnabled: true, TransportEnabled: true,
 		},
 		domain.BrowserCDPPermissionRuntimeCapabilities{ControlEnabled: true,
-			FullDebugEnabled: true})
+			FullDebugEnabled: true}, executionCapabilities)
 	_, err = service.Open(t.Context(), FullCDPOpenRequest{
 		RunID: "run-full-service", Target: "http://127.0.0.1:18080",
 		Identity: identity, Acceptance: acceptance,

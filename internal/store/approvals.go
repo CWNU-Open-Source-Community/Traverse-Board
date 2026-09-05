@@ -44,6 +44,24 @@ func (s *SQLiteStore) EnsureApproval(ctx context.Context, proposal approval.Prop
 }
 
 func (s *SQLiteStore) DecideApproval(ctx context.Context, request approval.DecisionRequest) (approval.DecisionResult, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return approval.DecisionResult{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	result, err := decideApprovalTx(ctx, tx, request)
+	if err != nil {
+		return approval.DecisionResult{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return approval.DecisionResult{}, err
+	}
+	return result, nil
+}
+
+func decideApprovalTx(ctx context.Context, tx *sql.Tx,
+	request approval.DecisionRequest,
+) (approval.DecisionResult, error) {
 	normalized, err := request.Normalize()
 	if err != nil {
 		return approval.DecisionResult{}, err
@@ -53,12 +71,6 @@ func (s *SQLiteStore) DecideApproval(ctx context.Context, request approval.Decis
 	fingerprint := approval.DecisionFingerprint(normalized)
 	operationKey := approval.OperationKeyDigest(normalized.IdempotencyKey)
 	desired, _ := normalized.Action.Status()
-
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
-	if err != nil {
-		return approval.DecisionResult{}, err
-	}
-	defer func() { _ = tx.Rollback() }()
 
 	operation, found, err := getApprovalOperationTx(ctx, tx, operationKey)
 	if err != nil {
@@ -74,9 +86,6 @@ func (s *SQLiteStore) DecideApproval(ctx context.Context, request approval.Decis
 		}
 		if record.ProposalID != normalized.ProposalID {
 			return approval.DecisionResult{}, errors.New("approval idempotency key belongs to a different proposal")
-		}
-		if err := tx.Commit(); err != nil {
-			return approval.DecisionResult{}, err
 		}
 		return approval.DecisionResult{Approval: record, Replayed: true}, nil
 	}
@@ -124,9 +133,6 @@ func (s *SQLiteStore) DecideApproval(ctx context.Context, request approval.Decis
 		if err := appendApprovalEventTx(ctx, tx, record, events.ApprovalDecidedEvent); err != nil {
 			return approval.DecisionResult{}, err
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return approval.DecisionResult{}, err
 	}
 	return approval.DecisionResult{Approval: record, Replayed: !changed}, nil
 }
@@ -378,6 +384,20 @@ func validateApprovalProposalSourceTx(ctx context.Context, tx *sql.Tx, proposal 
 			proposal.Status != approval.StatusPending ||
 			proposal.RequestFingerprint != proposalFingerprint {
 			return errors.New("approval request does not match the stored risk escalation proposal")
+		}
+	case "web_fetch":
+		var sessionID, workspaceID, requestFingerprint, status string
+		if err := tx.QueryRowContext(ctx, `SELECT session_id, workspace_id,
+			request_fingerprint, status FROM web_fetch_authorizations WHERE id = ?`,
+			proposal.ProposalID).Scan(&sessionID, &workspaceID, &requestFingerprint,
+			&status); err != nil {
+			return err
+		}
+		if proposal.SessionID != sessionID || proposal.WorkspaceID != workspaceID ||
+			proposal.ActionClass != webFetchApprovalActionClass ||
+			proposal.Mode != "per_call" || proposal.Status != approval.StatusPending ||
+			proposal.RequestFingerprint != requestFingerprint || status != "pending" {
+			return errors.New("approval request does not match the stored web fetch authorization")
 		}
 	default:
 		return fmt.Errorf("unsupported approval tool %q", proposal.ToolName)

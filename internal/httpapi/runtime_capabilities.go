@@ -67,6 +67,7 @@ type RuntimeCapabilitiesView struct {
 	CommandRuntimeAdapters             []CommandRuntimeAdapterView  `json:"command_runtime_adapters"`
 	BrowserCDPPermissionControlEnabled bool                         `json:"browser_cdp_permission_control_enabled"`
 	FullCDPDebugEnabled                bool                         `json:"full_cdp_debug_enabled"`
+	FullCDPSessionControlEnabled       bool                         `json:"full_cdp_session_control_enabled"`
 	RunCreationEnabled                 bool                         `json:"run_creation_enabled"`
 	StandardCodePresetEnabled          bool                         `json:"standard_code_preset_enabled"`
 	SessionMessageEnabled              bool                         `json:"session_message_enabled"`
@@ -199,6 +200,7 @@ func (a *API) runtimeCapabilities(request *http.Request) (any, *Page, error) {
 		CommandRuntimeAdapters:             commandRuntimeAdapters,
 		BrowserCDPPermissionControlEnabled: a.browserCDPPermissionControlEnabled,
 		FullCDPDebugEnabled:                a.browserCDPPermissionCapabilities.FullDebugEnabled,
+		FullCDPSessionControlEnabled:       a.fullCDPSessionControlEnabled,
 		SessionMessageEnabled:              a.sessionMessageEnabled,
 		ThreadControlEnabled:               a.runCreationEnabled && a.sessionMessageEnabled,
 		SessionSteeringControlEnabled:      a.sessionSteeringControlEnabled,

@@ -48,6 +48,20 @@ func TestSupervisorToolResultRejectsUnboundedOrPendingState(t *testing.T) {
 	}
 }
 
+func TestSupervisorToolCallRejectsOperatorRootAttribution(t *testing.T) {
+	call := SupervisorToolCall{
+		RunID: "run-operator", AgentID: "agent-root-operator",
+		AgentAttribution: AgentAttributionOperatorRoot,
+		Turn:             1, AttemptID: "attempt-supervisor", Round: 1, Position: 1,
+		ModelAttempt: 1, CallID: "toolu_operator_masquerade",
+		ToolName: "note_create", PayloadJSON: `{}`,
+		Status: SupervisorToolPending, CreatedAt: time.Now().UTC(),
+	}
+	if err := call.Validate(); err == nil {
+		t.Fatal("Supervisor tool call accepted operator-root attribution")
+	}
+}
+
 func TestSupervisorToolCallAcceptsEveryDurableToolName(t *testing.T) {
 	now := time.Now().UTC()
 	for _, toolName := range []string{
@@ -70,6 +84,14 @@ func TestSupervisorToolCallAcceptsEveryDurableToolName(t *testing.T) {
 		"workspace_change",
 		"workspace_apply",
 		"workspace_delete",
+		"github_review_evidence_list",
+		"github_review_evidence_read",
+		"browser_status",
+		"browser_navigate",
+		"browser_snapshot",
+		"browser_click",
+		"browser_type",
+		"browser_screenshot",
 	} {
 		t.Run(toolName, func(t *testing.T) {
 			call := SupervisorToolCall{
@@ -79,11 +101,64 @@ func TestSupervisorToolCallAcceptsEveryDurableToolName(t *testing.T) {
 				CreatedAt: now,
 			}
 			if isAgentCodeSupervisorTool(toolName) || toolName == "command_runtime" ||
-				isWebEvidenceSupervisorTool(toolName) {
+				toolName == "mcp_tool_call" ||
+				isWebEvidenceSupervisorTool(toolName) || isBrowserActionSupervisorTool(toolName) {
 				call.AuthorityJSON = `{}`
 			}
 			if err := call.Validate(); err != nil {
 				t.Fatalf("durable tool %q was rejected: %v", toolName, err)
+			}
+		})
+	}
+}
+
+func TestSupervisorBrowserActionCallRequiresAuthority(t *testing.T) {
+	call := SupervisorToolCall{
+		RunID: "run-browser", Turn: 1, AttemptID: "attempt-browser", Round: 1,
+		Position: 1, ModelAttempt: 1, CallID: "toolu_browser_status",
+		ToolName: "browser_status", PayloadJSON: `{"version":"browser_status.v1"}`,
+		Status: SupervisorToolPending, CreatedAt: time.Now().UTC(),
+	}
+	if err := call.Validate(); err == nil {
+		t.Fatal("browser action without durable authority was accepted")
+	}
+	call.AuthorityJSON = `{}`
+	if err := call.Validate(); err != nil {
+		t.Fatalf("authority-bound browser action was rejected: %v", err)
+	}
+}
+
+func TestSupervisorMCPCallRequiresAuthority(t *testing.T) {
+	call := SupervisorToolCall{
+		RunID: "run-mcp", Turn: 1, AttemptID: "attempt-mcp", Round: 1,
+		Position: 1, ModelAttempt: 1, CallID: "toolu_mcp_call",
+		ToolName: "mcp_tool_call", PayloadJSON: `{"version":"mcp-client.v1"}`,
+		Status: SupervisorToolPending, CreatedAt: time.Now().UTC(),
+	}
+	if err := call.Validate(); err == nil {
+		t.Fatal("MCP call without durable authority was accepted")
+	}
+	call.AuthorityJSON = `{}`
+	if err := call.Validate(); err != nil {
+		t.Fatalf("authority-bound MCP call was rejected: %v", err)
+	}
+}
+
+func TestSupervisorGitHubEvidenceCallsAreDurableAndAuthorityBound(t *testing.T) {
+	for _, toolName := range []string{"github_review_evidence_list", "github_review_evidence_read"} {
+		t.Run(toolName, func(t *testing.T) {
+			call := SupervisorToolCall{
+				RunID: "run-github-evidence", Turn: 1, AttemptID: "attempt-github-evidence",
+				Round: 1, Position: 1, ModelAttempt: 1,
+				CallID: "toolu_github_evidence", ToolName: toolName,
+				PayloadJSON: `{}`, Status: SupervisorToolPending, CreatedAt: time.Now().UTC(),
+			}
+			if err := call.Validate(); err == nil {
+				t.Fatal("GitHub evidence call without durable authority was accepted")
+			}
+			call.AuthorityJSON = `{}`
+			if err := call.Validate(); err != nil {
+				t.Fatalf("authority-bound GitHub evidence call was rejected: %v", err)
 			}
 		})
 	}

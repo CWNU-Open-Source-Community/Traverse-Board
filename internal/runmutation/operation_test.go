@@ -30,6 +30,21 @@ func TestDurableOperationPilotHelpersPreserveReleasedDigests(t *testing.T) {
 		"workspace-controlled-create", "code", "code", "plan", "http_control"); got != "dd5310aa4cfa7866278471cebd0f680e0586d01760e70932e46fb47e88fcef4e" {
 		t.Fatalf("Run creation request fingerprint=%s", got)
 	}
+	legacy := RunCreationRequestFingerprint("Implement the parser",
+		"workspace-controlled-create", "code", "code", "plan", "http_control")
+	if got := RunCreationRequestFingerprintWithNetwork("Implement the parser",
+		"workspace-controlled-create", "code", "code", "plan", "disabled", nil,
+		"http_control"); got != legacy {
+		t.Fatalf("disabled network fingerprint no longer preserves v1: got=%s want=%s", got, legacy)
+	}
+	allowlist := RunCreationRequestFingerprintWithNetwork("Implement the parser",
+		"workspace-controlled-create", "code", "code", "plan", "allowlist",
+		[]string{"docs.example.com"}, "http_control")
+	if allowlist == legacy || allowlist == RunCreationRequestFingerprintWithNetwork(
+		"Implement the parser", "workspace-controlled-create", "code", "code", "plan",
+		"allowlist", []string{"api.example.com"}, "http_control") {
+		t.Fatal("network fingerprint did not bind the exact allowlist")
+	}
 	if got := ScheduledJobOperationDigest("first", "second"); got != "f27b338c6ab1740eb1a700b3118cfe81b70496ad731cb63e653f6fd5aa746e50" {
 		t.Fatalf("scheduled job operation digest=%s", got)
 	}

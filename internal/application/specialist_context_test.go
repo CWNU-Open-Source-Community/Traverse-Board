@@ -61,7 +61,9 @@ func TestSpecialistTurnInputBoundsOwnedMemoryAndKeepsInstructionsMandatory(t *te
 			Content: strings.Repeat("bounded evidence detail ", 100), Version: 1,
 		})
 	}
-	input, selection, err := specialistTurnInput(mission, child, attempt, messages,
+	currentScope := domain.Scope{NetworkMode: "allowlist",
+		AllowedTargets: []string{"search.example.org"}}
+	input, selection, err := specialistTurnInput(mission, currentScope, child, attempt, messages,
 		workItems, notes)
 	if err != nil {
 		t.Fatal(err)
@@ -80,6 +82,9 @@ func TestSpecialistTurnInputBoundsOwnedMemoryAndKeepsInstructionsMandatory(t *te
 	}
 	if !containsContextSource(selection.IncludedSources, "specialist_mission", mission.ID) {
 		t.Fatal("Specialist mission source was omitted")
+	}
+	if !strings.Contains(input, `"network_mode":"allowlist"`) {
+		t.Fatal("Specialist context did not project the current Run network scope")
 	}
 	audit := supervisorModelContextAudit(selection)
 	if err := audit.Validate(); err != nil {

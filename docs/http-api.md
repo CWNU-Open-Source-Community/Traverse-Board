@@ -44,15 +44,16 @@ go run ./cmd/cyberagent api serve --listen 127.0.0.1:8765 --ui-dir web/dist
 # Representative optional independent controls in the current v91 API surface.
 go run ./cmd/cyberagent api serve --listen 127.0.0.1:8765 --ui-dir web/dist --enable-file-edit-proposals --enable-provider-credentials --enable-wake-worker
 
-# Four-level permission selector. Higher gates require every lower gate.
+# Five-level permission selector. Debug is the startup-gated strict superset.
 go run ./cmd/cyberagent api serve --listen 127.0.0.1:8765 --ui-dir web/dist `
   --enable-permission-control --enable-danger-full-access `
   --enable-debug-maximum-access
 
-# Browser-CDP permission selection. Full CDP additionally requires Debug maximum access.
+# Full-CDP adapter for Full Access; add --enable-debug-maximum-access only when
+# this process must also allow selection of the higher Debug tier.
 go run ./cmd/cyberagent api serve --listen 127.0.0.1:8765 --ui-dir web/dist `
   --enable-permission-control --enable-danger-full-access `
-  --enable-debug-maximum-access --enable-browser-cdp-control `
+  --enable-browser-cdp-control `
   --enable-full-cdp-debug
 
 # Docker Sandbox product admission/start. This still requires an exact per-call
@@ -64,10 +65,35 @@ go run ./cmd/cyberagent api serve --listen 127.0.0.1:8765 --ui-dir web/dist `
 权限开关不会让数据库快照自动获得执行权。Schema v131 保留同一
 `command-runtime.v2` 工具并按进程实际 readiness 安装 exact adapter：Local 或固定
 Docker 只接受当前 Code/Deliver/root `workspace_access` Run 与 Drydock；宿主 adapter
-只接受 Code/Local/Deliver `full_access`、root Supervisor lease、
+接受 Code/Local/Deliver `full_access` 或 `debug`、root Supervisor lease、
 `--enable-permission-control` 和 `--enable-danger-full-access`。模型不能指定 backend，
 Sandbox 不可用也不会回退宿主。未设置 `CYBERAGENT_API_CONTROL_TOKEN` 时，permission
 control 与 Run execution 都不能启动。
+
+Full Access 是当前任务的动态能力，切换时不要求重启；Debug 在继承所有
+Full Access 宿主 sink 的基础上额外提供持久终端、后台与有界终端输入，因而仍需
+`--enable-debug-maximum-access` 启动闸门。Full CDP 是 Full Access 的子开关并由 Debug
+继承，不是 Debug 独占能力。
+
+Full CDP 只面向 Traverse 管理的隔离内置浏览器，不作用于 Wails WebView 或系统
+Chrome。Windows Wails Desktop 安装 Run-scoped 的生产会话控制器；普通 `api serve`、
+CLI 和 Supervisor 不构造其浏览器进程 authority，因而该可选路由保持不可用。
+
+```text
+GET  /api/v1/runs/{run_id}/full-cdp-session
+POST /api/v1/runs/{run_id}/full-cdp-session
+POST /api/v1/runs/{run_id}/full-cdp-session/close
+```
+
+GET 使用 read bearer。两个 POST 使用 control bearer、唯一的 16–256 字节且不含空白或
+控制字符的 `Idempotency-Key`、`application/json` 严格单对象且拒绝 query。Open 必须提交
+`full_cdp_session.v1`、单一 literal-loopback target、Chrome/Edge product/channel、
+两个当前 permission revision CAS 与 `confirm_full_cdp=true`；浏览器路径、PID、Profile、
+argv/env、DevTools endpoint 和 WebSocket URL 既不能提交也不会返回。Open 只在浏览器与
+CDP ready 后返回 `201`。Close 提交 `full_cdp_session_close.v1` 与精确
+`expected_session_id`，不要求高风险确认；它只在 CDP 关闭、完整 Job 进程树静止、
+精确 Profile 释放/删除和脱敏审计完成后返回 `200`。TTL、浏览器退出、权限撤销、Run
+终态与 Desktop 退出复用同一幂等清理路径。
 
 设置独立 control token 后，普通 `api serve` 同时开放固定提案 review route；
 Desktop 则必须额外使用 `--enable-command-proposals`。三条 endpoint 为：
@@ -318,7 +344,7 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8765/api/v1/skills/packages/inst
 - Listener、HTTP `Host` 与客户端地址都必须是 loopback；`0.0.0.0`、空 host 和公网客户端会被拒绝。
 - 每个 `/api` 请求必须有且只有一个正确的 `Authorization: Bearer <token>`。GET 与 Docker readiness POST 使用 read token；所有控制 POST 只接受不同的 control token，两种凭据不能互换。Web 静态请求匿名可读，并明确拒绝 Authorization header，避免 bearer 被意外发送到资源路径。
 - 普通读取只接受无 body 的 `GET`；Docker readiness 是唯一带严格 `{plan_id,manifest}` body 的 read-bearer POST。其他 POST 只接受契约列出的精确控制；没有 CORS 响应头或浏览器跨源授权。
-- 启用 UI 时，只在非 `/api` 命名空间接受无 query、无 body 的 `GET`/`HEAD`。HTML 使用 `no-store`；仅允许类型且文件名带哈希的资源使用一年 immutable cache。bundle 的根目录、`assets/`、软链接、文件类型、数量、单文件/总大小与 SPA fallback 深度均受限。
+- 启用 UI 时，只在非 `/api` 命名空间接受无 query、无 body 的 `GET`/`HEAD`。HTML 与固定白名单中的第三方声明/许可使用 `no-store`；仅允许类型且文件名带哈希的资源使用一年 immutable cache。bundle 的根目录、`assets/`、软链接、文件类型、数量与 SPA fallback 深度均受限；普通单资源上限为 8 MiB，仅 `.ttf` 字体为 9 MiB，bundle 总上限为 64 MiB。
 - UI 与 API 共享 loopback、Host、客户端地址、request-target 和规范路径校验。UI 响应使用无 `unsafe-inline`/`unsafe-eval` 的 CSP、同源 opener/resource policy、`nosniff`、`DENY` frame policy 和禁用敏感浏览器能力的 Permissions Policy。
 - request target 最大 8 KiB，query 最大 4 KiB，response 最大 8 MiB，header 上限为 32 KiB。
 - HTTP handler 构造后只保留两个 token 的 SHA-256 摘要；明文仍可能存在于启动环境或短期进程内存，但不会写入配置、SQLite 或 Run events。
@@ -334,7 +360,7 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8765/api/v1/skills/packages/inst
 - The listener, HTTP `Host`, and client address must all be loopback. `0.0.0.0`, an empty host, and public clients are rejected.
 - Every `/api` request must contain exactly one valid `Authorization: Bearer <token>` header. GET and the Docker readiness POST use the read token; all control POST routes accept only the distinct control token. The credentials are not interchangeable. Static Web requests are anonymous and explicitly reject authorization headers so a bearer is not accidentally sent to an asset path.
 - Ordinary reads accept only bodyless `GET`; Docker readiness is the sole read-bearer POST and accepts only strict `{plan_id,manifest}` JSON. Other POST routes accept only their exact generated control contracts. There are no CORS response headers or browser cross-origin grants.
-- When the UI is enabled, only queryless, bodyless GET/HEAD requests outside the reserved `/api` namespace reach it. HTML is `no-store`; only allowlisted, hash-named assets receive a one-year immutable cache. Bundle roots, `assets/`, symlinks, types, counts, per-file/aggregate size, and SPA-fallback depth are bounded.
+- When the UI is enabled, only queryless, bodyless GET/HEAD requests outside the reserved `/api` namespace reach it. HTML and the fixed allowlist of third-party notices/licenses are `no-store`; only allowlisted, hash-named assets receive a one-year immutable cache. Bundle roots, `assets/`, symlinks, types, counts, and SPA-fallback depth are bounded; ordinary assets are capped at 8 MiB, only `.ttf` fonts receive a 9 MiB cap, and the aggregate bundle is capped at 64 MiB.
 - UI and API requests share the loopback, Host, client-address, request-target, and canonical-path boundary. UI responses add a CSP without `unsafe-inline` or `unsafe-eval`, same-origin opener/resource policies, `nosniff`, frame denial, and a Permissions Policy disabling sensitive browser features.
 - Request targets are capped at 8 KiB, queries at 4 KiB, responses at 8 MiB, and headers at 32 KiB.
 - After construction, the HTTP handler retains only SHA-256 digests of both tokens. Plaintext may still exist in the launch environment or short-lived process memory, but is never written to configuration, SQLite, or Run events.
@@ -587,6 +613,9 @@ metadata；原始 artifact 下载额外返回 `no-store`、ETag、精确 SHA-256
 | `GET` | `/api/v1/health` | Health and SQLite schema version |
 | `GET` | `/api/v1/capabilities` | Exact Go capability flags, including `agent_code_tools_enabled`, plus metadata-only bounded worker health; no runtime enablement/token/owner/lease/private error |
 | `GET` | `/api/v1/openapi.json` | Raw deterministic OpenAPI 3.1 JSON document |
+| `GET` | `/api/v1/runs/{run_id}/full-cdp-session` | Read-bearer, metadata-only current/recent Full CDP lifecycle state |
+| `POST` | `/api/v1/runs/{run_id}/full-cdp-session` | Control-bearer, confirmed and idempotent literal-loopback Full CDP open; synchronous `201` when ready |
+| `POST` | `/api/v1/runs/{run_id}/full-cdp-session/close` | Control-bearer exact-session close; synchronous process/Profile cleanup |
 | `GET` | `/api/v1/extensions?run_id={run_id}` | Scoped, redacted MCP/Plugin inventory and metadata-only call audits |
 | `POST` | `/api/v1/extensions/mcp/{server_id}/review` | Control-bearer two-stage review or exact-fingerprint disable/revoke |
 | `POST` | `/api/v1/extensions/mcp/{server_id}/refresh` | Control-bearer bounded discovery; drift quarantines before use |
@@ -626,6 +655,8 @@ metadata；原始 artifact 下载额外返回 `no-store`、ETag、精确 SHA-256
 | `GET` | `/api/v1/threads/{thread_id}/runs` | Immutable predecessor/successor Run bindings for one Thread |
 | `GET` | `/api/v1/threads/{thread_id}/messages` | Ordered cross-Run Session-message projection, including pending operator input without duplication |
 | `GET` | `/api/v1/threads/{thread_id}/transcript` | Newest bounded Go-owned narrative page across Run boundaries, public messages, structured tool stages, approvals, verification, checkpoints, and delivery; opaque keyset cursor pages older durable sources |
+| `GET` | `/api/v1/threads/{thread_id}/activities/{activity_ref}` | Lazy, Thread-scoped safe activity projection: command/cwd/Agent/environment/status/exit/duration and bounded live output tail, or an allowlisted typed fact view for Web, file, verification, MCP and browser tools; never raw tool payload/result |
+| `GET` | `/api/v1/threads/{thread_id}/activities/{activity_ref}/artifacts/{artifact_id}` | Lazy, Thread/activity-bound full command-output artifact after a second redaction pass, with SHA-256, size/truncation and explicit untrusted/non-authorizing markers |
 | `POST` | `/api/v1/threads/{thread_id}/messages` | Continue the live Run, or atomically create/reuse one authority-free successor when the prior Run is terminal |
 | `POST` | `/api/v1/threads/{thread_id}/archive` | Exact-version, idempotent soft archive without deleting history |
 | `POST` | `/api/v1/threads/{thread_id}/restore` | Restore the same Thread identity without implicitly creating a Run |
@@ -677,8 +708,8 @@ metadata；原始 artifact 下载额外返回 `no-store`、ETag、精确 SHA-256
 | `POST` | `/api/v1/runs/{run_id}/active-call/cancel` | Separately authorized exact active-call cancellation request |
 | `POST` | `/api/v1/runs/{run_id}/agents/{agent_id}/active-call/cancel` | Separately authorized exact Specialist-call cancellation request |
 | `POST` | `/api/v1/runs/{run_id}/execution-profile` | Select `preview|docker|local` intent; never starts a process or grants authority |
-| `POST` | `/api/v1/runs/{run_id}/execution-permission` | Operator-select `conservative|workspace_access|approval|full_access|debug`; Workspace Access requires exact confirmation plus a ready sandbox adapter, never falls back to host execution, and persisted selection never grants authority |
-| `POST` | `/api/v1/runs/{run_id}/browser-cdp-permission` | Operator-select `restricted|full_debug`; full mode requires Debug execution permission, dedicated startup gate and exact confirmation; selection never starts a browser or opens CDP |
+| `POST` | `/api/v1/runs/{run_id}/execution-permission` | Operator-select `conservative|workspace_access|approval|full_access|debug`; Full Access is dynamic for the current task, Debug is its startup-gated strict superset, Workspace Access never falls back to host execution, and persisted selection never grants authority |
+| `POST` | `/api/v1/runs/{run_id}/browser-cdp-permission` | Control the Full-CDP sub-permission: entering Full Access or Debug defaults it on, either tier may turn it off, re-enable requires the dedicated gate plus exact risk confirmation, and lower tiers force it off; selection never launches or connects a browser |
 | `POST` | `/api/v1/runs/{run_id}/lifecycle` | Idempotent `start|pause|resume` under exact state/quiescence/lease gates |
 | `POST` | `/api/v1/runs/{run_id}/execute` | Freeze and execute at most eight pending inputs through the existing RunSupervisor |
 | `GET` | `/api/v1/sessions/{session_id}/tree` | Browse stored/derived continuity nodes with memory/Git drift and fixed `capability_grant=false` |
@@ -717,7 +748,7 @@ metadata；原始 artifact 下载额外返回 `no-store`、ETag、精确 SHA-256
 | `GET` | `/api/v1/runs/{run_id}/work-items` | `status`, legacy `owner`, `owner_agent_id`, pagination |
 | `GET` | `/api/v1/runs/{run_id}/notes` | `status`, `category`, `visibility`, legacy `owner`, `owner_agent_id`, `tag`, `pinned`, pagination |
 | `GET` | `/api/v1/runs/{run_id}/artifacts` | Artifact descriptors; `source_id`, `stream`, pagination |
-| `GET` | `/api/v1/runs/{run_id}/tool-rounds` | Historical Supervisor tool rounds and redacted calls; pagination |
+| `GET` | `/api/v1/runs/{run_id}/tool-rounds` | Historical Supervisor tool rounds using the same closed, redacted `thread_activity_detail.v2` union as the Thread conversation; pagination |
 | `GET` | `/api/v1/sessions` | Creation-ordered Sessions; stable keyset pagination |
 | `GET` | `/api/v1/sessions/{session_id}` | Session and optional bound Run |
 | `GET` | `/api/v1/sessions/{session_id}/messages` | Messages; `include_compacted`, pagination |

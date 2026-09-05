@@ -22,6 +22,7 @@ type ReadOnlyFanoutPlanStore interface {
 	policy.DecisionRecorder
 	GetMission(ctx context.Context, id string) (domain.Mission, error)
 	GetRun(ctx context.Context, id string) (domain.Run, error)
+	GetRunMode(ctx context.Context, runID string) (domain.RunModeSnapshot, error)
 	GetSession(ctx context.Context, id string) (session.Session, error)
 	GetWorkspaceInfo(ctx context.Context, id string) (session.WorkspaceInfo, error)
 	GetReadOnlyFanoutOperation(ctx context.Context,
@@ -78,8 +79,13 @@ func (s *ReadOnlyFanoutPlanService) Create(ctx context.Context,
 	if err != nil {
 		return CreateReadOnlyFanoutPlanResult{}, apperror.Normalize(err)
 	}
+	mode, err := s.store.GetRunMode(ctx, run.ID)
+	if err != nil {
+		return CreateReadOnlyFanoutPlanResult{}, apperror.Normalize(err)
+	}
 	if run.Status != domain.RunRunning || mission.WorkspaceID == "" ||
-		mission.Scope.NetworkMode != "disabled" {
+		mode.Scope.WorkspaceID != mission.WorkspaceID ||
+		mode.Scope.NetworkMode != "disabled" {
 		return CreateReadOnlyFanoutPlanResult{}, apperror.New(
 			apperror.CodeFailedPrecondition,
 			"read-only fan-out planning requires a running local-workspace Run with network disabled")

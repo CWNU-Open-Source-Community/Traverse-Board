@@ -51,6 +51,26 @@ func TestRunCreationControlCreatesAndReplaysClosedRun(t *testing.T) {
 		key, strings.NewReader(changed)), http.StatusConflict, "CONFLICT")
 }
 
+func TestRunCreationControlCreatesCanonicalExactNetworkAllowlist(t *testing.T) {
+	fixture := newAPIFixture(t)
+	body := `{"version":"run_creation.v1","goal":"Research official docs",` +
+		`"workspace_id":"` + fixture.workspace.ID + `","network_mode":"allowlist",` +
+		`"allowed_targets":["HTTPS://Docs.Example.COM:443/","api.example.com",` +
+		`"docs.example.com"]}`
+	response := performControlPathRequest(t, fixture.api, RunCreationControlPath,
+		"http-run-create-network-operation-0001", strings.NewReader(body))
+	var created RunCreationControlView
+	decodeDataStatus(t, response, http.StatusAccepted, &created)
+	if created.Mission.Scope.NetworkMode != "allowlist" ||
+		strings.Join(created.Mission.Scope.AllowedTargets, ",") !=
+			"api.example.com,docs.example.com" ||
+		created.Mode.Scope.NetworkMode != "allowlist" ||
+		strings.Join(created.Mode.Scope.AllowedTargets, ",") !=
+			"api.example.com,docs.example.com" {
+		t.Fatalf("HTTP network authority drifted: %#v", created)
+	}
+}
+
 func TestRunCreationControlFailsClosedAtHTTPBoundary(t *testing.T) {
 	fixture := newAPIFixture(t)
 	validBody := `{"version":"run_creation.v1","goal":"Boundary test",` +
@@ -92,6 +112,18 @@ func TestRunCreationControlFailsClosedAtHTTPBoundary(t *testing.T) {
 	invalidUTF8 := strings.Replace(validBody, "Boundary test", string([]byte{'B', 0xff}), 1)
 	assertAPIError(t, request(testControlToken, key, "application/json",
 		RunCreationControlPath, invalidUTF8), http.StatusBadRequest, "INVALID_ARGUMENT")
+	for index, suffix := range []string{
+		`,"network_mode":"allowlist","allowed_targets":[]}`,
+		`,"network_mode":"allowlist","allowed_targets":["*.example.com"]}`,
+		`,"network_mode":"allowlist","allowed_targets":["http://docs.example.com"]}`,
+		`,"network_mode":"disabled","allowed_targets":["docs.example.com"]}`,
+	} {
+		invalidNetwork := strings.TrimSuffix(validBody, "}") + suffix
+		assertAPIError(t, request(testControlToken,
+			"http-run-create-invalid-network-000"+string(rune('1'+index)),
+			"application/json", RunCreationControlPath, invalidNetwork),
+			http.StatusBadRequest, "INVALID_ARGUMENT")
+	}
 
 	disabled, err := New(fixture.store, Config{AccessToken: testAccessToken,
 		ControlToken: testControlToken})

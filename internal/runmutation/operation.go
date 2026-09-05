@@ -100,6 +100,57 @@ func RunCreationRequestFingerprint(goal string, workspaceID string, profile stri
 		surface, phase, requestedBy)
 }
 
+// RunCreationRequestFingerprintWithNetwork extends the controlled creation
+// intent with its canonical network authority. The disabled form deliberately
+// retains the v1 digest so idempotent replays created before network authority
+// was exposed remain valid.
+func RunCreationRequestFingerprintWithNetwork(goal string, workspaceID string, profile string,
+	surface string, phase string, networkMode string, allowedTargets []string,
+	requestedBy string,
+) string {
+	if networkMode == "disabled" && len(allowedTargets) == 0 {
+		return RunCreationRequestFingerprint(goal, workspaceID, profile, surface, phase, requestedBy)
+	}
+	fields := []string{goal, workspaceID, profile, surface, phase, networkMode,
+		strconv.Itoa(len(allowedTargets))}
+	fields = append(fields, allowedTargets...)
+	fields = append(fields, requestedBy)
+	return pilotFingerprint("run_creation_request.v2", fields...)
+}
+
+// RunCreationRequestFingerprintWithNetworkAndModelRoute binds an explicit
+// provider/model route into first-Run creation. The profile-default form keeps
+// the historical digest for replay compatibility.
+func RunCreationRequestFingerprintWithNetworkAndModelRoute(goal string, workspaceID string,
+	profile string, surface string, phase string, networkMode string,
+	allowedTargets []string, modelRoute string, requestedBy string,
+) string {
+	if modelRoute == "" || modelRoute == profile {
+		return RunCreationRequestFingerprintWithNetwork(goal, workspaceID, profile,
+			surface, phase, networkMode, allowedTargets, requestedBy)
+	}
+	fields := []string{goal, workspaceID, profile, surface, phase, networkMode,
+		strconv.Itoa(len(allowedTargets))}
+	fields = append(fields, allowedTargets...)
+	fields = append(fields, modelRoute, requestedBy)
+	return pilotFingerprint("run_creation_request.v3", fields...)
+}
+
+func RunNetworkAuthorityOperationDigest(runID string, operationKey string) string {
+	return Fingerprint("run_network_authority_operation.v1", runID, operationKey)
+}
+
+func RunNetworkAuthorityRequestFingerprint(runID string, expectedModeRevision int64,
+	addedTargets []string, requestedBy string, reason string,
+) string {
+	fields := []string{"run_network_authority_request.v1", runID,
+		strconv.FormatInt(expectedModeRevision, 10),
+		strconv.Itoa(len(addedTargets))}
+	fields = append(fields, addedTargets...)
+	fields = append(fields, requestedBy, reason)
+	return Fingerprint(fields...)
+}
+
 func RunLifecycleOperationDigest(runID string, operationKey string) string {
 	return Fingerprint("run_lifecycle_operation.v1", runID, operationKey)
 }

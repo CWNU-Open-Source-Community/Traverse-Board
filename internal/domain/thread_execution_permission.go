@@ -170,8 +170,14 @@ type ThreadExecutionPermissionCurrentRunEffect string
 const (
 	ThreadExecutionPermissionApplied          ThreadExecutionPermissionCurrentRunEffect = "applied"
 	ThreadExecutionPermissionPausedAndApplied ThreadExecutionPermissionCurrentRunEffect = "paused_and_applied"
+	ThreadExecutionPermissionDeferred         ThreadExecutionPermissionCurrentRunEffect = "deferred"
 	ThreadExecutionPermissionNoActiveRun      ThreadExecutionPermissionCurrentRunEffect = "no_active_run"
 )
+
+func (e ThreadExecutionPermissionCurrentRunEffect) AppliesToCurrentRun() bool {
+	return e == ThreadExecutionPermissionApplied ||
+		e == ThreadExecutionPermissionPausedAndApplied
+}
 
 func (o ThreadExecutionPermissionOperation) Validate() error {
 	if !validLowerHexDigest(o.KeyDigest) || !validLowerHexDigest(o.RequestFingerprint) {
@@ -197,7 +203,8 @@ func (o ThreadExecutionPermissionOperation) Validate() error {
 		if o.CurrentRunID != "" || o.CurrentRunPermissionSnapshotID != "" {
 			return errors.New("no-active-Run Thread permission effect cannot bind a Run")
 		}
-	case ThreadExecutionPermissionApplied, ThreadExecutionPermissionPausedAndApplied:
+	case ThreadExecutionPermissionApplied, ThreadExecutionPermissionPausedAndApplied,
+		ThreadExecutionPermissionDeferred:
 		if !ValidAgentID(o.CurrentRunID) ||
 			!ValidAgentID(o.CurrentRunPermissionSnapshotID) ||
 			strings.ContainsRune(o.CurrentRunID, 0) ||

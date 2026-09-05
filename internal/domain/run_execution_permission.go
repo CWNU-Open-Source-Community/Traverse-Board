@@ -162,6 +162,7 @@ var runExecutionPermissionDefinitions = map[RunExecutionPermissionMode]runExecut
 			WorkspaceRead: true, WorkspaceWrite: true,
 			SandboxedCommandRuntime: true, UnsandboxedHostProcess: true,
 			NetworkAccess: true, CredentialAccess: true, UserHomeAccess: true,
+			FullCDP:          true,
 			OutOfScopePolicy: ExecutionPermissionOutOfScopeNotNeeded,
 		},
 	},
@@ -199,6 +200,13 @@ func (m RunExecutionPermissionMode) Valid() bool {
 	return err == nil && parsed == m
 }
 
+// IncludesFullAccess reports whether the mode carries the stateless host
+// capabilities of Full Access. Debug is a strict superset: it adds persistent
+// terminal/background debugging but must not lose Full Access sinks.
+func (m RunExecutionPermissionMode) IncludesFullAccess() bool {
+	return m == RunExecutionPermissionFullAccess || m == RunExecutionPermissionDebug
+}
+
 // ExecutionPermissionRuntimeCapabilities are process-local startup grants.
 // They are deliberately never persisted in a Run snapshot.
 type ExecutionPermissionRuntimeCapabilities struct {
@@ -206,6 +214,10 @@ type ExecutionPermissionRuntimeCapabilities struct {
 	OperatorApprovalEnabled   bool
 	DangerFullAccessEnabled   bool
 	DebugMaximumAccessEnabled bool
+	// FullAccessRequiresRuntimeGrant keeps adapter availability separate from
+	// authority. RuntimeAuthority starts empty on every process launch.
+	FullAccessRequiresRuntimeGrant bool
+	RuntimeAuthority               *ExecutionPermissionRuntimeAuthority
 }
 
 func (c ExecutionPermissionRuntimeCapabilities) Validate() error {
@@ -214,6 +226,10 @@ func (c ExecutionPermissionRuntimeCapabilities) Validate() error {
 	}
 	if c.DangerFullAccessEnabled && !c.OperatorApprovalEnabled {
 		return errors.New("danger full access requires permission control")
+	}
+	if c.FullAccessRequiresRuntimeGrant &&
+		(!c.DangerFullAccessEnabled || c.RuntimeAuthority == nil) {
+		return errors.New("dynamic full access requires its process-local runtime authority")
 	}
 	return nil
 }
@@ -238,6 +254,37 @@ func (c ExecutionPermissionRuntimeCapabilities) Allows(
 	default:
 		return false
 	}
+}
+
+// AllowsSnapshot evaluates both the immutable process ceiling and, for a
+// normal dynamically gated process, the exact process-local Full Access grant.
+// Debug remains a startup-gated mode of its own; starting a Debug process must
+// never reactivate historical Full Access snapshots from other Threads.
+func (c ExecutionPermissionRuntimeCapabilities) AllowsSnapshot(
+	snapshot RunExecutionPermissionSnapshot,
+) bool {
+	if !c.Allows(snapshot.Mode) {
+		return false
+	}
+	if snapshot.Mode != RunExecutionPermissionFullAccess ||
+		!c.FullAccessRequiresRuntimeGrant {
+		return true
+	}
+	_, allowed := c.RuntimeAuthority.AllowsFullAccess(snapshot)
+	return allowed
+}
+
+func (c ExecutionPermissionRuntimeCapabilities) FullAccessGeneration(
+	snapshot RunExecutionPermissionSnapshot,
+) (uint64, bool) {
+	if !c.AllowsSnapshot(snapshot) {
+		return 0, false
+	}
+	if snapshot.Mode == RunExecutionPermissionDebug ||
+		!c.FullAccessRequiresRuntimeGrant {
+		return 0, true
+	}
+	return c.RuntimeAuthority.AllowsFullAccess(snapshot)
 }
 
 func (s RunExecutionPermissionSnapshot) CapabilityMatrix() (
@@ -377,10 +424,16 @@ func (s RunExecutionPermissionSnapshot) Next(id string,
 		return RunExecutionPermissionSnapshot{}, fmt.Errorf(
 			"invalid Run execution permission mode %q", mode)
 	}
-	if mode == s.Mode {
+	if mode == s.Mode && mode != RunExecutionPermissionFullAccess {
 		return RunExecutionPermissionSnapshot{}, errors.New(
 			"Run execution permission transition must change mode")
 	}
+	// A Thread-scoped Full Access re-confirmation must rotate the current Run's
+	// immutable snapshot as well. Otherwise process-local authority could be
+	// revoked and rebound to the same durable revision, making an already
+	// running command job appear current again. Both the direct Run selector and
+	// the atomic Thread preference materialization path use this explicit
+	// re-confirmation transition; exact operation replays remain idempotent.
 	next := newRunExecutionPermissionSnapshot(id, s.RunID, s.MissionID,
 		s.Revision+1, mode, confirmed, requestedBy, reason, at)
 	if err := next.Validate(); err != nil {

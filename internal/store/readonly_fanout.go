@@ -432,9 +432,13 @@ func requireReadOnlyFanoutPlanBindingTx(ctx context.Context, tx *sql.Tx,
 	if err != nil {
 		return domain.Run{}, domain.Mission{}, err
 	}
+	mode, err := getCurrentRunModeSnapshot(ctx, tx, plan.RunID)
+	if err != nil {
+		return domain.Run{}, domain.Mission{}, err
+	}
 	if run.Status != domain.RunRunning || mission.WorkspaceID != plan.WorkspaceID ||
-		mission.Scope.WorkspaceID != plan.WorkspaceID ||
-		mission.Scope.NetworkMode != "disabled" || plan.CreatedAt.Before(run.CreatedAt) {
+		mode.Scope.WorkspaceID != plan.WorkspaceID ||
+		mode.Scope.NetworkMode != "disabled" || plan.CreatedAt.Before(run.CreatedAt) {
 		return domain.Run{}, domain.Mission{}, apperror.New(
 			apperror.CodeFailedPrecondition,
 			"read-only fan-out plan requires its running local-workspace Run")

@@ -1326,8 +1326,8 @@ ADR 0117 adds `command-runtime.v2` as a fourth, separately owned execution path.
 Schema v131 keeps that one model schema and Job state machine while splitting its
 authority into exact `sandboxed_workspace` and `host_unsandboxed` adapters. The
 former accepts only Code/Deliver/root `workspace_access` with ready Local or fixed
-Docker isolation and an exact Drydock; the latter accepts only Code/Local/Deliver
-`full_access`, a live execution lease, and the process-local danger-full-access
+Docker isolation and an exact Drydock; the latter accepts Code/Local/Deliver
+`full_access` or its strict superset `debug`, a live execution lease, and the process-local danger-full-access
 capability. It is neither the user terminal nor its Debug input lease and neither
 an approval proposal nor a model-selectable Docker/host switch. The Gateway
 validates an action-tagged union, adapter authority, and ordinary Policy on each
@@ -1361,13 +1361,14 @@ death signaling. Restart waits out a still-live owner heartbeat and then records
 v131 makes pre-v131 Jobs readable only through the non-executable `legacy_unbound`
 projection and stores no host PID/process group for sandbox Jobs. A
 deliberately new POSIX session can escape the inherited process group and remains
-an explicit unsandboxed `full_access` risk rather than a safely adoptable Job.
+an explicit unsandboxed Full Access risk, including when inherited by Debug, rather
+than a safely adoptable Job.
 
 For `host_unsandboxed`, the network declaration is an intent and policy boundary,
 not a portable packet-containment claim. Profile/helper/proxy/credential environment paths and common
 explicit network commands are denied, and any Policy result requiring approval is
-routed away from this automatic tool. Because `full_access` is still unsandboxed
-host execution, its receipt reports host network and credentials as available.
+routed away from this automatic tool. Because `full_access` and `debug` are still
+unsandboxed host execution, their receipts report host network and credentials as available.
 Network or credential use requires a separate exact review. Sandboxed receipts
 report denial/no-credentials only from current Local or Docker isolation readiness.
 The complete split is documented in

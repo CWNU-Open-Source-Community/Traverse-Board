@@ -300,6 +300,12 @@ func TestStandardCodeDockerServiceExecutesIntoDrydockCheckpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	turn, err := fixture.state.BeginSupervisorTurn(ctx, acquired.Lease,
+		"exercise attributed Docker Command Runtime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root = turn.Agent
 	executor, err := NewDockerSandboxCommandRuntimeExecutor(restartedService)
 	if err != nil {
 		t.Fatal(err)
@@ -330,7 +336,8 @@ func TestStandardCodeDockerServiceExecutesIntoDrydockCheckpoint(t *testing.T) {
 		InvocationID: "command-runtime-docker-invocation",
 		OperationKey: "command-runtime-docker-operation", RunID: runRecord.ID,
 		MissionID:   runRecord.MissionID,
-		RootAgentID: root.ID, SessionID: runRecord.SessionID,
+		RootAgentID: root.ID, AgentID: root.ID, AgentAttemptID: root.ActiveAttemptID,
+		SessionID:            runRecord.SessionID,
 		WorkspaceID:          fixture.workspace.ID,
 		CapabilityGeneration: advertised.Generation,
 		LeaseID:              acquired.Lease.LeaseID, LeaseGeneration: acquired.Lease.Generation,

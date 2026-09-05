@@ -9,6 +9,24 @@ export const desktopWorkspaceImportProtocol = "desktop_workspace_import.v1";
 export const desktopUserTerminalProtocol = "desktop_user_terminal.v1";
 export const desktopDebugTerminalAgentInputProtocol =
   "desktop_debug_terminal_agent_input.v1";
+export const desktopRiskRestartProtocol = "desktop_risk_restart.v1";
+
+export type DesktopDebugRiskProfile = "debug";
+export type DesktopRuntimeRiskProfile = "safe" | DesktopDebugRiskProfile;
+
+export interface DesktopDebugRestartRequest {
+  protocol_version: typeof desktopRiskRestartProtocol;
+  profile: DesktopDebugRiskProfile;
+}
+
+export interface DesktopDebugRestartResult {
+  protocol_version: typeof desktopRiskRestartProtocol;
+  profile: DesktopDebugRiskProfile;
+  status: "cancelled" | "restarting";
+  restart_required: true;
+  arbitrary_arguments_accepted: false;
+  persistent_runtime_grant: false;
+}
 
 export interface DesktopOperationReceipt {
   protocol_version: "operation_receipt.v1";
@@ -35,6 +53,7 @@ export interface DesktopConnectionBootstrap {
   workspace_sandbox_enabled: boolean;
   browser_cdp_permission_control_enabled: boolean;
   full_cdp_debug_enabled: boolean;
+  full_cdp_session_control_enabled: boolean;
   operator_approval_enabled: boolean;
   danger_full_access_enabled: boolean;
   debug_maximum_access_enabled: boolean;
@@ -83,6 +102,7 @@ export interface DesktopConnectionBootstrap {
   agent_terminal_input_default: false;
   workspace_open_enabled: boolean;
   workspace_import_enabled: boolean;
+  risk_profile_restart_enabled: boolean;
   renderer_path_input_supported: false;
 }
 
@@ -310,6 +330,7 @@ interface NativeDesktopBridge {
     binding_id: string;
     operator_confirmed: true;
   }) => Promise<void>;
+  RestartWithRiskProfile?: (request: DesktopDebugRestartRequest) => Promise<unknown>;
 }
 
 type NativeWorkspaceBridge = NativeDesktopBridge & Required<Pick<NativeDesktopBridge,
@@ -322,6 +343,8 @@ type NativeTerminalBridge = NativeDesktopBridge & Required<Pick<NativeDesktopBri
 type NativeDebugTerminalAgentInputBridge = NativeDesktopBridge & Required<Pick<NativeDesktopBridge,
   "GrantDebugTerminalAgentInput" | "GetDebugTerminalAgentInput" |
   "RevokeDebugTerminalAgentInput">>;
+type NativeDebugRestartBridge = NativeDesktopBridge & Required<Pick<NativeDesktopBridge,
+  "RestartWithRiskProfile">>;
 
 declare global {
   interface Window {
@@ -358,6 +381,16 @@ export function desktopRuntimeActive(): boolean {
 
 export function desktopWorkspaceImportEnabled(): boolean {
   return activeBootstrap?.workspace_import_enabled === true && getWorkspaceImportBridge() !== null;
+}
+
+export function desktopDebugRestartEnabled(): boolean {
+  return activeBootstrap?.risk_profile_restart_enabled === true && getDebugRestartBridge() !== null;
+}
+
+export function desktopCurrentRiskProfile(): DesktopRuntimeRiskProfile | null {
+  if (!activeBootstrap) return null;
+  if (activeBootstrap.debug_maximum_access_enabled) return "debug";
+  return "safe";
 }
 
 export async function loadDesktopBootstrap(): Promise<DesktopConnectionBootstrap | null> {
@@ -417,6 +450,22 @@ export async function importDesktopWorkspace(): Promise<DesktopImportedWorkspace
     throw new Error("Desktop Workspace import result was rejected");
   }
   return value.status === "cancelled" ? null : value.workspace;
+}
+
+export async function restartDesktopInDebugMode(): Promise<DesktopDebugRestartResult> {
+  const bridge = getDebugRestartBridge();
+  if (!bridge || !activeBootstrap?.risk_profile_restart_enabled) {
+    throw new Error("Desktop Debug restart is disabled");
+  }
+  const request: DesktopDebugRestartRequest = {
+    protocol_version: desktopRiskRestartProtocol,
+    profile: "debug",
+  };
+  const value = await bridge.RestartWithRiskProfile(request);
+  if (!validDebugRestartResult(value)) {
+    throw new Error("Desktop Debug restart result was rejected");
+  }
+  return value;
 }
 
 export async function installDesktopSkillPackage(preview: DesktopSkillPreview,
@@ -703,6 +752,14 @@ function getDebugTerminalAgentInputBridge(): NativeDebugTerminalAgentInputBridge
   return bridge as NativeDebugTerminalAgentInputBridge;
 }
 
+function getDebugRestartBridge(): NativeDebugRestartBridge | null {
+  const bridge = getBridge();
+  if (!bridge || typeof bridge.RestartWithRiskProfile !== "function") {
+    return null;
+  }
+  return bridge as NativeDebugRestartBridge;
+}
+
 function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
   if (!hasExactKeys(value, [
     "agent_code_tools_enabled", "api_base_url", "api_version", "app_version",
@@ -715,6 +772,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     "execution_permission_control_enabled", "operator_approval_enabled",
     "workspace_sandbox_enabled",
     "browser_cdp_permission_control_enabled", "full_cdp_debug_enabled",
+    "full_cdp_session_control_enabled",
     "danger_full_access_enabled", "debug_maximum_access_enabled",
     "control_enabled", "control_token", "docker_execution_enabled", "file_edit_apply_enabled",
     "evidence_attachment_enabled",
@@ -737,6 +795,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     "session_steering_control_enabled",
     "workspace_import_enabled",
     "workspace_open_enabled",
+    "risk_profile_restart_enabled",
   ])) {
     return false;
   }
@@ -750,6 +809,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     typeof value.workspace_sandbox_enabled === "boolean" &&
     typeof value.browser_cdp_permission_control_enabled === "boolean" &&
     typeof value.full_cdp_debug_enabled === "boolean" &&
+    typeof value.full_cdp_session_control_enabled === "boolean" &&
     typeof value.operator_approval_enabled === "boolean" &&
     typeof value.danger_full_access_enabled === "boolean" &&
     typeof value.debug_maximum_access_enabled === "boolean" &&
@@ -794,10 +854,14 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     value.agent_terminal_input_default === false &&
     typeof value.workspace_import_enabled === "boolean" &&
     typeof value.workspace_open_enabled === "boolean" &&
+    typeof value.risk_profile_restart_enabled === "boolean" &&
+    (!value.risk_profile_restart_enabled || (value.control_token !== "" &&
+      value.execution_permission_control_enabled && value.operator_approval_enabled)) &&
     (value.control_token !== "") === (value.control_enabled || value.run_creation_enabled ||
       value.standard_code_preset_enabled ||
       value.execution_permission_control_enabled ||
       value.browser_cdp_permission_control_enabled ||
+      value.full_cdp_session_control_enabled ||
       value.session_message_enabled || value.session_steering_control_enabled ||
       value.run_lifecycle_enabled || value.run_execution_enabled ||
 	  value.plan_delivery_control_enabled || value.approval_control_enabled ||
@@ -835,7 +899,10 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     (!value.github_review_control_enabled ||
       (value.execution_permission_control_enabled && value.operator_approval_enabled)) &&
     (!value.full_cdp_debug_enabled ||
-      (value.browser_cdp_permission_control_enabled && value.debug_maximum_access_enabled)) &&
+      (value.browser_cdp_permission_control_enabled && value.danger_full_access_enabled)) &&
+    (!value.full_cdp_session_control_enabled ||
+      (value.full_cdp_debug_enabled && value.browser_cdp_permission_control_enabled &&
+        value.danger_full_access_enabled)) &&
     (!value.ui_evidence_control_enabled ||
       (value.command_runtime_enabled && value.browser_cdp_permission_control_enabled &&
         value.run_execution_enabled)) &&
@@ -847,6 +914,7 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
       value.standard_code_preset_enabled ||
       value.execution_permission_control_enabled ||
       value.browser_cdp_permission_control_enabled ||
+      value.full_cdp_session_control_enabled ||
       value.session_message_enabled || value.session_steering_control_enabled ||
       value.run_lifecycle_enabled || value.run_execution_enabled ||
 	  value.plan_delivery_control_enabled || value.approval_control_enabled ||
@@ -872,6 +940,15 @@ function validBootstrap(value: unknown): value is DesktopConnectionBootstrap {
     (!value.docker_execution_enabled || (value.execution_permission_control_enabled &&
       value.operator_approval_enabled)) &&
     value.renderer_path_input_supported === false;
+}
+
+function validDebugRestartResult(value: unknown): value is DesktopDebugRestartResult {
+  return hasExactKeys(value, ["arbitrary_arguments_accepted", "persistent_runtime_grant",
+    "profile", "protocol_version", "restart_required", "status"]) &&
+    value.protocol_version === desktopRiskRestartProtocol && value.profile === "debug" &&
+    (value.status === "cancelled" || value.status === "restarting") &&
+    value.restart_required === true && value.arbitrary_arguments_accepted === false &&
+    value.persistent_runtime_grant === false;
 }
 
 function validTerminalSession(value: unknown,

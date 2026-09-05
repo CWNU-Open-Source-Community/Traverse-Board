@@ -50,6 +50,7 @@ import type {
   ApprovalDecisionControlView,
   ApprovalQueueView,
   ArtifactView,
+  AvailableModelRouteCollectionView,
   BrowserSafeWebReadiness,
   CodeHandoffView,
   CodeHandoffExportView,
@@ -75,9 +76,14 @@ import type {
   FileEditProposalRecoveryView,
   FileEditProposalSourceView,
   FileEditProposalView,
+  FileEditPreviewView,
   FileEditQueueView,
   FileEditReviewRequestView,
   FileEditReviewView,
+  FullCDPSessionCloseRequestView,
+  FullCDPSessionControlView,
+  FullCDPSessionOpenRequestView,
+  FullCDPSessionView,
   HealthView,
   GitAdvancedExecuteResultView,
   GitAdvancedProjectionView,
@@ -121,6 +127,12 @@ import type {
   ProviderCredentialListView,
   ProviderCredentialRequestView,
   ProviderCredentialStatusView,
+  ProviderDefinitionCollectionView,
+  ProviderDefinitionDeleteRequestView,
+  ProviderDefinitionMutationView,
+  ProviderDefinitionUpsertRequestView,
+  ProviderDefinitionView,
+  ProviderSearchReadinessView,
   RepositoryStateView,
   RepositoryDiffView,
   RepositoryHistoryView,
@@ -140,6 +152,8 @@ import type {
   RunExecutionControlView,
   RunLifecycleControlRequestView,
   RunLifecycleControlView,
+  RunNetworkAuthorityControlRequestView,
+  RunNetworkAuthorityControlView,
   RunWakeCancelRequestView,
   RunWakeControlView,
   RunWakeScheduleRequestView,
@@ -153,6 +167,14 @@ import type {
   ThreadMessageControlView,
   ThreadLifecycleControlRequestView,
   ThreadLifecycleControlView,
+  ThreadRunRecoveryControlRequestView,
+  ThreadRunRecoveryControlView,
+  ThreadModelRouteControlRequestView,
+  ThreadModelRouteView,
+  ThreadExecutionPermissionControlRequestView,
+  ThreadExecutionPermissionControlView,
+  ThreadActivityArtifactView,
+  ThreadActivityDetailView,
   ThreadTranscriptItemView,
   ThreadView,
   ScheduledJobControlView,
@@ -212,6 +234,7 @@ export interface ClientCapabilities {
   workspaceSandboxEnabled?: boolean;
   browserCDPPermissionControlEnabled?: boolean;
   fullCDPDebugEnabled?: boolean;
+  fullCDPSessionControlEnabled?: boolean;
   operatorApprovalEnabled?: boolean;
   dangerFullAccessEnabled?: boolean;
   debugMaximumAccessEnabled?: boolean;
@@ -344,7 +367,7 @@ function parseEventPoll(value: unknown, expectedRunID: string, requestID: string
 }
 
 function parseRunCreationControl(value: unknown,
-  request: RunCreationControlRequestView): RunCreationControlView {
+  request: RunCreationControlRequestView, requestedModelRoute = ""): RunCreationControlView {
   if (!hasExactKeys(value, ["mission", "mode", "replayed", "run", "session"]) ||
     typeof value.replayed !== "boolean" || !isRecord(value.mission) ||
     !isRecord(value.mode) || !isRecord(value.run) || !isRecord(value.session) ||
@@ -357,8 +380,10 @@ function parseRunCreationControl(value: unknown,
   const sessionID = boundedIdentity(value.session.id);
   const workspaceID = boundedIdentity(value.mission.workspace_id);
   const expectedProfile = request.profile ?? "code";
+  const expectedModelRoute = requestedModelRoute || expectedProfile;
   const expectedSurface = request.surface ?? "code";
   const expectedPhase = request.phase ?? "deliver";
+  const expectedNetwork = normalizeRequestedNetworkAuthority(request);
   if (!missionID || !runID || !sessionID || !workspaceID ||
     workspaceID !== request.workspace_id || value.mission.goal !== request.goal ||
     value.run.mission_id !== missionID || value.run.session_id !== sessionID ||
@@ -367,11 +392,10 @@ function parseRunCreationControl(value: unknown,
     value.run.status !== "created" || value.session.status !== "active" ||
     value.run.config.interactive !== true || value.mission.profile !== expectedProfile ||
     value.mode.profile !== expectedProfile ||
-    value.run.config.model_route !== expectedProfile || value.session.route !== expectedProfile ||
+    value.run.config.model_route !== expectedModelRoute || value.session.route !== expectedModelRoute ||
     value.session.title !== value.mission.goal ||
-    value.mission.scope.network_mode !== "disabled" ||
-    value.mode.scope.network_mode !== "disabled" ||
-    !hasNoAllowedTargets(value.mission.scope) || !hasNoAllowedTargets(value.mode.scope) ||
+    !scopeMatchesRequestedNetworkAuthority(value.mission.scope, expectedNetwork) ||
+    !scopeMatchesRequestedNetworkAuthority(value.mode.scope, expectedNetwork) ||
     value.run.budget.max_turns !== 100 || value.run.budget.max_tool_calls !== 100 ||
     (value.run.budget.max_tokens ?? 0) !== 0 || (value.run.budget.max_cost_usd ?? 0) !== 0 ||
     (value.run.budget.timeout_seconds ?? 0) !== 0 ||
@@ -426,11 +450,14 @@ function parseThreadCreationControl(value: unknown,
   if (!hasExactKeys(value, ["mission", "mode", "replayed", "run", "session", "thread"])) {
     throw new APIRequestError("Thread creation response is invalid", "INVALID_RESPONSE", 502);
   }
+  const requestedModelRoute = request.provider && request.model
+    ? `${request.provider}/${request.model}` : "";
   const runCreation = parseRunCreationControl({ mission: value.mission, mode: value.mode,
     replayed: value.replayed, run: value.run, session: value.session }, {
     version: "run_creation.v1", goal: request.goal, workspace_id: request.workspace_id,
     profile: request.profile, surface: request.surface, phase: request.phase,
-  });
+    network_mode: request.network_mode, allowed_targets: request.allowed_targets,
+  }, requestedModelRoute);
   const thread = parseThreadView(value.thread);
   if (thread.status !== "active" || thread.workspace_id !== request.workspace_id ||
     thread.mission_id !== runCreation.mission.id || thread.title !== request.goal ||
@@ -459,21 +486,29 @@ function isValidOperatorSteeringMessage(value: unknown): value is Record<string,
     (value.status !== "cancelled" || (cancelledAt !== undefined && committedAt === undefined));
 }
 
-function parseThreadMessageControl(value: unknown, expectedThreadID: string): ThreadMessageControlView {
+function parseThreadMessageControl(value: unknown, expectedThreadID: string,
+  executionAllowed = false): ThreadMessageControlView {
   const required = ["capability_grant", "execution_started", "model_called", "replayed",
     "run_id", "session_id", "steering", "successor_created", "thread", "tool_called", "version"];
   if (!isRecord(value) || !hasOnlyKeys(value, [...required, "predecessor_run_id"]) ||
     required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
     value.version !== "thread_message_submission.v1" || !boundedIdentity(value.run_id) ||
     !boundedIdentity(value.session_id) || typeof value.successor_created !== "boolean" ||
-    typeof value.replayed !== "boolean" || value.execution_started !== false ||
-    value.model_called !== false || value.tool_called !== false || value.capability_grant !== false ||
+    typeof value.replayed !== "boolean" || typeof value.execution_started !== "boolean" ||
+    typeof value.model_called !== "boolean" || typeof value.tool_called !== "boolean" ||
+    value.capability_grant !== false ||
     !isValidOperatorSteeringMessage(value.steering) ||
     (value.predecessor_run_id !== undefined && !boundedIdentity(value.predecessor_run_id))) {
     throw new APIRequestError("Thread message response is invalid", "INVALID_RESPONSE", 502);
   }
+  if ((!executionAllowed && (value.execution_started || value.model_called || value.tool_called)) ||
+    ((value.model_called || value.tool_called) && !value.execution_started)) {
+    throw new APIRequestError("Thread message response is invalid at its execution boundary",
+      "INVALID_RESPONSE", 502);
+  }
   const thread = parseThreadView(value.thread, expectedThreadID);
-  if (thread.status !== "active" || thread.active_run_id !== value.run_id ||
+  if (thread.status !== "active" || thread.last_run_id !== value.run_id ||
+    (thread.active_run_id !== undefined && thread.active_run_id !== value.run_id) ||
     (value.successor_created && (value.predecessor_run_id === undefined ||
       value.predecessor_run_id === value.run_id)) ||
     (!value.successor_created && value.predecessor_run_id !== undefined)) {
@@ -496,6 +531,30 @@ function parseThreadLifecycleControl(value: unknown, expectedThreadID: string,
       "INVALID_RESPONSE", 502);
   }
   return { ...value, thread } as unknown as ThreadLifecycleControlView;
+}
+
+function parseThreadRunRecoveryControl(value: unknown, expectedThreadID: string,
+  request: ThreadRunRecoveryControlRequestView): ThreadRunRecoveryControlView {
+  if (!hasExactKeys(value, ["failed_run", "replayed", "successor_required", "thread", "version"]) ||
+    value.version !== "thread_run_recovery.v1" || typeof value.replayed !== "boolean" ||
+    value.successor_required !== true || !isRecord(value.failed_run) ||
+    !hasOnlyKeys(value.failed_run, ["budget", "config", "created_at", "finished_at", "id",
+      "mission_id", "session_id", "started_at", "status", "updated_at"]) ||
+    value.failed_run.id !== request.run_id || !boundedIdentity(value.failed_run.id) ||
+    !boundedIdentity(value.failed_run.mission_id) ||
+    (value.failed_run.session_id !== undefined && !boundedIdentity(value.failed_run.session_id)) ||
+    value.failed_run.status !== "failed" || !validDate(value.failed_run.created_at) ||
+    !validDate(value.failed_run.updated_at) || !validDate(value.failed_run.finished_at) ||
+    !isRecord(value.failed_run.config) || !isRecord(value.failed_run.budget)) {
+    throw new APIRequestError("Thread Run recovery response is invalid", "INVALID_RESPONSE", 502);
+  }
+  const thread = parseThreadView(value.thread, expectedThreadID);
+  if (thread.status !== "active" || thread.active_run_id !== undefined ||
+    thread.last_run_id !== request.run_id || thread.composer_state !== "successor_required") {
+    throw new APIRequestError("Thread Run recovery widened its continuation contract",
+      "INVALID_RESPONSE", 502);
+  }
+  return { ...value, thread } as unknown as ThreadRunRecoveryControlView;
 }
 
 const threadTranscriptTypes = ["message", "search", "read", "edit", "execute", "verify",
@@ -551,9 +610,10 @@ function validThreadWebEvidence(value: unknown): boolean {
 
 function parseThreadTranscriptItem(value: unknown): ThreadTranscriptItemView {
   const required = ["activity_type", "canonical_id", "created_at", "durable", "id",
-    "instruction_authorized", "kind", "provisional", "run_id", "run_ordinal", "sequence",
-    "source", "stage", "title", "verifiable", "version"];
-  const optional = ["attempt_id", "boundary_reason", "detail", "durable_call_id",
+    "instruction_authorized", "kind", "provisional", "run_id",
+    "run_ordinal", "sequence", "source", "stage", "title", "verifiable", "version"];
+  const optional = ["activity_detail_ref", "activity_summary", "attempt_id", "boundary_reason", "detail",
+    "detail_available", "durable_call_id",
     "model_attempt", "position", "source_ref", "status", "stream_call_id", "stream_item_id",
     "stream_response_id", "tool_name", "tool_round", "web_evidence"];
   if (!isRecord(value) || !hasOnlyKeys(value, [...required, ...optional]) ||
@@ -568,10 +628,11 @@ function parseThreadTranscriptItem(value: unknown): ThreadTranscriptItemView {
     !threadTranscriptSources.includes(String(value.source)) ||
     !boundedText(value.title, 512) || !validDate(value.created_at) ||
     typeof value.verifiable !== "boolean" || typeof value.instruction_authorized !== "boolean" ||
+    (value.detail_available !== undefined && value.detail_available !== true) ||
     value.provisional !== false || value.durable !== true) {
     throw new APIRequestError("Thread transcript item is invalid", "INVALID_RESPONSE", 502);
   }
-  for (const field of ["attempt_id", "boundary_reason", "durable_call_id", "source_ref", "status",
+  for (const field of ["activity_detail_ref", "attempt_id", "boundary_reason", "durable_call_id", "source_ref", "status",
     "stream_call_id", "stream_item_id", "stream_response_id", "tool_name"]) {
     if (value[field] !== undefined && !boundedIdentity(value[field])) {
       throw new APIRequestError("Thread transcript identity is invalid", "INVALID_RESPONSE", 502);
@@ -586,9 +647,29 @@ function parseThreadTranscriptItem(value: unknown): ThreadTranscriptItemView {
   }
   if ((value.sequence === 0) !== (value.boundary_reason !== undefined) ||
     (value.stream_item_id !== undefined && value.canonical_id !== value.stream_item_id) ||
+    ((value.detail_available === true) !== (value.activity_detail_ref !== undefined)) ||
+    (value.detail_available === true && value.activity_detail_ref !== value.durable_call_id) ||
     (value.source === "harness" && value.verifiable !== true) ||
     (value.source === "model" && value.verifiable !== false)) {
     throw new APIRequestError("Thread transcript provenance is invalid", "INVALID_RESPONSE", 502);
+  }
+  if (value.activity_summary !== undefined) {
+    const summary = value.activity_summary;
+    const requiredSummary = ["activity_ref", "command", "command_count",
+      "duration_milliseconds", "status", "version"];
+    if (value.tool_name !== "command_runtime" || !isRecord(summary) ||
+      !hasOnlyKeys(summary, [...requiredSummary, "exit_code"]) ||
+      requiredSummary.some((key) => !Object.prototype.hasOwnProperty.call(summary, key)) ||
+      summary.version !== "thread_activity_summary.v1" ||
+      summary.activity_ref !== value.activity_detail_ref ||
+      !validThreadActivityString(summary.command, 4_096) ||
+      !threadActivityCommandStatuses.includes(String(summary.status)) ||
+      !safePositiveInteger(summary.command_count) || summary.command_count > 32 ||
+      !safeBoundedCount(summary.duration_milliseconds, Number.MAX_SAFE_INTEGER) ||
+      (summary.exit_code !== undefined && (typeof summary.exit_code !== "number" ||
+        !Number.isSafeInteger(summary.exit_code)))) {
+      throw new APIRequestError("Thread activity summary is invalid", "INVALID_RESPONSE", 502);
+    }
   }
   if (value.web_evidence !== undefined && (!validThreadWebEvidence(value.web_evidence) ||
     value.kind !== "tool_call" || value.source !== "harness" || value.stage !== "result" ||
@@ -768,6 +849,342 @@ function parsePublicModelStream(value: unknown,
   return value as unknown as PublicModelStreamSnapshot;
 }
 
+const threadActivityToolStatuses = ["pending", "completed", "denied", "failed"];
+const threadActivityCommandStatuses = [...threadActivityToolStatuses, "prepared", "running",
+  "stopping", "timed_out", "cancelled", "killed", "interrupted"];
+const threadActivityEnvironments = ["Workspace Sandbox", "Host · Full Access",
+  "Legacy execution boundary"];
+const threadActivityKinds = ["command", "web_search", "web_fetch", "file_read", "file_edit",
+  "verification", "mcp", "browser"];
+const threadActivityToolNames = ["command_runtime", "workspace_list", "workspace_read",
+  "workspace_glob", "workspace_grep", "workspace_change", "workspace_apply", "workspace_delete",
+  "web_search", "web_fetch", "web_citation", "mcp_tool_call", "code_workspace_symbols",
+  "code_document_symbols", "code_definition", "code_references", "code_implementation",
+  "code_hover", "code_signature_help", "code_diagnostics", "code_call_hierarchy",
+  "code_type_hierarchy", "github_review_evidence_list", "github_review_evidence_read",
+  "browser_status", "browser_navigate", "browser_snapshot", "browser_click", "browser_type",
+  "browser_screenshot"];
+const maxThreadActivityArtifactBytes = 4 * 1024 * 1024;
+
+function validThreadActivityString(value: unknown, maximum: number,
+  optional = false): value is string {
+  if (typeof value !== "string" || value.includes("\0")) return false;
+  const codePoints = Array.from(value).length;
+  return codePoints <= maximum && (optional || codePoints > 0);
+}
+
+function validThreadActivityFactText(value: unknown, maximum: number,
+  optional = false): value is string {
+  if (!validThreadActivityString(value, maximum, optional)) return false;
+  if (value === "") return optional;
+  return value.trim() === value && !Array.from(value)
+    .some((character) => /[\p{Cc}\p{Cf}]/u.test(character) && character !== "\n" && character !== "\t");
+}
+
+function validThreadActivityFactIdentity(value: unknown, optional = false): value is string {
+  if (!validThreadActivityString(value, 256, optional)) return false;
+  if (value === "") return optional;
+  return value.trim() === value && !/[\p{Cc}\p{Cf}]/u.test(value);
+}
+
+function validThreadActivityJSONFields(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length > 16) return false;
+  const names = new Set<string>();
+  for (const field of value) {
+    if (!isRecord(field) || !hasExactKeys(field, ["name", "summary", "type"]) ||
+      !validThreadActivityFactIdentity(field.name) || names.has(field.name) ||
+      !validThreadActivityFactIdentity(field.type) ||
+      !validThreadActivityFactText(field.summary, 2_048)) return false;
+    names.add(field.name);
+  }
+  return true;
+}
+
+function validThreadActivityBoundary(value: unknown): boolean {
+  return isRecord(value) && hasExactKeys(value, ["authorization", "error_code",
+    "failure_reason", "truncated", "untrusted"]) &&
+    ["policy_checked", "pending", "denied"].includes(String(value.authorization)) &&
+    validThreadActivityFactIdentity(value.error_code, true) &&
+    validThreadActivityFactText(value.failure_reason, 2_048, true) &&
+    typeof value.truncated === "boolean" && typeof value.untrusted === "boolean";
+}
+
+function validThreadActivityArtifactReference(value: unknown): boolean {
+  return isRecord(value) && hasExactKeys(value,
+    ["artifact_ref", "mime", "size_bytes", "stream", "truncated"]) &&
+    Boolean(boundedIdentity(value.artifact_ref)) &&
+    ["stdout", "stderr"].includes(String(value.stream)) &&
+    value.mime === "text/plain; charset=utf-8" &&
+    safeBoundedCount(value.size_bytes, maxThreadActivityArtifactBytes) &&
+    Number(value.size_bytes) > 0 && typeof value.truncated === "boolean";
+}
+
+function validThreadActivityCommand(value: unknown): boolean {
+  const required = ["artifacts", "command", "duration_milliseconds", "execution_environment",
+    "network", "status", "stderr_preview", "stdout_preview", "truncated",
+    "working_directory"];
+  return isRecord(value) && hasOnlyKeys(value, [...required, "exit_code"]) &&
+    required.every((key) => Object.prototype.hasOwnProperty.call(value, key)) &&
+    validThreadActivityString(value.command, 4_096) &&
+    validThreadActivityString(value.working_directory, 1_024) &&
+    threadActivityEnvironments.includes(String(value.execution_environment)) &&
+    value.network === "disabled" &&
+    threadActivityCommandStatuses.includes(String(value.status)) &&
+    (value.exit_code === undefined ||
+      (typeof value.exit_code === "number" && Number.isSafeInteger(value.exit_code))) &&
+    safeBoundedCount(value.duration_milliseconds, Number.MAX_SAFE_INTEGER) &&
+    validThreadActivityString(value.stdout_preview, 8_192, true) &&
+    validThreadActivityString(value.stderr_preview, 8_192, true) &&
+    typeof value.truncated === "boolean" && Array.isArray(value.artifacts) &&
+    value.artifacts.length <= 2 && value.artifacts.every(validThreadActivityArtifactReference);
+}
+
+function validThreadActivityJSONSummary(value: unknown): boolean {
+  return isRecord(value) && hasExactKeys(value, ["count", "fields", "summary", "type"]) &&
+    safeBoundedCount(value.count, Number.MAX_SAFE_INTEGER) &&
+    validThreadActivityFactIdentity(value.type) &&
+    validThreadActivityFactText(value.summary, 2_048) &&
+    validThreadActivityJSONFields(value.fields);
+}
+
+function validSafeHTTPSActivityURL(value: unknown, optional = false): boolean {
+  if (!validThreadActivityFactText(value, 2_048, optional)) return false;
+  if (value === "") return optional;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:" || parsed.username !== "" || parsed.password !== "" ||
+      parsed.port !== "" || parsed.hash !== "") return false;
+    for (const [key, queryValue] of parsed.searchParams) {
+      const compact = key.trim().toLowerCase().replace(/[-. _[\]]/gu, "");
+      if (["key", "sig", "jwt", "session", "sessionid", "auth"].includes(compact) ||
+        ["apikey", "accesstoken", "refreshtoken", "idtoken", "secret", "password",
+          "passwd", "privatekey", "signature", "authorization", "credential", "cookie",
+          "setcookie", "bearertoken"].some((part) => compact.includes(part)) ||
+        compact.startsWith("auth") || compact.endsWith("token") ||
+        /(?:bearer\s+|\bsk-(?:proj-)?[a-z0-9_-]{12,})/iu.test(queryValue)) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function validThreadActivityTypedDetail(value: unknown): boolean {
+  if (!isRecord(value) || !threadActivityKinds.includes(String(value.kind))) return false;
+  switch (value.kind) {
+    case "command": {
+      if (!hasExactKeys(value, ["command", "kind"]) || !isRecord(value.command) ||
+        !hasExactKeys(value.command, ["commands"]) || !Array.isArray(value.command.commands) ||
+        value.command.commands.length > 32) return false;
+      return value.command.commands.every(validThreadActivityCommand);
+    }
+    case "web_search": {
+      if (!hasExactKeys(value, ["kind", "web_search"]) || !isRecord(value.web_search)) return false;
+      const detail = value.web_search;
+      if (!hasExactKeys(detail, ["boundary", "citeable", "limit", "operation", "provider",
+        "query", "search_policy", "selection_reason", "source_count", "sources"]) ||
+        !validThreadActivityFactText(detail.operation, 2_048) ||
+        !validThreadActivityFactText(detail.query, 2_048) ||
+        !safeBoundedCount(detail.limit, 10) || Number(detail.limit) < 1 ||
+        !validThreadActivityFactText(detail.provider, 2_048, true) ||
+        !validThreadActivityFactIdentity(detail.search_policy, true) ||
+        !validThreadActivityFactText(detail.selection_reason, 2_048, true) ||
+        !safeBoundedCount(detail.source_count, Number.MAX_SAFE_INTEGER) ||
+        typeof detail.citeable !== "boolean" || !Array.isArray(detail.sources) ||
+        detail.sources.length > 10 || !validThreadActivityBoundary(detail.boundary)) return false;
+      return detail.sources.every((source, index) => isRecord(source) &&
+        hasExactKeys(source, ["citeable", "provider", "rank", "state", "title", "url"]) &&
+        source.rank === index + 1 && validThreadActivityFactText(source.title, 2_048, true) &&
+        validSafeHTTPSActivityURL(source.url) &&
+        validThreadActivityFactText(source.provider, 2_048, true) &&
+        validThreadActivityFactIdentity(source.state) && typeof source.citeable === "boolean");
+    }
+    case "web_fetch": {
+      if (!hasExactKeys(value, ["kind", "web_fetch"]) || !isRecord(value.web_fetch)) return false;
+      const detail = value.web_fetch;
+      return hasExactKeys(detail, ["boundary", "citeable", "http_status", "operation",
+        "partial", "redirects", "robots", "robots_policy", "state", "url"]) &&
+        validThreadActivityFactText(detail.operation, 2_048) &&
+        (detail.url === "已发现的网页来源" || detail.url === "已抓取的网页快照" ||
+          validSafeHTTPSActivityURL(detail.url)) && validThreadActivityFactIdentity(detail.state, true) &&
+        safeBoundedCount(detail.http_status, 599) &&
+        (detail.http_status === 0 || Number(detail.http_status) >= 100) &&
+        validThreadActivityFactIdentity(detail.robots, true) &&
+        validThreadActivityFactIdentity(detail.robots_policy, true) &&
+        safeBoundedCount(detail.redirects, 32) && typeof detail.partial === "boolean" &&
+        typeof detail.citeable === "boolean" && validThreadActivityBoundary(detail.boundary);
+    }
+    case "file_read": {
+      if (!hasExactKeys(value, ["file_read", "kind"]) || !isRecord(value.file_read)) return false;
+      const detail = value.file_read;
+      return hasExactKeys(detail, ["boundary", "end_line", "limit", "operation", "path",
+        "pattern", "query", "result_count", "start_line", "summary", "truncated"]) &&
+        validThreadActivityFactText(detail.operation, 2_048) &&
+        validThreadActivityFactText(detail.path, 2_048, true) &&
+        validThreadActivityFactText(detail.pattern, 2_048, true) &&
+        validThreadActivityFactText(detail.query, 2_048, true) &&
+        safeBoundedCount(detail.start_line, Number.MAX_SAFE_INTEGER) &&
+        safeBoundedCount(detail.end_line, Number.MAX_SAFE_INTEGER) &&
+        safeBoundedCount(detail.limit, Number.MAX_SAFE_INTEGER) &&
+        safeBoundedCount(detail.result_count, Number.MAX_SAFE_INTEGER) &&
+        typeof detail.truncated === "boolean" &&
+        validThreadActivityFactText(detail.summary, 2_048) &&
+        validThreadActivityBoundary(detail.boundary);
+    }
+    case "file_edit": {
+      if (!hasExactKeys(value, ["file_edit", "kind"]) || !isRecord(value.file_edit)) return false;
+      const detail = value.file_edit;
+      return hasExactKeys(detail, ["action", "applied", "apply_status", "boundary",
+        "destination_path", "diff", "diff_available", "edit_id", "file_written", "operation",
+        "path", "replayed"]) &&
+        validThreadActivityFactText(detail.operation, 2_048) &&
+        validThreadActivityFactIdentity(detail.action, true) &&
+        validThreadActivityFactText(detail.path, 2_048, true) &&
+        validThreadActivityFactText(detail.destination_path, 2_048, true) &&
+        validThreadActivityFactIdentity(detail.apply_status, true) &&
+        typeof detail.diff_available === "boolean" &&
+        validThreadActivityFactIdentity(detail.edit_id, !detail.diff_available) &&
+        (!detail.diff_available || detail.edit_id !== "") &&
+        typeof detail.applied === "boolean" && typeof detail.file_written === "boolean" &&
+        typeof detail.replayed === "boolean" && isRecord(detail.diff) &&
+        hasExactKeys(detail.diff, ["added_lines", "hunks", "removed_lines", "summary"]) &&
+        safeBoundedCount(detail.diff.added_lines, Number.MAX_SAFE_INTEGER) &&
+        safeBoundedCount(detail.diff.removed_lines, Number.MAX_SAFE_INTEGER) &&
+        safeBoundedCount(detail.diff.hunks, Number.MAX_SAFE_INTEGER) &&
+        validThreadActivityFactText(detail.diff.summary, 2_048, true) &&
+        validThreadActivityBoundary(detail.boundary);
+    }
+    case "mcp": {
+      if (!hasExactKeys(value, ["kind", "mcp"]) || !isRecord(value.mcp)) return false;
+      const detail = value.mcp;
+      return hasExactKeys(detail, ["arguments", "boundary", "operation", "result", "server",
+        "tool"]) && validThreadActivityFactText(detail.operation, 2_048) &&
+        validThreadActivityFactIdentity(detail.server) && validThreadActivityFactIdentity(detail.tool) &&
+        validThreadActivityJSONFields(detail.arguments) &&
+        validThreadActivityJSONSummary(detail.result) &&
+        validThreadActivityBoundary(detail.boundary);
+    }
+    case "verification": {
+      if (!hasExactKeys(value, ["kind", "verification"]) || !isRecord(value.verification)) return false;
+      const detail = value.verification;
+      return hasExactKeys(detail, ["boundary", "direction", "limit", "operation", "path",
+        "position", "query", "result_count", "summary", "tool", "truncated"]) &&
+        validThreadActivityFactText(detail.operation, 2_048) &&
+        validThreadActivityFactIdentity(detail.tool) &&
+        validThreadActivityFactText(detail.path, 2_048, true) &&
+        validThreadActivityFactText(detail.query, 2_048, true) &&
+        validThreadActivityFactIdentity(detail.position, true) &&
+        validThreadActivityFactIdentity(detail.direction, true) &&
+        safeBoundedCount(detail.limit, Number.MAX_SAFE_INTEGER) &&
+        safeBoundedCount(detail.result_count, Number.MAX_SAFE_INTEGER) &&
+        typeof detail.truncated === "boolean" &&
+        validThreadActivityFactText(detail.summary, 2_048) &&
+        validThreadActivityBoundary(detail.boundary);
+    }
+    case "browser": {
+      if (!hasExactKeys(value, ["browser", "kind"]) || !isRecord(value.browser)) return false;
+      const detail = value.browser;
+      return hasExactKeys(detail, ["action", "artifact_bytes", "boundary", "input_length",
+        "operation", "selector", "summary", "url"]) &&
+        validThreadActivityFactText(detail.operation, 2_048) &&
+        validThreadActivityFactIdentity(detail.action) &&
+        validThreadActivityFactText(detail.url, 2_048, true) &&
+        validThreadActivityFactText(detail.selector, 2_048, true) &&
+        safeBoundedCount(detail.input_length, Number.MAX_SAFE_INTEGER) &&
+        safeBoundedCount(detail.artifact_bytes, maxThreadActivityArtifactBytes) &&
+        validThreadActivityFactText(detail.summary, 2_048) &&
+        validThreadActivityBoundary(detail.boundary);
+    }
+    default:
+      return false;
+  }
+}
+
+function expectedThreadActivityKind(tool: string): string {
+  if (tool === "command_runtime") return "command";
+  if (tool === "web_search") return "web_search";
+  if (tool === "web_fetch" || tool === "web_citation") return "web_fetch";
+  if (["workspace_list", "workspace_read", "workspace_glob", "workspace_grep"].includes(tool)) return "file_read";
+  if (["workspace_change", "workspace_apply", "workspace_delete"].includes(tool)) return "file_edit";
+  if (tool === "mcp_tool_call") return "mcp";
+  if (tool.startsWith("browser_")) return "browser";
+  return "verification";
+}
+
+function parseThreadActivityDetail(value: unknown, expectedThreadID: string,
+  expectedActivityRef: string): ThreadActivityDetailView {
+  if (!hasExactKeys(value, ["activity_ref", "run_id", "tools", "version"]) ||
+    value.version !== "thread_activity_detail.v2" ||
+    boundedIdentity(value.activity_ref) !== expectedActivityRef ||
+    !boundedIdentity(value.run_id) || !Array.isArray(value.tools) || value.tools.length !== 1) {
+    throw new APIRequestError("Thread activity detail is invalid", "INVALID_RESPONSE", 502);
+  }
+  const tool = value.tools[0];
+  const toolRequired = ["agent_id", "agent_label", "agent_role", "detail",
+    "duration_milliseconds", "label", "name", "started_at", "status"];
+  if (!isRecord(tool) || !hasOnlyKeys(tool, [...toolRequired, "completed_at"]) ||
+    toolRequired.some((key) => !Object.prototype.hasOwnProperty.call(tool, key)) ||
+    !threadActivityToolNames.includes(String(tool.name)) || !validThreadActivityString(tool.label, 128) ||
+    !validThreadActivityString(tool.agent_label, 128) ||
+    !boundedIdentity(tool.agent_id) || !["root", "specialist", "unknown"].includes(String(tool.agent_role)) ||
+    !threadActivityToolStatuses.includes(String(tool.status)) || !validDate(tool.started_at) ||
+    (tool.completed_at !== undefined && (!validDate(tool.completed_at) ||
+      Date.parse(String(tool.completed_at)) < Date.parse(String(tool.started_at)))) ||
+    !safeBoundedCount(tool.duration_milliseconds, Number.MAX_SAFE_INTEGER) ||
+    !validThreadActivityTypedDetail(tool.detail) ||
+    !isRecord(tool.detail) || tool.detail.kind !== expectedThreadActivityKind(String(tool.name))) {
+    throw new APIRequestError("Thread activity tool detail is invalid", "INVALID_RESPONSE", 502);
+  }
+  // The endpoint is Thread-scoped at the URL and store join. Keep the parameter
+  // in this parser contract so callers cannot accidentally reuse a response
+  // under another Thread cache key.
+  if (boundedIdentity(expectedThreadID) !== expectedThreadID) {
+    throw new APIRequestError("Thread activity owner is invalid", "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as ThreadActivityDetailView;
+}
+
+function parseThreadActivityArtifact(value: unknown, expectedActivityRef: string,
+  expectedArtifactRef: string): ThreadActivityArtifactView {
+  if (!isRecord(value) || !hasExactKeys(value, ["activity_ref", "artifact_ref", "content",
+    "instruction_authorized", "mime", "redacted", "sha256", "size_bytes", "stream",
+    "truncated", "untrusted", "version"]) ||
+    value.version !== "thread_activity_artifact.v1" ||
+    value.activity_ref !== expectedActivityRef || value.artifact_ref !== expectedArtifactRef ||
+    !["stdout", "stderr"].includes(String(value.stream)) ||
+    value.mime !== "text/plain; charset=utf-8" ||
+    !validThreadActivityString(value.content, maxThreadActivityArtifactBytes, true) ||
+    new TextEncoder().encode(value.content as string).byteLength !== value.size_bytes ||
+    !safeBoundedCount(value.size_bytes, maxThreadActivityArtifactBytes) ||
+    !/^[0-9a-f]{64}$/u.test(String(value.sha256)) || typeof value.redacted !== "boolean" ||
+    typeof value.truncated !== "boolean" || value.untrusted !== true ||
+    value.instruction_authorized !== false) {
+    throw new APIRequestError("Thread activity artifact is invalid", "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as ThreadActivityArtifactView;
+}
+
+function parsePublicModelStreamPoll(value: unknown,
+  expectedRunID: string): PublicModelStreamSnapshot | null {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["active", "snapshot", "version"]) ||
+    value.version !== "model_public_stream_poll.v1" || typeof value.active !== "boolean") {
+    throw new APIRequestError("Public model stream poll response is invalid",
+      "INVALID_RESPONSE", 502);
+  }
+  if (!value.active) {
+    if (value.snapshot !== undefined) {
+      throw new APIRequestError("Inactive public model stream poll returned a snapshot",
+        "INVALID_RESPONSE", 502);
+    }
+    return null;
+  }
+  if (value.snapshot === undefined) {
+    throw new APIRequestError("Active public model stream poll omitted its snapshot",
+      "INVALID_RESPONSE", 502);
+  }
+  return parsePublicModelStream(value.snapshot, expectedRunID);
+}
+
 function validPublicOutputItem(value: unknown, responseID: string): boolean {
   const required = ["durable", "id", "provisional", "response_id", "status", "type"];
   const allowed = [...required, "argument_bytes", "call_id", "durable_call_id", "tool_name"];
@@ -851,24 +1268,42 @@ function parseModelAvailability(value: unknown): ModelAvailabilityView {
   if (!hasExactKeys(value, ["generation", "protocol_version", "providers", "routes"]) ||
     value.protocol_version !== "model_availability.v2" || !Array.isArray(value.providers) ||
     !safeBoundedCount(value.generation, Number.MAX_SAFE_INTEGER) || value.generation < 1 ||
-    !Array.isArray(value.routes) || value.providers.length > 64 || value.routes.length > 64) {
+    !Array.isArray(value.routes) || value.providers.length > 70 || value.routes.length > 64) {
     throw new APIRequestError("Model availability response is invalid", "INVALID_RESPONSE", 502);
   }
   const providerNames = new Set<string>();
   const availableProviderNames = new Set<string>();
   const harnessReadiness = new Map<string, boolean>();
   for (const provider of value.providers) {
-    if (!hasExactKeys(provider, ["configuration_error", "credential_source", "kind", "models",
-      "harnesses", "name", "network_required", "status"]) || !boundedText(provider.name, 128) ||
+    if (!hasExactKeys(provider, ["configuration_error", "credential_source", "custom",
+      "definition_revision", "display_name", "enabled", "harnesses", "kind", "models",
+      "name", "native_web_search_capability", "native_web_search_runtime_enabled",
+      "network_required", "search_mode", "status", "transport"]) ||
+      !boundedText(provider.name, 128) || !boundedText(provider.display_name, 128) ||
       !["local", "anthropic_compatible", "openai_compatible", "ollama"].includes(
         String(provider.kind)) ||
       (provider.status !== "available" && provider.status !== "not_configured" &&
         provider.status !== "invalid_configuration") ||
       (provider.credential_source !== "none" && provider.credential_source !== "environment" &&
         provider.credential_source !== "system") ||
-      typeof provider.network_required !== "boolean" ||
+      typeof provider.network_required !== "boolean" || typeof provider.custom !== "boolean" ||
+      typeof provider.enabled !== "boolean" ||
+      !safeBoundedCount(provider.definition_revision, Number.MAX_SAFE_INTEGER) ||
+      !["mock", "anthropic_messages", "openai_chat_completions", "openai_responses",
+        "ollama_chat"].includes(
+        String(provider.transport)) ||
+      !["disabled", "auto", "searxng", "provider_native"].includes(
+        String(provider.search_mode)) ||
+      !["unsupported", "declared_unverified"].includes(
+        String(provider.native_web_search_capability)) ||
+      provider.native_web_search_runtime_enabled !== false ||
+      (provider.custom ? (!validCustomProviderID(provider.name) ||
+        provider.definition_revision < 1) : (provider.definition_revision !== 0 ||
+        provider.display_name !== provider.name || provider.enabled !== true ||
+        provider.search_mode !== "disabled" ||
+        provider.native_web_search_capability !== "unsupported")) ||
       typeof provider.configuration_error !== "boolean" || !Array.isArray(provider.models) ||
-      provider.models.length > 64 || !provider.models.every((model) => boundedText(model, 256)) ||
+      provider.models.length > 128 || !provider.models.every((model) => boundedText(model, 256)) ||
       !Array.isArray(provider.harnesses) || provider.harnesses.length !== provider.models.length ||
       providerNames.has(provider.name)) {
       throw new APIRequestError("Model Provider availability is invalid", "INVALID_RESPONSE", 502);
@@ -912,8 +1347,8 @@ function parseModelHarnessAvailability(value: unknown): ModelHarnessAvailability
     "strict_json_qualified", "structured_json_eligible", "tool_calls_qualified",
     "tool_results_qualified", "tool_strategy", "transport_protocol"]) ||
     value.protocol_version !== "model_harness.v1" || !boundedText(value.model, 256) ||
-    !["mock", "anthropic_messages", "openai_chat_completions", "ollama_chat",
-      "provider_contract"].includes(
+    !["mock", "anthropic_messages", "openai_chat_completions", "openai_responses",
+      "ollama_chat", "provider_contract"].includes(
       String(value.transport_protocol)) ||
     !["native", "none"].includes(String(value.tool_strategy)) ||
     !["native", "prompt", "none"].includes(String(value.json_strategy)) ||
@@ -1017,16 +1452,22 @@ function parseApprovalQueue(value: unknown, expectedRunID: string): ApprovalQueu
   const identities = new Set<string>();
   for (const item of value.items) {
     const itemID = isRecord(item) ? boundedIdentity(item.id) : "";
-    if (!hasExactKeys(item, ["action_class", "allowed_actions", "capability_grant", "created_at",
+    const requiredKeys = ["action_class", "allowed_actions", "capability_grant", "created_at",
       "id", "mode", "process_execution_enabled", "proposal_id", "run_id", "session_id",
-      "status", "tool_name", "updated_at", "version", "workspace_id"]) ||
-      item.run_id !== expectedRunID || item.status !== "pending" || !itemID ||
+      "status", "tool_name", "updated_at", "version", "workspace_id"];
+    const optionalKeys = ["canonical_url", "exact_target"];
+    if (!isRecord(item) || !hasOnlyKeys(item, [...requiredKeys, ...optionalKeys]) ||
+      requiredKeys.some((key) => !Object.prototype.hasOwnProperty.call(item, key)) ||
+      item.run_id !== expectedRunID ||
+      !["pending", "approved", "denied"].includes(String(item.status)) || !itemID ||
       !boundedIdentity(item.proposal_id) || !boundedIdentity(item.run_id) ||
-      !boundedIdentity(item.session_id) || !boundedIdentity(item.workspace_id) ||
+      !boundedIdentity(item.session_id) ||
+      (item.workspace_id !== "" && !boundedIdentity(item.workspace_id)) ||
       !boundedText(item.tool_name, 128) || !boundedText(item.action_class, 128) ||
       !boundedText(item.mode, 64) || !Array.isArray(item.allowed_actions) ||
-      item.allowed_actions.length > 2 ||
-      !item.allowed_actions.every((action) => action === "approve_once" || action === "deny") ||
+      item.allowed_actions.length > 3 ||
+      !item.allowed_actions.every((action) => action === "approve_once" ||
+        action === "approve_for_thread" || action === "deny") ||
       new Set(item.allowed_actions).size !== item.allowed_actions.length ||
       !safePositiveInteger(item.version) || !validDate(item.created_at) ||
       !validDate(item.updated_at) || item.process_execution_enabled !== false ||
@@ -1036,6 +1477,24 @@ function parseApprovalQueue(value: unknown, expectedRunID: string): ApprovalQueu
     if (item.tool_name === "replace_file" && item.allowed_actions.includes("approve_once")) {
       throw new APIRequestError("File approval exposed write authority", "INVALID_RESPONSE", 502);
     }
+    const webFetch = item.tool_name === "web_fetch";
+    const recovering = item.status === "approved" || item.status === "denied";
+    const validWebFetchActions = item.status === "pending"
+      ? item.allowed_actions.length === 3 &&
+        item.allowed_actions.includes("approve_once") &&
+        item.allowed_actions.includes("approve_for_thread") &&
+        item.allowed_actions.includes("deny")
+      : item.allowed_actions.length === 1 && (item.status === "approved"
+        ? ["approve_once", "approve_for_thread"].includes(String(item.allowed_actions[0]))
+        : item.allowed_actions[0] === "deny");
+    if (webFetch ? item.action_class !== "public_https_fetch" ||
+      !boundedText(item.canonical_url, 4_096) || !boundedText(item.exact_target, 253) ||
+      !item.canonical_url.startsWith("https://") ||
+      !validWebFetchActions
+      : item.canonical_url !== undefined || item.exact_target !== undefined ||
+        item.allowed_actions.includes("approve_for_thread") || recovering) {
+      throw new APIRequestError("Web fetch approval projection is invalid", "INVALID_RESPONSE", 502);
+    }
     identities.add(itemID);
   }
   return value as unknown as ApprovalQueueView;
@@ -1043,16 +1502,21 @@ function parseApprovalQueue(value: unknown, expectedRunID: string): ApprovalQueu
 
 function parseApprovalDecision(value: unknown, expectedRunID: string, expectedApprovalID: string,
   request: ApprovalDecisionControlRequestView): ApprovalDecisionControlView {
-  const expectedStatus = request.action === "approve_once" ? "approved" : "denied";
+  const expectedStatus = request.action === "deny" ? "denied" : "approved";
   if (!hasExactKeys(value, ["action", "approval_id", "capability_grant",
-    "docker_execution_enabled", "process_execution_enabled", "proposal_id", "replayed", "run_id",
-    "session_grant_created", "shell_execution_enabled", "status", "tool_name", "version",
-    "workspace_write_applied"]) || value.version !== "approval_control.v1" ||
+    "docker_execution_enabled", "execution_resumed", "process_execution_enabled", "proposal_id",
+    "replayed", "retry_completed", "retry_scheduled", "run_id", "session_grant_created",
+    "shell_execution_enabled", "status", "tool_name", "version", "workspace_write_applied"]) ||
+    value.version !== "approval_control.v1" ||
     value.run_id !== expectedRunID || value.approval_id !== expectedApprovalID ||
     value.action !== request.action || value.status !== expectedStatus ||
     !boundedIdentity(value.run_id) || !boundedIdentity(value.approval_id) ||
     !boundedIdentity(value.proposal_id) || !boundedText(value.tool_name, 128) ||
-    typeof value.replayed !== "boolean" || value.process_execution_enabled !== false ||
+    typeof value.replayed !== "boolean" || typeof value.execution_resumed !== "boolean" ||
+    typeof value.retry_completed !== "boolean" || typeof value.retry_scheduled !== "boolean" ||
+    value.execution_resumed !== false || value.retry_completed !== false ||
+    (value.tool_name !== "web_fetch" && value.retry_scheduled !== false) ||
+    value.process_execution_enabled !== false ||
     value.shell_execution_enabled !== false || value.docker_execution_enabled !== false ||
     value.workspace_write_applied !== false || value.session_grant_created !== false ||
     value.capability_grant !== false) {
@@ -1420,6 +1884,152 @@ function validateRiskEscalationProposal(value: Record<string, unknown>): void {
   }
 }
 
+const availableRouteCredentialStatuses = ["not_required", "configured", "not_configured",
+  "invalid_configuration", "disabled", "unavailable"] as const;
+const availableRouteQualificationStatuses = ["unavailable", "not_configured", "available",
+  "protocol_mismatch", "auth_failed", "network_failed", "rate_limit", "capacity",
+  "model_unsupported", "trusted_builtin", "qualification_required", "verified"] as const;
+const unavailableRouteReasons = ["", "provider_disabled", "credential_not_configured",
+  "invalid_configuration", "provider_unavailable", "harness_qualification_required",
+  "not_configured", "protocol_mismatch", "auth_failed", "network_failed", "rate_limit",
+  "capacity", "model_unsupported"] as const;
+
+function parseAvailableModelRoute(value: unknown): AvailableModelRouteCollectionView["routes"][number] {
+  if (!hasExactKeys(value, ["credential_status", "default_for_routes", "enabled",
+    "harness_ready", "model", "provider_id", "provider_name", "qualification_status",
+    "selectable", "unavailable_reason"]) ||
+    !boundedIdentity(value.provider_id) || !boundedText(value.provider_name, 256) ||
+    !boundedIdentity(value.model) || typeof value.enabled !== "boolean" ||
+    typeof value.harness_ready !== "boolean" || typeof value.selectable !== "boolean" ||
+    !availableRouteCredentialStatuses.includes(value.credential_status as never) ||
+    !availableRouteQualificationStatuses.includes(value.qualification_status as never) ||
+    !unavailableRouteReasons.includes(value.unavailable_reason as never) ||
+    !Array.isArray(value.default_for_routes) || value.default_for_routes.length > 32 ||
+    !value.default_for_routes.every((route) => Boolean(boundedIdentity(route)))) {
+    throw new APIRequestError("Available model route response is invalid",
+      "INVALID_RESPONSE", 502);
+  }
+  const defaults = value.default_for_routes as string[];
+  const selectableQualification = ["available", "trusted_builtin", "verified"]
+    .includes(String(value.qualification_status));
+  if (new Set(defaults).size !== defaults.length ||
+    (value.selectable && (!value.enabled || !value.harness_ready ||
+      !["configured", "not_required"].includes(String(value.credential_status)) ||
+      value.unavailable_reason !== "" || !selectableQualification)) ||
+    (!value.selectable && value.unavailable_reason === "")) {
+    throw new APIRequestError("Available model route response violated its eligibility contract",
+      "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as AvailableModelRouteCollectionView["routes"][number];
+}
+
+function parseAvailableModelRouteCollection(value: unknown): AvailableModelRouteCollectionView {
+  if (!hasExactKeys(value, ["generation", "protocol_version", "routes"]) ||
+    value.protocol_version !== "model_route_catalog.v1" ||
+    !safeBoundedCount(value.generation, Number.MAX_SAFE_INTEGER) || !Array.isArray(value.routes) ||
+    value.routes.length > 1_024) {
+    throw new APIRequestError("Available model route catalog is invalid", "INVALID_RESPONSE", 502);
+  }
+  const routes = value.routes.map(parseAvailableModelRoute);
+  const keys = routes.map((route) => `${route.provider_id}\0${route.model}`);
+  if (new Set(keys).size !== keys.length) {
+    throw new APIRequestError("Available model route catalog contains duplicate routes",
+      "INVALID_RESPONSE", 502);
+  }
+  return { ...value, routes } as AvailableModelRouteCollectionView;
+}
+
+function parseThreadModelRoute(value: unknown, threadID: string,
+  request?: ThreadModelRouteControlRequestView): ThreadModelRouteView {
+  const required = ["active_run_unchanged", "applies_to", "model", "protocol_version",
+    "provider", "replayed", "source", "thread_id"];
+  if (!isRecord(value) || !hasOnlyKeys(value, [...required, "effective_run_id"]) ||
+    required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
+    value.protocol_version !== "thread_model_route.v1" || value.thread_id !== threadID ||
+    !boundedIdentity(value.thread_id) || !boundedIdentity(value.provider) ||
+    !boundedIdentity(value.model) ||
+    !["thread_preference", "default", "active_run"].includes(String(value.source)) ||
+    !["next_run", "current_and_next"].includes(String(value.applies_to)) ||
+    typeof value.active_run_unchanged !== "boolean" || typeof value.replayed !== "boolean" ||
+    (value.effective_run_id !== undefined && !boundedIdentity(value.effective_run_id))) {
+    throw new APIRequestError("Thread model route response is invalid", "INVALID_RESPONSE", 502);
+  }
+  const currentAndNext = value.applies_to === "current_and_next";
+  if (currentAndNext !== (value.effective_run_id !== undefined) ||
+    (value.active_run_unchanged && currentAndNext) ||
+    (value.source === "active_run" && !currentAndNext) ||
+    (request?.action === "select" &&
+      (value.provider !== request.provider || value.model !== request.model)) ||
+    (request?.action === "reset" && value.source === "thread_preference")) {
+    throw new APIRequestError("Thread model route response violated its exact binding",
+      "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as ThreadModelRouteView;
+}
+
+const providerSearchStates = ["network_disabled", "missing_allowlist",
+  "provider_unqualified", "provider_unavailable", "ready"] as const;
+const providerSearchReasons = ["run_network_disabled", "search_endpoint_not_allowlisted",
+  "provider_native_qualification_required", "provider_native_qualification_failed",
+  "no_active_run", "model_provider_unavailable", "provider_search_policy_disabled",
+  "search_backend_not_configured", "provider_search_configuration_invalid",
+  "search_backend_ready"] as const;
+const providerSearchRemediations = ["enable_network_allowlist", "add_required_target",
+  "qualify_provider_search", "submit_to_create_successor", "configure_search_provider",
+  "enable_provider_search", "repair_provider_configuration", "none"] as const;
+
+function validSearchTarget(value: unknown): value is string {
+  if (typeof value !== "string" || value.length < 1 || value.length > 253 ||
+    value !== value.trim() || value !== value.toLowerCase()) return false;
+  try {
+    const parsed = new URL(`https://${value}`);
+    return parsed.hostname === value && parsed.username === "" && parsed.password === "" &&
+      parsed.port === "" && parsed.pathname === "/" && parsed.search === "" && parsed.hash === "";
+  } catch {
+    return false;
+  }
+}
+
+function parseProviderSearchReadiness(value: unknown,
+  threadID: string): ProviderSearchReadinessView {
+  const required = ["capability_grant", "network_mode", "protocol_version", "reason",
+    "remediation", "runtime_ready", "state", "thread_id"];
+  const optional = ["detail_code", "mode_revision", "model", "model_route", "provider",
+    "required_target", "run_id", "search_policy"];
+  if (!isRecord(value) || !hasOnlyKeys(value, [...required, ...optional]) ||
+    required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
+    value.protocol_version !== "provider_search_readiness.v1" || value.thread_id !== threadID ||
+    !boundedIdentity(value.thread_id) ||
+    !providerSearchStates.includes(value.state as never) ||
+    !providerSearchReasons.includes(value.reason as never) ||
+    !providerSearchRemediations.includes(value.remediation as never) ||
+    !["", "disabled", "allowlist"].includes(String(value.network_mode)) ||
+    typeof value.runtime_ready !== "boolean" || value.capability_grant !== false ||
+    (value.run_id !== undefined && !boundedIdentity(value.run_id)) ||
+    (value.model_route !== undefined && !boundedText(value.model_route, 512)) ||
+    (value.provider !== undefined && !boundedIdentity(value.provider)) ||
+    (value.model !== undefined && !boundedIdentity(value.model)) ||
+    (value.search_policy !== undefined && !["disabled", "searxng", "provider_native", "auto"]
+      .includes(String(value.search_policy))) ||
+    (value.detail_code !== undefined && !boundedText(value.detail_code, 256)) ||
+    (value.required_target !== undefined && !validSearchTarget(value.required_target)) ||
+    (value.mode_revision !== undefined && !safePositiveInteger(value.mode_revision))) {
+    throw new APIRequestError("Provider search readiness response is invalid",
+      "INVALID_RESPONSE", 502);
+  }
+  const ready = value.state === "ready";
+  const noActiveRun = value.reason === "no_active_run";
+  if (value.runtime_ready !== ready || (ready && value.remediation !== "none") ||
+    (!ready && value.remediation === "none") ||
+    (value.state === "network_disabled" && value.network_mode !== "disabled") ||
+    (noActiveRun !== (value.run_id === undefined)) ||
+    (!noActiveRun && (value.mode_revision === undefined || value.run_id === undefined))) {
+    throw new APIRequestError("Provider search readiness violated its binding",
+      "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as ProviderSearchReadinessView;
+}
+
 function parseModelRouteControl(value: unknown, route: string,
   request: ModelRouteControlRequestView): ModelAvailabilityView["routes"][number] {
   if (!hasExactKeys(value, ["available", "harness_ready", "model", "name", "provider"]) ||
@@ -1547,7 +2157,7 @@ function parseProviderCredentialStatus(value: unknown,
     "provider", "registry_generation", "registry_reloaded", "restart_required",
     "store_available", "store_kind"]) ||
     value.protocol_version !== "provider_credential.v1" ||
-    !["anthropic", "deepseek", "mimo", "openai"].includes(String(value.provider)) ||
+    !validProviderCredentialName(value.provider) ||
     (expectedProvider !== "" && value.provider !== expectedProvider) ||
     typeof value.configured !== "boolean" || typeof value.store_available !== "boolean" ||
     !boundedText(value.store_kind, 128) || value.plaintext_returned !== false ||
@@ -1563,7 +2173,7 @@ function parseProviderCredentialStatus(value: unknown,
 function parseProviderCredentialList(value: unknown): ProviderCredentialListView {
   if (!hasExactKeys(value, ["items", "protocol_version"]) ||
     value.protocol_version !== "provider_credential.v1" || !Array.isArray(value.items) ||
-    value.items.length !== 4) {
+    value.items.length < 4 || value.items.length > 68) {
     throw new APIRequestError("Provider credential list is invalid", "INVALID_RESPONSE", 502);
   }
   const items = value.items.map((item) => parseProviderCredentialStatus(item));
@@ -1574,6 +2184,110 @@ function parseProviderCredentialList(value: unknown): ProviderCredentialListView
       "INVALID_RESPONSE", 502);
   }
   return { ...value, items } as unknown as ProviderCredentialListView;
+}
+
+const customProviderDefinitionKeys = ["advanced_config", "default_model", "display_name",
+  "enabled", "endpoint_url", "id", "models", "native_web_search_capability", "note",
+  "revision", "search_mode", "transport", "version", "website_url"];
+
+function validProviderCredentialName(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 64 &&
+    /^[\p{L}\p{N}_-]+$/u.test(value);
+}
+
+function validCustomProviderID(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 64 &&
+    /^[a-z][a-z0-9_-]*$/u.test(value) &&
+    !["anthropic", "deepseek", "mimo", "mock", "ollama", "openai"].includes(value);
+}
+
+function validProviderAdvancedConfig(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  try {
+    if (new TextEncoder().encode(JSON.stringify(value)).length > 65_536) return false;
+  } catch {
+    return false;
+  }
+  let nodes = 0;
+  const visit = (current: unknown, depth: number): boolean => {
+    nodes += 1;
+    if (nodes > 2_048 || depth > 16) return false;
+    if (current === null || typeof current === "boolean" || typeof current === "number" ||
+      typeof current === "string") return true;
+    if (Array.isArray(current)) return current.every((child) => visit(child, depth + 1));
+    return isRecord(current) && Object.entries(current).every(([key, child]) =>
+      key.length > 0 && key.length <= 128 && visit(child, depth + 1));
+  };
+  return visit(value, 1);
+}
+
+function parseProviderDefinition(value: unknown): ProviderDefinitionView {
+  if (!hasExactKeys(value, customProviderDefinitionKeys) ||
+    value.version !== "provider_definition.v1" || !validCustomProviderID(value.id) ||
+    !boundedText(value.display_name, 128) ||
+    typeof value.note !== "string" || value.note.length > 2_048 ||
+    typeof value.website_url !== "string" || value.website_url.length > 2_048 ||
+    typeof value.endpoint_url !== "string" || value.endpoint_url.length === 0 ||
+    value.endpoint_url.length > 2_048 || !boundedIdentity(value.default_model) ||
+    !Array.isArray(value.models) || value.models.length < 1 || value.models.length > 128 ||
+    !value.models.every((model) => Boolean(boundedIdentity(model))) ||
+    new Set(value.models).size !== value.models.length ||
+    !value.models.includes(value.default_model as string) ||
+    !["openai_chat_completions", "openai_responses", "anthropic_messages"]
+      .includes(String(value.transport)) ||
+    !["disabled", "auto", "searxng", "provider_native"].includes(String(value.search_mode)) ||
+    !["unsupported", "declared_unverified"].includes(
+      String(value.native_web_search_capability)) ||
+    (value.search_mode === "provider_native" &&
+      value.native_web_search_capability !== "declared_unverified") ||
+    typeof value.enabled !== "boolean" || !safeBoundedCount(value.revision, Number.MAX_SAFE_INTEGER) ||
+    !validProviderAdvancedConfig(value.advanced_config)) {
+    throw new APIRequestError("Custom Provider definition is invalid", "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as ProviderDefinitionView;
+}
+
+function parseProviderDefinitionCollection(value: unknown): ProviderDefinitionCollectionView {
+  if (!hasExactKeys(value, ["providers", "revision", "version"]) ||
+    value.version !== "provider_definition_collection.v1" ||
+    !safeBoundedCount(value.revision, Number.MAX_SAFE_INTEGER) ||
+    !Array.isArray(value.providers) || value.providers.length > 64) {
+    throw new APIRequestError("Custom Provider collection is invalid", "INVALID_RESPONSE", 502);
+  }
+  const providers = value.providers.map(parseProviderDefinition);
+  if (new Set(providers.map((provider) => provider.id)).size !== providers.length ||
+    providers.some((provider, index) => index > 0 && providers[index - 1].id >= provider.id)) {
+    throw new APIRequestError("Custom Provider collection order is invalid", "INVALID_RESPONSE", 502);
+  }
+  return { ...value, providers } as ProviderDefinitionCollectionView;
+}
+
+function parseProviderDefinitionMutation(value: unknown,
+  expectedProvider: string, remove: boolean): ProviderDefinitionMutationView {
+  if (!hasRequiredOnlyKeys(value, ["collection", "protocol_version", "registry_generation",
+    "registry_reloaded"], ["definition", "deleted_id"]) ||
+    value.protocol_version !== "provider_definition_control.v1" ||
+    value.registry_reloaded !== true ||
+    !safePositiveInteger(value.registry_generation)) {
+    throw new APIRequestError("Custom Provider mutation result is invalid", "INVALID_RESPONSE", 502);
+  }
+  const collection = parseProviderDefinitionCollection(value.collection);
+  if (remove) {
+    if (value.deleted_id !== expectedProvider || value.definition !== undefined ||
+      collection.providers.some((provider) => provider.id === expectedProvider)) {
+      throw new APIRequestError("Custom Provider deletion returned the wrong identity",
+        "INVALID_RESPONSE", 502);
+    }
+    return { ...value, collection } as ProviderDefinitionMutationView;
+  }
+  const definition = parseProviderDefinition(value.definition);
+  if (definition.id !== expectedProvider || value.deleted_id !== undefined ||
+    !collection.providers.some((provider) => provider.id === expectedProvider &&
+      provider.revision === definition.revision)) {
+    throw new APIRequestError("Custom Provider upsert returned the wrong identity",
+      "INVALID_RESPONSE", 502);
+  }
+  return { ...value, collection, definition } as ProviderDefinitionMutationView;
 }
 
 const uiEvidenceStatuses = ["not_run", "running", "passed", "failed", "cancelled",
@@ -1952,6 +2666,7 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
     "command_runtime_adapters", "docker_execution_enabled",
     "code_intel_enabled",
     "browser_cdp_permission_control_enabled", "full_cdp_debug_enabled",
+    "full_cdp_session_control_enabled",
     "controlled_command_proposal_control_enabled",
     "host_command_proposal_control_enabled",
     "execution_permission_control_enabled", "workspace_sandbox_enabled",
@@ -2050,7 +2765,9 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
     (!scheduledWorker.enabled && (scheduledWorker.state !== "disabled" ||
       scheduledWorker.active || scheduledWorker.poll_interval_ms !== 0)) ||
     (value.full_cdp_debug_enabled && (!value.browser_cdp_permission_control_enabled ||
-      !value.debug_maximum_access_enabled)) ||
+      !value.danger_full_access_enabled)) ||
+    (value.full_cdp_session_control_enabled && (!value.full_cdp_debug_enabled ||
+      !value.browser_cdp_permission_control_enabled || !value.danger_full_access_enabled)) ||
     (value.workspace_sandbox_enabled && !value.execution_permission_control_enabled) ||
     value.thread_control_enabled !==
       (value.run_creation_enabled && value.session_message_enabled) ||
@@ -2072,6 +2789,126 @@ function parseRuntimeCapabilities(value: unknown): RuntimeCapabilitiesView {
       "INVALID_RESPONSE", 502);
   }
   return value as unknown as RuntimeCapabilitiesView;
+}
+
+function parseStrictRunMode(value: unknown): Record<string, unknown> {
+  const keys = ["capability_grant", "created_at", "phase", "policy_version", "profile",
+    "protocol_version", "reason", "requested_by", "revision", "scope", "surface"];
+  if (!hasExactKeys(value, keys) || value.capability_grant !== false ||
+    value.protocol_version !== "run_mode.v1" || value.policy_version !== "mode_policy.v1" ||
+    !safePositiveInteger(value.revision) || typeof value.surface !== "string" ||
+    !["code", "cyber"].includes(value.surface) || typeof value.phase !== "string" ||
+    !["plan", "deliver"].includes(value.phase) || typeof value.profile !== "string" ||
+    !["code", "review", "learn", "script"].includes(value.profile) ||
+    !boundedText(value.requested_by, 256) || !boundedText(value.reason, 1_024) ||
+    !validDate(value.created_at) || !isRecord(value.scope) ||
+    !hasOnlyKeys(value.scope, ["allowed_targets", "network_mode", "workspace_id"]) ||
+    !Object.prototype.hasOwnProperty.call(value.scope, "network_mode") ||
+    (value.scope.workspace_id !== undefined && !boundedIdentity(value.scope.workspace_id))) {
+    throw new APIRequestError("Run mode response is invalid", "INVALID_RESPONSE", 502);
+  }
+  return value;
+}
+
+function parseRunNetworkAuthorityControl(value: unknown, expectedRunID: string,
+  request: RunNetworkAuthorityControlRequestView): RunNetworkAuthorityControlView {
+  const mode = isRecord(value) && Object.prototype.hasOwnProperty.call(value, "mode")
+    ? parseStrictRunMode(value.mode) : null;
+  if (!hasExactKeys(value, ["added_targets", "capability_grant", "mode", "replayed",
+    "run_id", "version"]) ||
+    value.version !== "run_network_authority_control.v1" ||
+    value.run_id !== expectedRunID || typeof value.replayed !== "boolean" ||
+    value.capability_grant !== true || mode === null ||
+    mode.revision !== request.expected_mode_revision + 1 ||
+    !isRecord(mode.scope) || mode.scope.network_mode !== "allowlist" ||
+    !Array.isArray(value.added_targets) ||
+    value.added_targets.some((target) => typeof target !== "string") ||
+    !Array.isArray(mode.scope.allowed_targets) ||
+    mode.scope.allowed_targets.some((target) => typeof target !== "string")) {
+    throw new APIRequestError("Run network authority response is invalid",
+      "INVALID_RESPONSE", 502);
+  }
+  const expected = normalizeRequestedNetworkAuthority({ network_mode: "allowlist",
+    allowed_targets: request.add_allowed_targets });
+  const rawAdded = value.added_targets as string[];
+  const rawAllowed = mode.scope.allowed_targets as string[];
+  const added = rawAdded.map((target) => canonicalExactNetworkTarget(target));
+  const allowed = rawAllowed.map((target) => canonicalExactNetworkTarget(target));
+  if (added.length !== expected.targets.length || added.length > 256 ||
+    rawAdded.some((target, index) => target !== added[index]) ||
+    rawAllowed.some((target, index) => target !== allowed[index]) ||
+    added.some((target, index) => target !== expected.targets[index]) ||
+    allowed.length < added.length || allowed.length > 256 ||
+    allowed.some((target, index) => index > 0 && allowed[index - 1]! >= target) ||
+    added.some((target) => !allowed.includes(target))) {
+    throw new APIRequestError("Run network authority response changed its exact target grant",
+      "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as RunNetworkAuthorityControlView;
+}
+
+function parseFullCDPSession(value: unknown, expectedRunID: string): FullCDPSessionView {
+  const required = ["cdp_closed", "process_tree_quiescent", "profile_cleaned",
+    "profile_released", "run_id", "runtime_available", "state", "version"];
+  const optional = ["browser", "close_reason", "completed_at", "expires_at", "failure_code",
+    "session_id", "started_at", "target_origin"];
+  if (!isRecord(value) || !hasOnlyKeys(value, [...required, ...optional]) ||
+    required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
+    value.version !== "full_cdp_session.v1" || value.run_id !== expectedRunID ||
+    !boundedIdentity(value.run_id) ||
+    !["none", "starting", "ready", "closing", "closed", "failed"]
+      .includes(String(value.state)) ||
+    typeof value.runtime_available !== "boolean" || typeof value.cdp_closed !== "boolean" ||
+    typeof value.process_tree_quiescent !== "boolean" ||
+    typeof value.profile_released !== "boolean" || typeof value.profile_cleaned !== "boolean" ||
+    (value.session_id !== undefined && !boundedIdentity(value.session_id)) ||
+    (value.target_origin !== undefined && !boundedText(value.target_origin, 2_048)) ||
+    (value.started_at !== undefined && !validDate(value.started_at)) ||
+    (value.expires_at !== undefined && !validDate(value.expires_at)) ||
+    (value.completed_at !== undefined && !validDate(value.completed_at)) ||
+    (value.failure_code !== undefined && !/^[a-z_]{1,96}$/u.test(String(value.failure_code))) ||
+    (value.close_reason !== undefined && !["operator_closed", "expired", "permission_revoked",
+      "process_exited", "run_terminal", "desktop_shutdown", "open_failed"]
+      .includes(String(value.close_reason)))) {
+    throw new APIRequestError("Full CDP session response is invalid", "INVALID_RESPONSE", 502);
+  }
+  const noSession = value.state === "none";
+  if (noSession !== (value.session_id === undefined) ||
+    noSession !== (value.browser === undefined) ||
+    (value.profile_cleaned && !value.profile_released) ||
+    ((value.state === "ready" || value.state === "closed") &&
+      (!validDate(value.started_at) || !validDate(value.expires_at) ||
+        !boundedText(value.target_origin, 2_048))) ||
+    (value.state === "closing" &&
+      [value.started_at, value.expires_at, value.target_origin].filter(
+        (item) => item !== undefined).length !== 0 &&
+      (!validDate(value.started_at) || !validDate(value.expires_at) ||
+        !boundedText(value.target_origin, 2_048))) ||
+    ((value.state === "closed" || value.state === "failed") !==
+      (value.completed_at !== undefined)) ||
+    (value.state === "closed" && (!value.cdp_closed || !value.process_tree_quiescent ||
+      !value.profile_released || !value.profile_cleaned || value.failure_code !== undefined ||
+      value.close_reason === undefined))) {
+    throw new APIRequestError("Full CDP session lifecycle response is inconsistent",
+      "INVALID_RESPONSE", 502);
+  }
+  if (value.browser !== undefined && (!hasExactKeys(value.browser, ["channel", "product"]) ||
+    !["chrome", "edge"].includes(String(value.browser.product)) ||
+    !["stable", "beta", "dev", "canary"].includes(String(value.browser.channel)))) {
+    throw new APIRequestError("Full CDP browser selection response is invalid",
+      "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as FullCDPSessionView;
+}
+
+function parseFullCDPSessionControl(value: unknown, expectedRunID: string):
+  FullCDPSessionControlView {
+  if (!hasExactKeys(value, ["replayed", "session"]) || typeof value.replayed !== "boolean") {
+    throw new APIRequestError("Full CDP session control response is invalid",
+      "INVALID_RESPONSE", 502);
+  }
+  return { ...value, session: parseFullCDPSession(value.session, expectedRunID) } as
+    unknown as FullCDPSessionControlView;
 }
 
 const capabilityReadinessBlockers = [
@@ -2377,6 +3214,7 @@ export function clientCapabilitiesFromRuntime(value: RuntimeCapabilitiesView): C
     workspaceSandboxEnabled: value.workspace_sandbox_enabled,
     browserCDPPermissionControlEnabled: value.browser_cdp_permission_control_enabled,
     fullCDPDebugEnabled: value.full_cdp_debug_enabled,
+    fullCDPSessionControlEnabled: value.full_cdp_session_control_enabled,
     operatorApprovalEnabled: value.operator_approval_enabled,
     dangerFullAccessEnabled: value.danger_full_access_enabled,
     debugMaximumAccessEnabled: value.debug_maximum_access_enabled,
@@ -2482,7 +3320,7 @@ function parseFileEditProposalRecovery(value: unknown, runID: string,
   return value as unknown as FileEditProposalRecoveryView;
 }
 
-function parseFileEditPreview(value: unknown): FileEditQueueView["items"][number] {
+function parseFileEditPreview(value: unknown): FileEditPreviewView {
   if (!isRecord(value) || !hasOnlyKeys(value, ["allowed_actions", "apply_enabled", "created_at",
     "destination_original_hash", "destination_path", "destination_proposed_hash", "diff", "id",
     "operation", "original_hash", "path", "proposed_hash", "reason", "secrets_redacted",
@@ -2511,7 +3349,7 @@ function parseFileEditPreview(value: unknown): FileEditQueueView["items"][number
     throw new APIRequestError("File edit preview violated its metadata-only contract",
       "INVALID_RESPONSE", 502);
   }
-  return value as unknown as FileEditQueueView["items"][number];
+  return value as unknown as FileEditPreviewView;
 }
 
 function parseFileEditQueue(value: unknown, runID: string): FileEditQueueView {
@@ -4502,9 +5340,80 @@ function validWorkspaceEntryName(value: unknown): value is string {
     !value.includes(":") && !/[\u0000-\u001f\u007f]/u.test(value);
 }
 
-function hasNoAllowedTargets(scope: Record<string, unknown>): boolean {
-  return scope.allowed_targets === undefined ||
-    (Array.isArray(scope.allowed_targets) && scope.allowed_targets.length === 0);
+type RequestedNetworkAuthority = {
+  mode: "disabled" | "allowlist";
+  targets: string[];
+};
+
+function normalizeRequestedNetworkAuthority(request: {
+  network_mode?: string;
+  allowed_targets?: string[];
+}): RequestedNetworkAuthority {
+  const mode = request.network_mode ?? "disabled";
+  const rawTargets = request.allowed_targets ?? [];
+  if (mode === "disabled") {
+    if (rawTargets.length !== 0) {
+      throw new Error("Disabled network authority cannot include allowed targets");
+    }
+    return { mode, targets: [] };
+  }
+  if (mode !== "allowlist" || rawTargets.length === 0 || rawTargets.length > 256) {
+    throw new Error("Network authority requires a bounded exact allowlist");
+  }
+  const targets = [...new Set(rawTargets.map(canonicalExactNetworkTarget))].sort();
+  if (targets.length === 0) {
+    throw new Error("Network authority requires an exact allowed target");
+  }
+  return { mode, targets };
+}
+
+export function canonicalExactNetworkTarget(raw: string): string {
+  const target = raw.trim();
+  const lower = target.toLowerCase();
+  if (target === "" || target.includes("*") || lower === "public_https" ||
+    /[\\?#]/u.test(target) || target.includes("@")) {
+    throw new Error("Network allowlist targets must identify exact public HTTPS hosts");
+  }
+  if (lower.includes("://") && !lower.startsWith("https://")) {
+    throw new Error("Network allowlist target origins must use HTTPS");
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(lower.includes("://") ? target : `https://${target}`);
+  } catch {
+    throw new Error("Network allowlist target is invalid");
+  }
+  if (parsed.protocol !== "https:" || parsed.username !== "" || parsed.password !== "" ||
+    (parsed.port !== "" && parsed.port !== "443") || parsed.pathname !== "/" ||
+    parsed.search !== "" || parsed.hash !== "") {
+    throw new Error("Network allowlist targets must be exact HTTPS origins or hosts");
+  }
+  const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/gu, "")
+    .replace(/\.$/u, "");
+  if (hostname === "" || hostname === "localhost" ||
+    !hostname.includes(".") || hostname.includes(":") ||
+    /^\d+(?:\.\d+){3}$/u.test(hostname) ||
+    hostname.split(".").some((label) => label === "" || label.length > 63 ||
+      label.startsWith("-") || label.endsWith("-") || !/^[a-z0-9-]+$/u.test(label)) ||
+    [".localhost", ".local", ".internal", ".intranet", ".corp", ".home", ".lan",
+      ".home.arpa", ".localdomain", ".test", ".invalid", ".example"]
+      .some((suffix) => hostname.endsWith(suffix))) {
+    throw new Error("Network allowlist target must be a public host");
+  }
+  return hostname;
+}
+
+function scopeMatchesRequestedNetworkAuthority(scope: Record<string, unknown>,
+  expected: RequestedNetworkAuthority): boolean {
+  if (scope.network_mode !== expected.mode) {
+    return false;
+  }
+  const targets = scope.allowed_targets;
+  if (expected.mode === "disabled") {
+    return targets === undefined || (Array.isArray(targets) && targets.length === 0);
+  }
+  return Array.isArray(targets) && targets.length === expected.targets.length &&
+    targets.every((target, index) => target === expected.targets[index]);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -4956,6 +5865,7 @@ export class CyberAgentClient {
   readonly hasExecutionPermissionControl: boolean;
   readonly hasBrowserCDPPermissionControl: boolean;
   readonly hasFullCDPDebug: boolean;
+  readonly hasFullCDPSessionControl: boolean;
   readonly hasRunCreation: boolean;
   readonly hasStandardCodePreset: boolean;
   readonly hasSessionMessages: boolean;
@@ -4968,6 +5878,7 @@ export class CyberAgentClient {
   readonly hasControlledCommandProposalControl: boolean;
   readonly hasHostCommandProposalControl: boolean;
   readonly hasModelControl: boolean;
+  readonly hasProviderDefinitions: boolean;
   readonly hasProviderCredentials: boolean;
   readonly hasFileEditReview: boolean;
   readonly hasFileEditProposals: boolean;
@@ -5007,6 +5918,8 @@ export class CyberAgentClient {
       (capabilities.browserCDPPermissionControlEnabled ?? false);
     this.hasFullCDPDebug = this.hasBrowserCDPPermissionControl &&
       (capabilities.fullCDPDebugEnabled ?? false);
+    this.hasFullCDPSessionControl = this.hasFullCDPDebug &&
+      (capabilities.fullCDPSessionControlEnabled ?? false);
     this.hasRunCreation = controlPresent && (capabilities.runCreationEnabled ?? true);
     this.hasStandardCodePreset = controlPresent &&
       (capabilities.standardCodePresetEnabled ?? false);
@@ -5027,6 +5940,7 @@ export class CyberAgentClient {
       (capabilities.hostCommandProposalControlEnabled ?? false) &&
       (capabilities.operatorApprovalEnabled ?? false);
     this.hasModelControl = controlPresent && (capabilities.modelControlEnabled ?? true);
+    this.hasProviderDefinitions = this.hasModelControl;
     this.hasProviderCredentials = controlPresent &&
       (capabilities.providerCredentialEnabled ?? false);
     this.hasFileEditReview = controlPresent && (capabilities.fileEditReviewEnabled ?? true);
@@ -5086,6 +6000,43 @@ export class CyberAgentClient {
     }
     return parseRunCapabilityReadiness(await this.get<unknown>(
       `/runs/${encodeURIComponent(runID)}/capability-readiness`, {}, signal), runID);
+  }
+
+  async getFullCDPSession(runID: string,
+    signal?: AbortSignal): Promise<FullCDPSessionControlView> {
+    if (!this.hasFullCDPSessionControl || !boundedIdentity(runID) || runID.trim() !== runID) {
+      throw new Error("Full CDP production session capability and a normalized Run are required");
+    }
+    return parseFullCDPSessionControl(await this.get<unknown>(
+      `/runs/${encodeURIComponent(runID)}/full-cdp-session`, {}, signal), runID);
+  }
+
+  async openFullCDPSession(runID: string, body: FullCDPSessionOpenRequestView,
+    idempotencyKey: string, signal?: AbortSignal): Promise<FullCDPSessionControlView> {
+    if (!this.hasFullCDPSessionControl || !boundedIdentity(runID) || runID.trim() !== runID ||
+      body.version !== "full_cdp_session.v1" || body.confirm_full_cdp !== true ||
+      !safePositiveInteger(body.expected_execution_permission_revision) ||
+      !safePositiveInteger(body.expected_browser_cdp_permission_revision) ||
+      !["chrome", "edge"].includes(body.browser.product) ||
+      !["stable", "beta", "dev", "canary"].includes(body.browser.channel) ||
+      typeof body.target !== "string" || body.target.trim() !== body.target ||
+      body.target.length === 0 || body.target.length > 2_048) {
+      throw new Error("A confirmed, revision-bound Full CDP session request is required");
+    }
+    return parseFullCDPSessionControl(await this.sendControl<unknown>(
+      `/runs/${encodeURIComponent(runID)}/full-cdp-session`, body, idempotencyKey, signal), runID);
+  }
+
+  async closeFullCDPSession(runID: string, body: FullCDPSessionCloseRequestView,
+    idempotencyKey: string, signal?: AbortSignal): Promise<FullCDPSessionControlView> {
+    if (!this.hasFullCDPSessionControl || !boundedIdentity(runID) || runID.trim() !== runID ||
+      body.version !== "full_cdp_session_close.v1" ||
+      !boundedIdentity(body.expected_session_id)) {
+      throw new Error("An exact Full CDP session cleanup request is required");
+    }
+    return parseFullCDPSessionControl(await this.sendControl<unknown>(
+      `/runs/${encodeURIComponent(runID)}/full-cdp-session/close`, body,
+      idempotencyKey, signal), runID);
   }
 
   async configureStandardCode(runID: string,
@@ -5933,6 +6884,47 @@ export class CyberAgentClient {
     return parseModelRouteControl(result, route, body);
   }
 
+  async availableModelRoutes(signal?: AbortSignal): Promise<AvailableModelRouteCollectionView> {
+    if (!this.hasModelControl) {
+      throw new Error("Model control capability is required to list selectable routes");
+    }
+    return parseAvailableModelRouteCollection(await this.get<unknown>(
+      "/models/routes/available", {}, signal));
+  }
+
+  async threadModelRoute(threadID: string, signal?: AbortSignal): Promise<ThreadModelRouteView> {
+    if (!this.hasModelControl || !boundedIdentity(threadID) || threadID.trim() !== threadID) {
+      throw new Error("Model control capability and a normalized Thread are required");
+    }
+    return parseThreadModelRoute(await this.get<unknown>(
+      `/threads/${encodeURIComponent(threadID)}/model-route`, {}, signal), threadID);
+  }
+
+  async providerSearchReadiness(threadID: string,
+    signal?: AbortSignal): Promise<ProviderSearchReadinessView> {
+    if (!boundedIdentity(threadID) || threadID.trim() !== threadID) {
+      throw new Error("A normalized Thread is required to read search readiness");
+    }
+    return parseProviderSearchReadiness(await this.get<unknown>(
+      `/threads/${encodeURIComponent(threadID)}/search-readiness`, {}, signal), threadID);
+  }
+
+  async selectThreadModelRoute(threadID: string, body: ThreadModelRouteControlRequestView,
+    signal?: AbortSignal): Promise<ThreadModelRouteView> {
+    const select = body.action === "select";
+    const reset = body.action === "reset";
+    if (!this.hasModelControl || !boundedIdentity(threadID) || threadID.trim() !== threadID ||
+      body.version !== "thread_model_route_control.v1" || (!select && !reset) ||
+      !boundedIdentity(body.operation_key) || !boundedIdentity(body.requested_by) ||
+      (select && (!boundedIdentity(body.provider) || !boundedIdentity(body.model))) ||
+      (reset && (body.provider !== undefined || body.model !== undefined))) {
+      throw new Error("A normalized, exact Thread model route intent is required");
+    }
+    const result = await this.sendControlRequest<unknown>(
+      `/threads/${encodeURIComponent(threadID)}/model-route`, body, signal, "", "PUT");
+    return parseThreadModelRoute(result, threadID, body);
+  }
+
   async diagnoseProvider(body: ProviderDiagnosticRequestView,
     signal?: AbortSignal): Promise<ProviderDiagnosticView> {
     if (!this.hasModelControl || body.confirm_diagnostic !== true) {
@@ -5953,6 +6945,40 @@ export class CyberAgentClient {
     return parseModelHarnessQualification(result, body);
   }
 
+  async providerDefinitions(signal?: AbortSignal): Promise<ProviderDefinitionCollectionView> {
+    if (!this.hasProviderDefinitions) {
+      throw new Error("Custom Provider definition capability is required");
+    }
+    return parseProviderDefinitionCollection(await this.get<unknown>(
+      "/models/provider-definitions", {}, signal));
+  }
+
+  async upsertProviderDefinition(provider: string, body: ProviderDefinitionUpsertRequestView,
+    signal?: AbortSignal): Promise<ProviderDefinitionMutationView> {
+    if (!this.hasProviderDefinitions || !validCustomProviderID(provider) ||
+      body.version !== "provider_definition_control.v1" || body.confirm !== true ||
+      body.definition.id !== provider) {
+      throw new Error("Confirmed custom Provider definition capability is required");
+    }
+    parseProviderDefinition(body.definition);
+    return parseProviderDefinitionMutation(await this.sendControlRequest<unknown>(
+      `/models/provider-definitions/${encodeURIComponent(provider)}`, body, signal,
+    ), provider, false);
+  }
+
+  async deleteProviderDefinition(provider: string, body: ProviderDefinitionDeleteRequestView,
+    signal?: AbortSignal): Promise<ProviderDefinitionMutationView> {
+    if (!this.hasProviderDefinitions || !validCustomProviderID(provider) ||
+      body.version !== "provider_definition_control.v1" || body.confirm !== true ||
+      !safeBoundedCount(body.expected_collection_revision, Number.MAX_SAFE_INTEGER) ||
+      !safePositiveInteger(body.expected_definition_revision)) {
+      throw new Error("Confirmed custom Provider deletion capability is required");
+    }
+    return parseProviderDefinitionMutation(await this.sendControlRequest<unknown>(
+      `/models/provider-definitions/${encodeURIComponent(provider)}/delete`, body, signal,
+    ), provider, true);
+  }
+
   async providerCredentialStatuses(signal?: AbortSignal): Promise<ProviderCredentialListView> {
     if (!this.hasProviderCredentials) {
       throw new Error("Provider credential capability is required");
@@ -5963,7 +6989,7 @@ export class CyberAgentClient {
   async changeProviderCredential(provider: string, body: ProviderCredentialRequestView,
     signal?: AbortSignal): Promise<ProviderCredentialStatusView> {
     if (!this.hasProviderCredentials ||
-      !["anthropic", "deepseek", "mimo", "openai"].includes(provider) ||
+      !validProviderCredentialName(provider) ||
       body.version !== "provider_credential.v1" || body.confirm !== true ||
       (body.action === "set" ? typeof body.secret !== "string" || body.secret.length < 8 :
         body.action !== "delete" || body.secret !== "")) {
@@ -5990,6 +7016,23 @@ export class CyberAgentClient {
     return parseFileEditQueue(await this.get<unknown>(
       `/runs/${encodeURIComponent(runID)}/file-edits`, {}, signal,
     ), runID);
+  }
+
+  async fileEdit(runID: string, editID: string,
+    signal?: AbortSignal): Promise<FileEditPreviewView> {
+    if (!boundedIdentity(runID) || runID.trim() !== runID ||
+      !boundedIdentity(editID) || editID.trim() !== editID) {
+      throw new Error("Normalized Run and file edit identities are required");
+    }
+    const edit = parseFileEditPreview(await this.get<unknown>(
+      `/runs/${encodeURIComponent(runID)}/file-edits/${encodeURIComponent(editID)}`,
+      {}, signal,
+    ));
+    if (edit.id !== editID) {
+      throw new APIRequestError("File edit preview returned the wrong identity",
+        "INVALID_RESPONSE", 502);
+    }
+    return edit;
   }
 
   async fileEditChangeSet(runID: string,
@@ -6250,16 +7293,22 @@ export class CyberAgentClient {
     if (!this.hasRunCreation) {
       throw new Error("Run creation capability is required for this operation");
     }
+    normalizeRequestedNetworkAuthority(body);
     const result = await this.sendControl<unknown>("/runs", body, idempotencyKey, signal);
     return parseRunCreationControl(result, body);
   }
 
   async createThread(body: ThreadCreationControlRequestView, idempotencyKey: string,
     signal?: AbortSignal): Promise<ThreadCreationControlView> {
+    const routePairPresent = body.provider !== undefined && body.model !== undefined;
+    const routePairAbsent = body.provider === undefined && body.model === undefined;
     if (!this.hasThreadControl || !this.hasRunCreation || !this.hasSessionMessages ||
-      body.version !== "thread_creation.v1") {
-      throw new Error("Thread creation capability is required for this operation");
+      body.version !== "thread_creation.v1" || (!routePairPresent && !routePairAbsent) ||
+      (routePairPresent && (!boundedIdentity(body.provider) || !boundedIdentity(body.model) ||
+        body.provider!.includes("/") || body.model!.includes("/")))) {
+      throw new Error("Thread creation capability and a normalized Provider/model pair are required");
     }
+    normalizeRequestedNetworkAuthority(body);
     return parseThreadCreationControl(await this.sendControl<unknown>("/threads", body,
       idempotencyKey, signal), body);
   }
@@ -6273,6 +7322,96 @@ export class CyberAgentClient {
     return parseThreadMessageControl(await this.sendControl<unknown>(
       `/threads/${encodeURIComponent(threadID)}/messages`, body, idempotencyKey, signal,
     ), threadID);
+  }
+
+  async threadActivityDetail(threadID: string, activityRef: string,
+    signal?: AbortSignal): Promise<ThreadActivityDetailView> {
+    if (boundedIdentity(threadID) !== threadID || boundedIdentity(activityRef) !== activityRef) {
+      throw new Error("Normalized Thread and activity identities are required");
+    }
+    return parseThreadActivityDetail(await this.get<unknown>(
+      `/threads/${encodeURIComponent(threadID)}/activities/${encodeURIComponent(activityRef)}`,
+      {}, signal), threadID, activityRef);
+  }
+
+  async threadActivityArtifact(threadID: string, activityRef: string, artifactRef: string,
+    signal?: AbortSignal): Promise<ThreadActivityArtifactView> {
+    if (boundedIdentity(threadID) !== threadID || boundedIdentity(activityRef) !== activityRef ||
+      boundedIdentity(artifactRef) !== artifactRef) {
+      throw new Error("Normalized Thread activity artifact identities are required");
+    }
+    const value = parseThreadActivityArtifact(await this.get<unknown>(
+      `/threads/${encodeURIComponent(threadID)}/activities/${encodeURIComponent(activityRef)}` +
+      `/artifacts/${encodeURIComponent(artifactRef)}`, {}, signal), activityRef, artifactRef);
+    const digest = new Uint8Array(await globalThis.crypto.subtle.digest(
+      "SHA-256", new TextEncoder().encode(value.content)));
+    const digestHex = [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    if (digestHex !== value.sha256) {
+      throw new APIRequestError("Thread activity artifact digest verification failed",
+        "INVALID_RESPONSE", 502);
+    }
+    return value;
+  }
+
+  async expandRunNetworkAuthority(runID: string,
+    body: RunNetworkAuthorityControlRequestView, idempotencyKey: string,
+    signal?: AbortSignal): Promise<RunNetworkAuthorityControlView> {
+    if (!this.hasControl || !boundedIdentity(runID) || runID.trim() !== runID ||
+      body.version !== "run_network_authority_control.v1" ||
+      !safePositiveInteger(body.expected_mode_revision) ||
+      (body.reason !== undefined && body.reason !== "" && (!boundedText(body.reason, 1_024) ||
+        /[\u0000-\u001f\u007f]/u.test(body.reason)))) {
+      throw new Error("A revision-bound exact Run network authority request is required");
+    }
+    normalizeRequestedNetworkAuthority({ network_mode: "allowlist",
+      allowed_targets: body.add_allowed_targets });
+    return parseRunNetworkAuthorityControl(await this.sendControl<unknown>(
+      `/runs/${encodeURIComponent(runID)}/network-authority`, body,
+      idempotencyKey, signal), runID, body);
+  }
+
+  async submitThreadTurn(threadID: string, body: ThreadMessageControlRequestView,
+    idempotencyKey: string, signal?: AbortSignal): Promise<ThreadMessageControlView> {
+    if (!this.hasThreadControl || !this.hasSessionMessages || !boundedIdentity(threadID) ||
+      threadID.trim() !== threadID || body.version !== "thread_message_submission.v1") {
+      throw new Error("Thread turn capability and a normalized Thread are required");
+    }
+    return parseThreadMessageControl(await this.sendControl<unknown>(
+      `/threads/${encodeURIComponent(threadID)}/turns`, body, idempotencyKey, signal,
+    ), threadID, true);
+  }
+
+  async recoverThreadRun(threadID: string, body: ThreadRunRecoveryControlRequestView,
+    idempotencyKey: string, signal?: AbortSignal): Promise<ThreadRunRecoveryControlView> {
+    if (!this.hasThreadControl || !this.hasSessionMessages || !boundedIdentity(threadID) ||
+      threadID.trim() !== threadID || body.version !== "thread_run_recovery.v1" ||
+      !boundedIdentity(body.run_id) || !boundedIdentity(body.handoff_operation_id)) {
+      throw new Error("Thread recovery capability and exact failed boundary identities are required");
+    }
+    return parseThreadRunRecoveryControl(await this.sendControl<unknown>(
+      `/threads/${encodeURIComponent(threadID)}/recovery`, body, idempotencyKey, signal,
+    ), threadID, body);
+  }
+
+  async getThreadExecutionPermission(threadID: string,
+    signal?: AbortSignal): Promise<ThreadExecutionPermissionControlView> {
+    if (!boundedIdentity(threadID) || threadID.trim() !== threadID) {
+      throw new Error("A normalized Thread is required");
+    }
+    return this.get<ThreadExecutionPermissionControlView>(
+      `/threads/${encodeURIComponent(threadID)}/execution-permission`, {}, signal);
+  }
+
+  async changeThreadExecutionPermission(threadID: string,
+    body: ThreadExecutionPermissionControlRequestView, idempotencyKey: string,
+    signal?: AbortSignal): Promise<ThreadExecutionPermissionControlView> {
+    if (!this.hasExecutionPermissionControl || !boundedIdentity(threadID) ||
+      threadID.trim() !== threadID) {
+      throw new Error("Thread execution permission capability is required");
+    }
+    return this.sendControl<ThreadExecutionPermissionControlView>(
+      `/threads/${encodeURIComponent(threadID)}/execution-permission`, body,
+      idempotencyKey, signal);
   }
 
   async transitionThread(threadID: string, action: "archive" | "restore" | "delete",
@@ -6374,6 +7513,18 @@ export class CyberAgentClient {
       `/runs/${encodeURIComponent(runID)}/active-call`, {}, signal,
     );
     return parsePublicModelStream(result, runID);
+  }
+
+  async pollPublicModelStream(runID: string,
+    signal?: AbortSignal): Promise<PublicModelStreamSnapshot | null> {
+    const normalizedRunID = boundedIdentity(runID);
+    if (!normalizedRunID || normalizedRunID !== runID) {
+      throw new Error("A normalized Run identity is required");
+    }
+    const result = await this.get<unknown>(
+      `/runs/${encodeURIComponent(runID)}/active-call/poll`, {}, signal,
+    );
+    return parsePublicModelStreamPoll(result, runID);
   }
 
   async cancelModelCall(runID: string, body: ModelCancellationRequestView,
@@ -6816,7 +7967,12 @@ export class CyberAgentClient {
       throw new Error("Approval control capability is required for this operation");
     }
     if (!boundedIdentity(runID) || runID.trim() !== runID ||
-      !boundedIdentity(approvalID) || approvalID.trim() !== approvalID) {
+      !boundedIdentity(approvalID) || approvalID.trim() !== approvalID ||
+      body.version !== "approval_control.v1" ||
+      !["approve_once", "approve_for_thread", "deny"].includes(body.action) ||
+      (body.action !== "deny" && body.reason !== undefined) ||
+      (body.reason !== undefined && (!boundedText(body.reason, 2_048) ||
+        body.reason.trim() !== body.reason || /[\u0000-\u001f\u007f]/u.test(body.reason)))) {
       throw new Error("Normalized Run and approval identities are required");
     }
     const result = await this.sendControl<unknown>(
@@ -6862,7 +8018,7 @@ export class CyberAgentClient {
   }
 
   private async sendControlRequest<T>(path: string, body: unknown, signal?: AbortSignal,
-    idempotencyKey = "", method: "POST" | "PATCH" | "DELETE" = "POST"): Promise<T> {
+    idempotencyKey = "", method: "POST" | "PUT" | "PATCH" | "DELETE" = "POST"): Promise<T> {
     const headers: Record<string, string> = {
       Accept: "application/json",
       Authorization: `Bearer ${this.controlToken}`,

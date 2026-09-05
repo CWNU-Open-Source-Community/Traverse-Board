@@ -15,6 +15,7 @@ const (
 	HarnessTransportMock                  = "mock"
 	HarnessTransportAnthropicMessages     = "anthropic_messages"
 	HarnessTransportOpenAIChatCompletions = "openai_chat_completions"
+	HarnessTransportOpenAIResponses       = "openai_responses"
 	HarnessTransportOllamaChat            = "ollama_chat"
 	HarnessTransportProviderContract      = "provider_contract"
 )
@@ -86,6 +87,7 @@ func (h ModelHarness) Validate() error {
 	switch h.TransportProtocol {
 	case HarnessTransportMock, HarnessTransportAnthropicMessages,
 		HarnessTransportOpenAIChatCompletions,
+		HarnessTransportOpenAIResponses,
 		HarnessTransportOllamaChat,
 		HarnessTransportProviderContract:
 	default:

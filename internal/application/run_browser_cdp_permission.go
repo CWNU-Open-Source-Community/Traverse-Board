@@ -30,12 +30,15 @@ type RunBrowserCDPPermissionStore interface {
 	TransitionRunBrowserCDPPermission(ctx context.Context,
 		snapshot domain.RunBrowserCDPPermissionSnapshot,
 		operation domain.RunBrowserCDPPermissionOperation,
-		event events.Event) (domain.RunBrowserCDPPermissionSnapshot, bool, error)
+		event events.Event,
+		expectedExecution domain.RunExecutionPermissionSnapshot) (
+		domain.RunBrowserCDPPermissionSnapshot, bool, error)
 }
 
 type RunBrowserCDPPermissionService struct {
-	store        RunBrowserCDPPermissionStore
-	capabilities domain.BrowserCDPPermissionRuntimeCapabilities
+	store                 RunBrowserCDPPermissionStore
+	capabilities          domain.BrowserCDPPermissionRuntimeCapabilities
+	executionCapabilities domain.ExecutionPermissionRuntimeCapabilities
 }
 
 type ChangeRunBrowserCDPPermissionRequest struct {
@@ -55,7 +58,27 @@ type ChangeRunBrowserCDPPermissionResult struct {
 func NewRunBrowserCDPPermissionService(store RunBrowserCDPPermissionStore,
 	capabilities domain.BrowserCDPPermissionRuntimeCapabilities,
 ) *RunBrowserCDPPermissionService {
-	return &RunBrowserCDPPermissionService{store: store, capabilities: capabilities}
+	// Keep command-line/test callers source-compatible. Product code must use
+	// NewRunBrowserCDPPermissionServiceWithExecutionCapabilities so Full CDP is
+	// fenced by the same live current-Run authority as Full Access.
+	executionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{}
+	if capabilities.FullDebugEnabled {
+		executionCapabilities = domain.ExecutionPermissionRuntimeCapabilities{
+			OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+			DebugMaximumAccessEnabled: true,
+		}
+	}
+	return &RunBrowserCDPPermissionService{store: store, capabilities: capabilities,
+		executionCapabilities: executionCapabilities}
+}
+
+func NewRunBrowserCDPPermissionServiceWithExecutionCapabilities(
+	store RunBrowserCDPPermissionStore,
+	capabilities domain.BrowserCDPPermissionRuntimeCapabilities,
+	executionCapabilities domain.ExecutionPermissionRuntimeCapabilities,
+) *RunBrowserCDPPermissionService {
+	return &RunBrowserCDPPermissionService{store: store, capabilities: capabilities,
+		executionCapabilities: executionCapabilities}
 }
 
 func (s *RunBrowserCDPPermissionService) RuntimeCapabilities() (
@@ -70,6 +93,11 @@ func (s *RunBrowserCDPPermissionService) RuntimeCapabilities() (
 		return domain.BrowserCDPPermissionRuntimeCapabilities{}, apperror.Wrap(
 			apperror.CodeFailedPrecondition,
 			"Run browser CDP runtime capabilities are invalid", err)
+	}
+	if err := s.executionCapabilities.Validate(); err != nil {
+		return domain.BrowserCDPPermissionRuntimeCapabilities{}, apperror.Wrap(
+			apperror.CodeFailedPrecondition,
+			"Run browser CDP execution capabilities are invalid", err)
 	}
 	return s.capabilities, nil
 }
@@ -105,6 +133,11 @@ func (s *RunBrowserCDPPermissionService) Change(ctx context.Context,
 			apperror.CodeFailedPrecondition,
 			"Run browser CDP runtime capabilities are invalid", err)
 	}
+	if err := s.executionCapabilities.Validate(); err != nil {
+		return ChangeRunBrowserCDPPermissionResult{}, apperror.Wrap(
+			apperror.CodeFailedPrecondition,
+			"Run browser CDP execution capabilities are invalid", err)
+	}
 	normalized, target, confirmed, err :=
 		normalizeChangeRunBrowserCDPPermissionRequest(request)
 	if err != nil {
@@ -137,17 +170,24 @@ func (s *RunBrowserCDPPermissionService) Change(ctx context.Context,
 	if !domain.CanChangeRunBrowserCDPPermission(run.Status) {
 		return ChangeRunBrowserCDPPermissionResult{}, apperror.New(
 			apperror.CodeFailedPrecondition,
-			"Run browser CDP permission can only change while the Run is created or paused")
+			"Run browser CDP permission cannot change after the Run is terminal")
 	}
 	executionPermission, err := s.store.GetRunExecutionPermission(ctx, run.ID)
 	if err != nil {
 		return ChangeRunBrowserCDPPermissionResult{}, apperror.Normalize(err)
 	}
-	if target == domain.RunBrowserCDPPermissionFullDebug &&
-		executionPermission.Mode != domain.RunExecutionPermissionDebug {
-		return ChangeRunBrowserCDPPermissionResult{}, apperror.New(
-			apperror.CodePolicyDenied,
-			"full CDP debug requires the current Run execution permission to be debug")
+	if target == domain.RunBrowserCDPPermissionFullDebug {
+		if executionPermission.Mode != domain.RunExecutionPermissionFullAccess &&
+			executionPermission.Mode != domain.RunExecutionPermissionDebug {
+			return ChangeRunBrowserCDPPermissionResult{}, apperror.New(
+				apperror.CodePolicyDenied,
+				"Full CDP requires the current Run execution permission to be Full Access or Debug")
+		}
+		if !s.executionCapabilities.AllowsSnapshot(executionPermission) {
+			return ChangeRunBrowserCDPPermissionResult{}, apperror.New(
+				apperror.CodePolicyDenied,
+				"Full CDP requires the current Run's live Full Access or Debug authority")
+		}
 	}
 	current, err := s.store.GetRunBrowserCDPPermission(ctx, run.ID)
 	if err != nil {
@@ -157,6 +197,16 @@ func (s *RunBrowserCDPPermissionService) Change(ctx context.Context,
 		return ChangeRunBrowserCDPPermissionResult{}, apperror.New(
 			apperror.CodeFailedPrecondition,
 			"Run already uses the requested browser CDP permission mode")
+	}
+	if s.executionCapabilities.RuntimeAuthority != nil {
+		// Rotate the child-authority fence before the durable toggle. A failed
+		// transition therefore cannot leave an already-open Full CDP session live.
+		if _, err := s.executionCapabilities.RuntimeAuthority.
+			RotateRunAuthorizationFence(run.ID); err != nil {
+			return ChangeRunBrowserCDPPermissionResult{}, apperror.Wrap(
+				apperror.CodeFailedPrecondition,
+				"Full CDP runtime authorization could not be fenced", err)
+		}
 	}
 	now := time.Now().UTC()
 	if now.Before(current.CreatedAt) {
@@ -198,10 +248,26 @@ func (s *RunBrowserCDPPermissionService) Change(ctx context.Context,
 	}
 	event.CreatedAt = next.CreatedAt
 	stored, replayed, err := s.store.TransitionRunBrowserCDPPermission(
-		ctx, next, operation, event)
+		ctx, next, operation, event, executionPermission)
+	if err != nil {
+		return ChangeRunBrowserCDPPermissionResult{}, apperror.Normalize(err)
+	}
+	if s.executionCapabilities.RuntimeAuthority != nil {
+		// Fence again after the durable transition. The pre-transition fence
+		// immediately stops existing sessions; this post-transition fence closes
+		// the race where an opener read the old snapshot between that fence and
+		// the SQLite commit.
+		if _, fenceErr := s.executionCapabilities.RuntimeAuthority.
+			RotateRunAuthorizationFence(run.ID); fenceErr != nil {
+			return ChangeRunBrowserCDPPermissionResult{}, apperror.Wrap(
+				apperror.CodeFailedPrecondition,
+				"Full CDP runtime authorization could not be fenced after the permission transition",
+				fenceErr)
+		}
+	}
 	return ChangeRunBrowserCDPPermissionResult{
 		Permission: stored, Replayed: replayed,
-	}, apperror.Normalize(err)
+	}, nil
 }
 
 func (s *RunBrowserCDPPermissionService) loadReplay(ctx context.Context,

@@ -666,6 +666,12 @@ func TestOpenAICompatibleProviderHarnessAndConfiguration(t *testing.T) {
 		profile.QualificationStatus != HarnessQualificationRequired || profile.Validate() != nil {
 		t.Fatalf("invalid Harness profile: %#v", profile)
 	}
+	legacyBinding := harnessBindingDigest(provider.name, provider.baseURL, provider.defaultModel,
+		HarnessTransportOpenAIChatCompletions, HarnessToolStrategyNative,
+		HarnessJSONStrategyNative)
+	if profile.BindingDigest != legacyBinding {
+		t.Fatal("static OpenAI Harness binding changed when request runtimes were introduced")
+	}
 	if !provider.SupportsTools("gpt-test") || !provider.SupportsJSONMode("gpt-test") ||
 		provider.SupportsTools("unknown-model") || provider.SupportsJSONMode("unknown-model") {
 		t.Fatal("OpenAI capability checks did not stay bound to the configured model")

@@ -83,7 +83,7 @@ func TestSchemaV139BackfillsConservativeThreadPermission(t *testing.T) {
 	assertNoForeignKeyViolations(t, upgraded.db)
 }
 
-func TestThreadPermissionPreferencePausesAndUpdatesCurrentRunThenMaterializesSuccessor(t *testing.T) {
+func TestThreadPermissionPreferenceUpdatesPausedRunThenMaterializesSuccessor(t *testing.T) {
 	ctx := context.Background()
 	state, err := Open(filepath.Join(t.TempDir(), "thread-permission-successor.db"))
 	if err != nil {
@@ -114,6 +114,9 @@ func TestThreadPermissionPreferencePausesAndUpdatesCurrentRunThenMaterializesSuc
 	if running.Status != domain.RunRunning {
 		t.Fatalf("Run did not start: %+v", running)
 	}
+	if _, err := runs.Pause(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
 	request := application.ChangeThreadExecutionPermissionRequest{
 		ThreadID:     threadRecord.ID,
 		Mode:         string(domain.RunExecutionPermissionWorkspaceAccess),
@@ -128,7 +131,7 @@ func TestThreadPermissionPreferencePausesAndUpdatesCurrentRunThenMaterializesSuc
 	if selected.Replayed || selected.Permission.Revision != 2 ||
 		selected.Permission.Mode != domain.RunExecutionPermissionWorkspaceAccess ||
 		selected.CurrentRunID != run.ID ||
-		selected.CurrentRunEffect != domain.ThreadExecutionPermissionPausedAndApplied ||
+		selected.CurrentRunEffect != domain.ThreadExecutionPermissionApplied ||
 		selected.Permission.ProcessEnabled || selected.Permission.ExecutionAuthorized ||
 		selected.Permission.CapabilityGrant {
 		t.Fatalf("unexpected Thread preference: %+v", selected)
@@ -191,7 +194,7 @@ func TestThreadPermissionPreferencePausesAndUpdatesCurrentRunThenMaterializesSuc
 	}
 }
 
-func TestThreadPermissionFailsClosedWhenCurrentRunHasActiveLease(t *testing.T) {
+func TestThreadPermissionDefersWhileCurrentRunHasActiveLease(t *testing.T) {
 	ctx := context.Background()
 	state, err := Open(filepath.Join(t.TempDir(), "thread-permission-active-lease.db"))
 	if err != nil {
@@ -214,33 +217,35 @@ func TestThreadPermissionFailsClosedWhenCurrentRunHasActiveLease(t *testing.T) {
 	_ = acquireTestRunExecutionLease(t, ctx, state, run.ID)
 	service := application.NewThreadExecutionPermissionService(state,
 		domain.ExecutionPermissionRuntimeCapabilities{WorkspaceSandboxEnabled: true})
-	_, err = service.Change(ctx, application.ChangeThreadExecutionPermissionRequest{
+	selected, err := service.Change(ctx, application.ChangeThreadExecutionPermissionRequest{
 		ThreadID:     threadRecord.ID,
 		Mode:         string(domain.RunExecutionPermissionWorkspaceAccess),
 		OperationKey: "thread-permission-active-lease-0001",
 		RequestedBy:  "test_operator", Reason: "must not drift a leased Run",
 		ConfirmWorkspaceAccess: true,
 	})
-	if apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
-		t.Fatalf("active lease error code=%s err=%v", apperror.CodeOf(err), err)
+	if err != nil || selected.CurrentRunID != run.ID ||
+		selected.CurrentRunEffect != domain.ThreadExecutionPermissionDeferred {
+		t.Fatalf("active lease preference was not deferred: selected=%+v err=%v",
+			selected, err)
 	}
 	preference, getErr := state.GetThreadExecutionPermission(ctx, threadRecord.ID)
-	if getErr != nil || preference.Mode != domain.RunExecutionPermissionConservative ||
-		preference.Revision != 1 {
-		t.Fatalf("failed request changed Thread preference: %+v err=%v", preference, getErr)
+	if getErr != nil || preference.Mode != domain.RunExecutionPermissionWorkspaceAccess ||
+		preference.Revision != 2 {
+		t.Fatalf("deferred Thread preference was not durable: %+v err=%v", preference, getErr)
 	}
 	permission, getErr := state.GetRunExecutionPermission(ctx, run.ID)
 	if getErr != nil || permission.Mode != domain.RunExecutionPermissionConservative ||
 		permission.Revision != 1 {
-		t.Fatalf("failed request changed Run permission: %+v err=%v", permission, getErr)
+		t.Fatalf("deferred request changed Run permission: %+v err=%v", permission, getErr)
 	}
 	storedRun, getErr := state.GetRun(ctx, run.ID)
 	if getErr != nil || storedRun.Status != domain.RunRunning {
-		t.Fatalf("failed request paused current Run: %+v err=%v", storedRun, getErr)
+		t.Fatalf("deferred request changed current Run: %+v err=%v", storedRun, getErr)
 	}
 }
 
-func TestThreadPermissionFailsClosedForPersistentExecutionSurface(t *testing.T) {
+func TestThreadPermissionDefersWithoutTouchingPersistentExecutionSurface(t *testing.T) {
 	ctx := context.Background()
 	state, run, threadRecord := threadLifecycleFixture(t, ctx, domain.RunRunning)
 	defer state.Close()
@@ -254,22 +259,23 @@ func TestThreadPermissionFailsClosedForPersistentExecutionSurface(t *testing.T) 
 	}
 	service := application.NewThreadExecutionPermissionService(state,
 		domain.ExecutionPermissionRuntimeCapabilities{WorkspaceSandboxEnabled: true})
-	_, err := service.Change(ctx, application.ChangeThreadExecutionPermissionRequest{
+	selected, err := service.Change(ctx, application.ChangeThreadExecutionPermissionRequest{
 		ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionWorkspaceAccess),
 		OperationKey: "thread-permission-terminal-0001", RequestedBy: "test_operator",
 		Reason: "must not drift a persistent terminal", ConfirmWorkspaceAccess: true,
 	})
-	if apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
-		t.Fatalf("persistent terminal error code=%s err=%v", apperror.CodeOf(err), err)
+	if err != nil || selected.CurrentRunEffect != domain.ThreadExecutionPermissionDeferred {
+		t.Fatalf("persistent terminal preference was not deferred: selected=%+v err=%v",
+			selected, err)
 	}
 	preference, getErr := state.GetThreadExecutionPermission(ctx, threadRecord.ID)
-	if getErr != nil || preference.Mode != domain.RunExecutionPermissionConservative ||
-		preference.Revision != 1 {
-		t.Fatalf("failed request changed Thread preference: %+v err=%v", preference, getErr)
+	if getErr != nil || preference.Mode != domain.RunExecutionPermissionWorkspaceAccess ||
+		preference.Revision != 2 {
+		t.Fatalf("deferred Thread preference was not durable: %+v err=%v", preference, getErr)
 	}
 	storedRun, getErr := state.GetRun(ctx, run.ID)
 	if getErr != nil || storedRun.Status != domain.RunRunning {
-		t.Fatalf("failed request paused persistent Run: %+v err=%v", storedRun, getErr)
+		t.Fatalf("deferred request changed persistent Run: %+v err=%v", storedRun, getErr)
 	}
 }
 
@@ -279,17 +285,18 @@ func TestThreadPermissionPreservesPendingApprovalGate(t *testing.T) {
 	defer state.Close()
 	service := application.NewThreadExecutionPermissionService(state,
 		domain.ExecutionPermissionRuntimeCapabilities{WorkspaceSandboxEnabled: true})
-	_, err := service.Change(ctx, application.ChangeThreadExecutionPermissionRequest{
+	selected, err := service.Change(ctx, application.ChangeThreadExecutionPermissionRequest{
 		ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionWorkspaceAccess),
 		OperationKey: "thread-permission-waiting-approval-0001", RequestedBy: "test_operator",
 		Reason: "must preserve the pending approval gate", ConfirmWorkspaceAccess: true,
 	})
-	if apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
-		t.Fatalf("pending approval error code=%s err=%v", apperror.CodeOf(err), err)
+	if err != nil || selected.CurrentRunEffect != domain.ThreadExecutionPermissionDeferred {
+		t.Fatalf("pending approval preference was not deferred: selected=%+v err=%v",
+			selected, err)
 	}
 	storedRun, getErr := state.GetRun(ctx, run.ID)
 	if getErr != nil || storedRun.Status != domain.RunWaitingApproval {
-		t.Fatalf("failed request changed approval gate: %+v err=%v", storedRun, getErr)
+		t.Fatalf("deferred request changed approval gate: %+v err=%v", storedRun, getErr)
 	}
 	linked, getErr := state.GetSession(ctx, run.SessionID)
 	if getErr != nil || linked.Status != session.StatusActive {

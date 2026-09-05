@@ -53,6 +53,12 @@ const (
 	WebSearchTool                   ToolName = "web_search"
 	WebFetchTool                    ToolName = "web_fetch"
 	WebCitationTool                 ToolName = "web_citation"
+	BrowserStatusTool               ToolName = "browser_status"
+	BrowserNavigateTool             ToolName = "browser_navigate"
+	BrowserSnapshotTool             ToolName = "browser_snapshot"
+	BrowserClickTool                ToolName = "browser_click"
+	BrowserTypeTool                 ToolName = "browser_type"
+	BrowserScreenshotTool           ToolName = "browser_screenshot"
 	OneShotCommandProposeTool       ToolName = "one_shot_command_propose"
 	DockerSandboxRunProposeTool     ToolName = "sandbox_docker_run_propose"
 	SkillCandidateProposeTool       ToolName = "skill_candidate_propose"
@@ -85,11 +91,14 @@ func TypedActionIDs() map[string]struct{} {
 	for _, name := range WebEvidenceToolNames() {
 		out[string(name)] = struct{}{}
 	}
+	for _, name := range BrowserActionToolNames() {
+		out[string(name)] = struct{}{}
+	}
 	return out
 }
 
 func (n ToolName) Valid() bool {
-	if isAgentCodeTool(n) || IsCodeIntelTool(n) {
+	if isAgentCodeTool(n) || IsCodeIntelTool(n) || IsBrowserActionTool(n) {
 		return true
 	}
 	switch n {
@@ -156,6 +165,9 @@ func ClassForTool(name ToolName) (ActionClass, bool) {
 		return ClassProcess, true
 	case WebSearchTool, WebFetchTool, WebCitationTool:
 		return ClassNetworkRead, true
+	case BrowserStatusTool, BrowserNavigateTool, BrowserSnapshotTool,
+		BrowserClickTool, BrowserTypeTool, BrowserScreenshotTool:
+		return ClassProcess, true
 	case WorkItemCreateTool, NoteCreateTool:
 		return ClassRunMemory, true
 	case PlanDeliveryProposeTool, SpecialistDelegationProposeTool, ChildTaskProposeTool,
@@ -206,32 +218,40 @@ func (s Status) Valid() bool {
 }
 
 type ToolCall struct {
-	Name                  ToolName                          `json:"name"`
-	Arguments             map[string]string                 `json:"arguments"`
-	Payload               json.RawMessage                   `json:"payload,omitempty"`
-	InvocationID          string                            `json:"invocation_id,omitempty"`
-	OperationKey          string                            `json:"-"`
-	RunID                 string                            `json:"run_id,omitempty"`
-	AgentID               string                            `json:"agent_id,omitempty"`
-	SessionID             string                            `json:"session_id,omitempty"`
-	WorkspaceID           string                            `json:"workspace_id,omitempty"`
-	MissionID             string                            `json:"mission_id,omitempty"`
-	RootFingerprint       string                            `json:"root_fingerprint,omitempty"`
-	Surface               domain.ExecutionSurface           `json:"surface,omitempty"`
-	Phase                 domain.ExecutionPhase             `json:"phase,omitempty"`
-	Role                  domain.AgentRole                  `json:"role,omitempty"`
-	Profile               domain.Profile                    `json:"profile,omitempty"`
-	PermissionMode        domain.RunExecutionPermissionMode `json:"permission_mode,omitempty"`
-	ModeRevision          int64                             `json:"mode_revision,omitempty"`
-	PermissionRevision    int64                             `json:"permission_revision,omitempty"`
-	CapabilityGeneration  string                            `json:"capability_generation,omitempty"`
-	SupervisorTurn        int                               `json:"-"`
-	SupervisorToolCallID  string                            `json:"-"`
-	LeaseID               string                            `json:"-"`
-	LeaseGeneration       int64                             `json:"-"`
-	WorkspaceRoot         string                            `json:"-"`
-	RequestedBy           string                            `json:"requested_by,omitempty"`
-	CommandRuntimeAdapter commandruntimeadapter.Identity    `json:"-"`
+	Name                        ToolName                          `json:"name"`
+	Arguments                   map[string]string                 `json:"arguments"`
+	Payload                     json.RawMessage                   `json:"payload,omitempty"`
+	InvocationID                string                            `json:"invocation_id,omitempty"`
+	OperationKey                string                            `json:"-"`
+	RunID                       string                            `json:"run_id,omitempty"`
+	AgentID                     string                            `json:"agent_id,omitempty"`
+	AgentAttemptID              string                            `json:"-"`
+	SessionID                   string                            `json:"session_id,omitempty"`
+	WorkspaceID                 string                            `json:"workspace_id,omitempty"`
+	MissionID                   string                            `json:"mission_id,omitempty"`
+	RootFingerprint             string                            `json:"root_fingerprint,omitempty"`
+	Surface                     domain.ExecutionSurface           `json:"surface,omitempty"`
+	Phase                       domain.ExecutionPhase             `json:"phase,omitempty"`
+	Role                        domain.AgentRole                  `json:"role,omitempty"`
+	Profile                     domain.Profile                    `json:"profile,omitempty"`
+	PermissionMode              domain.RunExecutionPermissionMode `json:"permission_mode,omitempty"`
+	PermissionSnapshotID        string                            `json:"permission_snapshot_id,omitempty"`
+	ModeRevision                int64                             `json:"mode_revision,omitempty"`
+	PermissionRevision          int64                             `json:"permission_revision,omitempty"`
+	PermissionGeneration        uint64                            `json:"permission_generation,omitempty"`
+	RunAuthorizationFence       uint64                            `json:"run_authorization_fence,omitempty"`
+	CapabilityGeneration        string                            `json:"capability_generation,omitempty"`
+	ProviderFingerprint         string                            `json:"-"`
+	SupervisorTurn              int                               `json:"-"`
+	SupervisorToolCallID        string                            `json:"-"`
+	LeaseID                     string                            `json:"-"`
+	LeaseGeneration             int64                             `json:"-"`
+	WorkspaceRoot               string                            `json:"-"`
+	RequestedBy                 string                            `json:"requested_by,omitempty"`
+	CommandRuntimeAdapter       commandruntimeadapter.Identity    `json:"-"`
+	BrowserActionSessionID      string                            `json:"-"`
+	BrowserPermissionSnapshotID string                            `json:"-"`
+	BrowserPermissionRevision   int64                             `json:"-"`
 }
 
 func NormalizeToolCall(call ToolCall) (ToolCall, error) {
@@ -241,6 +261,7 @@ func NormalizeToolCall(call ToolCall) (ToolCall, error) {
 	call.OperationKey = strings.TrimSpace(call.OperationKey)
 	call.RunID = strings.TrimSpace(call.RunID)
 	call.AgentID = strings.TrimSpace(call.AgentID)
+	call.AgentAttemptID = strings.TrimSpace(call.AgentAttemptID)
 	call.SessionID = strings.TrimSpace(call.SessionID)
 	call.WorkspaceID = strings.TrimSpace(call.WorkspaceID)
 	call.MissionID = strings.TrimSpace(call.MissionID)
@@ -250,21 +271,30 @@ func NormalizeToolCall(call ToolCall) (ToolCall, error) {
 	call.Role = domain.AgentRole(strings.TrimSpace(string(call.Role)))
 	call.Profile = domain.Profile(strings.TrimSpace(string(call.Profile)))
 	call.PermissionMode = domain.RunExecutionPermissionMode(strings.TrimSpace(string(call.PermissionMode)))
+	call.PermissionSnapshotID = strings.TrimSpace(call.PermissionSnapshotID)
 	call.CapabilityGeneration = strings.TrimSpace(call.CapabilityGeneration)
+	call.ProviderFingerprint = strings.TrimSpace(call.ProviderFingerprint)
 	call.SupervisorToolCallID = strings.TrimSpace(call.SupervisorToolCallID)
 	call.LeaseID = strings.TrimSpace(call.LeaseID)
 	call.WorkspaceRoot = strings.TrimSpace(call.WorkspaceRoot)
 	call.RequestedBy = strings.TrimSpace(redact.String(call.RequestedBy))
+	call.BrowserActionSessionID = strings.TrimSpace(call.BrowserActionSessionID)
+	call.BrowserPermissionSnapshotID = strings.TrimSpace(call.BrowserPermissionSnapshotID)
 	if !call.Name.Valid() {
 		return ToolCall{}, fmt.Errorf("unsupported tool %q", call.Name)
 	}
 	for label, value := range map[string]string{
 		"invocation id": call.InvocationID, "operation key": call.OperationKey,
-		"run id": call.RunID, "agent id": call.AgentID, "session id": call.SessionID,
+		"run id": call.RunID, "agent id": call.AgentID,
+		"agent attempt id": call.AgentAttemptID, "session id": call.SessionID,
 		"workspace id": call.WorkspaceID, "lease id": call.LeaseID, "requester": call.RequestedBy,
 		"mission id": call.MissionID, "root fingerprint": call.RootFingerprint,
-		"capability generation":   call.CapabilityGeneration,
-		"supervisor tool call id": call.SupervisorToolCallID,
+		"permission snapshot id":         call.PermissionSnapshotID,
+		"capability generation":          call.CapabilityGeneration,
+		"Provider fingerprint":           call.ProviderFingerprint,
+		"supervisor tool call id":        call.SupervisorToolCallID,
+		"browser action session id":      call.BrowserActionSessionID,
+		"browser permission snapshot id": call.BrowserPermissionSnapshotID,
 	} {
 		if !utf8.ValidString(value) {
 			return ToolCall{}, fmt.Errorf("tool %s must be valid UTF-8", label)
@@ -279,11 +309,17 @@ func NormalizeToolCall(call ToolCall) (ToolCall, error) {
 	if call.ModeRevision < 0 || call.PermissionRevision < 0 {
 		return ToolCall{}, errors.New("tool capability revisions cannot be negative")
 	}
+	if call.BrowserPermissionRevision < 0 ||
+		(call.BrowserActionSessionID == "") != (call.BrowserPermissionSnapshotID == "") ||
+		(call.BrowserActionSessionID == "") != (call.BrowserPermissionRevision == 0) {
+		return ToolCall{}, errors.New("browser action runtime binding is inconsistent")
+	}
 	if call.SupervisorTurn < 0 ||
 		(call.SupervisorTurn == 0) != (call.SupervisorToolCallID == "") {
 		return ToolCall{}, errors.New("Supervisor turn and tool call identity are inconsistent")
 	}
 	if isAgentCodeTool(call.Name) || IsCodeIntelTool(call.Name) || IsWebEvidenceTool(call.Name) ||
+		IsBrowserActionTool(call.Name) ||
 		call.Name == CommandRuntimeTool {
 		if !call.Surface.Valid() || !call.Phase.Valid() || !domain.ValidAgentRole(call.Role) ||
 			!call.PermissionMode.Valid() || call.ModeRevision <= 0 ||
@@ -293,6 +329,15 @@ func NormalizeToolCall(call ToolCall) (ToolCall, error) {
 		if _, err := domain.ParseProfile(string(call.Profile)); err != nil {
 			return ToolCall{}, errors.New("workspace-affecting tool profile binding is invalid")
 		}
+	}
+	if call.ProviderFingerprint != "" &&
+		(!IsWebEvidenceTool(call.Name) || !validAgentCodeDigest(call.ProviderFingerprint, false)) {
+		return ToolCall{}, errors.New("tool Web search Provider fingerprint is invalid")
+	}
+	if call.Name == WebSearchTool && call.OperationKey != "" &&
+		!validAgentCodeDigest(call.ProviderFingerprint, false) {
+		return ToolCall{}, errors.New(
+			"Web search requires the exact advertised Provider fingerprint")
 	}
 	if strings.ContainsRune(call.OperationKey, 0) {
 		return ToolCall{}, errors.New("tool operation key cannot contain NUL")
@@ -340,17 +385,22 @@ func (c ToolCall) Validate() error {
 	}
 	if normalized.Name != c.Name || !bytes.Equal(normalized.Payload, c.Payload) || normalized.InvocationID != c.InvocationID ||
 		normalized.OperationKey != c.OperationKey || normalized.RunID != c.RunID ||
-		normalized.AgentID != c.AgentID || normalized.SessionID != c.SessionID ||
+		normalized.AgentID != c.AgentID || normalized.AgentAttemptID != c.AgentAttemptID ||
+		normalized.SessionID != c.SessionID ||
 		normalized.WorkspaceID != c.WorkspaceID || normalized.LeaseID != c.LeaseID ||
 		normalized.MissionID != c.MissionID || normalized.RootFingerprint != c.RootFingerprint ||
 		normalized.Surface != c.Surface || normalized.Phase != c.Phase || normalized.Role != c.Role ||
 		normalized.Profile != c.Profile || normalized.PermissionMode != c.PermissionMode ||
 		normalized.ModeRevision != c.ModeRevision || normalized.PermissionRevision != c.PermissionRevision ||
 		normalized.CapabilityGeneration != c.CapabilityGeneration ||
+		normalized.ProviderFingerprint != c.ProviderFingerprint ||
 		normalized.SupervisorTurn != c.SupervisorTurn ||
 		normalized.SupervisorToolCallID != c.SupervisorToolCallID ||
 		normalized.LeaseGeneration != c.LeaseGeneration || normalized.WorkspaceRoot != c.WorkspaceRoot ||
 		normalized.RequestedBy != c.RequestedBy ||
+		normalized.BrowserActionSessionID != c.BrowserActionSessionID ||
+		normalized.BrowserPermissionSnapshotID != c.BrowserPermissionSnapshotID ||
+		normalized.BrowserPermissionRevision != c.BrowserPermissionRevision ||
 		!maps.Equal(normalized.Arguments, c.Arguments) {
 		return errors.New("tool call must be normalized")
 	}

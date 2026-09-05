@@ -59,3 +59,38 @@ func TestPublicReplyRootActionOnlyAcceptsPlainInteractiveText(t *testing.T) {
 		}
 	}
 }
+
+func TestRecoverRootActionWithTrailingCommentaryIsNarrow(t *testing.T) {
+	valid := `{"version":"root_lifecycle.v1","action":"finish","message":"SEARCH_UNAVAILABLE","summary":"search unavailable"}`
+	raw := valid + "\n\nThe requested search backend was unavailable."
+	if _, err := parseRootAction(raw); apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
+		t.Fatalf("strict parser accepted compatibility response: code=%s err=%v",
+			apperror.CodeOf(err), err)
+	}
+	action, recovery, ok := recoverRootActionWithTrailingCommentary(raw)
+	if !ok || action.Kind != domain.RootActionFinish || action.Message != "SEARCH_UNAVAILABLE" ||
+		recovery.DiscardedTrailingBytes != len("The requested search backend was unavailable.") {
+		t.Fatalf("valid action plus commentary was not recovered: action=%#v recovery=%#v ok=%t",
+			action, recovery, ok)
+	}
+
+	second := `{"version":"root_lifecycle.v1","action":"continue","message":"again"}`
+	for _, candidate := range []string{
+		"", "plain text only", valid,
+		valid + " " + second,
+		valid + ` {"note":"another JSON object"}`,
+		valid + ` ["another JSON array"]`,
+		valid + ` "another JSON scalar"`,
+		valid + "\nNote: another root_lifecycle.v1 action follows.",
+		valid + "\nNote: a root_lifecycle.v2 marker follows.",
+		valid + "\nNote: [ambiguous structured suffix]",
+		valid + "\n" + strings.Repeat("x", maxRootActionTrailingCommentaryBytes+1),
+		`{"version":"root_lifecycle.v1","version":"root_lifecycle.v1","action":"continue","message":"duplicate"} trailing commentary`,
+		`{"version":"root_lifecycle.v1","action":"continue","message":"unknown","extra":true} trailing commentary`,
+	} {
+		if recovered, metadata, accepted := recoverRootActionWithTrailingCommentary(candidate); accepted {
+			t.Fatalf("ambiguous compatibility response was accepted: raw=%q action=%#v metadata=%#v",
+				candidate, recovered, metadata)
+		}
+	}
+}

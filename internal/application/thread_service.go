@@ -41,12 +41,39 @@ type threadContinuityReader interface {
 	ListRecentSessionMessages(context.Context, string, bool, int) ([]session.Message, error)
 }
 
+type threadModelRoutePreferenceReader interface {
+	GetThreadModelRoutePreference(context.Context, string) (
+		domain.ThreadModelRoutePreference, bool, error)
+}
+
 type ThreadService struct {
-	store ThreadStore
+	store        ThreadStore
+	capabilities domain.ExecutionPermissionRuntimeCapabilities
+	modelRoutes  ThreadModelRouteRegistry
+}
+
+// WithModelRouteRegistry enables fail-closed validation when a durable Thread
+// preference is materialized into a successor Run.
+func (s *ThreadService) WithModelRouteRegistry(registry ThreadModelRouteRegistry) *ThreadService {
+	if s != nil {
+		s.modelRoutes = registry
+	}
+	return s
 }
 
 func NewThreadService(store ThreadStore) *ThreadService {
 	return &ThreadService{store: store}
+}
+
+func NewThreadServiceWithExecutionCapabilities(store ThreadStore,
+	capabilities domain.ExecutionPermissionRuntimeCapabilities,
+) *ThreadService {
+	return &ThreadService{store: store, capabilities: capabilities}
+}
+
+type threadRunExecutionPermissionReader interface {
+	GetRunExecutionPermission(context.Context,
+		string) (domain.RunExecutionPermissionSnapshot, error)
 }
 
 type SubmitThreadMessageRequest struct {
@@ -108,30 +135,12 @@ func (s *ThreadService) Submit(ctx context.Context,
 		return SubmitThreadMessageResult{}, apperror.New(apperror.CodeFailedPrecondition,
 			"Thread store is required")
 	}
-	if request.Version != domain.ThreadMessageProtocolVersion {
-		return SubmitThreadMessageResult{}, apperror.New(apperror.CodeInvalidArgument,
-			"unsupported Thread message submission version")
-	}
-	if request.ThreadID != strings.TrimSpace(request.ThreadID) ||
-		!domain.ValidAgentID(request.ThreadID) {
-		return SubmitThreadMessageResult{}, apperror.New(apperror.CodeInvalidArgument,
-			"Thread message submission Thread id is invalid")
-	}
-	content, err := domain.NormalizeOperatorSteeringContent(request.Content)
+	request, err := normalizeSubmitThreadMessageRequest(request)
 	if err != nil {
-		return SubmitThreadMessageResult{}, apperror.Wrap(apperror.CodeInvalidArgument,
-			err.Error(), err)
+		return SubmitThreadMessageResult{}, err
 	}
-	operationKey, err := domain.NormalizeAgentOperationKey(request.OperationKey)
-	if err != nil || containsSpaceOrControl(operationKey) {
-		return SubmitThreadMessageResult{}, apperror.New(apperror.CodeInvalidArgument,
-			"Thread message idempotency key is invalid")
-	}
-	requestedBy := strings.TrimSpace(request.RequestedBy)
-	if requestedBy != request.RequestedBy || !domain.ValidAgentID(requestedBy) {
-		return SubmitThreadMessageResult{}, apperror.New(apperror.CodeInvalidArgument,
-			"Thread message requester is invalid")
-	}
+	content, operationKey, requestedBy := request.Content, request.OperationKey,
+		request.RequestedBy
 
 	threadRecord, err := s.store.GetThread(ctx, request.ThreadID)
 	if err != nil {
@@ -170,19 +179,26 @@ func (s *ThreadService) Submit(ctx context.Context,
 		if err != nil {
 			return SubmitThreadMessageResult{}, apperror.Normalize(err)
 		}
+		successorScope, legacyNetworkReset := successorRunNetworkScope(previousMode.Scope)
+		successorMission := mission
+		successorMission.Scope = successorScope
 		candidate, linkedSession, mode, initialEvents, err := s.prepareSuccessor(
-			ctx, threadRecord, mission, predecessor, previousMode, requestedBy)
+			ctx, threadRecord, successorMission, predecessor, previousMode,
+			legacyNetworkReset, requestedBy)
 		if err != nil {
 			return SubmitThreadMessageResult{}, err
 		}
 		threadRecord, run, successorCreated, err = s.store.EnsureThreadSuccessor(ctx,
-			threadRecord.ID, predecessor.ID, mission, candidate, mode, linkedSession,
+			threadRecord.ID, predecessor.ID, successorMission, candidate, mode, linkedSession,
 			initialEvents)
 		if err != nil {
 			return SubmitThreadMessageResult{}, apperror.Normalize(err)
 		}
 		if successorCreated {
 			predecessorID = predecessor.ID
+		}
+		if err := s.bindSuccessorFullAccess(ctx, threadRecord.ID, run); err != nil {
+			return SubmitThreadMessageResult{}, err
 		}
 	}
 	linkedSession, err := s.store.GetSession(ctx, run.SessionID)
@@ -204,9 +220,68 @@ func (s *ThreadService) Submit(ctx context.Context,
 		SuccessorCreated: successorCreated, Replayed: queued.Replayed}, nil
 }
 
+func (s *ThreadService) bindSuccessorFullAccess(ctx context.Context, threadID string,
+	run domain.Run,
+) error {
+	authority := s.capabilities.RuntimeAuthority
+	if authority == nil || !s.capabilities.FullAccessRequiresRuntimeGrant {
+		return nil
+	}
+	reader, ok := s.store.(threadRunExecutionPermissionReader)
+	if !ok {
+		return apperror.New(apperror.CodeFailedPrecondition,
+			"Thread successor execution permission reader is required")
+	}
+	permission, err := reader.GetRunExecutionPermission(ctx, run.ID)
+	if err != nil {
+		return apperror.Normalize(err)
+	}
+	if permission.Mode != domain.RunExecutionPermissionFullAccess {
+		return nil
+	}
+	if _, _, err := authority.BindThreadRun(threadID, permission); err != nil {
+		return apperror.Wrap(apperror.CodeFailedPrecondition,
+			"Thread successor Full Access binding failed", err)
+	}
+	return nil
+}
+
+func normalizeSubmitThreadMessageRequest(request SubmitThreadMessageRequest) (
+	SubmitThreadMessageRequest, error,
+) {
+	if request.Version != domain.ThreadMessageProtocolVersion {
+		return SubmitThreadMessageRequest{}, apperror.New(apperror.CodeInvalidArgument,
+			"unsupported Thread message submission version")
+	}
+	if request.ThreadID != strings.TrimSpace(request.ThreadID) ||
+		!domain.ValidAgentID(request.ThreadID) {
+		return SubmitThreadMessageRequest{}, apperror.New(apperror.CodeInvalidArgument,
+			"Thread message submission Thread id is invalid")
+	}
+	content, err := domain.NormalizeOperatorSteeringContent(request.Content)
+	if err != nil {
+		return SubmitThreadMessageRequest{}, apperror.Wrap(apperror.CodeInvalidArgument,
+			err.Error(), err)
+	}
+	operationKey, err := domain.NormalizeAgentOperationKey(request.OperationKey)
+	if err != nil || containsSpaceOrControl(operationKey) {
+		return SubmitThreadMessageRequest{}, apperror.New(apperror.CodeInvalidArgument,
+			"Thread message idempotency key is invalid")
+	}
+	requestedBy := strings.TrimSpace(request.RequestedBy)
+	if requestedBy != request.RequestedBy || !domain.ValidAgentID(requestedBy) {
+		return SubmitThreadMessageRequest{}, apperror.New(apperror.CodeInvalidArgument,
+			"Thread message requester is invalid")
+	}
+	request.Content = content
+	request.OperationKey = operationKey
+	request.RequestedBy = requestedBy
+	return request, nil
+}
+
 func (s *ThreadService) prepareSuccessor(ctx context.Context, threadRecord domain.Thread,
 	mission domain.Mission, predecessor domain.Run, previousMode domain.RunModeSnapshot,
-	requestedBy string,
+	legacyNetworkReset bool, requestedBy string,
 ) (domain.Run, session.Session, domain.RunModeSnapshot, []events.Event, error) {
 	now := time.Now().UTC()
 	linkedSession := session.New(mission.WorkspaceID, threadRecord.Title,
@@ -214,6 +289,49 @@ func (s *ThreadService) prepareSuccessor(ctx context.Context, threadRecord domai
 	linkedSession.CreatedAt, linkedSession.UpdatedAt = now, now
 	config := predecessor.Config
 	config.ContinuityContext, config.ContinuityContextFingerprint = nil, ""
+	if reader, ok := s.store.(threadModelRoutePreferenceReader); ok {
+		preference, found, preferenceErr := reader.GetThreadModelRoutePreference(
+			ctx, threadRecord.ID)
+		if preferenceErr != nil {
+			return domain.Run{}, session.Session{}, domain.RunModeSnapshot{}, nil,
+				apperror.Normalize(preferenceErr)
+		}
+		if found && preference.Selected {
+			if s.modelRoutes == nil {
+				return domain.Run{}, session.Session{}, domain.RunModeSnapshot{}, nil,
+					apperror.New(apperror.CodeFailedPrecondition,
+						"Thread model route Registry is required")
+			}
+			catalog, catalogErr := NewThreadModelRouteService(nil, s.modelRoutes).Catalog(ctx)
+			if catalogErr != nil {
+				return domain.Run{}, session.Session{}, domain.RunModeSnapshot{}, nil, catalogErr
+			}
+			selectable := false
+			for _, route := range catalog.Routes {
+				if route.ProviderID == preference.Provider && route.Model == preference.Model &&
+					route.Selectable {
+					selectable = true
+					break
+				}
+			}
+			if !selectable {
+				return domain.Run{}, session.Session{}, domain.RunModeSnapshot{}, nil,
+					apperror.New(apperror.CodeFailedPrecondition,
+						"selected Thread model route is no longer eligible")
+			}
+			// The preference is materialized only into the successor. The
+			// predecessor Run and its Session remain immutable even if they are
+			// still executing while the operator changes the next model.
+			config.ModelRoute = preference.Provider + "/" + preference.Model
+			linkedSession.Route = config.ModelRoute
+		} else if found {
+			// A reset tombstone is an explicit instruction to return to the
+			// Mission profile's named Registry route. Copying the predecessor
+			// would incorrectly preserve the old direct Provider/model ref.
+			config.ModelRoute = string(mission.Profile)
+			linkedSession.Route = config.ModelRoute
+		}
+	}
 	if mission.WorkspaceID != "" {
 		snapshot, err := s.captureThreadContinuity(ctx, predecessor, mission, now)
 		if err != nil {
@@ -232,9 +350,16 @@ func (s *ThreadService) prepareSuccessor(ctx context.Context, threadRecord domai
 	if err := candidate.Validate(); err != nil {
 		return domain.Run{}, session.Session{}, domain.RunModeSnapshot{}, nil, err
 	}
+	networkInherited := mission.Scope.NetworkMode == "allowlist" &&
+		len(mission.Scope.AllowedTargets) > 0
+	reason := "Thread successor Run; runtime authority reset"
+	if networkInherited {
+		reason = "Thread successor Run; exact network preference inherited; runtime authority reset"
+	} else if legacyNetworkReset {
+		reason = "Thread successor Run; legacy broad network preference reset; runtime authority reset"
+	}
 	mode, err := domain.NewInitialRunModeSnapshot(idgen.New("run-mode"), candidate,
-		mission, previousMode.Surface, previousMode.Phase, requestedBy,
-		"Thread successor Run; all authority reset", now)
+		mission, previousMode.Surface, previousMode.Phase, requestedBy, reason, now)
 	if err != nil {
 		return domain.Run{}, session.Session{}, domain.RunModeSnapshot{}, nil, err
 	}
@@ -242,9 +367,15 @@ func (s *ThreadService) prepareSuccessor(ctx context.Context, threadRecord domai
 		"thread_service", candidate.ID, map[string]any{
 			"status": candidate.Status, "profile": mission.Profile,
 			"surface": mode.Surface, "phase": mode.Phase,
-			"network_mode": mission.Scope.NetworkMode, "session_id": candidate.SessionID,
-			"thread_id": threadRecord.ID, "predecessor_run_id": predecessor.ID,
-			"authority_inherited": false,
+			"network_mode":                      mode.Scope.NetworkMode,
+			"allowed_target_count":              len(mode.Scope.AllowedTargets),
+			"network_authority_inherited":       networkInherited,
+			"network_authority_source_revision": previousMode.Revision,
+			"legacy_network_authority_reset":    legacyNetworkReset,
+			"session_id":                        candidate.SessionID,
+			"thread_id":                         threadRecord.ID, "predecessor_run_id": predecessor.ID,
+			"authority_inherited":         networkInherited,
+			"runtime_authority_inherited": false,
 		})
 	if err != nil {
 		return domain.Run{}, session.Session{}, domain.RunModeSnapshot{}, nil, err
@@ -367,6 +498,16 @@ func (s *ThreadService) Transition(ctx context.Context, id string,
 		action != domain.ThreadDelete {
 		return domain.Thread{}, apperror.New(apperror.CodeInvalidArgument,
 			"unsupported Thread lifecycle action")
+	}
+	if (action == domain.ThreadArchive || action == domain.ThreadDelete) &&
+		s.capabilities.RuntimeAuthority != nil {
+		// Lifecycle changes close process-local authority before persistence. A
+		// failed transition therefore remains fail-closed until reconfirmed.
+		if threadRecord, err := s.store.GetThread(ctx, id); err == nil &&
+			threadRecord.ActiveRunID != "" {
+			s.capabilities.RuntimeAuthority.RevokeRun(threadRecord.ActiveRunID)
+		}
+		s.capabilities.RuntimeAuthority.RevokeThread(id)
 	}
 	return s.store.TransitionThreadWithOperationKey(ctx, id, action,
 		expectedVersion, requestedBy, operationKey, time.Now().UTC())

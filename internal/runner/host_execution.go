@@ -157,7 +157,7 @@ func NewHostExecutionIntent(
 		request.Permission.RunID != request.RunID ||
 		request.Permission.MissionID != request.MissionID ||
 		request.Interaction.ExecutionProfileRevision != request.Profile.Revision ||
-		request.Permission.Mode != domain.RunExecutionPermissionFullAccess {
+		!request.Permission.Mode.IncludesFullAccess() {
 		return HostExecutionIntent{}, fmt.Errorf(
 			"%w: host execution intent bindings do not match",
 			ErrHostCommandBoundary)
@@ -225,7 +225,7 @@ func (i HostExecutionIntent) Validate() error {
 		!validSHA256(i.OperationKeyDigest) ||
 		i.InteractionRevision <= 0 || i.ExecutionProfileRevision <= 0 ||
 		i.PermissionRevision <= 0 ||
-		(i.PermissionMode != domain.RunExecutionPermissionFullAccess &&
+		(!i.PermissionMode.IncludesFullAccess() &&
 			i.PermissionMode != domain.RunExecutionPermissionApproval &&
 			i.PermissionMode != domain.RunExecutionPermissionWorkspaceAccess) ||
 		i.Spec.Validate() != nil || !validExecutionOperator(i.RequestedBy) ||
@@ -234,7 +234,7 @@ func (i HostExecutionIntent) Validate() error {
 			i.RunID, i.OperationKeyDigest, i.Spec.Fingerprint) {
 		return ErrHostCommandBoundary
 	}
-	if i.PermissionMode == domain.RunExecutionPermissionFullAccess {
+	if i.PermissionMode.IncludesFullAccess() {
 		if i.AuthorizationProposalID != "" ||
 			i.AuthorizationProposalFingerprint != "" ||
 			i.AuthorizationReviewID != "" ||
@@ -409,12 +409,12 @@ func (r HostExecutionResult) Validate() error {
 		!validSHA256(r.SpecFingerprint) ||
 		r.InteractionRevision <= 0 || r.ExecutionProfileRevision <= 0 ||
 		r.PermissionRevision <= 0 ||
-		(r.PermissionMode != domain.RunExecutionPermissionFullAccess &&
+		(!r.PermissionMode.IncludesFullAccess() &&
 			r.PermissionMode != domain.RunExecutionPermissionApproval &&
 			r.PermissionMode != domain.RunExecutionPermissionWorkspaceAccess) {
 		return ErrHostCommandBoundary
 	}
-	if r.PermissionMode == domain.RunExecutionPermissionFullAccess {
+	if r.PermissionMode.IncludesFullAccess() {
 		if r.AuthorizationProposalID != "" ||
 			r.AuthorizationProposalFingerprint != "" ||
 			r.AuthorizationReviewID != "" ||
@@ -732,7 +732,7 @@ func validateHostExecutionRequest(request HostExecutionRequest) error {
 			return ErrHostCommandDenied
 		}
 		operatorApproved = true
-	} else if request.Permission.Mode != domain.RunExecutionPermissionFullAccess ||
+	} else if !request.Permission.Mode.IncludesFullAccess() ||
 		request.Review != nil || request.Escalation != nil {
 		return ErrHostCommandDenied
 	}

@@ -45,6 +45,7 @@ type BrowserStartSpec struct {
 	LoopbackNavigationRequired    bool      `json:"loopback_navigation_required"`
 	HostNameResolutionDisabled    bool      `json:"host_name_resolution_disabled"`
 	NetworkDefaultDeny            bool      `json:"network_default_deny"`
+	FullCDPUsed                   bool      `json:"full_cdp_used"`
 	ShellUsed                     bool      `json:"shell_used"`
 	PersonalProfileUsed           bool      `json:"personal_profile_used"`
 	CreatedAt                     time.Time `json:"created_at"`
@@ -92,9 +93,7 @@ type BrowserProcess struct {
 	spec                BrowserStartSpec
 	platform            browserPlatformProcess
 	guard               browserNetworkContainmentGuard
-	stopOnce            sync.Once
 	stopMu              sync.Mutex
-	stopErr             error
 	containmentOnce     sync.Once
 	containmentDone     chan struct{}
 	containmentMu       sync.Mutex
@@ -123,6 +122,13 @@ func newBrowserProcessController(starter browserProcessStarter,
 func (controller *BrowserProcessController) Available() bool {
 	return controller != nil && controller.starter != nil && controller.containment != nil &&
 		controller.starter.Available() && controller.containment.Available()
+}
+
+// FullCDPAvailable reports only the process adapter required by the independent
+// Full CDP path. Safe Web network containment is deliberately not inherited.
+func (controller *BrowserProcessController) FullCDPAvailable() bool {
+	return controller != nil && controller.starter != nil &&
+		controller.starter.Available()
 }
 
 func (controller *BrowserProcessController) Start(ctx context.Context,
@@ -196,6 +202,70 @@ func (controller *BrowserProcessController) Start(ctx context.Context,
 	return process, nil
 }
 
+// StartFullCDP starts one dedicated, Job-owned browser process for the
+// independently authorized Full CDP channel. Unlike Start, it carries no Safe
+// Web network-containment authority. The exact loopback target remains enforced
+// by the CDP session scope and the process still uses a disposable Profile,
+// fixed arguments, a standard-user token, and a bounded runtime.
+func (controller *BrowserProcessController) StartFullCDP(ctx context.Context,
+	authorization FullCDPStartAuthorization, session SessionPlan,
+	identity BrowserExecutableIdentity, acceptance BrowserAcceptanceCandidate,
+	ownership ProfileOwnershipPlan, attempt BrowserLaunchAttempt,
+	launchLease BrowserLaunchLease, review BrowserLaunchReview,
+	permission domain.RunBrowserCDPPermissionSnapshot,
+	executionPermission domain.RunExecutionPermissionSnapshot,
+	executionCapabilities domain.ExecutionPermissionRuntimeCapabilities,
+	profileLease ProfileRuntimeLease, now time.Time,
+) (*BrowserProcess, error) {
+	if controller == nil || controller.starter == nil ||
+		!controller.starter.Available() {
+		return nil, ErrBrowserRuntimeUnavailable
+	}
+	if ctx == nil {
+		return nil, ErrBrowserRuntimeBoundary
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := ValidateFullCDPStartAuthorization(authorization, session, identity,
+		acceptance, ownership, attempt, launchLease, review, permission,
+		executionPermission, executionCapabilities); err != nil {
+		return nil, err
+	}
+	if err := ValidateFullCDPProfileRuntimeLease(profileLease, authorization,
+		ownership); err != nil {
+		return nil, err
+	}
+	now = now.UTC()
+	if now.IsZero() || now.Before(authorization.IssuedAt) ||
+		!now.Before(authorization.StartDeadline) ||
+		!now.Before(authorization.RuntimeDeadline) {
+		return nil, errors.New("full CDP process authorization expired before start")
+	}
+	marker, err := readProfileOwnerMarker(ownership.DirectoryPath)
+	if err != nil || !markerMatchesOwnership(marker, ownership) ||
+		marker.State != ProfileMarkerActive ||
+		marker.Fingerprint != profileLease.MarkerFingerprint {
+		return nil, errors.New("full CDP Profile marker is not the exact active owner")
+	}
+	if err := controller.revalidate(identity, acceptance); err != nil {
+		return nil, fmt.Errorf("revalidate full CDP browser immediately before start: %w", err)
+	}
+	spec, err := buildFullCDPBrowserStartSpec(authorization, identity, ownership,
+		profileLease, now)
+	if err != nil {
+		return nil, err
+	}
+	platform, err := controller.starter.Start(ctx, spec)
+	if err != nil {
+		return nil, err
+	}
+	process := &BrowserProcess{spec: spec, platform: platform,
+		containmentDone: make(chan struct{})}
+	go process.stopAtDeadline(authorization.RuntimeDeadline)
+	return process, nil
+}
+
 func (process *BrowserProcess) PID() int {
 	if process == nil || process.platform == nil {
 		return 0
@@ -236,15 +306,15 @@ func (process *BrowserProcess) Stop(ctx context.Context) error {
 }
 
 func (process *BrowserProcess) requestStop(ctx context.Context, timedOut bool) error {
-	process.stopOnce.Do(func() {
-		err := process.platform.Stop(ctx, timedOut)
-		process.stopMu.Lock()
-		process.stopErr = err
-		process.stopMu.Unlock()
-	})
 	process.stopMu.Lock()
 	defer process.stopMu.Unlock()
-	return process.stopErr
+	if _, exited := process.platform.Exit(); exited {
+		return nil
+	}
+	// A failed or cancelled termination attempt must not permanently consume the
+	// only stop opportunity. Serializing here preserves idempotency while
+	// allowing a later bounded reaper to retry the same Job-owned process tree.
+	return process.platform.Stop(ctx, timedOut)
 }
 
 func (process *BrowserProcess) WaitForContainmentCleanup(ctx context.Context) (bool, error) {
@@ -331,6 +401,38 @@ func buildBrowserStartSpec(authorization BrowserStartAuthorization,
 	return spec, nil
 }
 
+func buildFullCDPBrowserStartSpec(authorization FullCDPStartAuthorization,
+	identity BrowserExecutableIdentity, ownership ProfileOwnershipPlan,
+	profileLease ProfileRuntimeLease, now time.Time,
+) (BrowserStartSpec, error) {
+	arguments := fixedFullCDPBrowserArguments(ownership.DirectoryPath)
+	spec := BrowserStartSpec{
+		ProtocolVersion:               BrowserStartSpecProtocolVersion,
+		AuthorizationFingerprint:      authorization.Fingerprint,
+		ExecutableIdentityFingerprint: identity.Fingerprint,
+		ExecutablePath:                identity.CanonicalPath,
+		ExecutableSHA256:              identity.ExecutableSHA256,
+		ProfileOwnershipFingerprint:   ownership.Fingerprint,
+		ProfileLeaseFingerprint:       profileLease.Fingerprint,
+		ProfilePath:                   ownership.DirectoryPath,
+		Arguments:                     arguments,
+		InitialURL:                    "about:blank",
+		RemoteDebuggingAddress:        "127.0.0.1",
+		RemoteDebuggingPort:           0,
+		ActiveProcessLimit:            MaxBrowserProcessCount,
+		JobMemoryLimitBytes:           MaxBrowserJobMemoryBytes,
+		FullCDPUsed:                   true,
+		CreatedAt:                     now.UTC(),
+		RuntimeDeadline:               authorization.RuntimeDeadline,
+	}
+	spec.Fingerprint = browserRuntimeFingerprint(spec)
+	if err := validateFullCDPBrowserStartSpec(spec, authorization, identity,
+		ownership, profileLease); err != nil {
+		return BrowserStartSpec{}, err
+	}
+	return spec, nil
+}
+
 func validateBrowserStartSpec(spec BrowserStartSpec,
 	authorization BrowserStartAuthorization, identity BrowserExecutableIdentity,
 	ownership ProfileOwnershipPlan, profileLease ProfileRuntimeLease,
@@ -352,7 +454,7 @@ func validateBrowserStartSpec(spec BrowserStartSpec,
 		spec.RemoteDebuggingPort != 0 || spec.ActiveProcessLimit != MaxBrowserProcessCount ||
 		spec.JobMemoryLimitBytes != MaxBrowserJobMemoryBytes ||
 		!spec.LoopbackNavigationRequired || !spec.HostNameResolutionDisabled ||
-		!spec.NetworkDefaultDeny || !validSHA256(containmentFingerprint) ||
+		!spec.NetworkDefaultDeny || spec.FullCDPUsed || !validSHA256(containmentFingerprint) ||
 		spec.ShellUsed || spec.PersonalProfileUsed ||
 		spec.CreatedAt.IsZero() || !spec.RuntimeDeadline.Equal(authorization.RuntimeDeadline) ||
 		!spec.RuntimeDeadline.After(spec.CreatedAt) ||
@@ -362,7 +464,62 @@ func validateBrowserStartSpec(spec BrowserStartSpec,
 	return nil
 }
 
+func validateFullCDPBrowserStartSpec(spec BrowserStartSpec,
+	authorization FullCDPStartAuthorization, identity BrowserExecutableIdentity,
+	ownership ProfileOwnershipPlan, profileLease ProfileRuntimeLease,
+) error {
+	if spec.ProtocolVersion != BrowserStartSpecProtocolVersion ||
+		spec.AuthorizationFingerprint != authorization.Fingerprint ||
+		spec.ExecutableIdentityFingerprint != identity.Fingerprint ||
+		spec.ExecutablePath != identity.CanonicalPath ||
+		spec.ExecutableSHA256 != identity.ExecutableSHA256 ||
+		spec.ProfileOwnershipFingerprint != ownership.Fingerprint ||
+		spec.ProfileLeaseFingerprint != profileLease.Fingerprint ||
+		spec.NetworkContainmentFingerprint != "" ||
+		spec.ProfilePath != ownership.DirectoryPath ||
+		!reflect.DeepEqual(spec.Arguments,
+			fixedFullCDPBrowserArguments(ownership.DirectoryPath)) ||
+		spec.InitialURL != "about:blank" ||
+		spec.RemoteDebuggingAddress != "127.0.0.1" ||
+		spec.RemoteDebuggingPort != 0 ||
+		spec.ActiveProcessLimit != MaxBrowserProcessCount ||
+		spec.JobMemoryLimitBytes != MaxBrowserJobMemoryBytes ||
+		spec.LoopbackNavigationRequired || spec.HostNameResolutionDisabled ||
+		spec.NetworkDefaultDeny || !spec.FullCDPUsed || spec.ShellUsed ||
+		spec.PersonalProfileUsed || spec.CreatedAt.IsZero() ||
+		!spec.RuntimeDeadline.Equal(authorization.RuntimeDeadline) ||
+		!spec.RuntimeDeadline.After(spec.CreatedAt) ||
+		spec.Fingerprint != browserRuntimeFingerprint(spec) {
+		return ErrBrowserRuntimeBoundary
+	}
+	return nil
+}
+
 func fixedRestrictedBrowserArguments(profilePath string) []string {
+	return []string{
+		"--headless=new",
+		"--remote-debugging-address=127.0.0.1",
+		"--remote-debugging-port=0",
+		"--user-data-dir=" + profilePath,
+		"--no-first-run",
+		"--no-default-browser-check",
+		"--disable-background-networking",
+		"--disable-component-update",
+		"--disable-default-apps",
+		"--disable-extensions",
+		"--disable-sync",
+		"--disable-translate",
+		"--disable-breakpad",
+		"--disable-crash-reporter",
+		"--metrics-recording-only",
+		"--password-store=basic",
+		"--no-proxy-server",
+		"--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE ::1",
+		"about:blank",
+	}
+}
+
+func fixedFullCDPBrowserArguments(profilePath string) []string {
 	return []string{
 		"--headless=new",
 		"--remote-debugging-address=127.0.0.1",

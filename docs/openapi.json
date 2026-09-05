@@ -152,6 +152,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -230,6 +236,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -306,6 +318,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -367,6 +385,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -441,6 +465,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -531,6 +561,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -636,6 +672,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -811,6 +853,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -971,6 +1019,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -1045,6 +1099,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -1119,6 +1179,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -1209,6 +1275,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -1314,6 +1386,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -1419,6 +1497,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -1509,6 +1593,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -1580,6 +1670,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -1673,6 +1769,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -1763,6 +1865,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -1868,6 +1976,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -1973,6 +2087,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -2078,6 +2198,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -2183,6 +2309,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -2259,6 +2391,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -2375,6 +2513,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -2446,6 +2590,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -2548,6 +2698,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -2626,6 +2782,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -2714,6 +2876,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -2817,6 +2985,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -2893,6 +3067,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -2954,6 +3134,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -2971,15 +3157,9 @@
           {
             "name": "provider",
             "in": "path",
-            "description": "Credential provider name",
+            "description": "Built-in or persistent custom Provider credential identity",
             "required": true,
             "schema": {
-              "enum": [
-                "anthropic",
-                "deepseek",
-                "mimo",
-                "openai"
-              ],
               "maxLength": 256,
               "minLength": 1,
               "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
@@ -3047,6 +3227,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -3135,6 +3321,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -3223,6 +3415,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -3299,6 +3497,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -3370,6 +3574,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -3388,6 +3598,359 @@
           }
         },
         "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/models/provider-definitions": {
+      "get": {
+        "operationId": "listProviderDefinitions",
+        "summary": "List credential-free custom Provider definitions",
+        "description": "Returns operator-authored Provider protocol, endpoint, model mapping, search policy, and bounded advanced JSON. Credentials are represented only by same-Provider references and plaintext is never returned.",
+        "tags": [
+          "Models"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ProviderDefinitionCollectionView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/models/provider-definitions/{provider}": {
+      "post": {
+        "operationId": "upsertProviderDefinition",
+        "summary": "Create or update a custom Provider",
+        "description": "Persists one revision-bound credential-free Provider definition, then atomically installs a new Registry generation. Native search declarations remain unverified and grant no hosted tool or network authority.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "Custom Provider identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ProviderDefinitionMutationView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderDefinitionUpsertRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/models/provider-definitions/{provider}/delete": {
+      "post": {
+        "operationId": "deleteProviderDefinition",
+        "summary": "Delete a custom Provider",
+        "description": "Deletes one exact revision only when no persisted model route still selects it, then installs a new Registry generation. The separately stored OS credential is not exposed.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "Custom Provider identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ProviderDefinitionMutationView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderDefinitionDeleteRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/models/routes/available": {
+      "get": {
+        "operationId": "listAvailableModelRoutes",
+        "summary": "List selectable Provider/model routes",
+        "description": "Returns the credential-free, qualification-aware model routes that the Thread composer may display. The selectable flag is the server-authoritative admission decision; no credential plaintext is returned.",
+        "tags": [
+          "Models"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/AvailableModelRouteCollectionView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "x-cyberagent-read-only": true
       }
     },
     "/api/v1/models/routes/{route}": {
@@ -3472,6 +4035,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -3565,6 +4134,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -3607,6 +4182,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -3692,6 +4273,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -3813,6 +4400,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -3820,7 +4413,7 @@
       "post": {
         "operationId": "createRun",
         "summary": "Create a controlled Run",
-        "description": "Atomically creates one Mission, interactive Run, active Session, closed Run mode, preview execution profile, root Agent, and initial events. The request cannot select a model, budget, network target, existing Session, process backend, or capability grant.",
+        "description": "Atomically creates one Mission, interactive Run, active Session, closed Run mode, preview execution profile, root Agent, and initial events. Network remains disabled unless the request supplies a bounded exact public HTTPS host allowlist; wildcard and global network grants are rejected. The request cannot select a model, budget, existing Session, process backend, or capability grant.",
         "tags": [
           "Control"
         ],
@@ -3898,6 +4491,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -3991,6 +4590,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -4069,6 +4674,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -4171,6 +4782,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -4189,6 +4806,90 @@
           }
         },
         "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/active-call/poll": {
+      "get": {
+        "operationId": "pollPublicModelStream",
+        "summary": "Poll the active safe model preview",
+        "description": "Returns an explicit inactive projection between model calls so embedded renderers can poll without treating the expected idle state as an HTTP error. An active snapshot has the same redacted, provisional boundary as the exact active-call endpoint.",
+        "tags": [
+          "Runs"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/PublicModelStreamPollView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "x-cyberagent-read-only": true
       }
     },
     "/api/v1/runs/{run_id}/activity": {
@@ -4275,6 +4976,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -4353,6 +5060,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -4467,6 +5180,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -4569,6 +5288,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -4662,6 +5387,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -4776,6 +5507,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -4921,6 +5658,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -5010,6 +5753,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -5110,6 +5859,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -5215,6 +5970,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -5329,6 +6090,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -5457,6 +6224,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -5597,6 +6370,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -5726,6 +6505,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -5843,6 +6628,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -5867,7 +6658,7 @@
       "post": {
         "operationId": "selectRunBrowserCDPPermission",
         "summary": "Select a Run browser CDP permission mode",
-        "description": "Records either restricted exact-scope navigation, DOM, and screenshot intent or a highly sensitive full-debug CDP ceiling. Selection never starts a browser, opens a CDP transport, authorizes a target, or grants runtime capability; full debug also requires the current Run execution permission and process-local startup capability to be Debug.",
+        "description": "Records either restricted exact-scope navigation, DOM, and screenshot intent or the highly sensitive Full CDP sub-permission. Selection never starts a browser, opens a CDP transport, authorizes a target, or grants runtime capability. Full CDP is available only under an exact live Full Access or Debug execution permission; it defaults on when entering either mode, can be disabled independently, and is forced off below those modes.",
         "tags": [
           "Control"
         ],
@@ -5960,6 +6751,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -6053,6 +6850,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -6131,6 +6934,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -6233,6 +7042,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -6350,6 +7165,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -6443,6 +7264,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -6534,6 +7361,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -6626,6 +7459,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -6716,6 +7555,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -6830,6 +7675,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -6935,6 +7786,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -7056,6 +7913,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -7065,7 +7928,7 @@
       "get": {
         "operationId": "listRunEvents",
         "summary": "List Run events",
-        "description": "Returns the ordered append-only Run event stream.",
+        "description": "Returns the ordered append-only Run event stream with a strict Go-owned metadata projection for every payload. Commands, paths, prompts, tool arguments and results, output, headers, credentials, and extension-defined string fields are omitted before the response reaches the renderer.",
         "tags": [
           "Runs"
         ],
@@ -7162,6 +8025,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -7261,6 +8130,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -7339,6 +8214,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true,
@@ -7418,6 +8299,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -7518,6 +8405,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -7635,6 +8528,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -7752,6 +8651,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -7869,6 +8774,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -7986,6 +8897,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -8079,6 +8996,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -8168,6 +9091,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -8270,6 +9199,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -8391,6 +9326,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -8469,6 +9410,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -8559,6 +9506,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -8657,6 +9610,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -8747,6 +9706,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -8840,6 +9805,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -8930,6 +9901,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -9044,6 +10021,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -9161,6 +10144,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -9174,6 +10163,334 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/FileEditReviewRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/full-cdp-session": {
+      "get": {
+        "operationId": "getRunFullCDPSession",
+        "summary": "Get the current Full CDP session state",
+        "description": "Returns only the redacted process-local lifecycle state for the Run's current or most recent Full CDP session. It never exposes a PID, executable or Profile path, DevTools endpoint, WebSocket URL, permission snapshot identity, runtime fence, token, or authorization fingerprint.",
+        "tags": [
+          "Runs"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/FullCDPSessionControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "x-cyberagent-read-only": true
+      },
+      "post": {
+        "operationId": "openRunFullCDPSession",
+        "summary": "Open a confirmed Full CDP session",
+        "description": "Starts one backend-discovered, Job-owned browser with an exact disposable Profile and opens a TTL-bounded Full CDP transport only for one literal loopback origin. Requires live Full Access or Debug, the independently enabled Full CDP sub-permission, exact permission revision CAS, and per-call confirmation. The request cannot supply process, executable, Profile, DevTools, argv, environment, or WebSocket data.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque process-local Full CDP open operation key",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Resource created or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/FullCDPSessionControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FullCDPSessionOpenRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/full-cdp-session/close": {
+      "post": {
+        "operationId": "closeRunFullCDPSession",
+        "summary": "Close and clean one exact Full CDP session",
+        "description": "Closes the CDP transport, terminates and reaps the complete browser process tree, releases and deletes only the exact owned disposable Profile, then records a redacted terminal audit event. Closing is a cleanup operation and does not require a high-risk confirmation or still-live Full CDP permission.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque process-local Full CDP close operation key",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/FullCDPSessionControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FullCDPSessionCloseRequestView"
               }
             }
           }
@@ -9265,6 +10582,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -9343,6 +10666,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "requestBody": {
@@ -9443,6 +10772,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -9548,6 +10883,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -9673,6 +11014,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -9763,6 +11110,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -9868,6 +11221,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -9973,6 +11332,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -10080,6 +11445,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -10170,6 +11541,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -10284,6 +11661,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -10401,6 +11784,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -10414,6 +11803,129 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/RunLifecycleControlRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/network-authority": {
+      "post": {
+        "operationId": "expandRunNetworkAuthority",
+        "summary": "Add exact HTTPS hosts to a quiescent Run",
+        "description": "Appends a new Run mode revision that adds only the explicitly listed canonical public HTTPS hostnames. The transition requires an exact expected mode revision, a created or paused Run, no active execution lease, and an idempotency key. It never grants public_https, wildcard, implicit search-provider, process, credential, or filesystem authority; all prior tool fences become stale.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque revision-bound operation key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/RunNetworkAuthorityControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunNetworkAuthorityControlRequestView"
               }
             }
           }
@@ -10634,6 +12146,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -10712,6 +12230,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -10814,6 +12338,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -10931,6 +12461,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -11048,6 +12584,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -11150,6 +12692,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -11240,6 +12788,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -11361,6 +12915,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -11451,6 +13011,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -11537,6 +13103,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -11637,6 +13209,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -11780,6 +13358,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -11873,6 +13457,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -11961,6 +13551,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -12078,6 +13674,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -12195,6 +13797,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -12219,7 +13827,7 @@
       "get": {
         "operationId": "listRunToolRounds",
         "summary": "List Supervisor tool rounds",
-        "description": "Returns persisted redacted structured-memory tool rounds and calls.",
+        "description": "Returns persisted Supervisor tool rounds with the same Go-owned closed thread_activity_detail.v2 union used by the Thread conversation. Raw durable payload/result JSON and generic name/value fact arrays are never exposed; unsupported historical calls fail closed with detail_available=false.",
         "tags": [
           "Runs"
         ],
@@ -12316,6 +13924,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -12426,6 +14040,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -12514,6 +14134,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -12607,6 +14233,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -12707,6 +14339,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -12800,6 +14438,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -12900,6 +14544,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -13017,6 +14667,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -13110,6 +14766,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -13236,6 +14898,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -13350,6 +15018,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -13428,6 +15102,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -13528,6 +15208,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -13621,6 +15307,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -13721,6 +15413,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -13814,6 +15512,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -13914,6 +15618,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -14031,6 +15741,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -14136,6 +15852,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -14240,6 +15962,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -14390,6 +16118,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -14489,6 +16223,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -14577,6 +16317,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -14682,6 +16428,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -14787,6 +16539,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -14892,6 +16650,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -14997,6 +16761,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -15102,6 +16872,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -15204,6 +16980,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -15306,6 +17088,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -15382,6 +17170,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "requestBody": {
@@ -15479,6 +17273,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -15571,6 +17371,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -15656,6 +17462,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -15756,6 +17568,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -15847,6 +17665,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -15925,6 +17749,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -16015,6 +17845,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -16144,6 +17980,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -16244,6 +18086,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -16373,6 +18221,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -16466,6 +18320,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -16553,6 +18413,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -16655,6 +18521,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -16783,6 +18655,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -16790,7 +18668,7 @@
       "post": {
         "operationId": "createThread",
         "summary": "Create a Thread",
-        "description": "Atomically creates one stable Thread with its initial Mission, Run, Session, closed mode, all-denied authority snapshots, root Agent, and audit events.",
+        "description": "Atomically creates one stable Thread with its initial Mission, Run, Session, closed execution mode, all-denied process authority snapshots, root Agent, and audit events. Network remains disabled unless the request supplies a bounded exact public HTTPS host allowlist.",
         "tags": [
           "Control"
         ],
@@ -16868,6 +18746,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -16961,6 +18845,216 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/threads/{thread_id}/activities/{activity_ref}": {
+      "get": {
+        "operationId": "getThreadActivityDetail",
+        "summary": "Inspect safe typed Thread activity details",
+        "description": "Lazily returns one Go-owned discriminated detail branch for command, Web search/fetch, file read/edit, MCP, verification, or browser activity. References are resolved through the Thread-to-Run binding and cannot expose another Thread. Environment values, stdin, credentials, raw payload/result JSON, process identities, private host paths, edit bodies, MCP scalar values, and private reasoning are never returned.",
+        "tags": [
+          "Threads"
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "description": "Thread identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "activity_ref",
+            "in": "path",
+            "description": "Opaque durable activity detail reference from the Thread transcript",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ThreadActivityDetailView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/threads/{thread_id}/activities/{activity_ref}/artifacts/{artifact_id}": {
+      "get": {
+        "operationId": "getThreadActivityArtifact",
+        "summary": "Read a safe Thread command output artifact",
+        "description": "Returns one Thread-, activity-, Run-, and Job-bound command stdout/stderr artifact after a second Go-owned redaction and host-path projection. Interactive-stdin Jobs fail closed. Raw payload JSON, environment values, stdin, credentials, process identities, and private reasoning are never returned.",
+        "tags": [
+          "Threads"
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "description": "Thread identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "activity_ref",
+            "in": "path",
+            "description": "Opaque durable activity detail reference from the Thread transcript",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "description": "Artifact identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ThreadActivityArtifactView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -17063,6 +19157,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -17180,6 +19280,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -17273,6 +19379,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -17373,6 +19485,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -17466,6 +19584,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -17580,6 +19704,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -17680,6 +19810,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -17693,6 +19829,322 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ThreadMessageControlRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/threads/{thread_id}/model-route": {
+      "get": {
+        "operationId": "getThreadModelRoute",
+        "summary": "Read a Thread's preferred next-Run model route",
+        "description": "Returns the explicit Thread preference or the inherited default without exposing credentials. A running Run is never changed.",
+        "tags": [
+          "Threads"
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "description": "Thread identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ThreadModelRouteView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "x-cyberagent-read-only": true
+      },
+      "put": {
+        "operationId": "selectThreadModelRoute",
+        "summary": "Select or reset a Thread's next-Run model route",
+        "description": "Persists an idempotent qualified Provider/model preference for the next successor Run. It never mutates the current Run, calls a model, or returns credential material.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "description": "Thread identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ThreadModelRouteView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThreadModelRouteControlRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/threads/{thread_id}/recovery": {
+      "post": {
+        "operationId": "recoverThreadRun",
+        "summary": "End a failed Thread Run",
+        "description": "Explicitly ends the exact active running Run only when its latest durable execution handoff failed and no execution lease remains active. Pending steering on the old Run is cancelled and never copied. The next Thread submission atomically creates a successor using the selected next-Run model and permission preferences.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "description": "Thread identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque retry key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ThreadRunRecoveryControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThreadRunRecoveryControlRequestView"
               }
             }
           }
@@ -17797,6 +20249,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -17893,6 +20351,96 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/threads/{thread_id}/search-readiness": {
+      "get": {
+        "operationId": "getProviderSearchReadiness",
+        "summary": "Inspect a Thread's Web search readiness",
+        "description": "Returns a credential-free, read-only projection over the active Run network allowlist, exact model route, configured search policy, and already-observed Provider qualification cache. It performs no Provider request, never treats declared_unverified as ready, and grants no capability.",
+        "tags": [
+          "Threads"
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "description": "Thread identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ProviderSearchReadinessView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -17999,9 +20547,138 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/threads/{thread_id}/turns": {
+      "post": {
+        "operationId": "executeThreadTurn",
+        "summary": "Execute a Thread turn",
+        "description": "Submits one operator message and owns the associated Run start or resume plus bounded Supervisor execution until finish, wait, approval, concurrent steering, or an internal safety boundary. The client does not select a Run or provide a step limit. Existing lifecycle, execution-permission, approval, lease, and idempotency boundaries remain authoritative.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "description": "Thread identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque retry key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ThreadMessageControlView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThreadMessageControlRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
       }
     },
     "/api/v1/ui-evidence/{attempt_id}": {
@@ -18077,6 +20754,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -18160,6 +20843,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -18250,6 +20939,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "security": [
@@ -18343,6 +21038,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -18434,6 +21135,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -18522,6 +21229,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -18624,6 +21337,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -18714,6 +21433,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -18815,6 +21540,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -18893,6 +21624,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -18982,6 +21719,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -19060,6 +21803,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -19138,6 +21887,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -19227,6 +21982,12 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
           }
         },
         "x-cyberagent-read-only": true
@@ -19664,6 +22425,7 @@
           "action": {
             "enum": [
               "approve_once",
+              "approve_for_thread",
               "deny"
             ],
             "type": "string"
@@ -19691,6 +22453,7 @@
           "action": {
             "enum": [
               "approve_once",
+              "approve_for_thread",
               "deny"
             ],
             "type": "string"
@@ -19706,6 +22469,9 @@
           "docker_execution_enabled": {
             "type": "boolean"
           },
+          "execution_resumed": {
+            "type": "boolean"
+          },
           "process_execution_enabled": {
             "type": "boolean"
           },
@@ -19715,6 +22481,12 @@
             "type": "string"
           },
           "replayed": {
+            "type": "boolean"
+          },
+          "retry_completed": {
+            "type": "boolean"
+          },
+          "retry_scheduled": {
             "type": "boolean"
           },
           "run_id": {
@@ -19762,7 +22534,10 @@
           "docker_execution_enabled",
           "workspace_write_applied",
           "session_grant_created",
-          "capability_grant"
+          "capability_grant",
+          "execution_resumed",
+          "retry_completed",
+          "retry_scheduled"
         ],
         "type": "object"
       },
@@ -19778,11 +22553,17 @@
             },
             "type": "array"
           },
+          "canonical_url": {
+            "type": "string"
+          },
           "capability_grant": {
             "type": "boolean"
           },
           "created_at": {
             "format": "date-time",
+            "type": "string"
+          },
+          "exact_target": {
             "type": "string"
           },
           "id": {
@@ -19813,7 +22594,9 @@
           },
           "status": {
             "enum": [
-              "pending"
+              "pending",
+              "approved",
+              "denied"
             ],
             "type": "string"
           },
@@ -19979,6 +22762,123 @@
           "size_bytes",
           "redacted",
           "created_at"
+        ],
+        "type": "object"
+      },
+      "AvailableModelRouteCollectionView": {
+        "additionalProperties": false,
+        "properties": {
+          "generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "protocol_version": {
+            "enum": [
+              "model_route_catalog.v1"
+            ],
+            "type": "string"
+          },
+          "routes": {
+            "items": {
+              "$ref": "#/components/schemas/AvailableModelRouteView"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "generation",
+          "routes"
+        ],
+        "type": "object"
+      },
+      "AvailableModelRouteView": {
+        "additionalProperties": false,
+        "properties": {
+          "credential_status": {
+            "enum": [
+              "not_required",
+              "configured",
+              "not_configured",
+              "invalid_configuration",
+              "disabled",
+              "unavailable"
+            ],
+            "type": "string"
+          },
+          "default_for_routes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "harness_ready": {
+            "type": "boolean"
+          },
+          "model": {
+            "type": "string"
+          },
+          "provider_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "provider_name": {
+            "type": "string"
+          },
+          "qualification_status": {
+            "enum": [
+              "unavailable",
+              "not_configured",
+              "available",
+              "protocol_mismatch",
+              "auth_failed",
+              "network_failed",
+              "rate_limit",
+              "capacity",
+              "model_unsupported",
+              "trusted_builtin",
+              "qualification_required",
+              "verified"
+            ],
+            "type": "string"
+          },
+          "selectable": {
+            "type": "boolean"
+          },
+          "unavailable_reason": {
+            "enum": [
+              "",
+              "provider_disabled",
+              "credential_not_configured",
+              "invalid_configuration",
+              "provider_unavailable",
+              "harness_qualification_required",
+              "not_configured",
+              "protocol_mismatch",
+              "auth_failed",
+              "network_failed",
+              "rate_limit",
+              "capacity",
+              "model_unsupported"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider_id",
+          "provider_name",
+          "model",
+          "enabled",
+          "credential_status",
+          "qualification_status",
+          "harness_ready",
+          "selectable",
+          "unavailable_reason",
+          "default_for_routes"
         ],
         "type": "object"
       },
@@ -27512,6 +30412,205 @@
         ],
         "type": "object"
       },
+      "FullCDPBrowserSelectionView": {
+        "additionalProperties": false,
+        "properties": {
+          "channel": {
+            "enum": [
+              "stable",
+              "beta",
+              "dev",
+              "canary"
+            ],
+            "type": "string"
+          },
+          "product": {
+            "enum": [
+              "chrome",
+              "edge"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "product",
+          "channel"
+        ],
+        "type": "object"
+      },
+      "FullCDPSessionCloseRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              "full_cdp_session_close.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "expected_session_id"
+        ],
+        "type": "object"
+      },
+      "FullCDPSessionControlView": {
+        "additionalProperties": false,
+        "properties": {
+          "replayed": {
+            "type": "boolean"
+          },
+          "session": {
+            "$ref": "#/components/schemas/FullCDPSessionView"
+          }
+        },
+        "required": [
+          "session",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "FullCDPSessionOpenRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "browser": {
+            "$ref": "#/components/schemas/FullCDPBrowserSelectionView"
+          },
+          "confirm_full_cdp": {
+            "type": "boolean"
+          },
+          "expected_browser_cdp_permission_revision": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "expected_execution_permission_revision": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              "full_cdp_session.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "target",
+          "browser",
+          "expected_execution_permission_revision",
+          "expected_browser_cdp_permission_revision",
+          "confirm_full_cdp"
+        ],
+        "type": "object"
+      },
+      "FullCDPSessionView": {
+        "additionalProperties": false,
+        "properties": {
+          "browser": {
+            "$ref": "#/components/schemas/FullCDPBrowserSelectionView"
+          },
+          "cdp_closed": {
+            "type": "boolean"
+          },
+          "close_reason": {
+            "enum": [
+              "operator_closed",
+              "expired",
+              "permission_revoked",
+              "process_exited",
+              "run_terminal",
+              "desktop_shutdown",
+              "open_failed"
+            ],
+            "type": "string"
+          },
+          "completed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "failure_code": {
+            "type": "string"
+          },
+          "process_tree_quiescent": {
+            "type": "boolean"
+          },
+          "profile_cleaned": {
+            "type": "boolean"
+          },
+          "profile_released": {
+            "type": "boolean"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "runtime_available": {
+            "type": "boolean"
+          },
+          "session_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "none",
+              "starting",
+              "ready",
+              "closing",
+              "closed",
+              "failed"
+            ],
+            "type": "string"
+          },
+          "target_origin": {
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              "full_cdp_session.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "run_id",
+          "state",
+          "runtime_available",
+          "cdp_closed",
+          "process_tree_quiescent",
+          "profile_released",
+          "profile_cleaned"
+        ],
+        "type": "object"
+      },
       "GitAdvancedAuthorityView": {
         "additionalProperties": false,
         "properties": {
@@ -32316,6 +35415,7 @@
               "mock",
               "anthropic_messages",
               "openai_chat_completions",
+              "openai_responses",
               "ollama_chat",
               "provider_contract"
             ],
@@ -33860,6 +36960,19 @@
           "CredentialSource": {
             "type": "string"
           },
+          "Custom": {
+            "type": "boolean"
+          },
+          "DefinitionRevision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "DisplayName": {
+            "type": "string"
+          },
+          "Enabled": {
+            "type": "boolean"
+          },
           "Harnesses": {
             "items": {
               "$ref": "#/components/schemas/HarnessAvailability"
@@ -33878,22 +36991,42 @@
           "Name": {
             "type": "string"
           },
+          "NativeWebSearchCapability": {
+            "type": "string"
+          },
+          "NativeWebSearchRuntimeEnabled": {
+            "type": "boolean"
+          },
           "NetworkRequired": {
             "type": "boolean"
           },
+          "SearchMode": {
+            "type": "string"
+          },
           "Status": {
+            "type": "string"
+          },
+          "Transport": {
             "type": "string"
           }
         },
         "required": [
           "Name",
+          "DisplayName",
           "Kind",
           "Status",
           "Models",
           "Harnesses",
           "CredentialSource",
           "NetworkRequired",
-          "ConfigurationError"
+          "ConfigurationError",
+          "Custom",
+          "Enabled",
+          "DefinitionRevision",
+          "Transport",
+          "SearchMode",
+          "NativeWebSearchCapability",
+          "NativeWebSearchRuntimeEnabled"
         ],
         "type": "object"
       },
@@ -33910,6 +37043,19 @@
               "system"
             ],
             "type": "string"
+          },
+          "custom": {
+            "type": "boolean"
+          },
+          "definition_revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
           },
           "harnesses": {
             "items": {
@@ -33935,8 +37081,27 @@
           "name": {
             "type": "string"
           },
+          "native_web_search_capability": {
+            "enum": [
+              "unsupported",
+              "declared_unverified"
+            ],
+            "type": "string"
+          },
+          "native_web_search_runtime_enabled": {
+            "type": "boolean"
+          },
           "network_required": {
             "type": "boolean"
+          },
+          "search_mode": {
+            "enum": [
+              "disabled",
+              "auto",
+              "searxng",
+              "provider_native"
+            ],
+            "type": "string"
           },
           "status": {
             "enum": [
@@ -33945,17 +37110,35 @@
               "invalid_configuration"
             ],
             "type": "string"
+          },
+          "transport": {
+            "enum": [
+              "mock",
+              "anthropic_messages",
+              "openai_chat_completions",
+              "openai_responses",
+              "ollama_chat"
+            ],
+            "type": "string"
           }
         },
         "required": [
           "name",
+          "display_name",
           "kind",
           "status",
           "models",
           "harnesses",
           "credential_source",
           "network_required",
-          "configuration_error"
+          "configuration_error",
+          "custom",
+          "enabled",
+          "definition_revision",
+          "transport",
+          "search_mode",
+          "native_web_search_capability",
+          "native_web_search_runtime_enabled"
         ],
         "type": "object"
       },
@@ -33966,7 +37149,7 @@
             "items": {
               "$ref": "#/components/schemas/ProviderCredentialStatusView"
             },
-            "maxItems": 4,
+            "maxItems": 68,
             "minItems": 4,
             "type": "array"
           },
@@ -34032,12 +37215,7 @@
             "type": "string"
           },
           "provider": {
-            "enum": [
-              "anthropic",
-              "deepseek",
-              "mimo",
-              "openai"
-            ],
+            "maxLength": 64,
             "type": "string"
           },
           "registry_generation": {
@@ -34067,6 +37245,200 @@
           "restart_required",
           "registry_reloaded",
           "registry_generation"
+        ],
+        "type": "object"
+      },
+      "ProviderDefinition": {
+        "additionalProperties": false,
+        "properties": {
+          "advanced_config": {},
+          "default_model": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "endpoint_url": {
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "native_web_search_capability": {
+            "enum": [
+              "unsupported",
+              "declared_unverified"
+            ],
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "search_mode": {
+            "enum": [
+              "disabled",
+              "auto",
+              "searxng",
+              "provider_native"
+            ],
+            "type": "string"
+          },
+          "transport": {
+            "enum": [
+              "openai_chat_completions",
+              "openai_responses",
+              "anthropic_messages"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              "provider_definition.v1"
+            ],
+            "type": "string"
+          },
+          "website_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "id",
+          "display_name",
+          "note",
+          "website_url",
+          "endpoint_url",
+          "default_model",
+          "models",
+          "transport",
+          "search_mode",
+          "native_web_search_capability",
+          "advanced_config",
+          "enabled",
+          "revision"
+        ],
+        "type": "object"
+      },
+      "ProviderDefinitionCollectionView": {
+        "additionalProperties": false,
+        "properties": {
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderDefinition"
+            },
+            "type": "array"
+          },
+          "revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "revision",
+          "providers"
+        ],
+        "type": "object"
+      },
+      "ProviderDefinitionDeleteRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "type": "boolean"
+          },
+          "expected_collection_revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "expected_definition_revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "expected_collection_revision",
+          "expected_definition_revision",
+          "confirm"
+        ],
+        "type": "object"
+      },
+      "ProviderDefinitionMutationView": {
+        "additionalProperties": false,
+        "properties": {
+          "collection": {
+            "$ref": "#/components/schemas/ProviderDefinitionCollectionView"
+          },
+          "definition": {
+            "$ref": "#/components/schemas/ProviderDefinition"
+          },
+          "deleted_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "registry_generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "registry_reloaded": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "collection",
+          "registry_reloaded",
+          "registry_generation"
+        ],
+        "type": "object"
+      },
+      "ProviderDefinitionUpsertRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "type": "boolean"
+          },
+          "definition": {
+            "$ref": "#/components/schemas/ProviderDefinition"
+          },
+          "expected_collection_revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "expected_collection_revision",
+          "definition",
+          "confirm"
         ],
         "type": "object"
       },
@@ -34191,6 +37563,135 @@
           "response_content_returned",
           "qualification_status",
           "duration_ms"
+        ],
+        "type": "object"
+      },
+      "ProviderSearchReadinessView": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_grant": {
+            "type": "boolean"
+          },
+          "detail_code": {
+            "type": "string"
+          },
+          "mode_revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "model": {
+            "type": "string"
+          },
+          "model_route": {
+            "type": "string"
+          },
+          "network_mode": {
+            "enum": [
+              "disabled",
+              "allowlist"
+            ],
+            "type": "string"
+          },
+          "protocol_version": {
+            "enum": [
+              "provider_search_readiness.v1"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "run_network_disabled",
+              "search_endpoint_not_allowlisted",
+              "provider_native_qualification_required",
+              "provider_native_qualification_failed",
+              "no_active_run",
+              "model_provider_unavailable",
+              "provider_search_policy_disabled",
+              "search_backend_not_configured",
+              "provider_search_configuration_invalid",
+              "search_backend_ready"
+            ],
+            "type": "string"
+          },
+          "remediation": {
+            "enum": [
+              "enable_network_allowlist",
+              "add_required_target",
+              "qualify_provider_search",
+              "submit_to_create_successor",
+              "configure_search_provider",
+              "enable_provider_search",
+              "repair_provider_configuration",
+              "none"
+            ],
+            "type": "string"
+          },
+          "required_target": {
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "runtime_ready": {
+            "type": "boolean"
+          },
+          "search_policy": {
+            "enum": [
+              "disabled",
+              "auto",
+              "searxng",
+              "provider_native"
+            ],
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "network_disabled",
+              "missing_allowlist",
+              "provider_unqualified",
+              "provider_unavailable",
+              "ready"
+            ],
+            "type": "string"
+          },
+          "thread_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "state",
+          "reason",
+          "remediation",
+          "network_mode",
+          "runtime_ready",
+          "capability_grant"
+        ],
+        "type": "object"
+      },
+      "PublicModelStreamPollView": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/PublicModelStreamSnapshot"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "active"
         ],
         "type": "object"
       },
@@ -36141,8 +39642,25 @@
       "RunCreationControlRequestView": {
         "additionalProperties": false,
         "properties": {
+          "allowed_targets": {
+            "items": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 256,
+            "type": "array",
+            "uniqueItems": true
+          },
           "goal": {
             "maxLength": 4096,
+            "type": "string"
+          },
+          "network_mode": {
+            "enum": [
+              "disabled",
+              "allowlist"
+            ],
             "type": "string"
           },
           "phase": {
@@ -37294,6 +40812,89 @@
         ],
         "type": "object"
       },
+      "RunNetworkAuthorityControlRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "add_allowed_targets": {
+            "items": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 256,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "expected_mode_revision": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 1024,
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              "run_network_authority_control.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "expected_mode_revision",
+          "add_allowed_targets"
+        ],
+        "type": "object"
+      },
+      "RunNetworkAuthorityControlView": {
+        "additionalProperties": false,
+        "properties": {
+          "added_targets": {
+            "items": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 256,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "capability_grant": {
+            "const": true,
+            "type": "boolean"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/RunModeView"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              "run_network_authority_control.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "run_id",
+          "mode",
+          "added_targets",
+          "replayed",
+          "capability_grant"
+        ],
+        "type": "object"
+      },
       "RunState": {
         "additionalProperties": false,
         "properties": {
@@ -37855,6 +41456,9 @@
           "full_cdp_debug_enabled": {
             "type": "boolean"
           },
+          "full_cdp_session_control_enabled": {
+            "type": "boolean"
+          },
           "git_advanced_control_enabled": {
             "type": "boolean"
           },
@@ -37964,6 +41568,7 @@
           "command_runtime_adapters",
           "browser_cdp_permission_control_enabled",
           "full_cdp_debug_enabled",
+          "full_cdp_session_control_enabled",
           "run_creation_enabled",
           "standard_code_preset_enabled",
           "session_message_enabled",
@@ -40782,6 +44387,12 @@
             "format": "date-time",
             "type": "string"
           },
+          "detail": {
+            "$ref": "#/components/schemas/ThreadActivityToolDetailView"
+          },
+          "detail_available": {
+            "type": "boolean"
+          },
           "error_code": {
             "type": "string"
           },
@@ -40790,13 +44401,11 @@
             "minimum": 1,
             "type": "integer"
           },
-          "payload": {},
           "position": {
             "format": "int32",
             "minimum": 0,
             "type": "integer"
           },
-          "result": {},
           "status": {
             "enum": [
               "pending",
@@ -40830,8 +44439,8 @@
           "model_attempt",
           "call_id",
           "tool_name",
-          "payload",
           "status",
+          "detail_available",
           "created_at"
         ],
         "type": "object"
@@ -40873,6 +44482,11 @@
             "minLength": 1,
             "type": "string"
           },
+          "thread_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
           "turn": {
             "format": "int32",
             "minimum": 1,
@@ -40890,10 +44504,1093 @@
         ],
         "type": "object"
       },
+      "ThreadActivityArtifactReferenceView": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_ref": {
+            "type": "string"
+          },
+          "mime": {
+            "enum": [
+              "text/plain; charset=utf-8"
+            ],
+            "type": "string"
+          },
+          "size_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "stream": {
+            "enum": [
+              "stdout",
+              "stderr"
+            ],
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "artifact_ref",
+          "stream",
+          "mime",
+          "size_bytes",
+          "truncated"
+        ],
+        "type": "object"
+      },
+      "ThreadActivityArtifactView": {
+        "additionalProperties": false,
+        "properties": {
+          "activity_ref": {
+            "type": "string"
+          },
+          "artifact_ref": {
+            "type": "string"
+          },
+          "content": {
+            "maxLength": 4194304,
+            "type": "string"
+          },
+          "instruction_authorized": {
+            "type": "boolean"
+          },
+          "mime": {
+            "enum": [
+              "text/plain; charset=utf-8"
+            ],
+            "type": "string"
+          },
+          "redacted": {
+            "type": "boolean"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "stream": {
+            "enum": [
+              "stdout",
+              "stderr"
+            ],
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "untrusted": {
+            "type": "boolean"
+          },
+          "version": {
+            "enum": [
+              "thread_activity_artifact.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "activity_ref",
+          "artifact_ref",
+          "stream",
+          "mime",
+          "content",
+          "sha256",
+          "size_bytes",
+          "redacted",
+          "truncated",
+          "untrusted",
+          "instruction_authorized"
+        ],
+        "type": "object"
+      },
+      "ThreadActivityBoundaryView": {
+        "additionalProperties": false,
+        "properties": {
+          "authorization": {
+            "enum": [
+              "policy_checked",
+              "pending",
+              "denied"
+            ],
+            "type": "string"
+          },
+          "error_code": {
+            "type": "string"
+          },
+          "failure_reason": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "untrusted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "authorization",
+          "error_code",
+          "failure_reason",
+          "truncated",
+          "untrusted"
+        ],
+        "type": "object"
+      },
+      "ThreadActivityBrowserDetailView": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "artifact_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "boundary": {
+            "$ref": "#/components/schemas/ThreadActivityBoundaryView"
+          },
+          "input_length": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation",
+          "action",
+          "url",
+          "selector",
+          "input_length",
+          "artifact_bytes",
+          "summary",
+          "boundary"
+        ],
+        "type": "object"
+      },
+      "ThreadActivityCommandDetailView": {
+        "additionalProperties": false,
+        "properties": {
+          "artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/ThreadActivityArtifactReferenceView"
+            },
+            "maxItems": 2,
+            "type": "array"
+          },
+          "command": {
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "duration_milliseconds": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "execution_environment": {
+            "enum": [
+              "Workspace Sandbox",
+              "Host · Full Access",
+              "Legacy execution boundary"
+            ],
+            "type": "string"
+          },
+          "exit_code": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "network": {
+            "enum": [
+              "disabled"
+            ],
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "completed",
+              "denied",
+              "failed",
+              "prepared",
+              "running",
+              "stopping",
+              "completed",
+              "failed",
+              "timed_out",
+              "cancelled",
+              "killed",
+              "interrupted"
+            ],
+            "type": "string"
+          },
+          "stderr_preview": {
+            "maxLength": 8192,
+            "type": "string"
+          },
+          "stdout_preview": {
+            "maxLength": 8192,
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "working_directory": {
+            "maxLength": 1024,
+            "type": "string"
+          }
+        },
+        "required": [
+          "command",
+          "working_directory",
+          "execution_environment",
+          "network",
+          "status",
+          "duration_milliseconds",
+          "stdout_preview",
+          "stderr_preview",
+          "truncated",
+          "artifacts"
+        ],
+        "type": "object"
+      },
+      "ThreadActivityCommandGroupView": {
+        "additionalProperties": false,
+        "properties": {
+          "commands": {
+            "items": {
+              "$ref": "#/components/schemas/ThreadActivityCommandDetailView"
+            },
+            "maxItems": 32,
+            "type": "array"
+          }
+        },
+        "required": [
+          "commands"
+        ],
+        "type": "object"
+      },
+      "ThreadActivityDetailView": {
+        "additionalProperties": false,
+        "properties": {
+          "activity_ref": {
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "$ref": "#/components/schemas/ThreadActivityToolDetailView"
+            },
+            "maxItems": 1,
+            "minItems": 1,
+            "type": "array"
+          },
+          "version": {
+            "enum": [
+              "thread_activity_detail.v2"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "activity_ref",
+          "run_id",
+          "tools"
+        ],
+        "type": "object"
+      },
+      "ThreadActivityDiffSummaryView": {
+        "additionalProperties": false,
+        "properties": {
+          "added_lines": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "hunks": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "removed_lines": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "added_lines",
+          "removed_lines",
+          "hunks",
+          "summary"
+        ],
+        "type": "object"
+      },
+      "ThreadActivityFileEditDetailView": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "applied": {
+            "type": "boolean"
+          },
+          "apply_status": {
+            "type": "string"
+          },
+          "boundary": {
+            "$ref": "#/components/schemas/ThreadActivityBoundaryView"
+          },
+          "destination_path": {
+            "type": "string"
+          },
+          "diff": {
+            "$ref": "#/components/schemas/ThreadActivityDiffSummaryView"
+          },
+          "diff_available": {
+            "type": "boolean"
+          },
+          "edit_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "file_written": {
+            "type": "boolean"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "operation",
+          "action",
+          "path",
+          "destination_path",
+          "edit_id",
+          "diff_available",
+          "apply_status",
+          "applied",
+          "file_written",
+          "replayed",
+          "diff",
+          "boundary"
+        ],
+        "type": "object"
+      },
+      "ThreadActivityFileReadDetailView": {
+        "additionalProperties": false,
+        "properties": {
+          "boundary": {
+            "$ref": "#/components/schemas/ThreadActivityBoundaryView"
+          },
+          "end_line": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "limit": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "pattern": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "result_count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "start_line": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "operation",
+          "path",
+          "query",
+          "pattern",
+          "start_line",
+          "end_line",
+          "limit",
+          "result_count",
+          "truncated",
+          "summary",
+          "boundary"
+        ],
+        "type": "object"
+      },
+      "ThreadActivityJSONFieldSummaryView": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "null",
+              "boolean",
+              "number",
+              "string",
+              "array",
+              "object",
+              "unknown"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "summary"
+        ],
+        "type": "object"
+      },
+      "ThreadActivityJSONSummaryView": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/ThreadActivityJSONFieldSummaryView"
+            },
+            "maxItems": 16,
+            "type": "array"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "unavailable",
+              "text",
+              "null",
+              "boolean",
+              "number",
+              "string",
+              "array",
+              "object",
+              "unknown"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "count",
+          "summary",
+          "fields"
+        ],
+        "type": "object"
+      },
+      "ThreadActivityMCPDetailView": {
+        "additionalProperties": false,
+        "properties": {
+          "arguments": {
+            "items": {
+              "$ref": "#/components/schemas/ThreadActivityJSONFieldSummaryView"
+            },
+            "maxItems": 16,
+            "type": "array"
+          },
+          "boundary": {
+            "$ref": "#/components/schemas/ThreadActivityBoundaryView"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/components/schemas/ThreadActivityJSONSummaryView"
+          },
+          "server": {
+            "type": "string"
+          },
+          "tool": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation",
+          "server",
+          "tool",
+          "arguments",
+          "result",
+          "boundary"
+        ],
+        "type": "object"
+      },
+      "ThreadActivitySearchSourceView": {
+        "additionalProperties": false,
+        "properties": {
+          "citeable": {
+            "type": "boolean"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "rank": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "state": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rank",
+          "title",
+          "url",
+          "provider",
+          "state",
+          "citeable"
+        ],
+        "type": "object"
+      },
+      "ThreadActivitySummaryView": {
+        "additionalProperties": false,
+        "properties": {
+          "activity_ref": {
+            "type": "string"
+          },
+          "command": {
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "command_count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "duration_milliseconds": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "exit_code": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "completed",
+              "denied",
+              "failed",
+              "prepared",
+              "running",
+              "stopping",
+              "completed",
+              "failed",
+              "timed_out",
+              "cancelled",
+              "killed",
+              "interrupted"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              "thread_activity_summary.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "activity_ref",
+          "command",
+          "status",
+          "duration_milliseconds",
+          "command_count"
+        ],
+        "type": "object"
+      },
+      "ThreadActivityToolDetailView": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "agent_label": {
+            "type": "string"
+          },
+          "agent_role": {
+            "enum": [
+              "root",
+              "specialist",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "completed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "detail": {
+            "$ref": "#/components/schemas/ThreadActivityTypedDetailView"
+          },
+          "duration_milliseconds": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "label": {
+            "type": "string"
+          },
+          "name": {
+            "enum": [
+              "command_runtime",
+              "workspace_list",
+              "workspace_read",
+              "workspace_glob",
+              "workspace_grep",
+              "workspace_change",
+              "workspace_apply",
+              "workspace_delete",
+              "web_search",
+              "web_fetch",
+              "web_citation",
+              "mcp_tool_call",
+              "code_workspace_symbols",
+              "code_document_symbols",
+              "code_definition",
+              "code_references",
+              "code_implementation",
+              "code_hover",
+              "code_signature_help",
+              "code_diagnostics",
+              "code_call_hierarchy",
+              "code_type_hierarchy",
+              "github_review_evidence_list",
+              "github_review_evidence_read",
+              "browser_status",
+              "browser_navigate",
+              "browser_snapshot",
+              "browser_click",
+              "browser_type",
+              "browser_screenshot"
+            ],
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "completed",
+              "denied",
+              "failed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "agent_id",
+          "agent_role",
+          "agent_label",
+          "status",
+          "started_at",
+          "duration_milliseconds",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "ThreadActivityTypedDetailView": {
+        "discriminator": {
+          "propertyName": "kind"
+        },
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "command": {
+                "$ref": "#/components/schemas/ThreadActivityCommandGroupView"
+              },
+              "kind": {
+                "enum": [
+                  "command"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "command"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "enum": [
+                  "web_search"
+                ],
+                "type": "string"
+              },
+              "web_search": {
+                "$ref": "#/components/schemas/ThreadActivityWebSearchDetailView"
+              }
+            },
+            "required": [
+              "kind",
+              "web_search"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "enum": [
+                  "web_fetch"
+                ],
+                "type": "string"
+              },
+              "web_fetch": {
+                "$ref": "#/components/schemas/ThreadActivityWebFetchDetailView"
+              }
+            },
+            "required": [
+              "kind",
+              "web_fetch"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "file_read": {
+                "$ref": "#/components/schemas/ThreadActivityFileReadDetailView"
+              },
+              "kind": {
+                "enum": [
+                  "file_read"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "file_read"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "file_edit": {
+                "$ref": "#/components/schemas/ThreadActivityFileEditDetailView"
+              },
+              "kind": {
+                "enum": [
+                  "file_edit"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "file_edit"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "enum": [
+                  "mcp"
+                ],
+                "type": "string"
+              },
+              "mcp": {
+                "$ref": "#/components/schemas/ThreadActivityMCPDetailView"
+              }
+            },
+            "required": [
+              "kind",
+              "mcp"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "enum": [
+                  "verification"
+                ],
+                "type": "string"
+              },
+              "verification": {
+                "$ref": "#/components/schemas/ThreadActivityVerificationDetailView"
+              }
+            },
+            "required": [
+              "kind",
+              "verification"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "browser": {
+                "$ref": "#/components/schemas/ThreadActivityBrowserDetailView"
+              },
+              "kind": {
+                "enum": [
+                  "browser"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "browser"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ThreadActivityVerificationDetailView": {
+        "additionalProperties": false,
+        "properties": {
+          "boundary": {
+            "$ref": "#/components/schemas/ThreadActivityBoundaryView"
+          },
+          "direction": {
+            "type": "string"
+          },
+          "limit": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "position": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "result_count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "tool": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "operation",
+          "tool",
+          "path",
+          "query",
+          "position",
+          "direction",
+          "limit",
+          "result_count",
+          "truncated",
+          "summary",
+          "boundary"
+        ],
+        "type": "object"
+      },
+      "ThreadActivityWebFetchDetailView": {
+        "additionalProperties": false,
+        "properties": {
+          "boundary": {
+            "$ref": "#/components/schemas/ThreadActivityBoundaryView"
+          },
+          "citeable": {
+            "type": "boolean"
+          },
+          "http_status": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "partial": {
+            "type": "boolean"
+          },
+          "redirects": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "robots": {
+            "type": "string"
+          },
+          "robots_policy": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation",
+          "url",
+          "state",
+          "http_status",
+          "robots",
+          "robots_policy",
+          "redirects",
+          "partial",
+          "citeable",
+          "boundary"
+        ],
+        "type": "object"
+      },
+      "ThreadActivityWebSearchDetailView": {
+        "additionalProperties": false,
+        "properties": {
+          "boundary": {
+            "$ref": "#/components/schemas/ThreadActivityBoundaryView"
+          },
+          "citeable": {
+            "type": "boolean"
+          },
+          "limit": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "search_policy": {
+            "type": "string"
+          },
+          "selection_reason": {
+            "type": "string"
+          },
+          "source_count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/ThreadActivitySearchSourceView"
+            },
+            "maxItems": 10,
+            "type": "array"
+          }
+        },
+        "required": [
+          "operation",
+          "query",
+          "limit",
+          "provider",
+          "search_policy",
+          "selection_reason",
+          "source_count",
+          "citeable",
+          "sources",
+          "boundary"
+        ],
+        "type": "object"
+      },
       "ThreadCreationControlRequestView": {
         "additionalProperties": false,
         "properties": {
+          "allowed_targets": {
+            "items": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 256,
+            "type": "array",
+            "uniqueItems": true
+          },
           "goal": {
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "model": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "network_mode": {
+            "enum": [
+              "disabled",
+              "allowlist"
+            ],
             "type": "string"
           },
           "phase": {
@@ -40910,6 +45607,10 @@
               "learn",
               "script"
             ],
+            "type": "string"
+          },
+          "provider": {
+            "maxLength": 128,
             "type": "string"
           },
           "surface": {
@@ -40981,6 +45682,9 @@
           },
           "mission": {
             "$ref": "#/components/schemas/MissionView"
+          },
+          "recovery": {
+            "$ref": "#/components/schemas/ThreadRunRecoveryView"
           },
           "runs": {
             "items": {
@@ -41084,8 +45788,8 @@
             "enum": [
               "applied",
               "paused_and_applied",
-              "no_active_run",
-              "pending"
+              "deferred",
+              "no_active_run"
             ],
             "type": "string"
           },
@@ -41568,6 +46272,105 @@
         ],
         "type": "object"
       },
+      "ThreadModelRouteControlRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "select",
+              "reset"
+            ],
+            "type": "string"
+          },
+          "model": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "operation_key": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "provider": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "requested_by": {
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              "thread_model_route_control.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "action",
+          "operation_key",
+          "requested_by"
+        ],
+        "type": "object"
+      },
+      "ThreadModelRouteView": {
+        "additionalProperties": false,
+        "properties": {
+          "active_run_unchanged": {
+            "type": "boolean"
+          },
+          "applies_to": {
+            "enum": [
+              "next_run",
+              "current_and_next"
+            ],
+            "type": "string"
+          },
+          "effective_run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "enum": [
+              "thread_model_route.v1"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "source": {
+            "enum": [
+              "thread_preference",
+              "default",
+              "active_run"
+            ],
+            "type": "string"
+          },
+          "thread_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "thread_id",
+          "provider",
+          "model",
+          "source",
+          "applies_to",
+          "active_run_unchanged",
+          "replayed"
+        ],
+        "type": "object"
+      },
       "ThreadRunAuditEventView": {
         "additionalProperties": false,
         "properties": {
@@ -41624,6 +46427,112 @@
         ],
         "type": "object"
       },
+      "ThreadRunRecoveryControlRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "handoff_operation_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              "thread_run_recovery.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "run_id",
+          "handoff_operation_id"
+        ],
+        "type": "object"
+      },
+      "ThreadRunRecoveryControlView": {
+        "additionalProperties": false,
+        "properties": {
+          "failed_run": {
+            "$ref": "#/components/schemas/RunView"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "successor_required": {
+            "type": "boolean"
+          },
+          "thread": {
+            "$ref": "#/components/schemas/ThreadView"
+          },
+          "version": {
+            "enum": [
+              "thread_run_recovery.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "thread",
+          "failed_run",
+          "successor_required",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "ThreadRunRecoveryView": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "error_code": {
+            "type": "string"
+          },
+          "failed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "handoff_operation_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "quiescent": {
+            "type": "boolean"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "stop_reason": {
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              "thread_run_recovery.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "run_id",
+          "handoff_operation_id",
+          "error_code",
+          "stop_reason",
+          "detail",
+          "quiescent",
+          "failed_at"
+        ],
+        "type": "object"
+      },
       "ThreadRunView": {
         "additionalProperties": false,
         "properties": {
@@ -41655,6 +46564,12 @@
       "ThreadTranscriptItemView": {
         "additionalProperties": false,
         "properties": {
+          "activity_detail_ref": {
+            "type": "string"
+          },
+          "activity_summary": {
+            "$ref": "#/components/schemas/ThreadActivitySummaryView"
+          },
           "activity_type": {
             "enum": [
               "message",
@@ -41688,6 +46603,9 @@
           },
           "detail": {
             "type": "string"
+          },
+          "detail_available": {
+            "type": "boolean"
           },
           "durable": {
             "type": "boolean"
@@ -46665,6 +51583,16 @@
           }
         }
       },
+      "GatewayTimeout": {
+        "description": "A bounded local runtime operation exceeded its deadline",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      },
       "InternalError": {
         "description": "Redacted internal server failure",
         "content": {
@@ -46717,6 +51645,16 @@
       },
       "Unauthorized": {
         "description": "Missing or invalid bearer token",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      },
+      "Unavailable": {
+        "description": "Required local runtime or trusted browser is unavailable",
         "content": {
           "application/json": {
             "schema": {

@@ -8,7 +8,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"cyberagent-workbench/internal/domain"
@@ -18,11 +21,197 @@ const (
 	ProfileMarkerProtocolVersion       = "browser_profile_marker.v1"
 	ProfileRuntimeLeaseProtocolVersion = "browser_profile_runtime_lease.v1"
 	MaxProfileMarkerBytes              = 16 * 1024
-	profileCleanupRetryTimeout         = 5 * time.Second
 	profileCleanupRetryInterval        = 25 * time.Millisecond
+	maxFullCDPProfileReconcileEntries  = 256
+	maxFullCDPProfileReconcileProofs   = 32
 )
 
 var profileEnvironmentDirectoryNames = [...]string{"Temp", "LocalAppData", "RoamingAppData"}
+
+var (
+	profileCleanupRetryTimeout         = 5 * time.Second
+	profileTreeRemoveAll               = os.RemoveAll
+	profileEnvironmentDirectoryEnsurer = ensureProfileEnvironmentDirectories
+)
+
+type profileCleanupJanitorJob struct {
+	done chan struct{}
+	err  error
+}
+
+var profileCleanupJanitors = struct {
+	sync.Mutex
+	jobs map[string]*profileCleanupJanitorJob
+}{
+	jobs: make(map[string]*profileCleanupJanitorJob),
+}
+
+// PrepareFullCDPProfileRuntimeRoot creates only the fixed Desktop-owned
+// hierarchy below an already-existing, direct application home. Every level is
+// created independently and revalidated before the next one is touched; this
+// deliberately avoids applying MkdirAll to a caller-controlled path.
+func PrepareFullCDPProfileRuntimeRoot(homePath string) (string, error) {
+	homePath = strings.TrimSpace(homePath)
+	if homePath == "" || !filepath.IsAbs(homePath) || filepath.Clean(homePath) != homePath ||
+		!profilePathHasNoIndirection(homePath) {
+		return "", errors.New("full CDP application home is unavailable or indirect")
+	}
+	runtimePath := filepath.Join(homePath, "runtime")
+	fullCDPPath := filepath.Join(runtimePath, "full-cdp")
+	rootPath := filepath.Join(fullCDPPath, ProfileRuntimeRootName)
+	for _, candidate := range []string{runtimePath, fullCDPPath, rootPath} {
+		if !pathWithinRoot(homePath, candidate) {
+			return "", ErrBrowserRuntimeBoundary
+		}
+		if err := os.Mkdir(candidate, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+			return "", fmt.Errorf("create fixed full CDP Profile runtime hierarchy: %w", err)
+		}
+		if !profilePathHasNoIndirection(candidate) {
+			return "", errors.New("full CDP Profile runtime hierarchy is indirect")
+		}
+	}
+	if !validProfileRuntimeRoot(rootPath) {
+		return "", errors.New("full CDP Profile runtime root is invalid")
+	}
+	if err := reconcileFullCDPProfileCleanup(rootPath, profileCleanupRetryTimeout); err != nil {
+		return "", fmt.Errorf("reconcile Full CDP Profile cleanup: %w", err)
+	}
+	return rootPath, nil
+}
+
+type fullCDPProfileCleanupCandidate struct {
+	proofPath        string
+	proofFingerprint string
+	quarantineName   string
+	quarantinePath   string
+}
+
+// reconcileFullCDPProfileCleanup resumes only cleanups that already crossed
+// the release boundary and persisted an exact owner proof outside the tree
+// being deleted. Ordinary Profiles and unproved quarantine-like entries are
+// intentionally ignored.
+func reconcileFullCDPProfileCleanup(rootPath string, timeout time.Duration) error {
+	if !validProfileRuntimeRoot(rootPath) || !profilePathHasNoIndirection(rootPath) ||
+		timeout <= 0 {
+		return errors.New("Full CDP Profile cleanup reconciliation root is invalid")
+	}
+	root, err := os.Open(rootPath)
+	if err != nil {
+		return fmt.Errorf("open Full CDP Profile runtime root: %w", err)
+	}
+	entries, readErr := root.ReadDir(maxFullCDPProfileReconcileEntries + 1)
+	closeErr := root.Close()
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		return fmt.Errorf("read bounded Full CDP Profile runtime root: %w", readErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close Full CDP Profile runtime root: %w", closeErr)
+	}
+	if len(entries) > maxFullCDPProfileReconcileEntries {
+		return errors.New("Full CDP Profile cleanup reconciliation entry limit exceeded")
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+
+	candidates := make([]fullCDPProfileCleanupCandidate, 0)
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasPrefix(name, ".cleanup-") || !strings.HasSuffix(name, ".owner.json") {
+			continue
+		}
+		if len(candidates) >= maxFullCDPProfileReconcileProofs {
+			return errors.New("Full CDP Profile cleanup reconciliation proof limit exceeded")
+		}
+		proofPath := filepath.Join(rootPath, name)
+		if !pathWithinRoot(rootPath, proofPath) || filepath.Base(proofPath) != name {
+			return errors.New("Full CDP Profile cleanup proof escaped its runtime root")
+		}
+		marker, err := readProfileOwnerMarkerFile(proofPath)
+		if err != nil || marker.State != ProfileMarkerReleased || marker.PersonalProfile ||
+			marker.ModelOwned {
+			return fmt.Errorf("Full CDP Profile cleanup proof %q is invalid", name)
+		}
+		quarantineName := profileCleanupQuarantineName(marker.OwnerToken, marker.Generation)
+		if name != quarantineName+".owner.json" {
+			return fmt.Errorf("Full CDP Profile cleanup proof %q does not match its owner", name)
+		}
+		quarantinePath := filepath.Join(rootPath, quarantineName)
+		if !pathWithinRoot(rootPath, quarantinePath) ||
+			filepath.Base(quarantinePath) != quarantineName {
+			return errors.New("Full CDP Profile cleanup target escaped its runtime root")
+		}
+		if err := validateReconciledProfileCleanupTarget(quarantinePath); err != nil {
+			return fmt.Errorf("validate Full CDP Profile cleanup target %q: %w", quarantineName, err)
+		}
+		candidates = append(candidates, fullCDPProfileCleanupCandidate{
+			proofPath: proofPath, proofFingerprint: marker.Fingerprint,
+			quarantineName: quarantineName,
+			quarantinePath: quarantinePath,
+		})
+	}
+
+	deadline := time.Now().Add(timeout)
+	for _, candidate := range candidates {
+		marker, err := readProfileOwnerMarkerFile(candidate.proofPath)
+		if err != nil || marker.State != ProfileMarkerReleased || marker.PersonalProfile ||
+			marker.ModelOwned ||
+			marker.Fingerprint != candidate.proofFingerprint ||
+			profileCleanupQuarantineName(marker.OwnerToken, marker.Generation) != candidate.quarantineName {
+			return fmt.Errorf("Full CDP Profile cleanup proof %q changed during reconciliation",
+				filepath.Base(candidate.proofPath))
+		}
+		if err := validateReconciledProfileCleanupTarget(candidate.quarantinePath); err != nil {
+			return fmt.Errorf("revalidate Full CDP Profile cleanup target %q: %w",
+				candidate.quarantineName, err)
+		}
+		if _, err := os.Lstat(candidate.quarantinePath); err == nil {
+			remaining := time.Until(deadline)
+			if remaining <= 0 {
+				return errors.New("Full CDP Profile cleanup reconciliation deadline exhausted")
+			}
+			if err := removeProfileTreeBounded(candidate.quarantinePath, remaining,
+				profileTreeRemoveAll); err != nil {
+				return fmt.Errorf("resume Full CDP Profile cleanup %q: %w",
+					candidate.quarantineName, err)
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("inspect Full CDP Profile cleanup target %q: %w",
+				candidate.quarantineName, err)
+		}
+		completedProof, err := readProfileOwnerMarkerFile(candidate.proofPath)
+		if err != nil {
+			return fmt.Errorf("revalidate completed Full CDP Profile cleanup proof: %w", err)
+		}
+		if completedProof.Fingerprint != candidate.proofFingerprint {
+			return errors.New("completed Full CDP Profile cleanup proof changed")
+		}
+		if err := os.Remove(candidate.proofPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove completed Full CDP Profile cleanup proof: %w", err)
+		}
+	}
+	return nil
+}
+
+func validateReconciledProfileCleanupTarget(path string) error {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 ||
+		!profilePathHasNoIndirection(path) {
+		return errors.New("proved cleanup target is not a direct directory")
+	}
+	return nil
+}
+
+func profileCleanupQuarantineName(ownerToken string, generation uint64) string {
+	if len(ownerToken) < 16 || generation == 0 {
+		return ""
+	}
+	return ".cleanup-" + ownerToken[:16] + "-" + strconv.FormatUint(generation, 10)
+}
 
 type ProfileMarkerState string
 
@@ -88,6 +277,39 @@ func MaterializeDisposableProfile(authorization BrowserStartAuthorization,
 		!now.Before(authorization.StartDeadline) {
 		return ProfileRuntimeLease{}, errors.New("browser Profile materialization authorization expired")
 	}
+	return materializeDisposableProfile(authorization.Fingerprint, ownership, now)
+}
+
+// MaterializeFullCDPProfile creates the same exact-owned disposable Profile as
+// Safe Web, but binds the lease to the independent Full CDP start
+// authorization. It never accepts a Safe Web authorization as a substitute.
+func MaterializeFullCDPProfile(authorization FullCDPStartAuthorization,
+	session SessionPlan, identity BrowserExecutableIdentity,
+	acceptance BrowserAcceptanceCandidate, ownership ProfileOwnershipPlan,
+	attempt BrowserLaunchAttempt, launchLease BrowserLaunchLease,
+	review BrowserLaunchReview,
+	permission domain.RunBrowserCDPPermissionSnapshot,
+	executionPermission domain.RunExecutionPermissionSnapshot,
+	executionCapabilities domain.ExecutionPermissionRuntimeCapabilities,
+	now time.Time,
+) (ProfileRuntimeLease, error) {
+	if err := ValidateFullCDPStartAuthorization(authorization, session, identity,
+		acceptance, ownership, attempt, launchLease, review, permission,
+		executionPermission, executionCapabilities); err != nil {
+		return ProfileRuntimeLease{}, err
+	}
+	now = now.UTC()
+	if now.IsZero() || now.Before(authorization.IssuedAt) ||
+		!now.Before(authorization.StartDeadline) {
+		return ProfileRuntimeLease{}, errors.New(
+			"full CDP Profile materialization authorization expired")
+	}
+	return materializeDisposableProfile(authorization.Fingerprint, ownership, now)
+}
+
+func materializeDisposableProfile(authorizationFingerprint string,
+	ownership ProfileOwnershipPlan, now time.Time,
+) (ProfileRuntimeLease, error) {
 	if err := ensureProfileRuntimeRoot(ownership.RootPath); err != nil {
 		return ProfileRuntimeLease{}, err
 	}
@@ -99,13 +321,10 @@ func MaterializeDisposableProfile(authorization BrowserStartAuthorization,
 	} else if err := recoverProfileDirectory(ownership, marker); err != nil {
 		return ProfileRuntimeLease{}, err
 	}
-	if err := ensureProfileEnvironmentDirectories(ownership.DirectoryPath); err != nil {
-		return ProfileRuntimeLease{}, err
-	}
 	lease := ProfileRuntimeLease{
 		ProtocolVersion:           ProfileRuntimeLeaseProtocolVersion,
 		OwnershipPlanFingerprint:  ownership.Fingerprint,
-		AuthorizationFingerprint:  authorization.Fingerprint,
+		AuthorizationFingerprint:  authorizationFingerprint,
 		DirectoryPath:             ownership.DirectoryPath,
 		OwnerToken:                ownership.OwnerToken,
 		MarkerFingerprint:         marker.Fingerprint,
@@ -115,21 +334,70 @@ func MaterializeDisposableProfile(authorization BrowserStartAuthorization,
 		ExactOwnedCleanupRequired: true,
 	}
 	lease.Fingerprint = browserRuntimeFingerprint(lease)
-	if err := ValidateProfileRuntimeLease(lease, authorization, ownership); err != nil {
+	if err := profileEnvironmentDirectoryEnsurer(ownership.DirectoryPath); err != nil {
+		recoveryLease, cleanupErr := cleanupFailedProfileMaterialization(
+			authorizationFingerprint, lease, ownership)
+		if cleanupErr != nil {
+			return recoveryLease, errors.Join(err, cleanupErr)
+		}
+		return ProfileRuntimeLease{}, err
+	}
+	if err := validateProfileRuntimeLeaseBinding(lease, authorizationFingerprint,
+		ownership); err != nil {
+		recoveryLease, cleanupErr := cleanupFailedProfileMaterialization(
+			authorizationFingerprint, lease, ownership)
+		if cleanupErr != nil {
+			return recoveryLease, errors.Join(err, cleanupErr)
+		}
 		return ProfileRuntimeLease{}, err
 	}
 	return lease, nil
 }
 
+func cleanupFailedProfileMaterialization(authorizationFingerprint string,
+	lease ProfileRuntimeLease, ownership ProfileOwnershipPlan,
+) (ProfileRuntimeLease, error) {
+	cleanupAt := time.Now().UTC()
+	if !cleanupAt.After(lease.CreatedAt) {
+		cleanupAt = lease.CreatedAt.Add(time.Nanosecond)
+	}
+	released, err := releaseDisposableProfile(true, lease, ownership, true,
+		cleanupAt)
+	if err != nil {
+		return lease, err
+	}
+	if err := cleanupReleasedProfile(authorizationFingerprint, true, released,
+		ownership, true); err != nil {
+		return released, err
+	}
+	return ProfileRuntimeLease{}, nil
+}
+
 func ValidateProfileRuntimeLease(lease ProfileRuntimeLease,
 	authorization BrowserStartAuthorization, ownership ProfileOwnershipPlan,
+) error {
+	return validateProfileRuntimeLeaseBinding(lease, authorization.Fingerprint,
+		ownership)
+}
+
+// ValidateFullCDPProfileRuntimeLease validates a Profile lease against the
+// independent Full CDP launch authorization.
+func ValidateFullCDPProfileRuntimeLease(lease ProfileRuntimeLease,
+	authorization FullCDPStartAuthorization, ownership ProfileOwnershipPlan,
+) error {
+	return validateProfileRuntimeLeaseBinding(lease, authorization.Fingerprint,
+		ownership)
+}
+
+func validateProfileRuntimeLeaseBinding(lease ProfileRuntimeLease,
+	authorizationFingerprint string, ownership ProfileOwnershipPlan,
 ) error {
 	if err := validateProfileOwnershipStructure(ownership); err != nil {
 		return err
 	}
 	if lease.ProtocolVersion != ProfileRuntimeLeaseProtocolVersion ||
 		lease.OwnershipPlanFingerprint != ownership.Fingerprint ||
-		lease.AuthorizationFingerprint != authorization.Fingerprint ||
+		lease.AuthorizationFingerprint != authorizationFingerprint ||
 		lease.DirectoryPath != ownership.DirectoryPath ||
 		lease.OwnerToken != ownership.OwnerToken || !validSHA256(lease.MarkerFingerprint) ||
 		lease.Generation != ownership.Generation || lease.State != ProfileMarkerActive ||
@@ -186,8 +454,29 @@ func ReleaseDisposableProfile(authorization BrowserStartAuthorization,
 	if err := ValidateProfileRuntimeLease(lease, authorization, ownership); err != nil {
 		return ProfileRuntimeLease{}, err
 	}
+	return releaseDisposableProfile(authorization.ProfileReleaseAuthorized,
+		lease, ownership, processTreeQuiescent, now)
+}
+
+// ReleaseFullCDPProfile marks only the exact Full-CDP-owned Profile as released
+// after its complete process tree is quiescent.
+func ReleaseFullCDPProfile(authorization FullCDPStartAuthorization,
+	lease ProfileRuntimeLease, ownership ProfileOwnershipPlan,
+	processTreeQuiescent bool, now time.Time,
+) (ProfileRuntimeLease, error) {
+	if err := ValidateFullCDPProfileRuntimeLease(lease, authorization, ownership); err != nil {
+		return ProfileRuntimeLease{}, err
+	}
+	return releaseDisposableProfile(authorization.ProfileReleaseAuthorized,
+		lease, ownership, processTreeQuiescent, now)
+}
+
+func releaseDisposableProfile(profileReleaseAuthorized bool,
+	lease ProfileRuntimeLease, ownership ProfileOwnershipPlan,
+	processTreeQuiescent bool, now time.Time,
+) (ProfileRuntimeLease, error) {
 	now = now.UTC()
-	if !authorization.ProfileReleaseAuthorized || !processTreeQuiescent || now.IsZero() ||
+	if !profileReleaseAuthorized || !processTreeQuiescent || now.IsZero() ||
 		now.Before(lease.CreatedAt) {
 		return ProfileRuntimeLease{}, errors.New("browser Profile release requires a quiescent exact process tree")
 	}
@@ -216,55 +505,216 @@ func CleanupReleasedProfile(authorization BrowserStartAuthorization,
 	lease ProfileRuntimeLease, ownership ProfileOwnershipPlan,
 	processTreeQuiescent bool,
 ) error {
+	return cleanupReleasedProfile(authorization.Fingerprint,
+		authorization.ExactOwnedCleanupAuthorized, lease, ownership,
+		processTreeQuiescent)
+}
+
+// CleanupReleasedFullCDPProfile removes only the exact released Profile owned
+// by the Full CDP authorization.
+func CleanupReleasedFullCDPProfile(authorization FullCDPStartAuthorization,
+	lease ProfileRuntimeLease, ownership ProfileOwnershipPlan,
+	processTreeQuiescent bool,
+) error {
+	return cleanupReleasedProfile(authorization.Fingerprint,
+		authorization.ExactOwnedCleanupAuthorized, lease, ownership,
+		processTreeQuiescent)
+}
+
+func cleanupReleasedProfile(authorizationFingerprint string,
+	exactOwnedCleanupAuthorized bool, lease ProfileRuntimeLease,
+	ownership ProfileOwnershipPlan, processTreeQuiescent bool,
+) error {
 	if lease.ProtocolVersion != ProfileRuntimeLeaseProtocolVersion ||
-		lease.AuthorizationFingerprint != authorization.Fingerprint ||
+		lease.AuthorizationFingerprint != authorizationFingerprint ||
 		lease.OwnershipPlanFingerprint != ownership.Fingerprint ||
 		lease.DirectoryPath != ownership.DirectoryPath || lease.OwnerToken != ownership.OwnerToken ||
 		lease.Generation != ownership.Generation || lease.State != ProfileMarkerReleased ||
 		lease.ReleasedAt.IsZero() || lease.PersonalProfile ||
 		!lease.ExactOwnedCleanupRequired || lease.Fingerprint != browserRuntimeFingerprint(lease) ||
-		!authorization.ExactOwnedCleanupAuthorized || !processTreeQuiescent {
+		!exactOwnedCleanupAuthorized || !processTreeQuiescent {
 		return errors.New("browser Profile cleanup requires an exact released owner and quiescent tree")
 	}
 	if err := ensureProfileRuntimeRoot(ownership.RootPath); err != nil {
 		return err
 	}
-	marker, err := readProfileOwnerMarker(ownership.DirectoryPath)
-	if err != nil || !markerMatchesOwnership(marker, ownership) ||
-		marker.State != ProfileMarkerReleased || marker.Fingerprint != lease.MarkerFingerprint {
-		return errors.New("browser Profile cleanup marker no longer matches its released owner")
-	}
 	if !pathWithinRoot(ownership.RootPath, ownership.DirectoryPath) ||
-		filepath.Base(ownership.DirectoryPath) != ownership.DirectoryName ||
-		!profilePathHasNoIndirection(ownership.DirectoryPath) {
+		filepath.Base(ownership.DirectoryPath) != ownership.DirectoryName {
 		return errors.New("browser Profile cleanup path is not the exact owned directory")
 	}
-	quarantineName := ".cleanup-" + ownership.OwnerToken[:16] + "-" +
-		strconv.FormatUint(ownership.Generation, 10)
+	quarantineName := profileCleanupQuarantineName(ownership.OwnerToken, ownership.Generation)
 	quarantinePath := filepath.Join(ownership.RootPath, quarantineName)
 	if !pathWithinRoot(ownership.RootPath, quarantinePath) ||
 		filepath.Base(quarantinePath) != quarantineName {
 		return errors.New("browser Profile cleanup quarantine escaped its runtime root")
 	}
-	if _, err := os.Lstat(quarantinePath); !errors.Is(err, os.ErrNotExist) {
-		return errors.New("browser Profile cleanup quarantine already exists")
+	proofName := quarantineName + ".owner.json"
+	proofPath := filepath.Join(ownership.RootPath, proofName)
+	if !pathWithinRoot(ownership.RootPath, proofPath) ||
+		filepath.Base(proofPath) != proofName {
+		return errors.New("browser Profile cleanup proof escaped its runtime root")
 	}
-	if err := os.Rename(ownership.DirectoryPath, quarantinePath); err != nil {
-		return fmt.Errorf("rename exact browser Profile for cleanup: %w", err)
+
+	originalInfo, originalErr := os.Lstat(ownership.DirectoryPath)
+	quarantineInfo, quarantineErr := os.Lstat(quarantinePath)
+	proofInfo, proofErr := os.Lstat(proofPath)
+	if originalErr != nil && !errors.Is(originalErr, os.ErrNotExist) {
+		return fmt.Errorf("inspect exact browser Profile for cleanup: %w", originalErr)
 	}
-	quarantinedMarker, verifyErr := readProfileOwnerMarker(quarantinePath)
-	if verifyErr != nil || !markerMatchesOwnership(quarantinedMarker, ownership) ||
-		quarantinedMarker.State != ProfileMarkerReleased {
-		_ = os.Rename(quarantinePath, ownership.DirectoryPath)
-		return errors.New("renamed browser Profile failed its final owner recheck")
+	if quarantineErr != nil && !errors.Is(quarantineErr, os.ErrNotExist) {
+		return fmt.Errorf("inspect browser Profile cleanup quarantine: %w", quarantineErr)
 	}
-	if !profilePathHasNoIndirection(quarantinePath) {
-		_ = os.Rename(quarantinePath, ownership.DirectoryPath)
-		return errors.New("renamed browser Profile became an indirect path")
+	if proofErr != nil && !errors.Is(proofErr, os.ErrNotExist) {
+		return fmt.Errorf("inspect browser Profile cleanup proof: %w", proofErr)
 	}
+	originalExists := originalErr == nil
+	quarantineExists := quarantineErr == nil
+	proofExists := proofErr == nil
+	if originalExists && quarantineExists {
+		return errors.New("browser Profile cleanup found both the owned directory and its quarantine")
+	}
+	if !originalExists && !quarantineExists {
+		if !proofExists {
+			return nil
+		}
+		if err := validateProfileCleanupProof(proofPath, proofInfo, ownership, lease); err != nil {
+			return err
+		}
+		if err := os.Remove(proofPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove completed browser Profile cleanup proof: %w", err)
+		}
+		return nil
+	}
+
+	validateDirectTarget := func(path string, info os.FileInfo) error {
+		if info == nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 ||
+			!profilePathHasNoIndirection(path) {
+			return errors.New("browser Profile cleanup target is unavailable or indirect")
+		}
+		return nil
+	}
+	readReleasedMarker := func(path string, info os.FileInfo) (ProfileOwnerMarker, error) {
+		if err := validateDirectTarget(path, info); err != nil {
+			return ProfileOwnerMarker{}, err
+		}
+		marker, err := readProfileOwnerMarker(path)
+		if err != nil || !markerMatchesOwnership(marker, ownership) ||
+			marker.State != ProfileMarkerReleased || marker.Fingerprint != lease.MarkerFingerprint {
+			return ProfileOwnerMarker{}, errors.New(
+				"browser Profile cleanup marker no longer matches its released owner")
+		}
+		return marker, nil
+	}
+	ensureProof := func(marker ProfileOwnerMarker) error {
+		if proofExists {
+			return validateProfileCleanupProof(proofPath, proofInfo, ownership, lease)
+		}
+		if err := writeProfileCleanupProofExclusive(proofPath, marker); err != nil {
+			return err
+		}
+		proofInfo, proofErr = os.Lstat(proofPath)
+		proofExists = proofErr == nil
+		if proofErr != nil {
+			return fmt.Errorf("inspect created browser Profile cleanup proof: %w", proofErr)
+		}
+		return validateProfileCleanupProof(proofPath, proofInfo, ownership, lease)
+	}
+
+	if originalExists {
+		marker, err := readReleasedMarker(ownership.DirectoryPath, originalInfo)
+		if err != nil {
+			return err
+		}
+		if err := ensureProof(marker); err != nil {
+			return err
+		}
+		if err := os.Rename(ownership.DirectoryPath, quarantinePath); err != nil {
+			return fmt.Errorf("rename exact browser Profile for cleanup: %w", err)
+		}
+		quarantineInfo, quarantineErr = os.Lstat(quarantinePath)
+		if quarantineErr != nil {
+			_ = os.Rename(quarantinePath, ownership.DirectoryPath)
+			return errors.New("renamed browser Profile failed its final owner recheck")
+		}
+		if _, markerErr := readReleasedMarker(quarantinePath, quarantineInfo); markerErr != nil {
+			_ = os.Rename(quarantinePath, ownership.DirectoryPath)
+			return errors.New("renamed browser Profile failed its final owner recheck")
+		}
+	} else {
+		if err := validateDirectTarget(quarantinePath, quarantineInfo); err != nil {
+			return fmt.Errorf("browser Profile cleanup quarantine is not direct: %w", err)
+		}
+		if proofExists {
+			if err := validateProfileCleanupProof(proofPath, proofInfo, ownership, lease); err != nil {
+				return err
+			}
+		} else {
+			marker, err := readReleasedMarker(quarantinePath, quarantineInfo)
+			if err != nil {
+				return fmt.Errorf(
+					"browser Profile cleanup quarantine is not the exact released owner: %w", err)
+			}
+			if err := ensureProof(marker); err != nil {
+				return err
+			}
+		}
+	}
+
 	if err := removeProfileTreeBounded(quarantinePath, profileCleanupRetryTimeout,
-		os.RemoveAll); err != nil {
+		profileTreeRemoveAll); err != nil {
 		return fmt.Errorf("remove exact released browser Profile: %w", err)
+	}
+	proofInfo, proofErr = os.Lstat(proofPath)
+	if proofErr == nil {
+		if err := validateProfileCleanupProof(proofPath, proofInfo, ownership, lease); err != nil {
+			return err
+		}
+		if err := os.Remove(proofPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove browser Profile cleanup proof: %w", err)
+		}
+	} else if !errors.Is(proofErr, os.ErrNotExist) {
+		return fmt.Errorf("inspect completed browser Profile cleanup proof: %w", proofErr)
+	}
+	return nil
+}
+
+func writeProfileCleanupProofExclusive(path string, marker ProfileOwnerMarker) error {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path || filepath.Dir(path) == path {
+		return errors.New("browser Profile cleanup proof path is invalid")
+	}
+	if err := validateProfileOwnerMarker(marker); err != nil || marker.State != ProfileMarkerReleased {
+		return errors.New("browser Profile cleanup proof marker is invalid")
+	}
+	raw, err := json.Marshal(marker)
+	if err != nil || len(raw) == 0 || len(raw) > MaxProfileMarkerBytes {
+		return errors.New("browser Profile cleanup proof is oversized")
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("create browser Profile cleanup proof: %w", err)
+	}
+	if _, err = file.Write(raw); err == nil {
+		err = file.Sync()
+	}
+	closeErr := file.Close()
+	if err != nil || closeErr != nil {
+		_ = os.Remove(path)
+		return errors.Join(err, closeErr)
+	}
+	return nil
+}
+
+func validateProfileCleanupProof(path string, info os.FileInfo,
+	ownership ProfileOwnershipPlan, lease ProfileRuntimeLease,
+) error {
+	if info == nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 ||
+		!profilePathHasNoIndirection(path) {
+		return errors.New("browser Profile cleanup proof is unavailable or indirect")
+	}
+	marker, err := readProfileOwnerMarkerFile(path)
+	if err != nil || !markerMatchesOwnership(marker, ownership) ||
+		marker.State != ProfileMarkerReleased || marker.Fingerprint != lease.MarkerFingerprint {
+		return errors.New("browser Profile cleanup proof does not match its released owner")
 	}
 	return nil
 }
@@ -276,10 +726,41 @@ func removeProfileTreeBounded(path string, timeout time.Duration,
 		timeout <= 0 || remove == nil {
 		return errors.New("browser Profile cleanup retry target is invalid")
 	}
-	deadline := time.NewTimer(timeout)
-	defer deadline.Stop()
-	ticker := time.NewTicker(profileCleanupRetryInterval)
-	defer ticker.Stop()
+	profileCleanupJanitors.Lock()
+	job := profileCleanupJanitors.jobs[path]
+	if job == nil {
+		job = &profileCleanupJanitorJob{done: make(chan struct{})}
+		profileCleanupJanitors.jobs[path] = job
+		go runProfileCleanupJanitor(path, timeout, remove, job)
+	}
+	profileCleanupJanitors.Unlock()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-job.done:
+		return job.err
+	case <-timer.C:
+		return errors.New("browser Profile cleanup timed out while its exact-path janitor continues")
+	}
+}
+
+func runProfileCleanupJanitor(path string, timeout time.Duration,
+	remove func(string) error, job *profileCleanupJanitorJob,
+) {
+	job.err = removeProfileTreeWithRetry(path, timeout, remove)
+	profileCleanupJanitors.Lock()
+	if profileCleanupJanitors.jobs[path] == job {
+		delete(profileCleanupJanitors.jobs, path)
+	}
+	profileCleanupJanitors.Unlock()
+	close(job.done)
+}
+
+func removeProfileTreeWithRetry(path string, timeout time.Duration,
+	remove func(string) error,
+) error {
+	deadline := time.Now().Add(timeout)
 	var lastErr error
 	for {
 		if err := remove(path); err != nil {
@@ -291,11 +772,16 @@ func removeProfileTreeBounded(path string, timeout time.Duration,
 		} else {
 			lastErr = errors.New("browser Profile cleanup left the exact directory present")
 		}
-		select {
-		case <-deadline.C:
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
 			return errors.Join(errors.New("browser Profile cleanup retry limit exhausted"), lastErr)
-		case <-ticker.C:
 		}
+		wait := profileCleanupRetryInterval
+		if remaining < wait {
+			wait = remaining
+		}
+		timer := time.NewTimer(wait)
+		<-timer.C
 	}
 }
 
@@ -492,6 +978,10 @@ func writeProfileOwnerMarkerAtomic(directory string, marker ProfileOwnerMarker) 
 
 func readProfileOwnerMarker(directory string) (ProfileOwnerMarker, error) {
 	path := filepath.Join(directory, ProfileOwnerMarkerName)
+	return readProfileOwnerMarkerFile(path)
+}
+
+func readProfileOwnerMarkerFile(path string) (ProfileOwnerMarker, error) {
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 ||
 		info.Size() <= 0 || info.Size() > MaxProfileMarkerBytes ||

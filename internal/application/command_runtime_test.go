@@ -157,6 +157,33 @@ func TestCommandRuntimeAdvertisementRequiresCurrentRunLease(t *testing.T) {
 		t.Fatalf("active Run advertisement=%#v available=%t err=%v",
 			advertised, available, err)
 	}
+	authority := domain.NewExecutionPermissionRuntimeAuthority()
+	dynamicCapabilities := capabilities
+	dynamicCapabilities.FullAccessRequiresRuntimeGrant = true
+	dynamicCapabilities.RuntimeAuthority = authority
+	dynamicService, err := NewCommandRuntimeService(state, manager, dynamicCapabilities)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if advertised, available, err := dynamicService.AdvertisedCommandRuntimeAdapter(ctx,
+		runRecord.ID, domain.RunExecutionPermissionFullAccess); err != nil || available ||
+		advertised != (commandruntimeadapter.Identity{}) {
+		t.Fatalf("cold persisted Full Access was advertised: adapter=%+v available=%t err=%v",
+			advertised, available, err)
+	}
+	permission, err := state.GetRunExecutionPermission(ctx, runRecord.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := authority.ActivateRunFullAccess(permission); err != nil {
+		t.Fatal(err)
+	}
+	if advertised, available, err := dynamicService.AdvertisedCommandRuntimeAdapter(ctx,
+		runRecord.ID, domain.RunExecutionPermissionFullAccess); err != nil || !available ||
+		!advertised.SameBackend(dynamicService.adapter) {
+		t.Fatalf("live exact Full Access was not advertised: adapter=%+v available=%t err=%v",
+			advertised, available, err)
+	}
 	if _, _, err := state.ReleaseRunExecutionLease(ctx, lease); err != nil {
 		t.Fatal(err)
 	}
@@ -171,6 +198,7 @@ func TestCommandRuntimeAdvertisementRequiresCurrentRunLease(t *testing.T) {
 func TestCommandRuntimeServiceRunsAndReplaysFencedForegroundCommand(t *testing.T) {
 	ctx := context.Background()
 	state, runRecord, root, lease, capabilities := newCommandRuntimeTestRuntime(t, ctx)
+	root = ensureCommandRuntimeTestAgent(t, ctx, state, lease, root)
 	manager, err := runner.NewPlatformCommandRuntimeManager(state,
 		idgen.New("command-runtime-test-owner"))
 	if err != nil {
@@ -213,7 +241,8 @@ func TestCommandRuntimeServiceRunsAndReplaysFencedForegroundCommand(t *testing.T
 		InvocationID: "command-runtime-invocation-1",
 		OperationKey: "command-runtime-operation-1", RunID: runRecord.ID,
 		MissionID:   runRecord.MissionID,
-		RootAgentID: root.ID, SessionID: runRecord.SessionID,
+		RootAgentID: root.ID, AgentID: root.ID, AgentAttemptID: root.ActiveAttemptID,
+		SessionID:   runRecord.SessionID,
 		WorkspaceID: "workspace-command-runtime-app", LeaseID: lease.LeaseID,
 		CapabilityGeneration: service.adapter.Generation,
 		LeaseGeneration:      lease.Generation, RequestedBy: "run_supervisor",
@@ -276,6 +305,71 @@ func TestCommandRuntimeServiceRunsAndReplaysFencedForegroundCommand(t *testing.T
 	}
 }
 
+func TestDebugInheritsAdvertisedAndExecutableHostCommandRuntime(t *testing.T) {
+	ctx := context.Background()
+	state, runRecord, root, lease, capabilities :=
+		newCommandRuntimeTestRuntimeWithPermission(t, ctx,
+			domain.RunExecutionPermissionDebug)
+	manager, err := runner.NewPlatformCommandRuntimeManager(state,
+		idgen.New("command-runtime-debug-owner"))
+	if err != nil {
+		t.Skipf("platform host command runtime is unavailable: %v", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = manager.Shutdown(shutdownCtx)
+	}()
+	service, err := NewCommandRuntimeService(state, manager, capabilities)
+	if err != nil {
+		t.Fatal(err)
+	}
+	advertised, available, err := service.AdvertisedCommandRuntimeAdapter(ctx,
+		runRecord.ID, domain.RunExecutionPermissionDebug)
+	if err != nil || !available || !advertised.SameBackend(service.adapter) {
+		t.Fatalf("Debug host runtime advertisement=%+v available=%t err=%v",
+			advertised, available, err)
+	}
+	profile := runner.CommandRuntimeBash
+	script := "printf 'debug-command-runtime\\n'"
+	if runtime.GOOS == "windows" {
+		profile = runner.CommandRuntimePowerShell
+		script = "[Console]::Out.WriteLine('debug-command-runtime')"
+	}
+	maxBytes := 4096
+	result, err := service.ExecuteCommandRuntime(ctx,
+		commandRuntimeTestScope(t, ctx, state, service, runRecord, root, lease,
+			"debug-command-runtime-0001"),
+		toolgateway.CommandRuntimeInput{
+			Version:       toolgateway.CommandRuntimeToolProtocolVersion,
+			Action:        toolgateway.CommandRuntimeActionRun,
+			FailurePolicy: toolgateway.CommandRuntimeFailFast, MaxBytes: &maxBytes,
+			Commands: []runner.CommandRuntimeSpec{{
+				Version: runner.CommandRuntimeProtocolVersion, Profile: profile,
+				Script: script, WorkingDirectory: ".",
+				Environment: []runner.CommandRuntimeEnvironment{},
+				StdinPolicy: runner.CommandRuntimeStdinClosed, CloseInitialStdin: true,
+				TimeoutMilliseconds: 5000,
+				Output: runner.CommandRuntimeOutputPolicy{InlineBytes: 4096,
+					ArtifactBytes: 4096},
+				Network:     runner.CommandRuntimeNetworkDisabled,
+				Credentials: runner.CommandRuntimeCredentialsNone,
+				Purpose:     "prove Debug inherits the stateless host command runtime",
+			}},
+		})
+	if errors.Is(err, runner.ErrCommandRuntimeUnavailable) {
+		t.Skipf("%s is unavailable: %v", profile, err)
+	}
+	if err != nil || len(result.Jobs) != 1 ||
+		result.Jobs[0].State != runner.CommandRuntimeJobCompleted {
+		t.Fatalf("Debug command runtime result=%+v err=%v", result, err)
+	}
+	stored, err := state.GetCommandRuntimeJob(ctx, result.Jobs[0].ID)
+	if err != nil || stored.PermissionMode != domain.RunExecutionPermissionDebug {
+		t.Fatalf("Debug command runtime durable binding=%+v err=%v", stored, err)
+	}
+}
+
 func TestCommandRuntimeForegroundBatchHonorsOrderedFailurePolicy(t *testing.T) {
 	ctx := context.Background()
 	state, runRecord, root, lease, capabilities := newCommandRuntimeTestRuntime(t, ctx)
@@ -334,7 +428,7 @@ func TestCommandRuntimeForegroundBatchHonorsOrderedFailurePolicy(t *testing.T) {
 			}
 			maxBytes := 4096
 			result, err := service.ExecuteCommandRuntime(ctx,
-				commandRuntimeTestScope(service, runRecord, root, lease,
+				commandRuntimeTestScope(t, ctx, state, service, runRecord, root, lease,
 					"command-runtime-batch-"+testCase.policy),
 				toolgateway.CommandRuntimeInput{
 					Version:       toolgateway.CommandRuntimeToolProtocolVersion,
@@ -402,7 +496,7 @@ func TestCommandRuntimeForegroundBatchPreflightsEveryCommand(t *testing.T) {
 	invalid.Purpose = "invalid second command must fail before the first starts"
 	maxBytes := 4096
 	result, err := service.ExecuteCommandRuntime(ctx,
-		commandRuntimeTestScope(service, runRecord, root, lease, "command-runtime-preflight"),
+		commandRuntimeTestScope(t, ctx, state, service, runRecord, root, lease, "command-runtime-preflight"),
 		toolgateway.CommandRuntimeInput{
 			Version: toolgateway.CommandRuntimeToolProtocolVersion,
 			Action:  toolgateway.CommandRuntimeActionRun, FailurePolicy: toolgateway.CommandRuntimeFailFast,
@@ -470,7 +564,7 @@ func TestCommandRuntimeForegroundCancellationReapsProcessTree(t *testing.T) {
 	executionErr := make(chan error, 1)
 	go func() {
 		_, executeErr := service.ExecuteCommandRuntime(callCtx,
-			commandRuntimeTestScope(service, runRecord, root, lease,
+			commandRuntimeTestScope(t, ctx, state, service, runRecord, root, lease,
 				"command-runtime-cancel-foreground"), input)
 		executionErr <- executeErr
 	}()
@@ -561,7 +655,7 @@ func TestCommandRuntimeBackgroundJobSurvivesTurnAndFailsClosedOnDurableDrift(t *
 		profile = runner.CommandRuntimePowerShell
 		script = `$line = [Console]::In.ReadLine(); [Console]::Out.WriteLine("cross-turn:$line")`
 	}
-	scope := commandRuntimeTestScope(service, runRecord, root, firstLease,
+	scope := commandRuntimeTestScope(t, ctx, state, service, runRecord, root, firstLease,
 		"command-runtime-start-turn-1")
 	started, err := service.ExecuteCommandRuntime(ctx, scope,
 		toolgateway.CommandRuntimeInput{Version: toolgateway.CommandRuntimeToolProtocolVersion,
@@ -600,7 +694,7 @@ func TestCommandRuntimeBackgroundJobSurvivesTurnAndFailsClosedOnDurableDrift(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope = commandRuntimeTestScope(service, runRecord, root, acquired.Lease,
+	scope = commandRuntimeTestScope(t, ctx, state, service, runRecord, root, acquired.Lease,
 		"command-runtime-stdin-turn-2")
 	stdin := "resumed"
 	closeStdin := true
@@ -739,6 +833,219 @@ func TestCommandRuntimeBackgroundJobSurvivesTurnAndFailsClosedOnDurableDrift(t *
 	}
 }
 
+func TestCommandRuntimeBindingBecomesStaleWhenRunningDowngradeCommits(t *testing.T) {
+	ctx := context.Background()
+	state, runRecord, root, _, _ := newCommandRuntimeTestRuntime(t, ctx)
+	permission, err := state.GetRunExecutionPermission(ctx, runRecord.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority := domain.NewExecutionPermissionRuntimeAuthority()
+	if _, err := authority.ActivateRunFullAccess(permission); err != nil {
+		t.Fatal(err)
+	}
+	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: authority,
+	}
+	manager, err := runner.NewPlatformCommandRuntimeManager(state,
+		idgen.New("command-runtime-revocation-owner"))
+	if err != nil {
+		t.Skipf("platform host command runtime is unavailable: %v", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := manager.Shutdown(shutdownCtx); err != nil {
+			t.Errorf("shutdown command runtime: %v", err)
+		}
+	}()
+	service, err := NewCommandRuntimeService(state, manager, capabilities)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mission, err := state.GetMission(ctx, runRecord.MissionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, err := state.GetWorkspaceByID(ctx, mission.WorkspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootSHA256, err := runner.CommandRuntimeWorkspaceRootSHA256(workspace.RootPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mode, err := state.GetRunMode(ctx, runRecord.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := state.GetRunExecutionProfile(ctx, runRecord.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	job := runner.CommandRuntimeJob{
+		RunID: runRecord.ID, MissionID: runRecord.MissionID,
+		SessionID: runRecord.SessionID, WorkspaceID: workspace.ID,
+		RootAgentID: root.ID, WorkspaceRootSHA256: rootSHA256,
+		ModeSnapshotID: mode.ID, ModeRevision: mode.Revision,
+		ProfileSnapshotID: profile.ID, ProfileRevision: profile.Revision,
+		PermissionSnapshotID: permission.ID, PermissionRevision: permission.Revision,
+		PermissionMode: permission.Mode, Adapter: service.adapter,
+	}
+	if current, err := service.commandRuntimeJobBindingsCurrent(ctx, job); err != nil || !current {
+		t.Fatalf("live Full binding current=%t err=%v", current, err)
+	}
+	transition, transitionErr := NewRunExecutionPermissionService(state, capabilities).Change(ctx,
+		ChangeRunExecutionPermissionRequest{RunID: runRecord.ID,
+			Mode:         string(domain.RunExecutionPermissionConservative),
+			OperationKey: "command-runtime-failed-revoke-0001", RequestedBy: "test_operator",
+			Reason: "immediately lower permission while the Run is active"})
+	if transitionErr != nil ||
+		transition.Permission.Mode != domain.RunExecutionPermissionConservative {
+		t.Fatalf("running permission downgrade=%+v err=%v", transition, transitionErr)
+	}
+	durable, err := state.GetRunExecutionPermission(ctx, runRecord.ID)
+	if err != nil || durable.ID == permission.ID ||
+		durable.Mode != domain.RunExecutionPermissionConservative {
+		t.Fatalf("running downgrade was not durable: %+v err=%v", durable, err)
+	}
+	if current, err := service.commandRuntimeJobBindingsCurrent(ctx, job); err != nil || current {
+		t.Fatalf("revoked Full binding remained current=%t err=%v", current, err)
+	}
+}
+
+func TestCommandRuntimeBindingBecomesStaleAcrossThreadFullReconfirmation(t *testing.T) {
+	ctx := context.Background()
+	state, runRecord, root, lease, _ := newCommandRuntimeTestRuntime(t, ctx)
+	if _, _, err := state.ReleaseRunExecutionLease(ctx, lease); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	runRecord, err = NewRunService(state).Pause(ctx, runRecord.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	threadRecord, err := state.GetThreadByRun(ctx, runRecord.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority := domain.NewExecutionPermissionRuntimeAuthority()
+	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: authority,
+	}
+	threadPermissions := NewThreadExecutionPermissionService(state, capabilities)
+	_, err = threadPermissions.Change(ctx, ChangeThreadExecutionPermissionRequest{
+		ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
+		OperationKey: "command-runtime-thread-full-first-0001",
+		RequestedBy:  "test_operator", Reason: "bind Full Access to the current task",
+		ConfirmDangerFullAccess: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runRecord, err = NewRunService(state).Resume(ctx, runRecord.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	permission, err := state.GetRunExecutionPermission(ctx, runRecord.ID)
+	if err != nil || !capabilities.AllowsSnapshot(permission) {
+		t.Fatalf("initial Thread Full snapshot is not live: %+v err=%v", permission, err)
+	}
+	browserPermission, err := state.GetRunBrowserCDPPermission(ctx, runRecord.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, err := runner.NewPlatformCommandRuntimeManager(state,
+		idgen.New("command-runtime-thread-reconfirmation-owner"))
+	if err != nil {
+		t.Skipf("platform host command runtime is unavailable: %v", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := manager.Shutdown(shutdownCtx); err != nil {
+			t.Errorf("shutdown command runtime: %v", err)
+		}
+	}()
+	service, err := NewCommandRuntimeService(state, manager, capabilities)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mission, err := state.GetMission(ctx, runRecord.MissionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, err := state.GetWorkspaceByID(ctx, mission.WorkspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootSHA256, err := runner.CommandRuntimeWorkspaceRootSHA256(workspace.RootPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mode, err := state.GetRunMode(ctx, runRecord.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := state.GetRunExecutionProfile(ctx, runRecord.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldJob := runner.CommandRuntimeJob{
+		ID: "command-runtime-thread-full-old-job", State: runner.CommandRuntimeJobRunning,
+		RunID: runRecord.ID, MissionID: runRecord.MissionID,
+		SessionID: runRecord.SessionID, WorkspaceID: workspace.ID,
+		RootAgentID: root.ID, WorkspaceRootSHA256: rootSHA256,
+		ModeSnapshotID: mode.ID, ModeRevision: mode.Revision,
+		ProfileSnapshotID: profile.ID, ProfileRevision: profile.Revision,
+		PermissionSnapshotID: permission.ID, PermissionRevision: permission.Revision,
+		PermissionMode: permission.Mode, Adapter: service.adapter,
+	}
+	if current, err := service.commandRuntimeJobBindingsCurrent(ctx, oldJob); err != nil || !current {
+		t.Fatalf("old Full job binding current=%t err=%v", current, err)
+	}
+	if _, err := NewRunService(state).Pause(ctx, runRecord.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	reconfirmed, err := threadPermissions.Change(ctx,
+		ChangeThreadExecutionPermissionRequest{
+			ThreadID: threadRecord.ID, Mode: string(domain.RunExecutionPermissionFullAccess),
+			OperationKey: "command-runtime-thread-full-reconfirm-0001",
+			RequestedBy:  "test_operator", Reason: "reconfirm Full Access for the current task",
+			ConfirmDangerFullAccess: true,
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentPermission, err := state.GetRunExecutionPermission(ctx, runRecord.ID)
+	if err != nil || currentPermission.ID == permission.ID ||
+		currentPermission.Revision <= permission.Revision ||
+		!capabilities.AllowsSnapshot(currentPermission) {
+		t.Fatalf("same-mode Full did not rotate and reactivate the Run snapshot: old=%+v current=%+v err=%v",
+			permission, currentPermission, err)
+	}
+	currentBrowserPermission, err := state.GetRunBrowserCDPPermission(ctx, runRecord.ID)
+	if err != nil || currentBrowserPermission.ID != browserPermission.ID ||
+		currentBrowserPermission.Revision != browserPermission.Revision ||
+		currentBrowserPermission.Mode != browserPermission.Mode {
+		t.Fatalf("same-mode Full changed the independent CDP sub-permission: old=%+v current=%+v err=%v",
+			browserPermission, currentBrowserPermission, err)
+	}
+	if reconfirmed.CurrentRunEffect == domain.ThreadExecutionPermissionPausedAndApplied {
+		runRecord, err = NewRunService(state).Resume(ctx, runRecord.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if current, err := service.commandRuntimeJobBindingsCurrent(ctx, oldJob); err != nil || current {
+		t.Fatalf("old Full job binding survived same-mode reconfirmation: current=%t err=%v",
+			current, err)
+	}
+}
+
 type commandRuntimeTerminalTransitionStore struct {
 	CommandRuntimeStore
 	running  runner.CommandRuntimeJob
@@ -803,7 +1110,7 @@ func TestCommandRuntimeUIEvidenceCleanupReapsExactJobAfterLeaseRelease(t *testin
 		script = `$line = [Console]::In.ReadLine(); [Console]::Out.WriteLine("unexpected:$line")`
 	}
 	identity := "ui-attempt-cleanup-test:application"
-	scope := commandRuntimeTestScope(service, runRecord, root, lease, identity)
+	scope := commandRuntimeTestScope(t, ctx, state, service, runRecord, root, lease, identity)
 	scope.InvocationID = identity
 	started, err := service.ExecuteCommandRuntime(ctx, scope,
 		toolgateway.CommandRuntimeInput{Version: toolgateway.CommandRuntimeToolProtocolVersion,
@@ -856,14 +1163,18 @@ func TestCommandRuntimeUIEvidenceCleanupReapsExactJobAfterLeaseRelease(t *testin
 	}
 }
 
-func commandRuntimeTestScope(service *CommandRuntimeService,
+func commandRuntimeTestScope(t *testing.T, ctx context.Context, state *store.SQLiteStore,
+	service *CommandRuntimeService,
 	runRecord domain.Run, root domain.AgentNode,
 	lease domain.RunExecutionLease, operationKey string,
 ) toolgateway.CommandRuntimeContext {
+	t.Helper()
+	root = ensureCommandRuntimeTestAgent(t, ctx, state, lease, root)
 	return toolgateway.CommandRuntimeContext{
 		InvocationID: "command-runtime-invocation-" + operationKey,
 		OperationKey: operationKey, RunID: runRecord.ID,
 		MissionID: runRecord.MissionID, RootAgentID: root.ID,
+		AgentID: root.ID, AgentAttemptID: root.ActiveAttemptID,
 		SessionID: runRecord.SessionID, WorkspaceID: "workspace-command-runtime-app",
 		CapabilityGeneration: service.adapter.Generation,
 		LeaseID:              lease.LeaseID, LeaseGeneration: lease.Generation,
@@ -874,7 +1185,36 @@ func commandRuntimeTestScope(service *CommandRuntimeService,
 	}
 }
 
+func ensureCommandRuntimeTestAgent(t *testing.T, ctx context.Context,
+	state *store.SQLiteStore, lease domain.RunExecutionLease, root domain.AgentNode,
+) domain.AgentNode {
+	t.Helper()
+	current, found, err := state.GetRootAgent(ctx, root.RunID)
+	if err != nil || !found {
+		t.Fatalf("root agent found=%t err=%v", found, err)
+	}
+	if current.ActiveAttemptID != "" {
+		return current
+	}
+	turn, err := state.BeginSupervisorTurn(ctx, lease,
+		"exercise the attributed Command Runtime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return turn.Agent
+}
+
 func newCommandRuntimeTestRuntime(t *testing.T, ctx context.Context) (
+	*store.SQLiteStore, domain.Run, domain.AgentNode, domain.RunExecutionLease,
+	domain.ExecutionPermissionRuntimeCapabilities,
+) {
+	return newCommandRuntimeTestRuntimeWithPermission(t, ctx,
+		domain.RunExecutionPermissionFullAccess)
+}
+
+func newCommandRuntimeTestRuntimeWithPermission(t *testing.T, ctx context.Context,
+	permissionMode domain.RunExecutionPermissionMode,
+) (
 	*store.SQLiteStore, domain.Run, domain.AgentNode, domain.RunExecutionLease,
 	domain.ExecutionPermissionRuntimeCapabilities,
 ) {
@@ -905,13 +1245,20 @@ func newCommandRuntimeTestRuntime(t *testing.T, ctx context.Context) (
 		t.Fatal(err)
 	}
 	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
-		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true}
+		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+		DebugMaximumAccessEnabled: true,
+	}
+	permissionRequest := ChangeRunExecutionPermissionRequest{RunID: runRecord.ID,
+		Mode:         string(permissionMode),
+		OperationKey: "command-runtime-permission-app-0001",
+		RequestedBy:  "test_operator", Reason: "exercise managed commands"}
+	if permissionMode == domain.RunExecutionPermissionDebug {
+		permissionRequest.ConfirmDebugAccess = true
+	} else {
+		permissionRequest.ConfirmDangerFullAccess = true
+	}
 	if _, err := NewRunExecutionPermissionService(state, capabilities).Change(ctx,
-		ChangeRunExecutionPermissionRequest{RunID: runRecord.ID,
-			Mode:         string(domain.RunExecutionPermissionFullAccess),
-			OperationKey: "command-runtime-permission-app-0001",
-			RequestedBy:  "test_operator", Reason: "exercise managed commands",
-			ConfirmDangerFullAccess: true}); err != nil {
+		permissionRequest); err != nil {
 		t.Fatal(err)
 	}
 	runRecord, err = runs.Start(ctx, runRecord.ID)

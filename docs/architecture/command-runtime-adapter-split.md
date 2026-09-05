@@ -18,7 +18,8 @@ execution result carries one exact identity:
 
 `sandboxed_workspace` accepts only `workspace_access` and reports
 `workspace_sandbox`, `network=denied`, and `credentials=none`.
-`host_unsandboxed` accepts only `full_access` behind the danger startup gate and
+`host_unsandboxed` accepts `full_access` or its strict superset `debug` behind the
+danger startup gate and
 truthfully reports that host network and host credentials remain available. The
 input fields `network=disabled` and `credentials=none` are intent and Policy facts
 for that host adapter, not isolation evidence. A receipt cannot change kind without
@@ -30,6 +31,10 @@ requires the same Run, adapter kind, backend identity, and generation. The
 Application layer then rechecks Run, Mission, Session, root Agent, Code/Deliver
 mode, profile and permission revisions, Drydock/root fingerprint, lease identity
 and generation, and process-owned adapter generation before every operation.
+Full Access authority is activated dynamically for the current task and is fenced
+on permission drift; it does not require an application restart. Debug uses the
+same adapter and checks, then adds its separately startup-gated persistent terminal,
+background, and bounded terminal-input capabilities.
 
 ## Sandboxed backends
 

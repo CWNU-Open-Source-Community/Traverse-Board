@@ -111,7 +111,8 @@ func (s *SQLiteStore) TransitionRunPhase(ctx context.Context, snapshot domain.Ru
 			"run phase cannot change while an execution lease is active")
 	}
 	if snapshot.MissionID != run.MissionID || snapshot.MissionID != mission.ID ||
-		snapshot.Profile != mission.Profile || !sameRunModeScope(snapshot.Scope, mission.Scope) ||
+		snapshot.Profile != mission.Profile ||
+		snapshot.Scope.WorkspaceID != mission.Scope.WorkspaceID ||
 		snapshot.Revision != current.Revision+1 || snapshot.Phase == current.Phase ||
 		!snapshot.SamePolicy(current) || snapshot.CreatedAt.Before(current.CreatedAt) {
 		return domain.RunModeSnapshot{}, false, apperror.New(apperror.CodeConflict,

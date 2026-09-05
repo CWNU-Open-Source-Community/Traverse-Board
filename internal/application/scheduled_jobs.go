@@ -212,7 +212,7 @@ func (s *ScheduledJobService) Create(ctx context.Context,
 		if !normalized.ConfirmRepair || mode.Surface != domain.ExecutionSurfaceCode ||
 			mode.Phase != domain.ExecutionPhaseDeliver ||
 			(permission.Mode != domain.RunExecutionPermissionApproval &&
-				permission.Mode != domain.RunExecutionPermissionFullAccess) ||
+				!permission.Mode.IncludesFullAccess()) ||
 			!permission.OperatorConfirmed {
 			return ScheduledJobControlResult{}, apperror.New(apperror.CodeFailedPrecondition,
 				"repair scheduling requires exact operator-confirmed Code/Deliver permission")
@@ -464,7 +464,7 @@ func (s *ScheduledJobService) currentRepairAuthorization(ctx context.Context,
 		authorization.ModeSnapshotID != mode.ID ||
 		authorization.ModeRevision != mode.Revision ||
 		(permission.Mode != domain.RunExecutionPermissionApproval &&
-			permission.Mode != domain.RunExecutionPermissionFullAccess) ||
+			!permission.Mode.IncludesFullAccess()) ||
 		!permission.OperatorConfirmed ||
 		authorization.PermissionSnapshotID != permission.ID ||
 		authorization.PermissionRevision != permission.Revision ||

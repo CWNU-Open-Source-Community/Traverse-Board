@@ -1,12 +1,39 @@
+@font-face {
+  font-family: "HarmonyOS Sans SC";
+  src: url("./assets/fonts/HarmonyOSSansSC-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "HarmonyOS Sans SC";
+  src: url("./assets/fonts/HarmonyOSSansSC-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "HarmonyOS Sans SC";
+  src: url("./assets/fonts/HarmonyOSSansSC-Semibold.ttf") format("truetype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "HarmonyOS Sans SC";
+  src: url("./assets/fonts/HarmonyOSSansSC-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
-  --prayu-font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text",
-    "Segoe UI", "Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC",
-    "Noto Sans SC", sans-serif;
-  --prayu-font-display: "Segoe UI Variable Display", "SF Pro Display", system-ui,
-    -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI", "PingFang SC",
-    "Noto Sans CJK SC", "Noto Sans SC", sans-serif;
-  --prayu-font-mono: "JetBrains Mono Variable", "JetBrains Mono", "Cascadia Code",
-    Consolas, monospace;
+  --prayu-font-ui: "JetBrains Mono Variable", "JetBrains Mono", "HarmonyOS Sans SC",
+    "Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC", "Noto Sans SC", monospace;
+  --prayu-font-display: "JetBrains Mono Variable", "JetBrains Mono", "HarmonyOS Sans SC",
+    "Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC", "Noto Sans SC", monospace;
+  --prayu-font-mono: "JetBrains Mono Variable", "JetBrains Mono", "HarmonyOS Sans SC",
+    "Cascadia Code", Consolas, monospace;
   font-family: var(--prayu-font-ui);
   color: #17202a;
   background: transparent;

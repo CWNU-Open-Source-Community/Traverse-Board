@@ -15,11 +15,13 @@ import (
 )
 
 const (
-	ProtocolVersion          = "web_evidence.v1"
-	SearchProtocolVersion    = "web_search.v1"
-	FetchProtocolVersion     = "web_fetch.v1"
-	CitationProtocolVersion  = "web_citation.v1"
-	OperationProtocolVersion = "web_evidence_operation.v1"
+	ProtocolVersion                         = "web_evidence.v1"
+	SearchProtocolVersion                   = "web_search.v1"
+	FetchProtocolVersion                    = "web_fetch.v1"
+	CitationProtocolVersion                 = "web_citation.v1"
+	OperationProtocolVersion                = "web_evidence_operation.v1"
+	ProviderGroundedCitationProtocolVersion = "provider_grounded_citation.v1"
+	ProviderGroundedProvenance              = "provider_grounded"
 
 	PublicHTTPSTarget = "public_https"
 	MaxQueryRunes     = 1024
@@ -89,29 +91,32 @@ func (s Source) Validate() error {
 }
 
 type Snapshot struct {
-	ProtocolVersion string      `json:"protocol_version"`
-	ID              string      `json:"id"`
-	SourceID        string      `json:"source_id"`
-	RunID           string      `json:"run_id"`
-	MissionID       string      `json:"mission_id"`
-	RequestedURL    string      `json:"requested_url"`
-	FinalURL        string      `json:"final_url"`
-	Title           string      `json:"title,omitempty"`
-	Byline          string      `json:"byline,omitempty"`
-	PublishedAt     string      `json:"published_at,omitempty"`
-	FetchedAt       time.Time   `json:"fetched_at"`
-	StaleAt         time.Time   `json:"stale_at"`
-	Digest          string      `json:"digest"`
-	MIME            string      `json:"mime"`
-	Charset         string      `json:"charset,omitempty"`
-	Body            string      `json:"body,omitempty"`
-	State           SourceState `json:"state"`
-	Truncated       bool        `json:"truncated"`
-	Robots          string      `json:"robots"`
-	ErrorCode       string      `json:"error_code,omitempty"`
-	Redirects       int         `json:"redirects"`
-	Provider        string      `json:"provider"`
-	Fingerprint     string      `json:"fingerprint"`
+	ProtocolVersion string `json:"protocol_version"`
+	ID              string `json:"id"`
+	SourceID        string `json:"source_id"`
+	RunID           string `json:"run_id"`
+	MissionID       string `json:"mission_id"`
+	RequestedURL    string `json:"requested_url"`
+	FinalURL        string `json:"final_url"`
+	// HTTPStatus is optional for snapshots written before the status became a
+	// durable fact. New fetches always record the observed final response code.
+	HTTPStatus  int         `json:"http_status,omitempty"`
+	Title       string      `json:"title,omitempty"`
+	Byline      string      `json:"byline,omitempty"`
+	PublishedAt string      `json:"published_at,omitempty"`
+	FetchedAt   time.Time   `json:"fetched_at"`
+	StaleAt     time.Time   `json:"stale_at"`
+	Digest      string      `json:"digest"`
+	MIME        string      `json:"mime"`
+	Charset     string      `json:"charset,omitempty"`
+	Body        string      `json:"body,omitempty"`
+	State       SourceState `json:"state"`
+	Truncated   bool        `json:"truncated"`
+	Robots      string      `json:"robots"`
+	ErrorCode   string      `json:"error_code,omitempty"`
+	Redirects   int         `json:"redirects"`
+	Provider    string      `json:"provider"`
+	Fingerprint string      `json:"fingerprint"`
 }
 
 func (s Snapshot) Validate() error {
@@ -126,6 +131,7 @@ func (s Snapshot) Validate() error {
 		!validDigest(s.Fingerprint) || s.Redirects < 0 ||
 		s.Redirects > DefaultRedirectLimit ||
 		!validBoundedText(s.Provider, 256, false) ||
+		(s.HTTPStatus != 0 && (s.HTTPStatus < 100 || s.HTTPStatus > 599)) ||
 		!validBoundedText(s.MIME, 256, false) ||
 		!validBoundedText(s.Charset, 128, true) ||
 		!validBoundedText(s.Title, 1024, true) || !validBoundedText(s.Byline, 512, true) ||
@@ -141,11 +147,13 @@ func (s Snapshot) Validate() error {
 	}
 	switch s.State {
 	case SourceFetched:
-		if s.Truncated || s.ErrorCode != "" {
+		if s.Truncated || s.ErrorCode != "" ||
+			(s.HTTPStatus != 0 && (s.HTTPStatus < 200 || s.HTTPStatus >= 300)) {
 			return errors.New("fetched web snapshot state is inconsistent")
 		}
 	case SourcePartial:
-		if !s.Truncated || s.ErrorCode != "" {
+		if !s.Truncated || s.ErrorCode != "" ||
+			(s.HTTPStatus != 0 && (s.HTTPStatus < 200 || s.HTTPStatus >= 300)) {
 			return errors.New("partial web snapshot state is inconsistent")
 		}
 	case SourceBlocked, SourceFailed:
@@ -182,6 +190,50 @@ type Citation struct {
 	Stale           bool      `json:"stale"`
 	CreatedAt       time.Time `json:"created_at"`
 	Fingerprint     string    `json:"fingerprint"`
+}
+
+// ProviderGroundedCitation is a durable source reference returned by a
+// qualified Provider-hosted search tool. It is deliberately not a Snapshot and
+// carries no claim that Traverse fetched, parsed, or independently verified the
+// target page. It is persisted inside the immutable web_search operation.
+type ProviderGroundedCitation struct {
+	ProtocolVersion       string    `json:"protocol_version"`
+	ID                    string    `json:"id"`
+	RunID                 string    `json:"run_id"`
+	SourceID              string    `json:"source_id"`
+	URL                   string    `json:"url"`
+	Title                 string    `json:"title,omitempty"`
+	Provider              string    `json:"provider"`
+	ProviderBinding       string    `json:"provider_binding"`
+	Provenance            string    `json:"provenance"`
+	SearchedAt            time.Time `json:"searched_at"`
+	ProviderQualified     bool      `json:"provider_qualified"`
+	LocallyVerified       bool      `json:"locally_verified"`
+	Untrusted             bool      `json:"untrusted"`
+	InstructionAuthorized bool      `json:"instruction_authorized"`
+	Fingerprint           string    `json:"fingerprint"`
+}
+
+func (c ProviderGroundedCitation) Validate() error {
+	for _, value := range []string{c.ID, c.RunID, c.SourceID} {
+		if !validIdentity(value) {
+			return errors.New("provider-grounded citation identity is invalid")
+		}
+	}
+	canonical, err := CanonicalizePublicHTTPSURL(c.URL)
+	if c.ProtocolVersion != ProviderGroundedCitationProtocolVersion || err != nil ||
+		canonical != c.URL || !validBoundedText(c.Title, 1024, true) ||
+		!validBoundedText(c.Provider, 256, false) ||
+		!validDigest(c.ProviderBinding) || c.Provenance != ProviderGroundedProvenance ||
+		c.SearchedAt.IsZero() || !c.ProviderQualified || c.LocallyVerified ||
+		!c.Untrusted || c.InstructionAuthorized || !validDigest(c.Fingerprint) {
+		return errors.New("provider-grounded citation metadata is invalid")
+	}
+	expected, err := providerGroundedCitationFingerprint(c)
+	if err != nil || expected != c.Fingerprint {
+		return errors.New("provider-grounded citation fingerprint mismatch")
+	}
+	return nil
 }
 
 func (c Citation) Validate() error {
@@ -329,22 +381,47 @@ func (o Operation) Validate() error {
 }
 
 type SearchStub struct {
-	SourceID     string `json:"source_id"`
-	CanonicalURL string `json:"canonical_url"`
-	Title        string `json:"title,omitempty"`
-	Snippet      string `json:"snippet,omitempty"`
-	Rank         int    `json:"rank"`
-	Provider     string `json:"provider"`
-	Fetched      bool   `json:"fetched"`
+	SourceID                 string                    `json:"source_id"`
+	CanonicalURL             string                    `json:"canonical_url"`
+	Title                    string                    `json:"title,omitempty"`
+	Snippet                  string                    `json:"snippet,omitempty"`
+	Rank                     int                       `json:"rank"`
+	Provider                 string                    `json:"provider"`
+	Fetched                  bool                      `json:"fetched"`
+	Citeable                 bool                      `json:"citeable"`
+	Provenance               string                    `json:"provenance,omitempty"`
+	LocallyVerified          bool                      `json:"locally_verified"`
+	Untrusted                bool                      `json:"untrusted"`
+	InstructionAuthorized    bool                      `json:"instruction_authorized"`
+	ProviderGroundedCitation *ProviderGroundedCitation `json:"provider_grounded_citation,omitempty"`
 }
 
 type SearchResult struct {
 	ProtocolVersion string       `json:"protocol_version"`
 	Query           string       `json:"query"`
 	Sources         []SearchStub `json:"sources"`
-	Provider        string       `json:"provider"`
-	SearchedAt      time.Time    `json:"searched_at"`
-	Replayed        bool         `json:"replayed"`
+	// Provider, SearchPolicy, and SelectionReason are the observed decision for
+	// this exact Run operation. They deliberately do not promote a credential-
+	// and-authority-scoped probe into a Registry-wide capability boolean.
+	Provider        string    `json:"provider"`
+	SearchPolicy    string    `json:"search_policy"`
+	SelectionReason string    `json:"selection_reason"`
+	SearchedAt      time.Time `json:"searched_at"`
+	Replayed        bool      `json:"replayed"`
+}
+
+func (r SearchResult) HasProviderGroundedCitations() bool {
+	if len(r.Sources) == 0 {
+		return false
+	}
+	for _, source := range r.Sources {
+		if !source.Citeable || source.Provenance != ProviderGroundedProvenance ||
+			source.ProviderGroundedCitation == nil ||
+			source.ProviderGroundedCitation.Validate() != nil {
+			return false
+		}
+	}
+	return true
 }
 
 type FetchResult struct {
@@ -390,6 +467,18 @@ func SealCitation(citation Citation) (Citation, error) {
 	return citation, citation.Validate()
 }
 
+func SealProviderGroundedCitation(citation ProviderGroundedCitation) (
+	ProviderGroundedCitation, error,
+) {
+	citation.ProtocolVersion = ProviderGroundedCitationProtocolVersion
+	fingerprint, err := providerGroundedCitationFingerprint(citation)
+	if err != nil {
+		return ProviderGroundedCitation{}, err
+	}
+	citation.Fingerprint = fingerprint
+	return citation, citation.Validate()
+}
+
 func StableSourceID(runID, canonicalURL string) string {
 	return "web-source-" + digestText(runID + "\x00" + canonicalURL)[:24]
 }
@@ -401,6 +490,13 @@ func StableSnapshotID(sourceID, digest string, fetchedAt time.Time) string {
 
 func StableCitationID(runID, operationDigest string) string {
 	return "web-citation-" + digestText(runID + "\x00" + operationDigest)[:24]
+}
+
+func StableProviderGroundedCitationID(runID, operationDigest,
+	sourceID string,
+) string {
+	return "provider-citation-" + digestText(runID + "\x00" + operationDigest + "\x00" +
+		sourceID)[:24]
 }
 
 func DigestBytes(value []byte) string {
@@ -448,6 +544,12 @@ func snapshotFingerprint(snapshot Snapshot) (string, error) {
 }
 
 func citationFingerprint(citation Citation) (string, error) {
+	copyValue := citation
+	copyValue.Fingerprint = ""
+	return fingerprintJSON(copyValue)
+}
+
+func providerGroundedCitationFingerprint(citation ProviderGroundedCitation) (string, error) {
 	copyValue := citation
 	copyValue.Fingerprint = ""
 	return fingerprintJSON(copyValue)

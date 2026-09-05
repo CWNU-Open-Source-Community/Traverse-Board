@@ -67,6 +67,14 @@ func TestRunBrowserCDPPermissionControlRequiresDebugAndExactConfirmation(t *test
 		"http-browser-cdp-malformed-0001",
 		strings.NewReader(`{"mode":"full_debug"}`))
 	assertAPIError(t, malformed, http.StatusBadRequest, "INVALID_ARGUMENT")
+	disabled := performControlPathRequest(t, open, path,
+		"http-browser-cdp-disabled-0001", strings.NewReader(`{"mode":"restricted"}`))
+	var disabledSelection RunBrowserCDPPermissionControlView
+	decodeDataStatus(t, disabled, http.StatusAccepted, &disabledSelection)
+	if disabledSelection.BrowserCDPPermission.Mode !=
+		string(domain.RunBrowserCDPPermissionRestricted) {
+		t.Fatalf("browser CDP disable = %+v", disabledSelection)
+	}
 
 	first := performControlPathRequest(t, open, path,
 		"http-browser-cdp-open-0001", strings.NewReader(body))

@@ -140,9 +140,7 @@ func (s *CommandRuntimeService) InstalledCommandRuntimeAdapter() (
 	if s == nil {
 		return commandruntimeadapter.Identity{}, false
 	}
-	permission := commandRuntimePermission(s.adapter)
-	if s.capabilities.Validate() != nil || permission == "" ||
-		!s.capabilities.Allows(permission) {
+	if !commandRuntimeStartupAvailable(s.adapter, s.capabilities) {
 		return commandruntimeadapter.Identity{}, false
 	}
 	adapter := s.adapter
@@ -202,7 +200,8 @@ func (s *CommandRuntimeService) AdvertisedCommandRuntimeAdapter(ctx context.Cont
 		profile.Profile != commandRuntimeExecutionProfile(s.adapter) ||
 		currentPermission.RunID != runID ||
 		currentPermission.MissionID != runRecord.MissionID ||
-		currentPermission.Mode != permission || !leaseFound ||
+		currentPermission.Mode != permission ||
+		!s.capabilities.AllowsSnapshot(currentPermission) || !leaseFound ||
 		lease.RunID != runID || !lease.ActiveAt(time.Now().UTC()) {
 		return commandruntimeadapter.Identity{}, false, nil
 	}
@@ -657,12 +656,10 @@ func (s *CommandRuntimeService) loadAuthorizedBindings(ctx context.Context,
 	scope toolgateway.CommandRuntimeContext,
 ) (commandRuntimeBindings, error) {
 	var value commandRuntimeBindings
-	expectedPermission := commandRuntimePermission(s.adapter)
 	expectedProfile := commandRuntimeExecutionProfile(s.adapter)
 	if err := s.capabilities.Validate(); err != nil || !s.adapter.Executable() ||
-		expectedPermission == "" || expectedProfile == "" ||
-		!s.capabilities.Allows(expectedPermission) ||
-		!s.adapter.AllowsPermission(expectedPermission) {
+		expectedProfile == "" ||
+		!commandRuntimeStartupAvailable(s.adapter, s.capabilities) {
 		return value, apperror.New(apperror.CodePolicyDenied,
 			"command runtime startup capability is disabled")
 	}
@@ -736,7 +733,7 @@ func (s *CommandRuntimeService) loadAuthorizedBindings(ctx context.Context,
 		value.profile.NetworkScope != domain.ExecutionNetworkDisabled ||
 		value.permission.RunID != value.run.ID ||
 		value.permission.MissionID != value.mission.ID ||
-		value.permission.Mode != expectedPermission ||
+		!s.adapter.AllowsPermission(value.permission.Mode) ||
 		value.lease.LeaseID != scope.LeaseID ||
 		value.lease.Generation != scope.LeaseGeneration ||
 		value.lease.Status != domain.RunExecutionLeaseActive ||
@@ -778,7 +775,9 @@ func (s *CommandRuntimeService) runnerScope(scope toolgateway.CommandRuntimeCont
 	return runner.CommandRuntimeScope{InvocationID: scope.InvocationID,
 		OperationKey: operationKey, RunID: bindings.run.ID,
 		MissionID: bindings.mission.ID, RootAgentID: bindings.root.ID,
-		SessionID: bindings.run.SessionID, WorkspaceID: bindings.workspace.ID,
+		AgentID: scope.AgentID, AgentAttemptID: scope.AgentAttemptID,
+		AttributionSource: scope.Attribution().Source,
+		SessionID:         bindings.run.SessionID, WorkspaceID: bindings.workspace.ID,
 		WorkspaceRootSHA256: bindings.rootSHA256,
 		ModeSnapshotID:      bindings.mode.ID, ModeRevision: bindings.mode.Revision,
 		ProfileSnapshotID:    bindings.profile.ID,
@@ -909,12 +908,11 @@ func (s *CommandRuntimeService) Reconcile(ctx context.Context) (int, error) {
 func (s *CommandRuntimeService) commandRuntimeJobBindingsCurrent(ctx context.Context,
 	job runner.CommandRuntimeJob,
 ) (bool, error) {
-	expectedPermission := commandRuntimePermission(s.adapter)
 	expectedProfile := commandRuntimeExecutionProfile(s.adapter)
 	if err := s.capabilities.Validate(); err != nil || !s.commandRuntimeAdapterCurrent() ||
 		!job.Adapter.SameBackend(s.adapter) ||
-		expectedPermission == "" || expectedProfile == "" ||
-		!s.capabilities.Allows(expectedPermission) {
+		expectedProfile == "" ||
+		!commandRuntimeStartupAvailable(s.adapter, s.capabilities) {
 		return false, nil
 	}
 	runRecord, err := s.store.GetRun(ctx, job.RunID)
@@ -944,6 +942,9 @@ func (s *CommandRuntimeService) commandRuntimeJobBindingsCurrent(ctx context.Con
 	permission, err := s.store.GetRunExecutionPermission(ctx, runRecord.ID)
 	if err != nil {
 		return false, apperror.Normalize(err)
+	}
+	if !s.capabilities.AllowsSnapshot(permission) {
+		return false, nil
 	}
 	rootPath := workspace.RootPath
 	if s.adapter.Kind == commandruntimeadapter.KindSandboxedWorkspace {
@@ -978,7 +979,7 @@ func (s *CommandRuntimeService) commandRuntimeJobBindingsCurrent(ctx context.Con
 		permission.ID == job.PermissionSnapshotID &&
 		permission.Revision == job.PermissionRevision &&
 		permission.Mode == job.PermissionMode &&
-		permission.Mode == expectedPermission, nil
+		s.adapter.AllowsPermission(permission.Mode), nil
 }
 
 func (s *CommandRuntimeService) commandRuntimeAdapterCurrent() bool {
@@ -1042,14 +1043,24 @@ func appendCommandRuntimeArtifact(result *toolgateway.CommandRuntimeExecutionRes
 			Stdout: job.Stdout, Stderr: job.Stderr})
 }
 
-func commandRuntimePermission(adapter commandruntimeadapter.Identity) domain.RunExecutionPermissionMode {
+func commandRuntimeStartupAvailable(adapter commandruntimeadapter.Identity,
+	capabilities domain.ExecutionPermissionRuntimeCapabilities,
+) bool {
+	if adapter.Validate() != nil || capabilities.Validate() != nil {
+		return false
+	}
 	switch adapter.Kind {
 	case commandruntimeadapter.KindHostUnsandboxed:
-		return domain.RunExecutionPermissionFullAccess
+		// Debug is a superset, but installing the stateless host adapter only
+		// needs the lower Full Access process ceiling. Per-Run advertisement and
+		// execution still check the exact current Full/Debug snapshot.
+		return capabilities.Allows(domain.RunExecutionPermissionFullAccess) &&
+			adapter.AllowsPermission(domain.RunExecutionPermissionFullAccess)
 	case commandruntimeadapter.KindSandboxedWorkspace:
-		return domain.RunExecutionPermissionWorkspaceAccess
+		return capabilities.Allows(domain.RunExecutionPermissionWorkspaceAccess) &&
+			adapter.AllowsPermission(domain.RunExecutionPermissionWorkspaceAccess)
 	default:
-		return ""
+		return false
 	}
 }
 

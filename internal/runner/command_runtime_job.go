@@ -110,6 +110,9 @@ type CommandRuntimeScope struct {
 	RunID                string
 	MissionID            string
 	RootAgentID          string
+	AgentID              string
+	AgentAttemptID       string
+	AttributionSource    domain.AgentAttributionSource
 	SessionID            string
 	WorkspaceID          string
 	WorkspaceRootSHA256  string
@@ -128,7 +131,8 @@ type CommandRuntimeScope struct {
 
 func (s CommandRuntimeScope) Validate() error {
 	for _, value := range []string{s.InvocationID, s.OperationKey, s.RunID,
-		s.MissionID, s.RootAgentID, s.SessionID, s.WorkspaceID,
+		s.MissionID, s.RootAgentID, s.AgentID,
+		s.SessionID, s.WorkspaceID,
 		s.ModeSnapshotID, s.ProfileSnapshotID, s.PermissionSnapshotID,
 		s.LeaseID, s.LeaseOwnerID} {
 		if strings.TrimSpace(value) != value || value == "" ||
@@ -136,7 +140,14 @@ func (s CommandRuntimeScope) Validate() error {
 			return ErrCommandRuntimeBoundary
 		}
 	}
-	if len(s.WorkspaceRootSHA256) != sha256.Size*2 || s.Adapter.Validate() != nil ||
+	attribution := domain.AgentAttribution{AgentID: s.AgentID,
+		AgentAttemptID: s.AgentAttemptID, Source: s.AttributionSource}
+	if attribution.Validate() != nil ||
+		(s.AttributionSource == domain.AgentAttributionOperatorRoot &&
+			s.AgentID != s.RootAgentID) ||
+		(s.AttributionSource != domain.AgentAttributionRecorded &&
+			s.AttributionSource != domain.AgentAttributionOperatorRoot) ||
+		len(s.WorkspaceRootSHA256) != sha256.Size*2 || s.Adapter.Validate() != nil ||
 		s.ModeRevision <= 0 || s.ProfileRevision <= 0 ||
 		s.PermissionRevision <= 0 || s.LeaseGeneration <= 0 ||
 		!s.Adapter.AllowsPermission(s.PermissionMode) {
@@ -214,6 +225,48 @@ type CommandRuntimeJob struct {
 	UpdatedAt             time.Time
 }
 
+// CommandRuntimeJobMetadata is the output-free projection used by public
+// collapsed activity summaries. It deliberately excludes intent JSON,
+// stdout/stderr, output frames, process identity and authority snapshots.
+type CommandRuntimeJobMetadata struct {
+	ID               string
+	OperationDigest  string
+	RunID            string
+	WorkingDirectory string
+	State            CommandRuntimeJobState
+	ExitCode         *int
+	StartedAt        *time.Time
+	CompletedAt      *time.Time
+	UpdatedAt        time.Time
+}
+
+func (m CommandRuntimeJobMetadata) Validate() error {
+	if !domain.ValidAgentID(m.ID) || !domain.ValidAgentID(m.RunID) ||
+		!validCommandRuntimeDigest(m.OperationDigest) || !m.State.Valid() ||
+		strings.TrimSpace(m.WorkingDirectory) != m.WorkingDirectory ||
+		m.WorkingDirectory == "" || len([]byte(m.WorkingDirectory)) > MaxCommandRuntimePathBytes ||
+		m.UpdatedAt.IsZero() {
+		return ErrCommandRuntimeBoundary
+	}
+	if m.State == CommandRuntimeJobPrepared {
+		if m.StartedAt != nil || m.CompletedAt != nil || m.ExitCode != nil {
+			return ErrCommandRuntimeBoundary
+		}
+		return nil
+	}
+	if m.StartedAt == nil || m.StartedAt.IsZero() || m.UpdatedAt.Before(*m.StartedAt) {
+		return ErrCommandRuntimeBoundary
+	}
+	if m.State.Terminal() {
+		if m.CompletedAt == nil || m.CompletedAt.Before(*m.StartedAt) || m.ExitCode == nil {
+			return ErrCommandRuntimeBoundary
+		}
+	} else if m.CompletedAt != nil || m.ExitCode != nil {
+		return ErrCommandRuntimeBoundary
+	}
+	return nil
+}
+
 func (j CommandRuntimeJob) Validate() error {
 	for _, value := range []string{j.ID, j.OperationDigest, j.RequestFingerprint,
 		j.InvocationID, j.RunID, j.MissionID, j.SessionID, j.WorkspaceID,
@@ -254,7 +307,7 @@ func (j CommandRuntimeJob) Validate() error {
 		(j.Adapter.Kind != commandruntimeadapter.KindLegacyUnbound &&
 			!j.Adapter.AllowsPermission(j.PermissionMode)) ||
 		(j.Adapter.Kind == commandruntimeadapter.KindLegacyUnbound &&
-			j.PermissionMode != domain.RunExecutionPermissionFullAccess) ||
+			!j.PermissionMode.IncludesFullAccess()) ||
 		j.ModeRevision <= 0 || j.ProfileRevision <= 0 || j.PermissionRevision <= 0 ||
 		j.LeaseGeneration <= 0 || j.OwnerGeneration <= 0 ||
 		j.OwnerRenewedAt.IsZero() || j.OwnerExpiresAt.IsZero() ||
@@ -336,6 +389,15 @@ type CommandRuntimeStore interface {
 	UpdateCommandRuntimeJob(context.Context, CommandRuntimeJob, int64) (CommandRuntimeJob, error)
 	GetCommandRuntimeJob(context.Context, string) (CommandRuntimeJob, error)
 	ListCommandRuntimeJobs(context.Context, CommandRuntimeListFilter) ([]CommandRuntimeJob, error)
+}
+
+// CommandRuntimeAgentStore atomically persists execution attribution beside a
+// newly prepared Job. For recorded model work AgentID/AgentAttemptID identify
+// the actor. For reviewed operator work, operator_root carries the real root
+// Agent authority anchor and deliberately omits an Agent attempt.
+type CommandRuntimeAgentStore interface {
+	PrepareCommandRuntimeJobForAgent(context.Context, CommandRuntimeJob,
+		domain.AgentAttribution) (CommandRuntimeJob, bool, error)
 }
 
 // CommandRuntimeOwnershipStore lets a durable store prevent one process from
@@ -559,6 +621,8 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 		RequestFingerprint: commandRuntimeDigest("command_runtime_request.v2",
 			request.Scope.RunID, request.Scope.MissionID, request.Scope.SessionID,
 			request.Scope.WorkspaceID, request.Scope.RootAgentID,
+			request.Scope.AgentID, request.Scope.AgentAttemptID,
+			string(request.Scope.AttributionSource),
 			request.Scope.WorkspaceRootSHA256,
 			request.Scope.ModeSnapshotID, fmt.Sprint(request.Scope.ModeRevision),
 			request.Scope.ProfileSnapshotID, fmt.Sprint(request.Scope.ProfileRevision),
@@ -600,7 +664,17 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 		StdinClosed: request.Spec.Spec.StdinPolicy == CommandRuntimeStdinClosed,
 		Version:     1, CreatedAt: now, UpdatedAt: now,
 	}
-	stored, replayed, err := m.store.PrepareCommandRuntimeJob(ctx, record)
+	var stored CommandRuntimeJob
+	var replayed bool
+	var err error
+	if attributed, ok := m.store.(CommandRuntimeAgentStore); ok {
+		stored, replayed, err = attributed.PrepareCommandRuntimeJobForAgent(ctx,
+			record, domain.AgentAttribution{AgentID: request.Scope.AgentID,
+				AgentAttemptID: request.Scope.AgentAttemptID,
+				Source:         request.Scope.AttributionSource})
+	} else {
+		stored, replayed, err = m.store.PrepareCommandRuntimeJob(ctx, record)
+	}
 	if err != nil {
 		return CommandRuntimeJobSnapshot{}, false, err
 	}

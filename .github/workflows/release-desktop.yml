@@ -50,6 +50,7 @@ on:
       - 'packaging/macos/**'
       - 'assets/branding/**'
       - 'web/public/**'
+      - 'web/src/assets/fonts/**'
       - 'web/src/assets/traverse-board-mark.png'
       - 'packaging/windows/RELEASE-NOTES.md'
       - 'protocols/registry.json'

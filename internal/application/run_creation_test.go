@@ -3,6 +3,7 @@ package application_test
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -62,6 +63,51 @@ func TestControlledRunCreationIsClosedAndIdempotent(t *testing.T) {
 	sessions, err := state.ListSessions(ctx)
 	if err != nil || len(sessions) != 1 {
 		t.Fatalf("replay created extra Sessions: count=%d err=%v", len(sessions), err)
+	}
+}
+
+func TestControlledRunCreationPersistsCanonicalExactNetworkAllowlist(t *testing.T) {
+	ctx := context.Background()
+	state := openRunCreationStore(t, filepath.Join(t.TempDir(), "state.db"))
+	workspace := saveRunCreationWorkspace(t, state)
+	service := application.NewControlledRunCreationService(state)
+	request := application.ControlledRunCreationRequest{
+		Version: domain.RunCreationProtocolVersion, Goal: "Research official documentation",
+		WorkspaceID: workspace.ID, Profile: "review", Surface: "code", Phase: "plan",
+		NetworkMode: "allowlist", AllowedTargets: []string{
+			" HTTPS://Docs.Example.COM:443/ ", "api.example.com", "docs.example.com",
+		},
+		OperationKey: "run-create-network-operation-0001", RequestedBy: "http_control",
+	}
+	created, err := service.Create(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantTargets := []string{"api.example.com", "docs.example.com"}
+	if created.Mission.Scope.NetworkMode != "allowlist" ||
+		strings.Join(created.Mission.Scope.AllowedTargets, ",") != strings.Join(wantTargets, ",") ||
+		created.Mode.Scope.NetworkMode != "allowlist" ||
+		strings.Join(created.Mode.Scope.AllowedTargets, ",") != strings.Join(wantTargets, ",") {
+		t.Fatalf("canonical network authority was not persisted: %#v", created)
+	}
+	replayed, err := service.Create(ctx, request)
+	if err != nil || !replayed.Replayed || replayed.Run.ID != created.Run.ID {
+		t.Fatalf("allowlist replay=%#v err=%v", replayed, err)
+	}
+	changed := request
+	changed.AllowedTargets = []string{"other.example.com"}
+	if _, err := service.Create(ctx, changed); apperror.CodeOf(err) != apperror.CodeConflict {
+		t.Fatalf("changed allowlist replay code=%s err=%v", apperror.CodeOf(err), err)
+	}
+	eventItems, err := state.ListRunEvents(ctx, created.Run.ID)
+	if err != nil || len(eventItems) == 0 {
+		t.Fatalf("Run events=%#v err=%v", eventItems, err)
+	}
+	for _, event := range eventItems {
+		if strings.Contains(event.PayloadJSON, "docs.example.com") ||
+			strings.Contains(event.PayloadJSON, "api.example.com") {
+			t.Fatalf("exact private network authority leaked into event payload: %s", event.PayloadJSON)
+		}
 	}
 }
 
@@ -164,6 +210,26 @@ func TestControlledRunCreationRejectsInvalidBoundaryValues(t *testing.T) {
 			OperationKey: base.OperationKey, RequestedBy: base.RequestedBy},
 		{Version: base.Version, Goal: base.Goal, WorkspaceID: base.WorkspaceID,
 			Profile: "Code", OperationKey: base.OperationKey, RequestedBy: base.RequestedBy},
+		{Version: base.Version, Goal: base.Goal, WorkspaceID: base.WorkspaceID,
+			NetworkMode: "allowlist", OperationKey: base.OperationKey, RequestedBy: base.RequestedBy},
+		{Version: base.Version, Goal: base.Goal, WorkspaceID: base.WorkspaceID,
+			NetworkMode: "disabled", AllowedTargets: []string{"docs.example.com"},
+			OperationKey: base.OperationKey, RequestedBy: base.RequestedBy},
+		{Version: base.Version, Goal: base.Goal, WorkspaceID: base.WorkspaceID,
+			NetworkMode: "ALLOWLIST", AllowedTargets: []string{"docs.example.com"},
+			OperationKey: base.OperationKey, RequestedBy: base.RequestedBy},
+		{Version: base.Version, Goal: base.Goal, WorkspaceID: base.WorkspaceID,
+			NetworkMode: "allowlist", AllowedTargets: []string{"*.example.com"},
+			OperationKey: base.OperationKey, RequestedBy: base.RequestedBy},
+		{Version: base.Version, Goal: base.Goal, WorkspaceID: base.WorkspaceID,
+			NetworkMode: "allowlist", AllowedTargets: []string{"http://docs.example.com"},
+			OperationKey: base.OperationKey, RequestedBy: base.RequestedBy},
+		{Version: base.Version, Goal: base.Goal, WorkspaceID: base.WorkspaceID,
+			NetworkMode: "allowlist", AllowedTargets: []string{"https://127.0.0.1"},
+			OperationKey: base.OperationKey, RequestedBy: base.RequestedBy},
+		{Version: base.Version, Goal: base.Goal, WorkspaceID: base.WorkspaceID,
+			NetworkMode: "allowlist", AllowedTargets: []string{"https://8.8.8.8"},
+			OperationKey: base.OperationKey, RequestedBy: base.RequestedBy},
 	}
 	for index, request := range cases {
 		if _, err := service.Create(context.Background(), request); err == nil {

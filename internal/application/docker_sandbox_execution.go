@@ -633,6 +633,7 @@ func (s *DockerSandboxService) requireCurrentDockerSandboxArtifactAuthority(
 	}
 	if authority.Run.Terminal() || authority.Profile.Profile !=
 		domain.RunExecutionProfileDocker ||
+		!s.permissionCapabilities.AllowsSnapshot(authority.Permission) ||
 		!dockerSandboxAdmissionMatchesCurrent(admission, authority) ||
 		plan.PlanFingerprint != admission.PlanFingerprint ||
 		s.mustDockerSandboxWriteRequestFingerprint(ctx, authority) !=

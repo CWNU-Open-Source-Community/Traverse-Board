@@ -121,7 +121,6 @@ func TestAPIServeCLIStartsAuthenticatedLoopbackServerWithoutPersistingToken(t *t
 		done <- ExecuteContext(ctx, []string{
 			"api", "serve", "--listen", "127.0.0.1:0",
 			"--enable-permission-control", "--enable-danger-full-access",
-			"--enable-debug-maximum-access",
 			"--enable-host-command-proposals",
 			"--enable-browser-cdp-control", "--enable-full-cdp-debug",
 			"--enable-batch-validation-execution",
@@ -145,7 +144,7 @@ func TestAPIServeCLIStartsAuthenticatedLoopbackServerWithoutPersistingToken(t *t
 		!strings.Contains(output, "operator_approval_enabled: true") ||
 		!strings.Contains(output, "host_command_proposal_control_enabled: true") ||
 		!strings.Contains(output, "danger_full_access_enabled: true") ||
-		!strings.Contains(output, "debug_maximum_access_enabled: true") ||
+		!strings.Contains(output, "debug_maximum_access_enabled: false") ||
 		!strings.Contains(output, "browser_cdp_permission_control_enabled: true") ||
 		!strings.Contains(output, "full_cdp_debug_enabled: true") ||
 		!strings.Contains(output, "batch_delivery_host_validation_enabled: true") {
@@ -186,7 +185,7 @@ func TestAPIServeCLIStartsAuthenticatedLoopbackServerWithoutPersistingToken(t *t
 		!bytes.Contains(capabilityBody,
 			[]byte(`"host_command_proposal_control_enabled":true`)) ||
 		!bytes.Contains(capabilityBody,
-			[]byte(`"debug_maximum_access_enabled":true`)) ||
+			[]byte(`"debug_maximum_access_enabled":false`)) ||
 		!bytes.Contains(capabilityBody,
 			[]byte(`"browser_cdp_permission_control_enabled":true`)) ||
 		!bytes.Contains(capabilityBody, []byte(`"full_cdp_debug_enabled":true`)) ||

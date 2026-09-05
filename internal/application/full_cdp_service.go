@@ -19,22 +19,41 @@ type FullCDPStore interface {
 		runID string) (domain.RunBrowserCDPPermissionSnapshot, error)
 }
 
-// FullCDPService opens the highly-sensitive Full CDP debug channel. It is
-// independent from Safe Web: it requires the maximum-access debug permission,
-// an exact per-call confirmation, and a dedicated, contained browser process,
-// and it never inherits Safe Web evidence or authorization.
+type fullCDPExecutionPermissionStore interface {
+	GetRunExecutionPermission(ctx context.Context,
+		runID string) (domain.RunExecutionPermissionSnapshot, error)
+}
+
+// FullCDPService opens the highly-sensitive Full CDP channel. It is independent
+// from Safe Web: it requires an exact live Full Access or Debug execution
+// snapshot, the separately confirmed Full CDP sub-permission, an exact per-call
+// confirmation, and a dedicated contained browser process.
 type FullCDPService struct {
 	store                  FullCDPStore
-	runtimeCapabilities    browserruntime.ProductionRuntimeCapabilities
+	runtimeCapabilities    browserruntime.FullCDPRuntimeCapabilities
 	permissionCapabilities domain.BrowserCDPPermissionRuntimeCapabilities
+	executionCapabilities  domain.ExecutionPermissionRuntimeCapabilities
+	requireExecutionGrant  bool
+}
+
+func NewFullCDPServiceWithExecutionCapabilities(store FullCDPStore,
+	runtimeCapabilities browserruntime.FullCDPRuntimeCapabilities,
+	permissionCapabilities domain.BrowserCDPPermissionRuntimeCapabilities,
+	executionCapabilities domain.ExecutionPermissionRuntimeCapabilities,
+) *FullCDPService {
+	return &FullCDPService{store: store, runtimeCapabilities: runtimeCapabilities,
+		permissionCapabilities: permissionCapabilities,
+		executionCapabilities:  executionCapabilities, requireExecutionGrant: true}
 }
 
 func NewFullCDPService(store FullCDPStore,
-	runtimeCapabilities browserruntime.ProductionRuntimeCapabilities,
+	runtimeCapabilities browserruntime.FullCDPRuntimeCapabilities,
 	permissionCapabilities domain.BrowserCDPPermissionRuntimeCapabilities,
 ) *FullCDPService {
+	// Kept for source compatibility only. Without explicit execution
+	// capabilities this constructor remains fail-closed at Open.
 	return &FullCDPService{store: store, runtimeCapabilities: runtimeCapabilities,
-		permissionCapabilities: permissionCapabilities}
+		permissionCapabilities: permissionCapabilities, requireExecutionGrant: true}
 }
 
 // FullCDPOpenRequest is a bounded request to open the Full CDP debug session
@@ -51,7 +70,7 @@ type FullCDPOpenRequest struct {
 }
 
 // Open authorizes and dials the Full CDP session. It fails closed unless the
-// Run uses the maximum-access debug permission, the caller supplies an exact
+// Run uses live Full Access or Debug permission, the caller supplies an exact
 // per-call confirmation, and the dedicated browser process is live.
 func (s *FullCDPService) Open(ctx context.Context,
 	request FullCDPOpenRequest,
@@ -91,6 +110,42 @@ func (s *FullCDPService) Open(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+	var executionPermission domain.RunExecutionPermissionSnapshot
+	var executionFence uint64
+	if s.requireExecutionGrant {
+		if err := s.executionCapabilities.Validate(); err != nil {
+			return nil, err
+		}
+		reader, ok := s.store.(fullCDPExecutionPermissionStore)
+		if !ok {
+			return nil, errors.New("full CDP execution permission reader is required")
+		}
+		executionPermission, err = reader.GetRunExecutionPermission(ctx, request.RunID)
+		if err != nil {
+			return nil, err
+		}
+		if executionPermission.Mode != domain.RunExecutionPermissionFullAccess &&
+			executionPermission.Mode != domain.RunExecutionPermissionDebug {
+			return nil, errors.New(
+				"full CDP requires Full Access or Debug execution permission")
+		}
+		if !s.executionCapabilities.AllowsSnapshot(executionPermission) ||
+			s.executionCapabilities.RuntimeAuthority == nil {
+			return nil, errors.New(
+				"full CDP requires the current Run's live execution authority")
+		}
+		// Do not rotate the current Run's child-authority fence for a request
+		// that has not passed the explicit high-risk confirmation boundary.
+		if !request.Confirmed {
+			return nil, errors.New(
+				"full CDP requires exact per-call operator confirmation")
+		}
+		executionFence, err = s.executionCapabilities.RuntimeAuthority.
+			IssueRunAuthorizationFence(request.RunID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	now := time.Now().UTC()
 	session, err := browserruntime.BuildSessionPlan(browserruntime.NewSessionPlanRequest{
 		SessionID: run.SessionID, RunID: run.ID, WorkspaceID: mission.WorkspaceID,
@@ -104,12 +159,18 @@ func (s *FullCDPService) Open(ctx context.Context,
 		return nil, err
 	}
 	authorization, err := browserruntime.AuthorizeFullCDP(session, request.Identity,
-		request.Acceptance, permission, s.runtimeCapabilities,
-		s.permissionCapabilities, request.Confirmed, now)
+		request.Acceptance, permission, executionPermission, s.runtimeCapabilities,
+		s.permissionCapabilities, s.executionCapabilities, executionFence,
+		request.Confirmed, now)
 	if err != nil {
 		return nil, err
 	}
-	return browserruntime.OpenFullCDPSession(ctx, authorization, session,
-		request.Identity, request.Acceptance, request.Ownership,
-		permission, request.ProfileLease, request.Process)
+	if s.requireExecutionGrant {
+		return browserruntime.OpenFullCDPSession(ctx,
+			authorization, session, request.Identity, request.Acceptance,
+			request.Ownership, permission, executionPermission,
+			s.executionCapabilities, executionFence, request.ProfileLease,
+			request.Process)
+	}
+	return nil, errors.New("full CDP execution authority is required")
 }

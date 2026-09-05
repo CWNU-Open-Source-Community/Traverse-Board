@@ -1,8 +1,11 @@
 package httpapi
 
 import (
+	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,6 +18,157 @@ import (
 	"cyberagent-workbench/internal/store"
 	"cyberagent-workbench/internal/toolgateway"
 )
+
+type cancelAfterWebApprovalController struct {
+	cancel context.CancelFunc
+}
+
+func (c cancelAfterWebApprovalController) Decide(_ context.Context,
+	request application.DecideApprovalControlRequest,
+) (application.DecideApprovalControlResult, error) {
+	c.cancel()
+	return application.DecideApprovalControlResult{Approval: approval.Record{
+		ID: request.ApprovalID, ProposalID: "web-fetch-authorization-detached",
+		RunID: request.RunID, ToolName: "web_fetch", Status: approval.StatusApproved},
+		Action: request.Action}, nil
+}
+
+type detachedWebFetchResumeController struct {
+	called chan error
+}
+
+func (c detachedWebFetchResumeController) Execute(context.Context,
+	application.ExecuteRunHandoffRequest,
+) (application.ExecuteRunHandoffResult, error) {
+	return application.ExecuteRunHandoffResult{}, nil
+}
+
+func (c detachedWebFetchResumeController) ResumeWebFetchAuthorization(ctx context.Context,
+	_, _ string,
+) (application.LifecycleResult, bool, error) {
+	c.called <- ctx.Err()
+	return application.LifecycleResult{Turn: 1}, false, nil
+}
+
+func TestWebFetchApprovalQueuesDurableContinuationAfterClientCancellation(t *testing.T) {
+	requestContext, cancelRequest := context.WithCancel(context.Background())
+	resumeCalled := make(chan error, 1)
+	api := &API{controlEnabled: true, approvalControlEnabled: true,
+		controlTokenHash:                      sha256.Sum256([]byte(testControlToken)),
+		approvalController:                    cancelAfterWebApprovalController{cancel: cancelRequest},
+		runExecutionController:                detachedWebFetchResumeController{called: resumeCalled},
+		webFetchAuthorizationSchedulerEnabled: true,
+		appVersion:                            "approval-detached-test"}
+	request := httptest.NewRequest(http.MethodPost,
+		"/api/v1/runs/run-detached/approvals/approval-detached/decision",
+		strings.NewReader(`{"version":"approval_control.v1","action":"approve_once"}`)).
+		WithContext(requestContext)
+	request.Header.Set("Authorization", "Bearer "+testControlToken)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "approval-detached-operation-0001")
+	response := httptest.NewRecorder()
+	api.serveApprovalDecisionControl(response, request, "request-detached",
+		"run-detached", "approval-detached")
+	if response.Code != http.StatusAccepted ||
+		!strings.Contains(response.Body.String(), `"retry_scheduled":true`) {
+		t.Fatalf("detached approval status=%d body=%s", response.Code, response.Body.String())
+	}
+	select {
+	case <-resumeCalled:
+		t.Fatal("HTTP handler started an untracked continuation worker")
+	case <-time.After(25 * time.Millisecond):
+	}
+	// Replaying the same decision only leaves the same durable queue item for
+	// the single process-owned reconciler; it must not fan out another worker.
+	replayRequest := httptest.NewRequest(http.MethodPost,
+		request.URL.String(),
+		strings.NewReader(`{"version":"approval_control.v1","action":"approve_once"}`))
+	replayRequest.Header = request.Header.Clone()
+	replayResponse := httptest.NewRecorder()
+	api.serveApprovalDecisionControl(replayResponse, replayRequest, "request-detached-replay",
+		"run-detached", "approval-detached")
+	if replayResponse.Code != http.StatusAccepted {
+		t.Fatalf("detached replay status=%d body=%s", replayResponse.Code,
+			replayResponse.Body.String())
+	}
+	select {
+	case <-resumeCalled:
+		t.Fatal("decision replay started a duplicate untracked continuation worker")
+	case <-time.After(25 * time.Millisecond):
+	}
+}
+
+func TestWebFetchApprovalDoesNotClaimRetryWithoutScheduler(t *testing.T) {
+	api := &API{controlEnabled: true, approvalControlEnabled: true,
+		controlTokenHash: sha256.Sum256([]byte(testControlToken)),
+		approvalController: cancelAfterWebApprovalController{
+			cancel: func() {},
+		},
+		appVersion: "approval-unscheduled-test"}
+	request := httptest.NewRequest(http.MethodPost,
+		"/api/v1/runs/run-unscheduled/approvals/approval-unscheduled/decision",
+		strings.NewReader(`{"version":"approval_control.v1","action":"approve_once"}`))
+	request.Header.Set("Authorization", "Bearer "+testControlToken)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "approval-unscheduled-operation-0001")
+	response := httptest.NewRecorder()
+	api.serveApprovalDecisionControl(response, request, "request-unscheduled",
+		"run-unscheduled", "approval-unscheduled")
+	if response.Code != http.StatusAccepted ||
+		!strings.Contains(response.Body.String(), `"retry_scheduled":false`) {
+		t.Fatalf("unscheduled approval status=%d body=%s", response.Code,
+			response.Body.String())
+	}
+}
+
+func TestRecoverableWebFetchApprovalExposesOnlyOriginalDecision(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		status domain.WebFetchAuthorizationStatus
+		scope  domain.WebFetchAuthorizationScope
+		want   application.ApprovalControlAction
+	}{
+		{name: "allow once", status: domain.WebFetchAuthorizationApproved,
+			scope: domain.WebFetchAuthorizationOnce, want: application.ApprovalControlApproveOnce},
+		{name: "allow thread", status: domain.WebFetchAuthorizationApproved,
+			scope: domain.WebFetchAuthorizationThread, want: application.ApprovalControlApproveForThread},
+		{name: "consumed once", status: domain.WebFetchAuthorizationConsumed,
+			scope: domain.WebFetchAuthorizationOnce, want: application.ApprovalControlApproveOnce},
+		{name: "deny", status: domain.WebFetchAuthorizationDenied,
+			scope: domain.WebFetchAuthorizationOnce, want: application.ApprovalControlDeny},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			actions := recoverableWebFetchApprovalActions(domain.WebFetchAuthorization{
+				Status: test.status, Scope: test.scope})
+			if len(actions) != 1 || actions[0] != test.want {
+				t.Fatalf("recoverable actions=%v want only %s", actions, test.want)
+			}
+		})
+	}
+}
+
+func TestRecoverableApprovalReadOverwritesPendingSnapshotByID(t *testing.T) {
+	pending := approval.Record{ID: "approval-race", ProposalID: "proposal-race",
+		RunID: "run-race", ToolName: "web_fetch", Status: approval.StatusPending,
+		Version: 1}
+	decided := pending
+	decided.Status = approval.StatusApproved
+	decided.Version = 2
+	records := []approval.Record{pending}
+	index := map[string]int{pending.ID: 0}
+	records = upsertApprovalQueueRecord(records, index, decided)
+	if len(records) != 1 || records[0].ID != pending.ID ||
+		records[0].Status != approval.StatusApproved || records[0].Version != 2 {
+		t.Fatalf("recoverable read did not replace pending snapshot: %#v", records)
+	}
+	other := approval.Record{ID: "approval-other", ProposalID: "proposal-other",
+		RunID: "run-race", ToolName: "web_fetch", Status: approval.StatusDenied,
+		Version: 2}
+	records = upsertApprovalQueueRecord(records, index, other)
+	if len(records) != 2 || records[1].ID != other.ID {
+		t.Fatalf("distinct approval was not appended exactly once: %#v", records)
+	}
+}
 
 func TestApprovalHTTPQueueIsMetadataOnlyAndApproveOnceIsClosedAuthority(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "approval-http.db"))
@@ -124,5 +278,24 @@ func TestApprovalHTTPControlCapabilityIsIndependentAndRequiresController(t *test
 		ControlToken: testControlToken, ApprovalControlEnabled: true,
 		AppVersion: "approval-control-test"}); err == nil {
 		t.Fatal("approval capability accepted a missing controller")
+	}
+	if _, err := New(fixture.store, Config{AccessToken: testAccessToken,
+		ControlToken: testControlToken, WebFetchAuthorizationSchedulerEnabled: true,
+		AppVersion: "approval-control-test"}); err == nil {
+		t.Fatal("Web fetch scheduler accepted missing execution and approval gates")
+	}
+	configured, err := New(fixture.store, Config{AccessToken: testAccessToken,
+		ControlToken: testControlToken, RunExecutionEnabled: true,
+		ExecutionPermissionControlEnabled:     true,
+		ApprovalControlEnabled:                true,
+		WebFetchAuthorizationSchedulerEnabled: true,
+		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
+			OperatorApprovalEnabled: true,
+		},
+		RunExecutionController: detachedWebFetchResumeController{called: make(chan error, 1)},
+		ApprovalController:     cancelAfterWebApprovalController{cancel: func() {}},
+		AppVersion:             "approval-control-test"})
+	if err != nil || !configured.webFetchAuthorizationSchedulerEnabled {
+		t.Fatalf("valid Web fetch scheduler config api=%#v err=%v", configured, err)
 	}
 }

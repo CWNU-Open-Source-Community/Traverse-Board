@@ -18,11 +18,11 @@ func TestBundleLoadsImmutableSnapshotAndServesBoundedRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bundle.AssetCount() != 4 || len(bundle.Digest()) != 64 || bundle.Source() == "" {
+	if bundle.AssetCount() != 6 || len(bundle.Digest()) != 64 || bundle.Source() == "" {
 		t.Fatalf("unexpected bundle metadata: source=%q assets=%d digest=%q",
 			bundle.Source(), bundle.AssetCount(), bundle.Digest())
 	}
-	assertRootBrandAssetsServed(t, bundle)
+	assertAllowlistedRootAssetsServed(t, bundle)
 
 	index := requestBundle(t, bundle, http.MethodGet, "/", "", "")
 	if index.Code != http.StatusOK || index.Body.String() != testIndexBody ||
@@ -74,6 +74,8 @@ func TestBundleSPAFallbackAndUnknownAssetsFailClosed(t *testing.T) {
 		status int
 	}{
 		{name: "navigation", method: http.MethodGet, path: "/runs/run-1", accept: "text/html", status: http.StatusOK},
+		{name: "legacy workbench", method: http.MethodGet, path: "/legacy", accept: "text/html", status: http.StatusOK},
+		{name: "legacy thread", method: http.MethodGet, path: "/legacy/threads/thread-1", accept: "text/html", status: http.StatusOK},
 		{name: "xhtml", method: http.MethodGet, path: "/sessions/one", accept: "application/xhtml+xml", status: http.StatusOK},
 		{name: "zero quality", method: http.MethodGet, path: "/runs/run-1", accept: "text/html;q=0.0", status: http.StatusNotFound},
 		{name: "no accept", method: http.MethodGet, path: "/runs/run-1", status: http.StatusNotFound},
@@ -159,6 +161,9 @@ func TestEmbeddedBundleLoadsOneImmutableBoundedSnapshot(t *testing.T) {
 		"dist/index.html":                    &fstest.MapFile{Data: []byte(testIndexBody)},
 		"dist/apple-touch-icon.png":          &fstest.MapFile{Data: []byte(testAppleTouchIconBody)},
 		"dist/traverse-board-favicon-32.png": &fstest.MapFile{Data: []byte(testFaviconBody)},
+		"dist/THIRD-PARTY-NOTICES.txt":       &fstest.MapFile{Data: []byte(testNoticesBody)},
+		"dist/licenses/HarmonyOS-Sans.txt":   &fstest.MapFile{Data: []byte(testFontLicenseBody)},
+		"dist/licenses/secret.txt":           &fstest.MapFile{Data: []byte("not allowlisted")},
 		"dist/unlisted-root-icon.png":        &fstest.MapFile{Data: []byte("not allowlisted")},
 		"dist/assets/index-AbCd1234.js":      &fstest.MapFile{Data: []byte(testScriptBody)},
 		"dist/assets/index-D0TcvGy-.css":     &fstest.MapFile{Data: []byte("body { color: black; }")},
@@ -167,11 +172,11 @@ func TestEmbeddedBundleLoadsOneImmutableBoundedSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bundle.Source() != "embedded:dist" || bundle.AssetCount() != 4 || len(bundle.Digest()) != 64 {
+	if bundle.Source() != "embedded:dist" || bundle.AssetCount() != 6 || len(bundle.Digest()) != 64 {
 		t.Fatalf("unexpected embedded bundle: source=%q count=%d digest=%q",
 			bundle.Source(), bundle.AssetCount(), bundle.Digest())
 	}
-	assertRootBrandAssetsServed(t, bundle)
+	assertAllowlistedRootAssetsServed(t, bundle)
 	delete(source, "dist/assets/index-AbCd1234.js")
 	response := requestBundle(t, bundle, http.MethodGet, "/assets/index-AbCd1234.js", "", "")
 	if response.Code != http.StatusOK || response.Body.String() != testScriptBody {
@@ -186,6 +191,8 @@ func TestEmbeddedBundleRejectsMalformedOrExecutableTrees(t *testing.T) {
 			"dist/index.html":                    &fstest.MapFile{Data: []byte(testIndexBody)},
 			"dist/apple-touch-icon.png":          &fstest.MapFile{Data: []byte(testAppleTouchIconBody)},
 			"dist/traverse-board-favicon-32.png": &fstest.MapFile{Data: []byte(testFaviconBody)},
+			"dist/THIRD-PARTY-NOTICES.txt":       &fstest.MapFile{Data: []byte(testNoticesBody)},
+			"dist/licenses/HarmonyOS-Sans.txt":   &fstest.MapFile{Data: []byte(testFontLicenseBody)},
 			"dist/assets/index-AbCd1234.js":      &fstest.MapFile{Data: []byte(testScriptBody)},
 		}
 	}
@@ -229,10 +236,83 @@ func TestEmbeddedBundleRejectsMalformedOrExecutableTrees(t *testing.T) {
 	}
 }
 
+func TestBundleAppliesLargerLimitOnlyToTTFAssets(t *testing.T) {
+	tests := []struct {
+		name       string
+		assetName  string
+		size       int64
+		wantLoaded bool
+	}{
+		{name: "TTF above generic limit", assetName: "font-AbCd1234.ttf", size: MaxAssetBytes + 1, wantLoaded: true},
+		{name: "TTF above dedicated limit", assetName: "font-AbCd1234.ttf", size: MaxTTFAssetBytes + 1},
+		{name: "JavaScript above generic limit", assetName: "chunk-AbCd1234.js", size: MaxAssetBytes + 1},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			directory := writeTestBundle(t)
+			assetPath := filepath.Join(directory, "assets", test.assetName)
+			if err := os.WriteFile(assetPath, []byte{0}, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Truncate(assetPath, test.size); err != nil {
+				t.Fatal(err)
+			}
+			bundle, err := LoadDirectory(directory)
+			if test.wantLoaded {
+				if err != nil || bundle == nil {
+					t.Fatalf("bounded TTF was rejected: bundle=%#v err=%v", bundle, err)
+				}
+				return
+			}
+			if err == nil || bundle != nil {
+				t.Fatalf("oversized asset was accepted: bundle=%#v", bundle)
+			}
+		})
+	}
+}
+
+func TestEmbeddedBundleAppliesLargerLimitOnlyToTTFAssets(t *testing.T) {
+	tests := []struct {
+		name       string
+		assetName  string
+		size       int
+		wantLoaded bool
+	}{
+		{name: "TTF above generic limit", assetName: "font-AbCd1234.ttf", size: MaxAssetBytes + 1, wantLoaded: true},
+		{name: "TTF above dedicated limit", assetName: "font-AbCd1234.ttf", size: MaxTTFAssetBytes + 1},
+		{name: "JavaScript above generic limit", assetName: "chunk-AbCd1234.js", size: MaxAssetBytes + 1},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			source := fstest.MapFS{
+				"dist/index.html":                    &fstest.MapFile{Data: []byte(testIndexBody)},
+				"dist/apple-touch-icon.png":          &fstest.MapFile{Data: []byte(testAppleTouchIconBody)},
+				"dist/traverse-board-favicon-32.png": &fstest.MapFile{Data: []byte(testFaviconBody)},
+				"dist/THIRD-PARTY-NOTICES.txt":       &fstest.MapFile{Data: []byte(testNoticesBody)},
+				"dist/licenses/HarmonyOS-Sans.txt":   &fstest.MapFile{Data: []byte(testFontLicenseBody)},
+				"dist/assets/index-AbCd1234.js":      &fstest.MapFile{Data: []byte(testScriptBody)},
+				"dist/assets/" + test.assetName:      &fstest.MapFile{Data: make([]byte, test.size)},
+			}
+			bundle, err := LoadEmbeddedFS(source, "dist")
+			if test.wantLoaded {
+				if err != nil || bundle == nil {
+					t.Fatalf("bounded embedded TTF was rejected: bundle=%#v err=%v", bundle, err)
+				}
+				return
+			}
+			if err == nil || bundle != nil {
+				t.Fatalf("oversized embedded asset was accepted: bundle=%#v", bundle)
+			}
+		})
+	}
+}
+
 const testIndexBody = "<!doctype html><script type=\"module\" src=\"/assets/index-AbCd1234.js\"></script>"
 const testScriptBody = "document.body.dataset.ready = 'yes';"
 const testFaviconBody = "test Traverse Board favicon"
 const testAppleTouchIconBody = "test Traverse Board Apple touch icon"
+const testNoticesBody = "test third-party notices"
+const testFontLicenseBody = "test HarmonyOS Sans license"
 
 func writeTestBundle(t *testing.T) string {
 	t.Helper()
@@ -249,20 +329,26 @@ func writeTestRootAssets(t *testing.T, directory string) {
 	t.Helper()
 	writeBundleFile(t, directory, "apple-touch-icon.png", []byte(testAppleTouchIconBody))
 	writeBundleFile(t, directory, "traverse-board-favicon-32.png", []byte(testFaviconBody))
+	writeBundleFile(t, directory, "THIRD-PARTY-NOTICES.txt", []byte(testNoticesBody))
+	writeBundleFile(t, directory, "licenses/HarmonyOS-Sans.txt", []byte(testFontLicenseBody))
+	writeBundleFile(t, directory, "licenses/secret.txt", []byte("not allowlisted"))
 }
 
-func assertRootBrandAssetsServed(t *testing.T, bundle *Bundle) {
+func assertAllowlistedRootAssetsServed(t *testing.T, bundle *Bundle) {
 	t.Helper()
 	for _, current := range []struct {
-		path string
-		body string
+		path        string
+		body        string
+		contentType string
 	}{
-		{path: "/apple-touch-icon.png", body: testAppleTouchIconBody},
-		{path: "/traverse-board-favicon-32.png", body: testFaviconBody},
+		{path: "/apple-touch-icon.png", body: testAppleTouchIconBody, contentType: "image/png"},
+		{path: "/traverse-board-favicon-32.png", body: testFaviconBody, contentType: "image/png"},
+		{path: "/THIRD-PARTY-NOTICES.txt", body: testNoticesBody, contentType: "text/plain; charset=utf-8"},
+		{path: "/licenses/HarmonyOS-Sans.txt", body: testFontLicenseBody, contentType: "text/plain; charset=utf-8"},
 	} {
 		response := requestBundle(t, bundle, http.MethodGet, current.path, "", "")
 		if response.Code != http.StatusOK || response.Body.String() != current.body ||
-			response.Header().Get("Content-Type") != "image/png" ||
+			response.Header().Get("Content-Type") != current.contentType ||
 			response.Header().Get("Cache-Control") != "no-store" {
 			t.Fatalf("unexpected root brand asset response for %s: status=%d headers=%#v body=%q",
 				current.path, response.Code, response.Header(), response.Body.String())
@@ -279,6 +365,11 @@ func assertRootBrandAssetsServed(t *testing.T, bundle *Bundle) {
 	if unknown.Code != http.StatusNotFound {
 		t.Fatalf("unlisted root asset status=%d want=%d body=%q",
 			unknown.Code, http.StatusNotFound, unknown.Body.String())
+	}
+	unknownLicense := requestBundle(t, bundle, http.MethodGet, "/licenses/secret.txt", "text/html", "")
+	if unknownLicense.Code != http.StatusNotFound {
+		t.Fatalf("unlisted license status=%d want=%d body=%q",
+			unknownLicense.Code, http.StatusNotFound, unknownLicense.Body.String())
 	}
 }
 

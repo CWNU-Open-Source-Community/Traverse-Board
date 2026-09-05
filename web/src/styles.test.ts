@@ -48,17 +48,42 @@ describe("workbench Composer layout", () => {
 });
 
 describe("product typography roles", () => {
-  it("uses proportional platform fonts for interface and display text", () => {
+  it("uses the approved JetBrains and HarmonyOS stacks for interface and display text", () => {
     const uiStack = styles.match(/--prayu-font-ui:\s*([^;]+);/u)?.[1] ?? "";
     const displayStack = styles.match(/--prayu-font-display:\s*([^;]+);/u)?.[1] ?? "";
 
-    expect(uiStack).toContain("system-ui");
-    expect(uiStack).toContain("sans-serif");
-    expect(uiStack).not.toMatch(/JetBrains|Cascadia|monospace/iu);
-    expect(displayStack).toContain("Segoe UI Variable Display");
+    expect(uiStack).toContain("JetBrains Mono Variable");
+    expect(uiStack).toContain("HarmonyOS Sans SC");
+    expect(uiStack).toContain("Microsoft YaHei UI");
+    expect(uiStack).toContain("monospace");
+    expect(uiStack).not.toContain("Cascadia Code");
+    expect(displayStack).toContain("JetBrains Mono Variable");
+    expect(displayStack).toContain("HarmonyOS Sans SC");
     expect(displayStack).toContain("Microsoft YaHei UI");
     expect(displayStack).toContain("PingFang SC");
-    expect(displayStack).toContain("sans-serif");
+    expect(displayStack).toContain("monospace");
+  });
+
+  it("loads the four byte-identical vendor HarmonyOS Sans TTF weights", () => {
+    const harmonyFaces = [...styles.matchAll(/@font-face\s*\{([^}]+)\}/gu)]
+      .map((match) => match[1] ?? "")
+      .filter((block) => block.includes('font-family: "HarmonyOS Sans SC"'))
+      .map((block) => ({
+        source: block.match(/url\("\.\/assets\/fonts\/([^"]+)"\)/u)?.[1],
+        format: block.match(/format\("([^"]+)"\)/u)?.[1],
+        weight: Number(block.match(/font-weight:\s*(\d+)/u)?.[1]),
+      }));
+
+    expect(harmonyFaces).toEqual([
+      { source: "HarmonyOSSansSC-Regular.ttf", format: "truetype", weight: 400 },
+      { source: "HarmonyOSSansSC-Medium.ttf", format: "truetype", weight: 500 },
+      { source: "HarmonyOSSansSC-Semibold.ttf", format: "truetype", weight: 600 },
+      { source: "HarmonyOSSansSC-Bold.ttf", format: "truetype", weight: 700 },
+    ]);
+    expect(styles).not.toContain("HarmonyOSSansSC-Regular.woff2");
+    expect(styles).not.toContain("HarmonyOSSansSC-Medium.woff2");
+    expect(styles).not.toContain("HarmonyOSSansSC-Semibold.woff2");
+    expect(styles).not.toContain("HarmonyOSSansSC-Bold.woff2");
   });
 
   it("keeps the bilingual brand in the display and interface roles", () => {

@@ -60,11 +60,39 @@ export type FindingReportSummaryView = components["schemas"]["FindingReportSumma
 export type FindingReportView = components["schemas"]["FindingReportView"];
 export type HealthView = components["schemas"]["HealthView"];
 export type RuntimeCapabilitiesView = components["schemas"]["RuntimeCapabilitiesView"];
+export type FullCDPBrowserSelectionView =
+  components["schemas"]["FullCDPBrowserSelectionView"];
+export type FullCDPSessionOpenRequestView =
+  components["schemas"]["FullCDPSessionOpenRequestView"];
+export type FullCDPSessionCloseRequestView =
+  components["schemas"]["FullCDPSessionCloseRequestView"];
+export type FullCDPSessionControlView =
+  components["schemas"]["FullCDPSessionControlView"];
+export type FullCDPSessionView = components["schemas"]["FullCDPSessionView"];
 export type ThreadView = components["schemas"]["ThreadView"];
+export type ThreadRunRecoveryView = components["schemas"]["ThreadRunRecoveryView"];
+export type ThreadRunRecoveryControlRequestView =
+  components["schemas"]["ThreadRunRecoveryControlRequestView"];
+export type ThreadRunRecoveryControlView =
+  components["schemas"]["ThreadRunRecoveryControlView"];
 export type ThreadDetailView = components["schemas"]["ThreadDetailView"];
 export type ThreadRunView = components["schemas"]["ThreadRunView"];
 export type ThreadMessageView = components["schemas"]["ThreadMessageView"];
 export type ThreadTranscriptItemView = components["schemas"]["ThreadTranscriptItemView"];
+export type ThreadActivityTypedDetailView =
+  components["schemas"]["ThreadActivityTypedDetailView"];
+export type ThreadActivityKind = ThreadActivityTypedDetailView["kind"];
+export type ThreadActivityBoundaryView = components["schemas"]["ThreadActivityBoundaryView"];
+export type ThreadActivityJSONFieldSummaryView =
+  components["schemas"]["ThreadActivityJSONFieldSummaryView"];
+export type ThreadActivityJSONSummaryView = components["schemas"]["ThreadActivityJSONSummaryView"];
+export type ThreadActivityArtifactReferenceView =
+  components["schemas"]["ThreadActivityArtifactReferenceView"];
+export type ThreadActivityCommandDetailView =
+  components["schemas"]["ThreadActivityCommandDetailView"];
+export type ThreadActivityToolDetailView = components["schemas"]["ThreadActivityToolDetailView"];
+export type ThreadActivityDetailView = components["schemas"]["ThreadActivityDetailView"];
+export type ThreadActivityArtifactView = components["schemas"]["ThreadActivityArtifactView"];
 export type ThreadExportView = components["schemas"]["ThreadExportView"];
 export type ThreadCreationControlRequestView =
   components["schemas"]["ThreadCreationControlRequestView"];
@@ -75,6 +103,12 @@ export type ThreadMessageControlView = components["schemas"]["ThreadMessageContr
 export type ThreadLifecycleControlRequestView =
   components["schemas"]["ThreadLifecycleControlRequestView"];
 export type ThreadLifecycleControlView = components["schemas"]["ThreadLifecycleControlView"];
+export type ThreadExecutionPermissionControlRequestView =
+  components["schemas"]["ThreadExecutionPermissionControlRequestView"];
+export type ThreadExecutionPermissionControlView =
+  components["schemas"]["ThreadExecutionPermissionControlView"];
+export type ThreadExecutionPermissionView =
+  components["schemas"]["ThreadExecutionPermissionView"];
 export type CapabilityReadinessOptionView =
   components["schemas"]["CapabilityReadinessOptionView"];
 export type RunCapabilityReadinessView =
@@ -150,10 +184,18 @@ export type MessageView = components["schemas"]["MessageView"];
 export type ModelAvailabilityView = components["schemas"]["ModelAvailabilityView"];
 export type ModelHarnessAvailabilityView = components["schemas"]["ModelHarnessAvailabilityView"];
 export type ModelHarnessQualificationRequestView = components["schemas"]["ModelHarnessQualificationRequestView"];
+export type AvailableModelRouteCollectionView =
+  components["schemas"]["AvailableModelRouteCollectionView"];
+export type AvailableModelRouteView = components["schemas"]["AvailableModelRouteView"];
 export type ProviderFailureReason =
   components["schemas"]["ProviderDiagnosticView"]["failure_reason"];
 export type ModelHarnessQualificationView = components["schemas"]["ModelHarnessQualificationView"];
 export type ModelRouteControlRequestView = components["schemas"]["ModelRouteControlRequestView"];
+export type ThreadModelRouteControlRequestView =
+  components["schemas"]["ThreadModelRouteControlRequestView"];
+export type ThreadModelRouteView = components["schemas"]["ThreadModelRouteView"];
+export type ProviderSearchReadinessView =
+  components["schemas"]["ProviderSearchReadinessView"];
 export type OperationReceiptView = components["schemas"]["OperationReceiptView"];
 export type OperationReceiptHistoryView = components["schemas"]["OperationReceiptHistoryView"];
 export type EvidenceAttachmentRequestView = components["schemas"]["EvidenceAttachmentRequestView"];
@@ -166,6 +208,15 @@ export type ProviderDiagnosticView = components["schemas"]["ProviderDiagnosticVi
 export type ProviderCredentialListView = components["schemas"]["ProviderCredentialListView"];
 export type ProviderCredentialRequestView = components["schemas"]["ProviderCredentialRequestView"];
 export type ProviderCredentialStatusView = components["schemas"]["ProviderCredentialStatusView"];
+export type ProviderDefinitionView = components["schemas"]["ProviderDefinition"];
+export type ProviderDefinitionCollectionView =
+  components["schemas"]["ProviderDefinitionCollectionView"];
+export type ProviderDefinitionUpsertRequestView =
+  components["schemas"]["ProviderDefinitionUpsertRequestView"];
+export type ProviderDefinitionDeleteRequestView =
+  components["schemas"]["ProviderDefinitionDeleteRequestView"];
+export type ProviderDefinitionMutationView =
+  components["schemas"]["ProviderDefinitionMutationView"];
 export type FileEditProposalRequestView = components["schemas"]["FileEditProposalRequestView"];
 export type FileEditProposalRecoveryView = components["schemas"]["FileEditProposalRecoveryView"];
 export type FileEditProposalSourceView = components["schemas"]["FileEditProposalSourceView"];
@@ -201,6 +252,10 @@ export type RunActivityView = components["schemas"]["RunActivityView"];
 export type RunEventPollView = components["schemas"]["RunEventPollView"];
 export type RunEventStreamView = components["schemas"]["RunEventStreamView"];
 export type RunModeView = components["schemas"]["RunModeView"];
+export type RunNetworkAuthorityControlRequestView =
+  components["schemas"]["RunNetworkAuthorityControlRequestView"];
+export type RunNetworkAuthorityControlView =
+  components["schemas"]["RunNetworkAuthorityControlView"];
 export type RunExecutionProfileControlView = components["schemas"]["RunExecutionProfileControlView"];
 export type RunExecutionProfileView = components["schemas"]["RunExecutionProfileView"];
 export type RunExecutionPermissionControlView = components["schemas"]["RunExecutionPermissionControlView"];
