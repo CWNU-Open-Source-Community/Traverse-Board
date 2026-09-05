@@ -18,7 +18,9 @@ func TestAdapterPermissionMatrixFailsClosed(t *testing.T) {
 	}{
 		"sandbox workspace":   {sandboxed, domain.RunExecutionPermissionWorkspaceAccess, true, true},
 		"sandbox full access": {sandboxed, domain.RunExecutionPermissionFullAccess, false, true},
+		"sandbox debug":       {sandboxed, domain.RunExecutionPermissionDebug, false, true},
 		"host full access":    {host, domain.RunExecutionPermissionFullAccess, true, true},
+		"host debug":          {host, domain.RunExecutionPermissionDebug, true, true},
 		"host workspace":      {host, domain.RunExecutionPermissionWorkspaceAccess, false, true},
 		"legacy full access":  {legacy, domain.RunExecutionPermissionFullAccess, false, false},
 	} {

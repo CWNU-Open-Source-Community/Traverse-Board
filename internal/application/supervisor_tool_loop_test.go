@@ -15,6 +15,7 @@ import (
 
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/application"
+	"cyberagent-workbench/internal/approval"
 	"cyberagent-workbench/internal/artifact"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
@@ -191,6 +192,102 @@ func TestRunSupervisorExecutesDurableRunScopedWebFetch(t *testing.T) {
 	}
 	if !foundPresentation {
 		t.Fatalf("public Web evidence presentation was not recorded: %#v", eventList)
+	}
+}
+
+func TestRunSupervisorInlineWebFetchApprovalResumesExactTurn(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-web-fetch-inline-approval.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	runService := application.NewRunService(st)
+	_, run, err := runService.Create(ctx, application.CreateRunRequest{
+		Goal: "fetch one newly discovered public source", Profile: "review",
+		Surface: "code", Phase: "deliver", ModelRoute: "tool-loop/model",
+		NetworkMode: "disabled",
+		Budget:      domain.Budget{MaxTurns: 3, MaxToolCalls: 3},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runService.Start(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	provider := &scriptedToolProvider{responses: []*llm.ChatResponse{
+		toolResponse("provider-inline-web-fetch", string(toolgateway.WebFetchTool),
+			`{"version":"web_fetch.v1","url":"https://new.example.net/report"}`),
+		textResponse(rootActionResponse(domain.RootActionContinue,
+			"approved public evidence fetched", "", "")),
+	}}
+	router := llm.NewRouter(llm.ModelRef{Provider: provider.Name(), Model: "model"})
+	router.RegisterProvider(provider)
+	checker := policy.NewDefaultChecker()
+	backend := &applicationWebFetchBackend{}
+	webService := webevidence.NewService(st, nil, backend)
+	supervisor := application.NewRunSupervisor(st, router, checker).
+		WithWebEvidence(webService).
+		WithWebFetchAuthorizationScheduler(true)
+	waiting, err := supervisor.Step(ctx, run.ID)
+	if err != nil || waiting.RunStatus != domain.RunWaitingApproval ||
+		waiting.ModelAttempts != 1 || waiting.ToolCalls != 1 || backend.calls != 0 {
+		t.Fatalf("waiting lifecycle=%#v fetches=%d err=%v", waiting, backend.calls, err)
+	}
+	rounds, err := st.ListRunSupervisorToolRoundsPage(ctx, run.ID, 0, 2)
+	if err != nil || len(rounds) != 1 || len(rounds[0].Calls) != 1 ||
+		rounds[0].Calls[0].Status != domain.SupervisorToolPending {
+		t.Fatalf("pending exact Web call=%#v err=%v", rounds, err)
+	}
+	pendingTurn, pendingCallID := rounds[0].Turn, rounds[0].Calls[0].CallID
+	records, err := st.ListApprovals(ctx, approval.ListFilter{RunID: run.ID,
+		Status: approval.StatusPending, Limit: 10})
+	if err != nil || len(records) != 1 || records[0].ToolName != "web_fetch" {
+		t.Fatalf("pending Web approval=%#v err=%v", records, err)
+	}
+	authorization, err := st.GetWebFetchAuthorizationByApproval(ctx, records[0].ID)
+	if err != nil || authorization.SupervisorTurn != pendingTurn ||
+		authorization.SupervisorToolCallID != pendingCallID {
+		t.Fatalf("authorization=%#v err=%v", authorization, err)
+	}
+	approvalControl := application.NewApprovalControlService(st,
+		toolgateway.New(st, checker), checker)
+	decision, err := approvalControl.Decide(ctx, application.DecideApprovalControlRequest{
+		Version: application.ApprovalControlProtocolVersion, RunID: run.ID,
+		ApprovalID: records[0].ID, Action: application.ApprovalControlApproveOnce,
+		OperationKey: "supervisor-inline-web-fetch-approve-once-0001",
+		ReviewedBy:   "test_operator",
+	})
+	if err != nil || decision.Approval.Status != approval.StatusApproved || decision.Replayed {
+		t.Fatalf("approval decision=%#v err=%v", decision, err)
+	}
+	handoff := application.NewRunExecutionHandoffService(st, router, checker).
+		WithWebEvidence(webService).
+		WithWebFetchAuthorizationScheduler(true)
+	resumed, replayed, err := handoff.ResumeWebFetchAuthorization(ctx, run.ID,
+		authorization.ID)
+	if err != nil || replayed || backend.calls != 1 || resumed.Turn != pendingTurn ||
+		resumed.ModelAttempts != 2 || resumed.ToolCalls != 1 || resumed.ToolRounds != 1 ||
+		resumed.Text != "approved public evidence fetched" ||
+		resumed.RunStatus != domain.RunRunning {
+		t.Fatalf("resumed lifecycle=%#v replayed=%t fetches=%d err=%v",
+			resumed, replayed, backend.calls, err)
+	}
+	requests := provider.Requests()
+	if len(requests) != 2 || !hasToolSpec(requests[0], string(toolgateway.WebFetchTool)) ||
+		!hasToolResult(requests[1], "private bounded evidence body") {
+		t.Fatalf("provider did not receive the resumed exact result once: %#v", requests)
+	}
+	completedRounds, err := st.ListRunSupervisorToolRoundsPage(ctx, run.ID, 0, 2)
+	if err != nil || len(completedRounds) != 1 || len(completedRounds[0].Calls) != 1 ||
+		completedRounds[0].Turn != pendingTurn ||
+		completedRounds[0].Calls[0].CallID != pendingCallID ||
+		completedRounds[0].Calls[0].Status != domain.SupervisorToolCompleted {
+		t.Fatalf("resumed call identity drifted: rounds=%#v err=%v", completedRounds, err)
+	}
+	storedRun, err := st.GetRun(ctx, run.ID)
+	if err != nil || storedRun.Status != domain.RunRunning {
+		t.Fatalf("Run did not remain continuable: run=%#v err=%v", storedRun, err)
 	}
 }
 
@@ -424,6 +521,72 @@ func TestRunSupervisorReturnsRejectedDelegationAsToolResult(t *testing.T) {
 	proposals, err := st.ListSpecialistDelegationProposals(ctx, run.ID, 10)
 	if err != nil || len(proposals) != 0 {
 		t.Fatalf("invalid delegation persisted state: %#v err=%v", proposals, err)
+	}
+}
+
+func TestRunSupervisorRecoversRootActionWithTrailingCommentaryAfterToolResult(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "supervisor-root-action-commentary.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	run := newStartedRunForProvider(t, st, "tool-loop",
+		domain.Budget{MaxTurns: 3, MaxTokens: 500, MaxToolCalls: 3})
+	invalidDelegation := `{"version":"specialist_delegation.v1","assignments":[` +
+		`{"title":"Escalation","goal":"Request unavailable capability","skills":["shell"],"turn_limit":1,"token_limit":32}]}`
+	const commentary = "The requested search-style tool result was unavailable."
+	provider := &scriptedToolProvider{responses: []*llm.ChatResponse{
+		toolResponse("provider-root-action-commentary", "specialist_delegation_propose",
+			invalidDelegation),
+		textResponse(rootActionResponse(domain.RootActionFinish, "SEARCH_UNAVAILABLE",
+			"search unavailable", "") + "\n\n" + commentary),
+	}}
+	result, err := newToolLoopSupervisor(st, provider).Step(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Action.Kind != domain.RootActionFinish || result.Text != "SEARCH_UNAVAILABLE" ||
+		result.ToolRounds != 1 || result.ToolCalls != 1 || result.ModelAttempts != 2 ||
+		result.ProtocolRepairs != 0 || result.ModelOutcome != llm.OutcomeSuccess {
+		t.Fatalf("trailing commentary recovery changed the tool-loop lifecycle: %#v", result)
+	}
+	requests := provider.Requests()
+	if len(requests) != 2 || !hasErrorToolResult(requests[1], "INVALID_ARGUMENT") {
+		t.Fatalf("recovery test did not exercise a failed durable tool result: %#v", requests)
+	}
+	eventList, err := st.ListRunEvents(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compatibilityEvents := 0
+	for _, event := range eventList {
+		if strings.Contains(event.PayloadJSON, commentary) {
+			t.Fatalf("discarded trailing commentary leaked into durable events: %s", event.PayloadJSON)
+		}
+		if event.Type == events.ModelCompletedEvent &&
+			strings.Contains(event.PayloadJSON, `"root_action_compatibility":{`) {
+			compatibilityEvents++
+			if !strings.Contains(event.PayloadJSON,
+				`"recovery":"trailing_non_json_commentary_discarded"`) ||
+				!strings.Contains(event.PayloadJSON,
+					`"version":"root_action_compatibility.v1"`) {
+				t.Fatalf("compatibility audit metadata is incomplete: %s", event.PayloadJSON)
+			}
+		}
+	}
+	if compatibilityEvents != 1 ||
+		countEventType(eventList, events.ProtocolRepairRequestedEvent) != 0 ||
+		countEventType(eventList, events.ModelFailedEvent) != 0 {
+		t.Fatalf("unexpected compatibility recovery events: %#v", eventList)
+	}
+	messages, err := st.ListSessionMessages(ctx, run.SessionID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 2 || messages[1].Content != "SEARCH_UNAVAILABLE" ||
+		strings.Contains(messages[1].Content, commentary) {
+		t.Fatalf("discarded commentary reached the transcript: %#v", messages)
 	}
 }
 

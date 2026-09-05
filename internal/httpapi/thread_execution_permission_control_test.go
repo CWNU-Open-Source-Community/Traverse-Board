@@ -96,7 +96,7 @@ func TestThreadExecutionPermissionControlSynchronizesCurrentRunAndReportsGETStat
 	}
 }
 
-func TestThreadExecutionPermissionControlFailsClosedWithoutRuntimeGate(t *testing.T) {
+func TestThreadExecutionPermissionControlRejectsMissingGateAndDefersLeasedRun(t *testing.T) {
 	fixture := newAPIFixture(t)
 	_, run, err := application.NewRunService(fixture.store).Create(t.Context(),
 		application.CreateRunRequest{Goal: "reject unavailable Thread permission",
@@ -139,10 +139,19 @@ func TestThreadExecutionPermissionControlFailsClosedWithoutRuntimeGate(t *testin
 		"/api/v1/threads/"+threadRecord.ID+"/execution-permission",
 		"http-thread-permission-leased-0001",
 		strings.NewReader(`{"mode":"workspace_access","confirm_workspace_access":true}`))
-	assertAPIError(t, leased, http.StatusPreconditionFailed, "FAILED_PRECONDITION")
+	var deferred ThreadExecutionPermissionControlView
+	decodeDataStatus(t, leased, http.StatusAccepted, &deferred)
+	if deferred.CurrentRunID != run.ID ||
+		deferred.CurrentRunEffect != string(domain.ThreadExecutionPermissionDeferred) ||
+		deferred.CurrentRunMode != string(domain.RunExecutionPermissionConservative) ||
+		deferred.CurrentRunSynchronized ||
+		deferred.ExecutionPermission.AppliesToCurrentRun {
+		t.Fatalf("leased Thread preference did not report next-Run semantics: %+v", deferred)
+	}
 	preference, err := fixture.store.GetThreadExecutionPermission(t.Context(), threadRecord.ID)
-	if err != nil || preference.Mode != domain.RunExecutionPermissionConservative ||
-		preference.Revision != 1 {
-		t.Fatalf("leased request changed Thread preference: %+v err=%v", preference, err)
+	if err != nil || preference.Mode != domain.RunExecutionPermissionWorkspaceAccess ||
+		preference.Revision != 2 {
+		t.Fatalf("leased request did not persist the future preference: %+v err=%v",
+			preference, err)
 	}
 }

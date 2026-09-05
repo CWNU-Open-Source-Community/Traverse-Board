@@ -13,6 +13,7 @@ import (
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/session"
+	"cyberagent-workbench/internal/webevidence"
 )
 
 type runCreationOperationQueryer interface {
@@ -33,10 +34,10 @@ func (s *SQLiteStore) GetRunCreationOperation(ctx context.Context,
 func (s *SQLiteStore) CreateMissionRunWithOperation(ctx context.Context,
 	mission domain.Mission, run domain.Run, mode domain.RunModeSnapshot,
 	linkedSession session.Session, initialEvents []events.Event,
-	operation domain.RunCreationOperation,
+	operation domain.RunCreationOperation, pin domain.InitialThreadModelRoutePin,
 ) (domain.RunCreationOperation, bool, error) {
 	if err := validateControlledRunCreation(mission, run, mode, linkedSession,
-		initialEvents, operation); err != nil {
+		initialEvents, operation, pin); err != nil {
 		return domain.RunCreationOperation{}, false, err
 	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
@@ -59,6 +60,10 @@ func (s *SQLiteStore) CreateMissionRunWithOperation(ctx context.Context,
 
 	if err := createMissionRunTx(ctx, tx, mission, run, mode, linkedSession,
 		true, initialEvents); err != nil {
+		return domain.RunCreationOperation{}, false, err
+	}
+	if err := insertInitialThreadModelRoutePreferenceTx(ctx, tx, run, pin,
+		operation.RequestedBy); err != nil {
 		return domain.RunCreationOperation{}, false, err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO run_creation_operations
@@ -106,6 +111,7 @@ func getRunCreationOperation(ctx context.Context, queryer runCreationOperationQu
 func validateControlledRunCreation(mission domain.Mission, run domain.Run,
 	mode domain.RunModeSnapshot, linkedSession session.Session,
 	initialEvents []events.Event, operation domain.RunCreationOperation,
+	pin domain.InitialThreadModelRoutePin,
 ) error {
 	if err := operation.Validate(); err != nil {
 		return apperror.Wrap(apperror.CodeInvalidArgument,
@@ -122,6 +128,10 @@ func validateControlledRunCreation(mission domain.Mission, run domain.Run,
 	}
 	if err := linkedSession.Validate(); err != nil {
 		return apperror.Wrap(apperror.CodeInvalidArgument, "Session is invalid", err)
+	}
+	if err := pin.Validate(); err != nil {
+		return apperror.Wrap(apperror.CodeInvalidArgument,
+			"initial Thread model route pin is invalid", err)
 	}
 	if operation.MissionID != mission.ID || operation.RunID != run.ID ||
 		operation.SessionID != linkedSession.ID ||
@@ -141,21 +151,30 @@ func validateControlledRunCreation(mission domain.Mission, run domain.Run,
 	if run.MissionID != mission.ID || run.SessionID != linkedSession.ID ||
 		run.Status != domain.RunCreated || run.StartedAt != nil || run.FinishedAt != nil ||
 		!run.Config.Interactive ||
-		run.Config.ModelRoute != string(mission.Profile) ||
+		!validStoredControlledModelRoute(run.Config.ModelRoute, mission.Profile) ||
 		run.Budget != domain.DefaultBudget() ||
 		mission.Scope.WorkspaceID != mission.WorkspaceID ||
-		mission.Scope.NetworkMode != "disabled" ||
-		len(mission.Scope.AllowedTargets) != 0 || mode.Revision != 1 ||
+		!validControlledRunCreationNetworkScope(mission.Scope) || mode.Revision != 1 ||
 		mode.MissionID != mission.ID || mode.RunID != run.ID ||
 		mode.Profile != mission.Profile || !sameRunModeScope(mode.Scope, mission.Scope) ||
 		linkedSession.Status != session.StatusActive || linkedSession.Title != mission.Goal ||
-		linkedSession.Route != string(mission.Profile) {
+		linkedSession.Route != run.Config.ModelRoute {
 		return apperror.New(apperror.CodeInvalidArgument,
-			"controlled Run creation must remain interactive, workspace-bound, and non-networked")
+			"controlled Run creation must remain interactive, workspace-bound, and exact-network-scoped")
 	}
-	if operation.RequestFingerprint != runmutation.RunCreationRequestFingerprint(
+	if pin.Empty() {
+		if run.Config.ModelRoute != string(mission.Profile) {
+			return apperror.New(apperror.CodeInvalidArgument,
+				"explicit controlled Run model route requires an initial Thread pin")
+		}
+	} else if run.Config.ModelRoute != pin.Provider+"/"+pin.Model {
+		return apperror.New(apperror.CodeInvalidArgument,
+			"initial Thread model route pin does not match the controlled Run")
+	}
+	if operation.RequestFingerprint != runmutation.RunCreationRequestFingerprintWithNetworkAndModelRoute(
 		mission.Goal, mission.WorkspaceID, string(mission.Profile), string(mode.Surface),
-		string(mode.Phase), operation.RequestedBy) {
+		string(mode.Phase), mission.Scope.NetworkMode, mission.Scope.AllowedTargets,
+		run.Config.ModelRoute, operation.RequestedBy) {
 		return apperror.New(apperror.CodeInvalidArgument,
 			"Run creation request fingerprint does not match the controlled Run")
 	}
@@ -165,6 +184,35 @@ func validateControlledRunCreation(mission domain.Mission, run domain.Run,
 			"controlled Run creation requires the exact initial event set")
 	}
 	return nil
+}
+
+func validStoredControlledModelRoute(route string, profile domain.Profile) bool {
+	if route == string(profile) {
+		return true
+	}
+	parts := strings.SplitN(route, "/", 2)
+	return len(parts) == 2 && domain.ValidAgentID(parts[0]) && domain.ValidAgentID(parts[1]) &&
+		parts[0] == strings.TrimSpace(parts[0]) && parts[1] == strings.TrimSpace(parts[1])
+}
+
+func validControlledRunCreationNetworkScope(scope domain.Scope) bool {
+	switch scope.NetworkMode {
+	case "disabled":
+		return len(scope.AllowedTargets) == 0
+	case "allowlist":
+		normalized, err := webevidence.NormalizeExactAuthorityTargets(scope.AllowedTargets)
+		if err != nil || len(normalized) != len(scope.AllowedTargets) {
+			return false
+		}
+		for index := range normalized {
+			if normalized[index] != scope.AllowedTargets[index] {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
 }
 
 func validateRunCreationReplay(existing domain.RunCreationOperation,

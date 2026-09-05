@@ -11,6 +11,11 @@ import (
 )
 
 const (
+	// MaxProviderToolSpecs bounds the tools advertised to a model. It is
+	// deliberately separate from MaxProviderToolCalls: a Supervisor may expose
+	// many narrowly scoped tools while still accepting only a small parallel
+	// call batch from one model response.
+	MaxProviderToolSpecs       = 128
 	MaxProviderToolCalls       = 16
 	MaxProviderOutputItems     = MaxProviderToolCalls * 4
 	MaxProviderToolIdentity    = 128

@@ -43,19 +43,56 @@ func fullCDPAuthorizationFacts(t *testing.T) (SessionPlan, BrowserExecutableIden
 	return session, identity, acceptance, full
 }
 
+func fullCDPExecutionFacts(t *testing.T, session SessionPlan) (
+	domain.RunExecutionPermissionSnapshot,
+	domain.ExecutionPermissionRuntimeCapabilities, uint64,
+) {
+	t.Helper()
+	now := time.Now().UTC().Round(time.Millisecond)
+	run := domain.Run{ID: session.RunID, MissionID: "mission-full-cdp",
+		Status: domain.RunCreated, CreatedAt: now, UpdatedAt: now}
+	mission := domain.Mission{ID: run.MissionID, CreatedAt: now}
+	initial, err := domain.NewInitialRunExecutionPermissionSnapshot(
+		"execution-permission-initial", run, mission, "runtime-test-operator", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full, err := initial.Next("execution-permission-full",
+		domain.RunExecutionPermissionFullAccess, true, "runtime-test-operator",
+		"confirm full access for CDP", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority := domain.NewExecutionPermissionRuntimeAuthority()
+	if _, err := authority.ActivateRunFullAccess(full); err != nil {
+		t.Fatal(err)
+	}
+	fence, err := authority.IssueRunAuthorizationFence(session.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled: true, DangerFullAccessEnabled: true,
+		FullAccessRequiresRuntimeGrant: true, RuntimeAuthority: authority,
+	}
+	return full, capabilities, fence
+}
+
 func TestAuthorizeFullCDPRequiresMaximumAccessDebugAndConfirmation(t *testing.T) {
 	session, identity, acceptance, full := fullCDPAuthorizationFacts(t)
-	runtimeCapabilities := ProductionRuntimeCapabilities{
-		SafeWebStartEnabled: true, DisposableProfileEnabled: true,
-		NetworkContainmentEnabled: true, RestrictedCDPEnabled: true,
+	runtimeCapabilities := FullCDPRuntimeCapabilities{
+		StartEnabled: true, DisposableProfileEnabled: true, TransportEnabled: true,
 	}
 	permissionCapabilities := domain.BrowserCDPPermissionRuntimeCapabilities{
 		ControlEnabled: true, FullDebugEnabled: true,
 	}
+	executionPermission, executionCapabilities, executionFence :=
+		fullCDPExecutionFacts(t, session)
 	now := time.Now().UTC().Add(time.Second)
 
 	authorization, err := AuthorizeFullCDP(session, identity, acceptance, full,
-		runtimeCapabilities, permissionCapabilities, true, now)
+		executionPermission, runtimeCapabilities, permissionCapabilities,
+		executionCapabilities, executionFence, true, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,20 +102,22 @@ func TestAuthorizeFullCDPRequiresMaximumAccessDebugAndConfirmation(t *testing.T)
 		!authorization.Confirmed || authorization.ExpiresAt.After(now.Add(FullCDPCapabilityTTL)) {
 		t.Fatalf("full CDP authorization has wrong sensitive boundary: %#v", authorization)
 	}
-	if err := ValidateFullCDPAuthorization(authorization, session, identity, full); err != nil {
+	if err := ValidateFullCDPAuthorization(authorization, session, identity, full,
+		executionPermission, executionCapabilities); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestAuthorizeFullCDPRejectsWithoutDebugMaximumAccessOrConfirmation(t *testing.T) {
 	session, identity, acceptance, full := fullCDPAuthorizationFacts(t)
-	runtimeCapabilities := ProductionRuntimeCapabilities{
-		SafeWebStartEnabled: true, DisposableProfileEnabled: true,
-		NetworkContainmentEnabled: true, RestrictedCDPEnabled: true,
+	runtimeCapabilities := FullCDPRuntimeCapabilities{
+		StartEnabled: true, DisposableProfileEnabled: true, TransportEnabled: true,
 	}
 	permissionCapabilities := domain.BrowserCDPPermissionRuntimeCapabilities{
 		ControlEnabled: true, FullDebugEnabled: true,
 	}
+	executionPermission, executionCapabilities, executionFence :=
+		fullCDPExecutionFacts(t, session)
 	now := time.Now().UTC().Add(time.Second)
 
 	t.Run("safe web session", func(t *testing.T) {
@@ -91,38 +130,50 @@ func TestAuthorizeFullCDPRejectsWithoutDebugMaximumAccessOrConfirmation(t *testi
 			t.Fatal(err)
 		}
 		if _, err := AuthorizeFullCDP(safeSession, identity, acceptance, full,
-			runtimeCapabilities, permissionCapabilities, true, now); err == nil {
+			executionPermission, runtimeCapabilities, permissionCapabilities,
+			executionCapabilities, executionFence, true, now); err == nil {
 			t.Fatal("Safe Web session unexpectedly authorized full CDP")
 		}
 	})
 	t.Run("restricted permission", func(t *testing.T) {
 		if _, err := AuthorizeFullCDP(session, identity, acceptance,
-			permissionForFullCDP(t, session), runtimeCapabilities,
-			permissionCapabilities, true, now); err == nil {
+			permissionForFullCDP(t, session), executionPermission,
+			runtimeCapabilities, permissionCapabilities, executionCapabilities,
+			executionFence, true, now); err == nil {
 			t.Fatal("restricted permission unexpectedly authorized full CDP")
 		}
 	})
 	t.Run("not confirmed", func(t *testing.T) {
 		if _, err := AuthorizeFullCDP(session, identity, acceptance, full,
-			runtimeCapabilities, permissionCapabilities, false, now); err == nil {
+			executionPermission, runtimeCapabilities, permissionCapabilities,
+			executionCapabilities, executionFence, false, now); err == nil {
 			t.Fatal("unconfirmed full CDP unexpectedly authorized")
 		}
 	})
 	t.Run("full debug gate disabled", func(t *testing.T) {
 		if _, err := AuthorizeFullCDP(session, identity, acceptance, full,
-			runtimeCapabilities,
+			executionPermission, runtimeCapabilities,
 			domain.BrowserCDPPermissionRuntimeCapabilities{ControlEnabled: true},
-			true, now); err == nil {
+			executionCapabilities, executionFence, true, now); err == nil {
 			t.Fatal("disabled full-debug gate unexpectedly authorized full CDP")
 		}
 	})
 	t.Run("restricted CDP runtime disabled", func(t *testing.T) {
 		if _, err := AuthorizeFullCDP(session, identity, acceptance, full,
-			ProductionRuntimeCapabilities{
-				SafeWebStartEnabled: true, DisposableProfileEnabled: true,
-				NetworkContainmentEnabled: true,
-			}, permissionCapabilities, true, now); err == nil {
+			executionPermission,
+			FullCDPRuntimeCapabilities{
+				StartEnabled: true, DisposableProfileEnabled: true,
+			}, permissionCapabilities, executionCapabilities, executionFence,
+			true, now); err == nil {
 			t.Fatal("disabled restricted-CDP runtime unexpectedly authorized full CDP")
+		}
+	})
+	t.Run("execution authority revoked", func(t *testing.T) {
+		executionCapabilities.RuntimeAuthority.RevokeRun(session.RunID)
+		if _, err := AuthorizeFullCDP(session, identity, acceptance, full,
+			executionPermission, runtimeCapabilities, permissionCapabilities,
+			executionCapabilities, executionFence, true, now); err == nil {
+			t.Fatal("revoked execution authority unexpectedly authorized full CDP")
 		}
 	})
 }
@@ -143,14 +194,16 @@ func permissionForFullCDP(t *testing.T, session SessionPlan) domain.RunBrowserCD
 
 func TestValidateFullCDPAuthorizationRejectsTampering(t *testing.T) {
 	session, identity, acceptance, full := fullCDPAuthorizationFacts(t)
-	runtimeCapabilities := ProductionRuntimeCapabilities{
-		SafeWebStartEnabled: true, DisposableProfileEnabled: true,
-		NetworkContainmentEnabled: true, RestrictedCDPEnabled: true,
+	runtimeCapabilities := FullCDPRuntimeCapabilities{
+		StartEnabled: true, DisposableProfileEnabled: true, TransportEnabled: true,
 	}
+	executionPermission, executionCapabilities, executionFence :=
+		fullCDPExecutionFacts(t, session)
 	authorization, err := AuthorizeFullCDP(session, identity, acceptance, full,
-		runtimeCapabilities,
+		executionPermission, runtimeCapabilities,
 		domain.BrowserCDPPermissionRuntimeCapabilities{ControlEnabled: true,
-			FullDebugEnabled: true}, true, time.Now().UTC().Add(time.Second))
+			FullDebugEnabled: true}, executionCapabilities, executionFence,
+		true, time.Now().UTC().Add(time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +218,7 @@ func TestValidateFullCDPAuthorizationRejectsTampering(t *testing.T) {
 			receipt := authorization
 			tamper(&receipt)
 			if err := ValidateFullCDPAuthorization(receipt, session,
-				identity, full); err == nil {
+				identity, full, executionPermission, executionCapabilities); err == nil {
 				t.Fatal("tampered full CDP authorization was accepted")
 			}
 		})

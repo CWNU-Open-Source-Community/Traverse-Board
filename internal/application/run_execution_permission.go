@@ -126,25 +126,43 @@ func (s *RunExecutionPermissionService) Change(ctx context.Context,
 		normalized.RunID, normalized.RequestedBy, target); err != nil {
 		return ChangeRunExecutionPermissionResult{}, err
 	} else if found {
+		// Exact retries are observationally idempotent. Only Full Access needs a
+		// cold-process restoration path, and activateFullAccess itself verifies
+		// that this is still the durable current snapshot before granting it.
+		if err := s.activateFullAccess(ctx, replay.Permission); err != nil {
+			return ChangeRunExecutionPermissionResult{}, err
+		}
 		return replay, nil
 	}
 	run, err := s.store.GetRun(ctx, normalized.RunID)
 	if err != nil {
 		return ChangeRunExecutionPermissionResult{}, apperror.Normalize(err)
 	}
-	if !domain.CanChangeRunExecutionPermission(run.Status) {
-		return ChangeRunExecutionPermissionResult{}, apperror.New(
-			apperror.CodeFailedPrecondition,
-			"Run execution permission can only change while the Run is created or paused")
-	}
 	current, err := s.store.GetRunExecutionPermission(ctx, run.ID)
 	if err != nil {
 		return ChangeRunExecutionPermissionResult{}, apperror.Normalize(err)
 	}
-	if current.Mode == target {
+	if current.Mode == target && target != domain.RunExecutionPermissionFullAccess {
 		return ChangeRunExecutionPermissionResult{}, apperror.New(
 			apperror.CodeFailedPrecondition,
 			"Run already uses the requested execution permission mode")
+	}
+	// Once the operation is known to be a new, well-formed transition (or an
+	// explicit same-mode Full reconfirmation), revoke the old Run generation
+	// before checking whether durable state can move. A Running Run may reject
+	// the transition, but it must not keep exercising the authority the operator
+	// just attempted to lower or rotate. Invalid requests and exact replays above
+	// never reach this fence.
+	if s.capabilities.RuntimeAuthority != nil {
+		s.capabilities.RuntimeAuthority.RevokeRun(normalized.RunID)
+	}
+	immediateDowngrade := runExecutionPermissionTransitionRevokesHighRisk(
+		current.Mode, target)
+	if run.Terminal() || (!immediateDowngrade &&
+		!domain.CanChangeRunExecutionPermission(run.Status)) {
+		return ChangeRunExecutionPermissionResult{}, apperror.New(
+			apperror.CodeFailedPrecondition,
+			"Run execution permission escalation can only change while the Run is created or paused")
 	}
 	now := time.Now().UTC()
 	if now.Before(current.CreatedAt) {
@@ -200,9 +218,55 @@ func (s *RunExecutionPermissionService) Change(ctx context.Context,
 	event.CreatedAt = next.CreatedAt
 	stored, replayed, err := s.store.TransitionRunExecutionPermission(
 		ctx, next, operation, event)
+	if err != nil {
+		return ChangeRunExecutionPermissionResult{}, apperror.Normalize(err)
+	}
+	if err := s.activateFullAccess(ctx, stored); err != nil {
+		return ChangeRunExecutionPermissionResult{}, err
+	}
 	return ChangeRunExecutionPermissionResult{
 		Permission: stored, Replayed: replayed,
-	}, apperror.Normalize(err)
+	}, nil
+}
+
+func runExecutionPermissionTransitionRevokesHighRisk(current,
+	target domain.RunExecutionPermissionMode,
+) bool {
+	return current == domain.RunExecutionPermissionDebug &&
+		target != domain.RunExecutionPermissionDebug ||
+		current == domain.RunExecutionPermissionFullAccess &&
+			!target.IncludesFullAccess()
+}
+
+func (s *RunExecutionPermissionService) activateFullAccess(ctx context.Context,
+	permission domain.RunExecutionPermissionSnapshot,
+) error {
+	if permission.Mode != domain.RunExecutionPermissionFullAccess ||
+		!s.capabilities.FullAccessRequiresRuntimeGrant {
+		return nil
+	}
+	if s.capabilities.RuntimeAuthority == nil {
+		return apperror.New(apperror.CodeFailedPrecondition,
+			"dynamic Full Access runtime authority is unavailable")
+	}
+	current, err := s.store.GetRunExecutionPermission(ctx, permission.RunID)
+	if err != nil {
+		return apperror.Normalize(err)
+	}
+	if current.ID != permission.ID || current.Revision != permission.Revision ||
+		current.Mode != permission.Mode {
+		// An idempotent replay of an older Full selection must not reactivate a
+		// snapshot that is no longer the Run's durable current permission.
+		return nil
+	}
+	if _, active := s.capabilities.RuntimeAuthority.AllowsFullAccess(current); active {
+		return nil
+	}
+	if _, err := s.capabilities.RuntimeAuthority.ActivateRunFullAccess(permission); err != nil {
+		return apperror.Wrap(apperror.CodeFailedPrecondition,
+			"dynamic Full Access could not be activated", err)
+	}
+	return nil
 }
 
 func (s *RunExecutionPermissionService) loadReplay(ctx context.Context,

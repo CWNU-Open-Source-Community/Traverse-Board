@@ -11,6 +11,11 @@
 *.toml text eol=lf
 *.lock text eol=lf
 
+# Vendor font binaries are hash-bound and must never receive text conversion.
+web/src/assets/fonts/*.ttf -text
+web/public/THIRD-PARTY-NOTICES.txt text eol=lf
+web/public/licenses/HarmonyOS-Sans.txt text eol=lf
+
 # Hash-bound packaged E2E assets must keep the same bytes on Windows and POSIX.
 internal/packagede2e/testdata/** text eol=lf
 internal/desktop/testdata/standard-code-security/** text eol=lf

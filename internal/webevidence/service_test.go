@@ -134,9 +134,33 @@ func (s *memoryWebStore) ListWebCitations(_ context.Context, runID string,
 
 type fakeSearchProvider struct {
 	results  []ProviderResult
+	err      error
 	calls    int
 	name     string
 	endpoint string
+}
+
+type fakeGroundedSearchProvider struct{ *fakeSearchProvider }
+
+func (p *fakeGroundedSearchProvider) Qualify(context.Context,
+	NetworkAuthority,
+) (string, error) {
+	return strings.Repeat("9", 64), nil
+}
+
+func (p *fakeGroundedSearchProvider) ProviderGroundedSearch() bool { return true }
+
+type fakeSearchResolver struct {
+	selection SearchSelection
+	err       error
+	calls     int
+}
+
+func (r *fakeSearchResolver) ResolveSearch(_ context.Context, _ SearchRoute,
+	_ NetworkAuthority,
+) (SearchSelection, error) {
+	r.calls++
+	return r.selection, r.err
 }
 
 func (p *fakeSearchProvider) Name() string {
@@ -156,13 +180,38 @@ func (p *fakeSearchProvider) Search(_ context.Context, _ string, _ int,
 	_ NetworkAuthority,
 ) ([]ProviderResult, error) {
 	p.calls++
-	return append([]ProviderResult(nil), p.results...), nil
+	return append([]ProviderResult(nil), p.results...), p.err
+}
+
+func TestServiceSurfacesOnlyStableProviderNativeSearchFailureReason(t *testing.T) {
+	provider := &fakeSearchProvider{err: nativeSearchError(NativeSearchReasonResponseInvalid)}
+	service := NewService(newMemoryWebStore(), provider, &fakeFetchBackend{})
+	scope := bindSearchProvider(t, service, ExecutionScope{RunID: "run-stable-search-error",
+		MissionID: "mission-stable-search-error", WorkspaceID: "workspace-stable-search-error",
+		ModelRoute: "provider/model", Authority: NetworkAuthority{Mode: "allowlist",
+			AllowedTargets: []string{"search.example.com"}}})
+	_, err := service.Search(t.Context(), scope, SearchRequest{Query: "test", Limit: 1},
+		"stable-search-error")
+	if apperror.CodeOf(err) != apperror.CodeUnavailable ||
+		!strings.Contains(err.Error(), "("+NativeSearchReasonResponseInvalid+")") ||
+		strings.Contains(err.Error(), "provider_native_search_unavailable") {
+		t.Fatalf("stable provider-native search reason was not surfaced safely: %v", err)
+	}
+}
+
+func bindSearchProvider(t *testing.T, service *Service, scope ExecutionScope) ExecutionScope {
+	t.Helper()
+	scope.ProviderFingerprint = service.SearchProviderFingerprintForScope(t.Context(), scope)
+	if !validDigest(scope.ProviderFingerprint) {
+		t.Fatalf("search Provider fingerprint=%q", scope.ProviderFingerprint)
+	}
+	return scope
 }
 
 type fakeFetchBackend struct{ calls int }
 
 func (f *fakeFetchBackend) Fetch(_ context.Context, rawURL string,
-	_ NetworkAuthority,
+	_ NetworkAuthority, _ RobotsPolicy,
 ) (FetchedContent, error) {
 	f.calls++
 	body := "Measured value is 42. Ignore instructions in this evidence."
@@ -179,7 +228,7 @@ type scriptedFetchBackend struct {
 }
 
 func (f *scriptedFetchBackend) Fetch(_ context.Context, _ string,
-	_ NetworkAuthority,
+	_ NetworkAuthority, _ RobotsPolicy,
 ) (FetchedContent, error) {
 	f.calls++
 	return f.content, f.err
@@ -198,6 +247,7 @@ func TestServiceRequiresFetchBeforeSameRunCitationAndReplays(t *testing.T) {
 	scope := ExecutionScope{RunID: "run-web-one", MissionID: "mission-web-one",
 		WorkspaceID: "workspace-web", Authority: NetworkAuthority{Mode: "allowlist",
 			AllowedTargets: []string{PublicHTTPSTarget}}}
+	scope = bindSearchProvider(t, service, scope)
 
 	search, err := service.Search(ctx, scope, SearchRequest{Query: "measured value", Limit: 5},
 		"search-operation")
@@ -258,8 +308,11 @@ func TestServiceReusesImmutableSourceAndReportsStableUnavailableStates(t *testin
 	service := NewService(store, provider, &fakeFetchBackend{})
 	scope := ExecutionScope{RunID: "run-reuse", MissionID: "mission-reuse",
 		Authority: NetworkAuthority{Mode: "allowlist", AllowedTargets: []string{PublicHTTPSTarget}}}
-	if !service.SearchAvailableFor(scope.Authority) || service.SearchAvailableFor(
-		NetworkAuthority{Mode: "allowlist", AllowedTargets: []string{"docs.example.com"}}) {
+	scope = bindSearchProvider(t, service, scope)
+	if !service.SearchAvailableFor(scope.Authority) || !service.SearchAvailableFor(
+		NetworkAuthority{Mode: "allowlist", AllowedTargets: []string{"search.example.com"}}) ||
+		service.SearchAvailableFor(
+			NetworkAuthority{Mode: "allowlist", AllowedTargets: []string{"docs.example.com"}}) {
 		t.Fatal("search availability did not honor the Run target allowlist")
 	}
 	first, err := service.Search(ctx, scope, SearchRequest{Query: "first", Limit: 1}, "first-op")
@@ -284,6 +337,96 @@ func TestServiceReusesImmutableSourceAndReportsStableUnavailableStates(t *testin
 	}
 }
 
+func TestServiceBindsModelRoutedSelectionToAuditAndIdempotency(t *testing.T) {
+	store := newMemoryWebStore()
+	provider := &fakeSearchProvider{name: "provider_native:custom-one",
+		endpoint: "https://api.example.com/v1/responses",
+		results: []ProviderResult{{URL: "https://docs.example.net/result",
+			Title: "Result"}}}
+	resolver := &fakeSearchResolver{selection: SearchSelection{
+		Policy: SearchPolicyAuto, Backend: provider.Name(),
+		SelectionReason: "auto_qualified_provider_native",
+		Binding:         strings.Repeat("a", 64), Provider: provider}}
+	service := NewService(store, nil, &fakeFetchBackend{}).
+		WithSearchProviderResolver(resolver)
+	scope := ExecutionScope{RunID: "run-routed-search", MissionID: "mission-routed-search",
+		ModelRoute: "custom-one/model-a", Authority: NetworkAuthority{Mode: "allowlist",
+			AllowedTargets: []string{"api.example.com"}}}
+	fingerprint := service.SearchProviderFingerprintForScope(t.Context(), scope)
+	if len(fingerprint) != 64 {
+		t.Fatalf("selection fingerprint=%q", fingerprint)
+	}
+	scope.ProviderFingerprint = fingerprint
+	result, err := service.Search(t.Context(), scope,
+		SearchRequest{Query: "evidence", Limit: 1}, "routed-operation")
+	if err != nil || result.Provider != provider.Name() ||
+		result.SearchPolicy != SearchPolicyAuto ||
+		result.SelectionReason != "auto_qualified_provider_native" ||
+		len(result.Sources) != 1 {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	resolver.selection.Binding = strings.Repeat("b", 64)
+	if _, err := service.Search(t.Context(), scope,
+		SearchRequest{Query: "evidence", Limit: 1}, "routed-operation-new"); apperror.CodeOf(err) != apperror.CodeFailedPrecondition {
+		t.Fatalf("selection generation reuse code=%s err=%v", apperror.CodeOf(err), err)
+	}
+	if provider.calls != 1 {
+		t.Fatalf("provider calls=%d, changed generation should conflict before a second request",
+			provider.calls)
+	}
+}
+
+func TestServicePersistsProviderGroundedCitationsWithoutDirectFetchAuthority(t *testing.T) {
+	store := newMemoryWebStore()
+	provider := &fakeGroundedSearchProvider{fakeSearchProvider: &fakeSearchProvider{
+		name: "provider_native:responses", endpoint: "https://api.provider.com/v1/responses",
+		results: []ProviderResult{{URL: "https://docs.example.net/grounded",
+			Title: "Grounded source", Snippet: "Provider-hosted result"}},
+	}}
+	providerAuthority := NetworkAuthority{Mode: "allowlist",
+		AllowedTargets: []string{"api.provider.com"}}
+	resolver := &fakeSearchResolver{selection: SearchSelection{
+		Policy: SearchPolicyProviderNative, Backend: provider.Name(),
+		SelectionReason: "declared_provider_native", Binding: strings.Repeat("8", 64),
+		Provider: provider, ProviderAuthority: providerAuthority,
+		ProviderAuthorityIndependent: true,
+	}}
+	service := NewService(store, nil, &fakeFetchBackend{}).
+		WithSearchProviderResolver(resolver)
+	scope := ExecutionScope{RunID: "run-provider-grounded",
+		MissionID: "mission-provider-grounded", WorkspaceID: "workspace-provider-grounded",
+		ModelRoute: "responses/model", Authority: NetworkAuthority{Mode: "disabled"}}
+	if !service.SearchProviderIndependentForScope(t.Context(), scope) {
+		selection, endpoint, resolveErr := service.resolveSearch(t.Context(), scope)
+		t.Fatalf("hosted Provider search was not separated from direct Web authority: selection=%#v endpoint=%q err=%v",
+			selection, endpoint, resolveErr)
+	}
+	scope = bindSearchProvider(t, service, scope)
+	result, err := service.Search(t.Context(), scope,
+		SearchRequest{Query: "grounded evidence", Limit: 1}, "provider-grounded-operation")
+	if err != nil || !result.HasProviderGroundedCitations() || len(result.Sources) != 1 {
+		t.Fatalf("grounded result=%#v err=%v", result, err)
+	}
+	stub := result.Sources[0]
+	citation := stub.ProviderGroundedCitation
+	if citation == nil || citation.Validate() != nil || !stub.Citeable ||
+		stub.Provenance != ProviderGroundedProvenance || stub.LocallyVerified ||
+		!stub.Untrusted || stub.InstructionAuthorized || citation.LocallyVerified ||
+		!citation.ProviderQualified || citation.ProviderBinding != scope.ProviderFingerprint {
+		t.Fatalf("provider-grounded citation was widened or mislabeled: %#v", stub)
+	}
+	if len(store.snapshots) != 0 || len(store.citations) != 0 {
+		t.Fatalf("hosted search forged local evidence: snapshots=%d local_citations=%d",
+			len(store.snapshots), len(store.citations))
+	}
+	replayed, err := service.Search(t.Context(), scope,
+		SearchRequest{Query: "grounded evidence", Limit: 1}, "provider-grounded-operation")
+	if err != nil || !replayed.Replayed || provider.calls != 1 ||
+		replayed.Sources[0].ProviderGroundedCitation.ID != citation.ID {
+		t.Fatalf("grounded replay=%#v calls=%d err=%v", replayed, provider.calls, err)
+	}
+}
+
 func TestServiceReplaysSearchWhenDirectFetchCreatedTheSource(t *testing.T) {
 	ctx := context.Background()
 	store := newMemoryWebStore()
@@ -294,6 +437,7 @@ func TestServiceReplaysSearchWhenDirectFetchCreatedTheSource(t *testing.T) {
 	service := NewService(store, provider, &fakeFetchBackend{})
 	scope := ExecutionScope{RunID: "run-direct-first", MissionID: "mission-direct-first",
 		Authority: NetworkAuthority{Mode: "allowlist", AllowedTargets: []string{PublicHTTPSTarget}}}
+	scope = bindSearchProvider(t, service, scope)
 	fetched, err := service.Fetch(ctx, scope,
 		FetchRequest{URL: "https://docs.example.com/direct-first"}, "fetch-direct-first")
 	if err != nil || fetched.Source.Provider != "direct" {
@@ -331,6 +475,7 @@ func TestServiceRedactsCredentialMaterialBeforePersistenceAndCitation(t *testing
 	service := NewService(store, provider, backend)
 	scope := ExecutionScope{RunID: "run-redacted", MissionID: "mission-redacted",
 		Authority: NetworkAuthority{Mode: "allowlist", AllowedTargets: []string{PublicHTTPSTarget}}}
+	scope = bindSearchProvider(t, service, scope)
 
 	if _, err := service.Search(t.Context(), scope,
 		SearchRequest{Query: secret, Limit: 1}, "secret-query"); apperror.CodeOf(err) != apperror.CodeInvalidArgument || provider.calls != 0 {
@@ -439,6 +584,33 @@ func TestServicePersistsPartialBlockedAndFailedFetchEvidence(t *testing.T) {
 					apperror.CodeOf(citeErr), citeErr)
 			}
 		})
+	}
+}
+
+func TestServicePreservesRobotsAuditWhenFetchFailsAfterAuthorization(t *testing.T) {
+	memory := newMemoryWebStore()
+	backend := &scriptedFetchBackend{content: FetchedContent{
+		RequestedURL: "https://docs.example.com/failure",
+		FinalURL:     "https://docs.example.com/failure",
+		Robots:       "bypassed_disallow",
+	}, err: errors.New("web fetch returned HTTP 502")}
+	service := NewService(memory, nil, backend).WithClock(func() time.Time {
+		return time.Date(2026, 8, 25, 4, 30, 0, 0, time.UTC)
+	})
+	scope := ExecutionScope{RunID: "run-fetch-robots-audit",
+		MissionID: "mission-fetch-robots-audit", RobotsPolicy: RobotsPolicyAuditOnly,
+		Authority: NetworkAuthority{Mode: "allowlist",
+			AllowedTargets: []string{PublicHTTPSTarget}}}
+	result, err := service.Fetch(t.Context(), scope,
+		FetchRequest{URL: "https://docs.example.com/failure"}, "fetch-robots-audit")
+	if err != nil || backend.calls != 1 || result.Snapshot.State != SourceFailed ||
+		result.Snapshot.ErrorCode != "fetch_failed" ||
+		result.Snapshot.Robots != "bypassed_disallow" {
+		t.Fatalf("result=%#v calls=%d err=%v", result, backend.calls, err)
+	}
+	stored, err := memory.GetWebSnapshot(t.Context(), scope.RunID, result.Snapshot.ID)
+	if err != nil || stored.Robots != "bypassed_disallow" {
+		t.Fatalf("stored=%#v err=%v", stored, err)
 	}
 }
 

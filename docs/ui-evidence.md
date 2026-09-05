@@ -49,7 +49,7 @@ Fixture 是对由已审阅 start recipe 提供的数据状态的声明，不是�
   --enable-ui-evidence
 ```
 
-Run 本身还必须处于 Code/Local/Deliver/root、选择当前 `full_access`、拥有 active execution lease，并有当前 `restricted` browser-CDP permission。启动 flag 只开放进程内 capability；不会替 Run 创建权限、审批或 lease。
+Run 本身还必须处于 Code/Local/Deliver/root、选择当前 `full_access` 或继承其宿主 sink 的 `debug`、拥有 active execution lease，并有当前 `restricted` browser-CDP permission。进入 Full Access/Debug 时 Full-CDP 子开关默认打开；要执行这条 Safe Web 证据路径，操作者需在权限页将该子开关关闭，保持 `restricted`。启动 flag 只开放进程内 capability；不会替 Run 创建权限、审批或 lease。
 
 Application 在任何启动前探测 readiness 端口；发现已有 listener 就返回 `launch/preexisting_service`，不会收养、停止或等待它。应用由 Run-owned command runtime 管理，浏览器从固定受信安装位置重新校验版本、publisher 与 SHA-256，以新的 disposable Profile 启动，并进入 Safe Web/WFP/Job Object 生命周期。启动、读取和等待仍逐次要求 active Run lease；取消、timeout 或权限撤销后的回收使用只含原 Attempt durable Job/operation/Run/lease identity 的内部 cleanup-only 绑定，不能启动、收养、读写或停止其他 Job。取消和 Desktop 关闭都会等待 owned application/browser tree、Profile、network guard 与端口清理。Profile 只在进程树与网络清理证明完成后进入 exact-owner quarantine；Windows 的短暂文件共享锁采用 5 秒有界重试，超限仍以 `cleanup` 失败而不是误报通过。SQLite 中的 PID、清单或历史 Attempt 不会在重启后恢复启动权。
 

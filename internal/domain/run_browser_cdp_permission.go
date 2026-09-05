@@ -72,9 +72,10 @@ func (m RunBrowserCDPPermissionMode) Valid() bool {
 	return err == nil && parsed == m
 }
 
-// BrowserCDPPermissionRuntimeCapabilities are process-local startup grants.
-// FullDebugEnabled is valid only when the ordinary CDP control endpoint and
-// the maximum Debug execution boundary were both enabled for this process.
+// BrowserCDPPermissionRuntimeCapabilities describe installed process-local
+// browser adapters. FullDebugEnabled requires the ordinary CDP control adapter
+// plus the Full Access host ceiling; each operation must still prove an exact
+// live Full Access or Debug execution snapshot and the Run's CDP sub-permission.
 type BrowserCDPPermissionRuntimeCapabilities struct {
 	ControlEnabled   bool
 	FullDebugEnabled bool
@@ -254,7 +255,8 @@ func (s RunBrowserCDPPermissionSnapshot) Next(id string,
 }
 
 func CanChangeRunBrowserCDPPermission(status RunStatus) bool {
-	return status == RunCreated || status == RunPaused
+	return status == RunCreated || status == RunPreparing ||
+		status == RunRunning || status == RunWaitingApproval || status == RunPaused
 }
 
 type RunBrowserCDPPermissionOperation struct {

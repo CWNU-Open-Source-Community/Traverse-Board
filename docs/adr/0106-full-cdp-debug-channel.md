@@ -15,12 +15,19 @@ short-lived, per-call capability.
 
 ## Decision
 
-`FullCDPAuthorization` (`browser_full_cdp_authorization.v1`) is independent from
-the Safe Web start authorization. It is issued only when the Run uses the
-maximum-access debug permission (with operator confirmation), the process
-enabled the full-debug gate and the restricted-CDP runtime, and the caller
-supplies an exact per-call confirmation. It binds the Run, Workspace, accepted
-executable identity, permission revision, and session scope, and expires after a
+`FullCDPAuthorization` (`browser_full_cdp_authorization.v2`) is independent from
+the Safe Web start authorization. It is issued only when the Run has an exact
+live Full Access or Debug execution snapshot, the independently confirmed Full
+CDP sub-permission is enabled, the process installed the dedicated Full CDP
+start/Profile/transport gates, and the caller supplies an exact per-call confirmation.
+Full CDP defaults on when a Thread enters Full Access or Debug, may be disabled
+independently in either mode, and is forced off below those execution ceilings.
+This sub-permission applies only to a Traverse-managed isolated built-in browser;
+it cannot attach to the Wails WebView or the user's system Chrome, and changing
+the switch never starts a browser.
+It binds the Run, Workspace, accepted
+executable identity, browser and execution permission revisions, process-local
+activation generation, revocation fence, and session scope, and expires after a
 five-minute TTL. It authorizes request capture, mutation, replay, cookie access,
 and arbitrary methods, but never webpage-instruction elevation
 (`InstructionAuthorized` is always false) and never origin-policy or certificate
@@ -36,10 +43,22 @@ content are never returned.
 ## Consequences
 
 Full CDP and Safe Web are provably non-crossing: Safe Web evidence or the
-restricted permission cannot authorize Full CDP, and the maximum-access debug
-permission cannot enter the restricted runtime. The debug capability is
+restricted browser permission cannot authorize Full CDP, and an execution mode
+below Full Access cannot enable it. The Full CDP capability is
 TTL-bounded, per-call confirmed, and invalid after restart. The metadata-only
 result contract removes secret/cookie/header/body leakage by construction. The
-dedicated, one-shot browser process and Profile remain shared with the Safe Web
-launch machinery, while the Full CDP authorization stays a separate, bounded
-gate.
+dedicated, one-shot browser process uses the same standard-user Windows Job
+substrate as Safe Web, but its start authorization, disposable Profile lease,
+transport capability, and cleanup receipt are independent. It does not inherit
+Safe Web WFP evidence or lifecycle authority. Literal-loopback navigation and
+hostname-resolution default-deny remain mandatory.
+
+Windows Wails Desktop owns the production Run-scoped Open/Status/Close caller.
+The HTTP boundary accepts only a target, browser product/channel, permission
+revision CAS, idempotency key, and explicit open confirmation. Executable paths,
+PIDs, Profile paths, argv/environment, DevTools endpoints, WebSocket URLs,
+fences, tokens, and authorization fingerprints never cross that boundary.
+Close is synchronous and converges CDP close, Job/tree reaping, exact Profile
+release/deletion, and a metadata-only audit event. TTL expiry, process exit,
+permission/fence revocation, terminal Run state, and Desktop shutdown invoke the
+same idempotent close path. Standalone CLI and Supervisor callers remain absent.

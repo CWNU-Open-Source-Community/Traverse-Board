@@ -17,6 +17,8 @@
 
 > **命名说明：** 产品与界面名称是 **Traverse Board · 针路簿**，GitHub 仓库是 `Qiyuanqiii/Traverse-Board`。`cyberagent` CLI、`cyberagent-workbench` Go module、`CYBERAGENT_*` 环境变量、`.prayu/...` 项目配置、数据目录、安装 identity 和历史发布件名称继续作为兼容标识保留；它们不是第二套产品。Windows 对外主程序从 `v0.1.0-rc.2` 起使用 `TraverseBoard.exe`，当前用户成品边界见 [ADR 0145](docs/adr/0145-windows-two-deliverable-release-contract.md)。完整命名边界见 [ADR 0124](docs/adr/0124-traverse-board-branding-migration.md) 与 [ADR 0125](docs/adr/0125-traverse-board-windows-executable-name.md)。
 
+> **第三方字体声明：** 中文界面使用 HarmonyOS Sans Fonts；版权归 Huawei Device Co., Ltd. 所有，适用的完整许可文本随软件发布并见 [`web/public/licenses/HarmonyOS-Sans.txt`](web/public/licenses/HarmonyOS-Sans.txt)。四个字重均从华为官方归档逐字节复制，来源与哈希见 [`PROVENANCE.md`](web/src/assets/fonts/PROVENANCE.md)。
+
 ## 针路簿是什么
 
 针路簿是一个由 Go 主控的本地 AI Agent 工作台。它把模型路由、长任务恢复、工作区、工具调用、审批、预算、记忆和审计事件统一到一个 Thread/Run 运行时中，并通过 Windows/macOS Desktop、React Thread 工作台、CLI 和 loopback HTTP/OpenAPI 提供同一套核心能力。TUI、headless 与扩展入口按明确的 maintenance/extension 等级维护，而不是另一套产品。
@@ -84,7 +86,7 @@ Schema v115 引入 `agent-code-tools.v1`，让 root Supervisor 能在真实 Work
 
 Schema v126 在 `conservative` 与 `approval` 之间增加 `workspace_access · 工作区执行`，作为 Standard Code 的权限上限。它允许模型在已注册 Workspace 内读写，并允许一个已通过独立 readiness 的沙箱 adapter 运行有界命令；宿主无沙箱进程、网络、凭证、用户主目录、持久用户/Agent 终端和完整 CDP 全部拒绝。任何越界动作必须走另一条精确、一次性的审批链，持久权限快照本身始终不携带执行 authority。
 
-Windows x64 现在提供显式 `--enable-workspace-sandbox` Local backend；只有真实 AppContainer/WFP/Job/ACL readiness 通过后，CLI、API 与 Desktop 才会打开该进程的 Workspace gate。Schema v131 将它和固定 Docker Standard Code 后端接入统一的 `sandboxed_workspace` Command Runtime adapter；`workspace_access` 永远不能回退到宿主执行。既有宿主路径则明确标记为 `host_unsandboxed`，只接受 `full_access` 与 danger startup gate，并如实报告宿主网络和凭证仍可用。切换权限 revision 会原子释放旧 execution lease，并使绑定旧快照的 Job owner 与 adapter authority 失效。完整边界见 [Command Runtime adapter split](docs/architecture/command-runtime-adapter-split.md)、[ADR 0127](docs/adr/0127-workspace-access-permission-contract.md)与 [ADR 0130](docs/adr/0130-windows-local-sandbox-backend.md)。
+Windows x64 现在提供显式 `--enable-workspace-sandbox` Local backend；只有真实 AppContainer/WFP/Job/ACL readiness 通过后，CLI、API 与 Desktop 才会打开该进程的 Workspace gate。Schema v131 将它和固定 Docker Standard Code 后端接入统一的 `sandboxed_workspace` Command Runtime adapter；`workspace_access` 永远不能回退到宿主执行。既有宿主路径则明确标记为 `host_unsandboxed`，接受 `full_access` 或继承其全部宿主能力的 `debug`，并要求 danger startup gate，同时如实报告宿主网络和凭证仍可用。Full Access 按当前任务动态激活；Debug 是其严格超集，另增持久终端、后台与有界终端输入，并保持运行时启动闸门。切换权限 revision 会原子释放旧 execution lease，并使绑定旧快照的 Job owner 与 adapter authority 失效。完整边界见 [Command Runtime adapter split](docs/architecture/command-runtime-adapter-split.md)、[ADR 0127](docs/adr/0127-workspace-access-permission-contract.md)与 [ADR 0130](docs/adr/0130-windows-local-sandbox-backend.md)。
 
 #130 新增 Go-owned `run_capability_readiness.v1`，把当前已选、现在可切换和后端当前可运行拆成独立事实，并为 Permission、Profile、Interaction、CDP 与 Standard Code 返回稳定阻塞码、修复动作和重启要求。CLI、HTTP、Desktop 与 React 共用该投影；响应不含私有路径且始终 `capability_grant=false`。详见 [ADR 0128](docs/adr/0128-go-owned-run-capability-readiness.md)。
 
@@ -112,9 +114,9 @@ Thread 页面同屏提供发送、暂停/恢复、审批、继续和交付查看
 
 ### Run 级 Web 证据
 
-Schema v134 的 `web_search`、`web_fetch` 与 `web_citation` 把公网资料发现、抓取和引用拆成三条 Go-owned 路径。Search 只返回不可引用的结果 stub；Fetch 在 Run allowlist、HTTPS/443、SSRF、DNS pinning、逐跳重定向复核、robots、超时、大小、MIME 与受控解析器边界内生成不可变快照；Citation 只能绑定同一 Run 中已抓取或 partial 的快照。网页正文、搜索片段和 PDF 文本始终是不可信证据，不能授权工具或覆盖系统指令。
+Schema v134 的 `web_search`、`web_fetch` 与 `web_citation` 把公网资料发现、抓取和引用拆成三条 Go-owned 路径。SearXNG 等普通 Search 结果仍是不可引用的发现 stub；经过精确 Provider/model/credential binding 资格验证的托管搜索会在不可变 Search operation 中保存带指纹的 `provider_grounded_citation.v1`，允许普通回答直接引用来源 URL，同时明确标注“供应商佐证、非本地验证”。Fetch 在独立的网页抓取 authority、HTTPS/443、SSRF、DNS pinning、逐跳重定向复核、超时、大小、MIME 与受控解析器边界内生成不可变快照。Conservative、Workspace 与 Approval 模式强制执行 robots policy；Full Access 与 Debug 仍检查并记录 robots 审计事实，但 disallow、缺失或无法确认不会阻断抓取。robots 的审计绕过不会放松私网、loopback、云 metadata、DNS rebinding、HTTPS、重定向、大小或超时等硬边界，也不构成版权、许可或站点条款授权。`web_citation` 仍只绑定同一 Run 中已抓取或 partial 的本地快照。网页正文、搜索片段和 PDF 文本始终是不可信证据，不能授权工具或覆盖系统指令。
 
-新 Run 默认保持网络关闭。需要搜索时必须显式配置 `CYBERAGENT_WEB_SEARCH_ENDPOINT` 指向 SearXNG JSON API，并在创建 Run 时使用 `--network allowlist` 与精确 `--allow-target`；缺少配置或授权时工具不发布，也不会回退到浏览器、Shell 或其他 Provider。Thread、`cyberagent web-evidence list` 和认证 HTTP API 共用只含链接、标题、状态、抓取时间与 digest 的安全投影。配置、故障处理、条款/版权说明见 [Web Evidence](docs/web-evidence.md)，设计见 [ADR 0137](docs/adr/0137-go-owned-web-evidence.md)。
+Provider-native 托管搜索的 API 出站使用当前模型路由派生的精确、私有 Provider authority，不要求把 Provider API host 写入网页抓取白名单，也不会因此扩大 `web_fetch`。SearXNG 仍需显式配置 `CYBERAGENT_WEB_SEARCH_ENDPOINT` 并处于相应 Run 网络边界内；缺少所选后端时不会暗中切换到浏览器、Shell 或其他收费 Provider。Thread、`cyberagent web-evidence list` 和认证 HTTP API 继续使用 Go-owned 安全投影。配置、故障处理、条款/版权说明见 [Web Evidence](docs/web-evidence.md)，设计见 [ADR 0137](docs/adr/0137-go-owned-web-evidence.md)。
 
 ### Run-owned Drydock 工作目录
 
@@ -156,12 +158,12 @@ child 只有在 worktree clean、HEAD 是 base 的后代、全部 changed path �
 
 ### MCP Client、Plugin 与受限 Hooks
 
-Schema v120-v121 增加 Go-owned MCP Client 和惰性 `plugin.v1` 包。MCP descriptor 先审查是否允许 discovery，再对真实协商得到的 tools/resources/prompts capability fingerprint 单独审查；只有精确 `Code/Deliver/root/full_access` Run 能看到已启用工具，每次调用都会重新发现并在漂移时隔离。远程 HTTPS bearer 仅按引用从系统凭证存储注入，stdio/HTTP 返回值始终作为不可信证据清洗；模型和普通 UI 永远看不到明文凭证，专用 MCP 审计只保存摘要。Supervisor 恢复账本只持久化经过 schema 校验、脱敏和大小限制的规范化调用/结果，不保存 bearer 或 transport 原始字节。
+Schema v120-v121 增加 Go-owned MCP Client 和惰性 `plugin.v1` 包。MCP descriptor 先审查是否允许 discovery，再对真实协商得到的 tools/resources/prompts capability fingerprint 单独审查；只有精确 `Code/Deliver/root` 且当前为 `full_access` 或 `debug` 的 Run 能看到已启用工具，每次调用都会重新发现并在漂移时隔离。远程 HTTPS bearer 仅按引用从系统凭证存储注入，stdio/HTTP 返回值始终作为不可信证据清洗；模型和普通 UI 永远看不到明文凭证，专用 MCP 审计只保存摘要。Supervisor 恢复账本只持久化经过 schema 校验、脱敏和大小限制的规范化调用/结果，不保存 bearer 或 transport 原始字节。
 
 Plugin ZIP 只允许声明式 Skills、MCP descriptors、UI metadata 和 Hooks；严格文件白名单、摘要、大小、格式与可选 Ed25519 签名在 staging 时验证，默认禁用并逐能力人工启用。外部包可由固定 SHA-256 的无 redirect HTTPS 或固定 commit 的 bare Git 导入；升级/回滚原子切换唯一 enabled 版本，publisher revoke 不能由 `confirm-untrusted` 绕过。Hook 已接到 Tool、Run、Session、Compaction、Specialist 和 Checkpoint 的真实 Go 事务边界，只能拒绝、注释、记录或在 `pre_tool` 删除顶层字段。Desktop 设置页可按当前 Run/Workspace 查看健康、来源、审查和 metadata-only 调用审计，并用精确 fingerprint/generation 立即禁用。完整命令、状态机与残余宿主风险见 [MCP Client、Plugin 与受限 Hooks](docs/extensions.md)。
 ### 源码绑定的真实浏览器 UI 证据
 
-Schema v119 的 `ui-evidence.v1` 把真实页面验证绑定到 commit/dirty digest/index/worktree manifest、精确 build/start recipe、固定浏览器 version/可执行文件 SHA-256、literal loopback URL/route、viewport/DPR、locale/theme/reduced motion、deterministic fixture/seed/page state、步骤与 capture policy。Application 在 build 前、readiness 后、浏览器断言后以及 owned process cleanup 完成后重新核对源码；拒绝已占用端口，不收养既有服务或个人 Browser Profile。Windows Desktop 的执行入口默认关闭，只有 Run execution、`full_access`、danger-full-access、restricted CDP 与 `--enable-ui-evidence` 同时成立才开放。
+Schema v119 的 `ui-evidence.v1` 把真实页面验证绑定到 commit/dirty digest/index/worktree manifest、精确 build/start recipe、固定浏览器 version/可执行文件 SHA-256、literal loopback URL/route、viewport/DPR、locale/theme/reduced motion、deterministic fixture/seed/page state、步骤与 capture policy。Application 在 build 前、readiness 后、浏览器断言后以及 owned process cleanup 完成后重新核对源码；拒绝已占用端口，不收养既有服务或个人 Browser Profile。Windows Desktop 的执行入口默认关闭，只有 Run execution、`full_access` 或 `debug`、danger-full-access、restricted CDP 与 `--enable-ui-evidence` 同时成立才开放。
 
 Desktop、认证 OpenAPI 与只读/导出 CLI 共用同一份不可变 Attempt、step 和 artifact 语义。PNG、DOM、accessibility、console/page error、network/HTTP 与 performance 产物都保存 SHA-256/MIME/尺寸/viewport/source step/commit/Run/Attempt/redaction/retention policy，且 PNG 尺寸必须匹配 `viewport × DPR`；页面和产物始终不可信、不授权。`not_run` 明确保持中性，只有 exact `passed` 才算通过。Windows CI 用 creation-time Job Object、临时 Profile 和 deterministic loopback fixture 跑真实 Edge 的 desktop/mobile、theme/locale/reduced-motion 矩阵，并证明缺失 click handler 的回归只能被真实页面交互断言捕获。详见 [UI Evidence 操作手册](docs/ui-evidence.md)与 [ADR 0120](docs/adr/0120-source-bound-real-browser-ui-evidence.md)。
 
@@ -172,7 +174,7 @@ Desktop、认证 OpenAPI 与只读/导出 CLI 共用同一份不可变 Attempt�
 | 入口 | 实际执行 | 权限与限制 |
 |---|---|---|
 | 类型化 Git | 真实 `git` 进程；覆盖本地整文件与稳定 hunk 操作、stash、rebase/cherry-pick/bisect、受管 worktree，以及独立授权的 fetch、fast-forward pull、push branch、创建/更新 PR | 参数由 Go 合成，固定仓库/权限/lease 状态并先审批与 Checkpoint；禁用 hook/外部 diff/凭证/自定义 driver，raw argv、force push 与共享历史改写不开放 |
-| Run-owned 命令运行时 | 同一 `command-runtime.v2` Job/cursor/Artifact 协议；可落到 Windows Local、固定 Docker Standard Code，或明确高风险的宿主进程 adapter | `sandboxed_workspace` 仅接受 Code/Deliver/root + `workspace_access` + 对应 readiness，只运行于 Drydock；`host_unsandboxed` 仅接受 `full_access` + danger startup gate。adapter/backend/generation 在广告、Job 和每次调用中精确绑定，模型不能选择 |
+| Run-owned 命令运行时 | 同一 `command-runtime.v2` Job/cursor/Artifact 协议；可落到 Windows Local、固定 Docker Standard Code，或明确高风险的宿主进程 adapter | `sandboxed_workspace` 仅接受 Code/Deliver/root + `workspace_access` + 对应 readiness，只运行于 Drydock；`host_unsandboxed` 接受 `full_access` 或 `debug` + danger startup gate。adapter/backend/generation 在广告、Job 和每次调用中精确绑定，模型不能选择 |
 | Approval 一次性 Shell | Windows 上的真实 PowerShell 或同一 Git for Windows 发行版中的 Git Bash；命令被固定成无 Profile、非交互的一次性 argv | 仅 Code/Local/Controlled/Approval；模型只能提出一行命令，操作者必须核对解释器哈希、完整 argv、cwd 与宿主网络风险并逐条批准；不支持持久或后台所有权 |
 | Debug 持久终端 | Windows 使用 PowerShell + ConPTY + creation-time Job Object；macOS 使用 Bash + PTY + 独立进程组 | 仅 Code/Local/Deliver/Debug；用户先启动终端，再显式授予 15 秒至 15 分钟的进程内 Agent 输入租约，可随时撤销。普通后台 job 随终端清理；主动 POSIX daemonize 仍是宿主残余风险 |
 | Full-access 一次性进程 | Windows 上按绝对路径和 SHA-256 启动真实可执行文件与字面 argv | 仅操作者 CLI 双确认；仍是非沙箱宿主执行，可运行高权限解释器，但不向模型公开 |
@@ -185,13 +187,13 @@ Desktop、认证 OpenAPI 与只读/导出 CLI 共用同一份不可变 Attempt�
 
 - 不公开 Provider 私有 thinking、原始 Prompt、raw delta、工具参数、工具原始输出或 API key。
 - 项目指令、长期记忆和对话 Checkpoint 始终是不可信、非授权上下文；Workspace Checkpoint 只保存有界文件/index 状态。两类 Fork/Resume 都不恢复审批、capability、凭据、网络、进程、终端租约或执行档位。详见[双语上下文/威胁模型与删除说明](docs/context-continuity.md)、[Workspace Checkpoints](docs/workspace-checkpoints.md)、[ADR 0115](docs/adr/0115-non-authorizing-durable-context-continuity.md)和 [ADR 0118](docs/adr/0118-transactional-workspace-checkpoints.md)。
-- 文件编辑、宿主命令、浏览器 CDP、终端输入和 Sandbox 是彼此独立的授权面。
+- 文件编辑、宿主命令、浏览器方法、终端输入和 Sandbox 仍分别重验授权；但 Full CDP 的可选上限不是与执行权限平级的第六档，而是 Full Access 的子开关，并由 Debug 继承。
 - 可交付 child 的 owner token 只在创建或 generation 轮换响应中返回一次，SQLite 和普通 HTTP/Desktop 投影仅保留摘要；丢失后必须 CAS 轮换 generation，旧 token 立即失效。
 - `host_unsandboxed` 只接受 `network=disabled` 与 `credentials=none` 的命令意图，但回执明确标记宿主网络/凭证仍可用；它不是 OS 网络沙箱。`sandboxed_workspace` 只有在 Local/Docker 独立隔离 readiness 成立时才报告 `network=denied` 与 `credentials=none`，且只运行于 Drydock。
-- 受控命令默认使用 Go 固定模板；PowerShell/Bash 只通过 Code/Deliver/root + `full_access` 的 Run-owned runtime、逐条审批，或可撤销 Debug 租约三条独立路径开放。通用宿主执行与 Debug 能力不会因模型、Skill 或仓库文档而自动开启。
+- 受控命令默认使用 Go 固定模板；PowerShell/Bash 只通过 Code/Deliver/root + `full_access` 或 `debug` 的 Run-owned runtime、逐条审批，或 Debug 额外提供的可撤销终端租约三条路径开放。通用宿主执行与 Debug 能力不会因模型、Skill 或仓库文档而自动开启。
 - Docker Sandbox 产品入口默认关闭。显式进程 capability、当前 `docker` Profile、匹配权限档、精确 per-call 审批、Policy、预算与 30 秒 readiness 必须同时成立；数据库记录不能在重启后恢复 start authority。
 - 当前产品执行只接受 environment-free、secret-free 的 `network=disabled` Manifest，并在 Docker create/inspect 两侧固定 `network none`。allowlist/scoped egress 仍缺少 Go-owned host/port/protocol guard，因此一律以 `managed_egress_unavailable` 失败关闭；Docker 不可用时没有宿主 fallback。
-- Windows Desktop 只在显式 `--enable-ui-evidence` 及其 Run execution/danger-full-access/restricted-CDP 前置条件同时成立时开放 loopback-only 真实浏览器证据；macOS 与普通 CLI 保持只读，Full CDP 仍是独立且默认关闭的 Debug 权限面。
+- Windows Desktop 只在显式 `--enable-ui-evidence` 及其 Run execution/danger-full-access/restricted-CDP 前置条件同时成立时开放 loopback-only 真实浏览器证据；macOS 与普通 CLI 保持只读。Full CDP 是 Full Access 下的可选子权限，Debug 严格继承：进入 Full Access 或 Debug 时默认开启，两档内都可随时关闭，重新开启需要显式高风险确认，低于 Full Access 时强制关闭。它只面向 Traverse 管理的隔离内置浏览器，不是 Wails WebView 或系统 Chrome；切换开关本身不启动浏览器。Windows Wails Desktop 已提供 Run-scoped Open/Status/Close 生产接口：后端发现可信浏览器、创建独立 Profile、持有 Job/CDP 生命周期，并在显式关闭、TTL、进程退出、撤权、Run 终态或 Desktop 退出时收敛清理。普通 CLI 与 Supervisor 仍不获得这一进程 authority。
 - Windows/macOS Desktop 当前都是未签名的开发者/操作者便携预览，不是正式安装包；macOS 产物只有 ad-hoc 签名且未公证。
 
 ### Docker Sandbox 产品入口（默认关闭）
@@ -444,7 +446,7 @@ Partner Center 的 identity、版本、上传与 `runFullTrust` 认证步骤见
 完整逐切片原始记录保留在 [`PROGRESS_BOOK.md`](docs/PROGRESS_BOOK.md)，当前检查点与验收证据保留在 [`PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)，恢复上下文见 [`PROJECT_MEMORY.md`](docs/PROJECT_MEMORY.md)。这些账本是历史记录，不应被当作待重新执行的任务列表。
 
 <details>
-<summary><strong>SQLite Schema v1-v139 迁移审计表 / Migration ledger</strong></summary>
+<summary><strong>SQLite Schema v1-v151 迁移审计表 / Migration ledger</strong></summary>
 
 此表是 Store 防漏迁移测试使用的审计合同。新增 schema 时必须按顺序追加，不得改写或删除既有行。
 
@@ -590,6 +592,17 @@ Partner Center 的 identity、版本、上传与 `runFullTrust` 认证步骤见
 | v138 | 精确兼容 v136 Windows 中间预览历史，并重建缺失的 Supervisor 高风险提案权限触发器 | accept the exact intermediate Windows preview v136 history and rebuild its missing Supervisor risk-authority triggers |
 | v139 | 为 Thread 增加保守默认、不可变且不授权的执行权限偏好；在安全边界同步当前 Run，并在未来后继 Run 中物化 | add conservative-by-default immutable non-authorizing Thread execution-permission preferences, synchronized to the current Run at a safe boundary and materialized into future successor Runs |
 | v140 | 以 Thread 为唯一聊天生命周期边界，原子归档、恢复或删除其 Run 与 Session 投影，同时保留消息和审计证据 | make Thread the sole chat lifecycle boundary, atomically archiving, restoring, or deleting its Run and Session projections while retaining messages and audit evidence |
+| v141 | 允许 Full CDP 子权限在任一非终态 Run 上立即降级并失效现有授权，同时继续要求升权前静止 | allow the Full CDP sub-permission to downgrade immediately and fence existing authority on any nonterminal Run while still requiring quiescence before escalation |
+| v142 | 使 Debug 权限在不可变宿主命令与 Command Runtime 账本中继承 Full Access 的无状态执行能力 | make Debug inherit Full Access stateless execution in the immutable host-command and Command Runtime ledgers |
+| v143 | 允许当前任务即时撤销高风险执行权限并原子释放活动执行租约，同时保持升权必须静止 | allow immediate current-task high-risk permission revocation with atomic lease release while keeping escalation quiescent |
+| v144 | 为受控 Run/Thread 创建增加禁网或精确 HTTPS 主机 allowlist，并将请求意图绑定到幂等账本 | add disabled or exact-HTTPS-host allowlists to controlled Run/Thread creation and bind request intent to the idempotency ledger |
+| v145 | 增加审计化的当前 Run 精确主机扩权、授权代际失效，以及后继 Run 的安全网络偏好继承 | add audited exact-host expansion for the current Run, authorization-generation fencing, and safe network-preference inheritance for successor Runs |
+| v146 | 为 Thread 权限操作增加显式 deferred 效果，在不改写当前 Run 权限快照的情况下持久化下一执行 epoch 偏好 | add an explicit deferred effect to Thread permission operations, persisting the next execution-epoch preference without rewriting the current Run permission snapshot |
+| v147 | 允许受控 Thread/Run 创建原子固定显式 Provider/model route，并保持 Mission、Run 与 Session 路由一致 | allow controlled Thread/Run creation to atomically pin an explicit Provider/model route while keeping Mission, Run, and Session routing consistent |
+| v148 | 将 preparing Run 纳入 Thread 权限 deferred 绑定，使其保持原权限直到后继 Run 安全物化新偏好 | include preparing Runs in deferred Thread-permission binding so they retain their original authority until a successor safely materializes the preference |
+| v149 | 增加绑定精确 Thread/Run/Turn/Supervisor call 与公网 HTTPS 主机的 Web Fetch 审批账本，支持允许一次、当前对话允许、拒绝及崩溃后原调用恢复 | add a Web Fetch approval ledger bound to the exact Thread/Run/Turn/Supervisor call and public HTTPS host, supporting allow-once, allow-for-thread, deny, and crash recovery of the original call |
+| v150 | 将六个浏览器动作与 MCP 调用纳入 authority-bound Supervisor 工具账本，规范化精确 Run authority，并将历史无 authority 的 MCP 调用标记为不可恢复执行 | admit six browser actions and MCP calls to the authority-bound Supervisor tool ledger, canonicalize exact-Run authority, and mark historical authority-less MCP calls as non-resumable |
+| v151 | 为 Supervisor 工具调用与 Command Runtime Job 增加不可变执行 Agent 归属账本；新记录保留精确 Agent/attempt，历史记录仅在可证明时标记 legacy root，否则明确标记 unknown | add immutable execution-Agent attribution ledgers for Supervisor tool calls and Command Runtime Jobs; retain exact Agent/attempt for new records and mark history as legacy root only when provable, otherwise explicitly unknown |
 
 </details>
 

@@ -2103,7 +2103,7 @@ func (s *WorkspaceCheckpointService) requireRestoreAuthority(ctx context.Context
 		mode.Surface != domain.ExecutionSurfaceCode || mode.Phase != domain.ExecutionPhaseDeliver ||
 		permission.RunID != binding.run.ID || permission.MissionID != binding.mission.ID ||
 		permission.Mode == domain.RunExecutionPermissionConservative ||
-		!s.capabilities.Allows(permission.Mode) {
+		!s.capabilities.AllowsSnapshot(permission) {
 		return apperror.New(apperror.CodePolicyDenied,
 			"workspace restore is not authorized by the current execution permission")
 	}

@@ -63,6 +63,7 @@ describe("ConnectionGate", () => {
       execution_permission_control_enabled: false,
       browser_cdp_permission_control_enabled: false,
       full_cdp_debug_enabled: false,
+      full_cdp_session_control_enabled: false,
       operator_approval_enabled: false,
       danger_full_access_enabled: false,
       debug_maximum_access_enabled: false,
@@ -110,6 +111,7 @@ describe("ConnectionGate", () => {
       agent_terminal_input_default: false,
       workspace_open_enabled: false,
       workspace_import_enabled: false,
+      risk_profile_restart_enabled: false,
       renderer_path_input_supported: false,
     });
     window.go = { desktop: { DesktopBridge: {
@@ -151,6 +153,7 @@ function runtimeCapabilities() {
       network_policy: "host_available", credential_policy: "host_available", ready: true,
     }],
     browser_cdp_permission_control_enabled: true, full_cdp_debug_enabled: true,
+    full_cdp_session_control_enabled: true,
     run_control_enabled: true, run_creation_enabled: true,
     standard_code_preset_enabled: true, session_message_enabled: true,
     thread_control_enabled: true,

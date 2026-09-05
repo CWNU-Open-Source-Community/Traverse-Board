@@ -34,6 +34,7 @@ const (
 type SandboxManifestStore interface {
 	GetRun(ctx context.Context, id string) (domain.Run, error)
 	GetMission(ctx context.Context, id string) (domain.Mission, error)
+	GetRunMode(ctx context.Context, runID string) (domain.RunModeSnapshot, error)
 	GetSandboxWorkspace(ctx context.Context, id string) (sandbox.WorkspaceBinding, error)
 	GetApproval(ctx context.Context, id string) (approval.Record, error)
 	GetSandboxManifestOperation(ctx context.Context, keyDigest string) (sandbox.Operation, bool, error)
@@ -463,9 +464,13 @@ func (s *SandboxManifestService) Prepare(ctx context.Context,
 	if err != nil {
 		return sandbox.PreparedIntent{}, apperror.Normalize(err)
 	}
-	if mission.WorkspaceID == "" || mission.Scope.WorkspaceID != mission.WorkspaceID {
+	mode, err := s.store.GetRunMode(ctx, run.ID)
+	if err != nil {
+		return sandbox.PreparedIntent{}, apperror.Normalize(err)
+	}
+	if mission.WorkspaceID == "" || mode.Scope.WorkspaceID != mission.WorkspaceID {
 		return sandbox.PreparedIntent{}, apperror.New(apperror.CodeFailedPrecondition,
-			"sandbox manifest requires an exact non-empty Mission workspace scope")
+			"sandbox manifest requires an exact non-empty current Run workspace scope")
 	}
 	workspace, err := s.resolveSandboxWorkspace(ctx, run.ID, mission.WorkspaceID,
 		manifest, true)
@@ -477,14 +482,14 @@ func (s *SandboxManifestService) Prepare(ctx context.Context,
 		return sandbox.PreparedIntent{}, apperror.Wrap(apperror.CodeFailedPrecondition,
 			"sandbox workspace binding is invalid", err)
 	}
-	normalizedScope, err := normalizeSandboxMissionScope(mission.Scope)
+	normalizedScope, err := normalizeSandboxMissionScope(mode.Scope)
 	if err != nil {
 		return sandbox.PreparedIntent{}, apperror.Wrap(apperror.CodeFailedPrecondition,
-			"Mission network scope is invalid", err)
+			"current Run network scope is invalid", err)
 	}
 	if err := requireSandboxScopeSubset(manifest.Network, normalizedScope); err != nil {
 		return sandbox.PreparedIntent{}, apperror.Wrap(apperror.CodePolicyDenied,
-			"sandbox manifest attempted to widen the Mission network scope", err)
+			"sandbox manifest attempted to widen the current Run network scope", err)
 	}
 	canonicalScope, err := json.Marshal(normalizedScope)
 	if err != nil {

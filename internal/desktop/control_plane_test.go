@@ -842,6 +842,17 @@ func desktopAPIRequest(handler http.Handler, path string) *httptest.ResponseReco
 	return response
 }
 
+func TestOpenControlPlaneRejectsInvalidWebSearchEndpoint(t *testing.T) {
+	_, err := OpenControlPlane(ControlPlaneConfig{
+		DatabasePath:      filepath.Join(t.TempDir(), "invalid-web-search.db"),
+		ReadToken:         desktopControlPlaneTestToken,
+		WebSearchEndpoint: "http://127.0.0.1:8080/search",
+	})
+	if apperror.CodeOf(apperror.Normalize(err)) != apperror.CodeInvalidArgument {
+		t.Fatalf("expected invalid Web search endpoint rejection, got %v", err)
+	}
+}
+
 func assertDesktopDockerCapability(t *testing.T, handler http.Handler, want bool) {
 	t.Helper()
 	response := desktopAPIRequest(handler, "/api/v1/capabilities")

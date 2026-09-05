@@ -26,7 +26,10 @@ import (
 
 const supervisorToolResultVersion = "supervisor_tool_result.v1"
 
-const supervisorToolCallTimeout = 30 * time.Second
+const (
+	supervisorToolCallTimeout          = 30 * time.Second
+	supervisorWebSearchToolCallTimeout = 60 * time.Second
+)
 
 var errSupervisorWaitingApproval = errors.New("Supervisor tool is waiting for operator approval")
 
@@ -45,8 +48,18 @@ type supervisorCommandRuntimeTools struct {
 	Authority json.RawMessage
 }
 
+type supervisorMCPTools struct {
+	Capabilities mcp.ScopedCapabilities
+	Authority    json.RawMessage
+}
+
 type supervisorWebEvidenceTools struct {
 	Capabilities toolgateway.WebEvidenceCapabilities
+	Authority    json.RawMessage
+}
+
+type supervisorBrowserActionTools struct {
+	Capabilities toolgateway.BrowserActionCapabilities
 	Authority    json.RawMessage
 }
 
@@ -54,8 +67,9 @@ type supervisorToolOptions struct {
 	CommandRuntime supervisorCommandRuntimeTools
 	AgentCode      supervisorAgentCodeTools
 	CodeIntel      supervisorCodeIntelTools
-	MCP            mcp.ScopedCapabilities
+	MCP            supervisorMCPTools
 	WebEvidence    supervisorWebEvidenceTools
+	BrowserActions supervisorBrowserActionTools
 }
 
 type supervisorToolResultEnvelope struct {
@@ -76,7 +90,8 @@ func marshalSupervisorToolResultEnvelope(value supervisorToolResultEnvelope) ([]
 	// Web results are durable JSON and are never embedded as HTML. Keeping
 	// literal '<', '>', and '&' avoids a sixfold expansion of bounded evidence;
 	// all existing non-Web result encodings retain their prior canonical form.
-	if toolgateway.IsWebEvidenceTool(toolgateway.ToolName(value.Tool)) {
+	if toolgateway.IsWebEvidenceTool(toolgateway.ToolName(value.Tool)) ||
+		toolgateway.IsBrowserActionTool(toolgateway.ToolName(value.Tool)) {
 		encoder.SetEscapeHTML(false)
 	}
 	if err := encoder.Encode(value); err != nil {
@@ -135,19 +150,26 @@ func supervisorStructuredToolSpecs(surface domain.ExecutionSurface,
 		}
 		if definition.Name == toolgateway.MCPToolCallTool {
 			if surface != domain.ExecutionSurfaceCode || phase != domain.ExecutionPhaseDeliver ||
-				permissionMode != domain.RunExecutionPermissionFullAccess ||
-				len(configured.MCP.Servers) == 0 {
+				!permissionMode.IncludesFullAccess() ||
+				len(configured.MCP.Capabilities.Servers) == 0 ||
+				len(configured.MCP.Authority) == 0 {
 				continue
 			}
-			definition.InputSchema = supervisorMCPToolSchema(configured.MCP)
+			definition.InputSchema = supervisorMCPToolSchema(configured.MCP.Capabilities)
 			definition.Description += " Only the server/tool/fingerprint combinations encoded in this schema are available."
 		}
 		if toolgateway.IsWebEvidenceTool(definition.Name) {
 			if !configured.WebEvidence.Capabilities.Available ||
 				(definition.Name == toolgateway.WebSearchTool &&
-					!configured.WebEvidence.Capabilities.SearchAvailable) {
+					!configured.WebEvidence.Capabilities.SearchAvailable) ||
+				(definition.Name != toolgateway.WebSearchTool &&
+					!configured.WebEvidence.Capabilities.FetchAvailable) {
 				continue
 			}
+		}
+		if toolgateway.IsBrowserActionTool(definition.Name) &&
+			!configured.BrowserActions.Capabilities.Available {
+			continue
 		}
 		out = append(out, llm.ToolSpec{
 			Name: string(definition.Name), Description: definition.Description,
@@ -189,6 +211,8 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 	var codeIntelAuthority json.RawMessage
 	webEvidence := toolgateway.WebEvidenceCapabilities{}
 	var webEvidenceAuthority json.RawMessage
+	browserActions := toolgateway.BrowserActionCapabilities{}
+	var browserActionAuthority json.RawMessage
 	if len(options) > 0 {
 		agentCode = configured.AgentCode.Capabilities
 		agentCodeAuthority = configured.AgentCode.Authority
@@ -196,6 +220,8 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 		codeIntelAuthority = configured.CodeIntel.Authority
 		webEvidence = configured.WebEvidence.Capabilities
 		webEvidenceAuthority = configured.WebEvidence.Authority
+		browserActions = configured.BrowserActions.Capabilities
+		browserActionAuthority = configured.BrowserActions.Authority
 	}
 	if len(calls) == 0 || len(calls) > domain.MaxSupervisorToolCallsPerRound {
 		return nil, fmt.Errorf("supervisor tool batch must contain 1 to %d calls",
@@ -222,7 +248,9 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 			name != toolgateway.CommandRuntimeTool && name != toolgateway.MCPToolCallTool &&
 			!toolgateway.IsAgentCodeTool(name) && !toolgateway.IsCodeIntelTool(name) &&
 			!toolgateway.IsWebEvidenceTool(name) {
-			return nil, fmt.Errorf("provider requested unsupported supervisor tool %q", call.Name)
+			if !toolgateway.IsBrowserActionTool(name) {
+				return nil, fmt.Errorf("provider requested unsupported supervisor tool %q", call.Name)
+			}
 		}
 		if toolgateway.IsAgentCodeTool(name) {
 			available := false
@@ -243,8 +271,13 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 		}
 		if toolgateway.IsWebEvidenceTool(name) && (!webEvidence.Available ||
 			len(webEvidenceAuthority) == 0 ||
-			(name == toolgateway.WebSearchTool && !webEvidence.SearchAvailable)) {
+			(name == toolgateway.WebSearchTool && !webEvidence.SearchAvailable) ||
+			(name != toolgateway.WebSearchTool && !webEvidence.FetchAvailable)) {
 			return nil, fmt.Errorf("provider requested unavailable web evidence tool %q", call.Name)
+		}
+		if toolgateway.IsBrowserActionTool(name) && (!browserActions.Available ||
+			len(browserActionAuthority) == 0) {
+			return nil, fmt.Errorf("provider requested unavailable browser action %q", call.Name)
 		}
 		if name == toolgateway.PlanDeliveryProposeTool && phase != domain.ExecutionPhasePlan {
 			return nil, errors.New("provider requested Plan/Delivery proposal outside Plan phase")
@@ -279,9 +312,9 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 		}
 		if name == toolgateway.MCPToolCallTool &&
 			(surface != domain.ExecutionSurfaceCode || phase != domain.ExecutionPhaseDeliver ||
-				permissionMode != domain.RunExecutionPermissionFullAccess) {
+				!permissionMode.IncludesFullAccess()) {
 			return nil, errors.New(
-				"provider requested MCP outside Code/Deliver/full-access runtime")
+				"provider requested MCP outside Code/Deliver Full Access or Debug runtime")
 		}
 		payload, err := toolgateway.NormalizeSupervisorToolPayload(name, call.Arguments)
 		if err != nil {
@@ -306,7 +339,8 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 		}
 		if name == toolgateway.MCPToolCallTool {
 			request, _, _ := toolgateway.NormalizeMCPToolPayload(payload)
-			if !supervisorMCPToolAvailable(configured.MCP, request) {
+			if !supervisorMCPToolAvailable(configured.MCP.Capabilities, request) ||
+				len(configured.MCP.Authority) == 0 {
 				return nil, errors.New(
 					"provider requested an MCP capability absent from the current reviewed snapshot")
 			}
@@ -345,6 +379,13 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 			}
 			out[index].Authority = append(json.RawMessage(nil), commandRuntimeAuthority...)
 		}
+		if name == toolgateway.MCPToolCallTool {
+			if authority, err := mcp.DecodeSupervisorCallAuthority(
+				configured.MCP.Authority); err != nil || authority.RunID != runID {
+				return nil, errors.New("MCP advertisement authority is invalid")
+			}
+			out[index].Authority = append(json.RawMessage(nil), configured.MCP.Authority...)
+		}
 		if toolgateway.IsWebEvidenceTool(name) {
 			authority, authorityErr := toolgateway.DecodeWebEvidenceCallAuthority(
 				webEvidenceAuthority)
@@ -354,29 +395,49 @@ func prepareSupervisorToolCalls(calls []llm.ToolCall, runID string, turn int, ro
 			}
 			out[index].Authority = append(json.RawMessage(nil), webEvidenceAuthority...)
 		}
+		if toolgateway.IsBrowserActionTool(name) {
+			authority, authorityErr := toolgateway.DecodeBrowserActionCallAuthority(
+				browserActionAuthority)
+			if authorityErr != nil || authority.RunID != runID ||
+				authority.Generation != browserActions.Generation ||
+				authority.FullCDPSessionID != browserActions.FullCDPSessionID {
+				return nil, errors.New("browser action advertisement authority is invalid")
+			}
+			out[index].Authority = append(json.RawMessage(nil), browserActionAuthority...)
+		}
 	}
 	return out, nil
 }
 
 func (s *RunSupervisor) supervisorWebEvidenceCapabilities(
-	turn domain.SupervisorTurn, permission domain.RunExecutionPermissionSnapshot,
+	ctx context.Context, turn domain.SupervisorTurn,
+	permission domain.RunExecutionPermissionSnapshot,
 ) (toolgateway.WebEvidenceCapabilities, json.RawMessage, error) {
 	if s == nil || s.webEvidence == nil || turn.Agent.Role != domain.AgentRoleRoot {
 		return toolgateway.WebEvidenceCapabilities{}, nil, nil
 	}
-	networkAuthority := webevidence.NetworkAuthority{Mode: turn.Mode.Scope.NetworkMode,
-		AllowedTargets: append([]string(nil), turn.Mode.Scope.AllowedTargets...)}
-	providerFingerprint := s.webEvidence.SearchProviderFingerprintFor(networkAuthority)
+	networkAuthority := effectiveWebEvidenceAuthority(turn.Mode.Scope, permission.Mode)
+	providerFingerprint := s.webEvidence.SearchProviderFingerprintForScope(ctx,
+		webevidence.ExecutionScope{RunID: turn.Run.ID, MissionID: turn.Mission.ID,
+			WorkspaceID: turn.Mission.WorkspaceID,
+			ModelRoute:  turn.Run.Config.ModelRoute, Authority: networkAuthority})
+	providerIndependent := s.webEvidence.SearchProviderIndependentForScope(ctx,
+		webevidence.ExecutionScope{RunID: turn.Run.ID, MissionID: turn.Mission.ID,
+			WorkspaceID: turn.Mission.WorkspaceID,
+			ModelRoute:  turn.Run.Config.ModelRoute, Authority: networkAuthority})
 	context := toolgateway.WebEvidenceCapabilityContext{RunID: turn.Run.ID,
 		MissionID: turn.Mission.ID, SessionID: turn.Run.SessionID,
 		RootAgentID: turn.Agent.ID, WorkspaceID: turn.Mission.WorkspaceID,
 		Surface: turn.Mode.Surface, Phase: turn.Mode.Phase, Role: turn.Agent.Role,
 		Profile: turn.Mode.Profile, PermissionMode: permission.Mode,
-		PermissionRevision: permission.Revision, ModeRevision: turn.Mode.Revision,
-		NetworkMode:         turn.Mode.Scope.NetworkMode,
-		AllowedTargets:      append([]string(nil), turn.Mode.Scope.AllowedTargets...),
-		ProviderAvailable:   providerFingerprint != "",
-		ProviderFingerprint: providerFingerprint}
+		ModeRevision:                    turn.Mode.Revision,
+		PermissionRevision:              permission.Revision,
+		NetworkMode:                     networkAuthority.Mode,
+		AllowedTargets:                  append([]string(nil), networkAuthority.AllowedTargets...),
+		ProviderAvailable:               providerFingerprint != "",
+		ProviderFingerprint:             providerFingerprint,
+		ProviderSearchIndependent:       providerIndependent,
+		InlineWebFetchApprovalAvailable: s.webFetchAuthorizationSchedulerEnabled}
 	snapshot := toolgateway.WebEvidenceCapabilitySnapshot(context)
 	if !snapshot.Available {
 		return snapshot, nil, nil
@@ -392,20 +453,104 @@ func (s *RunSupervisor) supervisorWebEvidenceCapabilities(
 	return snapshot, encoded, nil
 }
 
+func (s *RunSupervisor) supervisorBrowserActionCapabilities(ctx context.Context,
+	turn domain.SupervisorTurn, permission domain.RunExecutionPermissionSnapshot,
+) (toolgateway.BrowserActionCapabilities, json.RawMessage, error) {
+	if s == nil || s.browserActions == nil || turn.Agent.Role != domain.AgentRoleRoot ||
+		(permission.Mode != domain.RunExecutionPermissionFullAccess &&
+			permission.Mode != domain.RunExecutionPermissionDebug) {
+		return toolgateway.BrowserActionCapabilities{}, nil, nil
+	}
+	binding, available, err := s.browserActions.browserActionBinding(ctx, turn.Run.ID)
+	if err != nil {
+		return toolgateway.BrowserActionCapabilities{}, nil, err
+	}
+	if !available || binding.executionPermission.ID != permission.ID ||
+		binding.executionPermission.Revision != permission.Revision ||
+		binding.executionPermission.Mode != permission.Mode {
+		return toolgateway.BrowserActionCapabilities{}, nil, nil
+	}
+	scope := toolgateway.BrowserActionCapabilityContext{RunID: turn.Run.ID,
+		MissionID: turn.Mission.ID, SessionID: turn.Run.SessionID,
+		RootAgentID: turn.Agent.ID, WorkspaceID: turn.Mission.WorkspaceID,
+		Surface: turn.Mode.Surface, Phase: turn.Mode.Phase, Role: turn.Agent.Role,
+		Profile: turn.Mode.Profile, PermissionMode: permission.Mode,
+		ModeRevision:         turn.Mode.Revision,
+		PermissionSnapshotID: permission.ID, PermissionRevision: permission.Revision,
+		PermissionActivation:        binding.executionActivation,
+		RunAuthorizationFence:       binding.executionFence,
+		FullCDPSessionID:            binding.view.SessionID,
+		BrowserPermissionSnapshotID: binding.browserPermissionID,
+		BrowserPermissionRevision:   binding.browserPermissionRevision,
+		TargetOrigin:                binding.view.TargetOrigin, Ready: binding.view.State == FullCDPSessionReady,
+		RuntimeAvailable: binding.view.RuntimeAvailable}
+	snapshot := toolgateway.BrowserActionCapabilitySnapshot(scope)
+	if !snapshot.Available {
+		return snapshot, nil, nil
+	}
+	authority, err := toolgateway.NewBrowserActionCallAuthority(scope)
+	if err != nil {
+		return toolgateway.BrowserActionCapabilities{}, nil, err
+	}
+	encoded, err := toolgateway.EncodeBrowserActionCallAuthority(authority)
+	if err != nil {
+		return toolgateway.BrowserActionCapabilities{}, nil, err
+	}
+	return snapshot, encoded, nil
+}
+
 func (s *RunSupervisor) supervisorMCPCapabilities(ctx context.Context,
 	turn domain.SupervisorTurn, permission domain.RunExecutionPermissionSnapshot,
-) (mcp.ScopedCapabilities, error) {
+) (supervisorMCPTools, error) {
 	if s.mcpClient == nil || turn.Mode.Surface != domain.ExecutionSurfaceCode ||
 		turn.Mode.Phase != domain.ExecutionPhaseDeliver || turn.Agent.Role != domain.AgentRoleRoot ||
-		permission.Mode != domain.RunExecutionPermissionFullAccess ||
+		!permission.Mode.IncludesFullAccess() ||
 		strings.TrimSpace(turn.Mission.WorkspaceID) == "" {
-		return mcp.ScopedCapabilities{}, nil
+		return supervisorMCPTools{}, nil
+	}
+	generation, live := s.executionCapabilities.FullAccessGeneration(permission)
+	if !live {
+		return supervisorMCPTools{}, nil
+	}
+	fence := uint64(0)
+	if s.executionCapabilities.RuntimeAuthority != nil {
+		issuedFence, fenceErr := s.executionCapabilities.RuntimeAuthority.
+			IssueRunAuthorizationFence(turn.Run.ID)
+		if fenceErr != nil {
+			return supervisorMCPTools{}, fenceErr
+		}
+		fence = issuedFence
 	}
 	capabilities, err := s.mcpClient.Capabilities(ctx, turn.Run.ID, turn.Mission.WorkspaceID)
 	if err != nil {
-		return mcp.ScopedCapabilities{}, apperror.Normalize(err)
+		return supervisorMCPTools{}, apperror.Normalize(err)
 	}
-	return boundedSupervisorMCPCapabilities(capabilities), nil
+	bounded := boundedSupervisorMCPCapabilities(capabilities)
+	if len(bounded.Servers) == 0 {
+		return supervisorMCPTools{}, nil
+	}
+	authority, err := mcp.EncodeSupervisorCallAuthority(mcp.SupervisorCallAuthority{
+		Version: mcp.SupervisorCallAuthorityVersion,
+		RunID:   turn.Run.ID, MissionID: turn.Mission.ID,
+		WorkspaceID:          turn.Mission.WorkspaceID,
+		PermissionSnapshotID: permission.ID, PermissionRevision: permission.Revision,
+		PermissionMode: permission.Mode, PermissionGeneration: generation,
+		RunAuthorizationFence: fence,
+	})
+	if err != nil {
+		return supervisorMCPTools{}, err
+	}
+	return supervisorMCPTools{Capabilities: bounded, Authority: authority}, nil
+}
+
+func runAuthorizationFenceCurrent(
+	capabilities domain.ExecutionPermissionRuntimeCapabilities,
+	runID string, fence uint64,
+) bool {
+	if capabilities.RuntimeAuthority == nil {
+		return fence == 0
+	}
+	return capabilities.RuntimeAuthority.AllowsRunAuthorizationFence(runID, fence)
 }
 
 const maxSupervisorMCPTools = 128
@@ -653,11 +798,20 @@ func (s *RunSupervisor) resumeSupervisorTools(ctx context.Context, turn domain.S
 func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.SupervisorTurn,
 	call domain.SupervisorToolCall,
 ) (domain.SupervisorToolResult, error) {
+	if call.AgentAttribution == domain.AgentAttributionLegacyUnknown ||
+		call.AgentID == "" || call.AgentID != turn.Agent.ID ||
+		call.AgentAttemptID == "" ||
+		call.AgentAttemptID != turn.Checkpoint.AttemptID {
+		return domain.SupervisorToolResult{}, apperror.New(
+			apperror.CodeFailedPrecondition,
+			"durable Supervisor tool Agent attribution does not match the active turn")
+	}
 	name := toolgateway.ToolName(call.ToolName)
 	operationKey := supervisorToolOperationKey(call.RunID, call.Turn, name, json.RawMessage(call.PayloadJSON))
 	toolCall := toolgateway.ToolCall{
 		Name: name, Payload: json.RawMessage(call.PayloadJSON), OperationKey: operationKey,
-		RunID: call.RunID, AgentID: turn.Agent.ID, SessionID: turn.Run.SessionID,
+		RunID: call.RunID, AgentID: call.AgentID,
+		AgentAttemptID: call.AgentAttemptID, SessionID: turn.Run.SessionID,
 		WorkspaceID: turn.Mission.WorkspaceID,
 		LeaseID:     turn.Checkpoint.LeaseID, LeaseGeneration: turn.Checkpoint.LeaseGeneration,
 		RequestedBy:    "run_supervisor",
@@ -727,15 +881,34 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		toolCall.CommandRuntimeAdapter = authority.Adapter
 	}
 	if name == toolgateway.MCPToolCallTool {
+		authority, authorityErr := mcp.DecodeSupervisorCallAuthority(
+			json.RawMessage(call.AuthorityJSON))
 		permission, permissionErr := s.store.GetRunExecutionPermission(ctx, turn.Run.ID)
-		if permissionErr != nil {
-			return domain.SupervisorToolResult{}, apperror.Normalize(permissionErr)
+		generation, live := s.executionCapabilities.FullAccessGeneration(permission)
+		fenceLive := authorityErr == nil &&
+			runAuthorizationFenceCurrent(s.executionCapabilities,
+				turn.Run.ID, authority.RunAuthorizationFence)
+		if authorityErr != nil || permissionErr != nil ||
+			authority.RunID != turn.Run.ID || authority.MissionID != turn.Mission.ID ||
+			authority.WorkspaceID != turn.Mission.WorkspaceID ||
+			authority.PermissionSnapshotID != permission.ID ||
+			authority.PermissionRevision != permission.Revision ||
+			authority.PermissionMode != permission.Mode || !live || !fenceLive ||
+			authority.PermissionGeneration != generation {
+			return domain.SupervisorToolResult{}, apperror.New(
+				apperror.CodeFailedPrecondition,
+				"durable MCP authority does not match the exact live execution permission")
 		}
+		toolCall.MissionID = authority.MissionID
 		toolCall.Surface = turn.Mode.Surface
 		toolCall.Phase = turn.Mode.Phase
 		toolCall.Role = turn.Agent.Role
 		toolCall.Profile = turn.Mode.Profile
 		toolCall.PermissionMode = permission.Mode
+		toolCall.PermissionSnapshotID = permission.ID
+		toolCall.PermissionRevision = permission.Revision
+		toolCall.PermissionGeneration = generation
+		toolCall.RunAuthorizationFence = authority.RunAuthorizationFence
 	}
 	if toolgateway.IsWebEvidenceTool(name) {
 		authority, authorityErr := toolgateway.DecodeWebEvidenceCallAuthority(
@@ -756,8 +929,59 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 		toolCall.ModeRevision = authority.ModeRevision
 		toolCall.PermissionRevision = authority.PermissionRevision
 		toolCall.CapabilityGeneration = authority.Generation
+		toolCall.ProviderFingerprint = authority.ProviderFingerprint
 	}
-	toolCtx, cancelTool := context.WithTimeout(ctx, supervisorToolCallTimeout)
+	if toolgateway.IsBrowserActionTool(name) {
+		if s.browserActions == nil {
+			return domain.SupervisorToolResult{}, apperror.New(
+				apperror.CodeFailedPrecondition,
+				"browser actions are not connected to the active Supervisor")
+		}
+		authority, authorityErr := toolgateway.DecodeBrowserActionCallAuthority(
+			json.RawMessage(call.AuthorityJSON))
+		permission, permissionErr := s.store.GetRunExecutionPermission(ctx, turn.Run.ID)
+		binding, bindingAvailable, bindingErr := s.browserActions.browserActionBinding(
+			ctx, turn.Run.ID)
+		if authorityErr != nil || permissionErr != nil || bindingErr != nil ||
+			!bindingAvailable || authority.RunID != call.RunID ||
+			authority.RunID != turn.Run.ID || authority.MissionID != turn.Mission.ID ||
+			authority.SessionID != turn.Run.SessionID ||
+			authority.RootAgentID != turn.Agent.ID ||
+			authority.WorkspaceID != turn.Mission.WorkspaceID ||
+			authority.Surface != turn.Mode.Surface || authority.Phase != turn.Mode.Phase ||
+			authority.Profile != turn.Mode.Profile || authority.Role != turn.Agent.Role ||
+			authority.ModeRevision != turn.Mode.Revision ||
+			authority.PermissionSnapshotID != permission.ID ||
+			authority.PermissionRevision != permission.Revision ||
+			authority.PermissionMode != permission.Mode ||
+			authority.FullCDPSessionID != binding.view.SessionID ||
+			authority.BrowserPermissionSnapshotID != binding.browserPermissionID ||
+			authority.BrowserPermissionRevision != binding.browserPermissionRevision ||
+			authority.PermissionActivation != binding.executionActivation ||
+			authority.RunAuthorizationFence != binding.executionFence ||
+			authority.TargetOrigin != binding.view.TargetOrigin {
+			return domain.SupervisorToolResult{}, apperror.New(
+				apperror.CodeFailedPrecondition,
+				"durable browser action authority no longer matches the ready Full CDP session")
+		}
+		toolCall.MissionID = authority.MissionID
+		toolCall.Surface = authority.Surface
+		toolCall.Phase = authority.Phase
+		toolCall.Role = authority.Role
+		toolCall.Profile = authority.Profile
+		toolCall.PermissionMode = authority.PermissionMode
+		toolCall.ModeRevision = authority.ModeRevision
+		toolCall.PermissionSnapshotID = authority.PermissionSnapshotID
+		toolCall.PermissionRevision = authority.PermissionRevision
+		toolCall.PermissionGeneration = authority.PermissionActivation
+		toolCall.RunAuthorizationFence = authority.RunAuthorizationFence
+		toolCall.CapabilityGeneration = authority.Generation
+		toolCall.BrowserActionSessionID = authority.FullCDPSessionID
+		toolCall.BrowserPermissionSnapshotID = authority.BrowserPermissionSnapshotID
+		toolCall.BrowserPermissionRevision = authority.BrowserPermissionRevision
+	}
+	toolTimeout := supervisorToolExecutionTimeout(name)
+	toolCtx, cancelTool := context.WithTimeout(ctx, toolTimeout)
 	outcome, err := s.tools.Invoke(toolCtx, toolCall)
 	toolContextErr := toolCtx.Err()
 	cancelTool()
@@ -766,10 +990,13 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 	}
 	if errors.Is(toolContextErr, context.DeadlineExceeded) {
 		err = apperror.New(apperror.CodeDeadlineExceeded,
-			"structured supervisor tool exceeded its 30 second execution limit")
+			fmt.Sprintf("structured supervisor tool exceeded its %s execution limit", toolTimeout))
 	}
 	completedAt := time.Now().UTC()
 	if err != nil {
+		if errors.Is(err, errWebFetchWaitingApproval) {
+			return domain.SupervisorToolResult{}, errSupervisorWaitingApproval
+		}
 		code := apperror.CodeOf(apperror.Normalize(err))
 		if !recoverableSupervisorToolError(name, code) {
 			return domain.SupervisorToolResult{}, apperror.Normalize(err)
@@ -819,7 +1046,7 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 	if name == toolgateway.DebugTerminalTool || name == toolgateway.CommandRuntimeTool ||
 		name == toolgateway.MCPToolCallTool ||
 		toolgateway.IsAgentCodeTool(name) || toolgateway.IsCodeIntelTool(name) ||
-		toolgateway.IsWebEvidenceTool(name) {
+		toolgateway.IsWebEvidenceTool(name) || toolgateway.IsBrowserActionTool(name) {
 		envelope.Stdout = redact.String(outcome.Result.Stdout)
 		envelope.Stderr = redact.String(outcome.Result.Stderr)
 		envelope.Truncated = outcome.Result.Truncated
@@ -834,6 +1061,13 @@ func (s *RunSupervisor) invokeSupervisorTool(ctx context.Context, turn domain.Su
 	}, nil
 }
 
+func supervisorToolExecutionTimeout(name toolgateway.ToolName) time.Duration {
+	if name == toolgateway.WebSearchTool {
+		return supervisorWebSearchToolCallTimeout
+	}
+	return supervisorToolCallTimeout
+}
+
 func recoverableSupervisorToolError(name toolgateway.ToolName,
 	code apperror.Code,
 ) bool {
@@ -844,10 +1078,11 @@ func recoverableSupervisorToolError(name toolgateway.ToolName,
 	case apperror.CodeFailedPrecondition, apperror.CodeNotFound, apperror.CodePolicyDenied:
 		return name == toolgateway.DebugTerminalTool || name == toolgateway.CommandRuntimeTool ||
 			name == toolgateway.MCPToolCallTool || toolgateway.IsAgentCodeTool(name) ||
-			toolgateway.IsWebEvidenceTool(name) ||
+			toolgateway.IsWebEvidenceTool(name) || toolgateway.IsBrowserActionTool(name) ||
 			toolgateway.IsCodeIntelTool(name)
 	case apperror.CodeUnavailable:
-		return toolgateway.IsCodeIntelTool(name) || toolgateway.IsWebEvidenceTool(name)
+		return toolgateway.IsCodeIntelTool(name) || toolgateway.IsWebEvidenceTool(name) ||
+			toolgateway.IsBrowserActionTool(name)
 	default:
 		return false
 	}

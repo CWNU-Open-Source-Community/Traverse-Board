@@ -33,6 +33,7 @@ type AnthropicCompatibleConfig struct {
 	DefaultModel    string
 	DisableThinking bool
 	HTTPClient      *http.Client
+	Runtime         HTTPProviderRuntime
 }
 
 type AnthropicCompatibleProvider struct {
@@ -42,6 +43,7 @@ type AnthropicCompatibleProvider struct {
 	defaultModel    string
 	disableThinking bool
 	client          *http.Client
+	runtime         HTTPProviderRuntime
 }
 
 func NewAnthropicCompatibleProvider(config AnthropicCompatibleConfig) (*AnthropicCompatibleProvider, error) {
@@ -53,7 +55,11 @@ func NewAnthropicCompatibleProvider(config AnthropicCompatibleConfig) (*Anthropi
 	if err != nil {
 		return nil, err
 	}
-	if err := validateProviderAPIKey(config.APIKey, name); err != nil {
+	if config.Runtime == nil {
+		if err := validateProviderAPIKey(config.APIKey, name); err != nil {
+			return nil, err
+		}
+	} else if err := validateHTTPProviderRuntime(config.Runtime); err != nil {
 		return nil, err
 	}
 	client := providerHTTPClient(config.HTTPClient)
@@ -68,6 +74,7 @@ func NewAnthropicCompatibleProvider(config AnthropicCompatibleConfig) (*Anthropi
 		defaultModel:    defaultModel,
 		disableThinking: config.DisableThinking,
 		client:          client,
+		runtime:         config.Runtime,
 	}, nil
 }
 
@@ -136,11 +143,19 @@ func (p *AnthropicCompatibleProvider) Name() string {
 }
 
 func (p *AnthropicCompatibleProvider) ListModels(ctx context.Context) ([]ModelInfo, error) {
+	secret, err := providerRequestCredential(ctx, p.name, p.apiKey, p.runtime)
+	if err != nil {
+		return nil, NewProviderError(OutcomePermanent, p.name,
+			"provider credential is unavailable", nil)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.endpoint("/v1/models"), nil)
 	if err != nil {
 		return nil, err
 	}
-	p.addHeaders(req)
+	if err := p.addHeaders(req, secret, "application/json"); err != nil {
+		return nil, NewProviderError(OutcomePermanent, p.name,
+			"could not prepare model-list headers", nil)
+	}
 	resp, err := p.client.Do(req)
 	if err != nil {
 		return fallbackModelInfo(p.name, p.defaultModel), nil
@@ -184,15 +199,24 @@ func (p *AnthropicCompatibleProvider) ListModels(ctx context.Context) ([]ModelIn
 }
 
 func (p *AnthropicCompatibleProvider) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
-	model := strings.TrimSpace(req.Model)
-	if model == "" {
-		model = p.defaultModel
+	selectedModel := strings.TrimSpace(req.Model)
+	if selectedModel == "" {
+		selectedModel = p.defaultModel
 	}
-	body, err := p.toRequest(model, req)
+	wireModel, err := providerRequestModel(p.runtime, selectedModel)
+	if err != nil {
+		return nil, NewProviderError(OutcomePermanent, p.name, "could not map model", nil)
+	}
+	body, err := p.toRequest(wireModel, req)
 	if err != nil {
 		return nil, NewProviderError(OutcomePermanent, p.name, "could not prepare request", err)
 	}
-	payload, err := json.Marshal(body)
+	secret, err := providerRequestCredential(ctx, p.name, p.apiKey, p.runtime)
+	if err != nil {
+		return nil, NewProviderError(OutcomePermanent, p.name,
+			"provider credential is unavailable", nil)
+	}
+	payload, err := providerRequestPayload(p.runtime, secret, body)
 	if err != nil {
 		return nil, NewProviderError(OutcomePermanent, p.name, "could not encode request", err)
 	}
@@ -200,7 +224,10 @@ func (p *AnthropicCompatibleProvider) Chat(ctx context.Context, req ChatRequest)
 	if err != nil {
 		return nil, NewProviderError(OutcomePermanent, p.name, "could not create request", err)
 	}
-	p.addHeaders(httpReq)
+	if err := p.addHeaders(httpReq, secret, "application/json"); err != nil {
+		return nil, NewProviderError(OutcomePermanent, p.name,
+			"could not prepare request headers", nil)
+	}
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
 		return nil, NormalizeProviderError(p.name, err)
@@ -225,6 +252,13 @@ func (p *AnthropicCompatibleProvider) Chat(ctx context.Context, req ChatRequest)
 	if strings.TrimSpace(text) == "" && len(toolCalls) == 0 {
 		return nil, NewProviderError(OutcomeInvalidResponse, p.name, "returned an empty text response", nil)
 	}
+	responseModel := parsed.ModelOrDefault(selectedModel)
+	if p.runtime != nil {
+		// A custom definition may map its stable local route identity to a
+		// different upstream model identifier. Do not let that wire detail escape
+		// back into the Router/Supervisor contract.
+		responseModel = selectedModel
+	}
 	return &ChatResponse{
 		Text:      text,
 		ToolCalls: toolCalls,
@@ -232,7 +266,7 @@ func (p *AnthropicCompatibleProvider) Chat(ctx context.Context, req ChatRequest)
 		// not part of the Supervisor contract and must not cross persistence or
 		// activity boundaries.
 		Raw:      nil,
-		Model:    parsed.ModelOrDefault(model),
+		Model:    responseModel,
 		Provider: p.name,
 		Usage: Usage{
 			InputTokens:  parsed.Usage.InputTokens,
@@ -299,16 +333,25 @@ func parseRetryAfter(value string, now time.Time) time.Duration {
 }
 
 func (p *AnthropicCompatibleProvider) StreamChat(ctx context.Context, req ChatRequest) (<-chan ChatChunk, error) {
-	model := strings.TrimSpace(req.Model)
-	if model == "" {
-		model = p.defaultModel
+	selectedModel := strings.TrimSpace(req.Model)
+	if selectedModel == "" {
+		selectedModel = p.defaultModel
 	}
-	body, err := p.toRequest(model, req)
+	wireModel, err := providerRequestModel(p.runtime, selectedModel)
+	if err != nil {
+		return nil, NewProviderError(OutcomePermanent, p.name, "could not map model", nil)
+	}
+	body, err := p.toRequest(wireModel, req)
 	if err != nil {
 		return nil, NewProviderError(OutcomePermanent, p.name, "could not prepare streaming request", err)
 	}
 	body.Stream = true
-	payload, err := json.Marshal(body)
+	secret, err := providerRequestCredential(ctx, p.name, p.apiKey, p.runtime)
+	if err != nil {
+		return nil, NewProviderError(OutcomePermanent, p.name,
+			"provider credential is unavailable", nil)
+	}
+	payload, err := providerRequestPayload(p.runtime, secret, body)
 	if err != nil {
 		return nil, NewProviderError(OutcomePermanent, p.name, "could not encode streaming request", err)
 	}
@@ -316,8 +359,10 @@ func (p *AnthropicCompatibleProvider) StreamChat(ctx context.Context, req ChatRe
 	if err != nil {
 		return nil, NewProviderError(OutcomePermanent, p.name, "could not create streaming request", err)
 	}
-	p.addHeaders(httpReq)
-	httpReq.Header.Set("Accept", "text/event-stream")
+	if err := p.addHeaders(httpReq, secret, "text/event-stream"); err != nil {
+		return nil, NewProviderError(OutcomePermanent, p.name,
+			"could not prepare streaming request headers", nil)
+	}
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
 		return nil, NormalizeProviderError(p.name, err)
@@ -331,7 +376,7 @@ func (p *AnthropicCompatibleProvider) StreamChat(ctx context.Context, req ChatRe
 		return nil, anthropicHTTPError(p.name, resp.StatusCode, resp.Header.Get("Retry-After"), raw)
 	}
 	ch := make(chan ChatChunk, 8)
-	go p.readStream(ctx, resp.Body, model, ch)
+	go p.readStream(ctx, resp.Body, selectedModel, ch)
 	return ch, nil
 }
 
@@ -341,7 +386,8 @@ func (p *AnthropicCompatibleProvider) readStream(ctx context.Context, body io.Re
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 64*1024), 1<<20)
 	state := anthropicStreamState{model: defaultModel,
-		events: newProviderStreamEvents(p.name, defaultModel, "anthropic-response", StreamGranularityDelta)}
+		preserveRequestedModel: p.runtime != nil,
+		events:                 newProviderStreamEvents(p.name, defaultModel, "anthropic-response", StreamGranularityDelta)}
 	dataLines := make([]string, 0, 1)
 	stopped := false
 	sendError := func(err error) bool {
@@ -430,7 +476,7 @@ func (p *AnthropicCompatibleProvider) DescribeModelHarness(model string) ModelHa
 		ToolStrategy:        HarnessToolStrategyNative,
 		JSONStrategy:        HarnessJSONStrategyPrompt,
 		QualificationStatus: HarnessQualificationRequired,
-		BindingDigest: harnessBindingDigest(p.name, p.baseURL, model,
+		BindingDigest: providerHarnessBinding(p.runtime, p.name, p.baseURL, model,
 			HarnessTransportAnthropicMessages, HarnessToolStrategyNative,
 			HarnessJSONStrategyPrompt),
 	}
@@ -480,6 +526,9 @@ func (p *AnthropicCompatibleProvider) toRequest(model string, req ChatRequest) (
 			out.Messages = append(out.Messages, anthropicMessage{Role: "user", Content: encoded})
 		}
 	}
+	if len(req.Tools) > MaxProviderToolSpecs {
+		return anthropicMessageRequest{}, errors.New("tool specification count exceeds the provider limit")
+	}
 	for index, spec := range req.Tools {
 		name := strings.TrimSpace(spec.Name)
 		description := strings.TrimSpace(spec.Description)
@@ -508,12 +557,15 @@ func (p *AnthropicCompatibleProvider) endpoint(path string) string {
 	return p.baseURL + path
 }
 
-func (p *AnthropicCompatibleProvider) addHeaders(req *http.Request) {
+func (p *AnthropicCompatibleProvider) addHeaders(req *http.Request, secret string,
+	accept string,
+) error {
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept", accept)
 	req.Header.Set("anthropic-version", AnthropicVersion)
-	req.Header.Set("x-api-key", p.apiKey)
-	req.Header.Set("Authorization", "Bearer "+p.apiKey)
+	req.Header.Set("x-api-key", secret)
+	req.Header.Set("Authorization", "Bearer "+secret)
+	return applyProviderRequestHeaders(p.runtime, secret, req.Header)
 }
 
 type anthropicMessageRequest struct {
@@ -630,17 +682,18 @@ type anthropicStreamEvent struct {
 }
 
 type anthropicStreamState struct {
-	model          string
-	inputTokens    int
-	outputTokens   int
-	toolBlocks     map[int]*anthropicStreamToolBlock
-	textBlocks     map[int]bool
-	privateBlocks  map[int]bool
-	toolCalls      []ToolCall
-	messageStarted bool
-	messageStopped bool
-	itemCount      int
-	events         providerStreamEvents
+	model                  string
+	inputTokens            int
+	outputTokens           int
+	toolBlocks             map[int]*anthropicStreamToolBlock
+	textBlocks             map[int]bool
+	privateBlocks          map[int]bool
+	toolCalls              []ToolCall
+	messageStarted         bool
+	messageStopped         bool
+	itemCount              int
+	events                 providerStreamEvents
+	preserveRequestedModel bool
 }
 
 type anthropicStreamToolBlock struct {
@@ -668,8 +721,10 @@ func (s *anthropicStreamState) consume(payload []byte, provider string) (*ChatCh
 			return nil, false, NewProviderError(OutcomeInvalidResponse, provider,
 				"returned an invalid model identity during the stream", nil)
 		}
-		s.model = model
-		s.events.model = model
+		if !s.preserveRequestedModel {
+			s.model = model
+			s.events.model = model
+		}
 		s.messageStarted = true
 		s.inputTokens = event.Message.Usage.InputTokens
 		s.outputTokens = event.Message.Usage.OutputTokens

@@ -42,6 +42,7 @@ type ConnectionBootstrap struct {
 	WorkspaceSandboxEnabled                 bool   `json:"workspace_sandbox_enabled"`
 	BrowserCDPPermissionControlEnabled      bool   `json:"browser_cdp_permission_control_enabled"`
 	FullCDPDebugEnabled                     bool   `json:"full_cdp_debug_enabled"`
+	FullCDPSessionControlEnabled            bool   `json:"full_cdp_session_control_enabled"`
 	OperatorApprovalEnabled                 bool   `json:"operator_approval_enabled"`
 	DangerFullAccessEnabled                 bool   `json:"danger_full_access_enabled"`
 	DebugMaximumAccessEnabled               bool   `json:"debug_maximum_access_enabled"`
@@ -91,6 +92,7 @@ type ConnectionBootstrap struct {
 	WorkspaceOpenEnabled                    bool   `json:"workspace_open_enabled"`
 	WorkspaceImportEnabled                  bool   `json:"workspace_import_enabled"`
 	RendererPathInputSupported              bool   `json:"renderer_path_input_supported"`
+	RiskProfileRestartEnabled               bool   `json:"risk_profile_restart_enabled"`
 }
 
 type SkillPackageDialogStatus string
@@ -157,6 +159,7 @@ type DesktopBridgeConfig struct {
 	WorkspaceSandboxEnabled                 bool
 	BrowserCDPPermissionControlEnabled      bool
 	FullCDPDebugEnabled                     bool
+	FullCDPSessionControlEnabled            bool
 	OperatorApprovalEnabled                 bool
 	DangerFullAccessEnabled                 bool
 	DebugMaximumAccessEnabled               bool
@@ -206,6 +209,8 @@ type DesktopBridgeConfig struct {
 	WorkspaceRegistrar                      WorkspaceDirectoryRegistrar
 	UserTerminalController                  UserTerminalController
 	DebugTerminalAgentInputController       application.DebugTerminalAgentInputController
+	RiskProfileRestartEnabled               bool
+	RiskProfileRestarter                    DesktopRiskProfileRestarter
 }
 
 // DesktopBridge is the complete renderer binding surface for D0-A. Keep this
@@ -222,9 +227,11 @@ type DesktopBridge struct {
 	workspaceRegistrar       WorkspaceDirectoryRegistrar
 	userTerminal             UserTerminalController
 	debugTerminalAgentInput  application.DebugTerminalAgentInputController
+	riskProfileRestarter     DesktopRiskProfileRestarter
 	bootstrap                ConnectionBootstrap
 	dialogActive             atomic.Bool
 	workspaceOpenActive      atomic.Bool
+	riskRestartActive        atomic.Bool
 }
 
 func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
@@ -240,7 +247,8 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 	}
 	controlEnabled := config.RunControlEnabled ||
 		config.ExecutionPermissionControlEnabled ||
-		config.BrowserCDPPermissionControlEnabled || config.RunCreationEnabled ||
+		config.BrowserCDPPermissionControlEnabled || config.FullCDPSessionControlEnabled ||
+		config.RunCreationEnabled ||
 		config.StandardCodePresetEnabled ||
 		config.SessionMessageEnabled ||
 		config.SessionSteeringControlEnabled || config.RunLifecycleEnabled ||
@@ -289,6 +297,16 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 		config.DebugTerminalAgentInputController == nil {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop Debug terminal Agent input requires the Go lease controller")
+	}
+	if config.RiskProfileRestartEnabled &&
+		(config.RiskProfileRestarter == nil || config.ControlToken == "" ||
+			!config.ExecutionPermissionControlEnabled || !config.OperatorApprovalEnabled) {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"desktop risk-profile restart requires native restart and permission control")
+	}
+	if !config.RiskProfileRestartEnabled && config.RiskProfileRestarter != nil {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"desktop risk-profile restarter requires its explicit capability")
 	}
 	permissionCapabilities := domain.ExecutionPermissionRuntimeCapabilities{
 		WorkspaceSandboxEnabled:   config.WorkspaceSandboxEnabled,
@@ -345,9 +363,15 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 		return nil, apperror.Wrap(apperror.CodeInvalidArgument,
 			"desktop browser CDP permission capabilities are invalid", err)
 	}
-	if config.FullCDPDebugEnabled && !config.DebugMaximumAccessEnabled {
+	if config.FullCDPDebugEnabled && !config.DangerFullAccessEnabled {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
-			"desktop full CDP debug requires maximum Debug execution capability")
+			"desktop full CDP requires the Full Access execution adapter")
+	}
+	if config.FullCDPSessionControlEnabled &&
+		(!config.FullCDPDebugEnabled || !config.BrowserCDPPermissionControlEnabled ||
+			!config.DangerFullAccessEnabled) {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"desktop Full CDP session control requires the production Full CDP permission stack")
 	}
 	if config.UIEvidenceControlEnabled &&
 		(!commandRuntimeEnabled || !config.BrowserCDPPermissionControlEnabled) {
@@ -379,6 +403,7 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 		workspaceRegistrar:       config.WorkspaceRegistrar,
 		userTerminal:             config.UserTerminalController,
 		debugTerminalAgentInput:  config.DebugTerminalAgentInputController,
+		riskProfileRestarter:     config.RiskProfileRestarter,
 		bootstrap: ConnectionBootstrap{
 			ProtocolVersion: ConnectionBootstrapProtocolVersion,
 			APIBaseURL:      DesktopAPIBasePath, APIVersion: apiVersion, AppVersion: appVersion,
@@ -388,6 +413,7 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 			WorkspaceSandboxEnabled:                 config.WorkspaceSandboxEnabled,
 			BrowserCDPPermissionControlEnabled:      config.BrowserCDPPermissionControlEnabled,
 			FullCDPDebugEnabled:                     config.FullCDPDebugEnabled,
+			FullCDPSessionControlEnabled:            config.FullCDPSessionControlEnabled,
 			OperatorApprovalEnabled:                 config.OperatorApprovalEnabled,
 			DangerFullAccessEnabled:                 config.DangerFullAccessEnabled,
 			DebugMaximumAccessEnabled:               config.DebugMaximumAccessEnabled,
@@ -437,6 +463,7 @@ func NewDesktopBridge(config DesktopBridgeConfig) (*DesktopBridge, error) {
 			WorkspaceOpenEnabled:                    config.WorkspaceResolver != nil,
 			WorkspaceImportEnabled:                  config.RunCreationEnabled && config.WorkspaceRegistrar != nil,
 			RendererPathInputSupported:              false,
+			RiskProfileRestartEnabled:               config.RiskProfileRestartEnabled,
 		},
 	}, nil
 }

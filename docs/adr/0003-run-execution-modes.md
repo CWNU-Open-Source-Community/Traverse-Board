@@ -25,9 +25,9 @@ Permissions, approval state, network scope, tool availability, and child-Agent a
 
 权限、审批状态、网络 Scope、工具可用性和子 Agent 准入继续由 Go 独立控制。任何模式都不授予能力。
 
-The surface, Profile, Scope, protocol version, and policy version are immutable within a Run. Moving between Code and Cyber requires a new Run with a newly reviewed scope. The phase may change only through an explicit operator operation while the Run is `created` or `paused` and no execution lease is active. Operation keys are persisted only as domain-separated digests, and exact replay returns the existing revision.
+The surface, Profile, Workspace scope, protocol version, and policy version are immutable within a Run. Moving between Code and Cyber requires a new Run. Network scope has one narrow exception: an operator may append exact public HTTPS hostnames through the separately audited, revision-bound transition while the Run is `created` or `paused` and has no active execution lease. That transition cannot remove a hostname, grant a wildcard, or alter any other mode field. The phase follows the same quiescent boundary. Operation keys are persisted only as domain-separated digests, and exact replay returns the existing revision.
 
-工作面、Profile、Scope、协议版本和策略版本在一个 Run 内保持不可变。Code 与 Cyber 之间切换必须创建新的 Run，并重新确认 Scope。执行阶段只能由操作者在 Run 为 `created` 或 `paused` 且没有活动 execution lease 时显式变更。操作键只以域分隔摘要持久化，相同意图重放返回已有 revision。
+工作面、Profile、Workspace Scope、协议版本和策略版本在一个 Run 内保持不可变。Code 与 Cyber 之间切换必须创建新的 Run。网络 Scope 只有一个窄化例外：操作者可在 Run 为 `created` 或 `paused` 且没有活动 execution lease 时，通过独立审计、绑定 revision 的转换追加精确公网 HTTPS 主机名；该转换不能删除目标、授予通配符或改变其他模式字段。执行阶段遵循相同静止边界。操作键只以域分隔摘要持久化，相同意图重放返回已有 revision。
 
 Go loads and validates the mode snapshot inside the Supervisor transaction. `plan` may reason and create the already-approved structured memory records, but it cannot complete a Run. Model `finish` is repaired once through the existing bounded lifecycle protocol; operator completion and Store finalization also fail closed. The built-in Plan/Delivery Skill will provide workflow guidance on top of this state machine, not replace it.
 

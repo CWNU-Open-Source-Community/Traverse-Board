@@ -36,7 +36,8 @@ func testWebEvidenceCapabilityContext() WebEvidenceCapabilityContext {
 		PermissionMode:     domain.RunExecutionPermissionConservative,
 		PermissionRevision: 1, ModeRevision: 1, NetworkMode: "allowlist",
 		AllowedTargets: []string{"docs.example.com"}, ProviderAvailable: true,
-		ProviderFingerprint: strings.Repeat("a", 64)}
+		ProviderFingerprint:             strings.Repeat("a", 64),
+		InlineWebFetchApprovalAvailable: true}
 }
 
 func TestWebEvidenceDefinitionsAndPayloadsAreClosed(t *testing.T) {
@@ -118,17 +119,71 @@ func TestWebEvidenceDefinitionsAndPayloadsAreClosed(t *testing.T) {
 func TestWebEvidenceCapabilityAndAuthorityFailClosed(t *testing.T) {
 	scope := testWebEvidenceCapabilityContext()
 	available := WebEvidenceCapabilitySnapshot(scope)
-	if !available.Available || !available.SearchAvailable || available.Generation == "" {
+	if !available.Available || !available.FetchAvailable || !available.SearchAvailable ||
+		available.Generation == "" {
 		t.Fatalf("available=%#v", available)
+	}
+	preauthorizedWithoutInline := scope
+	preauthorizedWithoutInline.InlineWebFetchApprovalAvailable = false
+	if snapshot := WebEvidenceCapabilitySnapshot(preauthorizedWithoutInline); !snapshot.Available || !snapshot.FetchAvailable || !snapshot.SearchAvailable ||
+		snapshot.Generation == available.Generation {
+		t.Fatalf("preauthorized scheduler-disabled snapshot=%#v", snapshot)
+	}
+	const legacyDirectGeneration = "332ac8d6de55798e4c03530c48c947bbdfbad6eaeaee3b7de2ca245ba2ecdcbb"
+	legacySnapshot := WebEvidenceCapabilitySnapshot(preauthorizedWithoutInline)
+	if legacySnapshot.Generation != legacyDirectGeneration {
+		t.Fatalf("legacy direct generation=%s want=%s", legacySnapshot.Generation,
+			legacyDirectGeneration)
+	}
+	legacyAuthority, err := NewWebEvidenceCallAuthority(preauthorizedWithoutInline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyRaw, err := json.Marshal(legacyAuthority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacyFixture map[string]any
+	if err := json.Unmarshal(legacyRaw, &legacyFixture); err != nil {
+		t.Fatal(err)
+	}
+	delete(legacyFixture, "provider_search_independent")
+	delete(legacyFixture, "inline_web_fetch_approval_available")
+	legacyRaw, err = json.Marshal(legacyFixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded, err := DecodeWebEvidenceCallAuthority(legacyRaw); err != nil ||
+		decoded.Generation != legacyDirectGeneration {
+		t.Fatalf("legacy direct authority=%#v err=%v", decoded, err)
 	}
 
 	disabledScope := scope
 	disabledScope.NetworkMode = "disabled"
 	disabledScope.AllowedTargets = nil
 	disabled := WebEvidenceCapabilitySnapshot(disabledScope)
-	if disabled.Available || disabled.SearchAvailable ||
-		!strings.Contains(disabled.Refusal, "web_evidence_network_disabled") {
+	if !disabled.Available || !disabled.FetchAvailable || disabled.SearchAvailable {
 		t.Fatalf("disabled=%#v", disabled)
+	}
+	withoutInlineApproval := disabledScope
+	withoutInlineApproval.InlineWebFetchApprovalAvailable = false
+	if snapshot := WebEvidenceCapabilitySnapshot(withoutInlineApproval); snapshot.Available ||
+		snapshot.FetchAvailable || snapshot.SearchAvailable ||
+		snapshot.Generation == disabled.Generation {
+		t.Fatalf("disabled scheduler snapshot=%#v", snapshot)
+	}
+	workspaceDisabled := disabledScope
+	workspaceDisabled.PermissionMode = domain.RunExecutionPermissionWorkspaceAccess
+	if snapshot := WebEvidenceCapabilitySnapshot(workspaceDisabled); snapshot.Available ||
+		snapshot.FetchAvailable {
+		t.Fatalf("workspace networkless snapshot=%#v", snapshot)
+	}
+	hostedScope := disabledScope
+	hostedScope.ProviderSearchIndependent = true
+	hosted := WebEvidenceCapabilitySnapshot(hostedScope)
+	if !hosted.Available || !hosted.FetchAvailable || !hosted.SearchAvailable ||
+		hosted.Generation == disabled.Generation {
+		t.Fatalf("independent hosted search=%#v", hosted)
 	}
 	invalid := scope
 	invalid.AllowedTargets = []string{"localhost"}
@@ -144,7 +199,8 @@ func TestWebEvidenceCapabilityAndAuthorityFailClosed(t *testing.T) {
 	withoutProvider := scope
 	withoutProvider.ProviderAvailable = false
 	withoutProvider.ProviderFingerprint = ""
-	if snapshot := WebEvidenceCapabilitySnapshot(withoutProvider); !snapshot.Available || snapshot.SearchAvailable {
+	if snapshot := WebEvidenceCapabilitySnapshot(withoutProvider); !snapshot.Available ||
+		!snapshot.FetchAvailable || snapshot.SearchAvailable {
 		t.Fatalf("without provider=%#v", snapshot)
 	}
 	invalidProvider := scope
@@ -174,7 +230,8 @@ func TestWebEvidenceCapabilityAndAuthorityFailClosed(t *testing.T) {
 	}
 	decoded, err := DecodeWebEvidenceCallAuthority(encoded)
 	if err != nil || decoded.Generation != available.Generation ||
-		decoded.PermissionRevision != scope.PermissionRevision {
+		decoded.PermissionRevision != scope.PermissionRevision ||
+		!decoded.InlineWebFetchApprovalAvailable {
 		t.Fatalf("decoded=%#v err=%v", decoded, err)
 	}
 	authority.AllowedTargets = []string{"changed.example.com"}
@@ -200,11 +257,13 @@ func TestWebEvidenceGatewayRequiresFencedRootAndMarksOutputUntrusted(t *testing.
 		Profile: capability.Profile, PermissionMode: capability.PermissionMode,
 		PermissionRevision: capability.PermissionRevision, ModeRevision: capability.ModeRevision,
 		CapabilityGeneration: WebEvidenceCapabilitySnapshot(capability).Generation,
-		RequestedBy:          "run_supervisor", LeaseID: "lease-web-1", LeaseGeneration: 1}
+		RequestedBy:          "run_supervisor", SupervisorTurn: 1,
+		SupervisorToolCallID: "tool-call-web-fetch-1", LeaseID: "lease-web-1", LeaseGeneration: 1}
 
 	outcome, err := gateway.Invoke(t.Context(), call)
 	if err != nil || executor.calls != 1 || executor.lastTool != WebFetchTool ||
 		executor.lastScope.RunID != capability.RunID ||
+		executor.lastScope.ProviderFingerprint != "" ||
 		executor.lastScope.CapabilityGeneration != call.CapabilityGeneration ||
 		string(executor.lastPayload) != string(call.Payload) || outcome.Execution == nil ||
 		outcome.Execution.Backend != "web_evidence" || outcome.Result == nil ||
@@ -215,13 +274,41 @@ func TestWebEvidenceGatewayRequiresFencedRootAndMarksOutputUntrusted(t *testing.
 		t.Fatalf("outcome=%#v executor=%#v err=%v", outcome, executor, err)
 	}
 
+	searchCall := call
+	searchCall.Name = WebSearchTool
+	searchCall.Payload = json.RawMessage(
+		`{"version":"web_search.v1","query":"public spec","limit":1}`)
+	searchCall.OperationKey = "web-search-operation"
+	searchCall.ProviderFingerprint = capability.ProviderFingerprint
+	searchCall.SupervisorToolCallID = "tool-call-web-search-1"
+	searchOutcome, err := gateway.Invoke(t.Context(), searchCall)
+	if err != nil || executor.calls != 2 || executor.lastTool != WebSearchTool ||
+		executor.lastScope.ProviderFingerprint != capability.ProviderFingerprint ||
+		searchOutcome.Call.ProviderFingerprint != "" {
+		t.Fatalf("search outcome=%#v executor=%#v err=%v", searchOutcome, executor, err)
+	}
+	encoded, err := json.Marshal(searchCall)
+	if err != nil || strings.Contains(string(encoded), capability.ProviderFingerprint) ||
+		strings.Contains(string(encoded), "provider_fingerprint") {
+		t.Fatalf("internal Provider fingerprint escaped ToolCall JSON: %s err=%v", encoded, err)
+	}
+	missingSearchFingerprint := searchCall
+	missingSearchFingerprint.OperationKey = "web-search-missing-provider-fingerprint"
+	missingSearchFingerprint.ProviderFingerprint = ""
+	if _, err := gateway.Invoke(t.Context(), missingSearchFingerprint); err == nil {
+		t.Fatal("Web search without the advertised Provider fingerprint reached the executor")
+	}
+	if executor.calls != 2 {
+		t.Fatalf("executor calls=%d after missing Provider fingerprint", executor.calls)
+	}
+
 	unfenced := call
 	unfenced.LeaseID = ""
 	unfenced.LeaseGeneration = 0
 	if _, err := gateway.Invoke(t.Context(), unfenced); err == nil {
 		t.Fatal("unfenced Web fetch reached the Gateway")
 	}
-	if executor.calls != 1 || tracked.chargeCount() != 1 {
+	if executor.calls != 2 || tracked.chargeCount() != 2 {
 		t.Fatalf("calls=%d charges=%d", executor.calls, tracked.chargeCount())
 	}
 }

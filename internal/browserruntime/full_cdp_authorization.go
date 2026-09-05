@@ -10,9 +10,27 @@ import (
 )
 
 const (
-	FullCDPAuthorizationProtocolVersion = "browser_full_cdp_authorization.v1"
+	FullCDPAuthorizationProtocolVersion = "browser_full_cdp_authorization.v2"
 	FullCDPCapabilityTTL                = 5 * time.Minute
 )
+
+// FullCDPRuntimeCapabilities are the independent, process-local production
+// gates for the highly-sensitive Full CDP path. They deliberately do not reuse
+// Safe Web's WFP/network-containment capability bundle.
+type FullCDPRuntimeCapabilities struct {
+	StartEnabled             bool `json:"start_enabled"`
+	DisposableProfileEnabled bool `json:"disposable_profile_enabled"`
+	TransportEnabled         bool `json:"transport_enabled"`
+}
+
+func (capabilities FullCDPRuntimeCapabilities) Validate() error {
+	if capabilities.StartEnabled != capabilities.DisposableProfileEnabled ||
+		capabilities.TransportEnabled != capabilities.StartEnabled {
+		return errors.New(
+			"full CDP start, disposable Profile, and transport gates must match")
+	}
+	return nil
+}
 
 // FullCDPAuthorization is a short-lived, per-call, highly-sensitive CDP
 // authorization. It is fully independent from the Safe Web restricted
@@ -26,6 +44,11 @@ type FullCDPAuthorization struct {
 	ExecutableIdentityFingerprint string    `json:"executable_identity_fingerprint"`
 	PermissionSnapshotID          string    `json:"permission_snapshot_id"`
 	PermissionRevision            int64     `json:"permission_revision"`
+	ExecutionPermissionSnapshotID string    `json:"execution_permission_snapshot_id"`
+	ExecutionPermissionRevision   int64     `json:"execution_permission_revision"`
+	ExecutionPermissionMode       string    `json:"execution_permission_mode"`
+	ExecutionActivationGeneration uint64    `json:"execution_activation_generation"`
+	ExecutionAuthorizationFence   uint64    `json:"execution_authorization_fence"`
 	ScopeFingerprint              string    `json:"scope_fingerprint"`
 	NavigateAuthorized            bool      `json:"navigate_authorized"`
 	DOMMetadataAuthorized         bool      `json:"dom_metadata_authorized"`
@@ -43,16 +66,18 @@ type FullCDPAuthorization struct {
 }
 
 // AuthorizeFullCDP issues a highly-sensitive CDP authorization only when the
-// Run uses the maximum-access debug permission (with operator confirmation),
-// the process enabled the full-debug gate, and the caller supplies an exact
+// Run uses live Full Access or Debug permission (with operator confirmation),
+// the process installed the Full CDP adapter, and the caller supplies an exact
 // per-call confirmation. The capability is TTL-bounded and bound to the Run,
 // Workspace, executable identity, permission revision, and scope; it never
 // authorizes webpage-instruction elevation.
 func AuthorizeFullCDP(session SessionPlan, identity BrowserExecutableIdentity,
 	acceptance BrowserAcceptanceCandidate, permission domain.RunBrowserCDPPermissionSnapshot,
-	runtimeCapabilities ProductionRuntimeCapabilities,
+	executionPermission domain.RunExecutionPermissionSnapshot,
+	runtimeCapabilities FullCDPRuntimeCapabilities,
 	permissionCapabilities domain.BrowserCDPPermissionRuntimeCapabilities,
-	confirmed bool, now time.Time,
+	executionCapabilities domain.ExecutionPermissionRuntimeCapabilities,
+	executionFence uint64, confirmed bool, now time.Time,
 ) (FullCDPAuthorization, error) {
 	if err := session.Validate(); err != nil {
 		return FullCDPAuthorization{}, err
@@ -72,13 +97,27 @@ func AuthorizeFullCDP(session SessionPlan, identity BrowserExecutableIdentity,
 	if err := permissionCapabilities.Validate(); err != nil {
 		return FullCDPAuthorization{}, err
 	}
+	if err := executionPermission.Validate(); err != nil {
+		return FullCDPAuthorization{}, err
+	}
+	if err := executionCapabilities.Validate(); err != nil {
+		return FullCDPAuthorization{}, err
+	}
 	now = now.UTC()
+	activationGeneration, executionAllowed :=
+		executionCapabilities.FullAccessGeneration(executionPermission)
 	if permission.Mode != domain.RunBrowserCDPPermissionFullDebug ||
 		!permission.OperatorConfirmed || permission.RunID != session.RunID ||
-		!permissionCapabilities.FullDebugEnabled || !runtimeCapabilities.RestrictedCDPEnabled ||
+		!permissionCapabilities.FullDebugEnabled || !runtimeCapabilities.TransportEnabled ||
+		executionPermission.RunID != session.RunID ||
+		(executionPermission.Mode != domain.RunExecutionPermissionFullAccess &&
+			executionPermission.Mode != domain.RunExecutionPermissionDebug) ||
+		!executionAllowed || executionCapabilities.RuntimeAuthority == nil ||
+		executionFence == 0 || !executionCapabilities.RuntimeAuthority.
+		AllowsRunAuthorizationFence(session.RunID, executionFence) ||
 		!confirmed || now.IsZero() {
 		return FullCDPAuthorization{}, errors.New(
-			"full CDP debug requires maximum-access debug permission, per-call confirmation, and a live restricted-CDP runtime")
+			"full CDP requires live Full Access or Debug authority, its confirmed sub-permission, per-call confirmation, and a restricted-CDP runtime")
 	}
 	expiresAt := now.Add(FullCDPCapabilityTTL)
 	authorization := FullCDPAuthorization{
@@ -88,6 +127,11 @@ func AuthorizeFullCDP(session SessionPlan, identity BrowserExecutableIdentity,
 		ExecutableIdentityFingerprint: identity.Fingerprint,
 		PermissionSnapshotID:          permission.ID,
 		PermissionRevision:            permission.Revision,
+		ExecutionPermissionSnapshotID: executionPermission.ID,
+		ExecutionPermissionRevision:   executionPermission.Revision,
+		ExecutionPermissionMode:       string(executionPermission.Mode),
+		ExecutionActivationGeneration: activationGeneration,
+		ExecutionAuthorizationFence:   executionFence,
 		ScopeFingerprint:              session.Scope.Fingerprint,
 		NavigateAuthorized:            true,
 		DOMMetadataAuthorized:         true,
@@ -103,19 +147,22 @@ func AuthorizeFullCDP(session SessionPlan, identity BrowserExecutableIdentity,
 		ExpiresAt:                     expiresAt,
 	}
 	authorization.Fingerprint = browserRuntimeFingerprint(authorization)
-	if err := ValidateFullCDPAuthorization(authorization, session, identity, permission); err != nil {
+	if err := ValidateFullCDPAuthorization(authorization, session, identity, permission,
+		executionPermission, executionCapabilities); err != nil {
 		return FullCDPAuthorization{}, err
 	}
 	return authorization, nil
 }
 
 // ValidateFullCDPAuthorization re-checks that a Full CDP authorization still
-// binds the maximum-access debug permission, session scope, executable
+// binds the exact live Full Access or Debug permission, session scope, executable
 // identity, Run, and Workspace, and that its capability was confirmed,
 // TTL-bounded, and never grants webpage-instruction elevation.
 func ValidateFullCDPAuthorization(authorization FullCDPAuthorization,
 	session SessionPlan, identity BrowserExecutableIdentity,
 	permission domain.RunBrowserCDPPermissionSnapshot,
+	executionPermission domain.RunExecutionPermissionSnapshot,
+	executionCapabilities domain.ExecutionPermissionRuntimeCapabilities,
 ) error {
 	if err := session.Validate(); err != nil {
 		return err
@@ -129,15 +176,35 @@ func ValidateFullCDPAuthorization(authorization FullCDPAuthorization,
 	if err := permission.Validate(); err != nil {
 		return err
 	}
+	if err := executionPermission.Validate(); err != nil {
+		return err
+	}
+	if err := executionCapabilities.Validate(); err != nil {
+		return err
+	}
+	activationGeneration, executionAllowed :=
+		executionCapabilities.FullAccessGeneration(executionPermission)
 	if authorization.ProtocolVersion != FullCDPAuthorizationProtocolVersion ||
 		authorization.RunID != session.RunID ||
 		authorization.WorkspaceID != session.WorkspaceID ||
 		authorization.ExecutableIdentityFingerprint != identity.Fingerprint ||
 		authorization.PermissionSnapshotID != permission.ID ||
 		authorization.PermissionRevision != permission.Revision ||
+		authorization.ExecutionPermissionSnapshotID != executionPermission.ID ||
+		authorization.ExecutionPermissionRevision != executionPermission.Revision ||
+		authorization.ExecutionPermissionMode != string(executionPermission.Mode) ||
+		authorization.ExecutionActivationGeneration != activationGeneration ||
+		authorization.ExecutionAuthorizationFence == 0 ||
+		executionCapabilities.RuntimeAuthority == nil ||
+		!executionCapabilities.RuntimeAuthority.AllowsRunAuthorizationFence(
+			executionPermission.RunID, authorization.ExecutionAuthorizationFence) ||
+		!executionAllowed ||
 		authorization.ScopeFingerprint != session.Scope.Fingerprint ||
 		permission.Mode != domain.RunBrowserCDPPermissionFullDebug ||
 		!permission.OperatorConfirmed || permission.RunID != session.RunID ||
+		executionPermission.RunID != session.RunID ||
+		(executionPermission.Mode != domain.RunExecutionPermissionFullAccess &&
+			executionPermission.Mode != domain.RunExecutionPermissionDebug) ||
 		!authorization.NavigateAuthorized || !authorization.DOMMetadataAuthorized ||
 		!authorization.ScreenshotAuthorized || !authorization.RequestCaptureAuthorized ||
 		!authorization.RequestMutationAuthorized || !authorization.RequestReplayAuthorized ||
@@ -176,4 +243,10 @@ func validateFullCDPSession(session SessionPlan) error {
 		return fmt.Errorf("full CDP requires a literal loopback target, got %q", origin.Host)
 	}
 	return nil
+}
+
+// ValidateFullCDPSessionPlan validates the public-input-derived session before
+// any durable browser launch preparation is recorded.
+func ValidateFullCDPSessionPlan(session SessionPlan) error {
+	return validateFullCDPSession(session)
 }

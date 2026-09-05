@@ -2804,3 +2804,15 @@ DeepSeek 的失败由两项协议不兼容共同造成：该端点默认开启 t
 Workspace/Session 中返回真实中文回复。MiMo 本机未配置，因此没有发起或声称成功的 MiMo 网络测试。
 本轮没有 schema、OpenAPI、权限或执行入口变化。全仓 Go、vet、50 文件 184 项 React、TypeScript 和
 Vite 构建通过；发布产物在源码提交后重建。
+
+## 2026-08-30：V2 中文字体资产与嵌入式许可边界
+
+V2 中文界面固定使用 HarmonyOS Sans SC 的 Regular、Medium、Semibold 与 Bold 四个字重。仓库只保存
+华为官方归档中的未修改 TTF，不再保存本地转码的 WOFF2；release gate 固定官方归档、四文件尺寸与
+SHA-256、完整许可和来源记录，并以 Git binary attribute 防止换行过滤改写字体字节。设置页显著声明
+字体使用情况，许可文本在同一 Wails WebView 的可访问弹窗内读取，不依赖系统浏览器访问内部 origin。
+
+Web UI 的普通单资源上限仍为 8 MiB；仅 `.ttf` 精确放宽到 9 MiB，bundle 总上限保持 64 MiB。目录与
+embedded FS 两条加载路径都覆盖 8/9 MiB 正反边界；真实 Vite `dist` 的四份内容哈希字体、NOTICE 与许可
+还由 Desktop-tag 测试在 `webui.LoadEmbeddedFS` 上复核。当前生产 `dist` 为 50,086,294 bytes，四份输出
+TTF 与官方源文件逐字节一致。本项不改变 schema、OpenAPI、权限或执行入口。

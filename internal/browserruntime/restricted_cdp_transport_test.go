@@ -260,15 +260,27 @@ func writeDevToolsActivePort(t *testing.T, profilePath string, port int,
 }
 
 type scriptedCDPServer struct {
-	listener        net.Listener
-	server          *http.Server
-	port            int
-	path            string
-	url             string
-	png             []byte
-	mu              sync.Mutex
-	methods         []string
-	selectorQueries map[string]int
+	listener            net.Listener
+	server              *http.Server
+	port                int
+	path                string
+	url                 string
+	png                 []byte
+	mu                  sync.Mutex
+	methods             []string
+	selectorQueries     map[string]int
+	outerHTML           string
+	outerSequence       []string
+	outerCalls          int
+	loaderID            string
+	elementNodeName     string
+	elementAttrs        []string
+	backendNodeID       int64
+	mutateLoaderOnInput bool
+	blockMethod         string
+	blockEntered        chan struct{}
+	blockRelease        <-chan struct{}
+	blockEnteredOnce    sync.Once
 }
 
 func newScriptedCDPServer(t *testing.T, allowedURL string) *scriptedCDPServer {
@@ -278,7 +290,10 @@ func newScriptedCDPServer(t *testing.T, allowedURL string) *scriptedCDPServer {
 		t.Fatal(err)
 	}
 	server := &scriptedCDPServer{listener: listener, path: "/devtools/browser/test",
-		url: allowedURL, png: restrictedTestPNG(), selectorQueries: make(map[string]int)}
+		url: allowedURL, png: restrictedTestPNG(), selectorQueries: make(map[string]int),
+		outerHTML: `<html><main>token=abcdefghijklmnopqrstuvwxyz1234567890</main></html>`,
+		loaderID:  "loader-test", elementNodeName: "INPUT",
+		elementAttrs: []string{"id", "search", "type", "text"}, backendNodeID: 70}
 	server.port = listener.Addr().(*net.TCPAddr).Port
 	mux := http.NewServeMux()
 	mux.HandleFunc(server.path, server.serveWebSocket)
@@ -333,7 +348,16 @@ func (server *scriptedCDPServer) serveWebSocket(writer http.ResponseWriter,
 		}
 		server.mu.Lock()
 		server.methods = append(server.methods, command.Method)
+		blocked := command.Method == server.blockMethod && server.blockRelease != nil
+		entered := server.blockEntered
+		release := server.blockRelease
 		server.mu.Unlock()
+		if blocked {
+			if entered != nil {
+				server.blockEnteredOnce.Do(func() { close(entered) })
+			}
+			<-release
+		}
 		switch command.Method {
 		case "Target.createBrowserContext":
 			writeCDPResult(connection, command.ID,
@@ -385,6 +409,13 @@ func (server *scriptedCDPServer) serveWebSocket(writer http.ResponseWriter,
 				"nodeId": 1, "nodeName": "#document", "childNodeCount": 2,
 				"documentURL": server.url,
 			}})
+		case "Page.getFrameTree":
+			server.mu.Lock()
+			frameURL, loaderID := server.url, server.loaderID
+			server.mu.Unlock()
+			writeCDPResult(connection, command.ID, map[string]any{"frameTree": map[string]any{
+				"frame": map[string]any{"id": "frame-test", "loaderId": loaderID,
+					"url": frameURL}}})
 		case "DOM.performSearch":
 			var params struct {
 				Query string `json:"query"`
@@ -424,9 +455,32 @@ func (server *scriptedCDPServer) serveWebSocket(writer http.ResponseWriter,
 			writeCDPResult(connection, command.ID, map[string]any{"model": map[string]any{
 				"border": []float64{2, 2, 6, 2, 6, 6, 2, 6}}})
 		case "DOM.getOuterHTML":
+			server.mu.Lock()
+			outerHTML := server.outerHTML
+			if server.outerCalls < len(server.outerSequence) {
+				outerHTML = server.outerSequence[server.outerCalls]
+			}
+			server.outerCalls++
+			server.mu.Unlock()
 			writeCDPResult(connection, command.ID, map[string]any{
-				"outerHTML": `<html><main>token=abcdefghijklmnopqrstuvwxyz1234567890</main></html>`,
+				"outerHTML": outerHTML,
 			})
+		case "DOM.describeNode":
+			server.mu.Lock()
+			nodeName := server.elementNodeName
+			attributes := append([]string(nil), server.elementAttrs...)
+			backendNodeID := server.backendNodeID
+			server.mu.Unlock()
+			writeCDPResult(connection, command.ID, map[string]any{"node": map[string]any{
+				"nodeId": 7, "backendNodeId": backendNodeID, "nodeName": nodeName,
+				"attributes": attributes}})
+		case "Input.insertText":
+			server.mu.Lock()
+			if server.mutateLoaderOnInput {
+				server.loaderID = "loader-after-input"
+			}
+			server.mu.Unlock()
+			writeCDPResult(connection, command.ID, map[string]any{})
 		case "Accessibility.getFullAXTree":
 			writeCDPResult(connection, command.ID, map[string]any{"nodes": []map[string]any{{
 				"nodeId": "ax-1", "name": map[string]any{"value": "fixture"}}}})

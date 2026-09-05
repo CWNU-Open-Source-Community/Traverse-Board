@@ -10,6 +10,7 @@ import (
 	"cyberagent-workbench/internal/apperror"
 	"cyberagent-workbench/internal/commandruntimeadapter"
 	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/drydock"
 	eventpkg "cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/repository"
 	"cyberagent-workbench/internal/runmutation"
@@ -112,6 +113,46 @@ func TestStandardCodePresetConfiguresOneAtomicLocalTupleAndReplays(t *testing.T)
 	if _, err := service.Configure(t.Context(), changed); err == nil ||
 		apperror.CodeOf(err) != apperror.CodeConflict {
 		t.Fatalf("changed request did not conflict: %v", err)
+	}
+}
+
+func TestStandardCodePresetRejectsNetworkAuthorityAddedAfterIntent(t *testing.T) {
+	fixture := newDrydockApplicationFixture(t, "standard-code-network-race")
+	runtime := CapabilityReadinessRuntime{
+		RunControlEnabled: true, RunExecutionEnabled: true,
+		ExecutionPermissionControlEnabled: true, StandardCodePresetEnabled: true,
+		ExecutionPermissionCapabilities: domain.ExecutionPermissionRuntimeCapabilities{
+			WorkspaceSandboxEnabled: true, OperatorApprovalEnabled: true,
+		},
+		LocalSandboxInstalled: true, LocalSandboxProven: true, LocalBackendReady: true,
+		CommandRuntimeAdapters: []commandruntimeadapter.Identity{
+			commandruntimeadapter.SandboxedWorkspace(
+				CommandRuntimeLocalSandboxBackend, "local-windows-lpac.v1",
+				"standard-code-network-race-generation"),
+		},
+	}
+	service, err := NewStandardCodePresetService(fixture.state, fixture.service, runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewRunNetworkAuthorityService(fixture.state).WithRuntimeAuthority(
+		domain.NewExecutionPermissionRuntimeAuthority()).Expand(t.Context(),
+		ExpandRunNetworkAuthorityRequest{
+			Version: RunNetworkAuthorityControlProtocolVersion, RunID: fixture.run.ID,
+			ExpectedModeRevision: 1, AddAllowedTargets: []string{"search.example.org"},
+			OperationKey: "standard-code-network-race-0001", RequestedBy: "operator",
+		}); err != nil {
+		t.Fatal(err)
+	}
+	operation := domain.StandardCodePresetOperation{
+		RunID: fixture.run.ID, MissionID: fixture.run.MissionID,
+		WorkspaceID: fixture.workspace.ID, RequestedBy: "operator",
+		SelectedBackend: domain.StandardCodeSelectedLocal,
+	}
+	if _, err := service.prepareCommit(t.Context(), operation,
+		drydock.Workspace{ID: "drydock-network-race", Generation: 1}); apperror.CodeOf(err) != apperror.CodeConflict ||
+		!strings.Contains(err.Error(), "network authority changed") {
+		t.Fatalf("network-expanded Standard Code commit error=%v", err)
 	}
 }
 

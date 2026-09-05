@@ -2,6 +2,7 @@ package threadtranscript
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -143,6 +144,59 @@ func TestBuildProjectsOnlyValidatedWebEvidencePresentation(t *testing.T) {
 		events.SupervisorToolResultEvent, string(payload), now)})
 	if err != nil || len(items) != 1 || items[0].WebEvidence != nil {
 		t.Fatalf("unsafe presentation items=%#v err=%v", items, err)
+	}
+}
+
+func TestBuildProjectsWebEvidenceSecurityOutcomeInsteadOfGenericCompletion(t *testing.T) {
+	now := time.Date(2026, 8, 25, 0, 0, 0, 0, time.UTC)
+	base := map[string]any{
+		"version": "web_evidence_presentation.v1", "source_id": "source-web",
+		"snapshot_id": "snapshot-web", "url": "https://docs.example.com/report",
+		"title": "Report", "fetched_at": now, "stale_at": now.Add(24 * time.Hour),
+		"digest": strings.Repeat("a", 64), "stale": false,
+		"untrusted": true, "instruction_authorized": false,
+	}
+	tests := []struct {
+		name, state, robots, wantTitle, wantStatus string
+		partial, citeable                          bool
+	}{
+		{name: "fetched", state: "fetched", robots: "allowed", citeable: true,
+			wantTitle: "网页已抓取", wantStatus: "fetched"},
+		{name: "robots not present", state: "fetched", robots: "not_present", citeable: true,
+			wantTitle: "网页已抓取", wantStatus: "fetched"},
+		{name: "partial", state: "partial", robots: "allowed", partial: true, citeable: true,
+			wantTitle: "网页已部分抓取", wantStatus: "partial"},
+		{name: "blocked", state: "blocked", robots: "blocked",
+			wantTitle: "Robots 规则阻止抓取", wantStatus: "blocked"},
+		{name: "robots ignored", state: "fetched", robots: "not_checked", citeable: true,
+			wantTitle: "网页已抓取（未检查 Robots）", wantStatus: "robots_ignored"},
+		{name: "robots disallow bypassed", state: "fetched", robots: "bypassed_disallow", citeable: true,
+			wantTitle: "Full Access 已忽略站点 Robots 限制", wantStatus: "robots_ignored"},
+		{name: "robots unknown bypassed", state: "fetched", robots: "bypassed_unknown", citeable: true,
+			wantTitle: "Robots 无法验证，已按 Full Access 继续", wantStatus: "robots_ignored"},
+		{name: "verification unavailable", state: "failed", robots: "unknown",
+			wantTitle: "网页验证不可用", wantStatus: "verification_unavailable"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			presentation := make(map[string]any, len(base)+5)
+			for key, value := range base {
+				presentation[key] = value
+			}
+			presentation["state"], presentation["robots"] = test.state, test.robots
+			presentation["partial"], presentation["citeable"] = test.partial, test.citeable
+			payload, _ := json.Marshal(map[string]any{
+				"tool": "web_fetch", "status": "completed", "stream_item_id": "item-web",
+				"web_evidence": presentation,
+			})
+			items, err := Build("thread-web", []Source{eventSource("run-web", 1, 1,
+				events.SupervisorToolResultEvent, string(payload), now)})
+			if err != nil || len(items) != 1 || items[0].WebEvidence == nil ||
+				items[0].Title != test.wantTitle || items[0].Status != test.wantStatus ||
+				items[0].Title == "工具结果已记录" {
+				t.Fatalf("items=%#v err=%v", items, err)
+			}
+		})
 	}
 }
 

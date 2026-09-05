@@ -110,6 +110,7 @@ type WebEvidencePresentation struct {
 	FetchedAt             time.Time
 	StaleAt               time.Time
 	Digest                string
+	Robots                string
 	Partial               bool
 	Stale                 bool
 	Citeable              bool
@@ -124,7 +125,7 @@ func (p WebEvidencePresentation) Validate() error {
 		!validWebEvidenceIdentity(p.SnapshotID, false) ||
 		!validWebEvidenceIdentity(p.CitationID, true) || !validWebEvidenceTitle(p.Title) ||
 		p.FetchedAt.IsZero() || p.StaleAt.Before(p.FetchedAt) ||
-		!validWebEvidenceDigest(p.Digest) ||
+		!validWebEvidenceDigest(p.Digest) || !validWebEvidenceRobots(p.Robots) ||
 		!p.Untrusted || p.InstructionAuthorized {
 		return errors.New("web evidence transcript presentation is invalid")
 	}
@@ -149,6 +150,16 @@ func (p WebEvidencePresentation) Validate() error {
 		return errors.New("web evidence transcript state is invalid")
 	}
 	return nil
+}
+
+func validWebEvidenceRobots(value string) bool {
+	switch value {
+	case "", "allowed", "blocked", "unknown", "not_checked", "not_present",
+		"bypassed_disallow", "bypassed_unknown":
+		return true
+	default:
+		return false
+	}
 }
 
 func validWebEvidenceIdentity(value string, optional bool) bool {
@@ -308,6 +319,7 @@ type toolBatchPayload struct {
 	StreamResponseID string   `json:"stream_response_id"`
 	StreamItemIDs    []string `json:"stream_item_ids"`
 	StreamCallIDs    []string `json:"stream_call_ids"`
+	DurableCallIDs   []string `json:"durable_call_ids"`
 }
 
 func projectToolBatch(source Source) []Item {
@@ -330,6 +342,10 @@ func projectToolBatch(source Source) []Item {
 		toolName := safeIdentity(payload.Tools[index])
 		streamItemID := safeIdentity(payload.StreamItemIDs[index])
 		streamCallID := safeIdentity(payload.StreamCallIDs[index])
+		durableCallID := ""
+		if index < len(payload.DurableCallIDs) {
+			durableCallID = safeIdentity(payload.DurableCallIDs[index])
+		}
 		if toolName == "" || streamItemID == "" || streamCallID == "" {
 			continue
 		}
@@ -341,7 +357,8 @@ func projectToolBatch(source Source) []Item {
 			Source: runactivity.SourceHarness, Title: "工具参数已就绪", Status: "pending",
 			Verifiable: true, ToolName: toolName,
 			StreamResponseID: safeIdentity(payload.StreamResponseID), StreamItemID: streamItemID,
-			StreamCallID: streamCallID, Durable: true, CreatedAt: source.CreatedAt,
+			StreamCallID: streamCallID, DurableCallID: durableCallID,
+			Durable: true, CreatedAt: source.CreatedAt,
 		})
 	}
 	return items
@@ -385,6 +402,7 @@ func projectActivity(source Source, projected runactivity.Item) Item {
 				FetchedAt             time.Time `json:"fetched_at"`
 				StaleAt               time.Time `json:"stale_at"`
 				Digest                string    `json:"digest"`
+				Robots                string    `json:"robots"`
 				Partial               bool      `json:"partial"`
 				Stale                 bool      `json:"stale"`
 				Citeable              bool      `json:"citeable"`
@@ -408,13 +426,15 @@ func projectActivity(source Source, projected runactivity.Item) Item {
 				CitationID: safeIdentity(payload.WebEvidence.CitationID), URL: payload.WebEvidence.URL,
 				Title: payload.WebEvidence.Title, State: payload.WebEvidence.State,
 				FetchedAt: payload.WebEvidence.FetchedAt, StaleAt: payload.WebEvidence.StaleAt,
-				Digest: payload.WebEvidence.Digest, Partial: payload.WebEvidence.Partial,
-				Stale: payload.WebEvidence.Stale, Citeable: payload.WebEvidence.Citeable,
+				Digest: payload.WebEvidence.Digest, Robots: payload.WebEvidence.Robots,
+				Partial: payload.WebEvidence.Partial,
+				Stale:   payload.WebEvidence.Stale, Citeable: payload.WebEvidence.Citeable,
 				Untrusted:             payload.WebEvidence.Untrusted,
 				InstructionAuthorized: payload.WebEvidence.InstructionAuthorized,
 			}
 			if presentation.Validate() == nil {
 				item.WebEvidence = &presentation
+				projectWebEvidenceNarrative(&item, presentation)
 			}
 		}
 		if item.StreamItemID != "" {
@@ -426,6 +446,53 @@ func projectActivity(source Source, projected runactivity.Item) Item {
 		item.CanonicalID = item.ID
 	}
 	return item
+}
+
+// projectWebEvidenceNarrative converts the durable tool-completion fact into
+// the user-facing security outcome. A blocked or failed snapshot was persisted
+// successfully, but that must never be described as a successful page fetch.
+func projectWebEvidenceNarrative(item *Item, presentation WebEvidencePresentation) {
+	if item == nil {
+		return
+	}
+	item.Detail = "已记录网页证据状态"
+	if presentation.Robots == "not_checked" &&
+		(presentation.State == "fetched" || presentation.State == "partial") {
+		item.Title = "网页已抓取（未检查 Robots）"
+		item.Detail = "抓取结果可用，但未验证站点的 Robots 规则"
+		item.Status = "robots_ignored"
+		return
+	}
+	if presentation.Robots == "bypassed_disallow" &&
+		(presentation.State == "fetched" || presentation.State == "partial") {
+		item.Title = "Full Access 已忽略站点 Robots 限制"
+		item.Detail = "站点禁止抓取；Full Access 仍继续创建了快照"
+		item.Status = "robots_ignored"
+		return
+	}
+	if presentation.Robots == "bypassed_unknown" &&
+		(presentation.State == "fetched" || presentation.State == "partial") {
+		item.Title = "Robots 无法验证，已按 Full Access 继续"
+		item.Detail = "未能验证站点 Robots 规则；Full Access 仍继续创建了快照"
+		item.Status = "robots_ignored"
+		return
+	}
+	switch presentation.State {
+	case "fetched":
+		item.Title, item.Detail, item.Status = "网页已抓取", "已创建可引用的网页快照", "fetched"
+	case "partial":
+		item.Title, item.Detail, item.Status = "网页已部分抓取", "快照内容不完整，请谨慎引用", "partial"
+	case "stale":
+		item.Title, item.Detail, item.Status = "网页快照已过期", "现有快照可能不再反映当前页面", "stale"
+	case "blocked":
+		item.Title, item.Detail, item.Status = "网页抓取被阻止", "未获得可验证的网页内容", "blocked"
+		if presentation.Robots == "blocked" {
+			item.Title = "Robots 规则阻止抓取"
+			item.Detail = "站点的 Robots 规则不允许本次抓取"
+		}
+	case "failed":
+		item.Title, item.Detail, item.Status = "网页验证不可用", "未能创建可验证的网页快照", "verification_unavailable"
+	}
 }
 
 func classifyActivity(eventType string, kind runactivity.Kind, toolName string) ActivityType {

@@ -1,0 +1,9 @@
+Traverse Board uses HarmonyOS Sans Fonts for its Simplified Chinese interface.
+Copyright 2021-2025 Huawei Device Co., Ltd. All Rights Reserved.
+
+The complete HarmonyOS Sans Fonts License Agreement is distributed at:
+/licenses/HarmonyOS-Sans.txt
+
+Provider logo path data is derived from the Simple Icons project and is
+available under CC0 1.0 Universal: https://github.com/simple-icons/simple-icons
+All product names, logos, and brands remain property of their respective owners.

@@ -334,6 +334,7 @@
         "approval_grant_operation_key.v1",
         "approval_operation_key.v1",
         "approval_record.v1",
+        "full-cdp-session-operation.v1",
         "once_command.v1",
         "once_command_approval.v1",
         "once_command_policy.v1",
@@ -349,17 +350,24 @@
         "run_execution_handoff_request.v1",
         "run_execution_interaction_change_request.v1",
         "run_execution_interaction_operation.v1",
+		"run_execution_permission_browser_cdp_operation.v1",
         "run_execution_permission_change_request.v1",
         "run_execution_permission_operation.v1",
         "run_execution_profile_change_request.v1",
         "run_execution_profile_operation.v1",
         "run_mode_operation.v1",
+        "run_network_authority_operation.v1",
+        "run_network_authority_request.v1",
         "run_phase_change_request.v1",
         "thread_execution_permission.v1",
+		"thread_execution_permission_browser_cdp_materialization_operation.v1",
+		"thread_execution_permission_browser_cdp_operation.v1",
         "thread_execution_permission_change_request.v1",
         "thread_execution_permission_current_run_operation.v1",
         "thread_execution_permission_materialization_operation.v1",
-        "thread_execution_permission_operation.v1"
+        "thread_execution_permission_operation.v1",
+        "thread_model_route_operation.v1",
+        "thread_model_route_request.v1"
       ],
       "retired_identifiers": []
     },
@@ -403,11 +411,25 @@
       },
       "restart_persistence_proof": "Browser runtime restart tests create a fresh generation and never adopt prior CDP targets or request handles.",
       "active_identifiers": [
+        "browser-action-tools.v1",
         "browser_cdp_outcome.v1",
         "browser_cdp_request.v1",
+        "browser_click.v1",
+        "browser_navigate.v1",
+        "browser_navigate_result.v1",
+        "browser_screenshot.v1",
+        "browser_screenshot_result.v1",
+        "browser_snapshot.v1",
+        "browser_status.v1",
+        "browser_status_result.v1",
         "browser_target_scope.v1",
+        "browser_type.v1",
         "full_cdp_cookie_access.v1",
+        "full_cdp_interaction.v1",
+        "full_cdp_page_snapshot.v1",
         "full_cdp_request_capture.v1",
+        "full_cdp_runtime_receipt.v1",
+        "full_cdp_screenshot.v1",
         "restricted_browser_dom_metadata.v1",
         "restricted_browser_navigation.v1",
         "restricted_browser_screenshot.v1",
@@ -426,6 +448,14 @@
       ],
       "writers": [
         {
+          "id": "browser-full-cdp-authorization-writer",
+          "source": "internal/browserruntime",
+          "versions": [
+            2
+          ],
+          "mode": "write-current"
+        },
+        {
           "id": "browser-ui-evidence-ledgers-writer",
           "source": "internal/browserruntime",
           "versions": [
@@ -435,6 +465,14 @@
         }
       ],
       "readers": [
+        {
+          "id": "browser-full-cdp-authorization-reader",
+          "source": "internal/browserruntime",
+          "versions": [
+            2
+          ],
+          "status": "active"
+        },
         {
           "id": "browser-ui-evidence-ledgers-reader",
           "source": "internal/store",
@@ -474,8 +512,8 @@
         "browser-synthetic-process.v1",
         "browser_executable_acceptance.v1",
         "browser_executable_identity.v1",
-        "browser_full_cdp_authorization.v1",
-        "browser_full_cdp_start_authorization.v1",
+        "browser_full_cdp_authorization.v2",
+        "browser_full_cdp_start_authorization.v2",
         "browser_launch_attempt.v1",
         "browser_launch_lease.v1",
         "browser_launch_review.v1",
@@ -498,7 +536,20 @@
         "browser_start_authorization.v1",
         "browser_start_spec.v1"
       ],
-      "retired_identifiers": []
+      "retired_identifiers": [
+        {
+          "identifier": "browser_full_cdp_authorization.v1",
+          "decision": "ADR 0106 replaced v1 with v2 exact execution-snapshot, activation-generation, and authorization-fence bindings.",
+          "migration_evidence": "The v1 authorization was process-local and never persisted; repository inventory contains no supported v1 reader or durable value to migrate.",
+          "rollback": "Restore the v1 implementation and reader only if a supported retained consumer is first identified and isolated from v2 authority."
+        },
+        {
+          "identifier": "browser_full_cdp_start_authorization.v1",
+          "decision": "ADR 0106 replaced v1 with v2 exact execution-snapshot, activation-generation, and authorization-fence bindings.",
+          "migration_evidence": "The v1 start authorization was process-local and never persisted; repository inventory contains no supported v1 reader or durable value to migrate.",
+          "rollback": "Restore the v1 implementation and reader only if a supported retained consumer is first identified and isolated from v2 authority."
+        }
+      ]
     },
     {
       "id": "capability-readiness-projection",
@@ -665,6 +716,7 @@
         "msix_manifest.v1",
         "msix_manifest.v2",
         "pe_authenticode_normalized.v1",
+        "provider_grounded_citation.v1",
         "sanitized_host_environment.v1",
         "scheduled-job-worker.v1",
         "scheduled_job_create_request.v1",
@@ -717,6 +769,7 @@
         "web_evidence_operation.v1",
         "web_evidence_presentation.v1",
         "web_fetch.v1",
+        "web_fetch_authorization.v1",
         "web_search.v1",
         "windows-two-deliverable-contract.v1",
         "windows_artifact_attestations.v1",
@@ -782,7 +835,63 @@
         "model_cancellation_request.v1",
         "model_context_window.v1",
         "model_harness_probe.v1",
-        "provider_registry_reload.v1"
+        "provider-search-adapter.v1",
+        "provider-search-binding.v1",
+        "provider_definition.v1",
+        "provider_definition_collection.v1",
+        "provider_definition_control.v1",
+        "provider_definitions.v1",
+        "provider_native_search_binding.v1",
+        "provider_native_search_cache.v1",
+        "provider_native_search_declared_binding.v1",
+        "provider_native_search_negative.v1",
+        "provider_native_search_tool.v1",
+        "provider_registry_reload.v1",
+        "provider_request_runtime.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "desktop-risk-restart-session",
+      "class": "ephemeral",
+      "owner": "Desktop shell lifecycle maintainers",
+      "source_of_truth": [
+        "cmd/cyberagent-desktop"
+      ],
+      "writers": [
+        {
+          "id": "desktop-risk-restart-session-writer",
+          "source": "cmd/cyberagent-desktop",
+          "versions": [
+            1
+          ],
+          "mode": "write-current"
+        }
+      ],
+      "readers": [
+        {
+          "id": "desktop-risk-restart-session-reader",
+          "source": "cmd/cyberagent-desktop",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": false,
+      "persistence_boundary": "The parent/helper readiness channel exists only for one same-executable restart attempt and grants no durable authority.",
+      "compatibility_rule": "Fail closed unless the helper proves the expected parent and exact readiness protocol before the parent exits.",
+      "retirement_gate": {
+        "mode": "restart-non-persistence",
+        "requirements": [
+          "Restart tests prove no handle, token, stream, or authority is adopted",
+          "Runtime metadata cannot substitute for a fresh admission",
+          "Shutdown and crash recovery discard process-local state"
+        ]
+      },
+      "restart_persistence_proof": "Every restart creates a fresh one-shot readiness channel; the helper cannot reuse a prior channel or carry authority across attempts.",
+      "active_identifiers": [
+        "desktop_risk_restart.ready.v1"
       ],
       "retired_identifiers": []
     },
@@ -830,6 +939,7 @@
         "desktop_connection_bootstrap.v1",
         "desktop_debug_terminal_agent_input.v1",
         "desktop_file_selection.v1",
+        "desktop_risk_restart.v1",
         "desktop_skill_package_dialog.v1",
         "desktop_skill_package_install.v1",
         "desktop_skill_package_preview.v1",
@@ -1121,9 +1231,12 @@
         "file_edit_proposal.v1",
         "file_edit_proposal_recovery.v1",
         "file_edit_review.v1",
+        "full_cdp_session.v1",
+        "full_cdp_session_close.v1",
         "mode_policy.v1",
         "model_harness.v1",
         "model_harness_qualification.v1",
+        "model_route_catalog.v1",
         "model_route_control.v1",
         "operation_receipt.v1",
         "operator_verification_evidence.v1",
@@ -1140,6 +1253,7 @@
         "plan_delivery_control.v1",
         "provider_credential.v1",
         "provider_diagnostic.v1",
+        "provider_search_readiness.v1",
         "repository_commit_comparison.v1",
         "repository_commit_file_preview.v1",
         "repository_diff.v1",
@@ -1154,6 +1268,8 @@
         "run_execution_profile.v1",
         "run_lifecycle_control.v1",
         "run_mode.v1",
+        "run_network_authority.v1",
+        "run_network_authority_control.v1",
         "run_wake_consumer.v1",
         "run_wake_control.v1",
         "run_wake_intent.v1",
@@ -1171,10 +1287,16 @@
         "skill_package_installation.v1",
         "standard_code_preset.v1",
         "thread.v1",
+        "thread_activity_artifact.v1",
+        "thread_activity_detail.v2",
+        "thread_activity_summary.v1",
         "thread_creation.v1",
         "thread_export.v1",
         "thread_lifecycle.v1",
         "thread_message_submission.v1",
+        "thread_model_route.v1",
+        "thread_model_route_control.v1",
+        "thread_run_recovery.v1",
         "ui-evidence-artifact.v1",
         "ui-evidence-attempt.v1",
         "ui-evidence-step.v1",
@@ -1183,7 +1305,20 @@
         "workspace_explorer.v1",
         "workspace_search.v1"
       ],
-      "retired_identifiers": []
+      "retired_identifiers": [
+        {
+          "identifier": "thread_activity_detail.v1",
+          "decision": "The unreleased generic facts prototype was replaced by thread_activity_detail.v2 before merge so every public activity detail is a strict Go-owned discriminated union.",
+          "migration_evidence": "The v1 detail endpoint was never part of a released durable store or supported client; legacy transcript rows carry no detail and continue to degrade to their existing summary projection.",
+          "rollback": "Restore the v1 DTO and generated reader only if a supported external consumer is identified; no durable data rewrite is required."
+        },
+        {
+          "identifier": "thread_activity_tool_facts.v1",
+          "decision": "The generic name/value facts projection was removed from every public Thread and Legacy Inspector HTTP response in favor of the closed thread_activity_detail.v2 discriminated union.",
+          "migration_evidence": "The generic projector remains private and deprecated only as a bounded validation adapter for the v2 Go projector; OpenAPI and generated TypeScript contain no facts, parameters, or generic result arrays for Supervisor tool details.",
+          "rollback": "Restore only an internal adapter if a projector regression is found; do not restore the generic HTTP DTO. Historical durable raw tool records require no migration because both public readers project them at read time."
+        }
+      ]
     },
     {
       "id": "in-memory-token-session",
@@ -1556,7 +1691,8 @@
       "active_identifiers": [
         "llm.item_stream.v1",
         "model_public_commentary.v1",
-        "model_public_stream.v3"
+        "model_public_stream.v3",
+        "model_public_stream_poll.v1"
       ],
       "retired_identifiers": []
     },
@@ -2042,7 +2178,9 @@
           "source": "internal/application",
           "versions": [
             0,
-            1
+            1,
+            2,
+            3
           ],
           "mode": "write-new"
         }
@@ -2053,7 +2191,9 @@
           "source": "internal/store",
           "versions": [
             0,
-            1
+            1,
+            2,
+            3
           ],
           "status": "active"
         }
@@ -2079,10 +2219,14 @@
         "llm.item_stream.identity.v1",
         "long_term_memory.v1",
         "note_context.v1",
+        "root_action_compatibility.v1",
         "root_inbox_context.v1",
         "root_lifecycle.v1",
+        "root_lifecycle.v2",
         "run_creation_operation.v1",
         "run_creation_request.v1",
+        "run_creation_request.v2",
+        "run_creation_request.v3",
         "run_lifecycle_operation.v1",
         "run_lifecycle_request.v1",
         "run_progress_guard.v1",
@@ -2093,8 +2237,16 @@
         "session_grant.v1",
         "session_grant_revoke.v1",
         "session_tree.v1",
+        "thread_epoch_transition_operation.v1",
+        "thread_epoch_transition_request.v1",
         "thread_lifecycle_operation.v1",
-        "thread_lifecycle_request.v1"
+        "thread_lifecycle_request.v1",
+        "thread_run_recovery_operation.v1",
+        "thread_run_recovery_request.v1",
+        "thread_turn_auto_recovery_operation.v1",
+        "thread_turn_epoch_transition_operation.v1",
+        "thread_turn_handoff_operation.v1",
+        "thread_turn_lifecycle_operation.v1"
       ],
       "retired_identifiers": []
     },
@@ -2216,6 +2368,54 @@
         "repository_mutation_binding.v1",
         "repository_remote.v1",
         "repository_remote_binding.v1"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "ui-reference-testing-contracts",
+      "class": "projection",
+      "owner": "React workbench and visual-regression maintainers",
+      "source_of_truth": [
+        "cmd/visualdiff",
+        "scripts"
+      ],
+      "writers": [
+        {
+          "id": "ui-reference-testing-contracts-writer",
+          "source": "scripts",
+          "versions": [
+            1
+          ],
+          "mode": "write-current"
+        }
+      ],
+      "readers": [
+        {
+          "id": "ui-reference-testing-contracts-reader",
+          "source": "cmd/visualdiff",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "Committed reference identities and generated D-drive test artifacts describe presentation evidence only and never grant runtime authority.",
+      "compatibility_rule": "Rebuild staged baselines and visual differences from hash-pinned authoritative screenshots while preserving dimensions, masks, regions, and thresholds.",
+      "retirement_gate": {
+        "mode": "rebuild-from-source",
+        "requirements": [
+          "Rebuild source remains retained and independently verifiable",
+          "Replacement preserves ordering, cursor, invalidation, and redaction behavior",
+          "Retirement evidence proves a complete rebuild from the named source"
+        ]
+      },
+      "rebuild_source": "Hash- and dimension-pinned authoritative screenshots plus the committed visual-difference configuration and implementation.",
+      "active_identifiers": [
+        "traverse_ui_reference_baselines.v1",
+        "traverse_ui_staged_baselines.v1",
+        "traverse_ui_test_environment.v1",
+        "traverse_visual_diff.v1"
       ],
       "retired_identifiers": []
     },
@@ -2703,6 +2903,22 @@
       "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
     },
     {
+      "identifier": "full_cdp_session.v0",
+      "kind": "negative-version-fixture",
+      "sources": [
+        "internal/httpapi/full_cdp_session_control_test.go"
+      ],
+      "reason": "Unknown-version HTTP fixture retained to prove fail-closed Full CDP session decoding."
+    },
+    {
+      "identifier": "full_cdp_session_close.v0",
+      "kind": "negative-version-fixture",
+      "sources": [
+        "internal/httpapi/full_cdp_session_control_test.go"
+      ],
+      "reason": "Unknown-version HTTP fixture retained to prove fail-closed Full CDP close decoding."
+    },
+    {
       "identifier": "linux_ephemeral_user_namespace.v1",
       "kind": "test-fixture",
       "sources": [
@@ -2801,6 +3017,14 @@
         "internal/protocolregistry/registry_test.go"
       ],
       "reason": "Unknown-version fixture retained to prove fail-closed decoding."
+    },
+    {
+      "identifier": "public_model_stream.v1",
+      "kind": "test-fixture",
+      "sources": [
+        "web/src/v2/projection/narrative.test.ts"
+      ],
+      "reason": "Test-only live-stream fixture; production presentation uses the registered current stream protocol."
     },
     {
       "identifier": "run_capability_readiness.v2",

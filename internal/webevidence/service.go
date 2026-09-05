@@ -29,18 +29,28 @@ type Store interface {
 }
 
 type ExecutionScope struct {
-	RunID       string
-	MissionID   string
-	WorkspaceID string
-	Authority   NetworkAuthority
+	RunID               string
+	MissionID           string
+	WorkspaceID         string
+	ModelRoute          string
+	Authority           NetworkAuthority
+	RobotsPolicy        RobotsPolicy
+	ProviderFingerprint string
 }
 
 func (s ExecutionScope) Validate() error {
 	if !validIdentity(s.RunID) || !validIdentity(s.MissionID) ||
-		(s.WorkspaceID != "" && !validIdentity(s.WorkspaceID)) {
+		(s.WorkspaceID != "" && !validIdentity(s.WorkspaceID)) ||
+		(s.ProviderFingerprint != "" && !validDigest(s.ProviderFingerprint)) {
 		return errors.New("web evidence execution scope identity is invalid")
 	}
-	return s.Authority.Validate()
+	if err := s.Authority.Validate(); err != nil {
+		return err
+	}
+	if !effectiveRobotsPolicy(s.RobotsPolicy).Valid() {
+		return errors.New("web evidence robots policy is invalid")
+	}
+	return nil
 }
 
 type SearchRequest struct {
@@ -64,9 +74,17 @@ type CiteRequest struct {
 type Service struct {
 	store      Store
 	provider   SearchProvider
+	resolver   SearchProviderResolver
 	fetcher    FetchBackend
 	now        func() time.Time
 	staleAfter time.Duration
+}
+
+func (s *Service) WithSearchProviderResolver(resolver SearchProviderResolver) *Service {
+	if s != nil {
+		s.resolver = resolver
+	}
+	return s
 }
 
 func NewService(store Store, provider SearchProvider, fetcher FetchBackend) *Service {
@@ -104,10 +122,108 @@ func (s *Service) SearchProviderFingerprintFor(authority NetworkAuthority) strin
 	return DigestBytes([]byte(name + "\x00" + endpoint))
 }
 
+// SearchProviderFingerprintForScope binds the advertised web_search tool to
+// both the live Run authority and the model route's selected backend. An exact
+// provider_native policy may return a locally validated declared binding before
+// its first bounded runtime probe; invalid configuration, missing credentials,
+// disabled network, and unauthorized endpoints still return an empty value.
+func (s *Service) SearchProviderFingerprintForScope(ctx context.Context,
+	scope ExecutionScope,
+) string {
+	selection, endpoint, err := s.resolveSearch(ctx, scope)
+	if err != nil {
+		return ""
+	}
+	return searchSelectionFingerprint(selection, scope.ModelRoute, endpoint)
+}
+
+// SearchProviderIndependentForScope reports whether the selected hosted search
+// route uses an exact Provider API egress boundary instead of the Run's direct
+// web_fetch allowlist. It performs no Provider request and exposes no secret.
+func (s *Service) SearchProviderIndependentForScope(ctx context.Context,
+	scope ExecutionScope,
+) bool {
+	selection, _, err := s.resolveSearch(ctx, scope)
+	return err == nil && selection.ProviderAuthorityIndependent
+}
+
+func searchSelectionFingerprint(selection SearchSelection, modelRoute string,
+	endpoint string,
+) string {
+	return DigestBytes([]byte(strings.Join([]string{selection.Policy,
+		selection.Backend, selection.SelectionReason, selection.Binding,
+		strings.TrimSpace(modelRoute), endpoint,
+		fmt.Sprint(selection.ProviderAuthorityIndependent)}, "\x00")))
+}
+
+func searchSelectionAuthority(selection SearchSelection,
+	runAuthority NetworkAuthority,
+) (NetworkAuthority, error) {
+	if !selection.ProviderAuthorityIndependent {
+		return runAuthority, runAuthority.Validate()
+	}
+	if err := selection.ProviderAuthority.Validate(); err != nil ||
+		selection.ProviderAuthority.Mode != "allowlist" ||
+		len(selection.ProviderAuthority.AllowedTargets) != 1 {
+		return NetworkAuthority{}, errors.New("hosted search Provider authority is invalid")
+	}
+	return selection.ProviderAuthority, nil
+}
+
+func (s *Service) resolveSearch(ctx context.Context, scope ExecutionScope) (
+	SearchSelection, string, error,
+) {
+	if s == nil {
+		return SearchSelection{}, "", errors.New("web search service is unavailable")
+	}
+	selection := SearchSelection{}
+	if s.resolver != nil {
+		var err error
+		selection, err = s.resolver.ResolveSearch(ctx,
+			SearchRoute{ModelRoute: strings.TrimSpace(scope.ModelRoute)}, scope.Authority)
+		if err != nil {
+			return SearchSelection{}, "", err
+		}
+	} else if s.provider != nil {
+		selection = SearchSelection{Policy: SearchPolicySearXNG,
+			Backend:         strings.TrimSpace(s.provider.Name()),
+			SelectionReason: "configured_search_provider", Provider: s.provider}
+	}
+	if selection.Provider == nil || strings.TrimSpace(selection.Provider.Endpoint()) == "" {
+		return SearchSelection{}, "", errors.New("web search backend is unavailable")
+	}
+	switch selection.Policy {
+	case SearchPolicyAuto, SearchPolicySearXNG, SearchPolicyProviderNative:
+	default:
+		return SearchSelection{}, "", errors.New("web search policy is unavailable")
+	}
+	providerName := strings.TrimSpace(selection.Provider.Name())
+	selection.Backend = strings.TrimSpace(selection.Backend)
+	selection.SelectionReason = strings.TrimSpace(selection.SelectionReason)
+	selection.Binding = strings.TrimSpace(selection.Binding)
+	if selection.Backend == "" || selection.Backend != providerName ||
+		!validBoundedText(providerName, 256, false) || redact.String(providerName) != providerName ||
+		!validBoundedText(selection.SelectionReason, 256, false) ||
+		redact.String(selection.SelectionReason) != selection.SelectionReason ||
+		!validBoundedText(selection.Binding, 512, true) ||
+		redact.String(selection.Binding) != selection.Binding {
+		return SearchSelection{}, "", errors.New("web search backend identity is invalid")
+	}
+	searchAuthority, err := searchSelectionAuthority(selection, scope.Authority)
+	if err != nil {
+		return SearchSelection{}, "", err
+	}
+	endpoint, err := searchAuthority.Authorize(strings.TrimSpace(selection.Provider.Endpoint()))
+	if err != nil {
+		return SearchSelection{}, "", err
+	}
+	return selection, endpoint, nil
+}
+
 func (s *Service) Search(ctx context.Context, scope ExecutionScope, request SearchRequest,
 	operationKey string,
 ) (SearchResult, error) {
-	if err := s.ready(scope); err != nil {
+	if err := s.readySearch(scope); err != nil {
 		return SearchResult{}, err
 	}
 	query := boundedCleanText(request.Query, MaxQueryRunes)
@@ -123,24 +239,19 @@ func (s *Service) Search(ctx context.Context, scope ExecutionScope, request Sear
 		return SearchResult{}, apperror.New(apperror.CodeInvalidArgument,
 			"web search limit must be between 1 and 10")
 	}
-	providerEndpoint := ""
-	if s.provider != nil {
-		providerEndpoint = strings.TrimSpace(s.provider.Endpoint())
-	}
-	if providerEndpoint == "" {
+	expectedProviderFingerprint := strings.TrimSpace(scope.ProviderFingerprint)
+	if !validDigest(expectedProviderFingerprint) {
 		return SearchResult{}, apperror.New(apperror.CodeFailedPrecondition,
-			"web_search_provider_unavailable: configure CYBERAGENT_WEB_SEARCH_ENDPOINT; no fallback provider was attempted")
+			"web search requires the exact advertised Provider fingerprint")
 	}
-	providerName := strings.TrimSpace(s.provider.Name())
-	if !validBoundedText(providerName, 256, false) || redact.String(providerName) != providerName {
-		return SearchResult{}, apperror.New(apperror.CodeFailedPrecondition,
-			"web_search_provider_unavailable: configured provider identity is invalid; no fallback provider was attempted")
-	}
-	if _, err := scope.Authority.Authorize(providerEndpoint); err != nil {
-		return SearchResult{}, apperror.Wrap(apperror.CodePolicyDenied,
-			"web search provider is outside the Run network authority", err)
-	}
-	fingerprint, _ := RequestFingerprint(SearchRequest{Query: query, Limit: limit})
+	// Idempotency is bound to the exact model-routed backend generation. The
+	// same operation key cannot silently replay a result produced by an older
+	// Provider definition, policy, endpoint, or qualification.
+	fingerprint, _ := RequestFingerprint(struct {
+		Query                string `json:"query"`
+		Limit                int    `json:"limit"`
+		SelectionFingerprint string `json:"selection_fingerprint"`
+	}{Query: query, Limit: limit, SelectionFingerprint: expectedProviderFingerprint})
 	keyDigest, err := ScopedOperationKeyDigest(scope.RunID, operationKey)
 	if err != nil {
 		return SearchResult{}, apperror.Wrap(apperror.CodeInvalidArgument,
@@ -149,14 +260,60 @@ func (s *Service) Search(ctx context.Context, scope ExecutionScope, request Sear
 	if replay, found, replayErr := s.replaySearch(ctx, scope.RunID, keyDigest, fingerprint); found || replayErr != nil {
 		return replay, replayErr
 	}
-	providerResults, err := s.provider.Search(ctx, query, limit, scope.Authority)
+	// Re-resolve at the last possible point before provider I/O. The capability
+	// snapshot may have been issued before a Provider definition hot reload;
+	// such a reload must rotate authority instead of silently changing the
+	// endpoint, policy, model, capability binding, or adapter used by this call.
+	selection, providerEndpoint, selectionErr := s.resolveSearch(ctx, scope)
+	if selectionErr != nil {
+		return SearchResult{}, apperror.New(apperror.CodeFailedPrecondition,
+			"web_search_provider_unavailable: the current Run model route has no eligible and authorized search backend; no fallback provider was attempted outside the selected policy")
+	}
+	if searchSelectionFingerprint(selection, scope.ModelRoute, providerEndpoint) !=
+		expectedProviderFingerprint {
+		return SearchResult{}, apperror.New(apperror.CodeFailedPrecondition,
+			"web search Provider authority changed after capability advertisement; request a fresh capability snapshot")
+	}
+	providerName := selection.Backend
+	if !validBoundedText(providerName, 256, false) || redact.String(providerName) != providerName {
+		return SearchResult{}, apperror.New(apperror.CodeFailedPrecondition,
+			"web_search_provider_unavailable: configured provider identity is invalid; no fallback provider was attempted")
+	}
+	searchAuthority, err := searchSelectionAuthority(selection, scope.Authority)
 	if err != nil {
+		return SearchResult{}, apperror.New(apperror.CodeFailedPrecondition,
+			"web_search_provider_unavailable: the selected search egress boundary is invalid")
+	}
+	providerResults, err := selection.Provider.Search(ctx, query, limit, searchAuthority)
+	if err != nil {
+		message := "web search provider request failed; no fallback provider was attempted"
+		var qualification *NativeSearchQualificationError
+		if errors.As(err, &qualification) && qualification != nil {
+			switch qualification.Reason {
+			case NativeSearchReasonInvalidConfiguration,
+				NativeSearchReasonCredentialUnavailable,
+				NativeSearchReasonModelMappingInvalid,
+				NativeSearchReasonRuntimeInvalid,
+				NativeSearchReasonEndpointUnauthorized,
+				NativeSearchReasonTransportUnavailable,
+				NativeSearchReasonProviderRejected,
+				NativeSearchReasonToolUnsupported,
+				NativeSearchReasonResponseInvalid:
+				message = "web search provider request failed (" + qualification.Reason +
+					"); no fallback provider was attempted"
+			}
+		}
 		return SearchResult{}, apperror.Wrap(apperror.CodeUnavailable,
-			"web search provider request failed; no fallback provider was attempted", err)
+			message, err)
 	}
 	now := s.now().UTC()
+	groundedProvider, providerGrounded := selection.Provider.(ProviderGroundedSearchProvider)
+	providerGrounded = providerGrounded && groundedProvider.ProviderGroundedSearch() &&
+		(selection.Policy == SearchPolicyProviderNative || selection.Policy == SearchPolicyAuto)
 	result := SearchResult{ProtocolVersion: SearchProtocolVersion, Query: query,
-		Provider: providerName, SearchedAt: now, Sources: []SearchStub{}}
+		Provider: providerName, SearchPolicy: selection.Policy,
+		SelectionReason: selection.SelectionReason,
+		SearchedAt:      now, Sources: []SearchStub{}}
 	sources := make([]Source, 0, limit)
 	for _, item := range providerResults {
 		if len(result.Sources) == limit {
@@ -190,9 +347,42 @@ func (s *Service) Search(ctx context.Context, scope ExecutionScope, request Sear
 			continue
 		}
 		sources = append(sources, source)
-		result.Sources = append(result.Sources, SearchStub{SourceID: source.ID,
-			CanonicalURL: source.CanonicalURL, Title: source.Title, Snippet: source.Snippet,
-			Rank: len(result.Sources) + 1, Provider: source.Provider, Fetched: false})
+		stubProvider := source.Provider
+		stubTitle := source.Title
+		stubSnippet := source.Snippet
+		if providerGrounded {
+			// The immutable Source may predate this operation (for example a
+			// direct fetch of the same URL). Grounded provenance and presentation
+			// metadata belong to the current hosted-search operation and therefore
+			// come from this exact Provider response rather than the older Source.
+			stubProvider = providerName
+			stubTitle = boundedCleanText(redact.String(item.Title), 1024)
+			stubSnippet = boundedSnippet(redact.String(item.Snippet))
+		}
+		stub := SearchStub{SourceID: source.ID,
+			CanonicalURL: source.CanonicalURL, Title: stubTitle, Snippet: stubSnippet,
+			Rank: len(result.Sources) + 1, Provider: stubProvider, Fetched: false,
+			Untrusted: true}
+		if providerGrounded {
+			citation, citationErr := SealProviderGroundedCitation(
+				ProviderGroundedCitation{
+					ID:    StableProviderGroundedCitationID(scope.RunID, keyDigest, source.ID),
+					RunID: scope.RunID, SourceID: source.ID, URL: source.CanonicalURL,
+					Title: source.Title, Provider: providerName,
+					ProviderBinding: expectedProviderFingerprint,
+					Provenance:      ProviderGroundedProvenance, SearchedAt: now,
+					ProviderQualified: true, LocallyVerified: false, Untrusted: true,
+					InstructionAuthorized: false,
+				})
+			if citationErr != nil {
+				return SearchResult{}, apperror.Wrap(apperror.CodeInternal,
+					"seal provider-grounded search citation", citationErr)
+			}
+			stub.Citeable = true
+			stub.Provenance = ProviderGroundedProvenance
+			stub.ProviderGroundedCitation = &citation
+		}
+		result.Sources = append(result.Sources, stub)
 	}
 	response, err := marshalOperationResponse(result)
 	if err != nil {
@@ -277,7 +467,8 @@ func (s *Service) Fetch(ctx context.Context, scope ExecutionScope, request Fetch
 	if replay, found, replayErr := s.replayFetch(ctx, scope.RunID, keyDigest, fingerprint); found || replayErr != nil {
 		return replay, replayErr
 	}
-	fetched, fetchErr := s.fetcher.Fetch(ctx, source.CanonicalURL, scope.Authority)
+	fetched, fetchErr := s.fetcher.Fetch(ctx, source.CanonicalURL, scope.Authority,
+		effectiveRobotsPolicy(scope.RobotsPolicy))
 	if fetchErr == nil {
 		requested, requestedErr := scope.Authority.Authorize(fetched.RequestedURL)
 		final, finalErr := scope.Authority.Authorize(fetched.FinalURL)
@@ -290,14 +481,18 @@ func (s *Service) Fetch(ctx context.Context, scope ExecutionScope, request Fetch
 	fetchedAt := s.now().UTC()
 	snapshot := Snapshot{SourceID: source.ID, RunID: scope.RunID, MissionID: scope.MissionID,
 		RequestedURL: source.CanonicalURL, FinalURL: source.CanonicalURL,
-		FetchedAt: fetchedAt, StaleAt: fetchedAt.Add(s.staleAfter), Digest: DigestBytes(nil),
+		HTTPStatus: fetched.HTTPStatus,
+		FetchedAt:  fetchedAt, StaleAt: fetchedAt.Add(s.staleAfter), Digest: DigestBytes(nil),
 		MIME: "application/octet-stream", State: SourceFailed, Robots: "unknown",
 		Provider: source.Provider}
 	if fetchErr != nil {
+		if strings.TrimSpace(fetched.Robots) != "" {
+			snapshot.Robots = fetched.Robots
+		}
 		snapshot.ErrorCode = classifyFetchError(fetchErr)
 		if blockedFetchErrorCode(snapshot.ErrorCode) {
 			snapshot.State = SourceBlocked
-			if snapshot.ErrorCode == "robots_blocked" {
+			if snapshot.ErrorCode == "robots_blocked" && snapshot.Robots == "unknown" {
 				snapshot.Robots = "blocked"
 			}
 		}
@@ -305,6 +500,7 @@ func (s *Service) Fetch(ctx context.Context, scope ExecutionScope, request Fetch
 		body, redactionTruncated := boundUTF8(redact.String(fetched.Parsed.Body), MaxBodyBytes)
 		snapshot.RequestedURL = fetched.RequestedURL
 		snapshot.FinalURL = fetched.FinalURL
+		snapshot.HTTPStatus = fetched.HTTPStatus
 		snapshot.Title = boundedCleanText(redact.String(
 			firstNonEmpty(fetched.Parsed.Title, source.Title)), 1024)
 		snapshot.Byline = boundedCleanText(redact.String(fetched.Parsed.Byline), 512)
@@ -441,6 +637,18 @@ func (s *Service) ready(scope ExecutionScope) error {
 	return nil
 }
 
+func (s *Service) readySearch(scope ExecutionScope) error {
+	if s == nil || s.store == nil || s.fetcher == nil || s.now == nil {
+		return apperror.New(apperror.CodeFailedPrecondition,
+			"web evidence service is unavailable")
+	}
+	if err := scope.Validate(); err != nil {
+		return apperror.Wrap(apperror.CodeInvalidArgument,
+			"web evidence execution scope is invalid", err)
+	}
+	return nil
+}
+
 func (s *Service) replaySearch(ctx context.Context, runID, keyDigest,
 	fingerprint string,
 ) (SearchResult, bool, error) {
@@ -490,7 +698,7 @@ func decodeSearchOperation(operation Operation, fingerprint string,
 		return SearchResult{}, apperror.Wrap(apperror.CodeInternal,
 			"decode stored web search operation", err)
 	}
-	if err := validateStoredSearchResult(operation.RunID, result); err != nil {
+	if err := validateStoredSearchResult(operation.RunID, operation.KeyDigest, result); err != nil {
 		return SearchResult{}, apperror.Wrap(apperror.CodeInternal,
 			"validate stored web search operation", err)
 	}
@@ -552,11 +760,18 @@ func decodeCitationOperation(operation Operation, fingerprint string,
 	return result, nil
 }
 
-func validateStoredSearchResult(runID string, result SearchResult) error {
+func validateStoredSearchResult(runID, operationDigest string, result SearchResult) error {
+	legacySelection := result.SearchPolicy == "" && result.SelectionReason == ""
+	validSelection := false
+	switch result.SearchPolicy {
+	case SearchPolicyAuto, SearchPolicySearXNG, SearchPolicyProviderNative:
+		validSelection = validBoundedText(result.SelectionReason, 256, false) &&
+			redact.String(result.SelectionReason) == result.SelectionReason
+	}
 	if result.ProtocolVersion != SearchProtocolVersion ||
 		boundedCleanText(result.Query, MaxQueryRunes) != result.Query || result.Query == "" ||
 		!validBoundedText(result.Provider, 256, false) || result.SearchedAt.IsZero() ||
-		result.Replayed || len(result.Sources) > MaxSources {
+		(!legacySelection && !validSelection) || result.Replayed || len(result.Sources) > MaxSources {
 		return errors.New("stored web search result metadata is invalid")
 	}
 	seenSources := make(map[string]struct{}, len(result.Sources))
@@ -570,6 +785,26 @@ func validateStoredSearchResult(runID string, result SearchResult) error {
 			!validBoundedText(source.Provider, 256, false) ||
 			source.Rank != index+1 || source.Fetched {
 			return errors.New("stored web search source binding is invalid")
+		}
+		if source.ProviderGroundedCitation == nil {
+			// Untrusted was not part of the original v1 operation response. Accept
+			// false only for a legacy non-citeable discovery stub.
+			if source.Citeable || source.Provenance != "" || source.LocallyVerified ||
+				source.InstructionAuthorized {
+				return errors.New("stored web search discovery provenance is invalid")
+			}
+		} else {
+			citation := *source.ProviderGroundedCitation
+			if citation.Validate() != nil || !source.Citeable ||
+				source.Provenance != ProviderGroundedProvenance || source.LocallyVerified ||
+				!source.Untrusted || source.InstructionAuthorized ||
+				citation.ID != StableProviderGroundedCitationID(runID, operationDigest,
+					source.SourceID) || citation.RunID != runID ||
+				citation.SourceID != source.SourceID || citation.URL != source.CanonicalURL ||
+				citation.Title != source.Title || citation.Provider != source.Provider ||
+				!citation.SearchedAt.Equal(result.SearchedAt) {
+				return errors.New("stored provider-grounded citation binding is invalid")
+			}
 		}
 		if _, duplicate := seenSources[source.SourceID]; duplicate {
 			return errors.New("stored web search source is duplicated")

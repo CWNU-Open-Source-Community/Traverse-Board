@@ -35,6 +35,11 @@ const (
 	MaxCommandRuntimeResultJobs       = 32
 	MaxCommandRuntimeForegroundMillis = 25_000
 	MaxCommandRuntimePageBytes        = 32 * 1024
+
+	// CommandRuntimeRequestedByUIEvidenceOperator identifies the reviewed
+	// control-bearer UI-evidence workflow. It is Run/root-authorized but does
+	// not claim that a model Agent attempt requested the command.
+	CommandRuntimeRequestedByUIEvidenceOperator = "ui_evidence_operator"
 )
 
 type CommandRuntimeInput struct {
@@ -145,6 +150,8 @@ type CommandRuntimeContext struct {
 	RunID                string
 	MissionID            string
 	RootAgentID          string
+	AgentID              string
+	AgentAttemptID       string
 	SessionID            string
 	WorkspaceID          string
 	Surface              domain.ExecutionSurface
@@ -164,17 +171,21 @@ type CommandRuntimeContext struct {
 
 func (c CommandRuntimeContext) Validate() error {
 	for _, value := range []string{c.InvocationID, c.OperationKey, c.RunID,
-		c.MissionID, c.RootAgentID, c.SessionID, c.WorkspaceID, c.LeaseID,
+		c.MissionID, c.RootAgentID, c.AgentID,
+		c.SessionID, c.WorkspaceID, c.LeaseID,
 		c.RequestedBy} {
 		if value == "" || strings.TrimSpace(value) != value ||
 			!utf8.ValidString(value) || len([]rune(value)) > MaxToolIdentityRunes {
 			return errors.New("command runtime requires normalized bounded identities")
 		}
 	}
-	if !domain.ValidAgentID(c.RootAgentID) ||
+	attribution := c.Attribution()
+	if !domain.ValidAgentID(c.RootAgentID) || attribution.Validate() != nil ||
+		(attribution.Source == domain.AgentAttributionOperatorRoot &&
+			attribution.AgentID != c.RootAgentID) ||
 		!validAgentCodeDigest(c.CapabilityGeneration, false) || c.LeaseGeneration <= 0 ||
 		!c.Adapter.Executable() ||
-		c.RequestedBy != "run_supervisor" || c.PolicyDecision.Validate() != nil ||
+		c.PolicyDecision.Validate() != nil ||
 		!c.PolicyDecision.Allowed || c.PolicyDecision.Approval != ApprovalAutomatic {
 		return errors.New("command runtime requires an automatically authorized fenced root scope")
 	}
@@ -191,6 +202,24 @@ func (c CommandRuntimeContext) Validate() error {
 		return errors.New("command runtime authority tuple is invalid or partial")
 	}
 	return nil
+}
+
+// Attribution returns the exact durable actor semantics for this command.
+// Model tool calls require a real Agent attempt. The operator-reviewed
+// UI-evidence path carries only the root authority anchor and deliberately has
+// no AgentAttemptID.
+func (c CommandRuntimeContext) Attribution() domain.AgentAttribution {
+	switch c.RequestedBy {
+	case "run_supervisor":
+		return domain.AgentAttribution{AgentID: c.AgentID,
+			AgentAttemptID: c.AgentAttemptID, Source: domain.AgentAttributionRecorded}
+	case CommandRuntimeRequestedByUIEvidenceOperator:
+		return domain.AgentAttribution{AgentID: c.AgentID,
+			AgentAttemptID: c.AgentAttemptID, Source: domain.AgentAttributionOperatorRoot}
+	default:
+		return domain.AgentAttribution{AgentID: c.AgentID,
+			AgentAttemptID: c.AgentAttemptID}
+	}
 }
 
 type CommandRuntimeArtifactOutput struct {
@@ -512,8 +541,9 @@ func (g *Gateway) invokeCommandRuntime(ctx context.Context, call ToolCall) (
 	}
 	scope := CommandRuntimeContext{InvocationID: call.InvocationID,
 		OperationKey: call.OperationKey, RunID: call.RunID, MissionID: call.MissionID,
-		RootAgentID: call.AgentID,
-		SessionID:   call.SessionID, WorkspaceID: call.WorkspaceID,
+		RootAgentID: call.AgentID, AgentID: call.AgentID,
+		AgentAttemptID: call.AgentAttemptID,
+		SessionID:      call.SessionID, WorkspaceID: call.WorkspaceID,
 		Surface: call.Surface, Phase: call.Phase, Role: call.Role,
 		Profile: call.Profile, PermissionMode: call.PermissionMode,
 		ModeRevision: call.ModeRevision, PermissionRevision: call.PermissionRevision,

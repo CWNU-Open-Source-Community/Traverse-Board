@@ -122,16 +122,17 @@ func (p *testSkillPackagePicker) OpenSkillPackage(ctx context.Context) (string, 
 	return path, err
 }
 
-func TestDesktopBridgeBindsOnlySixteenBoundedMethods(t *testing.T) {
+func TestDesktopBridgeBindsOnlySeventeenBoundedMethods(t *testing.T) {
 	typ := reflect.TypeFor[*DesktopBridge]()
-	if typ.NumMethod() != 16 {
-		t.Fatalf("exported method count = %d, want 16", typ.NumMethod())
+	if typ.NumMethod() != 17 {
+		t.Fatalf("exported method count = %d, want 17", typ.NumMethod())
 	}
 	want := []string{
 		"Bootstrap", "CloseUserTerminal", "GetDebugTerminalAgentInput",
 		"GetUserTerminal", "GrantDebugTerminalAgentInput",
 		"ImportWorkspace", "InstallSkillPackage", "OpenWorkspace", "PreviewSkillPackage",
-		"ReadUserTerminal", "ResizeUserTerminal", "RevokeDebugTerminalAgentInput",
+		"ReadUserTerminal", "ResizeUserTerminal", "RestartWithRiskProfile",
+		"RevokeDebugTerminalAgentInput",
 		"SelectSkillPackage",
 		"StartUserTerminal", "WorkspaceLaunchers", "WriteUserTerminal",
 	}
@@ -173,6 +174,7 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		bootstrap.ModelControlEnabled || bootstrap.ProviderCredentialEnabled ||
 		bootstrap.ExecutionPermissionControlEnabled ||
 		bootstrap.BrowserCDPPermissionControlEnabled || bootstrap.FullCDPDebugEnabled ||
+		bootstrap.FullCDPSessionControlEnabled ||
 		bootstrap.OperatorApprovalEnabled || bootstrap.DangerFullAccessEnabled ||
 		bootstrap.WorkspaceSandboxEnabled || bootstrap.DebugMaximumAccessEnabled ||
 		!bootstrap.CommandRuntimeProtocolAvailable ||
@@ -197,7 +199,8 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		bootstrap.UIEvidenceControlEnabled ||
 		bootstrap.WorkspaceOpenEnabled ||
 		bootstrap.WorkspaceImportEnabled ||
-		bootstrap.RendererPathInputSupported {
+		bootstrap.RendererPathInputSupported ||
+		bootstrap.RiskProfileRestartEnabled {
 		t.Fatalf("unexpected bootstrap: %#v", bootstrap)
 	}
 	raw, err := json.Marshal(bootstrap)
@@ -213,6 +216,7 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		"execution_permission_control_enabled", "workspace_sandbox_enabled",
 		"operator_approval_enabled",
 		"browser_cdp_permission_control_enabled", "full_cdp_debug_enabled",
+		"full_cdp_session_control_enabled",
 		"danger_full_access_enabled", "debug_maximum_access_enabled",
 		"command_runtime_enabled", "command_runtime_protocol_available",
 		"command_runtime_adapter_installed", "command_runtime_adapter_ready",
@@ -222,6 +226,7 @@ func TestDesktopBridgeBootstrapsMemoryOnlyClosedAuthority(t *testing.T) {
 		"file_edit_apply_enabled",
 		"process_execution_enabled", "protocol_version", "read_only_default",
 		"plan_delivery_control_enabled", "read_token", "renderer_path_input_supported",
+		"risk_profile_restart_enabled",
 		"run_creation_enabled", "standard_code_preset_enabled", "shell_execution_enabled",
 		"run_execution_enabled", "run_lifecycle_enabled", "run_wake_control_enabled",
 		"run_wake_execution_enabled", "run_wake_worker_enabled",
@@ -788,6 +793,10 @@ func TestNewDesktopBridgeRejectsInvalidMetadataAndDependencies(t *testing.T) {
 			c.ControlToken = testDesktopControlToken
 			c.HostCommandProposalControlEnabled = true
 		}},
+		{name: "Full CDP session control without production permission stack", change: func(c *DesktopBridgeConfig) {
+			c.ControlToken = testDesktopControlToken
+			c.FullCDPSessionControlEnabled = true
+		}},
 		{name: "evidence without token", change: func(c *DesktopBridgeConfig) { c.EvidenceAttachmentEnabled = true }},
 		{name: "verification without token", change: func(c *DesktopBridgeConfig) { c.VerificationEvidenceEnabled = true }},
 		{name: "terminal without token", change: func(c *DesktopBridgeConfig) {
@@ -815,6 +824,35 @@ func TestNewDesktopBridgeRejectsInvalidMetadataAndDependencies(t *testing.T) {
 				t.Fatalf("error = %v, code = %s", err, apperror.CodeOf(err))
 			}
 		})
+	}
+}
+
+func TestDesktopBridgeProjectsInstalledFullCDPSessionControl(t *testing.T) {
+	selector, preview := NewSkillPackagePreviewBoundary()
+	bridge, err := NewDesktopBridge(DesktopBridgeConfig{
+		ContextProvider:                    func() context.Context { return context.Background() },
+		FilePicker:                         &testSkillPackagePicker{},
+		ReadToken:                          testDesktopReadToken,
+		ControlToken:                       testDesktopControlToken,
+		ExecutionPermissionControlEnabled:  true,
+		BrowserCDPPermissionControlEnabled: true,
+		FullCDPDebugEnabled:                true,
+		FullCDPSessionControlEnabled:       true,
+		OperatorApprovalEnabled:            true,
+		DangerFullAccessEnabled:            true,
+		APIVersion:                         "api.v1", AppVersion: "test", UIDigest: testDesktopUIDigest,
+		Selector: selector, PreviewBridge: preview,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap, err := bridge.Bootstrap()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bootstrap.FullCDPSessionControlEnabled || !bootstrap.FullCDPDebugEnabled ||
+		!bootstrap.BrowserCDPPermissionControlEnabled || !bootstrap.DangerFullAccessEnabled {
+		t.Fatalf("Full CDP production availability projection is wrong: %#v", bootstrap)
 	}
 }
 

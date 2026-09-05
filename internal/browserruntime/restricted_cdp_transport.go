@@ -92,13 +92,24 @@ var uiEvidenceCDPMethods = map[string]restrictedCDPMethodScope{
 // only under a confirmed FullCDPAuthorization. It never includes methods that
 // disable browser security.
 var fullCDPMethods = map[string]restrictedCDPMethodScope{
-	"Network.getCookies":    restrictedCDPTargetMethod,
-	"Network.getAllCookies": restrictedCDPTargetMethod,
-	"Storage.getCookies":    restrictedCDPTargetMethod,
-	"Fetch.fulfillRequest":  restrictedCDPTargetMethod,
-	"Runtime.enable":        restrictedCDPTargetMethod,
-	"Runtime.evaluate":      restrictedCDPTargetMethod,
-	"Log.enable":            restrictedCDPTargetMethod,
+	"Accessibility.enable":        restrictedCDPTargetMethod,
+	"Accessibility.getFullAXTree": restrictedCDPTargetMethod,
+	"DOM.describeNode":            restrictedCDPTargetMethod,
+	"DOM.focus":                   restrictedCDPTargetMethod,
+	"DOM.getBoxModel":             restrictedCDPTargetMethod,
+	"DOM.getOuterHTML":            restrictedCDPTargetMethod,
+	"DOM.querySelector":           restrictedCDPTargetMethod,
+	"DOM.scrollIntoViewIfNeeded":  restrictedCDPTargetMethod,
+	"Network.getCookies":          restrictedCDPTargetMethod,
+	"Network.getAllCookies":       restrictedCDPTargetMethod,
+	"Storage.getCookies":          restrictedCDPTargetMethod,
+	"Fetch.fulfillRequest":        restrictedCDPTargetMethod,
+	"Input.dispatchMouseEvent":    restrictedCDPTargetMethod,
+	"Input.insertText":            restrictedCDPTargetMethod,
+	"Page.getFrameTree":           restrictedCDPTargetMethod,
+	"Runtime.enable":              restrictedCDPTargetMethod,
+	"Runtime.evaluate":            restrictedCDPTargetMethod,
+	"Log.enable":                  restrictedCDPTargetMethod,
 }
 
 type RestrictedNavigationResult struct {
@@ -551,6 +562,12 @@ func (client *restrictedCDPClient) initialize(ctx context.Context) error {
 				&struct{}{}); err != nil {
 				return err
 			}
+		}
+	}
+	if client.fullCDP {
+		if err := client.call(ctx, client.sessionID, "Accessibility.enable",
+			map[string]any{}, &struct{}{}); err != nil {
+			return err
 		}
 	}
 	return nil

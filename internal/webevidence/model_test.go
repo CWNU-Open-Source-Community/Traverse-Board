@@ -1,6 +1,7 @@
 package webevidence
 
 import (
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -49,6 +50,32 @@ func TestPublicPresentationsRedactBoundedMetadata(t *testing.T) {
 	}
 }
 
+func TestSnapshotHTTPStatusIsDurableAndLegacyCompatible(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.September, 3, 6, 0, 0, 0, time.UTC)
+	base := Snapshot{ID: "snapshot-http-status", SourceID: "source-http-status",
+		RunID: "run-http-status", MissionID: "mission-http-status",
+		RequestedURL: "https://docs.example.com/status",
+		FinalURL:     "https://docs.example.com/status", FetchedAt: now,
+		StaleAt: now.Add(DefaultStaleAfter), Digest: DigestBytes([]byte("body")),
+		MIME: "text/plain", Body: "body", State: SourceFetched,
+		Robots: "allowed", Provider: "direct"}
+	legacy, err := SealSnapshot(base)
+	if err != nil || legacy.HTTPStatus != 0 {
+		t.Fatalf("legacy snapshot=%#v err=%v", legacy, err)
+	}
+	base.HTTPStatus = http.StatusOK
+	current, err := SealSnapshot(base)
+	if err != nil || current.HTTPStatus != http.StatusOK ||
+		current.Fingerprint == legacy.Fingerprint {
+		t.Fatalf("current snapshot=%#v legacy=%#v err=%v", current, legacy, err)
+	}
+	base.HTTPStatus = http.StatusNotFound
+	if _, err := SealSnapshot(base); err == nil {
+		t.Fatal("successful snapshot accepted a non-success HTTP status")
+	}
+}
+
 func TestSealedEvidenceRejectsUnsafeMetadataAndBodyControls(t *testing.T) {
 	now := time.Date(2026, time.August, 25, 9, 0, 0, 0, time.UTC)
 	if _, err := SealSource(Source{ID: "source\x01control", RunID: "run-control",
@@ -71,5 +98,28 @@ func TestSealedEvidenceRejectsUnsafeMetadataAndBodyControls(t *testing.T) {
 		MIME: "text/plain", Body: "body", State: SourcePartial, Robots: "allowed",
 		Provider: "direct"}); err == nil {
 		t.Fatal("partial snapshot without a truncation/partial marker was accepted")
+	}
+}
+
+func TestProviderGroundedCitationCannotMasqueradeAsLocalVerification(t *testing.T) {
+	now := time.Date(2026, time.September, 2, 10, 0, 0, 0, time.UTC)
+	base := ProviderGroundedCitation{ID: "provider-citation-grounded-model",
+		RunID: "run-grounded-model", SourceID: "source-grounded-model",
+		URL: "https://docs.example.com/grounded", Title: "Grounded",
+		Provider: "provider_native:responses", ProviderBinding: strings.Repeat("a", 64),
+		Provenance: ProviderGroundedProvenance, SearchedAt: now,
+		ProviderQualified: true, Untrusted: true}
+	sealed, err := SealProviderGroundedCitation(base)
+	if err != nil || sealed.Validate() != nil {
+		t.Fatalf("seal provider-grounded citation=%#v err=%v", sealed, err)
+	}
+	base.LocallyVerified = true
+	if _, err := SealProviderGroundedCitation(base); err == nil {
+		t.Fatal("provider-grounded citation claimed a local verification snapshot")
+	}
+	base.LocallyVerified = false
+	base.InstructionAuthorized = true
+	if _, err := SealProviderGroundedCitation(base); err == nil {
+		t.Fatal("provider-grounded citation granted instruction authority")
 	}
 }

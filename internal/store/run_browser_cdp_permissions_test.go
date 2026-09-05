@@ -62,11 +62,25 @@ func TestRunBrowserCDPPermissionIsImmutableIdempotentAndDebugGated(t *testing.T)
 		}); err != nil {
 		t.Fatal(err)
 	}
+	defaulted, err := service.Current(ctx, run.ID)
+	if err != nil || defaulted.Mode != domain.RunBrowserCDPPermissionFullDebug ||
+		defaulted.Revision != 2 {
+		t.Fatalf("Debug execution did not atomically default Full CDP on: %+v err=%v",
+			defaulted, err)
+	}
+	if _, err := service.Change(ctx,
+		application.ChangeRunBrowserCDPPermissionRequest{
+			RunID: run.ID, Mode: string(domain.RunBrowserCDPPermissionRestricted),
+			OperationKey: "browser-cdp-permission-disable-0002",
+			RequestedBy:  "test_operator", Reason: "exercise the explicit CDP sub-switch",
+		}); err != nil {
+		t.Fatal(err)
+	}
 	selected, err := service.Change(ctx, request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if selected.Replayed || selected.Permission.Revision != 2 ||
+	if selected.Replayed || selected.Permission.Revision != 4 ||
 		selected.Permission.Mode != domain.RunBrowserCDPPermissionFullDebug ||
 		selected.Permission.TransportEnabled || selected.Permission.BrowserStartAuthorized ||
 		selected.Permission.RuntimeAuthorized || selected.Permission.CapabilityGrant {

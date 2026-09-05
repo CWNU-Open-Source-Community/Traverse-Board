@@ -68,14 +68,22 @@ const (
 )
 
 type ProviderAvailability struct {
-	Name               string
-	Kind               string
-	Status             string
-	Models             []string
-	Harnesses          []HarnessAvailability
-	CredentialSource   string
-	NetworkRequired    bool
-	ConfigurationError bool
+	Name                          string
+	DisplayName                   string
+	Kind                          string
+	Status                        string
+	Models                        []string
+	Harnesses                     []HarnessAvailability
+	CredentialSource              string
+	NetworkRequired               bool
+	ConfigurationError            bool
+	Custom                        bool
+	Enabled                       bool
+	DefinitionRevision            uint64
+	Transport                     string
+	SearchMode                    string
+	NativeWebSearchCapability     string
+	NativeWebSearchRuntimeEnabled bool
 }
 
 type RouteAvailability struct {
@@ -133,17 +141,19 @@ type CredentialReader interface {
 }
 
 type Registry struct {
-	mu              sync.RWMutex
-	routeMu         sync.Mutex
-	qualificationMu sync.Mutex
-	router          *llm.Router
-	providers       []ProviderAvailability
-	available       map[string]struct{}
-	lookup          EnvironmentLookup
-	credentials     credentialLookup
-	generation      uint64
-	ollama          *llm.OllamaProvider
-	qualificationStatuses map[string]persistedQualificationStatus
+	mu                      sync.RWMutex
+	routeMu                 sync.Mutex
+	qualificationMu         sync.Mutex
+	router                  *llm.Router
+	providers               []ProviderAvailability
+	available               map[string]struct{}
+	lookup                  EnvironmentLookup
+	credentials             credentialLookup
+	generation              uint64
+	ollama                  *llm.OllamaProvider
+	strictCredentialReads   bool
+	customDefinitionsLoaded bool
+	qualificationStatuses   map[string]persistedQualificationStatus
 }
 
 type anthropicEnvironment struct {
@@ -220,6 +230,7 @@ func buildRegistry(ctx context.Context, lookup EnvironmentLookup,
 		}},
 		available: map[string]struct{}{"mock": {}}, lookup: lookup,
 		credentials: credentials, generation: 1,
+		strictCredentialReads: strictCredentialReads,
 		qualificationStatuses: make(map[string]persistedQualificationStatus),
 	}
 	configs := []anthropicEnvironment{
@@ -332,6 +343,15 @@ func (r *Registry) LoadRouteSettings(ctx context.Context, reader RouteSettingRea
 	if reader == nil {
 		return errors.New("model route setting reader is required")
 	}
+	if !r.customDefinitionsLoaded {
+		if err := r.loadCustomProviderDefinitions(ctx, reader); err != nil {
+			return err
+		}
+		r.customDefinitionsLoaded = true
+		sort.Slice(r.providers, func(i, j int) bool {
+			return r.providers[i].Name < r.providers[j].Name
+		})
+	}
 	for _, route := range routeNames {
 		value, found, err := reader.GetProviderSetting(ctx, "route."+route)
 		if err != nil {
@@ -419,8 +439,8 @@ func (r *Registry) Diagnose(ctx context.Context, provider string,
 		return DiagnosticResult{
 			ProtocolVersion: DiagnosticProtocolVersion,
 			Provider:        provider, Model: model, Status: DiagnosticUnreachable,
-			Outcome:            string(llm.OutcomePermanent),
-			FailureReason:      llm.ProviderFailureNotConfigured,
+			Outcome:             string(llm.OutcomePermanent),
+			FailureReason:       llm.ProviderFailureNotConfigured,
 			QualificationStatus: QualificationStatusNotConfigured,
 		}, nil
 	}
@@ -485,6 +505,22 @@ func (r *Registry) Snapshot() Snapshot {
 	providers := make([]ProviderAvailability, len(r.providers))
 	for index, provider := range r.providers {
 		providers[index] = provider
+		if !provider.Custom {
+			providers[index].DisplayName = provider.Name
+			providers[index].Enabled = true
+			providers[index].SearchMode = ProviderSearchModeDisabled
+			providers[index].NativeWebSearchCapability = NativeWebSearchUnsupported
+			switch provider.Kind {
+			case ProviderKindAnthropicCompatible:
+				providers[index].Transport = llm.HarnessTransportAnthropicMessages
+			case ProviderKindOpenAICompatible:
+				providers[index].Transport = llm.HarnessTransportOpenAIChatCompletions
+			case ProviderKindOllama:
+				providers[index].Transport = llm.HarnessTransportOllamaChat
+			case ProviderKindLocal:
+				providers[index].Transport = llm.HarnessTransportMock
+			}
+		}
 		providers[index].Models = make([]string, len(provider.Models))
 		configuredHarnesses := append([]HarnessAvailability(nil), provider.Harnesses...)
 		providers[index].Harnesses = make([]HarnessAvailability, 0, len(provider.Models))
@@ -593,6 +629,129 @@ func containsRoute(route string) bool {
 		}
 	}
 	return false
+}
+
+// SupportedRouteNames returns a copy for mutation services that must prevent a
+// custom Provider from being removed while a durable route still references
+// it.
+func SupportedRouteNames() []string {
+	return append([]string(nil), routeNames...)
+}
+
+func (r *Registry) loadCustomProviderDefinitions(ctx context.Context,
+	reader RouteSettingReader,
+) error {
+	collection, err := ReadProviderDefinitions(ctx, reader)
+	if err != nil {
+		return fmt.Errorf("load custom Provider definitions: %w", err)
+	}
+	for _, definition := range collection.Providers {
+		if err := r.registerCustomProvider(ctx, definition); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *Registry) registerCustomProvider(ctx context.Context,
+	definition ProviderDefinition,
+) error {
+	kind := ProviderKindOpenAICompatible
+	jsonStrategy := llm.HarnessJSONStrategyNative
+	if definition.Transport == ProviderTransportAnthropicMessages {
+		kind = ProviderKindAnthropicCompatible
+		jsonStrategy = llm.HarnessJSONStrategyPrompt
+	}
+	harnesses := make([]HarnessAvailability, 0, len(definition.Models))
+	for _, model := range definition.Models {
+		harnesses = append(harnesses, unqualifiedHarnessAvailability(model,
+			definition.Transport, jsonStrategy))
+	}
+	availability := ProviderAvailability{
+		Name: definition.ID, DisplayName: definition.DisplayName,
+		Kind: kind, Status: ProviderNotConfigured,
+		Models: append([]string(nil), definition.Models...), Harnesses: harnesses,
+		CredentialSource: "system", NetworkRequired: true,
+		Custom: true, Enabled: definition.Enabled,
+		DefinitionRevision: definition.Revision, Transport: definition.Transport,
+		SearchMode:                definition.SearchMode,
+		NativeWebSearchCapability: definition.NativeWebSearchCapability,
+		// Hosted search is deliberately not installed by a definition. A future
+		// runtime qualification must set this from observed behavior, never from
+		// the user-writable declaration.
+		NativeWebSearchRuntimeEnabled: false,
+	}
+	if !definition.Enabled {
+		r.providers = append(r.providers, availability)
+		return nil
+	}
+	key := ""
+	present := false
+	if r.credentials != nil {
+		var err error
+		key, present, err = r.credentials(ctx, definition.ID)
+		if err != nil {
+			if r.strictCredentialReads {
+				return fmt.Errorf("read system credential for custom Provider %s: %w",
+					definition.ID, err)
+			}
+			availability.Status = ProviderInvalidConfiguration
+			availability.ConfigurationError = true
+			r.providers = append(r.providers, availability)
+			return nil
+		}
+	}
+	if !present {
+		r.providers = append(r.providers, availability)
+		return nil
+	}
+	if key == "" || key != strings.TrimSpace(key) {
+		availability.Status = ProviderInvalidConfiguration
+		availability.ConfigurationError = true
+		r.providers = append(r.providers, availability)
+		return nil
+	}
+	runtime, runtimeErr := newProviderRequestRuntime(definition, r.credentials)
+	if runtimeErr != nil {
+		availability.Status = ProviderInvalidConfiguration
+		availability.ConfigurationError = true
+		r.providers = append(r.providers, availability)
+		return nil
+	}
+	var provider llm.Provider
+	var err error
+	switch definition.Transport {
+	case ProviderTransportOpenAIChatCompletions:
+		provider, err = llm.NewOpenAICompatibleProvider(llm.OpenAICompatibleConfig{
+			Name: definition.ID, BaseURL: definition.EndpointURL,
+			DefaultModel: definition.DefaultModel,
+			HTTPClient:   &http.Client{Timeout: DefaultOpenAITimeout}, Runtime: runtime,
+		})
+	case ProviderTransportOpenAIResponses:
+		provider, err = llm.NewOpenAIResponsesProvider(llm.OpenAIResponsesConfig{
+			Name: definition.ID, BaseURL: definition.EndpointURL,
+			DefaultModel: definition.DefaultModel,
+			HTTPClient:   &http.Client{Timeout: DefaultOpenAITimeout}, Runtime: runtime,
+		})
+	case ProviderTransportAnthropicMessages:
+		provider, err = llm.NewAnthropicCompatibleProvider(llm.AnthropicCompatibleConfig{
+			Name: definition.ID, BaseURL: definition.EndpointURL,
+			DefaultModel: definition.DefaultModel,
+			HTTPClient:   &http.Client{Timeout: DefaultOpenAITimeout}, Runtime: runtime,
+		})
+	default:
+		err = errors.New("unsupported custom Provider transport")
+	}
+	if err != nil {
+		availability.Status = ProviderInvalidConfiguration
+		availability.ConfigurationError = true
+	} else {
+		availability.Status = ProviderAvailable
+		r.router.RegisterProvider(provider)
+		r.available[definition.ID] = struct{}{}
+	}
+	r.providers = append(r.providers, availability)
+	return nil
 }
 
 func (r *Registry) registerAnthropicEnvironment(ctx context.Context, config anthropicEnvironment,

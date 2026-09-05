@@ -220,14 +220,14 @@ func (s *DiagnosticsService) Doctor(ctx context.Context,
 		repairEligible := mode.Surface == domain.ExecutionSurfaceCode &&
 			mode.Phase == domain.ExecutionPhaseDeliver &&
 			(permission.Mode == domain.RunExecutionPermissionApproval ||
-				permission.Mode == domain.RunExecutionPermissionFullAccess) &&
+				permission.Mode.IncludesFullAccess()) &&
 			permission.OperatorConfirmed
 		runSnapshot = &DoctorRunSnapshot{
 			RunID: run.ID, Status: run.Status, Profile: mission.Profile,
 			ModelRoute: run.Config.ModelRoute, WorkspaceID: mission.WorkspaceID,
 			RootAgentID: root.ID, Surface: mode.Surface, Phase: mode.Phase,
-			ExecutionPermission: permission.Mode, NetworkMode: mission.Scope.NetworkMode,
-			AllowedNetworkTargetCount: len(mission.Scope.AllowedTargets),
+			ExecutionPermission: permission.Mode, NetworkMode: mode.Scope.NetworkMode,
+			AllowedNetworkTargetCount: len(mode.Scope.AllowedTargets),
 			ReadOnlyToolsEligible:     mode.Surface == domain.ExecutionSurfaceCode,
 			RepairToolsEligible:       repairEligible,
 			// Snapshot rows never carry a process-local capability grant.
@@ -238,8 +238,8 @@ func (s *DiagnosticsService) Doctor(ctx context.Context,
 				DetailCode: string(run.Status), Evidence: "persisted_snapshot"},
 			DiagnosticCheck{Component: "workspace", Status: workspaceDoctorStatus(mission.WorkspaceID),
 				DetailCode: workspaceDoctorDetail(mission.WorkspaceID), Evidence: "run_binding"},
-			DiagnosticCheck{Component: "network", Status: networkDoctorStatus(mission.Scope.NetworkMode),
-				DetailCode: mission.Scope.NetworkMode, Evidence: "mission_scope"},
+			DiagnosticCheck{Component: "network", Status: networkDoctorStatus(mode.Scope.NetworkMode),
+				DetailCode: mode.Scope.NetworkMode, Evidence: "current_run_mode_scope"},
 			DiagnosticCheck{Component: "tools", Status: doctorToolStatus(repairEligible),
 				DetailCode: doctorToolDetail(repairEligible), Evidence: "policy_projection"})
 	}

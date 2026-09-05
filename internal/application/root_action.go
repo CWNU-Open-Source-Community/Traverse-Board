@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"cyberagent-workbench/internal/apperror"
@@ -15,6 +16,12 @@ import (
 )
 
 const maxRootActionJSONBytes = llm.MaxModelOutputBytes
+
+const maxRootActionTrailingCommentaryBytes = 4 * 1024
+
+type rootActionTrailingCommentaryRecovery struct {
+	DiscardedTrailingBytes int
+}
 
 func parseRootAction(raw string) (domain.RootAction, error) {
 	if len(raw) > maxRootActionJSONBytes {
@@ -52,6 +59,69 @@ func parseRootAction(raw string) (domain.RootAction, error) {
 		return domain.RootAction{}, apperror.Wrap(apperror.CodeFailedPrecondition, "provider returned an invalid root lifecycle action", err)
 	}
 	return action, nil
+}
+
+// recoverRootActionWithTrailingCommentary is a deliberately narrow Provider
+// compatibility path. parseRootAction remains the canonical strict parser;
+// this helper is used only by RunSupervisor after that parser has rejected a
+// response. It accepts one exact valid lifecycle object followed by bounded
+// prose and never treats another JSON value or lifecycle marker as commentary.
+func recoverRootActionWithTrailingCommentary(raw string) (
+	domain.RootAction, rootActionTrailingCommentaryRecovery, bool,
+) {
+	if len(raw) > maxRootActionJSONBytes || !utf8.ValidString(raw) {
+		return domain.RootAction{}, rootActionTrailingCommentaryRecovery{}, false
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw[0] != '{' {
+		return domain.RootAction{}, rootActionTrailingCommentaryRecovery{}, false
+	}
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	var first json.RawMessage
+	if err := decoder.Decode(&first); err != nil {
+		return domain.RootAction{}, rootActionTrailingCommentaryRecovery{}, false
+	}
+	offset := decoder.InputOffset()
+	if offset <= 0 || offset >= int64(len(raw)) {
+		return domain.RootAction{}, rootActionTrailingCommentaryRecovery{}, false
+	}
+	commentary := strings.TrimSpace(raw[offset:])
+	if !validRootActionTrailingCommentary(commentary) {
+		return domain.RootAction{}, rootActionTrailingCommentaryRecovery{}, false
+	}
+	action, err := parseRootAction(string(first))
+	if err != nil || action.Version != domain.RootLifecycleVersion {
+		return domain.RootAction{}, rootActionTrailingCommentaryRecovery{}, false
+	}
+	return action, rootActionTrailingCommentaryRecovery{
+		DiscardedTrailingBytes: len(commentary),
+	}, true
+}
+
+func validRootActionTrailingCommentary(commentary string) bool {
+	if commentary == "" || len(commentary) > maxRootActionTrailingCommentaryBytes ||
+		!utf8.ValidString(commentary) ||
+		strings.Contains(strings.ToLower(commentary), "root_lifecycle") ||
+		strings.ContainsAny(commentary, "{}[]") {
+		return false
+	}
+	// A second scalar JSON value is just as ambiguous as another object or
+	// array. Decode only the leading value; success means this is not prose.
+	decoder := json.NewDecoder(strings.NewReader(commentary))
+	var value any
+	if err := decoder.Decode(&value); err == nil {
+		return false
+	}
+	hasText := false
+	for _, r := range commentary {
+		if unicode.IsControl(r) && r != '\n' && r != '\r' && r != '\t' {
+			return false
+		}
+		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+			hasText = true
+		}
+	}
+	return hasText
 }
 
 func publicReplyRootAction(raw string) (domain.RootAction, bool) {

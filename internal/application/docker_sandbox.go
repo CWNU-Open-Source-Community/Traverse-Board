@@ -633,7 +633,7 @@ func (s *DockerSandboxService) evaluateCurrentDockerSandboxGates(
 			domain.DockerSandboxRemediationSelectDockerProfile)
 	}
 	if authority.Permission.Mode == domain.RunExecutionPermissionConservative ||
-		!s.permissionCapabilities.Allows(authority.Permission.Mode) {
+		!s.permissionCapabilities.AllowsSnapshot(authority.Permission) {
 		return deny(domain.DockerSandboxReasonPermissionDenied,
 			domain.DockerSandboxRemediationRetryFreshRequest)
 	}

@@ -7,9 +7,9 @@
 MCP Server、Plugin 包、Skill 正文、Hook 注释和远程返回值都不是新的控制平面。Go 仍拥有状态机、凭证、工具注册表、JSON Schema 校验、Policy、预算、Run/Workspace Scope 和最终调用权。
 
 - 扩展只在 Code Surface 生效；Cyber Surface 不公开 MCP 工具。
-- MCP 工具只在精确的 `Code/Deliver/root/full_access` Run 租约中出现。每次调用都会重新发现能力并核对已批准的 capability fingerprint；漂移立即隔离。远程 input schema 只允许同一文档内的 `#...` 引用，外部/动态引用在 discovery 时被拒绝，编译器也被禁止加载文件或 URL。
+- MCP 工具只在精确的 `Code/Deliver/root` 且当前为 `full_access` 或 `debug` 的 Run 租约中出现；Debug 在该 sink 严格继承 Full Access。每次调用都会重新发现能力并核对已批准的 capability fingerprint；漂移立即隔离。远程 input schema 只允许同一文档内的 `#...` 引用，外部/动态引用在 discovery 时被拒绝，编译器也被禁止加载文件或 URL。
 - 远程 endpoint 必须是无 userinfo、query、fragment 的固定 HTTPS URL，redirect 被拒绝。Bearer 由系统凭证存储按引用注入，模型、Plugin、SQLite、HTTP 和 Desktop 都拿不到明文。
-- stdio target 必须是绝对路径，使用临时工作目录和最小环境；参数中出现 token、API key、password、secret、authorization 或 credential 形式会在持久化前被拒绝。stdio 是操作者明确批准的宿主 `full_access` 进程，不等同于 Docker/OS 网络沙箱。
+- stdio target 必须是绝对路径，使用临时工作目录和最小环境；参数中出现 token、API key、password、secret、authorization 或 credential 形式会在持久化前被拒绝。stdio 是操作者明确批准的宿主 Full Access 进程（`debug` 继承同一能力），不等同于 Docker/OS 网络沙箱。
 - MCP 结果按不可信证据处理，经过 UTF-8 修复、控制字符清理、脱敏和大小上限后才返回模型。专用 MCP 调用账本只保存参数摘要、能力指纹、状态、大小与时间；为保证 Supervisor 崩溃恢复，通用工具账本会保存同样经过 schema 校验、脱敏和大小限制的规范化调用/结果，但两者都不保存 bearer 或 transport 原始字节。
 - Plugin 永不执行安装脚本、仓库 Hook、二进制或包管理器生命周期。ZIP staging 只解析严格 JSON/UTF-8/PNG/WebP/Skill 资源，并拒绝 zip-slip、symlink、重复路径、额外文件、超限和摘要不一致。
 - Hook 是 Go 解释的声明，不是脚本。它只能 `deny`、`annotate`、`record`，或在 `pre_tool` 删除顶层参数字段；不能增加参数、权限、网络、预算或重入。
@@ -113,7 +113,7 @@ Schemas v120-v121 add a low-trust extension runtime without creating a second co
 
 ## Trust and execution boundaries
 
-- Extensions are Code-surface only. An MCP tool is advertised only to an exact `Code/Deliver/root/full_access` Run lease.
+- Extensions are Code-surface only. An MCP tool is advertised only to an exact `Code/Deliver/root` Run lease whose current permission is `full_access` or `debug`; Debug strictly inherits this Full Access sink.
 - Discovery is reviewed in two stages. Every call rediscovers capabilities and compares the approved fingerprint; drift quarantines the server before the tool executes. Remote input schemas may use only document-local `#...` references; external/dynamic references are rejected during discovery and the compiler cannot load files or URLs.
 - Remote transports require a fixed HTTPS URL and reject redirects. A bearer is fetched from the OS credential store by name and injected only into the outbound request.
 - A stdio server uses an absolute executable path, a temporary cwd, and a minimal environment. Secret-shaped argv is rejected before persistence. It remains explicitly approved, unsandboxed host execution rather than a Docker or OS network sandbox.

@@ -42,6 +42,17 @@ func TestAgentCodeExecutorCreatesReviewedFileAndFailsClosedOnCASConflict(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
+	permissionService := application.NewRunExecutionPermissionService(state,
+		domain.ExecutionPermissionRuntimeCapabilities{WorkspaceSandboxEnabled: true})
+	if _, err := permissionService.Change(ctx,
+		application.ChangeRunExecutionPermissionRequest{
+			RunID: created.ID, Mode: string(domain.RunExecutionPermissionWorkspaceAccess),
+			OperationKey: "agent-code-permission-setup-0001", RequestedBy: "test_operator",
+			Reason:                 "select workspace access before exercising Agent Code",
+			ConfirmWorkspaceAccess: true,
+		}); err != nil {
+		t.Fatal(err)
+	}
 	run, err := application.NewRunService(state).Start(ctx, created.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -253,19 +264,21 @@ func TestAgentCodeExecutorCreatesReviewedFileAndFailsClosedOnCASConflict(t *test
 	if _, err := application.NewRunService(state).Pause(ctx, run.ID); err != nil {
 		t.Fatal(err)
 	}
-	permissionResult, err := application.NewRunExecutionPermissionService(state,
-		domain.ExecutionPermissionRuntimeCapabilities{WorkspaceSandboxEnabled: true}).Change(
-		ctx, application.ChangeRunExecutionPermissionRequest{
-			RunID: run.ID, Mode: string(domain.RunExecutionPermissionWorkspaceAccess),
+	if _, _, err := state.ReleaseRunExecutionLease(ctx, leaseResult.Lease); err != nil {
+		t.Fatal(err)
+	}
+	permissionResult, err := permissionService.Change(ctx,
+		application.ChangeRunExecutionPermissionRequest{
+			RunID: run.ID, Mode: string(domain.RunExecutionPermissionConservative),
 			OperationKey: "agent-code-permission-drift-0001", RequestedBy: "test_operator",
-			Reason: "verify permission revision fencing", ConfirmWorkspaceAccess: true,
+			Reason: "verify permission revision fencing through a quiescent downgrade",
 		})
 	if err != nil {
 		t.Fatal(err)
 	}
 	released, found, err := state.GetRunExecutionLease(ctx, run.ID)
 	if err != nil || !found || released.Status != domain.RunExecutionLeaseReleased {
-		t.Fatalf("permission change did not revoke lease: lease=%+v found=%t err=%v",
+		t.Fatalf("quiescent permission drift setup did not release lease: lease=%+v found=%t err=%v",
 			released, found, err)
 	}
 	if _, err := application.NewRunService(state).Resume(ctx, run.ID); err != nil {

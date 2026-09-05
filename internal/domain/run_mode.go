@@ -59,8 +59,10 @@ func (p ExecutionPhase) Valid() bool {
 }
 
 // RunModeSnapshot is an append-only policy snapshot for one Run. Surface,
-// Profile, Scope, and PolicyVersion are fixed for the Run; only Phase can move
-// through an explicit operator transition while the Run is quiescent.
+// Profile, Workspace scope, and PolicyVersion are fixed. Phase can move through
+// an explicit operator transition while the Run is quiescent. Network scope can
+// only grow through the separately audited exact-host transition; no other
+// mutation may change it.
 type RunModeSnapshot struct {
 	ID              string
 	RunID           string
@@ -174,10 +176,7 @@ func (s RunModeSnapshot) Next(id string, phase ExecutionPhase, requestedBy strin
 }
 
 func (s RunModeSnapshot) SamePolicy(other RunModeSnapshot) bool {
-	if s.RunID != other.RunID || s.MissionID != other.MissionID ||
-		s.ProtocolVersion != other.ProtocolVersion || s.Surface != other.Surface ||
-		s.Profile != other.Profile || s.PolicyVersion != other.PolicyVersion ||
-		s.Scope.WorkspaceID != other.Scope.WorkspaceID ||
+	if !s.SameStaticPolicy(other) ||
 		s.Scope.NetworkMode != other.Scope.NetworkMode ||
 		len(s.Scope.AllowedTargets) != len(other.Scope.AllowedTargets) {
 		return false
@@ -188,6 +187,15 @@ func (s RunModeSnapshot) SamePolicy(other RunModeSnapshot) bool {
 		}
 	}
 	return true
+}
+
+// SameStaticPolicy compares every immutable Run mode boundary while leaving
+// the explicitly mutable phase and exact-host network authority aside.
+func (s RunModeSnapshot) SameStaticPolicy(other RunModeSnapshot) bool {
+	return s.RunID == other.RunID && s.MissionID == other.MissionID &&
+		s.ProtocolVersion == other.ProtocolVersion && s.Surface == other.Surface &&
+		s.Profile == other.Profile && s.PolicyVersion == other.PolicyVersion &&
+		s.Scope.WorkspaceID == other.Scope.WorkspaceID
 }
 
 func CanChangeRunPhase(status RunStatus) bool {

@@ -32,14 +32,22 @@ type HealthView struct {
 }
 
 type ProviderAvailabilityView struct {
-	Name               string                         `json:"name"`
-	Kind               string                         `json:"kind"`
-	Status             string                         `json:"status"`
-	Models             []string                       `json:"models"`
-	Harnesses          []ModelHarnessAvailabilityView `json:"harnesses"`
-	CredentialSource   string                         `json:"credential_source"`
-	NetworkRequired    bool                           `json:"network_required"`
-	ConfigurationError bool                           `json:"configuration_error"`
+	Name                          string                         `json:"name"`
+	DisplayName                   string                         `json:"display_name"`
+	Kind                          string                         `json:"kind"`
+	Status                        string                         `json:"status"`
+	Models                        []string                       `json:"models"`
+	Harnesses                     []ModelHarnessAvailabilityView `json:"harnesses"`
+	CredentialSource              string                         `json:"credential_source"`
+	NetworkRequired               bool                           `json:"network_required"`
+	ConfigurationError            bool                           `json:"configuration_error"`
+	Custom                        bool                           `json:"custom"`
+	Enabled                       bool                           `json:"enabled"`
+	DefinitionRevision            uint64                         `json:"definition_revision"`
+	Transport                     string                         `json:"transport"`
+	SearchMode                    string                         `json:"search_mode"`
+	NativeWebSearchCapability     string                         `json:"native_web_search_capability"`
+	NativeWebSearchRuntimeEnabled bool                           `json:"native_web_search_runtime_enabled"`
 }
 
 type ModelRouteAvailabilityView struct {
@@ -597,6 +605,8 @@ type ApprovalQueueItemView struct {
 	UpdatedAt               time.Time                           `json:"updated_at"`
 	ProcessExecutionEnabled bool                                `json:"process_execution_enabled"`
 	CapabilityGrant         bool                                `json:"capability_grant"`
+	CanonicalURL            string                              `json:"canonical_url,omitempty"`
+	ExactTarget             string                              `json:"exact_target,omitempty"`
 }
 
 type ApprovalQueueView struct {
@@ -1106,11 +1116,23 @@ type ThreadRunView struct {
 }
 
 type ThreadDetailView struct {
-	Thread    ThreadView      `json:"thread"`
-	Mission   MissionView     `json:"mission"`
-	ActiveRun *RunView        `json:"active_run,omitempty"`
-	LastRun   RunView         `json:"last_run"`
-	Runs      []ThreadRunView `json:"runs"`
+	Thread    ThreadView             `json:"thread"`
+	Mission   MissionView            `json:"mission"`
+	ActiveRun *RunView               `json:"active_run,omitempty"`
+	LastRun   RunView                `json:"last_run"`
+	Runs      []ThreadRunView        `json:"runs"`
+	Recovery  *ThreadRunRecoveryView `json:"recovery,omitempty"`
+}
+
+type ThreadRunRecoveryView struct {
+	Version            string    `json:"version"`
+	RunID              string    `json:"run_id"`
+	HandoffOperationID string    `json:"handoff_operation_id"`
+	ErrorCode          string    `json:"error_code"`
+	StopReason         string    `json:"stop_reason"`
+	Detail             string    `json:"detail"`
+	Quiescent          bool      `json:"quiescent"`
+	FailedAt           time.Time `json:"failed_at"`
 }
 
 type ThreadMessageView struct {
@@ -1132,36 +1154,251 @@ type ThreadMessageView struct {
 }
 
 type ThreadTranscriptItemView struct {
-	Version               string                 `json:"version"`
-	ID                    string                 `json:"id"`
-	CanonicalID           string                 `json:"canonical_id"`
-	RunID                 string                 `json:"run_id"`
-	RunOrdinal            int64                  `json:"run_ordinal"`
-	Sequence              int64                  `json:"sequence"`
-	Position              int                    `json:"position,omitempty"`
-	ActivityType          string                 `json:"activity_type"`
-	Stage                 string                 `json:"stage"`
-	Kind                  string                 `json:"kind"`
-	Source                string                 `json:"source"`
-	Title                 string                 `json:"title"`
-	Detail                string                 `json:"detail,omitempty"`
-	Status                string                 `json:"status,omitempty"`
-	Verifiable            bool                   `json:"verifiable"`
-	InstructionAuthorized bool                   `json:"instruction_authorized"`
-	AttemptID             string                 `json:"attempt_id,omitempty"`
-	ModelAttempt          int                    `json:"model_attempt,omitempty"`
-	ToolRound             int                    `json:"tool_round,omitempty"`
-	ToolName              string                 `json:"tool_name,omitempty"`
-	StreamResponseID      string                 `json:"stream_response_id,omitempty"`
-	StreamItemID          string                 `json:"stream_item_id,omitempty"`
-	StreamCallID          string                 `json:"stream_call_id,omitempty"`
-	DurableCallID         string                 `json:"durable_call_id,omitempty"`
-	SourceRef             string                 `json:"source_ref,omitempty"`
-	BoundaryReason        string                 `json:"boundary_reason,omitempty"`
-	WebEvidence           *ThreadWebEvidenceView `json:"web_evidence,omitempty"`
-	Provisional           bool                   `json:"provisional"`
-	Durable               bool                   `json:"durable"`
-	CreatedAt             time.Time              `json:"created_at"`
+	Version               string                     `json:"version"`
+	ID                    string                     `json:"id"`
+	CanonicalID           string                     `json:"canonical_id"`
+	RunID                 string                     `json:"run_id"`
+	RunOrdinal            int64                      `json:"run_ordinal"`
+	Sequence              int64                      `json:"sequence"`
+	Position              int                        `json:"position,omitempty"`
+	ActivityType          string                     `json:"activity_type"`
+	Stage                 string                     `json:"stage"`
+	Kind                  string                     `json:"kind"`
+	Source                string                     `json:"source"`
+	Title                 string                     `json:"title"`
+	Detail                string                     `json:"detail,omitempty"`
+	Status                string                     `json:"status,omitempty"`
+	Verifiable            bool                       `json:"verifiable"`
+	InstructionAuthorized bool                       `json:"instruction_authorized"`
+	AttemptID             string                     `json:"attempt_id,omitempty"`
+	ModelAttempt          int                        `json:"model_attempt,omitempty"`
+	ToolRound             int                        `json:"tool_round,omitempty"`
+	ToolName              string                     `json:"tool_name,omitempty"`
+	StreamResponseID      string                     `json:"stream_response_id,omitempty"`
+	StreamItemID          string                     `json:"stream_item_id,omitempty"`
+	StreamCallID          string                     `json:"stream_call_id,omitempty"`
+	DurableCallID         string                     `json:"durable_call_id,omitempty"`
+	SourceRef             string                     `json:"source_ref,omitempty"`
+	BoundaryReason        string                     `json:"boundary_reason,omitempty"`
+	ActivityDetailRef     string                     `json:"activity_detail_ref,omitempty"`
+	DetailAvailable       bool                       `json:"detail_available,omitempty"`
+	ActivitySummary       *ThreadActivitySummaryView `json:"activity_summary,omitempty"`
+	WebEvidence           *ThreadWebEvidenceView     `json:"web_evidence,omitempty"`
+	Provisional           bool                       `json:"provisional"`
+	Durable               bool                       `json:"durable"`
+	CreatedAt             time.Time                  `json:"created_at"`
+}
+
+type ThreadActivitySummaryView struct {
+	Version              string `json:"version"`
+	ActivityRef          string `json:"activity_ref"`
+	Command              string `json:"command"`
+	Status               string `json:"status"`
+	ExitCode             *int   `json:"exit_code,omitempty"`
+	DurationMilliseconds int64  `json:"duration_milliseconds"`
+	CommandCount         int    `json:"command_count"`
+}
+
+type ThreadActivityDetailView struct {
+	Version     string                         `json:"version"`
+	ActivityRef string                         `json:"activity_ref"`
+	RunID       string                         `json:"run_id"`
+	Tools       []ThreadActivityToolDetailView `json:"tools"`
+}
+
+type ThreadActivityToolDetailView struct {
+	Name                 string                        `json:"name"`
+	Label                string                        `json:"label"`
+	AgentID              string                        `json:"agent_id"`
+	AgentRole            string                        `json:"agent_role"`
+	AgentLabel           string                        `json:"agent_label"`
+	Status               string                        `json:"status"`
+	StartedAt            time.Time                     `json:"started_at"`
+	CompletedAt          *time.Time                    `json:"completed_at,omitempty"`
+	DurationMilliseconds int64                         `json:"duration_milliseconds"`
+	Detail               ThreadActivityTypedDetailView `json:"detail"`
+}
+
+// ThreadActivityTypedDetailView is a tagged container. Exactly one branch is
+// emitted and its name must equal kind. This concrete Go shape makes the
+// public contract fail closed without passing raw payload JSON to React.
+type ThreadActivityTypedDetailView struct {
+	Kind         string                                `json:"kind"`
+	Command      *ThreadActivityCommandGroupView       `json:"command,omitempty"`
+	WebSearch    *ThreadActivityWebSearchDetailView    `json:"web_search,omitempty"`
+	WebFetch     *ThreadActivityWebFetchDetailView     `json:"web_fetch,omitempty"`
+	FileRead     *ThreadActivityFileReadDetailView     `json:"file_read,omitempty"`
+	FileEdit     *ThreadActivityFileEditDetailView     `json:"file_edit,omitempty"`
+	MCP          *ThreadActivityMCPDetailView          `json:"mcp,omitempty"`
+	Verification *ThreadActivityVerificationDetailView `json:"verification,omitempty"`
+	Browser      *ThreadActivityBrowserDetailView      `json:"browser,omitempty"`
+}
+
+type ThreadActivityBoundaryView struct {
+	Authorization string `json:"authorization"`
+	ErrorCode     string `json:"error_code"`
+	FailureReason string `json:"failure_reason"`
+	Truncated     bool   `json:"truncated"`
+	Untrusted     bool   `json:"untrusted"`
+}
+
+type ThreadActivityCommandGroupView struct {
+	Commands []ThreadActivityCommandDetailView `json:"commands"`
+}
+
+type ThreadActivitySearchSourceView struct {
+	Rank     int    `json:"rank"`
+	Title    string `json:"title"`
+	URL      string `json:"url"`
+	Provider string `json:"provider"`
+	State    string `json:"state"`
+	Citeable bool   `json:"citeable"`
+}
+
+type ThreadActivityWebSearchDetailView struct {
+	Operation       string                           `json:"operation"`
+	Query           string                           `json:"query"`
+	Limit           int                              `json:"limit"`
+	Provider        string                           `json:"provider"`
+	SearchPolicy    string                           `json:"search_policy"`
+	SelectionReason string                           `json:"selection_reason"`
+	SourceCount     int                              `json:"source_count"`
+	Citeable        bool                             `json:"citeable"`
+	Sources         []ThreadActivitySearchSourceView `json:"sources"`
+	Boundary        ThreadActivityBoundaryView       `json:"boundary"`
+}
+
+type ThreadActivityWebFetchDetailView struct {
+	Operation    string                     `json:"operation"`
+	URL          string                     `json:"url"`
+	State        string                     `json:"state"`
+	HTTPStatus   int                        `json:"http_status"`
+	Robots       string                     `json:"robots"`
+	RobotsPolicy string                     `json:"robots_policy"`
+	Redirects    int                        `json:"redirects"`
+	Partial      bool                       `json:"partial"`
+	Citeable     bool                       `json:"citeable"`
+	Boundary     ThreadActivityBoundaryView `json:"boundary"`
+}
+
+type ThreadActivityFileReadDetailView struct {
+	Operation   string                     `json:"operation"`
+	Path        string                     `json:"path"`
+	Query       string                     `json:"query"`
+	Pattern     string                     `json:"pattern"`
+	StartLine   int                        `json:"start_line"`
+	EndLine     int                        `json:"end_line"`
+	Limit       int                        `json:"limit"`
+	ResultCount int                        `json:"result_count"`
+	Truncated   bool                       `json:"truncated"`
+	Summary     string                     `json:"summary"`
+	Boundary    ThreadActivityBoundaryView `json:"boundary"`
+}
+
+type ThreadActivityDiffSummaryView struct {
+	AddedLines   int    `json:"added_lines"`
+	RemovedLines int    `json:"removed_lines"`
+	Hunks        int    `json:"hunks"`
+	Summary      string `json:"summary"`
+}
+
+type ThreadActivityFileEditDetailView struct {
+	Operation       string                        `json:"operation"`
+	Action          string                        `json:"action"`
+	Path            string                        `json:"path"`
+	DestinationPath string                        `json:"destination_path"`
+	EditID          string                        `json:"edit_id"`
+	DiffAvailable   bool                          `json:"diff_available"`
+	ApplyStatus     string                        `json:"apply_status"`
+	Applied         bool                          `json:"applied"`
+	FileWritten     bool                          `json:"file_written"`
+	Replayed        bool                          `json:"replayed"`
+	Diff            ThreadActivityDiffSummaryView `json:"diff"`
+	Boundary        ThreadActivityBoundaryView    `json:"boundary"`
+}
+
+type ThreadActivityJSONFieldSummaryView struct {
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Summary string `json:"summary"`
+}
+
+type ThreadActivityJSONSummaryView struct {
+	Type    string                               `json:"type"`
+	Count   int                                  `json:"count"`
+	Summary string                               `json:"summary"`
+	Fields  []ThreadActivityJSONFieldSummaryView `json:"fields"`
+}
+
+type ThreadActivityMCPDetailView struct {
+	Operation string                               `json:"operation"`
+	Server    string                               `json:"server"`
+	Tool      string                               `json:"tool"`
+	Arguments []ThreadActivityJSONFieldSummaryView `json:"arguments"`
+	Result    ThreadActivityJSONSummaryView        `json:"result"`
+	Boundary  ThreadActivityBoundaryView           `json:"boundary"`
+}
+
+type ThreadActivityVerificationDetailView struct {
+	Operation   string                     `json:"operation"`
+	Tool        string                     `json:"tool"`
+	Path        string                     `json:"path"`
+	Query       string                     `json:"query"`
+	Position    string                     `json:"position"`
+	Direction   string                     `json:"direction"`
+	Limit       int                        `json:"limit"`
+	ResultCount int                        `json:"result_count"`
+	Truncated   bool                       `json:"truncated"`
+	Summary     string                     `json:"summary"`
+	Boundary    ThreadActivityBoundaryView `json:"boundary"`
+}
+
+type ThreadActivityBrowserDetailView struct {
+	Operation     string                     `json:"operation"`
+	Action        string                     `json:"action"`
+	URL           string                     `json:"url"`
+	Selector      string                     `json:"selector"`
+	InputLength   int                        `json:"input_length"`
+	ArtifactBytes int64                      `json:"artifact_bytes"`
+	Summary       string                     `json:"summary"`
+	Boundary      ThreadActivityBoundaryView `json:"boundary"`
+}
+
+type ThreadActivityCommandDetailView struct {
+	Command              string                                `json:"command"`
+	WorkingDirectory     string                                `json:"working_directory"`
+	ExecutionEnvironment string                                `json:"execution_environment"`
+	Network              string                                `json:"network"`
+	Status               string                                `json:"status"`
+	ExitCode             *int                                  `json:"exit_code,omitempty"`
+	DurationMilliseconds int64                                 `json:"duration_milliseconds"`
+	StdoutPreview        string                                `json:"stdout_preview"`
+	StderrPreview        string                                `json:"stderr_preview"`
+	Truncated            bool                                  `json:"truncated"`
+	Artifacts            []ThreadActivityArtifactReferenceView `json:"artifacts"`
+}
+
+type ThreadActivityArtifactReferenceView struct {
+	ArtifactRef string `json:"artifact_ref"`
+	Stream      string `json:"stream"`
+	MIME        string `json:"mime"`
+	SizeBytes   int64  `json:"size_bytes"`
+	Truncated   bool   `json:"truncated"`
+}
+
+type ThreadActivityArtifactView struct {
+	Version               string `json:"version"`
+	ActivityRef           string `json:"activity_ref"`
+	ArtifactRef           string `json:"artifact_ref"`
+	Stream                string `json:"stream"`
+	MIME                  string `json:"mime"`
+	Content               string `json:"content"`
+	SHA256                string `json:"sha256"`
+	SizeBytes             int64  `json:"size_bytes"`
+	Redacted              bool   `json:"redacted"`
+	Truncated             bool   `json:"truncated"`
+	Untrusted             bool   `json:"untrusted"`
+	InstructionAuthorized bool   `json:"instruction_authorized"`
 }
 
 type ThreadWebEvidenceView struct {
@@ -1332,22 +1569,23 @@ type ArtifactView struct {
 }
 
 type SupervisorToolCallView struct {
-	Position         int             `json:"position"`
-	ModelAttempt     int             `json:"model_attempt"`
-	CallID           string          `json:"call_id"`
-	StreamResponseID string          `json:"stream_response_id,omitempty"`
-	StreamItemID     string          `json:"stream_item_id,omitempty"`
-	StreamCallID     string          `json:"stream_call_id,omitempty"`
-	ToolName         string          `json:"tool_name"`
-	Payload          json.RawMessage `json:"payload"`
-	Status           string          `json:"status"`
-	Result           json.RawMessage `json:"result,omitempty"`
-	ErrorCode        string          `json:"error_code,omitempty"`
-	CreatedAt        time.Time       `json:"created_at"`
-	CompletedAt      *time.Time      `json:"completed_at,omitempty"`
+	Position         int                           `json:"position"`
+	ModelAttempt     int                           `json:"model_attempt"`
+	CallID           string                        `json:"call_id"`
+	StreamResponseID string                        `json:"stream_response_id,omitempty"`
+	StreamItemID     string                        `json:"stream_item_id,omitempty"`
+	StreamCallID     string                        `json:"stream_call_id,omitempty"`
+	ToolName         string                        `json:"tool_name"`
+	Status           string                        `json:"status"`
+	ErrorCode        string                        `json:"error_code,omitempty"`
+	DetailAvailable  bool                          `json:"detail_available"`
+	Detail           *ThreadActivityToolDetailView `json:"detail,omitempty"`
+	CreatedAt        time.Time                     `json:"created_at"`
+	CompletedAt      *time.Time                    `json:"completed_at,omitempty"`
 }
 
 type SupervisorToolRoundView struct {
+	ThreadID     string                   `json:"thread_id,omitempty"`
 	RunID        string                   `json:"run_id"`
 	Turn         int                      `json:"turn"`
 	AttemptID    string                   `json:"attempt_id"`
@@ -1427,7 +1665,7 @@ func runExecutionPermissionView(value domain.RunExecutionPermissionSnapshot,
 		AgentTerminalInput: value.AgentTerminalInput, RiskTier: string(value.RiskTier),
 		RequiredGate: string(value.RequiredGate), PolicyVersion: value.PolicyVersion,
 		OperatorConfirmed:    value.OperatorConfirmed,
-		RuntimeGateAvailable: capabilities.Allows(value.Mode),
+		RuntimeGateAvailable: capabilities.AllowsSnapshot(value),
 		Runtime:              executionPermissionRuntimeView(capabilities),
 		CapabilityMatrix: ExecutionPermissionCapabilityMatrixView{
 			WorkspaceRead: matrix.WorkspaceRead, WorkspaceWrite: matrix.WorkspaceWrite,
@@ -1448,12 +1686,15 @@ func runExecutionPermissionView(value domain.RunExecutionPermissionSnapshot,
 func runBrowserCDPPermissionView(value domain.RunBrowserCDPPermissionSnapshot,
 	capabilities domain.BrowserCDPPermissionRuntimeCapabilities,
 	executionPermission domain.RunExecutionPermissionSnapshot,
+	executionCapabilities domain.ExecutionPermissionRuntimeCapabilities,
 ) RunBrowserCDPPermissionView {
-	executionDebugSelected :=
-		executionPermission.Mode == domain.RunExecutionPermissionDebug
+	executionDebugSelected := executionPermission.Mode == domain.RunExecutionPermissionDebug
+	executionFullSelected := executionPermission.Mode == domain.RunExecutionPermissionFullAccess ||
+		executionDebugSelected
 	runtimeAvailable := capabilities.Allows(value.Mode)
-	if value.Mode == domain.RunBrowserCDPPermissionFullDebug && !executionDebugSelected {
-		runtimeAvailable = false
+	if value.Mode == domain.RunBrowserCDPPermissionFullDebug {
+		runtimeAvailable = runtimeAvailable && executionFullSelected &&
+			executionCapabilities.AllowsSnapshot(executionPermission)
 	}
 	return RunBrowserCDPPermissionView{
 		ProtocolVersion: value.ProtocolVersion, Revision: value.Revision,
@@ -1619,6 +1860,32 @@ func threadView(value domain.Thread, activeRunStatus ...domain.RunStatus) Thread
 		ArchivedAt: value.ArchivedAt, DeletedAt: value.DeletedAt}
 }
 
+func threadRunRecoveryView(value domain.ThreadRunRecovery) ThreadRunRecoveryView {
+	errorCode := "durable_failure"
+	stopReason := "durable_failure"
+	detail := "上一次执行已在持久化边界停止。直接发送下一条消息即可继续；系统会自动创建新的执行上下文并应用待生效设置。"
+	switch value.ErrorCode {
+	case "failed_precondition":
+		errorCode, stopReason = "failed_precondition", "failed_precondition"
+		detail = "上一次执行的固定权限、模型或运行配置已不再适用。直接发送下一条消息即可继续并应用待生效设置。"
+	case "unavailable":
+		errorCode, stopReason = "unavailable", "unavailable"
+		detail = "上一次执行使用的模型服务不可用。确认新模型可用后，直接发送下一条消息即可继续。"
+	case "deadline_exceeded":
+		errorCode, stopReason = "deadline_exceeded", "deadline_exceeded"
+		detail = "上一次执行已经超时。直接发送下一条消息即可在新的执行上下文中继续。"
+	case "resource_exhausted":
+		errorCode, stopReason = "resource_exhausted", "resource_exhausted"
+		detail = "上一次执行已触达资源上限。资源释放后，直接发送下一条消息即可继续。"
+	}
+	return ThreadRunRecoveryView{
+		Version: domain.ThreadRunRecoveryProtocolVersion, RunID: value.RunID,
+		HandoffOperationID: value.HandoffOperationID, ErrorCode: errorCode,
+		StopReason: stopReason, Detail: detail, Quiescent: value.Quiescent,
+		FailedAt: value.FailedAt,
+	}
+}
+
 func threadMessageView(value domain.ThreadMessage) ThreadMessageView {
 	return ThreadMessageView{ID: value.ID, ThreadID: value.ThreadID,
 		RunID: value.RunID, SessionID: value.SessionID, Role: value.Role,
@@ -1645,6 +1912,11 @@ func threadTranscriptItemView(value threadtranscript.Item) ThreadTranscriptItemV
 		BoundaryReason: value.BoundaryReason, Provisional: value.Provisional,
 		Durable: value.Durable, CreatedAt: value.CreatedAt,
 	}
+	if application.SupportsThreadActivityDetail(value.ToolName) &&
+		value.DurableCallID != "" {
+		view.ActivityDetailRef = value.DurableCallID
+		view.DetailAvailable = true
+	}
 	if value.WebEvidence != nil {
 		presentation := value.WebEvidence
 		state, stale := presentation.State, presentation.Stale
@@ -1662,6 +1934,162 @@ func threadTranscriptItemView(value threadtranscript.Item) ThreadTranscriptItemV
 			InstructionAuthorized: presentation.InstructionAuthorized}
 	}
 	return view
+}
+
+func threadActivityDetailView(value application.ThreadActivityDetail) ThreadActivityDetailView {
+	tools := make([]ThreadActivityToolDetailView, len(value.Tools))
+	for toolIndex, tool := range value.Tools {
+		commands := make([]ThreadActivityCommandDetailView, len(tool.Commands))
+		for commandIndex, command := range tool.Commands {
+			artifacts := make([]ThreadActivityArtifactReferenceView, len(command.Artifacts))
+			for artifactIndex, reference := range command.Artifacts {
+				artifacts[artifactIndex] = ThreadActivityArtifactReferenceView{
+					ArtifactRef: reference.ArtifactRef, Stream: reference.Stream,
+					MIME: reference.MIME, SizeBytes: reference.SizeBytes,
+					Truncated: reference.Truncated}
+			}
+			commands[commandIndex] = ThreadActivityCommandDetailView{
+				Command: command.Command, WorkingDirectory: command.WorkingDirectory,
+				ExecutionEnvironment: command.ExecutionEnvironment,
+				Network:              command.Network, Status: command.Status,
+				ExitCode:             command.ExitCode,
+				DurationMilliseconds: command.DurationMilliseconds,
+				StdoutPreview:        command.StdoutPreview,
+				StderrPreview:        command.StderrPreview, Truncated: command.Truncated,
+				Artifacts: artifacts,
+			}
+		}
+		tools[toolIndex] = ThreadActivityToolDetailView{
+			Name: tool.Name, Label: tool.Label, AgentID: tool.AgentID,
+			AgentRole:  tool.AgentRole,
+			AgentLabel: tool.AgentLabel,
+			Status:     tool.Status, StartedAt: tool.StartedAt,
+			CompletedAt:          tool.CompletedAt,
+			DurationMilliseconds: tool.DurationMilliseconds,
+			Detail:               threadActivityTypedDetailView(tool.Detail, commands),
+		}
+	}
+	return ThreadActivityDetailView{Version: value.Version,
+		ActivityRef: value.ActivityRef, RunID: value.RunID, Tools: tools}
+}
+
+func threadActivityTypedDetailView(value application.ThreadActivityTypedDetail,
+	commands []ThreadActivityCommandDetailView,
+) ThreadActivityTypedDetailView {
+	view := ThreadActivityTypedDetailView{Kind: value.Kind}
+	if value.Command != nil {
+		view.Command = &ThreadActivityCommandGroupView{Commands: commands}
+	}
+	if value.WebSearch != nil {
+		sources := make([]ThreadActivitySearchSourceView, len(value.WebSearch.Sources))
+		for index, source := range value.WebSearch.Sources {
+			sources[index] = ThreadActivitySearchSourceView{Rank: source.Rank,
+				Title: source.Title, URL: source.URL, Provider: source.Provider,
+				State: source.State, Citeable: source.Citeable}
+		}
+		view.WebSearch = &ThreadActivityWebSearchDetailView{
+			Operation: value.WebSearch.Operation, Query: value.WebSearch.Query,
+			Limit: value.WebSearch.Limit, Provider: value.WebSearch.Provider,
+			SearchPolicy:    value.WebSearch.SearchPolicy,
+			SelectionReason: value.WebSearch.SelectionReason,
+			SourceCount:     value.WebSearch.SourceCount, Citeable: value.WebSearch.Citeable,
+			Sources: sources, Boundary: threadActivityBoundaryView(value.WebSearch.Boundary)}
+	}
+	if value.WebFetch != nil {
+		view.WebFetch = &ThreadActivityWebFetchDetailView{
+			Operation: value.WebFetch.Operation, URL: value.WebFetch.URL,
+			State: value.WebFetch.State, HTTPStatus: value.WebFetch.HTTPStatus,
+			Robots: value.WebFetch.Robots, RobotsPolicy: value.WebFetch.RobotsPolicy,
+			Redirects: value.WebFetch.Redirects, Partial: value.WebFetch.Partial,
+			Citeable: value.WebFetch.Citeable,
+			Boundary: threadActivityBoundaryView(value.WebFetch.Boundary)}
+	}
+	if value.FileRead != nil {
+		view.FileRead = &ThreadActivityFileReadDetailView{
+			Operation: value.FileRead.Operation, Path: value.FileRead.Path,
+			Query: value.FileRead.Query, Pattern: value.FileRead.Pattern,
+			StartLine: value.FileRead.StartLine, EndLine: value.FileRead.EndLine,
+			Limit: value.FileRead.Limit, ResultCount: value.FileRead.ResultCount,
+			Truncated: value.FileRead.Truncated, Summary: value.FileRead.Summary,
+			Boundary: threadActivityBoundaryView(value.FileRead.Boundary)}
+	}
+	if value.FileEdit != nil {
+		view.FileEdit = &ThreadActivityFileEditDetailView{
+			Operation: value.FileEdit.Operation, Action: value.FileEdit.Action,
+			Path: value.FileEdit.Path, DestinationPath: value.FileEdit.DestinationPath,
+			EditID: value.FileEdit.EditID, DiffAvailable: value.FileEdit.DiffAvailable,
+			ApplyStatus: value.FileEdit.ApplyStatus, Applied: value.FileEdit.Applied,
+			FileWritten: value.FileEdit.FileWritten, Replayed: value.FileEdit.Replayed,
+			Diff: ThreadActivityDiffSummaryView{AddedLines: value.FileEdit.Diff.AddedLines,
+				RemovedLines: value.FileEdit.Diff.RemovedLines, Hunks: value.FileEdit.Diff.Hunks,
+				Summary: value.FileEdit.Diff.Summary},
+			Boundary: threadActivityBoundaryView(value.FileEdit.Boundary)}
+	}
+	if value.MCP != nil {
+		view.MCP = &ThreadActivityMCPDetailView{Operation: value.MCP.Operation,
+			Server: value.MCP.Server, Tool: value.MCP.Tool,
+			Arguments: threadActivityJSONFieldsView(value.MCP.Arguments),
+			Result:    threadActivityJSONSummaryView(value.MCP.Result),
+			Boundary:  threadActivityBoundaryView(value.MCP.Boundary)}
+	}
+	if value.Verification != nil {
+		view.Verification = &ThreadActivityVerificationDetailView{
+			Operation: value.Verification.Operation, Tool: value.Verification.Tool,
+			Path: value.Verification.Path, Query: value.Verification.Query,
+			Position: value.Verification.Position, Direction: value.Verification.Direction,
+			Limit: value.Verification.Limit, ResultCount: value.Verification.ResultCount,
+			Truncated: value.Verification.Truncated, Summary: value.Verification.Summary,
+			Boundary: threadActivityBoundaryView(value.Verification.Boundary)}
+	}
+	if value.Browser != nil {
+		view.Browser = &ThreadActivityBrowserDetailView{
+			Operation: value.Browser.Operation, Action: value.Browser.Action,
+			URL: value.Browser.URL, Selector: value.Browser.Selector,
+			InputLength: value.Browser.InputLength, ArtifactBytes: value.Browser.ArtifactBytes,
+			Summary:  value.Browser.Summary,
+			Boundary: threadActivityBoundaryView(value.Browser.Boundary)}
+	}
+	return view
+}
+
+func threadActivityBoundaryView(value application.ThreadActivityBoundary) ThreadActivityBoundaryView {
+	return ThreadActivityBoundaryView{Authorization: value.Authorization,
+		ErrorCode: value.ErrorCode, FailureReason: value.FailureReason,
+		Truncated: value.Truncated, Untrusted: value.Untrusted}
+}
+
+func threadActivityJSONFieldsView(values []application.ThreadActivityJSONFieldSummary) []ThreadActivityJSONFieldSummaryView {
+	result := make([]ThreadActivityJSONFieldSummaryView, len(values))
+	for index, value := range values {
+		result[index] = ThreadActivityJSONFieldSummaryView{Name: value.Name,
+			Type: value.Type, Summary: value.Summary}
+	}
+	return result
+}
+
+func threadActivityJSONSummaryView(value application.ThreadActivityJSONSummary) ThreadActivityJSONSummaryView {
+	return ThreadActivityJSONSummaryView{Type: value.Type, Count: value.Count,
+		Summary: value.Summary, Fields: threadActivityJSONFieldsView(value.Fields)}
+}
+
+func threadActivityArtifactView(value application.ThreadActivityArtifact) ThreadActivityArtifactView {
+	return ThreadActivityArtifactView{Version: value.Version,
+		ActivityRef: value.ActivityRef, ArtifactRef: value.ArtifactRef,
+		Stream: value.Stream, MIME: value.MIME, Content: value.Content,
+		SHA256: value.SHA256, SizeBytes: value.SizeBytes,
+		Redacted: value.Redacted, Truncated: value.Truncated,
+		Untrusted:             value.Untrusted,
+		InstructionAuthorized: value.InstructionAuthorized}
+}
+
+func threadActivitySummaryView(value application.ThreadActivitySummary) *ThreadActivitySummaryView {
+	if value.ActivityRef == "" || value.Command == "" || value.CommandCount < 1 {
+		return nil
+	}
+	return &ThreadActivitySummaryView{Version: value.Version,
+		ActivityRef: value.ActivityRef, Command: value.Command, Status: value.Status,
+		ExitCode: value.ExitCode, DurationMilliseconds: value.DurationMilliseconds,
+		CommandCount: value.CommandCount}
 }
 
 func messageView(value session.Message) MessageView {
@@ -1684,7 +2112,7 @@ func messageView(value session.Message) MessageView {
 func eventView(value events.Event) EventView {
 	return EventView{EventID: value.EventID, Version: value.Version, RunID: value.RunID,
 		MissionID: value.MissionID, Sequence: value.Sequence, Type: value.Type, Source: value.Source,
-		SubjectID: value.SubjectID, Payload: json.RawMessage(value.PayloadJSON), CreatedAt: value.CreatedAt}
+		SubjectID: value.SubjectID, Payload: publicRunEventJSON(value.PayloadJSON), CreatedAt: value.CreatedAt}
 }
 
 func runActivityView(value runactivity.Projection) RunActivityView {
@@ -1733,19 +2161,24 @@ func artifactView(value artifact.Descriptor) ArtifactView {
 		SHA256: value.SHA256, SizeBytes: value.SizeBytes, Redacted: value.Redacted, CreatedAt: value.CreatedAt}
 }
 
-func supervisorToolRoundView(value domain.SupervisorToolRound) SupervisorToolRoundView {
+func supervisorToolRoundView(value domain.SupervisorToolRound, threadID string,
+	details map[string]*ThreadActivityToolDetailView,
+) SupervisorToolRoundView {
 	calls := make([]SupervisorToolCallView, len(value.Calls))
 	for index, call := range value.Calls {
+		detail := details[call.CallID]
 		calls[index] = SupervisorToolCallView{
 			Position: call.Position, ModelAttempt: call.ModelAttempt, CallID: call.CallID,
 			StreamResponseID: call.StreamResponseID, StreamItemID: call.StreamItemID,
 			StreamCallID: call.StreamCallID,
-			ToolName:     call.ToolName, Payload: json.RawMessage(call.PayloadJSON), Status: string(call.Status),
-			Result: json.RawMessage(call.ResultJSON), ErrorCode: call.ErrorCode,
+			ToolName:     call.ToolName, Status: string(call.Status),
+			ErrorCode:       publicInspectorErrorCode(call.ErrorCode),
+			DetailAvailable: detail != nil, Detail: detail,
 			CreatedAt: call.CreatedAt, CompletedAt: call.CompletedAt,
 		}
 	}
-	return SupervisorToolRoundView{RunID: value.RunID, Turn: value.Turn, AttemptID: value.AttemptID,
+	return SupervisorToolRoundView{ThreadID: threadID, RunID: value.RunID,
+		Turn: value.Turn, AttemptID: value.AttemptID,
 		Round: value.Round, ModelAttempt: value.ModelAttempt, Calls: calls,
 		CreatedAt: value.CreatedAt, CompletedAt: value.CompletedAt}
 }

@@ -387,8 +387,9 @@ func (s *SQLiteStore) ListThreadTranscriptSourceBefore(ctx context.Context, thre
 
 // EnsureThreadSuccessor returns the current live Run when one already exists,
 // otherwise it creates exactly one successor Run and a fresh Session inside the
-// same immediate SQLite transaction. The new Run graph receives only initial,
-// all-denied authority snapshots from createRunGraphTx.
+// same immediate SQLite transaction. The successor carries the predecessor's
+// latest exact network preference, while createRunGraphTx still resets process,
+// lease, capability, and execution-permission authority for the new Run.
 func (s *SQLiteStore) EnsureThreadSuccessor(ctx context.Context, threadID,
 	expectedLastRunID string, mission domain.Mission, candidate domain.Run,
 	mode domain.RunModeSnapshot, linkedSession session.Session, initialEvents []events.Event,
@@ -437,10 +438,18 @@ func (s *SQLiteStore) EnsureThreadSuccessor(ctx context.Context, threadID,
 		return domain.Thread{}, domain.Run{}, false, apperror.New(
 			apperror.CodeFailedPrecondition, "Thread has no terminal Run to continue")
 	}
+	predecessorMode, err := getCurrentRunModeSnapshot(ctx, tx, predecessor.ID)
+	if err != nil {
+		return domain.Thread{}, domain.Run{}, false, err
+	}
+	expectedScope, legacyNetworkReset := successorStoredRunScope(predecessorMode.Scope)
 	if candidate.MissionID != threadRecord.MissionID || mission.ID != threadRecord.MissionID ||
-		mission.WorkspaceID != threadRecord.WorkspaceID {
+		mission.WorkspaceID != threadRecord.WorkspaceID ||
+		!sameRunModeScope(mission.Scope, expectedScope) ||
+		!sameRunModeScope(mode.Scope, expectedScope) ||
+		mode.Surface != predecessorMode.Surface || mode.Phase != predecessorMode.Phase {
 		return domain.Thread{}, domain.Run{}, false, apperror.New(
-			apperror.CodeConflict, "Thread successor Mission scope changed")
+			apperror.CodeConflict, "Thread successor did not preserve its predecessor mode preference")
 	}
 	if err := createRunGraphTx(ctx, tx, mission, candidate, mode, linkedSession, true,
 		false, initialEvents); err != nil {
@@ -462,12 +471,33 @@ func (s *SQLiteStore) EnsureThreadSuccessor(ctx context.Context, threadID,
 	if err != nil {
 		return domain.Thread{}, domain.Run{}, false, err
 	}
+	threadPreference, err := getCurrentThreadExecutionPermissionSnapshot(
+		ctx, tx, threadRecord.ID)
+	if err != nil {
+		return domain.Thread{}, domain.Run{}, false, err
+	}
+	materializedBrowserCDP, browserCDPMaterialized, err :=
+		materializeThreadBrowserCDPPermissionForSuccessorTx(ctx, tx, threadRecord,
+			predecessor, candidate, threadPreference)
+	if err != nil {
+		return domain.Thread{}, domain.Run{}, false, err
+	}
+	networkInherited := mode.Scope.NetworkMode == "allowlist" &&
+		len(mode.Scope.AllowedTargets) > 0
 	payload, _ := json.Marshal(map[string]any{
 		"predecessor_run_id": predecessor.ID, "successor_run_id": candidate.ID,
-		"authority_inherited": false, "runtime_authority_inherited": false,
-		"execution_permission_materialized": permissionMaterialized,
-		"execution_permission_mode":         materializedPermission.Mode,
-		"execution_permission_snapshot_id":  materializedPermission.ID,
+		"authority_inherited":                 networkInherited,
+		"network_authority_inherited":         networkInherited,
+		"network_authority_source_revision":   predecessorMode.Revision,
+		"network_allowed_target_count":        len(mode.Scope.AllowedTargets),
+		"legacy_network_authority_reset":      legacyNetworkReset,
+		"runtime_authority_inherited":         false,
+		"execution_permission_materialized":   permissionMaterialized,
+		"execution_permission_mode":           materializedPermission.Mode,
+		"execution_permission_snapshot_id":    materializedPermission.ID,
+		"browser_cdp_permission_materialized": browserCDPMaterialized,
+		"browser_cdp_permission_mode":         materializedBrowserCDP.Mode,
+		"browser_cdp_permission_snapshot_id":  materializedBrowserCDP.ID,
 	})
 	if _, err := tx.ExecContext(ctx, `INSERT INTO thread_events
 		(thread_id, run_id, type, source, payload_json, created_at)
@@ -488,6 +518,16 @@ func (s *SQLiteStore) EnsureThreadSuccessor(ctx context.Context, threadID,
 		return domain.Thread{}, domain.Run{}, false, err
 	}
 	return threadRecord, candidate, true, nil
+}
+
+func successorStoredRunScope(scope domain.Scope) (domain.Scope, bool) {
+	if _, err := canonicalStoredRunNetworkTargets(scope); err == nil {
+		return domain.CloneScope(scope), false
+	}
+	reset := domain.CloneScope(scope)
+	reset.NetworkMode = "disabled"
+	reset.AllowedTargets = nil
+	return reset, true
 }
 
 func (s *SQLiteStore) TransitionThread(ctx context.Context, id string,

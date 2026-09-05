@@ -60,11 +60,17 @@ func NormalizeMCPToolPayload(raw json.RawMessage) (MCPToolCallPayload, json.RawM
 		!json.Valid(value.Arguments) || value.Arguments[0] != '{' {
 		return MCPToolCallPayload{}, nil, errors.New("MCP tool payload is invalid")
 	}
+	canonicalArguments, err := normalizeMCPArguments(value.Arguments)
+	if err != nil {
+		return MCPToolCallPayload{}, nil, err
+	}
+	value.Arguments = canonicalArguments
 	canonical, err := json.Marshal(value)
 	if err != nil {
 		return MCPToolCallPayload{}, nil, err
 	}
-	if redact.String(string(canonical)) != string(canonical) {
+	if redact.String(value.ServerID) != value.ServerID ||
+		redact.String(value.ToolName) != value.ToolName {
 		return MCPToolCallPayload{}, nil, errors.New("MCP tool arguments contain secret-like material; use an approved credential reference")
 	}
 	return value, canonical, nil
@@ -77,28 +83,35 @@ func validMCPIdentity(value string) bool {
 }
 
 type MCPExecutionScope struct {
-	InvocationID    string
-	RunID           string
-	WorkspaceID     string
-	Surface         domain.ExecutionSurface
-	Phase           domain.ExecutionPhase
-	Role            domain.AgentRole
-	PermissionMode  domain.RunExecutionPermissionMode
-	LeaseID         string
-	LeaseGeneration int64
-	RequestedBy     string
-	PolicyDecision  Decision
+	InvocationID          string
+	RunID                 string
+	MissionID             string
+	WorkspaceID           string
+	Surface               domain.ExecutionSurface
+	Phase                 domain.ExecutionPhase
+	Role                  domain.AgentRole
+	PermissionMode        domain.RunExecutionPermissionMode
+	PermissionSnapshotID  string
+	PermissionRevision    int64
+	PermissionGeneration  uint64
+	RunAuthorizationFence uint64
+	LeaseID               string
+	LeaseGeneration       int64
+	RequestedBy           string
+	PolicyDecision        Decision
 }
 
 func (s MCPExecutionScope) Validate() error {
 	if !validMCPIdentity(s.InvocationID) || !validMCPIdentity(s.RunID) ||
+		!validMCPIdentity(s.MissionID) ||
 		!validMCPIdentity(s.WorkspaceID) || s.Surface != domain.ExecutionSurfaceCode ||
 		s.Phase != domain.ExecutionPhaseDeliver || s.Role != domain.AgentRoleRoot ||
-		s.PermissionMode != domain.RunExecutionPermissionFullAccess ||
+		!s.PermissionMode.IncludesFullAccess() ||
+		!validMCPIdentity(s.PermissionSnapshotID) || s.PermissionRevision < 1 ||
 		!validMCPIdentity(s.LeaseID) || s.LeaseGeneration < 1 ||
 		s.RequestedBy != "run_supervisor" || s.PolicyDecision.Validate() != nil ||
 		!s.PolicyDecision.Allowed || s.PolicyDecision.Approval != ApprovalAutomatic {
-		return errors.New("MCP tool call requires an exact Code/Deliver/Root/full-access lease scope")
+		return errors.New("MCP tool call requires an exact Code/Deliver/Root Full Access or Debug lease scope")
 	}
 	return nil
 }
@@ -146,8 +159,13 @@ func (g *Gateway) invokeMCP(ctx context.Context, call ToolCall) (Outcome, error)
 		call.InvocationID = idgen.New("mcp-invoke")
 	}
 	scope := MCPExecutionScope{InvocationID: call.InvocationID, RunID: call.RunID,
+		MissionID:   call.MissionID,
 		WorkspaceID: call.WorkspaceID, Surface: call.Surface, Phase: call.Phase, Role: call.Role,
-		PermissionMode: call.PermissionMode, LeaseID: call.LeaseID,
+		PermissionMode:        call.PermissionMode,
+		PermissionSnapshotID:  call.PermissionSnapshotID,
+		PermissionRevision:    call.PermissionRevision,
+		PermissionGeneration:  call.PermissionGeneration,
+		RunAuthorizationFence: call.RunAuthorizationFence, LeaseID: call.LeaseID,
 		LeaseGeneration: call.LeaseGeneration, RequestedBy: call.RequestedBy,
 		PolicyDecision: decision}
 	if err := scope.Validate(); err != nil {
@@ -159,7 +177,8 @@ func (g *Gateway) invokeMCP(ctx context.Context, call ToolCall) (Outcome, error)
 	if err != nil {
 		return Outcome{}, err
 	}
-	stdout, truncated := boundResultText(redact.String(strings.ToValidUTF8(result.Content, "?")),
+	stdout, truncated := boundResultText(sanitizeMCPResultContent(
+		strings.ToValidUTF8(result.Content, "?")),
 		MaxResultStdoutBytes)
 	metadata := map[string]string{"server_id": payload.ServerID, "tool_name": payload.ToolName,
 		"capability_fingerprint": payload.CapabilityFingerprint, "untrusted_output": "true"}

@@ -27,6 +27,98 @@ func webResponse(status int, headers http.Header, body string) *http.Response {
 		Body: io.NopCloser(strings.NewReader(body))}
 }
 
+func TestSafeHTTPClientSeparatesFetchAndProviderSearchTimeouts(t *testing.T) {
+	fetch := NewSafeHTTPClient()
+	search := NewProviderSearchHTTPClient()
+	if fetch.Timeout != DefaultRequestTimeout || fetch.MaxRetries != 1 ||
+		fetch.MaxRedirects != DefaultRedirectLimit {
+		t.Fatalf("fetch client=%+v", fetch)
+	}
+	if search.Timeout != ProviderSearchRequestTimeout ||
+		search.Timeout <= fetch.Timeout || search.MaxRetries != 0 || search.MaxRedirects != 0 {
+		t.Fatalf("provider search client=%+v", search)
+	}
+}
+
+func TestSafeHTTPClientUsesDedicatedProviderSearchDeadline(t *testing.T) {
+	observeDeadline := func(t *testing.T, client *SafeHTTPClient, post bool) time.Duration {
+		t.Helper()
+		observed := time.Duration(0)
+		client.Resolver = resolverFunc(func(ctx context.Context, _, _ string) ([]netip.Addr, error) {
+			deadline, ok := ctx.Deadline()
+			if !ok {
+				t.Fatal("safe request context has no deadline")
+			}
+			observed = time.Until(deadline)
+			return nil, context.Canceled
+		})
+		if post {
+			_, _ = client.PostJSONAuthorizedNoRedirect(context.Background(),
+				"https://www.example.com/v1/responses", []byte(`{"input":"probe"}`),
+				32, http.Header{"Authorization": {"Bearer private"}}, nil)
+		} else {
+			_, _ = client.Get(context.Background(), "https://www.example.com/", 32,
+				"text/plain")
+		}
+		return observed
+	}
+	fetchDeadline := observeDeadline(t, NewSafeHTTPClient(), false)
+	searchDeadline := observeDeadline(t, NewProviderSearchHTTPClient(), true)
+	if fetchDeadline < DefaultRequestTimeout-time.Second ||
+		fetchDeadline > DefaultRequestTimeout ||
+		searchDeadline < ProviderSearchRequestTimeout-time.Second ||
+		searchDeadline > ProviderSearchRequestTimeout || searchDeadline <= fetchDeadline {
+		t.Fatalf("fetch deadline=%s provider search deadline=%s",
+			fetchDeadline, searchDeadline)
+	}
+}
+
+func TestProviderSearchPOSTNeverRetriesOrFollowsRedirects(t *testing.T) {
+	resolver := resolverFunc(func(context.Context, string, string) ([]netip.Addr, error) {
+		return []netip.Addr{netip.MustParseAddr("93.184.216.34")}, nil
+	})
+	t.Run("transient status", func(t *testing.T) {
+		requests := 0
+		client := NewProviderSearchHTTPClient()
+		client.Resolver = resolver
+		client.MaxRetries = 1
+		client.TransportFactory = func(string, []netip.Addr) http.RoundTripper {
+			return roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				requests++
+				if request.Header.Get("Authorization") != "Bearer private" {
+					t.Fatalf("credential header=%q", request.Header.Get("Authorization"))
+				}
+				return webResponse(http.StatusServiceUnavailable, http.Header{}, "retry"), nil
+			})
+		}
+		document, err := client.PostJSONAuthorizedNoRedirect(t.Context(),
+			"https://www.example.com/v1/responses", []byte(`{"input":"probe"}`), 32,
+			http.Header{"Authorization": {"Bearer private"}}, nil)
+		if err != nil || document.StatusCode != http.StatusServiceUnavailable || requests != 1 {
+			t.Fatalf("document=%+v requests=%d err=%v", document, requests, err)
+		}
+	})
+	t.Run("redirect", func(t *testing.T) {
+		requests := 0
+		client := NewProviderSearchHTTPClient()
+		client.Resolver = resolver
+		client.MaxRedirects = DefaultRedirectLimit
+		client.TransportFactory = func(string, []netip.Addr) http.RoundTripper {
+			return roundTripFunc(func(*http.Request) (*http.Response, error) {
+				requests++
+				return webResponse(http.StatusTemporaryRedirect,
+					http.Header{"Location": {"https://other.example.net/v1/responses"}}, ""), nil
+			})
+		}
+		_, err := client.PostJSONAuthorizedNoRedirect(t.Context(),
+			"https://www.example.com/v1/responses", []byte(`{"input":"probe"}`), 32,
+			http.Header{"Authorization": {"Bearer private"}}, nil)
+		if err == nil || !strings.Contains(err.Error(), "redirects are forbidden") || requests != 1 {
+			t.Fatalf("requests=%d err=%v", requests, err)
+		}
+	})
+}
+
 func TestSafeHTTPClientPinsResolvedPublicAddress(t *testing.T) {
 	approved := netip.MustParseAddr("93.184.216.34")
 	transportCalled := false

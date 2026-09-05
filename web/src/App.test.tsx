@@ -78,9 +78,13 @@ vi.mock("./components/model-availability-dialog", () => ({
   ModelAvailabilityDialog: () => null,
 }));
 vi.mock("./components/run-creation-dialog", () => ({ RunCreationDialog: () => null }));
+vi.mock("./v2", () => ({
+  V2WorkbenchEntry: () => <main data-testid="v2-workbench" />,
+}));
 
 describe("App capability wiring", () => {
   beforeEach(() => {
+    window.history.replaceState({}, "", "/legacy");
     submitRunDraft.mockClear();
     submitSessionDraft.mockClear();
     useConnectionStore.getState().disconnect();
@@ -228,7 +232,7 @@ describe("App capability wiring", () => {
     useConnectionStore.getState().connect("read-token", {
       status: "ok", api_version: "api.v1", app_version: "test", schema_version: 129,
     }, "control-token", { threadControlEnabled: true });
-    window.history.replaceState({}, "", "/threads/thread-from-url");
+    window.history.replaceState({}, "", "/legacy/threads/thread-from-url");
 
     render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
 
@@ -238,22 +242,48 @@ describe("App capability wiring", () => {
 
     act(() => useConnectionStore.getState().selectThread(""));
     expect(useConnectionStore.getState().selectedThreadID).toBe("");
-    expect(window.location.pathname).toBe("/");
+    expect(window.location.pathname).toBe("/legacy");
 
     act(() => {
-      window.history.pushState({}, "", "/threads/thread-from-history");
+      window.history.pushState({}, "", "/legacy/threads/thread-from-history");
       window.dispatchEvent(new PopStateEvent("popstate"));
     });
     expect(screen.getByTestId("thread-identity")).toHaveTextContent("thread-from-history");
     expect(useConnectionStore.getState().selectedThreadID).toBe("thread-from-history");
-    expect(window.location.pathname).toBe("/threads/thread-from-history");
+    expect(window.location.pathname).toBe("/legacy/threads/thread-from-history");
 
     act(() => {
-      window.history.pushState({}, "", "/");
+      window.history.pushState({}, "", "/legacy");
       window.dispatchEvent(new PopStateEvent("popstate"));
     });
     expect(useConnectionStore.getState().resourceKind).toBe("thread");
     expect(useConnectionStore.getState().selectedThreadID).toBe("");
-    expect(window.location.pathname).toBe("/");
+    expect(window.location.pathname).toBe("/legacy");
+  });
+
+  it("does not treat the rejected legacy query parameter as a UI route", () => {
+    window.history.replaceState({}, "", "/?legacy=1");
+
+    render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
+
+    expect(screen.getByTestId("v2-workbench")).toBeInTheDocument();
+    expect(screen.queryByTestId("resource-sidebar")).not.toBeInTheDocument();
+  });
+
+  it("switches from v2 to the legacy Inspector route without losing the in-memory connection", () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
+    window.history.replaceState({}, "", "/");
+    render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
+    expect(screen.getByTestId("v2-workbench")).toBeInTheDocument();
+
+    act(() => {
+      window.history.pushState({}, "", "/legacy/threads/thread-from-v2");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+
+    expect(screen.getByTestId("thread-identity")).toHaveTextContent("thread-from-v2");
+    expect(useConnectionStore.getState().token).toBe("read-token");
+    expect(useConnectionStore.getState().controlToken).toBe("control-token");
+    expect(screen.queryByText("连接本地控制面")).not.toBeInTheDocument();
   });
 });

@@ -1,0 +1,35 @@
+{
+  "protocol_version": "traverse_ui_reference_baselines.v1",
+  "cases": [
+    {
+      "name": "main-workbench",
+      "source_file": "codex-clipboard-825b95c6-b835-4a58-b404-b8e397247936.png",
+      "staged_file": "main-workbench.png",
+      "sha256": "2db81d5ac7b2d253d630d81fda4e3d4d9e87c92bbe0a17b3ae9f4db194ce6d55",
+      "width": 2052,
+      "height": 1371,
+      "rois": [],
+      "masks": [],
+      "thresholds": {
+        "channel_threshold": 0,
+        "max_diff_ratio": 0.0,
+        "max_mean_absolute_error": 0.0
+      }
+    },
+    {
+      "name": "settings",
+      "source_file": "codex-clipboard-b606aee7-6146-4a87-b708-fe25818cd7be.png",
+      "staged_file": "settings.png",
+      "sha256": "a301e480d370ce5ed9f752dabbf594a64d317843e8f2efe7482d2509ea8c20c9",
+      "width": 2050,
+      "height": 1357,
+      "rois": [],
+      "masks": [],
+      "thresholds": {
+        "channel_threshold": 0,
+        "max_diff_ratio": 0.0,
+        "max_mean_absolute_error": 0.0
+      }
+    }
+  ]
+}
